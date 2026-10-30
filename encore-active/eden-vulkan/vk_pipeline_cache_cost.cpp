@@ -845,6 +845,15 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() {
         .shared_memory_size = qmd.shared_alloc,
         .workgroup_size{qmd.block_dim_x, qmd.block_dim_y, qmd.block_dim_z},
     };
+#ifdef PS5_NATIVE
+    // A successful compute key is commonly reused by consecutive dispatches.
+    // Skip the unordered-map hash/probe, but never bypass null entries or
+    // development first-use tracing, which has a separate session lifetime.
+    if (!::Eden::DevVulkan::trace_pipelines && last_compute_pipeline &&
+        last_compute_key == key) {
+        return last_compute_pipeline;
+    }
+#endif
     const auto [pair, is_new]{compute_cache.try_emplace(key)};
     auto& pipeline{pair->second};
     if (is_new) {
@@ -916,6 +925,16 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() {
             LOG_INFO(Render_Vulkan, "EDEN_PIPELINE_FIRST_USE {}", text);
         }
     }
+#ifdef PS5_NATIVE
+    // Cache only a positive map entry. Never retain a null failed shader,
+    // since its delayed one-shot recovery must still run through the map.
+    if (pipeline) {
+        last_compute_key = key;
+        last_compute_pipeline = pipeline.get();
+    } else {
+        last_compute_pipeline = nullptr;
+    }
+#endif
     return pipeline.get();
 }
 
