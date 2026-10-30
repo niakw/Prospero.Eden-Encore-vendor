@@ -586,30 +586,45 @@ void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compu
 #endif
         for (ImageViewInOut& view : views) {
 #ifdef PS5_NATIVE
+            // On a hot multi-texture HUD pass, several TIC indices may have
+            // the same low four bits. Preserve up to 16 distinct positive
+            // results without additional heap work or cross-draw caching.
+            ViewMemo* memo_slot = nullptr;
+            bool memo_hit = false;
             if (view_memo && !has_deleted_images) {
-                const auto& cached = (*view_memo)[view.index & 15U];
-                if (cached.id != NULL_IMAGE_VIEW_ID && cached.index == view.index) {
+                auto& memo = *view_memo;
+                const std::size_t start = (view.index ^ (view.index >> 4)) & 15U;
+                for (std::size_t offset = 0; offset < memo.size(); ++offset) {
+                    auto& cached = memo[(start + offset) & 15U];
+                    if (cached.id == NULL_IMAGE_VIEW_ID) {
+                        memo_slot = &cached;
+                        break;
+                    }
+                    if (cached.index != view.index) continue;
+                    memo_slot = &cached;
                     const auto& cached_view = slot_image_views[cached.id];
-                    // A different TIC can remap this image during the pass.
-                    // VisitImageView must rebuild remapped descriptors.
+                    // Never reuse a remapped view without rebuilding it.
                     const bool remapped = !cached_view.IsBuffer() &&
                         True(slot_images[cached_view.image_id].flags & ImageFlagBits::Remapped);
                     if (!remapped) {
                         view.id = cached.id;
-                        // Reuse the lookup only: PrepareImageView still
-                        // refreshes dirty pixels and synchronizes aliases.
+                        // A positive TIC hit still refreshes dirty pixels.
                         PrepareImageView(cached.id, false, false);
-                        continue;
+                        memo_hit = true;
                     }
+                    break;
                 }
             }
+            if (memo_hit) continue;
 #endif
             view.id = VisitImageView(view.index, compute);
 #ifdef PS5_NATIVE
-            if (view_memo && !has_deleted_images) {
-                auto& cached = (*view_memo)[view.index & 15U];
-                cached.index = view.index;
-                cached.id = view.id;
+            // A full table falls back to the original lookup without
+            // evicting any live descriptor in this draw. A deletion-driven
+            // retry uses a fresh table in the next do/while iteration.
+            if (memo_slot && !has_deleted_images) {
+                memo_slot->index = view.index;
+                memo_slot->id = view.id;
             }
 #endif
             if (blacklist) {
