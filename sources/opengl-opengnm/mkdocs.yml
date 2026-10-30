@@ -1,0 +1,148 @@
+site_name: opengnm
+site_url: https://ps4-opengnm.github.io/opengnm/
+site_description: >-
+  Clean-rewrite PS4 GNM library — sceGnm* / sceGpa* drop-in API compatibility
+  with the Sony official PS4 SDK. Full reference for 207+ functions.
+site_author: opengnm contributors
+repo_name: PS4-OpenGNM/opengnm
+repo_url: https://github.com/PS4-OpenGNM/opengnm
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.select
+    - content.action.edit
+    - content.action.view
+    - content.tooltips
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  font:
+    text: Roboto
+    code: JetBrains Mono
+  icon:
+    logo: material/chip
+    repo: fontawesome/brands/github
+  favicon: assets/favicon.png
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/PS4-OpenGNM/opengnm
+  version:
+    provider: mike
+
+extra_css:
+  - assets/css/extra.css
+
+markdown_extensions:
+  - admonition
+  - abbr
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+plugins:
+  - search:
+      lang: en
+      separator: '[\s\-\.]+'
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Architecture: architecture.md
+  - Backends: backends.md
+  - freegnm Compatibility: freegnm-compat.md
+  - Guides:
+      - guides/index.md
+      - Rendering Pipeline: guides/rendering-pipeline.md
+      - Textures & Formats: guides/textures-and-formats.md
+      - Render Targets: guides/render-targets.md
+      - Shaders: guides/shaders.md
+      - Command Buffers: guides/command-buffers.md
+      - Surface Computation: guides/surface-computation.md
+  - API Reference:
+      - reference/index.md
+      - Types & Enums: reference/types.md
+      - Error Handling: reference/error.md
+      - Data Formats: reference/dataformat.md
+      - Buffer: reference/buffer.md
+      - Texture: reference/texture.md
+      - Sampler: reference/sampler.md
+      - Render Target: reference/rendertarget.md
+      - Depth Render Target: reference/depthrendertarget.md
+      - Control Registers: reference/controls.md
+      - Shader: reference/shader.md
+      - Shader Binary: reference/shaderbinary.md
+      - Command Buffer: reference/commandbuffer.md
+      - Draw Command Buffer: reference/drawcommandbuffer.md
+      - Driver Runtime: reference/driver.md
+      - Surface Computation (GpuAddr): reference/gpuaddr.md
+      - Platform: reference/platform.md
+      - Helpers: reference/helpers.md
+      - String Utilities: reference/strings.md
+      - Compatibility Layer: reference/compat.md
+  - Examples:
+      - examples/index.md
+      - Hardware Smoke Test: examples/hardware-smoke.md

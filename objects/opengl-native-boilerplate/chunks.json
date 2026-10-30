@@ -1,0 +1,12 @@
+{
+  "name": "opengl-native-boilerplate",
+  "size": 17271171,
+  "sha256": "17b6bb635b6a5286d39a4e46d72cdbb8665f28f39dc8eafc7fb34fdba38c8217",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 17271171,
+      "sha256": "17b6bb635b6a5286d39a4e46d72cdbb8665f28f39dc8eafc7fb34fdba38c8217"
+    }
+  ]
+}

@@ -1,0 +1,476 @@
+{
+  "entries": {
+    "src/audio_core/audio_render_manager.cpp": {
+      "active": "ed29f22c5c399a52c0358111b796513eac4999367d120ff8bf1b9f35d5b4818c",
+      "bytes": 1869,
+      "upstream": "b727548fa073af88cae2e70f82dd5d0ce7e3337436ac4afd6da0a7ba82c2a9dc"
+    },
+    "src/common/CMakeLists.txt": {
+      "active": "000092e9ba548770b039946b9d5162d8b65e7bc43a3a80f57b6213425116dd48",
+      "bytes": 6373,
+      "upstream": "9af2815e92a3b5d821f34909b2d6dc69ae63fb0237de86b534807f4672c789e4"
+    },
+    "src/common/logging.cpp": {
+      "active": "76c09aa65b88d4a1fd169ebdf97852c439a8ba2bd7318c6aa618381b205eb9e3",
+      "bytes": 21943,
+      "upstream": "8ff4c6228fbd858e76375e1d3db49ca8fc8164976a9760fe4c5d5d369fc2c324"
+    },
+    "src/common/net/net.cpp": {
+      "active": "b359ea24cf97759de4e5599334a266190ae19ad480639c2400bdfc72d54bebc2",
+      "bytes": 9974,
+      "upstream": "6c5b0dbf4cd7f0ea1cdeb292611a1abbae30f60a83e6a076bbb7780de523f8ad"
+    },
+    "src/common/settings.cpp": {
+      "active": "36de745b03420fad376a1ed695e5712ef145f273330d1612e6c8fccec1a0e46a",
+      "bytes": 13940,
+      "upstream": "1c8d9c8aed3e6fe8308e7375895e99c9a1886d18dd6c8a9d893d1a28defd9959"
+    },
+    "src/common/settings.h": {
+      "active": "81ddee75a8b0201a37c13f1b02c9669a53bfaefba779d13ad4b91416045ebed8",
+      "bytes": 52331,
+      "upstream": "c0d18cd299a6b1c4c5f696a663383dc3aeb3d02501d9455a349385def3aa9a31"
+    },
+    "src/common/settings_enums.h": {
+      "active": "d617d9bd8882d6803fe885dd15302675b211a2e71e6c6faac18e549224aa1689",
+      "bytes": 9670,
+      "upstream": "f2a3ae93b4257611958fab5a0c652f89c8158d2e16da31fb196a27960cf467ba"
+    },
+    "src/core/CMakeLists.txt": {
+      "active": "e8faaae2ec65793e61b1ffca0cdb684f4e9d046ac5ebc26b399ced3d59478803",
+      "bytes": 49188,
+      "upstream": "83a044f8ab5d9117c9cad8aae095b2359f02da27af0c5caab75ce6e5a3f03d56"
+    },
+    "src/core/device_memory_manager.h": {
+      "active": "4f762c2d5560c9988c8842a8b461acb42e52c154cb8d4fc69e35248be1c82bc9",
+      "bytes": 11309,
+      "upstream": "b98873fdb1d3bef10d0b328d303970b969454ec59ccc51b3effc019ac593b163"
+    },
+    "src/core/device_memory_manager.inc": {
+      "active": "c1a605f62513fcc1091c34cd2c2f57dc1829c3eb9ec2980af2a643d3489e0f17",
+      "bytes": 41560,
+      "upstream": "68a7b03ef38badbcd09c3ac1baf159dde502575db40d49cd2d9f4032496f79f9"
+    },
+    "src/core/file_sys/system_archive/system_version.cpp": {
+      "active": "ec23bc6c5a12539310d7d938f7fc372b74fdaa635fff1a559207e48eeda2ca0a",
+      "bytes": 2752,
+      "upstream": "8591bd0adb882c7a0afe52754008f2aaae22010ecb2fca4bd0d4cda0079a8e44"
+    },
+    "src/core/frontend/applets/controller.cpp": {
+      "active": "87b481f2e28752464d6b6c08c006297917ebebf9d7c2261d3ed9525aec3cfa47",
+      "bytes": 4967,
+      "upstream": "4b4eb0f60dd10baff04f383c483e3195d60eaa9b11f182dcb8ba82e474d78b50"
+    },
+    "src/core/hle/api_version.h": {
+      "active": "ddf3476e9e1715541ca99acad1d1b66ff74e57eadc3cacd5b6fc0ee7ee3c1f00",
+      "bytes": 1664,
+      "upstream": "61b07a8998113de3275c4d49ebc5c063022e127b18b2621cd724b82ac156ecb3"
+    },
+    "src/core/hle/kernel/k_scheduler.cpp": {
+      "active": "a223ba5e779175d85a97dc1102dac0f1e24b8055b838d391db5a3ac1ec23a5ca",
+      "bytes": 37828,
+      "upstream": "720565d0a4b07821f0f6f21c954999b4e1e4228448fcc549526518ed855712cf"
+    },
+    "src/core/hle/kernel/k_slab_heap.h": {
+      "active": "85abccac1c3e1d02734a96cb7698f9c1e067148d4c72001261532b6a604f4c24",
+      "bytes": 4977,
+      "upstream": "278322f27f1492c9c8c0716ce3ccd1cd62921a8a0a7067cf6a8a266acc1d894b"
+    },
+    "src/core/hle/kernel/k_thread.h": {
+      "active": "dafd67c04e9e25fbaf096536fbce0eef3162ef3c046391ff45f138057947b808",
+      "bytes": 30307,
+      "upstream": "35f77abe92d86d553c0ced0651001116c1a053766d108588c2704690049f8b6b"
+    },
+    "src/core/hle/kernel/svc/svc_info.cpp": {
+      "active": "b118f5e32d2dd711e9815bc85c94e0d10f7d0351a678c772b6d3535de3b4a317",
+      "bytes": 13479,
+      "upstream": "76b12e3a425e6f60d4982348ea8bbe17e109b3d06341362191b1545cb6ae112c"
+    },
+    "src/core/hle/kernel/svc_types.h": {
+      "active": "d7160d1d89405a168a681cf3d261cd4e8089e786f2edb2041d7f932383458ac1",
+      "bytes": 14184,
+      "upstream": "5619f8fd62f292084432263d56456e7b656b626dad7781a76ba9ccb2f70a1acb"
+    },
+    "src/core/hle/service/acc/acc.cpp": {
+      "active": "59237be6e5bf8975f2aee70999093db5a5f0d3b6ce9ae1a6cd1ad192cf78b87c",
+      "bytes": 72392,
+      "upstream": "95857946c85c42721f123d4e591d880a57e2cfd9bc74ec995741e633975af02b"
+    },
+    "src/core/hle/service/acc/acc.h": {
+      "active": "398cbf148e44e5584474f9a6f117e6cfef0686eef9ac2132584cd6cf530fefb7",
+      "bytes": 3272,
+      "upstream": "f3d96d4fe580f4686b5263d6643bc173f7a617fa086895f0124f0b3e0669dadf"
+    },
+    "src/core/hle/service/am/display_layer_manager.cpp": {
+      "active": "06779c13d56087168a4c725d643c463b7337e648980eb5534dcca7080396bf04",
+      "bytes": 9739,
+      "upstream": "ae8e02a0efcc4b4ddcd18889f420b4a7ebae21b85bf5894df83cb7a9d1d616eb"
+    },
+    "src/core/hle/service/am/frontend/applets.cpp": {
+      "active": "7ff5005b086df5dded38ba362015f74b248b0a1762b355e04c502e0cbf0ffd01",
+      "bytes": 9944,
+      "upstream": "473ffd558568c2a4c57f93810e8d2dab23f28cafd5e8e2ba2166d7780d42f457"
+    },
+    "src/core/hle/service/am/lifecycle_manager.h": {
+      "active": "86086d7ece6dfb908ca318edbd7426cf9c7727dae6cb56759996fd5a3f3663d1",
+      "bytes": 5987,
+      "upstream": "1539f19a7a0103163c7226cd647ec9b56e627482095a3becc5efad836404f83c"
+    },
+    "src/core/hle/service/am/service/application_creator.cpp": {
+      "active": "19e0595a8e7af96e7f3b8f38f26693fbac4d3b82e347c76eeac55855d0de8088",
+      "bytes": 4264,
+      "upstream": "dd746db0cab99a8732fc584c549f22a62fe66fe7e6f299e30761fcbbc2f0e0ee"
+    },
+    "src/core/hle/service/am/service/library_applet_accessor.cpp": {
+      "active": "03244354dda157366b36e46884b8dee817d9acde788f5fe8813f7459c6cfaac1",
+      "bytes": 9637,
+      "upstream": "9a6b5205c1f6d315d9e423e643db4d6a021d7cfef48bbec539dfde49feb7af1a"
+    },
+    "src/core/hle/service/am/service/library_applet_creator.cpp": {
+      "active": "a978c6c0d490339c1724fa0efc6ccb40fc9f15d3125711412271b8627646378a",
+      "bytes": 11329,
+      "upstream": "28c43db660b3d302a7a89633fe9ac8b78b3011244354ba2635b0572cb08a41fd"
+    },
+    "src/core/hle/service/am/service/self_controller.cpp": {
+      "active": "a5308b77313b7635d6a33642ffb9cbee2909b65a270b3fec22e53a60bfd06a16",
+      "bytes": 16340,
+      "upstream": "f00dc0513314346fe519ea094c4ca9e649e934fb7a24d0fd1bac36d55d3d86aa"
+    },
+    "src/core/hle/service/am/service/self_controller.h": {
+      "active": "cb4891f0000ba2b66a2ef72b19d60e780fc26124ea46dd5865c6ad3b6f3297ae",
+      "bytes": 3372,
+      "upstream": "f57bc1a19ca97805bb0a525c2d0eff2ce8c65b192c7643add3583d28726bbe72"
+    },
+    "src/core/hle/service/audio/audio.cpp": {
+      "active": "43ba61dd9966adb1d2717c402f3f1ce1aebe0a8eeddc020879c5d0bf436d394f",
+      "bytes": 9029,
+      "upstream": "d66f347ca31faac100dcb33f29b5f6f37f22355c53bdcdcc33cd91d9def6c6e9"
+    },
+    "src/core/hle/service/bcat/bcat.cpp": {
+      "active": "42220fa712a7ba82165ba32bd78312ac276e9836138a2757c69b4ededcf8ae86",
+      "bytes": 1734,
+      "upstream": "72f8cfb6e8440154e4c646df6cc5be432f8c611ebe3236b5ceadd5572ba456b3"
+    },
+    "src/core/hle/service/bpc/bpc.cpp": {
+      "active": "10528a780cdc1d9dbbf0e94d4ad7622c8d10a986a3ceae7ef17d4c84875bf8bf",
+      "bytes": 4552,
+      "upstream": "a00cf1c9063c645589e3fef97614b5e45c12e3dbe7ac547d0fa576040fefb932"
+    },
+    "src/core/hle/service/filesystem/filesystem.cpp": {
+      "active": "272ef4453570f1daa1ebbe237597cefa5a7368d26192444cb2e4c9b5d1c7c803",
+      "bytes": 29083,
+      "upstream": "dc9e0214fab5197a3ef369cd5e5a864f294b93dd5a020887fbdac3339ee0243c"
+    },
+    "src/core/hle/service/filesystem/fsp/fsp_srv.cpp": {
+      "active": "14a61732f3a2a8092d2abf452e6929b8eb4e61c0cfc64d1dbe2d23e62cbd7740",
+      "bytes": 28654,
+      "upstream": "2017a14e3450768f421448326f809d439414cc385f927511382b940c64e44e84"
+    },
+    "src/core/hle/service/filesystem/fsp/fsp_srv.h": {
+      "active": "d8488284a5b1fbe50891f051f436740ed71fbfa72d686c95f194de9815be133e",
+      "bytes": 6432,
+      "upstream": "394d7fd76564e2a7b50225a6263ab8377a6e4fa6cdfcfd1b7d51ba1e0bf39293"
+    },
+    "src/core/hle/service/glue/arp.cpp": {
+      "active": "af0e9706345e30362b6e91a614192013bc7a8c73352b914200a782ce3d4c5e40",
+      "bytes": 9857,
+      "upstream": "21fe3fe2716fc6f34a5cc2908aa561f3a5b8ac594ce68c511f159b492827a043"
+    },
+    "src/core/hle/service/glue/glue.cpp": {
+      "active": "95d7cf23830eb54e8fff359d58d98c8e9ecf78064a0ecacd7992f683d5b8e03e",
+      "bytes": 2451,
+      "upstream": "7d162dc8d50adbf76e3f49992479f2b8070a170d02ef38c74f11dd779734286d"
+    },
+    "src/core/hle/service/grc/grc.cpp": {
+      "active": "0cfefe15f41358b3b97534237c49a9b41399f2d1f7162872accfa071572e59e7",
+      "bytes": 1733,
+      "upstream": "ed7cce070a4e6bab7d023bb2cd63f61f1101d5340edbd3be3c26fb3c6fdf728b"
+    },
+    "src/core/hle/service/hid/hid_system_server.cpp": {
+      "active": "9360b83cfa3fb3988d7525ac42ab81806f07ad5fa1087e0e0340145a6724c835",
+      "bytes": 40985,
+      "upstream": "c49157a0b9c11f7cd3dd5f0be3e115b07985dfb680aa105ce892e530b3774542"
+    },
+    "src/core/hle/service/ldr/ldr.cpp": {
+      "active": "58a4df4af602e91a281bfcd6b0349182eb2994259919c39b0884797d9db41854",
+      "bytes": 2285,
+      "upstream": "2ee23f6f39cc1b367c91a7729ec63c6c6a933d7db03eb11a652fe13b917f276b"
+    },
+    "src/core/hle/service/nfp/nfp.cpp": {
+      "active": "11ed60d29fc627e3d6d1555834ca5d8aa2c03e3ef64426a840a1160557575615",
+      "bytes": 9593,
+      "upstream": "efc30e676bb88648c855d32b6260f8589643206210979d3264ee2cb64968f663"
+    },
+    "src/core/hle/service/ngc/ngc.cpp": {
+      "active": "b9cf8214632e08bff84017434bebe544b33b9405fea59259037df7775fb9a557",
+      "bytes": 5938,
+      "upstream": "8ac6febc0e5258adeb3870971a88c2067ea3312e624b059a17f50e0c0b265dc2"
+    },
+    "src/core/hle/service/nifm/nifm.cpp": {
+      "active": "9cd6b24c72c5464ac7d11bd4bd55b2c89cf97c3b752cc3ed4043a0597ea8ce3f",
+      "bytes": 39060,
+      "upstream": "bef2eaecc5c5a07b217277b691999845b66c3ad8e006ec101881d3218db76a22"
+    },
+    "src/core/hle/service/ns/application_manager_interface.cpp": {
+      "active": "ee52174d4d317d7a2f931ffd4192b1eb49321fc7e266c808e99e5739da694e97",
+      "bytes": 44323,
+      "upstream": "86874e0f8769c04c1c66b4b8b0d00549aa328a6ed58a6898f343e67431861fba"
+    },
+    "src/core/hle/service/ns/application_manager_interface.h": {
+      "active": "63db35276eed6a82a2f6bc0ad05dd75e2d481fb947c8ab839587853d45e29a33",
+      "bytes": 5373,
+      "upstream": "5de679e586e0324bf48db8bd3f5775b71fd3b0232b3afb1cd84931cc1c813eb7"
+    },
+    "src/core/hle/service/ns/i_async_result.cpp": {
+      "active": "e1e49e898bcddbf03236fa1e43fd97eaa18ec66db242b76a86fed37c703318f9",
+      "bytes": 906,
+      "upstream": null
+    },
+    "src/core/hle/service/ns/i_async_result.h": {
+      "active": "ef2419f2570fafecb96a6af8c2730cb20662008fe5fd1f62044d4701c680b47a",
+      "bytes": 444,
+      "upstream": null
+    },
+    "src/core/hle/service/ns/ns.cpp": {
+      "active": "8642f90c9eaea9ac24d1304dc3eaee77c9829310664f17238ec7637e8812e7f7",
+      "bytes": 4856,
+      "upstream": "0f937e715ef2fbac9783e7b4e46003bade0eb1cf03ab33e78eac4256a6328f88"
+    },
+    "src/core/hle/service/ns/read_only_application_control_data_interface.cpp": {
+      "active": "c0edc32ba7778644500468935550462b5c96b09e50037d9e439b4a51242910e1",
+      "bytes": 19556,
+      "upstream": "2593dc1e247f9d317a46539845eacc6f3c2d6adfafd4a6350e643b094a082dfa"
+    },
+    "src/core/hle/service/nvdrv/devices/nvmap.cpp": {
+      "active": "cb2c858914a5979007235bf866327f08ba3986b30489f2be171f5dcfd2cf5a8c",
+      "bytes": 10494,
+      "upstream": "612db207a7d75119674f014db6247b9251fe6f338d40b09f115e521c6ebf4c57"
+    },
+    "src/core/hle/service/nvnflinger/buffer_queue_core.cpp": {
+      "active": "c0b73cf86144b5ba7bd37862d3d9924bf965cbd5a3e35f1e746cd7a1ed6fdb32",
+      "bytes": 4625,
+      "upstream": "030e0879eb4e0d5ea4329c887567e75b2d69abe53169562a0f0d6ebbffeb4909"
+    },
+    "src/core/hle/service/nvnflinger/buffer_queue_core.h": {
+      "active": "b280a92eec699efc61c426b10e782421c8fa0386d4628a3ef7871268b7979345",
+      "bytes": 3566,
+      "upstream": "b4b0b2052ef3846674e3def53af26462678d8863eb66252890708fc5e5d8c2b3"
+    },
+    "src/core/hle/service/olsc/transfer_task_list_controller.cpp": {
+      "active": "c391738f09c3d46478de2e86b7b52818d6658493195c79c91319d1c36e7778e6",
+      "bytes": 4631,
+      "upstream": "ba9b05d9f4493845cfe1f6045a47e74dcfb671d82b1af9b6588e0b66d8d4d028"
+    },
+    "src/core/hle/service/olsc/transfer_task_list_controller.h": {
+      "active": "686ae36cbe673f1038b936882b822b342ab7cc674d40fc290f9325afd609e594",
+      "bytes": 1252,
+      "upstream": "c076a5520dfc0186ef2498c0fc3523ec7f4e154c7cecef0d26d2fae76173e763"
+    },
+    "src/core/hle/service/pctl/parental_control_service.cpp": {
+      "active": "a683957764562f954457bb6ecd141295db9f078cfd84f2dfe2aac57c88980c39",
+      "bytes": 21429,
+      "upstream": "46654129562733550f1a7a6376b7372ea248342998ab38b31fdd5554d551a0ff"
+    },
+    "src/core/hle/service/pctl/parental_control_service.h": {
+      "active": "c98ee3eec9484464b32b1154aeab02c4fc0e6bfac251568718185932d0e30465",
+      "bytes": 4405,
+      "upstream": "06b8d106236516f448c053c838170d8785721854ee1881d846d2f7e13cbb9d83"
+    },
+    "src/core/hle/service/pctl/pctl_types.h": {
+      "active": "2ec70308e3c5570e94b656cbc19fcd6de51d340e811e91283a9d99f1a0300a54",
+      "bytes": 2034,
+      "upstream": "ce8839986272ada6e4efc48a366276dffb17606cabc32aa1f01fb4f657e9bff9"
+    },
+    "src/core/hle/service/pm/pm.cpp": {
+      "active": "a35cdf557c3fdafa466e99942e9e95f14d6ec9e09d82cb8f93321aaf044f95ee",
+      "bytes": 9341,
+      "upstream": "e6d2758d23ee1760c07d85fbf6edabd2222fec1c17e813e8809a346a93c94cfd"
+    },
+    "src/core/hle/service/ro/ro.cpp": {
+      "active": "a457293e406bcc2c6d0173857abb00b2ac32b7922239df28e815bec98809945c",
+      "bytes": 22178,
+      "upstream": "c0d3ac321243f96a9dd58b29e18722a762d267b0459c86ec6845d46d019b31f8"
+    },
+    "src/core/hle/service/set/settings.cpp": {
+      "active": "0867f15c4d0e250fcb81f052b103fcc05c67f9a14cfb1db9bbfbbe1f95dbc9aa",
+      "bytes": 1183,
+      "upstream": "8f5522796d1cdc747abd727c9fb6726fc933bb0d08db4e2785a79b4897eeca67"
+    },
+    "src/core/hle/service/sm/sm.cpp": {
+      "active": "98d98e5c9b79f9725787ca3f113d0e492b7728c7c8dc2c4f660d657e683d7aeb",
+      "bytes": 10959,
+      "upstream": "e956bcbeeb3b277e9b28b1272c8243cbac14622e7bf69227f8928a857c622c59"
+    },
+    "src/core/hle/service/sockets/bsd.cpp": {
+      "active": "dfeb2af8fe31f3210feb5e729fc95fd690148a7c486f5fa3cdf5ac7ffa83d2e9",
+      "bytes": 39390,
+      "upstream": "710812b8fa96a9cd75550b9affd759acddb9b76e23c674fc34c8c7eb48e53f07"
+    },
+    "src/core/hle/service/sockets/bsd.h": {
+      "active": "880db6f78d342244a29142f16a0e3158eba8ba60ae46bbfd5c75327af67a0197",
+      "bytes": 6589,
+      "upstream": "b391fb3745d9d041e8c8041a08035ea67f407d371d47b682aa256197f672bf89"
+    },
+    "src/core/hle/service/sockets/encore_guest_network_policy.h": {
+      "active": "6436fb80338eb7101d66ad98b2b5fa407c96934ec4dcf7c47922b1983b7a9f68",
+      "bytes": 446,
+      "upstream": null
+    },
+    "src/core/hle/service/sockets/sfdnsres.cpp": {
+      "active": "c2428eb36c81e92b1af98aed824c996df63f4c53f3adf441b31916ef956ed2a4",
+      "bytes": 15560,
+      "upstream": "4680cf17e296597d514fb602d1995a16ce71293b7f10d298984548fabc3f0313"
+    },
+    "src/core/hle/service/sockets/sockets.cpp": {
+      "active": "f75f5bcfa294ca13f733d03a8e67dacb63b53f1f1c8fad612181b6cd0bbe330a",
+      "bytes": 3537,
+      "upstream": "c998e93145a5103d85c7fea515a38e0a7770996f090bf2bdfa4f8d2e97337752"
+    },
+    "src/core/hle/service/usb/usb.cpp": {
+      "active": "7cecd0a392d8d6ca147ebd58ae31948d32a8dff62548e357795df2aaa79ba7d0",
+      "bytes": 9919,
+      "upstream": "8175a9bd924f52caac68778a090604b0d768e560c98be1b786f4c55190fcb676"
+    },
+    "src/core/hle/service/wlan/wlan.cpp": {
+      "active": "df1a2a35a3cfa6e6925cebf38df42c17114668277eb84f52a573593d1b658b37",
+      "bytes": 10653,
+      "upstream": "62d13fd7c5fcf252808c7bf7a393600d940987165aceac397bb34e210d70eac6"
+    },
+    "src/core/memory.cpp": {
+      "active": "a0bf94bc79d90f27d13dbc0526b744d63396cc81eec2a85f977290d7b41e0635",
+      "bytes": 47734,
+      "upstream": "96952882443b02647637b6f768a580c55535d1145296959f0d83a78a6fd225ad"
+    },
+    "src/hid_core/resources/npad/npad.cpp": {
+      "active": "2fb949cfba02906fe37584f06c070a66b7b66539b833ac71c7982f6d042247c2",
+      "bytes": 60986,
+      "upstream": "ce0d89d407df136c8b9807af34fec71e48a612c0798cbf5e272ce9ceb8bf0073"
+    },
+    "src/video_core/buffer_cache/buffer_cache.h": {
+      "active": "bcdd02829670620acc2338416726a23347c48fc95073b310d873808ba402e9fa",
+      "bytes": 86702,
+      "upstream": "9fc3189be03fb5b13ec1b6accc1a5620a2d42c725282ee0e1598e8a828e8b861"
+    },
+    "src/video_core/buffer_cache/buffer_cache_base.h": {
+      "active": "7f37352a159bc80ac9c1ba10d6f34a52794a1985cffc8cc81506a5dc660891a9",
+      "bytes": 18954,
+      "upstream": "19a863252d04f9541849884db9dcf51f153316e8f5736225b0d449d1a5e9052b"
+    },
+    "src/video_core/control/channel_state_cache.h": {
+      "active": "22f57f0678556e24cfadbedcf5aa65fe8e831c749568883a044a1f62cf7374dd",
+      "bytes": 2761,
+      "upstream": "dc20edc7a766280195feacb2f10a6be0bcfdc4cd39cc352ba3190fd19dceb205"
+    },
+    "src/video_core/dma_pusher.cpp": {
+      "active": "438d2a00bc0651167bcc111f19f74e31f28af49a37dd020a9bd4c898df1770b9",
+      "bytes": 8250,
+      "upstream": "908c65784527c1d805a796a1a086553927ed03988fdc6be1ddd274945170e471"
+    },
+    "src/video_core/engines/kepler_compute.cpp": {
+      "active": "3d55fe09e0f6b4e12b5a4abd77f7ac96c1383177f5b28111a451a3a0e3ccc612",
+      "bytes": 4518,
+      "upstream": "fe2a3b0f364540798b3252d3681482b3da0ab56ee5b851b5e4a2e4b382a8f02b"
+    },
+    "src/video_core/engines/kepler_compute.h": {
+      "active": "6a9d67abba40f6a6fe54607818fc2d939927a157b3523d139d4afba5541b6650",
+      "bytes": 8199,
+      "upstream": "007e706b72eff0ad3073ba73b19230a5a269c6a71afc24f208095f39d3382046"
+    },
+    "src/video_core/engines/sw_blitter/blitter.cpp": {
+      "active": "a62ddbd7e8dc4683e0f87bd18b8b3bfda9a029534ac73756a5d920cba54c1d9a",
+      "bytes": 10757,
+      "upstream": "3c4df471914d57f311f8d8ada3f69389929519c8ff26bc4cf8701a9c01782880"
+    },
+    "src/video_core/fence_manager.h": {
+      "active": "012cc72932c34fcc82090791d5a4c8c8d64c34966e69948bb4cf6c7b23349c97",
+      "bytes": 9151,
+      "upstream": "3eaddb95142043a7a587f8978ca26928af104ed75550216711cf99758dac8580"
+    },
+    "src/video_core/query_cache/query_cache.h": {
+      "active": "e746c23bf1c746e2704040268e26c274c47f5d034df5b0fd99417d998c16d01a",
+      "bytes": 21441,
+      "upstream": "dbfc75ee1b983c839698c7ac3da0e3925acdcf7b10b4d5a840dfcc8a1208f288"
+    },
+    "src/video_core/renderer_vulkan/vk_buffer_cache.cpp": {
+      "active": "68138e15e7b2c994f32ec7baba4dad9dd88f6fa962fc7bab16f1e35387192e45",
+      "bytes": 30688,
+      "upstream": "b5ba63fdd1f8872b251ce4cd84d44d6d42bc9f923757d8a25a6bcfd98fcb50f7"
+    },
+    "src/video_core/renderer_vulkan/vk_buffer_cache.h": {
+      "active": "fded39786c9660d09f0afa774e42accad549eaa931f41feac806173f2b013403",
+      "bytes": 9663,
+      "upstream": "fdd427fad337594874e3d6187d0769e531e61212234e80bd7cb97c85ebbf3f1e"
+    },
+    "src/video_core/texture_cache/texture_cache.h": {
+      "active": "6519168f033aba8dfbc9fa7d6e9fae0c4f488761e3373aeb2d4ee71653ca5567",
+      "bytes": 120047,
+      "upstream": "59f06d6839d09c96e9d7541a727a87fee680b7e7bebe763e82fec523a5caf498"
+    },
+    "src/video_core/texture_cache/texture_cache_base.h": {
+      "active": "704d96dc26f809e96d40f17ff720ef93ca413a7238aef50ccb8bf1f13ea12f1e",
+      "bytes": 21882,
+      "upstream": "36a3fd563bd620d51bfbfb0ae2d5381d77eb19c9c18d16cbe0c169c37eaecc5b"
+    },
+    "src/video_core/texture_cache/util.cpp": {
+      "active": "d8ce7169d4c4485c681381ff8fc0679e9c27c0753c4bc49d57c6900014c0812d",
+      "bytes": 58780,
+      "upstream": "0303d1a97f5988b2ace20cb8de1b83eb50d3b1c84ec27e17acc5110fef0e4b30"
+    }
+  },
+  "excluded_experimental": [
+    "EDEN_EXPERIMENTAL_DUMMY_THREAD_WAITS"
+  ],
+  "pinned_eden_commit": "5f142c7926d0c7fcbbd0ce30794d72f638a43b2a",
+  "shipping_receipts": {
+    ".encore-backport-ps5-texture-missing-channel-slot-guard.sha256": "c0625a15e88dc22a2add16fe0821ec7cb393b60362a5ad2dc667e08c0c4dade2",
+    ".encore-backport-ps5-texture-remap-target-invalidation.sha256": "e0948ef24fbc079d6d46789ed186ba31cc42540b6e0987f260672cc4a9744ee4",
+    ".encore-backport-ps5-texture-remapped-view-rebind.sha256": "f820c0091efc202ce9b92c9064dfd2483c62ac131a21f7f1cdd4dea639e68841",
+    ".encore-backport-ps5-texture-tic-layer-bounds.sha256": "fcc3dc2ee080731fc40183718baebf1a8dbffb08e6843676dad5bc0906d76829",
+    ".encore-backport-4436.sha256": "696c5e81d5c61a35ab624cdc1d5ee9b88a03ab1b448d42b49c166a360078a5ff",
+    ".encore-backport-fc27-hle.sha256": "c7fafb5450a910f9aad2957cb271ee33f505c5b8d67f3d4f7463e69209d36c9c",
+    ".encore-backport-fw23.sha256": "9a08f35a439cbc8a94262fd439824771bf989d5af6ff72767b6c13fdb75e842e",
+    ".encore-backport-gpu.sha256": "a1398bd91da86e2842dc59b42284b0754cc39bead34fab2fc7d2ad80dc00af0d",
+    ".encore-backport-guest-domain-filter.sha256": "543cbf827ec27a121738831791e90953cd9c9b1c17ba2577a488c60d5a0bbc37",
+    ".encore-backport-guest-offline.sha256": "d56fa0d38c7444b51e559203e9f555d24ab62f006deeac90c08764c1ce881c69",
+    ".encore-backport-launcher-http.sha256": "e58439eef804757d1b3e8e2794bf6fd8c379e36edbc6dec45e626408fd06c1c2",
+    ".encore-backport-nvnflinger-wakeup.sha256": "48d94856c1271bcd99920897ea1abb20f020daeaa7607d71c1379555c6b87f92",
+    ".encore-backport-ps5-adjacent-valid-view-reuse.sha256": "5ae29e270ed50d33ec1be65eb3b41c82e5f81c46e88963b9679a3170003dae8a",
+    ".encore-backport-ps5-alias-current-tick-fastpath.sha256": "e11849187ad84f9d3411ae79a5ee124b6b9170df215052bafde54681f17167ae",
+    ".encore-backport-ps5-buffer-clean-upload-fastpath.sha256": "806f998fbf2ae0f73d664e6b4ad5e37877aa9454bcc75abd41dbba35f8641be4",
+    ".encore-backport-ps5-bounded-logging.sha256": "b51127c02910670199bb45586978e06a1677daa8d4dfb63cb822d1b325f54772",
+    ".encore-backport-ps5-crash-only-logging.sha256": "616dc7641e876fc4bbcd36bdedacad1460b4ba021fe785cebef39670332a704f",
+    ".encore-backport-ps5-feedback-loop-no-depth-fastpath.sha256": "4a1d091039857192835253a58b511d26ef626bea72853cf5650cb73ddcd85abf",
+    ".encore-backport-ps5-feedback-loop-serial-fastpath.sha256": "3185e3056f66159e6c5169c23753e8f6020ddeba5d07987c6c077ece2f96d09c",
+    ".encore-backport-ps5-feedback-loop-view-key.sha256": "b8d64a022c96f7e3cc95b07a47d068fd174048995338882009aa1b152b7df636",
+    ".encore-backport-ps5-gpu-asid-lifetime-guard.sha256": "11807b091a268a9ab306b7d0fca3ded9d91dfbeee6d30e29e514305644a7a96a",
+    ".encore-backport-ps5-gpu-asid-no-reuse.sha256": "853e4ee5ed9a9ee0769fb8f83605c9482aa4525205196266e041d2863ce291a5",
+    ".encore-backport-ps5-gpu-atomic-forward-table.sha256": "8356f8cbbfe7eb6afd0b8d4fff45ab9ff401a83ae4509b0c7b089f45f9230ba4",
+    ".encore-backport-ps5-gpu-atomic-reverse-table.sha256": "ad815ee0ef713b623d3b061866ec397ae066832a2e2be251a8bed8834e48688c",
+    ".encore-backport-ps5-gpu-block-flush-bounds.sha256": "8e39e737570a40fffe0293fa154e3501768e77fff17fa18ed189cac96cce4c11",
+    ".encore-backport-ps5-gpu-empty-multi-head.sha256": "ca52bff0411935f2053434d4edde5a65dee736f3113c4de0edbadf8aaf212ef6",
+    ".encore-backport-ps5-gpu-map-bounds.sha256": "4ac28d0c954bb9b87feb8b90fb1ef2b31625496c112528234ecc77c32adabbdb",
+    ".encore-backport-ps5-gpu-memory-mapping.sha256": "177eb115bad0ff8a9e98594580516454e46bc9240272d8067eee563aa724ee7e",
+    ".encore-backport-ps5-gpu-multi-missing-guard.sha256": "adaf094d70a4a42fe7a4cb991b6facf6b178377529adbd93f63a146903f09292",
+    ".encore-backport-ps5-gpu-physical-capacity.sha256": "cf662d7de00237bbb7eab0b4c806bc6ac4e47cfe79a99632ec2611f1c15144f6",
+    ".encore-backport-ps5-gpu-physical-read-bounds.sha256": "612a6cb9dd10b3c907a5250118b677c1f9b399cfd2dc627db3242551ab9657ab",
+    ".encore-backport-ps5-gpu-remap-cache-invalidate.sha256": "bfb0e09bfafa5329dcf4b30824f8df0e71d932d01a87b16ab6c817046b871576",
+    ".encore-backport-ps5-gpu-remap-reverse.sha256": "ac65a0ecab29adb590d3af5efcf1b83b55a2d81008d4fec46ef5d58ecd9b1964",
+    ".encore-backport-ps5-gpu-reverse-inline-bounds.sha256": "902e0f28d95d6a41da7a1154bfc68d0d64aae8b501c5de4bc036dc948c2f434c",
+    ".encore-backport-ps5-gpu-span-physical-bounds.sha256": "26141748a4218e295933b350fb43fb8c45e9b05a3b40890de298b16653b57403",
+    ".encore-backport-ps5-gpu-unmap-reverse-guard.sha256": "b24e79ab94a48fd4a94c8789a1b3ab4555e1bee3190c02a6557d68c460525be1",
+    ".encore-backport-ps5-guest-map-null-backing.sha256": "3da1b7ea6a845ba71abcf6d64670fe7f71110d32037f34ed32237a82afeaf98d",
+    ".encore-backport-ps5-guest-mapping-diagnostics.sha256": "7d70e5a100080bb95127704fe866647173e1d1e645a4fa67d11b0597c98da3cb",
+    ".encore-backport-ps5-guest-span.sha256": "f0ed95102c323bb4dc9639aa9c8394727d2eeaec7570fb9d52ebd5ac5c737720",
+    ".encore-backport-ps5-guest-walk.sha256": "08ab3acafdebe1af391d14a0a1d29f684f37397f961c98dc7ba8c7c239700311",
+    ".encore-backport-ps5-guest-zero-alias.sha256": "5af341c27b96a95df7a8d2b1de11841be27770b09900812c7c5f8a47ba0ec898",
+    ".encore-backport-ps5-hid-watchdog.sha256": "6bdb44d1d41ca8f1d709b1f37d3925ceaf738e2127c2396e9d933c997f3ee234",
+    ".encore-backport-ps5-net-user-agent.sha256": "d91e6e73ecdf91c34e53aca4d698880bdc0bd218c18c0e24bfd8f4c60bee0be1",
+    ".encore-backport-ps5-nvmap-alloc-rollback.sha256": "69c03c023a23f498944f5c87e0d6507618feb3445f04350e5547b2ff673883da",
+    ".encore-backport-ps5-software-bilinear-source-coordinates.sha256": "f2bd32408da89f268379a5c30879a9fa859dbe8f2ed59e1555402e31a130df0f",
+    ".encore-backport-ps5-texture-descriptor-residency.sha256": "6e6e81d918f962bd810c9ac57c64f3e8164484012ef7d91c16f5320212bd34ca",
+    ".encore-backport-ps5-texture-page-range-guards.sha256": "622cf416c45cbd87cd589dc641bae34510073c166d5dc58505b67ba1d523b184",
+    ".encore-backport-ps5-texture-null-view-remap.sha256": "2748e9b17c91e72a1fc832a256254cb237acb1572ec3f852dd07ad00603d5a20",
+    ".encore-backport-ps5-texture-shared-null-new-slot.sha256": "b8c299afca56172a93a54c7d6b1732775e1a17e1114d31e5a696a60e8212018c",
+    ".encore-backport-runtime-hid.sha256": "863056323aeb23c6aafabaa47224e623946d41919aee5d5f3605be4adacf45f9"
+  },
+  "source": "tools/apply-eden-backports.sh"
+}

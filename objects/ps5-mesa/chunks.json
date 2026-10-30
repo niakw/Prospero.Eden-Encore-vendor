@@ -1,0 +1,22 @@
+{
+  "name": "ps5-mesa",
+  "size": 112748654,
+  "sha256": "d3b824d73b4d01d06a30c5ec338c287dc6c3c65259e927a306f99e63e8f27546",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 41943040,
+      "sha256": "0378b21c1728572a42ec6cf9b224517eda33cc1d6d328648087c120748ce5a1c"
+    },
+    {
+      "file": "0001.chunk",
+      "size": 41943040,
+      "sha256": "8d6aa72d0a6c9ffd4ebfb663ce12b301e553f9feaf671d843ee5cc8acced8297"
+    },
+    {
+      "file": "0002.chunk",
+      "size": 28862574,
+      "sha256": "79f7760803fd8da9304d9d990131098b06310d26fea425c1f689a86ebb35fb65"
+    }
+  ]
+}

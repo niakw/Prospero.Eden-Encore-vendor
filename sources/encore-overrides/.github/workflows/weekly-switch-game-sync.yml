@@ -1,0 +1,85 @@
+name: Weekly Switch game sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Optional maximum number of new games (empty = all)"
+        required: false
+        type: string
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-switch-game-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate profiles for new Switch games
+        shell: bash
+        env:
+          MANUAL_LIMIT: ${{ inputs.limit }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${MANUAL_LIMIT:-}" ]]; then
+            python3 tools/sync_switch_games.py --write --limit "${MANUAL_LIMIT}"
+          else
+            python3 tools/sync_switch_games.py --write
+          fi
+
+      - name: Validate generated JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path(".")
+          manifest = json.loads((root / "manifest.json").read_text())
+          expected = {"minimum", "recommended", "high", "ultra"}
+
+          for path in sorted((root / "general").glob("*.json")):
+              json.loads(path.read_text())
+
+          for path in sorted((root / "games").glob("*.json")):
+              data = json.loads(path.read_text())
+              profiles = data.get("profiles", {})
+              if set(profiles) != expected:
+                  raise SystemExit(f"{path}: expected exactly {sorted(expected)}, got {sorted(profiles)}")
+
+          ids = [entry["title_id"] for entry in manifest.get("entries", [])]
+          if len(ids) != len(set(ids)):
+              raise SystemExit("manifest.json: duplicate title_id")
+
+          print(f"JSON validation OK: {len(ids)} manifest entries")
+          PY
+
+      - name: Commit newly discovered games
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- games manifest.json; then
+            echo "No new Switch games."
+            exit 0
+          fi
+
+          git config user.name "encore-overrides-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add games manifest.json
+          git commit -m "chore: add newly released Switch games"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

@@ -1,0 +1,12 @@
+{
+  "name": "opengl-vulkan-headers",
+  "size": 3426951,
+  "sha256": "14bd6b997621ab9c1636423043448392a78d3cd75332898d68e4e1a45560edd5",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 3426951,
+      "sha256": "14bd6b997621ab9c1636423043448392a78d3cd75332898d68e4e1a45560edd5"
+    }
+  ]
+}

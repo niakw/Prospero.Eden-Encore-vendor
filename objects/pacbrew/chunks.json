@@ -1,0 +1,52 @@
+{
+  "name": "pacbrew",
+  "size": 346233940,
+  "sha256": "a85f65de418a8e6a898c6c3e3c870d50fff7618a200e4dd59ea9692af6ecec4d",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 41943040,
+      "sha256": "9b7f3100274046079537c3ba29532d96d4993d003818a48c510707519b122bc7"
+    },
+    {
+      "file": "0001.chunk",
+      "size": 41943040,
+      "sha256": "b1a54c790264d1b27fefc31fa7a9574aadf8a92b8d8ab8add1579434d4dc8e44"
+    },
+    {
+      "file": "0002.chunk",
+      "size": 41943040,
+      "sha256": "274cd2cb98d818be47fb4b650f355faf3405cfd501ceb6ece3a5244cf0914553"
+    },
+    {
+      "file": "0003.chunk",
+      "size": 41943040,
+      "sha256": "4f01001bf0628f624dbbaa1674e5f940e690cdf6dda032985cfd94cae4766d12"
+    },
+    {
+      "file": "0004.chunk",
+      "size": 41943040,
+      "sha256": "6439b18342c60deb4c125ddfbbcfb57b695a8682d487580dfa181b823dd04f6a"
+    },
+    {
+      "file": "0005.chunk",
+      "size": 41943040,
+      "sha256": "ba1081c2e4d3d31b78ab80104386bc0926f514245d06a00c3a48ec2e126fdefb"
+    },
+    {
+      "file": "0006.chunk",
+      "size": 41943040,
+      "sha256": "25b36ac5a6654cb9f1cfa5252a3af654fdba1d041867c9d1c6c8e60e9f9691a0"
+    },
+    {
+      "file": "0007.chunk",
+      "size": 41943040,
+      "sha256": "939833d0a2137f8f08fec4a794620463ce6d472d1281c691f10f0a6fbb398889"
+    },
+    {
+      "file": "0008.chunk",
+      "size": 10689620,
+      "sha256": "3c041f8be23e518f980939547616dfc8b8d9dd3ce5b56b112a08a7795d70f25a"
+    }
+  ]
+}

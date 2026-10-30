@@ -1,0 +1,4155 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// SPDX-FileCopyrightText: 2023 yuzu Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include <limits>
+#ifdef PS5_NATIVE
+#include <exception>
+#include <new>
+#include <stdexcept>
+#endif
+#include <optional>
+#include <bit>
+#include "common/container/unordered_map.h"
+#include <boost/container/small_vector.hpp>
+
+#include "common/alignment.h"
+#include "common/settings.h"
+#include "common/slot_vector.h"
+#include "video_core/control/channel_state.h"
+#include "video_core/dirty_flags.h"
+#include "video_core/engines/kepler_compute.h"
+#include "video_core/guest_memory.h"
+#include "video_core/host1x/gpu_device_memory_manager.h"
+#include "video_core/texture_cache/image_view_base.h"
+#include "video_core/texture_cache/samples_helper.h"
+#include "video_core/texture_cache/texture_cache_base.h"
+#include "video_core/texture_cache/util.h"
+#include "video_core/textures/decoders.h"
+
+#include "performance.h"
+#include "image_pages.h"
+#include "vulkan_gc_budget.h"
+#include "common/scope_exit.h"
+namespace Vulkan { class TextureCacheRuntime; }
+
+namespace VideoCommon {
+
+using Tegra::Texture::TICEntry;
+using Tegra::Texture::TSCEntry;
+using VideoCore::Surface::GetFormatType;
+using VideoCore::Surface::PixelFormat;
+using VideoCore::Surface::SurfaceType;
+using namespace Common::Literals;
+
+template <class P>
+TextureCache<P>::TextureCache(Runtime& runtime_, Tegra::MaxwellDeviceMemoryManager& device_memory_)
+    : runtime{runtime_}, device_memory{device_memory_} {
+    // Configure null sampler
+    TSCEntry sampler_descriptor{};
+    sampler_descriptor.min_filter.Assign(Tegra::Texture::TextureFilter::Linear);
+    sampler_descriptor.mag_filter.Assign(Tegra::Texture::TextureFilter::Linear);
+    sampler_descriptor.mipmap_filter.Assign(Tegra::Texture::TextureMipmapFilter::Linear);
+    sampler_descriptor.cubemap_anisotropy.Assign(1);
+
+    // These values were chosen based on typical peak swizzle data sizes seen in some titles
+    constexpr size_t SWIZZLE_DATA_BUFFER_INITIAL_CAPACITY = 8_MiB;
+    constexpr size_t UNSWIZZLE_DATA_BUFFER_INITIAL_CAPACITY = 1_MiB;
+    swizzle_data_buffer.resize_destructive(SWIZZLE_DATA_BUFFER_INITIAL_CAPACITY);
+    unswizzle_data_buffer.resize_destructive(UNSWIZZLE_DATA_BUFFER_INITIAL_CAPACITY);
+
+    // Make sure the first index is reserved for the null resources
+    // This way the null resource becomes a compile time constant
+    void(slot_images.insert(NullImageParams{}));
+    void(slot_image_views.insert(runtime, NullImageViewParams{}));
+    void(slot_samplers.insert(runtime, sampler_descriptor));
+
+    if constexpr (HAS_DEVICE_MEMORY_INFO) {
+        const s64 device_local_memory = static_cast<s64>(runtime.GetDeviceLocalMemory());
+        const s64 min_spacing_expected = device_local_memory - 1_GiB;
+        const s64 min_spacing_critical = device_local_memory - 512_MiB;
+        const s64 mem_threshold = (std::min)(device_local_memory, TARGET_THRESHOLD);
+        const s64 min_vacancy_expected =
+            ((std::is_same_v<Runtime, Vulkan::TextureCacheRuntime> ? 4 : 6) * mem_threshold) / 10;
+        const s64 min_vacancy_critical = (2 * mem_threshold) / 10;
+        expected_memory = static_cast<u64>(
+            (std::max)((std::min)(device_local_memory - min_vacancy_expected, min_spacing_expected),
+                     DEFAULT_EXPECTED_MEMORY));
+        critical_memory = static_cast<u64>(
+            (std::max)((std::min)(device_local_memory - min_vacancy_critical, min_spacing_critical),
+                     DEFAULT_CRITICAL_MEMORY));
+        minimum_memory = static_cast<u64>((device_local_memory - mem_threshold) / 2);
+    } else {
+        expected_memory = DEFAULT_EXPECTED_MEMORY + 512_MiB;
+        critical_memory = DEFAULT_CRITICAL_MEMORY + 1_GiB;
+        minimum_memory = 0;
+    }
+
+    const bool gpu_unswizzle_enabled = Settings::values.gpu_unswizzle_enabled.GetValue();
+
+    if (gpu_unswizzle_enabled) {
+        switch (Settings::values.gpu_unswizzle_texture_size.GetValue()) {
+            case Settings::GpuUnswizzleSize::VerySmall:    gpu_unswizzle_maxsize = 16_MiB; break;
+            case Settings::GpuUnswizzleSize::Small:        gpu_unswizzle_maxsize = 32_MiB; break;
+            case Settings::GpuUnswizzleSize::Normal:       gpu_unswizzle_maxsize = 128_MiB; break;
+            case Settings::GpuUnswizzleSize::Large:        gpu_unswizzle_maxsize = 256_MiB; break;
+            case Settings::GpuUnswizzleSize::VeryLarge:    gpu_unswizzle_maxsize = 512_MiB; break;
+            default:                                       gpu_unswizzle_maxsize = 128_MiB; break;
+        }
+
+        switch (Settings::values.gpu_unswizzle_stream_size.GetValue()) {
+            case Settings::GpuUnswizzle::VeryLow: swizzle_chunk_size = 4_MiB; break;
+            case Settings::GpuUnswizzle::Low:     swizzle_chunk_size = 8_MiB; break;
+            case Settings::GpuUnswizzle::Normal:  swizzle_chunk_size = 16_MiB; break;
+            case Settings::GpuUnswizzle::Medium:  swizzle_chunk_size = 32_MiB; break;
+            case Settings::GpuUnswizzle::High:    swizzle_chunk_size = 64_MiB; break;
+            default:                              swizzle_chunk_size = 16_MiB;
+        }
+
+        switch (Settings::values.gpu_unswizzle_chunk_size.GetValue()) {
+            case Settings::GpuUnswizzleChunk::VeryLow: swizzle_slices_per_batch = 32; break;
+            case Settings::GpuUnswizzleChunk::Low:     swizzle_slices_per_batch = 64; break;
+            case Settings::GpuUnswizzleChunk::Normal:  swizzle_slices_per_batch = 128; break;
+            case Settings::GpuUnswizzleChunk::Medium:  swizzle_slices_per_batch = 256; break;
+            case Settings::GpuUnswizzleChunk::High:    swizzle_slices_per_batch = 512; break;
+            default:                                   swizzle_slices_per_batch = 128;
+        }
+    } else {
+        gpu_unswizzle_maxsize = 0;
+        swizzle_chunk_size = 0;
+        swizzle_slices_per_batch = 0;
+    }
+}
+
+template <class P>
+void TextureCache<P>::RunGarbageCollector() {
+    std::optional<Eden::Performance::Timer> cost_timer;
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        if (Eden::Performance::vulkan_cost_enabled.load(std::memory_order_relaxed))
+            cost_timer.emplace(Eden::Performance::vulkan_api[13]);
+    }
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        if ((cost_timer || Eden::Performance::texture_budget_log.load(std::memory_order_relaxed)) &&
+            frame_tick % 300 == 0)
+            std::printf("EDEN_VULKAN_TEXTURE_BUDGET frame=%llu usage=%llu expected=%llu critical=%llu "
+                        "keep_dirty=%d memory_short=%d\n",
+                        static_cast<unsigned long long>(frame_tick),
+                        static_cast<unsigned long long>(total_used_memory),
+                        static_cast<unsigned long long>(expected_memory),
+                        static_cast<unsigned long long>(critical_memory),
+                        int(Eden::Performance::gc_keep_dirty.load(std::memory_order_relaxed)),
+                        int(Eden::Performance::graphics_memory_short.load(std::memory_order_relaxed)));
+    }
+
+    bool high_priority_mode = false;
+    bool aggressive_mode = false;
+    u64 ticks_to_destroy = 0;
+    size_t num_iterations = 0;
+    size_t num_scanned = 0;
+    size_t total_scanned = 0;
+    size_t skipped = 0;
+    size_t evicted = 0;
+    constexpr size_t max_scanned = 8192;
+    const auto Configure = [&](bool allow_aggressive) {
+        high_priority_mode = total_used_memory >= expected_memory;
+        aggressive_mode = allow_aggressive && total_used_memory >= critical_memory;
+        ticks_to_destroy = aggressive_mode ? 10ULL : high_priority_mode ? 25ULL : 50ULL;
+        num_iterations = aggressive_mode ? 40 : (high_priority_mode ? 20 : 10);
+    };
+    const auto ReclaimedBytes = [&](const ImageBase& image) {
+        u64 bytes = 0;
+    if (image.HasScaled()) {
+        bytes += GetScaledImageSizeBytes(image);
+    }
+    u64 tentative_size = (std::max)(image.guest_size_bytes, image.unswizzled_size_bytes);
+    if ((IsPixelFormatASTC(image.info.format) &&
+         True(image.flags & ImageFlagBits::AcceleratedUpload)) ||
+        True(image.flags & ImageFlagBits::Converted)) {
+        tentative_size = TranscodedAstcSize(tentative_size, image.info.format);
+    }
+    bytes += Common::AlignUp(tentative_size, 1024);
+        return bytes;
+    };
+    // Images the GPU wrote are copied back to guest memory before they go, behind a wait for the
+    // GPU. Eden evicts them from its "expected" mark on; here they stay, as they do below that
+    // mark, until memory is really short (performance.h, KeepDirtyTextures).
+    const auto DirtyEvictions = [&] {
+        return high_priority_mode &&
+               (total_used_memory >= critical_memory || !::Eden::Performance::KeepDirtyTextures());
+    };
+#ifdef PS5_NATIVE
+    // Keep the expensive direct-memory pressure probe out of every dirty LRU
+    // candidate under texture_cache.mutex. Recheck after at most eight visits,
+    // immediately after a deletion, and at the critical-pass boundary.
+    // Critical pressure always bypasses the cached answer.
+    constexpr unsigned kDirtyProbeReuse = 8;
+    unsigned dirty_probe_remaining = 0;
+    bool dirty_evict_cached = false;
+    const auto DirtyEvictionsForCleanup = [&]() {
+        if (!high_priority_mode) return false;
+        if (total_used_memory >= critical_memory) return true;
+        if (dirty_probe_remaining == 0) {
+            dirty_evict_cached = !::Eden::Performance::KeepDirtyTextures();
+            dirty_probe_remaining = kDirtyProbeReuse;
+        }
+        --dirty_probe_remaining;
+        return dirty_evict_cached;
+    };
+#endif
+    using DownloadMap = decltype(runtime.DownloadStagingBuffer(size_t{}));
+    // Aggressive GC can process 40 images per pass. Keep those readbacks in
+    // ONE scheduled batch instead of falling back to a Finish per image after
+    // the former 16-descriptor cap. The separate 32-MiB BYTE cap is unchanged.
+    constexpr size_t gc_prefetch_limit = 40;
+    boost::container::small_vector<std::pair<ImageId, DownloadMap>, gc_prefetch_limit> gc_downloads;
+    const auto ReleaseDownloads = [&] {
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            for (auto& [id, map] : gc_downloads)
+                runtime.FreeDeferredStagingBuffer(map);
+            gc_downloads.clear();
+        }
+    };
+    SCOPE_EXIT { ReleaseDownloads(); };
+    const auto PrefetchDownloads = [&] {
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            ReleaseDownloads();
+            // No texture can be old enough before this title's first
+            // age threshold. Do not even consult the PS5 direct-memory
+            // pressure callback if the LRU cannot select any image.
+            if (frame_tick < ticks_to_destroy) return;
+            // Only prefetch GPU-written textures when actual Cleanup could
+            // evict them. Clean-only cleanup still runs independently.
+            // One pressure decision for this batch, independent of LRU scanning.
+            // R442: the R439 collector skips non-evictable LRU candidates without
+            // burning the deletion budget; prefetch must use the SAME rules.
+            const bool prefetch_dirty = DirtyEvictions();
+            if (!prefetch_dirty) return;
+            size_t remaining = num_iterations;
+            size_t scanned = 0;
+            const bool count_visits = ::Eden::Performance::gc_count_visits.load(std::memory_order_relaxed);
+            size_t bytes = 0;
+            u64 usage = total_used_memory;
+            // A stable target for THIS speculative pass. The actual Cleanup
+            // still makes authoritative eviction decisions using current
+            // GPU pressure; this staging forecast cannot free any texture.
+            // Avoid one kernel-backed pressure check per LRU candidate.
+            const u64 projected_stop = (aggressive_mode || ::Eden::Performance::KeepDirtyTextures())
+                                           ? critical_memory : expected_memory;
+            // Model both clean and dirty future evictions, but only submit
+            // readbacks that Cleanup could actually need. This estimate
+            // never changes a live GPU/guest texture or its synchronization.
+            const auto NoteProjectedEviction = [&](const ImageBase& image) {
+                usage = ::Eden::VulkanMemory::AfterProjectedEviction(
+                    usage, ReclaimedBytes(image));
+                return usage < projected_stop;
+            };
+            // Only look ahead through eligible evictions. Leave actual
+            // deletion, alias updates and guest writes to Cleanup.
+            lru_cache.ForEachItemBelow(::Eden::VulkanMemory::OldestEvictionTick(frame_tick, ticks_to_destroy), [&](ImageId id) {
+                if (remaining == 0 || scanned >= max_scanned) return true;
+                ++scanned;
+                if (count_visits) --remaining;
+                auto& image = slot_images[id];
+                if (True(image.flags & ImageFlagBits::IsDecoding)) return false;
+                const bool dirty = IsDownloadable(image) && False(image.flags & ImageFlagBits::BadOverlap);
+                // The prefetch pass was admitted from one stable pressure
+                // snapshot above. Per-image reprobing is unnecessary and can
+                // stall the GPU thread while walking up to 40 LRU entries.
+                if (!aggressive_mode && True(image.flags & ImageFlagBits::CostlyLoad))
+                    return false;
+                // Only real collector eviction candidates spend the allowance;
+                // the gc_scan=upstream rollback intentionally counts ALL visits.
+                if (!count_visits) --remaining;
+                // A clean or unsupported image is still visited by the
+                // real Cleanup pass, but cannot use this staged fast path.
+                // Skip it, do NOT stop scanning older-to-newer LRU entries:
+                // the following dirty images can still share one Finish().
+                // Scaled textures use the SAME Image::DownloadMemory path as
+                // Cleanup: it scales down before the copy to guest layout and
+                // restores the original image. Do not force one GPU Finish per
+                // scaled image. Aliases, overlaps and MSAA remain excluded.
+                // Keep our tested 40-image / 32-MiB shared-memory budget:
+                // oversized images still use Cleanup's individual download,
+                // without preventing later independent small images from
+                // sharing the same GPU completion fence.
+                if (!dirty || !image.aliased_images.empty() || !image.overlapping_images.empty() ||
+                    image.info.num_samples != 1 ||
+                    image.unswizzled_size_bytes > 32_MiB)
+                    return NoteProjectedEviction(image);
+#ifdef PS5_NATIVE
+                // A no-region download is not a successful readback of dirty
+                // GPU bytes. Do not prefetch, or project this image evicted:
+                // Cleanup must leave it resident until guest copy regions
+                // can be represented.
+                if (FullDownloadCopies(image.info).empty()) return false;
+#endif
+                // Full descriptor/byte capacity is a true batch boundary.
+                if (gc_downloads.size() == gc_prefetch_limit ||
+                    image.unswizzled_size_bytes > 32_MiB - bytes) return true;
+#ifdef PS5_NATIVE
+                // A short staging map or an allocation failure is NOT a GPU
+                // copy. Do not record a readback into unmapped memory or
+                // advertise it to Cleanup as prefetched. The ordinary
+                // eviction path may retry after the staged batch finishes.
+                auto map = [&]() -> decltype(runtime.DownloadStagingBuffer(image.unswizzled_size_bytes, true)) {
+                    try {
+                        return runtime.DownloadStagingBuffer(image.unswizzled_size_bytes, true);
+                    } catch (...) {
+                        return {};
+                    }
+                }();
+                if (!map.buffer || map.mapped_span.size_bytes() < image.unswizzled_size_bytes) {
+                    if (map.buffer) runtime.FreeDeferredStagingBuffer(map);
+                    return true;
+                }
+#else
+                auto map = runtime.DownloadStagingBuffer(image.unswizzled_size_bytes, true);
+#endif
+                // The pinned StagingBufferRef is a POD handle, not a RAII
+                // owner. The pool tracks deferred lifetime until FreeDeferred.
+#ifdef PS5_NATIVE
+                // Do not let a failed Record/download advertise this texture
+                // as prefetched. Some commands may already be queued, so the
+                // staging maps must retire only AFTER draining those commands.
+                bool map_owned_by_batch = false;
+                SCOPE_EXIT {
+                    if (!map_owned_by_batch) runtime.FreeDeferredStagingBuffer(map);
+                };
+                const auto RetireFailedBatch = [&] {
+                    if (!gc_downloads.empty()) runtime.Finish();
+                    ReleaseDownloads();
+                };
+                try {
+                    gc_downloads.emplace_back(id, map);
+                    map_owned_by_batch = true;
+                    const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                    image.DownloadMemory(map, copies);
+                } catch (const std::bad_alloc&) {
+                    RetireFailedBatch();
+                    return true;
+                } catch (const std::invalid_argument&) {
+                    RetireFailedBatch();
+                    return true;
+                } catch (...) {
+                    RetireFailedBatch();
+                    throw;
+                }
+#else
+                gc_downloads.emplace_back(id, map);
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                image.DownloadMemory(map, copies);
+#endif
+                bytes += image.unswizzled_size_bytes;
+                // Same projected accounting for the staged dirty image,
+                // including saturation when tracked and driver usage differ.
+                return NoteProjectedEviction(image);
+            });
+            if (!gc_downloads.empty()) runtime.Finish();
+        }
+    };
+    const auto UsePrefetched = [&](ImageId id, Image& image) {
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            const auto it = std::ranges::find_if(gc_downloads, [id](const auto& entry) {
+                return entry.first == id;
+            });
+            if (it != gc_downloads.end()) {
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies,
+                             it->second.mapped_span, swizzle_data_buffer);
+                runtime.FreeDeferredStagingBuffer(it->second);
+                gc_downloads.erase(it);
+                return true;
+            }
+        }
+        return false;
+    };
+
+    const auto Cleanup = [&, this](ImageId image_id) {
+        if (num_iterations == 0 || num_scanned >= max_scanned) {
+            return true;
+        }
+        ++num_scanned;
+        ++total_scanned;
+        if (::Eden::Performance::gc_count_visits.load(std::memory_order_relaxed)) {
+            --num_iterations;
+        }
+        auto& image = slot_images[image_id];
+        if (True(image.flags & ImageFlagBits::IsDecoding)) {
+            ++skipped;
+            return false;
+        }
+        const bool must_download = IsDownloadable(image) && False(image.flags & ImageFlagBits::BadOverlap);
+        // A clean image has no guest readback. Do not query PS5 direct-memory
+        // pressure for it: the memory probe may be kernel-backed, and this
+        // entire LRU sweep runs under texture_cache.mutex.
+#ifdef PS5_NATIVE
+        if ((!aggressive_mode && True(image.flags & ImageFlagBits::CostlyLoad)) ||
+            (must_download && !DirtyEvictionsForCleanup())) {
+#else
+        if ((!aggressive_mode && True(image.flags & ImageFlagBits::CostlyLoad)) ||
+            (must_download && !DirtyEvictions())) {
+#endif
+            ++skipped;
+            return false;
+        }
+        if (!::Eden::Performance::gc_count_visits.load(std::memory_order_relaxed)) {
+            --num_iterations;
+        }
+        if (must_download && !UsePrefetched(image_id, image)) {
+#ifdef PS5_NATIVE
+            // A zero-region readback leaves the staging bytes undefined.
+            // Never SwizzleImage those bytes or delete the only dirty GPU
+            // copy; keep it resident and retry on a later eligible frame.
+            if (FullDownloadCopies(image.info).empty()) {
+                ++skipped;
+                return false;
+            }
+            // Never evict dirty GPU bytes if the fallback guest readback could
+            // not obtain a COMPLETE staging mapping under memory pressure.
+            auto map = [&]() -> decltype(runtime.DownloadStagingBuffer(image.unswizzled_size_bytes)) {
+                try {
+                    return runtime.DownloadStagingBuffer(image.unswizzled_size_bytes);
+                } catch (const std::bad_alloc&) {
+                    return {};
+                }
+            }();
+            if (!map.buffer || map.mapped_span.size_bytes() < image.unswizzled_size_bytes) {
+                ++skipped;
+                return false;
+            }
+#else
+            auto map = runtime.DownloadStagingBuffer(image.unswizzled_size_bytes);
+#endif
+            const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+            image.DownloadMemory(map, copies);
+            runtime.Finish();
+            SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, map.mapped_span, swizzle_data_buffer);
+        }
+        if (True(image.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(image, image_id);
+        }
+        UnregisterImage(image_id);
+        DeleteImage(image_id, image.scale_tick > frame_tick + 5);
+        ++evicted;
+#ifdef PS5_NATIVE
+        dirty_probe_remaining = 0;
+#endif
+        if (aggressive_mode && total_used_memory < critical_memory) {
+            num_iterations >>= 2;
+            aggressive_mode = false;
+        } else if (high_priority_mode && total_used_memory < expected_memory) {
+            num_iterations >>= 1;
+            high_priority_mode = false;
+        }
+        return false;
+    };
+    Configure(false);
+    PrefetchDownloads();
+    if (frame_tick >= ticks_to_destroy) {
+        lru_cache.ForEachItemBelow(::Eden::VulkanMemory::OldestEvictionTick(frame_tick, ticks_to_destroy), Cleanup);
+    }
+    if (total_used_memory >= critical_memory) {
+        Configure(true);
+#ifdef PS5_NATIVE
+        dirty_probe_remaining = 0;
+#endif
+        num_scanned = 0; // independent scan allowance for the aggressive pass
+        PrefetchDownloads();
+        if (frame_tick >= ticks_to_destroy) {
+        lru_cache.ForEachItemBelow(::Eden::VulkanMemory::OldestEvictionTick(frame_tick, ticks_to_destroy), Cleanup);
+    }
+    }
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        if (::Eden::Performance::texture_budget_log.load(std::memory_order_relaxed) && frame_tick % 300 == 0)
+            std::printf("EDEN_VULKAN_GC_SCAN frame=%llu visits=%zu skipped=%zu evicted=%zu cap=%zu\n",
+                        static_cast<unsigned long long>(frame_tick), total_scanned, skipped, evicted, max_scanned);
+    }
+}
+
+template <class P>
+void TextureCache<P>::TickFrame() {
+#ifdef PS5_NATIVE
+    // C03: exact driver budget/GC events plus 1-in-16 async/runtime samples.
+    // Timers run only in Detailed Logging; the order and cache locks remain.
+    const bool detailed = ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed);
+    const bool sample_housekeeping = detailed && ::Eden::Performance::ShouldSampleTextureHousekeeping();
+#endif
+    // If we can obtain the memory info, use it instead of the estimate.
+    if (runtime.CanReportMemoryUsage()) {
+#ifdef PS5_NATIVE
+        // A driver memory-budget probe can run under texture_cache.mutex.
+        // While comfortably below the GC watermark, sample every other
+        // frame; at 2/3 of the watermark or higher, sample EVERY frame to
+        // preserve prompt reclaim and avoid an allocation-pressure blind spot.
+        const bool near_gc_watermark =
+            total_used_memory >= minimum_memory - minimum_memory / 3;
+        if (near_gc_watermark || (frame_tick & 1u) == 0) {
+            ::Eden::Performance::CachePhaseTimer budget_query{
+                ::Eden::Performance::CachePhase::TextureBudgetQuery, detailed};
+            total_used_memory = runtime.GetDeviceMemoryUsage();
+        }
+#else
+        total_used_memory = runtime.GetDeviceMemoryUsage();
+#endif
+    }
+    if (total_used_memory > minimum_memory) {
+#ifdef PS5_NATIVE
+        ::Eden::Performance::CachePhaseTimer gc_collect{
+            ::Eden::Performance::CachePhase::TextureGcCollect, detailed};
+#endif
+        RunGarbageCollector();
+    }
+    sentenced_images.Tick();
+    sentenced_framebuffers.Tick();
+    sentenced_image_view.Tick();
+#ifdef PS5_NATIVE
+    ::Eden::Performance::CachePhaseTimer async_tick{
+        ::Eden::Performance::CachePhase::TextureAsyncTick, sample_housekeeping};
+#endif
+    TickAsyncDecode();
+    TickAsyncUnswizzle();
+#ifdef PS5_NATIVE
+    async_tick.Stop();
+    ::Eden::Performance::CachePhaseTimer runtime_tick{
+        ::Eden::Performance::CachePhase::TextureRuntimeTick, sample_housekeeping};
+#endif
+    runtime.TickFrame();
+#ifdef PS5_NATIVE
+    runtime_tick.Stop();
+#endif
+    ++frame_tick;
+
+    if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
+        for (auto& buffer : async_buffers_death_ring) {
+            runtime.FreeDeferredStagingBuffer(buffer);
+        }
+        async_buffers_death_ring.clear();
+    }
+}
+
+template <class P>
+const typename P::ImageView& TextureCache<P>::GetImageView(ImageViewId id) const noexcept {
+    return slot_image_views[id];
+}
+
+template <class P>
+typename P::ImageView& TextureCache<P>::GetImageView(ImageViewId id) noexcept {
+    return slot_image_views[id];
+}
+
+template <class P>
+typename P::ImageView& TextureCache<P>::GetImageView(u32 index) noexcept {
+    // Not compute!
+    const auto image_view_id = VisitImageView(index, false);
+    return slot_image_views[image_view_id];
+}
+
+template <class P>
+void TextureCache<P>::MarkModification(ImageId id) noexcept {
+    MarkModification(slot_images[id]);
+}
+
+template <class P>
+void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compute, bool blacklist) {
+#ifdef PS5_NATIVE
+    // The empty descriptor pass only clears the deletion/retry latch.
+    // Avoid initializing the draw-local TIC memo and entering the retry
+    // loop when no view can possibly be visited or blacklisted.
+    if (views.empty()) {
+        has_deleted_images = false;
+        return;
+    }
+#endif
+    bool has_blacklisted = false;
+    do {
+        has_deleted_images = false;
+        if (blacklist) {
+            has_blacklisted = false;
+        }
+#ifdef PS5_NATIVE
+        // P0.3: reuse nonadjacent TIC descriptors only in this stable draw pass.
+        // Never bypass NULL recovery, deletion-driven retry or blacklist work.
+        struct ViewMemo {
+            u32 index{};
+            ImageViewId id{NULL_IMAGE_VIEW_ID};
+        };
+        // A single view or blacklist pass never gets a memo hit. Avoid
+        // zeroing all 16 memo slots while holding the texture-cache lock.
+        std::optional<std::array<ViewMemo, 16>> view_memo;
+        if (!blacklist && views.size() > 1) {
+            view_memo.emplace();
+        }
+#endif
+        for (ImageViewInOut& view : views) {
+#ifdef PS5_NATIVE
+            if (view_memo && !has_deleted_images) {
+                const auto& cached = (*view_memo)[view.index & 15U];
+                if (cached.id != NULL_IMAGE_VIEW_ID && cached.index == view.index) {
+                    const auto& cached_view = slot_image_views[cached.id];
+                    // A different TIC can remap this image during the pass.
+                    // VisitImageView must rebuild remapped descriptors.
+                    const bool remapped = !cached_view.IsBuffer() &&
+                        True(slot_images[cached_view.image_id].flags & ImageFlagBits::Remapped);
+                    if (!remapped) {
+                        view.id = cached.id;
+                        // Reuse the lookup only: PrepareImageView still
+                        // refreshes dirty pixels and synchronizes aliases.
+                        PrepareImageView(cached.id, false, false);
+                        continue;
+                    }
+                }
+            }
+#endif
+            view.id = VisitImageView(view.index, compute);
+#ifdef PS5_NATIVE
+            if (view_memo && !has_deleted_images) {
+                auto& cached = (*view_memo)[view.index & 15U];
+                cached.index = view.index;
+                cached.id = view.id;
+            }
+#endif
+            if (blacklist) {
+                if (view.blacklist && view.id != NULL_IMAGE_VIEW_ID) {
+                    const ImageViewBase& image_view = slot_image_views[view.id];
+                    auto& image = slot_images[image_view.image_id];
+                    has_blacklisted |= ScaleDown(image);
+                    image.scale_rating = 0;
+                }
+            }
+        }
+    } while (has_deleted_images || (blacklist && has_blacklisted));
+}
+
+template <class P>
+void TextureCache<P>::CheckFeedbackLoop(std::span<const ImageViewInOut> views) {
+    if (!Settings::values.barrier_feedback_loops.GetValue()) {
+        return;
+    }
+
+#ifdef PS5_NATIVE
+    // No sampled view can participate in a framebuffer feedback loop.
+    // Avoid even the view-key comparison and snapshot for untextured draws.
+    if (views.empty()) {
+        last_feedback_loop_serial = render_targets_serial;
+        last_feedback_texture_serial = texture_bindings_serial;
+        last_feedback_loop_result = false;
+        last_feedback_view_ids.clear();
+        return;
+    }
+
+    // A feedback barrier is only possible for a sampled depth attachment.
+    // Avoid a per-draw view comparison and snapshot for color-only passes.
+    if ((rt_active_mask & (1u << NUM_RT)) == 0) {
+        last_feedback_loop_serial = render_targets_serial;
+        last_feedback_texture_serial = texture_bindings_serial;
+        last_feedback_loop_result = false;
+        last_feedback_view_ids.clear();
+        return;
+    }
+#endif
+
+#ifdef PS5_NATIVE
+    // The same TIC/TSC table can feed different shaders and texture indices
+    // without advancing texture_bindings_serial. Only reuse the cached
+    // barrier decision if the actual bound view IDs also match.
+    // Changing render targets or descriptors forces a fresh decision anyway.
+    // Compare previously bound view IDs only when BOTH generations still match.
+    const bool same_feedback_serials =
+        render_targets_serial == last_feedback_loop_serial &&
+        texture_bindings_serial == last_feedback_texture_serial;
+    bool identical_bound_views = false;
+    if (same_feedback_serials && last_feedback_view_ids.size() == views.size()) {
+        identical_bound_views = true;
+        for (size_t i = 0; i < views.size(); ++i) {
+            if (last_feedback_view_ids[i] != views[i].id) {
+                identical_bound_views = false;
+                break;
+            }
+        }
+    }
+#endif
+    if (render_targets_serial == last_feedback_loop_serial &&
+        texture_bindings_serial == last_feedback_texture_serial
+#ifdef PS5_NATIVE
+        && identical_bound_views
+#endif
+    ) {
+        if (last_feedback_loop_result) {
+            runtime.BarrierFeedbackLoop();
+        }
+        return;
+    }
+
+#ifdef PS5_NATIVE
+    // Update only when the decision must be recalculated. Capacity is reused.
+    last_feedback_view_ids.clear();
+    for (const auto& view : views) {
+        last_feedback_view_ids.push_back(view.id);
+    }
+#endif
+    if (rt_active_mask == 0) {
+        last_feedback_loop_serial = render_targets_serial;
+        last_feedback_texture_serial = texture_bindings_serial;
+        last_feedback_loop_result = false;
+        return;
+    }
+    const u32 depth_bit = 1u << NUM_RT;
+    const bool depth_active = (rt_active_mask & depth_bit) != 0;
+
+    const bool requires_barrier = [&] {
+        for (const auto& view : views) {
+            if (!view.id) {
+                continue;
+            }
+
+            {
+                bool is_continue = false;
+#ifdef PS5_NATIVE
+                // Only visit color targets actually attached to this depth pass.
+                u32 color_slots = rt_active_mask & ((1u << NUM_RT) - 1);
+                while (color_slots) {
+                    const u32 slot = std::countr_zero(color_slots);
+                    if (view.id == render_targets.color_buffer_ids[slot]) {
+                        is_continue = true;
+                        break;
+                    }
+                    color_slots &= color_slots - 1;
+                }
+#else
+                for (size_t i = 0; i < 8; ++i)
+                    is_continue |= (rt_active_mask & (1u << i)) && view.id == render_targets.color_buffer_ids[i];
+#endif
+                if (is_continue)
+                    continue;
+            }
+
+            if (depth_active && view.id == render_targets.depth_buffer_id)
+                continue;
+
+            const ImageId view_image_id = slot_image_views[view.id].image_id;
+            {
+                bool is_continue = false;
+#ifdef PS5_NATIVE
+                u32 color_slots = rt_active_mask & ((1u << NUM_RT) - 1);
+                while (color_slots) {
+                    const u32 slot = std::countr_zero(color_slots);
+                    if (view_image_id == rt_image_id[slot]) {
+                        is_continue = true;
+                        break;
+                    }
+                    color_slots &= color_slots - 1;
+                }
+#else
+                for (size_t i = 0; i < 8; ++i)
+                    is_continue |= (rt_active_mask & (1u << i)) && view_image_id == rt_image_id[i];
+#endif
+                if (is_continue)
+                    continue;
+            }
+            if (depth_active && view_image_id == rt_depth_image_id) {
+                return true;
+            }
+        }
+
+        return false;
+    }();
+
+    last_feedback_loop_serial = render_targets_serial;
+    last_feedback_texture_serial = texture_bindings_serial;
+    last_feedback_loop_result = requires_barrier;
+    if (requires_barrier) {
+        runtime.BarrierFeedbackLoop();
+    }
+}
+
+template <class P>
+typename P::Sampler* TextureCache<P>::GetSampler(u32 index, bool compute) {
+    return &slot_samplers[GetSamplerId(index, compute)];
+}
+
+template <class P>
+SamplerId TextureCache<P>::GetSamplerId(u32 index, bool compute) {
+    auto& table = compute ? channel_state->compute_sampler_table : channel_state->graphics_sampler_table;
+    if (index > table.current_limit) {
+        LOG_DEBUG(HW_GPU, "Invalid sampler index={}", index);
+        return NULL_SAMPLER_ID;
+    }
+    auto const map_index = index | (compute ? Common::SlotId::TAGGED_VALUE : 0);
+    auto const [descriptor, is_new] = table.Read(*gpu_memory, index);
+    if (is_new) {
+        auto const id = FindSampler(descriptor, compute);
+        channel_state->sampler_ids.insert_or_assign(map_index, id);
+        return id;
+    }
+#ifdef PS5_NATIVE
+    // A descriptor table can retain its bytes after a channel map entry
+    // is evicted/rebuilt. Never dereference a missing sampler mapping.
+    const auto it = channel_state->sampler_ids.find(map_index);
+    if (it == channel_state->sampler_ids.end()) {
+        const auto id = FindSampler(descriptor, compute);
+        channel_state->sampler_ids.insert_or_assign(map_index, id);
+        return id;
+    }
+    return it->second;
+#else
+    return channel_state->sampler_ids.find(map_index)->second;
+#endif
+}
+
+template <class P>
+const typename P::Sampler& TextureCache<P>::GetSampler(SamplerId id) const noexcept {
+    return slot_samplers[id];
+}
+
+template <class P>
+typename P::Sampler& TextureCache<P>::GetSampler(SamplerId id) noexcept {
+    return slot_samplers[id];
+}
+
+template <class P>
+void TextureCache<P>::SynchronizeDescriptors(bool compute) {
+    if (compute) {
+        const bool linked_tsc = kepler_compute->launch_description.linked_tsc;
+        const u32 tic_limit = kepler_compute->regs.tic.limit;
+        const u32 tsc_limit = linked_tsc ? tic_limit : kepler_compute->regs.tsc.limit;
+        bool bindings_changed = false;
+        if (channel_state->compute_sampler_table.Synchronize(kepler_compute->regs.tsc.Address(), tsc_limit))
+            bindings_changed = true;
+        if (channel_state->compute_image_table.Synchronize(kepler_compute->regs.tic.Address(), tic_limit))
+            bindings_changed = true;
+        if (bindings_changed) {
+            ++texture_bindings_serial;
+        }
+    } else {
+        const bool linked_tsc = maxwell3d->regs.sampler_binding == Tegra::Engines::Maxwell3D::Regs::SamplerBinding::ViaHeaderBinding;
+        const u32 tic_limit = maxwell3d->regs.tex_header.limit;
+        const u32 tsc_limit = linked_tsc ? tic_limit : maxwell3d->regs.tex_sampler.limit;
+        bool bindings_changed = false;
+        if (channel_state->graphics_sampler_table.Synchronize(maxwell3d->regs.tex_sampler.Address(), tsc_limit))
+            bindings_changed = true;
+        if (channel_state->graphics_image_table.Synchronize(maxwell3d->regs.tex_header.Address(), tic_limit))
+            bindings_changed = true;
+        if (bindings_changed) {
+            ++texture_bindings_serial;
+        }
+    }
+}
+
+template <class P>
+bool TextureCache<P>::RescaleRenderTargets() {
+    auto& flags = maxwell3d->dirty.flags;
+    u32 scale_rating = 0;
+    bool rescaled = false;
+    std::array<ImageId, NUM_RT> tmp_color_images{};
+    ImageId tmp_depth_image{};
+    do {
+        flags[Dirty::RenderTargets] = false;
+
+        has_deleted_images = false;
+        // Render target control is used on all render targets, so force look ups when this one is
+        // up
+        const bool force = flags[Dirty::RenderTargetControl];
+        flags[Dirty::RenderTargetControl] = false;
+
+        scale_rating = 0;
+        bool any_rescaled = false;
+        bool can_rescale = true;
+        const auto check_rescale = [&](ImageViewId view_id, ImageId& id_save) {
+            if (view_id != NULL_IMAGE_VIEW_ID && view_id != ImageViewId{}) {
+                const auto& view = slot_image_views[view_id];
+                const auto image_id = view.image_id;
+                id_save = image_id;
+                auto& image = slot_images[image_id];
+                can_rescale &= ImageCanRescale(image);
+                any_rescaled |= True(image.flags & ImageFlagBits::Rescaled) ||
+                                GetFormatType(image.info.format) != SurfaceType::ColorTexture;
+                scale_rating = std::max<u32>(scale_rating, image.scale_tick <= frame_tick
+                                                               ? image.scale_rating + 1U
+                                                               : image.scale_rating);
+            } else {
+                id_save = CORRUPT_ID;
+            }
+        };
+        for (size_t index = 0; index < NUM_RT; ++index) {
+            ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
+            if (flags[Dirty::ColorBuffer0 + index] || force) {
+                flags[Dirty::ColorBuffer0 + index] = false;
+                BindRenderTarget(&color_buffer_id, FindColorBuffer(index));
+            }
+            check_rescale(color_buffer_id, tmp_color_images[index]);
+        }
+        if (flags[Dirty::ZetaBuffer] || force) {
+            flags[Dirty::ZetaBuffer] = false;
+            BindRenderTarget(&render_targets.depth_buffer_id, FindDepthBuffer());
+        }
+        check_rescale(render_targets.depth_buffer_id, tmp_depth_image);
+
+        if (can_rescale) {
+            rescaled = any_rescaled || scale_rating >= 2;
+            const auto scale_up = [this](ImageId image_id) {
+                if (image_id != CORRUPT_ID) {
+                    Image& image = slot_images[image_id];
+                    ScaleUp(image);
+                }
+            };
+            if (rescaled) {
+                for (size_t index = 0; index < NUM_RT; ++index) {
+                    scale_up(tmp_color_images[index]);
+                }
+                scale_up(tmp_depth_image);
+                scale_rating = 2;
+            }
+        } else {
+            rescaled = false;
+            const auto scale_down = [this](ImageId image_id) {
+                if (image_id != CORRUPT_ID) {
+                    Image& image = slot_images[image_id];
+                    ScaleDown(image);
+                }
+            };
+            for (size_t index = 0; index < NUM_RT; ++index) {
+                scale_down(tmp_color_images[index]);
+            }
+            scale_down(tmp_depth_image);
+            scale_rating = 1;
+        }
+    } while (has_deleted_images);
+    const auto set_rating = [this, scale_rating](ImageId image_id) {
+        if (image_id != CORRUPT_ID) {
+            Image& image = slot_images[image_id];
+            image.scale_rating = scale_rating;
+            if (image.scale_tick <= frame_tick) {
+                image.scale_tick = frame_tick + 1;
+            }
+        }
+    };
+    for (size_t index = 0; index < NUM_RT; ++index) {
+        set_rating(tmp_color_images[index]);
+    }
+    set_rating(tmp_depth_image);
+
+    return rescaled;
+}
+
+template <class P>
+void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
+    using namespace VideoCommon::Dirty;
+    auto& flags = maxwell3d->dirty.flags;
+    if (!flags[Dirty::RenderTargets]) {
+#ifdef PS5_NATIVE
+        // Cache the active attachment mask when render targets are reselected.
+        // On a clean draw it is current: only present views can be prepared.
+        // Preserve color-slot order, depth-last, and every live GPU refresh.
+        u32 active_colors = rt_active_mask & ((1U << NUM_RT) - 1U);
+        while (active_colors != 0) {
+            const size_t index = std::countr_zero(active_colors);
+            active_colors &= active_colors - 1U;
+            const ImageViewId color_buffer_id = render_targets.color_buffer_ids[index];
+            PrepareImageView(color_buffer_id, true, is_clear && IsFullClear(color_buffer_id));
+        }
+        if ((rt_active_mask & (1U << NUM_RT)) != 0) {
+            const ImageViewId depth_buffer_id = render_targets.depth_buffer_id;
+            PrepareImageView(depth_buffer_id, true, is_clear && IsFullClear(depth_buffer_id));
+        }
+#else
+        for (size_t index = 0; index < NUM_RT; ++index) {
+            ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
+            PrepareImageView(color_buffer_id, true, is_clear && IsFullClear(color_buffer_id));
+        }
+        const ImageViewId depth_buffer_id = render_targets.depth_buffer_id;
+        PrepareImageView(depth_buffer_id, true, is_clear && IsFullClear(depth_buffer_id));
+#endif
+        return;
+    }
+
+    const VideoCommon::RenderTargets previous_render_targets = render_targets;
+    const bool rescaled = RescaleRenderTargets();
+    if (is_rescaling != rescaled) {
+        flags[Dirty::RescaleViewports] = true;
+        flags[Dirty::RescaleScissors] = true;
+        is_rescaling = rescaled;
+    }
+
+    for (size_t index = 0; index < NUM_RT; ++index) {
+        ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
+        PrepareImageView(color_buffer_id, true, is_clear && IsFullClear(color_buffer_id));
+    }
+    const ImageViewId depth_buffer_id = render_targets.depth_buffer_id;
+
+    PrepareImageView(depth_buffer_id, true, is_clear && IsFullClear(depth_buffer_id));
+
+    rt_active_mask = 0;
+    rt_image_id = {};
+    for (size_t i = 0; i < rt_image_id.size(); ++i) {
+        if (ImageViewId const view = render_targets.color_buffer_ids[i]; view) {
+            rt_active_mask |= 1u << i;
+            rt_image_id[i] = slot_image_views[view].image_id;
+        }
+    }
+    if (depth_buffer_id) {
+        rt_active_mask |= (1u << NUM_RT);
+        rt_depth_image_id = slot_image_views[depth_buffer_id].image_id;
+    } else {
+        rt_depth_image_id = ImageId{};
+    }
+
+    for (size_t index = 0; index < NUM_RT; ++index) {
+        render_targets.draw_buffers[index] = static_cast<u8>(maxwell3d->regs.rt_control.Map(index));
+    }
+    u32 up_scale = 1;
+    u32 down_shift = 0;
+    if (is_rescaling) {
+        up_scale = Settings::values.resolution_info.up_scale;
+        down_shift = Settings::values.resolution_info.down_shift;
+    }
+    render_targets.size = Extent2D{
+        (maxwell3d->regs.surface_clip.width * up_scale) >> down_shift,
+        (maxwell3d->regs.surface_clip.height * up_scale) >> down_shift,
+    };
+    render_targets.is_rescaled = is_rescaling;
+
+    if (render_targets != previous_render_targets) {
+        ++render_targets_serial;
+    }
+
+    flags[Dirty::DepthBiasGlobal] = true;
+}
+
+template <class P>
+typename P::Framebuffer* TextureCache<P>::GetFramebuffer() {
+    if (last_framebuffer_id && last_framebuffer_serial == render_targets_serial) {
+        return &slot_framebuffers[last_framebuffer_id];
+    }
+    const FramebufferId framebuffer_id = GetFramebufferId(render_targets);
+    last_framebuffer_id = framebuffer_id;
+    last_framebuffer_serial = render_targets_serial;
+    return &slot_framebuffers[framebuffer_id];
+}
+
+template <class P>
+ImageViewId TextureCache<P>::VisitImageView(u32 index, bool compute) {
+    auto& table = compute ? channel_state->compute_image_table : channel_state->graphics_image_table;
+    if (index > table.current_limit) {
+        LOG_DEBUG(HW_GPU, "Invalid image view index={}", index);
+        return NULL_IMAGE_VIEW_ID;
+    }
+    auto const map_index = index | (compute ? Common::SlotId::TAGGED_VALUE : 0);
+    // Is new (on the tegra engine side)?
+    auto const [descriptor, is_new] = table.Read(*gpu_memory, index);
+#ifdef PS5_NATIVE
+    // A GPU remap can retire an image without changing the TIC bytes.
+    // Only check valid cached views; never reuse a remapped backing image.
+    const auto is_remapped_view = [this](ImageViewId id) {
+        if (id == NULL_IMAGE_VIEW_ID) {
+            return false;
+        }
+        const ImageViewBase& view = slot_image_views[id];
+        return !view.IsBuffer() &&
+               True(slot_images[view.image_id].flags & ImageFlagBits::Remapped);
+    };
+#endif
+    if (is_new) {
+        if (IsValidEntry(*gpu_memory, descriptor)) {
+            // Is new (registered view) on the texture cache side?
+            const auto [pair, is_new_tc] = channel_state->image_views.try_emplace(descriptor);
+#ifdef PS5_NATIVE
+            // The descriptor may be new to this slot but share a cached NULL
+            // view with another slot whose first creation failed transiently.
+            if (is_new_tc || pair->second == NULL_IMAGE_VIEW_ID ||
+                is_remapped_view(pair->second))
+#else
+            if (is_new_tc)
+#endif
+                pair->second = CreateImageView(descriptor);
+            PrepareImageView(pair->second, false, false);
+            channel_state->image_view_ids.insert_or_assign(map_index, pair->second);
+            return pair->second;
+        }
+        channel_state->image_view_ids.insert_or_assign(map_index, NULL_IMAGE_VIEW_ID);
+        return NULL_IMAGE_VIEW_ID;
+    }
+    auto const it = channel_state->image_view_ids.find(map_index);
+#ifdef PS5_NATIVE
+    // A null image-view lookup was cached when the TIC had no valid GPU
+    // backing. Remapping a GPU virtual address does NOT rewrite the TIC bytes,
+    // so DescriptorTable::Read returns is_new=false forever and the texture
+    // otherwise stays missing (e.g. streamed HUD/jersey material).
+    // Revalidate NULL views and recover an unexpectedly absent channel
+    // mapping. Valid cached views retain their normal fast path.
+    const bool remapped_cached_view =
+        it != channel_state->image_view_ids.end() && is_remapped_view(it->second);
+    if ((it == channel_state->image_view_ids.end() ||
+         it->second == NULL_IMAGE_VIEW_ID || remapped_cached_view) &&
+        IsValidEntry(*gpu_memory, descriptor)) {
+        const auto [pair, is_new_tc] = channel_state->image_views.try_emplace(descriptor);
+        // CreateImageView can itself return NULL after a transient missing GPU
+        // page. An existing map entry with a NULL value must be retried too;
+        // otherwise the image remains absent for the entire guest session.
+        if (is_new_tc || pair->second == NULL_IMAGE_VIEW_ID ||
+            is_remapped_view(pair->second))
+            pair->second = CreateImageView(descriptor);
+        PrepareImageView(pair->second, false, false);
+        // A remapped cached view can rebuild to NULL even when the TIC bytes
+        // remain valid. Publish both valid->NULL and NULL->valid generation
+        // transitions so feedback/descriptor consumers never retain stale
+        // binding decisions after a failed or successful reconstruction.
+        if (pair->second != NULL_IMAGE_VIEW_ID || remapped_cached_view)
+            ++texture_bindings_serial;
+        channel_state->image_view_ids.insert_or_assign(map_index, pair->second);
+        return pair->second;
+    }
+    // A cached, invalid TIC is allowed to have no live view. Materialize
+    // the NULL mapping so later page residency can revive it safely.
+    if (it == channel_state->image_view_ids.end() || remapped_cached_view) {
+        // If its backing is not resident, publish NULL until it returns.
+        if (remapped_cached_view) {
+            ++texture_bindings_serial;
+        }
+        channel_state->image_view_ids.insert_or_assign(map_index, NULL_IMAGE_VIEW_ID);
+        return NULL_IMAGE_VIEW_ID;
+    }
+#endif
+    if (it->second != NULL_IMAGE_VIEW_ID)
+        PrepareImageView(it->second, false, false);
+    return it->second;
+}
+
+template <class P>
+FramebufferId TextureCache<P>::GetFramebufferId(const RenderTargets& key) {
+    const auto [pair, is_new] = framebuffers.try_emplace(key);
+    FramebufferId& framebuffer_id = pair->second;
+    if (!is_new) {
+        return framebuffer_id;
+    }
+    std::array<ImageView*, NUM_RT> color_buffers;
+    std::ranges::transform(key.color_buffer_ids, color_buffers.begin(), [this](ImageViewId id) {
+        return id ? &slot_image_views[id] : nullptr;
+    });
+    ImageView* const depth_buffer = key.depth_buffer_id ? &slot_image_views[key.depth_buffer_id] : nullptr;
+    runtime.FlushDeferredClear();
+    framebuffer_id = slot_framebuffers.insert(runtime, color_buffers, depth_buffer, key);
+    return framebuffer_id;
+}
+
+template <class P>
+void TextureCache<P>::WriteMemory(DAddr cpu_addr, size_t size) {
+    ForEachImageInRegion(cpu_addr, size, [this](ImageId image_id, Image& image) {
+        if (True(image.flags & ImageFlagBits::CpuModified)) {
+            return;
+        }
+        image.flags |= ImageFlagBits::CpuModified;
+        if (True(image.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(image, image_id);
+        }
+    });
+}
+
+template <class P>
+bool TextureCache<P>::IsDownloadable(const ImageBase& image) const noexcept {
+    if (!image.IsSafeGpuCopy()) {
+        return false;
+    }
+    if (image.info.num_samples == 1) {
+        return true;
+    }
+    if constexpr (P::HAS_MSAA_DOWNLOADS) {
+        return runtime.CanDownloadMsaa(image.info);
+    } else {
+        return false;
+    }
+}
+
+template <class P>
+void TextureCache<P>::DownloadMemory(DAddr cpu_addr, size_t size) {
+    std::optional<Eden::Performance::Timer> cost_timer;
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        if (Eden::Performance::vulkan_cost_enabled.load(std::memory_order_relaxed))
+            cost_timer.emplace(Eden::Performance::vulkan_api[14]);
+    }
+
+    boost::container::small_vector<ImageId, 16> images;
+#ifdef PS5_NATIVE
+    // DownloadMemory can fail after clearing GPU-dirty state but before guest
+    // pixels are published. Restore every touched image on unwinding, even
+    // when an earlier staged image was already copied successfully.
+    const int uncaught_before_readback = std::uncaught_exceptions();
+    SCOPE_EXIT {
+        if (std::uncaught_exceptions() > uncaught_before_readback) {
+            for (const ImageId id : images) {
+                slot_images[id].flags |= ImageFlagBits::GpuModified;
+            }
+        }
+    };
+#endif
+    ForEachImageInRegion(cpu_addr, size, [this, &images](ImageId image_id, ImageBase& image) {
+        if (!IsDownloadable(image)) {
+            return;
+        }
+#ifdef PS5_NATIVE
+        // The list can allocate: track the image BEFORE clearing its flag.
+        images.push_back(image_id);
+        image.flags &= ~ImageFlagBits::GpuModified;
+#else
+        image.flags &= ~ImageFlagBits::GpuModified;
+        images.push_back(image_id);
+#endif
+    });
+    if (images.empty()) {
+        return;
+    }
+    std::ranges::sort(images, [this](ImageId lhs, ImageId rhs) {
+        return slot_images[lhs].modification_tick < slot_images[rhs].modification_tick;
+    });
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        // Keep independent copies in one submission, then publish guest writes
+        // in modification order. A staging allocation stays busy until its tick.
+        using Map = decltype(runtime.DownloadStagingBuffer(size_t{}));
+        // Up to 40 small independent readbacks can now share one GPU
+        // completion fence. Keep their total staging bytes capped at 32 MiB
+        // and publish guest writes in their original modification order.
+        // Pinned Vulkan StagingBufferRef is a non-owning value handle;
+        // the staging pool owns the backing memory and its tick lifetime.
+        constexpr size_t readback_batch_limit = 40;
+        boost::container::small_vector<std::pair<ImageId, Map>, readback_batch_limit> pending;
+        constexpr size_t batch_limit = 32_MiB;
+        size_t batch_bytes = 0;
+        const auto finish_batch = [&] {
+            if (pending.empty()) return;
+            runtime.Finish();
+            for (auto& [image_id, map] : pending) {
+                Image& image = slot_images[image_id];
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, map.mapped_span,
+                             swizzle_data_buffer);
+            }
+            pending.clear();
+            batch_bytes = 0;
+        };
+        for (const ImageId image_id : images) {
+            Image& image = slot_images[image_id];
+            const size_t bytes = image.unswizzled_size_bytes;
+            if (pending.size() == readback_batch_limit || bytes > batch_limit - batch_bytes)
+                finish_batch();
+            auto map = runtime.DownloadStagingBuffer(bytes);
+            const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+            image.DownloadMemory(map, copies);
+            pending.emplace_back(image_id, std::move(map));
+            // Oversized images retain the original one-image allocation/wait.
+            if (bytes >= batch_limit) {
+                finish_batch();
+            } else {
+                batch_bytes += bytes;
+            }
+        }
+        finish_batch();
+        return;
+    }
+
+    for (const ImageId image_id : images) {
+        Image& image = slot_images[image_id];
+        auto map = runtime.DownloadStagingBuffer(image.unswizzled_size_bytes);
+        const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+        image.DownloadMemory(map, copies);
+        runtime.Finish();
+        SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, map.mapped_span,
+                     swizzle_data_buffer);
+    }
+}
+
+template <class P>
+std::optional<VideoCore::RasterizerDownloadArea> TextureCache<P>::GetFlushArea(DAddr cpu_addr,
+                                                                               u64 size) {
+    std::optional<VideoCore::RasterizerDownloadArea> area{};
+    ForEachImageInRegion(cpu_addr, size, [&](ImageId, ImageBase& image) {
+        if (False(image.flags & ImageFlagBits::GpuModified)) {
+            return;
+        }
+        if (!area) {
+            area.emplace();
+            area->start_address = cpu_addr;
+            area->end_address = cpu_addr + size;
+            area->preemtive = true;
+        }
+        area->start_address = (std::min)(area->start_address, image.cpu_addr);
+        area->end_address = (std::max)(area->end_address, image.cpu_addr_end);
+        for (auto image_view_id : image.image_view_ids) {
+            auto& image_view = slot_image_views[image_view_id];
+            image_view.flags |= ImageViewFlagBits::PreemtiveDownload;
+        }
+        area->preemtive &= image.info.forced_flushed;
+        image.info.forced_flushed = true;
+    });
+    return area;
+}
+
+template <class P>
+void TextureCache<P>::UnmapMemory(DAddr cpu_addr, size_t size) {
+    boost::container::small_vector<ImageId, 16> deleted_images;
+    ForEachImageInRegion(cpu_addr, size, [&](ImageId id, Image&) { deleted_images.push_back(id); });
+    for (const ImageId id : deleted_images) {
+        Image& image = slot_images[id];
+        if (True(image.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(image, id);
+        }
+        UnregisterImage(id);
+        DeleteImage(id);
+    }
+}
+
+template <class P>
+void TextureCache<P>::UnmapGPUMemory(size_t as_id, GPUVAddr gpu_addr, size_t size) {
+    boost::container::small_vector<ImageId, 16> deleted_images;
+    ForEachImageInRegionGPU(as_id, gpu_addr, size,
+                            [&](ImageId id, Image&) { deleted_images.push_back(id); });
+    for (const ImageId id : deleted_images) {
+        Image& image = slot_images[id];
+        if (False(image.flags & ImageFlagBits::CpuModified)) {
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, id);
+            }
+        }
+        if (True(image.flags & ImageFlagBits::Remapped)) {
+            continue;
+        }
+        image.flags |= ImageFlagBits::Remapped;
+#ifdef PS5_NATIVE
+        // A sampled view is checked on its next TIC lookup, but render
+        // targets can bypass that lookup. Force only attached remapped views
+        // through the normal framebuffer rebinding path on the next draw.
+        bool framebuffer_affected = false;
+        auto& dirty = maxwell3d->dirty.flags;
+        for (const ImageViewId view_id : image.image_view_ids) {
+            if (view_id == NULL_IMAGE_VIEW_ID) {
+                continue;
+            }
+            if (view_id == render_targets.depth_buffer_id) {
+                dirty[Dirty::ZetaBuffer] = true;
+                framebuffer_affected = true;
+            }
+            for (size_t rt = 0; rt < NUM_RT; ++rt) {
+                if (view_id == render_targets.color_buffer_ids[rt]) {
+                    dirty[Dirty::ColorBuffer0 + rt] = true;
+                    framebuffer_affected = true;
+                }
+            }
+        }
+        if (framebuffer_affected) {
+            dirty[Dirty::RenderTargets] = true;
+        }
+#endif
+    }
+}
+
+template <class P>
+bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
+                                const Tegra::Engines::Fermi2D::Surface& src,
+                                const Tegra::Engines::Fermi2D::Config& copy) {
+    const auto result = GetBlitImages(dst, src, copy);
+    if (!result) {
+        return false;
+    }
+    const BlitImages images = *result;
+    const ImageId dst_id = images.dst_id;
+    const ImageId src_id = images.src_id;
+
+    PrepareImage(src_id, false, false);
+    PrepareImage(dst_id, true, false);
+
+    Image& dst_image = slot_images[dst_id];
+    Image& src_image = slot_images[src_id];
+    bool is_src_rescaled = True(src_image.flags & ImageFlagBits::Rescaled);
+    bool is_dst_rescaled = True(dst_image.flags & ImageFlagBits::Rescaled);
+
+    const bool is_resolve = src_image.info.num_samples != 1 && dst_image.info.num_samples == 1;
+    if (is_src_rescaled != is_dst_rescaled) {
+        if (ImageCanRescale(src_image)) {
+            ScaleUp(src_image);
+            is_src_rescaled = True(src_image.flags & ImageFlagBits::Rescaled);
+            if (is_resolve) {
+                dst_image.info.rescaleable = true;
+                for (const auto& alias : dst_image.aliased_images) {
+                    Image& other_image = slot_images[alias.id];
+                    other_image.info.rescaleable = true;
+                }
+            }
+        }
+        if (ImageCanRescale(dst_image)) {
+            ScaleUp(dst_image);
+            is_dst_rescaled = True(dst_image.flags & ImageFlagBits::Rescaled);
+        }
+    }
+    if (is_resolve && (is_src_rescaled != is_dst_rescaled)) {
+        // A resolve requires both images to be the same dimensions. Resize down if needed.
+        ScaleDown(src_image);
+        ScaleDown(dst_image);
+        is_src_rescaled = True(src_image.flags & ImageFlagBits::Rescaled);
+        is_dst_rescaled = True(dst_image.flags & ImageFlagBits::Rescaled);
+    }
+    const auto& resolution = Settings::values.resolution_info;
+    const auto scale_region = [&](Region2D& region) {
+        region.start.x = resolution.ScaleUp(region.start.x);
+        region.start.y = resolution.ScaleUp(region.start.y);
+        region.end.x = resolution.ScaleUp(region.end.x);
+        region.end.y = resolution.ScaleUp(region.end.y);
+    };
+
+    // TODO: Deduplicate
+    const std::optional src_base = src_image.TryFindBase(src.Address());
+    const SubresourceRange src_range{.base = src_base.value(), .extent = {1, 1}};
+    const ImageViewInfo src_view_info(ImageViewType::e2D, images.src_format, src_range);
+    const auto [src_framebuffer_id, src_view_id] = RenderTargetFromImage(src_id, src_view_info);
+    const auto [src_samples_x, src_samples_y] = SamplesLog2(src_image.info.num_samples);
+    Region2D src_region{
+        Offset2D{.x = copy.src_x0 >> src_samples_x, .y = copy.src_y0 >> src_samples_y},
+        Offset2D{.x = copy.src_x1 >> src_samples_x, .y = copy.src_y1 >> src_samples_y},
+    };
+    if (is_src_rescaled) {
+        scale_region(src_region);
+    }
+
+    const std::optional dst_base = dst_image.TryFindBase(dst.Address());
+    const SubresourceRange dst_range{.base = dst_base.value(), .extent = {1, 1}};
+    const ImageViewInfo dst_view_info(ImageViewType::e2D, images.dst_format, dst_range);
+    const auto [dst_framebuffer_id, dst_view_id] = RenderTargetFromImage(dst_id, dst_view_info);
+    const auto [dst_samples_x, dst_samples_y] = SamplesLog2(dst_image.info.num_samples);
+    Region2D dst_region{
+        Offset2D{.x = copy.dst_x0 >> dst_samples_x, .y = copy.dst_y0 >> dst_samples_y},
+        Offset2D{.x = copy.dst_x1 >> dst_samples_x, .y = copy.dst_y1 >> dst_samples_y},
+    };
+    if (is_dst_rescaled) {
+        scale_region(dst_region);
+    }
+
+    // Always call this after src_framebuffer_id was queried, as the address might be invalidated.
+    Framebuffer* const dst_framebuffer = &slot_framebuffers[dst_framebuffer_id];
+    if constexpr (FRAMEBUFFER_BLITS) {
+        // OpenGL blits from framebuffers, not images
+        Framebuffer* const src_framebuffer = &slot_framebuffers[src_framebuffer_id];
+        runtime.BlitFramebuffer(dst_framebuffer, src_framebuffer, dst_region, src_region,
+                                copy.filter, copy.operation);
+    } else {
+        // Vulkan can blit images, but it lacks format reinterpretations
+        // Provide a framebuffer in case it's necessary
+        ImageView& dst_view = slot_image_views[dst_view_id];
+        ImageView& src_view = slot_image_views[src_view_id];
+        runtime.BlitImage(dst_framebuffer, dst_view, src_view, dst_region, src_region, copy.filter,
+                          copy.operation);
+    }
+    return true;
+}
+
+template <class P>
+std::pair<typename P::ImageView*, bool> TextureCache<P>::TryFindFramebufferImageView(
+    const Tegra::FramebufferConfig& config, DAddr cpu_addr) {
+    // TODO: Properly implement this
+    const auto it = page_table.find(cpu_addr >> YUZU_PAGEBITS);
+    if (it == page_table.end()) {
+        return {};
+    }
+    const auto& image_map_ids = it->second;
+#ifdef PS5_NATIVE
+    // Keep the best admissible view during the scan: no small_vector growth or
+    // second pass while the compositor owns texture_cache.mutex.
+    ImageId freshest_id{};
+    bool freshest_found = false;
+    std::uint64_t freshest_tick{};
+#else
+    boost::container::small_vector<ImageId, 4> valid_image_ids;
+#endif
+    for (const ImageMapId map_id : image_map_ids) {
+        const ImageMapView& map = slot_map_views[map_id];
+        const ImageBase& image = slot_images[map.image_id];
+        if (image.cpu_addr != cpu_addr) {
+            continue;
+        }
+#ifdef PS5_NATIVE
+        // A remapped image or one dirtied by guest CPU writes cannot be
+        // sampled as an unchanged accelerated display framebuffer. Fall back
+        // to the guest-memory upload until its Vulkan image is refreshed.
+        // Another image for this same guest address can still be clean but
+        // older. While ANY matching image decodes new pixels, no accelerated
+        // candidate can prove freshness. Upload guest bytes for this frame.
+        if (True(image.flags & ImageFlagBits::IsDecoding)) {
+            return {};
+        }
+        // A dirty or remapped sibling at the SAME guest address also
+        // invalidates older clean accelerated candidates. CPU guest bytes
+        // must win until all conflicting cache images have been refreshed.
+        if (True(image.flags & (ImageFlagBits::Remapped | ImageFlagBits::CpuModified))) {
+            return {};
+        }
+#endif
+        if (image.image_view_ids.empty()) {
+            continue;
+        }
+#ifdef PS5_NATIVE
+        // Match ranges::max_element: the first candidate wins equal ticks.
+        if (!freshest_found ||
+            freshest_tick < image.modification_tick) {
+            freshest_id = map.image_id;
+            freshest_tick = image.modification_tick;
+            freshest_found = true;
+        }
+#else
+        valid_image_ids.push_back(map.image_id);
+#endif
+    }
+
+    const auto view_format = [&]() {
+        switch (config.pixel_format) {
+        case Service::android::PixelFormat::Rgb565:
+            return PixelFormat::R5G6B5_UNORM;
+        case Service::android::PixelFormat::Bgra8888:
+            return PixelFormat::B8G8R8A8_UNORM;
+        default:
+            return PixelFormat::A8B8G8R8_UNORM;
+        }
+    }();
+
+    const auto GetImageViewForFramebuffer = [&](ImageId image_id) {
+        ImageViewInfo info{ImageViewType::e2D, view_format};
+        if (config.blending == Tegra::BlendMode::Opaque) {
+            info.x_source = static_cast<u8>(SwizzleSource::R);
+            info.y_source = static_cast<u8>(SwizzleSource::G);
+            info.z_source = static_cast<u8>(SwizzleSource::B);
+            info.w_source = static_cast<u8>(SwizzleSource::OneFloat);
+        }
+        return std::make_pair(&slot_image_views[FindOrEmplaceImageView(image_id, info)],
+                              slot_images[image_id].IsRescaled());
+    };
+
+#ifdef PS5_NATIVE
+    if (freshest_found) [[likely]] {
+        return GetImageViewForFramebuffer(freshest_id);
+    }
+#else
+    if (valid_image_ids.size() == 1) [[likely]] {
+        return GetImageViewForFramebuffer(valid_image_ids.front());
+    }
+
+    if (valid_image_ids.size() > 0) [[unlikely]] {
+        auto most_recent = std::ranges::max_element(valid_image_ids, [&](auto a, auto b) {
+            return slot_images[a].modification_tick < slot_images[b].modification_tick;
+        });
+        return GetImageViewForFramebuffer(*most_recent);
+    }
+#endif
+    return {};
+}
+
+template <class P>
+bool TextureCache<P>::HasUncommittedFlushes() const noexcept {
+    return !uncommitted_downloads.empty();
+}
+
+template <class P>
+bool TextureCache<P>::ShouldWaitAsyncFlushes() const noexcept {
+    return !committed_downloads.empty() && !committed_downloads.front().empty();
+}
+
+template <class P>
+void TextureCache<P>::CommitAsyncFlushes() {
+    // This is intentionally passing the value by copy
+    if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
+        auto& download_ids = uncommitted_downloads;
+        if (download_ids.empty()) {
+#ifndef PS5_NATIVE
+            committed_downloads.emplace_back(std::move(uncommitted_downloads));
+            uncommitted_downloads.clear();
+            async_buffers.emplace_back(std::move(uncommitted_async_buffers));
+            uncommitted_async_buffers.clear();
+            return;
+#endif
+            // Native empty batches use the same atomic pair-publication below.
+        }
+#ifdef PS5_NATIVE
+        // Already-enqueued DMA staging belongs to its existing pending slots.
+        // Only the extra swizzle batch allocated below may be discarded on
+        // failed publication; never lose or duplicate earlier DMA reservations.
+        const size_t initial_staging_count = uncommitted_async_buffers.size();
+        bool batch_published = false;
+        SCOPE_EXIT {
+            if (!batch_published) {
+                while (uncommitted_async_buffers.size() > initial_staging_count) {
+                    runtime.FreeDeferredStagingBuffer(uncommitted_async_buffers.back());
+                    uncommitted_async_buffers.pop_back();
+                }
+            }
+        };
+#endif
+        size_t total_size_bytes = 0;
+        size_t last_async_buffer_id = uncommitted_async_buffers.size();
+        bool any_none_dma = false;
+        for (PendingDownload& download_info : download_ids) {
+            if (download_info.is_swizzle) {
+#ifdef PS5_NATIVE
+                // Both 64-byte alignment and batch accumulation must fit in
+                // size_t BEFORE staging allocation. An overflow would make a
+                // mapped buffer look large enough for a smaller, wrapped batch.
+                const size_t bytes = slot_images[download_info.object_id].unswizzled_size_bytes;
+                constexpr size_t max_bytes = (std::numeric_limits<size_t>::max)();
+                if (bytes > max_bytes - 63) {
+                    throw std::bad_alloc{};
+                }
+                const size_t aligned_bytes = Common::AlignUp(bytes, size_t{64});
+                if (aligned_bytes > max_bytes - total_size_bytes) {
+                    throw std::bad_alloc{};
+                }
+                total_size_bytes += aligned_bytes;
+#else
+                total_size_bytes +=
+                    Common::AlignUp(slot_images[download_info.object_id].unswizzled_size_bytes, 64);
+#endif
+                any_none_dma = true;
+                download_info.async_buffer_id = last_async_buffer_id;
+            }
+        }
+
+        if (any_none_dma) {
+            auto download_map = runtime.DownloadStagingBuffer(total_size_bytes, true);
+#ifdef PS5_NATIVE
+            // The pinned staging handle does not own its pool reservation.
+            // If command recording or queue growth fails, keep this buffer
+            // GPU-safe in the deferred pool and leave the commit retryable.
+            bool staging_transferred = false;
+            SCOPE_EXIT {
+                if (!staging_transferred) runtime.FreeDeferredStagingBuffer(download_map);
+            };
+#endif
+            for (const PendingDownload& download_info : download_ids) {
+                if (download_info.is_swizzle) {
+                    Image& image = slot_images[download_info.object_id];
+                    const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                    image.DownloadMemory(download_map, copies);
+                    download_map.offset += Common::AlignUp(image.unswizzled_size_bytes, 64);
+                }
+            }
+            uncommitted_async_buffers.emplace_back(download_map);
+#ifdef PS5_NATIVE
+            staging_transferred = true;
+#endif
+        }
+
+#ifdef PS5_NATIVE
+        // Publish the buffers and their identifiers as one logical pair.
+        // A rejected second deque insertion must restore the first queue
+        // before allowing another batch to reuse these staging indices.
+        async_buffers.emplace_back(std::move(uncommitted_async_buffers));
+        try {
+            committed_downloads.emplace_back(std::move(uncommitted_downloads));
+        } catch (...) {
+            uncommitted_async_buffers = std::move(async_buffers.back());
+            async_buffers.pop_back();
+            throw;
+        }
+        batch_published = true;
+        uncommitted_async_buffers.clear();
+        uncommitted_downloads.clear();
+        return;
+#else
+        async_buffers.emplace_back(std::move(uncommitted_async_buffers));
+        uncommitted_async_buffers.clear();
+#endif
+    }
+    committed_downloads.emplace_back(std::move(uncommitted_downloads));
+    uncommitted_downloads.clear();
+}
+
+template <class P>
+void TextureCache<P>::PopAsyncFlushes() {
+    std::optional<Eden::Performance::Timer> cost_timer;
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        if (Eden::Performance::vulkan_cost_enabled.load(std::memory_order_relaxed))
+            cost_timer.emplace(Eden::Performance::vulkan_api[15]);
+    }
+
+    if (committed_downloads.empty()) {
+        return;
+    }
+    if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
+        const auto& download_ids = committed_downloads.front();
+        if (download_ids.empty()) {
+#ifdef PS5_NATIVE
+            // An empty async batch can still own deferred staging handles
+            // after an interrupted DMA or an empty pair publication.
+            // StagingBufferRef is non-owning: dequeueing it is not a free.
+            for (auto& buffer : async_buffers.front()) {
+                runtime.FreeDeferredStagingBuffer(buffer);
+            }
+#endif
+            committed_downloads.pop_front();
+            async_buffers.pop_front();
+            return;
+        }
+#ifdef PS5_NATIVE
+        // Keep staging queued until the entire guest download is consumed.
+        // Save only offsets (usually <= 4), not a full vector of handles.
+        auto& download_map = async_buffers.front();
+        boost::container::small_vector<size_t, 4> remaining_offsets;
+        remaining_offsets.reserve(download_map.size());
+        for (const auto& buffer : download_map) {
+            remaining_offsets.push_back(buffer.offset);
+        }
+        // Reserve deferred returns BEFORE guest writes. On any failure,
+        // discard only newly queued returns and retry the intact batch.
+        const size_t previous_death_count = async_buffers_death_ring.size();
+        bool batch_consumed = false;
+        SCOPE_EXIT {
+            if (!batch_consumed) {
+                while (async_buffers_death_ring.size() > previous_death_count) {
+                    async_buffers_death_ring.pop_back();
+                }
+            }
+        };
+        for (const auto& buffer : download_map) {
+            async_buffers_death_ring.emplace_back(buffer);
+        }
+        for (size_t i = download_ids.size(); i > 0; --i) {
+            const auto& download_info = download_ids[i - 1];
+            if (download_info.async_buffer_id >= download_map.size()) {
+                throw std::bad_alloc{};
+            }
+            const auto& download_buffer = download_map[download_info.async_buffer_id];
+            auto& offset = remaining_offsets[download_info.async_buffer_id];
+            if (!download_buffer.buffer || offset > download_buffer.mapped_span.size()) {
+                throw std::bad_alloc{};
+            }
+            if (download_info.is_swizzle) {
+                const ImageBase& image = slot_images[download_info.object_id];
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                const size_t bytes = image.unswizzled_size_bytes;
+                if (bytes > (std::numeric_limits<size_t>::max)() - 63) {
+                    throw std::bad_alloc{};
+                }
+                const size_t aligned = Common::AlignUp(bytes, size_t{64});
+                if (aligned > offset) {
+                    throw std::bad_alloc{};
+                }
+                offset -= aligned;
+                std::span<u8> download_span = download_buffer.mapped_span.subspan(offset);
+                SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, download_span,
+                             swizzle_data_buffer);
+            } else {
+                const BufferDownload& buffer_info = slot_buffer_downloads[download_info.object_id];
+                if (buffer_info.size > download_buffer.mapped_span.size() - offset) {
+                    throw std::bad_alloc{};
+                }
+                std::span<u8> download_span = download_buffer.mapped_span.subspan(offset);
+                gpu_memory->WriteBlockUnsafe(buffer_info.address, download_span.data(),
+                                             buffer_info.size);
+            }
+        }
+        // Do not erase DMA slots until every guest write has succeeded.
+        for (const auto& download_info : download_ids) {
+            if (!download_info.is_swizzle) {
+                slot_buffer_downloads.erase(download_info.object_id);
+            }
+        }
+        committed_downloads.pop_front();
+        async_buffers.pop_front();
+        batch_consumed = true;
+#else
+        auto download_map = std::move(async_buffers.front());
+        for (size_t i = download_ids.size(); i > 0; i--) {
+            auto& download_info = download_ids[i - 1];
+            auto& download_buffer = download_map[download_info.async_buffer_id];
+            if (download_info.is_swizzle) {
+                const ImageBase& image = slot_images[download_info.object_id];
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                download_buffer.offset -= Common::AlignUp(image.unswizzled_size_bytes, 64);
+                std::span<u8> download_span =
+                    download_buffer.mapped_span.subspan(download_buffer.offset);
+                SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, download_span, swizzle_data_buffer);
+            } else {
+                const BufferDownload& buffer_info = slot_buffer_downloads[download_info.object_id];
+                std::span<u8> download_span =
+                    download_buffer.mapped_span.subspan(download_buffer.offset);
+                gpu_memory->WriteBlockUnsafe(buffer_info.address, download_span.data(),
+                                             buffer_info.size);
+                slot_buffer_downloads.erase(download_info.object_id);
+            }
+        }
+        for (auto& download_buffer : download_map) {
+            async_buffers_death_ring.emplace_back(download_buffer);
+        }
+        committed_downloads.pop_front();
+        async_buffers.pop_front();
+#endif
+    } else {
+        const auto& download_ids = committed_downloads.front();
+        if (download_ids.empty()) {
+            committed_downloads.pop_front();
+            return;
+        }
+        size_t total_size_bytes = 0;
+        for (const PendingDownload& download_info : download_ids) {
+            if (download_info.is_swizzle) {
+                total_size_bytes += slot_images[download_info.object_id].unswizzled_size_bytes;
+            }
+        }
+        auto download_map = runtime.DownloadStagingBuffer(total_size_bytes);
+        const size_t original_offset = download_map.offset;
+        for (const PendingDownload& download_info : download_ids) {
+            if (!download_info.is_swizzle) {
+                continue;
+            }
+            Image& image = slot_images[download_info.object_id];
+            const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+            image.DownloadMemory(download_map, copies);
+            download_map.offset += image.unswizzled_size_bytes;
+        }
+        // Wait for downloads to finish
+        runtime.Finish();
+        download_map.offset = original_offset;
+        std::span<u8> download_span = download_map.mapped_span;
+        for (const PendingDownload& download_info : download_ids) {
+            if (!download_info.is_swizzle) {
+                continue;
+            }
+            const ImageBase& image = slot_images[download_info.object_id];
+            const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+            SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, download_span, swizzle_data_buffer);
+            download_map.offset += image.unswizzled_size_bytes;
+            download_span = download_span.subspan(image.unswizzled_size_bytes);
+        }
+        committed_downloads.pop_front();
+    }
+}
+
+template <class P>
+ImageId TextureCache<P>::DmaImageId(const Tegra::DMA::ImageOperand& operand, bool is_upload) {
+    const ImageInfo dst_info(operand);
+    const ImageId dst_id = FindDMAImage(dst_info, operand.address);
+    if (!dst_id) {
+        return NULL_IMAGE_ID;
+    }
+    auto& image = slot_images[dst_id];
+    if (False(image.flags & ImageFlagBits::GpuModified)) {
+        // No need to waste time on an image that's synced with guest
+        return NULL_IMAGE_ID;
+    }
+    if (image.info.type == ImageType::e3D) {
+        // Don't accelerate 3D images.
+        return NULL_IMAGE_ID;
+    }
+    if (!is_upload && !image.info.dma_downloaded) {
+        // Force a full sync.
+        image.info.dma_downloaded = true;
+        return NULL_IMAGE_ID;
+    }
+    const auto base = image.TryFindBase(operand.address);
+    if (!base) {
+        return NULL_IMAGE_ID;
+    }
+    return dst_id;
+}
+
+template <class P>
+bool TextureCache<P>::IsRescaling() const noexcept {
+    return is_rescaling;
+}
+
+template <class P>
+bool TextureCache<P>::IsRescaling(const ImageViewBase& image_view) const noexcept {
+    if (image_view.type == ImageViewType::Buffer) {
+        return false;
+    }
+    const ImageBase& image = slot_images[image_view.image_id];
+    return True(image.flags & ImageFlagBits::Rescaled);
+}
+
+template <class P>
+bool TextureCache<P>::IsRegionGpuModified(DAddr addr, size_t size) {
+    bool is_modified = false;
+    ForEachImageInRegion(addr, size, [&is_modified](ImageId, ImageBase& image) {
+        if (False(image.flags & ImageFlagBits::GpuModified)) {
+            return false;
+        }
+        is_modified = true;
+        return true;
+    });
+    return is_modified;
+}
+
+template <class P>
+std::pair<typename TextureCache<P>::Image*, BufferImageCopy> TextureCache<P>::DmaBufferImageCopy(
+    const Tegra::DMA::ImageCopy& copy_info, const Tegra::DMA::BufferOperand& buffer_operand,
+    const Tegra::DMA::ImageOperand& image_operand, ImageId image_id, bool modifies_image) {
+    const auto [level, base] = PrepareDmaImage(image_id, image_operand.address, modifies_image);
+    auto* image = &slot_images[image_id];
+    const u32 buffer_size = static_cast<u32>(buffer_operand.pitch * buffer_operand.height);
+    const u32 bpp = VideoCore::Surface::BytesPerBlock(image->info.format);
+    const auto convert = [old_bpp = image_operand.bytes_per_pixel, bpp](u32 value) {
+        return (old_bpp * value) / bpp;
+    };
+    const u32 base_x = convert(image_operand.params.origin.x.Value());
+    const u32 base_y = image_operand.params.origin.y.Value();
+    const u32 length_x = convert(copy_info.length_x);
+    const u32 length_y = copy_info.length_y;
+
+    const BufferImageCopy copy{
+        .buffer_offset = 0,
+        .buffer_size = buffer_size,
+        .buffer_row_length = convert(buffer_operand.pitch),
+        .buffer_image_height = buffer_operand.height,
+        .image_subresource =
+            {
+                .base_level = static_cast<s32>(level),
+                .base_layer = static_cast<s32>(base),
+                .num_layers = 1,
+            },
+        .image_offset =
+            {
+                .x = static_cast<s32>(base_x),
+                .y = static_cast<s32>(base_y),
+                .z = 0,
+            },
+        .image_extent =
+            {
+                .width = length_x,
+                .height = length_y,
+                .depth = 1,
+            },
+    };
+    return {image, copy};
+}
+
+template <class P>
+void TextureCache<P>::DownloadImageIntoBuffer(typename TextureCache<P>::Image* image,
+                                              typename TextureCache<P>::BufferType buffer,
+                                              size_t buffer_offset,
+                                              std::span<const VideoCommon::BufferImageCopy> copies,
+                                              GPUVAddr address, size_t size) {
+    if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
+        const BufferDownload new_buffer_download{address, size};
+        auto slot = slot_buffer_downloads.insert(new_buffer_download);
+#ifdef PS5_NATIVE
+        // If staging or command submission fails, the DMA must not remain
+        // registered as a completed/pending guest-memory download.
+        bool pending_recorded = false;
+        bool staging_recorded = false;
+        bool download_submitted = false;
+        SCOPE_EXIT {
+            if (!download_submitted) {
+                if (staging_recorded) {
+                    runtime.FreeDeferredStagingBuffer(uncommitted_async_buffers.back());
+                    uncommitted_async_buffers.pop_back();
+                }
+                if (pending_recorded) uncommitted_downloads.pop_back();
+                slot_buffer_downloads.erase(slot);
+            }
+        };
+#endif
+        const PendingDownload new_download{false, uncommitted_async_buffers.size(), slot};
+        uncommitted_downloads.emplace_back(new_download);
+#ifdef PS5_NATIVE
+        pending_recorded = true;
+#endif
+        auto download_map = runtime.DownloadStagingBuffer(size, true);
+#ifdef PS5_NATIVE
+        try {
+            uncommitted_async_buffers.emplace_back(download_map);
+        } catch (...) {
+            // A non-owning staging handle still needs a deferred pool return.
+            runtime.FreeDeferredStagingBuffer(download_map);
+            throw;
+        }
+        staging_recorded = true;
+#else
+        uncommitted_async_buffers.emplace_back(download_map);
+#endif
+        std::array buffers{
+            buffer,
+            download_map.buffer,
+        };
+        std::array<size_t, 2> buffer_offsets{
+            buffer_offset,
+            download_map.offset,
+        };
+        image->DownloadMemory(buffers, buffer_offsets, copies);
+#ifdef PS5_NATIVE
+        download_submitted = true;
+#endif
+    } else {
+        image->DownloadMemory(buffer, buffer_offset, copies);
+    }
+}
+
+template <class P>
+void TextureCache<P>::RefreshContents(Image& image, ImageId image_id) {
+    if (False(image.flags & ImageFlagBits::CpuModified)) {
+        // Only upload modified images
+        return;
+    }
+#ifdef PS5_NATIVE
+    // A previous asynchronous upload still owns this image. Guest CPU
+    // writes must remain dirty until that decode completes; otherwise
+    // another RefreshContents could clear CpuModified and queue an older
+    // revision behind the in-flight job, leaving HUD pixels stale.
+    if (True(image.flags & ImageFlagBits::IsDecoding)) {
+        return;
+    }
+#endif
+
+#ifdef PS5_NATIVE
+    ::Eden::Performance::CachePhaseTimer upload_phase{
+        ::Eden::Performance::CachePhase::TextureCpuRefresh};
+#endif
+    image.flags &= ~ImageFlagBits::CpuModified;
+#ifdef PS5_NATIVE
+    // Synchronous upload failure must not leave the CPU image incorrectly clean.
+    bool upload_completed = false;
+    SCOPE_EXIT {
+        if (!upload_completed) {
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, image_id);
+            }
+            image.flags |= ImageFlagBits::CpuModified;
+        }
+    };
+#endif
+
+    TrackImage(image, image_id);
+
+    if (image.info.num_samples > 1 && !runtime.CanUploadMSAA()) {
+        LOG_WARNING(HW_GPU, "MSAA image uploads are not implemented");
+        runtime.TransitionImageLayout(image);
+#ifdef PS5_NATIVE
+        upload_completed = true;  // Intentional unsupported MSAA fallback.
+#endif
+        return;
+    }
+    if (True(image.flags & ImageFlagBits::AsynchronousDecode)) {
+        QueueAsyncDecode(image, image_id);
+#ifdef PS5_NATIVE
+        upload_completed = true;  // Decode handoff accepted.
+#endif
+        return;
+    }
+
+    const bool gpu_unswizzle_enabled = Settings::values.gpu_unswizzle_enabled.GetValue();
+
+    if (gpu_unswizzle_enabled &&
+#ifdef PS5_NATIVE
+        // Live GPU setting can enable unswizzle after cache construction;
+        // zero-sized chunks or batches cannot submit any GPU slices.
+        swizzle_chunk_size != 0 && swizzle_slices_per_batch != 0 &&
+#endif
+        IsPixelFormatBCn(image.info.format) &&
+        image.info.type == ImageType::e3D &&
+        image.info.resources.levels == 1 &&
+        image.info.resources.layers == 1 &&
+        MapSizeBytes(image) >= gpu_unswizzle_maxsize &&
+        False(image.flags & ImageFlagBits::GpuModified)) {
+
+        QueueAsyncUnswizzle(image, image_id);
+#ifdef PS5_NATIVE
+        upload_completed = true;  // Unswizzle handoff accepted.
+#endif
+        return;
+    }
+#ifdef PS5_NATIVE
+    // F07: isolate staging allocation, CPU decode/unswizzle and the required
+    // upload barrier within the existing 1-in-16 sampled refresh.
+    // No lock, image flag, command order or guest-visible upload is changed.
+    ::Eden::Performance::CachePhaseTimer staging_phase{
+        ::Eden::Performance::CachePhase::TextureUploadStaging};
+#endif
+#ifdef PS5_NATIVE
+    try {
+#endif
+#ifdef PS5_NATIVE
+    const size_t upload_size = MapSizeBytes(image);
+    auto staging = runtime.UploadStagingBuffer(upload_size);
+    if (!staging.buffer || staging.mapped_span.size_bytes() < upload_size) {
+        // No valid image bytes can be uploaded from an incomplete mapping.
+        // The existing rollback scope guard retains CpuModified for retry.
+        return;
+    }
+#else
+    auto staging = runtime.UploadStagingBuffer(MapSizeBytes(image));
+#endif
+#ifdef PS5_NATIVE
+    staging_phase.Stop();
+    ::Eden::Performance::CachePhaseTimer contents_phase{
+        ::Eden::Performance::CachePhase::TextureUploadContents};
+#endif
+    UploadImageContents(image, staging);
+#ifdef PS5_NATIVE
+    contents_phase.Stop();
+    ::Eden::Performance::CachePhaseTimer barrier_phase{
+        ::Eden::Performance::CachePhase::TextureUploadBarrier};
+#endif
+    runtime.InsertUploadMemoryBarrier();
+#ifdef PS5_NATIVE
+    barrier_phase.Stop();
+    upload_completed = true;
+    } catch (const std::bad_alloc&) {
+        // A transient staging/CPU conversion OOM must not abort the GPU owner.
+        // The existing scope guard untracks and keeps the revision dirty.
+        return;
+    }
+#endif
+}
+
+template <class P>
+template <typename StagingBuffer>
+void TextureCache<P>::UploadImageContents(Image& image, StagingBuffer& staging) {
+    const std::span<u8> mapped_span = staging.mapped_span;
+    const GPUVAddr gpu_addr = image.gpu_addr;
+
+    if (True(image.flags & ImageFlagBits::AcceleratedUpload)) {
+#ifdef PS5_NATIVE
+        // A pooled staging buffer may be power-of-two rounded and expose
+        // more mapped bytes than the image requested. Do not read unrelated
+        // guest memory or waste CPU DMA time filling the unused tail.
+        gpu_memory->ReadBlock(gpu_addr, mapped_span.data(), MapSizeBytes(image),
+                              VideoCommon::CacheType::NoTextureCache);
+#else
+        gpu_memory->ReadBlock(gpu_addr, mapped_span.data(), mapped_span.size_bytes(),
+                              VideoCommon::CacheType::NoTextureCache);
+#endif
+        const auto uploads = FullUploadSwizzles(image.info);
+        runtime.AccelerateImageUpload(image, staging, FixSmallVectorADL(uploads), 0, 0);
+        return;
+    }
+
+    Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::UnsafeRead> swizzle_data(
+        *gpu_memory, gpu_addr, image.guest_size_bytes, &swizzle_data_buffer);
+    if (True(image.flags & ImageFlagBits::Converted)) {
+        unswizzle_data_buffer.resize_destructive(image.unswizzled_size_bytes);
+        auto copies = FixSmallVectorADL(UnswizzleImage(*gpu_memory, gpu_addr, image.info, swizzle_data, unswizzle_data_buffer));
+        ConvertImage(unswizzle_data_buffer, image.info, mapped_span, copies);
+        image.UploadMemory(staging, copies);
+    } else {
+        const auto copies = FixSmallVectorADL(UnswizzleImage(*gpu_memory, gpu_addr, image.info, swizzle_data, mapped_span));
+        image.UploadMemory(staging, copies);
+    }
+}
+
+template <class P>
+ImageViewId TextureCache<P>::CreateImageView(const TICEntry& config) {
+    const ImageInfo info(config);
+    if (info.type == ImageType::Buffer) {
+        const ImageViewInfo view_info(config, 0);
+        return slot_image_views.insert(runtime, info, view_info, config.Address());
+    }
+#ifdef PS5_NATIVE
+    // TIC base-layer offsets are byte addresses, not 32-bit arithmetic.
+    // Reject invalid addresses before a wrapped image mapping is created.
+    const u64 layer_offset = static_cast<u64>(config.BaseLayer()) * info.layer_stride;
+    if (layer_offset > config.Address()) {
+        return NULL_IMAGE_VIEW_ID;
+    }
+#else
+    const u32 layer_offset = config.BaseLayer() * info.layer_stride;
+#endif
+    const GPUVAddr image_gpu_addr = config.Address() - layer_offset;
+    const ImageId image_id = FindOrInsertImage(info, image_gpu_addr);
+    if (!image_id) {
+        return NULL_IMAGE_VIEW_ID;
+    }
+    ImageBase& image = slot_images[image_id];
+#ifdef PS5_NATIVE
+    // A remapped or incomplete texture may not contain the requested layer.
+    // Defer this view instead of dereferencing an empty optional on the GPU
+    // worker; the existing NULL-view retry path can rebuild it later.
+    const auto base = image.TryFindBase(config.Address());
+    if (!base) {
+        return NULL_IMAGE_VIEW_ID;
+    }
+    ASSERT(base->level == 0);
+    const ImageViewInfo view_info(config, base->layer);
+#else
+    const SubresourceBase base = image.TryFindBase(config.Address()).value();
+    ASSERT(base.level == 0);
+    const ImageViewInfo view_info(config, base.layer);
+#endif
+    const ImageViewId image_view_id = FindOrEmplaceImageView(image_id, view_info);
+    ImageViewBase& image_view = slot_image_views[image_view_id];
+    image_view.flags |= ImageViewFlagBits::Strong;
+    image.flags |= ImageFlagBits::Strong;
+    return image_view_id;
+}
+
+template <class P>
+ImageId TextureCache<P>::FindOrInsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
+                                           RelaxedOptions options) {
+    if (const ImageId image_id = FindImage(info, gpu_addr, options); image_id) {
+        return image_id;
+    }
+    return InsertImage(info, gpu_addr, options);
+}
+
+template <class P>
+ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
+                                   RelaxedOptions options) {
+    std::optional<DAddr> cpu_addr = gpu_memory->GpuToCpuAddress(gpu_addr);
+    if (!cpu_addr) {
+        cpu_addr = gpu_memory->GpuToCpuAddress(gpu_addr, CalculateGuestSizeInBytes(info));
+        if (!cpu_addr) {
+            return ImageId{};
+        }
+    }
+    const bool broken_views =
+        runtime.HasBrokenTextureViewFormats() || True(options & RelaxedOptions::ForceBrokenViews);
+    const bool native_bgr = runtime.HasNativeBgr();
+    const bool flexible_formats = True(options & RelaxedOptions::Format);
+    ImageId image_id{};
+#ifdef PS5_NATIVE
+    // Keep the first highest-tick match during the existing region walk:
+    // no candidate vector, no second texture-cache slot scan under its mutex.
+    u64 newest_candidate_tick{};
+    bool has_candidate = false;
+    const auto SelectCandidate = [&](ImageId id, const ImageBase& image) {
+        if (!has_candidate || newest_candidate_tick < image.modification_tick) {
+            image_id = id;
+            newest_candidate_tick = image.modification_tick;
+            has_candidate = true;
+        }
+    };
+#else
+    boost::container::small_vector<ImageId, 8> image_ids;
+#endif
+    const auto lambda = [&](ImageId existing_image_id, ImageBase& existing_image) {
+        if (True(existing_image.flags & ImageFlagBits::Remapped)) {
+            return false;
+        }
+        if (info.type == ImageType::Linear || existing_image.info.type == ImageType::Linear)
+            [[unlikely]] {
+            const bool strict_size = False(options & RelaxedOptions::Size) &&
+                                     True(existing_image.flags & ImageFlagBits::Strong);
+            const ImageInfo& existing = existing_image.info;
+            if (existing_image.gpu_addr == gpu_addr && existing.type == info.type &&
+                existing.pitch == info.pitch &&
+                IsPitchLinearSameSize(existing, info, strict_size) &&
+                IsViewCompatible(existing.format, info.format, broken_views, native_bgr)) {
+                #ifdef PS5_NATIVE
+                SelectCandidate(existing_image_id, existing_image);
+                #else
+                image_id = existing_image_id;
+                image_ids.push_back(existing_image_id);
+                #endif
+                return !flexible_formats && existing.format == info.format;
+            }
+        } else if (IsSubresource(info, existing_image, gpu_addr, options, broken_views,
+                                 native_bgr)) {
+            #ifdef PS5_NATIVE
+            SelectCandidate(existing_image_id, existing_image);
+            #else
+            image_id = existing_image_id;
+            image_ids.push_back(existing_image_id);
+            #endif
+            return !flexible_formats && existing_image.info.format == info.format;
+        }
+        return false;
+    };
+    ForEachImageInRegion(*cpu_addr, CalculateGuestSizeInBytes(info), lambda);
+#ifdef PS5_NATIVE
+    // A strict less-than comparison preserves the first equal-tick match,
+    // including ForEachImageInRegion's existing exact-match early exit.
+    return image_id;
+#else
+    if (image_ids.size() <= 1) [[likely]] {
+        return image_id;
+    }
+    auto image_ids_compare = [this](ImageId a, ImageId b) {
+        auto& image_a = slot_images[a];
+        auto& image_b = slot_images[b];
+        return image_a.modification_tick < image_b.modification_tick;
+    };
+    return *std::ranges::max_element(image_ids, image_ids_compare);
+#endif
+}
+
+template <class P>
+bool TextureCache<P>::ImageCanRescale(ImageBase& image) {
+    if (!image.info.rescaleable) {
+        return false;
+    }
+    if (Settings::values.resolution_info.downscale && !image.info.downscaleable) {
+        return false;
+    }
+    if (True(image.flags & (ImageFlagBits::Rescaled | ImageFlagBits::CheckingRescalable))) {
+        return true;
+    }
+    if (True(image.flags & ImageFlagBits::IsRescalable)) {
+        return true;
+    }
+    image.flags |= ImageFlagBits::CheckingRescalable;
+    for (const auto& alias : image.aliased_images) {
+        Image& other_image = slot_images[alias.id];
+        if (!ImageCanRescale(other_image)) {
+            image.flags &= ~ImageFlagBits::CheckingRescalable;
+            return false;
+        }
+    }
+    image.flags &= ~ImageFlagBits::CheckingRescalable;
+    image.flags |= ImageFlagBits::IsRescalable;
+    return true;
+}
+
+template <class P>
+void TextureCache<P>::InvalidateScale(Image& image) {
+    if (image.scale_tick <= frame_tick) {
+        image.scale_tick = frame_tick + 1;
+    }
+    const std::span<const ImageViewId> image_view_ids = image.image_view_ids;
+    auto& dirty = maxwell3d->dirty.flags;
+    dirty[Dirty::RenderTargets] = true;
+    dirty[Dirty::ZetaBuffer] = true;
+    for (size_t rt = 0; rt < NUM_RT; ++rt) {
+        dirty[Dirty::ColorBuffer0 + rt] = true;
+    }
+    for (const ImageViewId image_view_id : image_view_ids) {
+        std::ranges::replace(render_targets.color_buffer_ids, image_view_id, ImageViewId{});
+        if (render_targets.depth_buffer_id == image_view_id) {
+            render_targets.depth_buffer_id = ImageViewId{};
+        }
+    }
+    RemoveImageViewReferences(image_view_ids);
+    RemoveFramebuffers(image_view_ids);
+    for (const ImageViewId image_view_id : image_view_ids) {
+        sentenced_image_view.Push(std::move(slot_image_views[image_view_id]));
+        slot_image_views.erase(image_view_id);
+    }
+    image.image_view_ids.clear();
+    image.image_view_infos.clear();
+    for (size_t c : active_channel_ids) {
+        auto& channel_info = channel_storage[c];
+
+        if constexpr (ENABLE_VALIDATION)
+            for (auto& e : channel_info.image_view_ids)
+                e.second = CORRUPT_ID;
+        channel_info.graphics_image_table.Invalidate();
+        channel_info.compute_image_table.Invalidate();
+    }
+    has_deleted_images = true;
+}
+
+template <class P>
+u64 TextureCache<P>::GetScaledImageSizeBytes(const ImageBase& image) {
+    const u64 scale_up = static_cast<u64>(Settings::values.resolution_info.up_scale *
+                                          Settings::values.resolution_info.up_scale);
+    const u64 down_shift = static_cast<u64>(Settings::values.resolution_info.down_shift +
+                                            Settings::values.resolution_info.down_shift);
+    const u64 image_size_bytes =
+        static_cast<u64>((std::max)(image.guest_size_bytes, image.unswizzled_size_bytes));
+    const u64 tentative_size = (image_size_bytes * scale_up) >> down_shift;
+    const u64 fitted_size = Common::AlignUp(tentative_size, 1024);
+    return fitted_size;
+}
+
+template <class P>
+void TextureCache<P>::QueueAsyncDecode(Image& image, ImageId image_id) {
+    UNIMPLEMENTED_IF(False(image.flags & ImageFlagBits::Converted));
+#ifdef PS5_NATIVE
+    // Dynamic HUD revisions can enqueue many decodes per second. Quiet
+    // releases need no per-texture INFO formatting or log queue traffic.
+    if (::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)) {
+        LOG_INFO(HW_GPU, "Queuing async texture decode");
+    }
+#else
+    LOG_INFO(HW_GPU, "Queuing async texture decode");
+#endif
+
+#ifdef PS5_NATIVE
+    // Never strand IsDecoding or a pending decode entry if preparation or
+    // worker queue admission throws. Preserve an already active decode.
+    const bool was_decoding = True(image.flags & ImageFlagBits::IsDecoding);
+    AsyncDecodeContext* incomplete_decode{};
+    bool decode_admitted = false;
+    SCOPE_EXIT {
+        if (!decode_admitted) {
+            if (!was_decoding) {
+                image.flags &= ~ImageFlagBits::IsDecoding;
+            }
+            if (incomplete_decode && !async_decodes.empty() &&
+                async_decodes.back().get() == incomplete_decode) {
+                async_decodes.pop_back();
+            }
+        }
+    };
+#endif
+    image.flags |= ImageFlagBits::IsDecoding;
+    auto decode = std::make_unique<AsyncDecodeContext>();
+    auto* decode_ptr = decode.get();
+#ifdef PS5_NATIVE
+    incomplete_decode = decode_ptr;
+#endif
+    decode->image_id = image_id;
+    async_decodes.push_back(std::move(decode));
+
+#ifdef PS5_NATIVE
+    // UnswizzleImage writes each copy's destination bytes before ConvertImage
+    // reads them. Avoid zero-filling the entire intermediate texture under
+    // the texture-cache mutex; the move-only scratch buffer is accepted by
+    // Common::UniqueFunction in the asynchronous decode worker queue.
+    Common::ScratchBuffer<u8> local_unswizzle_data_buffer;
+    local_unswizzle_data_buffer.resize_destructive(image.unswizzled_size_bytes);
+#else
+    std::vector<u8> local_unswizzle_data_buffer(image.unswizzled_size_bytes, 0);
+#endif
+    Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::UnsafeRead> swizzle_data(*gpu_memory, image.gpu_addr, image.guest_size_bytes, &swizzle_data_buffer);
+    auto copies = UnswizzleImage(*gpu_memory, image.gpu_addr, image.info, swizzle_data, local_unswizzle_data_buffer);
+    const size_t out_size = MapSizeBytes(image);
+
+    auto func = [out_size, copies, info = image.info,
+                 input = std::move(local_unswizzle_data_buffer),
+                 async_decode = decode_ptr]() mutable {
+#ifdef PS5_NATIVE
+        try {
+#endif
+            async_decode->decoded_data.resize_destructive(out_size);
+            std::span copies_span{copies.data(), copies.size()};
+            ConvertImage(input, info, async_decode->decoded_data, copies_span);
+
+            std::unique_lock lock{async_decode->mutex};
+            async_decode->copies = std::move(copies);
+            async_decode->complete = true;
+#ifdef PS5_NATIVE
+        } catch (...) {
+            // Preserve worker liveness after a conversion/allocation failure.
+            // A zero-length completed decode is a retryable failed revision;
+            // TickAsyncDecode drops it without uploading partial HUD pixels.
+            std::unique_lock lock{async_decode->mutex};
+            async_decode->decoded_data.resize_destructive(0);
+            async_decode->complete = true;
+        }
+#endif
+    };
+    texture_decode_worker.QueueWork(std::move(func));
+#ifdef PS5_NATIVE
+    decode_admitted = true;
+#endif
+}
+
+template <class P>
+void TextureCache<P>::QueueAsyncUnswizzle(Image& image, ImageId image_id) {
+    if (True(image.flags & ImageFlagBits::IsDecoding)) {
+        return;
+    }
+
+#ifndef PS5_NATIVE
+    image.flags |= ImageFlagBits::IsDecoding;
+#endif
+    // Native: commit IsDecoding only after successful queue admission.
+    // A throwing allocation must not leave a permanently pending image.
+    unswizzle_queue.push_back({
+        .image_id = image_id,
+        .info = image.info
+    });
+#ifdef PS5_NATIVE
+    image.flags |= ImageFlagBits::IsDecoding;
+#endif
+}
+
+template <class P>
+void TextureCache<P>::TickAsyncDecode() {
+#ifdef PS5_NATIVE
+    // Usually no async decode is pending. Skip frame-local upload tracking
+    // and completion machinery entirely until the worker queues a context.
+    if (async_decodes.empty()) {
+        return;
+    }
+#endif
+    bool has_uploads{};
+#ifdef PS5_NATIVE
+    // TickFrame holds texture_cache.mutex: cap completed async uploads so
+    // a burst of HUD textures cannot occupy the entire cache lock in one
+    // frame. Work not processed this tick retains its decode context.
+    constexpr size_t kMaxCompletedDecodesPerTick = 4;
+    // Invalid/stale decodes must not consume the four REAL upload slots.
+    // Still cap retirements to keep the texture mutex responsive on a burst.
+    constexpr size_t kMaxRetiredDecodesPerTick = 16;
+    size_t completed_decodes = 0;
+    size_t retired_decodes = 0;
+    // Keep every successfully submitted native texture ID in fixed storage:
+    // a rejected visibility barrier must invalidate the whole upload batch.
+    std::array<ImageId, kMaxCompletedDecodesPerTick> submitted_images{};
+    size_t submitted_count = 0;
+#endif
+    auto i = async_decodes.begin();
+    while (i != async_decodes.end()) {
+        auto* async_decode = i->get();
+#ifdef PS5_NATIVE
+        // The worker publishes decoded bytes with the atomic completion flag.
+        // Poll unfinished decodes without contending on its mutex each frame.
+        if (!async_decode->complete.load(std::memory_order_acquire)) {
+            ++i;
+            continue;
+        }
+        if (completed_decodes == kMaxCompletedDecodesPerTick ||
+            retired_decodes == kMaxRetiredDecodesPerTick) {
+            break;
+        }
+#endif
+#ifdef PS5_NATIVE
+        // The worker publishes completion before releasing its mutex. Do
+        // not block texture_cache.mutex just because its final handoff is
+        // still locked: retry this completed item on the following frame.
+        std::unique_lock lock{async_decode->mutex, std::try_to_lock};
+        if (!lock.owns_lock()) {
+            ++i;
+            continue;
+        }
+        ++retired_decodes;
+#else
+        std::unique_lock lock{async_decode->mutex};
+#endif
+#ifndef PS5_NATIVE
+        if (!async_decode->complete) {
+            ++i;
+            continue;
+        }
+#endif
+        Image& image = slot_images[async_decode->image_id];
+#ifdef PS5_NATIVE
+        // A texture may have been remapped or resized while decode was queued.
+        // Do not copy the old revision beyond its current staging allocation.
+        const size_t expected_size = MapSizeBytes(image);
+        if (async_decode->decoded_data.size() == 0 ||
+            async_decode->decoded_data.size() != expected_size ||
+            True(image.flags & ImageFlagBits::CpuModified) ||
+            True(image.flags & ImageFlagBits::Remapped)) {
+            // A guest CPU revision OR remapping invalidates decoded bytes,
+            // even when dimensions have not changed (dynamic HUD).
+            // Retain CpuModified so the current mapping can be refreshed.
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, async_decode->image_id);
+            }
+            // Erasing the context destroys its mutex. Drop our lock first.
+            lock.unlock();
+            i = async_decodes.erase(i);
+            continue;
+        }
+        // Upload staging may fail after the decode worker completed.
+        // Never leave IsDecoding stuck or copy into an undersized buffer.
+        auto staging = [&]() -> decltype(runtime.UploadStagingBuffer(expected_size)) {
+            try {
+                return runtime.UploadStagingBuffer(expected_size);
+            } catch (...) {
+                return {};
+            }
+        }();
+        if (!staging.buffer || staging.mapped_span.size() < expected_size) {
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, async_decode->image_id);
+            }
+            lock.unlock();
+            i = async_decodes.erase(i);
+            continue;
+        }
+#else
+        auto staging = runtime.UploadStagingBuffer(MapSizeBytes(image));
+#endif
+        std::memcpy(staging.mapped_span.data(), async_decode->decoded_data.data(),
+                    async_decode->decoded_data.size());
+#ifdef PS5_NATIVE
+        // A failed GPU submission must not strand a completed worker decode.
+        // Staging here is non-deferred; the pool owns its lifetime. Keep the
+        // source image dirty so a later refresh can upload a fresh revision.
+        try {
+#endif
+        image.UploadMemory(staging, FixSmallVectorADL(async_decode->copies));
+#ifdef PS5_NATIVE
+        } catch (...) {
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, async_decode->image_id);
+            }
+            lock.unlock();
+            i = async_decodes.erase(i);
+            continue;
+        }
+#endif
+        image.flags &= ~ImageFlagBits::IsDecoding;
+        has_uploads = true;
+#ifdef PS5_NATIVE
+        submitted_images[submitted_count++] = async_decode->image_id;
+        ++completed_decodes;
+#endif
+        // The context owns async_decode->mutex. Unlock before destroying it.
+        lock.unlock();
+        i = async_decodes.erase(i);
+    }
+    if (has_uploads) {
+#ifdef PS5_NATIVE
+        try {
+#endif
+            runtime.InsertUploadMemoryBarrier();
+#ifdef PS5_NATIVE
+        } catch (...) {
+            // Re-upload current guest revisions after a rejected visibility
+            // barrier. All decoder contexts were unlocked/erased above.
+            for (size_t j = 0; j < submitted_count; ++j) {
+                const ImageId id = submitted_images[j];
+                Image& image = slot_images[id];
+                image.flags |= ImageFlagBits::CpuModified;
+                if (True(image.flags & ImageFlagBits::Tracked)) {
+                    UntrackImage(image, id);
+                }
+            }
+        }
+#endif
+    }
+}
+
+template <class P>
+void TextureCache<P>::TickAsyncUnswizzle() {
+    if (unswizzle_queue.empty()) {
+#ifdef PS5_NATIVE
+        // Do not carry the prior batch's 4-frame cooldown across an idle
+        // period. A future texture is a fresh request, not a queued batch.
+        current_unswizzle_frame = 0u;
+#endif
+        return;
+    }
+
+#ifndef PS5_NATIVE
+    if(current_unswizzle_frame > 0) {
+        current_unswizzle_frame--;
+        return;
+    }
+#endif
+
+    PendingUnswizzle& task = unswizzle_queue.front();
+    Image& image = slot_images[task.image_id];
+#ifdef PS5_NATIVE
+    // This task may span several frames. A new CPU write or guest remap
+    // invalidates its staged bytes even when texture dimensions do not change.
+    // Abandon the old content before dispatching another GPU upload batch.
+    if (True(image.flags & (ImageFlagBits::CpuModified | ImageFlagBits::Remapped)) ||
+        swizzle_chunk_size == 0 || swizzle_slices_per_batch == 0) {
+        if (task.initialized) {
+            // Previously submitted batches may still be on the GPU worker.
+            // Return their source buffer using the EXISTING deferred free.
+            runtime.FreeDeferredStagingBuffer(task.staging_buffer);
+        }
+        image.flags |= ImageFlagBits::CpuModified;
+        if (True(image.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(image, task.image_id);
+        }
+        image.flags &= ~ImageFlagBits::IsDecoding;
+        unswizzle_queue.pop_front();
+        current_unswizzle_frame = 0u;
+        // No throttling after cancellation: the replacement can be queued
+        // as soon as RefreshContents observes the retained CPU modification.
+        return;
+    }
+#endif
+
+#ifdef PS5_NATIVE
+    if(current_unswizzle_frame > 0) {
+        current_unswizzle_frame--;
+        return;
+    }
+#endif
+
+    if (!task.initialized) {
+        task.total_size = MapSizeBytes(image);
+#ifndef PS5_NATIVE
+        task.staging_buffer = runtime.UploadStagingBuffer(task.total_size, true);
+#endif
+
+        const auto& info = image.info;
+        const u32 bytes_per_block = BytesPerBlock(info.format);
+        const u32 width_blocks = Common::DivCeil(info.size.width, 4u);
+        const u32 height_blocks = Common::DivCeil(info.size.height, 4u);
+
+#ifdef PS5_NATIVE
+        // Widen BEFORE multiplying: an overflowing u32 stride can become 0
+        // and trigger a division by zero in the multi-frame upload below.
+        const size_t stride = static_cast<size_t>(width_blocks) * bytes_per_block;
+#else
+        const u32 stride = width_blocks * bytes_per_block;
+#endif
+        const u32 aligned_height = height_blocks;
+#ifdef PS5_NATIVE
+        const bool slice_overflow =
+            aligned_height != 0 && stride > std::numeric_limits<size_t>::max() / aligned_height;
+        task.bytes_per_slice = slice_overflow ? 0 : stride * aligned_height;
+        // The current staging allocation must hold complete 3D slices.
+        // Reject zero, overflow and misaligned guest sizes before ANY read or
+        // accelerated upload; an incomplete final slice can overrun staging.
+        const bool invalid_slices =
+            task.bytes_per_slice == 0 || task.bytes_per_slice > task.total_size ||
+            task.total_size % task.bytes_per_slice != 0 ||
+            // This accelerated path admits one layer/level of 3D BCn;
+            // extra slices are as invalid as missing ones. Otherwise
+            // depth - z_start can underflow in the last upload batch.
+            task.total_size / task.bytes_per_slice != static_cast<size_t>(info.size.depth);
+        if (invalid_slices) {
+            // No GPU staging exists yet; reject invalid geometry without
+            // reserving a potentially huge upload buffer.
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, task.image_id);
+            }
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            unswizzle_queue.pop_front();
+            current_unswizzle_frame = 0u;
+            return;
+        }
+#else
+        task.bytes_per_slice = static_cast<size_t>(stride) * aligned_height;
+#endif
+#ifdef PS5_NATIVE
+        // A rejected/short staging allocation must not pin IsDecoding or
+        // permit guest DMA reads into an incomplete mapped GPU upload.
+        auto staging = [&]() -> decltype(runtime.UploadStagingBuffer(task.total_size, true)) {
+            try {
+                return runtime.UploadStagingBuffer(task.total_size, true);
+            } catch (...) {
+                return {};
+            }
+        }();
+        if (!staging.buffer || staging.mapped_span.size() < task.total_size) {
+            // A valid deferred buffer may have been returned with a short
+            // mapping. Release it through the existing GPU-tick mechanism.
+            if (staging.buffer) {
+                runtime.FreeDeferredStagingBuffer(staging);
+            }
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, task.image_id);
+            }
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            unswizzle_queue.pop_front();
+            current_unswizzle_frame = 0u;
+            return;
+        }
+        task.staging_buffer = staging;
+#endif
+        task.last_submitted_offset = 0;
+        task.initialized = true;
+    }
+
+    // Read data
+    if (task.current_offset < task.total_size) {
+        const size_t remaining = task.total_size - task.current_offset;
+
+        size_t copy_amount = (std::min)(swizzle_chunk_size, remaining);
+
+        if (remaining > swizzle_chunk_size) {
+            copy_amount = (copy_amount / task.bytes_per_slice) * task.bytes_per_slice;
+            if (copy_amount == 0) {
+#ifdef PS5_NATIVE
+                // One BCn-3D slice can exceed the per-frame read budget.
+                // Stage a partial slice; dispatch still waits until a full
+                // slice is ready. Do not copy >budget under texture mutex.
+                // A zero budget can occur if GPU unswizzle is toggled
+                // after cache construction. Retain forward progress instead
+                // of pinning IsDecoding forever on a zero-byte read.
+                copy_amount = swizzle_chunk_size != 0
+                    ? (std::min)(swizzle_chunk_size, remaining)
+                    : (std::min)(task.bytes_per_slice, remaining);
+#else
+                copy_amount = task.bytes_per_slice;
+#endif
+            }
+        }
+
+#ifdef PS5_NATIVE
+        try {
+#endif
+        gpu_memory->ReadBlock(image.gpu_addr + task.current_offset,
+                              task.staging_buffer.mapped_span.data() + task.current_offset,
+                              copy_amount);
+#ifdef PS5_NATIVE
+        } catch (...) {
+            // A failed guest read invalidates the partial GPU staging data.
+            // Deferred release also protects batches submitted earlier.
+            runtime.FreeDeferredStagingBuffer(task.staging_buffer);
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, task.image_id);
+            }
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            unswizzle_queue.pop_front();
+            current_unswizzle_frame = 0u;
+            return;
+        }
+#endif
+        task.current_offset += copy_amount;
+    }
+
+    const bool is_final_batch = task.current_offset >= task.total_size;
+    const size_t bytes_ready = task.current_offset - task.last_submitted_offset;
+    const u32 complete_slices = static_cast<u32>(bytes_ready / task.bytes_per_slice);
+
+    if (complete_slices >= swizzle_slices_per_batch || (is_final_batch && complete_slices > 0)) {
+        const u32 z_start = static_cast<u32>(task.last_submitted_offset / task.bytes_per_slice);
+        const u32 slices_to_process = (std::min)(complete_slices, swizzle_slices_per_batch);
+        const u32 z_count = (std::min)(slices_to_process, image.info.size.depth - z_start);
+
+        if (z_count > 0) {
+#ifdef PS5_NATIVE
+            try {
+#endif
+            const auto uploads = FullUploadSwizzles(task.info);
+            runtime.AccelerateImageUpload(image, task.staging_buffer, FixSmallVectorADL(uploads), z_start, z_count);
+#ifdef PS5_NATIVE
+            } catch (...) {
+                // Upload setup/recording may reject a batch. Submitted GPU
+                // commands keep their source alive through the deferred pool;
+                // reject the incomplete old revision and retry from guest data.
+                runtime.FreeDeferredStagingBuffer(task.staging_buffer);
+                image.flags |= ImageFlagBits::CpuModified;
+                if (True(image.flags & ImageFlagBits::Tracked)) {
+                    UntrackImage(image, task.image_id);
+                }
+                image.flags &= ~ImageFlagBits::IsDecoding;
+                unswizzle_queue.pop_front();
+                current_unswizzle_frame = 0u;
+                return;
+            }
+#endif
+            task.last_submitted_offset += (static_cast<size_t>(z_count) * task.bytes_per_slice);
+        }
+    }
+
+    // Check if complete
+    const u32 slices_submitted = static_cast<u32>(task.last_submitted_offset / task.bytes_per_slice);
+    const bool all_slices_submitted = slices_submitted >= image.info.size.depth;
+
+    if (is_final_batch && all_slices_submitted) {
+        runtime.FreeDeferredStagingBuffer(task.staging_buffer);
+        image.flags &= ~ImageFlagBits::IsDecoding;
+        unswizzle_queue.pop_front();
+
+#ifdef PS5_NATIVE
+        // Throttle back-to-back queued uploads, not a later newly queued
+        // texture after an otherwise empty GPU frame.
+        current_unswizzle_frame = unswizzle_queue.empty() ? 0u : 4u;
+#else
+        // Wait 4 frames to process the next entry
+        current_unswizzle_frame = 4u;
+#endif
+    }
+}
+
+template <class P>
+bool TextureCache<P>::ScaleUp(Image& image) {
+    const bool has_copy = image.HasScaled();
+    const bool rescaled = image.ScaleUp();
+    if (!has_copy && image.HasScaled()) {
+        total_used_memory += GetScaledImageSizeBytes(image);
+    }
+    if (!rescaled) {
+        return false;
+    }
+    InvalidateScale(image);
+    return true;
+}
+
+template <class P>
+bool TextureCache<P>::ScaleDown(Image& image) {
+    const bool rescaled = image.ScaleDown();
+    if (!rescaled) {
+        return false;
+    }
+    InvalidateScale(image);
+    return true;
+}
+
+template <class P>
+ImageId TextureCache<P>::InsertImage(const ImageInfo& info, GPUVAddr gpu_addr,
+                                     RelaxedOptions options) {
+    std::optional<DAddr> cpu_addr = gpu_memory->GpuToCpuAddress(gpu_addr);
+    if (!cpu_addr) {
+        const auto size = CalculateGuestSizeInBytes(info);
+        cpu_addr = gpu_memory->GpuToCpuAddress(gpu_addr, size);
+        if (!cpu_addr) {
+            const DAddr fake_addr = ~(1ULL << 40ULL) + virtual_invalid_space;
+            virtual_invalid_space += Common::AlignUp(size, 32);
+            cpu_addr = std::optional<DAddr>(fake_addr);
+        }
+    }
+    ASSERT_MSG(cpu_addr, "Tried to insert an image to an invalid gpu_addr={:#x}", gpu_addr);
+    const ImageId image_id = JoinImages(info, gpu_addr, *cpu_addr);
+    const Image& image = slot_images[image_id];
+    // Using "image.gpu_addr" instead of "gpu_addr" is important because it might be different
+    const auto [it, is_new] = image_allocs_table.try_emplace(image.gpu_addr);
+    if (is_new) {
+        it->second = slot_image_allocs.insert();
+    }
+    slot_image_allocs[it->second].images.push_back(image_id);
+    return image_id;
+}
+
+template <class P>
+ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, DAddr cpu_addr) {
+    ImageInfo new_info = info;
+    const size_t size_bytes = CalculateGuestSizeInBytes(new_info);
+    const bool broken_views = runtime.HasBrokenTextureViewFormats();
+    const bool native_bgr = runtime.HasNativeBgr();
+    join_overlap_ids.clear();
+    join_overlaps_found.clear();
+    join_left_aliased_ids.clear();
+    join_right_aliased_ids.clear();
+    join_ignore_textures.clear();
+    join_bad_overlap_ids.clear();
+    join_copies_to_do.clear();
+    join_alias_indices.clear();
+    const bool this_is_linear = info.type == ImageType::Linear;
+    const auto region_check = [&](ImageId overlap_id, ImageBase& overlap) {
+        if (True(overlap.flags & ImageFlagBits::Remapped)) {
+            join_ignore_textures.insert(overlap_id);
+            return;
+        }
+        const bool overlap_is_linear = overlap.info.type == ImageType::Linear;
+        if (this_is_linear != overlap_is_linear) {
+            return;
+        }
+        if (this_is_linear && overlap_is_linear) {
+            if (info.pitch == overlap.info.pitch && gpu_addr == overlap.gpu_addr) {
+                // Alias linear images with the same pitch
+                join_left_aliased_ids.push_back(overlap_id);
+            }
+            return;
+        }
+        join_overlaps_found.insert(overlap_id);
+        constexpr bool strict_size = true;
+        const std::optional<OverlapResult> solution = ResolveOverlap(
+            new_info, gpu_addr, cpu_addr, overlap, strict_size, broken_views, native_bgr);
+        if (solution) {
+            gpu_addr = solution->gpu_addr;
+            cpu_addr = solution->cpu_addr;
+            new_info.resources = solution->resources;
+            join_overlap_ids.push_back(overlap_id);
+            join_copies_to_do.emplace_back(JoinCopy{false, overlap_id});
+            return;
+        }
+        constexpr auto options = RelaxedOptions::Size | RelaxedOptions::Format;
+        const ImageBase new_image_base(new_info, gpu_addr, cpu_addr);
+        if (IsSubresource(new_info, overlap, gpu_addr, options, broken_views, native_bgr)) {
+            join_left_aliased_ids.push_back(overlap_id);
+            overlap.flags |= ImageFlagBits::Alias;
+            join_copies_to_do.emplace_back(JoinCopy{true, overlap_id});
+        } else if (IsSubresource(overlap.info, new_image_base, overlap.gpu_addr, options,
+                                 broken_views, native_bgr)) {
+            join_right_aliased_ids.push_back(overlap_id);
+            overlap.flags |= ImageFlagBits::Alias;
+            join_copies_to_do.emplace_back(JoinCopy{true, overlap_id});
+        } else {
+            join_bad_overlap_ids.push_back(overlap_id);
+        }
+    };
+    ForEachImageInRegion(cpu_addr, size_bytes, region_check);
+    const auto region_check_gpu = [&](ImageId overlap_id, ImageBase& overlap) {
+        if (!join_overlaps_found.contains(overlap_id)) {
+            if (True(overlap.flags & ImageFlagBits::Remapped)) {
+                join_ignore_textures.insert(overlap_id);
+            }
+            if (overlap.gpu_addr == gpu_addr && overlap.guest_size_bytes == size_bytes) {
+                join_ignore_textures.insert(overlap_id);
+            }
+        }
+    };
+    ForEachSparseImageInRegion(channel_state->gpu_memory.GetID(), gpu_addr, size_bytes,
+                               region_check_gpu);
+
+    bool can_rescale = info.rescaleable;
+    bool any_rescaled = false;
+    for (const auto& copy : join_copies_to_do) {
+        if (!can_rescale) {
+            break;
+        }
+        Image& sibling = slot_images[copy.id];
+        can_rescale &= ImageCanRescale(sibling);
+        any_rescaled |= True(sibling.flags & ImageFlagBits::Rescaled);
+    }
+
+    can_rescale &= any_rescaled;
+
+    if (can_rescale) {
+        for (const auto& copy : join_copies_to_do) {
+            Image& sibling = slot_images[copy.id];
+            ScaleUp(sibling);
+        }
+    } else {
+        for (const auto& copy : join_copies_to_do) {
+            Image& sibling = slot_images[copy.id];
+            ScaleDown(sibling);
+        }
+    }
+
+    const ImageId new_image_id = slot_images.insert(runtime, new_info, gpu_addr, cpu_addr);
+    Image& new_image = slot_images[new_image_id];
+
+    new_image.allocation_tick = frame_tick;
+
+    if (!gpu_memory->IsContinuousRange(new_image.gpu_addr, new_image.guest_size_bytes) &&
+        new_info.is_sparse) {
+        new_image.flags |= ImageFlagBits::Sparse;
+    }
+
+    for (const ImageId overlap_id : join_ignore_textures) {
+        Image& overlap = slot_images[overlap_id];
+        if (True(overlap.flags & ImageFlagBits::GpuModified)) {
+            UNIMPLEMENTED();
+        }
+        if (True(overlap.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(overlap, overlap_id);
+        }
+        UnregisterImage(overlap_id);
+        DeleteImage(overlap_id);
+    }
+
+    // TODO: Only upload what we need
+    RefreshContents(new_image, new_image_id);
+
+    if (can_rescale) {
+        ScaleUp(new_image);
+    } else {
+        ScaleDown(new_image);
+    }
+
+    std::ranges::sort(join_copies_to_do, [this](const JoinCopy& lhs, const JoinCopy& rhs) {
+        const ImageBase& lhs_image = slot_images[lhs.id];
+        const ImageBase& rhs_image = slot_images[rhs.id];
+        return lhs_image.modification_tick < rhs_image.modification_tick;
+    });
+
+    ImageBase& new_image_base = new_image;
+    for (const ImageId aliased_id : join_right_aliased_ids) {
+        ImageBase& aliased = slot_images[aliased_id];
+        size_t alias_index = new_image_base.aliased_images.size();
+        if (!AddImageAlias(new_image_base, aliased, new_image_id, aliased_id)) {
+            continue;
+        }
+        join_alias_indices.emplace(aliased_id, alias_index);
+        new_image.flags |= ImageFlagBits::Alias;
+    }
+    for (const ImageId aliased_id : join_left_aliased_ids) {
+        ImageBase& aliased = slot_images[aliased_id];
+        size_t alias_index = new_image_base.aliased_images.size();
+        if (!AddImageAlias(aliased, new_image_base, aliased_id, new_image_id)) {
+            continue;
+        }
+        join_alias_indices.emplace(aliased_id, alias_index);
+        new_image.flags |= ImageFlagBits::Alias;
+    }
+    for (const ImageId aliased_id : join_bad_overlap_ids) {
+        ImageBase& aliased = slot_images[aliased_id];
+        aliased.overlapping_images.push_back(new_image_id);
+        new_image.overlapping_images.push_back(aliased_id);
+        if (aliased.info.resources.levels == 1 && aliased.info.block.depth == 0 &&
+            aliased.overlapping_images.size() > 1) {
+            aliased.flags |= ImageFlagBits::BadOverlap;
+        }
+        if (new_image.info.resources.levels == 1 && new_image.info.block.depth == 0 &&
+            new_image.overlapping_images.size() > 1) {
+            new_image.flags |= ImageFlagBits::BadOverlap;
+        }
+    }
+
+    for (const auto& copy_object : join_copies_to_do) {
+        Image& overlap = slot_images[copy_object.id];
+        if (copy_object.is_alias) {
+            if (!overlap.IsSafeGpuCopy()) {
+                continue;
+            }
+            if (overlap.info.num_samples != new_image.info.num_samples) {
+                continue;
+            }
+            const auto alias_pointer = join_alias_indices.find(copy_object.id);
+            if (alias_pointer == join_alias_indices.end()) {
+                continue;
+            }
+            const AliasedImage& aliased = new_image.aliased_images[alias_pointer->second];
+            CopyImage(new_image_id, aliased.id, aliased.copies);
+            new_image.modification_tick = overlap.modification_tick;
+            continue;
+        }
+        if (True(overlap.flags & ImageFlagBits::GpuModified)) {
+            new_image.flags |= ImageFlagBits::GpuModified;
+            const auto& resolution = Settings::values.resolution_info;
+            const SubresourceBase base = new_image.TryFindBase(overlap.gpu_addr).value();
+            const u32 up_scale = can_rescale ? resolution.up_scale : 1;
+            const u32 down_shift = can_rescale ? resolution.down_shift : 0;
+            auto copies = MakeShrinkImageCopies(new_info, overlap.info, base, up_scale, down_shift);
+            if (overlap.info.num_samples != new_image.info.num_samples) {
+                runtime.CopyImageMSAA(new_image, overlap, FixSmallVectorADL(copies));
+            } else {
+                runtime.CopyImage(new_image, overlap, FixSmallVectorADL(copies));
+            }
+            new_image.modification_tick = overlap.modification_tick;
+        }
+        if (True(overlap.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(overlap, copy_object.id);
+        }
+        UnregisterImage(copy_object.id);
+        DeleteImage(copy_object.id);
+    }
+
+    RegisterImage(new_image_id);
+    return new_image_id;
+}
+
+template <class P>
+std::optional<typename TextureCache<P>::BlitImages> TextureCache<P>::GetBlitImages(
+    const Tegra::Engines::Fermi2D::Surface& dst, const Tegra::Engines::Fermi2D::Surface& src,
+    const Tegra::Engines::Fermi2D::Config& copy) {
+
+    constexpr auto FIND_OPTIONS = RelaxedOptions::Samples;
+    const GPUVAddr dst_addr = dst.Address();
+    const GPUVAddr src_addr = src.Address();
+    ImageInfo dst_info(dst);
+    ImageInfo src_info(src);
+    const bool can_be_depth_blit =
+        dst_info.format == src_info.format && copy.filter == Tegra::Engines::Fermi2D::Filter::Point;
+    ImageId dst_id;
+    ImageId src_id;
+    RelaxedOptions try_options = FIND_OPTIONS;
+    if (can_be_depth_blit) {
+        try_options |= RelaxedOptions::Format;
+    }
+    do {
+        has_deleted_images = false;
+        src_id = FindImage(src_info, src_addr, try_options);
+        dst_id = FindImage(dst_info, dst_addr, try_options);
+        if (!copy.must_accelerate) {
+            do {
+                if (!src_id && !dst_id) {
+                    return std::nullopt;
+                }
+                if (src_id && True(slot_images[src_id].flags & ImageFlagBits::GpuModified)) {
+                    break;
+                }
+                if (dst_id && True(slot_images[dst_id].flags & ImageFlagBits::GpuModified)) {
+                    break;
+                }
+                return std::nullopt;
+            } while (false);
+        }
+        const ImageBase* const src_image = src_id ? &slot_images[src_id] : nullptr;
+        if (src_image && src_image->info.num_samples > 1) {
+            RelaxedOptions find_options{FIND_OPTIONS | RelaxedOptions::ForceBrokenViews};
+            src_id = FindOrInsertImage(src_info, src_addr, find_options);
+            dst_id = FindOrInsertImage(dst_info, dst_addr, find_options);
+            if (has_deleted_images) {
+                continue;
+            }
+            break;
+        }
+        if (can_be_depth_blit) {
+            const ImageBase* const dst_image = dst_id ? &slot_images[dst_id] : nullptr;
+            DeduceBlitImages(dst_info, src_info, dst_image, src_image);
+            if (GetFormatType(dst_info.format) != GetFormatType(src_info.format)) {
+                continue;
+            }
+        }
+        if (!src_id) {
+            src_id = InsertImage(src_info, src_addr, RelaxedOptions{});
+        }
+        if (!dst_id) {
+            dst_id = InsertImage(dst_info, dst_addr, RelaxedOptions{});
+        }
+    } while (has_deleted_images);
+    const ImageBase& src_image = slot_images[src_id];
+    const ImageBase& dst_image = slot_images[dst_id];
+    const bool native_bgr = runtime.HasNativeBgr();
+    if (GetFormatType(dst_info.format) != GetFormatType(dst_image.info.format) ||
+        GetFormatType(src_info.format) != GetFormatType(src_image.info.format) ||
+        !VideoCore::Surface::IsViewCompatible(dst_info.format, dst_image.info.format, false,
+                                              native_bgr) ||
+        !VideoCore::Surface::IsViewCompatible(src_info.format, src_image.info.format, false,
+                                              native_bgr)) {
+        // Make sure the images match the expected format.
+        do {
+            has_deleted_images = false;
+            src_id = FindOrInsertImage(src_info, src_addr, RelaxedOptions{});
+            dst_id = FindOrInsertImage(dst_info, dst_addr, RelaxedOptions{});
+        } while (has_deleted_images);
+    }
+    return {BlitImages{
+        .dst_id = dst_id,
+        .src_id = src_id,
+        .dst_format = dst_info.format,
+        .src_format = src_info.format,
+    }};
+}
+
+template <class P>
+ImageId TextureCache<P>::FindDMAImage(const ImageInfo& info, GPUVAddr gpu_addr) {
+    std::optional<DAddr> cpu_addr = gpu_memory->GpuToCpuAddress(gpu_addr);
+    if (!cpu_addr) {
+        cpu_addr = gpu_memory->GpuToCpuAddress(gpu_addr, CalculateGuestSizeInBytes(info));
+        if (!cpu_addr) {
+            return ImageId{};
+        }
+    }
+    ImageId image_id{};
+#ifdef PS5_NATIVE
+    // The DMA match scan already visits every candidate under the cache lock.
+    // Keep the freshest image as it arrives; avoid an inline vector and a
+    // second max_element pass on a HUD/texture DMA lookup. Equal ticks retain
+    // the FIRST candidate, exactly as max_element does.
+    // Keep the winning timestamp in a register. Reloading the previous
+    // slot image for every candidate adds a cache lookup under texture lock.
+    std::uint64_t newest_candidate_tick = 0;
+    const auto consider_candidate = [&](ImageId id, const ImageBase& image) {
+        if (!image_id || newest_candidate_tick < image.modification_tick) {
+            image_id = id;
+            newest_candidate_tick = image.modification_tick;
+        }
+    };
+#else
+    boost::container::small_vector<ImageId, 8> image_ids;
+#endif
+    const auto lambda = [&](ImageId existing_image_id, ImageBase& existing_image) {
+        if (True(existing_image.flags & ImageFlagBits::Remapped)) {
+            return false;
+        }
+        if (info.type == ImageType::Linear || existing_image.info.type == ImageType::Linear)
+            [[unlikely]] {
+            const bool strict_size = True(existing_image.flags & ImageFlagBits::Strong);
+            const ImageInfo& existing = existing_image.info;
+            if (existing_image.gpu_addr == gpu_addr && existing.type == info.type &&
+                existing.pitch == info.pitch &&
+                IsPitchLinearSameSize(existing, info, strict_size) &&
+                IsViewCompatible(existing.format, info.format, false, true)) {
+#ifdef PS5_NATIVE
+                consider_candidate(existing_image_id, existing_image);
+#else
+                image_id = existing_image_id;
+                image_ids.push_back(existing_image_id);
+#endif
+                return true;
+            }
+        } else if (IsSubCopy(info, existing_image, gpu_addr)) {
+#ifdef PS5_NATIVE
+            consider_candidate(existing_image_id, existing_image);
+#else
+            image_id = existing_image_id;
+            image_ids.push_back(existing_image_id);
+#endif
+            return true;
+        }
+        return false;
+    };
+    ForEachImageInRegion(*cpu_addr, CalculateGuestSizeInBytes(info), lambda);
+#ifdef PS5_NATIVE
+    return image_id;
+#else
+    if (image_ids.size() <= 1) [[likely]] {
+        return image_id;
+    }
+    auto image_ids_compare = [this](ImageId a, ImageId b) {
+        auto& image_a = slot_images[a];
+        auto& image_b = slot_images[b];
+        return image_a.modification_tick < image_b.modification_tick;
+    };
+    return *std::ranges::max_element(image_ids, image_ids_compare);
+#endif
+}
+
+template <class P>
+std::pair<u32, u32> TextureCache<P>::PrepareDmaImage(ImageId dst_id, GPUVAddr base_addr,
+                                                     bool mark_as_modified) {
+    const auto& image = slot_images[dst_id];
+    const auto base = image.TryFindBase(base_addr);
+    PrepareImage(dst_id, mark_as_modified, false);
+#ifndef PS5_NATIVE
+    const auto& new_image = slot_images[dst_id];
+    lru_cache.Touch(new_image.lru_index, frame_tick);
+#else
+    // PrepareImage already touched the same LRU entry at the end; a second
+    // immediate touch adds list work under the texture mutex for DMA uploads.
+#endif
+    return std::make_pair(base->level, base->layer);
+}
+
+template <class P>
+SamplerId TextureCache<P>::FindSampler(const TSCEntry& config, bool compute) {
+    if (std::ranges::all_of(config.raw, [](u64 value) { return value == 0; })) {
+        return NULL_SAMPLER_ID;
+    }
+    const auto [pair, is_new] = channel_state->samplers.try_emplace(config);
+    if (is_new) {
+        pair->second = slot_samplers.insert(runtime, config);
+    }
+    return pair->second;
+}
+
+template <class P>
+ImageViewId TextureCache<P>::FindColorBuffer(size_t index) {
+    const auto& regs = maxwell3d->regs;
+    if (index >= regs.rt_control.count) {
+        return ImageViewId{};
+    }
+    const auto& rt = regs.rt[index];
+    const GPUVAddr gpu_addr = rt.Address();
+    if (gpu_addr == 0) {
+        return ImageViewId{};
+    }
+    if (rt.format == Tegra::RenderTargetFormat::NONE) {
+        return ImageViewId{};
+    }
+    const ImageInfo info(regs.rt[index], regs.anti_alias_samples_mode);
+    return FindRenderTargetView(info, gpu_addr);
+}
+
+template <class P>
+ImageViewId TextureCache<P>::FindDepthBuffer() {
+    const auto& regs = maxwell3d->regs;
+    if (!regs.zeta_enable) {
+        return ImageViewId{};
+    }
+    const GPUVAddr gpu_addr = regs.zeta.Address();
+    if (gpu_addr == 0) {
+        return ImageViewId{};
+    }
+    const ImageInfo info(regs.zeta, regs.zeta_size, regs.anti_alias_samples_mode);
+    return FindRenderTargetView(info, gpu_addr);
+}
+
+template <class P>
+ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAddr gpu_addr) {
+    ImageId image_id{};
+    bool delete_state = has_deleted_images;
+    do {
+        has_deleted_images = false;
+        image_id = FindOrInsertImage(info, gpu_addr);
+        delete_state |= has_deleted_images;
+    } while (has_deleted_images);
+    has_deleted_images = delete_state;
+    if (!image_id) {
+        return NULL_IMAGE_VIEW_ID;
+    }
+    Image& image = slot_images[image_id];
+    const ImageViewType view_type = RenderTargetImageViewType(info);
+    SubresourceBase base;
+    if (image.info.type == ImageType::Linear) {
+        base = SubresourceBase{.level = 0, .layer = 0};
+    } else {
+        base = image.TryFindBase(gpu_addr).value();
+    }
+    const s32 layers = image.info.type == ImageType::e3D ? info.size.depth : info.resources.layers;
+    const SubresourceRange range{
+        .base = base,
+        .extent = {.levels = 1, .layers = layers},
+    };
+    return FindOrEmplaceImageView(image_id, ImageViewInfo(view_type, info.format, range));
+}
+
+template <class P>
+template <typename Func>
+void TextureCache<P>::ForEachImageInRegion(DAddr cpu_addr, size_t size, Func&& func) {
+    using FuncReturn = typename std::invoke_result<Func, ImageId, Image&>::type;
+    constexpr bool BOOL_BREAK = std::is_same_v<FuncReturn, bool>;
+    boost::container::small_vector<ImageId, 32> images;
+    boost::container::small_vector<ImageMapId, 32> maps;
+    ForEachCPUPage(cpu_addr, size, [this, &images, &maps, cpu_addr, size, func](u64 page) {
+        const auto it = page_table.find(page);
+        if (it == page_table.end()) {
+            if constexpr (BOOL_BREAK) {
+                return false;
+            } else {
+                return;
+            }
+        }
+        for (const ImageMapId map_id : it->second) {
+            ImageMapView& map = slot_map_views[map_id];
+            if (map.picked) {
+                continue;
+            }
+            if (!map.Overlaps(cpu_addr, size)) {
+                continue;
+            }
+            map.picked = true;
+            maps.push_back(map_id);
+            Image& image = slot_images[map.image_id];
+            if (True(image.flags & ImageFlagBits::Picked)) {
+                continue;
+            }
+            image.flags |= ImageFlagBits::Picked;
+            images.push_back(map.image_id);
+            if constexpr (BOOL_BREAK) {
+                if (func(map.image_id, image)) {
+                    return true;
+                }
+            } else {
+                func(map.image_id, image);
+            }
+        }
+        if constexpr (BOOL_BREAK) {
+            return false;
+        }
+    });
+    for (const ImageId image_id : images) {
+        slot_images[image_id].flags &= ~ImageFlagBits::Picked;
+    }
+    for (const ImageMapId map_id : maps) {
+        slot_map_views[map_id].picked = false;
+    }
+}
+
+template <class P>
+template <typename Func>
+void TextureCache<P>::ForEachImageInRegionGPU(size_t as_id, GPUVAddr gpu_addr, size_t size,
+                                              Func&& func) {
+    using FuncReturn = typename std::invoke_result<Func, ImageId, Image&>::type;
+    constexpr bool BOOL_BREAK = std::is_same_v<FuncReturn, bool>;
+    boost::container::small_vector<ImageId, 8> images;
+    auto storage_id = getStorageID(as_id);
+    if (!storage_id) {
+        return;
+    }
+    auto& gpu_page_table = gpu_page_table_storage[*storage_id * 2];
+    ForEachGPUPage(gpu_addr, size,
+                   [this, &gpu_page_table, &images, gpu_addr, size, func](u64 page) {
+                       const auto it = gpu_page_table.find(page);
+                       if (it == gpu_page_table.end()) {
+                           if constexpr (BOOL_BREAK) {
+                               return false;
+                           } else {
+                               return;
+                           }
+                       }
+                       for (const ImageId image_id : it->second) {
+                           Image& image = slot_images[image_id];
+                           if (True(image.flags & ImageFlagBits::Picked)) {
+                               continue;
+                           }
+                           if (!image.OverlapsGPU(gpu_addr, size)) {
+                               continue;
+                           }
+                           image.flags |= ImageFlagBits::Picked;
+                           images.push_back(image_id);
+                           if constexpr (BOOL_BREAK) {
+                               if (func(image_id, image)) {
+                                   return true;
+                               }
+                           } else {
+                               func(image_id, image);
+                           }
+                       }
+                       if constexpr (BOOL_BREAK) {
+                           return false;
+                       }
+                   });
+    for (const ImageId image_id : images) {
+        slot_images[image_id].flags &= ~ImageFlagBits::Picked;
+    }
+}
+
+template <class P>
+template <typename Func>
+void TextureCache<P>::ForEachSparseImageInRegion(size_t as_id, GPUVAddr gpu_addr, size_t size,
+                                                 Func&& func) {
+    using FuncReturn = typename std::invoke_result<Func, ImageId, Image&>::type;
+    constexpr bool BOOL_BREAK = std::is_same_v<FuncReturn, bool>;
+    boost::container::small_vector<ImageId, 8> images;
+    auto storage_id = getStorageID(as_id);
+    if (!storage_id) {
+        return;
+    }
+    auto& sparse_page_table = gpu_page_table_storage[*storage_id * 2 + 1];
+    ForEachGPUPage(gpu_addr, size,
+                   [this, &sparse_page_table, &images, gpu_addr, size, func](u64 page) {
+                       const auto it = sparse_page_table.find(page);
+                       if (it == sparse_page_table.end()) {
+                           if constexpr (BOOL_BREAK) {
+                               return false;
+                           } else {
+                               return;
+                           }
+                       }
+                       for (const ImageId image_id : it->second) {
+                           Image& image = slot_images[image_id];
+                           if (True(image.flags & ImageFlagBits::Picked)) {
+                               continue;
+                           }
+                           if (!image.OverlapsGPU(gpu_addr, size)) {
+                               continue;
+                           }
+                           image.flags |= ImageFlagBits::Picked;
+                           images.push_back(image_id);
+                           if constexpr (BOOL_BREAK) {
+                               if (func(image_id, image)) {
+                                   return true;
+                               }
+                           } else {
+                               func(image_id, image);
+                           }
+                       }
+                       if constexpr (BOOL_BREAK) {
+                           return false;
+                       }
+                   });
+    for (const ImageId image_id : images) {
+        slot_images[image_id].flags &= ~ImageFlagBits::Picked;
+    }
+}
+
+template <class P>
+template <typename Func>
+void TextureCache<P>::ForEachSparseSegment(ImageBase& image, Func&& func) {
+    using FuncReturn = typename std::invoke_result<Func, GPUVAddr, DAddr, size_t>::type;
+    constexpr bool RETURNS_BOOL = std::is_same_v<FuncReturn, bool>;
+    const auto segments = gpu_memory->GetSubmappedRange(image.gpu_addr, image.guest_size_bytes);
+    for (const auto& [gpu_addr, size] : segments) {
+        std::optional<DAddr> cpu_addr = gpu_memory->GpuToCpuAddress(gpu_addr);
+        ASSERT(cpu_addr);
+        if constexpr (RETURNS_BOOL) {
+            if (func(gpu_addr, *cpu_addr, size)) {
+                break;
+            }
+        } else {
+            func(gpu_addr, *cpu_addr, size);
+        }
+    }
+}
+
+template <class P>
+ImageViewId TextureCache<P>::FindOrEmplaceImageView(ImageId image_id, const ImageViewInfo& info) {
+    Image& image = slot_images[image_id];
+    if (const ImageViewId image_view_id = image.FindView(info); image_view_id) {
+        return image_view_id;
+    }
+    const ImageViewId image_view_id = slot_image_views.insert(runtime, info, image_id, image, slot_images);
+    image.InsertView(info, image_view_id);
+    return image_view_id;
+}
+
+template <class P>
+void TextureCache<P>::RegisterImage(ImageId image_id) {
+    ImageBase& image = slot_images[image_id];
+    ASSERT_MSG(False(image.flags & ImageFlagBits::Registered),
+               "Trying to register an already registered image");
+    image.flags |= ImageFlagBits::Registered;
+    u64 tentative_size = (std::max)(image.guest_size_bytes, image.unswizzled_size_bytes);
+    if ((IsPixelFormatASTC(image.info.format) &&
+         True(image.flags & ImageFlagBits::AcceleratedUpload)) ||
+        True(image.flags & ImageFlagBits::Converted)) {
+        tentative_size = TranscodedAstcSize(tentative_size, image.info.format);
+    }
+    total_used_memory += Common::AlignUp(tentative_size, 1024);
+    image.lru_index = lru_cache.Insert(image_id, frame_tick);
+
+    ForEachGPUPage(image.gpu_addr, image.guest_size_bytes, [this, image_id](u64 page) {
+        (*channel_state->gpu_page_table)[page].push_back(image_id);
+    });
+    if (False(image.flags & ImageFlagBits::Sparse)) {
+        ::Eden::ImagePages::Mark(image.cpu_addr, image.guest_size_bytes);
+        auto map_id =
+            slot_map_views.insert(image.gpu_addr, image.cpu_addr, image.guest_size_bytes, image_id);
+        ForEachCPUPage(image.cpu_addr, image.guest_size_bytes,
+                       [this, map_id](u64 page) { page_table[page].push_back(map_id); });
+        image.map_view_id = map_id;
+        return;
+    }
+    boost::container::small_vector<ImageViewId, 16> sparse_maps;
+    ForEachSparseSegment(
+        image, [this, image_id, &sparse_maps](GPUVAddr gpu_addr, DAddr cpu_addr, size_t size) {
+            ::Eden::ImagePages::Mark(cpu_addr, size);
+            auto map_id = slot_map_views.insert(gpu_addr, cpu_addr, size, image_id);
+            ForEachCPUPage(cpu_addr, size,
+                           [this, map_id](u64 page) { page_table[page].push_back(map_id); });
+            sparse_maps.push_back(map_id);
+        });
+    sparse_views.emplace(image_id, std::move(sparse_maps));
+    ForEachGPUPage(image.gpu_addr, image.guest_size_bytes, [this, image_id](u64 page) {
+        (*channel_state->sparse_page_table)[page].push_back(image_id);
+    });
+}
+
+template <class P>
+void TextureCache<P>::UnregisterImage(ImageId image_id) {
+    Image& image = slot_images[image_id];
+    ASSERT_MSG(True(image.flags & ImageFlagBits::Registered),
+               "Trying to unregister an already registered image");
+    image.flags &= ~ImageFlagBits::Registered;
+    image.flags &= ~ImageFlagBits::BadOverlap;
+    lru_cache.Free(image.lru_index);
+    const auto& clear_page_table =
+        [image_id](u64 page, ::Common::unordered_map<u64, std::vector<ImageId>, Common::IdentityHash<u64>>& selected_page_table) {
+            const auto page_it = selected_page_table.find(page);
+            if (page_it == selected_page_table.end()) {
+                ASSERT_MSG(false, "Unregistering unregistered page={:#x}", page << YUZU_PAGEBITS);
+                return;
+            }
+            std::vector<ImageId>& image_ids = page_it->second;
+            const auto vector_it = std::ranges::find(image_ids, image_id);
+            if (vector_it == image_ids.end()) {
+                ASSERT_MSG(false, "Unregistering unregistered image in page={:#x}",
+                           page << YUZU_PAGEBITS);
+                return;
+            }
+            image_ids.erase(vector_it);
+        };
+    ForEachGPUPage(image.gpu_addr, image.guest_size_bytes, [this, &clear_page_table](u64 page) {
+        clear_page_table(page, (*channel_state->gpu_page_table));
+    });
+    if (False(image.flags & ImageFlagBits::Sparse)) {
+        const auto map_id = image.map_view_id;
+        ForEachCPUPage(image.cpu_addr, image.guest_size_bytes, [this, map_id](u64 page) {
+            const auto page_it = page_table.find(page);
+            if (page_it == page_table.end()) {
+                ASSERT_MSG(false, "Unregistering unregistered page={:#x}", page << YUZU_PAGEBITS);
+                return;
+            }
+            std::vector<ImageMapId>& image_map_ids = page_it->second;
+            const auto vector_it = std::ranges::find(image_map_ids, map_id);
+            if (vector_it == image_map_ids.end()) {
+                ASSERT_MSG(false, "Unregistering unregistered image in page={:#x}",
+                           page << YUZU_PAGEBITS);
+                return;
+            }
+            image_map_ids.erase(vector_it);
+        });
+        slot_map_views.erase(map_id);
+        return;
+    }
+    ForEachGPUPage(image.gpu_addr, image.guest_size_bytes, [this, &clear_page_table](u64 page) {
+        clear_page_table(page, (*channel_state->sparse_page_table));
+    });
+    auto it = sparse_views.find(image_id);
+    ASSERT(it != sparse_views.end());
+    auto& sparse_maps = it->second;
+    for (auto& map_view_id : sparse_maps) {
+        const auto& map_range = slot_map_views[map_view_id];
+        const DAddr cpu_addr = map_range.cpu_addr;
+        const std::size_t size = map_range.size;
+        ForEachCPUPage(cpu_addr, size, [this, image_id](u64 page) {
+            const auto page_it = page_table.find(page);
+            if (page_it == page_table.end()) {
+                ASSERT_MSG(false, "Unregistering unregistered page={:#x}", page << YUZU_PAGEBITS);
+                return;
+            }
+            std::vector<ImageMapId>& image_map_ids = page_it->second;
+            auto vector_it = image_map_ids.begin();
+            while (vector_it != image_map_ids.end()) {
+                ImageMapView& map = slot_map_views[*vector_it];
+                if (map.image_id != image_id) {
+                    vector_it++;
+                    continue;
+                }
+                if (!map.picked) {
+                    map.picked = true;
+                }
+                vector_it = image_map_ids.erase(vector_it);
+            }
+        });
+        slot_map_views.erase(map_view_id);
+    }
+    sparse_views.erase(it);
+}
+
+template <class P>
+void TextureCache<P>::TrackImage(ImageBase& image, ImageId image_id) {
+    ASSERT(False(image.flags & ImageFlagBits::Tracked));
+    image.flags |= ImageFlagBits::Tracked;
+    if (False(image.flags & ImageFlagBits::Sparse)) {
+        if (image.cpu_addr < ~(1ULL << 40)) {
+            device_memory.UpdatePagesCachedCount(image.cpu_addr, image.guest_size_bytes, 1);
+        }
+        return;
+    }
+    if (True(image.flags & ImageFlagBits::Registered)) {
+        auto it = sparse_views.find(image_id);
+        ASSERT(it != sparse_views.end());
+        auto& sparse_maps = it->second;
+        for (auto& map_view_id : sparse_maps) {
+            const auto& map = slot_map_views[map_view_id];
+            const DAddr cpu_addr = map.cpu_addr;
+            const std::size_t size = map.size;
+            device_memory.UpdatePagesCachedCount(cpu_addr, size, 1);
+        }
+        return;
+    }
+    ForEachSparseSegment(image,
+                         [this]([[maybe_unused]] GPUVAddr gpu_addr, DAddr cpu_addr, size_t size) {
+                             device_memory.UpdatePagesCachedCount(cpu_addr, size, 1);
+                         });
+}
+
+template <class P>
+void TextureCache<P>::UntrackImage(ImageBase& image, ImageId image_id) {
+    ASSERT(True(image.flags & ImageFlagBits::Tracked));
+    image.flags &= ~ImageFlagBits::Tracked;
+    if (False(image.flags & ImageFlagBits::Sparse)) {
+        if (image.cpu_addr < ~(1ULL << 40)) {
+            device_memory.UpdatePagesCachedCount(image.cpu_addr, image.guest_size_bytes, -1);
+        }
+        return;
+    }
+    ASSERT(True(image.flags & ImageFlagBits::Registered));
+    auto it = sparse_views.find(image_id);
+    ASSERT(it != sparse_views.end());
+    auto& sparse_maps = it->second;
+    for (auto& map_view_id : sparse_maps) {
+        const auto& map = slot_map_views[map_view_id];
+        const DAddr cpu_addr = map.cpu_addr;
+        const std::size_t size = map.size;
+        device_memory.UpdatePagesCachedCount(cpu_addr, size, -1);
+    }
+}
+
+template <class P>
+void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
+    ImageBase& image = slot_images[image_id];
+    if (image.HasScaled()) {
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            total_used_memory = ::Eden::VulkanMemory::AfterProjectedEviction(
+                total_used_memory, GetScaledImageSizeBytes(image));
+        } else {
+            total_used_memory -= GetScaledImageSizeBytes(image);
+        }
+    }
+    u64 tentative_size = (std::max)(image.guest_size_bytes, image.unswizzled_size_bytes);
+    if ((IsPixelFormatASTC(image.info.format) &&
+         True(image.flags & ImageFlagBits::AcceleratedUpload)) ||
+        True(image.flags & ImageFlagBits::Converted)) {
+        tentative_size = TranscodedAstcSize(tentative_size, image.info.format);
+    }
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        total_used_memory = ::Eden::VulkanMemory::AfterProjectedEviction(
+            total_used_memory, Common::AlignUp(tentative_size, 1024));
+    } else {
+        total_used_memory -= Common::AlignUp(tentative_size, 1024);
+    }
+    const GPUVAddr gpu_addr = image.gpu_addr;
+    const auto alloc_it = image_allocs_table.find(gpu_addr);
+    if (alloc_it == image_allocs_table.end()) {
+        ASSERT_MSG(false, "Trying to delete an image alloc that does not exist in address {:#x}",
+                   gpu_addr);
+        return;
+    }
+    const ImageAllocId alloc_id = alloc_it->second;
+    std::vector<ImageId>& alloc_images = slot_image_allocs[alloc_id].images;
+    const auto alloc_image_it = std::ranges::find(alloc_images, image_id);
+    if (alloc_image_it == alloc_images.end()) {
+        ASSERT_MSG(false, "Trying to delete an image that does not exist");
+        return;
+    }
+    ASSERT_MSG(False(image.flags & ImageFlagBits::Tracked), "Image was not untracked");
+    ASSERT_MSG(False(image.flags & ImageFlagBits::Registered), "Image was not unregistered");
+
+    // Mark render targets as dirty
+    auto& dirty = maxwell3d->dirty.flags;
+    dirty[Dirty::RenderTargets] = true;
+    dirty[Dirty::ZetaBuffer] = true;
+    for (size_t rt = 0; rt < NUM_RT; ++rt) {
+        dirty[Dirty::ColorBuffer0 + rt] = true;
+    }
+    const std::span<const ImageViewId> image_view_ids = image.image_view_ids;
+    for (const ImageViewId image_view_id : image_view_ids) {
+        std::ranges::replace(render_targets.color_buffer_ids, image_view_id, ImageViewId{});
+        if (render_targets.depth_buffer_id == image_view_id) {
+            render_targets.depth_buffer_id = ImageViewId{};
+        }
+    }
+    RemoveImageViewReferences(image_view_ids);
+    RemoveFramebuffers(image_view_ids);
+
+    for (const AliasedImage& alias : image.aliased_images) {
+        ImageBase& other_image = slot_images[alias.id];
+        [[maybe_unused]] const size_t num_removed_aliases =
+            std::erase_if(other_image.aliased_images, [image_id](const AliasedImage& other_alias) {
+                return other_alias.id == image_id;
+            });
+        other_image.CheckAliasState();
+        ASSERT_MSG(num_removed_aliases == 1, "Invalid number of removed aliases: {}",
+                   num_removed_aliases);
+    }
+    for (const ImageId overlap_id : image.overlapping_images) {
+        ImageBase& other_image = slot_images[overlap_id];
+        [[maybe_unused]] const size_t num_removed_overlaps = std::erase_if(
+            other_image.overlapping_images,
+            [image_id](const ImageId other_overlap_id) { return other_overlap_id == image_id; });
+        other_image.CheckBadOverlapState();
+        ASSERT_MSG(num_removed_overlaps == 1, "Invalid number of removed overlapps: {}",
+                   num_removed_overlaps);
+    }
+    for (const ImageViewId image_view_id : image_view_ids) {
+        if (!immediate_delete) {
+            sentenced_image_view.Push(std::move(slot_image_views[image_view_id]));
+        }
+        slot_image_views.erase(image_view_id);
+    }
+    if (!immediate_delete) {
+        sentenced_images.Push(std::move(slot_images[image_id]));
+    }
+    slot_images.erase(image_id);
+
+    alloc_images.erase(alloc_image_it);
+    if (alloc_images.empty()) {
+        image_allocs_table.erase(alloc_it);
+    }
+    for (size_t c : active_channel_ids) {
+        auto& channel_info = channel_storage[c];
+        if constexpr (ENABLE_VALIDATION)
+            for (auto& e : channel_info.image_view_ids)
+                e.second = CORRUPT_ID;
+        channel_info.graphics_image_table.Invalidate();
+        channel_info.compute_image_table.Invalidate();
+    }
+    has_deleted_images = true;
+}
+
+template <class P>
+void TextureCache<P>::RemoveImageViewReferences(std::span<const ImageViewId> removed_views) {
+#ifdef PS5_NATIVE
+    // Images created and retired without any view cannot be in a channel's
+    // descriptor-to-view map. Avoid scanning every channel on that path.
+    if (removed_views.empty()) {
+        return;
+    }
+#endif
+    for (size_t c : active_channel_ids) {
+        auto& channel_info = channel_storage[c];
+        auto it = channel_info.image_views.begin();
+        while (it != channel_info.image_views.end()) {
+            const auto found = std::ranges::find(removed_views, it->second);
+            if (found != removed_views.end()) {
+                it = channel_info.image_views.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+template <class P>
+void TextureCache<P>::RemoveFramebuffers(std::span<const ImageViewId> removed_views) {
+#ifdef PS5_NATIVE
+    // No framebuffer can contain an absent view. Do not flush deferred
+    // clears belonging to other render targets or scan the framebuffer map.
+    if (removed_views.empty()) {
+        return;
+    }
+#endif
+    runtime.FlushDeferredClear();
+    auto it = framebuffers.begin();
+    while (it != framebuffers.end()) {
+        if (it->first.Contains(removed_views)) {
+            auto framebuffer_id = it->second;
+            ASSERT(framebuffer_id);
+            if (framebuffer_id == last_framebuffer_id) {
+                last_framebuffer_id = {};
+                last_framebuffer_serial = 0;
+            }
+            sentenced_framebuffers.Push(std::move(slot_framebuffers[framebuffer_id]));
+            it = framebuffers.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+template <class P>
+void TextureCache<P>::MarkModification(ImageBase& image) noexcept {
+    image.flags |= ImageFlagBits::GpuModified;
+    image.modification_tick = ++modification_tick;
+}
+
+template <class P>
+void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
+    Image& image = slot_images[image_id];
+#ifdef PS5_NATIVE
+    // MarkModification advances the cache-wide tick monotonically. If this
+    // image already owns the latest tick, no alias can have a strictly newer
+    // modification, so the search, sort and copy cannot do useful work.
+    if (image.modification_tick == modification_tick) {
+        return;
+    }
+    // No alias graph means no scan/copy, regardless of the global tick.
+    // Avoid constructing the vector and sampling the cache lock phase.
+    if (image.aliased_images.empty()) {
+        return;
+    }
+#endif
+    // Avoid constructing the inline alias vector on a common no-op HUD lookup.
+    boost::container::small_vector<const AliasedImage*, 8> aliased_images;
+#ifdef PS5_NATIVE
+    ::Eden::Performance::CachePhaseTimer alias_scan_phase{
+        ::Eden::Performance::CachePhase::TextureAliasScan};
+#endif
+    bool any_rescaled = True(image.flags & ImageFlagBits::Rescaled);
+    bool any_modified = True(image.flags & ImageFlagBits::GpuModified);
+    u64 most_recent_tick = image.modification_tick;
+    for (const AliasedImage& aliased : image.aliased_images) {
+        ImageBase& aliased_image = slot_images[aliased.id];
+        if (image.modification_tick < aliased_image.modification_tick) {
+            most_recent_tick = (std::max)(most_recent_tick, aliased_image.modification_tick);
+            aliased_images.push_back(&aliased);
+            any_rescaled |= True(aliased_image.flags & ImageFlagBits::Rescaled);
+            any_modified |= True(aliased_image.flags & ImageFlagBits::GpuModified);
+        }
+    }
+    if (aliased_images.empty()) {
+        return;
+    }
+#ifdef PS5_NATIVE
+    alias_scan_phase.Stop();
+    ::Eden::Performance::CachePhaseTimer alias_copy_phase{
+        ::Eden::Performance::CachePhase::TextureAliasCopy};
+#endif
+#ifdef PS5_NATIVE
+    // If neither this image nor its newer aliases are rescaled, the copy
+    // path does not use can_rescale. Avoid recursive alias-graph scans and
+    // lazy rescalability bookkeeping while the texture mutex is held.
+    const bool can_rescale = any_rescaled && ImageCanRescale(image);
+#else
+    const bool can_rescale = ImageCanRescale(image);
+#endif
+    if (any_rescaled) {
+        if (can_rescale) {
+            ScaleUp(image);
+        } else {
+            ScaleDown(image);
+        }
+    }
+    image.modification_tick = most_recent_tick;
+    if (any_modified) {
+        image.flags |= ImageFlagBits::GpuModified;
+    }
+#ifdef PS5_NATIVE
+    // Most alias refreshes have only one newer source. Sorting a single
+    // entry cannot change upload ordering and adds work under texture lock.
+    if (aliased_images.size() > 1) {
+#endif
+    std::ranges::sort(aliased_images, [this](const AliasedImage* lhs, const AliasedImage* rhs) {
+        const ImageBase& lhs_image = slot_images[lhs->id];
+        const ImageBase& rhs_image = slot_images[rhs->id];
+        return lhs_image.modification_tick < rhs_image.modification_tick;
+    });
+#ifdef PS5_NATIVE
+    }
+#endif
+    const auto& resolution = Settings::values.resolution_info;
+    for (const AliasedImage* const aliased : aliased_images) {
+        if (!resolution.active || !any_rescaled) {
+            CopyImage(image_id, aliased->id, aliased->copies);
+            continue;
+        }
+        Image& aliased_image = slot_images[aliased->id];
+        if (!can_rescale) {
+            ScaleDown(aliased_image);
+            CopyImage(image_id, aliased->id, aliased->copies);
+            continue;
+        }
+        ScaleUp(aliased_image);
+        CopyImage(image_id, aliased->id, aliased->copies);
+    }
+}
+
+template <class P>
+void TextureCache<P>::PrepareImage(ImageId image_id, bool is_modification, bool invalidate) {
+    Image& image = slot_images[image_id];
+    if (invalidate) {
+        image.flags &= ~(ImageFlagBits::CpuModified | ImageFlagBits::GpuModified);
+        if (False(image.flags & ImageFlagBits::Tracked)) {
+            TrackImage(image, image_id);
+        }
+    } else {
+        RefreshContents(image, image_id);
+        if (!image.aliased_images.empty()) {
+            SynchronizeAliases(image_id);
+        }
+    }
+    if (is_modification) {
+        MarkModification(image);
+    }
+    lru_cache.Touch(image.lru_index, frame_tick);
+}
+
+template <class P>
+void TextureCache<P>::PrepareImageView(ImageViewId image_view_id, bool is_modification,
+                                       bool invalidate) {
+    if (!image_view_id) {
+        return;
+    }
+    const ImageViewBase& image_view = slot_image_views[image_view_id];
+    if (image_view.IsBuffer()) {
+        return;
+    }
+    PrepareImage(image_view.image_id, is_modification, invalidate);
+}
+
+template <class P>
+void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::vector<ImageCopy> copies) {
+    Image& dst = slot_images[dst_id];
+    Image& src = slot_images[src_id];
+    const bool is_rescaled = True(src.flags & ImageFlagBits::Rescaled);
+    if (is_rescaled) {
+        ASSERT(True(dst.flags & ImageFlagBits::Rescaled));
+        const bool both_2d{src.info.type == ImageType::e2D && dst.info.type == ImageType::e2D};
+        const auto& resolution = Settings::values.resolution_info;
+        for (auto& copy : copies) {
+            copy.src_offset.x = resolution.ScaleUp(copy.src_offset.x);
+            copy.dst_offset.x = resolution.ScaleUp(copy.dst_offset.x);
+            copy.extent.width = resolution.ScaleUp(copy.extent.width);
+            if (both_2d) {
+                copy.src_offset.y = resolution.ScaleUp(copy.src_offset.y);
+                copy.dst_offset.y = resolution.ScaleUp(copy.dst_offset.y);
+                copy.extent.height = resolution.ScaleUp(copy.extent.height);
+            }
+        }
+    }
+    const auto dst_format_type = GetFormatType(dst.info.format);
+    const auto src_format_type = GetFormatType(src.info.format);
+    if (src_format_type == dst_format_type) {
+        if constexpr (HAS_EMULATED_COPIES) {
+            if (!runtime.CanImageBeCopied(dst, src)) {
+                return runtime.EmulateCopyImage(dst, src, copies);
+            }
+        }
+        return runtime.CopyImage(dst, src, copies);
+    }
+    UNIMPLEMENTED_IF(dst.info.type != ImageType::e2D);
+    UNIMPLEMENTED_IF(src.info.type != ImageType::e2D);
+    if (runtime.ShouldReinterpret(dst, src)) {
+        return runtime.ReinterpretImage(dst, src, copies);
+    }
+    for (const ImageCopy& copy : copies) {
+        UNIMPLEMENTED_IF(copy.dst_subresource.num_layers != 1);
+        UNIMPLEMENTED_IF(copy.src_subresource.num_layers != 1);
+        UNIMPLEMENTED_IF(copy.src_offset != Offset3D{});
+        UNIMPLEMENTED_IF(copy.dst_offset != Offset3D{});
+
+        const SubresourceBase dst_base{
+            .level = copy.dst_subresource.base_level,
+            .layer = copy.dst_subresource.base_layer,
+        };
+        const SubresourceBase src_base{
+            .level = copy.src_subresource.base_level,
+            .layer = copy.src_subresource.base_layer,
+        };
+        const SubresourceExtent dst_extent{.levels = 1, .layers = 1};
+        const SubresourceExtent src_extent{.levels = 1, .layers = 1};
+        const SubresourceRange dst_range{.base = dst_base, .extent = dst_extent};
+        const SubresourceRange src_range{.base = src_base, .extent = src_extent};
+        PixelFormat dst_format = dst.info.format;
+        if (GetFormatType(src.info.format) == SurfaceType::DepthStencil &&
+            GetFormatType(dst_format) == SurfaceType::ColorTexture &&
+            BytesPerBlock(dst_format) == 4) {
+            dst_format = PixelFormat::A8B8G8R8_UNORM;
+        }
+        const ImageViewInfo dst_view_info(ImageViewType::e2D, dst_format, dst_range);
+        const ImageViewInfo src_view_info(ImageViewType::e2D, src.info.format, src_range);
+        const auto [dst_framebuffer_id, dst_view_id] = RenderTargetFromImage(dst_id, dst_view_info);
+        Framebuffer* const dst_framebuffer = &slot_framebuffers[dst_framebuffer_id];
+        const ImageViewId src_view_id = FindOrEmplaceImageView(src_id, src_view_info);
+        ImageView& dst_view = slot_image_views[dst_view_id];
+        ImageView& src_view = slot_image_views[src_view_id];
+        [[maybe_unused]] const Extent3D expected_size{
+            .width = (std::min)(dst_view.size.width, src_view.size.width),
+            .height = (std::min)(dst_view.size.height, src_view.size.height),
+            .depth = (std::min)(dst_view.size.depth, src_view.size.depth),
+        };
+        const Extent3D scaled_extent = [is_rescaled, expected_size]() {
+            if (!is_rescaled) {
+                return expected_size;
+            }
+            const auto& resolution = Settings::values.resolution_info;
+            return Extent3D{
+                .width = resolution.ScaleUp(expected_size.width),
+                .height = resolution.ScaleUp(expected_size.height),
+                .depth = expected_size.depth,
+            };
+        }();
+        UNIMPLEMENTED_IF(copy.extent != scaled_extent);
+
+        runtime.ConvertImage(dst_framebuffer, dst_view, src_view);
+    }
+}
+
+template <class P>
+void TextureCache<P>::BindRenderTarget(ImageViewId* old_id, ImageViewId new_id) {
+    if (*old_id == new_id) {
+        return;
+    }
+    if (new_id) {
+        const ImageViewBase& old_view = slot_image_views[new_id];
+        if (True(old_view.flags & ImageViewFlagBits::PreemtiveDownload)) {
+            const PendingDownload new_download{true, 0, old_view.image_id};
+            uncommitted_downloads.emplace_back(new_download);
+        }
+    }
+    *old_id = new_id;
+}
+
+template <class P>
+std::pair<FramebufferId, ImageViewId> TextureCache<P>::RenderTargetFromImage(
+    ImageId image_id, const ImageViewInfo& view_info) {
+    const ImageViewId view_id = FindOrEmplaceImageView(image_id, view_info);
+    const ImageBase& image = slot_images[image_id];
+    const bool is_rescaled = True(image.flags & ImageFlagBits::Rescaled);
+    const bool is_color = GetFormatType(image.info.format) == SurfaceType::ColorTexture;
+    const ImageViewId color_view_id = is_color ? view_id : ImageViewId{};
+    const ImageViewId depth_view_id = is_color ? ImageViewId{} : view_id;
+    Extent3D extent = MipSize(image.info.size, view_info.range.base.level);
+    if (is_rescaled) {
+        const auto& resolution = Settings::values.resolution_info;
+        extent.width = resolution.ScaleUp(extent.width);
+        if (image.info.type == ImageType::e2D) {
+            extent.height = resolution.ScaleUp(extent.height);
+        }
+    }
+    const u32 num_samples = image.info.num_samples;
+    const auto [samples_x, samples_y] = SamplesLog2(num_samples);
+    const FramebufferId framebuffer_id = GetFramebufferId(RenderTargets{
+        .color_buffer_ids = {color_view_id},
+        .depth_buffer_id = depth_view_id,
+        .size = {extent.width >> samples_x, extent.height >> samples_y},
+        .is_rescaled = is_rescaled,
+    });
+    return {framebuffer_id, view_id};
+}
+
+template <class P>
+bool TextureCache<P>::IsFullClear(ImageViewId id) {
+    if (!id) {
+        return true;
+    }
+    const ImageViewBase& image_view = slot_image_views[id];
+    const ImageBase& image = slot_images[image_view.image_id];
+    const Extent3D size = image_view.size;
+    const auto& regs = maxwell3d->regs;
+    const auto& scissor = regs.scissor_test[0];
+    if (image.info.resources.levels > 1 || image.info.resources.layers > 1) {
+        // Images with multiple resources can't be cleared in a single call
+        return false;
+    }
+    if (regs.clear_control.use_scissor == 0) {
+        // If scissor testing is disabled, the clear is always full
+        return true;
+    }
+    // Make sure the clear covers all texels in the subresource
+    return scissor.min_x == 0 && scissor.min_y == 0 && scissor.max_x >= size.width &&
+           scissor.max_y >= size.height;
+}
+
+template <class P>
+void TextureCache<P>::CreateChannel(struct Tegra::Control::ChannelState& channel) {
+    VideoCommon::ChannelSetupCaches<TextureCacheChannelInfo>::CreateChannel(channel);
+    const auto it = channel_map.find(channel.bind_id);
+    auto* this_state = &channel_storage[it->second];
+    const auto& this_as_ref = address_spaces[channel.memory_manager->GetID()];
+    this_state->gpu_page_table = &gpu_page_table_storage[this_as_ref.storage_id * 2];
+    this_state->sparse_page_table = &gpu_page_table_storage[this_as_ref.storage_id * 2 + 1];
+}
+
+/// Bind a channel for execution.
+template <class P>
+void TextureCache<P>::OnGPUASRegister([[maybe_unused]] size_t map_id) {
+    gpu_page_table_storage.emplace_back();
+    gpu_page_table_storage.emplace_back();
+}
+
+} // namespace VideoCommon

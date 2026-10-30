@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "title_catalog": {
+    "provider": "ch0c01dxyz/nsw-titledb",
+    "license": "MIT",
+    "enumeration": "versions.json",
+    "metadata_regions": [
+      "US.en.json",
+      "FR.fr.json",
+      "JP.ja.json"
+    ],
+    "policy": "Use versions.json for the global Title-ID set; regional catalogs enrich names, publisher, release dates and NSU IDs."
+  },
+  "eden": {
+    "provider": "eden-emulator/eden-overrides",
+    "file": "overrides.ini",
+    "policy": "Preserve official compatibility overrides as compatibility metadata. Do not reinterpret them as recommended settings."
+  },
+  "emuready": {
+    "provider": "EmuReady",
+    "public_api": "https://www.emuready.com/api/mobile/trpc",
+    "enabled_by_default": false,
+    "policy": "Reserved for future optional enrichment. Sync must not depend on community reports to create a baseline."
+  },
+  "hardware": {
+    "source": "Nintendo Switch 1",
+    "target": "PS5 standard/original model"
+  }
+}

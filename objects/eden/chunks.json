@@ -1,0 +1,12 @@
+{
+  "name": "eden",
+  "size": 11764313,
+  "sha256": "35ec0bb96b197181e66c0aeb8f44f0ff05334be832c631c50a4f1e271277285f",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 11764313,
+      "sha256": "35ec0bb96b197181e66c0aeb8f44f0ff05334be832c631c50a4f1e271277285f"
+    }
+  ]
+}

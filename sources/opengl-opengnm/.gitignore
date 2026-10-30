@@ -1,0 +1,44 @@
+# Build artifacts
+*.o
+*.a
+*.so
+*.so.*
+
+# Build directories
+build/
+build-codex/
+build-host/
+build-generic/
+build-warnings/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Config (generated from config.*.mak)
+config.mak
+
+# Test artifacts
+testgnm
+opengnm_tests
+opengnm_link_smoke.elf
+opengnm_hw_smoke.elf
+opengnm_hw_smoke
+*.oelf
+*.pkg
+eboot.bin
+pkg.gp4
+sce_module/
+sce_sys/
+surf.bin
+test.png
+
+# Editor / OS
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+
+# Documentation build
+site/
+.venv/

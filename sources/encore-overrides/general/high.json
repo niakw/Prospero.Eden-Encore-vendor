@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "high",
+  "name": "Haute",
+  "scope": "general",
+  "target_hardware": "PS5 standard / original model",
+  "source_platform": "Nintendo Switch 1",
+  "intent": "Higher image quality for lighter games while retaining meaningful headroom below full 4K internal rendering.",
+  "settings": {
+    "renderer": "vulkan",
+    "console_mode": "docked",
+    "game_resolution": 1.5,
+    "tv_output": "2160p",
+    "upscaling_filter": "bicubic",
+    "fsr_sharpness": 50,
+    "anti_aliasing": "fxaa",
+    "refresh_rate_hz": 60
+  },
+  "technical_basis": {
+    "pixel_workload_vs_1x": 2.25,
+    "reasoning": [
+      "A 1080p-class source at 1.5x is approximately 2880x1620.",
+      "This is 43.75% less internal pixel work than 2.0x while giving a visibly denser source for 4K output.",
+      "Bicubic is used as the sharper conventional scaler when the internal image still needs to reach 2160p.",
+      "FXAA remains a low-cost edge cleanup pass."
+    ]
+  }
+}

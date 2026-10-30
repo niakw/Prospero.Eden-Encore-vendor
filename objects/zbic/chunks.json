@@ -1,0 +1,12 @@
+{
+  "name": "zbic",
+  "size": 542926,
+  "sha256": "880a2be8f479a798a9fe5f3a711f423ae56791b29d0a4df148197d40197a2ee6",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 542926,
+      "sha256": "880a2be8f479a798a9fe5f3a711f423ae56791b29d0a4df148197d40197a2ee6"
+    }
+  ]
+}

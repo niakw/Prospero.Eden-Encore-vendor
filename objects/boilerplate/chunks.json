@@ -1,0 +1,12 @@
+{
+  "name": "boilerplate",
+  "size": 17289610,
+  "sha256": "d38bca60f4e29b82d35af2adb0498a4dfa40be37a76165dbad2ae5ef57b5f309",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 17289610,
+      "sha256": "d38bca60f4e29b82d35af2adb0498a4dfa40be37a76165dbad2ae5ef57b5f309"
+    }
+  ]
+}

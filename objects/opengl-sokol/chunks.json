@@ -1,0 +1,12 @@
+{
+  "name": "opengl-sokol",
+  "size": 1510635,
+  "sha256": "cb798ccfca5e46b65195785b150f12315be81965d1cfc0f05af6f8845bc9a7aa",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 1510635,
+      "sha256": "cb798ccfca5e46b65195785b150f12315be81965d1cfc0f05af6f8845bc9a7aa"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "encore-overrides",
+  "size": 1632589,
+  "sha256": "91f00309ef63150a346a49834974a116d9d07201dcf274fe45ebc3bda4ec2d4b",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 1632589,
+      "sha256": "91f00309ef63150a346a49834974a116d9d07201dcf274fe45ebc3bda4ec2d4b"
+    }
+  ]
+}

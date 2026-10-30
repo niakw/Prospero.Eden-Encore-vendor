@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "title_id": "0100C49025D3E000",
+  "name": "EA SPORTS FC 27",
+  "source_console": "Nintendo Switch 1",
+  "target_hardware": "PS5 standard",
+  "status": "baseline",
+  "auto_apply": true,
+  "default_profile": "recommended",
+  "gameplay_target_fps": 30,
+  "profiles": {
+    "minimum": {
+      "name": "Minimum",
+      "settings": {
+        "renderer": "vulkan",
+        "console_mode": "docked",
+        "game_resolution": 0.75,
+        "tv_output": "1080p",
+        "upscaling_filter": "fsr",
+        "fsr_sharpness": 40,
+        "anti_aliasing": "none",
+        "refresh_rate_hz": 60
+      }
+    },
+    "recommended": {
+      "name": "Recommandé",
+      "settings": {
+        "renderer": "vulkan",
+        "console_mode": "docked",
+        "game_resolution": 1.25,
+        "tv_output": "1440p",
+        "upscaling_filter": "bilinear",
+        "fsr_sharpness": 50,
+        "anti_aliasing": "fxaa",
+        "refresh_rate_hz": 60
+      }
+    },
+    "high": {
+      "name": "Haute",
+      "settings": {
+        "renderer": "vulkan",
+        "console_mode": "docked",
+        "game_resolution": 1.5,
+        "tv_output": "1440p",
+        "upscaling_filter": "bilinear",
+        "fsr_sharpness": 50,
+        "anti_aliasing": "fxaa",
+        "refresh_rate_hz": 60
+      }
+    },
+    "ultra": {
+      "name": "Ultra",
+      "settings": {
+        "renderer": "vulkan",
+        "console_mode": "docked",
+        "game_resolution": 2.0,
+        "tv_output": "2160p",
+        "upscaling_filter": "bilinear",
+        "fsr_sharpness": 50,
+        "anti_aliasing": "none",
+        "refresh_rate_hz": 60
+      }
+    }
+  },
+  "technical_basis": {
+    "switch_1": {
+      "soc": "NVIDIA custom Tegra",
+      "memory_class": "4 GB LPDDR4-class",
+      "tv_output_limit": "1920x1080@60"
+    },
+    "fc_frostbite_switch_reference": {
+      "fc24_docked_resolution": "1920x1080",
+      "fc24_frame_rate": 30,
+      "fc25_frame_rate": 30,
+      "fc27_exact_internal_resolution": null
+    },
+    "ps5_standard": {
+      "cpu": "8-core / 16-thread Zen 2",
+      "gpu": "RDNA 2-class, approximately 10.3 TFLOPS",
+      "memory": "16 GB GDDR6"
+    },
+    "design_rules": [
+      "Preserve the game's 30 FPS target instead of attempting to force 60 FPS.",
+      "Use Docked mode for TV profiles.",
+      "Use 60 Hz output for exact 2:1 presentation cadence at 30 FPS.",
+      "Use FSR only in the Minimum profile where the internal scale is deliberately below 1.0x."
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "opengl-source",
+  "size": 19665522,
+  "sha256": "c939d4ddeb67bd910821fcd7e92561ed8285c01407625e63c4a9685726ad1419",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 19665522,
+      "sha256": "c939d4ddeb67bd910821fcd7e92561ed8285c01407625e63c4a9685726ad1419"
+    }
+  ]
+}

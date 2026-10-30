@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "title_id": "01000CA019236000",
+  "name": "Hazelnut Hex",
+  "source_console": "Nintendo Switch 1",
+  "target_hardware": "PS5 standard",
+  "status": "auto-baseline",
+  "auto_apply": true,
+  "default_profile": "recommended",
+  "profiles": {
+    "minimum": {
+      "name": "Minimum",
+      "profile_source": "general/minimum.json",
+      "settings": {
+        "renderer": "vulkan",
+        "console_mode": "docked",
+        "game_resolution": 1.0,
+        "tv_output": "1080p",
+        "upscaling_filter": "bilinear",
+        "fsr_sharpness": 50,
+        "anti_aliasing": "none",
+        "refresh_rate_hz": 60
+      }
+    },
+    "recommended": {
+      "name": "Recommandé",
+      "profile_source": "general/recommended.json",
+      "settings": {
+        "renderer": "vulkan",
+        "console_mode": "docked",
+        "game_resolution": 1.25,
+        "tv_output": "1440p",
+        "upscaling_filter": "bilinear",
+        "fsr_sharpness": 50,
+        "anti_aliasing": "fxaa",
+        "refresh_rate_hz": 60
+      }
+    },
+    "high": {
+      "name": "Haute",
+      "profile_source": "general/high.json",
+      "settings": {
+        "renderer": "vulkan",
+        "console_mode": "docked",
+        "game_resolution": 1.5,
+        "tv_output": "2160p",
+        "upscaling_filter": "bicubic",
+        "fsr_sharpness": 50,
+        "anti_aliasing": "fxaa",
+        "refresh_rate_hz": 60
+      }
+    },
+    "ultra": {
+      "name": "Ultra",
+      "profile_source": "general/ultra.json",
+      "settings": {
+        "renderer": "vulkan",
+        "console_mode": "docked",
+        "game_resolution": 2.0,
+        "tv_output": "2160p",
+        "upscaling_filter": "bilinear",
+        "fsr_sharpness": 50,
+        "anti_aliasing": "none",
+        "refresh_rate_hz": 60
+      }
+    }
+  },
+  "technical_data": {
+    "catalog": {
+      "source": "ch0c01dxyz/nsw-titledb",
+      "regions": [
+        "US",
+        "FR",
+        "JP"
+      ],
+      "languages": [
+        "en",
+        "fr",
+        "ja"
+      ],
+      "publisher": "Chunderfins",
+      "release_dates": [
+        "20221001",
+        "20231130"
+      ],
+      "nsu_ids": [
+        "70010000057465",
+        "70010000057466",
+        "70010000074727"
+      ]
+    },
+    "source_game": {
+      "docked_resolution": null,
+      "handheld_resolution": null,
+      "target_fps": null,
+      "confidence": "unknown",
+      "rule": "Do not infer game-specific resolution or FPS without a trusted source."
+    },
+    "switch_1": {
+      "platform": "Nintendo Switch 1",
+      "soc": "NVIDIA custom Tegra",
+      "memory": "4 GB LPDDR4-class",
+      "built_in_display": "1280x720",
+      "tv_output_limit": "1920x1080@60"
+    },
+    "ps5_standard": {
+      "platform": "PS5 standard / original model",
+      "cpu": "AMD Zen 2, 8 cores / 16 threads, up to 3.5 GHz",
+      "gpu": "AMD RDNA 2-class, approximately 10.3 TFLOPS",
+      "memory": "16 GB GDDR6",
+      "memory_bandwidth": "448 GB/s"
+    },
+    "eden": {
+      "official_overrides_source": "eden-emulator/eden-overrides",
+      "compatibility_overrides": []
+    },
+    "encore": {
+      "profile_model": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ],
+      "profile_origin": "general baseline",
+      "manual_user_override_wins": true
+    }
+  },
+  "generated": {
+    "generator": "tools/sync_switch_games.py",
+    "policy": "new-title-only; existing repository entries are never rewritten"
+  }
+}

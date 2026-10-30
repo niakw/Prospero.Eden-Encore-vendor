@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "ultra",
+  "name": "Ultra",
+  "scope": "general",
+  "target_hardware": "PS5 standard / original model",
+  "source_platform": "Nintendo Switch 1",
+  "intent": "Maximum useful general image quality for games that leave enough PS5 emulation headroom.",
+  "settings": {
+    "renderer": "vulkan",
+    "console_mode": "docked",
+    "game_resolution": 2.0,
+    "tv_output": "2160p",
+    "upscaling_filter": "bilinear",
+    "fsr_sharpness": 50,
+    "anti_aliasing": "none",
+    "refresh_rate_hz": 60
+  },
+  "technical_basis": {
+    "pixel_workload_vs_1x": 4.0,
+    "reasoning": [
+      "A 1080p-class Switch render reaches exactly 3840x2160 at 2.0x.",
+      "2.0x is the useful 4K ceiling; 3.0x and 4.0x mainly add supersampling cost beyond the output resolution.",
+      "No additional post-process AA is forced because the internal image already reaches the 4K target."
+    ]
+  }
+}

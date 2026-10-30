@@ -1,0 +1,12 @@
+{
+  "name": "ps5-payload-sdk-fork",
+  "size": 4726073,
+  "sha256": "503321451c915618e18f2672e6977ffc155e9e9adba24330f5b3e7d812d020d8",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 4726073,
+      "sha256": "503321451c915618e18f2672e6977ffc155e9e9adba24330f5b3e7d812d020d8"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "opengl-imgui",
+  "size": 1853309,
+  "sha256": "7ce3af957a23faa5f00275aa56dee44410d709b31ef5aabbbdb95392859a0443",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 1853309,
+      "sha256": "7ce3af957a23faa5f00275aa56dee44410d709b31ef5aabbbdb95392859a0443"
+    }
+  ]
+}

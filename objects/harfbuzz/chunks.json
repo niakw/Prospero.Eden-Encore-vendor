@@ -1,0 +1,12 @@
+{
+  "name": "harfbuzz",
+  "size": 19282952,
+  "sha256": "6f6db164359a2da5a84ef826615b448b33e6306067ad829d85d5b0bf936f1bb8",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 19282952,
+      "sha256": "6f6db164359a2da5a84ef826615b448b33e6306067ad829d85d5b0bf936f1bb8"
+    }
+  ]
+}

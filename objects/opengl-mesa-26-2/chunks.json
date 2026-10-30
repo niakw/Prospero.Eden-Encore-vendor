@@ -1,0 +1,17 @@
+{
+  "name": "opengl-mesa-26-2",
+  "size": 68461648,
+  "sha256": "efd4bb08cdb7c365a812cd4e6c9202ab55b2f22cdcd13c7d6c4f9647b799a4ef",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 41943040,
+      "sha256": "7129a8fea331796e1b6d9a7338593292685784dd22720d4380b1ddb0c7e8bbeb"
+    },
+    {
+      "file": "0001.chunk",
+      "size": 26518608,
+      "sha256": "0019c7af1c73c79079b9032c6902bdcd7636f191bd45e7cda30b8538cb271dc8"
+    }
+  ]
+}

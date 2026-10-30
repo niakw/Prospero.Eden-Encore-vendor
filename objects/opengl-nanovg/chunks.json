@@ -1,0 +1,12 @@
+{
+  "name": "opengl-nanovg",
+  "size": 2031913,
+  "sha256": "352ffd1b06388e2b13050720accda3d3d4e3b0f10f37b7eb48870a2c2fb79302",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 2031913,
+      "sha256": "352ffd1b06388e2b13050720accda3d3d4e3b0f10f37b7eb48870a2c2fb79302"
+    }
+  ]
+}

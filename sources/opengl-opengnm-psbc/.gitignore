@@ -1,0 +1,66 @@
+# Build artifacts
+*.o
+*.a
+*.so
+*.so.*
+
+# Build directories
+build/
+build-host/
+
+# Generated sources
+src/amd/common/amdgfxregs.h
+src/amd/common/sid_tables.h
+src/amd/common/amd_cp_packets_gfx11.h
+src/amd/common/amd_cp_packets_gfx12.h
+src/amd/common/gfx10_format_table.c
+src/amd/compiler/aco_builder.h
+src/amd/compiler/aco_opcodes.cpp
+src/amd/compiler/aco_opcodes.h
+src/compiler/nir/nir_builder_opcodes.h
+src/compiler/nir/nir_constant_expressions.c
+src/compiler/nir/nir_intrinsics.c
+src/compiler/nir/nir_intrinsics.h
+src/compiler/nir/nir_intrinsics_indices.h
+src/compiler/nir/nir_opcodes.c
+src/compiler/nir/nir_opcodes.h
+src/compiler/nir/nir_opt_algebraic.c
+src/compiler/spirv/spirv_info.c
+src/compiler/spirv/spirv_info.h
+src/compiler/spirv/vtn_gather_types.c
+src/compiler/spirv/vtn_generator_ids.h
+src/compiler/builtin_types.h
+src/compiler/builtin_types.c
+src/util/format/u_format_gen.h
+src/util/format/u_format_pack.h
+src/util/format/u_format_pack.c
+src/util/format/u_format_table.c
+src/util/format_srgb.c
+src/util/shader_stats.h
+src/vulkan/util/vk_struct_type_cast.h
+src/vulkan/util/vk_enum_defines.h
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Temp build files
+*.tmp
+
+# Config (generated)
+config.mak
+
+# Binary
+/psbc
+/opengnm-psbc
+
+# Test artifacts
+tests/*.spv
+tests/*.sb
+
+# Editor / OS
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/

@@ -1,0 +1,350 @@
+{
+  "entries": {
+    "boost/boost-1.90.0/libs/fiber/README.md": {
+      "git_lf_sha256": "313bbe893c5ac11bab8ef60e7a00e163326d432a67933a84565fc9ea8be4db72",
+      "original_bytes": 877,
+      "original_sha256": "858c32a3958c9d0a087b9b271675f21517b7c50b3d7208c722342a90d19ab292"
+    },
+    "boost/boost-1.90.0/libs/mysql/tools/seed_corpus/field_table.csv": {
+      "git_lf_sha256": "f45787cf5adcb6954ad4636cb79a1fbe8a52b2d01b8aae7da25285222fea4088",
+      "original_bytes": 165584,
+      "original_sha256": "cc419210f86db16e8ffa3c5cdfd5afbb4e9783af851827a6a47c10d751a1bff3"
+    },
+    "boost/boost-1.90.0/libs/mysql/tools/seed_corpus/protocol_messages.csv": {
+      "git_lf_sha256": "7853cb94d1c9244119e9c3d738e63df46d45fec7f943f20cff9db036fa707c5e",
+      "original_bytes": 2835,
+      "original_sha256": "af550b7a115f47c71bc985152998fecdb35426b5471176a538d1c0cd730ce9a5"
+    },
+    "boost/boost-1.90.0/libs/parser/.drone/after-install.bat": {
+      "git_lf_sha256": "0f3dfa9f643ba9b2a02b9aad853c9d9cc1897da92c8f8427e1b6e18cc43db81c",
+      "original_bytes": 92,
+      "original_sha256": "52746b68b65925cf8f58a6d8fbf3c37b88209fe55d611d2d546bf1d1dfa855ef"
+    },
+    "boost/boost-1.90.0/libs/parser/.drone/before-install.bat": {
+      "git_lf_sha256": "c49c2aae9e9052b35f9c35087379e99cbfa384cc9ca21be358da79aba56ca6fe",
+      "original_bytes": 102,
+      "original_sha256": "5e64fadf94fafca52e947bf327b6cf22866874659f40a2b77fedcb766a75a2ab"
+    },
+    "boost/boost-1.90.0/libs/parser/.drone/drone.bat": {
+      "git_lf_sha256": "62f5bcd3489a4977ceb0c20041b6c8df972dafed9a2b0916e9a875398a0f40b7",
+      "original_bytes": 880,
+      "original_sha256": "76d87bf2b02f91f53a961955b25f809f9923a25d1623589ed7c632751b295525"
+    },
+    "boost/boost-1.90.0/tools/build/bootstrap.bat": {
+      "git_lf_sha256": "bcb732ec8d39cfddd56b746dce957ae14a801a6da8fb15bbcea17ea8c2bd78b3",
+      "original_bytes": 685,
+      "original_sha256": "b629822fce7d702ed604966f96e4d9cdb2c30b54c076d99ca6f3de2a5532240d"
+    },
+    "boost/boost-1.90.0/tools/build/src/engine/build.bat": {
+      "git_lf_sha256": "3c8b41fe3df05200e08d776276fb85b662a0d9a84e6b9d0c673571bbc9af1a43",
+      "original_bytes": 5931,
+      "original_sha256": "cb6861184637aa62408ff9f90fb4ce5b7b55af099794e3a3e7343c97bc7f619b"
+    },
+    "boost/boost-1.90.0/tools/build/src/engine/config_toolset.bat": {
+      "git_lf_sha256": "343156f7c66805c627c5631ceeb261087edd1aa56cfed05f4f3468eda78e85c8",
+      "original_bytes": 9423,
+      "original_sha256": "233311134dfd117aa834f3d6123b93273497d8a5f850086a1cfc080f1b69e76f"
+    },
+    "boost/boost-1.90.0/tools/build/src/engine/guess_toolset.bat": {
+      "git_lf_sha256": "418e2e1455eef53cfb2c3fb8505595b15950fed5624125c48d1337a3b2ae2c1a",
+      "original_bytes": 3565,
+      "original_sha256": "d9593cc0f871004bc96a15db9fba7976a97a350e9e642fd69d05327749ffac9a"
+    },
+    "boost/boost-1.90.0/tools/build/src/engine/vswhere_usability_wrapper.cmd": {
+      "git_lf_sha256": "c5680170e4d2a996abed875ef158081b293028f9fe21bd146f084a9e344e65cc",
+      "original_bytes": 2746,
+      "original_sha256": "54a0dd2fcbb042266585097be31ef6b6fccc769256bd8899fd30317679a67be6"
+    },
+    "lz4/ebb370ca83/build/VS2022/_build.bat": {
+      "git_lf_sha256": "3e9e6999d923afe91a447b41273bc82b8365ec695ace94d90a20e152903adb38",
+      "original_bytes": 1688,
+      "original_sha256": "f2041923370d9173d0f95e39a6d9c485ef2c72e8028cdad16bc76d5c2b29967b"
+    },
+    "lz4/ebb370ca83/build/VS2022/_setup.bat": {
+      "git_lf_sha256": "1c56515db79e28e22d575cf808fc5f4c3d08862256ea7376d7808413383d0047",
+      "original_bytes": 1067,
+      "original_sha256": "d218dd97e1a446a4ab4ad7774f5099618af3bec78b94418be14e9e655576c51b"
+    },
+    "lz4/ebb370ca83/build/VS2022/_test.bat": {
+      "git_lf_sha256": "926243172789a9b10f66b6ead275152a5a9b8512b8de192a8100b5bfd621e2f5",
+      "original_bytes": 767,
+      "original_sha256": "f9f0f29042b29dadb7ff13ca951b9fd849979fbee1ab434095ae4f69ecb4d8a8"
+    },
+    "lz4/ebb370ca83/build/VS2022/build-and-test-win32-debug.bat": {
+      "git_lf_sha256": "9f8ee54033b91533eb0d4fad470e4b580af35851b8f6bf041001a7667457ee67",
+      "original_bytes": 489,
+      "original_sha256": "8bce077079f0783a4bb77c0278e51b93dca5b0f9111a506bf3bd77a33d387250"
+    },
+    "lz4/ebb370ca83/build/VS2022/build-and-test-win32-release.bat": {
+      "git_lf_sha256": "66aadc244588403a8cd66664385f5144f83a0bdbe40d6bcad5efa33728b9e1f2",
+      "original_bytes": 491,
+      "original_sha256": "66439d2595a06a23728949282db54553f73fc9250ad4c604d2f661a5cbc409b2"
+    },
+    "lz4/ebb370ca83/build/VS2022/build-and-test-x64-debug.bat": {
+      "git_lf_sha256": "53be5599f5c6f439b30c5d5bea6b146397c208d4daddca9faf9cc13c0326232b",
+      "original_bytes": 487,
+      "original_sha256": "979634ed143cf5bf10ebafea58f36c3dc46f0bcc1f00a65f293c9ea62f59c731"
+    },
+    "lz4/ebb370ca83/build/VS2022/build-and-test-x64-release.bat": {
+      "git_lf_sha256": "2d11793961a9d8c717687063743011aea5a7cebd18c8dfb2fc65c2a18d135d91",
+      "original_bytes": 489,
+      "original_sha256": "12737b37acbe59f39351b5071d1aa86ee0bdfcbae88967d8376ec3aad6bf3258"
+    },
+    "lz4/ebb370ca83/build/VS2022/datagen/datagen.vcxproj": {
+      "git_lf_sha256": "9f7c43ba1e5dc084698755b436487ccc90a13aaba59b426bea8ab9555ac66218",
+      "original_bytes": 9670,
+      "original_sha256": "5d77e7f65b963d4ccab4f0518b5894b13590456387affe561eccc699f96f8bae"
+    },
+    "lz4/ebb370ca83/build/VS2022/frametest/frametest.vcxproj": {
+      "git_lf_sha256": "dbb2ef5e3ac92ad05310175a071073345711bf5c3dbfcfc00f5f58ff1e32d6e7",
+      "original_bytes": 9805,
+      "original_sha256": "ac5b303ce5971b40d0a3a6b59c06b5fb256ef21415b609813bacc47113d79309"
+    },
+    "lz4/ebb370ca83/build/VS2022/fullbench-dll/fullbench-dll.vcxproj": {
+      "git_lf_sha256": "7b7383c5f8002022814623e53fa1487a801c974dadaef3fd065458f49fdc4aea",
+      "original_bytes": 10626,
+      "original_sha256": "2c478b4bc6735e502626168d8a1bb6b881b963a2e6d2906e78f2fc12d043f863"
+    },
+    "lz4/ebb370ca83/build/VS2022/fullbench/fullbench.vcxproj": {
+      "git_lf_sha256": "bc2521bcfa465c35192cafa0a2bd3489037e8acf1f4d5919db75801b708ead7c",
+      "original_bytes": 9805,
+      "original_sha256": "f997c657ccb4544aa68527c3e5c8e244cf8688fc2334c628eef9d98717b03213"
+    },
+    "lz4/ebb370ca83/build/VS2022/fuzzer/fuzzer.vcxproj": {
+      "git_lf_sha256": "af626e9171d8ca909cc70b0210a43567fbaad1cbe2bd987bef2fcfd8a075406c",
+      "original_bytes": 9633,
+      "original_sha256": "e25903cd48256c8e82da75e647ac8735594b1bbca412148bc3e2c951855e0834"
+    },
+    "lz4/ebb370ca83/build/VS2022/liblz4-dll/liblz4-dll.rc": {
+      "git_lf_sha256": "478f1e0149fcd26474a0a7eb881e19396e0142afcf064fc0372b9b0068db7deb",
+      "original_bytes": 1388,
+      "original_sha256": "1e5895921e87a4f20e01142b83dabcedc8629eec825c519ab05363ecfa64019f"
+    },
+    "lz4/ebb370ca83/build/VS2022/liblz4-dll/liblz4-dll.vcxproj": {
+      "git_lf_sha256": "56352e2375230e4490e936b26f702b14d0b3064a45daea78eab19f28d07eb9d6",
+      "original_bytes": 9797,
+      "original_sha256": "d8ccd02405f160675e71a998341511b293d6bd452e61cf9eed776f3995d1f74d"
+    },
+    "lz4/ebb370ca83/build/VS2022/liblz4/liblz4.vcxproj": {
+      "git_lf_sha256": "cde64d2215b18cc93874565396d0a4c807ca291f202b22d7d9cc8a6e330c3389",
+      "original_bytes": 9694,
+      "original_sha256": "2edaf8aa9f667c353ad79f18e54d1165222a2fc68e32f317df65725bddd437e7"
+    },
+    "lz4/ebb370ca83/build/VS2022/lz4.sln": {
+      "git_lf_sha256": "f0cc255b083424b98ad2e03a82a0e811cb7c145eadf481ffb3b25818ce4e1520",
+      "original_bytes": 7104,
+      "original_sha256": "dff63cc02684d6be5ff8a47a2a583ff896ab12fd30c063f54bc25337e0fbe6ed"
+    },
+    "lz4/ebb370ca83/build/VS2022/lz4/lz4.rc": {
+      "git_lf_sha256": "9e9a8fd769a71521508399f975744ab65b80dd608fc076764acbfd50f4a2518f",
+      "original_bytes": 1388,
+      "original_sha256": "a7573b7b465664ca2a6df59202b9cf32b348b40e73a57fe4b81618542679ecf8"
+    },
+    "lz4/ebb370ca83/build/VS2022/lz4/lz4.vcxproj": {
+      "git_lf_sha256": "c693cade74e7f72c03d3afc5506441bbdcb757d84b089dd9d9d891ca4699193b",
+      "original_bytes": 10746,
+      "original_sha256": "b5d6a8c6f946be257789b1f6cfd374c3f49fe60dd2da24dcfa9af9c16802c6ec"
+    },
+    "lz4/ebb370ca83/build/visual/generate_solution.cmd": {
+      "git_lf_sha256": "5778ade7e85df2587ca19352b0ec82dbe5d58cbdf8197543cce16985fd0e2578",
+      "original_bytes": 1583,
+      "original_sha256": "533a5451fab9591834285c850d190faabd6e273e869ed2d4a283c8e73ee1e97b"
+    },
+    "lz4/ebb370ca83/build/visual/generate_vs2015.cmd": {
+      "git_lf_sha256": "4fb5604852193c1b059e9f329b863bedfd64cdd59fbe66447b7d7029b3a360ac",
+      "original_bytes": 130,
+      "original_sha256": "5bbcb4cd1f52279b239abf9525589cdc7d082a85080ef7d50eb9ccbaba2b1c06"
+    },
+    "lz4/ebb370ca83/build/visual/generate_vs2017.cmd": {
+      "git_lf_sha256": "eac1784f4145fdadac000bb7434ddd58d37455ec4447a3c5f2ae72ce49d9374a",
+      "original_bytes": 130,
+      "original_sha256": "5b2cea61d288ce78518886f4e5c9525f7114bc32aba493a345913ad8e01ea03a"
+    },
+    "lz4/ebb370ca83/build/visual/generate_vs2019.cmd": {
+      "git_lf_sha256": "4b89a6a828fcd7cd29fd6aef9c5e263ce78ca2b9a20dcd383a70f77a9081dc38",
+      "original_bytes": 130,
+      "original_sha256": "ab1d7d2d4c22c78efd47e97e67866f275c20b9e9ca0f3d1f2a75e042853a71d7"
+    },
+    "lz4/ebb370ca83/build/visual/generate_vs2022.cmd": {
+      "git_lf_sha256": "22527dae3f1e57d96c58b0af818a12bfc479eb21c369230f85b7b7fb25123004",
+      "original_bytes": 130,
+      "original_sha256": "c6fe773f05470e0af8fef0a3672a4506f8c2a04b9b171c87eb64d827cc40087b"
+    },
+    "lz4/ebb370ca83/lib/dll/example/fullbench-dll.sln": {
+      "git_lf_sha256": "65e49dcb7a4292f1c12f87fd9e10805373b5839e123897637a68bcd07116ee61",
+      "original_bytes": 1269,
+      "original_sha256": "af0c9152e1109cea3e7a997e59dc435f032526c238e95681741e2a2f12ad0a74"
+    },
+    "lz4/ebb370ca83/lib/dll/example/fullbench-dll.vcxproj": {
+      "git_lf_sha256": "7eded4e5abb0ddc5f7aeb289d6a7f22f5d2ba84076b9ebd4387d3c649f009862",
+      "original_bytes": 10157,
+      "original_sha256": "aadb61a66fb7f024a55406e253b7443742f7eb68193e0f143a73dcaf7ec6b240"
+    },
+    "zstd/b8d6101fba/build/VS2008/fullbench/fullbench.vcproj": {
+      "git_lf_sha256": "896624bccae01a8b35875bbe77b21938e16c8c9ea0bb87acb92464cf5e42e7ef",
+      "original_bytes": 11989,
+      "original_sha256": "98bb09f34b4c017c8cca9adfc11d24758ae5cd0dbbf1c9895a6e049e21b44e1e"
+    },
+    "zstd/b8d6101fba/build/VS2008/fuzzer/fuzzer.vcproj": {
+      "git_lf_sha256": "b3ea023eb6d08c8c1c545bd06b295777486b34b78e020bf0d79bf22729f3b1f0",
+      "original_bytes": 12933,
+      "original_sha256": "6aad63c0f1f94c90bafb73c823acacb76cafd04599f9a173717bc64e53cbdafa"
+    },
+    "zstd/b8d6101fba/build/VS2008/zstd.sln": {
+      "git_lf_sha256": "52fb93891aeff9c3ab695348c69bbd68f2a0234b37fe1438537a8a97d9c025c3",
+      "original_bytes": 3509,
+      "original_sha256": "0c2f51b30d8a1a742f0fc3250bae1dd6f546f826bf536e12c6f68a70ee0ce423"
+    },
+    "zstd/b8d6101fba/build/VS2008/zstd/zstd.vcproj": {
+      "git_lf_sha256": "e9b56706be0b895d8728056e6df45305beab11a708124c4426ec85e4f4361321",
+      "original_bytes": 14858,
+      "original_sha256": "3203152290a60581fb994eaef5496e9bd67573793a59237cc3821456dde0c22e"
+    },
+    "zstd/b8d6101fba/build/VS2008/zstdlib/zstdlib.vcproj": {
+      "git_lf_sha256": "24a509ac5c93fc3afafa745202279a1764bce37eb2faabfa5858925213d29771",
+      "original_bytes": 14099,
+      "original_sha256": "3aa3fdbf4d22b4b7b78733f21afe0fe6f78cb8d3b284450a76ab0bd4abf30500"
+    },
+    "zstd/b8d6101fba/build/VS2010/datagen/datagen.vcxproj": {
+      "git_lf_sha256": "c6630635272b108a3e8853332a288c3958bdf1369f9941baae33bd99c1c90cae",
+      "original_bytes": 8810,
+      "original_sha256": "50969a7c0dbe2115310fbc04af07f397885ac58a337346c31b969d7ae3d8d482"
+    },
+    "zstd/b8d6101fba/build/VS2010/fullbench/fullbench.vcxproj": {
+      "git_lf_sha256": "cbb6460d303f86c755743f8da0a50487b5ef84f4db7f362ddff68eada9d98267",
+      "original_bytes": 12131,
+      "original_sha256": "f83fab321ad7b671d1d3b21c6f55ac67bcbb84bbd5f3bcf10ddf889282e3457c"
+    },
+    "zstd/b8d6101fba/build/VS2010/fuzzer/fuzzer.vcxproj": {
+      "git_lf_sha256": "d9fd07d06f9f247e45a4dee44c5ceba5831722310653c3017b4e5d269927c2a7",
+      "original_bytes": 12744,
+      "original_sha256": "cce300946c63b356e20097668e5a3d7113eb21576afb17d8db788b88b332df62"
+    },
+    "zstd/b8d6101fba/build/VS2010/libzstd-dll/libzstd-dll.rc": {
+      "git_lf_sha256": "6530fc5d73e62db18585a4cef7255ebf79469564a8e7a6dfe7e786b4c046b075",
+      "original_bytes": 1461,
+      "original_sha256": "c5fdd8b7fcd01f11e3d24617fb3f4119f142e33e11676a118b4607c594a337da"
+    },
+    "zstd/b8d6101fba/build/VS2010/libzstd-dll/libzstd-dll.vcxproj": {
+      "git_lf_sha256": "b35ac29e3bb210b2e4bb5b8b051aec2aee3782b8853975e23b2c2f1cf93837d5",
+      "original_bytes": 14357,
+      "original_sha256": "81dbfcface95edfc54ccfae13b9c6529e1be13295264ed19a66e62d229107ecb"
+    },
+    "zstd/b8d6101fba/build/VS2010/libzstd/libzstd.vcxproj": {
+      "git_lf_sha256": "0dc85a060154fa148818e467ff1360757fa955ec7c8a7716d53a09dabfcadbcc",
+      "original_bytes": 13954,
+      "original_sha256": "a49c157f36b5bc265d853a3c42f76d9985a3897691148c2435a7015446fe1362"
+    },
+    "zstd/b8d6101fba/build/VS2010/zstd.sln": {
+      "git_lf_sha256": "c1e569415424ba7c7d9765c295999337e422b068c7ea087d03f9bc893f5feeb0",
+      "original_bytes": 5692,
+      "original_sha256": "dcf6470e57e9bbdb0df0c9084c56bacd88964a72f77d0a8916af2a6e7f90788c"
+    },
+    "zstd/b8d6101fba/build/VS2010/zstd/zstd.rc": {
+      "git_lf_sha256": "526ee91475a4102f6228acf709c7d4ea63577fc93cd49be3f556929b3451412b",
+      "original_bytes": 1455,
+      "original_sha256": "00e18d6b05ebccfb6e0eb7649c8e19341193e8fbff73a175c3b0d39354bba6f0"
+    },
+    "zstd/b8d6101fba/build/VS2010/zstd/zstd.vcxproj": {
+      "git_lf_sha256": "55a2b2bfe12fc0b8ec4b0db2055c26939f203fa25eabbcb15e76dcfee896cdba",
+      "original_bytes": 15310,
+      "original_sha256": "f955f85a497a306e61a86d194434f3ae4584cef071bce60f169bf1ac633037d9"
+    },
+    "zstd/b8d6101fba/build/VS_scripts/build.VS2010.cmd": {
+      "git_lf_sha256": "159668823c8afefb753fd911ba0919297bf2e33bca6f80aebead32c5afc0822c",
+      "original_bytes": 161,
+      "original_sha256": "99385fe13bf132c2c30639a8372b4fbcd34e21322a8de374a6731a3c91184f99"
+    },
+    "zstd/b8d6101fba/build/VS_scripts/build.VS2012.cmd": {
+      "git_lf_sha256": "deba158666c9a47831dd2a1badea19fbf5865f707bef327d0fdf8f80af7a201b",
+      "original_bytes": 159,
+      "original_sha256": "43ec66eb99d7389afeb0b03c1863f751648c10b2f08ce1f5bfcf66c89be02220"
+    },
+    "zstd/b8d6101fba/build/VS_scripts/build.VS2013.cmd": {
+      "git_lf_sha256": "a08f9e661903ec4fcb37b9455f1e11d9d05169e6424c88a3fee9077bc8f2e397",
+      "original_bytes": 161,
+      "original_sha256": "3e6e170dfc54d05071e6aaa00d653648f83f5d44007954d908dbefca8cae9f8b"
+    },
+    "zstd/b8d6101fba/build/VS_scripts/build.VS2015.cmd": {
+      "git_lf_sha256": "7f1a39f6482f3d5cbb763894f2373d59e3427189484dc18124a1d5993c839bf4",
+      "original_bytes": 161,
+      "original_sha256": "420a6d81afffccd80f71e44a3d63e0d335a6f01a5098f6ea06def319f614252e"
+    },
+    "zstd/b8d6101fba/build/VS_scripts/build.VS2017.cmd": {
+      "git_lf_sha256": "7405c692c07fadffd8fc1664e09b241fb3c093609bda22317d34fa145f94ac82",
+      "original_bytes": 161,
+      "original_sha256": "ffca4b2a7e2b8241c858620205eea2fdcec2f79c8dc956ee1fc41b80a2a2f391"
+    },
+    "zstd/b8d6101fba/build/VS_scripts/build.VS2017Community.cmd": {
+      "git_lf_sha256": "bc4735858b466d7d6d4023627c52e9618a22f59686aad42181502c8e14a40b17",
+      "original_bytes": 179,
+      "original_sha256": "0c0c878a0a9674d1c779fcd26390af46570eede0e3ae3086f735c200b7f48d54"
+    },
+    "zstd/b8d6101fba/build/VS_scripts/build.VS2017Enterprise.cmd": {
+      "git_lf_sha256": "260978eb894d4d6c09bdb5479495d0ef8a318112122efb689648174de0b9b1cb",
+      "original_bytes": 181,
+      "original_sha256": "7967e51b6628940ec5ff01fdfe84b141fd017975794d011bf91f194d74517937"
+    },
+    "zstd/b8d6101fba/build/VS_scripts/build.VS2017Professional.cmd": {
+      "git_lf_sha256": "de10906cc76ee87c4c8118796a24e0b8e4195cf9c2fd1c1838a7efb81cec5d46",
+      "original_bytes": 185,
+      "original_sha256": "eb88d7128808d4c8040357e5dca6726619e9da336d50f254bb759cf5bc9e1d21"
+    },
+    "zstd/b8d6101fba/build/VS_scripts/build.VSPreview.cmd": {
+      "git_lf_sha256": "c330071b5e29711a4b3af7b22fa74ed8353d28bc98c58b7dae7aaf99f1fe67b6",
+      "original_bytes": 163,
+      "original_sha256": "f83b67df6f0e55351a7820c1e0c72a73da62b54a91ad48800c4aec5805255fc4"
+    },
+    "zstd/b8d6101fba/build/VS_scripts/build.generic.cmd": {
+      "git_lf_sha256": "60cbf2e1f40ece249e80e913bf4469b370f4c94738e7a923a41b5f01447ad61c",
+      "original_bytes": 2833,
+      "original_sha256": "584c19064e1a43cbfa3547dc26959581a6f5abc8b0d68bea6224d9289db64207"
+    },
+    "zstd/b8d6101fba/contrib/VS2005/fullbench/fullbench.vcproj": {
+      "git_lf_sha256": "3adec3f94c6f5b8469d2dd502bfd89122ff88f5e7bade43f57d2e70b76a23ada",
+      "original_bytes": 9471,
+      "original_sha256": "3fb6770b780241d07b9a2098355ead61b8a49e21d6c4dcc5aed628ad4d1eee50"
+    },
+    "zstd/b8d6101fba/contrib/VS2005/fuzzer/fuzzer.vcproj": {
+      "git_lf_sha256": "4ccf149c2496a0bdebe8ec92e302483a7789f0e611ce3db8ba717becf1339e29",
+      "original_bytes": 10471,
+      "original_sha256": "48e345992e0a90b5f8d8b49867e03f42ded95217b932126494271cf78a7673e9"
+    },
+    "zstd/b8d6101fba/contrib/VS2005/zstd.sln": {
+      "git_lf_sha256": "90811b76025b6e342e20dce32531122a0a883801df89519ff130fb689bbc1491",
+      "original_bytes": 3511,
+      "original_sha256": "1095bb9942dbd88434174043b5c83bb031f7f4b42c7e35974040804492cccbb5"
+    },
+    "zstd/b8d6101fba/contrib/VS2005/zstd/zstd.vcproj": {
+      "git_lf_sha256": "1981467e86b8216ce1e2bef7437614afc09dc5f15516740e7d549069354fa142",
+      "original_bytes": 12175,
+      "original_sha256": "a73dac3fe395163a4f952849f49ce1ca13a8d1dcf73473ec9a05115f60a5e956"
+    },
+    "zstd/b8d6101fba/contrib/VS2005/zstdlib/zstdlib.vcproj": {
+      "git_lf_sha256": "56fb50c01f8549ffc3a09064efcaba136deccce3170c384121af9180ae92bf4e",
+      "original_bytes": 12119,
+      "original_sha256": "8156e24174f8a5aa8452e75343b9cd471d2afd77328ec178bafad557c13e9347"
+    },
+    "zstd/b8d6101fba/lib/dll/example/build_package.bat": {
+      "git_lf_sha256": "663b881b05d7b70a0047aca026f12babc013a7b2d4253e8da8963ee746b7a353",
+      "original_bytes": 2105,
+      "original_sha256": "1708623416dab7e59fac24c4e77c4957c9fac5755ea96319485625df43462882"
+    },
+    "zstd/b8d6101fba/lib/dll/example/fullbench-dll.sln": {
+      "git_lf_sha256": "65e49dcb7a4292f1c12f87fd9e10805373b5839e123897637a68bcd07116ee61",
+      "original_bytes": 1269,
+      "original_sha256": "af0c9152e1109cea3e7a997e59dc435f032526c238e95681741e2a2f12ad0a74"
+    },
+    "zstd/b8d6101fba/lib/dll/example/fullbench-dll.vcxproj": {
+      "git_lf_sha256": "7b31f23e566ae81a1ea9417b6a19e5c4ed4023ac1d1b52f26b83e0b9865a0627",
+      "original_bytes": 10105,
+      "original_sha256": "4f932405a188a42bf7d8d525d72f62c24e0145092fab1f313331e1c637572d6f"
+    },
+    "zstd/b8d6101fba/programs/windres/zstd.rc": {
+      "git_lf_sha256": "526ee91475a4102f6228acf709c7d4ea63577fc93cd49be3f556929b3451412b",
+      "original_bytes": 1455,
+      "original_sha256": "00e18d6b05ebccfb6e0eb7649c8e19341193e8fbff73a175c3b0d39354bba6f0"
+    }
+  },
+  "format": "cpm-original-line-endings-1"
+}

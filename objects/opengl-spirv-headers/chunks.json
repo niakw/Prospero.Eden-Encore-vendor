@@ -1,0 +1,12 @@
+{
+  "name": "opengl-spirv-headers",
+  "size": 429478,
+  "sha256": "c066a431625f1089c1f4066e22dbdb62c11014f679123a8279b44f8a55a46f22",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 429478,
+      "sha256": "c066a431625f1089c1f4066e22dbdb62c11014f679123a8279b44f8a55a46f22"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "ps5-vulkan-tools",
+  "size": 38595235,
+  "sha256": "670cd2230b031bee4c5ffa455dfadd40baabd6ae505a3957a3ea5c0eab442c43",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 38595235,
+      "sha256": "670cd2230b031bee4c5ffa455dfadd40baabd6ae505a3957a3ea5c0eab442c43"
+    }
+  ]
+}

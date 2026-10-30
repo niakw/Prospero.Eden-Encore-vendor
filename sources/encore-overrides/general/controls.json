@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "id": "playstation-auto",
+  "name": "PlayStation Auto",
+  "scope": "global",
+  "default_for_layout": "playstation",
+  "description": "Global adaptive PlayStation mapping: PS5 confirm/back semantics in UI, physical Switch face-button positions during gameplay.",
+  "mappings": {
+    "ui": {
+      "a": "cross",
+      "b": "circle",
+      "x": "square",
+      "y": "triangle"
+    },
+    "gameplay": {
+      "a": "circle",
+      "b": "cross",
+      "x": "triangle",
+      "y": "square"
+    }
+  },
+  "detection": {
+    "initial_context": "ui",
+    "gameplay": {
+      "stick_threshold": 0.3,
+      "trigger_threshold_raw": 48,
+      "evidence_enter": 18,
+      "evidence_per_active_poll": 2
+    },
+    "ui": {
+      "quiet_stick_threshold": 0.16,
+      "quiet_polls_before_dpad": 75,
+      "menu_evidence_enter": 10,
+      "options_touchpad_weight": 4,
+      "dpad_weight": 2
+    },
+    "hysteresis": true
+  },
+  "fixed_profiles": [
+    "switch",
+    "custom-ps5",
+    "custom-switch"
+  ],
+  "notes": [
+    "No title ID is hard-coded.",
+    "Custom mappings are never changed automatically.",
+    "Per-game overrides may disable or tune auto detection for titles with unusual input behaviour."
+  ]
+}

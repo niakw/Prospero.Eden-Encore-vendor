@@ -1,0 +1,147 @@
+cmake_minimum_required(VERSION 3.18)
+
+# Determine if we're built as a subproject (using add_subdirectory)
+# or if this is the master project.
+set(MASTER_PROJECT OFF)
+set(SUBPROJECT ON)
+
+if (NOT DEFINED PROJECT_NAME)
+  set(MASTER_PROJECT ON)
+  set(SUBPROJECT OFF)
+endif()
+
+project(sirit CXX)
+
+# Sirit project options
+option(SIRIT_TESTS "Build tests" ${MASTER_PROJECT})
+option(SIRIT_INSTALL "Generate installation target" ${MASTER_PROJECT})
+option(SIRIT_USE_SYSTEM_SPIRV_HEADERS "Use system SPIR-V headers" OFF)
+option(SIRIT_BUILD_SHARED "Build sirit as a shared library" ${MASTER_PROJECT})
+option(SIRIT_BUILD_STATIC "Build sirit as a static library" ${SUBPROJECT})
+
+# Default to a Release build
+if (NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build"
+        FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+        Debug Release RelWithDebInfo MinSizeRel)
+    message(STATUS "Defaulting to a Release build")
+endif()
+
+# Set hard requirements for C++
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Warn on CMake API deprecations
+set(CMAKE_WARN_DEPRECATED ON)
+
+if (WIN32)
+    set(CMAKE_SHARED_LIBRARY_PREFIX "")
+endif()
+
+if(CMAKE_STATIC_LIBRARY_PREFIX STREQUAL "" AND
+   CMAKE_STATIC_LIBRARY_SUFFIX STREQUAL ".lib")
+    # Avoid conflict between the dll import library and
+    # the static library
+    set(SIRIT_STATIC_LIBNAME "sirit-static")
+else()
+    set(SIRIT_STATIC_LIBNAME "sirit")
+endif()
+
+# Disable in-source builds
+set(CMAKE_DISABLE_SOURCE_CHANGES ON)
+set(CMAKE_DISABLE_IN_SOURCE_BUILD ON)
+if ("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
+    message(SEND_ERROR "In-source builds are not allowed.")
+endif()
+
+# Add the module directory to the list of paths
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/CMakeModules")
+
+# Compiler flags
+if (MSVC)
+    set(SIRIT_CXX_FLAGS
+        /W4
+        /w34263 # Non-virtual member function hides base class virtual function
+        /w44265 # Class has virtual functions, but destructor is not virtual
+        /w34456 # Declaration of 'var' hides previous local declaration
+        /w34457 # Declaration of 'var' hides function parameter
+        /w34458 # Declaration of 'var' hides class member
+        /w34459 # Declaration of 'var' hides global definition
+        /w34946 # Reinterpret-cast between related types
+
+        # Symbol will be dynamically initialized (implementation limitation)
+        /wd4592
+
+        /permissive- # Stricter C++ standards conformance
+        /MP
+        /Zi
+        /Zo
+        /EHsc
+        /Zc:inline # Omits inline functions from object-file output
+        /DNOMINMAX
+        /WX)
+
+    if (CMAKE_BUILD_TYPE STREQUAL "Release")
+        list(APPEND SIRIT_CXX_FLAGS /DEBUG:NONE)
+    endif()
+
+    if (CMAKE_VS_PLATFORM_TOOLSET MATCHES "LLVM-vs[0-9]+")
+        list(APPEND SIRIT_CXX_FLAGS
+             -Qunused-arguments
+             -Wno-missing-braces)
+    endif()
+else()
+    set(SIRIT_CXX_FLAGS
+        -Wall
+        -Wextra
+        -Wcast-qual
+        -pedantic
+        -pedantic-errors
+        -Wfatal-errors
+        -Wno-missing-braces
+        -Wconversion
+        -Wsign-conversion
+        -Wshadow
+        -Werror)
+endif()
+
+# Enable unit-testing.
+enable_testing(true)
+
+# SPIR-V headers
+if (SIRIT_USE_SYSTEM_SPIRV_HEADERS)
+    find_package(SPIRV-Headers REQUIRED)
+else()
+    message(STATUS "[sirit] Using bundled SPIRV Headers")
+    add_subdirectory(externals/SPIRV-Headers EXCLUDE_FROM_ALL)
+endif()
+
+# Sirit project files
+add_subdirectory(src)
+if (SIRIT_TESTS)
+    add_subdirectory(tests)
+endif()
+
+if (SIRIT_INSTALL)
+    include(GNUInstallDirs)
+
+    install(EXPORT siritTargets
+        FILE siritTargets.cmake
+        NAMESPACE sirit::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/sirit
+    )
+
+    include(CMakePackageConfigHelpers)
+    configure_package_config_file(
+        "${CMAKE_SOURCE_DIR}/CMakeModules/siritConfig.cmake.in"
+        "${CMAKE_BINARY_DIR}/siritConfig.cmake"
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/sirit
+    )
+
+    install(
+        FILES "${CMAKE_BINARY_DIR}/siritConfig.cmake"
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/sirit
+    )
+endif()

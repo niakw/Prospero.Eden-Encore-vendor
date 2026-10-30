@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "recommended",
+  "name": "Recommandé",
+  "scope": "general",
+  "target_hardware": "PS5 standard / original model",
+  "source_platform": "Nintendo Switch 1",
+  "intent": "Default balance of image quality, playability and emulation headroom.",
+  "settings": {
+    "renderer": "vulkan",
+    "console_mode": "docked",
+    "game_resolution": 1.25,
+    "tv_output": "1440p",
+    "upscaling_filter": "bilinear",
+    "fsr_sharpness": 50,
+    "anti_aliasing": "fxaa",
+    "refresh_rate_hz": 60
+  },
+  "technical_basis": {
+    "pixel_workload_vs_1x": 1.5625,
+    "reasoning": [
+      "A 1080p-class source at 1.25x is approximately 2400x1350, already close to 2560x1440 output.",
+      "This raises image quality substantially without approaching the 4x pixel cost of a 2.0x profile.",
+      "FXAA is a low-cost general anti-aliasing pass at this scale."
+    ]
+  }
+}

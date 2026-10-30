@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "minimum",
+  "name": "Minimum",
+  "scope": "general",
+  "target_hardware": "PS5 standard / original model",
+  "source_platform": "Nintendo Switch 1",
+  "intent": "Lowest-load general profile while preserving the source console's native-class docked presentation.",
+  "settings": {
+    "renderer": "vulkan",
+    "console_mode": "docked",
+    "game_resolution": 1.0,
+    "tv_output": "1080p",
+    "upscaling_filter": "bilinear",
+    "fsr_sharpness": 50,
+    "anti_aliasing": "none",
+    "refresh_rate_hz": 60
+  },
+  "technical_basis": {
+    "pixel_workload_vs_1x": 1.0,
+    "reasoning": [
+      "1.0x preserves the source game's intended docked-class rendering scale.",
+      "1080p matches the Nintendo Switch 1 TV output ceiling.",
+      "Bilinear and no extra AA minimize post-processing overhead.",
+      "This is the safest generic fallback before a game-specific override exists."
+    ]
+  }
+}

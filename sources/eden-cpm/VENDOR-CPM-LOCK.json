@@ -1,0 +1,226 @@
+{
+  "cpmfile_sha256": "4afc25aa5f6501b61dde2e55b876eccba1353b8d6de9f037ddeddfeec6ff8839",
+  "entries": {
+    "boost": {
+      "bytes": 550707202,
+      "cpm_key": "boost",
+      "files": 59798,
+      "sha256": "20519b3bdcaaa64ca0eb3d252b9018af513343ffc994431a0128cae2c1c0a9e8",
+      "source_repo": "boostorg/boost",
+      "upstream_sha512": "6ae6e94664fe7f2fb01976b59b276ac5df8085c7503fa829d810fbfe495960cfec44fa2c36e2cb23480bc19c956ed199d4952b02639a00a6c07625d4e7130c2d",
+      "version": "boost-1.90.0"
+    },
+    "enet": {
+      "bytes": 375812,
+      "cpm_key": "enet",
+      "files": 39,
+      "sha256": "7d386e958e8b392dcd9202d1149479ab1a9cb45928e81a6e922d080e811c86c7",
+      "source_repo": "lsalzman/enet",
+      "upstream_sha512": "a0d2fa8c957704dd49e00a726284ac5ca034b50b00d2b20a94fa1bbfbb80841467834bfdc84aa0ed0d6aab894608fd6c86c3b94eee46343f0e6d9c22e391dbf9",
+      "version": "v1.3.18"
+    },
+    "ffmpeg": {
+      "bytes": 87653381,
+      "cpm_key": "ffmpeg",
+      "files": 10093,
+      "sha256": "fd2b1ab05a10fdd39cb88e5725511d113aaefc12fffd537e3037958600106370",
+      "source_repo": "FFmpeg/FFmpeg",
+      "upstream_sha512": "ed177621176b3961bdcaa339187d3a7688c1c8b060b79c4bb0257cbc67ad7021ae5d5adca5303b45625abbbe3d9aafdd87ce777b8690ac295290d744c875489a",
+      "version": "c7b5f1537d"
+    },
+    "fmt": {
+      "bytes": 3030261,
+      "cpm_key": "fmt",
+      "files": 129,
+      "sha256": "e36b207bdab8280eae30a94c3be9c5f7f5a5a4748f4d215c2ba0a3193ba7e757",
+      "source_repo": "fmtlib/fmt",
+      "upstream_sha512": "f0da82c545b01692e9fd30fdfb613dbb8dd9716983dcd0ff19ac2a8d36f74beb5540ef38072fdecc1e34191b3682a8542ecbf3a61ef287dbba0a2679d4e023f2",
+      "version": "12.1.0"
+    },
+    "frozen": {
+      "bytes": 1004582,
+      "cpm_key": "frozen",
+      "files": 63,
+      "sha256": "b8dde7c10eaea3127f1843806b654068db04101a2b6a43ca9f8dd38731fb13f5",
+      "source_repo": "serge-sans-paille/frozen",
+      "upstream_sha512": "b8dfe741c82bc178dfc9749d4ab5a130cee718d9ee7b71d9b547cf5f7f23027ed0152ad250012a8546399fcc1e12187efc68d89d6731256c4d2df7d04eef8d5c",
+      "version": "61dce5ae18"
+    },
+    "gamemode": {
+      "bytes": 363929,
+      "cpm_key": "gamemode",
+      "files": 80,
+      "sha256": "e72af9365060b3ca6486fb676ea84686f52fcbd514f46e4239698a1422811b77",
+      "source_repo": "FeralInteractive/gamemode",
+      "upstream_sha512": "e87ec14ed3e826d578ebf095c41580069dda603792ba91efa84f45f4571a28f4d91889675055fd6f042d7dc25b0b9443daf70963ae463e38b11bcba95f4c65a9",
+      "version": "ce6fe122f3"
+    },
+    "httplib": {
+      "bytes": 10888946,
+      "cpm_key": "httplib",
+      "files": 331,
+      "sha256": "ba5664509064f01e3dcd353f74e896c282bba132aa24292918efe5edd7c6e736",
+      "source_repo": "yhirose/cpp-httplib",
+      "upstream_sha512": "159ed94965018f2a371d45a3bfc1961e5fb1549e501ded70a6b4532d7fe99d0579c18b5195aff6e35f96f399b426cea2650ec9fb75ef80d4c9edeccb51f2e6c9",
+      "version": "v0.46.0"
+    },
+    "lz4": {
+      "bytes": 1674746,
+      "cpm_key": "lz4",
+      "files": 209,
+      "sha256": "712e5c2005ddf29f0e70edf2e23f00846bc7528b239b0b4e8354a76648009c61",
+      "source_repo": "lz4/lz4",
+      "upstream_sha512": "35c21a5d9cfb5bbf314a5321d02b36819491d2ee3cf8007030ca09d13ca4dae672247b7aeab553e973093604fc48221cb03dc92197c6efe8fc3746891363fdab",
+      "version": "ebb370ca83"
+    },
+    "moltenvk": {
+      "bytes": 55858208,
+      "cpm_key": "moltenvk",
+      "files": 68,
+      "sha256": "73367ec8b08243b232c0d484ae3ff3571300d9d244524202270dcc09ceb8dc34",
+      "source_repo": "V380-Ori/Ryujinx.MoltenVK",
+      "upstream_sha512": "5695b36ca5775819a71791557fcb40a4a5ee4495be6b8442e0b666d0c436bec02aae68cc6210183f7a5c986bdbec0e117aecfad5396e496e9c2fd5c89133a347",
+      "version": "v1.4.1-ryujinx"
+    },
+    "nlohmann_json": {
+      "bytes": 15958750,
+      "cpm_key": "nlohmann",
+      "files": 1164,
+      "sha256": "e827f18c1d00b705d7231aafd64d8ccd1bc7f7a4e2dd0cf174e19c0d053d6268",
+      "source_repo": "nlohmann/json",
+      "upstream_sha512": "6cc1e86261f8fac21cc17a33da3b6b3c3cd5c116755651642af3c9e99bb3538fd42c1bd50397a77c8fb6821bc62d90e6b91bcdde77a78f58f2416c62fc53b97d",
+      "version": "v3.12.0"
+    },
+    "nx_tzdb": {
+      "bytes": 327349,
+      "cpm_key": "tzdb",
+      "files": 601,
+      "sha256": "ae688904800d82bac26198fa9f0084774aa0072d4e76b13e9b1dc8db3c8f65ab",
+      "source_repo": "eden-emu/tzdb_to_nx",
+      "upstream_sha512": "cce65a12bf90f4ead43b24a0b95dfad77ac3d9bfbaaf66c55e6701346e7a1e44ca5d2f23f47ee35ee02271eb1082bf1762af207aad9fb236f1c8476812d008ed",
+      "version": "230326"
+    },
+    "oaknut": {
+      "bytes": 683461,
+      "cpm_key": "oaknut",
+      "files": 51,
+      "sha256": "0ab89e5c1e745dbc1b611c0eff083664aeaf34eacfde024036d7fe746fdfcf40",
+      "source_repo": "eden-emulator/oaknut",
+      "upstream_sha512": "9697e80a7d5d9bcb3ce51051a9a24962fb90ca79d215f1f03ae6b58da8ba13a63b5dda1b4dde3d26ac6445029696b8ef2883f4e5a777b342bba01283ed293856",
+      "version": "v2.0.3"
+    },
+    "opus": {
+      "bytes": 19572647,
+      "cpm_key": "opus",
+      "files": 754,
+      "sha256": "3431a6c9f45c0b14c93fc61c5dd937c14e0a568035f86f2bd3ccfc78cbfa9c06",
+      "source_repo": "xiph/opus",
+      "upstream_sha512": "9506147b0de35befda8633ff272981cc2575c860874791bd455b752f797fd7dbd1079f0ba42ccdd7bb1fe6773fa5e84b3d75667c2883dd1fb2d0e4a5fa4f8387",
+      "version": "a3f0ec02b3"
+    },
+    "sdl3": {
+      "bytes": 49605570,
+      "cpm_key": "sdl3",
+      "files": 2192,
+      "sha256": "cfc8c0ab97fe5f4f3ada71fd1d17c54afb213e7995a7666d2ab16f6d13ffcc00",
+      "source_repo": "libsdl-org/SDL",
+      "upstream_sha512": "df5a323af7ac366661a3c0e887969c72584d232f3cc211419d59b0487b620b6b2859d4549c9e8df002ee489290062e466fcfddf7edc0872a37b1f2845e81c0f3",
+      "version": "release-3.4.8"
+    },
+    "simpleini": {
+      "bytes": 382414,
+      "cpm_key": "simpleini",
+      "files": 32,
+      "sha256": "36d150f51ee5de427c12d0152f1237668aeb1f9df1b12b44fde9dbcea35d6dea",
+      "source_repo": "brofield/simpleini",
+      "upstream_sha512": "b937c18a7b6277d77ca7ebfb216af4984810f77af4c32d101b7685369a4bd5eb61406223f82698e167e6311a728d07415ab59639fdf19eff71ad6dc2abfda989",
+      "version": "v4.25"
+    },
+    "sirit": {
+      "bytes": 235576,
+      "cpm_key": "sirit",
+      "files": 44,
+      "sha256": "dbe5c85559e6f06588c73225b54310e5c459da70110a69447d11195fe39a6e88",
+      "source_repo": "eden-emulator/sirit",
+      "upstream_sha512": "b7cd6885acae3fc8698288d19febba0dd45e4a02a2b6563d2eb995a988d0847046e8d16a5dea7e0bf832b4321bcec134cdbafc553f6ede039e4cf34525c5dce5",
+      "version": "v1.0.5"
+    },
+    "spirv-headers": {
+      "bytes": 3987137,
+      "cpm_key": "spirv-headers",
+      "files": 114,
+      "sha256": "91c5f024b8d9b83766981ca8eaafae378c6bfe5a6a64f8e029fdcd8c3d9b43be",
+      "source_repo": "KhronosGroup/SPIRV-Headers",
+      "upstream_sha512": "d624371dd455c66a300344c89812598ffe11b5eedba555779f789e85c29dc67317741858c60e0744a1e6755cc0d2759b8659f0674f4cc31479c4cb6fc25ed23b",
+      "version": "vulkan-sdk-1.4.341.0"
+    },
+    "vulkanheaders": {
+      "bytes": 37654093,
+      "cpm_key": "vulkan-headers",
+      "files": 89,
+      "sha256": "23feba6f038d415cf097c5ba218b2d90a5c7a2c36c24811663e222bded92a9d0",
+      "source_repo": "KhronosGroup/Vulkan-Headers",
+      "upstream_sha512": "d2846ea228415772645eea4b52a9efd33e6a563043dd3de059e798be6391a8f0ca089f455ae420ff22574939ed0f48ed7c6ff3d5a9987d5231dbf3b3f89b484b",
+      "version": "v1.4.345"
+    },
+    "vulkanmemoryallocator": {
+      "bytes": 4107878,
+      "cpm_key": "vulkan-memory-allocator",
+      "files": 267,
+      "sha256": "b134428f5b8ba474f04e330f4d64bd800c0730fe421147f001324547b22f2865",
+      "source_repo": "GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator",
+      "upstream_sha512": "deb5902ef8db0e329fbd5f3f4385eb0e26bdd9f14f3a2334823fb3fe18f36bc5d235d620d6e5f6fe3551ec3ea7038638899db8778c09f6d5c278f5ff95c3344b",
+      "version": "v3.3.0"
+    },
+    "vulkanutilitylibraries": {
+      "bytes": 8600579,
+      "cpm_key": "vulkan-utility-libraries",
+      "files": 84,
+      "sha256": "61ced7e4779074e4caa8f2477e39e6be1a41330ce760ce76c61e54c28ea76fca",
+      "source_repo": "KhronosGroup/Vulkan-Utility-Libraries",
+      "upstream_sha512": "114f6b237a6dcba923ccc576befb5dea3f1c9b3a30de7dc741f234a831d1c2d52d8a224afb37dd57dffca67ac0df461eaaab6a5ab5e503b393f91c166680c3e1",
+      "version": "v1.4.345"
+    },
+    "xbyak": {
+      "bytes": 4794716,
+      "cpm_key": "xbyak",
+      "files": 152,
+      "sha256": "229deb3ea2caa84fb12feb1b665c766660958ee6e34a802ebb5a1132ea0bd1f9",
+      "source_repo": "herumi/xbyak",
+      "upstream_sha512": "e0aa0a603dd3ac1a39d82213df1e73c042831aec2d6b2fe382c899651eaae4ed7e8aeb6be9c41ea0097087c9d091961ab18f313cd6a9e10d621715ffd49bfe36",
+      "version": "v7.40.1"
+    },
+    "zstd": {
+      "bytes": 8491654,
+      "cpm_key": "zstd",
+      "files": 657,
+      "sha256": "1048bacf468a9805e960db9eca1c77f26b8035344622d9cb208dfe4a074b8819",
+      "source_repo": "facebook/zstd",
+      "upstream_sha512": "cc5ad4b119a9c2ea57f0b71eeff01113bb506e0d17000159c5409cb8236d22e38c52d5e9e97e7947a4bf1b2dfc44b6c503ab2d9aedbd59458435c6a2849cb029",
+      "version": "b8d6101fba"
+    }
+  },
+  "excluded_unfetched_cpm_pins": [
+    "biscuit",
+    "boost_headers",
+    "catch2",
+    "cpp-jwt",
+    "cubeb",
+    "discord-rpc",
+    "ffmpeg-ci",
+    "lagoon",
+    "libadrenotools",
+    "libusb",
+    "linkernsbypass",
+    "llvm-mingw",
+    "openssl",
+    "openssl-ci",
+    "openssl-cmake",
+    "quazip",
+    "sdl3-ci",
+    "sirit-ci",
+    "vulkan-validation-layers",
+    "zlib"
+  ],
+  "original_eden_commit": "5f142c7926d0c7fcbbd0ce30794d72f638a43b2a"
+}

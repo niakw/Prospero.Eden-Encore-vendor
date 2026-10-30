@@ -1,0 +1,12 @@
+{
+  "name": "ffmpeg",
+  "size": 16788486,
+  "sha256": "33cf0059e7fa45251a7834bdcb66d4e409f5be490aa1d91f2d2aa3561f7bf9fd",
+  "chunks": [
+    {
+      "file": "0000.chunk",
+      "size": 16788486,
+      "sha256": "33cf0059e7fa45251a7834bdcb66d4e409f5be490aa1d91f2d2aa3561f7bf9fd"
+    }
+  ]
+}
