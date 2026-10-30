@@ -350,10 +350,20 @@ void Layer::UpdateRawImage(const Tegra::FramebufferConfig& framebuffer, size_t i
     constexpr u32 block_height_log2 = 4;
     const u32 bytes_per_pixel = GetBytesPerPixel(framebuffer);
     const u64 linear_size{GetSizeInBytes(framebuffer)};
+#ifdef PS5_NATIVE
+    // An unmapped guest framebuffer has no tiled source to measure.
+    // Keep the exact raw-zero upload, but skip tiled-size/format arithmetic
+    // on repeated missing-frame fallbacks (HUD, scene changes).
+    const std::span<u8> linear_span = mapped_span.subspan(image_offset, linear_size);
+    if (host_ptr) {
+        const u64 tiled_size{Tegra::Texture::CalculateSize(
+            true, bytes_per_pixel, framebuffer.stride, framebuffer.height, 1, block_height_log2, 0)};
+#else
     const u64 tiled_size{Tegra::Texture::CalculateSize(
         true, bytes_per_pixel, framebuffer.stride, framebuffer.height, 1, block_height_log2, 0)};
     const std::span<u8> linear_span = mapped_span.subspan(image_offset, linear_size);
     if (host_ptr) {
+#endif
         Tegra::Texture::UnswizzleTexture(
             linear_span, std::span(host_ptr, tiled_size),
             bytes_per_pixel, framebuffer.width, framebuffer.height, 1, block_height_log2, 0);
