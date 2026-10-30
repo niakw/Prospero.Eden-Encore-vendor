@@ -164,7 +164,14 @@ void Layer::CreateStagingBuffer(const Device& device, const Tegra::FramebufferCo
 
 void Layer::CreateRawImages(const Device& device, const Tegra::FramebufferConfig& framebuffer) {
     const auto format = GetFormat(framebuffer);
+    // ReleaseRawImages waited for every old timeline use. Reusing its tick
+    // values after rebuilding the layer would cause redundant Wait calls on
+    // newly allocated images, although those old fences have retired.
+#ifdef PS5_NATIVE
+    resource_ticks.assign(image_count, 0);
+#else
     resource_ticks.resize(image_count);
+#endif
     raw_images.resize(image_count);
     raw_image_views.resize(image_count);
 
