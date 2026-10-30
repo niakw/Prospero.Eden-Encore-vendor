@@ -349,7 +349,16 @@ void Layer::UpdateRawImage(const Tegra::FramebufferConfig& framebuffer, size_t i
     // TODO(Rodrigo): Read this from HLE
     constexpr u32 block_height_log2 = 4;
     const u32 bytes_per_pixel = GetBytesPerPixel(framebuffer);
+#ifdef PS5_NATIVE
+    // This raw upload already resolved the guest pixel format above. Do not
+    // decode that same format a second time through GetSizeInBytes every
+    // time the CPU reads back a guest framebuffer.
+    const u64 linear_size{
+        static_cast<std::size_t>(framebuffer.stride) *
+        static_cast<std::size_t>(framebuffer.height) * bytes_per_pixel};
+#else
     const u64 linear_size{GetSizeInBytes(framebuffer)};
+#endif
 #ifdef PS5_NATIVE
     // An unmapped guest framebuffer has no tiled source to measure.
     // Keep the exact raw-zero upload, but skip tiled-size/format arithmetic
