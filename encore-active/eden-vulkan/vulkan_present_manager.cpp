@@ -412,8 +412,9 @@ void PresentManager::PresentThread(std::stop_token token) {
                 std::lock_guard queue_lock{queue_mutex};
                 present_in_flight = false;
                 // A future WaitPresent sees an already idle queue under
-                // this same mutex; no wake is lost if nobody waits now.
-                notify_drainers = present_waiters != 0;
+                // this same mutex; only the final queued completion can
+                // satisfy a drain waiter. Backlog wakes are wasted.
+                notify_drainers = present_waiters != 0 && present_queue.empty();
             }
             if (notify_drainers) frame_cv.notify_all();
         }
