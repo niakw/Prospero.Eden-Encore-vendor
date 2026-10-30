@@ -772,7 +772,11 @@ bool EdenAttributeless(EdenVertexIdentity vertex_hash) {
     auto& bucket = buckets[(vertex_hash[0] ^ std::rotl(vertex_hash[1], 11)) &
                            (buckets.size() - 1)];
     for (const auto& lookup : bucket.ways) {
-        if (lookup.generation == generation && lookup.hash == vertex_hash)
+        // The builder-owned set only INSERTS attributeless shader keys.
+        // A proven positive therefore remains valid across unrelated new
+        // shader publications. Negatives still require the current epoch.
+        if (lookup.hash == vertex_hash &&
+            (lookup.result || lookup.generation == generation))
             return lookup.result;
     }
     const std::scoped_lock lock{eden_attributeless_mutex};
