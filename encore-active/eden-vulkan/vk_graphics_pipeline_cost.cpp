@@ -573,7 +573,11 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
     // Sampler table mapping is stable while the paired guest cache locks are
     // held. Cache repeated handles only for this draw: never reuse an ID after
     // a later guest descriptor invalidation, channel switch or pipeline change.
-    // A bounded direct-mapped table avoids per-descriptor hash allocations.
+    // Keep all 16 distinct sampler handles in one draw even if they share
+    // the low four bits. A direct-mapped memo re-resolved each alternating
+    // handle under the GPU texture-cache mutex. Open addressing has no heap
+    // allocations; saturation falls back to the original lookup, never a
+    // stale ID. Descriptor invalidation cannot cross this draw-local scope.
     struct SamplerMemo {
         u32 handle{};
         VideoCommon::SamplerId id{};
@@ -581,13 +585,21 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
     };
     std::array<SamplerMemo, 16> sampler_memo{};
     const auto resolve_sampler{[&](u32 handle) -> VideoCommon::SamplerId {
-        auto& entry = sampler_memo[handle & 15U];
-        if (!entry.valid || entry.handle != handle) {
+        const std::size_t first = (handle ^ (handle >> 4)) & 15U;
+        for (std::size_t offset = 0; offset < sampler_memo.size(); ++offset) {
+            auto& entry = sampler_memo[(first + offset) & 15U];
+            if (entry.valid) {
+                if (entry.handle == handle) return entry.id;
+                continue;
+            }
+            // Resolve before publishing a positive memo: exceptions cannot
+            // leave a partially initialized entry visible to a later stage.
             entry.id = texture_cache.GetSamplerId(handle, false);
             entry.handle = handle;
             entry.valid = true;
+            return entry.id;
         }
-        return entry.id;
+        return texture_cache.GetSamplerId(handle, false);
     }};
     const auto config_stage{[&](size_t stage) LAMBDA_FORCEINLINE {
         const Shader::Info& info{stage_infos[stage]};
