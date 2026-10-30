@@ -702,16 +702,19 @@ void Scheduler::EndRenderPass()
 
 
 void Scheduler::AcquireNewChunk() {
-    std::scoped_lock rl{reserve_mutex};
-
-    if (chunk_reserve.empty()) {
-        // If we don't have anything reserved, we need to make a new chunk.
-        chunk = std::make_unique<CommandChunk>();
-    } else {
-        // Otherwise, we can just take from the reserve.
-        chunk = std::move(chunk_reserve.back());
-        chunk_reserve.pop_back();
+    {
+        std::scoped_lock rl{reserve_mutex};
+        if (!chunk_reserve.empty()) {
+            // The producer can reuse a completed command chunk immediately.
+            chunk = std::move(chunk_reserve.back());
+            chunk_reserve.pop_back();
+            return;
+        }
     }
+    // Allocation can page fault or invoke allocator locks. Never hold the
+    // recycling mutex across it: the GPU worker must remain free to return
+    // finished chunks while the producer creates another command batch.
+    chunk = std::make_unique<CommandChunk>();
 }
 
 } // namespace Vulkan
