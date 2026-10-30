@@ -375,6 +375,9 @@ private:
     // Protected by queue_mutex. Only a draining WaitWorker needs a wakeup
     // when the Vulkan worker consumes a queued command chunk.
     unsigned queue_drain_waiters{};
+    // Protected by queue_mutex. The worker is executing a chunk (and thus
+    // cannot be sleeping on event_cv) until its next queue acquisition.
+    bool worker_in_flight{};
     std::jthread worker_thread;
 
     std::chrono::steady_clock::duration frame_interval{};

@@ -264,11 +264,16 @@ void Scheduler::WaitWorker() {
 
 void Scheduler::DispatchWork() {
     if (chunk && !chunk->Empty()) {
+        bool wake_worker{};
         {
             std::scoped_lock ql{queue_mutex};
+            // If the worker is executing a chunk, it will consume queued
+            // successors on its next loop without sleeping. Only the idle
+            // transition requires a broadcast (drain waiters share this CV).
+            wake_worker = work_queue.empty() && !worker_in_flight;
             work_queue.push(std::move(chunk));
         }
-        event_cv.notify_all();
+        if (wake_worker) event_cv.notify_all();
         AcquireNewChunk();
     }
 }
@@ -484,6 +489,9 @@ void Scheduler::WorkerThread(std::stop_token stop_token) {
 
         {
             std::unique_lock lk{queue_mutex};
+            // This lock also guards DispatchWork's idle-to-active wake test.
+            // A producer cannot miss the wake when the queue is empty.
+            worker_in_flight = false;
 
             // Wait for work.
             event_cv.wait(lk, stop_token, [&] { return TryPopQueue(work); });
@@ -492,6 +500,7 @@ void Scheduler::WorkerThread(std::stop_token stop_token) {
             if (stop_token.stop_requested()) {
                 return;
             }
+            worker_in_flight = true;
 
             // Exchange lock ownership so that we take the execution lock before
             // the queue lock goes out of scope. This allows us to force execution
