@@ -457,7 +457,15 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
             ::Eden::Performance::PipelineWaitTrace keyed_wait;
             std::unique_lock lock{build_mutex};
             keyed_wait.MarkLockAcquired();
-            if (is_built.load(std::memory_order_acquire)) return;
+            if (is_built.load(std::memory_order_acquire)) {
+                lock.unlock();
+                // A publisher may complete while this GPU callback waits
+                // for build_mutex. Do not call condvar; report only genuine
+                // (>1ms) mutex contention, never an instant ready callback.
+                if (keyed_wait.WasBlockedOnMutex())
+                    keyed_wait.Complete("compute", diagnostic_cache_key_hash, IsBound());
+                return;
+            }
 #endif
             auto timer = Eden::Performance::VulkanTimer(16);
             // Only unfinished builds contribute a worker wait; no clock in quiet mode.
