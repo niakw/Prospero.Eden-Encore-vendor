@@ -164,6 +164,13 @@ private:
     GraphicsPipeline* current_pipeline{};
 
     ::Common::unordered_map<ComputePipelineCacheKey, std::unique_ptr<ComputePipeline>> compute_cache;
+#ifdef PS5_NATIVE
+    // GPU-owner-only: avoid hashing the same compute shader key for every
+    // dispatch. Only a successfully created pipeline may be cached here;
+    // failed/retired keys still take the map's bounded recovery path.
+    ComputePipelineCacheKey last_compute_key{};
+    ComputePipeline* last_compute_pipeline{};
+#endif
     ::Common::unordered_map<GraphicsPipelineCacheKey, std::unique_ptr<GraphicsPipeline>> graphics_cache;
 #ifdef PS5_NATIVE
     // Graphics cache entries with failed shader translation remain null.
