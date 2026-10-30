@@ -221,11 +221,15 @@ void PresentManager::Present(Frame* frame) {
         scheduler.Record([this, frame](vk::CommandBuffer) {
             std::unique_lock lock{queue_mutex};
             if (present_failure) return;
+            // The worker can sleep only with an empty queue. After the
+            // first frame wakes it, queued followers need no second wake.
+            // Test under queue_mutex to avoid losing an empty->nonempty edge.
+            const bool wake_presenter = present_queue.empty();
             present_queue.push_back(frame);
             // Only the presentation worker waits on present_ready_cv.
             // Avoid waking WaitPresent on every enqueue; it needs completion.
             lock.unlock();
-            present_ready_cv.notify_one();
+            if (wake_presenter) present_ready_cv.notify_one();
         });
     } else {
         scheduler.WaitWorker();
