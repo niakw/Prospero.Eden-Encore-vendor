@@ -577,17 +577,12 @@ void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compu
             u32 index{};
             ImageViewId id{NULL_IMAGE_VIEW_ID};
         };
-        // A single view or blacklist pass never gets a memo hit. Avoid
-        // zeroing all 16 memo slots while holding the texture-cache lock.
-        std::optional<std::array<ViewMemo, 16>> view_memo;
-        if (!blacklist && views.size() > 1) {
-            view_memo.emplace();
-        }
+        std::array<ViewMemo, 16> view_memo{};
 #endif
         for (ImageViewInOut& view : views) {
 #ifdef PS5_NATIVE
-            if (view_memo && !has_deleted_images) {
-                const auto& cached = (*view_memo)[view.index & 15U];
+            if (!blacklist && !has_deleted_images) {
+                const auto& cached = view_memo[view.index & 15U];
                 if (cached.id != NULL_IMAGE_VIEW_ID && cached.index == view.index) {
                     const auto& cached_view = slot_image_views[cached.id];
                     // A different TIC can remap this image during the pass.
@@ -606,8 +601,8 @@ void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compu
 #endif
             view.id = VisitImageView(view.index, compute);
 #ifdef PS5_NATIVE
-            if (view_memo && !has_deleted_images) {
-                auto& cached = (*view_memo)[view.index & 15U];
+            if (!blacklist && !has_deleted_images) {
+                auto& cached = view_memo[view.index & 15U];
                 cached.index = view.index;
                 cached.id = view.id;
             }
@@ -1457,7 +1452,6 @@ std::pair<typename P::ImageView*, bool> TextureCache<P>::TryFindFramebufferImage
     // second pass while the compositor owns texture_cache.mutex.
     ImageId freshest_id{};
     bool freshest_found = false;
-    std::uint64_t freshest_tick{};
 #else
     boost::container::small_vector<ImageId, 4> valid_image_ids;
 #endif
@@ -1490,9 +1484,8 @@ std::pair<typename P::ImageView*, bool> TextureCache<P>::TryFindFramebufferImage
 #ifdef PS5_NATIVE
         // Match ranges::max_element: the first candidate wins equal ticks.
         if (!freshest_found ||
-            freshest_tick < image.modification_tick) {
+            slot_images[freshest_id].modification_tick < image.modification_tick) {
             freshest_id = map.image_id;
-            freshest_tick = image.modification_tick;
             freshest_found = true;
         }
 #else
@@ -2201,21 +2194,7 @@ ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
     const bool native_bgr = runtime.HasNativeBgr();
     const bool flexible_formats = True(options & RelaxedOptions::Format);
     ImageId image_id{};
-#ifdef PS5_NATIVE
-    // Keep the first highest-tick match during the existing region walk:
-    // no candidate vector, no second texture-cache slot scan under its mutex.
-    u64 newest_candidate_tick{};
-    bool has_candidate = false;
-    const auto SelectCandidate = [&](ImageId id, const ImageBase& image) {
-        if (!has_candidate || newest_candidate_tick < image.modification_tick) {
-            image_id = id;
-            newest_candidate_tick = image.modification_tick;
-            has_candidate = true;
-        }
-    };
-#else
     boost::container::small_vector<ImageId, 8> image_ids;
-#endif
     const auto lambda = [&](ImageId existing_image_id, ImageBase& existing_image) {
         if (True(existing_image.flags & ImageFlagBits::Remapped)) {
             return false;
@@ -2229,32 +2208,19 @@ ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
                 existing.pitch == info.pitch &&
                 IsPitchLinearSameSize(existing, info, strict_size) &&
                 IsViewCompatible(existing.format, info.format, broken_views, native_bgr)) {
-                #ifdef PS5_NATIVE
-                SelectCandidate(existing_image_id, existing_image);
-                #else
                 image_id = existing_image_id;
                 image_ids.push_back(existing_image_id);
-                #endif
                 return !flexible_formats && existing.format == info.format;
             }
         } else if (IsSubresource(info, existing_image, gpu_addr, options, broken_views,
                                  native_bgr)) {
-            #ifdef PS5_NATIVE
-            SelectCandidate(existing_image_id, existing_image);
-            #else
             image_id = existing_image_id;
             image_ids.push_back(existing_image_id);
-            #endif
             return !flexible_formats && existing_image.info.format == info.format;
         }
         return false;
     };
     ForEachImageInRegion(*cpu_addr, CalculateGuestSizeInBytes(info), lambda);
-#ifdef PS5_NATIVE
-    // A strict less-than comparison preserves the first equal-tick match,
-    // including ForEachImageInRegion's existing exact-match early exit.
-    return image_id;
-#else
     if (image_ids.size() <= 1) [[likely]] {
         return image_id;
     }
@@ -2264,7 +2230,6 @@ ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
         return image_a.modification_tick < image_b.modification_tick;
     };
     return *std::ranges::max_element(image_ids, image_ids_compare);
-#endif
 }
 
 template <class P>
@@ -3192,23 +3157,7 @@ ImageId TextureCache<P>::FindDMAImage(const ImageInfo& info, GPUVAddr gpu_addr) 
         }
     }
     ImageId image_id{};
-#ifdef PS5_NATIVE
-    // The DMA match scan already visits every candidate under the cache lock.
-    // Keep the freshest image as it arrives; avoid an inline vector and a
-    // second max_element pass on a HUD/texture DMA lookup. Equal ticks retain
-    // the FIRST candidate, exactly as max_element does.
-    // Keep the winning timestamp in a register. Reloading the previous
-    // slot image for every candidate adds a cache lookup under texture lock.
-    std::uint64_t newest_candidate_tick = 0;
-    const auto consider_candidate = [&](ImageId id, const ImageBase& image) {
-        if (!image_id || newest_candidate_tick < image.modification_tick) {
-            image_id = id;
-            newest_candidate_tick = image.modification_tick;
-        }
-    };
-#else
     boost::container::small_vector<ImageId, 8> image_ids;
-#endif
     const auto lambda = [&](ImageId existing_image_id, ImageBase& existing_image) {
         if (True(existing_image.flags & ImageFlagBits::Remapped)) {
             return false;
@@ -3221,29 +3170,18 @@ ImageId TextureCache<P>::FindDMAImage(const ImageInfo& info, GPUVAddr gpu_addr) 
                 existing.pitch == info.pitch &&
                 IsPitchLinearSameSize(existing, info, strict_size) &&
                 IsViewCompatible(existing.format, info.format, false, true)) {
-#ifdef PS5_NATIVE
-                consider_candidate(existing_image_id, existing_image);
-#else
                 image_id = existing_image_id;
                 image_ids.push_back(existing_image_id);
-#endif
                 return true;
             }
         } else if (IsSubCopy(info, existing_image, gpu_addr)) {
-#ifdef PS5_NATIVE
-            consider_candidate(existing_image_id, existing_image);
-#else
             image_id = existing_image_id;
             image_ids.push_back(existing_image_id);
-#endif
             return true;
         }
         return false;
     };
     ForEachImageInRegion(*cpu_addr, CalculateGuestSizeInBytes(info), lambda);
-#ifdef PS5_NATIVE
-    return image_id;
-#else
     if (image_ids.size() <= 1) [[likely]] {
         return image_id;
     }
@@ -3253,7 +3191,6 @@ ImageId TextureCache<P>::FindDMAImage(const ImageInfo& info, GPUVAddr gpu_addr) 
         return image_a.modification_tick < image_b.modification_tick;
     };
     return *std::ranges::max_element(image_ids, image_ids_compare);
-#endif
 }
 
 template <class P>
@@ -3262,13 +3199,8 @@ std::pair<u32, u32> TextureCache<P>::PrepareDmaImage(ImageId dst_id, GPUVAddr ba
     const auto& image = slot_images[dst_id];
     const auto base = image.TryFindBase(base_addr);
     PrepareImage(dst_id, mark_as_modified, false);
-#ifndef PS5_NATIVE
     const auto& new_image = slot_images[dst_id];
     lru_cache.Touch(new_image.lru_index, frame_tick);
-#else
-    // PrepareImage already touched the same LRU entry at the end; a second
-    // immediate touch adds list work under the texture mutex for DMA uploads.
-#endif
     return std::make_pair(base->level, base->layer);
 }
 
@@ -3865,11 +3797,6 @@ void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
     // image already owns the latest tick, no alias can have a strictly newer
     // modification, so the search, sort and copy cannot do useful work.
     if (image.modification_tick == modification_tick) {
-        return;
-    }
-    // No alias graph means no scan/copy, regardless of the global tick.
-    // Avoid constructing the vector and sampling the cache lock phase.
-    if (image.aliased_images.empty()) {
         return;
     }
 #endif

@@ -653,14 +653,6 @@ bool BufferCacheRuntime::BindMultiRangeStorageBuffer(u64 key, bool is_written) {
     if (multi_range_sources.empty() || multi_range_total == 0) {
         return false;
     }
-#ifdef PS5_NATIVE
-    // A gathered buffer cannot be bound for GPU writes. If sparse binding
-    // is unavailable globally, don't construct and cache a doomed Vulkan
-    // fallback allocation just to reject it below while holding cache locks.
-    if (is_written && !multi_range_buffers.use_sparse) {
-        return false;
-    }
-#endif
     const MultiRangeRef ref = multi_range_buffers.Get(device, scheduler, memory_allocator, key,
                                                      multi_range_sources, multi_range_total);
     if (ref.handle == VK_NULL_HANDLE) {

@@ -1472,21 +1472,13 @@ std::optional<FramebufferTextureInfo> RasterizerVulkan::AccelerateDisplay(
         return {};
     }
 
-    FramebufferTextureInfo info{};
-    info.image = image_view->ImageHandle();
-    info.image_view = image_view->Handle(Shader::TextureType::Color2D);
-#ifdef PS5_NATIVE
-    // A valid guest image-map entry does not guarantee that its Vulkan image
-    // and color view survived GPU allocation/recreation. Never send a null
-    // attachment into the compositor; use the existing raw guest upload.
-    if (info.image == VK_NULL_HANDLE || info.image_view == VK_NULL_HANDLE) {
-        return {};
-    }
-#endif
     query_cache.NotifySegment(false);
 
     const auto& resolution = Settings::values.resolution_info;
 
+    FramebufferTextureInfo info{};
+    info.image = image_view->ImageHandle();
+    info.image_view = image_view->Handle(Shader::TextureType::Color2D);
     info.width = image_view->size.width;
     info.height = image_view->size.height;
     info.scaled_width = scaled ? resolution.ScaleUp(info.width) : info.width;

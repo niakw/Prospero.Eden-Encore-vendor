@@ -231,21 +231,9 @@ void MultiRangeBufferCache::RetireEntry(Scheduler& scheduler, Entry& entry) {
 }
 
 void MultiRangeBufferCache::DrainRetired(Scheduler& scheduler) {
-#ifdef PS5_NATIVE
-    // A single conservative GPU completion snapshot avoids a driver query
-    // for every retired allocation while the guest cache owner is active.
-    if (retired.empty()) {
-        return;
-    }
-    const u64 completed_tick = scheduler.GetMasterSemaphore().KnownGpuTick();
-#endif
     size_t index = 0;
     while (index < retired.size()) {
-#ifdef PS5_NATIVE
-        if (retired[index].tick <= completed_tick) {
-#else
         if (scheduler.IsFree(retired[index].tick)) {
-#endif
             if (index + 1 != retired.size()) {
                 retired[index] = std::move(retired.back());
             }
@@ -265,17 +253,6 @@ MultiRangeRef MultiRangeBufferCache::Get(const Device& device, Scheduler& schedu
     }
     // Gathered fallbacks must obey the same destination bounds as sparse binds.
     // Reject an invalid source before allocating a GPU buffer or recording copies.
-#ifdef PS5_NATIVE
-    // A multi-range hit formerly scanned the same segments twice under the
-    // buffer-cache mutex: bounds/handle validation, then FNV geometry hash.
-    // Fuse both without changing hash order, invalid-input rejection or
-    // the desktop implementation.
-    u64 geometry = 0xcbf29ce484222325ULL;
-    const auto mix_geometry = [&geometry](u64 value) {
-        geometry ^= value;
-        geometry *= 0x100000001b3ULL;
-    };
-#endif
     VkDeviceSize covered = 0;
     for (const MultiRangeSource& source : sources) {
         if (source.handle == VK_NULL_HANDLE || source.size == 0 ||
@@ -283,49 +260,14 @@ MultiRangeRef MultiRangeBufferCache::Get(const Device& device, Scheduler& schedu
             source.offset > std::numeric_limits<VkDeviceSize>::max() - source.size) {
             return MultiRangeRef{};
         }
-#ifdef PS5_NATIVE
-        mix_geometry(u64(source.handle));
-        mix_geometry(u64(source.memory));
-        mix_geometry(u64(source.memory_offset));
-        mix_geometry(u64(source.memory_type));
-        mix_geometry(u64(source.offset));
-        mix_geometry(u64(source.size));
-#endif
         covered += source.size;
     }
     if (!retired.empty()) {
         DrainRetired(scheduler);
     }
-#ifndef PS5_NATIVE
     const u64 geometry = HashSources(sources);
-#else
-    // geometry was computed in the validation walk above.
-#endif
-#ifdef PS5_NATIVE
-    const auto it = entries.find(key);
-    // A sparse binding reads its original backing memory directly. Guest
-    // write ticks cannot stale it, unlike the gathered copy. Skip the
-    // second source walk and dirty-state bookkeeping on a sparse cache hit.
-    if (it != entries.end() && it->second.geometry == geometry &&
-        it->second.size == total && it->second.sparse_handle) {
-        const Entry& entry = it->second;
-        return MultiRangeRef{
-            .handle = *entry.sparse_handle,
-            .address = entry.address,
-            .size = entry.size,
-            .sparse = true,
-            .needs_gather = false,
-        };
-    }
-    // A new sparse allocation references guest backing directly; its content
-    // hash has no consumer. Compute the hash on cache hits that may gather.
-    const bool same_geometry = it != entries.end() &&
-        it->second.geometry == geometry && it->second.size == total;
-    const u64 content = same_geometry ? HashContent(sources) : 0;
-#else
     const u64 content = HashContent(sources);
     const auto it = entries.find(key);
-#endif
     if (it != entries.end() && it->second.geometry == geometry && it->second.size == total) {
         Entry& entry = it->second;
         if (entry.content != content) {
@@ -359,25 +301,12 @@ MultiRangeRef MultiRangeBufferCache::Get(const Device& device, Scheduler& schedu
     // DropOwner cannot retire a gathered buffer after its input is destroyed.
     entry.owners.reserve(sources.size());
     for (const MultiRangeSource& source : sources) {
-#ifdef PS5_NATIVE
-        // The retirement lookup only tests ownership membership. Repeated
-        // contiguous segments of the same VkBuffer do not need duplicate
-        // owner entries (common with sparse/tiled guest buffer slices).
-        if (!entry.owners.empty() && entry.owners.back() == source.handle) {
-            continue;
-        }
-#endif
         entry.owners.push_back(source.handle);
     }
     if (CanBindSparse(sources)) {
         entry.sparse_handle = CreateSparse(device, scheduler, sources, total);
     }
     if (!entry.sparse_handle) {
-#ifdef PS5_NATIVE
-        // Sparse allocation was unavailable: capture write ticks for the
-        // newly created gathered buffer before it enters the reuse cache.
-        entry.content = HashContent(sources);
-#endif
         VkBufferUsageFlags flags = VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                    VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -397,13 +326,6 @@ MultiRangeRef MultiRangeBufferCache::Get(const Device& device, Scheduler& schedu
         entry.gathered = memory_allocator.CreateBuffer(gather_ci, MemoryUsage::DeviceLocal);
         entry.dirty = true;
     }
-#ifdef PS5_NATIVE
-    // A failed gathered fallback must not query a device address for a null
-    // VkBuffer or cache an invalid entry. Let the caller take its safe path.
-    if (!entry.sparse_handle && !entry.gathered) {
-        return MultiRangeRef{};
-    }
-#endif
     if (device.IsBufferDeviceAddressSupported()) {
         VkBuffer address_handle = *entry.sparse_handle;
         if (!entry.sparse_handle) {

@@ -1184,7 +1184,8 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
         InvalidateResolveShadow(dst.Handle());
     }
 #endif
-    // Scratch vectors are created after native extent and budget validation.
+    boost::container::small_vector<VkBufferImageCopy, 16> vk_in_copies(copies.size());
+    boost::container::small_vector<VkBufferImageCopy, 16> vk_out_copies(copies.size());
     const VkImageAspectFlags src_aspect_mask = src.AspectMask();
     const VkImageAspectFlags dst_aspect_mask = dst.AspectMask();
 
@@ -1221,6 +1222,23 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
     const auto bpp_in = BytesPerBlock(src.info.format) / DefaultBlockWidth(src.info.format);
     const auto bpp_out = BytesPerBlock(dst.info.format) / DefaultBlockWidth(dst.info.format);
 #endif
+    std::ranges::transform(copies, vk_in_copies.begin(),
+                           [src_aspect_mask, bpp_in, bpp_out](const auto& copy) {
+                               auto copy2 = copy;
+#ifdef PS5_NATIVE
+                               copy2.src_offset.x = static_cast<decltype(copy2.src_offset.x)>(
+                                   (static_cast<u64>(bpp_out) * static_cast<u64>(copy.src_offset.x)) / bpp_in);
+                               copy2.extent.width = static_cast<decltype(copy2.extent.width)>(
+                                   (static_cast<u64>(bpp_out) * copy.extent.width) / bpp_in);
+#else
+                               copy2.src_offset.x = (bpp_out * copy.src_offset.x) / bpp_in;
+                               copy2.extent.width = (bpp_out * copy.extent.width) / bpp_in;
+#endif
+                               return MakeBufferImageCopy(copy2, true, src_aspect_mask);
+                           });
+    std::ranges::transform(copies, vk_out_copies.begin(), [dst_aspect_mask](const auto& copy) {
+        return MakeBufferImageCopy(copy, false, dst_aspect_mask);
+    });
     const u32 img_bpp = BytesPerBlock(dst.info.format);
     size_t total_size = 0;
 #ifdef PS5_NATIVE
@@ -1261,26 +1279,6 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
         total_size += copy.extent.width * copy.extent.height * copy.extent.depth * img_bpp;
     }
 #endif
-    // Rejected reinterpret copies must not allocate or convert while holding the texture lock.
-    boost::container::small_vector<VkBufferImageCopy, 16> vk_in_copies(copies.size());
-    boost::container::small_vector<VkBufferImageCopy, 16> vk_out_copies(copies.size());
-    std::ranges::transform(copies, vk_in_copies.begin(),
-                           [src_aspect_mask, bpp_in, bpp_out](const auto& copy) {
-                               auto copy2 = copy;
-#ifdef PS5_NATIVE
-                               copy2.src_offset.x = static_cast<decltype(copy2.src_offset.x)>(
-                                   (static_cast<u64>(bpp_out) * static_cast<u64>(copy.src_offset.x)) / bpp_in);
-                               copy2.extent.width = static_cast<decltype(copy2.extent.width)>(
-                                   (static_cast<u64>(bpp_out) * copy.extent.width) / bpp_in);
-#else
-                               copy2.src_offset.x = (bpp_out * copy.src_offset.x) / bpp_in;
-                               copy2.extent.width = (bpp_out * copy.extent.width) / bpp_in;
-#endif
-                               return MakeBufferImageCopy(copy2, true, src_aspect_mask);
-                           });
-    std::ranges::transform(copies, vk_out_copies.begin(), [dst_aspect_mask](const auto& copy) {
-        return MakeBufferImageCopy(copy, false, dst_aspect_mask);
-    });
     const VkBuffer copy_buffer = GetTemporaryBuffer(total_size);
 #ifdef PS5_NATIVE
     // A mapped scratch allocation can still contain a null Vulkan handle.

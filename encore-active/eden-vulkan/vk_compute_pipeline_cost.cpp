@@ -444,13 +444,9 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
             // Publication can race the initial fast acquire. The build owner
             // holds this mutex when publishing, so a false result here means
             // the condition wait must actually release the lock.
-            // Include contention acquiring build_mutex in the keyed
-            // diagnostic; a genuinely blocked condvar wait must not omit
-            // the GPU worker's preceding mutex delay.
-            ::Eden::Performance::PipelineWaitTrace keyed_wait;
             std::unique_lock lock{build_mutex};
-            keyed_wait.MarkLockAcquired();
             if (is_built.load(std::memory_order_acquire)) return;
+            ::Eden::Performance::PipelineWaitTrace keyed_wait;
 #endif
             auto timer = Eden::Performance::VulkanTimer(16);
             // Only unfinished builds contribute a worker wait; no clock in quiet mode.

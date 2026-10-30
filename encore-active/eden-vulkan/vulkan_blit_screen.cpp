@@ -137,51 +137,19 @@ void BlitScreen::DrawToFrame(const Device& device, RasterizerVulkan& rasterizer,
         .height = layout.screen.GetHeight(),
     };
 
+    if (layers.size() != framebuffers.size()) {
 #ifdef PS5_NATIVE
-    // Presentation layers live in std::list: appending one does not move
-    // existing Layer objects captured by queued Vulkan command callbacks.
-    // New HUD layers can be added without destroying old GPU resources or
-    // draining the entire device. A changed descriptor/layout contract
-    // still forces the existing idle + full rebuild below.
-    // FSR/SGSR allocate output-sized resources inside each Layer. The screen
-    // rectangle can change while the swapchain extent and layer count stay
-    // constant; keeping those old resources would mix incompatible sizes.
-    const bool output_sensitive =
-        scaling_filter == Settings::ScalingFilter::Fsr ||
-        scaling_filter == Settings::ScalingFilter::Sgsr ||
-        scaling_filter == Settings::ScalingFilter::SgsrEdge;
-    const bool output_size_changed =
-        !layers.empty() && (layer_window_size.width != window_size.width ||
-                            layer_window_size.height != window_size.height);
-    const bool rebuild_layers =
-        resource_update_required || (output_sensitive && output_size_changed);
-    if (!rebuild_layers && layers.size() < framebuffers.size()) {
-        for (size_t i = layers.size(); i < framebuffers.size(); ++i) {
-            layers.emplace_back(device, memory_allocator, scheduler, device_memory, image_count,
-                                window_size, window_adapt->GetDescriptorSetLayout(), filters);
-        }
-    } else if (rebuild_layers || layers.size() != framebuffers.size()) {
-        // Removal destroys GPU-referenced descriptors/images. Reconfiguration
-        // has already waited in the resource_update_required block above.
-        if (!resource_update_required && !layers.empty()) {
+        if (!layers.empty()) {
+            // Old layer resources can still be in queued Vulkan draws.
             WaitIdle(device);
         }
-        layers.clear();
-        for (size_t i = 0; i < framebuffers.size(); ++i) {
-            layers.emplace_back(device, memory_allocator, scheduler, device_memory, image_count,
-                                window_size, window_adapt->GetDescriptorSetLayout(), filters);
-        }
-    }
-    layer_window_size = window_size;
-#else
-    if (layers.size() != framebuffers.size()) {
-        layers.clear();
-        for (size_t i = 0; i < framebuffers.size(); ++i) {
-            layers.emplace_back(device, memory_allocator, scheduler, device_memory, image_count,
-                                window_size, window_adapt->GetDescriptorSetLayout(), filters);
-        }
-    }
 #endif
+        layers.clear();
+        for (size_t i = 0; i < framebuffers.size(); ++i) {
+            layers.emplace_back(device, memory_allocator, scheduler, device_memory, image_count,
+                                window_size, window_adapt->GetDescriptorSetLayout(), filters);
+        }
+    }
 
     window_adapt->Draw(device, rasterizer, scheduler, image_index, layers, framebuffers, layout, frame, draw_hud);
 
