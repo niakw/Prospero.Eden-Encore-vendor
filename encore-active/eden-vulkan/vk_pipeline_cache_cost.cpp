@@ -754,25 +754,34 @@ void EdenRecordAttributeless(EdenVertexIdentity vertex_hash, const Shader::Info&
 
 // GPU thread: whether the vertex shader reads no attribute, as far as built pipelines tell.
 bool EdenAttributeless(EdenVertexIdentity vertex_hash) {
-    // The graphics thread owns this bounded memo. Shader builders only update
-    // the set under its mutex and publish a new generation on insertion.
-    // Alternating shader pairs should not lock or tree-search on every draw.
+    // The GPU thread owns this fixed 64-entry memo; builder threads publish
+    // updates through the generation. Four-way sets prevent colliding vertex
+    // shaders (especially alternating HUD/world keys) from taking the global
+    // shader-set mutex on every draw. No allocation or lock on a cache hit.
     struct Lookup {
         EdenVertexIdentity hash{};
         u32 generation = ~0u;
         bool result = false;
     };
-    static std::array<Lookup, 64> lookups{};
+    struct Bucket {
+        std::array<Lookup, 4> ways{};
+        unsigned next_slot{};
+    };
+    static thread_local std::array<Bucket, 16> buckets{};
     const u32 generation = eden_attributeless_generation.load(std::memory_order_acquire);
-    const size_t slot = (vertex_hash[0] ^ std::rotl(vertex_hash[1], 11)) & (lookups.size() - 1);
-    auto& lookup = lookups[slot];
-    if (lookup.generation == generation && lookup.hash == vertex_hash)
-        return lookup.result;
+    auto& bucket = buckets[(vertex_hash[0] ^ std::rotl(vertex_hash[1], 11)) &
+                           (buckets.size() - 1)];
+    for (const auto& lookup : bucket.ways) {
+        if (lookup.generation == generation && lookup.hash == vertex_hash)
+            return lookup.result;
+    }
     const std::scoped_lock lock{eden_attributeless_mutex};
     const bool result = eden_attributeless_vertex.contains(vertex_hash);
+    auto& lookup = bucket.ways[bucket.next_slot];
     lookup.hash = vertex_hash;
     lookup.result = result;
     lookup.generation = generation;
+    bucket.next_slot = (bucket.next_slot + 1) & (bucket.ways.size() - 1);
     return result;
 }
 
