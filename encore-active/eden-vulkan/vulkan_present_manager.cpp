@@ -223,8 +223,9 @@ void PresentManager::Present(Frame* frame) {
             if (present_failure) return;
             // The worker can sleep only with an empty queue. After the
             // first frame wakes it, queued followers need no second wake.
+            // A worker copying a frame is not asleep, even with an empty queue.
             // Test under queue_mutex to avoid losing an empty->nonempty edge.
-            const bool wake_presenter = present_queue.empty();
+            const bool wake_presenter = present_queue.empty() && !present_in_flight;
             present_queue.push_back(frame);
             // Only the presentation worker waits on present_ready_cv.
             // Avoid waking WaitPresent on every enqueue; it needs completion.
