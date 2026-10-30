@@ -859,12 +859,13 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() {
         .workgroup_size{qmd.block_dim_x, qmd.block_dim_y, qmd.block_dim_z},
     };
 #ifdef PS5_NATIVE
-    // A successful compute key is commonly reused by consecutive dispatches.
-    // Skip the unordered-map hash/probe, but never bypass null entries or
-    // development first-use tracing, which has a separate session lifetime.
-    if (!::Eden::DevVulkan::trace_pipelines && last_compute_pipeline &&
-        last_compute_key == key) {
-        return last_compute_pipeline;
+    // Alternating successful compute shaders need no unordered-map hash or
+    // probe. Four fixed owner-local entries cover common dispatch sequences,
+    // while failed keys and development first-use tracing retain the map path.
+    if (!::Eden::DevVulkan::trace_pipelines) {
+        for (const auto& recent : recent_compute_pipelines) {
+            if (recent.pipeline && recent.key == key) return recent.pipeline;
+        }
     }
 #endif
     const auto [pair, is_new]{compute_cache.try_emplace(key)};
@@ -939,13 +940,14 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() {
         }
     }
 #ifdef PS5_NATIVE
-    // Cache only a positive map entry. Never retain a null failed shader,
-    // since its delayed one-shot recovery must still run through the map.
-    if (pipeline) {
-        last_compute_key = key;
-        last_compute_pipeline = pipeline.get();
-    } else {
-        last_compute_pipeline = nullptr;
+    // Only successful pipelines enter the bounded owner-local memo.
+    // A null shader still reaches the map's delayed one-shot retry on every
+    // dispatch, without disturbing other valid compute pipeline keys.
+    if (pipeline && !::Eden::DevVulkan::trace_pipelines) {
+        auto& recent = recent_compute_pipelines[next_compute_positive];
+        recent.key = key;
+        recent.pipeline = pipeline.get();
+        next_compute_positive = (next_compute_positive + 1) & 3u;
     }
 #endif
     return pipeline.get();
