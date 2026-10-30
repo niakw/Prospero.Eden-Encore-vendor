@@ -341,7 +341,9 @@ void Layer::UpdateDescriptorSet(const Device& device, VkImageView image_view, Vk
 void Layer::UpdateRawImage(const Tegra::FramebufferConfig& framebuffer, size_t image_index) {
     const std::span<u8> mapped_span = buffer.Mapped();
 
+#ifndef PS5_NATIVE
     const u64 image_offset = GetRawImageOffset(framebuffer, image_index);
+#endif
 
     const DAddr framebuffer_addr = framebuffer.address + framebuffer.offset;
     const u8* const host_ptr = device_memory.GetPointer<u8>(framebuffer_addr);
@@ -356,6 +358,9 @@ void Layer::UpdateRawImage(const Tegra::FramebufferConfig& framebuffer, size_t i
     const u64 linear_size{
         static_cast<std::size_t>(framebuffer.stride) *
         static_cast<std::size_t>(framebuffer.height) * bytes_per_pixel};
+    // Staging slots have the same guest row pitch: do not decode BPP again
+    // through GetRawImageOffset for every non-accelerated presentation.
+    const u64 image_offset = linear_size * image_index;
 #else
     const u64 linear_size{GetSizeInBytes(framebuffer)};
 #endif
