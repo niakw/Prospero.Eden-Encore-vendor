@@ -768,7 +768,15 @@ bool EdenAttributeless(EdenVertexIdentity vertex_hash) {
         unsigned next_slot{};
     };
     static thread_local std::array<Bucket, 16> buckets{};
+    // Same vertex shader across successive draws: skip bucket hashing,
+    // four-way probes and even the epoch load for proven positive keys.
+    // The builder-owned set only inserts; negative results must be
+    // invalidated by a newly published generation.
+    static thread_local Lookup last{};
+    if (last.result && last.hash == vertex_hash) return true;
     const u32 generation = eden_attributeless_generation.load(std::memory_order_acquire);
+    if (!last.result && last.hash == vertex_hash && last.generation == generation)
+        return false;
     auto& bucket = buckets[(vertex_hash[0] ^ std::rotl(vertex_hash[1], 11)) &
                            (buckets.size() - 1)];
     for (const auto& lookup : bucket.ways) {
@@ -776,8 +784,10 @@ bool EdenAttributeless(EdenVertexIdentity vertex_hash) {
         // A proven positive therefore remains valid across unrelated new
         // shader publications. Negatives still require the current epoch.
         if (lookup.hash == vertex_hash &&
-            (lookup.result || lookup.generation == generation))
+            (lookup.result || lookup.generation == generation)) {
+            last = lookup;
             return lookup.result;
+        }
     }
     const std::scoped_lock lock{eden_attributeless_mutex};
     const bool result = eden_attributeless_vertex.contains(vertex_hash);
@@ -786,6 +796,7 @@ bool EdenAttributeless(EdenVertexIdentity vertex_hash) {
     lookup.result = result;
     lookup.generation = generation;
     bucket.next_slot = (bucket.next_slot + 1) & (bucket.ways.size() - 1);
+    last = lookup;
     return result;
 }
 
