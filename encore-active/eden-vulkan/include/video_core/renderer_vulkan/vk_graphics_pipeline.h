@@ -141,64 +141,18 @@ public:
         if (key == current_key) {
             return this;
         }
-#ifdef PS5_NATIVE
-        // Two frequent overlay/HUD edges avoid rescanning a large transition
-        // graph on each alternating draw. Store indices, never vector pointers.
-        if (transition_keys.size() >= 8) {
-            const size_t hot = hot_transition_indices[0];
-            if (hot < transition_keys.size() && transition_keys[hot] == current_key) {
-                return transitions[hot];
-            }
-            const size_t other = hot_transition_indices[1];
-            if (other != hot && other < transition_keys.size() &&
-                transition_keys[other] == current_key) {
-                std::swap(hot_transition_indices[0], hot_transition_indices[1]);
-                return transitions[other];
-            }
-        }
-#endif
         const auto it{std::find(transition_keys.begin(), transition_keys.end(), current_key)};
-        if (it == transition_keys.end()) {
-            return nullptr;
-        }
-        const size_t index{static_cast<size_t>(std::distance(transition_keys.begin(), it))};
-#ifdef PS5_NATIVE
-        hot_transition_indices[1] = hot_transition_indices[0];
-        hot_transition_indices[0] = index;
-#endif
-        return transitions[index];
+        return it != transition_keys.end() ? transitions[std::distance(transition_keys.begin(), it)]
+                                           : nullptr;
     }
 
     [[nodiscard]] bool IsBuilt() const noexcept {
-        // Matches the release store in the builder's SCOPE_EXIT. Consumers
-        // can only inspect the constructed VkPipeline after acquiring it.
-        return is_built.load(std::memory_order::acquire);
+        return is_built.load(std::memory_order::relaxed);
     }
 
     // Queued worker checks pipeline readiness AFTER async build wait.
     [[nodiscard]] bool CanExecuteDraw() const noexcept {
-        if (!is_built.load(std::memory_order::acquire)) return false;
-#ifdef PS5_NATIVE
-        // A fast-first driver build can fail without throwing while its
-        // independently queued optimized variant succeeds. ConfigureDraw
-        // already binds that published variant; do not discard the following
-        // Draw/DrawIndirect simply because the initial handle is null.
-        // The release/acquire flag publishes the optimized VkPipeline.
-        return static_cast<bool>(pipeline) ||
-               optimized_ready.load(std::memory_order_acquire);
-#else
-        return static_cast<bool>(pipeline);
-#endif
-    }
-    // Native Vulkan worker must use the pipeline actually selected by its
-    // preceding ConfigureDraw callback, not a variant published afterward.
-    // Desktop keeps the original readiness check.
-    [[nodiscard]] bool CanExecuteRecordedDraw() const noexcept {
-#ifdef PS5_NATIVE
-        return worker_draw_bind_valid;
-#else
-        return CanExecuteDraw();
-#endif
+        return is_built.load(std::memory_order::acquire) && static_cast<bool>(pipeline);
     }
 
     template <typename Spec>
@@ -239,10 +193,6 @@ private:
 
     std::vector<GraphicsPipelineCacheKey> transition_keys;
     std::vector<GraphicsPipeline*> transitions;
-#ifdef PS5_NATIVE
-    // GPU owner only. Two valid indices remain stable across vector growth.
-    std::array<size_t, 2> hot_transition_indices{};
-#endif
 
     std::array<vk::ShaderModule, NUM_STAGES> spv_modules;
 
@@ -252,8 +202,6 @@ private:
     u32 num_descriptor_entries{};
     size_t num_image_elements{};
     u32 num_textures{};
-    // Immutable shader layout: no UBO/SSBO/TBO means no host buffer work.
-    std::array<bool, NUM_STAGES> stage_has_host_buffer_bindings{};
     std::array<bool, NUM_STAGES> stage_has_image_bindings{};
     std::array<size_t, NUM_STAGES> stage_sampled_view_counts{};
     std::array<size_t, NUM_STAGES> stage_storage_view_counts{};
@@ -273,12 +221,6 @@ private:
     std::shared_ptr<OptimizeState> optimize_state; // allocated ONLY for active R313 builds
     vk::Pipeline optimized_pipeline;
     std::atomic_bool optimized_ready{false};
-#ifdef PS5_NATIVE
-    // Set/read only on the ordered Vulkan command worker, immediately before
-    // each draw callback. Never use the later optimized_ready publication as
-    // proof that an earlier ConfigureDraw actually bound the recovered handle.
-    bool worker_draw_bind_valid{};
-#endif
 
     DescriptorBufferLayout descriptor_buffer_layout;
     std::vector<DescriptorUpdateEntry> last_descriptor_payload;
@@ -289,10 +231,6 @@ private:
     ::Eden::StripedCondition build_condvar;
     ::Eden::StripedMutex build_mutex;
     std::atomic_bool is_built{false};
-#ifdef PS5_NATIVE
-    // Only the GPU owner writes this after enqueueing the ordered worker wait.
-    bool first_use_wait_recorded{};
-#endif
     bool uses_push_descriptor{false};
     bool uses_descriptor_buffer{false};
 };

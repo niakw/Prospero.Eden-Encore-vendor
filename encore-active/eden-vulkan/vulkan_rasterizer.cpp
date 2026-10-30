@@ -317,11 +317,9 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     // wait for the GPU worker even when this pipeline writes zero descriptors.
     // Never hold guest cache locks while waiting. The worker may publish guest
     // remaps and change the selected pipeline, so reselect after a real drain.
-    bool initial_descriptor_drain = false;
     if (pipeline->HasDescriptorEntries() &&
         guest_descriptor_queue.PreflightGuestDraw([this] { scheduler.WaitWorker(); },
                                                 pipeline->DescriptorEntryReservation())) {
-        initial_descriptor_drain = true;
         gpu_memory->FlushCaching();
         pipeline = pipeline_cache.CurrentGraphicsPipeline();
         if (!pipeline) {
@@ -333,10 +331,6 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
 #endif
 #ifdef PS5_NATIVE
     for (unsigned preflight = 0; preflight != 2; ++preflight) {
-        // The initial exact-capacity check already passed without a drain.
-        // Without a worker wait there was no shader reselection, so a second
-        // identical capacity probe cannot change its answer on this draw.
-        if (preflight == 0 && !initial_descriptor_drain) break;
         if (!pipeline->HasDescriptorEntries() ||
             !guest_descriptor_queue.PreflightExactGuestDraw(
                 [this] { scheduler.WaitWorker(); }, pipeline->DescriptorEntryReservation()))
@@ -460,7 +454,7 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
         const DrawParams draw_params{MakeDrawParams(draw_state, num_instances, is_indexed)};
 
         scheduler.Record([draw_params, pipeline = prepared_pipeline](vk::CommandBuffer cmdbuf) {
-            if (!pipeline || !pipeline->CanExecuteRecordedDraw()) {
+            if (!pipeline || !pipeline->CanExecuteDraw()) {
                 ::Eden::Performance::RecordGraphicsDrawDrop(
                     ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
                 return;
@@ -508,7 +502,7 @@ void RasterizerVulkan::DrawIndirect() {
             scheduler.Record([buffer_obj = buffer->Handle(), offset,
                               stride = params.stride,
                               pipeline = prepared_pipeline](vk::CommandBuffer cmdbuf) {
-                if (!pipeline || !pipeline->CanExecuteRecordedDraw()) {
+                if (!pipeline || !pipeline->CanExecuteDraw()) {
                     ::Eden::Performance::RecordGraphicsDrawDrop(
                         ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
                     return;
@@ -528,7 +522,7 @@ void RasterizerVulkan::DrawIndirect() {
             scheduler.Record([draw_buffer_obj = draw_buffer->Handle(),
                               buffer_obj = buffer->Handle(), offset_base, offset,
                               params, pipeline = prepared_pipeline](vk::CommandBuffer cmdbuf) {
-                if (!pipeline || !pipeline->CanExecuteRecordedDraw()) {
+                if (!pipeline || !pipeline->CanExecuteDraw()) {
                     ::Eden::Performance::RecordGraphicsDrawDrop(
                         ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
                     return;
@@ -547,7 +541,7 @@ void RasterizerVulkan::DrawIndirect() {
         }
         scheduler.Record([buffer_obj = buffer->Handle(), offset, params,
                           pipeline = prepared_pipeline](vk::CommandBuffer cmdbuf) {
-            if (!pipeline || !pipeline->CanExecuteRecordedDraw()) {
+            if (!pipeline || !pipeline->CanExecuteDraw()) {
                 ::Eden::Performance::RecordGraphicsDrawDrop(
                     ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
                 return;
@@ -624,20 +618,12 @@ void RasterizerVulkan::DrawTexture() {
                          static_cast<u32>(ScaleSrc(texture.size.height)), texture.size.depth};
     blit_image.BlitColor(framebuffer, texture.RenderTarget(), texture.ImageHandle(),
                          sampler->Handle(), dst_region, src_region, src_size);
-#ifdef PS5_NATIVE
-    // Raw-image blit directly binds its own Vulkan graphics pipeline.
-    // It does not invalidate Scheduler's cached guest graphics state.
-    // Ensure the following guest draw rebinds pipeline and descriptors.
-    scheduler.InvalidateState();
-#endif
 }
 
 void RasterizerVulkan::Clear(u32 layer_count) {
     SCOPE_EXIT { SyncProbe(scheduler, "clear", nullptr); };
     FlushWork();
-#ifndef PS5_NATIVE
     gpu_memory->FlushCaching();
-#endif
 
     auto& regs = maxwell3d->regs;
     const bool use_color = regs.clear_surface.R || regs.clear_surface.G || regs.clear_surface.B ||
@@ -647,12 +633,7 @@ void RasterizerVulkan::Clear(u32 layer_count) {
     if (!use_color && !use_depth && !use_stencil) {
         return;
     }
-#ifdef PS5_NATIVE
-    // An all-masked clear is not a GPU write. Preserve FlushWork and the
-    // debug probe but do not pay for guest remap/invalidation processing here;
-    // the next real rendering operation drains it before reading textures.
-    gpu_memory->FlushCaching();
-#endif
+
     std::scoped_lock lock{texture_cache.mutex};
     texture_cache.UpdateRenderTargets(true);
     const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
@@ -865,25 +846,19 @@ void RasterizerVulkan::DispatchCompute() {
     // Select first: descriptor-free compute dispatches must not drain the
     // legacy 1024-entry guest queue. After a real wait, consume guest page
     // invalidations and reselect the possibly changed compute shader.
-    bool initial_compute_descriptor_drain = false;
     if (pipeline->HasDescriptorEntries() &&
         guest_descriptor_queue.PreflightGuestDraw([this] { scheduler.WaitWorker(); },
                                                 pipeline->DescriptorEntryReservation())) {
-        initial_compute_descriptor_drain = true;
         gpu_memory->FlushCaching();
         pipeline = pipeline_cache.CurrentComputePipeline();
         if (!pipeline) return;
     }
 #endif
 #ifdef PS5_NATIVE
-    // Compute reuses same-generation identical descriptor payloads.
-    // Pre-drain guaranteed allocations, not uncertain changed payloads,
-    // while neither guest cache is locked.
+    // Compute always allocates new descriptor-buffer space for a dispatch.
+    // Drain only necessary GPU fences while neither guest cache is locked.
     // Worker drains can publish guest shader/descriptor invalidations.
     for (unsigned preflight = 0; preflight != 2; ++preflight) {
-        // No preceding worker drain means neither the descriptor cursor nor
-        // the selected shader changed since the first exact-capacity probe.
-        if (preflight == 0 && !initial_compute_descriptor_drain) break;
         if (!pipeline->HasDescriptorEntries() ||
             !guest_descriptor_queue.PreflightExactGuestDraw(
                 [this] { scheduler.WaitWorker(); }, pipeline->DescriptorEntryReservation()))
@@ -925,28 +900,11 @@ void RasterizerVulkan::DispatchCompute() {
     pipeline->PreflightDescriptorScratch();
 #endif
     SCOPE_EXIT { SyncProbe(scheduler, "dispatch", pipeline); };
-#ifdef PS5_NATIVE
-    // P0.3: sampled compute lock wait versus time spent holding both guest
-    // caches. No fence, shader, descriptor or lock ordering change.
-    const bool compute_sample = ::Eden::Performance::ShouldSampleCacheDraw();
-    ::Eden::Performance::CachePhaseTimer compute_pair_wait{
-        ::Eden::Performance::CachePhase::ComputePairWait, compute_sample};
-#endif
     std::scoped_lock lock{texture_cache.mutex, buffer_cache.mutex};
-#ifdef PS5_NATIVE
-    compute_pair_wait.Stop();
-    ::Eden::Performance::CachePhaseTimer compute_pair_held{
-        ::Eden::Performance::CachePhase::ComputePairHeld, compute_sample};
-    ::Eden::Performance::CachePhaseTimer compute_configure{
-        ::Eden::Performance::CachePhase::ComputeConfigure, compute_sample};
-#endif
     if (!pipeline->Configure(*kepler_compute, *gpu_memory, scheduler, buffer_cache,
                              texture_cache)) {
         return;
     }
-#ifdef PS5_NATIVE
-    compute_configure.Stop();
-#endif
 
     const auto& qmd{kepler_compute->launch_description};
     auto indirect_address = kepler_compute->GetIndirectComputeAddress();
@@ -956,14 +914,6 @@ void RasterizerVulkan::DispatchCompute() {
         const auto post_op = VideoCommon::ObtainBufferOperation::DiscardWrite;
         const auto [buffer, offset] =
             buffer_cache.ObtainBuffer(*indirect_address, 12, sync_info, post_op);
-#ifdef PS5_NATIVE
-        // A guest indirect-command address can become unmapped after a
-        // shader/descriptor remap. Reject the missing binding before Vulkan
-        // barriers or a worker lambda captures buffer->Handle().
-        if (!buffer || buffer->Handle() == VK_NULL_HANDLE) {
-            return;
-        }
-#endif
         scheduler.RequestOutsideRenderPassOperationContext();
         if (::Eden::DevVulkan::compute_barriers) {
             scheduler.Record([](vk::CommandBuffer cmdbuf) {
@@ -1374,36 +1324,12 @@ void RasterizerVulkan::TickFrame() {
     descriptor_buffer_ring.TickFrame();
     fence_manager.TickFrame();
     staging_pool.TickFrame();
-#ifdef PS5_NATIVE
-    // C01/C03: identify who holds the cache lock during frame housekeeping.
-    // One of 16 frames with detailed logging; no clocks or changed locks in
-    // quiet release. Wait and held intervals use disjoint timer scopes.
-    const bool frame_sample = ::Eden::Performance::ShouldSampleCacheFrame();
-#endif
     {
-#ifdef PS5_NATIVE
-        ::Eden::Performance::CachePhaseTimer texture_wait{
-            ::Eden::Performance::CachePhase::FrameTextureWait, frame_sample};
-#endif
         std::scoped_lock lock{texture_cache.mutex};
-#ifdef PS5_NATIVE
-        texture_wait.Stop();
-        ::Eden::Performance::CachePhaseTimer texture_held{
-            ::Eden::Performance::CachePhase::FrameTextureHeld, frame_sample};
-#endif
         texture_cache.TickFrame();
     }
     {
-#ifdef PS5_NATIVE
-        ::Eden::Performance::CachePhaseTimer buffer_wait{
-            ::Eden::Performance::CachePhase::FrameBufferWait, frame_sample};
-#endif
         std::scoped_lock lock{buffer_cache.mutex};
-#ifdef PS5_NATIVE
-        buffer_wait.Stop();
-        ::Eden::Performance::CachePhaseTimer buffer_held{
-            ::Eden::Performance::CachePhase::FrameBufferHeld, frame_sample};
-#endif
         buffer_cache.TickFrame();
     }
 }
@@ -1436,9 +1362,7 @@ void RasterizerVulkan::AccelerateInlineToMemory(GPUVAddr address, size_t copy_si
         return;
     }
     gpu_memory->WriteBlockUnsafe(address, memory.data(), copy_size);
-    // P0.3: an unregistered page has no buffer-backed GPU dirty bytes.
-    // Unknown, large and previously owned spans retain the original lock.
-    if (!::Eden::BufferPages::NeverRegistered(*cpu_addr, copy_size)) {
+    {
         std::unique_lock<std::recursive_mutex> lock{buffer_cache.mutex};
         if (!buffer_cache.InlineMemory(*cpu_addr, copy_size, memory)) {
             buffer_cache.WriteMemory(*cpu_addr, copy_size);
@@ -1459,12 +1383,6 @@ std::optional<FramebufferTextureInfo> RasterizerVulkan::AccelerateDisplay(
     if (!framebuffer_addr) {
         return {};
     }
-#ifdef PS5_NATIVE
-    // Present may run after a guest page remap without another draw.
-    // Commit queued guest-memory invalidations before reading cached image
-    // flags, never while holding texture_cache.mutex (invalidation takes it).
-    gpu_memory->FlushCaching();
-#endif
     std::scoped_lock lock{texture_cache.mutex};
     const auto [image_view, scaled] =
         texture_cache.TryFindFramebufferImageView(config, framebuffer_addr);
@@ -1472,21 +1390,13 @@ std::optional<FramebufferTextureInfo> RasterizerVulkan::AccelerateDisplay(
         return {};
     }
 
-    FramebufferTextureInfo info{};
-    info.image = image_view->ImageHandle();
-    info.image_view = image_view->Handle(Shader::TextureType::Color2D);
-#ifdef PS5_NATIVE
-    // A valid guest image-map entry does not guarantee that its Vulkan image
-    // and color view survived GPU allocation/recreation. Never send a null
-    // attachment into the compositor; use the existing raw guest upload.
-    if (info.image == VK_NULL_HANDLE || info.image_view == VK_NULL_HANDLE) {
-        return {};
-    }
-#endif
     query_cache.NotifySegment(false);
 
     const auto& resolution = Settings::values.resolution_info;
 
+    FramebufferTextureInfo info{};
+    info.image = image_view->ImageHandle();
+    info.image_view = image_view->Handle(Shader::TextureType::Color2D);
     info.width = image_view->size.width;
     info.height = image_view->size.height;
     info.scaled_width = scaled ? resolution.ScaleUp(info.width) : info.width;
@@ -1519,13 +1429,6 @@ AccelerateDMA::AccelerateDMA(BufferCache& buffer_cache_, TextureCache& texture_c
     : buffer_cache{buffer_cache_}, texture_cache{texture_cache_}, scheduler{scheduler_} {}
 
 bool AccelerateDMA::BufferClear(GPUVAddr src_address, u64 amount, u32 value) {
-#ifdef PS5_NATIVE
-    // The DMA clear count is in u32 words. Reject zero and oversized GPU
-    // fills before waiting for the guest buffer-cache mutex.
-    if (amount == 0 || amount > static_cast<u64>(~u32{0}) / sizeof(u32)) {
-        return false;
-    }
-#endif
     std::scoped_lock lock{buffer_cache.mutex};
     return buffer_cache.DMAClear(src_address, amount, value);
 }
@@ -1544,41 +1447,22 @@ template <bool IS_IMAGE_UPLOAD>
 bool AccelerateDMA::DmaBufferImageCopy(const Tegra::DMA::ImageCopy& copy_info,
                                        const Tegra::DMA::BufferOperand& buffer_operand,
                                        const Tegra::DMA::ImageOperand& image_operand) {
-#ifdef PS5_NATIVE
-    // Invalid DMA images have no buffer-cache allocation or GPU work.
-    // Reject them before the paired guest cache mutexes, so HUD bursts
-    // cannot queue behind an unrelated texture update for a no-op copy.
-    const u64 checked_bytes = static_cast<u64>(buffer_operand.pitch) * buffer_operand.height;
-    if (checked_bytes == 0 || checked_bytes > static_cast<u64>(~u32{0})) {
-        return false;
-    }
-#endif
     std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
     const auto image_id = texture_cache.DmaImageId(image_operand, IS_IMAGE_UPLOAD);
     if (image_id == VideoCommon::NULL_IMAGE_ID) {
         return false;
     }
-#ifdef PS5_NATIVE
-    const u32 buffer_size = static_cast<u32>(checked_bytes);
-#else
     // Widen before multiplying, then respect the u32 buffer-cache span.
     const u64 buffer_size_wide = static_cast<u64>(buffer_operand.pitch) * buffer_operand.height;
     if (buffer_size_wide > static_cast<u64>(~u32{0})) {
         return false;
     }
     const u32 buffer_size = static_cast<u32>(buffer_size_wide);
-#endif
     static constexpr auto sync_info = VideoCommon::ObtainBufferSynchronize::FullSynchronize;
     const auto post_op = IS_IMAGE_UPLOAD ? VideoCommon::ObtainBufferOperation::DoNothing
                                          : VideoCommon::ObtainBufferOperation::MarkAsWritten;
     const auto [buffer, offset] =
         buffer_cache.ObtainBuffer(buffer_operand.address, buffer_size, sync_info, post_op);
-#ifdef PS5_NATIVE
-    // Guest size alone does not prove a valid GPU buffer handle.
-    if (!buffer || buffer->Handle() == VK_NULL_HANDLE) {
-        return false;
-    }
-#endif
 
     const auto [image, copy] = texture_cache.DmaBufferImageCopy(
         copy_info, buffer_operand, image_operand, image_id, IS_IMAGE_UPLOAD);
@@ -1682,20 +1566,10 @@ void RasterizerVulkan::UpdateDynamicStates() {
     }
 
     if (device.IsExtVertexInputDynamicStateSupported()) {
-#ifdef PS5_NATIVE
-        // DrawTexture uses its own blit pipeline, not a guest graphics
-        // pipeline. Do not translate a cold guest shader while holding the
-        // texture-cache lock just to set unused vertex input state. The next
-        // guest PrepareDraw has prepared_pipeline and will bind it normally.
-        if (prepared_pipeline && prepared_pipeline->HasDynamicVertexInput()) {
-            UpdateVertexInput(regs);
-        }
-#else
         if (auto* gp = prepared_pipeline ? prepared_pipeline : pipeline_cache.CurrentGraphicsPipeline();
             gp && gp->HasDynamicVertexInput()) {
             UpdateVertexInput(regs);
         }
-#endif
     }
 }
 
@@ -2242,13 +2116,7 @@ void RasterizerVulkan::UpdateAlphaToCoverageEnable(Tegra::Engines::Maxwell3D::Re
     if (!device.SupportsDynamicState3AlphaToCoverageEnable()) {
         return;
     }
-#ifdef PS5_NATIVE
-    // Guest draws have already selected their pipeline; raw DrawTexture blits
-    // must not translate an unrelated cold guest shader under texture lock.
-    GraphicsPipeline* const pipeline = prepared_pipeline;
-#else
     GraphicsPipeline* const pipeline = pipeline_cache.CurrentGraphicsPipeline();
-#endif
     const bool enable = pipeline != nullptr && pipeline->SupportsAlphaToCoverage() &&
                         regs.anti_alias_alpha_control.alpha_to_coverage != 0;
     scheduler.Record([enable](vk::CommandBuffer cmdbuf) {
@@ -2268,13 +2136,7 @@ void RasterizerVulkan::UpdateAlphaToOneEnable(Tegra::Engines::Maxwell3D::Regs& r
         });
         return;
     }
-#ifdef PS5_NATIVE
-    // Guest draws have already selected their pipeline; raw DrawTexture blits
-    // must not translate an unrelated cold guest shader under texture lock.
-    GraphicsPipeline* const pipeline = prepared_pipeline;
-#else
     GraphicsPipeline* const pipeline = pipeline_cache.CurrentGraphicsPipeline();
-#endif
     const bool enable = pipeline != nullptr && pipeline->SupportsAlphaToOne() &&
                         regs.anti_alias_alpha_control.alpha_to_one != 0;
     scheduler.Record([enable](vk::CommandBuffer cmdbuf) {

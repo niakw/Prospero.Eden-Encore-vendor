@@ -99,15 +99,7 @@ bool DescriptorBufferRing::PreflightFrameReuse(Scheduler& scheduler) {
     // would wait for; preserve fallback in case no preflight ran.
     if (!frame_reused || chunks.empty())
         return false;
-    // Only an unsignalled frame slot requires an expensive fence wait.
-    // Returning false for already-retired slots avoids forcing a shader
-    // reselection and guest invalidation flush on the first draw each frame.
-    const u64 old_tick = frame_ticks[frame_index];
-    if (old_tick == 0 || scheduler.IsFree(old_tick)) {
-        frame_reused = false;
-        return false;
-    }
-    { auto timer = Eden::Performance::VulkanTimer(10); scheduler.Wait(old_tick); }
+    { auto timer = Eden::Performance::VulkanTimer(10); scheduler.Wait(frame_ticks[frame_index]); }
     frame_reused = false;
     return true;
 }
@@ -145,19 +137,7 @@ DescriptorBufferRing::Allocation DescriptorBufferRing::Allocate(Scheduler& sched
     const VkDeviceSize needed{Common::AlignUp(size, alignment)};
     if (frame_reused) {
         frame_reused = false;
-#ifdef PS5_NATIVE
-        // This fallback can run without a preceding GPU-owner preflight.
-        // A zero tick has no prior frame, and an already-retired tick has no
-        // outstanding descriptor readers. Mirror PreflightFrameReuse's exact
-        // GPU completion test before issuing a potentially blocking Wait
-        // while the guest buffer/texture cache pair is held.
-        const u64 old_tick = frame_ticks[frame_index];
-        if (old_tick != 0 && !scheduler.IsFree(old_tick)) {
-            { auto timer = Eden::Performance::VulkanTimer(10); scheduler.Wait(old_tick); }
-        }
-#else
         { auto timer = Eden::Performance::VulkanTimer(10); scheduler.Wait(frame_ticks[frame_index]); }
-#endif
     }
     if (cursor + needed > chunk_capacity) {
         if (chunk_cursor + 1 < chunks_per_frame) {

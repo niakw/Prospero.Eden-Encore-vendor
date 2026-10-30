@@ -80,13 +80,7 @@ void WindowAdaptPass::Draw(const Device& device, RasterizerVulkan& rasterizer, S
     }
 
     const auto hud = draw_hud ? Eden::GetVulkanHud() : Eden::HudSnapshot{};
-    // The 3D jacket in the native launcher is the ONE authored loading
-    // animation. The checked-in Vulkan SPIR-V includes an obsolete purple
-    // loading scene; keep the shader binary pinned for normal FPS HUD only.
-    // Rendering the loader without an overlay retains the GPU warm-up
-    // swapchain presents, acquire/release order and first-frame handoff.
-    const bool quiet_loading_handoff = hud.loading != 0;
-    if (hud.width && !quiet_loading_handoff && !hud_pipeline) {
+    if (hud.width && !hud_pipeline) {
         const VkPushConstantRange range{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(hud)};
         hud_layout = device.GetLogical().CreatePipelineLayout(VkPipelineLayoutCreateInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -102,15 +96,9 @@ void WindowAdaptPass::Draw(const Device& device, RasterizerVulkan& rasterizer, S
     const VkPipelineLayout hud_pipeline_layout = *hud_layout;
 
     scheduler.Record([=, draws = std::move(draws)](vk::CommandBuffer cmdbuf) {
-        // The launcher has already faded to this ink. Avoid a visibly
-        // different second loading screen, without dropping empty-frame
-        // presents while Vulkan/guest shaders initialize.
-        const f32 bg_red = quiet_loading_handoff ? 0.024f :
-            Settings::values.bg_red.GetValue() / 255.0f;
-        const f32 bg_green = quiet_loading_handoff ? 0.035f :
-            Settings::values.bg_green.GetValue() / 255.0f;
-        const f32 bg_blue = quiet_loading_handoff ? 0.039f :
-            Settings::values.bg_blue.GetValue() / 255.0f;
+        const f32 bg_red = Settings::values.bg_red.GetValue() / 255.0f;
+        const f32 bg_green = Settings::values.bg_green.GetValue() / 255.0f;
+        const f32 bg_blue = Settings::values.bg_blue.GetValue() / 255.0f;
         const VkClearAttachment clear_attachment{
             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
             .colorAttachment = 0,
@@ -144,23 +132,27 @@ void WindowAdaptPass::Draw(const Device& device, RasterizerVulkan& rasterizer, S
 
         // The overlay is laid out for a picture 1080 rows high and scaled to this one.
         const auto hud_units = [rows = render_area.height](uint32_t value) { return value * rows / 1080u; };
-        if (hud.width && !quiet_loading_handoff &&
-            render_area.width >= hud_units(hud.width + 16) &&
-            render_area.height >= hud_units(64)) {
-            const VkRect2D scissor{
-                {static_cast<int32_t>(hud_units(16)), static_cast<int32_t>(hud_units(16))},
-                {hud_units(hud.width), hud_units(48)}};
+        if (hud.width && (hud.loading || (render_area.width >= hud_units(hud.width + 16) &&
+                                          render_area.height >= hud_units(64)))) {
+            const VkRect2D scissor = hud.loading ? VkRect2D{{0, 0}, render_area} :
+                VkRect2D{{static_cast<int32_t>(hud_units(16)), static_cast<int32_t>(hud_units(16))},
+                         {hud_units(hud.width), hud_units(48)}};
             const VkViewport viewport{static_cast<float>(scissor.offset.x), static_cast<float>(scissor.offset.y),
                 static_cast<float>(scissor.extent.width), static_cast<float>(scissor.extent.height), 0, 1};
             cmdbuf.SetViewport(0, viewport);
             cmdbuf.SetScissor(0, scissor);
             cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, hud_graphics_pipeline);
             auto constants = hud;
-            // Only the regular FPS overlay reaches this pass. No second
-            // full-screen splash is submitted on the warm-up swapchain.
-            constants.x = hud_units(hud.x);
-            constants.y = hud_units(hud.y);
-            constants.width = render_area.height;
+            if (hud.loading) {
+                // The loading scene fills the picture: tell it how large that is.
+                constants.x = render_area.width;
+                constants.y = render_area.height;
+            } else {
+                // Where the text starts in this picture, and the picture's height for its size.
+                constants.x = hud_units(hud.x);
+                constants.y = hud_units(hud.y);
+                constants.width = render_area.height;
+            }
             cmdbuf.PushConstants(hud_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, constants);
             cmdbuf.Draw(4, 1, 0, 0);
         }

@@ -96,7 +96,6 @@ private:
     boost::container::deque<Frame*> present_queue;
     boost::container::deque<Frame*> free_queue;
     std::condition_variable_any frame_cv;
-    std::condition_variable_any present_ready_cv;
     std::condition_variable free_cv;
     std::mutex swapchain_mutex;
     std::mutex queue_mutex;

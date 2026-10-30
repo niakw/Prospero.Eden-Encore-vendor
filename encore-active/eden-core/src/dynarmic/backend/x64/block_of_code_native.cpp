@@ -234,18 +234,6 @@ void BlockOfCode::ClearCache() {
     if (hasWritableAlias()) {
         protection_end = begin;
         setSize(begin);
-#ifdef PS5_NATIVE
-        // Single native PS5 sparse JIT; the full invalidation completed before
-        // the physical tail may be returned to unified CPU/GPU memory.
-        // Called only after the owning guest core has left generated code
-        // (or after the shared JIT group quiesces), so NO old PC can target
-        // the discarded tail. Keep RX/RW virtual addresses and the prelude.
-        // Reclaim only whole physical 2 MiB chunks; GPU/guest memory may
-        // reuse them until the next JIT emission commits more on demand.
-        if (!::Common::TrimSparseJitCode(const_cast<u8*>(getCode()), begin)) {
-            std::abort();  // Sparse alias ownership drift is not recoverable.
-        }
-#endif
         writing = was_writing;
         return;
     }
@@ -268,10 +256,10 @@ size_t BlockOfCode::SpaceRemaining() const {
 }
 
 void BlockOfCode::EnsureMemoryCommitted([[maybe_unused]] size_t codesize) {
-#ifdef PS5_NATIVE
-    // The sole PS5 JIT owns stable RX/RW aliases with demand-backed pages.
-    // Every guest code emission commits its required physical span first.
-    {
+#if defined(PS5_NATIVE) && defined(EDEN_SPARSE_JIT_DEV)
+    // Sparse commits belong only to explicit developer builds. Do not emit
+    // even the runtime atomic branch in the sole release JIT profile.
+    if (::Eden::Experimental::sparse_jit_cache.load(std::memory_order_relaxed)) {
         const size_t written = getSize();
         const auto target = ::Eden::Jit::PlanSparseCommit(written, codesize, maxSize_);
         if (!target.valid ||

@@ -6,19 +6,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <algorithm>
-#include "common/scope_exit.h"
 #include <cstdio>
 #include "dev_vulkan.h"
 #include "diagnostics.h"
 #include <limits>
 #include <array>
 #include <optional>
-#include <stdexcept>
 #include <span>
 #include <memory>
-#ifdef PS5_NATIVE
-#include <new>
-#endif
 #include <utility>
 #include <vector>
 #include <boost/container/small_vector.hpp>
@@ -970,15 +965,6 @@ TextureCacheRuntime::TextureCacheRuntime(const Device& device_, Scheduler& sched
                                   compute_pass_descriptor_queue, memory_allocator);
     }
     if (!device.IsKhrImageFormatListSupported()) {
-#ifdef PS5_NATIVE
-        // BCn 3D unswizzle is a compute-buffer pass; it does not require
-        // VK_KHR_image_format_list. Without a pass here, native queued 3D
-        // uploads can be marked complete without ever submitting pixels.
-        if (Settings::values.gpu_unswizzle_enabled.GetValue()) {
-            bl3d_unswizzle_pass.emplace(device, scheduler, descriptor_pool,
-                                       staging_buffer_pool, compute_pass_descriptor_queue);
-        }
-#endif
         return;
     }
     for (size_t index_a = 0; index_a < VideoCore::Surface::MaxPixelFormat; index_a++) {
@@ -1011,18 +997,7 @@ StagingBufferRef TextureCacheRuntime::UploadStagingBuffer(size_t size, bool defe
 }
 
 StagingBufferRef TextureCacheRuntime::DownloadStagingBuffer(size_t size, bool deferred) {
-#ifdef PS5_NATIVE
-    // Reject broken readback staging before the pinned batch can record copies.
-    // Never trust a mapped CPU span without a real Vulkan buffer handle.
-    auto map = staging_buffer_pool.Request(size, MemoryUsage::Download, deferred);
-    if (!map.buffer || map.mapped_span.size_bytes() < size) {
-        if (deferred && map.buffer) staging_buffer_pool.FreeDeferred(map);
-        throw std::bad_alloc{};
-    }
-    return map;
-#else
     return staging_buffer_pool.Request(size, MemoryUsage::Download, deferred);
-#endif
 }
 
 void TextureCacheRuntime::FreeDeferredStagingBuffer(StagingBufferRef& ref) {
@@ -1172,129 +1147,32 @@ void TextureCacheRuntime::BarrierFeedbackLoop() {
 
 void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
                                            std::span<const VideoCommon::ImageCopy> copies) {
-#ifdef PS5_NATIVE
-    // An empty reinterpret has no image pixels or valid VkBufferImageCopy.
-    // Never ask GetTemporaryBuffer to classify a zero-sized allocation.
-    if (copies.empty()) {
-        return;
-    }
-#endif
-#ifndef PS5_NATIVE
     if (ENABLE_MSAA_RESOLVE_CONSUME) {
         InvalidateResolveShadow(dst.Handle());
     }
-#endif
-    // Scratch vectors are created after native extent and budget validation.
+    boost::container::small_vector<VkBufferImageCopy, 16> vk_in_copies(copies.size());
+    boost::container::small_vector<VkBufferImageCopy, 16> vk_out_copies(copies.size());
     const VkImageAspectFlags src_aspect_mask = src.AspectMask();
     const VkImageAspectFlags dst_aspect_mask = dst.AspectMask();
 
-#ifdef PS5_NATIVE
-    // Do not divide by an invalid format width or truncate converted source
-    // coordinates before the scratch-size check. Conversion is calculated
-    // wide, but must still fit the signed offset and unsigned Vk extent.
-    const auto src_block_width = DefaultBlockWidth(src.info.format);
-    const auto dst_block_width = DefaultBlockWidth(dst.info.format);
-    if (src_block_width == 0 || dst_block_width == 0) {
-        return;
-    }
-    const auto bpp_in = BytesPerBlock(src.info.format) / src_block_width;
-    const auto bpp_out = BytesPerBlock(dst.info.format) / dst_block_width;
-    if (bpp_in == 0 || bpp_out == 0) {
-        return;
-    }
-    for (const auto& copy : copies) {
-        if (static_cast<s64>(copy.src_offset.x) < 0) {
-            return;
-        }
-        const u64 scaled_offset =
-            (static_cast<u64>(bpp_out) * static_cast<u64>(copy.src_offset.x)) / bpp_in;
-        const u64 scaled_width =
-            (static_cast<u64>(bpp_out) * copy.extent.width) / bpp_in;
-        if (scaled_offset > static_cast<u64>(
-                (std::numeric_limits<decltype(copy.src_offset.x)>::max)()) ||
-            scaled_width == 0 || scaled_width > static_cast<u64>(
-                (std::numeric_limits<decltype(copy.extent.width)>::max)())) {
-            return;
-        }
-    }
-#else
     const auto bpp_in = BytesPerBlock(src.info.format) / DefaultBlockWidth(src.info.format);
     const auto bpp_out = BytesPerBlock(dst.info.format) / DefaultBlockWidth(dst.info.format);
-#endif
-    const u32 img_bpp = BytesPerBlock(dst.info.format);
-    size_t total_size = 0;
-#ifdef PS5_NATIVE
-    // Prevent u32 intermediate overflow and size_t wrap before asking for
-    // a scratch VkBuffer. Invalid extents cannot be recorded as Vulkan copies.
-    constexpr size_t max_size = (std::numeric_limits<size_t>::max)();
-    for (const auto& copy : copies) {
-        const size_t width = copy.extent.width;
-        const size_t height = copy.extent.height;
-        const size_t depth = copy.extent.depth;
-        if (width == 0 || height == 0 || depth == 0 || img_bpp == 0 ||
-            width > max_size / height) {
-            return;
-        }
-        const size_t area = width * height;
-        if (area > max_size / depth) {
-            return;
-        }
-        const size_t volume = area * depth;
-        if (volume > max_size / img_bpp) {
-            return;
-        }
-        const size_t bytes = volume * img_bpp;
-        if (total_size > max_size - bytes) {
-            return;
-        }
-        total_size += bytes;
-    }
-    // GetTemporaryBuffer indexes an array of 8*sizeof(size_t) buffers with
-    // ceil(log2(size)). Values above the highest power of two index the
-    // array one past its end even though size_t arithmetic did not overflow.
-    constexpr size_t scratch_max = size_t{1} << (std::numeric_limits<size_t>::digits - 1);
-    if (total_size > scratch_max) {
-        return;
-    }
-#else
-    for (const auto& copy : copies) {
-        total_size += copy.extent.width * copy.extent.height * copy.extent.depth * img_bpp;
-    }
-#endif
-    // Rejected reinterpret copies must not allocate or convert while holding the texture lock.
-    boost::container::small_vector<VkBufferImageCopy, 16> vk_in_copies(copies.size());
-    boost::container::small_vector<VkBufferImageCopy, 16> vk_out_copies(copies.size());
     std::ranges::transform(copies, vk_in_copies.begin(),
                            [src_aspect_mask, bpp_in, bpp_out](const auto& copy) {
                                auto copy2 = copy;
-#ifdef PS5_NATIVE
-                               copy2.src_offset.x = static_cast<decltype(copy2.src_offset.x)>(
-                                   (static_cast<u64>(bpp_out) * static_cast<u64>(copy.src_offset.x)) / bpp_in);
-                               copy2.extent.width = static_cast<decltype(copy2.extent.width)>(
-                                   (static_cast<u64>(bpp_out) * copy.extent.width) / bpp_in);
-#else
                                copy2.src_offset.x = (bpp_out * copy.src_offset.x) / bpp_in;
                                copy2.extent.width = (bpp_out * copy.extent.width) / bpp_in;
-#endif
                                return MakeBufferImageCopy(copy2, true, src_aspect_mask);
                            });
     std::ranges::transform(copies, vk_out_copies.begin(), [dst_aspect_mask](const auto& copy) {
         return MakeBufferImageCopy(copy, false, dst_aspect_mask);
     });
+    const u32 img_bpp = BytesPerBlock(dst.info.format);
+    size_t total_size = 0;
+    for (const auto& copy : copies) {
+        total_size += copy.extent.width * copy.extent.height * copy.extent.depth * img_bpp;
+    }
     const VkBuffer copy_buffer = GetTemporaryBuffer(total_size);
-#ifdef PS5_NATIVE
-    // A mapped scratch allocation can still contain a null Vulkan handle.
-    // Reject before invalidating the resolve or enqueueing any GPU copies.
-    if (copy_buffer == VK_NULL_HANDLE) {
-        return;
-    }
-    // A rejected reinterpretation does not alter the destination image.
-    // Invalidate its resolved shadow only after native validation and
-    // scratch allocation succeeded, before submitting Vulkan commands.
-    if (ENABLE_MSAA_RESOLVE_CONSUME) {
-        InvalidateResolveShadow(dst.Handle());
-    }
-#endif
     const VkImage dst_image = dst.Handle();
     const VkImage src_image = src.Handle();
     scheduler.RequestOutsideRenderPassOperationContext();
@@ -1405,16 +1283,6 @@ void TextureCacheRuntime::BlitImage(Framebuffer* dst_framebuffer, ImageView& dst
                                     const Region2D& dst_region, const Region2D& src_region,
                                     Tegra::Engines::Fermi2D::Filter filter,
                                     Tegra::Engines::Fermi2D::Operation operation) {
-#ifdef PS5_NATIVE
-    // A collapsed source or destination axis cannot transfer image pixels.
-    // Keep flipped blits (reversed, nonempty coordinates) fully supported.
-    if (dst_region.start.x == dst_region.end.x ||
-        dst_region.start.y == dst_region.end.y ||
-        src_region.start.x == src_region.end.x ||
-        src_region.start.y == src_region.end.y) {
-        return;
-    }
-#endif
     const VkImageAspectFlags aspect_mask = ImageAspectMask(src.format);
     const bool is_dst_msaa = dst.Samples() != VK_SAMPLE_COUNT_1_BIT;
     const bool is_src_msaa = src.Samples() != VK_SAMPLE_COUNT_1_BIT;
@@ -1688,26 +1556,9 @@ bool TextureCacheRuntime::IsFormatScalable(PixelFormat format) {
 
 void TextureCacheRuntime::CopyImage(Image& dst, Image& src,
                                     std::span<const VideoCommon::ImageCopy> copies) {
-#ifdef PS5_NATIVE
-    // A compatible-format copy with zero regions records no image writes.
-    // Preserve the resolved shadow and avoid an empty Vulkan command batch.
-    // Size-INcompatible calls still reinterpret the whole image independently
-    // of the supplied region list, so they must not take this return.
-    if (copies.empty() &&
-        BytesPerBlock(src.info.format) == BytesPerBlock(dst.info.format)) {
-        return;
-    }
-    // ReinterpretImage owns invalidation after validating its copy and scratch
-    // buffer. Do not stale the old MSAA resolve when it rejects the operation.
-    if (ENABLE_MSAA_RESOLVE_CONSUME &&
-        BytesPerBlock(src.info.format) == BytesPerBlock(dst.info.format)) {
-        InvalidateResolveShadow(dst.Handle());
-    }
-#else
     if (ENABLE_MSAA_RESOLVE_CONSUME) {
         InvalidateResolveShadow(dst.Handle());
     }
-#endif
     // As per the size-compatible formats section of vulkan, copy manually via ReinterpretImage
     // these images that aren't size-compatible
     if (BytesPerBlock(src.info.format) != BytesPerBlock(dst.info.format)) {
@@ -1820,13 +1671,6 @@ void TextureCacheRuntime::CopyImage(Image& dst, Image& src,
 
 void TextureCacheRuntime::CopyImageMSAA(Image& dst, Image& src,
                                         std::span<const VideoCommon::ImageCopy> copies) {
-#ifdef PS5_NATIVE
-    // A zero-region MSAA transfer cannot write any pixels. Avoid building
-    // depth/color helper pipelines and recording a useless Vulkan batch.
-    if (copies.empty()) {
-        return;
-    }
-#endif
     const bool msaa_to_non_msaa = src.info.num_samples > 1 && dst.info.num_samples == 1;
     const u32 num_samples = msaa_to_non_msaa ? src.info.num_samples : dst.info.num_samples;
     if (ENABLE_MSAA_RESOLVE_CONSUME && msaa_to_non_msaa && copies.size() == 1 &&
@@ -2004,26 +1848,8 @@ VkImage TextureCacheRuntime::AcquireMsaaScratchImage(const VkImageCreateInfo& im
         .usage = image_ci.usage,
         .flags = image_ci.flags,
     };
-#ifdef PS5_NATIVE
-    // A scratch with a different image key is never reusable. Avoid sampling
-    // GPU completion unless this allocation actually has a matching candidate;
-    // take at most one monotone snapshot, before comparing its usage tick.
-    u64 completed_tick = 0;
-    bool sampled_completed_tick = false;
-#endif
     for (MsaaScratchImage& scratch : msaa_scratch_images) {
-#ifdef PS5_NATIVE
-        if (scratch.key != key) {
-            continue;
-        }
-        if (!sampled_completed_tick) {
-            completed_tick = scheduler.GetMasterSemaphore().KnownGpuTick();
-            sampled_completed_tick = true;
-        }
-        if (scratch.tick > completed_tick) {
-#else
         if (scratch.key != key || !scheduler.IsFree(scratch.tick)) {
-#endif
             continue;
         }
         scratch.tick = (std::numeric_limits<u64>::max)();
@@ -2036,14 +1862,6 @@ VkImage TextureCacheRuntime::AcquireMsaaScratchImage(const VkImageCreateInfo& im
         .tick = (std::numeric_limits<u64>::max)(),
         .unused_frames = 0,
     };
-#ifdef PS5_NATIVE
-    // Some allocation backends report failure as an empty Vulkan image
-    // without throwing. Never cache it or submit a null VkImage as MSAA
-    // resolve scratch; the caller must take its existing failure path.
-    if (!scratch.image) {
-        throw std::bad_alloc{};
-    }
-#endif
     const VkImage handle = *scratch.image;
     msaa_scratch_images.push_back(std::move(scratch));
     return handle;
@@ -2060,40 +1878,15 @@ void TextureCacheRuntime::ReleaseMsaaScratchImage(VkImage image) {
 
 void TextureCacheRuntime::TickFrame() {
     static constexpr u32 MAX_UNUSED_SCRATCH_FRAMES = 60;
-#ifdef PS5_NATIVE
-    // With neither MSAA scratch nor resolve retirements pending, there is
-    // nothing to collect and no reason to sample the GPU semaphore.
-    if (msaa_scratch_images.empty() && pending_resolve_shadows.empty()) {
-        return;
-    }
-    // A live scratch is marked UINT64_MAX until the caller releases it.
-    // With no released scratch and no pending resolve shadow, no frame can
-    // age or retire an image: skip the GPU completion probe entirely.
-    if (pending_resolve_shadows.empty() &&
-        std::all_of(msaa_scratch_images.begin(), msaa_scratch_images.end(),
-                    [](const MsaaScratchImage& scratch) {
-                        return scratch.tick == (std::numeric_limits<u64>::max)();
-                    })) {
-        return;
-    }
-    // One conservative GPU completion sample for both cleanup scans, not a
-    // semaphore query per scratch/resolve. Late completions wait one frame.
-    const u64 completed_tick = scheduler.GetMasterSemaphore().KnownGpuTick();
-    const auto is_free = [completed_tick](u64 tick) noexcept {
-        return tick <= completed_tick;
-    };
-#else
-    const auto is_free = [this](u64 tick) { return scheduler.IsFree(tick); };
-#endif
-    std::erase_if(msaa_scratch_images, [is_free](MsaaScratchImage& scratch) {
-        if (!is_free(scratch.tick)) {
+    std::erase_if(msaa_scratch_images, [this](MsaaScratchImage& scratch) {
+        if (!scheduler.IsFree(scratch.tick)) {
             scratch.unused_frames = 0;
             return false;
         }
         return ++scratch.unused_frames > MAX_UNUSED_SCRATCH_FRAMES;
     });
-    std::erase_if(pending_resolve_shadows, [is_free](const auto& pending) {
-        return is_free(pending.first);
+    std::erase_if(pending_resolve_shadows, [this](const auto& pending) {
+        return scheduler.IsFree(pending.first);
     });
 }
 
@@ -2159,35 +1952,11 @@ void Image::AllocateComputeUnswizzleBuffer(u32 max_slices) {
     const u32 block_width  = 4;
     const u32 block_height = 4;
 
-#ifdef PS5_NATIVE
-    // The compute pass also rounds width/height in u32. Reject invalid
-    // dimensions before either rounding can wrap or the GPU batch can stall.
-    if (info.size.width == 0 || info.size.height == 0 || max_slices == 0 ||
-        info.size.depth == 0 || block_bytes == 0 ||
-        info.size.width > ~u32{0} - (block_width - 1) ||
-        info.size.height > ~u32{0} - (block_height - 1)) {
-        throw std::bad_alloc{};
-    }
-#endif
     // BCn is 4x4x1 blocks
     const u32 blocks_x = (info.size.width  + block_width  - 1) / block_width;
     const u32 blocks_y = (info.size.height + block_height - 1) / block_height;
     const u32 blocks_z = (std::min)(max_slices, info.size.depth);
 
-#ifdef PS5_NATIVE
-    // Check every multiplication before allocating the BCn 3D output.
-    // An unsigned wrap could otherwise allocate a tiny Vulkan buffer for
-    // an enormous compute write while keeping texture_cache.mutex held.
-    constexpr VkDeviceSize max_buffer = (std::numeric_limits<VkDeviceSize>::max)();
-    if (blocks_z == 0 || static_cast<u64>(blocks_x) > max_buffer / blocks_y) {
-        throw std::bad_alloc{};
-    }
-    const u64 blocks_xy = static_cast<u64>(blocks_x) * blocks_y;
-    if (blocks_xy > max_buffer / blocks_z ||
-        blocks_xy * blocks_z > max_buffer / block_bytes) {
-        throw std::bad_alloc{};
-    }
-#endif
     const u64 block_count =
         static_cast<u64>(blocks_x) *
         static_cast<u64>(blocks_y) *
@@ -2198,15 +1967,13 @@ void Image::AllocateComputeUnswizzleBuffer(u32 max_slices) {
         return;
     }
 
-#ifndef PS5_NATIVE
     compute_unswizzle_buffer_size = required_size;
-#endif
 
     VkBufferCreateInfo ci{
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .size = required_size,
+        .size = compute_unswizzle_buffer_size,
         .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
@@ -2214,32 +1981,14 @@ void Image::AllocateComputeUnswizzleBuffer(u32 max_slices) {
         .pQueueFamilyIndices = nullptr,
     };
 
-#ifdef PS5_NATIVE
-    // Allocation can return an empty Vulkan handle without throwing. Never
-    // publish a fictitious grown capacity or discard the old valid buffer.
-    auto replacement = runtime->memory_allocator.CreateBuffer(ci, MemoryUsage::DeviceLocal);
-    if (!replacement) {
-        throw std::bad_alloc{};
-    }
-    compute_unswizzle_buffer = std::move(replacement);
-    compute_unswizzle_buffer_size = required_size;
-#else
     compute_unswizzle_buffer =
         runtime->memory_allocator.CreateBuffer(ci, MemoryUsage::DeviceLocal);
-#endif
+
     has_compute_unswizzle_buffer = true;
 }
 
 void Image::UploadMemory(VkBuffer buffer, VkDeviceSize offset,
                          std::span<const VideoCommon::BufferImageCopy> copies) {
-#ifdef PS5_NATIVE
-    // Empty guest upload regions cannot write any destination pixels. Avoid
-    // invalidating a valid MSAA resolve, rescaling, scratch acquisition and
-    // a Vulkan command with no copy regions.
-    if (copies.empty()) {
-        return;
-    }
-#endif
     // TODO: Move this to another API
     if (ENABLE_MSAA_RESOLVE_CONSUME && runtime != nullptr) {
         runtime->InvalidateResolveShadow(Handle());
@@ -2267,16 +2016,6 @@ void Image::UploadMemory(VkBuffer buffer, VkDeviceSize offset,
         const VkImageCreateInfo image_ci = MakeMsaaScratchImageCreateInfo(
             runtime->device, info, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
         const VkImage temp_vk_image = runtime->AcquireMsaaScratchImage(image_ci);
-#ifdef PS5_NATIVE
-        // An allocation, Vulkan Record or blit failure before the ordinary
-        // Release leaves this scratch at UINT64_MAX ("checked out") forever.
-        // Return it against CurrentTick even when partially enqueued GPU
-        // commands must still retire; never make it reusable immediately.
-        bool scratch_released = false;
-        SCOPE_EXIT {
-            if (!scratch_released) runtime->ReleaseMsaaScratchImage(temp_vk_image);
-        };
-#endif
 
         scheduler->RequestOutsideRenderPassOperationContext();
         auto vk_copies = TransformBufferImageCopies(copies, offset, upload_aspect_mask);
@@ -2316,9 +2055,6 @@ void Image::UploadMemory(VkBuffer buffer, VkDeviceSize offset,
         }
         initialized = true;
         runtime->ReleaseMsaaScratchImage(temp_vk_image);
-#ifdef PS5_NATIVE
-        scratch_released = true;
-#endif
 
         if (is_rescaled) {
             ScaleUp();
@@ -2338,21 +2074,12 @@ void Image::UploadMemory(VkBuffer buffer, VkDeviceSize offset,
     const VkBuffer src_buffer = buffer;
     const VkImage vk_image = *original_image;
     const VkImageAspectFlags vk_aspect_mask = aspect_mask;
-#ifdef PS5_NATIVE
-    // Record can reject before accepting this copy. Keep the old layout state
-    // until a Vulkan command has actually entered the scheduler queue.
-    const bool was_initialized = initialized;
-#else
     const bool was_initialized = std::exchange(initialized, true);
-#endif
 
     scheduler->Record([src_buffer, vk_image, vk_aspect_mask, was_initialized,
                        vk_copies = std::move(vk_copies)](vk::CommandBuffer cmdbuf) {
         CopyBufferToImage(cmdbuf, src_buffer, vk_image, vk_aspect_mask, was_initialized, VideoCommon::FixSmallVectorADL(vk_copies));
     });
-#ifdef PS5_NATIVE
-    initialized = true;
-#endif
 
     if (is_rescaled) {
         ScaleUp();
@@ -2376,19 +2103,6 @@ void Image::DownloadMemory(VkBuffer buffer, size_t offset,
 
 void Image::DownloadMemory(std::span<VkBuffer> buffers_span, std::span<size_t> offsets_span,
                             std::span<const VideoCommon::BufferImageCopy> copies) {
-#ifdef PS5_NATIVE
-    // A readback without copy regions has no guest bytes to return. Avoid
-    // scaling, a scratch acquisition and even a zero-command Vulkan Record.
-    if (copies.empty()) {
-        return;
-    }
-    // Every copy batch indexes both parallel destination arrays. A malformed
-    // caller must fail before recording GPU writes; a silent return here
-    // would let dirty texture eviction treat uncopied guest bytes as valid.
-    if (buffers_span.empty() || offsets_span.size() != buffers_span.size()) {
-        throw std::invalid_argument("Malformed Vulkan texture readback batch");
-    }
-#endif
     const bool is_rescaled = True(flags & ImageFlagBits::Rescaled);
     if (is_rescaled) {
         ScaleDown();
@@ -2410,15 +2124,6 @@ void Image::DownloadMemory(std::span<VkBuffer> buffers_span, std::span<size_t> o
             const VkImageCreateInfo image_ci =
                 MakeMsaaScratchImageCreateInfo(runtime->device, info, scratch_usage);
             const VkImage temp_vk_image = runtime->AcquireMsaaScratchImage(image_ci);
-#ifdef PS5_NATIVE
-            // A rejected Record, failed blit or staging allocation must not
-            // strand this scratch at UINT64_MAX. The returned CurrentTick
-            // still protects commands already submitted to the GPU worker.
-            bool scratch_released = false;
-            SCOPE_EXIT {
-                if (!scratch_released) runtime->ReleaseMsaaScratchImage(temp_vk_image);
-            };
-#endif
 
             const VkImageAspectFlags temp_aspect_mask = aspect_mask;
             const VkAccessFlags attachment_access =
@@ -2549,9 +2254,6 @@ void Image::DownloadMemory(std::span<VkBuffer> buffers_span, std::span<size_t> o
                                        0, memory_write_barrier, nullptr, image_write_barrier);
             });
             runtime->ReleaseMsaaScratchImage(temp_vk_image);
-#ifdef PS5_NATIVE
-            scratch_released = true;
-#endif
         }
         if (is_rescaled) {
             ScaleUp(true);
@@ -3478,13 +3180,7 @@ void TextureCacheRuntime::AccelerateImageUpload(
 
     if (!Settings::values.gpu_unswizzle_enabled.GetValue() || !bl3d_unswizzle_pass) {
         if (IsPixelFormatBCn(image.info.format) && image.info.type == ImageType::e3D) {
-#ifdef PS5_NATIVE
-            // Never silently acknowledge a BCn-3D upload with no compute
-            // pass. TickAsyncUnswizzle catches this and retries fresh pixels.
-            throw std::runtime_error("BCn 3D Vulkan unswizzle pass unavailable");
-#else
             ASSERT(false && "GPU unswizzle is disabled for BCn 3D texture");
-#endif
         }
         ASSERT(false);
         return;

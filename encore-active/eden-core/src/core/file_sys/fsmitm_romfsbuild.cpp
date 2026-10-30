@@ -197,7 +197,19 @@ RomFSBuildContext::RomFSBuildContext(VirtualDir base_, VirtualDir ext_)
     VisitDirectory(base, ext, root);
 }
 
-RomFSBuildContext::~RomFSBuildContext() = default;
+RomFSBuildContext::~RomFSBuildContext() {
+    // Vectors own every context. A recursively-released sibling chain may
+    // contain tens of thousands of nodes; break links while owners remain
+    // alive rather than exhausting the PS5 filesystem service's small stack.
+    for (auto& file : files) {
+        file->sibling.reset();
+    }
+    for (auto& dir : directories) {
+        dir->child.reset();
+        dir->sibling.reset();
+        dir->file.reset();
+    }
+}
 
 std::vector<std::pair<u64, VirtualFile>> RomFSBuildContext::Build() {
     const u64 dir_hash_table_entry_count = romfs_get_hash_table_count(num_dirs);

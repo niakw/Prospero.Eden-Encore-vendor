@@ -1,15 +1,5 @@
 #include <cstdio>
 #include <new>
-#if defined(EDEN_JIT_A32_DEV_PROFILE)
-#include <chrono>
-extern "C" bool eden_native_detailed_logging() noexcept __attribute__((weak));
-extern "C" void eden_jit_compile(unsigned core, unsigned long long ns) __attribute__((weak));
-extern "C" void eden_jit_phases(unsigned core, unsigned long long translate,
-                                unsigned long long optimize, unsigned long long emit,
-                                unsigned long long location) __attribute__((weak));
-extern "C" void eden_jit_cache_event(unsigned core, unsigned kind) __attribute__((weak));
-#endif
-extern "C" void eden_jit_evacuation(unsigned core) __attribute__((weak));
 extern "C" void eden_jit_block(unsigned core, unsigned long long location, const void* entry, unsigned long long size) __attribute__((weak));
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -216,32 +206,11 @@ private:
     A32EmitX64::BlockDescriptor GetBasicBlock(IR::LocationDescriptor descriptor) {
         if (auto block = emitter.GetBasicBlock(descriptor))
             return *block;
-#if defined(EDEN_JIT_A32_DEV_PROFILE)
-        // A32 cold misses must contribute to the same four-core witness as
-        // A64. Neither a cache hit nor quiet/release mode reads a clock.
-        struct EdenCompileTimer {
-            unsigned core;
-            bool active;
-            std::chrono::steady_clock::time_point start{};
-            explicit EdenCompileTimer(unsigned c) : core(c),
-                active(eden_native_detailed_logging && eden_native_detailed_logging()) {
-                if (active) start = std::chrono::steady_clock::now();
-            }
-            ~EdenCompileTimer() {
-                if (active && eden_jit_compile)
-                    eden_jit_compile(core, static_cast<unsigned long long>(
-                        std::chrono::duration_cast<std::chrono::nanoseconds>(
-                            std::chrono::steady_clock::now() - start).count()));
-            }
-        } eden_compile_timer{unsigned(conf.processor_id)};
-#endif
 
         constexpr size_t MINIMUM_REMAINING_CODESIZE = 1 * 1024 * 1024;
         if (block_of_code.SpaceRemaining() < MINIMUM_REMAINING_CODESIZE) {
             static thread_local unsigned pressure_count;
             if (++pressure_count <= 3) std::printf("EDEN_JIT_PRESSURE bits=32 core=%u capacity=%u remaining=%zu\n", unsigned(conf.processor_id), unsigned(conf.code_cache_size), block_of_code.SpaceRemaining());
-            // Match the A64 code-pressure event (not per-block clock work).
-            if (eden_jit_evacuation) eden_jit_evacuation(unsigned(conf.processor_id));
             // Publish the full-clear request under invalidation_mutex;
             // concurrent range invalidations must not race with cache pressure.
             ClearCache();
@@ -260,36 +229,9 @@ private:
         // LocationDescriptor ctor() does important ops (like tflags) do not skip
         auto const arch_descriptor = A32::LocationDescriptor{descriptor};
         ir_block.Reset(arch_descriptor);
-#if defined(EDEN_JIT_A32_DEV_PROFILE)
-        const bool eden_phase_timing = eden_compile_timer.active && eden_jit_phases;
-        const auto eden_phase_begin = eden_phase_timing ? std::chrono::steady_clock::now() :
-            std::chrono::steady_clock::time_point{};
-#endif
         A32::Translate(ir_block, arch_descriptor, conf.callbacks, {conf.arch_version, conf.define_unpredictable_behaviour, conf.hook_hint_instructions});
-#if defined(EDEN_JIT_A32_DEV_PROFILE)
-        const auto eden_phase_translated = eden_phase_timing ? std::chrono::steady_clock::now() :
-            std::chrono::steady_clock::time_point{};
-#endif
         Optimization::Optimize(ir_block, conf, polyfill_options);
-#if defined(EDEN_JIT_A32_DEV_PROFILE)
-        const auto eden_phase_optimized = eden_phase_timing ? std::chrono::steady_clock::now() :
-            std::chrono::steady_clock::time_point{};
-#endif
         const auto emitted = emitter.Emit(ir_block);
-#if defined(EDEN_JIT_A32_DEV_PROFILE)
-        if (eden_phase_timing) {
-            const auto eden_phase_emitted = std::chrono::steady_clock::now();
-            const auto eden_ns = [](auto a, auto b) {
-                return static_cast<unsigned long long>(
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count());
-            };
-            eden_jit_phases(unsigned(conf.processor_id),
-                            eden_ns(eden_phase_begin, eden_phase_translated),
-                            eden_ns(eden_phase_translated, eden_phase_optimized),
-                            eden_ns(eden_phase_optimized, eden_phase_emitted),
-                            descriptor.Value());
-        }
-#endif
         if (eden_jit_block)
             eden_jit_block(unsigned(conf.processor_id), descriptor.Value(), reinterpret_cast<const void*>(emitted.entrypoint), emitted.size);
         return emitted;
@@ -322,14 +264,6 @@ private:
             } else {
                 emitter.InvalidateCacheRanges(ranges);
             }
-#if defined(EDEN_JIT_A32_DEV_PROFILE)
-            // This clear/range belongs to the snapshot actually consumed.
-            if (eden_native_detailed_logging && eden_native_detailed_logging() &&
-                eden_jit_cache_event) {
-                eden_jit_cache_event(unsigned(conf.processor_id),
-                                     clear_all ? 0u : 1u);
-            }
-#endif
         }
     }
 

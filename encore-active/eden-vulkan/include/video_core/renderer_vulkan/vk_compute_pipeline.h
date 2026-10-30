@@ -9,7 +9,6 @@
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
-#include <vector>
 
 #include "common/common_types.h"
 #include "common/thread_worker.h"
@@ -57,8 +56,6 @@ public:
 #ifdef PS5_NATIVE
     // Called on the GPU owner before the paired buffer/texture cache locks.
     void PreflightDescriptorScratch();
-    // Set before publication from PipelineCache; read by the FIFO GPU callback.
-    void SetDiagnosticCacheKeyHash(u64 hash) noexcept { diagnostic_cache_key_hash = hash; }
     [[nodiscard]] bool HasDescriptorEntries() const noexcept {
         return num_descriptor_entries != 0;
     }
@@ -69,14 +66,8 @@ public:
         return num_descriptor_entries != 0 ? num_descriptor_entries : 0x400;
     }
     [[nodiscard]] VkDeviceSize DescriptorRingPreflightSize() const noexcept {
-        // Only pre-drain guaranteed allocations; same-size changed data
-        // retains Allocate's normal fallback inside Configure.
-        return uses_descriptor_buffer &&
-                       (!last_descriptor_buffer_valid ||
-                        last_descriptor_buffer_generation !=
-                            descriptor_buffer_ring.CurrentGeneration() ||
-                        last_descriptor_payload.size() != num_descriptor_entries)
-                   ? descriptor_buffer_layout.size : 0;
+        // Unlike graphics, every descriptor-buffer compute dispatch allocates.
+        return uses_descriptor_buffer ? descriptor_buffer_layout.size : 0;
     }
 #endif
     bool IsBound() const noexcept {
@@ -90,17 +81,8 @@ private:
     DescriptorBufferRing& descriptor_buffer_ring;
     Shader::Info info;
     u64 shader_hash{};
-#ifdef PS5_NATIVE
-    u64 diagnostic_cache_key_hash{};
-#endif
     u32 num_descriptor_entries{};
 #ifdef PS5_NATIVE
-    // The last uploaded snapshot is valid only in its own ring generation.
-    std::vector<DescriptorUpdateEntry> last_descriptor_payload;
-    VkDeviceSize last_descriptor_buffer_offset{};
-    u32 last_descriptor_buffer_chunk{};
-    u64 last_descriptor_buffer_generation{};
-    bool last_descriptor_buffer_valid{};
     size_t num_image_elements{};
     size_t num_textures{};
 #endif
@@ -120,10 +102,6 @@ private:
     ::Eden::StripedCondition build_condvar;
     ::Eden::StripedMutex build_mutex;
     std::atomic_bool is_built{false};
-#ifdef PS5_NATIVE
-    // The first queued wait covers all following compute dispatches.
-    bool first_use_wait_recorded{};
-#endif
 };
 
 } // namespace Vulkan

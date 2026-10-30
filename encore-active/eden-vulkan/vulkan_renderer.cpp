@@ -209,7 +209,8 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
     }
 
     RenderScreenshot(framebuffers);
-    // Count a source callback separately from submitted or displayed frames.
+    // An observed source/composite callback is not an emulated guest FPS
+    // measurement. Loading/splash work is accounted separately below.
     ::Eden::FrameMetrics::OnSourceComposite();
     if (::Eden::Display::SkipFrame()) {
         ::Eden::FrameMetrics::OnSourceSkipped();

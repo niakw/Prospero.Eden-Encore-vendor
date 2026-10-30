@@ -7,7 +7,6 @@
 
 #include <array>
 #include <memory>
-#include <new>
 #include <numeric>
 #include <optional>
 #include <utility>
@@ -708,44 +707,10 @@ void BlockLinearUnswizzle3DPass::Unswizzle(
 {
     using namespace VideoCommon::Accelerated;
 
-#ifdef PS5_NATIVE
-    // Reject malformed batches before allocating the BCn compute output or
-    // touching the descriptor ring. Preserve guest dirty state for retry.
-    if (swizzles.size() != 1 || swizzled.buffer == VK_NULL_HANDLE ||
-        z_count == 0 || z_start >= image.info.size.depth ||
-        z_count > image.info.size.depth - z_start) {
-        throw std::bad_alloc{};
-    }
-    const auto& input = swizzles[0];
-    // The descriptor below subtracts this offset from guest_size_bytes and
-    // adds it to the Vulkan buffer offset. Both operations must be valid.
-    // Do not compare against mapped_span: guest block-linear and linear
-    // staging byte counts can intentionally differ.
-    if (input.buffer_offset >= image.guest_size_bytes ||
-        input.buffer_offset > (~VkDeviceSize{0} - swizzled.offset)) {
-        throw std::bad_alloc{};
-    }
-#endif
-
     const u32 MAX_BATCH_SLICES = (std::min)(z_count, image.info.size.depth);
 
-#ifdef PS5_NATIVE
-    // A null destination must not allocate an otherwise wasted device-local
-    // decompression buffer. Reject before ANY Vulkan output allocation.
-    if (image.Handle() == VK_NULL_HANDLE) {
-        throw std::bad_alloc{};
-    }
-#endif
     // Allocate or grow to cover this batch's slice count
     image.AllocateComputeUnswizzleBuffer(MAX_BATCH_SLICES);
-#ifdef PS5_NATIVE
-    // Allocation can still return a null output handle. Reject before
-    // queueing a no-op GPU callback, retaining dirty guest pixels for retry.
-    if (!image.compute_unswizzle_buffer ||
-        *image.compute_unswizzle_buffer == VK_NULL_HANDLE) {
-        throw std::bad_alloc{};
-    }
-#endif
 
     ASSERT(swizzles.size() == 1);
     const auto& sw = swizzles[0];
@@ -794,14 +759,7 @@ void BlockLinearUnswizzle3DPass::UnswizzleChunk(
     pc.blocks_dim[1] = blocks_y;
     pc.blocks_dim[2] = z_count; // Only process the count
 
-#ifdef PS5_NATIVE
-    // The BCn 3D pass has exactly two storage-buffer bindings. Reserving
-    // three entries can force an unnecessary queue drain when the cursor
-    // is near its frame limit, under texture-cache synchronization.
-    compute_pass_descriptor_queue.Acquire(scheduler, 2);
-#else
     compute_pass_descriptor_queue.Acquire(scheduler, 3);
-#endif
     compute_pass_descriptor_queue.AddBuffer(swizzled.buffer,
                                            sw.buffer_offset + swizzled.offset,
                                            image.guest_size_bytes - sw.buffer_offset);
@@ -809,9 +767,7 @@ void BlockLinearUnswizzle3DPass::UnswizzleChunk(
                                            image.compute_unswizzle_buffer_size);
 
     const void* descriptor_data = compute_pass_descriptor_queue.UpdateData();
-#ifndef PS5_NATIVE
     const VkDescriptorSet set = descriptor_allocator.Commit();
-#endif
 
     const u32 gx = Common::DivCeil(blocks_x, 8u);
     const u32 gy = Common::DivCeil(blocks_y, 8u);
@@ -830,11 +786,7 @@ void BlockLinearUnswizzle3DPass::UnswizzleChunk(
     const u32 image_width = image.info.size.width;
     const u32 image_height = image.info.size.height;
 
-#ifdef PS5_NATIVE
-    scheduler.Record([this, descriptor_data, pc, gx, gy, gz, z_start, z_count,
-#else
     scheduler.Record([this, set, descriptor_data, pc, gx, gy, gz, z_start, z_count,
-#endif
                       barrier_size, is_first_chunk, out_buffer, dst_image, aspect,
                       image_width, image_height
                       ](vk::CommandBuffer cmdbuf) {
@@ -843,11 +795,6 @@ void BlockLinearUnswizzle3DPass::UnswizzleChunk(
             return;
         }
 
-#ifdef PS5_NATIVE
-        // Mirror the other compute passes: allocate the Vulkan descriptor set
-        // on the FIFO worker, outside the caller's texture-cache lock.
-        const VkDescriptorSet set = descriptor_allocator.Commit();
-#endif
         device.GetLogical().UpdateDescriptorSet(set, *descriptor_template, descriptor_data);
         cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline);
         cmdbuf.BindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, *layout, 0, set, {});
@@ -867,28 +814,15 @@ void BlockLinearUnswizzle3DPass::UnswizzleChunk(
             .size = barrier_size,
         };
 
-        // Image layout transition. Each previous BCn 3D batch ended in
-        // GENERAL, not TRANSFER_DST_OPTIMAL. On PS5 a later Z batch must
-        // transition from its actual layout and synchronize any intervening
-        // shader reads/writes before the next transfer.
+        // Image layout transition
         const VkImageMemoryBarrier pre_barrier{
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
             .pNext = nullptr,
-#ifdef PS5_NATIVE
-            .srcAccessMask = is_first_chunk ? VkAccessFlags{} :
-                            static_cast<VkAccessFlags>(VK_ACCESS_MEMORY_READ_BIT |
-                                                       VK_ACCESS_MEMORY_WRITE_BIT),
-#else
             .srcAccessMask = is_first_chunk ? VkAccessFlags{} :
                             static_cast<VkAccessFlags>(VK_ACCESS_TRANSFER_WRITE_BIT),
-#endif
             .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-#ifdef PS5_NATIVE
-            .oldLayout = is_first_chunk ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
-#else
             .oldLayout = is_first_chunk ? VK_IMAGE_LAYOUT_UNDEFINED :
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-#endif
             .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
@@ -896,17 +830,9 @@ void BlockLinearUnswizzle3DPass::UnswizzleChunk(
             .subresourceRange = {aspect, 0, 1, 0, 1},
         };
 
-        // Single barrier handles both buffer and image.
-        // A new image starts UNDEFINED: its compute output is the only
-        // dependency. A reused Z batch may have been sampled by graphics,
-        // and still needs the full GENERAL read/write synchronization.
+        // Single barrier handles both buffer and image
         cmdbuf.PipelineBarrier(
-#ifdef PS5_NATIVE
-            is_first_chunk ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT :
-                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-#else
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-#endif
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             0,
             nullptr, buffer_barrier, pre_barrier

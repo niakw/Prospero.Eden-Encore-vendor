@@ -98,15 +98,7 @@ bool DescriptorBufferRing::PreflightFrameReuse(Scheduler& scheduler) {
     // would wait for; preserve fallback in case no preflight ran.
     if (!frame_reused || chunks.empty())
         return false;
-    // Only an unsignalled frame slot requires an expensive fence wait.
-    // Returning false for already-retired slots avoids forcing a shader
-    // reselection and guest invalidation flush on the first draw each frame.
-    const u64 old_tick = frame_ticks[frame_index];
-    if (old_tick == 0 || scheduler.IsFree(old_tick)) {
-        frame_reused = false;
-        return false;
-    }
-    scheduler.Wait(old_tick);
+    scheduler.Wait(frame_ticks[frame_index]);
     frame_reused = false;
     return true;
 }

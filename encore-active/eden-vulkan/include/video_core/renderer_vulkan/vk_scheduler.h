@@ -10,7 +10,6 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
-#include <new>
 #include <thread>
 #include <utility>
 #include <queue>
@@ -79,7 +78,7 @@ public:
     }
 
     /// Update the pipeline to the current execution context.
-    bool UpdateGraphicsPipeline(GraphicsPipeline* pipeline, bool optimized = false);
+    bool UpdateGraphicsPipeline(GraphicsPipeline* pipeline);
 
     /// Update the rescaling state. Returns true if the state has to be updated.
     bool UpdateRescaling(bool is_rescaling);
@@ -119,33 +118,11 @@ public:
     template <typename T>
         requires std::is_invocable_v<T, vk::CommandBuffer, vk::CommandBuffer>
     void RecordWithUploadBuffer(T&& command) {
-#ifdef PS5_NATIVE
-        // ConfigureDraw/Configure can memoize pipeline, rescaling and
-        // descriptor bindings before enqueueing. If a chunk record or
-        // rollover throws, those bindings were never accepted by the FIFO.
-        // Invalidate ONLY the owner's cached command state; the current
-        // renderpass and already-queued commands are left intact.
-        try {
-#endif
         if (chunk->Record(command)) {
             return;
         }
         DispatchWork();
-#ifdef PS5_NATIVE
-        // Even after rollover the new chunk can refuse the command.
-        // Never treat a missing draw/descriptor upload as successfully queued.
-        if (!chunk->Record(command)) {
-            throw std::bad_alloc{};
-        }
-#else
         (void)chunk->Record(command);
-#endif
-#ifdef PS5_NATIVE
-        } catch (...) {
-            InvalidateState();
-            throw;
-        }
-#endif
     }
 
     template <typename T>
@@ -305,9 +282,6 @@ private:
         VkFramebuffer framebuffer{};
         VkExtent2D render_area = {0, 0};
         GraphicsPipeline* graphics_pipeline = nullptr;
-        // GPU owner only: the optimized variant can become ready without
-        // changing the logical pipeline pointer.
-        bool graphics_pipeline_optimized = false;
         bool is_rescaling = false;
         bool rescaling_defined = false;
         bool needs_state_enable_refresh = false;

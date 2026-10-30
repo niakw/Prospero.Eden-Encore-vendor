@@ -5,7 +5,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
-#include <chrono>
 #include <cstdio>
 #include "pipeline_trace_registry.h"
 #include "performance.h"
@@ -16,7 +15,6 @@
 #include <iostream>
 #include <memory>
 #include <span>
-#include <stop_token>
 #include <thread>
 #ifdef PS5_NATIVE
 #include <pthread.h>
@@ -72,93 +70,8 @@
 #endif
 
 namespace Vulkan {
-#ifdef PS5_NATIVE
-// The compute pipeline builder exposes this Vulkan-namespace atomic counter.
-extern std::atomic<unsigned> pending_first_use_compute_builds;
-extern std::atomic<unsigned> pending_first_use_graphics_builds;
-#endif
 
 namespace {
-#ifdef PS5_NATIVE
-// Detailed-only, per-cache-key CPU translation/admission cost. This NEVER
-// waits for the Vulkan driver worker and does not run on cache-hit draws.
-// The timer ends before emitting its diagnostic, avoiding log-I/O inflation.
-struct ColdShaderMissTrace {
-    const char* kind;
-    u64 key_hash;
-    bool retry;
-    bool enabled;
-    ::Eden::Performance::ShaderMissStageCosts stages{};
-    ::Eden::Performance::ShaderMissStageCosts* previous{};
-    std::chrono::steady_clock::time_point started{};
-
-    ColdShaderMissTrace(const char* kind_, u64 key_hash_, bool retry_)
-        : kind(kind_), key_hash(key_hash_), retry(retry_),
-          enabled(::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)),
-          previous(enabled ? ::Eden::Performance::shader_miss_stage_active : nullptr),
-          started(enabled ? std::chrono::steady_clock::now()
-                          : std::chrono::steady_clock::time_point{}) {
-        if (enabled) ::Eden::Performance::shader_miss_stage_active = &stages;
-    }
-    ColdShaderMissTrace(const ColdShaderMissTrace&) = delete;
-    ColdShaderMissTrace& operator=(const ColdShaderMissTrace&) = delete;
-    ~ColdShaderMissTrace() {
-        if (enabled && ::Eden::Performance::shader_miss_stage_active == &stages)
-            ::Eden::Performance::shader_miss_stage_active = previous;
-    }
-    void Complete(bool success) {
-        if (!enabled) return;
-        // Stop attributing before print I/O or subsequent cache work.
-        if (::Eden::Performance::shader_miss_stage_active == &stages)
-            ::Eden::Performance::shader_miss_stage_active = previous;
-        const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - started).count();
-        std::printf("EDEN_VULKAN_SHADER_MISS kind=%s key=%016llx retry=%u "
-                    "success=%u cpu_ns=%llu env_ns=%llu pool_ns=%llu "
-                    "cfg_ns=%llu ir_ns=%llu spirv_ns=%llu module_ns=%llu\n", kind,
-                    static_cast<unsigned long long>(key_hash), unsigned(retry),
-                    unsigned(success), static_cast<unsigned long long>(ns),
-                    stages.env_ns, stages.pool_ns, stages.cfg_ns, stages.ir_ns,
-                    stages.spirv_ns, stages.module_ns);
-    }
-};
-#endif
-#ifdef PS5_NATIVE
-// Keep the OPTIONAL graphics optimizer away from foreground compute
-// CFG/IR/SPIR-V translation, before the Vulkan driver worker is enqueued.
-// Only runtime first-use translation participates; preloaded cache jobs do not.
-struct ComputeTranslationPriorityScope {
-    explicit ComputeTranslationPriorityScope(bool foreground_) : foreground{foreground_} {
-        if (foreground) {
-            pending_first_use_compute_builds.fetch_add(1, std::memory_order_release);
-        }
-    }
-    ~ComputeTranslationPriorityScope() {
-        if (foreground) {
-            pending_first_use_compute_builds.fetch_sub(1, std::memory_order_release);
-        }
-    }
-    bool foreground;
-};
-// This foreground reservation is published BEFORE the renderer translates
-// cold graphics CFG/IR/SPIR-V and constructs shader modules. The normal
-// graphics builder owns a second reservation from QueueWork to completion.
-struct GraphicsTranslationPriorityScope {
-    explicit GraphicsTranslationPriorityScope(bool foreground_) : foreground{foreground_} {
-        if (foreground) {
-            pending_first_use_graphics_builds.fetch_add(1, std::memory_order_release);
-        }
-    }
-    ~GraphicsTranslationPriorityScope() {
-        if (foreground) {
-            pending_first_use_graphics_builds.fetch_sub(1, std::memory_order_release);
-        }
-    }
-    GraphicsTranslationPriorityScope(const GraphicsTranslationPriorityScope&) = delete;
-    GraphicsTranslationPriorityScope& operator=(const GraphicsTranslationPriorityScope&) = delete;
-    bool foreground;
-};
-#endif
 using Shader::Backend::SPIRV::EmitSPIRV;
 using Shader::Maxwell::ConvertLegacyToGeneric;
 using Shader::Maxwell::GenerateGeometryPassthrough;
@@ -716,13 +629,6 @@ void EdenResetStaticVertexInputBinding() noexcept;
 
 PipelineCache::~PipelineCache() {
     EdenResetStaticVertexInputBinding();
-#ifdef PS5_NATIVE
-    // First-use shader environments are serialized on this worker. Let all
-    // accepted writes finish before destroying the worker and VkPipelineCache,
-    // or a later launch re-translates shaders that were never persisted.
-    // This is a shutdown-only drain, never a wait in the draw hot path.
-    serialization_thread.WaitForRequests();
-#endif
     if (use_vulkan_pipeline_cache && !vulkan_pipeline_cache_filename.empty()) {
         SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
                                      CACHE_VERSION);
@@ -848,61 +754,8 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() {
     const auto [pair, is_new]{compute_cache.try_emplace(key)};
     auto& pipeline{pair->second};
     if (is_new) {
-#ifdef PS5_NATIVE
-        // P0.1: time every cold compute CPU translation and driver enqueue.
-        // The asynchronous Vulkan pipeline wait is reported separately.
-        ::Eden::Performance::CachePhaseTimer first_use_compute_cost{
-            ::Eden::Performance::CachePhase::ComputePipelineCreate,
-            ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)};
-#endif
-#ifdef PS5_NATIVE
-        ColdShaderMissTrace cold_miss{"compute", key.Hash(), false};
-#endif
         pipeline = CreateComputePipeline(key, shader);
-#ifdef PS5_NATIVE
-        first_use_compute_cost.Stop();
-        cold_miss.Complete(static_cast<bool>(pipeline));
-        if (!pipeline) {
-            // Bound recovery metadata without starving the latest failed
-            // compute shaders after 32 earlier failed keys. This scan runs
-            // ONLY on a new null pipeline, not per compute dispatch.
-            if (failed_compute_retries.size() >= 32) {
-                const auto oldest = std::min_element(
-                    failed_compute_retries.begin(), failed_compute_retries.end(),
-                    [](const auto& left, const auto& right) {
-                        return left.second.eligible_at < right.second.eligible_at;
-                    });
-                if (oldest != failed_compute_retries.end()) {
-                    failed_compute_retries.erase(oldest);
-                }
-            }
-            failed_compute_retries.try_emplace(
-                key, ComputeRetryState{
-                    std::chrono::steady_clock::now() + std::chrono::seconds(2), false});
-        }
-#endif
     }
-#ifdef PS5_NATIVE
-    else if (!pipeline) {
-        const auto failed = failed_compute_retries.find(key);
-        if (failed != failed_compute_retries.end() && !failed->second.attempted &&
-            std::chrono::steady_clock::now() >= failed->second.eligible_at) {
-            // Mark before translation: persistent failure must never spin
-            // within repeated compute dispatches.
-            failed->second.attempted = true;
-            ::Eden::Performance::CachePhaseTimer retry_compute_cost{
-                ::Eden::Performance::CachePhase::ComputePipelineCreate,
-                ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)};
-            ColdShaderMissTrace cold_retry{"compute", key.Hash(), true};
-            pipeline = CreateComputePipeline(key, shader);
-            retry_compute_cost.Stop();
-            cold_retry.Complete(static_cast<bool>(pipeline));
-            // A consumed retry cannot repeat: the null compute_cache entry
-            // is no longer marked retryable. Recycle its 32-key budget slot.
-            failed_compute_retries.erase(failed);
-        }
-    }
-#endif
     if (::Eden::DevVulkan::trace_pipelines && pipeline) {
         const auto first_use = ::Eden::PipelineTrace::compute_first_use.Record(
             ::Eden::DevVulkan::gpu_time_session.load(std::memory_order_acquire), pipeline.get());
@@ -957,19 +810,10 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     }
 #endif
 
-#ifdef PS5_NATIVE
-    // Eight entries at most: restore some persisted pipelines without
-    // rebuilding an unbounded title cache at launch. This token controls only
-    // the disk READER; the persistent Vulkan compiler workers stay alive.
-    constexpr size_t kStartupPrewarmPipelines = 8;
-    const auto startup_prewarm_started = std::chrono::steady_clock::now();
-    std::stop_source startup_reader;
-#endif
     struct {
         std::mutex mutex;
         size_t total{};
         size_t built{};
-        size_t valid{};
         bool has_loaded{};
         std::unique_ptr<PipelineStatistics> statistics;
     } state;
@@ -985,26 +829,15 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             ShaderPools pools;
             auto pipeline{CreateComputePipeline(pools, key, env_, state.statistics.get(), false)};
             std::scoped_lock lock{state.mutex};
-            // Do not seed a failed Vulkan compute pipeline for future dispatches.
-            if (pipeline && pipeline->IsBound()) {
+            if (pipeline) {
                 compute_cache.emplace(key, std::move(pipeline));
-                ++state.valid;
             }
             ++state.built;
             if (state.has_loaded) {
                 callback(VideoCore::LoadCallbackStage::Build, state.built, state.total);
             }
         });
-        // Workers read total while holding state.mutex. Publish reader
-        // increments under the same lock to avoid a cache-prewarm data race.
-        {
-            std::scoped_lock count_lock{state.mutex};
-            ++state.total;
-        }
-#ifdef PS5_NATIVE
-        if (state.total == kStartupPrewarmPipelines)
-            startup_reader.request_stop();
-#endif
+        ++state.total;
     }};
     const auto load_graphics{[&](std::ifstream& file, std::vector<FileEnvironment> envs) {
         GraphicsPipelineCacheKey key;
@@ -1051,66 +884,18 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                                                  state.statistics.get(), false)};
 
             std::scoped_lock lock{state.mutex};
-            // Leave a failed Vulkan build absent from the prewarm map,
-            // so the normal first-use path may try the key again.
-#ifdef PS5_NATIVE
-            if (pipeline && pipeline->CanExecuteDraw()) {
-#else
             if (pipeline) {
-#endif
                 graphics_cache.emplace(key, std::move(pipeline));
-                ++state.valid;
             }
             ++state.built;
             if (state.has_loaded) {
                 callback(VideoCore::LoadCallbackStage::Build, state.built, state.total);
             }
         });
-        // Workers read total while holding state.mutex. Publish reader
-        // increments under the same lock to avoid a cache-prewarm data race.
-        {
-            std::scoped_lock count_lock{state.mutex};
-            ++state.total;
-        }
-#ifdef PS5_NATIVE
-        if (state.total == kStartupPrewarmPipelines)
-            startup_reader.request_stop();
-#endif
+        ++state.total;
     }};
-    // Only the reader observes the quota stop. Passing this token to
-    // workers.WaitForRequests() would permanently request_stop() on the
-    // shader-builder pool, breaking first-use shaders later in gameplay.
-#ifdef PS5_NATIVE
-    const std::stop_token reader_token{startup_reader.get_token()};
-#else
-    const std::stop_token reader_token{stop_loading};
-#endif
-#ifdef PS5_NATIVE
-    // The progress callback below also runs before the normal drain and can
-    // throw. Keep locally borrowed prewarm state alive on EVERY exceptional
-    // exit, not only failures of the disk reader. No extra wait on success.
-    struct PrewarmDrain {
-        Common::ThreadWorker& compiler;
-        bool joined{};
-        ~PrewarmDrain() {
-            if (!joined) compiler.WaitForRequests();
-        }
-    } prewarm_drain{workers};
-#endif
-#ifdef PS5_NATIVE
-    // A damaged disk cache or an enqueue failure can interrupt the reader
-    // after jobs borrowed local state. Always reach the non-cancelling drain.
-    try {
-#endif
-        VideoCommon::LoadPipelines(reader_token, pipeline_cache_filename, CACHE_VERSION, load_compute,
-                                   load_graphics);
-#ifdef PS5_NATIVE
-    } catch (const std::exception& error) {
-        LOG_WARNING(Render_Vulkan, "PS5 shader prewarm aborted: {}", error.what());
-    } catch (...) {
-        LOG_WARNING(Render_Vulkan, "PS5 shader prewarm aborted: unknown exception");
-    }
-#endif
+    VideoCommon::LoadPipelines(stop_loading, pipeline_cache_filename, CACHE_VERSION, load_compute,
+                               load_graphics);
 
     LOG_INFO(Render_Vulkan, "Total Pipeline Count: {}", state.total);
 
@@ -1119,26 +904,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     state.has_loaded = true;
     lock.unlock();
 
-#ifdef PS5_NATIVE
-    // A cancelled title-cache load must never stop the persistent shader
-    // compiler pool: StatefulThreadWorker::WaitForRequests(stop_token)
-    // requests stop on every worker when that token is cancelled.
-    // Only the disk reader observes cancellation. The queued <=8 jobs
-    // must complete before their borrowed stack state can be destroyed.
-    workers.WaitForRequests();
-    prewarm_drain.joined = true;
-#else
     workers.WaitForRequests(stop_loading);
-#endif
-#ifdef PS5_NATIVE
-    // Completed attempts include failed native handles; track valid results.
-    // One startup summary, never a per-frame or per-draw instrumentation cost.
-    const auto startup_prewarm_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - startup_prewarm_started).count();
-    std::printf("EDEN_PS5_SHADER_PREWARM queued=%zu completed=%zu valid=%zu rejected=%zu prebuild_ms=%lld\n",
-                state.total, state.built, state.valid, state.built - state.valid,
-                static_cast<long long>(startup_prewarm_ms));
-#endif
 
     if (use_vulkan_pipeline_cache) {
         SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
@@ -1158,13 +924,6 @@ void PipelineCache::QueueVulkanPipelineCacheFlush() {
     if (!use_vulkan_pipeline_cache || vulkan_pipeline_cache_filename.empty()) {
         return;
     }
-#ifdef PS5_NATIVE
-    // Recover a failed background serialization without racing the owner's
-    // non-atomic quota. The existing time gate still bounds retry frequency.
-    if (flush_worker_failed.exchange(false, std::memory_order_acq_rel)) {
-        pipelines_since_flush = VULKAN_CACHE_FLUSH_PIPELINES;
-    }
-#endif
     if (++pipelines_since_flush < VULKAN_CACHE_FLUSH_PIPELINES) {
         return;
     }
@@ -1180,111 +939,22 @@ void PipelineCache::QueueVulkanPipelineCacheFlush() {
     }
     pipelines_since_flush = 0;
     last_flush = now;
-    // A transient driver-cache read or serializer exception must not pin
-    // flush_in_flight=true for the lifetime of the foreground title.
-    // Keep the existing periodic budget, filename and background worker.
-    try {
-        serialization_thread.QueueWork([this] {
-            struct ReleaseFlush {
-                std::atomic_bool& in_flight;
-                ~ReleaseFlush() { in_flight.store(false, std::memory_order_release); }
-            } release{flush_in_flight};
-            try {
-                SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
-                                             CACHE_VERSION);
-                size_t size = 0;
-                vulkan_pipeline_cache.Read(&size, nullptr);
-                last_cache_size.store(size, std::memory_order_relaxed);
-            } catch (const std::exception& error) {
-#ifdef PS5_NATIVE
-                // Signal a new checkpoint, but only the GPU owner may update
-                // the ordinary pipeline build quota on its next call.
-                flush_worker_failed.store(true, std::memory_order_release);
-#endif
-                LOG_WARNING(Render_Vulkan, "Deferred driver cache flush failed: {}", error.what());
-            } catch (...) {
-#ifdef PS5_NATIVE
-                flush_worker_failed.store(true, std::memory_order_release);
-#endif
-                LOG_WARNING(Render_Vulkan, "Deferred driver cache flush failed: unknown exception");
-            }
-        });
-    } catch (const std::exception& error) {
+    serialization_thread.QueueWork([this] {
+        SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
+                                     CACHE_VERSION);
+        size_t size = 0;
+        vulkan_pipeline_cache.Read(&size, nullptr);
+        last_cache_size.store(size, std::memory_order_relaxed);
         flush_in_flight.store(false, std::memory_order_release);
-        // Keep this checkpoint due for a later retry, without bypassing the
-        // existing time gate if the serializer is temporarily unavailable.
-        pipelines_since_flush = VULKAN_CACHE_FLUSH_PIPELINES;
-        LOG_WARNING(Render_Vulkan, "Deferred cache flush queue rejected: {}", error.what());
-    } catch (...) {
-        flush_in_flight.store(false, std::memory_order_release);
-        pipelines_since_flush = VULKAN_CACHE_FLUSH_PIPELINES;
-        LOG_WARNING(Render_Vulkan, "Deferred cache flush queue rejected: unknown exception");
-    }
+    });
 }
 
 GraphicsPipeline* PipelineCache::CurrentGraphicsPipelineSlowPath() {
     const auto [pair, is_new]{graphics_cache.try_emplace(graphics_key)};
     auto& pipeline{pair->second};
     if (is_new) {
-#ifdef PS5_NATIVE
-        // F07: first-use guest shader translation and SPIR-V generation are
-        // synchronous even when the Vulkan pipeline build is queued.
-        // Count EVERY cold miss with Detailed Logging, not one in 16 draws.
-        // Quiet releases take no clock readings on this path.
-        ::Eden::Performance::CachePhaseTimer first_use_cpu_phase{
-            ::Eden::Performance::CachePhase::GraphicsPipelineCreate,
-            ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)};
-#endif
-#ifdef PS5_NATIVE
-        ColdShaderMissTrace cold_miss{"graphics", graphics_key.Hash(), false};
-#endif
         pipeline = CreateGraphicsPipeline();
-#ifdef PS5_NATIVE
-        first_use_cpu_phase.Stop();
-        cold_miss.Complete(static_cast<bool>(pipeline));
-        if (!pipeline) {
-            // Failed-key retry metadata is capped, but a burst of >=64
-            // failures must not permanently deny NEW shaders their one
-            // delayed recovery attempt. Rotate only on failure, never on a
-            // successful draw or during the hot null-cache lookup.
-            if (failed_graphics_retries.size() >= 64) {
-                const auto oldest = std::min_element(
-                    failed_graphics_retries.begin(), failed_graphics_retries.end(),
-                    [](const auto& left, const auto& right) {
-                        return left.second.eligible_at < right.second.eligible_at;
-                    });
-                if (oldest != failed_graphics_retries.end()) {
-                    failed_graphics_retries.erase(oldest);
-                }
-            }
-            failed_graphics_retries.try_emplace(
-                graphics_key, GraphicsRetryState{
-                    std::chrono::steady_clock::now() + std::chrono::seconds(2), false});
-        }
-#endif
     }
-#ifdef PS5_NATIVE
-    else if (!pipeline) {
-        const auto failed = failed_graphics_retries.find(graphics_key);
-        if (failed != failed_graphics_retries.end() && !failed->second.attempted &&
-            std::chrono::steady_clock::now() >= failed->second.eligible_at) {
-            // Publish the attempted bit BEFORE the potentially expensive
-            // guest IR/SPIR-V translation. Repeated failed HUD draws stay O(1).
-            failed->second.attempted = true;
-            ::Eden::Performance::CachePhaseTimer retry_cpu_cost{
-                ::Eden::Performance::CachePhase::GraphicsPipelineCreate,
-                ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)};
-            ColdShaderMissTrace cold_retry{"graphics", graphics_key.Hash(), true};
-            pipeline = CreateGraphicsPipeline();
-            retry_cpu_cost.Stop();
-            cold_retry.Complete(static_cast<bool>(pipeline));
-            // The null graphics_cache entry itself guarantees at most one
-            // retry for this key. Retaining consumed retry metadata would
-            // exhaust the 64-key budget after unrelated transient failures.
-            failed_graphics_retries.erase(failed);
-        }
-    }
-#endif
     if (!pipeline) {
         return nullptr;
     }
@@ -1339,13 +1009,6 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     ShaderPools& pools, const GraphicsPipelineCacheKey& key,
     std::span<Shader::Environment* const> envs, PipelineStatistics* statistics,
     bool build_in_parallel) try {
-#ifdef PS5_NATIVE
-    // The optional optimizer must yield to foreground graphics translation
-    // even before the first-use Vulkan pipeline reaches the worker queue.
-    // Disk prewarm passes build_in_parallel=false and remains uncounted.
-    GraphicsTranslationPriorityScope translation_priority{
-        build_in_parallel && ::Eden::DevVulkan::fast_first_pipelines};
-#endif
     auto hash = key.Hash();
     LOG_DEBUG(Render_Vulkan, "{:#016x}", hash);
     size_t env_index{0};
@@ -1372,20 +1035,16 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
         ++env_index;
 
         const u32 cfg_offset{static_cast<u32>(env.StartAddress() + sizeof(Shader::ProgramHeader))};
-        ::Eden::Performance::CachePhaseTimer cfg_stage_cost{
-            ::Eden::Performance::CachePhase::ShaderCfg,
-            ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)};
         auto cfg_cost = Eden::Performance::VulkanTimer(20);
         Shader::Maxwell::Flow::CFG cfg(env, pools.flow_block, cfg_offset, index == 0);
         cfg_cost.reset();
-        cfg_stage_cost.Stop();
         if (!uses_vertex_a || index != 1) {
             // Normal path
-            programs[index] = ([&] { auto cost = Eden::Performance::VulkanTimer(21); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderIr, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return TranslateProgram(pools.inst, pools.block, env, cfg, host_info); }());
+            programs[index] = ([&] { auto cost = Eden::Performance::VulkanTimer(21); return TranslateProgram(pools.inst, pools.block, env, cfg, host_info); }());
         } else {
             // VertexB path when VertexA is present.
             auto& program_va{programs[0]};
-            auto program_vb{([&] { auto cost = Eden::Performance::VulkanTimer(21); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderIr, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return TranslateProgram(pools.inst, pools.block, env, cfg, host_info); }())};
+            auto program_vb{([&] { auto cost = Eden::Performance::VulkanTimer(21); return TranslateProgram(pools.inst, pools.block, env, cfg, host_info); }())};
             programs[index] = MergeDualVertexPrograms(program_va, program_vb, env);
         }
 
@@ -1420,9 +1079,9 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
 
         const auto runtime_info{MakeRuntimeInfo(programs, key, program, previous_stage, device)};
         ConvertLegacyToGeneric(program, runtime_info);
-        const std::vector<u32> code{([&] { auto cost = Eden::Performance::VulkanTimer(22); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderSpirv, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return EmitSPIRV(profile, runtime_info, program, binding); }())};
+        const std::vector<u32> code{([&] { auto cost = Eden::Performance::VulkanTimer(22); return EmitSPIRV(profile, runtime_info, program, binding); }())};
         device.SaveShader(code);
-        modules[stage_index] = ([&] { auto cost = Eden::Performance::VulkanTimer(23); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderModule, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return BuildShader(device, code); }());
+        modules[stage_index] = ([&] { auto cost = Eden::Performance::VulkanTimer(23); return BuildShader(device, code); }());
 
         // Text log + .spv dump. Text log is gated by gpu_log_level != Off; .spv dump
         // is independent and gated only by gpu_log_shader_dumps.
@@ -1455,13 +1114,6 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
         render_pass_cache, key, std::move(modules), infos);
 
 } catch (const Shader::Exception& exception) {
-#ifdef PS5_NATIVE
-    // Failed first-use shaders can be retried. Do not rebuild their CFGs or
-    // write .ash dumps on the normal quiet PS5 path: this is optional debug
-    // work on the same GPU-owner thread that already failed translation.
-    if (Settings::values.dump_guest_shaders) {
-        try {
-#endif
     auto hash = key.Hash();
     size_t env_index{0};
     for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
@@ -1472,60 +1124,26 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
         ++env_index;
 
         const u32 cfg_offset{static_cast<u32>(env.StartAddress() + sizeof(Shader::ProgramHeader))};
-        ::Eden::Performance::CachePhaseTimer cfg_stage_cost{
-            ::Eden::Performance::CachePhase::ShaderCfg,
-            ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)};
         auto cfg_cost = Eden::Performance::VulkanTimer(20);
         Shader::Maxwell::Flow::CFG cfg(env, pools.flow_block, cfg_offset, index == 0);
         cfg_cost.reset();
-        cfg_stage_cost.Stop();
         env.Dump(hash, key.unique_hashes[index]);
     }
-#ifdef PS5_NATIVE
-        } catch (const std::exception& dump_error) {
-            // Preserve the original shader failure even if the diagnostic
-            // CFG pass or the dump file itself fails.
-            LOG_WARNING(Render_Vulkan, "Failed shader diagnostic dump: {}", dump_error.what());
-        } catch (...) {
-            LOG_WARNING(Render_Vulkan, "Failed shader diagnostic dump: unknown exception");
-        }
-    }
-#endif
     LOG_ERROR(Render_Vulkan, "{}", exception.what());
     return nullptr;
 }
 
 std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
     auto timer = Eden::Performance::VulkanTimer(17);
-#ifdef PS5_NATIVE
-    // Reserve priority before guest shader environment reads and pool reset.
-    // The inner translation scope overlaps this reservation, so there is no
-    // idle gap for speculative Vulkan optimization before the first-use build.
-    GraphicsTranslationPriorityScope first_use_preparation_priority{
-        ::Eden::DevVulkan::fast_first_pipelines};
-#endif
     GraphicsEnvironments environments;
-    // Preparing guest shader environments is distinct from CFG/IR/SPIR-V
-    // translation. Keep GPU-thread ownership and source read order unchanged.
-    // Quiet release does not read a clock or update counters.
-    {
-        ::Eden::Performance::CachePhaseTimer environment_cost{
-            ::Eden::Performance::CachePhase::GraphicsShaderEnvironment,
-            ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)};
-        GetGraphicsEnvironments(environments, graphics_key.unique_hashes);
-    }
+    GetGraphicsEnvironments(environments, graphics_key.unique_hashes);
 
-    ([&] { auto cost = Eden::Performance::VulkanTimer(19); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderPoolReset, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return main_pools.ReleaseContents(); }());
+    ([&] { auto cost = Eden::Performance::VulkanTimer(19); return main_pools.ReleaseContents(); }());
     auto pipeline{
         CreateGraphicsPipeline(main_pools, graphics_key, environments.Span(), nullptr, true)};
     if (!pipeline || pipeline_cache_filename.empty()) {
         return pipeline;
     }
-#ifdef PS5_NATIVE
-    // Cache persistence is optional to running this shader. A rejected
-    // serializer job must not discard an otherwise usable Vulkan pipeline.
-    try {
-#endif
     serialization_thread.QueueWork([this, key = graphics_key, envs = std::move(environments.envs)] {
         boost::container::static_vector<const GenericEnvironment*, Maxwell::MaxShaderProgram>
             env_ptrs;
@@ -1536,13 +1154,6 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
         }
         SerializePipeline(key, env_ptrs, pipeline_cache_filename, CACHE_VERSION);
     });
-#ifdef PS5_NATIVE
-    } catch (const std::exception& error) {
-        LOG_WARNING(Render_Vulkan, "Graphics shader cache write not queued: {}", error.what());
-    } catch (...) {
-        LOG_WARNING(Render_Vulkan, "Graphics shader cache write not queued: unknown exception");
-    }
-#endif
     QueueVulkanPipelineCacheFlush();
     return pipeline;
 }
@@ -1550,37 +1161,20 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
 std::unique_ptr<ComputePipeline> PipelineCache::CreateComputePipeline(
     const ComputePipelineCacheKey& key, const ShaderInfo* shader) {
     auto timer = Eden::Performance::VulkanTimer(17);
-#ifdef PS5_NATIVE
-    // Count compute environment setup and shader pool reset as foreground
-    // work, not only the downstream CFG/IR/SPIR-V translation.
-    ComputeTranslationPriorityScope first_use_preparation_priority{true};
-#endif
     const GPUVAddr program_base{kepler_compute->regs.code_loc.Address()};
     const auto& qmd{kepler_compute->launch_description};
     ComputeEnvironment env{*kepler_compute, *gpu_memory, program_base, qmd.program_start};
     env.SetCachedSize(shader->size_bytes);
 
-    ([&] { auto cost = Eden::Performance::VulkanTimer(19); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderPoolReset, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return main_pools.ReleaseContents(); }());
+    ([&] { auto cost = Eden::Performance::VulkanTimer(19); return main_pools.ReleaseContents(); }());
     auto pipeline{CreateComputePipeline(main_pools, key, env, nullptr, true)};
     if (!pipeline || pipeline_cache_filename.empty()) {
         return pipeline;
     }
-#ifdef PS5_NATIVE
-    // Cache persistence is optional to running this shader. A rejected
-    // serializer job must not discard an otherwise usable Vulkan pipeline.
-    try {
-#endif
     serialization_thread.QueueWork([this, key, env_ = std::move(env)] {
         SerializePipeline(key, std::array<const GenericEnvironment*, 1>{&env_},
                           pipeline_cache_filename, CACHE_VERSION);
     });
-#ifdef PS5_NATIVE
-    } catch (const std::exception& error) {
-        LOG_WARNING(Render_Vulkan, "Compute shader cache write not queued: {}", error.what());
-    } catch (...) {
-        LOG_WARNING(Render_Vulkan, "Compute shader cache write not queued: unknown exception");
-    }
-#endif
     QueueVulkanPipelineCacheFlush();
     return pipeline;
 }
@@ -1588,12 +1182,6 @@ std::unique_ptr<ComputePipeline> PipelineCache::CreateComputePipeline(
 std::unique_ptr<ComputePipeline> PipelineCache::CreateComputePipeline(
     ShaderPools& pools, const ComputePipelineCacheKey& key, Shader::Environment& env,
     PipelineStatistics* statistics, bool build_in_parallel) try {
-#ifdef PS5_NATIVE
-    // Count cold shader translation as foreground work. The pipeline
-    // constructor separately counts the queued driver build; both stages
-    // now prevent speculative graphics optimization from competing.
-    ComputeTranslationPriorityScope translation_priority{build_in_parallel};
-#endif
     auto hash = key.Hash();
     if (device.HasBrokenCompute()) {
         LOG_ERROR(Render_Vulkan, "Skipping {:#016x}", hash);
@@ -1602,20 +1190,16 @@ std::unique_ptr<ComputePipeline> PipelineCache::CreateComputePipeline(
 
     LOG_DEBUG(Render_Vulkan, "{:#016x}", hash);
 
-    ::Eden::Performance::CachePhaseTimer cfg_stage_cost{
-        ::Eden::Performance::CachePhase::ShaderCfg,
-        ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)};
     auto cfg_cost = Eden::Performance::VulkanTimer(20);
         Shader::Maxwell::Flow::CFG cfg{env, pools.flow_block, env.StartAddress()};
         cfg_cost.reset();
-        cfg_stage_cost.Stop();
 
     // Dump it before error.
     if (Settings::values.dump_guest_shaders) {
         env.Dump(hash, key.unique_hash);
     }
 
-    auto program{([&] { auto cost = Eden::Performance::VulkanTimer(21); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderIr, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return TranslateProgram(pools.inst, pools.block, env, cfg, host_info); }())};
+    auto program{([&] { auto cost = Eden::Performance::VulkanTimer(21); return TranslateProgram(pools.inst, pools.block, env, cfg, host_info); }())};
     const VkDriverIdKHR driver_id = device.GetDriverID();
     const bool needs_shared_mem_clamp =
         driver_id == VK_DRIVER_ID_QUALCOMM_PROPRIETARY ||
@@ -1629,9 +1213,9 @@ std::unique_ptr<ComputePipeline> PipelineCache::CreateComputePipeline(
                     max_shared_memory / 1024);
         program.shared_memory_size = max_shared_memory;
     }
-    const std::vector<u32> code{([&] { auto cost = Eden::Performance::VulkanTimer(22); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderSpirv, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return EmitSPIRV(profile, program); }())};
+    const std::vector<u32> code{([&] { auto cost = Eden::Performance::VulkanTimer(22); return EmitSPIRV(profile, program); }())};
     device.SaveShader(code);
-    vk::ShaderModule spv_module{([&] { auto cost = Eden::Performance::VulkanTimer(23); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderModule, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return BuildShader(device, code); }())};
+    vk::ShaderModule spv_module{([&] { auto cost = Eden::Performance::VulkanTimer(23); return BuildShader(device, code); }())};
 
     // Text log + .spv dump. Same split as the graphics path.
     const bool should_log = GPU::Logging::IsActive();
@@ -1654,23 +1238,11 @@ std::unique_ptr<ComputePipeline> PipelineCache::CreateComputePipeline(
         spv_module.SetObjectNameEXT(name.c_str());
     }
     Common::ThreadWorker* const thread_worker{build_in_parallel ? &workers : nullptr};
-#ifdef PS5_NATIVE
-    auto result = std::make_unique<ComputePipeline>(device, scheduler, vulkan_pipeline_cache, descriptor_pool,
-                                                    guest_descriptor_queue, descriptor_buffer_ring,
-                                                    thread_worker, statistics,
-                                                    &shader_notify, program.info, std::move(spv_module),
-                                                    key.unique_hash);
-    // The shader stage hash is not the compute CACHE key: include workgroup
-    // sizes and shared memory for correlation with S01's exact key.Hash().
-    result->SetDiagnosticCacheKeyHash(key.Hash());
-    return result;
-#else
     return std::make_unique<ComputePipeline>(device, scheduler, vulkan_pipeline_cache, descriptor_pool,
                                              guest_descriptor_queue, descriptor_buffer_ring,
                                              thread_worker, statistics,
                                              &shader_notify, program.info, std::move(spv_module),
                                              key.unique_hash);
-#endif
 
 } catch (const Shader::Exception& exception) {
     LOG_ERROR(Render_Vulkan, "{}", exception.what());

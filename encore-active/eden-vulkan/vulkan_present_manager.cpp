@@ -222,10 +222,7 @@ void PresentManager::Present(Frame* frame) {
             std::unique_lock lock{queue_mutex};
             if (present_failure) return;
             present_queue.push_back(frame);
-            // Only the presentation worker waits on present_ready_cv.
-            // Avoid waking WaitPresent on every enqueue; it needs completion.
-            lock.unlock();
-            present_ready_cv.notify_one();
+            frame_cv.notify_one();
         });
     } else {
         scheduler.WaitWorker();
@@ -370,12 +367,13 @@ void PresentManager::PresentThread(std::stop_token token) {
     while (!token.stop_requested()) {
         std::unique_lock lock{queue_mutex};
         // Wait for presentation frames
-        present_ready_cv.wait(lock, token, [this] { return !present_queue.empty(); });
+        frame_cv.wait(lock, token, [this] { return !present_queue.empty(); });
         if (!token.stop_requested()) {
-            // Take the frame; completion is signaled after the swapchain copy.
+            // Take the frame and notify anyone waiting
             Frame* frame = present_queue.front();
             present_queue.pop_front();
             present_in_flight = true;
+            frame_cv.notify_one();
 
             // By exchanging the lock ownership we take the swapchain lock
             // before the queue lock goes out of scope. This way the swapchain
@@ -387,10 +385,8 @@ void PresentManager::PresentThread(std::stop_token token) {
             {
                 std::scoped_lock fl{free_mutex};
                 free_queue.push_back(frame);
+                free_cv.notify_one();
             }
-            // Notify only after releasing free_mutex to avoid waking into
-            // an immediately contended queue lock.
-            free_cv.notify_one();
             // Publish completion only AFTER presentation and frame handoff.
             // Release swapchain mutex before reacquiring queue_mutex.
             lock.unlock();
@@ -635,7 +631,8 @@ void PresentManager::CopyToSwapchainImpl(Frame* frame) {
         }
     }
 
-    // CPU API return only, not proof of HDMI scanout.
+    // Count only after the swapchain Present call returns normally.
+    // This is a CPU/API event, NOT proof of physical display scan-out.
     swapchain.Present(render_semaphore);
     ::Eden::FrameMetrics::OnSwapchainPresentReturned();
 }

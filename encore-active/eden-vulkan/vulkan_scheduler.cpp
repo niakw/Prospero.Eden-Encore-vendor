@@ -97,40 +97,6 @@ void GpuTimeEnd(vk::CommandBuffer cmdbuf) {
 
 void GpuTimeCollect(const Device& device) {
     if (!::Eden::DevVulkan::gpu_time || gpu_time.failed || !gpu_time.write) return;
-#ifdef PS5_NATIVE
-    // The optional GPU-time probe previously issued one driver query per
-    // completed command buffer. Fetch up to 32 consecutive timestamp pairs
-    // in one nonblocking call, stopping at the first unavailable pair.
-    // Never cross the 512-slot ring boundary or consume the newest submit.
-    constexpr u32 kQueryBatch = 32;
-    std::array<u64, kQueryBatch * 4> samples{};
-    while (gpu_time.first_pending + 1 < gpu_time.next) {
-        const u32 slot = static_cast<u32>(gpu_time.first_pending % GpuTimeProbe::SLOTS);
-        const u32 candidates = static_cast<u32>((std::min)(
-            u64{kQueryBatch}, gpu_time.next - gpu_time.first_pending - 1));
-        const u32 count = (std::min)(candidates, GpuTimeProbe::SLOTS - slot);
-        // Unavailable results are undefined; clear availability words before
-        // each poll so a reused batch cannot masquerade as completed.
-        samples.fill(0);
-        const VkResult result = device.GetLogical().GetQueryResults(
-            *gpu_time.pool, slot * 2, count * 2, count * 4 * sizeof(u64),
-            samples.data(), 2 * sizeof(u64),
-            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
-        if (result != VK_SUCCESS && result != VK_NOT_READY) break;
-        u32 completed = 0;
-        for (; completed < count; ++completed) {
-            const u64* const pair = samples.data() + completed * 4;
-            if (pair[1] == 0 || pair[3] == 0) break;
-            const u64 ns = pair[2] > pair[0]
-                               ? static_cast<u64>(double(pair[2] - pair[0]) * gpu_time.period_ns) : 0;
-            gpu_time.busy_ns += ns;
-            gpu_time.max_ns = (std::max)(gpu_time.max_ns, ns);
-            ++gpu_time.submissions;
-            ++gpu_time.first_pending;
-        }
-        if (completed != count) break;
-    }
-#else
     while (gpu_time.first_pending + 1 < gpu_time.next) {
         const u32 slot = static_cast<u32>(gpu_time.first_pending % GpuTimeProbe::SLOTS);
         std::array<u64, 2> stamps{};
@@ -143,7 +109,6 @@ void GpuTimeCollect(const Device& device) {
         ++gpu_time.submissions;
         ++gpu_time.first_pending;
     }
-#endif
     const auto now = std::chrono::steady_clock::now();
     const auto wall = std::chrono::duration_cast<std::chrono::nanoseconds>(now - gpu_time.report).count();
     if (wall >= 5'000'000'000) {
@@ -407,22 +372,17 @@ void Scheduler::RequestOutsideRenderPassOperationContext() {
     EndRenderPass();
 }
 
-bool Scheduler::UpdateGraphicsPipeline(GraphicsPipeline* pipeline, bool optimized) {
+bool Scheduler::UpdateGraphicsPipeline(GraphicsPipeline* pipeline) {
     if (state.graphics_pipeline == pipeline) {
         if (pipeline && pipeline->UsesExtendedDynamicState() &&
             state.needs_state_enable_refresh) {
             state_tracker.InvalidateStateEnableFlag();
             state.needs_state_enable_refresh = false;
         }
-        // A completed optimized variant shares its cache key and owner pointer.
-        // Rebind once after publication even if the same shader keeps drawing.
-        const bool variant_changed = state.graphics_pipeline_optimized != optimized;
-        state.graphics_pipeline_optimized = optimized;
-        return variant_changed;
+        return false;
     }
 
     state.graphics_pipeline = pipeline;
-    state.graphics_pipeline_optimized = optimized;
 
     if (!pipeline) {
         return true;
@@ -601,7 +561,6 @@ void Scheduler::AllocateNewContext() {
 
 void Scheduler::InvalidateState() {
     state.graphics_pipeline = nullptr;
-    state.graphics_pipeline_optimized = false;
     state.rescaling_defined = false;
     state.descriptor_buffer_bound = false;
     state_tracker.InvalidateCommandBufferState();

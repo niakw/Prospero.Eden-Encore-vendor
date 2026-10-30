@@ -9,7 +9,6 @@
 #include "dev_vulkan.h"
 #include <array>
 #include <cstring>
-#include <new>
 #include <span>
 #include <vector>
 
@@ -382,29 +381,11 @@ BufferCacheRuntime::BufferCacheRuntime(const Device& device_, MemoryAllocator& m
 }
 
 StagingBufferRef BufferCacheRuntime::UploadStagingBuffer(size_t size) {
-#ifdef PS5_NATIVE
-    auto map = staging_pool.Request(size, MemoryUsage::Upload);
-    // A mapped CPU span alone does not prove a valid Vulkan buffer handle.
-    if (size != 0 && (!map.buffer || map.mapped_span.size_bytes() < size)) {
-        throw std::bad_alloc{};
-    }
-    return map;
-#else
     return staging_pool.Request(size, MemoryUsage::Upload);
-#endif
 }
 
 StagingBufferRef BufferCacheRuntime::DownloadStagingBuffer(size_t size, bool deferred) {
-#ifdef PS5_NATIVE
-    auto map = staging_pool.Request(size, MemoryUsage::Download, deferred);
-    if (size != 0 && (!map.buffer || map.mapped_span.size_bytes() < size)) {
-        if (deferred && map.buffer) staging_pool.FreeDeferred(map);
-        throw std::bad_alloc{};
-    }
-    return map;
-#else
     return staging_pool.Request(size, MemoryUsage::Download, deferred);
-#endif
 }
 
 VkFormat BufferCacheRuntime::TexelBufferFormat(VideoCore::Surface::PixelFormat format) const {
@@ -436,39 +417,11 @@ u32 BufferCacheRuntime::GetStorageBufferAlignment() const {
 }
 
 void BufferCacheRuntime::TickFrame(Common::SlotVector<Buffer>& slot_buffers) noexcept {
-#ifdef PS5_NATIVE
-    // No tracked buffers: avoid even the GPU-completion semaphore snapshot.
-    if (slot_buffers.begin() == slot_buffers.end()) {
-        return;
-    }
-#endif
     // One monotone GPU completion snapshot per pass instead of an atomic load
     // per resident buffer. A completion during this pass is reclaimed next frame.
-#ifdef PS5_NATIVE
-    // Idle resident buffers have zero usage ticks after retirement. Defer the
-    // GPU completion query until a nonzero tick actually needs inspection,
-    // rather than probing every rendered frame with no outstanding usage.
-    u64 completed_tick = 0;
-    bool sampled_completed_tick = false;
-#else
     const u64 completed_tick = scheduler.GetMasterSemaphore().KnownGpuTick();
-#endif
     for (auto it = slot_buffers.begin(); it != slot_buffers.end(); it++) {
-#ifdef PS5_NATIVE
-        // ResetUsageTracking resets the tick to zero. Don't rescan usage pages
-        // or query driver completion for any already retired buffer.
-        const u64 last_tick = it->LastUsageTick();
-        if (last_tick == 0) {
-            continue;
-        }
-        if (!sampled_completed_tick) {
-            completed_tick = scheduler.GetMasterSemaphore().KnownGpuTick();
-            sampled_completed_tick = true;
-        }
-        if (last_tick <= completed_tick) {
-#else
         if (it->LastUsageTick() <= completed_tick) {
-#endif
             it->ResetUsageTracking();
         }
     }
@@ -508,19 +461,6 @@ void BufferCacheRuntime::CopyBuffer(VkBuffer dst_buffer, VkBuffer src_buffer,
     if (dst_buffer == VK_NULL_HANDLE || src_buffer == VK_NULL_HANDLE) {
         return;
     }
-#ifdef PS5_NATIVE
-    // Vulkan copies require at least one region. An empty batch is a
-    // no-op unless the caller explicitly requested synchronization.
-    // Preserve both barriers without recording an invalid zero-region copy,
-    // including when a staging upload would otherwise bypass the barriers.
-    if (copies.empty()) {
-        if (barrier) {
-            PreCopyBarrier();
-            PostCopyBarrier();
-        }
-        return;
-    }
-#endif
     static constexpr VkMemoryBarrier READ_BARRIER{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
         .pNext = nullptr,
@@ -535,34 +475,9 @@ void BufferCacheRuntime::CopyBuffer(VkBuffer dst_buffer, VkBuffer src_buffer,
     };
 
     // Measuring a popular game, this number never exceeds the specified size once data is warmed up
-#ifdef PS5_NATIVE
-    // Zero-sized VkBufferCopy regions are invalid Vulkan commands. Build the
-    // batch in one pass, retaining order and the original barrier contract.
-    boost::container::small_vector<VkBufferCopy, 8> vk_copies;
-    vk_copies.reserve(copies.size());
-    for (const auto& copy : copies) {
-        if (copy.size != 0) {
-            vk_copies.push_back(MakeBufferCopy(copy));
-        }
-    }
-    if (vk_copies.empty()) {
-        if (barrier) {
-            PreCopyBarrier();
-            PostCopyBarrier();
-        }
-        return;
-    }
-#else
     boost::container::small_vector<VkBufferCopy, 8> vk_copies(copies.size());
     std::ranges::transform(copies, vk_copies.begin(), MakeBufferCopy);
-#endif
-#ifdef PS5_NATIVE
-    // An explicit transfer barrier cannot be represented by the reordered
-    // upload queue. Keep its copy and synchronization in the ordered stream.
-    if (src_buffer == staging_pool.StreamBuf() && can_reorder_upload && !barrier) {
-#else
     if (src_buffer == staging_pool.StreamBuf() && can_reorder_upload) {
-#endif
         scheduler.RecordWithUploadBuffer([src_buffer, dst_buffer, vk_copies = std::move(vk_copies)](
                                              vk::CommandBuffer, vk::CommandBuffer upload_cmdbuf) {
             upload_cmdbuf.CopyBuffer(src_buffer, dst_buffer, VideoCommon::FixSmallVectorADL(vk_copies));
@@ -616,13 +531,6 @@ void BufferCacheRuntime::ClearBuffer(VkBuffer dest_buffer, u32 offset, size_t si
     if (dest_buffer == VK_NULL_HANDLE) {
         return;
     }
-#ifdef PS5_NATIVE
-    // A zero-length fill has no memory side effects and is invalid for
-    // vkCmdFillBuffer. Do not record a transfer or its redundant barriers.
-    if (size == 0) {
-        return;
-    }
-#endif
     static constexpr VkMemoryBarrier READ_BARRIER{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
         .pNext = nullptr,
@@ -653,14 +561,6 @@ bool BufferCacheRuntime::BindMultiRangeStorageBuffer(u64 key, bool is_written) {
     if (multi_range_sources.empty() || multi_range_total == 0) {
         return false;
     }
-#ifdef PS5_NATIVE
-    // A gathered buffer cannot be bound for GPU writes. If sparse binding
-    // is unavailable globally, don't construct and cache a doomed Vulkan
-    // fallback allocation just to reject it below while holding cache locks.
-    if (is_written && !multi_range_buffers.use_sparse) {
-        return false;
-    }
-#endif
     const MultiRangeRef ref = multi_range_buffers.Get(device, scheduler, memory_allocator, key,
                                                      multi_range_sources, multi_range_total);
     if (ref.handle == VK_NULL_HANDLE) {
@@ -713,12 +613,6 @@ void BufferCacheRuntime::BindIndexBuffer(PrimitiveTopology topology, IndexFormat
         // Vulkan doesn't support null index buffers. Replace it with our own null buffer.
         ReserveNullBuffer();
         vk_buffer = *null_buffer;
-#ifdef PS5_NATIVE
-        // The fallback buffer is only four bytes. A stale guest index
-        // offset must not survive the handle substitution or Vulkan may
-        // bind beyond that allocation (same rule as null vertex/TFB).
-        vk_offset = 0;
-#endif
     }
     scheduler.Record([vk_buffer, vk_offset, vk_index_type](vk::CommandBuffer cmdbuf) {
         cmdbuf.BindIndexBuffer(vk_buffer, vk_offset, vk_index_type);
@@ -769,32 +663,8 @@ void BufferCacheRuntime::BindVertexBuffer(u32 index, VkBuffer buffer, u32 offset
 }
 
 void BufferCacheRuntime::BindVertexBuffers(VideoCommon::HostBindings<Buffer>& bindings) {
-    // Reject a reversed/empty/out-of-device-range draw BEFORE resolving guest
-    // vertex handles or reserving substitute null buffers under cache locks.
-    const u32 device_max = device.GetMaxVertexInputBindings();
-    const u32 min_binding = (std::min)(bindings.min_index, device_max);
-    const u32 max_binding = (std::min)(bindings.max_index, device_max);
-    // Do not wrap a reversed binding range into a huge Vulkan binding count.
-    if (max_binding <= min_binding) {
-        return;
-    }
-    const u32 binding_count = max_binding - min_binding;
-#ifdef PS5_NATIVE
-    // Do not resolve or allocate handles for indices the device cannot bind.
-    // Both buffer-cache producers keep all host vectors aligned to the range.
-    // Reject malformed input before a deferred Vulkan command can read it.
-    if (bindings.buffers.size() < binding_count ||
-        bindings.offsets.size() < binding_count ||
-        bindings.sizes.size() < binding_count ||
-        bindings.strides.size() < binding_count) {
-        return;
-    }
-    const u32 handle_count = binding_count;
-#else
-    const u32 handle_count = static_cast<u32>(bindings.buffers.size());
-#endif
-    boost::container::static_vector<VkBuffer, VideoCommon::NUM_VERTEX_BUFFERS> buffer_handles(handle_count);
-    for (u32 i = 0; i < handle_count; ++i) {
+    boost::container::static_vector<VkBuffer, VideoCommon::NUM_VERTEX_BUFFERS> buffer_handles(bindings.buffers.size());
+    for (u32 i = 0; i < bindings.buffers.size(); ++i) {
         auto handle = bindings.buffers[i]->Handle();
         if (handle == VK_NULL_HANDLE) {
             bindings.offsets[i] = 0;
@@ -806,6 +676,14 @@ void BufferCacheRuntime::BindVertexBuffers(VideoCommon::HostBindings<Buffer>& bi
         }
         buffer_handles[i] = handle;
     }
+    const u32 device_max = device.GetMaxVertexInputBindings();
+    const u32 min_binding = (std::min)(bindings.min_index, device_max);
+    const u32 max_binding = (std::min)(bindings.max_index, device_max);
+    // Do not wrap a reversed binding range into a huge Vulkan binding count.
+    if (max_binding <= min_binding) {
+        return;
+    }
+    const u32 binding_count = max_binding - min_binding;
     if (device.IsExtExtendedDynamicStateSupported()) {
         scheduler.Record([bindings_ = std::move(bindings), buffer_handles_ = std::move(buffer_handles), binding_count](vk::CommandBuffer cmdbuf) {
             cmdbuf.BindVertexBuffers2EXT(bindings_.min_index, binding_count, buffer_handles_.data(), bindings_.offsets.data(), bindings_.sizes.data(), bindings_.strides.data());
@@ -843,17 +721,6 @@ void BufferCacheRuntime::BindTransformFeedbackBuffers(VideoCommon::HostBindings<
         // Already logged in the rasterizer
         return;
     }
-#ifdef PS5_NATIVE
-    // The guest may unbind transform feedback entirely or supply an invalid
-    // binding table. Do not record a zero-count Vulkan command, construct an
-    // over-capacity static_vector or read a missing offset/size under cache locks.
-    const size_t binding_count = bindings.buffers.size();
-    if (binding_count == 0 || binding_count > VideoCommon::NUM_VERTEX_BUFFERS ||
-        bindings.offsets.size() < binding_count ||
-        bindings.sizes.size() < binding_count) {
-        return;
-    }
-#endif
     boost::container::static_vector<VkBuffer, VideoCommon::NUM_VERTEX_BUFFERS> buffer_handles(bindings.buffers.size());
     for (u32 i = 0; i < bindings.buffers.size(); ++i) {
         auto handle = bindings.buffers[i]->Handle();

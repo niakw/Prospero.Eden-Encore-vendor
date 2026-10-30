@@ -5,11 +5,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
-#include <atomic>
 #include <array>
 #include "common/scope_exit.h"
 #include "performance.h"
-#include <cstring>
 #include <memory>
 #include <vector>
 
@@ -32,11 +30,6 @@
 #include "common/settings.h"
 
 namespace Vulkan {
-
-#ifdef PS5_NATIVE
-// Tracks queued and active first-use compute builds, not guest dispatches.
-std::atomic<unsigned> pending_first_use_compute_builds{0};
-#endif
 
 using Shader::ImageBufferDescriptor;
 using Shader::Backend::SPIRV::RESCALING_LAYOUT_WORDS_OFFSET;
@@ -100,16 +93,6 @@ ComputePipeline::ComputePipeline(const Device& device_, Scheduler& scheduler, vk
     if (shader_notify) {
         shader_notify->MarkShaderBuilding();
     }
-#ifdef PS5_NATIVE
-    // Layout setup and worker queue admission may throw. Return the shader
-    // notification unless ownership has passed to the worker or inline build.
-    bool build_handed_off = false;
-    SCOPE_EXIT {
-        if (!build_handed_off && shader_notify) {
-            shader_notify->MarkShaderComplete();
-        }
-    };
-#endif
     std::copy_n(info.constant_buffer_used_sizes.begin(), uniform_buffer_sizes.size(),
                 uniform_buffer_sizes.begin());
     num_descriptor_entries = NumDescriptorEntries(info);
@@ -218,42 +201,14 @@ ComputePipeline::ComputePipeline(const Device& device_, Scheduler& scheduler, vk
         }
     }};
     if (thread_worker) {
-#ifdef PS5_NATIVE
-        // Reserve a slot BEFORE QueueWork: a pending compute shader has
-        // priority over a speculative optimized graphics rebuild.
-        pending_first_use_compute_builds.fetch_add(1, std::memory_order_release);
-        try {
-            thread_worker->QueueWork([build = std::move(func)]() mutable {
-                SCOPE_EXIT {
-                    pending_first_use_compute_builds.fetch_sub(1, std::memory_order_release);
-                };
-                build();
-            });
-        } catch (...) {
-            pending_first_use_compute_builds.fetch_sub(1, std::memory_order_release);
-            throw;
-        }
-        build_handed_off = true;
-#else
         thread_worker->QueueWork(std::move(func));
-#endif
     } else {
-#ifdef PS5_NATIVE
-        // Inline func() has its own completion guard.
-        build_handed_off = true;
-#endif
         func();
     }
 }
 
 #ifdef PS5_NATIVE
 void ComputePipeline::PreflightDescriptorScratch() {
-    // Reserve on the GPU owner, before the paired guest cache mutexes.
-    // Compare guest payload bytes only after their normal synchronization.
-    if (uses_descriptor_buffer &&
-        last_descriptor_payload.capacity() < num_descriptor_entries) {
-        last_descriptor_payload.reserve(num_descriptor_entries);
-    }
     // No guest texture/cache data is consulted here: counts are immutable.
     // Skip the slot currently owned by a nested Configure invocation.
     auto& scratch = compute_descriptor_scratch.in_use
@@ -428,50 +383,12 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     // Match the builder's release publication before using its pipeline handle.
     // A ready fast path skips the queued wait, so relaxed is insufficient here.
     if (!is_built.load(std::memory_order_acquire)) {
-#ifdef PS5_NATIVE
-        // The Vulkan worker processes command chunks in FIFO order. Once a
-        // readiness wait precedes the first draw, later draws for this same
-        // pipeline are already ordered behind it. GPU-owner thread only.
-        if (!first_use_wait_recorded) {
-#endif
         // Wait for the pipeline to be built
         scheduler.Record([this](vk::CommandBuffer) {
-            // Builder published the pipeline before this ordered GPU callback.
-            // Acquire its completion without taking a redundant build mutex.
-            // An unfinished build still follows the original condition wait.
-            if (is_built.load(std::memory_order_acquire)) return;
-#ifdef PS5_NATIVE
-            // Publication can race the initial fast acquire. The build owner
-            // holds this mutex when publishing, so a false result here means
-            // the condition wait must actually release the lock.
-            // Include contention acquiring build_mutex in the keyed
-            // diagnostic; a genuinely blocked condvar wait must not omit
-            // the GPU worker's preceding mutex delay.
-            ::Eden::Performance::PipelineWaitTrace keyed_wait;
-            std::unique_lock lock{build_mutex};
-            keyed_wait.MarkLockAcquired();
-            if (is_built.load(std::memory_order_acquire)) return;
-#endif
             auto timer = Eden::Performance::VulkanTimer(16);
-            // Only unfinished builds contribute a worker wait; no clock in quiet mode.
-            ::Eden::Performance::CachePhaseTimer pipeline_ready_wait{
-                ::Eden::Performance::CachePhase::ComputePipelineWait,
-                ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)};
-#ifndef PS5_NATIVE
             std::unique_lock lock{build_mutex};
-#endif
             build_condvar.wait(lock, [this] { return is_built.load(std::memory_order::relaxed); });
-#ifdef PS5_NATIVE
-            lock.unlock();
-            pipeline_ready_wait.Stop();
-            timer.reset(); // Exclude diagnostic print I/O from VulkanTimer(16).
-            keyed_wait.Complete("compute", diagnostic_cache_key_hash, IsBound());
-#endif
         });
-#ifdef PS5_NATIVE
-        first_use_wait_recorded = true;
-        }
-#endif
     }
 
     // Log compute pipeline binding
@@ -484,45 +401,15 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     VkDeviceSize descriptor_buffer_offset{};
     u32 descriptor_buffer_chunk{};
     if (uses_descriptor_buffer) {
-#ifdef PS5_NATIVE
-        // Same payload and generation: keep the previously uploaded bytes,
-        // extending the GPU ring tick without another allocation or upload.
-        const bool reuse_allocation =
-            last_descriptor_buffer_valid &&
-            last_descriptor_buffer_generation == descriptor_buffer_ring.CurrentGeneration() &&
-            last_descriptor_payload.size() == num_descriptor_entries &&
-            (num_descriptor_entries == 0 ||
-             std::memcmp(last_descriptor_payload.data(), descriptor_data,
-                         num_descriptor_entries * sizeof(DescriptorUpdateEntry)) == 0);
-        if (reuse_allocation) {
-            descriptor_buffer_offset = last_descriptor_buffer_offset;
-            descriptor_buffer_chunk = last_descriptor_buffer_chunk;
-            descriptor_buffer_ring.TouchFrame(scheduler);
-        } else
-#endif
-        {
-            const DescriptorBufferRing::Allocation alloc{
-                descriptor_buffer_ring.Allocate(scheduler, descriptor_buffer_layout.size)};
-            if (!alloc.host) {
-                LOG_DEBUG(Render_Vulkan, "Failed to reserve descriptor memory, skipping dispatch");
-                return false;
-            }
-            WriteDescriptorBuffer(device, descriptor_buffer_layout, descriptor_data, alloc.host);
-            descriptor_buffer_offset = alloc.offset;
-            descriptor_buffer_chunk = alloc.chunk;
-#ifdef PS5_NATIVE
-            last_descriptor_buffer_offset = alloc.offset;
-            last_descriptor_buffer_chunk = alloc.chunk;
-            last_descriptor_buffer_generation = alloc.generation;
-            if (num_descriptor_entries != 0) {
-                last_descriptor_payload.assign(descriptor_data,
-                                               descriptor_data + num_descriptor_entries);
-            } else {
-                last_descriptor_payload.clear();
-            }
-            last_descriptor_buffer_valid = true;
-#endif
+        const DescriptorBufferRing::Allocation alloc{
+            descriptor_buffer_ring.Allocate(scheduler, descriptor_buffer_layout.size)};
+        if (!alloc.host) {
+            LOG_DEBUG(Render_Vulkan, "Failed to reserve descriptor memory, skipping dispatch");
+            return false;
         }
+        WriteDescriptorBuffer(device, descriptor_buffer_layout, descriptor_data, alloc.host);
+        descriptor_buffer_offset = alloc.offset;
+        descriptor_buffer_chunk = alloc.chunk;
     }
 
     const bool bind_descriptor_buffer{

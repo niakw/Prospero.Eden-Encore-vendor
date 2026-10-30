@@ -102,36 +102,40 @@ public:
 
     void AddSampledImage(VkImageView image_view, VkSampler sampler) {
 #ifdef PS5_NATIVE
-        // Both descriptor-buffer and descriptor-set paths compare snapshots.
-        // Initialize the entire union including unused Vulkan image padding.
-        auto* const entry = payload_cursor++;
-        std::memset(entry, 0, sizeof(*entry));
-        entry->image.sampler = sampler;
-        entry->image.imageView = image_view;
-        entry->image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-#else
+        if (use_descriptor_buffer) {
+            // Descriptor-buffer reuse compares raw entries. Fully initialize
+            // inactive union bytes and struct padding, not only Vulkan fields.
+            auto* const entry = payload_cursor++;
+            std::memset(entry, 0, sizeof(*entry));
+            entry->image.sampler = sampler;
+            entry->image.imageView = image_view;
+            entry->image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            return;
+        }
+#endif
         *(payload_cursor++) = VkDescriptorImageInfo{
             .sampler = sampler,
             .imageView = image_view,
             .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
         };
-#endif
     }
 
     void AddImage(VkImageView image_view) {
 #ifdef PS5_NATIVE
-        auto* const entry = payload_cursor++;
-        std::memset(entry, 0, sizeof(*entry));
-        entry->image.sampler = VK_NULL_HANDLE;
-        entry->image.imageView = image_view;
-        entry->image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-#else
+        if (use_descriptor_buffer) {
+            auto* const entry = payload_cursor++;
+            std::memset(entry, 0, sizeof(*entry));
+            entry->image.sampler = VK_NULL_HANDLE;
+            entry->image.imageView = image_view;
+            entry->image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            return;
+        }
+#endif
         *(payload_cursor++) = VkDescriptorImageInfo{
             .sampler = VK_NULL_HANDLE,
             .imageView = image_view,
             .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
         };
-#endif
     }
 
     void AddBuffer(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) {
@@ -164,16 +168,7 @@ public:
     }
 
     void AddTexelBuffer(VkBufferView texel_buffer) {
-#ifdef PS5_NATIVE
-        // Descriptor snapshots are compared byte-for-byte on later draws.
-        // A texel view fills only the first union field: stale padding from
-        // a previous descriptor otherwise defeats payload reuse on the HUD.
-        auto* const entry = payload_cursor++;
-        std::memset(entry, 0, sizeof(*entry));
-        entry->texel_buffer = texel_buffer;
-#else
         *(payload_cursor++) = texel_buffer;
-#endif
     }
 
     void AddTexelBuffer(VkBufferView texel_buffer, VkDeviceAddress base_address,

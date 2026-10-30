@@ -7,11 +7,6 @@
 #pragma once
 
 #include <limits>
-#ifdef PS5_NATIVE
-#include <exception>
-#include <new>
-#include <stdexcept>
-#endif
 #include <optional>
 #include <bit>
 #include "common/container/unordered_map.h"
@@ -181,25 +176,6 @@ void TextureCache<P>::RunGarbageCollector() {
         return high_priority_mode &&
                (total_used_memory >= critical_memory || !::Eden::Performance::KeepDirtyTextures());
     };
-#ifdef PS5_NATIVE
-    // Keep the expensive direct-memory pressure probe out of every dirty LRU
-    // candidate under texture_cache.mutex. Recheck after at most eight visits,
-    // immediately after a deletion, and at the critical-pass boundary.
-    // Critical pressure always bypasses the cached answer.
-    constexpr unsigned kDirtyProbeReuse = 8;
-    unsigned dirty_probe_remaining = 0;
-    bool dirty_evict_cached = false;
-    const auto DirtyEvictionsForCleanup = [&]() {
-        if (!high_priority_mode) return false;
-        if (total_used_memory >= critical_memory) return true;
-        if (dirty_probe_remaining == 0) {
-            dirty_evict_cached = !::Eden::Performance::KeepDirtyTextures();
-            dirty_probe_remaining = kDirtyProbeReuse;
-        }
-        --dirty_probe_remaining;
-        return dirty_evict_cached;
-    };
-#endif
     using DownloadMap = decltype(runtime.DownloadStagingBuffer(size_t{}));
     // Aggressive GC can process 40 images per pass. Keep those readbacks in
     // ONE scheduled batch instead of falling back to a Finish per image after
@@ -280,69 +256,15 @@ void TextureCache<P>::RunGarbageCollector() {
                     image.info.num_samples != 1 ||
                     image.unswizzled_size_bytes > 32_MiB)
                     return NoteProjectedEviction(image);
-#ifdef PS5_NATIVE
-                // A no-region download is not a successful readback of dirty
-                // GPU bytes. Do not prefetch, or project this image evicted:
-                // Cleanup must leave it resident until guest copy regions
-                // can be represented.
-                if (FullDownloadCopies(image.info).empty()) return false;
-#endif
                 // Full descriptor/byte capacity is a true batch boundary.
                 if (gc_downloads.size() == gc_prefetch_limit ||
                     image.unswizzled_size_bytes > 32_MiB - bytes) return true;
-#ifdef PS5_NATIVE
-                // A short staging map or an allocation failure is NOT a GPU
-                // copy. Do not record a readback into unmapped memory or
-                // advertise it to Cleanup as prefetched. The ordinary
-                // eviction path may retry after the staged batch finishes.
-                auto map = [&]() -> decltype(runtime.DownloadStagingBuffer(image.unswizzled_size_bytes, true)) {
-                    try {
-                        return runtime.DownloadStagingBuffer(image.unswizzled_size_bytes, true);
-                    } catch (...) {
-                        return {};
-                    }
-                }();
-                if (!map.buffer || map.mapped_span.size_bytes() < image.unswizzled_size_bytes) {
-                    if (map.buffer) runtime.FreeDeferredStagingBuffer(map);
-                    return true;
-                }
-#else
                 auto map = runtime.DownloadStagingBuffer(image.unswizzled_size_bytes, true);
-#endif
                 // The pinned StagingBufferRef is a POD handle, not a RAII
                 // owner. The pool tracks deferred lifetime until FreeDeferred.
-#ifdef PS5_NATIVE
-                // Do not let a failed Record/download advertise this texture
-                // as prefetched. Some commands may already be queued, so the
-                // staging maps must retire only AFTER draining those commands.
-                bool map_owned_by_batch = false;
-                SCOPE_EXIT {
-                    if (!map_owned_by_batch) runtime.FreeDeferredStagingBuffer(map);
-                };
-                const auto RetireFailedBatch = [&] {
-                    if (!gc_downloads.empty()) runtime.Finish();
-                    ReleaseDownloads();
-                };
-                try {
-                    gc_downloads.emplace_back(id, map);
-                    map_owned_by_batch = true;
-                    const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
-                    image.DownloadMemory(map, copies);
-                } catch (const std::bad_alloc&) {
-                    RetireFailedBatch();
-                    return true;
-                } catch (const std::invalid_argument&) {
-                    RetireFailedBatch();
-                    return true;
-                } catch (...) {
-                    RetireFailedBatch();
-                    throw;
-                }
-#else
                 gc_downloads.emplace_back(id, map);
                 const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
                 image.DownloadMemory(map, copies);
-#endif
                 bytes += image.unswizzled_size_bytes;
                 // Same projected accounting for the staged dirty image,
                 // including saturation when tracked and driver usage differ.
@@ -383,16 +305,7 @@ void TextureCache<P>::RunGarbageCollector() {
             return false;
         }
         const bool must_download = IsDownloadable(image) && False(image.flags & ImageFlagBits::BadOverlap);
-        // A clean image has no guest readback. Do not query PS5 direct-memory
-        // pressure for it: the memory probe may be kernel-backed, and this
-        // entire LRU sweep runs under texture_cache.mutex.
-#ifdef PS5_NATIVE
-        if ((!aggressive_mode && True(image.flags & ImageFlagBits::CostlyLoad)) ||
-            (must_download && !DirtyEvictionsForCleanup())) {
-#else
-        if ((!aggressive_mode && True(image.flags & ImageFlagBits::CostlyLoad)) ||
-            (must_download && !DirtyEvictions())) {
-#endif
+        if ((!aggressive_mode && True(image.flags & ImageFlagBits::CostlyLoad)) || (!DirtyEvictions() && must_download)) {
             ++skipped;
             return false;
         }
@@ -400,30 +313,7 @@ void TextureCache<P>::RunGarbageCollector() {
             --num_iterations;
         }
         if (must_download && !UsePrefetched(image_id, image)) {
-#ifdef PS5_NATIVE
-            // A zero-region readback leaves the staging bytes undefined.
-            // Never SwizzleImage those bytes or delete the only dirty GPU
-            // copy; keep it resident and retry on a later eligible frame.
-            if (FullDownloadCopies(image.info).empty()) {
-                ++skipped;
-                return false;
-            }
-            // Never evict dirty GPU bytes if the fallback guest readback could
-            // not obtain a COMPLETE staging mapping under memory pressure.
-            auto map = [&]() -> decltype(runtime.DownloadStagingBuffer(image.unswizzled_size_bytes)) {
-                try {
-                    return runtime.DownloadStagingBuffer(image.unswizzled_size_bytes);
-                } catch (const std::bad_alloc&) {
-                    return {};
-                }
-            }();
-            if (!map.buffer || map.mapped_span.size_bytes() < image.unswizzled_size_bytes) {
-                ++skipped;
-                return false;
-            }
-#else
             auto map = runtime.DownloadStagingBuffer(image.unswizzled_size_bytes);
-#endif
             const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
             image.DownloadMemory(map, copies);
             runtime.Finish();
@@ -435,9 +325,6 @@ void TextureCache<P>::RunGarbageCollector() {
         UnregisterImage(image_id);
         DeleteImage(image_id, image.scale_tick > frame_tick + 5);
         ++evicted;
-#ifdef PS5_NATIVE
-        dirty_probe_remaining = 0;
-#endif
         if (aggressive_mode && total_used_memory < critical_memory) {
             num_iterations >>= 2;
             aggressive_mode = false;
@@ -454,9 +341,6 @@ void TextureCache<P>::RunGarbageCollector() {
     }
     if (total_used_memory >= critical_memory) {
         Configure(true);
-#ifdef PS5_NATIVE
-        dirty_probe_remaining = 0;
-#endif
         num_scanned = 0; // independent scan allowance for the aggressive pass
         PrefetchDownloads();
         if (frame_tick >= ticks_to_destroy) {
@@ -472,55 +356,20 @@ void TextureCache<P>::RunGarbageCollector() {
 
 template <class P>
 void TextureCache<P>::TickFrame() {
-#ifdef PS5_NATIVE
-    // C03: exact driver budget/GC events plus 1-in-16 async/runtime samples.
-    // Timers run only in Detailed Logging; the order and cache locks remain.
-    const bool detailed = ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed);
-    const bool sample_housekeeping = detailed && ::Eden::Performance::ShouldSampleTextureHousekeeping();
-#endif
     // If we can obtain the memory info, use it instead of the estimate.
     if (runtime.CanReportMemoryUsage()) {
-#ifdef PS5_NATIVE
-        // A driver memory-budget probe can run under texture_cache.mutex.
-        // While comfortably below the GC watermark, sample every other
-        // frame; at 2/3 of the watermark or higher, sample EVERY frame to
-        // preserve prompt reclaim and avoid an allocation-pressure blind spot.
-        const bool near_gc_watermark =
-            total_used_memory >= minimum_memory - minimum_memory / 3;
-        if (near_gc_watermark || (frame_tick & 1u) == 0) {
-            ::Eden::Performance::CachePhaseTimer budget_query{
-                ::Eden::Performance::CachePhase::TextureBudgetQuery, detailed};
-            total_used_memory = runtime.GetDeviceMemoryUsage();
-        }
-#else
         total_used_memory = runtime.GetDeviceMemoryUsage();
-#endif
     }
     if (total_used_memory > minimum_memory) {
-#ifdef PS5_NATIVE
-        ::Eden::Performance::CachePhaseTimer gc_collect{
-            ::Eden::Performance::CachePhase::TextureGcCollect, detailed};
-#endif
         RunGarbageCollector();
     }
     sentenced_images.Tick();
     sentenced_framebuffers.Tick();
     sentenced_image_view.Tick();
-#ifdef PS5_NATIVE
-    ::Eden::Performance::CachePhaseTimer async_tick{
-        ::Eden::Performance::CachePhase::TextureAsyncTick, sample_housekeeping};
-#endif
     TickAsyncDecode();
     TickAsyncUnswizzle();
-#ifdef PS5_NATIVE
-    async_tick.Stop();
-    ::Eden::Performance::CachePhaseTimer runtime_tick{
-        ::Eden::Performance::CachePhase::TextureRuntimeTick, sample_housekeeping};
-#endif
+
     runtime.TickFrame();
-#ifdef PS5_NATIVE
-    runtime_tick.Stop();
-#endif
     ++frame_tick;
 
     if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
@@ -555,15 +404,6 @@ void TextureCache<P>::MarkModification(ImageId id) noexcept {
 
 template <class P>
 void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compute, bool blacklist) {
-#ifdef PS5_NATIVE
-    // The empty descriptor pass only clears the deletion/retry latch.
-    // Avoid initializing the draw-local TIC memo and entering the retry
-    // loop when no view can possibly be visited or blacklisted.
-    if (views.empty()) {
-        has_deleted_images = false;
-        return;
-    }
-#endif
     bool has_blacklisted = false;
     do {
         has_deleted_images = false;
@@ -571,46 +411,25 @@ void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compu
             has_blacklisted = false;
         }
 #ifdef PS5_NATIVE
-        // P0.3: reuse nonadjacent TIC descriptors only in this stable draw pass.
-        // Never bypass NULL recovery, deletion-driven retry or blacklist work.
-        struct ViewMemo {
-            u32 index{};
-            ImageViewId id{NULL_IMAGE_VIEW_ID};
-        };
-        // A single view or blacklist pass never gets a memo hit. Avoid
-        // zeroing all 16 memo slots while holding the texture-cache lock.
-        std::optional<std::array<ViewMemo, 16>> view_memo;
-        if (!blacklist && views.size() > 1) {
-            view_memo.emplace();
-        }
+        // Reuse only the immediately preceding successful TIC binding in a
+        // read-only pass. Deletion, NULL recovery and blacklist effects must
+        // still visit every descriptor.
+        u32 previous_image_index{};
+        ImageViewId previous_view_id = NULL_IMAGE_VIEW_ID;
 #endif
         for (ImageViewInOut& view : views) {
 #ifdef PS5_NATIVE
-            if (view_memo && !has_deleted_images) {
-                const auto& cached = (*view_memo)[view.index & 15U];
-                if (cached.id != NULL_IMAGE_VIEW_ID && cached.index == view.index) {
-                    const auto& cached_view = slot_image_views[cached.id];
-                    // A different TIC can remap this image during the pass.
-                    // VisitImageView must rebuild remapped descriptors.
-                    const bool remapped = !cached_view.IsBuffer() &&
-                        True(slot_images[cached_view.image_id].flags & ImageFlagBits::Remapped);
-                    if (!remapped) {
-                        view.id = cached.id;
-                        // Reuse the lookup only: PrepareImageView still
-                        // refreshes dirty pixels and synchronizes aliases.
-                        PrepareImageView(cached.id, false, false);
-                        continue;
-                    }
-                }
+            if (!blacklist && !has_deleted_images &&
+                previous_view_id != NULL_IMAGE_VIEW_ID &&
+                previous_image_index == view.index) {
+                view.id = previous_view_id;
+                continue;
             }
 #endif
             view.id = VisitImageView(view.index, compute);
 #ifdef PS5_NATIVE
-            if (view_memo && !has_deleted_images) {
-                auto& cached = (*view_memo)[view.index & 15U];
-                cached.index = view.index;
-                cached.id = view.id;
-            }
+            previous_image_index = view.index;
+            previous_view_id = view.id;
 #endif
             if (blacklist) {
                 if (view.blacklist && view.id != NULL_IMAGE_VIEW_ID) {
@@ -708,21 +527,8 @@ void TextureCache<P>::CheckFeedbackLoop(std::span<const ImageViewInOut> views) {
 
             {
                 bool is_continue = false;
-#ifdef PS5_NATIVE
-                // Only visit color targets actually attached to this depth pass.
-                u32 color_slots = rt_active_mask & ((1u << NUM_RT) - 1);
-                while (color_slots) {
-                    const u32 slot = std::countr_zero(color_slots);
-                    if (view.id == render_targets.color_buffer_ids[slot]) {
-                        is_continue = true;
-                        break;
-                    }
-                    color_slots &= color_slots - 1;
-                }
-#else
                 for (size_t i = 0; i < 8; ++i)
                     is_continue |= (rt_active_mask & (1u << i)) && view.id == render_targets.color_buffer_ids[i];
-#endif
                 if (is_continue)
                     continue;
             }
@@ -733,20 +539,8 @@ void TextureCache<P>::CheckFeedbackLoop(std::span<const ImageViewInOut> views) {
             const ImageId view_image_id = slot_image_views[view.id].image_id;
             {
                 bool is_continue = false;
-#ifdef PS5_NATIVE
-                u32 color_slots = rt_active_mask & ((1u << NUM_RT) - 1);
-                while (color_slots) {
-                    const u32 slot = std::countr_zero(color_slots);
-                    if (view_image_id == rt_image_id[slot]) {
-                        is_continue = true;
-                        break;
-                    }
-                    color_slots &= color_slots - 1;
-                }
-#else
                 for (size_t i = 0; i < 8; ++i)
                     is_continue |= (rt_active_mask & (1u << i)) && view_image_id == rt_image_id[i];
-#endif
                 if (is_continue)
                     continue;
             }
@@ -940,29 +734,12 @@ void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
     using namespace VideoCommon::Dirty;
     auto& flags = maxwell3d->dirty.flags;
     if (!flags[Dirty::RenderTargets]) {
-#ifdef PS5_NATIVE
-        // Cache the active attachment mask when render targets are reselected.
-        // On a clean draw it is current: only present views can be prepared.
-        // Preserve color-slot order, depth-last, and every live GPU refresh.
-        u32 active_colors = rt_active_mask & ((1U << NUM_RT) - 1U);
-        while (active_colors != 0) {
-            const size_t index = std::countr_zero(active_colors);
-            active_colors &= active_colors - 1U;
-            const ImageViewId color_buffer_id = render_targets.color_buffer_ids[index];
-            PrepareImageView(color_buffer_id, true, is_clear && IsFullClear(color_buffer_id));
-        }
-        if ((rt_active_mask & (1U << NUM_RT)) != 0) {
-            const ImageViewId depth_buffer_id = render_targets.depth_buffer_id;
-            PrepareImageView(depth_buffer_id, true, is_clear && IsFullClear(depth_buffer_id));
-        }
-#else
         for (size_t index = 0; index < NUM_RT; ++index) {
             ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
             PrepareImageView(color_buffer_id, true, is_clear && IsFullClear(color_buffer_id));
         }
         const ImageViewId depth_buffer_id = render_targets.depth_buffer_id;
         PrepareImageView(depth_buffer_id, true, is_clear && IsFullClear(depth_buffer_id));
-#endif
         return;
     }
 
@@ -1093,11 +870,9 @@ ImageViewId TextureCache<P>::VisitImageView(u32 index, bool compute) {
             is_remapped_view(pair->second))
             pair->second = CreateImageView(descriptor);
         PrepareImageView(pair->second, false, false);
-        // A remapped cached view can rebuild to NULL even when the TIC bytes
-        // remain valid. Publish both valid->NULL and NULL->valid generation
-        // transitions so feedback/descriptor consumers never retain stale
-        // binding decisions after a failed or successful reconstruction.
-        if (pair->second != NULL_IMAGE_VIEW_ID || remapped_cached_view)
+        // CheckFeedbackLoop caches barrier decisions by this serial. Reviving
+        // an image without rewriting its TIC must invalidate that decision.
+        if (pair->second != NULL_IMAGE_VIEW_ID)
             ++texture_bindings_serial;
         channel_state->image_view_ids.insert_or_assign(map_index, pair->second);
         return pair->second;
@@ -1172,31 +947,12 @@ void TextureCache<P>::DownloadMemory(DAddr cpu_addr, size_t size) {
     }
 
     boost::container::small_vector<ImageId, 16> images;
-#ifdef PS5_NATIVE
-    // DownloadMemory can fail after clearing GPU-dirty state but before guest
-    // pixels are published. Restore every touched image on unwinding, even
-    // when an earlier staged image was already copied successfully.
-    const int uncaught_before_readback = std::uncaught_exceptions();
-    SCOPE_EXIT {
-        if (std::uncaught_exceptions() > uncaught_before_readback) {
-            for (const ImageId id : images) {
-                slot_images[id].flags |= ImageFlagBits::GpuModified;
-            }
-        }
-    };
-#endif
     ForEachImageInRegion(cpu_addr, size, [this, &images](ImageId image_id, ImageBase& image) {
         if (!IsDownloadable(image)) {
             return;
         }
-#ifdef PS5_NATIVE
-        // The list can allocate: track the image BEFORE clearing its flag.
-        images.push_back(image_id);
-        image.flags &= ~ImageFlagBits::GpuModified;
-#else
         image.flags &= ~ImageFlagBits::GpuModified;
         images.push_back(image_id);
-#endif
     });
     if (images.empty()) {
         return;
@@ -1452,52 +1208,17 @@ std::pair<typename P::ImageView*, bool> TextureCache<P>::TryFindFramebufferImage
         return {};
     }
     const auto& image_map_ids = it->second;
-#ifdef PS5_NATIVE
-    // Keep the best admissible view during the scan: no small_vector growth or
-    // second pass while the compositor owns texture_cache.mutex.
-    ImageId freshest_id{};
-    bool freshest_found = false;
-    std::uint64_t freshest_tick{};
-#else
     boost::container::small_vector<ImageId, 4> valid_image_ids;
-#endif
     for (const ImageMapId map_id : image_map_ids) {
         const ImageMapView& map = slot_map_views[map_id];
         const ImageBase& image = slot_images[map.image_id];
         if (image.cpu_addr != cpu_addr) {
             continue;
         }
-#ifdef PS5_NATIVE
-        // A remapped image or one dirtied by guest CPU writes cannot be
-        // sampled as an unchanged accelerated display framebuffer. Fall back
-        // to the guest-memory upload until its Vulkan image is refreshed.
-        // Another image for this same guest address can still be clean but
-        // older. While ANY matching image decodes new pixels, no accelerated
-        // candidate can prove freshness. Upload guest bytes for this frame.
-        if (True(image.flags & ImageFlagBits::IsDecoding)) {
-            return {};
-        }
-        // A dirty or remapped sibling at the SAME guest address also
-        // invalidates older clean accelerated candidates. CPU guest bytes
-        // must win until all conflicting cache images have been refreshed.
-        if (True(image.flags & (ImageFlagBits::Remapped | ImageFlagBits::CpuModified))) {
-            return {};
-        }
-#endif
         if (image.image_view_ids.empty()) {
             continue;
         }
-#ifdef PS5_NATIVE
-        // Match ranges::max_element: the first candidate wins equal ticks.
-        if (!freshest_found ||
-            freshest_tick < image.modification_tick) {
-            freshest_id = map.image_id;
-            freshest_tick = image.modification_tick;
-            freshest_found = true;
-        }
-#else
         valid_image_ids.push_back(map.image_id);
-#endif
     }
 
     const auto view_format = [&]() {
@@ -1523,11 +1244,6 @@ std::pair<typename P::ImageView*, bool> TextureCache<P>::TryFindFramebufferImage
                               slot_images[image_id].IsRescaled());
     };
 
-#ifdef PS5_NATIVE
-    if (freshest_found) [[likely]] {
-        return GetImageViewForFramebuffer(freshest_id);
-    }
-#else
     if (valid_image_ids.size() == 1) [[likely]] {
         return GetImageViewForFramebuffer(valid_image_ids.front());
     }
@@ -1538,7 +1254,7 @@ std::pair<typename P::ImageView*, bool> TextureCache<P>::TryFindFramebufferImage
         });
         return GetImageViewForFramebuffer(*most_recent);
     }
-#endif
+
     return {};
 }
 
@@ -1558,53 +1274,19 @@ void TextureCache<P>::CommitAsyncFlushes() {
     if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
         auto& download_ids = uncommitted_downloads;
         if (download_ids.empty()) {
-#ifndef PS5_NATIVE
             committed_downloads.emplace_back(std::move(uncommitted_downloads));
             uncommitted_downloads.clear();
             async_buffers.emplace_back(std::move(uncommitted_async_buffers));
             uncommitted_async_buffers.clear();
             return;
-#endif
-            // Native empty batches use the same atomic pair-publication below.
         }
-#ifdef PS5_NATIVE
-        // Already-enqueued DMA staging belongs to its existing pending slots.
-        // Only the extra swizzle batch allocated below may be discarded on
-        // failed publication; never lose or duplicate earlier DMA reservations.
-        const size_t initial_staging_count = uncommitted_async_buffers.size();
-        bool batch_published = false;
-        SCOPE_EXIT {
-            if (!batch_published) {
-                while (uncommitted_async_buffers.size() > initial_staging_count) {
-                    runtime.FreeDeferredStagingBuffer(uncommitted_async_buffers.back());
-                    uncommitted_async_buffers.pop_back();
-                }
-            }
-        };
-#endif
         size_t total_size_bytes = 0;
         size_t last_async_buffer_id = uncommitted_async_buffers.size();
         bool any_none_dma = false;
         for (PendingDownload& download_info : download_ids) {
             if (download_info.is_swizzle) {
-#ifdef PS5_NATIVE
-                // Both 64-byte alignment and batch accumulation must fit in
-                // size_t BEFORE staging allocation. An overflow would make a
-                // mapped buffer look large enough for a smaller, wrapped batch.
-                const size_t bytes = slot_images[download_info.object_id].unswizzled_size_bytes;
-                constexpr size_t max_bytes = (std::numeric_limits<size_t>::max)();
-                if (bytes > max_bytes - 63) {
-                    throw std::bad_alloc{};
-                }
-                const size_t aligned_bytes = Common::AlignUp(bytes, size_t{64});
-                if (aligned_bytes > max_bytes - total_size_bytes) {
-                    throw std::bad_alloc{};
-                }
-                total_size_bytes += aligned_bytes;
-#else
                 total_size_bytes +=
                     Common::AlignUp(slot_images[download_info.object_id].unswizzled_size_bytes, 64);
-#endif
                 any_none_dma = true;
                 download_info.async_buffer_id = last_async_buffer_id;
             }
@@ -1612,15 +1294,6 @@ void TextureCache<P>::CommitAsyncFlushes() {
 
         if (any_none_dma) {
             auto download_map = runtime.DownloadStagingBuffer(total_size_bytes, true);
-#ifdef PS5_NATIVE
-            // The pinned staging handle does not own its pool reservation.
-            // If command recording or queue growth fails, keep this buffer
-            // GPU-safe in the deferred pool and leave the commit retryable.
-            bool staging_transferred = false;
-            SCOPE_EXIT {
-                if (!staging_transferred) runtime.FreeDeferredStagingBuffer(download_map);
-            };
-#endif
             for (const PendingDownload& download_info : download_ids) {
                 if (download_info.is_swizzle) {
                     Image& image = slot_images[download_info.object_id];
@@ -1630,31 +1303,10 @@ void TextureCache<P>::CommitAsyncFlushes() {
                 }
             }
             uncommitted_async_buffers.emplace_back(download_map);
-#ifdef PS5_NATIVE
-            staging_transferred = true;
-#endif
         }
 
-#ifdef PS5_NATIVE
-        // Publish the buffers and their identifiers as one logical pair.
-        // A rejected second deque insertion must restore the first queue
-        // before allowing another batch to reuse these staging indices.
-        async_buffers.emplace_back(std::move(uncommitted_async_buffers));
-        try {
-            committed_downloads.emplace_back(std::move(uncommitted_downloads));
-        } catch (...) {
-            uncommitted_async_buffers = std::move(async_buffers.back());
-            async_buffers.pop_back();
-            throw;
-        }
-        batch_published = true;
-        uncommitted_async_buffers.clear();
-        uncommitted_downloads.clear();
-        return;
-#else
         async_buffers.emplace_back(std::move(uncommitted_async_buffers));
         uncommitted_async_buffers.clear();
-#endif
     }
     committed_downloads.emplace_back(std::move(uncommitted_downloads));
     uncommitted_downloads.clear();
@@ -1674,86 +1326,10 @@ void TextureCache<P>::PopAsyncFlushes() {
     if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
         const auto& download_ids = committed_downloads.front();
         if (download_ids.empty()) {
-#ifdef PS5_NATIVE
-            // An empty async batch can still own deferred staging handles
-            // after an interrupted DMA or an empty pair publication.
-            // StagingBufferRef is non-owning: dequeueing it is not a free.
-            for (auto& buffer : async_buffers.front()) {
-                runtime.FreeDeferredStagingBuffer(buffer);
-            }
-#endif
             committed_downloads.pop_front();
             async_buffers.pop_front();
             return;
         }
-#ifdef PS5_NATIVE
-        // Keep staging queued until the entire guest download is consumed.
-        // Save only offsets (usually <= 4), not a full vector of handles.
-        auto& download_map = async_buffers.front();
-        boost::container::small_vector<size_t, 4> remaining_offsets;
-        remaining_offsets.reserve(download_map.size());
-        for (const auto& buffer : download_map) {
-            remaining_offsets.push_back(buffer.offset);
-        }
-        // Reserve deferred returns BEFORE guest writes. On any failure,
-        // discard only newly queued returns and retry the intact batch.
-        const size_t previous_death_count = async_buffers_death_ring.size();
-        bool batch_consumed = false;
-        SCOPE_EXIT {
-            if (!batch_consumed) {
-                while (async_buffers_death_ring.size() > previous_death_count) {
-                    async_buffers_death_ring.pop_back();
-                }
-            }
-        };
-        for (const auto& buffer : download_map) {
-            async_buffers_death_ring.emplace_back(buffer);
-        }
-        for (size_t i = download_ids.size(); i > 0; --i) {
-            const auto& download_info = download_ids[i - 1];
-            if (download_info.async_buffer_id >= download_map.size()) {
-                throw std::bad_alloc{};
-            }
-            const auto& download_buffer = download_map[download_info.async_buffer_id];
-            auto& offset = remaining_offsets[download_info.async_buffer_id];
-            if (!download_buffer.buffer || offset > download_buffer.mapped_span.size()) {
-                throw std::bad_alloc{};
-            }
-            if (download_info.is_swizzle) {
-                const ImageBase& image = slot_images[download_info.object_id];
-                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
-                const size_t bytes = image.unswizzled_size_bytes;
-                if (bytes > (std::numeric_limits<size_t>::max)() - 63) {
-                    throw std::bad_alloc{};
-                }
-                const size_t aligned = Common::AlignUp(bytes, size_t{64});
-                if (aligned > offset) {
-                    throw std::bad_alloc{};
-                }
-                offset -= aligned;
-                std::span<u8> download_span = download_buffer.mapped_span.subspan(offset);
-                SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, download_span,
-                             swizzle_data_buffer);
-            } else {
-                const BufferDownload& buffer_info = slot_buffer_downloads[download_info.object_id];
-                if (buffer_info.size > download_buffer.mapped_span.size() - offset) {
-                    throw std::bad_alloc{};
-                }
-                std::span<u8> download_span = download_buffer.mapped_span.subspan(offset);
-                gpu_memory->WriteBlockUnsafe(buffer_info.address, download_span.data(),
-                                             buffer_info.size);
-            }
-        }
-        // Do not erase DMA slots until every guest write has succeeded.
-        for (const auto& download_info : download_ids) {
-            if (!download_info.is_swizzle) {
-                slot_buffer_downloads.erase(download_info.object_id);
-            }
-        }
-        committed_downloads.pop_front();
-        async_buffers.pop_front();
-        batch_consumed = true;
-#else
         auto download_map = std::move(async_buffers.front());
         for (size_t i = download_ids.size(); i > 0; i--) {
             auto& download_info = download_ids[i - 1];
@@ -1779,7 +1355,6 @@ void TextureCache<P>::PopAsyncFlushes() {
         }
         committed_downloads.pop_front();
         async_buffers.pop_front();
-#endif
     } else {
         const auto& download_ids = committed_downloads.front();
         if (download_ids.empty()) {
@@ -1928,41 +1503,10 @@ void TextureCache<P>::DownloadImageIntoBuffer(typename TextureCache<P>::Image* i
     if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
         const BufferDownload new_buffer_download{address, size};
         auto slot = slot_buffer_downloads.insert(new_buffer_download);
-#ifdef PS5_NATIVE
-        // If staging or command submission fails, the DMA must not remain
-        // registered as a completed/pending guest-memory download.
-        bool pending_recorded = false;
-        bool staging_recorded = false;
-        bool download_submitted = false;
-        SCOPE_EXIT {
-            if (!download_submitted) {
-                if (staging_recorded) {
-                    runtime.FreeDeferredStagingBuffer(uncommitted_async_buffers.back());
-                    uncommitted_async_buffers.pop_back();
-                }
-                if (pending_recorded) uncommitted_downloads.pop_back();
-                slot_buffer_downloads.erase(slot);
-            }
-        };
-#endif
         const PendingDownload new_download{false, uncommitted_async_buffers.size(), slot};
         uncommitted_downloads.emplace_back(new_download);
-#ifdef PS5_NATIVE
-        pending_recorded = true;
-#endif
         auto download_map = runtime.DownloadStagingBuffer(size, true);
-#ifdef PS5_NATIVE
-        try {
-            uncommitted_async_buffers.emplace_back(download_map);
-        } catch (...) {
-            // A non-owning staging handle still needs a deferred pool return.
-            runtime.FreeDeferredStagingBuffer(download_map);
-            throw;
-        }
-        staging_recorded = true;
-#else
         uncommitted_async_buffers.emplace_back(download_map);
-#endif
         std::array buffers{
             buffer,
             download_map.buffer,
@@ -1972,9 +1516,6 @@ void TextureCache<P>::DownloadImageIntoBuffer(typename TextureCache<P>::Image* i
             download_map.offset,
         };
         image->DownloadMemory(buffers, buffer_offsets, copies);
-#ifdef PS5_NATIVE
-        download_submitted = true;
-#endif
     } else {
         image->DownloadMemory(buffer, buffer_offset, copies);
     }
@@ -1986,60 +1527,28 @@ void TextureCache<P>::RefreshContents(Image& image, ImageId image_id) {
         // Only upload modified images
         return;
     }
-#ifdef PS5_NATIVE
-    // A previous asynchronous upload still owns this image. Guest CPU
-    // writes must remain dirty until that decode completes; otherwise
-    // another RefreshContents could clear CpuModified and queue an older
-    // revision behind the in-flight job, leaving HUD pixels stale.
-    if (True(image.flags & ImageFlagBits::IsDecoding)) {
-        return;
-    }
-#endif
 
 #ifdef PS5_NATIVE
     ::Eden::Performance::CachePhaseTimer upload_phase{
         ::Eden::Performance::CachePhase::TextureCpuRefresh};
 #endif
     image.flags &= ~ImageFlagBits::CpuModified;
-#ifdef PS5_NATIVE
-    // Synchronous upload failure must not leave the CPU image incorrectly clean.
-    bool upload_completed = false;
-    SCOPE_EXIT {
-        if (!upload_completed) {
-            if (True(image.flags & ImageFlagBits::Tracked)) {
-                UntrackImage(image, image_id);
-            }
-            image.flags |= ImageFlagBits::CpuModified;
-        }
-    };
-#endif
 
     TrackImage(image, image_id);
 
     if (image.info.num_samples > 1 && !runtime.CanUploadMSAA()) {
         LOG_WARNING(HW_GPU, "MSAA image uploads are not implemented");
         runtime.TransitionImageLayout(image);
-#ifdef PS5_NATIVE
-        upload_completed = true;  // Intentional unsupported MSAA fallback.
-#endif
         return;
     }
     if (True(image.flags & ImageFlagBits::AsynchronousDecode)) {
         QueueAsyncDecode(image, image_id);
-#ifdef PS5_NATIVE
-        upload_completed = true;  // Decode handoff accepted.
-#endif
         return;
     }
 
     const bool gpu_unswizzle_enabled = Settings::values.gpu_unswizzle_enabled.GetValue();
 
     if (gpu_unswizzle_enabled &&
-#ifdef PS5_NATIVE
-        // Live GPU setting can enable unswizzle after cache construction;
-        // zero-sized chunks or batches cannot submit any GPU slices.
-        swizzle_chunk_size != 0 && swizzle_slices_per_batch != 0 &&
-#endif
         IsPixelFormatBCn(image.info.format) &&
         image.info.type == ImageType::e3D &&
         image.info.resources.levels == 1 &&
@@ -2048,53 +1557,11 @@ void TextureCache<P>::RefreshContents(Image& image, ImageId image_id) {
         False(image.flags & ImageFlagBits::GpuModified)) {
 
         QueueAsyncUnswizzle(image, image_id);
-#ifdef PS5_NATIVE
-        upload_completed = true;  // Unswizzle handoff accepted.
-#endif
         return;
     }
-#ifdef PS5_NATIVE
-    // F07: isolate staging allocation, CPU decode/unswizzle and the required
-    // upload barrier within the existing 1-in-16 sampled refresh.
-    // No lock, image flag, command order or guest-visible upload is changed.
-    ::Eden::Performance::CachePhaseTimer staging_phase{
-        ::Eden::Performance::CachePhase::TextureUploadStaging};
-#endif
-#ifdef PS5_NATIVE
-    try {
-#endif
-#ifdef PS5_NATIVE
-    const size_t upload_size = MapSizeBytes(image);
-    auto staging = runtime.UploadStagingBuffer(upload_size);
-    if (!staging.buffer || staging.mapped_span.size_bytes() < upload_size) {
-        // No valid image bytes can be uploaded from an incomplete mapping.
-        // The existing rollback scope guard retains CpuModified for retry.
-        return;
-    }
-#else
     auto staging = runtime.UploadStagingBuffer(MapSizeBytes(image));
-#endif
-#ifdef PS5_NATIVE
-    staging_phase.Stop();
-    ::Eden::Performance::CachePhaseTimer contents_phase{
-        ::Eden::Performance::CachePhase::TextureUploadContents};
-#endif
     UploadImageContents(image, staging);
-#ifdef PS5_NATIVE
-    contents_phase.Stop();
-    ::Eden::Performance::CachePhaseTimer barrier_phase{
-        ::Eden::Performance::CachePhase::TextureUploadBarrier};
-#endif
     runtime.InsertUploadMemoryBarrier();
-#ifdef PS5_NATIVE
-    barrier_phase.Stop();
-    upload_completed = true;
-    } catch (const std::bad_alloc&) {
-        // A transient staging/CPU conversion OOM must not abort the GPU owner.
-        // The existing scope guard untracks and keeps the revision dirty.
-        return;
-    }
-#endif
 }
 
 template <class P>
@@ -2104,16 +1571,8 @@ void TextureCache<P>::UploadImageContents(Image& image, StagingBuffer& staging) 
     const GPUVAddr gpu_addr = image.gpu_addr;
 
     if (True(image.flags & ImageFlagBits::AcceleratedUpload)) {
-#ifdef PS5_NATIVE
-        // A pooled staging buffer may be power-of-two rounded and expose
-        // more mapped bytes than the image requested. Do not read unrelated
-        // guest memory or waste CPU DMA time filling the unused tail.
-        gpu_memory->ReadBlock(gpu_addr, mapped_span.data(), MapSizeBytes(image),
-                              VideoCommon::CacheType::NoTextureCache);
-#else
         gpu_memory->ReadBlock(gpu_addr, mapped_span.data(), mapped_span.size_bytes(),
                               VideoCommon::CacheType::NoTextureCache);
-#endif
         const auto uploads = FullUploadSwizzles(image.info);
         runtime.AccelerateImageUpload(image, staging, FixSmallVectorADL(uploads), 0, 0);
         return;
@@ -2201,21 +1660,7 @@ ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
     const bool native_bgr = runtime.HasNativeBgr();
     const bool flexible_formats = True(options & RelaxedOptions::Format);
     ImageId image_id{};
-#ifdef PS5_NATIVE
-    // Keep the first highest-tick match during the existing region walk:
-    // no candidate vector, no second texture-cache slot scan under its mutex.
-    u64 newest_candidate_tick{};
-    bool has_candidate = false;
-    const auto SelectCandidate = [&](ImageId id, const ImageBase& image) {
-        if (!has_candidate || newest_candidate_tick < image.modification_tick) {
-            image_id = id;
-            newest_candidate_tick = image.modification_tick;
-            has_candidate = true;
-        }
-    };
-#else
     boost::container::small_vector<ImageId, 8> image_ids;
-#endif
     const auto lambda = [&](ImageId existing_image_id, ImageBase& existing_image) {
         if (True(existing_image.flags & ImageFlagBits::Remapped)) {
             return false;
@@ -2229,32 +1674,19 @@ ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
                 existing.pitch == info.pitch &&
                 IsPitchLinearSameSize(existing, info, strict_size) &&
                 IsViewCompatible(existing.format, info.format, broken_views, native_bgr)) {
-                #ifdef PS5_NATIVE
-                SelectCandidate(existing_image_id, existing_image);
-                #else
                 image_id = existing_image_id;
                 image_ids.push_back(existing_image_id);
-                #endif
                 return !flexible_formats && existing.format == info.format;
             }
         } else if (IsSubresource(info, existing_image, gpu_addr, options, broken_views,
                                  native_bgr)) {
-            #ifdef PS5_NATIVE
-            SelectCandidate(existing_image_id, existing_image);
-            #else
             image_id = existing_image_id;
             image_ids.push_back(existing_image_id);
-            #endif
             return !flexible_formats && existing_image.info.format == info.format;
         }
         return false;
     };
     ForEachImageInRegion(*cpu_addr, CalculateGuestSizeInBytes(info), lambda);
-#ifdef PS5_NATIVE
-    // A strict less-than comparison preserves the first equal-tick match,
-    // including ForEachImageInRegion's existing exact-match early exit.
-    return image_id;
-#else
     if (image_ids.size() <= 1) [[likely]] {
         return image_id;
     }
@@ -2264,7 +1696,6 @@ ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
         return image_a.modification_tick < image_b.modification_tick;
     };
     return *std::ranges::max_element(image_ids, image_ids_compare);
-#endif
 }
 
 template <class P>
@@ -2348,53 +1779,15 @@ u64 TextureCache<P>::GetScaledImageSizeBytes(const ImageBase& image) {
 template <class P>
 void TextureCache<P>::QueueAsyncDecode(Image& image, ImageId image_id) {
     UNIMPLEMENTED_IF(False(image.flags & ImageFlagBits::Converted));
-#ifdef PS5_NATIVE
-    // Dynamic HUD revisions can enqueue many decodes per second. Quiet
-    // releases need no per-texture INFO formatting or log queue traffic.
-    if (::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)) {
-        LOG_INFO(HW_GPU, "Queuing async texture decode");
-    }
-#else
     LOG_INFO(HW_GPU, "Queuing async texture decode");
-#endif
 
-#ifdef PS5_NATIVE
-    // Never strand IsDecoding or a pending decode entry if preparation or
-    // worker queue admission throws. Preserve an already active decode.
-    const bool was_decoding = True(image.flags & ImageFlagBits::IsDecoding);
-    AsyncDecodeContext* incomplete_decode{};
-    bool decode_admitted = false;
-    SCOPE_EXIT {
-        if (!decode_admitted) {
-            if (!was_decoding) {
-                image.flags &= ~ImageFlagBits::IsDecoding;
-            }
-            if (incomplete_decode && !async_decodes.empty() &&
-                async_decodes.back().get() == incomplete_decode) {
-                async_decodes.pop_back();
-            }
-        }
-    };
-#endif
     image.flags |= ImageFlagBits::IsDecoding;
     auto decode = std::make_unique<AsyncDecodeContext>();
     auto* decode_ptr = decode.get();
-#ifdef PS5_NATIVE
-    incomplete_decode = decode_ptr;
-#endif
     decode->image_id = image_id;
     async_decodes.push_back(std::move(decode));
 
-#ifdef PS5_NATIVE
-    // UnswizzleImage writes each copy's destination bytes before ConvertImage
-    // reads them. Avoid zero-filling the entire intermediate texture under
-    // the texture-cache mutex; the move-only scratch buffer is accepted by
-    // Common::UniqueFunction in the asynchronous decode worker queue.
-    Common::ScratchBuffer<u8> local_unswizzle_data_buffer;
-    local_unswizzle_data_buffer.resize_destructive(image.unswizzled_size_bytes);
-#else
     std::vector<u8> local_unswizzle_data_buffer(image.unswizzled_size_bytes, 0);
-#endif
     Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::UnsafeRead> swizzle_data(*gpu_memory, image.gpu_addr, image.guest_size_bytes, &swizzle_data_buffer);
     auto copies = UnswizzleImage(*gpu_memory, image.gpu_addr, image.info, swizzle_data, local_unswizzle_data_buffer);
     const size_t out_size = MapSizeBytes(image);
@@ -2402,31 +1795,16 @@ void TextureCache<P>::QueueAsyncDecode(Image& image, ImageId image_id) {
     auto func = [out_size, copies, info = image.info,
                  input = std::move(local_unswizzle_data_buffer),
                  async_decode = decode_ptr]() mutable {
-#ifdef PS5_NATIVE
-        try {
-#endif
-            async_decode->decoded_data.resize_destructive(out_size);
-            std::span copies_span{copies.data(), copies.size()};
-            ConvertImage(input, info, async_decode->decoded_data, copies_span);
+        async_decode->decoded_data.resize_destructive(out_size);
+        std::span copies_span{copies.data(), copies.size()};
+        ConvertImage(input, info, async_decode->decoded_data, copies_span);
 
-            std::unique_lock lock{async_decode->mutex};
-            async_decode->copies = std::move(copies);
-            async_decode->complete = true;
-#ifdef PS5_NATIVE
-        } catch (...) {
-            // Preserve worker liveness after a conversion/allocation failure.
-            // A zero-length completed decode is a retryable failed revision;
-            // TickAsyncDecode drops it without uploading partial HUD pixels.
-            std::unique_lock lock{async_decode->mutex};
-            async_decode->decoded_data.resize_destructive(0);
-            async_decode->complete = true;
-        }
-#endif
+        // TODO: Do we need this lock?
+        std::unique_lock lock{async_decode->mutex};
+        async_decode->copies = std::move(copies);
+        async_decode->complete = true;
     };
     texture_decode_worker.QueueWork(std::move(func));
-#ifdef PS5_NATIVE
-    decode_admitted = true;
-#endif
 }
 
 template <class P>
@@ -2435,302 +1813,65 @@ void TextureCache<P>::QueueAsyncUnswizzle(Image& image, ImageId image_id) {
         return;
     }
 
-#ifndef PS5_NATIVE
     image.flags |= ImageFlagBits::IsDecoding;
-#endif
-    // Native: commit IsDecoding only after successful queue admission.
-    // A throwing allocation must not leave a permanently pending image.
+
     unswizzle_queue.push_back({
         .image_id = image_id,
         .info = image.info
     });
-#ifdef PS5_NATIVE
-    image.flags |= ImageFlagBits::IsDecoding;
-#endif
 }
 
 template <class P>
 void TextureCache<P>::TickAsyncDecode() {
-#ifdef PS5_NATIVE
-    // Usually no async decode is pending. Skip frame-local upload tracking
-    // and completion machinery entirely until the worker queues a context.
-    if (async_decodes.empty()) {
-        return;
-    }
-#endif
     bool has_uploads{};
-#ifdef PS5_NATIVE
-    // TickFrame holds texture_cache.mutex: cap completed async uploads so
-    // a burst of HUD textures cannot occupy the entire cache lock in one
-    // frame. Work not processed this tick retains its decode context.
-    constexpr size_t kMaxCompletedDecodesPerTick = 4;
-    // Invalid/stale decodes must not consume the four REAL upload slots.
-    // Still cap retirements to keep the texture mutex responsive on a burst.
-    constexpr size_t kMaxRetiredDecodesPerTick = 16;
-    size_t completed_decodes = 0;
-    size_t retired_decodes = 0;
-    // Keep every successfully submitted native texture ID in fixed storage:
-    // a rejected visibility barrier must invalidate the whole upload batch.
-    std::array<ImageId, kMaxCompletedDecodesPerTick> submitted_images{};
-    size_t submitted_count = 0;
-#endif
     auto i = async_decodes.begin();
     while (i != async_decodes.end()) {
         auto* async_decode = i->get();
-#ifdef PS5_NATIVE
-        // The worker publishes decoded bytes with the atomic completion flag.
-        // Poll unfinished decodes without contending on its mutex each frame.
-        if (!async_decode->complete.load(std::memory_order_acquire)) {
-            ++i;
-            continue;
-        }
-        if (completed_decodes == kMaxCompletedDecodesPerTick ||
-            retired_decodes == kMaxRetiredDecodesPerTick) {
-            break;
-        }
-#endif
-#ifdef PS5_NATIVE
-        // The worker publishes completion before releasing its mutex. Do
-        // not block texture_cache.mutex just because its final handoff is
-        // still locked: retry this completed item on the following frame.
-        std::unique_lock lock{async_decode->mutex, std::try_to_lock};
-        if (!lock.owns_lock()) {
-            ++i;
-            continue;
-        }
-        ++retired_decodes;
-#else
         std::unique_lock lock{async_decode->mutex};
-#endif
-#ifndef PS5_NATIVE
         if (!async_decode->complete) {
             ++i;
             continue;
         }
-#endif
         Image& image = slot_images[async_decode->image_id];
-#ifdef PS5_NATIVE
-        // A texture may have been remapped or resized while decode was queued.
-        // Do not copy the old revision beyond its current staging allocation.
-        const size_t expected_size = MapSizeBytes(image);
-        if (async_decode->decoded_data.size() == 0 ||
-            async_decode->decoded_data.size() != expected_size ||
-            True(image.flags & ImageFlagBits::CpuModified) ||
-            True(image.flags & ImageFlagBits::Remapped)) {
-            // A guest CPU revision OR remapping invalidates decoded bytes,
-            // even when dimensions have not changed (dynamic HUD).
-            // Retain CpuModified so the current mapping can be refreshed.
-            image.flags &= ~ImageFlagBits::IsDecoding;
-            image.flags |= ImageFlagBits::CpuModified;
-            if (True(image.flags & ImageFlagBits::Tracked)) {
-                UntrackImage(image, async_decode->image_id);
-            }
-            // Erasing the context destroys its mutex. Drop our lock first.
-            lock.unlock();
-            i = async_decodes.erase(i);
-            continue;
-        }
-        // Upload staging may fail after the decode worker completed.
-        // Never leave IsDecoding stuck or copy into an undersized buffer.
-        auto staging = [&]() -> decltype(runtime.UploadStagingBuffer(expected_size)) {
-            try {
-                return runtime.UploadStagingBuffer(expected_size);
-            } catch (...) {
-                return {};
-            }
-        }();
-        if (!staging.buffer || staging.mapped_span.size() < expected_size) {
-            image.flags &= ~ImageFlagBits::IsDecoding;
-            image.flags |= ImageFlagBits::CpuModified;
-            if (True(image.flags & ImageFlagBits::Tracked)) {
-                UntrackImage(image, async_decode->image_id);
-            }
-            lock.unlock();
-            i = async_decodes.erase(i);
-            continue;
-        }
-#else
         auto staging = runtime.UploadStagingBuffer(MapSizeBytes(image));
-#endif
         std::memcpy(staging.mapped_span.data(), async_decode->decoded_data.data(),
                     async_decode->decoded_data.size());
-#ifdef PS5_NATIVE
-        // A failed GPU submission must not strand a completed worker decode.
-        // Staging here is non-deferred; the pool owns its lifetime. Keep the
-        // source image dirty so a later refresh can upload a fresh revision.
-        try {
-#endif
         image.UploadMemory(staging, FixSmallVectorADL(async_decode->copies));
-#ifdef PS5_NATIVE
-        } catch (...) {
-            image.flags &= ~ImageFlagBits::IsDecoding;
-            image.flags |= ImageFlagBits::CpuModified;
-            if (True(image.flags & ImageFlagBits::Tracked)) {
-                UntrackImage(image, async_decode->image_id);
-            }
-            lock.unlock();
-            i = async_decodes.erase(i);
-            continue;
-        }
-#endif
         image.flags &= ~ImageFlagBits::IsDecoding;
         has_uploads = true;
-#ifdef PS5_NATIVE
-        submitted_images[submitted_count++] = async_decode->image_id;
-        ++completed_decodes;
-#endif
-        // The context owns async_decode->mutex. Unlock before destroying it.
-        lock.unlock();
         i = async_decodes.erase(i);
     }
     if (has_uploads) {
-#ifdef PS5_NATIVE
-        try {
-#endif
-            runtime.InsertUploadMemoryBarrier();
-#ifdef PS5_NATIVE
-        } catch (...) {
-            // Re-upload current guest revisions after a rejected visibility
-            // barrier. All decoder contexts were unlocked/erased above.
-            for (size_t j = 0; j < submitted_count; ++j) {
-                const ImageId id = submitted_images[j];
-                Image& image = slot_images[id];
-                image.flags |= ImageFlagBits::CpuModified;
-                if (True(image.flags & ImageFlagBits::Tracked)) {
-                    UntrackImage(image, id);
-                }
-            }
-        }
-#endif
+        runtime.InsertUploadMemoryBarrier();
     }
 }
 
 template <class P>
 void TextureCache<P>::TickAsyncUnswizzle() {
     if (unswizzle_queue.empty()) {
-#ifdef PS5_NATIVE
-        // Do not carry the prior batch's 4-frame cooldown across an idle
-        // period. A future texture is a fresh request, not a queued batch.
-        current_unswizzle_frame = 0u;
-#endif
         return;
     }
 
-#ifndef PS5_NATIVE
     if(current_unswizzle_frame > 0) {
         current_unswizzle_frame--;
         return;
     }
-#endif
 
     PendingUnswizzle& task = unswizzle_queue.front();
     Image& image = slot_images[task.image_id];
-#ifdef PS5_NATIVE
-    // This task may span several frames. A new CPU write or guest remap
-    // invalidates its staged bytes even when texture dimensions do not change.
-    // Abandon the old content before dispatching another GPU upload batch.
-    if (True(image.flags & (ImageFlagBits::CpuModified | ImageFlagBits::Remapped)) ||
-        swizzle_chunk_size == 0 || swizzle_slices_per_batch == 0) {
-        if (task.initialized) {
-            // Previously submitted batches may still be on the GPU worker.
-            // Return their source buffer using the EXISTING deferred free.
-            runtime.FreeDeferredStagingBuffer(task.staging_buffer);
-        }
-        image.flags |= ImageFlagBits::CpuModified;
-        if (True(image.flags & ImageFlagBits::Tracked)) {
-            UntrackImage(image, task.image_id);
-        }
-        image.flags &= ~ImageFlagBits::IsDecoding;
-        unswizzle_queue.pop_front();
-        current_unswizzle_frame = 0u;
-        // No throttling after cancellation: the replacement can be queued
-        // as soon as RefreshContents observes the retained CPU modification.
-        return;
-    }
-#endif
-
-#ifdef PS5_NATIVE
-    if(current_unswizzle_frame > 0) {
-        current_unswizzle_frame--;
-        return;
-    }
-#endif
 
     if (!task.initialized) {
         task.total_size = MapSizeBytes(image);
-#ifndef PS5_NATIVE
         task.staging_buffer = runtime.UploadStagingBuffer(task.total_size, true);
-#endif
 
         const auto& info = image.info;
         const u32 bytes_per_block = BytesPerBlock(info.format);
         const u32 width_blocks = Common::DivCeil(info.size.width, 4u);
         const u32 height_blocks = Common::DivCeil(info.size.height, 4u);
 
-#ifdef PS5_NATIVE
-        // Widen BEFORE multiplying: an overflowing u32 stride can become 0
-        // and trigger a division by zero in the multi-frame upload below.
-        const size_t stride = static_cast<size_t>(width_blocks) * bytes_per_block;
-#else
         const u32 stride = width_blocks * bytes_per_block;
-#endif
         const u32 aligned_height = height_blocks;
-#ifdef PS5_NATIVE
-        const bool slice_overflow =
-            aligned_height != 0 && stride > std::numeric_limits<size_t>::max() / aligned_height;
-        task.bytes_per_slice = slice_overflow ? 0 : stride * aligned_height;
-        // The current staging allocation must hold complete 3D slices.
-        // Reject zero, overflow and misaligned guest sizes before ANY read or
-        // accelerated upload; an incomplete final slice can overrun staging.
-        const bool invalid_slices =
-            task.bytes_per_slice == 0 || task.bytes_per_slice > task.total_size ||
-            task.total_size % task.bytes_per_slice != 0 ||
-            // This accelerated path admits one layer/level of 3D BCn;
-            // extra slices are as invalid as missing ones. Otherwise
-            // depth - z_start can underflow in the last upload batch.
-            task.total_size / task.bytes_per_slice != static_cast<size_t>(info.size.depth);
-        if (invalid_slices) {
-            // No GPU staging exists yet; reject invalid geometry without
-            // reserving a potentially huge upload buffer.
-            image.flags |= ImageFlagBits::CpuModified;
-            if (True(image.flags & ImageFlagBits::Tracked)) {
-                UntrackImage(image, task.image_id);
-            }
-            image.flags &= ~ImageFlagBits::IsDecoding;
-            unswizzle_queue.pop_front();
-            current_unswizzle_frame = 0u;
-            return;
-        }
-#else
         task.bytes_per_slice = static_cast<size_t>(stride) * aligned_height;
-#endif
-#ifdef PS5_NATIVE
-        // A rejected/short staging allocation must not pin IsDecoding or
-        // permit guest DMA reads into an incomplete mapped GPU upload.
-        auto staging = [&]() -> decltype(runtime.UploadStagingBuffer(task.total_size, true)) {
-            try {
-                return runtime.UploadStagingBuffer(task.total_size, true);
-            } catch (...) {
-                return {};
-            }
-        }();
-        if (!staging.buffer || staging.mapped_span.size() < task.total_size) {
-            // A valid deferred buffer may have been returned with a short
-            // mapping. Release it through the existing GPU-tick mechanism.
-            if (staging.buffer) {
-                runtime.FreeDeferredStagingBuffer(staging);
-            }
-            image.flags |= ImageFlagBits::CpuModified;
-            if (True(image.flags & ImageFlagBits::Tracked)) {
-                UntrackImage(image, task.image_id);
-            }
-            image.flags &= ~ImageFlagBits::IsDecoding;
-            unswizzle_queue.pop_front();
-            current_unswizzle_frame = 0u;
-            return;
-        }
-        task.staging_buffer = staging;
-#endif
         task.last_submitted_offset = 0;
         task.initialized = true;
     }
@@ -2743,44 +1884,12 @@ void TextureCache<P>::TickAsyncUnswizzle() {
 
         if (remaining > swizzle_chunk_size) {
             copy_amount = (copy_amount / task.bytes_per_slice) * task.bytes_per_slice;
-            if (copy_amount == 0) {
-#ifdef PS5_NATIVE
-                // One BCn-3D slice can exceed the per-frame read budget.
-                // Stage a partial slice; dispatch still waits until a full
-                // slice is ready. Do not copy >budget under texture mutex.
-                // A zero budget can occur if GPU unswizzle is toggled
-                // after cache construction. Retain forward progress instead
-                // of pinning IsDecoding forever on a zero-byte read.
-                copy_amount = swizzle_chunk_size != 0
-                    ? (std::min)(swizzle_chunk_size, remaining)
-                    : (std::min)(task.bytes_per_slice, remaining);
-#else
-                copy_amount = task.bytes_per_slice;
-#endif
-            }
+            if (copy_amount == 0) copy_amount = task.bytes_per_slice;
         }
 
-#ifdef PS5_NATIVE
-        try {
-#endif
         gpu_memory->ReadBlock(image.gpu_addr + task.current_offset,
                               task.staging_buffer.mapped_span.data() + task.current_offset,
                               copy_amount);
-#ifdef PS5_NATIVE
-        } catch (...) {
-            // A failed guest read invalidates the partial GPU staging data.
-            // Deferred release also protects batches submitted earlier.
-            runtime.FreeDeferredStagingBuffer(task.staging_buffer);
-            image.flags |= ImageFlagBits::CpuModified;
-            if (True(image.flags & ImageFlagBits::Tracked)) {
-                UntrackImage(image, task.image_id);
-            }
-            image.flags &= ~ImageFlagBits::IsDecoding;
-            unswizzle_queue.pop_front();
-            current_unswizzle_frame = 0u;
-            return;
-        }
-#endif
         task.current_offset += copy_amount;
     }
 
@@ -2794,27 +1903,8 @@ void TextureCache<P>::TickAsyncUnswizzle() {
         const u32 z_count = (std::min)(slices_to_process, image.info.size.depth - z_start);
 
         if (z_count > 0) {
-#ifdef PS5_NATIVE
-            try {
-#endif
             const auto uploads = FullUploadSwizzles(task.info);
             runtime.AccelerateImageUpload(image, task.staging_buffer, FixSmallVectorADL(uploads), z_start, z_count);
-#ifdef PS5_NATIVE
-            } catch (...) {
-                // Upload setup/recording may reject a batch. Submitted GPU
-                // commands keep their source alive through the deferred pool;
-                // reject the incomplete old revision and retry from guest data.
-                runtime.FreeDeferredStagingBuffer(task.staging_buffer);
-                image.flags |= ImageFlagBits::CpuModified;
-                if (True(image.flags & ImageFlagBits::Tracked)) {
-                    UntrackImage(image, task.image_id);
-                }
-                image.flags &= ~ImageFlagBits::IsDecoding;
-                unswizzle_queue.pop_front();
-                current_unswizzle_frame = 0u;
-                return;
-            }
-#endif
             task.last_submitted_offset += (static_cast<size_t>(z_count) * task.bytes_per_slice);
         }
     }
@@ -2828,14 +1918,8 @@ void TextureCache<P>::TickAsyncUnswizzle() {
         image.flags &= ~ImageFlagBits::IsDecoding;
         unswizzle_queue.pop_front();
 
-#ifdef PS5_NATIVE
-        // Throttle back-to-back queued uploads, not a later newly queued
-        // texture after an otherwise empty GPU frame.
-        current_unswizzle_frame = unswizzle_queue.empty() ? 0u : 4u;
-#else
         // Wait 4 frames to process the next entry
         current_unswizzle_frame = 4u;
-#endif
     }
 }
 
@@ -3192,23 +2276,7 @@ ImageId TextureCache<P>::FindDMAImage(const ImageInfo& info, GPUVAddr gpu_addr) 
         }
     }
     ImageId image_id{};
-#ifdef PS5_NATIVE
-    // The DMA match scan already visits every candidate under the cache lock.
-    // Keep the freshest image as it arrives; avoid an inline vector and a
-    // second max_element pass on a HUD/texture DMA lookup. Equal ticks retain
-    // the FIRST candidate, exactly as max_element does.
-    // Keep the winning timestamp in a register. Reloading the previous
-    // slot image for every candidate adds a cache lookup under texture lock.
-    std::uint64_t newest_candidate_tick = 0;
-    const auto consider_candidate = [&](ImageId id, const ImageBase& image) {
-        if (!image_id || newest_candidate_tick < image.modification_tick) {
-            image_id = id;
-            newest_candidate_tick = image.modification_tick;
-        }
-    };
-#else
     boost::container::small_vector<ImageId, 8> image_ids;
-#endif
     const auto lambda = [&](ImageId existing_image_id, ImageBase& existing_image) {
         if (True(existing_image.flags & ImageFlagBits::Remapped)) {
             return false;
@@ -3221,29 +2289,18 @@ ImageId TextureCache<P>::FindDMAImage(const ImageInfo& info, GPUVAddr gpu_addr) 
                 existing.pitch == info.pitch &&
                 IsPitchLinearSameSize(existing, info, strict_size) &&
                 IsViewCompatible(existing.format, info.format, false, true)) {
-#ifdef PS5_NATIVE
-                consider_candidate(existing_image_id, existing_image);
-#else
                 image_id = existing_image_id;
                 image_ids.push_back(existing_image_id);
-#endif
                 return true;
             }
         } else if (IsSubCopy(info, existing_image, gpu_addr)) {
-#ifdef PS5_NATIVE
-            consider_candidate(existing_image_id, existing_image);
-#else
             image_id = existing_image_id;
             image_ids.push_back(existing_image_id);
-#endif
             return true;
         }
         return false;
     };
     ForEachImageInRegion(*cpu_addr, CalculateGuestSizeInBytes(info), lambda);
-#ifdef PS5_NATIVE
-    return image_id;
-#else
     if (image_ids.size() <= 1) [[likely]] {
         return image_id;
     }
@@ -3253,7 +2310,6 @@ ImageId TextureCache<P>::FindDMAImage(const ImageInfo& info, GPUVAddr gpu_addr) 
         return image_a.modification_tick < image_b.modification_tick;
     };
     return *std::ranges::max_element(image_ids, image_ids_compare);
-#endif
 }
 
 template <class P>
@@ -3262,13 +2318,8 @@ std::pair<u32, u32> TextureCache<P>::PrepareDmaImage(ImageId dst_id, GPUVAddr ba
     const auto& image = slot_images[dst_id];
     const auto base = image.TryFindBase(base_addr);
     PrepareImage(dst_id, mark_as_modified, false);
-#ifndef PS5_NATIVE
     const auto& new_image = slot_images[dst_id];
     lru_cache.Touch(new_image.lru_index, frame_tick);
-#else
-    // PrepareImage already touched the same LRU entry at the end; a second
-    // immediate touch adds list work under the texture mutex for DMA uploads.
-#endif
     return std::make_pair(base->level, base->layer);
 }
 
@@ -3859,6 +2910,7 @@ void TextureCache<P>::MarkModification(ImageBase& image) noexcept {
 
 template <class P>
 void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
+    boost::container::small_vector<const AliasedImage*, 8> aliased_images;
     Image& image = slot_images[image_id];
 #ifdef PS5_NATIVE
     // MarkModification advances the cache-wide tick monotonically. If this
@@ -3867,14 +2919,7 @@ void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
     if (image.modification_tick == modification_tick) {
         return;
     }
-    // No alias graph means no scan/copy, regardless of the global tick.
-    // Avoid constructing the vector and sampling the cache lock phase.
-    if (image.aliased_images.empty()) {
-        return;
-    }
 #endif
-    // Avoid constructing the inline alias vector on a common no-op HUD lookup.
-    boost::container::small_vector<const AliasedImage*, 8> aliased_images;
 #ifdef PS5_NATIVE
     ::Eden::Performance::CachePhaseTimer alias_scan_phase{
         ::Eden::Performance::CachePhase::TextureAliasScan};
@@ -3899,14 +2944,7 @@ void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
     ::Eden::Performance::CachePhaseTimer alias_copy_phase{
         ::Eden::Performance::CachePhase::TextureAliasCopy};
 #endif
-#ifdef PS5_NATIVE
-    // If neither this image nor its newer aliases are rescaled, the copy
-    // path does not use can_rescale. Avoid recursive alias-graph scans and
-    // lazy rescalability bookkeeping while the texture mutex is held.
-    const bool can_rescale = any_rescaled && ImageCanRescale(image);
-#else
     const bool can_rescale = ImageCanRescale(image);
-#endif
     if (any_rescaled) {
         if (can_rescale) {
             ScaleUp(image);
@@ -3918,19 +2956,11 @@ void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
     if (any_modified) {
         image.flags |= ImageFlagBits::GpuModified;
     }
-#ifdef PS5_NATIVE
-    // Most alias refreshes have only one newer source. Sorting a single
-    // entry cannot change upload ordering and adds work under texture lock.
-    if (aliased_images.size() > 1) {
-#endif
     std::ranges::sort(aliased_images, [this](const AliasedImage* lhs, const AliasedImage* rhs) {
         const ImageBase& lhs_image = slot_images[lhs->id];
         const ImageBase& rhs_image = slot_images[rhs->id];
         return lhs_image.modification_tick < rhs_image.modification_tick;
     });
-#ifdef PS5_NATIVE
-    }
-#endif
     const auto& resolution = Settings::values.resolution_info;
     for (const AliasedImage* const aliased : aliased_images) {
         if (!resolution.active || !any_rescaled) {

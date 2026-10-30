@@ -48,12 +48,6 @@
 #endif
 
 namespace Vulkan {
-#ifdef PS5_NATIVE
-// Graphics first-use builds and cold shader translation share this counter.
-// Export it from Vulkan, not the anonymous namespace, for native LTO.
-extern std::atomic<unsigned> pending_first_use_compute_builds;
-std::atomic<unsigned> pending_first_use_graphics_builds{0};
-#endif
 namespace {
 using boost::container::small_vector;
 using boost::container::static_vector;
@@ -67,7 +61,11 @@ using VideoCore::Surface::PixelFormatFromDepthFormat;
 using VideoCore::Surface::PixelFormatFromRenderTargetFormat;
 
 constexpr size_t NUM_STAGES = Maxwell::MaxShaderStage;
-// The shared first-use graphics counter is defined at Vulkan namespace scope.
+#ifdef PS5_NATIVE
+// Counts cold first-use Vulkan graphics builds, not draws or cached pipelines.
+// Only the optional fast-first dev profile updates it; normal gameplay pays nothing.
+std::atomic<unsigned> pending_first_use_graphics_builds{0};
+#endif
 
 // Descriptor-heavy titles can exceed small_vector's inline capacity on
 // thousands of draws per second. Keep the spare heap capacity on the GPU
@@ -345,11 +343,6 @@ GraphicsPipeline::GraphicsPipeline(
         stage_infos[stage] = *info;
         // Immutable shader-stage metadata: avoid repeated empty descriptor
         // walks while both guest buffer/texture caches are locked.
-        // BindHostStageBuffers walks only uniform, storage, texture buffers.
-        stage_has_host_buffer_bindings[stage] = info->constant_buffer_mask != 0 ||
-            !info->storage_buffers_descriptors.empty() ||
-            !info->texture_buffer_descriptors.empty() ||
-            !info->image_buffer_descriptors.empty();
         stage_has_image_bindings[stage] =
             !info->texture_buffer_descriptors.empty() ||
             !info->image_buffer_descriptors.empty() ||
@@ -424,20 +417,7 @@ GraphicsPipeline::GraphicsPipeline(
             Validate();
             if (::Eden::DevVulkan::fast_first_pipelines && fast_first_runtime) {
                 MakePipeline(render_pass, VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT);
-#ifdef PS5_NATIVE
-                // This speculative rebuild is not required by the first-use
-                // pipeline. Admission/OOM failures must not turn an already
-                // valid gameplay pipeline into a failed builder invocation.
-                try {
-                    QueueOptimizedPipeline(render_pass);
-                } catch (const std::exception& error) {
-                    LOG_WARNING(Render_Vulkan, "Optional pipeline rebuild queue rejected: {}", error.what());
-                } catch (...) {
-                    LOG_WARNING(Render_Vulkan, "Optional pipeline rebuild queue rejected: unknown exception");
-                }
-#else
                 QueueOptimizedPipeline(render_pass);
-#endif
             } else {
                 MakePipeline(render_pass);
             }
@@ -487,33 +467,8 @@ GraphicsPipeline::GraphicsPipeline(
 }
 
 void GraphicsPipeline::AddTransition(GraphicsPipeline* transition) {
-#ifdef PS5_NATIVE
-    // Both appends are optional memoization. The canonical graphics cache
-    // already owns the target and will resolve a missing edge on demand.
-    try {
-        transition_keys.push_back(transition->key);
-    } catch (...) {
-        return;
-    }
-#else
     transition_keys.push_back(transition->key);
-#endif
-#ifdef PS5_NATIVE
-    // Both arrays must describe the same transition index. An allocation
-    // failure while appending the pointer must not leave an orphaned key:
-    // Next() would later index past transitions and corrupt a guest draw.
-    try {
-        transitions.push_back(transition);
-    } catch (...) {
-        // Transition memoization is optional. The primary graphics cache
-        // already owns the pipeline; a later lookup can use its slow path.
-        // Do not abort a guest draw solely because this edge could not fit.
-        transition_keys.pop_back();
-        return;
-    }
-#else
     transitions.push_back(transition);
-#endif
 }
 
 #ifdef PS5_NATIVE
@@ -676,10 +631,11 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
     ASSERT(views.size() == num_image_elements);
     ASSERT(samplers.size() == num_textures);
     stage_texture_phase.Stop();
-    // FillImageViews resets the image-deletion/retry latch even for no images.
-    // Keep that state transition for graphics as for compute; no TIC is resolved.
-    { ::Eden::Performance::CachePhaseTimer cost{
-        ::Eden::Performance::CachePhase::TextureFillImageViews};
+    // The empty image set cannot resolve, retire or rescale any view.
+    // Preserve render-target refresh and feedback-loop processing below.
+    if (!views.empty()) {
+        ::Eden::Performance::CachePhaseTimer cost{
+            ::Eden::Performance::CachePhase::TextureFillImageViews};
         texture_cache.FillImageViews(std::span(views.data(), views.size()), false,
                                      Spec::has_images);
     }
@@ -775,9 +731,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
     const auto prepare_stage{[&](size_t stage) LAMBDA_FORCEINLINE {
         // Detailed-only 1/16 sampling: separate host buffer synchronization
         // from image descriptor push work inside the existing paired locks.
-        // Skip three guaranteed-empty bitset walks under paired GPU locks.
-        // Image descriptors are handled independently and remain untouched.
-        if (stage_has_host_buffer_bindings[stage]) {
+        {
             ::Eden::Performance::CachePhaseTimer phase{
                 ::Eden::Performance::CachePhase::StageHostBuffers};
             buffer_cache.BindHostStageBuffers(stage);
@@ -827,9 +781,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
         texture_cache.CheckFeedbackLoop(std::span<const VideoCommon::ImageViewInOut>{views.data(),
                                                                                      views.size()});
     }
-    // The first-use VkPipeline may fail while a separately rebuilt optimized
-    // variant succeeds. Keep that recovered handle eligible for guest draws.
-    if (IsBuilt() && !pipeline && !optimized_ready.load(std::memory_order_acquire)) {
+    if (IsBuilt() && !pipeline) {
         ::Eden::Performance::RecordGraphicsDrawDrop(
             ::Eden::Performance::GraphicsDrawDrop::BuiltPipelineFailed);
         return false;
@@ -886,58 +838,20 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
     // Match the builder's release publication before using its pipeline handle.
     // A ready fast path skips the queued wait, so relaxed is insufficient here.
     if (!is_built.load(std::memory_order_acquire)) {
-#ifdef PS5_NATIVE
-        // The Vulkan worker processes command chunks in FIFO order. Once a
-        // readiness wait precedes the first draw, later draws for this same
-        // pipeline are already ordered behind it. GPU-owner thread only.
-        if (!first_use_wait_recorded) {
-#endif
         // Wait for the pipeline to be built
         scheduler.Record([this](vk::CommandBuffer) {
             // Builder published the pipeline before this ordered GPU callback.
             // Acquire its completion without taking a redundant build mutex.
             // An unfinished build still follows the original condition wait.
             if (is_built.load(std::memory_order_acquire)) return;
-#ifdef PS5_NATIVE
-            // Publication can race the initial fast acquire. The build owner
-            // holds this mutex when publishing, so a false result here means
-            // the condition wait must actually release the lock.
-            // Include contention acquiring build_mutex in the keyed
-            // diagnostic; a genuinely blocked condvar wait must not omit
-            // the GPU worker's preceding mutex delay.
-            ::Eden::Performance::PipelineWaitTrace keyed_wait;
-            std::unique_lock lock{build_mutex};
-            keyed_wait.MarkLockAcquired();
-            if (is_built.load(std::memory_order_acquire)) return;
-#endif
             auto timer = Eden::Performance::VulkanTimer(16);
-            // Only unfinished builds contribute a worker wait; no clock in quiet mode.
-            ::Eden::Performance::CachePhaseTimer pipeline_ready_wait{
-                ::Eden::Performance::CachePhase::GraphicsPipelineWait,
-                ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)};
-#ifndef PS5_NATIVE
             std::unique_lock lock{build_mutex};
-#endif
             build_condvar.wait(lock, [this] { return is_built.load(std::memory_order::relaxed); });
-#ifdef PS5_NATIVE
-            lock.unlock();
-            pipeline_ready_wait.Stop();
-            timer.reset(); // Exclude diagnostic print I/O from VulkanTimer(16).
-            keyed_wait.Complete("graphics", key.Hash(), CanExecuteDraw());
-#endif
         });
-#ifdef PS5_NATIVE
-        // Commit only after the callback was successfully enqueued.
-        first_use_wait_recorded = true;
-        }
-#endif
     }
     const bool is_rescaling{texture_cache.IsRescaling()};
     const bool update_rescaling{scheduler.UpdateRescaling(is_rescaling)};
-    // Publish a ready optimized variant at the next draw even if this
-    // logical pipeline stays selected across multiple command buffers.
-    const bool optimized_at_record = optimized_ready.load(std::memory_order_acquire);
-    const bool bind_pipeline{scheduler.UpdateGraphicsPipeline(this, optimized_at_record)};
+    const bool bind_pipeline{scheduler.UpdateGraphicsPipeline(this)};
     const bool bind_descriptor_buffer{
         descriptor_set_layout && uses_descriptor_buffer &&
         scheduler.UpdateDescriptorBufferChunk(descriptor_buffer_chunk)};
@@ -957,8 +871,6 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
             (num_descriptor_entries != 0 &&
              std::memcmp(last_descriptor_payload.data(), entries,
                          num_descriptor_entries * sizeof(DescriptorUpdateEntry)) != 0);
-#ifndef PS5_NATIVE
-        // The legacy desktop path preserves its existing early cache memo.
         if (update_descriptors) {
             if (num_descriptor_entries != 0) {
                 last_descriptor_payload.assign(entries, entries + num_descriptor_entries);
@@ -966,9 +878,8 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
                 last_descriptor_payload.clear();
             }
         }
-#endif
     }
-    scheduler.Record([this, descriptor_data, bind_pipeline, optimized_at_record, update_descriptors,
+    scheduler.Record([this, descriptor_data, bind_pipeline, update_descriptors,
                       descriptor_buffer_offset, descriptor_buffer_chunk, bind_descriptor_buffer,
                       rescaling_data = rescaling.Data(), is_rescaling, update_rescaling,
                       uses_render_area = render_area.uses_render_area,
@@ -978,35 +889,18 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
                 descriptor_buffer_ring.BindingInfo(descriptor_buffer_chunk)};
             cmdbuf.BindDescriptorBuffersEXT(binding_info);
         }
-        // The worker must verify validity on EVERY draw: a failed pipeline
-        // remains selected by the guest scheduler after the first attempted
-        // bind. Otherwise subsequent draws can accidentally reuse a previous
-        // shader while the optimized rebuild is still missing.
-        const bool use_optimized = optimized_ready.load(std::memory_order_acquire);
-#ifdef PS5_NATIVE
-        // Reset BEFORE any early failure. Availability observed by a later
-        // Draw callback is insufficient: its ConfigureDraw may already have
-        // returned without binding anything when the rebuild was still cold.
-        worker_draw_bind_valid = false;
-#endif
-        if (!pipeline && !use_optimized) {
-            ::Eden::Performance::RecordGraphicsDrawDrop(
-                ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
-            return;
-        }
-        // Optimization may publish between GPU-owner recording and ordered
-        // Vulkan-worker execution. Rebind the newly published handle in this
-        // callback even when the owner recorded no pipeline-key transition.
-        if (bind_pipeline || (use_optimized != optimized_at_record)) {
+        if (bind_pipeline) {
+            if (!pipeline) {
+                // An asynchronously-built pipeline can fail after Configure's
+                // earlier IsBuilt()/pipeline check but before this worker
+                // callback executes. Count the actual GPU draw omission.
+                ::Eden::Performance::RecordGraphicsDrawDrop(
+                    ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
+                return;
+            }
             cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                use_optimized ? *optimized_pipeline : *pipeline);
+    optimized_ready.load(std::memory_order_acquire) ? *optimized_pipeline : *pipeline);
         }
-#ifdef PS5_NATIVE
-        // This callback precedes its Draw/DrawIndirect in scheduler FIFO.
-        // A late optimized-ready signal cannot retroactively validate an
-        // earlier skipped BindPipeline.
-        worker_draw_bind_valid = true;
-#endif
         cmdbuf.PushConstants(*pipeline_layout, VK_SHADER_STAGE_ALL_GRAPHICS,
                              RESCALING_LAYOUT_WORDS_OFFSET, sizeof(rescaling_data),
                              rescaling_data.data());
@@ -1040,44 +934,11 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
                                       descriptor_set, nullptr);
         }
     });
-#ifdef PS5_NATIVE
-    // Descriptor-set updates are encoded by the Vulkan worker. If Record
-    // throws before accepting the draw, retaining the old memo forces the
-    // next HUD draw to publish its changed descriptors instead of reusing
-    // an unsubmitted descriptor set.
-    if (descriptor_set_layout && !uses_push_descriptor && !uses_descriptor_buffer &&
-        update_descriptors) {
-        const auto* const entries = static_cast<const DescriptorUpdateEntry*>(descriptor_data);
-        if (num_descriptor_entries != 0) {
-            last_descriptor_payload.assign(entries, entries + num_descriptor_entries);
-        } else {
-            last_descriptor_payload.clear();
-        }
-    }
-#endif
     return true;
 }
 
 
 namespace {
-#ifdef PS5_NATIVE
-// Only first-use pipelines are mandatory. Cap queued + running speculative
-// driver rebuilds so HUD shader bursts cannot accumulate unbounded work.
-constexpr unsigned kMaxQueuedOptionalOptimizations = 16;
-std::atomic<unsigned> pending_optional_optimizations{0};
-
-bool ReserveOptionalOptimizationSlot() noexcept {
-    unsigned pending = pending_optional_optimizations.load(std::memory_order_relaxed);
-    while (pending < kMaxQueuedOptionalOptimizations) {
-        if (pending_optional_optimizations.compare_exchange_weak(
-                pending, pending + 1, std::memory_order_acq_rel,
-                std::memory_order_relaxed)) {
-            return true;
-        }
-    }
-    return false;
-}
-#endif
 Common::ThreadWorker& OptimizeWorker() {
     static Common::ThreadWorker worker(1, "VkPipelineOptimize");
     return worker;
@@ -1085,16 +946,6 @@ Common::ThreadWorker& OptimizeWorker() {
 } // namespace
 
 GraphicsPipeline::~GraphicsPipeline() {
-    // The initial Vulkan builder also captures 'this'. It can still be in
-    // the first-use queue when the pipeline cache evicts this object.
-    // Join its completion BEFORE reading optimize_state, which the builder
-    // may create when it schedules an optional optimized rebuild.
-    if (!is_built.load(std::memory_order_acquire)) {
-        std::unique_lock build_lock{build_mutex};
-        build_condvar.wait(build_lock, [this] {
-            return is_built.load(std::memory_order_acquire);
-        });
-    }
     const auto state = optimize_state;
     if (!state) return;
     std::unique_lock lock{state->mutex};
@@ -1103,42 +954,9 @@ GraphicsPipeline::~GraphicsPipeline() {
 }
 
 void GraphicsPipeline::QueueOptimizedPipeline(VkRenderPass render_pass) {
-#ifdef PS5_NATIVE
-    // A skipped OPTIONAL rebuild keeps the already-built first-use pipeline.
-    // Reserve before allocations so an overloaded worker uses no extra memory.
-    if (!ReserveOptionalOptimizationSlot()) return;
-    bool optional_slot_handed_off = false;
-    SCOPE_EXIT {
-        if (!optional_slot_handed_off) {
-            pending_optional_optimizations.fetch_sub(1, std::memory_order_release);
-        }
-    };
-#endif
     optimize_state = std::make_shared<OptimizeState>();
     const auto state = optimize_state;
-    // An accepted optimization is in flight even while queued. Otherwise the
-    // owner can be destroyed before the worker begins, leaving a dangling 'this'.
-    {
-        std::scoped_lock lock{state->mutex};
-        state->running = true;
-    }
-    try {
-        OptimizeWorker().QueueWork([this, state, render_pass] {
-        // Always release a pending/active job, including early cancellation and exceptions.
-        struct CompletionGuard {
-            const std::shared_ptr<OptimizeState>& state;
-            ~CompletionGuard() {
-                {
-                    std::scoped_lock lock{state->mutex};
-                    state->running = false;
-                }
-                state->done.notify_all();
-#ifdef PS5_NATIVE
-                // Every accepted job releases its slot, including cancellation.
-                pending_optional_optimizations.fetch_sub(1, std::memory_order_release);
-#endif
-            }
-        } completion{state};
+    OptimizeWorker().QueueWork([this, state, render_pass] {
 #ifdef PS5_NATIVE
         ::Eden::Performance::ProbeSchedulerOnce("VkPipelineOptimize");
         // R444: Speculative rebuilds must not compete with first-use shaders.
@@ -1147,21 +965,7 @@ void GraphicsPipeline::QueueOptimizedPipeline(VkRenderPass render_pass) {
         // moment. This background-only wait takes no GPU/guest locks.
         // Checking cancellation on each cycle guarantees prompt title teardown
         // even when a first-use shader worker remains stuck.
-        // A momentarily empty builder queue is not an idle GPU frame.
-        // Require a brief QUIET period before any OPTIONAL driver rebuild:
-        // new HUD shaders appearing in a burst reset the countdown. This
-        // sleep is confined to the optimizer worker, never the GPU owner.
-        constexpr auto quiet_window = std::chrono::milliseconds(16);
-        auto quiet_since = std::chrono::steady_clock::now();
-        for (;;) {
-            const bool cold_build_pending =
-                pending_first_use_graphics_builds.load(std::memory_order_acquire) != 0 ||
-                pending_first_use_compute_builds.load(std::memory_order_acquire) != 0;
-            if (cold_build_pending) {
-                quiet_since = std::chrono::steady_clock::now();
-            } else if (std::chrono::steady_clock::now() - quiet_since >= quiet_window) {
-                break;
-            }
+        while (pending_first_use_graphics_builds.load(std::memory_order_acquire) != 0) {
             {
                 std::scoped_lock lock{state->mutex};
                 if (state->cancelled) return;
@@ -1172,14 +976,11 @@ void GraphicsPipeline::QueueOptimizedPipeline(VkRenderPass render_pass) {
         {
             std::scoped_lock lock{state->mutex};
             if (state->cancelled) return;
+            state->running = true;
         }
         try {
             MakePipeline(render_pass, 0, &optimized_pipeline);
-            // A non-throwing driver failure may still produce a null handle.
-            // Keep using the working first-use pipeline in that case.
-            if (optimized_pipeline) {
-                optimized_ready.store(true, std::memory_order_release);
-            }
+            optimized_ready.store(true, std::memory_order_release);
         } catch (const std::exception& exception) {
             // Keep the already-built, valid first-use pipeline after any
             // optimization failure. Completion must always release shutdown.
@@ -1187,22 +988,12 @@ void GraphicsPipeline::QueueOptimizedPipeline(VkRenderPass render_pass) {
         } catch (...) {
             LOG_WARNING(Render_Vulkan, "Optimized pipeline rebuild failed: unknown exception");
         }
-        });
-#ifdef PS5_NATIVE
-        // The queued worker now owns the slot. The caller's failure guard
-        // handles allocation/admission exceptions before this handoff.
-        optional_slot_handed_off = true;
-#endif
-    } catch (...) {
-        // QueueWork failed before the worker accepted ownership. Do not strand
-        // a pending flag that would make the destructor wait forever.
         {
             std::scoped_lock lock{state->mutex};
             state->running = false;
         }
         state->done.notify_all();
-        throw;
-    }
+    });
 }
 
 void GraphicsPipeline::MakePipeline(VkRenderPass render_pass, VkPipelineCreateFlags extra_flags,

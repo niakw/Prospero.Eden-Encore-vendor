@@ -58,14 +58,6 @@ template <class P>
 void BufferCache<P>::RunGarbageCollector() {
     const bool aggressive_gc = total_used_memory >= critical_memory;
     const u64 ticks_to_destroy = aggressive_gc ? 60 : 120;
-#ifdef PS5_NATIVE
-    // Before a buffer reaches the GC age, subtracting from this unsigned
-    // frame tick wraps to a huge LRU threshold. On startup/pressure bursts
-    // that wrongly evicts young buffers and can force guest downloads.
-    if (frame_tick < ticks_to_destroy) {
-        return;
-    }
-#endif
     int num_iterations = aggressive_gc ? 64 : 32;
     const auto clean_up = [this, &num_iterations](BufferId buffer_id) {
         if (num_iterations == 0) {
@@ -84,18 +76,6 @@ template <class P>
 void BufferCache<P>::TickFrame() {
     // Homebrew console apps don't create or bind any channels, so this will be nullptr.
     if (!channel_state) {
-#ifdef PS5_NATIVE
-        // The final channel can disappear while native Vulkan buffers and
-        // deferred staging remain alive. Advance the GPU lifetime scan and
-        // retirement rings even without uniform-cache statistics.
-        runtime.TickFrame(slot_buffers);
-        ++frame_tick;
-        delayed_destruction_ring.Tick();
-        for (auto& buffer : async_buffers_death_ring) {
-            runtime.FreeDeferredStagingBuffer(buffer);
-        }
-        async_buffers_death_ring.clear();
-#endif
         return;
     }
     runtime.TickFrame(slot_buffers);
@@ -105,14 +85,12 @@ void BufferCache<P>::TickFrame() {
                                  channel_state->uniform_cache_hits.end());
     const u32 shots = std::reduce(channel_state->uniform_cache_shots.begin(),
                                   channel_state->uniform_cache_shots.end());
-    // History shifts overlap their source ranges. Copy from the back so
-    // each previous interval is retained exactly once, even under -O2.
-    std::copy_backward(channel_state->uniform_cache_hits.begin(),
-                       channel_state->uniform_cache_hits.end() - 1,
-                       channel_state->uniform_cache_hits.end());
-    std::copy_backward(channel_state->uniform_cache_shots.begin(),
-                       channel_state->uniform_cache_shots.end() - 1,
-                       channel_state->uniform_cache_shots.end());
+    std::copy_n(channel_state->uniform_cache_hits.begin(),
+                channel_state->uniform_cache_hits.size() - 1,
+                channel_state->uniform_cache_hits.begin() + 1);
+    std::copy_n(channel_state->uniform_cache_shots.begin(),
+                channel_state->uniform_cache_shots.size() - 1,
+                channel_state->uniform_cache_shots.begin() + 1);
     channel_state->uniform_cache_hits[0] = 0;
     channel_state->uniform_cache_shots[0] = 0;
 
@@ -121,18 +99,7 @@ void BufferCache<P>::TickFrame() {
 
     // If we can obtain the memory info, use it instead of the estimate.
     if (runtime.CanReportMemoryUsage()) {
-#ifdef PS5_NATIVE
-        // Memory-budget queries use the driver while the buffer cache mutex
-        // is held. Under low pressure, probe on alternating frames; near
-        // the GC watermark, preserve every-frame sampling and prompt reclaim.
-        const bool near_gc_watermark =
-            total_used_memory >= minimum_memory - minimum_memory / 3;
-        if (near_gc_watermark || (frame_tick & 1u) == 0) {
-            total_used_memory = runtime.GetDeviceMemoryUsage();
-        }
-#else
         total_used_memory = runtime.GetDeviceMemoryUsage();
-#endif
     }
     if (total_used_memory >= minimum_memory) {
         RunGarbageCollector();
@@ -1830,16 +1797,7 @@ void BufferCache<P>::ChangeRegister(BufferId buffer_id) {
         total_used_memory += Common::AlignUp(size, 1024);
         buffer.setLRUID(lru_cache.Insert(buffer_id, frame_tick));
     } else {
-#ifdef PS5_NATIVE
-        // The driver budget snapshot is not an allocation ledger. A stale or
-        // smaller snapshot must not wrap unsigned usage to UINT64_MAX when
-        // removing a previously registered buffer (and trigger GC storms).
-        const u64 accounted_bytes = Common::AlignUp(size, 1024);
-        total_used_memory = total_used_memory >= accounted_bytes
-                                ? total_used_memory - accounted_bytes : 0;
-#else
         total_used_memory -= Common::AlignUp(size, 1024);
-#endif
         lru_cache.Free(buffer.getLRUID());
     }
     const DAddr device_addr_begin = buffer.CpuAddr();
