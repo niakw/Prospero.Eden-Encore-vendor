@@ -188,8 +188,12 @@ void Layer::RefreshResources(const Device& device, const Tegra::FramebufferConfi
     // a full-device WaitIdle or recreate the FXAA/SMAA pass on pitch changes.
     if (framebuffer.width == raw_width && framebuffer.height == raw_height &&
         framebuffer.pixel_format == pixel_format && !raw_images.empty()) {
-        for (const u64 tick : resource_ticks) {
-            scheduler.Wait(tick);
+        // All layer ticks share one monotonically increasing Vulkan GPU
+        // timeline. Waiting for the maximum retires every earlier user of
+        // the old upload staging buffer with one semaphore wait.
+        const auto last_tick = std::max_element(resource_ticks.begin(), resource_ticks.end());
+        if (last_tick != resource_ticks.end() && *last_tick != 0) {
+            scheduler.Wait(*last_tick);
         }
         CreateStagingBuffer(device, framebuffer);
         return;
@@ -246,9 +250,18 @@ void Layer::SetAntiAliasPass(const Device& device) {
 }
 
 void Layer::ReleaseRawImages() {
+#ifdef PS5_NATIVE
+    // On this single Vulkan GPU timeline, the latest presentation resource
+    // tick subsumes all preceding image uses, including out-of-order slots.
+    const auto last_tick = std::max_element(resource_ticks.begin(), resource_ticks.end());
+    if (last_tick != resource_ticks.end() && *last_tick != 0) {
+        scheduler.Wait(*last_tick);
+    }
+#else
     for (const u64 tick : resource_ticks) {
         scheduler.Wait(tick);
     }
+#endif
     raw_image_views.clear();
     raw_images.clear();
     buffer.reset();
