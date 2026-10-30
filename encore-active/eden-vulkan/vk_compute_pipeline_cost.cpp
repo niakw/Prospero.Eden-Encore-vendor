@@ -316,8 +316,9 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     const bool via_header_index{qmd.linked_tsc != 0};
 #ifdef PS5_NATIVE
     // Descriptor synchronization above fixes the TSC table for this dispatch.
-    // This bounded draw-local memo avoids duplicate sampler-table probes but
-    // NEVER carries sampler IDs across dispatches, remaps or channel switches.
+    // This dispatch-local memo preserves all 16 distinct sampler handles
+    // even when their low bits collide. No heap allocation or cross-dispatch
+    // reuse; an overflowing table resolves the handle normally.
     struct ComputeSamplerMemo {
         u32 handle{};
         VideoCommon::SamplerId id{};
@@ -325,13 +326,19 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     };
     std::array<ComputeSamplerMemo, 16> sampler_memo{};
     const auto resolve_sampler{[&](u32 handle) -> VideoCommon::SamplerId {
-        auto& entry = sampler_memo[handle & 15U];
-        if (!entry.valid || entry.handle != handle) {
+        const std::size_t first = (handle ^ (handle >> 4)) & 15U;
+        for (std::size_t offset = 0; offset < sampler_memo.size(); ++offset) {
+            auto& entry = sampler_memo[(first + offset) & 15U];
+            if (entry.valid) {
+                if (entry.handle == handle) return entry.id;
+                continue;
+            }
             entry.id = texture_cache.GetSamplerId(handle, true);
             entry.handle = handle;
             entry.valid = true;
+            return entry.id;
         }
-        return entry.id;
+        return texture_cache.GetSamplerId(handle, true);
     }};
 #endif
     const auto read_handle{[&](const auto& desc, u32 index) {
