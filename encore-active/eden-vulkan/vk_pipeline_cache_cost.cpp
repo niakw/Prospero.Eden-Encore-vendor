@@ -870,8 +870,15 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() {
         for (unsigned i = 0; i < recent_compute_pipelines.size(); ++i) {
             if (i == preferred_compute_positive) continue;
             const auto& recent = recent_compute_pipelines[i];
-            if (recent.pipeline && recent.key == key) {
-                preferred_compute_positive = i;
+            // Positive slots fill contiguously before the four-entry ring
+            // wraps. A cold lookup need not compare the unused tail.
+            if (!recent.pipeline) break;
+            if (recent.key == key) {
+                // With only two active shaders, the newest preferred slot
+                // handles one key and the other is always at most one probe
+                // away. Avoid a cache-line write on every A/B dispatch.
+                if (recent_compute_pipelines[2].pipeline)
+                    preferred_compute_positive = i;
                 return recent.pipeline;
             }
         }
