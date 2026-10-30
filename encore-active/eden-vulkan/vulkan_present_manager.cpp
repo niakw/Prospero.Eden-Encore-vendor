@@ -357,7 +357,16 @@ void PresentManager::WaitPresent() {
     // Wait for the present queue to be empty
     {
         std::unique_lock queue_lock{queue_mutex};
-        frame_cv.wait(queue_lock, [this] { return present_failure || (present_queue.empty() && !present_in_flight); });
+        // No drain waiter is needed when the queue is already idle.
+        // Register real waiters under queue_mutex before sleeping so the
+        // present worker can skip useless per-frame CV notifications.
+        if (!present_failure && (!present_queue.empty() || present_in_flight)) {
+            ++present_waiters;
+            frame_cv.wait(queue_lock, [this] {
+                return present_failure || (present_queue.empty() && !present_in_flight);
+            });
+            --present_waiters;
+        }
         if (present_failure) std::rethrow_exception(present_failure);
     }
 
@@ -398,11 +407,15 @@ void PresentManager::PresentThread(std::stop_token token) {
             // Publish completion only AFTER presentation and frame handoff.
             // Release swapchain mutex before reacquiring queue_mutex.
             lock.unlock();
+            bool notify_drainers{};
             {
                 std::lock_guard queue_lock{queue_mutex};
                 present_in_flight = false;
+                // A future WaitPresent sees an already idle queue under
+                // this same mutex; no wake is lost if nobody waits now.
+                notify_drainers = present_waiters != 0;
             }
-            frame_cv.notify_all();
+            if (notify_drainers) frame_cv.notify_all();
         }
     }
 }

@@ -102,6 +102,7 @@ private:
     std::mutex queue_mutex;
     std::mutex free_mutex;
     bool present_in_flight{}; // guarded by queue_mutex
+    std::size_t present_waiters{}; // drain waiters, guarded by queue_mutex
     std::exception_ptr present_failure;
     std::jthread present_thread;
     bool blit_supported;
