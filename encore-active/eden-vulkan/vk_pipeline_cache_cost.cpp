@@ -863,8 +863,17 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() {
     // probe. Four fixed owner-local entries cover common dispatch sequences,
     // while failed keys and development first-use tracing retain the map path.
     if (!::Eden::DevVulkan::trace_pipelines) {
-        for (const auto& recent : recent_compute_pipelines) {
-            if (recent.pipeline && recent.key == key) return recent.pipeline;
+        // Most dispatches reuse the last key. Probe its slot first rather
+        // than scanning four hints on each call after several shaders load.
+        const auto& preferred = recent_compute_pipelines[preferred_compute_positive];
+        if (preferred.pipeline && preferred.key == key) return preferred.pipeline;
+        for (unsigned i = 0; i < recent_compute_pipelines.size(); ++i) {
+            if (i == preferred_compute_positive) continue;
+            const auto& recent = recent_compute_pipelines[i];
+            if (recent.pipeline && recent.key == key) {
+                preferred_compute_positive = i;
+                return recent.pipeline;
+            }
         }
     }
 #endif
@@ -947,6 +956,7 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() {
         auto& recent = recent_compute_pipelines[next_compute_positive];
         recent.key = key;
         recent.pipeline = pipeline.get();
+        preferred_compute_positive = next_compute_positive;
         next_compute_positive = (next_compute_positive + 1) & 3u;
     }
 #endif

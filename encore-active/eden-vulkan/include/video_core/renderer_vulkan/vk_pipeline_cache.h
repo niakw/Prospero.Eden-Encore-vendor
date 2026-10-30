@@ -174,6 +174,7 @@ private:
     };
     std::array<ComputePositive, 4> recent_compute_pipelines{};
     unsigned next_compute_positive{};
+    unsigned preferred_compute_positive{};
 #endif
     ::Common::unordered_map<GraphicsPipelineCacheKey, std::unique_ptr<GraphicsPipeline>> graphics_cache;
 #ifdef PS5_NATIVE
