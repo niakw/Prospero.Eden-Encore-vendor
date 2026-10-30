@@ -226,8 +226,22 @@ void Layer::RefreshResources(const Device& device, const Tegra::FramebufferConfi
 }
 
 void Layer::SetAntiAliasPass(const Device& device) {
+#ifdef PS5_NATIVE
+    const auto requested_aa = filters.get_anti_aliasing();
+    // Disabled AA has no GPU resources to rebuild. The old guard skipped
+    // only live FXAA/SMAA and reconstructed the monostate on every frame,
+    // including when the filter remained disabled across thousands of draws.
+    // A resize resets a live pass to monostate, so FXAA/SMAA still rebuild.
+    if (anti_alias_setting == requested_aa &&
+        (!std::holds_alternative<std::monostate>(anti_alias) ||
+         (requested_aa != Settings::AntiAliasing::Fxaa &&
+          requested_aa != Settings::AntiAliasing::Smaa))) {
+        return;
+    }
+#else
     if (!std::holds_alternative<std::monostate>(anti_alias) && anti_alias_setting == filters.get_anti_aliasing())
         return;
+#endif
 
 #ifdef PS5_NATIVE
     if (!std::holds_alternative<std::monostate>(anti_alias)) {
