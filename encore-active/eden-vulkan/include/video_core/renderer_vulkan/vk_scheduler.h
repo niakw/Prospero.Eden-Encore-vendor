@@ -50,6 +50,18 @@ public:
     /// Sends the current execution context to the GPU and waits for it to complete.
     void Finish(VkSemaphore signal_semaphore = {}, VkSemaphore wait_semaphore = {});
 
+    // NS2 N72 BEGIN: route sparse page binds through the same submit mutex
+    // used by the native Vulkan scheduler's ordinary graphics submissions.
+#ifdef EDEN_NS2_SPARSE_QUEUE_BRIDGE
+    [[nodiscard]] VkResult BindSparseImage(
+        VkImage image, vk::Span<VkSparseImageMemoryBind> tiles,
+        vk::Span<VkSparseMemoryBind> tails, VkFence completion,
+        VkSemaphore wait = VK_NULL_HANDLE,
+        VkSemaphore signal = VK_NULL_HANDLE);
+#endif
+    // NS2 N72 END
+
+
     /// Waits for the worker thread to finish executing everything. After this function returns it's
     /// safe to touch worker resources.
     void WaitWorker();
