@@ -196,6 +196,11 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     if (result2 != ResultStatus::Success) {
         return {result2, {}};
     }
+#ifdef EDEN_NS2_GUEST_COUNTER
+    // This is the real KProcess loader, unlike ProgramMetadata::Load used
+    // by title scanners. Set before its first guest NSO/JIT execution.
+    Eden::GuestCounter::SelectProgram(metadata.IsSwitch2(), Common::g_cpu_caps.tsc_frequency);
+#endif
     metadata.Print();
 
     // Enable NCE only for applications with 39-bit address space.
@@ -370,13 +375,6 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
         LOG_INFO(Loader, "NS2 KProcess ExeFS handoff pid={} entry={:#x} modules={}",
                  process.GetProcessId(), base_address, modules.size());
     }
-#ifdef EDEN_NS2_GUEST_COUNTER
-    // A library/cover scanner also calls ProgramMetadata::Load; it MUST
-    // NOT alter the counter of a game already running. Select the clock
-    // only for an actual KProcess launch after the complete ExeFS succeeded.
-    // Switch 1 resets the policy on the next title.
-    Eden::GuestCounter::SelectProgram(metadata.IsSwitch2(), Common::g_cpu_caps.tsc_frequency);
-#endif
     is_loaded = true;
     if (standalone) {
         title_id = metadata.GetTitleID();
