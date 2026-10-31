@@ -28,6 +28,9 @@
 #include "common/bit_util.h"
 #include "common/common_types.h"
 #include "common/cpu_features.h"
+#ifdef EDEN_NS2_GUEST_COUNTER
+#include "encore/guest_counter_policy.h"
+#endif
 #include "common/logging.h"
 
 #ifdef ARCHITECTURE_x86_64
@@ -271,6 +274,23 @@ std::chrono::milliseconds WallClock::GetTimeMS() const {
 }
 
 s64 WallClock::GetCNTPCT() const {
+#ifdef EDEN_NS2_GUEST_COUNTER
+    // Shared guest-clock policy: Nintendo's second-generation SDK converts
+    // CNT ticks using 31.25 MHz. Keep the original fast path for Switch 1.
+    if (Eden::GuestCounter::Rate() != Eden::GuestCounter::Switch1Hz) {
+        if (!invariant)
+            return static_cast<s64>(Eden::GuestCounter::NanosecondsToGuest(
+                static_cast<u64>(GetUptime())));
+        const u64 factor = Eden::GuestCounter::NativeFactor();
+        if (factor != 0)
+            return MultiplyHigh(GetUptime(), factor);
+        // A missing host clock calibration must not divide by zero or
+        // silently keep the wrong 19.2 MHz guest rate.
+        return MultiplyHigh(GetUptime(),
+                            GetFixedPoint64Factor(Eden::GuestCounter::Rate(),
+                                                  rdtsc_frequency));
+    }
+#endif
     if (!invariant)
         return GetUptime() * NsToCNTPCTRatio::num / NsToCNTPCTRatio::den;
     return MultiplyHigh(GetUptime(), cntpct_rdtsc_factor);
