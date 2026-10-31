@@ -198,7 +198,13 @@ Frame* PresentManager::GetRenderFrame() {
         ::Eden::Performance::DiagnosticTimer free_wait(
             ::Eden::Performance::gpu_present_free_wait);
         std::unique_lock lock{free_mutex};
-        free_cv.wait(lock, [this] { return present_failure || !free_queue.empty(); });
+        // Only sleepers need a free-frame wake. Register before releasing
+        // free_mutex in condition_variable::wait to avoid a lost notify.
+        if (free_queue.empty() && !present_failure) {
+            ++free_waiters;
+            free_cv.wait(lock, [this] { return present_failure || !free_queue.empty(); });
+            --free_waiters;
+        }
         if (present_failure) std::rethrow_exception(present_failure);
         frame = free_queue.front();
         free_queue.pop_front();
@@ -237,11 +243,13 @@ void PresentManager::Present(Frame* frame) {
         CopyToSwapchain(frame);
         // The synchronous presenter must obey GetRenderFrame's free_mutex
         // and wake a concurrent frame waiter just like PresentThread does.
+        bool wake_free_waiter{};
         {
             std::scoped_lock lock{free_mutex};
             free_queue.push_back(frame);
+            wake_free_waiter = free_waiters != 0;
         }
-        free_cv.notify_one();
+        if (wake_free_waiter) free_cv.notify_one();
     }
 }
 
@@ -398,13 +406,15 @@ void PresentManager::PresentThread(std::stop_token token) {
             CopyToSwapchain(frame);
 
             // Free the frame for reuse
+            bool wake_free_waiter{};
             {
                 std::scoped_lock fl{free_mutex};
                 free_queue.push_back(frame);
+                wake_free_waiter = free_waiters != 0;
             }
-            // Notify only after releasing free_mutex to avoid waking into
-            // an immediately contended queue lock.
-            free_cv.notify_one();
+            // Notify after releasing free_mutex, and only for an actual
+            // sleeping frame consumer. Never skip the error broadcast.
+            if (wake_free_waiter) free_cv.notify_one();
             // Publish completion only AFTER presentation and frame handoff.
             // Release swapchain mutex before reacquiring queue_mutex.
             lock.unlock();

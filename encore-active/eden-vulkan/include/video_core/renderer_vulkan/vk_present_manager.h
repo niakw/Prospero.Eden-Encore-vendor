@@ -101,6 +101,7 @@ private:
     std::mutex swapchain_mutex;
     std::mutex queue_mutex;
     std::mutex free_mutex;
+    std::size_t free_waiters{}; // guarded by free_mutex
     bool present_in_flight{}; // guarded by queue_mutex
     std::size_t present_waiters{}; // drain waiters, guarded by queue_mutex
     std::exception_ptr present_failure;
