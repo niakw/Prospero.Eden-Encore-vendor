@@ -31,6 +31,10 @@
 #include "common/settings.h"
 
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
+#ifdef EDEN_NS2_SPARSE_CACHE_PROBE
+#include "video_core/renderer_vulkan/ns2_sparse_cache_admission.h"
+#include "video_core/renderer_vulkan/ns2_sparse_bind_transaction.h"
+#endif
 #ifdef EDEN_NS2_VIEW_DIMENSION_GUARD
 #include "video_core/renderer_vulkan/ns2_view_type_guard.h"
 #endif
@@ -961,6 +965,57 @@ void BlitScale(Scheduler& scheduler, VkImage src_image, VkImage dst_image, const
     });
 }
 } // Anonymous namespace
+
+// NS2 N73 BEGIN: one real cache-side VkImage sparse admission/bind/retire probe.
+// The ordinary guest texture stays dense; this must be invoked explicitly from
+// the research/diagnostics caller, never from a per-frame upload or render.
+#ifdef EDEN_NS2_SPARSE_CACHE_PROBE
+bool TextureCacheRuntime::ProbeSparseImage(const VideoCommon::ImageInfo& info) {
+    if (!device.IsSparseResidencyImage2DSupported() ||
+        info.type != ImageType::e2D || info.resources.layers < 2) {
+        return false;
+    }
+    const auto image_ci = MakeImageCreateInfo(device, info);
+    // N64 creates the actual native VkImage with SPARSE_BINDING|RESIDENCY
+    // flags. The image format requirements are queried from THAT VkImage.
+    auto candidate = memory_allocator.CreateSparseImage(image_ci);
+    if (!candidate) {
+        return false;
+    }
+    const auto& logical = device.GetLogical();
+    const auto memory = logical.GetImageMemoryRequirements(*candidate);
+    const auto sparse_requirements = logical.GetSparseImageMemoryRequirements(*candidate);
+    const auto admission = Eden::NS2::Cache::AdmitSparseCacheImage(
+        image_ci, memory, sparse_requirements, device.GetDeviceLocalMemory(),
+        device.IsSparseResidencyImage2DSupported());
+    if (!admission.Accepted()) {
+        return false;
+    }
+    Eden::NS2::Eglantine::SparseLayerBudget budget(admission.spec);
+    const auto plan = budget.Plan(admission.complete_layers);
+    Eden::NS2::Eglantine::SparseBindOwner<MemoryAllocator> owner(
+        memory_allocator, budget, admission.spec);
+    const VkFenceCreateInfo fence_info{
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+    };
+    auto fence = logical.CreateFence(fence_info);
+    const VkResult bound = owner.Bind(
+        *candidate, memory, sparse_requirements, plan, scheduler, fence);
+    if (!owner.HasLiveBacking()) {
+        return false;
+    }
+    // Always retire even on a submission error or timeout. Never free VMA
+    // pages before device idle + destruction of the VkImage. A driver-lost
+    // failure deliberately retains backing in N69 to prevent UAF.
+    const bool retired = owner.RetireAfterDeviceIdle(logical, [&] {
+        candidate = {};
+    });
+    return bound == VK_SUCCESS && retired;
+}
+#endif
+// NS2 N73 END
 
 TextureCacheRuntime::TextureCacheRuntime(const Device& device_, Scheduler& scheduler_,
                                          MemoryAllocator& memory_allocator_,

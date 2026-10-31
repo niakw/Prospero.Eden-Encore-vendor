@@ -51,6 +51,12 @@ public:
                                  ComputePassDescriptorQueue& compute_pass_descriptor_queue);
 
     void Finish();
+#ifdef EDEN_NS2_SPARSE_CACHE_PROBE
+    // N73: native cache-side Vulkan sparse admission/bind/retire probe.
+    // Never replaces the dense guest texture or samples an unbound image.
+    [[nodiscard]] bool ProbeSparseImage(const VideoCommon::ImageInfo& info);
+#endif
+
 
     StagingBufferRef UploadStagingBuffer(size_t size, bool deferred = false);
 
