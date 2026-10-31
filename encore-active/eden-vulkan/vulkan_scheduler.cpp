@@ -293,31 +293,42 @@ void Scheduler::BeginRenderPassImpl(const Framebuffer* framebuffer, VkRenderPass
         GPU::Logging::GPULogger::GetInstance().LogRenderPassBegin(render_pass_info);
     }
 
-    std::array<VkClearValue, 9> values{};
-    // The Vulkan pointer below owns exactly these nine entries. Never publish
-    // the caller's unchecked clearValueCount after clipping the copy.
-    const u32 bounded_clear_value_count =
-        clear_values ? (std::min)(clear_value_count, static_cast<u32>(values.size())) : 0;
-    for (u32 i = 0; i < bounded_clear_value_count; ++i) {
-        values[i] = clear_values[i];
+    // Most ordinary draws start a render pass without any clear values.
+    // Do not zero/copy nine VkClearValue entries into every zero-clear
+    // deferred command. The exact same Vulkan begin-info path remains shared.
+    const auto record_pass = [this, renderpass, framebuffer_handle, render_area](
+                                 auto values, u32 bounded_clear_value_count) {
+        Record([renderpass, framebuffer_handle, render_area, values, bounded_clear_value_count](
+                   vk::CommandBuffer cmdbuf) {
+            const VkRenderPassBeginInfo renderpass_bi{
+                .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                .pNext = nullptr,
+                .renderPass = renderpass,
+                .framebuffer = framebuffer_handle,
+                .renderArea =
+                    {
+                        .offset = {.x = 0, .y = 0},
+                        .extent = render_area,
+                    },
+                .clearValueCount = bounded_clear_value_count,
+                .pClearValues = bounded_clear_value_count != 0 ? values.data() : nullptr,
+            };
+            cmdbuf.BeginRenderPass(renderpass_bi, VK_SUBPASS_CONTENTS_INLINE);
+        });
+    };
+    if (!clear_values || clear_value_count == 0) {
+        // Empty std::array specializes the queued closure down to the
+        // render-pass handles/extents; no nine-slot clear payload or copy.
+        record_pass(std::array<VkClearValue, 0>{}, 0);
+    } else {
+        std::array<VkClearValue, 9> values{};
+        const u32 bounded_clear_value_count =
+            (std::min)(clear_value_count, static_cast<u32>(values.size()));
+        for (u32 i = 0; i < bounded_clear_value_count; ++i) {
+            values[i] = clear_values[i];
+        }
+        record_pass(values, bounded_clear_value_count);
     }
-    Record([renderpass, framebuffer_handle, render_area, values, bounded_clear_value_count](
-               vk::CommandBuffer cmdbuf) {
-        const VkRenderPassBeginInfo renderpass_bi{
-            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-            .pNext = nullptr,
-            .renderPass = renderpass,
-            .framebuffer = framebuffer_handle,
-            .renderArea =
-                {
-                    .offset = {.x = 0, .y = 0},
-                    .extent = render_area,
-                },
-            .clearValueCount = bounded_clear_value_count,
-            .pClearValues = bounded_clear_value_count != 0 ? values.data() : nullptr,
-        };
-        cmdbuf.BeginRenderPass(renderpass_bi, VK_SUBPASS_CONTENTS_INLINE);
-    });
     num_renderpass_images = framebuffer->NumImages();
     renderpass_images = framebuffer->Images();
     renderpass_image_ranges = framebuffer->ImageRanges();
