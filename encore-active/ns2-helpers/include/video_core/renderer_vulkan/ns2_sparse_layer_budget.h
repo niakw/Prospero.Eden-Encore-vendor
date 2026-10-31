@@ -150,4 +150,116 @@ private:
     std::uint64_t layer_bytes_{},shared_tail_bytes_{},bound_bytes_{},generation_{};
     bool valid_{},poisoned_{},shared_tail_bound_{};
 };
+
+// N68: turn the N63 per-layer budget into concrete, bounded tile coordinates
+// and opaque mip-tail resource offsets. The native cache owner must allocate
+// every returned region via N62 and submit it via N66/N67 before budget.Commit.
+// This does not create Vulkan images or take ownership of GPU memory.
+struct SparseTileRegion {
+    std::uint32_t layer{}, level{}, x{}, y{}, width{}, height{};
+    std::uint64_t bytes{};
+};
+struct SparseMipTailRegion {
+    std::uint32_t layer{};
+    bool shared{};
+    std::uint64_t resource_offset{}, bytes{};
+};
+struct SparsePhysicalBindPlan {
+    std::vector<SparseTileRegion> tiles;
+    std::vector<SparseMipTailRegion> tails;
+    std::uint64_t backing_bytes{};
+    bool valid{};
+};
+[[nodiscard]] inline SparsePhysicalBindPlan MakeSparsePhysicalBindPlan(
+    const SparseImageSpec& spec, const SparseLayerBindPlan& logical,
+    std::uint64_t mip_tail_offset, std::uint64_t mip_tail_stride,
+    std::uint64_t virtual_image_bytes) {
+    SparsePhysicalBindPlan out{};
+    const SparseLayerBudget validated(spec);
+    if (!validated.Valid() || logical.status != SparsePlanStatus::Ready ||
+        logical.new_layers.empty() || !virtual_image_bytes ||
+        logical.new_layers.size() > spec.layers ||
+        !std::is_sorted(logical.new_layers.begin(), logical.new_layers.end()) ||
+        std::adjacent_find(logical.new_layers.begin(), logical.new_layers.end()) !=
+            logical.new_layers.end() ||
+        logical.new_layers.back() >= spec.layers ||
+        logical.bytes_new > spec.max_bound_bytes) return out;
+    const auto unit = spec.tile_alignment;
+    const auto max = (std::numeric_limits<std::uint64_t>::max)();
+    constexpr std::size_t max_tiles = 65536, max_tails = 4096;
+    const bool has_tail = spec.tail_first_lod < spec.levels;
+    if ((!has_tail && logical.bind_shared_tail) ||
+        (has_tail && !spec.single_mip_tail && logical.bind_shared_tail)) return out;
+    const std::uint64_t tail_span =
+        has_tail ? (spec.tail_bytes > max - (unit - 1) ? 0 :
+                    ((spec.tail_bytes + unit - 1) & ~(unit - 1))) : 0;
+    if (has_tail && (!tail_span || mip_tail_offset % unit ||
+        (!spec.single_mip_tail &&
+         (!mip_tail_stride || mip_tail_stride % unit ||
+          mip_tail_stride < tail_span)))) return out;
+    if (logical.layer_bytes == 0 && !logical.bind_shared_tail) return out;
+    // The computed geometry is not an alternative budget: require N63 agreement.
+    const auto first = validated.Plan(std::span<const std::uint32_t>{
+        logical.new_layers.data(), 1});
+    if (first.status != SparsePlanStatus::Ready ||
+        first.layer_bytes != logical.layer_bytes ||
+        first.shared_tail_bytes != logical.shared_tail_bytes) return out;
+    auto add_bytes = [&](std::uint64_t n) -> bool {
+        if (out.backing_bytes > max - n) return false;
+        out.backing_bytes += n;
+        return out.backing_bytes <= spec.max_bound_bytes;
+    };
+    for (const auto layer : logical.new_layers) {
+        for (std::uint32_t level = 0; level < spec.tail_first_lod; ++level) {
+            const auto w = (std::max)(std::uint32_t{1}, spec.width >> level);
+            const auto h = (std::max)(std::uint32_t{1}, spec.height >> level);
+            const auto nx = (static_cast<std::uint64_t>(w) + spec.tile_width - 1) /
+                            spec.tile_width;
+            const auto ny = (static_cast<std::uint64_t>(h) + spec.tile_height - 1) /
+                            spec.tile_height;
+            if (nx > max_tiles || ny > max_tiles ||
+                nx > (max_tiles - out.tiles.size()) / ny) return {};
+            for (std::uint64_t y = 0; y < ny; ++y) {
+                for (std::uint64_t x = 0; x < nx; ++x) {
+                    const auto tx = x * spec.tile_width, ty = y * spec.tile_height;
+                    if (tx > static_cast<std::uint64_t>(
+                            (std::numeric_limits<std::int32_t>::max)()) ||
+                        ty > static_cast<std::uint64_t>(
+                            (std::numeric_limits<std::int32_t>::max)()) ||
+                        !add_bytes(unit)) return {};
+                    out.tiles.push_back(SparseTileRegion{
+                        layer, level, static_cast<std::uint32_t>(tx),
+                        static_cast<std::uint32_t>(ty),
+                        static_cast<std::uint32_t>(
+                            (std::min)(static_cast<std::uint64_t>(w)-tx,
+                                       static_cast<std::uint64_t>(spec.tile_width))),
+                        static_cast<std::uint32_t>(
+                            (std::min)(static_cast<std::uint64_t>(h)-ty,
+                                       static_cast<std::uint64_t>(spec.tile_height))), unit});
+                }
+            }
+        }
+        if (has_tail && !spec.single_mip_tail) {
+            if (out.tails.size() >= max_tails ||
+                layer > (max - mip_tail_offset) / mip_tail_stride) return {};
+            const auto offset = mip_tail_offset +
+                                static_cast<std::uint64_t>(layer) * mip_tail_stride;
+            if (offset > virtual_image_bytes ||
+                tail_span > virtual_image_bytes - offset ||
+                !add_bytes(tail_span)) return {};
+            out.tails.push_back(SparseMipTailRegion{layer, false, offset, tail_span});
+        }
+    }
+    if (has_tail && spec.single_mip_tail && logical.bind_shared_tail) {
+        if (out.tails.size() >= max_tails ||
+            mip_tail_offset > virtual_image_bytes ||
+            tail_span > virtual_image_bytes - mip_tail_offset ||
+            !add_bytes(tail_span)) return {};
+        out.tails.push_back(SparseMipTailRegion{0, true, mip_tail_offset, tail_span});
+    }
+    if ((out.tiles.empty() && out.tails.empty()) ||
+        out.backing_bytes != logical.bytes_new) return {};
+    out.valid = true;
+    return out;
+}
 } // namespace Eden::NS2::Eglantine
