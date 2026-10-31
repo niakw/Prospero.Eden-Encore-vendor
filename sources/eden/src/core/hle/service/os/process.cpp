@@ -5,10 +5,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "common/scope_exit.h"
-#ifdef EDEN_NS2_PROCESS_RUN_GUARD
-#include "common/logging.h"
-#include "core/loader/ns2_svc_trace.h"
-#endif
 
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/svc_types.h"
@@ -80,29 +76,6 @@ bool Process::Run() {
     if (m_process_started) {
         return false;
     }
-
-#ifdef EDEN_NS2_PROCESS_RUN_GUARD
-    // N52: only the real NS2 ExeFS process registered during loader handoff
-    // must treat a kernel scheduling failure as a failed launch. Keep Switch 1
-    // semantics byte-for-byte below, until generic behavior is independently audited.
-    if (m_process && m_process->GetProcessId() != 0 &&
-        Eden::NS2::SvcTrace::active_pid.load(std::memory_order_acquire) ==
-            m_process->GetProcessId()) {
-        const auto result =
-            m_process->Run(m_system.Kernel(), m_main_thread_priority, m_main_thread_stack_size);
-        if (R_FAILED(result)) {
-            LOG_ERROR(Service_LDR, "NS2 KProcess::Run rejected pid={} result={:#x}",
-                      m_process->GetProcessId(), result.raw);
-            // KProcess may already have allocated/rolled back resources; never
-            // start it twice without Finalize and a fresh loader handoff.
-            m_process_started = true;
-            Eden::NS2::SvcTrace::Unregister(m_process->GetProcessId());
-            return false;
-        }
-        m_process_started = true;
-        return true;
-    }
-#endif
 
     // Start.
     if (m_process) {

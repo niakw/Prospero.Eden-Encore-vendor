@@ -12,9 +12,6 @@
 #include "core/core.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/svc.h"
-#ifdef EDEN_NS2_SVC_TRACE
-#include "core/loader/ns2_svc_trace.h"
-#endif
 
 namespace Kernel::Svc {
 
@@ -2502,12 +2499,6 @@ static void Call64(Core::System& system, u32 imm, std::span<uint64_t, 8> args) {
 void Call(Core::System& system, u32 imm) {
     auto& kernel = system.Kernel();
     auto& process = GetCurrentProcess(kernel);
-#ifdef EDEN_NS2_SVC_TRACE
-    if (const auto sample = Eden::NS2::SvcTrace::Next(process.GetProcessId())) {
-        LOG_INFO(Kernel_SVC, "NS2 real HLE SVC[{}] pid={} imm={:#x} permitted={}",
-                 *sample, process.GetProcessId(), imm, process.IsPermittedSvc(imm));
-    }
-#endif
     std::array<uint64_t, 8> args;
     kernel.CurrentPhysicalCore().SaveSvcArguments(process, args);
     //kernel.EnterSVCProfile();
