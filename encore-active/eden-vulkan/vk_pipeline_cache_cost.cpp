@@ -1837,6 +1837,17 @@ vk::PipelineCache PipelineCache::LoadVulkanPipelineCache(const std::filesystem::
 
         std::array<char, 8> magic_number;
         u32 cache_version;
+#ifdef EDEN_NS2_PIPELINE_CACHE_GUARD
+        // Reject truncated (including failed tellg) Vulkan driver cache headers
+        // before reading or subtracting an unsigned header size.
+        if (end < std::streampos{static_cast<std::streamoff>(
+                      magic_number.size() + sizeof(cache_version))}) {
+            file.close();
+            LOG_WARNING(Common_Filesystem, "Short Vulkan driver cache; rebuilding fresh");
+            Common::FS::RemoveFile(filename);
+            return create_pipeline_cache(0, nullptr);
+        }
+#endif
         file.read(magic_number.data(), magic_number.size())
             .read(reinterpret_cast<char*>(&cache_version), sizeof(cache_version));
         if (magic_number != VULKAN_CACHE_MAGIC_NUMBER || cache_version != expected_cache_version) {
