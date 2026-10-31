@@ -688,6 +688,19 @@ bool BufferCacheRuntime::BindMultiRangeStorageBuffer(u64 key, bool is_written) {
             grouped_count = 0;
         };
         for (const MultiRangeSource& source : multi_range_sources) {
+            // Consecutive guest ranges that also occupy adjacent bytes in
+            // the SAME source buffer are one Vulkan region, not merely one
+            // scheduler command. Get() already checked each size and
+            // destination sum against the allocated gathered-buffer extent.
+            if (grouped_count && source.handle == grouped_source) {
+                auto& last = grouped_copies[grouped_count - 1];
+                if (last.src_offset + last.size == source.offset &&
+                    last.dst_offset + last.size == dst_offset) {
+                    last.size += size_t(source.size);
+                    dst_offset += source.size;
+                    continue;
+                }
+            }
             if (source.handle != grouped_source || grouped_count == grouped_copies.size())
                 flush_group();
             grouped_source = source.handle;
