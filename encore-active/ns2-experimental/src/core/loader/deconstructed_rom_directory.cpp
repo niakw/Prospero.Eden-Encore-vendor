@@ -18,6 +18,10 @@
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/filesystem/filesystem.h"
 #include "core/loader/deconstructed_rom_directory.h"
+#ifdef EDEN_NS2_GUEST_COUNTER
+#include "common/cpu_features.h"
+#include "encore/guest_counter_policy.h"
+#endif
 #include "core/loader/nso.h"
 #include "core/loader/ns2_nso_preflight.h"
 #include "core/loader/ns2_process_handoff.h"
@@ -366,6 +370,13 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
         LOG_INFO(Loader, "NS2 KProcess ExeFS handoff pid={} entry={:#x} modules={}",
                  process.GetProcessId(), base_address, modules.size());
     }
+#ifdef EDEN_NS2_GUEST_COUNTER
+    // A library/cover scanner also calls ProgramMetadata::Load; it MUST
+    // NOT alter the counter of a game already running. Select the clock
+    // only for an actual KProcess launch after the complete ExeFS succeeded.
+    // Switch 1 resets the policy on the next title.
+    Eden::GuestCounter::SelectProgram(metadata.IsSwitch2(), Common::g_cpu_caps.tsc_frequency);
+#endif
     is_loaded = true;
     if (standalone) {
         title_id = metadata.GetTitleID();

@@ -9,10 +9,6 @@
 #include <vector>
 
 #include "common/logging.h"
-#ifdef EDEN_NS2_GUEST_COUNTER
-#include "common/cpu_features.h"
-#include "encore/guest_counter_policy.h"
-#endif
 #include "common/scope_exit.h"
 #include "core/file_sys/program_metadata.h"
 #include "core/file_sys/vfs/vfs.h"
@@ -150,11 +146,6 @@ Loader::ResultStatus ProgramMetadata::Load(VirtualFile file) {
         return Loader::ResultStatus::ErrorBadKernelCapabilityDescriptors;
     }
 
-#ifdef EDEN_NS2_GUEST_COUNTER
-    // Only a fully validated NPDM changes the guest counter. A following
-    // Switch 1 title resets it to 19.2 MHz instead of inheriting NSW2 time.
-    Eden::GuestCounter::SelectProgram(is_switch2, Common::g_cpu_caps.tsc_frequency);
-#endif
     return Loader::ResultStatus::Success;
 }
 
