@@ -35,7 +35,7 @@ public:
     [[nodiscard]] VkResult Bind(
         VkImage image, const VkMemoryRequirements& image_memory,
         const std::vector<VkSparseImageMemoryRequirements>& sparse_requirements,
-        const SparseLayerBindPlan& logical, const Queue& queue,
+        const SparseLayerBindPlan& logical, Queue& queue,
         const Fence& fence, VkSemaphore wait = VK_NULL_HANDLE,
         VkSemaphore signal = VK_NULL_HANDLE,
         std::uint64_t timeout_ns = 5'000'000'000ULL) {
