@@ -105,6 +105,21 @@ namespace Vulkan {
 
         vk::Image CreateImage(const VkImageCreateInfo &ci) const;
 
+        // N64: sparse 2D array image without full backing. GPU queue binds
+        // and fence retirement are the caller's responsibility.
+        [[nodiscard]] vk::Image CreateSparseImage(const VkImageCreateInfo &ci) const;
+
+        // N62 research: a single device-local chunk for sparse Vulkan
+        // image tiles or mip tails. Caller owns GPU/fence lifetime.
+        struct SparseMemoryAllocation {
+            VmaAllocation allocation{};
+            VkDeviceMemory memory{};
+            VkDeviceSize offset{};
+        };
+        [[nodiscard]] bool AllocateSparseMemory(
+            const VkMemoryRequirements &requirements, SparseMemoryAllocation &result) const noexcept;
+        void ReleaseSparseMemory(SparseMemoryAllocation &allocation) const noexcept;
+
         vk::Buffer CreateBuffer(const VkBufferCreateInfo &ci, MemoryUsage usage) const;
 
         vk::Buffer CreateBuffer(const VkBufferCreateInfo &ci, MemoryUsage usage,

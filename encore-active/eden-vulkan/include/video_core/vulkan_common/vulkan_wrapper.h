@@ -1115,6 +1115,11 @@ public:
 
     VkMemoryRequirements GetImageMemoryRequirements(VkImage image) const noexcept;
 
+    // N65: query the actual sparse 2D tile/mip-tail requirements.
+    // No DeviceDispatch layout change: resolve entrypoint on demand.
+    [[nodiscard]] std::vector<VkSparseImageMemoryRequirements>
+        GetSparseImageMemoryRequirements(VkImage image) const;
+
     std::vector<VkPipelineExecutablePropertiesKHR> GetPipelineExecutablePropertiesKHR(
         VkPipeline pipeline) const;
 

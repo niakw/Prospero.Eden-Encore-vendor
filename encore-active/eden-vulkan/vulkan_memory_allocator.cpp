@@ -271,6 +271,81 @@ vk::Image MemoryAllocator::CreateImage(const VkImageCreateInfo &ci) const
                         device.GetDispatchLoader());
 }
 
+vk::Image MemoryAllocator::CreateSparseImage(const VkImageCreateInfo &ci) const {
+    // No sparse image may be created unless the actual selected graphics
+    // queue and device expose sparse residency for 2D images (N58).
+    if (!device.IsSparseResidencyImage2DSupported() ||
+        ci.imageType != VK_IMAGE_TYPE_2D || ci.arrayLayers <= 1 ||
+        ci.mipLevels == 0 || ci.samples != VK_SAMPLE_COUNT_1_BIT ||
+        ci.tiling != VK_IMAGE_TILING_OPTIMAL ||
+        ci.extent.width == 0 || ci.extent.height == 0 || ci.extent.depth != 1) {
+        return {};
+    }
+    // PS5 Vulkan shim can leave optional entry points unbound.
+    if (!device.GetDispatchLoader().vkCreateImage ||
+        !device.GetDispatchLoader().vkDestroyImage) {
+        return {};
+    }
+    VkImageCreateInfo sparse_ci = ci;
+    sparse_ci.flags |= VK_IMAGE_CREATE_SPARSE_BINDING_BIT |
+                       VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT;
+    VkImage image{};
+    const auto result = device.GetDispatchLoader().vkCreateImage(
+        *device.GetLogical(), &sparse_ci, nullptr, &image);
+    if (result != VK_SUCCESS || !image) {
+        // An unsuccessful driver call may still produce a non-null handle.
+        if (image) {
+            device.GetDispatchLoader().vkDestroyImage(
+                *device.GetLogical(), image, nullptr);
+        }
+        return {};
+    }
+    // The pinned vk::Image RAII wrapper calls vmaDestroyImage. VMA documents
+    // allocation == null as a valid destroy-only image. Do not allocate full
+    // image backing here; N62 allocates page/tail memory separately.
+    return vk::Image(image, sparse_ci.usage, *device.GetLogical(), allocator,
+                     VK_NULL_HANDLE, device.GetDispatchLoader());
+}
+
+bool MemoryAllocator::AllocateSparseMemory(
+    const VkMemoryRequirements &requirements, SparseMemoryAllocation &out) const noexcept {
+    // Do not overwrite a live token. Always use VMA's *within budget*
+    // allocation; never call vkAllocateMemory outside the native allocator.
+    if (out.allocation || requirements.size == 0 ||
+        requirements.alignment == 0 ||
+        (requirements.alignment & (requirements.alignment - 1)) != 0 ||
+        requirements.memoryTypeBits == 0) {
+        return false;
+    }
+    VmaAllocationCreateInfo create{};
+    create.flags = VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+    create.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    create.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    create.memoryTypeBits = requirements.memoryTypeBits;
+    VmaAllocation allocation{};
+    VmaAllocationInfo info{};
+    const VkResult result = vmaAllocateMemory(
+        allocator, &requirements, &create, &allocation, &info);
+    if (result != VK_SUCCESS || !allocation || !info.deviceMemory) {
+        // Some drivers return an allocation token even when the bindable
+        // memory handle is missing; never leak that partial allocation.
+        if (allocation) {
+            vmaFreeMemory(allocator, allocation);
+        }
+        return false;
+    }
+    out = SparseMemoryAllocation{allocation, info.deviceMemory, info.offset};
+    return true;
+}
+
+void MemoryAllocator::ReleaseSparseMemory(SparseMemoryAllocation &token) const noexcept {
+    // The caller must first wait for the sparse queue / GPU to retire.
+    if (token.allocation) {
+        vmaFreeMemory(allocator, token.allocation);
+    }
+    token = {};
+}
+
 vk::Buffer MemoryAllocator::CreateBuffer(const VkBufferCreateInfo &ci, MemoryUsage usage) const {
     // MESA will do memcpy() if not marked as host cached, so just force mark it for most buffers
     auto const anv_flags = (usage == MemoryUsage::Stream
