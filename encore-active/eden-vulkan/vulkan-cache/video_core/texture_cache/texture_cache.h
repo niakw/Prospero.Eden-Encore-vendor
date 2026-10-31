@@ -574,15 +574,14 @@ void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compu
         // P0.3: reuse nonadjacent TIC descriptors only in this stable draw pass.
         // Never bypass NULL recovery, deletion-driven retry or blacklist work.
         struct ViewMemo {
-            u32 index{};
-            ImageViewId id{NULL_IMAGE_VIEW_ID};
+            u32 index;
+            ImageViewId id;
         };
-        // A single view or blacklist pass never gets a memo hit. Avoid
-        // zeroing all 16 memo slots while holding the texture-cache lock.
-        std::optional<std::array<ViewMemo, 16>> view_memo;
-        if (!blacklist && views.size() > 1) {
-            view_memo.emplace();
-        }
+        // Use a mask instead of clearing sixteen keys under the texture lock.
+        // Unoccupied entries are never read, NULL IDs never memoized.
+        std::array<ViewMemo, 16> view_memo;
+        u32 occupied_view_slots = 0;
+        const bool memo_enabled = !blacklist && views.size() > 1;
 #endif
         for (ImageViewInOut& view : views) {
 #ifdef PS5_NATIVE
@@ -590,18 +589,22 @@ void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compu
             // the same low four bits. Preserve up to 16 distinct positive
             // results without additional heap work or cross-draw caching.
             ViewMemo* memo_slot = nullptr;
+            u32 memo_bit = 0;
             bool memo_hit = false;
-            if (view_memo && !has_deleted_images) {
-                auto& memo = *view_memo;
+            if (memo_enabled && !has_deleted_images) {
                 const std::size_t start = (view.index ^ (view.index >> 4)) & 15U;
-                for (std::size_t offset = 0; offset < memo.size(); ++offset) {
-                    auto& cached = memo[(start + offset) & 15U];
-                    if (cached.id == NULL_IMAGE_VIEW_ID) {
+                for (std::size_t offset = 0; offset < view_memo.size(); ++offset) {
+                    const std::size_t slot = (start + offset) & 15U;
+                    const u32 bit = u32{1} << slot;
+                    auto& cached = view_memo[slot];
+                    if (!(occupied_view_slots & bit)) {
                         memo_slot = &cached;
+                        memo_bit = bit;
                         break;
                     }
                     if (cached.index != view.index) continue;
                     memo_slot = &cached;
+                    memo_bit = bit;
                     const auto& cached_view = slot_image_views[cached.id];
                     // Never reuse a remapped view without rebuilding it.
                     const bool remapped = !cached_view.IsBuffer() &&
@@ -622,9 +625,10 @@ void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compu
             // A full table falls back to the original lookup without
             // evicting any live descriptor in this draw. A deletion-driven
             // retry uses a fresh table in the next do/while iteration.
-            if (memo_slot && !has_deleted_images) {
+            if (memo_slot && !has_deleted_images && view.id != NULL_IMAGE_VIEW_ID) {
                 memo_slot->index = view.index;
                 memo_slot->id = view.id;
+                occupied_view_slots |= memo_bit;
             }
 #endif
             if (blacklist) {
