@@ -164,7 +164,14 @@ void Layer::CreateStagingBuffer(const Device& device, const Tegra::FramebufferCo
 
 void Layer::CreateRawImages(const Device& device, const Tegra::FramebufferConfig& framebuffer) {
     const auto format = GetFormat(framebuffer);
+    // ReleaseRawImages waited for every old timeline use. Reusing its tick
+    // values after rebuilding the layer would cause redundant Wait calls on
+    // newly allocated images, although those old fences have retired.
+#ifdef PS5_NATIVE
+    resource_ticks.assign(image_count, 0);
+#else
     resource_ticks.resize(image_count);
+#endif
     raw_images.resize(image_count);
     raw_image_views.resize(image_count);
 
@@ -188,8 +195,12 @@ void Layer::RefreshResources(const Device& device, const Tegra::FramebufferConfi
     // a full-device WaitIdle or recreate the FXAA/SMAA pass on pitch changes.
     if (framebuffer.width == raw_width && framebuffer.height == raw_height &&
         framebuffer.pixel_format == pixel_format && !raw_images.empty()) {
-        for (const u64 tick : resource_ticks) {
-            scheduler.Wait(tick);
+        // All layer ticks share one monotonically increasing Vulkan GPU
+        // timeline. Waiting for the maximum retires every earlier user of
+        // the old upload staging buffer with one semaphore wait.
+        const auto last_tick = std::max_element(resource_ticks.begin(), resource_ticks.end());
+        if (last_tick != resource_ticks.end() && *last_tick != 0) {
+            scheduler.Wait(*last_tick);
         }
         CreateStagingBuffer(device, framebuffer);
         return;
@@ -215,8 +226,22 @@ void Layer::RefreshResources(const Device& device, const Tegra::FramebufferConfi
 }
 
 void Layer::SetAntiAliasPass(const Device& device) {
+#ifdef PS5_NATIVE
+    const auto requested_aa = filters.get_anti_aliasing();
+    // Disabled AA has no GPU resources to rebuild. The old guard skipped
+    // only live FXAA/SMAA and reconstructed the monostate on every frame,
+    // including when the filter remained disabled across thousands of draws.
+    // A resize resets a live pass to monostate, so FXAA/SMAA still rebuild.
+    if (anti_alias_setting == requested_aa &&
+        (!std::holds_alternative<std::monostate>(anti_alias) ||
+         (requested_aa != Settings::AntiAliasing::Fxaa &&
+          requested_aa != Settings::AntiAliasing::Smaa))) {
+        return;
+    }
+#else
     if (!std::holds_alternative<std::monostate>(anti_alias) && anti_alias_setting == filters.get_anti_aliasing())
         return;
+#endif
 
 #ifdef PS5_NATIVE
     if (!std::holds_alternative<std::monostate>(anti_alias)) {
@@ -246,9 +271,18 @@ void Layer::SetAntiAliasPass(const Device& device) {
 }
 
 void Layer::ReleaseRawImages() {
+#ifdef PS5_NATIVE
+    // On this single Vulkan GPU timeline, the latest presentation resource
+    // tick subsumes all preceding image uses, including out-of-order slots.
+    const auto last_tick = std::max_element(resource_ticks.begin(), resource_ticks.end());
+    if (last_tick != resource_ticks.end() && *last_tick != 0) {
+        scheduler.Wait(*last_tick);
+    }
+#else
     for (const u64 tick : resource_ticks) {
         scheduler.Wait(tick);
     }
+#endif
     raw_image_views.clear();
     raw_images.clear();
     buffer.reset();
@@ -307,7 +341,9 @@ void Layer::UpdateDescriptorSet(const Device& device, VkImageView image_view, Vk
 void Layer::UpdateRawImage(const Tegra::FramebufferConfig& framebuffer, size_t image_index) {
     const std::span<u8> mapped_span = buffer.Mapped();
 
+#ifndef PS5_NATIVE
     const u64 image_offset = GetRawImageOffset(framebuffer, image_index);
+#endif
 
     const DAddr framebuffer_addr = framebuffer.address + framebuffer.offset;
     const u8* const host_ptr = device_memory.GetPointer<u8>(framebuffer_addr);
@@ -315,11 +351,33 @@ void Layer::UpdateRawImage(const Tegra::FramebufferConfig& framebuffer, size_t i
     // TODO(Rodrigo): Read this from HLE
     constexpr u32 block_height_log2 = 4;
     const u32 bytes_per_pixel = GetBytesPerPixel(framebuffer);
+#ifdef PS5_NATIVE
+    // This raw upload already resolved the guest pixel format above. Do not
+    // decode that same format a second time through GetSizeInBytes every
+    // time the CPU reads back a guest framebuffer.
+    const u64 linear_size{
+        static_cast<std::size_t>(framebuffer.stride) *
+        static_cast<std::size_t>(framebuffer.height) * bytes_per_pixel};
+    // Staging slots have the same guest row pitch: do not decode BPP again
+    // through GetRawImageOffset for every non-accelerated presentation.
+    const u64 image_offset = linear_size * image_index;
+#else
     const u64 linear_size{GetSizeInBytes(framebuffer)};
+#endif
+#ifdef PS5_NATIVE
+    // An unmapped guest framebuffer has no tiled source to measure.
+    // Keep the exact raw-zero upload, but skip tiled-size/format arithmetic
+    // on repeated missing-frame fallbacks (HUD, scene changes).
+    const std::span<u8> linear_span = mapped_span.subspan(image_offset, linear_size);
+    if (host_ptr) {
+        const u64 tiled_size{Tegra::Texture::CalculateSize(
+            true, bytes_per_pixel, framebuffer.stride, framebuffer.height, 1, block_height_log2, 0)};
+#else
     const u64 tiled_size{Tegra::Texture::CalculateSize(
         true, bytes_per_pixel, framebuffer.stride, framebuffer.height, 1, block_height_log2, 0)};
     const std::span<u8> linear_span = mapped_span.subspan(image_offset, linear_size);
     if (host_ptr) {
+#endif
         Tegra::Texture::UnswizzleTexture(
             linear_span, std::span(host_ptr, tiled_size),
             bytes_per_pixel, framebuffer.width, framebuffer.height, 1, block_height_log2, 0);

@@ -1151,15 +1151,18 @@ void RasterizerVulkan::InvalidateRegion(DAddr addr, u64 size, VideoCommon::Cache
 }
 
 void RasterizerVulkan::InnerInvalidation(std::span<const std::pair<DAddr, std::size_t>> sequences) {
-    // Omit the texture lock entirely if no range could own an image.
-    // For mixed batches keep the original lock and order, but avoid expensive
-    // image-slot searches for individual pages never registered as textures.
+    // One owner-witness traversal for the whole batch. Texture and buffer
+    // page occupancy are monotonic, independently published before cache
+    // registration. Preserve the original texture -> buffer -> shader order.
+    // Stop probing a domain once an overlapping range is known.
     bool texture_may_overlap = false;
+    bool buffer_may_overlap = false;
     for (const auto& [addr, size] : sequences) {
-        if (!::Eden::ImagePages::NeverHeld(addr, size)) {
+        if (!texture_may_overlap && !::Eden::ImagePages::NeverHeld(addr, size))
             texture_may_overlap = true;
-            break;
-        }
+        if (!buffer_may_overlap && !::Eden::BufferPages::NeverRegistered(addr, size))
+            buffer_may_overlap = true;
+        if (texture_may_overlap && buffer_may_overlap) break;
     }
     if (texture_may_overlap) {
         std::scoped_lock lock{texture_cache.mutex};
@@ -1171,17 +1174,9 @@ void RasterizerVulkan::InnerInvalidation(std::span<const std::pair<DAddr, std::s
             }
         }
     }
-    // A never-registered buffer page has no GPU-owned content to invalidate.
-    // A future first registration starts CPU-dirty (WordManager default).
-    // BufferPages::Mark publishes ownership before insertion into page_table.
-    // Unknown/large ranges conservatively retain the original path.
-    bool buffer_may_overlap = false;
-    for (const auto& [addr, size] : sequences) {
-        if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
-            buffer_may_overlap = true;
-            break;
-        }
-    }
+    // BufferPages::Mark publishes before insertion; a future registration
+    // begins CPU-dirty. The shared preflight above still fails closed for
+    // unknown/large ranges. Keep rechecks under the original cache mutex.
     if (buffer_may_overlap) {
         std::scoped_lock lock{buffer_cache.mutex};
         for (const auto& [addr, size] : sequences) {

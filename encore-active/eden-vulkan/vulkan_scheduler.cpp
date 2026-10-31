@@ -264,11 +264,16 @@ void Scheduler::WaitWorker() {
 
 void Scheduler::DispatchWork() {
     if (chunk && !chunk->Empty()) {
+        bool wake_worker{};
         {
             std::scoped_lock ql{queue_mutex};
+            // If the worker is executing a chunk, it will consume queued
+            // successors on its next loop without sleeping. Only the idle
+            // transition requires a broadcast (drain waiters share this CV).
+            wake_worker = work_queue.empty() && !worker_in_flight;
             work_queue.push(std::move(chunk));
         }
-        event_cv.notify_all();
+        if (wake_worker) event_cv.notify_all();
         AcquireNewChunk();
     }
 }
@@ -288,31 +293,42 @@ void Scheduler::BeginRenderPassImpl(const Framebuffer* framebuffer, VkRenderPass
         GPU::Logging::GPULogger::GetInstance().LogRenderPassBegin(render_pass_info);
     }
 
-    std::array<VkClearValue, 9> values{};
-    // The Vulkan pointer below owns exactly these nine entries. Never publish
-    // the caller's unchecked clearValueCount after clipping the copy.
-    const u32 bounded_clear_value_count =
-        clear_values ? (std::min)(clear_value_count, static_cast<u32>(values.size())) : 0;
-    for (u32 i = 0; i < bounded_clear_value_count; ++i) {
-        values[i] = clear_values[i];
+    // Most ordinary draws start a render pass without any clear values.
+    // Do not zero/copy nine VkClearValue entries into every zero-clear
+    // deferred command. The exact same Vulkan begin-info path remains shared.
+    const auto record_pass = [this, renderpass, framebuffer_handle, render_area](
+                                 auto values, u32 bounded_clear_value_count) {
+        Record([renderpass, framebuffer_handle, render_area, values, bounded_clear_value_count](
+                   vk::CommandBuffer cmdbuf) {
+            const VkRenderPassBeginInfo renderpass_bi{
+                .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                .pNext = nullptr,
+                .renderPass = renderpass,
+                .framebuffer = framebuffer_handle,
+                .renderArea =
+                    {
+                        .offset = {.x = 0, .y = 0},
+                        .extent = render_area,
+                    },
+                .clearValueCount = bounded_clear_value_count,
+                .pClearValues = bounded_clear_value_count != 0 ? values.data() : nullptr,
+            };
+            cmdbuf.BeginRenderPass(renderpass_bi, VK_SUBPASS_CONTENTS_INLINE);
+        });
+    };
+    if (!clear_values || clear_value_count == 0) {
+        // Empty std::array specializes the queued closure down to the
+        // render-pass handles/extents; no nine-slot clear payload or copy.
+        record_pass(std::array<VkClearValue, 0>{}, 0);
+    } else {
+        std::array<VkClearValue, 9> values{};
+        const u32 bounded_clear_value_count =
+            (std::min)(clear_value_count, static_cast<u32>(values.size()));
+        for (u32 i = 0; i < bounded_clear_value_count; ++i) {
+            values[i] = clear_values[i];
+        }
+        record_pass(values, bounded_clear_value_count);
     }
-    Record([renderpass, framebuffer_handle, render_area, values, bounded_clear_value_count](
-               vk::CommandBuffer cmdbuf) {
-        const VkRenderPassBeginInfo renderpass_bi{
-            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-            .pNext = nullptr,
-            .renderPass = renderpass,
-            .framebuffer = framebuffer_handle,
-            .renderArea =
-                {
-                    .offset = {.x = 0, .y = 0},
-                    .extent = render_area,
-                },
-            .clearValueCount = bounded_clear_value_count,
-            .pClearValues = bounded_clear_value_count != 0 ? values.data() : nullptr,
-        };
-        cmdbuf.BeginRenderPass(renderpass_bi, VK_SUBPASS_CONTENTS_INLINE);
-    });
     num_renderpass_images = framebuffer->NumImages();
     renderpass_images = framebuffer->Images();
     renderpass_image_ranges = framebuffer->ImageRanges();
@@ -484,6 +500,9 @@ void Scheduler::WorkerThread(std::stop_token stop_token) {
 
         {
             std::unique_lock lk{queue_mutex};
+            // This lock also guards DispatchWork's idle-to-active wake test.
+            // A producer cannot miss the wake when the queue is empty.
+            worker_in_flight = false;
 
             // Wait for work.
             event_cv.wait(lk, stop_token, [&] { return TryPopQueue(work); });
@@ -492,6 +511,7 @@ void Scheduler::WorkerThread(std::stop_token stop_token) {
             if (stop_token.stop_requested()) {
                 return;
             }
+            worker_in_flight = true;
 
             // Exchange lock ownership so that we take the execution lock before
             // the queue lock goes out of scope. This allows us to force execution
@@ -693,16 +713,19 @@ void Scheduler::EndRenderPass()
 
 
 void Scheduler::AcquireNewChunk() {
-    std::scoped_lock rl{reserve_mutex};
-
-    if (chunk_reserve.empty()) {
-        // If we don't have anything reserved, we need to make a new chunk.
-        chunk = std::make_unique<CommandChunk>();
-    } else {
-        // Otherwise, we can just take from the reserve.
-        chunk = std::move(chunk_reserve.back());
-        chunk_reserve.pop_back();
+    {
+        std::scoped_lock rl{reserve_mutex};
+        if (!chunk_reserve.empty()) {
+            // The producer can reuse a completed command chunk immediately.
+            chunk = std::move(chunk_reserve.back());
+            chunk_reserve.pop_back();
+            return;
+        }
     }
+    // Allocation can page fault or invoke allocator locks. Never hold the
+    // recycling mutex across it: the GPU worker must remain free to return
+    // finished chunks while the producer creates another command batch.
+    chunk = std::make_unique<CommandChunk>();
 }
 
 } // namespace Vulkan

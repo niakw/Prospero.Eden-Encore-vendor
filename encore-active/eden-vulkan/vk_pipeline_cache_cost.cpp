@@ -754,25 +754,49 @@ void EdenRecordAttributeless(EdenVertexIdentity vertex_hash, const Shader::Info&
 
 // GPU thread: whether the vertex shader reads no attribute, as far as built pipelines tell.
 bool EdenAttributeless(EdenVertexIdentity vertex_hash) {
-    // The graphics thread owns this bounded memo. Shader builders only update
-    // the set under its mutex and publish a new generation on insertion.
-    // Alternating shader pairs should not lock or tree-search on every draw.
+    // The GPU thread owns this fixed 64-entry memo; builder threads publish
+    // updates through the generation. Four-way sets prevent colliding vertex
+    // shaders (especially alternating HUD/world keys) from taking the global
+    // shader-set mutex on every draw. No allocation or lock on a cache hit.
     struct Lookup {
         EdenVertexIdentity hash{};
         u32 generation = ~0u;
         bool result = false;
     };
-    static std::array<Lookup, 64> lookups{};
+    struct Bucket {
+        std::array<Lookup, 4> ways{};
+        unsigned next_slot{};
+    };
+    static thread_local std::array<Bucket, 16> buckets{};
+    // Same vertex shader across successive draws: skip bucket hashing,
+    // four-way probes and even the epoch load for proven positive keys.
+    // The builder-owned set only inserts; negative results must be
+    // invalidated by a newly published generation.
+    static thread_local Lookup last{};
+    if (last.result && last.hash == vertex_hash) return true;
     const u32 generation = eden_attributeless_generation.load(std::memory_order_acquire);
-    const size_t slot = (vertex_hash[0] ^ std::rotl(vertex_hash[1], 11)) & (lookups.size() - 1);
-    auto& lookup = lookups[slot];
-    if (lookup.generation == generation && lookup.hash == vertex_hash)
-        return lookup.result;
+    if (!last.result && last.hash == vertex_hash && last.generation == generation)
+        return false;
+    auto& bucket = buckets[(vertex_hash[0] ^ std::rotl(vertex_hash[1], 11)) &
+                           (buckets.size() - 1)];
+    for (const auto& lookup : bucket.ways) {
+        // The builder-owned set only INSERTS attributeless shader keys.
+        // A proven positive therefore remains valid across unrelated new
+        // shader publications. Negatives still require the current epoch.
+        if (lookup.hash == vertex_hash &&
+            (lookup.result || lookup.generation == generation)) {
+            last = lookup;
+            return lookup.result;
+        }
+    }
     const std::scoped_lock lock{eden_attributeless_mutex};
     const bool result = eden_attributeless_vertex.contains(vertex_hash);
+    auto& lookup = bucket.ways[bucket.next_slot];
     lookup.hash = vertex_hash;
     lookup.result = result;
     lookup.generation = generation;
+    bucket.next_slot = (bucket.next_slot + 1) & (bucket.ways.size() - 1);
+    last = lookup;
     return result;
 }
 
@@ -846,12 +870,29 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() {
         .workgroup_size{qmd.block_dim_x, qmd.block_dim_y, qmd.block_dim_z},
     };
 #ifdef PS5_NATIVE
-    // A successful compute key is commonly reused by consecutive dispatches.
-    // Skip the unordered-map hash/probe, but never bypass null entries or
-    // development first-use tracing, which has a separate session lifetime.
-    if (!::Eden::DevVulkan::trace_pipelines && last_compute_pipeline &&
-        last_compute_key == key) {
-        return last_compute_pipeline;
+    // Alternating successful compute shaders need no unordered-map hash or
+    // probe. Four fixed owner-local entries cover common dispatch sequences,
+    // while failed keys and development first-use tracing retain the map path.
+    if (!::Eden::DevVulkan::trace_pipelines) {
+        // Most dispatches reuse the last key. Probe its slot first rather
+        // than scanning four hints on each call after several shaders load.
+        const auto& preferred = recent_compute_pipelines[preferred_compute_positive];
+        if (preferred.pipeline && preferred.key == key) return preferred.pipeline;
+        for (unsigned i = 0; i < recent_compute_pipelines.size(); ++i) {
+            if (i == preferred_compute_positive) continue;
+            const auto& recent = recent_compute_pipelines[i];
+            // Positive slots fill contiguously before the four-entry ring
+            // wraps. A cold lookup need not compare the unused tail.
+            if (!recent.pipeline) break;
+            if (recent.key == key) {
+                // With only two active shaders, the newest preferred slot
+                // handles one key and the other is always at most one probe
+                // away. Avoid a cache-line write on every A/B dispatch.
+                if (recent_compute_pipelines[2].pipeline)
+                    preferred_compute_positive = i;
+                return recent.pipeline;
+            }
+        }
     }
 #endif
     const auto [pair, is_new]{compute_cache.try_emplace(key)};
@@ -926,13 +967,15 @@ ComputePipeline* PipelineCache::CurrentComputePipeline() {
         }
     }
 #ifdef PS5_NATIVE
-    // Cache only a positive map entry. Never retain a null failed shader,
-    // since its delayed one-shot recovery must still run through the map.
-    if (pipeline) {
-        last_compute_key = key;
-        last_compute_pipeline = pipeline.get();
-    } else {
-        last_compute_pipeline = nullptr;
+    // Only successful pipelines enter the bounded owner-local memo.
+    // A null shader still reaches the map's delayed one-shot retry on every
+    // dispatch, without disturbing other valid compute pipeline keys.
+    if (pipeline && !::Eden::DevVulkan::trace_pipelines) {
+        auto& recent = recent_compute_pipelines[next_compute_positive];
+        recent.key = key;
+        recent.pipeline = pipeline.get();
+        preferred_compute_positive = next_compute_positive;
+        next_compute_positive = (next_compute_positive + 1) & 3u;
     }
 #endif
     return pipeline.get();

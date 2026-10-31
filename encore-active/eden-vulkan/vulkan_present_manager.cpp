@@ -198,7 +198,13 @@ Frame* PresentManager::GetRenderFrame() {
         ::Eden::Performance::DiagnosticTimer free_wait(
             ::Eden::Performance::gpu_present_free_wait);
         std::unique_lock lock{free_mutex};
-        free_cv.wait(lock, [this] { return present_failure || !free_queue.empty(); });
+        // Only sleepers need a free-frame wake. Register before releasing
+        // free_mutex in condition_variable::wait to avoid a lost notify.
+        if (free_queue.empty() && !present_failure) {
+            ++free_waiters;
+            free_cv.wait(lock, [this] { return present_failure || !free_queue.empty(); });
+            --free_waiters;
+        }
         if (present_failure) std::rethrow_exception(present_failure);
         frame = free_queue.front();
         free_queue.pop_front();
@@ -221,22 +227,29 @@ void PresentManager::Present(Frame* frame) {
         scheduler.Record([this, frame](vk::CommandBuffer) {
             std::unique_lock lock{queue_mutex};
             if (present_failure) return;
+            // The worker can sleep only with an empty queue. After the
+            // first frame wakes it, queued followers need no second wake.
+            // A worker copying a frame is not asleep, even with an empty queue.
+            // Test under queue_mutex to avoid losing an empty->nonempty edge.
+            const bool wake_presenter = present_queue.empty() && !present_in_flight;
             present_queue.push_back(frame);
             // Only the presentation worker waits on present_ready_cv.
             // Avoid waking WaitPresent on every enqueue; it needs completion.
             lock.unlock();
-            present_ready_cv.notify_one();
+            if (wake_presenter) present_ready_cv.notify_one();
         });
     } else {
         scheduler.WaitWorker();
         CopyToSwapchain(frame);
         // The synchronous presenter must obey GetRenderFrame's free_mutex
         // and wake a concurrent frame waiter just like PresentThread does.
+        bool wake_free_waiter{};
         {
             std::scoped_lock lock{free_mutex};
             free_queue.push_back(frame);
+            wake_free_waiter = free_waiters != 0;
         }
-        free_cv.notify_one();
+        if (wake_free_waiter) free_cv.notify_one();
     }
 }
 
@@ -353,7 +366,16 @@ void PresentManager::WaitPresent() {
     // Wait for the present queue to be empty
     {
         std::unique_lock queue_lock{queue_mutex};
-        frame_cv.wait(queue_lock, [this] { return present_failure || (present_queue.empty() && !present_in_flight); });
+        // No drain waiter is needed when the queue is already idle.
+        // Register real waiters under queue_mutex before sleeping so the
+        // present worker can skip useless per-frame CV notifications.
+        if (!present_failure && (!present_queue.empty() || present_in_flight)) {
+            ++present_waiters;
+            frame_cv.wait(queue_lock, [this] {
+                return present_failure || (present_queue.empty() && !present_in_flight);
+            });
+            --present_waiters;
+        }
         if (present_failure) std::rethrow_exception(present_failure);
     }
 
@@ -384,21 +406,28 @@ void PresentManager::PresentThread(std::stop_token token) {
             CopyToSwapchain(frame);
 
             // Free the frame for reuse
+            bool wake_free_waiter{};
             {
                 std::scoped_lock fl{free_mutex};
                 free_queue.push_back(frame);
+                wake_free_waiter = free_waiters != 0;
             }
-            // Notify only after releasing free_mutex to avoid waking into
-            // an immediately contended queue lock.
-            free_cv.notify_one();
+            // Notify after releasing free_mutex, and only for an actual
+            // sleeping frame consumer. Never skip the error broadcast.
+            if (wake_free_waiter) free_cv.notify_one();
             // Publish completion only AFTER presentation and frame handoff.
             // Release swapchain mutex before reacquiring queue_mutex.
             lock.unlock();
+            bool notify_drainers{};
             {
                 std::lock_guard queue_lock{queue_mutex};
                 present_in_flight = false;
+                // A future WaitPresent sees an already idle queue under
+                // this same mutex; only the final queued completion can
+                // satisfy a drain waiter. Backlog wakes are wasted.
+                notify_drainers = present_waiters != 0 && present_queue.empty();
             }
-            frame_cv.notify_all();
+            if (notify_drainers) frame_cv.notify_all();
         }
     }
 }
