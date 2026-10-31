@@ -32,6 +32,7 @@
 
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
 #ifdef EDEN_NS2_SPARSE_CACHE_PROBE
+#include <atomic>
 #include "video_core/renderer_vulkan/ns2_sparse_cache_admission.h"
 #include "video_core/renderer_vulkan/ns2_sparse_bind_transaction.h"
 #endif
@@ -967,24 +968,27 @@ void BlitScale(Scheduler& scheduler, VkImage src_image, VkImage dst_image, const
 } // Anonymous namespace
 
 // NS2 N73 BEGIN: one real cache-side VkImage sparse admission/bind/retire probe.
-// The ordinary guest texture stays dense; this must be invoked explicitly from
-// the research/diagnostics caller, never from a per-frame upload or render.
+// N74: a temporary sampled array view exercises real VkImageView creation,
+// destruction order and GPU-device-loss quarantine. Dense guest images remain
+// the only path available to normal rendering, even in this research build.
 #ifdef EDEN_NS2_SPARSE_CACHE_PROBE
 bool TextureCacheRuntime::ProbeSparseImage(const VideoCommon::ImageInfo& info) {
-    if (!device.IsSparseResidencyImage2DSupported() ||
+    static std::atomic<bool> gpu_unsafe{false};
+    if (gpu_unsafe.load(std::memory_order_acquire) ||
+        !device.IsSparseResidencyImage2DSupported() ||
         info.type != ImageType::e2D || info.resources.layers < 2) {
         return false;
     }
     const auto image_ci = MakeImageCreateInfo(device, info);
-    // N64 creates the actual native VkImage with SPARSE_BINDING|RESIDENCY
-    // flags. The image format requirements are queried from THAT VkImage.
-    auto candidate = memory_allocator.CreateSparseImage(image_ci);
-    if (!candidate) {
+    // N64 creates an unbacked sparse 2D array; normal MakeImage remains dense.
+    auto candidate = std::make_unique<vk::Image>(
+        memory_allocator.CreateSparseImage(image_ci));
+    if (!*candidate) {
         return false;
     }
     const auto& logical = device.GetLogical();
-    const auto memory = logical.GetImageMemoryRequirements(*candidate);
-    const auto sparse_requirements = logical.GetSparseImageMemoryRequirements(*candidate);
+    const auto memory = logical.GetImageMemoryRequirements(**candidate);
+    const auto sparse_requirements = logical.GetSparseImageMemoryRequirements(**candidate);
     const auto admission = Eden::NS2::Cache::AdmitSparseCacheImage(
         image_ci, memory, sparse_requirements, device.GetDeviceLocalMemory(),
         device.IsSparseResidencyImage2DSupported());
@@ -1000,19 +1004,45 @@ bool TextureCacheRuntime::ProbeSparseImage(const VideoCommon::ImageInfo& info) {
         .pNext = nullptr,
         .flags = 0,
     };
-    auto fence = logical.CreateFence(fence_info);
-    const VkResult bound = owner.Bind(
-        *candidate, memory, sparse_requirements, plan, scheduler, fence);
-    if (!owner.HasLiveBacking()) {
-        return false;
+    auto fence = std::make_unique<vk::Fence>(logical.CreateFence(fence_info));
+    std::unique_ptr<vk::ImageView> sampled_view;
+    bool ready_for_view = false;
+    try {
+        // N72 serializes this submission against ordinary scheduler work.
+        const VkResult bound = owner.Bind(
+            **candidate, memory, sparse_requirements, plan, scheduler, *fence);
+        if (bound == VK_SUCCESS && owner.ReadyForSampling()) {
+            // All layers and all mip levels are backed before a single view
+            // becomes visible; this probe never actually samples the image.
+            const VkImageViewCreateInfo view_info{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .pNext = nullptr,
+                .flags = 0,
+                .image = **candidate,
+                .viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+                .format = image_ci.format,
+                .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+                               VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+                .subresourceRange = {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = image_ci.mipLevels,
+                    .baseArrayLayer = 0,
+                    .layerCount = image_ci.arrayLayers,
+                },
+            };
+            sampled_view = std::make_unique<vk::ImageView>(
+                logical.CreateImageView(view_info));
+            ready_for_view = static_cast<bool>(*sampled_view);
+        }
+    } catch (...) {
+        // A Vulkan allocation/view error does not permit early VkImage
+        // destruction if sparse binding may have reached the GPU.
+        ready_for_view = false;
     }
-    // Always retire even on a submission error or timeout. Never free VMA
-    // pages before device idle + destruction of the VkImage. A driver-lost
-    // failure deliberately retains backing in N69 to prevent UAF.
-    const bool retired = owner.RetireAfterDeviceIdle(logical, [&] {
-        candidate = {};
-    });
-    return bound == VK_SUCCESS && retired;
+    const bool retired = Eden::NS2::Eglantine::RetireSparseCacheProbe(
+        logical, owner, sampled_view, candidate, fence, gpu_unsafe);
+    return ready_for_view && retired;
 }
 #endif
 // NS2 N73 END

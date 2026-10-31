@@ -2,7 +2,9 @@
 #pragma once
 // N69: research-only bridge to the native PS5 Vulkan queue and VMA allocator.
 // Include from the native Vulkan translation unit, never a release path.
+#include <atomic>
 #include <cstdint>
+#include <memory>
 #include <limits>
 #include <span>
 #include <utility>
@@ -178,4 +180,34 @@ private:
     VkImage image_ = VK_NULL_HANDLE;
     bool ready_{};
 };
+// N74: the failed-idle case must quarantine *every* Vulkan handle, including
+// VkFence and VkImageView. A local RAII VkImage destructor is otherwise unsafe
+// after VkQueueBindSparse accepted work but the GPU never signalled completion.
+// Quarantined objects intentionally remain allocated (driver-loss last resort).
+// The sticky failure flag prevents repeated probes exhausting host memory.
+template <typename Device, typename Owner, typename View, typename Image,
+          typename Fence>
+[[nodiscard]] bool RetireSparseCacheProbe(
+    const Device& device, Owner& owner,
+    std::unique_ptr<View>& view, std::unique_ptr<Image>& image,
+    std::unique_ptr<Fence>& fence, std::atomic<bool>& gpu_unsafe) {
+    const bool retired = owner.RetireAfterDeviceIdle(device, [&] {
+        // Must destroy views before their VkImage, then the completion fence,
+        // and only THEN may the N69 owner release its VMA page tokens.
+        view.reset();
+        image.reset();
+        fence.reset();
+    });
+    if (!retired) {
+        gpu_unsafe.store(true, std::memory_order_release);
+        // Device idle failed. Do not invoke RAII destructors at scope exit:
+        // Vulkan may still reference all three handles. Memory is likewise
+        // retained by N69 (not returned to VMA).
+        (void)view.release();
+        (void)image.release();
+        (void)fence.release();
+    }
+    return retired;
+}
+
 } // namespace Eden::NS2::Eglantine
