@@ -18,7 +18,7 @@ inline u64 NativeRegisterCopy(u32 destination_bank, u32 destination, u32 source_
 // Preserve high guest registers in SSA while borrowing aligned low quartets
 // for one native instruction. The expanded instruction owns its temporary bank.
 inline RegisterPressure PrepareRegisterPressure(const Instruction& input, u32 reserved) {
-    RegisterPressure result{input};
+    RegisterPressure result{input, {}, {}, true};
     struct Operand { u32 bit, count; };
     std::vector<Operand> operands;
     const auto operand = [&](u32 bit, u32 count = 1) { operands.push_back({bit, count}); };

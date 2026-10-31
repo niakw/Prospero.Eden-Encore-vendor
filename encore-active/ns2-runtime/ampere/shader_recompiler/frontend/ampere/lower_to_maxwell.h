@@ -264,7 +264,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         }
         // Scratch values and emulated uniform state occupy reserved high GPRs.
         // Reject native accesses that could alias that state.
-        RegisterPressure pressure{insn};
+        RegisterPressure pressure{insn, {}, {}, true};
         bool requires_shadow = false;
         for (u32 bit : {16U, 24U, 32U, 64U}) {
             if (bit == 32 && insn.Bits(9, 3) != 1 && opcode != 0xb60 && opcode != 0xb66 && opcode != 0x986) continue;
@@ -622,7 +622,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 return fail(index, "native half min/max mode");
             const auto a = half_source(0);
             const auto b = opcode == 0x840 ? HalfSource{255, 0, false, false} : half_source(1);
-            if (a.swizzle == 1 || b.swizzle == 1 || b.reg >= 250 && b.reg != 255)
+            if (a.swizzle == 1 || b.swizzle == 1 || (b.reg >= 250 && b.reg != 255))
                 return fail(index, "native half min/max source mode");
             for (u32 lane = 0; lane < 2; ++lane) {
                 extract_half(a, lane, 250);
