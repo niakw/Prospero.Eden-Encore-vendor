@@ -270,7 +270,7 @@ void DeviceMemoryManager<Traits>::Map(DAddr address, VAddr virtual_address, size
     tracked_entries.CommitRegion(start_page_d, start_page_d + num_pages);
 #ifdef EDEN_NS2_DEVICE_CONTINUITY
     // End a previously tracked physical run before mapping state changes.
-    Eden::NS2::Eglantine::CutContinuityAt(start_page_d,
+    Eden::NS2::GpuMemory::CutContinuityAt(start_page_d,
         [&](size_t index) { return AtomicLoadContinuity(tracked_entries[index]); },
         [&](size_t index, u32 new_count) {
             AtomicStoreContinuity(tracked_entries.GetUnchecked(index), new_count);
@@ -396,7 +396,7 @@ void DeviceMemoryManager<Traits>::Unmap(DAddr address, size_t size) {
     tracked_entries.CommitRegion(start_page_d, start_page_d + num_pages); // should already be committed, but just in case
 #ifdef EDEN_NS2_DEVICE_CONTINUITY
     // End a previously tracked physical run before mapping state changes.
-    Eden::NS2::Eglantine::CutContinuityAt(start_page_d,
+    Eden::NS2::GpuMemory::CutContinuityAt(start_page_d,
         [&](size_t index) { return AtomicLoadContinuity(tracked_entries[index]); },
         [&](size_t index, u32 new_count) {
             AtomicStoreContinuity(tracked_entries.GetUnchecked(index), new_count);

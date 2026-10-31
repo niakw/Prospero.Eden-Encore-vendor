@@ -115,7 +115,7 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
     }
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
     // Coalesce only adjacent changed PTE pages; preserve unchanged holes.
-    Eden::NS2::Eglantine::ChangedPageRuns changed_runs(page_size);
+    Eden::NS2::GpuMemory::ChangedPageRuns changed_runs(page_size);
     const auto notify_changed = [this](GPUVAddr address, u64 length) {
         rasterizer->ModifyGPUMemory(unique_identifier, address, length);
     };
@@ -151,7 +151,7 @@ GPUVAddr MemoryManager::BigPageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr
     [[maybe_unused]] u64 remaining_size{size};
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
     // Coalesce only adjacent changed PTE pages; preserve unchanged holes.
-    Eden::NS2::Eglantine::ChangedPageRuns changed_runs(big_page_size);
+    Eden::NS2::GpuMemory::ChangedPageRuns changed_runs(big_page_size);
     const auto notify_changed = [this](GPUVAddr address, u64 length) {
         rasterizer->ModifyGPUMemory(unique_identifier, address, length);
     };

@@ -5,7 +5,7 @@
 // Invoke while holding the native mapping mutex, use the native atomics.
 #include <cstddef>
 #include <cstdint>
-namespace Eden::NS2::Eglantine {
+namespace Eden::NS2::GpuMemory {
 template<class Read, class Write>
 constexpr void CutContinuityAt(std::size_t first_changed_page,
                                 Read&& read_count, Write&& write_count) {
@@ -16,4 +16,4 @@ constexpr void CutContinuityAt(std::size_t first_changed_page,
         write_count(index, static_cast<std::uint32_t>(remaining));
     }
 }
-} // namespace Eden::NS2::Eglantine
+} // namespace Eden::NS2::GpuMemory

@@ -2,7 +2,7 @@
 #pragma once
 #include <cstdint>
 #include <limits>
-namespace Eden::NS2::Eglantine {
+namespace Eden::NS2::GpuMemory {
 // Stateful run accumulator: gaps must flush, without invalidating unrelated PTEs.
 class ChangedPageRuns {
 public:
@@ -30,4 +30,4 @@ private:
     std::uint64_t size_{};
     const std::uint64_t page_;
 };
-} // namespace Eden::NS2::Eglantine
+} // namespace Eden::NS2::GpuMemory
