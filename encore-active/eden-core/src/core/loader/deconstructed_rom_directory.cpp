@@ -6,6 +6,7 @@
 
 #include <charconv>
 #include <cstring>
+#include <optional>
 #include <vector>
 #include "common/logging.h"
 #include "common/random.h"
@@ -178,25 +179,42 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     if (extracted_romfs == nullptr && base_root != nullptr)
         extracted_romfs = base_root->GetSubdirectory("romfs");
 
-    // A collocated update is an overlay: newest numeric version takes
-    // precedence, while unchanged files resolve from the base directory.
-    // Do not mix executable and resource versions from separate updates.
+    // A collocated update is a bounded file-level overlay. Accept ordinary
+    // wrapper directories around a numeric version and its exefs/romfs pair.
+    // The selected ExeFS and RomFS always belong to the same update directory.
     if (const auto updates = game_root->GetSubdirectory("updates")) {
         FileSys::VirtualDir newest = nullptr;
         u64 newest_version = 0;
-        for (const auto& candidate : updates->GetSubdirectories()) {
-            const auto name = candidate->GetName();
-            u64 version = 0;
-            const auto [end, error] = std::from_chars(
-                name.data(), name.data() + name.size(), version);
-            if (error != std::errc{} || end != name.data() + name.size())
-                continue;
-            if (newest == nullptr || version > newest_version) {
-                const auto exefs = candidate->GetSubdirectory("exefs");
-                const auto romfs_dir = candidate->GetSubdirectory("romfs");
-                if (exefs == nullptr && romfs_dir == nullptr) continue;
-                newest = candidate;
-                newest_version = version;
+        struct UpdateCandidate {
+            FileSys::VirtualDir directory;
+            std::optional<u64> version;
+            unsigned depth;
+        };
+        std::vector<UpdateCandidate> pending{{updates, std::nullopt, 0}};
+        std::size_t visited = 0;
+        while (!pending.empty() && visited++ < 128) {
+            auto candidate = std::move(pending.back());
+            pending.pop_back();
+            if (candidate.version.has_value() &&
+                (newest == nullptr || *candidate.version > newest_version) &&
+                (candidate.directory->GetSubdirectory("exefs") != nullptr ||
+                 candidate.directory->GetSubdirectory("romfs") != nullptr)) {
+                newest = candidate.directory;
+                newest_version = *candidate.version;
+            }
+            if (candidate.depth >= 5) continue;
+            for (const auto& nested : candidate.directory->GetSubdirectories()) {
+                const auto name = nested->GetName();
+                if (name == "exefs" || name == "romfs" || name == "dlc")
+                    continue;
+                auto version = candidate.version;
+                u64 parsed = 0;
+                const auto [end, error] = std::from_chars(
+                    name.data(), name.data() + name.size(), parsed);
+                if (error == std::errc{} && end == name.data() + name.size())
+                    version = parsed;
+                if (pending.size() < 128)
+                    pending.push_back({nested, version, candidate.depth + 1});
             }
         }
         if (newest != nullptr) {
