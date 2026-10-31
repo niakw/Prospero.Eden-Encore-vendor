@@ -164,8 +164,9 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
         content_root = dir->GetParentDirectory();
     FileSys::VirtualDir game_root = content_root;
     FileSys::VirtualDir base_root = nullptr;
-    for (auto cursor = content_root, depth = 0u;
-         cursor != nullptr && depth < 7; cursor = cursor->GetParentDirectory(), ++depth) {
+    unsigned depth = 0;
+    for (auto cursor = content_root; cursor != nullptr && depth < 7;
+         cursor = cursor->GetParentDirectory(), ++depth) {
         if (cursor->GetName() == "base") {
             base_root = cursor;
             if (cursor->GetParentDirectory() != nullptr)
