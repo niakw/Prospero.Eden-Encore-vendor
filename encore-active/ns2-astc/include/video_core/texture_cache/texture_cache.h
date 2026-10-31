@@ -23,6 +23,9 @@
 #include "video_core/texture_cache/image_view_base.h"
 #include "video_core/texture_cache/samples_helper.h"
 #include "video_core/texture_cache/texture_cache_base.h"
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+#include "video_core/texture_cache/ns2_astc_staging_bridge.h"
+#endif
 #include "video_core/texture_cache/util.h"
 #include "video_core/textures/decoders.h"
 
@@ -171,12 +174,14 @@ template <class P>
 void TextureCache<P>::TickFrame() {
     // Release only oversized transient CPU scratch at the next frame boundary.
     // The normal <= 64 MiB cached working set and GPU residency are unchanged.
+#ifdef EDEN_NS2_ASTC_SCRATCH_TRIM
     static constexpr size_t N54ScratchTrimThreshold = size_t{64} << 20;
     for (auto* const scratch : {&swizzle_data_buffer, &unswizzle_data_buffer}) {
         if (scratch->capacity() > N54ScratchTrimThreshold) {
             scratch->release();
         }
     }
+#endif
     // If we can obtain the memory info, use it instead of the estimate.
     if (runtime.CanReportMemoryUsage()) {
         total_used_memory = runtime.GetDeviceMemoryUsage();
@@ -719,8 +724,20 @@ FramebufferId TextureCache<P>::GetFramebufferId(const RenderTargets& key) {
 
 template <class P>
 void TextureCache<P>::WriteMemory(DAddr cpu_addr, size_t size) {
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+    ForEachImageInRegion(cpu_addr, size, [this, cpu_addr, size](ImageId image_id, Image& image) {
+        if (image.ns2_astc_dirty) {
+            if (image.ns2_astc_dirty->MarkWrite(cpu_addr, size)) {
+                image.flags |= ImageFlagBits::CpuModified;
+                return;
+            }
+            image.ns2_astc_dirty.reset();
+        }
+        if (True(image.flags & ImageFlagBits::CpuModified)) {
+#else
     ForEachImageInRegion(cpu_addr, size, [this](ImageId image_id, Image& image) {
         if (True(image.flags & ImageFlagBits::CpuModified)) {
+#endif
             return;
         }
         image.flags |= ImageFlagBits::CpuModified;
@@ -819,6 +836,9 @@ void TextureCache<P>::UnmapGPUMemory(size_t as_id, GPUVAddr gpu_addr, size_t siz
                             [&](ImageId id, Image&) { deleted_images.push_back(id); });
     for (const ImageId id : deleted_images) {
         Image& image = slot_images[id];
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+        image.ns2_astc_dirty.reset(); // mapping no longer proves previous layer residency
+#endif
         if (False(image.flags & ImageFlagBits::CpuModified)) {
             image.flags |= ImageFlagBits::CpuModified;
             if (True(image.flags & ImageFlagBits::Tracked)) {
@@ -1280,7 +1300,25 @@ void TextureCache<P>::RefreshContents(Image& image, ImageId image_id) {
 
     image.flags &= ~ImageFlagBits::CpuModified;
 
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+    if (image.ns2_astc_dirty && Ns2AstcEligible(image)) {
+        try {
+            if (Ns2UploadDirtyLayers(image)) {
+                if (False(image.flags & ImageFlagBits::Tracked))
+                    TrackImage(image, image_id);
+                runtime.InsertUploadMemoryBarrier();
+                return;
+            }
+        } catch (...) {
+            // Preserve the complete baseline upload fallback on partial failure.
+        }
+    }
+    image.ns2_astc_dirty.reset();
+    if (False(image.flags & ImageFlagBits::Tracked))
+        TrackImage(image, image_id);
+#else
     TrackImage(image, image_id);
+#endif
 
     if (image.info.num_samples > 1 && !runtime.CanUploadMSAA()) {
         LOG_WARNING(HW_GPU, "MSAA image uploads are not implemented");
@@ -1308,7 +1346,22 @@ void TextureCache<P>::RefreshContents(Image& image, ImageId image_id) {
     auto staging = runtime.UploadStagingBuffer(MapSizeBytes(image));
     UploadImageContents(image, staging);
     runtime.InsertUploadMemoryBarrier();
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+    if (Ns2AstcEligible(image)) {
+        image.ns2_astc_dirty.emplace(
+            image.cpu_addr, image.guest_size_bytes, image.info.layer_stride,
+            static_cast<u32>(image.info.resources.layers), 0, u64{64} << 20);
+        if (!image.ns2_astc_dirty->ResetAfterFullUpload())
+            image.ns2_astc_dirty.reset();
+    }
+#endif
 }
+
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+// Keep research-only cache integration in this one maintained vendor source,
+// and the generic per-layer methods in an adjacent reviewed include fragment.
+#include "video_core/texture_cache/ns2_astc_texture_cache_bridge.inc"
+#endif
 
 template <class P>
 template <typename StagingBuffer>
