@@ -150,13 +150,27 @@ SparseBuffer MultiRangeBufferCache::CreateSparse(const Device& device, Scheduler
     binds.reserve(sources.size());
     VkDeviceSize resource_offset = 0;
     for (const MultiRangeSource& source : sources) {
-        binds.push_back(VkSparseMemoryBind{
-            .resourceOffset = resource_offset,
-            .size = source.size,
-            .memory = source.memory,
-            .memoryOffset = source.memory_offset + source.offset,
-            .flags = 0,
-        });
+        const VkDeviceSize physical_offset = source.memory_offset + source.offset;
+#ifdef PS5_NATIVE
+        // Adjacent virtual pages backed by adjacent bytes of the SAME Vulkan
+        // allocation need only one sparse bind descriptor. Both sides were
+        // validated for overflow and alignment before creating this buffer.
+        // Keep different allocations and physical gaps as separate bindings.
+        if (!binds.empty() && binds.back().memory == source.memory &&
+            binds.back().resourceOffset + binds.back().size == resource_offset &&
+            binds.back().memoryOffset + binds.back().size == physical_offset) {
+            binds.back().size += source.size;
+        } else
+#endif
+        {
+            binds.push_back(VkSparseMemoryBind{
+                .resourceOffset = resource_offset,
+                .size = source.size,
+                .memory = source.memory,
+                .memoryOffset = physical_offset,
+                .flags = 0,
+            });
+        }
         resource_offset += source.size;
     }
     const VkSparseBufferMemoryBindInfo buffer_bind{
