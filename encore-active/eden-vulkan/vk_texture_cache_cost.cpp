@@ -1,4 +1,7 @@
 #include "performance.h"
+#ifdef EDEN_NS2_ASTC_LAYER_DECODE
+#include <stdexcept>
+#endif
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -258,7 +261,8 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
 }
 
 [[nodiscard]] vk::ImageView MakeStorageView(const vk::Device& device, u32 level, VkImage image,
-                                            VkFormat format) {
+                                            VkFormat format, u32 base_layer = 0,
+                                            u32 layer_count = VK_REMAINING_ARRAY_LAYERS) {
     static constexpr VkImageViewUsageCreateInfo storage_image_view_usage_create_info{
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO,
         .pNext = nullptr,
@@ -281,8 +285,8 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
             .baseMipLevel = level,
             .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = VK_REMAINING_ARRAY_LAYERS,
+            .baseArrayLayer = base_layer,
+            .layerCount = layer_count,
         },
     });
 }
@@ -2655,6 +2659,25 @@ VkImageView Image::StorageImageView(s32 level) noexcept {
     return *view;
 }
 
+#ifdef EDEN_NS2_ASTC_LAYER_DECODE
+VkImageView Image::StorageImageLayerView(s32 level, u32 layer) {
+    if (level < 0 || static_cast<size_t>(level) >= storage_image_views.size() ||
+        layer >= static_cast<u32>(info.resources.layers)) {
+        throw std::out_of_range("NS2 ASTC layer view outside image bounds");
+    }
+    const size_t count = static_cast<size_t>(info.resources.layers);
+    if (storage_layer_views.empty()) {
+        storage_layer_views.resize(storage_image_views.size() * count);
+    }
+    auto& view = storage_layer_views[static_cast<size_t>(level) * count + layer];
+    if (!view) {
+        view = MakeStorageView(runtime->device.GetLogical(), level, *(this->*current_image),
+                               VK_FORMAT_A8B8G8R8_UNORM_PACK32, layer, 1);
+    }
+    return *view;
+}
+#endif
+
 bool Image::IsRescaled() const noexcept {
     return True(flags & ImageFlagBits::Rescaled);
 }
@@ -3496,6 +3519,19 @@ void TextureCacheRuntime::AccelerateImageUpload(
 
     ASSERT(false);
 }
+
+#ifdef EDEN_NS2_ASTC_LAYER_DECODE
+void TextureCacheRuntime::AccelerateImageUploadLayers(
+    Image& image, const StagingBufferRef& map,
+    std::span<const VideoCommon::SwizzleParameters> swizzles,
+    std::span<const u32> layers) {
+    if (!astc_decoder_pass || !IsPixelFormatASTC(image.info.format) ||
+        !WillUseAcceleratedAstcDecode(device, image.info)) {
+        throw std::runtime_error("NS2 ASTC layer decoder is not enabled for this image");
+    }
+    astc_decoder_pass->AssembleLayers(image, map, swizzles, layers);
+}
+#endif
 
 void TextureCacheRuntime::TransitionImageLayout(Image& image) {
     if (!image.ExchangeInitialization()) {
