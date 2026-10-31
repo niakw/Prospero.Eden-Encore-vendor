@@ -989,9 +989,15 @@ bool TextureCacheRuntime::ProbeSparseImage(const VideoCommon::ImageInfo& info) {
     const auto& logical = device.GetLogical();
     const auto memory = logical.GetImageMemoryRequirements(**candidate);
     const auto sparse_requirements = logical.GetSparseImageMemoryRequirements(**candidate);
+    // Only trust the pool-backed accounting shared by Switch 1 and Switch 2.
+    // The driver-only counter can double-count VRAM and visible VRAM.
+    const bool shared_pool_measured = device.CanReportMemoryUsage() &&
+        Eden::Performance::graphics_usage_from_pool.load(std::memory_order_relaxed);
     const auto admission = Eden::NS2::Cache::AdmitSparseCacheImage(
         image_ci, memory, sparse_requirements, device.GetDeviceLocalMemory(),
-        device.IsSparseResidencyImage2DSupported());
+        device.IsSparseResidencyImage2DSupported(),
+        shared_pool_measured ? device.GetDeviceMemoryUsage() : 0,
+        shared_pool_measured);
     if (!admission.Accepted()) {
         return false;
     }

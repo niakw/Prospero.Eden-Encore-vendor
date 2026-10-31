@@ -10,6 +10,7 @@
 #include <vector>
 #include <vulkan/vulkan_core.h>
 #include "video_core/renderer_vulkan/ns2_sparse_layer_budget.h"
+#include "video_core/renderer_vulkan/vk_shared_gpu_budget.h"
 
 namespace Eden::NS2::Cache {
 using Eden::NS2::Eglantine::SparseImageSpec;
@@ -35,7 +36,9 @@ struct SparseCacheAdmission {
 [[nodiscard]] inline SparseCacheAdmission AdmitSparseCacheImage(
     const VkImageCreateInfo& ci, const VkMemoryRequirements& memory,
     std::span<const VkSparseImageMemoryRequirements> requirements,
-    std::uint64_t device_local_bytes, bool sparse_queue_supported) {
+    std::uint64_t device_local_bytes, bool sparse_queue_supported,
+    std::uint64_t shared_pool_used = 0,
+    bool reliable_shared_pool_usage = false) {
     SparseCacheAdmission result{};
     if (!sparse_queue_supported) {
         result.rejection = SparseCacheReject::Disabled;
@@ -91,7 +94,9 @@ struct SparseCacheAdmission {
         .tile_alignment = memory.alignment,
         .tail_bytes = sparse.imageMipTailFirstLod < ci.mipLevels ?
                       sparse.imageMipTailSize : 0,
-        .max_bound_bytes = SparseLayerBudget::CapForDeviceMemory(device_local_bytes),
+        .max_bound_bytes = Eden::Vulkan::MemoryPolicy::SparseBackingBudget(
+            device_local_bytes, shared_pool_used, reliable_shared_pool_usage,
+            SparseLayerBudget::CapForDeviceMemory(device_local_bytes)).max_new_bytes,
         .single_mip_tail = bool(flags & VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT),
     };
     const SparseLayerBudget budget(spec);
