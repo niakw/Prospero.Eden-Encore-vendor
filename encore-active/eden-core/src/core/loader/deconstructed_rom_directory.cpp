@@ -4,7 +4,10 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <charconv>
 #include <cstring>
+#include <optional>
+#include <vector>
 #include "common/logging.h"
 #include "common/random.h"
 #include "common/settings.h"
@@ -13,6 +16,7 @@
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/romfs_factory.h"
+#include "core/file_sys/vfs/vfs_layered.h"
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/filesystem/filesystem.h"
@@ -152,6 +156,101 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
 
         dir = file->GetContainingDirectory();
     }
+
+    // Extracted titles may keep executable modules in base/exefs and assets
+    // beside them in base/romfs. The legacy <title>/main layout is retained.
+    // Locate the containing "base" folder (if any), without walking above it.
+    FileSys::VirtualDir content_root = dir;
+    if (dir->GetName() == "exefs" && dir->GetParentDirectory() != nullptr)
+        content_root = dir->GetParentDirectory();
+    // Prefer the immediate child of the ROM storage root as the title
+    // boundary, even when an export/wrapper directory sits above exefs.
+    // For legacy out-of-library launch paths retain the nearest "base"
+    // ancestor as a conservative fallback.
+    FileSys::VirtualDir game_root = content_root;
+    unsigned depth = 0;
+    for (auto cursor = content_root; cursor != nullptr && depth < 9;
+         cursor = cursor->GetParentDirectory(), ++depth) {
+        if (cursor->GetName() == "base" && cursor->GetParentDirectory() != nullptr)
+            game_root = cursor->GetParentDirectory();
+        if (const auto parent = cursor->GetParentDirectory();
+            parent != nullptr && parent->GetName() == "roms") {
+            game_root = cursor;
+            break;
+        }
+    }
+    // RomFS may be beside exefs, above an export wrapper, or inside base/.
+    // Search ancestors only as far as the owning title; do not cross into
+    // another game or the common ROM storage root.
+    FileSys::VirtualDir extracted_romfs = nullptr;
+    depth = 0;
+    for (auto cursor = content_root; cursor != nullptr && depth < 9;
+         cursor = cursor->GetParentDirectory(), ++depth) {
+        if (auto sibling = cursor->GetSubdirectory("romfs"); sibling != nullptr) {
+            extracted_romfs = std::move(sibling);
+            break;
+        }
+        if (cursor == game_root) break;
+    }
+
+    // A collocated update is a bounded file-level overlay. Accept ordinary
+    // wrapper directories around a numeric version and its exefs/romfs pair.
+    // The selected ExeFS and RomFS always belong to the same update directory.
+    if (const auto updates = game_root->GetSubdirectory("updates")) {
+        FileSys::VirtualDir newest = nullptr;
+        u64 newest_version = 0;
+        struct UpdateCandidate {
+            FileSys::VirtualDir directory;
+            std::optional<u64> version;
+            unsigned depth;
+        };
+        std::vector<UpdateCandidate> pending{{updates, std::nullopt, 0}};
+        std::size_t visited = 0;
+        while (!pending.empty() && visited++ < 128) {
+            auto candidate = std::move(pending.back());
+            pending.pop_back();
+            if (candidate.version.has_value() &&
+                (newest == nullptr || *candidate.version > newest_version) &&
+                (candidate.directory->GetSubdirectory("exefs") != nullptr ||
+                 candidate.directory->GetSubdirectory("romfs") != nullptr)) {
+                newest = candidate.directory;
+                newest_version = *candidate.version;
+            }
+            if (candidate.depth >= 5) continue;
+            for (const auto& nested : candidate.directory->GetSubdirectories()) {
+                const auto name = nested->GetName();
+                if (name == "exefs" || name == "romfs" || name == "dlc")
+                    continue;
+                auto version = candidate.version;
+                u64 parsed = 0;
+                const auto [end, error] = std::from_chars(
+                    name.data(), name.data() + name.size(), parsed);
+                if (error == std::errc{} && end == name.data() + name.size())
+                    version = parsed;
+                if (pending.size() < 128)
+                    pending.push_back({nested, version, candidate.depth + 1});
+            }
+        }
+        if (newest != nullptr) {
+            if (auto patch_exefs = newest->GetSubdirectory("exefs"); patch_exefs != nullptr) {
+                std::vector<FileSys::VirtualDir> layers{std::move(patch_exefs), dir};
+                if (auto patched = FileSys::LayeredVfsDirectory::MakeLayeredDirectory(
+                        std::move(layers)); patched != nullptr)
+                    dir = std::move(patched);
+            }
+            if (auto patch_romfs = newest->GetSubdirectory("romfs"); patch_romfs != nullptr) {
+                std::vector<FileSys::VirtualDir> layers{std::move(patch_romfs)};
+                if (extracted_romfs != nullptr) layers.push_back(extracted_romfs);
+                extracted_romfs = FileSys::LayeredVfsDirectory::MakeLayeredDirectory(
+                    std::move(layers));
+            }
+            LOG_INFO(Loader, "Extracted title update overlay selected: version {}", newest_version);
+        }
+    }
+    // Construct the virtual RomFS from the extracted directory; file bytes
+    // remain backed by the VFS instead of eagerly copying game assets to RAM.
+    if (extracted_romfs != nullptr)
+        romfs = FileSys::CreateRomFS(std::move(extracted_romfs), nullptr);
 
     // Read meta to determine title ID
     FileSys::VirtualFile npdm = dir->GetFile("main.npdm");

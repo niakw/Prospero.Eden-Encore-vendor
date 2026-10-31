@@ -1407,6 +1407,13 @@ void ExternalContentProvider::ScanDirectory(const VirtualDir& dir) {
     }
 
     for (const auto& subdir : dir->GetSubdirectories()) {
+        // Package scanning may start at a mixed extracted-title add-on root.
+        // Never recursively enumerate large unpacked RomFS/ExeFS payloads:
+        // extracted overlays have their own loader route, while packaged
+        // updates/DLC are identified from NSP/XCI metadata here.
+        const auto name = Common::ToLower(subdir->GetName());
+        if (name == "romfs" || name == "exefs")
+            continue;
         ScanDirectory(subdir);
     }
 }
