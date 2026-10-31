@@ -20,8 +20,12 @@ struct NativeSubmissionPlan {
     if (!channel_ready || (flags & ~AllowedFlags) ||
         ((flags & 1U) && (flags & 0x100U)))
         return {};
+    // When both native count and the ordinary two-increment fence are set,
+    // enqueue BOTH counts. The old conditional reserved the combined value
+    // in IncrementSyncpointMaxExt but silently dropped the native increments,
+    // leaving the guest waiting on a fence that could never be signalled.
     const std::uint32_t native_count =
-        (flags & 0x100U) && !(flags & 2U) ? requested_fence_increment : 0;
+        (flags & 0x100U) ? requested_fence_increment : 0;
     if (native_count > 64) return {};
     return NativeSubmissionPlan{
         native_count,
