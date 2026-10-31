@@ -133,7 +133,7 @@ public:
         backing_.push_back(token);
         image_ = image;
         const VkResult result = queue.BindSparseImage(
-            image, tiles, tails, static_cast<VkFence>(fence), wait, signal);
+            image, tiles, tails, *fence, wait, signal);
         if (result != VK_SUCCESS) {
             ready_ = false;
             budget_.Poison();
