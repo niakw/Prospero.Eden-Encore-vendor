@@ -874,7 +874,7 @@ public:
         return dld->vkQueueBindSparse(queue, bind_infos.size(), bind_infos.data(), fence);
     }
 
-    // NSW2 N66: submit actual sparse 2D tiles and optional mip-tail memory to
+    // NSW2 N66/N67: submit sparse tiles/tails with optional GPU hand-off semaphores to
     // Encore's existing Vulkan queue. The owner retains every VkDeviceMemory
     // until the supplied fence is signalled; budget.Commit must happen only
     // *after* fence completion. On submit/wait failure, poison and retire image.
@@ -882,9 +882,16 @@ public:
     [[nodiscard]] VkResult BindSparseImage(VkImage image,
                                            Span<VkSparseImageMemoryBind> tiles,
                                            Span<VkSparseMemoryBind> tails,
-                                           VkFence completion) const noexcept {
+                                           VkFence completion,
+                                           VkSemaphore wait_semaphore = VK_NULL_HANDLE,
+                                           VkSemaphore signal_semaphore = VK_NULL_HANDLE) const noexcept {
         if (!queue || !dld || !dld->vkQueueBindSparse) {
             return VK_ERROR_FEATURE_NOT_PRESENT;
+        }
+        // The caller owns both semaphores and the fence until GPU retirement.
+        // A binary semaphore cannot be waited and signalled in the same bind.
+        if (wait_semaphore && wait_semaphore == signal_semaphore) {
+            return VK_ERROR_INITIALIZATION_FAILED;
         }
         if (!image || !completion || (tiles.empty() && tails.empty()) ||
             tiles.size() > 65536 || tails.size() > 4096) {
@@ -915,16 +922,16 @@ public:
         const VkBindSparseInfo submit{
             .sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO,
             .pNext = nullptr,
-            .waitSemaphoreCount = 0,
-            .pWaitSemaphores = nullptr,
+            .waitSemaphoreCount = wait_semaphore ? 1U : 0U,
+            .pWaitSemaphores = wait_semaphore ? &wait_semaphore : nullptr,
             .bufferBindCount = 0,
             .pBufferBinds = nullptr,
             .imageOpaqueBindCount = tails.empty() ? 0U : 1U,
             .pImageOpaqueBinds = tails.empty() ? nullptr : &tail_info,
             .imageBindCount = tiles.empty() ? 0U : 1U,
             .pImageBinds = tiles.empty() ? nullptr : &image_info,
-            .signalSemaphoreCount = 0,
-            .pSignalSemaphores = nullptr,
+            .signalSemaphoreCount = signal_semaphore ? 1U : 0U,
+            .pSignalSemaphores = signal_semaphore ? &signal_semaphore : nullptr,
         };
         return BindSparse(submit, completion);
     }
