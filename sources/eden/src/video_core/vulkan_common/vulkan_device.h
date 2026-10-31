@@ -321,12 +321,6 @@ public:
         return features.features.sparseBinding && graphics_family_sparse_binding;
     }
 
-    // N58: image sparse residency requires a stronger Vulkan feature than
-    // sparse resource binding. Never treat the two as interchangeable.
-    [[nodiscard]] bool IsSparseResidencyImage2DSupported() const {
-        return IsSparseBindingSupported() && features.features.sparseResidencyImage2D;
-    }
-
     /// Returns true for tile-based deferred renderers.
     bool IsTiler() const {
         switch (GetDriverID()) {

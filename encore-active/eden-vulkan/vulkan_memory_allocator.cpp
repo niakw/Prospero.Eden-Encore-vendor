@@ -271,6 +271,7 @@ vk::Image MemoryAllocator::CreateImage(const VkImageCreateInfo &ci) const
                         device.GetDispatchLoader());
 }
 
+#ifdef EDEN_NS2_SPARSE_CACHE_PROBE
 vk::Image MemoryAllocator::CreateSparseImage(const VkImageCreateInfo &ci) const {
     // No sparse image may be created unless the actual selected graphics
     // queue and device expose sparse residency for 2D images (N58).
@@ -345,6 +346,8 @@ void MemoryAllocator::ReleaseSparseMemory(SparseMemoryAllocation &token) const n
     }
     token = {};
 }
+
+#endif // EDEN_NS2_SPARSE_CACHE_PROBE
 
 vk::Buffer MemoryAllocator::CreateBuffer(const VkBufferCreateInfo &ci, MemoryUsage usage) const {
     // MESA will do memcpy() if not marked as host cached, so just force mark it for most buffers
