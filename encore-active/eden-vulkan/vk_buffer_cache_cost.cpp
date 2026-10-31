@@ -672,6 +672,34 @@ bool BufferCacheRuntime::BindMultiRangeStorageBuffer(u64 key, bool is_written) {
     if (ref.needs_gather) {
         PreCopyBarrier();
         VkDeviceSize dst_offset = 0;
+#ifdef PS5_NATIVE
+        // One command can copy multiple non-overlapping slices from the
+        // same source buffer. Group adjacent owner runs in an eight-entry
+        // stack batch, never reorder guest bytes or change the barrier pair.
+        // A different source, or a full batch, flushes in FIFO order.
+        VkBuffer grouped_source = VK_NULL_HANDLE;
+        std::array<VideoCommon::BufferCopy, 8> grouped_copies{};
+        std::size_t grouped_count = 0;
+        const auto flush_group = [&] {
+            if (grouped_count == 0) return;
+            CopyBuffer(ref.handle, grouped_source,
+                       std::span<const VideoCommon::BufferCopy>{grouped_copies.data(), grouped_count},
+                       false);
+            grouped_count = 0;
+        };
+        for (const MultiRangeSource& source : multi_range_sources) {
+            if (source.handle != grouped_source || grouped_count == grouped_copies.size())
+                flush_group();
+            grouped_source = source.handle;
+            grouped_copies[grouped_count++] = VideoCommon::BufferCopy{
+                .src_offset = u64(source.offset),
+                .dst_offset = u64(dst_offset),
+                .size = size_t(source.size),
+            };
+            dst_offset += source.size;
+        }
+        flush_group();
+#else
         for (const MultiRangeSource& source : multi_range_sources) {
             const std::array<VideoCommon::BufferCopy, 1> copy{VideoCommon::BufferCopy{
                 .src_offset = u64(source.offset),
@@ -681,6 +709,7 @@ bool BufferCacheRuntime::BindMultiRangeStorageBuffer(u64 key, bool is_written) {
             CopyBuffer(ref.handle, source.handle, copy, false);
             dst_offset += source.size;
         }
+#endif
         PostCopyBarrier();
         multi_range_buffers.MarkGathered(key);
     }
