@@ -4,7 +4,9 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <charconv>
 #include <cstring>
+#include <vector>
 #include "common/logging.h"
 #include "common/random.h"
 #include "common/settings.h"
@@ -13,6 +15,7 @@
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/romfs_factory.h"
+#include "core/file_sys/vfs/vfs_layered.h"
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/filesystem/filesystem.h"
@@ -152,6 +155,69 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
 
         dir = file->GetContainingDirectory();
     }
+
+    // Extracted titles may keep executable modules in base/exefs and assets
+    // beside them in base/romfs. The legacy <title>/main layout is retained.
+    // Locate the containing "base" folder (if any), without walking above it.
+    FileSys::VirtualDir content_root = dir;
+    if (dir->GetName() == "exefs" && dir->GetParentDirectory() != nullptr)
+        content_root = dir->GetParentDirectory();
+    FileSys::VirtualDir game_root = content_root;
+    FileSys::VirtualDir base_root = nullptr;
+    for (auto cursor = content_root, depth = 0u;
+         cursor != nullptr && depth < 7; cursor = cursor->GetParentDirectory(), ++depth) {
+        if (cursor->GetName() == "base") {
+            base_root = cursor;
+            if (cursor->GetParentDirectory() != nullptr)
+                game_root = cursor->GetParentDirectory();
+            break;
+        }
+    }
+    FileSys::VirtualDir extracted_romfs = content_root->GetSubdirectory("romfs");
+    if (extracted_romfs == nullptr && base_root != nullptr)
+        extracted_romfs = base_root->GetSubdirectory("romfs");
+
+    // A collocated update is an overlay: newest numeric version takes
+    // precedence, while unchanged files resolve from the base directory.
+    // Do not mix executable and resource versions from separate updates.
+    if (const auto updates = game_root->GetSubdirectory("updates")) {
+        FileSys::VirtualDir newest = nullptr;
+        u64 newest_version = 0;
+        for (const auto& candidate : updates->GetSubdirectories()) {
+            const auto name = candidate->GetName();
+            u64 version = 0;
+            const auto [end, error] = std::from_chars(
+                name.data(), name.data() + name.size(), version);
+            if (error != std::errc{} || end != name.data() + name.size())
+                continue;
+            if (newest == nullptr || version > newest_version) {
+                const auto exefs = candidate->GetSubdirectory("exefs");
+                const auto romfs_dir = candidate->GetSubdirectory("romfs");
+                if (exefs == nullptr && romfs_dir == nullptr) continue;
+                newest = candidate;
+                newest_version = version;
+            }
+        }
+        if (newest != nullptr) {
+            if (auto patch_exefs = newest->GetSubdirectory("exefs"); patch_exefs != nullptr) {
+                std::vector<FileSys::VirtualDir> layers{std::move(patch_exefs), dir};
+                if (auto patched = FileSys::LayeredVfsDirectory::MakeLayeredDirectory(
+                        std::move(layers)); patched != nullptr)
+                    dir = std::move(patched);
+            }
+            if (auto patch_romfs = newest->GetSubdirectory("romfs"); patch_romfs != nullptr) {
+                std::vector<FileSys::VirtualDir> layers{std::move(patch_romfs)};
+                if (extracted_romfs != nullptr) layers.push_back(extracted_romfs);
+                extracted_romfs = FileSys::LayeredVfsDirectory::MakeLayeredDirectory(
+                    std::move(layers));
+            }
+            LOG_INFO(Loader, "Extracted title update overlay selected: version {}", newest_version);
+        }
+    }
+    // Construct the virtual RomFS from the extracted directory; file bytes
+    // remain backed by the VFS instead of eagerly copying game assets to RAM.
+    if (extracted_romfs != nullptr)
+        romfs = FileSys::CreateRomFS(std::move(extracted_romfs), nullptr);
 
     // Read meta to determine title ID
     FileSys::VirtualFile npdm = dir->GetFile("main.npdm");
