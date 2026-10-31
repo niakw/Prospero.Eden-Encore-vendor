@@ -31,6 +31,9 @@
 #include "common/settings.h"
 
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
+#ifdef EDEN_NS2_VIEW_DIMENSION_GUARD
+#include "video_core/renderer_vulkan/ns2_view_type_guard.h"
+#endif
 #include "video_core/gpu_logging/gpu_logging.h"
 
 #include "video_core/engines/fermi_2d.h"
@@ -3049,6 +3052,17 @@ vk::ImageView ImageView::MakeView(VkFormat vk_format, VkImageAspectFlags aspect_
                                   std::optional<Shader::TextureType> texture_type) {
     VkImageViewType view_type = ImageViewType(type);
     VkImageSubresourceRange subresource_range = MakeSubresourceRange(aspect_mask, range);
+#ifdef EDEN_NS2_VIEW_DIMENSION_GUARD
+    // Keep physical 2D/3D dimensionality when the shader requests an incompatible view.
+    if (texture_type &&
+        Eden::NS2::Vulkan::CrossDimensionView(view_type, ImageViewType(*texture_type),
+                                               VK_IMAGE_VIEW_TYPE_3D)) {
+        LOG_WARNING(Render_Vulkan,
+                    "NS2 shader image dimension mismatches physical image at 0x{:x}; "
+                    "keeping the real image view type", gpu_addr);
+        texture_type.reset();
+    }
+#endif
     if (texture_type) {
         view_type = ImageViewType(*texture_type);
         switch (view_type) {
