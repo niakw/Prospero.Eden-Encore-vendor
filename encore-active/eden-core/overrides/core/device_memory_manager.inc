@@ -22,6 +22,9 @@
 #include "common/settings.h"
 #include "core/device_memory.h"
 #include "core/device_memory_manager.h"
+#ifdef EDEN_NS2_DEVICE_CONTINUITY
+#include "core/ns2_egl_continuity_guard.h"
+#endif
 #include "core/memory.h"
 #ifdef PS5_NATIVE
 #include "core/hle/kernel/board/nintendo/nx/k_system_control.h"
@@ -265,6 +268,14 @@ void DeviceMemoryManager<Traits>::Map(DAddr address, VAddr virtual_address, size
 #endif
 
     tracked_entries.CommitRegion(start_page_d, start_page_d + num_pages);
+#ifdef EDEN_NS2_DEVICE_CONTINUITY
+    // End a previously tracked physical run before mapping state changes.
+    Eden::NS2::Eglantine::CutContinuityAt(start_page_d,
+        [&](size_t index) { return AtomicLoadContinuity(tracked_entries[index]); },
+        [&](size_t index, u32 new_count) {
+            AtomicStoreContinuity(tracked_entries.GetUnchecked(index), new_count);
+        });
+#endif
     for (size_t i = 0; i < num_pages; i++) {
         const VAddr new_vaddress = virtual_address + i * Memory::YUZU_PAGESIZE;
         auto* ptr = process_memory->GetPointerSilent(Common::ProcessAddress(new_vaddress));
@@ -383,6 +394,14 @@ void DeviceMemoryManager<Traits>::Unmap(DAddr address, size_t size) {
     std::scoped_lock lk(mapping_guard);
 
     tracked_entries.CommitRegion(start_page_d, start_page_d + num_pages); // should already be committed, but just in case
+#ifdef EDEN_NS2_DEVICE_CONTINUITY
+    // End a previously tracked physical run before mapping state changes.
+    Eden::NS2::Eglantine::CutContinuityAt(start_page_d,
+        [&](size_t index) { return AtomicLoadContinuity(tracked_entries[index]); },
+        [&](size_t index, u32 new_count) {
+            AtomicStoreContinuity(tracked_entries.GetUnchecked(index), new_count);
+        });
+#endif
     for (size_t i = 0; i < num_pages; i++) {
         auto& entry = tracked_entries.GetUnchecked(start_page_d + i);
         auto phys_addr = AtomicLoadPhysical(entry);

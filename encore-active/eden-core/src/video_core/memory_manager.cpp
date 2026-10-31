@@ -16,6 +16,9 @@
 #include "video_core/host1x/host1x.h"
 #include "video_core/invalidation_accumulator.h"
 #include "video_core/memory_manager.h"
+#ifdef EDEN_NS2_GPU_RANGE_BATCH
+#include "video_core/ns2_egl_gpu_range_batch.h"
+#endif
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_base.h"
 #include "video_core/texture_cache/util.h"
@@ -110,13 +113,25 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
     if (entry_type == EntryType::Mapped) {
         page_table.ReserveRange(gpu_addr, size);
     }
+#ifdef EDEN_NS2_GPU_RANGE_BATCH
+    // Coalesce only adjacent changed PTE pages; preserve unchanged holes.
+    Eden::NS2::Eglantine::ChangedPageRuns changed_runs(page_size);
+    const auto notify_changed = [this](GPUVAddr address, u64 length) {
+        rasterizer->ModifyGPUMemory(unique_identifier, address, length);
+    };
+#endif
     for (u64 offset{}; offset < size; offset += page_size) {
         const GPUVAddr current_gpu_addr = gpu_addr + offset;
         [[maybe_unused]] const auto current_entry_type = GetEntry(current_gpu_addr, false);
         SetEntry(current_gpu_addr, entry_type, false);
+#ifdef EDEN_NS2_GPU_RANGE_BATCH
+        changed_runs.Record(current_gpu_addr, current_entry_type != entry_type,
+                            notify_changed);
+#else
         if (current_entry_type != entry_type) {
             rasterizer->ModifyGPUMemory(unique_identifier, current_gpu_addr, page_size);
         }
+#endif
         if (entry_type == EntryType::Mapped) {
             const DAddr current_dev_addr = dev_addr + offset;
             const auto index = PageEntryIndex(current_gpu_addr, false);
@@ -125,19 +140,34 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
         }
         remaining_size -= page_size;
     }
+#ifdef EDEN_NS2_GPU_RANGE_BATCH
+    changed_runs.Flush(notify_changed);
+#endif
     kind_map.Map(gpu_addr, gpu_addr + size, kind);
     return gpu_addr;
 }
 
 GPUVAddr MemoryManager::BigPageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr dev_addr, size_t size, PTEKind kind, MemoryManager::EntryType entry_type) {
     [[maybe_unused]] u64 remaining_size{size};
+#ifdef EDEN_NS2_GPU_RANGE_BATCH
+    // Coalesce only adjacent changed PTE pages; preserve unchanged holes.
+    Eden::NS2::Eglantine::ChangedPageRuns changed_runs(big_page_size);
+    const auto notify_changed = [this](GPUVAddr address, u64 length) {
+        rasterizer->ModifyGPUMemory(unique_identifier, address, length);
+    };
+#endif
     for (u64 offset{}; offset < size; offset += big_page_size) {
         const GPUVAddr current_gpu_addr = gpu_addr + offset;
         [[maybe_unused]] const auto current_entry_type = GetEntry(current_gpu_addr, true);
         SetEntry(current_gpu_addr, entry_type, true);
+#ifdef EDEN_NS2_GPU_RANGE_BATCH
+        changed_runs.Record(current_gpu_addr, current_entry_type != entry_type,
+                            notify_changed);
+#else
         if (current_entry_type != entry_type) {
             rasterizer->ModifyGPUMemory(unique_identifier, current_gpu_addr, big_page_size);
         }
+#endif
         if (entry_type == EntryType::Mapped) {
             const DAddr current_dev_addr = dev_addr + offset;
             const auto index = PageEntryIndex(current_gpu_addr, true);
@@ -163,6 +193,9 @@ GPUVAddr MemoryManager::BigPageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr
         }
         remaining_size -= big_page_size;
     }
+#ifdef EDEN_NS2_GPU_RANGE_BATCH
+    changed_runs.Flush(notify_changed);
+#endif
     {
         std::unique_lock<std::mutex> lock(guard);
         kind_map.Map(gpu_addr, gpu_addr + size, kind);
