@@ -1,0 +1,20 @@
+name: One-time cleanup of merged extracted-ROM work branch
+on:
+  push:
+    paths:
+      - '.github/workflows/cleanup-merged-extracted-romfs.yml'
+permissions:
+  contents: write
+jobs:
+  delete-merged-branch:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify merged PR and remove its head branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          merged="$(gh api repos/${{ github.repository }}/pulls/1 --jq '.merged')"
+          test "$merged" = true
+          gh api --method DELETE repos/${{ github.repository }}/git/refs/heads/feature/extracted-romfs-bridge
