@@ -286,6 +286,8 @@ s64 WallClock::GetCNTPCT() const {
             return MultiplyHigh(GetUptime(), factor);
         // A missing host clock calibration must not divide by zero or
         // silently keep the wrong 19.2 MHz guest rate.
+        if (rdtsc_frequency == 0)
+            return 0;
         return MultiplyHigh(GetUptime(),
                             GetFixedPoint64Factor(Eden::GuestCounter::Rate(),
                                                   rdtsc_frequency));
