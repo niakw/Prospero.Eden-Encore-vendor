@@ -70,16 +70,19 @@ VirtualFile RomFSFactory::OpenPatchedRomFSWithProgramIndex(u64 title_id, u8 prog
 }
 
 VirtualFile RomFSFactory::Open(u64 title_id, StorageId storage, ContentRecordType type) const {
+    const u64 aoc_suffix = title_id & 0x1fffU;
+    const bool extracted_aoc_id = type == ContentRecordType::Data &&
+                                  aoc_suffix >= 0x1000U && aoc_suffix <= 0x17ffU;
+    // Host storage has no NCA provider in GetEntry: avoid its
+    // UNIMPLEMENTED path for explicitly installed extracted AOC content.
+    if (storage == StorageId::Host && extracted_aoc_id)
+        return ExtractedAoc::OpenRomFS(title_id);
     const std::shared_ptr<NCA> res = GetEntry(title_id, storage, type);
     if (res == nullptr) {
-        // Raw extracted DLC has no NCA. Only AOC Data Title IDs may use the
-        // explicitly installed, directory-backed RomFS fallback. Never
-        // redirect ordinary program/system data or override a genuine NCA.
-        const u64 aoc_suffix = title_id & 0x1fffU;
-        if (type == ContentRecordType::Data &&
-            aoc_suffix >= 0x1000U && aoc_suffix <= 0x17ffU &&
-            (storage == StorageId::None || storage == StorageId::Host ||
-             storage == StorageId::NandUser || storage == StorageId::SdCard))
+        // Prefer authentic NCA content; only fall back for read-only AOC Data.
+        if (extracted_aoc_id &&
+            (storage == StorageId::None || storage == StorageId::NandUser ||
+             storage == StorageId::SdCard))
             return ExtractedAoc::OpenRomFS(title_id);
         return nullptr;
     }
