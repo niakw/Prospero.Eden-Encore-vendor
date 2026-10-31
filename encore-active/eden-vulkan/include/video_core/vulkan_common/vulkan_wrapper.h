@@ -866,7 +866,67 @@ public:
 
     VkResult BindSparse(Span<VkBindSparseInfo> bind_infos,
                         VkFence fence = VK_NULL_HANDLE) const noexcept {
+        // Some native Vulkan dispatch tables omit sparse queue functions.
+        // A missing function must never crash the PS5 rendering thread.
+        if (!queue || !dld || !dld->vkQueueBindSparse) {
+            return VK_ERROR_FEATURE_NOT_PRESENT;
+        }
         return dld->vkQueueBindSparse(queue, bind_infos.size(), bind_infos.data(), fence);
+    }
+
+    // NSW2 N66: submit actual sparse 2D tiles and optional mip-tail memory to
+    // Encore's existing Vulkan queue. The owner retains every VkDeviceMemory
+    // until the supplied fence is signalled; budget.Commit must happen only
+    // *after* fence completion. On submit/wait failure, poison and retire image.
+    // No secondary renderer, dispatch layout change, or game-specific path.
+    [[nodiscard]] VkResult BindSparseImage(VkImage image,
+                                           Span<VkSparseImageMemoryBind> tiles,
+                                           Span<VkSparseMemoryBind> tails,
+                                           VkFence completion) const noexcept {
+        if (!queue || !dld || !dld->vkQueueBindSparse) {
+            return VK_ERROR_FEATURE_NOT_PRESENT;
+        }
+        if (!image || !completion || (tiles.empty() && tails.empty()) ||
+            tiles.size() > 65536 || tails.size() > 4096) {
+            return VK_ERROR_INITIALIZATION_FAILED;
+        }
+        for (const auto& bind : tiles) {
+            if (!bind.memory || bind.subresource.aspectMask == 0 ||
+                bind.extent.width == 0 || bind.extent.height == 0 ||
+                bind.extent.depth == 0) {
+                return VK_ERROR_INITIALIZATION_FAILED;
+            }
+        }
+        for (const auto& bind : tails) {
+            if (!bind.memory || bind.size == 0) {
+                return VK_ERROR_INITIALIZATION_FAILED;
+            }
+        }
+        const VkSparseImageMemoryBindInfo image_info{
+            .image = image,
+            .bindCount = tiles.size(),
+            .pBinds = tiles.data(),
+        };
+        const VkSparseImageOpaqueMemoryBindInfo tail_info{
+            .image = image,
+            .bindCount = tails.size(),
+            .pBinds = tails.data(),
+        };
+        const VkBindSparseInfo submit{
+            .sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO,
+            .pNext = nullptr,
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = nullptr,
+            .bufferBindCount = 0,
+            .pBufferBinds = nullptr,
+            .imageOpaqueBindCount = tails.empty() ? 0U : 1U,
+            .pImageOpaqueBinds = tails.empty() ? nullptr : &tail_info,
+            .imageBindCount = tiles.empty() ? 0U : 1U,
+            .pImageBinds = tiles.empty() ? nullptr : &image_info,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = nullptr,
+        };
+        return BindSparse(submit, completion);
     }
 
     VkResult Present(const VkPresentInfoKHR& present_info) const noexcept {
