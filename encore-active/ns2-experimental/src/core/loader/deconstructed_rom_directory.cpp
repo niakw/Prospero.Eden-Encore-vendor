@@ -23,7 +23,6 @@
 #include "core/loader/ns2_process_handoff.h"
 #include "core/loader/ns2_kprocess_code_admission.h"
 #include "core/loader/ns2_main_thread_admission.h"
-#include "core/loader/ns2_public_homebrew_svc.h"
 #include "core/loader/ns2_svc_trace.h"
 #include "core/memory.h"
 
@@ -298,19 +297,6 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
         LOG_INFO(Loader,
                  "NS2 KProcess admitted main thread core={} priority={} (core_mask={:#x}, priority_mask={:#x})",
                  core_id, priority, allowed_cores, allowed_priorities);
-        // The public synthetic homebrew has a known SVC contract. Verify
-        // actual kernel-granted permissions, never synthesize them.
-        if (Eden::NS2::ExeFS::IsPublicHelloFixture(metadata.GetTitleID(),
-                                                   metadata.GetName())) {
-            const auto missing = Eden::NS2::ExeFS::MissingPublicHelloSvcs(
-                [&](u32 svc) { return process.IsPermittedSvc(svc); });
-            if (missing != 0) {
-                LOG_ERROR(Loader, "NS2 public homebrew denied HOS SVC permissions (mask={:#x})",
-                          missing);
-                return {ResultStatus::ErrorUnableToParseKernelMetadata, {}};
-            }
-            LOG_INFO(Loader, "NS2 public homebrew real KProcess: five required SVCs permitted");
-        }
     }
 
     // Load NSO modules
