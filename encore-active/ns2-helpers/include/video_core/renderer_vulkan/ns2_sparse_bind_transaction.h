@@ -32,11 +32,16 @@ public:
     template <typename Queue, typename Fence>
     [[nodiscard]] VkResult Bind(
         VkImage image, const VkMemoryRequirements& image_memory,
-        const VkSparseImageMemoryRequirements& sparse,
+        const std::vector<VkSparseImageMemoryRequirements>& sparse_requirements,
         const SparseLayerBindPlan& logical, const Queue& queue,
         const Fence& fence, VkSemaphore wait = VK_NULL_HANDLE,
         VkSemaphore signal = VK_NULL_HANDLE,
         std::uint64_t timeout_ns = 5'000'000'000ULL) {
+        // A Vulkan image may expose separate color/metadata sparse aspects.
+        // This owner currently binds only color; refuse multi-aspect images
+        // instead of accidentally leaving required metadata memory unbound.
+        if (sparse_requirements.size() != 1) return VK_ERROR_INITIALIZATION_FAILED;
+        const auto& sparse = sparse_requirements.front();
         if (!image || !timeout_ns || budget_.Poisoned() || !budget_.Valid() ||
             spec_.layers <= 1 || spec_.levels == 0 ||
             !image_memory.size || !image_memory.memoryTypeBits ||
