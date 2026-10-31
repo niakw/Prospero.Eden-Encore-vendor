@@ -163,21 +163,35 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     FileSys::VirtualDir content_root = dir;
     if (dir->GetName() == "exefs" && dir->GetParentDirectory() != nullptr)
         content_root = dir->GetParentDirectory();
+    // Prefer the immediate child of the ROM storage root as the title
+    // boundary, even when an export/wrapper directory sits above exefs.
+    // For legacy out-of-library launch paths retain the nearest "base"
+    // ancestor as a conservative fallback.
     FileSys::VirtualDir game_root = content_root;
-    FileSys::VirtualDir base_root = nullptr;
     unsigned depth = 0;
-    for (auto cursor = content_root; cursor != nullptr && depth < 7;
+    for (auto cursor = content_root; cursor != nullptr && depth < 9;
          cursor = cursor->GetParentDirectory(), ++depth) {
-        if (cursor->GetName() == "base") {
-            base_root = cursor;
-            if (cursor->GetParentDirectory() != nullptr)
-                game_root = cursor->GetParentDirectory();
+        if (cursor->GetName() == "base" && cursor->GetParentDirectory() != nullptr)
+            game_root = cursor->GetParentDirectory();
+        if (const auto parent = cursor->GetParentDirectory();
+            parent != nullptr && parent->GetName() == "roms") {
+            game_root = cursor;
             break;
         }
     }
-    FileSys::VirtualDir extracted_romfs = content_root->GetSubdirectory("romfs");
-    if (extracted_romfs == nullptr && base_root != nullptr)
-        extracted_romfs = base_root->GetSubdirectory("romfs");
+    // RomFS may be beside exefs, above an export wrapper, or inside base/.
+    // Search ancestors only as far as the owning title; do not cross into
+    // another game or the common ROM storage root.
+    FileSys::VirtualDir extracted_romfs = nullptr;
+    depth = 0;
+    for (auto cursor = content_root; cursor != nullptr && depth < 9;
+         cursor = cursor->GetParentDirectory(), ++depth) {
+        if (auto sibling = cursor->GetSubdirectory("romfs"); sibling != nullptr) {
+            extracted_romfs = std::move(sibling);
+            break;
+        }
+        if (cursor == game_root) break;
+    }
 
     // A collocated update is a bounded file-level overlay. Accept ordinary
     // wrapper directories around a numeric version and its exefs/romfs pair.
