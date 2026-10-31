@@ -579,24 +579,27 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
     // allocations; saturation falls back to the original lookup, never a
     // stale ID. Descriptor invalidation cannot cross this draw-local scope.
     struct SamplerMemo {
-        u32 handle{};
-        VideoCommon::SamplerId id{};
-        bool valid{};
+        u32 handle;
+        VideoCommon::SamplerId id;
     };
-    std::array<SamplerMemo, 16> sampler_memo{};
+    // A single occupancy mask replaces per-entry valid-byte clearing on
+    // every graphics draw. A slot becomes visible only after lookup success.
+    std::array<SamplerMemo, 16> sampler_memo;
+    u32 occupied_sampler_slots{};
     const auto resolve_sampler{[&](u32 handle) -> VideoCommon::SamplerId {
         const std::size_t first = (handle ^ (handle >> 4)) & 15U;
         for (std::size_t offset = 0; offset < sampler_memo.size(); ++offset) {
-            auto& entry = sampler_memo[(first + offset) & 15U];
-            if (entry.valid) {
+            const std::size_t slot = (first + offset) & 15U;
+            const u32 bit = u32{1} << slot;
+            auto& entry = sampler_memo[slot];
+            if (occupied_sampler_slots & bit) {
                 if (entry.handle == handle) return entry.id;
                 continue;
             }
-            // Resolve before publishing a positive memo: exceptions cannot
-            // leave a partially initialized entry visible to a later stage.
+            // A failed sampler lookup never publishes the occupied bit.
             entry.id = texture_cache.GetSamplerId(handle, false);
             entry.handle = handle;
-            entry.valid = true;
+            occupied_sampler_slots |= bit;
             return entry.id;
         }
         return texture_cache.GetSamplerId(handle, false);
