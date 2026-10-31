@@ -42,6 +42,9 @@ public:
         // instead of accidentally leaving required metadata memory unbound.
         if (sparse_requirements.size() != 1) return VK_ERROR_INITIALIZATION_FAILED;
         const auto& sparse = sparse_requirements.front();
+        // Bind ownership is per VkImage: a second cache image cannot borrow
+        // the first image's resident-layer budget and VMA allocations.
+        if (image_ && image_ != image) return VK_ERROR_INITIALIZATION_FAILED;
         if (!image || !timeout_ns || budget_.Poisoned() || !budget_.Valid() ||
             spec_.layers <= 1 || spec_.levels == 0 ||
             !image_memory.size || !image_memory.memoryTypeBits ||
@@ -126,6 +129,7 @@ public:
         // After this point, even an error or timeout may mean queued GPU
         // work. Retain VMA memory until explicit device-idle retirement.
         backing_.push_back(token);
+        image_ = image;
         const VkResult result = queue.BindSparseImage(
             image, tiles, tails, static_cast<VkFence>(fence), wait, signal);
         if (result != VK_SUCCESS) {
@@ -162,6 +166,7 @@ public:
         for (auto& allocation : backing_) allocator_.ReleaseSparseMemory(allocation);
         backing_.clear();
         budget_.ResetAfterGpuRetire();
+        image_ = VK_NULL_HANDLE;
         ready_ = false;
         return true;
     }
@@ -170,6 +175,7 @@ private:
     SparseLayerBudget& budget_;
     SparseImageSpec spec_;
     std::vector<Allocation> backing_;
+    VkImage image_ = VK_NULL_HANDLE;
     bool ready_{};
 };
 } // namespace Eden::NS2::Eglantine
