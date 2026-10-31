@@ -320,22 +320,26 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     // even when their low bits collide. No heap allocation or cross-dispatch
     // reuse; an overflowing table resolves the handle normally.
     struct ComputeSamplerMemo {
-        u32 handle{};
-        VideoCommon::SamplerId id{};
-        bool valid{};
+        u32 handle;
+        VideoCommon::SamplerId id;
     };
-    std::array<ComputeSamplerMemo, 16> sampler_memo{};
+    // Only a 16-bit occupancy mask needs zeroing for each compute dispatch.
+    // Cold entries are never read until their handle/id have both been set.
+    std::array<ComputeSamplerMemo, 16> sampler_memo;
+    u32 occupied_sampler_slots{};
     const auto resolve_sampler{[&](u32 handle) -> VideoCommon::SamplerId {
         const std::size_t first = (handle ^ (handle >> 4)) & 15U;
         for (std::size_t offset = 0; offset < sampler_memo.size(); ++offset) {
-            auto& entry = sampler_memo[(first + offset) & 15U];
-            if (entry.valid) {
+            const std::size_t slot = (first + offset) & 15U;
+            const u32 bit = u32{1} << slot;
+            auto& entry = sampler_memo[slot];
+            if (occupied_sampler_slots & bit) {
                 if (entry.handle == handle) return entry.id;
                 continue;
             }
             entry.id = texture_cache.GetSamplerId(handle, true);
             entry.handle = handle;
-            entry.valid = true;
+            occupied_sampler_slots |= bit;
             return entry.id;
         }
         return texture_cache.GetSamplerId(handle, true);
