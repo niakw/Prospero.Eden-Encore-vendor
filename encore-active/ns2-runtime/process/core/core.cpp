@@ -325,16 +325,25 @@ struct System::Impl {
     }
 
     SystemResultStatus Load(System& system, Frontend::EmuWindow& emu_window, const std::string& filepath, Service::AM::FrontendAppletParameters& params) {
-        // Set guest memory limits BEFORE kernel initialization, using only the
-        // reviewed dual-generation NPDM parser. NS1 retains configured layout.
+        // Resolve the NPDM before kernel initialization, never from a title
+        // string. NS2 may temporarily require a 12 GiB guest layout, but that
+        // override must not survive a subsequent NS1 launch in the same app.
         const bool is_ns2_program =
             virtual_filesystem && IsSwitch2ExtractedProgram(
                                       GetGameFileFromPath(virtual_filesystem, filepath));
-        if (is_ns2_program &&
-            Settings::values.memory_layout_mode.GetValue() != Settings::MemoryLayout::Memory_12Gb) {
-            LOG_INFO(Core, "NS2 ExeFS: selecting 12 GiB guest layout before kernel initialization");
-            Settings::values.memory_layout_mode.SetGlobal(false);
-            Settings::values.memory_layout_mode.SetValue(Settings::MemoryLayout::Memory_12Gb);
+        if (is_ns2_program) {
+            if (!ns2_memory_layout_override &&
+                Settings::values.memory_layout_mode.GetValue() != Settings::MemoryLayout::Memory_12Gb) {
+                ns2_previous_layout_global = Settings::values.memory_layout_mode.UsingGlobal();
+                ns2_previous_layout = Settings::values.memory_layout_mode.GetValue();
+                ns2_memory_layout_override = true;
+                LOG_INFO(Core, "NS2 ExeFS: selecting 12 GiB guest layout before kernel initialization");
+                Settings::values.memory_layout_mode.SetGlobal(false);
+                Settings::values.memory_layout_mode.SetValue(Settings::MemoryLayout::Memory_12Gb);
+            }
+        } else {
+            // Also handle a direct NS2 -> NS1 transition without shutdown.
+            RestoreNs2MemoryLayout();
         }
         InitializeKernel(system);
 
@@ -429,6 +438,18 @@ struct System::Impl {
         return SystemResultStatus::Success;
     }
 
+    void RestoreNs2MemoryLayout() {
+        if (!ns2_memory_layout_override)
+            return;
+        auto& layout = Settings::values.memory_layout_mode;
+        // Restore both the previous value and whether it was global/custom.
+        // Never alter a user-configured NS1 layout as a side effect of NS2.
+        layout.SetGlobal(false);
+        layout.SetValue(ns2_previous_layout);
+        layout.SetGlobal(ns2_previous_layout_global);
+        ns2_memory_layout_override = false;
+    }
+
     void ShutdownMainProcess() {
         SetShuttingDown(true);
         Common::ADPF::Shutdown();
@@ -472,6 +493,7 @@ struct System::Impl {
         debugger.reset();
         kernel.Shutdown();
         ::Eden::ReportStep("shutdown", "Completed kernel.Shutdown()");
+        RestoreNs2MemoryLayout();
         stop_event = {};
         Network::RestartSocketOperations();
 
@@ -564,6 +586,9 @@ struct System::Impl {
     std::atomic_bool is_powered_on{};
     bool is_multicore : 1 = false;
     Settings::MemoryLayout initialized_memory_layout{Settings::MemoryLayout::Memory_4Gb};
+    Settings::MemoryLayout ns2_previous_layout{Settings::MemoryLayout::Memory_4Gb};
+    bool ns2_previous_layout_global{true};
+    bool ns2_memory_layout_override{};
     bool exit_locked : 1 = false;
     bool exit_requested : 1 = false;
 
