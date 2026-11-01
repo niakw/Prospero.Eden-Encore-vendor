@@ -82,6 +82,7 @@ class IVi2Session final : public ServiceFramework<IVi2Session> {
         u64 available{0x7fff};
         std::array<std::optional<s32>,15> queued{};
         std::array<u32,15> images{};
+        std::array<std::shared_ptr<Nvidia::Module>,15> queued_modules{};
         std::shared_ptr<android::BufferQueueProducer> producer;
     };
 public:
@@ -283,9 +284,9 @@ private:
                 for(u32 i=0;i<fence->num_fences;++i){
                     const auto& f=fence->fences[i];
                     if(f.id!=~u32{0}){
-                        const auto img=m_owner->GetPresentImage(c.images[slot]);
-                        if(!img){done=false;break;}
-                        const auto value=img->module->GetContainer().GetSyncpointManager()
+                        const auto module=c.queued_modules[slot];
+                        if(!module){done=false;break;}
+                        const auto value=module->GetContainer().GetSyncpointManager()
                             .ReadAllocatedSyncpoint(f.id);
                         if(!value||static_cast<s32>(*value-f.value)<0){done=false;break;}
                     }
@@ -293,6 +294,7 @@ private:
                 if(!done||c.producer->DetachReleasedBuffer(*c.queued[slot])!=
                     android::Status::NoError)continue;
                 c.queued[slot].reset();c.images[slot]=0;
+                c.queued_modules[slot].reset();
                 c.available|=u64{1}<<slot;Signal(c.release_bit);
             }
         }
@@ -369,6 +371,7 @@ private:
                                         if(c->producer->QueueBuffer(idx,input,&output)==
                                             android::Status::NoError){
                                             c->queued[slot]=idx;c->images[slot]=p[5];
+                                            c->queued_modules[slot]=img->module;
                                             c->available&=~(u64{1}<<slot);result=ResultSuccess;
                                             if(!m_poll){
                                                 auto weak=std::weak_ptr<IVi2Session>(
