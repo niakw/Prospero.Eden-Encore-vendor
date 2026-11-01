@@ -19,6 +19,7 @@
 #include <span>
 #include <memory>
 #include <atomic>
+#include <algorithm>
 #include <cstdio>
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "video_core/gpu.h"
@@ -512,9 +513,13 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
         const auto emit = [&](u32 reg, u32 value) {
             if (reg >= 0xe00 || reg >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS)
                 return false;
-            if (reg == 0xae || reg == 0xaf || reg == 0xb0)
+            if (reg == 0xae || reg == 0xaf || reg == 0xb0) {
                 ProcessNativeComputeQmd(pusher, reg, value, subchannel);
-            else engine.CallMethod(pusher.system, reg, value, true);
+            } else {
+                engine.CallMethod(pusher.system, reg, value, true);
+                if (reg == 0x6c3)
+                    ProcessNativeComputeReportSemaphore(pusher, value);
+            }
             return true;
         };
         const auto result = native_compute->Execute(
@@ -533,10 +538,65 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
         return;
     }
     for (u32 value : values) {
-        if (method == 0xae || method == 0xaf || method == 0xb0)
+        if (method == 0xae || method == 0xaf || method == 0xb0) {
             ProcessNativeComputeQmd(pusher, method, value, subchannel);
-        else pusher.channel_state.payload->kepler_compute.CallMethod(
-            pusher.system, method, value, true);
+        } else {
+            pusher.channel_state.payload->kepler_compute.CallMethod(
+                pusher.system, method, value, true);
+            if (method == 0x6c3)
+                ProcessNativeComputeReportSemaphore(pusher, value);
+        }
+    }
+}
+
+// Native Ampere SET_REPORT_SEMAPHORE_A-D (0x6c0-0x6c3).
+// Keep this path separate from Maxwell compute; direct writes and the TU104
+// MME emit both reach this owner after the register file is updated.
+void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control) {
+    auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+    const auto* channel = &pusher.channel_state;
+    auto* memory = &pusher.memory_manager;
+    const auto ticket = registry.CaptureTicket(channel);
+    const auto compute = registry.CaptureComputeTicket(
+        &pusher.channel_state.payload->kepler_compute);
+    if (!ticket || !compute || !registry.IsComputeCurrent(
+            &pusher.channel_state.payload->kepler_compute, *compute) ||
+        ticket->process != compute->process ||
+        ticket->generation != compute->generation ||
+        ticket->channel_generation != compute->channel_generation ||
+        !pusher.rasterizer) return;
+
+    const auto& regs = pusher.channel_state.payload->kepler_compute.regs.reg_array;
+    const GPUVAddr address =
+        (GPUVAddr{regs[0x6c0] & 0x1ffffffU} << 32) | regs[0x6c1];
+    const u32 payload = regs[0x6c2];
+    const u32 operation = control & 3U;
+    const bool one_word = (control & (1U << 28)) != 0;
+    if ((operation != 0 && operation != 2) || (address & 3U) ||
+        !memory->IsFullyMappedRange(address, one_word ? sizeof(u32) : 16U)) {
+        LOG_ERROR(HW_GPU, "Native Compute report semaphore rejected: operation={} address={:#x}",
+                  operation, address);
+        return;
+    }
+    if (control & (1U << 3)) {
+        const u32 reduction = (control >> 9) & 7U;
+        pusher.rasterizer->SignalFence(
+            [channel, memory, ticket = *ticket, address, payload, reduction] {
+                auto& current =
+                    Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+                if (!current.IsCurrent(channel, ticket) ||
+                    !memory->IsFullyMappedRange(address, sizeof(u32))) return;
+                const u32 old_value = memory->Read<u32>(address);
+                memory->Write<u32>(
+                    address, Tegra::NativeComputeSemaphoreReduction(
+                                 old_value, payload, reduction));
+            });
+    } else {
+        pusher.rasterizer->Query(
+            address, VideoCommon::QueryType::Payload,
+            one_word ? VideoCommon::QueryPropertiesFlags::IsAFence
+                     : VideoCommon::QueryPropertiesFlags::HasTimeout,
+            payload, 0);
     }
 }
 
