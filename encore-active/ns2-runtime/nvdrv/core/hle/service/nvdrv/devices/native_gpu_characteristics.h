@@ -45,7 +45,10 @@ inline std::array<u8, Size> MakeNativeGpuCharacteristics(
     std::memcpy(result.data() + 4, &native_impl, sizeof(native_impl));
     // Preserve default profiles for unnegotiated native sessions. Graphics-supervisor
     // sessions select their shader profile independently of the reply size.
-    const u32_le native_sm_version{Size == ExtendedNativeGpuCharacteristicsSize ? 0x808U : 0x807U};
+    // Both native packet forms advertise the Ampere SM revision
+    // expected by NVN2. The optional explicit profile selector may still
+    // request 0x807; default 0x807 caused SDK class-table rejection.
+    const u32_le native_sm_version{0x808U};
     std::memcpy(result.data() + 0x3c, &native_sm_version, sizeof(native_sm_version));
     std::memcpy(result.data() + 0x40, &native_sm_version, sizeof(native_sm_version));
     // Native NVN maps CPU buffers into its shared VA reservation. Those buffers
@@ -63,6 +66,18 @@ inline std::array<u8, Size> MakeNativeGpuCharacteristics(
     // The native SDK gates ModifyKind (AS ioctl 12) on capability bit 34.
     flags = static_cast<u64>(flags) | (1ULL << 8) | (1ULL << 22) | (1ULL << 26) | (1ULL << 34) | (1ULL << 35) | (0xfULL << 40);
     std::memcpy(result.data() + 0x50, &flags, sizeof(flags));
+    // The old 0xA0 response is Maxwell and its class IDs MUST NOT leak
+    // into the NS2 0xD0/0xD8 reply. NVN2 creates the actual GR/compute/DMA
+    // objects from these IDs. A mismatched class prevents 0xC797 from ever
+    // reaching the authenticated GPFIFO puller (Eglantine nx2 comparison).
+    constexpr u32_le ampere_3d{0xc797};
+    constexpr u32_le ampere_compute{0xc7c0};
+    constexpr u32_le ampere_gpfifo{0xc56f};
+    constexpr u32_le ampere_dma{0xc7b5};
+    std::memcpy(result.data() + 0x5c, &ampere_3d, sizeof(ampere_3d));
+    std::memcpy(result.data() + 0x60, &ampere_compute, sizeof(ampere_compute));
+    std::memcpy(result.data() + 0x64, &ampere_gpfifo, sizeof(ampere_gpfifo));
+    std::memcpy(result.data() + 0x6c, &ampere_dma, sizeof(ampere_dma));
     constexpr std::array<s16, 9> levels{
         0x1c, // GPU control: GetGpuTime
         0xb,  // TSG: extended channel binding with subcontext identity
