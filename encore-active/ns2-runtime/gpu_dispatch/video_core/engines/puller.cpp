@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/assert.h"
+#include "common/scope_exit.h"
 #include "common/logging.h"
 #include "common/settings.h"
 #include "core/core.h"
@@ -20,6 +21,7 @@
 #include <memory>
 #include <atomic>
 #include <algorithm>
+#include <limits>
 #include <cstdio>
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "video_core/gpu.h"
@@ -519,6 +521,8 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
                 engine.CallMethod(pusher.system, reg, value, true);
                 if (reg == 0x6c3)
                     ProcessNativeComputeReportSemaphore(pusher, value);
+                if (reg == 0x107)
+                    ProcessNativeComputeInlineQmd(pusher, subchannel);
             }
             return true;
         };
@@ -545,8 +549,60 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
                 pusher.system, method, value, true);
             if (method == 0x6c3)
                 ProcessNativeComputeReportSemaphore(pusher, value);
+            if (method == 0x107)
+                ProcessNativeComputeInlineQmd(pusher, subchannel);
         }
     }
+}
+
+// Native Ampere inline QMD: the register window 0xC8..0x107 contains
+// all 64 descriptor words. The final write (0x107) publishes a complete
+// descriptor to guest GPU memory; NVN2 may then launch it immediately.
+// Use the renderer's coherent inline upload, not a raw store that bypasses
+// its shader, buffer, texture and query invalidation.
+void Puller::ProcessNativeComputeInlineQmd(DmaPusher& pusher, u32 subchannel) {
+    auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+    const auto ticket = registry.CaptureTicket(&pusher.channel_state);
+    const auto compute = registry.CaptureComputeTicket(
+        &pusher.channel_state.payload->kepler_compute);
+    if (!ticket || !compute || !registry.IsComputeCurrent(
+            &pusher.channel_state.payload->kepler_compute, *compute) ||
+        ticket->process != compute->process ||
+        ticket->generation != compute->generation ||
+        ticket->channel_generation != compute->channel_generation ||
+        !pusher.rasterizer) return;
+
+    auto& regs = pusher.channel_state.payload->kepler_compute.regs.reg_array;
+    const u64 qmd_units = (u64{regs[0xc6]} << 32) | regs[0xc7];
+    if (qmd_units > (std::numeric_limits<GPUVAddr>::max() >> 8)) {
+        LOG_ERROR(HW_GPU, "Native inline QMD destination overflows GPU address");
+        return;
+    }
+    const GPUVAddr address = qmd_units << 8;
+    Tegra::NativeQmdScheduler::Descriptor descriptor{};
+    std::copy_n(regs.begin() + 0xc8, descriptor.size(), descriptor.begin());
+    if (!pusher.memory_manager.IsFullyMappedRange(address, sizeof(descriptor))) {
+        LOG_ERROR(HW_GPU, "Native inline QMD destination is unmapped");
+        return;
+    }
+    pusher.rasterizer->AccelerateInlineToMemory(
+        address, sizeof(descriptor),
+        std::span<const u8>{reinterpret_cast<const u8*>(descriptor.data()),
+                            sizeof(descriptor)});
+    // Some inline descriptors are staged without immediate execution.
+    // Honor the same PCAS admission condition as the NX2 compute engine.
+    const u32 control = regs[0xa7];
+    if (!(control & (1U << 24)) && (descriptor[4] & (1U << 12)))
+        return;
+    if (qmd_units > std::numeric_limits<u32>::max()) {
+        LOG_ERROR(HW_GPU, "Native inline QMD PCAS register cannot address descriptor");
+        return;
+    }
+    auto& qmd_pointer = regs[0xad];
+    const u32 previous = qmd_pointer;
+    SCOPE_EXIT { qmd_pointer = previous; };
+    qmd_pointer = static_cast<u32>(qmd_units);
+    ProcessNativeComputeQmd(pusher, 0xb0, 3, subchannel);
 }
 
 // Native Ampere SET_REPORT_SEMAPHORE_A-D (0x6c0-0x6c3).
