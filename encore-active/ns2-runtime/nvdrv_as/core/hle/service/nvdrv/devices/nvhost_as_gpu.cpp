@@ -15,6 +15,7 @@
 #include <vector>
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_kind.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_va_layout.h"
 #include "common/common_types.h"
 #include "common/logging.h"
 #include "core/core.h"
@@ -382,40 +383,37 @@ NvResult nvhost_as_gpu::AllocAsEx(IoctlAllocAsEx& params) {
         return NvResult::InvalidState;
     }
 
+    // Validate the entire proposed address space before touching VM state.
+    // FlatAllocator expects absolute upper bounds; subtracting the split
+    // truncates the available high VA region and misreports GPU partitions.
+    u32 big_page_size = vm.big_page_size;
+    u64 start = vm.va_range_start;
+    u64 split = vm.va_range_split;
+    u64 end = vm.va_range_end;
     if (params.big_page_size) {
-        if (!std::has_single_bit(params.big_page_size)) {
-            LOG_ERROR(Service_NVDRV, "Non power-of-2 big page size: {:#x}!", params.big_page_size);
+        if (!std::has_single_bit(params.big_page_size) ||
+            (params.big_page_size & VM::SUPPORTED_BIG_PAGE_SIZES) == 0)
             return NvResult::BadValue;
-        }
-
-        if ((params.big_page_size & VM::SUPPORTED_BIG_PAGE_SIZES) == 0) {
-            LOG_ERROR(Service_NVDRV, "Unsupported big page size: {:#x}!", params.big_page_size);
-            return NvResult::BadValue;
-        }
-
-        vm.big_page_size = params.big_page_size;
-        vm.big_page_size_bits = static_cast<u32>(std::countr_zero(params.big_page_size));
-
-        vm.va_range_start = params.big_page_size << VM::VA_START_SHIFT;
+        big_page_size = params.big_page_size;
+        start = static_cast<u64>(big_page_size) << VM::VA_START_SHIFT;
     }
-
-    // If this is unspecified then default values should be used
     if (params.va_range_start) {
-        vm.va_range_start = params.va_range_start;
-        vm.va_range_split = params.va_range_split;
-        vm.va_range_end = params.va_range_end;
+        start = params.va_range_start;
+        split = params.va_range_split;
+        end = params.va_range_end;
     }
+    const auto layout = PlanNativeGpuVaLayout(start, split, end, big_page_size);
+    if (!layout) return NvResult::BadValue;
 
-    const u64 max_big_page_bits = Common::Log2Ceil(vm.va_range_end);
+    vm.big_page_size = big_page_size;
+    vm.big_page_size_bits = static_cast<u32>(std::countr_zero(big_page_size));
+    vm.va_range_start = start;
+    vm.va_range_split = split;
+    vm.va_range_end = end;
+    const u64 max_big_page_bits = Common::Log2Ceil(end);
 
-    const auto start_pages{static_cast<u32>(vm.va_range_start >> VM::PAGE_SIZE_BITS)};
-    const auto end_pages{static_cast<u32>(vm.va_range_split >> VM::PAGE_SIZE_BITS)};
-    vm.small_page_allocator.emplace(start_pages, end_pages);
-
-    const auto start_big_pages{static_cast<u32>(vm.va_range_split >> vm.big_page_size_bits)};
-    const auto end_big_pages{
-        static_cast<u32>((vm.va_range_end - vm.va_range_split) >> vm.big_page_size_bits)};
-    vm.big_page_allocator.emplace(start_big_pages, end_big_pages);
+    vm.small_page_allocator.emplace(layout->small_begin, layout->small_end);
+    vm.big_page_allocator.emplace(layout->big_begin, layout->big_end);
 
     gmmu = std::make_unique<Tegra::MemoryManager>(system, max_big_page_bits, vm.va_range_split, vm.big_page_size_bits, VM::PAGE_SIZE_BITS);
     system.GPU().InitAddressSpace(*gmmu);
