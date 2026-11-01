@@ -256,7 +256,11 @@ struct Memory::Impl {
     template<typename F1, typename F2, typename F3>
     inline bool WalkBlock(const Common::ProcessAddress addr, const std::size_t size, F1&& on_unmapped, F2&& on_memory, F3&& on_rasterizer) {
         std::size_t offset = 0;
-        if (!AddressSpaceContains(*current_page_table, addr, size)) {
+        // An uninitialized process has no active guest page table.
+        // Never dereference it during early NSO/ExeFS BSS clearing.
+        // Propagate a failed walk; the loader must report an error, not SIGSEGV.
+        if (current_page_table == nullptr ||
+            !AddressSpaceContains(*current_page_table, addr, size)) {
             on_unmapped(offset, size, addr);
             return false;
         }
