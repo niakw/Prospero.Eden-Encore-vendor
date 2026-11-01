@@ -694,6 +694,22 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         }
         case 0x224: { // IMAD register / zero-product move
             if (insn.Bits(24, 8) == 255 && insn.words[1] == 255 &&
+                (insn.words[2] & ~0x078002ffU) == 0x000e0400) {
+                // Verified NVN geometry prologue: IMAD.X RZ * RZ + c + carry.
+                // Lower the carry before BMOV consumes the static exit PC.
+                const u32 addend = insn.Bits(64, 8);
+                if (addend >= 250 && addend != 255)
+                    return fail(index, "native geometry prologue carry source");
+                mov_imm(250, 1);
+                emit(0x5ca0000000000000ULL | predicate | 250 |
+                     (u64{250} << 8) | (u64{255} << 20) |
+                     (u64{insn.Bits(87, 3)} << 39) |
+                     (u64{insn.Bits(90, 1)} << 42));
+                emit(base(0x5c10000000000000ULL) | (u64{addend} << 8) |
+                     (u64{250} << 20));
+                break;
+            }
+            if (insn.Bits(24, 8) == 255 && insn.words[1] == 255 &&
                 (insn.words[2] & ~0x078008ffU) == 0x000e0600) {
                 const u32 addend = insn.Bits(64, 8);
                 if (addend >= 250 && addend != 255)
