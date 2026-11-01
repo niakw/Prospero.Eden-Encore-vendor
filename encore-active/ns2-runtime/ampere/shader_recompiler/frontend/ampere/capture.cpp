@@ -73,20 +73,21 @@ NativeCaptureResult CaptureNativeShader(
                 std::size_t{MaxCapturedInstructions - index} * sizeof(Instruction);
             const auto batch = (std::min)(page_remaining, shader_remaining);
             const auto aligned_batch = batch - batch % sizeof(Instruction);
-            if (aligned_batch >= 4 * sizeof(Instruction) &&
-                read(context, addr, page.data(), aligned_batch)) {
-                page_start = addr;
-                page_bytes = aligned_batch;
-                std::memcpy(bytes.data(), page.data(), bytes.size());
-                fetched = true;
-            } else {
-                // Mapping may end inside the page, or the reader may not
-                // support bulk operations. Avoid repeated speculative
-                // attempts; all remaining instructions stay individually
-                // checked with their original fault offsets.
-                read_ahead_unavailable = true;
-                page_bytes = 0;
+            if (aligned_batch >= 4 * sizeof(Instruction)) {
+                if (read(context, addr, page.data(), aligned_batch)) {
+                    page_start = addr;
+                    page_bytes = aligned_batch;
+                    std::memcpy(bytes.data(), page.data(), bytes.size());
+                    fetched = true;
+                } else {
+                    // Mapping may end inside this page, or the reader may
+                    // reject bulk operations. Avoid repeating failed probes.
+                    read_ahead_unavailable = true;
+                    page_bytes = 0;
+                }
             }
+            // A short tail at a page boundary is NOT a failed bulk read:
+            // retry from the next page after its 16-byte checked reads.
         }
         if (!fetched && !read(context, addr, bytes.data(), bytes.size())) {
             result.status = NativeCaptureStatus::Unmapped;
