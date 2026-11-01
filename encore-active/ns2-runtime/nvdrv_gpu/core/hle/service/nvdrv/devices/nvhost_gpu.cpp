@@ -5,6 +5,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <cstring>
+#include <atomic>
+#include <cstdio>
 #include "common/assert.h"
 #include "common/logging.h"
 #include "core/core.h"
@@ -364,6 +366,21 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     // command scheduler. Never acknowledge 2nd-gen submissions before those
     // resources exist, and never change the existing Switch 1 path.
     const bool native = UsesNativeAbi(fd);
+#ifdef PS5_NATIVE
+    // Capture the actual NVDRV -> GPFIFO boundary, including cases where a
+    // guest submission is incorrectly treated as legacy. Bounded: quiet in
+    // the rest of gameplay, and never prints guest memory contents.
+    static std::atomic<unsigned> submissions{0};
+    const auto n = submissions.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (n <= 24 || (n & (n - 1)) == 0)
+        std::fprintf(stderr,
+                     "EDEN_NS2_GPFIFO submit=%u native=%u initialized=%u gmmu=%u entries=%u flags=%08x\n",
+                     n, static_cast<unsigned>(native),
+                     static_cast<unsigned>(channel_state->initialized),
+                     static_cast<unsigned>(channel_state->memory_manager != nullptr),
+                     static_cast<unsigned>(params.num_entries),
+                     static_cast<unsigned>(params.flags.raw));
+#endif
     if (native && (!channel_state->initialized || !channel_state->memory_manager))
         return NvResult::InvalidState;
     // One nvhost-gpu device can expose multiple FDs. Never hand a native
