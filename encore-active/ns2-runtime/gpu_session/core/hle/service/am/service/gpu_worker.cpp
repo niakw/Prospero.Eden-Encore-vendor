@@ -5,6 +5,8 @@
 // 4-KiB GMMU mappings and GPU command submission are *not* implemented here.
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -80,6 +82,16 @@ IGpuWorker::~IGpuWorker() {
 
 Result IGpuWorker::HandleSyncRequest(Kernel::KServerSession& session,
                                      HLERequestContext& ctx) {
+    #ifdef PS5_NATIVE
+    if (ctx.IsTipc()) {
+        static std::atomic<unsigned> requests{0};
+        const auto n = requests.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (n <= 48 || (n & (n - 1)) == 0)
+            std::fprintf(stderr, "EDEN_NS2_IPC owner=gpu_worker cmd=%u known=%u count=%u\n",
+                         static_cast<unsigned>(ctx.GetCommand()),
+                         static_cast<unsigned>(handlers_tipc.contains(ctx.GetCommand())), n);
+    }
+    #endif
     if (!ctx.IsTipc() || handlers_tipc.contains(ctx.GetCommand())) {
         return ServiceFrameworkBase::HandleSyncRequest(session, ctx);
     }
