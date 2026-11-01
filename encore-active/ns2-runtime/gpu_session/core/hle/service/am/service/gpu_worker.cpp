@@ -24,7 +24,6 @@
 #include "core/hle/kernel/svc_results.h"
 #include "core/hle/service/am/service/gpu_memory_registration.h"
 #include "core/hle/service/am/service/gpu_worker.h"
-#include "core/hle/service/am/service/gpu_memory_registration.h"
 #include "core/hle/service/am/service/gpu_worker_shared.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/nvdrv/core/container.h"
@@ -269,8 +268,13 @@ bool IGpuWorker::RetireGpuOnlyRegion(u32 address_space, u64 address) {
     if (it == m_dense_regions.end()) return true;
     auto& region = it->second;
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
-    const auto info = nvmap.FreeHandle(region.nvmap_handle, false);
-    if (!info || !info->can_unlock) return false;
+    // FreeHandle is destructive (it decrements dupes). If CPU alias unmap
+    // fails, retrying the release must NOT decrement the NVMap handle twice.
+    if (!region.nvmap_released) {
+        const auto info = nvmap.FreeHandle(region.nvmap_handle, false);
+        if (!info || !info->can_unlock) return false;
+        region.nvmap_released = true;
+    }
     const auto result = m_process->GetPageTable().UnmapPageGroup(
         Kernel::KProcessAddress{region.alias}, *region.pages, Kernel::KMemoryState::IoMemory);
     if (result.IsError()) return false;
@@ -468,9 +472,21 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
                                     request->address_space, request->begin, size);
                                 dense_backed = result.IsSuccess();
                                 if (!dense_backed) {
-                                    as->ReleaseNativeSparse4K(request->begin, size);
-                                    m_mappings.RecordReleasedSparse(
-                                        request->address_space, request->begin, size);
+                                    // Preserve the VA ledger if the backend rollback fails;
+                                    // otherwise a retry could overlap a still-live GMMU VA.
+                                    if (as->ReleaseNativeSparse4K(request->begin, size) ==
+                                            Nvidia::NvResult::Success) {
+                                        const auto released = m_mappings.RecordReleasedSparse(
+                                            request->address_space, request->begin, size);
+                                        if (released != GW::LedgerStatus::Success)
+                                            LOG_ERROR(Service_AM,
+                                                "NS2 sparse 214 ledger rollback failed as={} VA={:#x}",
+                                                request->address_space, request->begin);
+                                    } else {
+                                        LOG_ERROR(Service_AM,
+                                            "NS2 sparse 214 GMMU rollback failed as={} VA={:#x}",
+                                            request->address_space, request->begin);
+                                    }
                                 }
                             } else {
                                 result = ResultSuccess;

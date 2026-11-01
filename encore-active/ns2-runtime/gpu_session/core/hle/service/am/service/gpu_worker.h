@@ -49,6 +49,8 @@ private:
         u64 alias{};
         u32 nvmap_handle{};
         std::unique_ptr<Kernel::KPageGroup> pages;
+        // Once FreeHandle succeeds, retry only the CPU alias unmap.
+        bool nvmap_released{};
     };
     std::map<std::pair<u32, u64>, DenseRegion> m_dense_regions;
     u64 m_dense_bytes{};
