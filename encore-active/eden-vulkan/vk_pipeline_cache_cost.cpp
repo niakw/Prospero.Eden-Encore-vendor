@@ -65,6 +65,13 @@
 #include "video_core/surface.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
+#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+#include <limits>
+#include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
+#include "video_core/native_shader_capture.h"
+#include "shader_recompiler/frontend/ampere/maxwell_environment.h"
+#include "shader_recompiler/stage.h"
+#endif
 #include "video_core/gpu_logging/gpu_logging.h"
 
 #ifdef __ANDROID__
@@ -810,7 +817,54 @@ bool EdenAttributelessStaticKey(const FixedPipelineState& state) {
 
 GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
 
+#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+    // A real 0xC797 GPU bind, never title/firmware heuristics, chooses the
+    // native 128-bit shader reader. RefreshStages interprets 64-bit Maxwell
+    // words and must NOT touch an authenticated Ampere graphics channel.
+    const auto native_ticket =
+        Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+            .CaptureGraphicsTicket(maxwell3d);
+    const bool native = native_ticket.has_value();
+    bool stages_valid{};
+    if (native) {
+        stages_valid = true;
+        const auto base = maxwell3d->regs.program_region.Address();
+        for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {
+            if (!maxwell3d->regs.IsShaderConfigEnabled(i) ||
+                (i == 5 && !maxwell3d->regs.rasterize_enable)) {
+                graphics_key.unique_hashes[i] = 0;
+                continue;
+            }
+            // Tessellation and geometry need complete Ampere stage ABI and
+            // driver metadata. Never silently reinterpret them as Maxwell.
+            if (i != 0 && i != 1 && i != 5) {
+                stages_valid = false;
+                break;
+            }
+            const auto offset = maxwell3d->regs.pipelines[i].offset;
+            if (base > std::numeric_limits<GPUVAddr>::max() - offset) {
+                stages_valid = false;
+                break;
+            }
+            const auto stage = i == 0 ? Shader::Stage::VertexA :
+                Shader::StageFromIndex(i - 1);
+            const auto captured = VideoCommon::CaptureNs2GraphicsShaderFromGpu(
+                *gpu_memory, base + offset, static_cast<u32>(stage));
+            if (!captured.Ready() || !captured.image.diagnostic_cache_key ||
+                !Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                    .IsGraphicsCurrent(maxwell3d, *native_ticket)) {
+                stages_valid = false;
+                break;
+            }
+            graphics_key.unique_hashes[i] = captured.image.diagnostic_cache_key;
+        }
+    } else {
+        stages_valid = RefreshStages(graphics_key.unique_hashes);
+    }
+    if (!stages_valid) {
+#else
     if (!RefreshStages(graphics_key.unique_hashes)) {
+#endif
         current_pipeline = nullptr;
         return nullptr;
     }
@@ -1566,6 +1620,59 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
     // idle gap for speculative Vulkan optimization before the first-use build.
     GraphicsTranslationPriorityScope first_use_preparation_priority{
         ::Eden::DevVulkan::fast_first_pipelines};
+#endif
+#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+    // Research-only real GPU bridge: feed the maintained Vulkan
+    // CFG -> IR -> SPIR-V -> GraphicsPipeline builder with *translated*
+    // Maxwell-compatible instructions, never raw 128-bit Ampere words.
+    const auto ticket =
+        Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+            .CaptureGraphicsTicket(maxwell3d);
+    if (ticket) {
+        const auto base = maxwell3d->regs.program_region.Address();
+        std::array<Shader::Environment*, Maxwell::MaxShaderProgram> ptrs{};
+        std::vector<std::unique_ptr<Shader::Environment>> native_envs;
+        native_envs.reserve(Maxwell::MaxShaderProgram);
+        std::size_t active{};
+        for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {
+            if (!graphics_key.unique_hashes[i]) continue;
+            if (i != 0 && i != 1 && i != 5) return nullptr;
+            const auto stage = i == 0 ? Shader::Stage::VertexA :
+                Shader::StageFromIndex(i - 1);
+            const auto offset = maxwell3d->regs.pipelines[i].offset;
+            if (base > std::numeric_limits<GPUVAddr>::max() - offset)
+                return nullptr;
+            auto original = std::make_unique<GraphicsEnvironment>(
+                *maxwell3d, *gpu_memory,
+                static_cast<Maxwell::ShaderType>(i), base, offset);
+            auto adapted = VideoCommon::CreateNs2GraphicsShaderEnvironment(
+                *gpu_memory, std::move(original), base + offset,
+                static_cast<u32>(stage));
+            if (!adapted || !Service::Nvidia::Devices::NativeGpuChannelRegistry::
+                                Instance().IsGraphicsCurrent(maxwell3d, *ticket))
+                return nullptr;
+            // Shader key and translated stream must refer to exactly the
+            // same guest bytes. A GMMU remap between key and build aborts.
+            const auto* native_env =
+                dynamic_cast<const Shader::Ampere::NativeMaxwellEnvironment*>(
+                    adapted.get());
+            if (!native_env ||
+                native_env->Image().diagnostic_cache_key != graphics_key.unique_hashes[i])
+                return nullptr;
+            ptrs[active++] = adapted.get();
+            native_envs.emplace_back(std::move(adapted));
+        }
+        main_pools.ReleaseContents();
+        auto pipeline = CreateGraphicsPipeline(
+            main_pools, graphics_key,
+            std::span<Shader::Environment* const>{ptrs.data(), active}, nullptr, true);
+        if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                 .IsGraphicsCurrent(maxwell3d, *ticket))
+            return nullptr;
+        // NS2 translated shader keys/layouts are deliberately never
+        // serialized into the NS1 disk shader cache.
+        return pipeline;
+    }
 #endif
     GraphicsEnvironments environments;
     // Preparing guest shader environments is distinct from CFG/IR/SPIR-V
