@@ -183,6 +183,10 @@ public:
     // NVDRV/core builds never acquire Ampere compiler dependencies.
     [[nodiscard]] std::shared_ptr<Shader::Ampere::NativeTranslationCache>
     AcquireGraphicsTranslationCache(const void* graphics_engine, const Ticket& ticket);
+    // Compute shader translations are independent of graphics shader code
+    // and belong to the same authenticated Compute bind epoch as its QMDs.
+    [[nodiscard]] std::shared_ptr<Shader::Ampere::NativeTranslationCache>
+    AcquireComputeTranslationCache(const void* compute_engine, const Ticket& ticket);
     [[nodiscard]] bool IsGraphicsCurrent(const void* graphics_engine,
                                          const Ticket& ticket) const {
         if (!graphics_engine || !ticket.process || !ticket.generation ||
@@ -272,6 +276,7 @@ private:
         const Tegra::Control::ChannelState* channel{};
         Ticket ticket{};
         std::uint8_t subchannels{};
+        std::shared_ptr<Shader::Ampere::NativeTranslationCache> translation_cache{};
     };
     std::map<const void*, ComputeOwner> compute_engines;
     struct QmdOwner {
