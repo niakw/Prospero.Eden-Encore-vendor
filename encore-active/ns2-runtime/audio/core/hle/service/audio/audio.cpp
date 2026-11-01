@@ -8,6 +8,7 @@
 #include "core/hle/service/audio/audio.h"
 #include "core/hle/service/audio/audio_controller.h"
 #include "core/hle/service/audio/nx2_audio_user_client.h"
+#include "core/hle/service/nx2_streamplay.h"
 #include "core/hle/service/audio/audio_in_manager.h"
 #include "core/hle/service/audio/audio_out_manager.h"
 #include "core/hle/service/audio/audio_renderer_manager.h"
@@ -189,6 +190,8 @@ void LoopProcess(Core::System& system) {
     // Native Switch 2 aud:u delegates to Eden's maintained audout:u and
     // audren:u interfaces, leaving all existing Switch 1 services untouched.
     server_manager->RegisterNamedService("aud:u", std::make_shared<INx2AudioUserClient>(system));
+    // NS2 stream-play discovery requires a real user service and kernel event.
+    server_manager->RegisterNamedService("stpl:u", std::make_shared<INx2StreamPlayService>(system));
     server_manager->RegisterNamedService("aud:a", std::make_shared<IAudioSystemManagerForApplet>(system));
     server_manager->RegisterNamedService("aud:d", std::make_shared<IAudioSystemManagerForDebugger>(system));
 
