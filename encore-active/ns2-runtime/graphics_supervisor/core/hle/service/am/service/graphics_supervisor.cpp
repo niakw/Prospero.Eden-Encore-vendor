@@ -19,6 +19,7 @@
 #include "core/hle/kernel/svc_results.h"
 #include "core/hle/service/am/service/gpu_session.h"
 #include "core/hle/service/am/service/graphics_supervisor.h"
+#include "core/hle/service/am/service/native_image_layout.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/server_manager.h"
 
@@ -70,6 +71,8 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {111, &IGraphicsSupervisor::CreateNativeMemory, "CreateNativeMemory"},
         {112, &IGraphicsSupervisor::DestroyNativeMemory, "DestroyNativeMemory"},
         {114, &IGraphicsSupervisor::BindNativeMemory, "BindNativeMemory"},
+        {435, &IGraphicsSupervisor::CalculateNativeImageSize, "CalculateNativeImageSize"},
+        {1510, &IGraphicsSupervisor::CalculateNativeImageRequirements, "CalculateRequirements"},
     };
     RegisterHandlersTipc(functions);
 }
@@ -240,5 +243,33 @@ void IGraphicsSupervisor::BindNativeMemory(HLERequestContext& ctx) {
     }
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
+}
+
+static std::optional<NativeImageRequirements> ParseNativeImageRequest(HLERequestContext& ctx) {
+    // Native image preferences are exactly sixteen u32 words followed by
+    // a single image count. The maintained layout helper verifies known
+    // image types, width, height, pitch, block alignment and multiplication.
+    // Reject malformed TIPC packets rather than returning fabricated sizes.
+    const u32* const data = ctx.CommandBuffer();
+    if (data[1] != 17) return {};
+    return CalculateNativeImageRequirements(std::span<const u32>{data + 2, 16}, data[18]);
+}
+void IGraphicsSupervisor::CalculateNativeImageSize(HLERequestContext& ctx) {
+    const auto request = ParseNativeImageRequest(ctx);
+    const Result result = request ? ResultSuccess : Kernel::ResultInvalidCombination;
+    IPC::ResponseBuilder rb{ctx, 4};
+    rb.Push(result.raw);
+    rb.Push(request ? static_cast<u32>(request->size) : 0u);
+    rb.Push(request ? static_cast<u32>(request->size >> 32) : 0u);
+}
+void IGraphicsSupervisor::CalculateNativeImageRequirements(HLERequestContext& ctx) {
+    const auto request = ParseNativeImageRequest(ctx);
+    const Result result = request ? ResultSuccess : Kernel::ResultInvalidCombination;
+    IPC::ResponseBuilder rb{ctx, 6};
+    rb.Push(result.raw);
+    rb.Push(request ? static_cast<u32>(request->size) : 0u);
+    rb.Push(request ? static_cast<u32>(request->size >> 32) : 0u);
+    rb.Push(request ? static_cast<u32>(request->alignment) : 0u);
+    rb.Push(request ? static_cast<u32>(request->alignment >> 32) : 0u);
 }
 } // namespace Service::AM

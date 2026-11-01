@@ -26,6 +26,8 @@ private:
     void CreateNativeMemory(HLERequestContext& ctx);
     void DestroyNativeMemory(HLERequestContext& ctx);
     void BindNativeMemory(HLERequestContext& ctx);
+    void CalculateNativeImageSize(HLERequestContext& ctx);
+    void CalculateNativeImageRequirements(HLERequestContext& ctx);
     void RegisterGpuAddressSpace(HLERequestContext& ctx);
     Kernel::KProcess* const m_process;
     GraphicsSupervisorBootstrap::State m_bootstrap;
