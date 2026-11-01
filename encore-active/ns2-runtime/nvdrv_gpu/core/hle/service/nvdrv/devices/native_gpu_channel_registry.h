@@ -5,12 +5,21 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <limits>
+#include <cstdint>
 #include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
 
 namespace Tegra::Control { struct ChannelState; }
 namespace Service::Nvidia::Devices {
 class NativeGpuChannelRegistry {
 public:
+    struct Ticket {
+        const Kernel::KProcess* process{};
+        std::uint64_t generation{};
+        // A new epoch is assigned on every Unbind / Bind transition, even
+        // if the same process remains alive at the same ChannelState address.
+        std::uint64_t channel_generation{};
+    };
     static NativeGpuChannelRegistry& Instance() {
         static NativeGpuChannelRegistry instance;
         return instance;
@@ -19,33 +28,56 @@ public:
                             const Kernel::KProcess* process) {
         if (!channel || !process) return false;
         auto& registry = NativeGpuProcessRegistry::Instance();
-        const auto ticket = registry.CaptureTicket(process);
-        if (!ticket) return false;
+        const auto process_ticket = registry.CaptureTicket(process);
+        if (!process_ticket) return false;
         const std::scoped_lock lock{mutex};
         if (channels.size() >= 256 && !channels.contains(channel)) return false;
-        auto [it, inserted] = channels.try_emplace(channel, *ticket);
-        if (!inserted &&
-            (it->second.process != ticket->process ||
-             it->second.generation != ticket->generation)) return false;
-        return registry.IsCurrent(*ticket);
+        auto it = channels.find(channel);
+        if (it == channels.end()) {
+            if (last_channel_generation == std::numeric_limits<std::uint64_t>::max())
+                return false;
+            it = channels.emplace(
+                channel, Ticket{process_ticket->process, process_ticket->generation,
+                                ++last_channel_generation}).first;
+        } else if (it->second.process != process_ticket->process ||
+                   it->second.generation != process_ticket->generation) {
+            return false;
+        }
+        if (!registry.IsCurrent(*process_ticket)) {
+            // Failed authorization must never leave an apparently bound
+            // channel behind, including a concurrent process shutdown.
+            channels.erase(it);
+            return false;
+        }
+        return true;
     }
-    // A graphics worker needs the EXACT channel's process generation to
-    // capture guest shaders. Never guess from a global NS2 title flag or
-    // current KProcess pointer. Callers must re-check IsCurrent(ticket)
-    // before publishing asynchronous shader/pipeline work.
-    [[nodiscard]] std::optional<NativeGpuProcessRegistry::Ticket> CaptureTicket(
+    // A native Vulkan worker may capture the exact GPU channel lifetime.
+    // Before publishing shader/pipeline output, revalidate this ticket
+    // against BOTH the process generation and the channel bind epoch.
+    [[nodiscard]] std::optional<Ticket> CaptureTicket(
         const Tegra::Control::ChannelState* channel) const {
         if (!channel) return std::nullopt;
-        std::optional<NativeGpuProcessRegistry::Ticket> ticket;
-        {
-            const std::scoped_lock lock{mutex};
-            const auto it = channels.find(channel);
-            if (it == channels.end()) return std::nullopt;
-            ticket = it->second;
-        }
-        if (!NativeGpuProcessRegistry::Instance().IsCurrent(*ticket))
+        const std::scoped_lock lock{mutex};
+        const auto it = channels.find(channel);
+        if (it == channels.end()) return std::nullopt;
+        if (!NativeGpuProcessRegistry::Instance().IsCurrent(
+                {it->second.process, it->second.generation}))
             return std::nullopt;
-        return ticket;
+        return it->second;
+    }
+    [[nodiscard]] bool IsCurrent(const Tegra::Control::ChannelState* channel,
+                                 const Ticket& ticket) const {
+        if (!channel || !ticket.process || !ticket.generation ||
+            !ticket.channel_generation) return false;
+        const std::scoped_lock lock{mutex};
+        const auto it = channels.find(channel);
+        if (it == channels.end() ||
+            it->second.process != ticket.process ||
+            it->second.generation != ticket.generation ||
+            it->second.channel_generation != ticket.channel_generation)
+            return false;
+        return NativeGpuProcessRegistry::Instance().IsCurrent(
+            {ticket.process, ticket.generation});
     }
     [[nodiscard]] bool IsNative(const Tegra::Control::ChannelState* channel) const {
         return CaptureTicket(channel).has_value();
@@ -57,6 +89,7 @@ public:
     }
 private:
     mutable std::mutex mutex;
-    std::map<const Tegra::Control::ChannelState*,NativeGpuProcessRegistry::Ticket> channels;
+    std::map<const Tegra::Control::ChannelState*, Ticket> channels;
+    std::uint64_t last_channel_generation{};
 };
 } // namespace Service::Nvidia::Devices
