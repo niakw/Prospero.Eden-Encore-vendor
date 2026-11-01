@@ -20,6 +20,15 @@ inline void Register(std::uint64_t pid) noexcept {
 }
 
 
+// A new title invalidates the old process identity even when the kernel
+// reuses PID 1 after reset. This applies to normal shutdown, failed ExeFS
+// bootstrap and direct NS2 -> NS1 title transitions. Never infer the next
+// game's generation from a PID surviving the previous guest.
+inline void ResetForTitle() noexcept {
+    active_pid.store(0, std::memory_order_release);
+    observations.store(0, std::memory_order_relaxed);
+}
+
 // Clear only the failing process: never discard a newer registered PID.
 inline void Unregister(std::uint64_t pid) noexcept {
     if (!pid) return;

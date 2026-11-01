@@ -57,6 +57,7 @@
 #include "core/hle/service/sm/sm.h"
 #include "core/internal_network/network.h"
 #include "core/loader/loader.h"
+#include "core/loader/ns2_svc_trace.h"
 #include "core/memory.h"
 #include "core/memory/cheat_engine.h"
 #include "core/perf_stats.h"
@@ -325,6 +326,10 @@ struct System::Impl {
     }
 
     SystemResultStatus Load(System& system, Frontend::EmuWindow& emu_window, const std::string& filepath, Service::AM::FrontendAppletParameters& params) {
+        // ExeFS registers a real NS2 KProcess *after* loading its code.
+        // Invalidate the old PID before starting this title: a fresh guest
+        // kernel may reuse its numeric identity for a Switch 1 process.
+        Eden::NS2::SvcTrace::ResetForTitle();
         // Resolve the NPDM before kernel initialization, never from a title
         // string. NS2 may temporarily require a 12 GiB guest layout, but that
         // override must not survive a subsequent NS1 launch in the same app.
@@ -493,6 +498,8 @@ struct System::Impl {
         debugger.reset();
         kernel.Shutdown();
         ::Eden::ReportStep("shutdown", "Completed kernel.Shutdown()");
+        // No guest process survives the old kernel, including a failed load.
+        Eden::NS2::SvcTrace::ResetForTitle();
         RestoreNs2MemoryLayout();
         stop_event = {};
         Network::RestartSocketOperations();
