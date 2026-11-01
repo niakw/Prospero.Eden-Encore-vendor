@@ -63,12 +63,16 @@ public:
     static constexpr std::size_t MaxEntries = 1024;
     [[nodiscard]] std::optional<u32> Create(u32 backing, u64 backing_size,
                                             NativeImageRequirements requirements,
-                                            std::span<const u32> preferences) {
+                                            std::span<const u32> preferences,
+                                            u32 requested_id = 0) {
         if (backing == 0 || preferences.size() != 16 || requirements.size == 0 ||
             requirements.alignment != 4096 || requirements.size > backing_size ||
-            m_images.size() >= MaxEntries || m_next == 0)
+            m_images.size() >= MaxEntries || (!requested_id && m_next == 0))
             return {};
-        const u32 id = m_next++;
+        const u32 id = requested_id ? requested_id : m_next;
+        if (!id || m_images.contains(id) || (requested_id && (m_next == 0 || id < m_next)))
+            return {};
+        m_next = id == std::numeric_limits<u32>::max() ? 0 : id + 1;
         NativeImageRecord record{id, backing, requirements.size, {}};
         std::copy(preferences.begin(), preferences.end(), record.preference.begin());
         m_images.emplace(id, record);

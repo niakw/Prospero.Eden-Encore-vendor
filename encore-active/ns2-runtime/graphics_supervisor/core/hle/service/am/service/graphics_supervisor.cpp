@@ -513,19 +513,19 @@ void IGraphicsSupervisor::CreateVideoImagePool(HLERequestContext& ctx) {
                         result = Kernel::ResultInvalidHandle;
                         if (session && session->process == m_process) {
                             result = Kernel::ResultOutOfResource;
-                            if (m_next_video_image_id &&
-                                u64{m_next_video_image_id} + count - 1 <=
+                            if (m_next_image_id &&
+                                m_next_image_id + count - 1 <=
                                     std::numeric_limits<u32>::max() &&
                                 m_video_pools.ImageCount() <=
                                     NativeVideoPoolLedger::MaxImages - count &&
                                 handle->Duplicate(true) == Nvidia::NvResult::Success) {
                                 const DAddr pinned = nvmap.PinHandle(backing, false);
                                 if (pinned) {
-                                    if (m_video_pools.Add(m_next_video_image_id, count,
-                                                          backing, handle->size,
+                                    if (m_video_pools.Add(static_cast<u32>(m_next_image_id),
+                                                          count, backing, handle->size,
                                                           preference[2], *layout)) {
-                                        first = m_next_video_image_id;
-                                        m_next_video_image_id += count;
+                                        first = static_cast<u32>(m_next_image_id);
+                                        m_next_image_id += count;
                                         result = ResultSuccess;
                                     } else {
                                         nvmap.UnpinHandle(backing);
@@ -702,11 +702,14 @@ void IGraphicsSupervisor::CreateNativeImage(HLERequestContext& ctx) {
                     if (handle && handle->allocated && handle->size >= requirements->size) {
                         result = Kernel::ResultOutOfResource;
                         if (m_native_images.Count() < NativeImageLedger::MaxEntries &&
+                            m_next_image_id <= std::numeric_limits<u32>::max() &&
                             handle->Duplicate(true) == Nvidia::NvResult::Success) {
                             if (const auto created =
-                                    m_native_images.Create(backing, handle->size,
-                                                           *requirements, preferences)) {
+                                    m_native_images.Create(
+                                        backing, handle->size, *requirements, preferences,
+                                        static_cast<u32>(m_next_image_id))) {
                                 id = *created;
+                                ++m_next_image_id;
                                 result = ResultSuccess;
                             } else {
                                 nvmap.FreeHandle(backing, true);

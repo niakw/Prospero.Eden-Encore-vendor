@@ -56,8 +56,9 @@ private:
     std::optional<std::size_t> m_native_memory_session;
     NativeImageLedger m_native_images;
     NativeVideoPoolLedger m_video_pools;
-    // Keep video IDs out of the existing bounded 429 synthetic ID space.
-    u32 m_next_video_image_id{0x80000000u};
+    // One guest-visible ID sequence across native 429 and video-pool 911.
+    // A u64 counter detects wrap rather than silently reusing an old ID.
+    u64 m_next_image_id{1};
     struct VideoImageMapping {
         std::shared_ptr<Nvidia::Devices::nvhost_as_gpu> address_space;
         u64 address{};
