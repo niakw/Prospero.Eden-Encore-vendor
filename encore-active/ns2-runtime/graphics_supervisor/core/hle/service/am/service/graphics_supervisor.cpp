@@ -28,6 +28,14 @@
 #include "core/hle/service/am/service/native_image_layout.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/server_manager.h"
+#include "core/core_timing.h"
+#include "core/hle/kernel/k_readable_event.h"
+#include "core/hle/service/nvnflinger/buffer_queue_producer.h"
+#include "core/hle/service/nvnflinger/ui/graphic_buffer.h"
+#include "core/hle/service/vi/application_display_service.h"
+#include "core/hle/service/vi/container.h"
+#include "core/hle/service/vi/manager_root_service.h"
+#include "core/hle/service/vi/vi_types.h"
 
 namespace Service::AM {
 namespace GB = GraphicsSupervisorBootstrap;
@@ -43,7 +51,7 @@ static Result TranslateBootstrap(GB::Status status) {
     return Kernel::ResultNotImplemented;
 }
 static Result CreateMetadataSession(Core::System& system, HLERequestContext& ctx,
-                                    std::shared_ptr<IGpuSession> handler,
+                                    std::shared_ptr<ServiceFrameworkBase> handler,
                                     Kernel::KClientSession** out_client) {
     auto& kernel = system.Kernel();
     Kernel::KScopedResourceReservation reservation{
@@ -61,10 +69,373 @@ static Result CreateMetadataSession(Core::System& system, HLERequestContext& ctx
     *out_client = &session->GetClientSession();
     R_SUCCEED();
 }
+// VI2 uses the actual VI compositor; a frame is acknowledged only when
+// Nvnflinger QueueBuffer accepts a real, process-owned NVMap GraphicBuffer.
+class IVi2Session final : public ServiceFramework<IVi2Session> {
+    static constexpr u64 Default = 0x00746c7561666564ULL;
+    struct Client {
+        u64 token{};
+        u32 signals{};
+        u32 release_bit{};
+        std::optional<u64> display;
+        std::optional<u64> layer;
+        u64 available{0x7fff};
+        std::array<std::optional<s32>,15> queued{};
+        std::array<u32,15> images{};
+        std::shared_ptr<android::BufferQueueProducer> producer;
+    };
+public:
+    IVi2Session(Core::System& sys, std::shared_ptr<IGraphicsSupervisor> owner, u64 aruid)
+        : ServiceFramework{sys,"IVi2Session"}, m_owner{std::move(owner)},
+          m_aruid{aruid}, m_context{sys,"NativeVi2"} {
+        static const FunctionInfo f[]{
+            {1,&IVi2Session::Limit,"GetNotificationLimit"},
+            {3,&IVi2Session::Limit,"GetSessionLimit"},
+            {5,&IVi2Session::Limit,"GetRequestGroupLimit"},
+            {11,&IVi2Session::Event,"GetNotificationEvent"},
+            {21,&IVi2Session::Notifications,"GetNotifications"},
+            {101,&IVi2Session::Open,"OpenDisplay"},
+            {102,&IVi2Session::Close,"CloseDisplay"},
+            {201,&IVi2Session::Register,"RegisterClientState"},
+            {202,&IVi2Session::Unregister,"UnregisterClientState"},
+            {212,&IVi2Session::Availability,"GetClientAvailability"},
+            {229,&IVi2Session::Present,"PresentClientBuffer"},
+            {228,&IVi2Session::Cancel,"CancelClientBuffer"},
+            {251,&IVi2Session::Bind,"BindClientDisplay"},
+            {252,&IVi2Session::Unbind,"UnbindClientDisplay"},
+            {351,&IVi2Session::Encoding,"SetClientOutputEncoding"},
+        };
+        RegisterHandlersTipc(f);
+    }
+    ~IVi2Session() override {
+        if (m_poll) system.CoreTiming().UnscheduleEvent(m_poll);
+        if (m_vi) {
+            for (auto& c:m_clients)
+                if (c.layer) m_vi->GetContainer()->DestroyManagedLayer(*c.layer);
+            if (m_display) m_vi->CloseDisplay(*m_display);
+        }
+        m_context.CloseEvent(m_event);
+    }
+    Result HandleSyncRequest(Kernel::KServerSession& session,HLERequestContext& ctx) override {
+        if (!ctx.IsTipc() || handlers_tipc.contains(ctx.GetCommand()))
+            return ServiceFrameworkBase::HandleSyncRequest(session,ctx);
+        const auto guard=LockService();
+        InvokeRequestTipc(ctx);
+        IPC::ResponseBuilder rb{ctx,2}; rb.Push(Kernel::ResultNotImplemented.raw);
+        return system.IsPoweredOn()?ctx.WriteToOutgoingCommandBuffer():ResultSuccess;
+    }
+private:
+    static u64 W(const u32* p,size_t i) {return u64{p[i]}|(u64{p[i+1]}<<32);}
+    Client* Find(u64 id) {
+        if (!id) return nullptr;
+        const auto it=std::ranges::find(m_clients,id,&Client::token);
+        return it==m_clients.end()?nullptr:std::addressof(*it);
+    }
+    void Signal(u32 bit) {
+        if (bit>=1024)return;
+        m_notes[bit/32]|=1U<<(bit%32);
+        if(m_event)m_event->Signal(kernel);
+    }
+    void Limit(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();
+        const Result result=p[0]==16+ctx.GetCommand()&&p[1]==0?
+            ResultSuccess:Kernel::ResultInvalidCombination;
+        IPC::ResponseBuilder rb{ctx,3}; rb.Push(result.raw);
+        rb.Push<u32>(ctx.GetCommand()==5?7:0);
+    }
+    void Event(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();
+        Result result=Kernel::ResultInvalidCombination;
+        Kernel::KReadableEvent* readable{};
+        if(p[0]==0x1b&&p[1]==1&&p[2]==0){
+            if(!m_event)m_event=m_context.CreateEvent("Vi2Notify");
+            result=m_event?ResultSuccess:Kernel::ResultOutOfResource;
+            if(m_event){readable=&m_event->GetReadableEvent();readable->Open(kernel);}
+        }
+        IPC::ResponseBuilder rb{ctx,2,0,1};rb.Push(result.raw);
+        ctx.AddMoveObject(readable);
+    }
+    void Notifications(HLERequestContext& ctx) {
+        Result result=Kernel::ResultInvalidSize;
+        if(ctx.GetWriteBufferSize()>=sizeof(m_notes)){
+            ctx.WriteBuffer(m_notes);m_notes.fill(0);
+            if(m_event)m_event->Clear(kernel);result=ResultSuccess;
+        }
+        IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+    }
+    void Open(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();
+        Result result=Kernel::ResultInvalidCombination;
+        if(p[0]==0x75&&p[1]==3&&W(p,2)==Default&&p[4]==1){
+            result=Kernel::ResultInvalidState;
+            if(!m_display){
+                auto root=system.ServiceManager().GetService<VI::IManagerRootService>("vi:m",true);
+                if(root)result=root->GetDisplayService(&m_vi,VI::Policy::Compositor);
+                if(result.IsSuccess()&&m_vi) {
+                    u64 id{};result=m_vi->OpenDefaultDisplay(&id);
+                    if(result.IsSuccess())m_display=id;
+                }
+            }else if(m_refs<1024)result=ResultSuccess;
+            if(result.IsSuccess())++m_refs;
+        }
+        IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+    }
+    void Close(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();
+        Result result=Kernel::ResultInvalidCombination;
+        if(p[0]==0x76&&p[1]==2&&W(p,2)==Default){
+            result=Kernel::ResultNotFound;
+            if(m_display&&m_refs){
+                result=ResultSuccess;
+                if(m_refs==1){
+                    result=m_vi->CloseDisplay(*m_display);
+                    if(result.IsSuccess())m_display.reset();
+                }
+                if(result.IsSuccess())--m_refs;
+            }
+        }
+        IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+    }
+    void Register(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();
+        Result result=Kernel::ResultInvalidCombination;
+        const u64 id=W(p,2);
+        if(p[0]==0xd9&&p[1]==4&&id&&p[4]<32&&p[5]<32&&p[4]!=p[5]){
+            const u32 slots=(1U<<p[4])|(1U<<p[5]);
+            result=Kernel::ResultInvalidState;
+            if(!Find(id)&&!(m_slots&slots)){
+                result=Kernel::ResultOutOfResource;
+                auto it=std::ranges::find(m_clients,u64{0},&Client::token);
+                if(it!=m_clients.end()){
+                    it->token=id;it->signals=slots;it->release_bit=p[4];
+                    m_slots|=slots;result=ResultSuccess;
+                }
+            }
+        }
+        IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+    }
+    void Unregister(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;
+        if(p[0]==0xda&&p[1]==2){
+            Client* c=Find(W(p,2));result=Kernel::ResultNotFound;
+            if(c){
+                Release();
+                result=Kernel::ResultBusy;
+                if(std::ranges::none_of(c->queued,[](auto x){return x.has_value();})){
+                    if(c->layer&&m_vi)m_vi->GetContainer()->DestroyManagedLayer(*c->layer);
+                    Signal(c->release_bit);m_slots&=~c->signals;*c={};result=ResultSuccess;
+                }
+            }
+        }
+        IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+    }
+    void Bind(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;
+        if(p[0]==0x10b&&p[1]==4&&W(p,4)==Default){
+            Client* c=Find(W(p,2));result=Kernel::ResultNotFound;
+            if(c){result=Kernel::ResultInvalidState;
+                if(m_display&&m_refs&&!c->display){c->display=m_display;result=ResultSuccess;}}
+        }
+        IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+    }
+    void Unbind(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;
+        if(p[0]==0x10c&&p[1]==2){
+            Client* c=Find(W(p,2));result=Kernel::ResultNotFound;
+            if(c&&c->display){c->display.reset();result=ResultSuccess;}
+        }
+        IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+    }
+    void Availability(HLERequestContext& ctx) {
+        Release();
+        const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;
+        u64 mask{};
+        if(p[0]==0xe4&&p[1]==2){
+            Client* c=Find(W(p,2));result=Kernel::ResultNotFound;
+            if(c&&c->display&&m_vi){
+                result=ResultSuccess;
+                if(!c->layer){
+                    u64 layer{};
+                    result=m_vi->GetContainer()->CreateManagedLayer(&layer,*c->display,m_aruid);
+                    if(result.IsSuccess())c->layer=layer;
+                }
+                if(result.IsSuccess())mask=c->available;
+            }
+        }
+        IPC::ResponseBuilder rb{ctx,4};rb.Push(result.raw);rb.Push(mask);
+    }
+    void Encoding(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;
+        if(p[0]==0x16f&&p[1]==4){
+            result=Find(W(p,2))?Kernel::ResultNotImplemented:Kernel::ResultNotFound;
+            if(result==Kernel::ResultNotImplemented&&W(p,4)==0x14)result=ResultSuccess;
+        }
+        IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+    }
+    void Release() {
+        for(auto& c:m_clients){
+            if(!c.producer)continue;
+            for(u32 slot=0;slot<c.queued.size();++slot){
+                if(!c.queued[slot])continue;
+                auto fence=c.producer->GetReleasedBufferFence(*c.queued[slot]);
+                if(!fence)continue;
+                bool done=true;
+                for(u32 i=0;i<fence->num_fences;++i){
+                    const auto& f=fence->fences[i];
+                    if(f.id!=~u32{0}){
+                        const auto img=m_owner->GetPresentImage(c.images[slot]);
+                        if(!img){done=false;break;}
+                        const auto value=img->module->GetContainer().GetSyncpointManager()
+                            .ReadAllocatedSyncpoint(f.id);
+                        if(!value||static_cast<s32>(*value-f.value)<0){done=false;break;}
+                    }
+                }
+                if(!done||c.producer->DetachReleasedBuffer(*c.queued[slot])!=
+                    android::Status::NoError)continue;
+                c.queued[slot].reset();c.images[slot]=0;
+                c.available|=u64{1}<<slot;Signal(c.release_bit);
+            }
+        }
+    }
+    void Present(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;
+        u64 mask{};
+        if(p[0]==0xf5&&p[1]==24){
+            Release();
+            Client* c=Find(W(p,2));result=Kernel::ResultNotFound;
+            if(c){
+                const u32 slot=GraphicsSupervisorProtocol::DecodeBufferSlot(p[4]);
+                result=Kernel::ResultInvalidState;
+                if(slot<15&&c->display&&c->layer&&!c->queued[slot]){
+                    const auto img=m_owner->GetPresentImage(p[5]);
+                    result=Kernel::ResultNotFound;
+                    if(img){
+                        const auto& pref=img->layout;
+                        const u32 width=(pref[2]&0xffffU)+1;
+                        const u32 height=(pref[2]>>16)+1;
+                        const u32 outw=(p[7]&0xffffU)+1;
+                        const u32 outh=(p[7]>>16)+1;
+                        result=Kernel::ResultNotImplemented;
+                        if(p[6]==0&&p[8]==3&&pref[4]==7&&
+                            (pref[6]==1||pref[6]==4)&&outw<=width&&outh<=height){
+                            const u32 fence=~p[22];
+                            auto& nv=img->module->GetContainer();
+                            result=Kernel::ResultInvalidCombination;
+                            if(p[23]==0&&p[25]==0&&
+                                (fence==~u32{0}||
+                                 nv.GetSyncpointManager().IsSyncpointAllocated(fence))){
+                                if(!c->producer){
+                                    result=m_vi->GetContainer()->GetLayerProducerHandle(
+                                        &c->producer,*c->layer);
+                                    if(result.IsSuccess()){
+                                        android::QueueBufferOutput output{};
+                                        if(c->producer->Connect({},
+                                            android::NativeWindowApi::Egl,false,&output)!=
+                                            android::Status::NoError||
+                                           c->producer->SetBufferCount(16)!=
+                                            android::Status::NoError)
+                                            result=Kernel::ResultInvalidState;
+                                    }
+                                    if(result.IsSuccess()){
+                                        s32 binder{};
+                                        result=m_vi->GetContainer()->OpenLayer(
+                                            &binder,*c->layer,m_aruid);
+                                        if(result.IsSuccess())result=m_vi->GetContainer()
+                                            ->SetLayerVisibility(*c->layer,true);
+                                    }
+                                }else result=ResultSuccess;
+                                if(result.IsSuccess()){
+                                    auto native=std::make_shared<android::NvGraphicBuffer>();
+                                    native->width=static_cast<s32>(width);
+                                    native->height=static_cast<s32>(height);
+                                    native->stride=static_cast<s32>(pref[5]*16);
+                                    native->format=pref[6]==4?android::PixelFormat::Rgba1010102
+                                                              :android::PixelFormat::Rgba8888;
+                                    native->external_format=native->format;
+                                    native->buffer_id=img->buffer_id;native->offset=img->offset;
+                                    auto buffer=std::make_shared<android::GraphicBuffer>(
+                                        nv.GetNvMapFile(),native);
+                                    s32 idx{};result=Kernel::ResultOutOfResource;
+                                    if(c->producer->AttachBuffer(&idx,buffer)==android::Status::NoError){
+                                        android::QueueBufferInput input{};
+                                        android::QueueBufferOutput output{};
+                                        input.crop={0,0,static_cast<s32>(outw),
+                                            static_cast<s32>(outh)};
+                                        input.swap_interval=1;input.fence=android::Fence::NoFence();
+                                        if(fence!=~u32{0}){
+                                            input.fence.num_fences=1;
+                                            input.fence.fences[0]={static_cast<s32>(fence),p[24]};
+                                        }
+                                        if(c->producer->QueueBuffer(idx,input,&output)==
+                                            android::Status::NoError){
+                                            c->queued[slot]=idx;c->images[slot]=p[5];
+                                            c->available&=~(u64{1}<<slot);result=ResultSuccess;
+                                            if(!m_poll){
+                                                auto weak=std::weak_ptr<IVi2Session>(
+                                                    std::static_pointer_cast<IVi2Session>(
+                                                        shared_from_this()));
+                                                m_poll=Core::Timing::CreateEvent(
+                                                    "NativeVi2Release",
+                                                    [weak](s64,std::chrono::nanoseconds)
+                                                        ->std::optional<std::chrono::nanoseconds>{
+                                                        if(auto self=weak.lock()){
+                                                            const auto guard=self->LockService();
+                                                            self->Release();
+                                                        }
+                                                        return std::nullopt;
+                                                    });
+                                                system.CoreTiming().ScheduleLoopingEvent(
+                                                    std::chrono::milliseconds{1},
+                                                    std::chrono::milliseconds{1},m_poll);
+                                            }
+                                        }else{
+                                            c->producer->CancelBuffer(idx,input.fence);
+                                            result=Kernel::ResultInvalidState;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                mask=c->available;
+            }
+        }
+        IPC::ResponseBuilder rb{ctx,8};rb.Push(result.raw);rb.Push(mask);
+        for(u32 i=0;i<4;++i)rb.Push<u32>(0);
+    }
+    void Cancel(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;
+        u64 mask{};
+        if(p[0]==0xf4&&p[1]==19){
+            Client* c=Find(W(p,2));result=Kernel::ResultNotFound;
+            if(c){
+                const u32 slot=GraphicsSupervisorProtocol::DecodeBufferSlot(p[4]);
+                result=Kernel::ResultInvalidState;
+                if(slot<15&&!c->queued[slot]){c->available|=u64{1}<<slot;result=ResultSuccess;}
+                mask=c->available;
+            }
+        }
+        IPC::ResponseBuilder rb{ctx,8};rb.Push(result.raw);rb.Push(mask);
+        for(u32 i=0;i<4;++i)rb.Push<u32>(0);
+    }
+    std::shared_ptr<IGraphicsSupervisor> m_owner;
+    u64 m_aruid{};
+    std::array<Client,16> m_clients{};
+    u32 m_slots{};
+    std::shared_ptr<VI::IApplicationDisplayService> m_vi;
+    std::optional<u64> m_display;
+    u32 m_refs{};
+    std::array<u32,32> m_notes{};
+    KernelHelpers::ServiceContext m_context;
+    Kernel::KEvent* m_event{};
+    std::shared_ptr<Core::Timing::EventType> m_poll;
+};
+
 IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess* process,
                                          u64 aruid)
     : ServiceFramework{system_, "IGraphicsSupervisor"}, m_process{process},
-      m_bootstrap{aruid} {
+      m_bootstrap{aruid}, m_aruid{aruid} {
     m_process->Open(kernel);
     static const FunctionInfo functions[] = {
         {4, &IGraphicsSupervisor::Initialize, "Initialize"},
@@ -74,6 +445,9 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {402, &IGraphicsSupervisor::InitializeGpuContext, "ActivateGpuContext"},
         {434, &IGraphicsSupervisor::RegisterGpuAddressSpace, "RegisterGpuAddressSpace"},
         {497, &IGraphicsSupervisor::OpenGpuSession, "OpenGpuSession"},
+        {301, &IGraphicsSupervisor::InitializeDisplayContext, "InitializeDisplayContext"},
+        {303, &IGraphicsSupervisor::FinalizeDisplayContext, "FinalizeDisplayContext"},
+        {305, &IGraphicsSupervisor::OpenDisplaySession, "OpenDisplaySession"},
         {111, &IGraphicsSupervisor::CreateNativeMemory, "CreateNativeMemory"},
         {112, &IGraphicsSupervisor::DestroyNativeMemory, "DestroyNativeMemory"},
         {114, &IGraphicsSupervisor::BindNativeMemory, "BindNativeMemory"},
@@ -226,6 +600,58 @@ void IGraphicsSupervisor::RegisterGpuAddressSpace(HLERequestContext& ctx) {
     rb.Push(result.raw);
 }
 
+std::optional<IGraphicsSupervisor::PresentImage>
+IGraphicsSupervisor::GetPresentImage(u32 id) {
+    const std::scoped_lock lock{m_native_memory_mutex};
+    const auto image=m_native_images.Get(id);
+    if(!image||!image->window_pool||!m_native_module)return {};
+    auto& container=m_native_module->GetContainer();
+    const auto handle=container.GetNvMapFile().GetHandle(image->backing);
+    if(!handle||!handle->allocated)return {};
+    const auto* session=container.GetSession(handle->session_id);
+    if(!session||session->process!=m_process)return {};
+    u32 backing=image->backing,offset{};
+    if(const auto it=m_native_parents.find(backing);it!=m_native_parents.end()){
+        const auto parent=container.GetNvMapFile().GetHandle(it->second);
+        if(!parent||!parent->allocated||handle->address<parent->address||
+            handle->address-parent->address>std::numeric_limits<u32>::max())return {};
+        offset=static_cast<u32>(handle->address-parent->address);
+        backing=it->second;
+    }
+    return PresentImage{image->preference,backing,offset,m_native_module};
+}
+void IGraphicsSupervisor::InitializeDisplayContext(HLERequestContext& ctx) {
+    const auto* p=ctx.CommandBuffer();
+    Result result=Kernel::ResultInvalidCombination;
+    if(p[0]==0x13d&&p[1]==0)
+        result=m_bootstrap.CurrentPhase()==GB::Phase::Ready
+            ? ResultSuccess:Kernel::ResultInvalidState;
+    if(result.IsSuccess())m_display_ready=true;
+    IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+}
+void IGraphicsSupervisor::FinalizeDisplayContext(HLERequestContext& ctx) {
+    const auto* p=ctx.CommandBuffer();
+    const Result result=p[0]==0x13f&&p[1]==0
+        ? ResultSuccess:Kernel::ResultInvalidCombination;
+    if(result.IsSuccess())m_display_ready=false;
+    IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+}
+void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
+    const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;
+    Kernel::KClientSession* client{};
+    if(p[0]==0x141&&p[1]==2&&
+        GraphicsSupervisorProtocol::IsSupportedDisplaySession(
+            u64{p[2]}|(u64{p[3]}<<32))){
+        result=Kernel::ResultInvalidState;
+        if(m_display_ready){
+            auto owner=std::static_pointer_cast<IGraphicsSupervisor>(shared_from_this());
+            auto handler=std::make_shared<IVi2Session>(system,std::move(owner),m_aruid);
+            result=CreateMetadataSession(system,ctx,std::move(handler),&client);
+        }
+    }
+    IPC::ResponseBuilder rb{ctx,2,0,1};rb.Push(result.raw);
+    ctx.AddMoveObject(client);
+}
 void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
     const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
     // Only actual NVDRV service modules can back address-space FD creation.

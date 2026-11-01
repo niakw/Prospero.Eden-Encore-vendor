@@ -21,12 +21,22 @@ public:
     IGraphicsSupervisor(Core::System& system, Kernel::KProcess* process, u64 aruid);
     ~IGraphicsSupervisor() override;
     Result HandleSyncRequest(Kernel::KServerSession& session, HLERequestContext& ctx) override;
+    struct PresentImage {
+        std::array<u32,16> layout{};
+        u32 buffer_id{};
+        u32 offset{};
+        std::shared_ptr<Nvidia::Module> module;
+    };
+    [[nodiscard]] std::optional<PresentImage> GetPresentImage(u32 id);
 private:
     void Initialize(HLERequestContext& ctx);
     void BindProcess(HLERequestContext& ctx);
     void CompleteBootstrap(HLERequestContext& ctx);
     void InitializeGpuContext(HLERequestContext& ctx);
     void OpenGpuSession(HLERequestContext& ctx);
+    void InitializeDisplayContext(HLERequestContext& ctx);
+    void FinalizeDisplayContext(HLERequestContext& ctx);
+    void OpenDisplaySession(HLERequestContext& ctx);
     void CreateNativeMemory(HLERequestContext& ctx);
     void DestroyNativeMemory(HLERequestContext& ctx);
     void BindNativeMemory(HLERequestContext& ctx);
@@ -49,6 +59,8 @@ private:
         FindRegisteredGpuAddressSpace(u32 fd);
     Kernel::KProcess* const m_process;
     GraphicsSupervisorBootstrap::State m_bootstrap;
+    const u64 m_aruid;
+    bool m_display_ready{};
     std::vector<std::weak_ptr<IGpuSession>> m_gpu_sessions;
     std::mutex m_native_memory_mutex;
     GraphicsSupervisorProtocol::NativeMemoryLedger m_native_memory;
