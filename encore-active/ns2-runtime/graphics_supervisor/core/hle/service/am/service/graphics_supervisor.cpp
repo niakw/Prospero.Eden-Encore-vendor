@@ -4,6 +4,8 @@
 // NO native NVDRV address space, event, worker, queue or PS5 rendering path.
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cstdio>
 #include <cstring>
 #include <cmath>
 #include "common/logging.h"
@@ -132,6 +134,16 @@ public:
         m_context.CloseEvent(m_event);
     }
     Result HandleSyncRequest(Kernel::KServerSession& session,HLERequestContext& ctx) override {
+#ifdef PS5_NATIVE
+        if (ctx.IsTipc()) {
+            static std::atomic<unsigned> calls{0};
+            const auto n = calls.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (n <= 48 || (n & (n - 1)) == 0)
+                std::fprintf(stderr, "EDEN_NS2_IPC owner=vi2 cmd=%u known=%u count=%u\n",
+                             static_cast<unsigned>(ctx.GetCommand()),
+                             static_cast<unsigned>(handlers_tipc.contains(ctx.GetCommand())), n);
+        }
+#endif
         if (!ctx.IsTipc() || handlers_tipc.contains(ctx.GetCommand()))
             return ServiceFrameworkBase::HandleSyncRequest(session,ctx);
         const auto guard=LockService();
@@ -636,6 +648,16 @@ IGraphicsSupervisor::~IGraphicsSupervisor() {
 }
 Result IGraphicsSupervisor::HandleSyncRequest(Kernel::KServerSession& session,
                                                HLERequestContext& ctx) {
+#ifdef PS5_NATIVE
+    if (ctx.IsTipc()) {
+        static std::atomic<unsigned> calls{0};
+        const auto n = calls.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (n <= 48 || (n & (n - 1)) == 0)
+            std::fprintf(stderr, "EDEN_NS2_IPC owner=graphics_supervisor cmd=%u known=%u count=%u\n",
+                         static_cast<unsigned>(ctx.GetCommand()),
+                         static_cast<unsigned>(handlers_tipc.contains(ctx.GetCommand())), n);
+    }
+#endif
     if (!ctx.IsTipc() || handlers_tipc.contains(ctx.GetCommand()))
         return ServiceFrameworkBase::HandleSyncRequest(session, ctx);
     const auto guard = LockService();
