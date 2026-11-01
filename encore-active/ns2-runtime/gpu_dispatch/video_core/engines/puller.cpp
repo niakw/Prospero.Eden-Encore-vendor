@@ -428,6 +428,102 @@ void Puller::CallNative3D(DmaPusher& pusher, u32 method,
         engine.CallMethod(pusher.system,method,values[i],last && i+1==values.size());
 }
 
+// TU104 Compute MME upload / execution; separate from 3D and all NS1
+// Maxwell macro code. Executed macro PCAS writes reach the real QMD3 owner.
+void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
+                               std::span<const u32> values, bool last,
+                               u32 subchannel) {
+    if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+            &pusher.channel_state) || native_compute_failed) return;
+    if (!native_compute)
+        native_compute = std::make_unique<Tegra::NativeAmpereMacroState>();
+    const auto fail = [&](const char* reason) {
+        native_compute_failed = true;
+        native_compute_macro_method = 0;
+        native_compute_parameters.clear();
+        LOG_ERROR(HW_GPU, "Native Ampere Compute MME rejected: {}", reason);
+    };
+    if (!native_compute_macro_method && method >= 0x45 && method <= 0x48) {
+        if (method == 0x45) {
+            if (values.size() != 1 || !native_compute->SetCodePointer(values[0]))
+                fail("compute MME code pointer invalid");
+        } else if (method == 0x46) {
+            for (u32 value : values)
+                if (!native_compute->PushCode(value)) {
+                    fail("compute MME upload exceeded code RAM");
+                    break;
+                }
+        } else if (method == 0x47) {
+            if (values.size() != 1 || !native_compute->SetPositionPointer(values[0]))
+                fail("compute MME position pointer invalid");
+        } else {
+            for (u32 value : values)
+                if (!native_compute->BindPosition(value)) {
+                    fail("compute MME entry not uploaded");
+                    break;
+                }
+        }
+        return;
+    }
+    if (method >= 0xe00) {
+        if (method >= 0xf00 || values.empty()) {
+            fail("invalid compute MME method");
+            return;
+        }
+        if (!native_compute_macro_method) {
+            if (method & 1u) {
+                fail("compute MME must start at even method");
+                return;
+            }
+            native_compute_macro_method = method;
+        } else if (method != native_compute_macro_method + 1u) {
+            fail("compute MME FIFO did not continue on argument method");
+            return;
+        }
+        if (values.size() > Tegra::NativeAmpereMacroState::MaxFifo -
+                                 native_compute_parameters.size()) {
+            fail("compute MME FIFO limit");
+            return;
+        }
+        native_compute_parameters.insert(native_compute_parameters.end(),
+                                         values.begin(), values.end());
+        if (!last) return;
+        auto& engine = pusher.channel_state.payload->kepler_compute;
+        const auto read = [&](u32 index) {
+            return index < Tegra::Engines::KeplerCompute::Regs::NUM_REGS
+                       ? engine.regs.reg_array[index] : 0U;
+        };
+        const auto emit = [&](u32 reg, u32 value) {
+            if (reg >= 0xe00 || reg >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS)
+                return false;
+            if (reg == 0xae || reg == 0xaf || reg == 0xb0)
+                ProcessNativeComputeQmd(pusher, reg, value, subchannel);
+            else engine.CallMethod(pusher.system, reg, value, true);
+            return true;
+        };
+        const auto result = native_compute->Execute(
+            native_compute_macro_method, native_compute_parameters, read, emit);
+        native_compute_macro_method = 0;
+        native_compute_parameters.clear();
+        if (!result.success) fail("compute MME interpreter rejected instruction");
+        return;
+    }
+    if (native_compute_macro_method) {
+        fail("compute MME FIFO interrupted");
+        return;
+    }
+    if (method >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS) {
+        fail("compute method outside declared register file");
+        return;
+    }
+    for (u32 value : values) {
+        if (method == 0xae || method == 0xaf || method == 0xb0)
+            ProcessNativeComputeQmd(pusher, method, value, subchannel);
+        else pusher.channel_state.payload->kepler_compute.CallMethod(
+            pusher.system, method, value, true);
+    }
+}
+
 // Native QMD3 PCAS: zero-grid commands may release real fences, but a
 // nonempty GPU program cannot complete without its compute shader backend.
 void Puller::ProcessNativeComputeQmd(DmaPusher& pusher, u32 method,
