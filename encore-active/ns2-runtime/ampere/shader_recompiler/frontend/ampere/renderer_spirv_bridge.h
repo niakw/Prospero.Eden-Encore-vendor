@@ -3,7 +3,10 @@
 // Explicit, opt-in PS5 renderer-side compilation. This does NOT select
 // a graphics pipeline, install a Vulkan module, or affect Switch 1 shaders.
 #include <vector>
+#include <optional>
 #include "common/common_types.h"
+#include "shader_recompiler/backend/bindings.h"
+#include "shader_recompiler/shader_info.h"
 
 namespace Shader {
 struct HostTranslateInfo;
@@ -26,6 +29,13 @@ enum class NativeSpirvStatus : u8 {
 struct NativeSpirvResult {
     NativeSpirvStatus status{NativeSpirvStatus::InvalidImage};
     std::vector<u32> words{};
+    // GraphicsPipeline needs resource descriptors and the cumulative binding
+    // index after each emitted shader; SPIR-V alone is insufficient.
+    std::optional<Shader::Info> info{};
+    Shader::Backend::Bindings next_bindings{};
+    [[nodiscard]] bool PipelineMetadataReady() const noexcept {
+        return Ready() && info.has_value();
+    }
     [[nodiscard]] bool Ready() const noexcept {
         return status == NativeSpirvStatus::Ready && !words.empty();
     }
@@ -43,7 +53,8 @@ struct NativeSpirvResult {
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
-    bool exits_to_dispatcher = false);
+    bool exits_to_dispatcher = false,
+    Shader::Backend::Bindings initial_bindings = {});
 
 // Compile a genuine two-program vertex pipeline. The caller must supply
 // both owned, stage-matched environments and the real runtime pipeline
@@ -53,7 +64,8 @@ struct NativeSpirvResult {
     NativeMaxwellEnvironment& vertex_b,
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
-    const Shader::RuntimeInfo& runtime_info);
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Backend::Bindings initial_bindings = {});
 
 // Keep the original vertex-only API strict for existing research callers.
 [[nodiscard]] NativeSpirvResult CompileReviewedNativeVertexSpirv(
