@@ -825,6 +825,16 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
         Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
             .CaptureGraphicsTicket(maxwell3d);
     const bool native = native_ticket.has_value();
+    // One bounded, engine-epoch-owned lowering cache, never a cross-title
+    // static. The GMMU reader still checks ALL original bytes on every hit.
+    auto native_translation_cache = native
+        ? Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+              .AcquireGraphicsTranslationCache(maxwell3d, *native_ticket)
+        : std::shared_ptr<Shader::Ampere::NativeTranslationCache>{};
+    if (native && !native_translation_cache) {
+        current_pipeline = nullptr;
+        return nullptr;
+    }
     bool stages_valid{};
     if (native) {
         stages_valid = true;
@@ -849,7 +859,8 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
             const auto stage = i == 0 ? Shader::Stage::VertexA :
                 Shader::StageFromIndex(i - 1);
             const auto captured = VideoCommon::CaptureNs2GraphicsShaderFromGpu(
-                *gpu_memory, base + offset, static_cast<u32>(stage));
+                *gpu_memory, base + offset, static_cast<u32>(stage),
+                native_translation_cache.get());
             if (!captured.Ready() || !captured.image.diagnostic_cache_key ||
                 !Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
                     .IsGraphicsCurrent(maxwell3d, *native_ticket)) {
@@ -1629,6 +1640,10 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
         Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
             .CaptureGraphicsTicket(maxwell3d);
     if (ticket) {
+        auto native_translation_cache =
+            Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                .AcquireGraphicsTranslationCache(maxwell3d, *ticket);
+        if (!native_translation_cache) return nullptr;
         const auto base = maxwell3d->regs.program_region.Address();
         std::array<Shader::Environment*, Maxwell::MaxShaderProgram> ptrs{};
         std::vector<std::unique_ptr<Shader::Environment>> native_envs;
@@ -1647,7 +1662,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
                 static_cast<Maxwell::ShaderType>(i), base, offset);
             auto adapted = VideoCommon::CreateNs2GraphicsShaderEnvironment(
                 *gpu_memory, std::move(original), base + offset,
-                static_cast<u32>(stage));
+                static_cast<u32>(stage), native_translation_cache.get());
             if (!adapted || !Service::Nvidia::Devices::NativeGpuChannelRegistry::
                                 Instance().IsGraphicsCurrent(maxwell3d, *ticket))
                 return nullptr;
