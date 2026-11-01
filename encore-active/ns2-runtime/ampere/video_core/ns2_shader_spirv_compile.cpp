@@ -7,9 +7,10 @@
 #include "video_core/native_shader_capture.h"
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
 #include "shader_recompiler/frontend/ampere/renderer_spirv_bridge.h"
+#include "shader_recompiler/frontend/ampere/native_graphics_stage_policy.h"
 
 namespace VideoCommon {
-Shader::Ampere::NativeSpirvResult CompileCapturedNs2VertexSpirvFromReader(
+Shader::Ampere::NativeSpirvResult CompileCapturedNs2GraphicsSpirvFromReader(
     const Kernel::KProcess* process,
     std::unique_ptr<Shader::Environment> original,
     u64 gpu_program_address,
@@ -24,12 +25,11 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2VertexSpirvFromReader(
     auto& registry = Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
     const auto session = registry.CaptureTicket(process);
     if (!session) return {NativeSpirvStatus::InactiveSession, {}};
-    // No autodetection, no fallback to Switch 1 shader bytes or cache keys.
-    // Reject BEFORE GMMU capture: unmerged VertexA/compute stages cannot
-    // silently appear as valid Vulkan VertexB modules.
+    // Neither the old VertexB entry nor the new stage-aware entry can
+    // autodetect games or borrow any Switch 1 shader bytes/cache keys.
     if (!read || !original)
         return {NativeSpirvStatus::InvalidImage, {}};
-    if (original->ShaderStage() != Shader::Stage::VertexB)
+    if (!Shader::Ampere::IsStandaloneNativeGraphicsStage(original->ShaderStage()))
         return {NativeSpirvStatus::UnsupportedStage, {}};
     try {
         auto captured = Shader::Ampere::CaptureNativeGraphicsShader(
@@ -45,7 +45,7 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2VertexSpirvFromReader(
             return {NativeSpirvStatus::InvalidImage, {}};
         // Only a complete, independently owned module escapes this call.
         // Existing Vulkan pipeline/layout construction is NOT overridden.
-        auto compiled = Shader::Ampere::CompileReviewedNativeVertexSpirv(
+        auto compiled = Shader::Ampere::CompileReviewedNativeGraphicsSpirv(
             *env, host_info, profile, runtime_info, exits_to_dispatcher);
         // A teardown/reopen or owner re-registration during compilation must
         // never publish a module, even when the process address was reused.
@@ -55,6 +55,40 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2VertexSpirvFromReader(
     } catch (const std::exception&) {
         return {NativeSpirvStatus::CompilationFailed, {}};
     }
+}
+
+Shader::Ampere::NativeSpirvResult CompileCapturedNs2VertexSpirvFromReader(
+    const Kernel::KProcess* process,
+    std::unique_ptr<Shader::Environment> original,
+    u64 gpu_program_address,
+    Shader::Ampere::GuestShaderRead read,
+    void* context,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache,
+    bool exits_to_dispatcher) {
+    if (original && original->ShaderStage() != Shader::Stage::VertexB)
+        return {Shader::Ampere::NativeSpirvStatus::UnsupportedStage, {}};
+    return CompileCapturedNs2GraphicsSpirvFromReader(
+        process, std::move(original), gpu_program_address, read, context,
+        host_info, profile, runtime_info, cache, exits_to_dispatcher);
+}
+
+Shader::Ampere::NativeSpirvResult CompileCapturedNs2GraphicsSpirv(
+    Tegra::MemoryManager& memory,
+    const Kernel::KProcess* process,
+    std::unique_ptr<Shader::Environment> original,
+    u64 gpu_program_address,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache,
+    bool exits_to_dispatcher) {
+    return CompileCapturedNs2GraphicsSpirvFromReader(
+        process, std::move(original), gpu_program_address,
+        ReadNs2GpuShader, &memory, host_info, profile, runtime_info,
+        cache, exits_to_dispatcher);
 }
 
 Shader::Ampere::NativeSpirvResult CompileCapturedNs2VertexSpirv(

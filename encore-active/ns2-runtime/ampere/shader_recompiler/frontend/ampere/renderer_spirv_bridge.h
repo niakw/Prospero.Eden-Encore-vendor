@@ -33,8 +33,19 @@ struct NativeSpirvResult {
 
 // Call only from an explicitly identified NS2 graphics session after the
 // NS2 GPU mapping and shader SPH have been captured and verified.
-// VertexA must be merged with VertexB by the actual Vulkan pipeline owner
-// before SPIR-V emission; compute is a separate QMD path and is rejected.
+// Only a fully specified standalone VertexB or Fragment stage can be compiled.
+// The actual caller must provide its real pipeline RuntimeInfo, profile and
+// host metadata; compiling does not publish a VkShaderModule or VkPipeline.
+// VertexA requires merge with VertexB; tessellation/geometry require stage
+// interfaces; compute has a separate QMD path. All remain fail-closed.
+[[nodiscard]] NativeSpirvResult CompileReviewedNativeGraphicsSpirv(
+    NativeMaxwellEnvironment& env,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    bool exits_to_dispatcher = false);
+
+// Keep the original vertex-only API strict for existing research callers.
 [[nodiscard]] NativeSpirvResult CompileReviewedNativeVertexSpirv(
     NativeMaxwellEnvironment& env,
     const Shader::HostTranslateInfo& host_info,

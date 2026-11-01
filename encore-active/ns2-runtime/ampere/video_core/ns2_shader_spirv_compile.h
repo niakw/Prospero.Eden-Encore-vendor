@@ -24,9 +24,34 @@ namespace VideoCommon {
 // Original shader environment, GPU VA, runtime metadata and device profile
 // all come from the same active pipeline. NativeTranslationCache is
 // caller-owned and must be invalidated on GMMU remaps/session teardown.
-// Inject an explicitly bounded shader-memory reader for independent host
-// qualification. Production uses the same function with the real GMMU
-// mapping reader; neither route is called by the Switch 1 pipeline cache.
+// The new stage-aware opt-in owner can compile standalone VertexB or Fragment,
+// but requires the actual owner-supplied pipeline RuntimeInfo for that stage.
+// This never selects an existing Switch 1 pipeline or submits Vulkan work.
+[[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2GraphicsSpirvFromReader(
+    const Kernel::KProcess* process,
+    std::unique_ptr<Shader::Environment> original,
+    u64 gpu_program_address,
+    Shader::Ampere::GuestShaderRead read,
+    void* context,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache = nullptr,
+    bool exits_to_dispatcher = false);
+
+[[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2GraphicsSpirv(
+    Tegra::MemoryManager& memory,
+    const Kernel::KProcess* process,
+    std::unique_ptr<Shader::Environment> original,
+    u64 gpu_program_address,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache = nullptr,
+    bool exits_to_dispatcher = false);
+
+// Original vertex-only ABI remains explicitly restricted to VertexB.
+// Inject an explicitly bounded shader-memory reader for host qualification.
 [[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2VertexSpirvFromReader(
     const Kernel::KProcess* process,
     std::unique_ptr<Shader::Environment> original,
