@@ -454,17 +454,20 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
     const auto it = std::find(m_memory.begin(), m_memory.end(), id);
     R_UNLESS(it != m_memory.end(), Kernel::ResultNotFound);
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
-    const auto handle = nvmap.GetHandle(id);
+    auto handle = nvmap.GetHandle(id);
     R_UNLESS(handle, Kernel::ResultInvalidState);
     {
         const std::scoped_lock lock{handle->mutex};
         // A pinned/duplicated resource is not safe to release synchronously.
-        // Delayed release + completion polling will be added with real native
-        // 4K mappings; never signal completion for a still-retained handle.
+        // Do not signal completion while external GPU references remain.
         R_UNLESS(handle->dupes == 1 && handle->internal_dupes == 0 &&
                  handle->pins == 0, Kernel::ResultBusy);
     }
-
+    // NvMap::FreeHandle reports can_unlock=false while ANY external
+    // shared_ptr keeps the handle alive. Release our preflight reference
+    // first, otherwise every valid destroy falsely fails and leaks the
+    // guest page-table device lock.
+    handle.reset();
     const auto info = nvmap.FreeHandle(id, false);
     R_UNLESS(info && info->can_unlock, Kernel::ResultInvalidState);
     m_memory.erase(it);

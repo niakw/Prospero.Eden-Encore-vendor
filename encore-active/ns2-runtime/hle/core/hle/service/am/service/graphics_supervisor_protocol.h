@@ -8,6 +8,7 @@
 #include <optional>
 #include <span>
 #include <map>
+#include <vector>
 #include <limits>
 #include <utility>
 #include "common/common_types.h"
@@ -283,6 +284,23 @@ public:
         const u32 id = m_next++;
         m_records.emplace(id, NativeMemoryRecord{size, 0, false});
         return {NativeMemoryStatus::Success, id};
+    }
+    // Production NVMap IDs come from the global handle table (multiples of 4),
+    // not the synthetic sequential IDs used by host-only Create fixtures.
+    [[nodiscard]] NativeMemoryStatus Adopt(u32 nvmap_id, u64 size) {
+        if (!nvmap_id) return NativeMemoryStatus::InvalidHandle;
+        if (!size || size > MaxGuestMemory || (size & (GuestPage - 1)))
+            return NativeMemoryStatus::InvalidSize;
+        if (m_records.contains(nvmap_id)) return NativeMemoryStatus::AlreadyBound;
+        if (m_records.size() >= MaxEntries) return NativeMemoryStatus::OutOfResource;
+        m_records.emplace(nvmap_id, NativeMemoryRecord{size, 0, false});
+        return NativeMemoryStatus::Success;
+    }
+    [[nodiscard]] std::vector<u32> OwnedIds() const {
+        std::vector<u32> ids;
+        ids.reserve(m_records.size());
+        for (const auto& [id, record] : m_records) ids.push_back(id);
+        return ids;
     }
     [[nodiscard]] NativeMemoryStatus ValidateBind(u32 id, u64 address, u64 size) const {
         const auto found = m_records.find(id);
