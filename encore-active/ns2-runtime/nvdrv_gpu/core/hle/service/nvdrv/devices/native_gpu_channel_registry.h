@@ -5,11 +5,13 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <memory>
 #include <limits>
 #include <cstdint>
 #include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
 
 namespace Tegra::Control { struct ChannelState; }
+namespace Shader::Ampere { class NativeTranslationCache; }
 namespace Service::Nvidia::Devices {
 class NativeGpuChannelRegistry {
 public:
@@ -101,6 +103,11 @@ public:
             return std::nullopt;
         return owner->second.ticket;
     }
+    // Shader translation cache is owned by this exact engine bind epoch.
+    // Implemented in video_core's opt-in native shader owner, so ordinary
+    // NVDRV/core builds never acquire Ampere compiler dependencies.
+    [[nodiscard]] std::shared_ptr<Shader::Ampere::NativeTranslationCache>
+    AcquireGraphicsTranslationCache(const void* graphics_engine, const Ticket& ticket);
     [[nodiscard]] bool IsGraphicsCurrent(const void* graphics_engine,
                                          const Ticket& ticket) const {
         if (!graphics_engine || !ticket.process || !ticket.generation ||
@@ -167,6 +174,7 @@ private:
         const Tegra::Control::ChannelState* channel{};
         Ticket ticket{};
         std::uint8_t subchannels{};
+        std::shared_ptr<Shader::Ampere::NativeTranslationCache> translation_cache{};
     };
     std::map<const void*, GraphicsOwner> engines;
     std::uint64_t last_channel_generation{};
