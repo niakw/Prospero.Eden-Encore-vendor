@@ -43,7 +43,9 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
 
     const auto engine_id = static_cast<EngineID>(engine);
 #ifdef PS5_NATIVE
-    if (engine == 0xc797 || engine == 0xc7b5) {
+    // Include Ampere compute even while its native QMD3 execution is not
+    // implemented: distinguish an unbound compute queue from a VI2 wait.
+    if (engine == 0xc797 || engine == 0xc7c0 || engine == 0xc7b5) {
         static std::atomic<unsigned> native_binds{0};
         const auto n = native_binds.fetch_add(1, std::memory_order_relaxed) + 1;
         if (n <= 24 || (n & (n - 1)) == 0)
