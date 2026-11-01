@@ -11,6 +11,9 @@
 #include "common/logging.h"
 #include <memory>
 #include <limits>
+#include <chrono>
+#include <mutex>
+#include <vector>
 #include "core/hle/service/nvdrv/nvdrv_interface.h"
 #include "core/hle/service/nvdrv/core/container.h"
 #include "core/hle/service/nvdrv/core/syncpoint_manager.h"
@@ -107,6 +110,10 @@ public:
             {5,&IVi2Session::Limit,"GetRequestGroupLimit"},
             {11,&IVi2Session::Event,"GetNotificationEvent"},
             {21,&IVi2Session::Notifications,"GetNotifications"},
+            // NVN2 waits on command 32 before its first GPU submission.
+            // These are independent 60Hz vblank events, not the 11 notification.
+            {31,&IVi2Session::VsyncEvent,"GetVsyncEvent"},
+            {32,&IVi2Session::VsyncEvent,"GetDisplayVsyncEvent"},
             {101,&IVi2Session::Open,"OpenDisplay"},
             {102,&IVi2Session::Close,"CloseDisplay"},
             {201,&IVi2Session::Register,"RegisterClientState"},
@@ -125,6 +132,14 @@ public:
         RegisterHandlersTipc(f);
     }
     ~IVi2Session() override {
+        if (m_vsync_timer) system.CoreTiming().UnscheduleEvent(m_vsync_timer);
+        // The CoreTiming callback may have entered on another worker before
+        // UnscheduleEvent returned: do not close kernel events it can see.
+        {
+            const std::scoped_lock lock{m_vsync->mutex};
+            m_vsync->events.clear();
+        }
+        for (auto* event : m_vsync_events) m_context.CloseEvent(event);
         if (m_poll) system.CoreTiming().UnscheduleEvent(m_poll);
         if (m_vi) {
             for (auto& c:m_clients)
@@ -185,6 +200,51 @@ private:
         }
         IPC::ResponseBuilder rb{ctx,2,0,1};rb.Push(result.raw);
         ctx.AddMoveObject(readable);
+    }
+    void VsyncEvent(HLERequestContext& ctx) {
+        // Native VI2 commands 31/32 return one readable kernel event. Both
+        // signal at vblank (not only after Present): SDK bootstrap can wait
+        // for two ticks before creating or submitting a single GPU buffer.
+        if (m_vsync_events.size() >= 32) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultOutOfResource.raw);
+            return;
+        }
+        auto* event = m_context.CreateEvent("NativeVi2Vsync");
+        if (!event) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultOutOfResource.raw);
+            return;
+        }
+        m_vsync_events.push_back(event);
+        {
+            const std::scoped_lock lock{m_vsync->mutex};
+            m_vsync->events.push_back(event);
+        }
+        if (!m_vsync_timer) {
+            auto state = m_vsync;
+            auto& event_kernel = system.Kernel();
+            m_vsync_timer = Core::Timing::CreateEvent(
+                "NativeVi2Vsync60Hz",
+                [state, &event_kernel](
+                    s64, std::chrono::nanoseconds)
+                    ->std::optional<std::chrono::nanoseconds> {
+                    const std::scoped_lock lock{state->mutex};
+                    for (auto* target : state->events)
+                        target->Signal(event_kernel);
+                    return std::nullopt;
+                });
+            constexpr std::chrono::nanoseconds period{16'666'667};
+            system.CoreTiming().ScheduleLoopingEvent(
+                period, period, m_vsync_timer);
+        }
+#ifdef PS5_NATIVE
+        std::fprintf(stderr, "EDEN_NS2_VI2_VSYNC cmd=%u registered=%zu hz=60\n",
+                     static_cast<unsigned>(ctx.GetCommand()), m_vsync_events.size());
+#endif
+        IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+        rb.Push(ResultSuccess.raw);
+        rb.PushCopyObjects(ctx, event->GetReadableEvent());
     }
     void Notifications(HLERequestContext& ctx) {
         Result result=Kernel::ResultInvalidSize;
@@ -544,6 +604,13 @@ private:
     std::array<u32,32> m_notes{};
     KernelHelpers::ServiceContext m_context;
     Kernel::KEvent* m_event{};
+    struct VsyncState {
+        std::mutex mutex;
+        std::vector<Kernel::KEvent*> events;
+    };
+    std::shared_ptr<VsyncState> m_vsync = std::make_shared<VsyncState>();
+    std::vector<Kernel::KEvent*> m_vsync_events;
+    std::shared_ptr<Core::Timing::EventType> m_vsync_timer;
     std::shared_ptr<Core::Timing::EventType> m_poll;
 };
 
