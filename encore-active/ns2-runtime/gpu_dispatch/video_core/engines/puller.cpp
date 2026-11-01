@@ -588,16 +588,21 @@ void Puller::ProcessNativeComputeQmd(DmaPusher& pusher, u32 method,
         const std::scoped_lock lock{session->mutex};
         error = session->scheduler.Signal(
             address, argument, read, release,
-            [](const Tegra::NativeQmdScheduler::Descriptor& descriptor) {
-                // Capture a real, bounded Ampere compute launch description,
-                // but never claim completion before a native shader and
-                // Vulkan pipeline have actually executed on the GPU.
+            [&pusher](const Tegra::NativeQmdScheduler::Descriptor& descriptor) {
+                // Capture and verify a bounded native Ampere launch and
+                // its guest GMMU spans. The eventual backend must still
+                // compile, bind, submit and fence the real shader; never
+                // report completion for a prepared-only launch.
                 const auto launch = Tegra::DecodeNativeComputeLaunch(descriptor);
+                const bool mapped = launch && Tegra::NativeComputeLaunchMapped(
+                    *launch, [&pusher](u64 address, std::size_t bytes) {
+                        return pusher.memory_manager.IsFullyMappedRange(address, bytes);
+                    });
 #ifdef PS5_NATIVE
                 static std::atomic<unsigned> attempts{0};
                 const auto n = attempts.fetch_add(1, std::memory_order_relaxed) + 1;
                 if (n <= 16 || (n & (n - 1)) == 0) {
-                    if (launch)
+                    if (mapped)
                         std::fprintf(stderr,
                             "EDEN_NS2_COMPUTE_PREPARED count=%u program=%llx grid=%u,%u,%u block=%u,%u,%u backend=missing\\n",
                             n, static_cast<unsigned long long>(launch->program_address),
@@ -608,7 +613,7 @@ void Puller::ProcessNativeComputeQmd(DmaPusher& pusher, u32 method,
                             "EDEN_NS2_COMPUTE_PREPARE_REJECTED count=%u backend=missing\\n", n);
                 }
 #else
-                (void)launch;
+                (void)mapped;
 #endif
                 return false;
             });
