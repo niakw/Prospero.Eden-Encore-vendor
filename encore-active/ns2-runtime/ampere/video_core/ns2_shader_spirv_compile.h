@@ -37,7 +37,8 @@ namespace VideoCommon {
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
     Shader::Ampere::NativeTranslationCache* cache = nullptr,
-    bool exits_to_dispatcher = false);
+    bool exits_to_dispatcher = false,
+    Shader::Backend::Bindings initial_bindings = {});
 
 [[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2GraphicsSpirv(
     Tegra::MemoryManager& memory,
@@ -48,7 +49,8 @@ namespace VideoCommon {
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
     Shader::Ampere::NativeTranslationCache* cache = nullptr,
-    bool exits_to_dispatcher = false);
+    bool exits_to_dispatcher = false,
+    Shader::Backend::Bindings initial_bindings = {});
 
 // Process-generation-ticket guarded capture of BOTH native vertex stages.
  // Both GPU addresses are read through the identical explicit GMMU reader,
@@ -65,7 +67,8 @@ namespace VideoCommon {
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
-    Shader::Ampere::NativeTranslationCache* cache = nullptr);
+    Shader::Ampere::NativeTranslationCache* cache = nullptr,
+    Shader::Backend::Bindings initial_bindings = {});
 
 [[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2MergedVertexSpirv(
     Tegra::MemoryManager& memory,
@@ -77,7 +80,8 @@ namespace VideoCommon {
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
-    Shader::Ampere::NativeTranslationCache* cache = nullptr);
+    Shader::Ampere::NativeTranslationCache* cache = nullptr,
+    Shader::Backend::Bindings initial_bindings = {});
 
 // Original vertex-only ABI remains explicitly restricted to VertexB.
 // Inject an explicitly bounded shader-memory reader for host qualification.
