@@ -89,9 +89,15 @@ public:
             }
             if (!state.loaded || !state.scheduled || state.completed || state.dependencies > 0) continue;
             if (state.dependencies < 0) return "QMD dependency underflow";
-            // The SDK patches release payloads while a scheduled QMD is
-            // waiting for its remaining dependencies. Fetch them at execution.
-            if (!read(request.address, state.descriptor)) return "unmapped QMD";
+            // The SDK may patch release payloads while dependencies are
+            // pending, so fetch the descriptor just before FIRST dispatch.
+            // Once a GPU submission was accepted, that descriptor and its
+            // release payloads form a single immutable transaction. On a
+            // partial semaphore failure, do not read possibly reused guest
+            // memory and attach different releases to the original dispatch.
+            if (!state.dispatched &&
+                !read(request.address, state.descriptor))
+                return "unmapped QMD";
             const auto qmd = state.descriptor;
             if ((qmd[18] & 0xff) != 0x30 || (qmd[4] & 0x100)) return "unsupported QMD version or queue";
             // Validate the complete dependent QMD structure before a shader
