@@ -173,6 +173,13 @@ ComputePipeline::ComputePipeline(const Device& device_, Scheduler& scheduler, vk
             .pNext = nullptr,
             .requiredSubgroupSize = GuestWarpSize,
         };
+        // Force the native guest warp size only when the shader observes lanes.
+        // Otherwise the driver's preferred subgroup width can reduce register
+        // spills and compile stalls (Eglantine-MKW 5fdcbff).
+        const bool uses_warp_ops =
+            info.uses_subgroup_vote || info.uses_subgroup_invocation_id ||
+            info.uses_subgroup_shuffles || info.uses_subgroup_mask ||
+            info.uses_quad_shuffles || info.uses_fswzadd;
         VkPipelineCreateFlags flags{};
         if (device.IsKhrPipelineExecutablePropertiesEnabled() && Settings::values.renderer_debug.GetValue()) {
             flags |= VK_PIPELINE_CREATE_CAPTURE_STATISTICS_BIT_KHR;
@@ -187,7 +194,7 @@ ComputePipeline::ComputePipeline(const Device& device_, Scheduler& scheduler, vk
             .stage{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                 .pNext =
-                    device.IsExtSubgroupSizeControlSupported() ? &subgroup_size_ci : nullptr,
+                    device.IsExtSubgroupSizeControlSupported() && uses_warp_ops ? &subgroup_size_ci : nullptr,
                 .flags = 0,
                 .stage = VK_SHADER_STAGE_COMPUTE_BIT,
                 .module = *spv_module,
