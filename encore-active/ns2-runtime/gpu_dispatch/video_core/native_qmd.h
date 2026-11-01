@@ -230,11 +230,13 @@ struct NativeComputeLaunch {
     const std::uint32_t cbuf_mask = qmd[20] & 0xffU;
     for (std::size_t index = 0; index < launch.constant_buffers.size(); ++index) {
         const auto high = qmd[33 + index * 2];
-        // The Maxwell-compatible launch metadata can encode only an
-        // eight-bit high cbuf address; never truncate a native address.
-        if (high & 0x1ff00U) return std::nullopt;
+        // A native Ampere QMD3 CBUF address uses the same 49-bit GPU VA
+        // space as its program code. Reject only the two unsupported high
+        // control bits; truncating bits 8..16 silently aliases guest buffers
+        // with an unrelated low-40-bit mapping.
+        if (high & 0x60000U) return std::nullopt;
         auto& buffer = launch.constant_buffers[index];
-        buffer.gpu_address = (std::uint64_t{high & 0xffU} << 32) |
+        buffer.gpu_address = (std::uint64_t{high & 0x1ffffU} << 32) |
                              qmd[32 + index * 2];
         buffer.size = ((high >> 19) & 0x1fffU) << 4;
         buffer.enabled = (cbuf_mask & (1U << index)) != 0;
