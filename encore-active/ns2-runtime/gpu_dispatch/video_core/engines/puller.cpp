@@ -597,19 +597,9 @@ void Puller::CallEngineMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
             UNIMPLEMENTED_MSG("Ampere compute command on non-native channel");
             return;
         }
-        if (method_call.method == 0xaf || method_call.method == 0xb0 ||
-            method_call.method == 0xae) {
-            ProcessNativeComputeQmd(dma_pusher, method_call.method,
-                                    method_call.argument, method_call.subchannel);
-            return;
-        }
-        if (method_call.method >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS) {
-            UNIMPLEMENTED_MSG("Ampere compute register outside supported range");
-            return;
-        }
-        dma_pusher.channel_state.payload->kepler_compute.CallMethod(
-            dma_pusher.system, method_call.method, method_call.argument,
-            method_call.IsLastCall());
+        CallNativeCompute(dma_pusher, method_call.method,
+                          std::span<const u32>{&method_call.argument, 1},
+                          method_call.IsLastCall(), method_call.subchannel);
         return;
     }
     if (engine == static_cast<EngineID>(0xc7b5)) {
