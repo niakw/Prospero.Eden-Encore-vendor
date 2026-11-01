@@ -237,9 +237,7 @@ constexpr size_t NUM_GENERICS = 32;
 constexpr size_t NUM_FIXEDFNCTEXTURE = 10;
 
 [[nodiscard]] inline bool IsGeneric(Attribute attribute) noexcept {
-    // Generic31 is a complete vec4, not X only. Y/Z/W carry the final
-    // vertex/geometry varying and must be classified like slots 0..30.
-    return attribute >= Attribute::Generic0X && attribute <= Attribute::Generic31W;
+    return attribute >= Attribute::Generic0X && attribute <= Attribute::Generic31X;
 }
 
 [[nodiscard]] inline bool IsLegacyAttribute(Attribute attribute) noexcept {
