@@ -196,10 +196,10 @@ private:
     NvResult AllocGPFIFOEx2(IoctlAllocGpfifoEx& params, DeviceFD fd);
 
     s32_le GetObjectContextClassNumberIndex(CtxClasses class_number);
-    NvResult AllocateObjectContext(IoctlAllocObjCtx& params);
+    NvResult AllocateObjectContext(IoctlAllocObjCtx& params, DeviceFD fd);
 
-    NvResult SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandList&& entries);
-    [[nodiscard]] bool UsesNativeAbi() const;
+    NvResult SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandList&& entries, DeviceFD fd);
+    [[nodiscard]] bool UsesNativeAbi(DeviceFD fd) const;
 
     Core::Memory::Memory& GetSessionMemory(DeviceFD fd);
 
@@ -207,7 +207,7 @@ private:
                                std::span<Tegra::CommandListHeader> commands, DeviceFD fd,
                                bool kickoff = false);
     NvResult SubmitGPFIFOBase2(IoctlSubmitGpfifo& params,
-                               std::span<const Tegra::CommandListHeader> commands);
+                               std::span<const Tegra::CommandListHeader> commands, DeviceFD fd);
 
     NvResult GetWaitbase(IoctlGetWaitbase& params);
     NvResult ChannelSetTimeout(IoctlChannelSetTimeout& params);

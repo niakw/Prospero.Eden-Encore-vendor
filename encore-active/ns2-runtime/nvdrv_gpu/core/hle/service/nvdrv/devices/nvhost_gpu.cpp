@@ -74,7 +74,7 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
         case 0x8:
             return WrapFixedVariable(this, &nvhost_gpu::SubmitGPFIFOBase1, input, output, fd, false);
         case 0x9:
-            return WrapFixed(this, &nvhost_gpu::AllocateObjectContext, input, output);
+            return WrapFixed(this, &nvhost_gpu::AllocateObjectContext, input, output, fd);
         case 0xb:
             return WrapFixed(this, &nvhost_gpu::ZCullBind, input, output);
         case 0xc:
@@ -115,7 +115,7 @@ NvResult nvhost_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> inpu
         switch (command.cmd) {
         case 0x1b:
             return WrapFixedInlIn(this, &nvhost_gpu::SubmitGPFIFOBase2, input, inline_input,
-                                  output);
+                                  output, fd);
         }
         break;
     }
@@ -261,7 +261,7 @@ s32_le nvhost_gpu::GetObjectContextClassNumberIndex(CtxClasses class_number) {
     }
 }
 
-NvResult nvhost_gpu::AllocateObjectContext(IoctlAllocObjCtx& params) {
+NvResult nvhost_gpu::AllocateObjectContext(IoctlAllocObjCtx& params, DeviceFD fd) {
     LOG_DEBUG(Service_NVDRV, "called, class_num={:#x}, flags={:#x}, obj_id={:#x}", params.class_num,
               params.flags, params.obj_id);
 
@@ -283,7 +283,7 @@ NvResult nvhost_gpu::AllocateObjectContext(IoctlAllocObjCtx& params) {
 
     s32_le ctx_class_number_index = 
         GetObjectContextClassNumberIndex(static_cast<CtxClasses>(params.class_num));
-    if (UsesNativeAbi()) {
+    if (UsesNativeAbi(fd)) {
         if (const auto slot = GetNativeGpuContextSlot(params.class_num))
             ctx_class_number_index = static_cast<s32_le>(*slot);
     }
@@ -345,7 +345,7 @@ static boost::container::small_vector<Tegra::CommandHeader, 512> BuildIncrementW
     return result;
 }
 
-NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandList&& entries) {
+NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandList&& entries, DeviceFD fd) {
     LOG_TRACE(Service_NVDRV, "called, gpfifo={:X}, num_entries={:X}, flags={:X}", params.address,
               params.num_entries, params.flags.raw);
 
@@ -361,7 +361,7 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     // A real native GPU channel requires a bound GMMU and initialized
     // command scheduler. Never acknowledge 2nd-gen submissions before those
     // resources exist, and never change the existing Switch 1 path.
-    const bool native = UsesNativeAbi();
+    const bool native = UsesNativeAbi(fd);
     if (native && (!channel_state->initialized || !channel_state->memory_manager))
         return NvResult::InvalidState;
 
@@ -443,11 +443,11 @@ NvResult nvhost_gpu::SubmitGPFIFOBase1(IoctlSubmitGpfifo& params,
                     params.num_entries * sizeof(Tegra::CommandListHeader));
     }
 
-    return SubmitGPFIFOImpl(params, std::move(entries));
+    return SubmitGPFIFOImpl(params, std::move(entries), fd);
 }
 
 NvResult nvhost_gpu::SubmitGPFIFOBase2(IoctlSubmitGpfifo& params,
-                                       std::span<const Tegra::CommandListHeader> commands) {
+                                       std::span<const Tegra::CommandListHeader> commands, DeviceFD fd) {
     if (params.num_entries > commands.size()) {
         UNIMPLEMENTED();
         return NvResult::InvalidSize;
@@ -456,7 +456,7 @@ NvResult nvhost_gpu::SubmitGPFIFOBase2(IoctlSubmitGpfifo& params,
     Tegra::CommandList entries(params.num_entries);
     std::memcpy(entries.command_lists.data(), commands.data(),
                 params.num_entries * sizeof(Tegra::CommandListHeader));
-    return SubmitGPFIFOImpl(params, std::move(entries));
+    return SubmitGPFIFOImpl(params, std::move(entries), fd);
 }
 
 NvResult nvhost_gpu::GetWaitbase(IoctlGetWaitbase& params) {
@@ -494,20 +494,23 @@ Kernel::KEvent* nvhost_gpu::QueryEvent(u32 event_id) {
         return error_notifier_event;
     case 7:
         // Native driver error notification; original console clients use 3.
-        return UsesNativeAbi() ? error_notifier_event : nullptr;
+        // QueryEvent has no FD parameter. Do not expose the native-only event
+        // through a mixed/shared NVDRV device; fail closed if ambiguous.
+        return sessions.size() == 1 && UsesNativeAbi(sessions.begin()->first)
+                   ? error_notifier_event : nullptr;
     default:
         LOG_CRITICAL(Service_NVDRV, "Unknown Ctrl GPU Event {}", event_id);
         return nullptr;
     }
 }
 
-bool nvhost_gpu::UsesNativeAbi() const {
-    for (const auto& [fd, session_id] : sessions) {
-        const auto* session = core.GetSession(session_id);
-        if (session && session->process &&
-            NativeGpuProcessRegistry::Instance().Contains(session->process))
-            return true;
-    }
-    return false;
+bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const {
+    // A device can hold FDs for different guest processes. Never promote a
+    // Switch 1 request because an unrelated FD owns a Switch 2 GPU session.
+    const auto it = sessions.find(fd);
+    if (it == sessions.end()) return false;
+    const auto* session = core.GetSession(it->second);
+    return session && session->process &&
+           NativeGpuProcessRegistry::Instance().Contains(session->process);
 }
 } // namespace Service::Nvidia::Devices
