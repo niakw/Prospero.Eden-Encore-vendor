@@ -155,14 +155,23 @@ void BlitScreen::DrawToFrame(const Device& device, RasterizerVulkan& rasterizer,
                             layer_window_size.height != window_size.height);
     const bool rebuild_layers =
         resource_update_required || (output_sensitive && output_size_changed);
-    if (!rebuild_layers && layers.size() < framebuffers.size()) {
+    // The compositor reads exactly framebuffers.size() layers. Preserve a
+    // bounded high-water reserve so transient HUD layer shrink/growth does
+    // not destroy GPU-referenced resources and force a device-wide idle.
+    // More than eight retained layers are reclaimed only after an ordinary
+    // GPU drain; active layers are never capped or skipped.
+    constexpr size_t kMaxRetainedLayers = 8;
+    const bool retire_excess_layers =
+        layers.size() > kMaxRetainedLayers && layers.size() > framebuffers.size();
+    if (!rebuild_layers && !retire_excess_layers &&
+        layers.size() < framebuffers.size()) {
         for (size_t i = layers.size(); i < framebuffers.size(); ++i) {
             layers.emplace_back(device, memory_allocator, scheduler, device_memory, image_count,
                                 window_size, window_adapt->GetDescriptorSetLayout(), filters);
         }
-    } else if (rebuild_layers || layers.size() != framebuffers.size()) {
-        // Removal destroys GPU-referenced descriptors/images. Reconfiguration
-        // has already waited in the resource_update_required block above.
+    } else if (rebuild_layers || retire_excess_layers) {
+        // Only true layout changes or over-budget retirement can destroy
+        // resources still captured by queued Vulkan command buffers.
         if (!resource_update_required && !layers.empty()) {
             WaitIdle(device);
         }
