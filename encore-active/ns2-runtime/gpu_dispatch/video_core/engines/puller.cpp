@@ -572,13 +572,16 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
     const u32 payload = regs[0x6c2];
     const u32 operation = control & 3U;
     const bool one_word = (control & (1U << 28)) != 0;
+    const bool reduction_enabled = (control & (1U << 3)) != 0;
+    const std::size_t write_bytes =
+        (reduction_enabled || one_word) ? sizeof(u32) : 16U;
     if ((operation != 0 && operation != 2) || (address & 3U) ||
-        !memory->IsFullyMappedRange(address, one_word ? sizeof(u32) : 16U)) {
+        !memory->IsFullyMappedRange(address, write_bytes)) {
         LOG_ERROR(HW_GPU, "Native Compute report semaphore rejected: operation={} address={:#x}",
                   operation, address);
         return;
     }
-    if (control & (1U << 3)) {
+    if (reduction_enabled) {
         const u32 reduction = (control >> 9) & 7U;
         pusher.rasterizer->SignalFence(
             [channel, memory, ticket = *ticket, address, payload, reduction] {
