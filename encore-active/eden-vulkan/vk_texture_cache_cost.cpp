@@ -1,4 +1,7 @@
 #include "performance.h"
+#ifdef EDEN_NS2_ASTC_LAYER_DECODE
+#include <stdexcept>
+#endif
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -28,6 +31,14 @@
 #include "common/settings.h"
 
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
+#ifdef EDEN_NS2_SPARSE_CACHE_PROBE
+#include <atomic>
+#include "video_core/renderer_vulkan/ns2_sparse_cache_admission.h"
+#include "video_core/renderer_vulkan/ns2_sparse_bind_transaction.h"
+#endif
+#ifdef EDEN_NS2_VIEW_DIMENSION_GUARD
+#include "video_core/renderer_vulkan/ns2_view_type_guard.h"
+#endif
 #include "video_core/gpu_logging/gpu_logging.h"
 
 #include "video_core/engines/fermi_2d.h"
@@ -258,7 +269,8 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
 }
 
 [[nodiscard]] vk::ImageView MakeStorageView(const vk::Device& device, u32 level, VkImage image,
-                                            VkFormat format) {
+                                            VkFormat format, u32 base_layer = 0,
+                                            u32 layer_count = VK_REMAINING_ARRAY_LAYERS) {
     static constexpr VkImageViewUsageCreateInfo storage_image_view_usage_create_info{
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO,
         .pNext = nullptr,
@@ -281,8 +293,8 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
             .baseMipLevel = level,
             .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = VK_REMAINING_ARRAY_LAYERS,
+            .baseArrayLayer = base_layer,
+            .layerCount = layer_count,
         },
     });
 }
@@ -954,6 +966,92 @@ void BlitScale(Scheduler& scheduler, VkImage src_image, VkImage dst_image, const
     });
 }
 } // Anonymous namespace
+
+// NS2 N73 BEGIN: one real cache-side VkImage sparse admission/bind/retire probe.
+// N74: a temporary sampled array view exercises real VkImageView creation,
+// destruction order and GPU-device-loss quarantine. Dense guest images remain
+// the only path available to normal rendering, even in this research build.
+#ifdef EDEN_NS2_SPARSE_CACHE_PROBE
+bool TextureCacheRuntime::ProbeSparseImage(const VideoCommon::ImageInfo& info) {
+    static std::atomic<bool> gpu_unsafe{false};
+    if (gpu_unsafe.load(std::memory_order_acquire) ||
+        !device.IsSparseResidencyImage2DSupported() ||
+        info.type != ImageType::e2D || info.resources.layers < 2) {
+        return false;
+    }
+    const auto image_ci = MakeImageCreateInfo(device, info);
+    // N64 creates an unbacked sparse 2D array; normal MakeImage remains dense.
+    auto candidate = std::make_unique<vk::Image>(
+        memory_allocator.CreateSparseImage(image_ci));
+    if (!*candidate) {
+        return false;
+    }
+    const auto& logical = device.GetLogical();
+    const auto memory = logical.GetImageMemoryRequirements(**candidate);
+    const auto sparse_requirements = logical.GetSparseImageMemoryRequirements(**candidate);
+    // Only trust the pool-backed accounting shared by Switch 1 and Switch 2.
+    // The driver-only counter can double-count VRAM and visible VRAM.
+    const bool shared_pool_measured = device.CanReportMemoryUsage() &&
+        Eden::Performance::graphics_usage_from_pool.load(std::memory_order_relaxed);
+    const auto admission = Eden::NS2::Cache::AdmitSparseCacheImage(
+        image_ci, memory, sparse_requirements, device.GetDeviceLocalMemory(),
+        device.IsSparseResidencyImage2DSupported(),
+        shared_pool_measured ? device.GetDeviceMemoryUsage() : 0,
+        shared_pool_measured);
+    if (!admission.Accepted()) {
+        return false;
+    }
+    Eden::NS2::Eglantine::SparseLayerBudget budget(admission.spec);
+    const auto plan = budget.Plan(admission.complete_layers);
+    Eden::NS2::Eglantine::SparseBindOwner<MemoryAllocator> owner(
+        memory_allocator, budget, admission.spec);
+    const VkFenceCreateInfo fence_info{
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+    };
+    auto fence = std::make_unique<vk::Fence>(logical.CreateFence(fence_info));
+    std::unique_ptr<vk::ImageView> sampled_view;
+    bool ready_for_view = false;
+    try {
+        // N72 serializes this submission against ordinary scheduler work.
+        const VkResult bound = owner.Bind(
+            **candidate, memory, sparse_requirements, plan, scheduler, *fence);
+        if (bound == VK_SUCCESS && owner.ReadyForSampling()) {
+            // All layers and all mip levels are backed before a single view
+            // becomes visible; this probe never actually samples the image.
+            const VkImageViewCreateInfo view_info{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .pNext = nullptr,
+                .flags = 0,
+                .image = **candidate,
+                .viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+                .format = image_ci.format,
+                .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+                               VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+                .subresourceRange = {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = image_ci.mipLevels,
+                    .baseArrayLayer = 0,
+                    .layerCount = image_ci.arrayLayers,
+                },
+            };
+            sampled_view = std::make_unique<vk::ImageView>(
+                logical.CreateImageView(view_info));
+            ready_for_view = static_cast<bool>(*sampled_view);
+        }
+    } catch (...) {
+        // A Vulkan allocation/view error does not permit early VkImage
+        // destruction if sparse binding may have reached the GPU.
+        ready_for_view = false;
+    }
+    const bool retired = Eden::NS2::Eglantine::RetireSparseCacheProbe(
+        logical, owner, sampled_view, candidate, fence, gpu_unsafe);
+    return ready_for_view && retired;
+}
+#endif
+// NS2 N73 END
 
 TextureCacheRuntime::TextureCacheRuntime(const Device& device_, Scheduler& scheduler_,
                                          MemoryAllocator& memory_allocator_,
@@ -2655,6 +2753,25 @@ VkImageView Image::StorageImageView(s32 level) noexcept {
     return *view;
 }
 
+#ifdef EDEN_NS2_ASTC_LAYER_DECODE
+VkImageView Image::StorageImageLayerView(s32 level, u32 layer) {
+    if (level < 0 || static_cast<size_t>(level) >= storage_image_views.size() ||
+        layer >= static_cast<u32>(info.resources.layers)) {
+        throw std::out_of_range("NS2 ASTC layer view outside image bounds");
+    }
+    const size_t count = static_cast<size_t>(info.resources.layers);
+    if (storage_layer_views.empty()) {
+        storage_layer_views.resize(storage_image_views.size() * count);
+    }
+    auto& view = storage_layer_views[static_cast<size_t>(level) * count + layer];
+    if (!view) {
+        view = MakeStorageView(runtime->device.GetLogical(), level, *(this->*current_image),
+                               VK_FORMAT_A8B8G8R8_UNORM_PACK32, layer, 1);
+    }
+    return *view;
+}
+#endif
+
 bool Image::IsRescaled() const noexcept {
     return True(flags & ImageFlagBits::Rescaled);
 }
@@ -3026,6 +3143,17 @@ vk::ImageView ImageView::MakeView(VkFormat vk_format, VkImageAspectFlags aspect_
                                   std::optional<Shader::TextureType> texture_type) {
     VkImageViewType view_type = ImageViewType(type);
     VkImageSubresourceRange subresource_range = MakeSubresourceRange(aspect_mask, range);
+#ifdef EDEN_NS2_VIEW_DIMENSION_GUARD
+    // Keep physical 2D/3D dimensionality when the shader requests an incompatible view.
+    if (texture_type &&
+        Eden::NS2::Vulkan::CrossDimensionView(view_type, ImageViewType(*texture_type),
+                                               VK_IMAGE_VIEW_TYPE_3D)) {
+        LOG_WARNING(Render_Vulkan,
+                    "NS2 shader image dimension mismatches physical image at 0x{:x}; "
+                    "keeping the real image view type", gpu_addr);
+        texture_type.reset();
+    }
+#endif
     if (texture_type) {
         view_type = ImageViewType(*texture_type);
         switch (view_type) {
@@ -3496,6 +3624,19 @@ void TextureCacheRuntime::AccelerateImageUpload(
 
     ASSERT(false);
 }
+
+#ifdef EDEN_NS2_ASTC_LAYER_DECODE
+void TextureCacheRuntime::AccelerateImageUploadLayers(
+    Image& image, const StagingBufferRef& map,
+    std::span<const VideoCommon::SwizzleParameters> swizzles,
+    std::span<const u32> layers) {
+    if (!astc_decoder_pass || !IsPixelFormatASTC(image.info.format) ||
+        !WillUseAcceleratedAstcDecode(device, image.info)) {
+        throw std::runtime_error("NS2 ASTC layer decoder is not enabled for this image");
+    }
+    astc_decoder_pass->AssembleLayers(image, map, swizzles, layers);
+}
+#endif
 
 void TextureCacheRuntime::TransitionImageLayout(Image& image) {
     if (!image.ExchangeInitialization()) {

@@ -232,6 +232,24 @@ void Scheduler::Finish(VkSemaphore signal_semaphore, VkSemaphore wait_semaphore)
     AllocateNewContext();
 }
 
+// NS2 N72 BEGIN: serialized sparse Vulkan page submission
+#ifdef EDEN_NS2_SPARSE_QUEUE_BRIDGE
+VkResult Scheduler::BindSparseImage(
+    VkImage image, vk::Span<VkSparseImageMemoryBind> tiles,
+    vk::Span<VkSparseMemoryBind> tails, VkFence completion,
+    VkSemaphore wait, VkSemaphore signal) {
+    // No GPU fence wait under submit_mutex: keep ordinary submissions moving.
+    // The cache owner waits outside this method and retains VMA backing.
+    if (!image || !completion || (tiles.empty() && tails.empty())) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    std::scoped_lock lock{submit_mutex};
+    return device.GetGraphicsQueue().BindSparseImage(
+        image, tiles, tails, completion, wait, signal);
+}
+#endif
+// NS2 N72 END
+
 void Scheduler::WaitWorker() {
     DispatchWork();
 

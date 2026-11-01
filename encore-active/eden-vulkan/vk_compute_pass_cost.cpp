@@ -26,6 +26,10 @@
 #include "video_core/host_shaders/vulkan_uint8_comp_spv.h"
 #include "video_core/host_shaders/block_linear_unswizzle_3d_bcn_comp_spv.h"
 #include "video_core/renderer_vulkan/vk_compute_pass.h"
+#ifdef EDEN_NS2_ASTC_LAYER_DECODE
+#include <stdexcept>
+#include "video_core/renderer_vulkan/ns2_astc_decode_preflight.h"
+#endif
 #include "video_core/surface.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -618,6 +622,9 @@ void ASTCDecoderPass::Assemble(Image& image, const StagingBufferRef& map,
     { auto timer = Eden::Performance::VulkanTimer(12); scheduler.Flush(); }
 }
 
+#ifdef EDEN_NS2_ASTC_LAYER_DECODE
+#include "video_core/renderer_vulkan/ns2_astc_assemble_layers.inc"
+#endif
 constexpr u32 BL3D_BINDING_INPUT_BUFFER  = 0;
 constexpr u32 BL3D_BINDING_OUTPUT_BUFFER = 1;
 
