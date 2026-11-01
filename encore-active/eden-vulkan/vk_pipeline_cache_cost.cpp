@@ -1020,10 +1020,11 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
 #endif
 
 #ifdef PS5_NATIVE
-    // Eight entries at most: restore some persisted pipelines without
-    // rebuilding an unbounded title cache at launch. This token controls only
-    // the disk READER; the persistent Vulkan compiler workers stay alive.
-    constexpr size_t kStartupPrewarmPipelines = 8;
+    // Restore a bounded prefix of a title's saved pipelines before gameplay.
+    // Games with fewer cached entries load only those entries. This policy
+    // applies to every title (NS1 and NS2) without any title ID exceptions.
+    // Keep the worker queue, draw order and GPU fences unchanged.
+    constexpr size_t kStartupPrewarmPipelines = 32;
     const auto startup_prewarm_started = std::chrono::steady_clock::now();
     std::stop_source startup_reader;
 #endif
@@ -1185,7 +1186,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     // A cancelled title-cache load must never stop the persistent shader
     // compiler pool: StatefulThreadWorker::WaitForRequests(stop_token)
     // requests stop on every worker when that token is cancelled.
-    // Only the disk reader observes cancellation. The queued <=8 jobs
+    // Only the disk reader observes cancellation. The bounded queued jobs
     // must complete before their borrowed stack state can be destroyed.
     workers.WaitForRequests();
     prewarm_drain.joined = true;
@@ -1197,9 +1198,9 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     // One startup summary, never a per-frame or per-draw instrumentation cost.
     const auto startup_prewarm_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - startup_prewarm_started).count();
-    std::printf("EDEN_PS5_SHADER_PREWARM queued=%zu completed=%zu valid=%zu rejected=%zu prebuild_ms=%lld\n",
+    std::printf("EDEN_PS5_SHADER_PREWARM queued=%zu completed=%zu valid=%zu rejected=%zu prebuild_ms=%lld limit=%zu\n",
                 state.total, state.built, state.valid, state.built - state.valid,
-                static_cast<long long>(startup_prewarm_ms));
+                static_cast<long long>(startup_prewarm_ms), kStartupPrewarmPipelines);
 #endif
 
     if (use_vulkan_pipeline_cache) {
