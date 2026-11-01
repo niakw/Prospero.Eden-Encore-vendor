@@ -10,6 +10,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "common/alignment.h"
@@ -42,6 +43,55 @@ static void TraceNs2WorkerResult(unsigned command, u32 result) {
                      command, static_cast<unsigned>(result), n);
 #else
     (void)command;
+    (void)result;
+#endif
+}
+
+// 214 may be a sparse reservation without any physical pages. Expose the
+// precise request shape once per bounded sample; a successful reservation
+// MUST NOT be mistaken for resident render-target memory or a guest frame.
+static void TraceNs2GpuRegion214(const u32* packet,
+                                  const std::optional<GpuSparseRegionRequest>& request,
+                                  u32 result) {
+#ifdef PS5_NATIVE
+    static std::atomic<unsigned> seen{0};
+    const auto n = seen.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (n <= 24 || (n & (n - 1)) == 0) {
+        std::fprintf(stderr,
+                     "EDEN_NS2_GPU_214 decoded=%u hdr=%08x/%08x/%08x "
+                     "field7=%08x field8=%08x field9=%08x field10=%08x "
+                     "as=%u device=%u mode=%u page_shift=%u "
+                     "begin=%llx end=%llx result=%08x backing=unbound count=%u\n",
+                     request ? 1U : 0U,
+                     packet[0], packet[1], packet[2], packet[7], packet[8],
+                     packet[9], packet[10],
+                     request ? request->address_space : 0U,
+                     request ? unsigned(request->device) : 0U,
+                     request ? unsigned(request->allocation_mode) : 0U,
+                     request ? unsigned(request->page_shift) : 0U,
+                     static_cast<unsigned long long>(request ? request->begin : 0),
+                     static_cast<unsigned long long>(request ? request->end : 0),
+                     result, n);
+    }
+#else
+    (void)packet;
+    (void)request;
+    (void)result;
+#endif
+}
+static void TraceNs2GpuSparse216(u64 requested, u64 processed, u32 result) {
+#ifdef PS5_NATIVE
+    static std::atomic<unsigned> seen{0};
+    const auto n = seen.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (n <= 24 || (n & (n - 1)) == 0) {
+        std::fprintf(stderr,
+                     "EDEN_NS2_GPU_216 requested=%llu mapped=%llu result=%08x count=%u\n",
+                     static_cast<unsigned long long>(requested),
+                     static_cast<unsigned long long>(processed), result, n);
+    }
+#else
+    (void)requested;
+    (void)processed;
     (void)result;
 #endif
 }
@@ -285,6 +335,7 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
             }
         }
     }
+    TraceNs2GpuRegion214(ctx.CommandBuffer(), request, result.raw);
     TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
@@ -327,7 +378,8 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
     std::copy_n(ctx.CommandBuffer(), command.size(), command.begin());
     u64 processed{};
     Result result = Kernel::ResultInvalidCombination;
-    if (const auto request = GW::DecodeSparseBatch(command)) {
+    const auto request = GW::DecodeSparseBatch(command);
+    if (request) {
         result = Kernel::ResultInvalidSize;
         const std::size_t bytes =
             static_cast<std::size_t>(request->count) * sizeof(GpuSparseMapRequest);
@@ -402,6 +454,7 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
             }
         }
     }
+    TraceNs2GpuSparse216(request ? request->count : 0, processed, result.raw);
     TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(result.raw);
