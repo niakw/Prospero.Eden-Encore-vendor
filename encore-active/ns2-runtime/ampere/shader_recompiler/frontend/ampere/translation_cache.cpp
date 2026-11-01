@@ -42,6 +42,7 @@ MaxwellShaderImage NativeTranslationCache::GetOrTranslate(
             auto copy = it->image;
             lru.splice(lru.begin(), lru, it);
             ++stats.hits;
+            if (!copy.Ready()) ++stats.negative_hits;
             return copy;
         }
         ++stats.misses;
@@ -59,20 +60,21 @@ MaxwellShaderImage NativeTranslationCache::GetOrTranslate(
             ++stats.invalidated_translations;
             return {};
         }
-        if (!image.Ready()) {
-            ++stats.rejected;
-            return image; // Never cache invalid/partially decoded shaders.
-        }
+        // Negative entries are deterministic for the exact stage and all
+        // original shader bytes. GMMU reads still happen before cache lookup,
+        // and this LRU remains bounded per authenticated GPU engine.
+        if (!image.Ready()) ++stats.rejected;
         for (auto it = lru.begin(); it != lru.end(); ++it) {
             if (!Matches(*it, header, native, stage)) continue;
             auto copy = it->image;
             lru.splice(lru.begin(), lru, it);
             ++stats.hits;
+            if (!copy.Ready()) ++stats.negative_hits;
             return copy;
         }
         const std::size_t cost = sizeof(Entry) + header.size() +
                                  native.size() + image.code.size() * sizeof(u64);
-        // Oversize successful images remain valid, but do not enter cache.
+        // Oversize translated or rejected images remain valid outcomes but are not retained.
         if (!limit_entries || cost > limit_bytes) return image;
         while (!lru.empty() &&
                (lru.size() >= limit_entries || stats.bytes > limit_bytes - cost))

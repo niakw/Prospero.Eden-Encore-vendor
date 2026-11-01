@@ -17,6 +17,7 @@ struct NativeTranslationCacheStats {
     u64 misses{};
     u64 translations{};
     u64 rejected{};
+    u64 negative_hits{}; // verified full-content rejection hits
     u64 evictions{};
     u64 invalidations{};
     u64 invalidated_translations{};
