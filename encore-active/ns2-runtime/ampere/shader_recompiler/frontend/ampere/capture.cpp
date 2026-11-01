@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "shader_recompiler/frontend/ampere/capture.h"
+#include <algorithm>
 #include <array>
+#include <cstring>
 #include <limits>
 #include "shader_recompiler/frontend/ampere/program_capture.h"
 #include "shader_recompiler/frontend/ampere/translation_cache.h"
@@ -11,6 +13,10 @@ namespace {
 constexpr u64 NativeHeaderBytes = 0x80;
 constexpr std::size_t MaxwellHeaderBytes = 0x50;
 constexpr u32 MaxCapturedInstructions = 4096;
+constexpr std::size_t NativeShaderReadPage = 4096;
+// Do not speculatively read a full guest allocation. A successful bounded
+// read ahead may be reused only inside the same 4 KiB GPU page.
+static_assert(NativeShaderReadPage % sizeof(Instruction) == 0);
 } // namespace
 
 NativeCaptureResult CaptureNativeShader(
@@ -40,10 +46,49 @@ NativeCaptureResult CaptureNativeShader(
     std::vector<u8> source;
     source.reserve(MaxCapturedInstructions * sizeof(Instruction));
     ProgramCaptureState capture;
+    std::array<u8, NativeShaderReadPage> page{};
+    u64 page_start{};
+    std::size_t page_bytes{};
+    bool read_ahead_unavailable = false;
     for (u32 index = 0; index < MaxCapturedInstructions; ++index) {
         std::array<u8, sizeof(Instruction)> bytes{};
         const u64 addr = gpu_base + header_bytes + u64{index} * sizeof(Instruction);
-        if (!read(context, addr, bytes.data(), bytes.size())) {
+        // Preserve one-instruction reads for short programs. Beyond the first
+        // two instructions, cache a successfully mapped span within one GPU
+        // page. The same callback still performs the memory coherency and
+        // mapping checks; failed prefetch is NEVER a mapping fault.
+        bool fetched = false;
+        if (page_bytes && addr >= page_start &&
+            addr - page_start <= page_bytes &&
+            sizeof(Instruction) <= page_bytes - (addr - page_start)) {
+            const auto offset = static_cast<std::size_t>(addr - page_start);
+            std::memcpy(bytes.data(), page.data() + offset, bytes.size());
+            fetched = true;
+        }
+        if (!fetched && index >= 2 && !read_ahead_unavailable) {
+            const auto page_remaining =
+                NativeShaderReadPage - static_cast<std::size_t>(
+                    addr & (NativeShaderReadPage - 1));
+            const auto shader_remaining =
+                std::size_t{MaxCapturedInstructions - index} * sizeof(Instruction);
+            const auto batch = (std::min)(page_remaining, shader_remaining);
+            const auto aligned_batch = batch - batch % sizeof(Instruction);
+            if (aligned_batch >= 4 * sizeof(Instruction) &&
+                read(context, addr, page.data(), aligned_batch)) {
+                page_start = addr;
+                page_bytes = aligned_batch;
+                std::memcpy(bytes.data(), page.data(), bytes.size());
+                fetched = true;
+            } else {
+                // Mapping may end inside the page, or the reader may not
+                // support bulk operations. Avoid repeated speculative
+                // attempts; all remaining instructions stay individually
+                // checked with their original fault offsets.
+                read_ahead_unavailable = true;
+                page_bytes = 0;
+            }
+        }
+        if (!fetched && !read(context, addr, bytes.data(), bytes.size())) {
             result.status = NativeCaptureStatus::Unmapped;
             result.first_error_offset = header_bytes + index * sizeof(Instruction);
             return result;
