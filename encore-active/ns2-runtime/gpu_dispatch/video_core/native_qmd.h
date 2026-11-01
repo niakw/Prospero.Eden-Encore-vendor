@@ -96,11 +96,14 @@ public:
                         return "unsupported QMD reduction callback";
                 }
             }
-            // A program Eden can't run is skipped, but the QMD still completes: its releases
-            // are what other queues and the CPU wait on (the console never fails a launch).
+            // Never forge completion of a native shader which did not
+            // execute. Upstream currently releases despite a rejected shader
+            // to advance guest queues; that masks incorrect rendering and
+            // can let the guest reuse memory while GPU work never happened.
+            // Keep this QMD pending for a future genuine dispatch backend.
             const bool dispatched = !(qmd[12] && (qmd[13] & 0xffff) && (qmd[14] & 0xffff)) || dispatch(qmd);
-            if (!dispatched) error = "native shader dispatch required";
             if (trace) trace("run", request.address, dispatched ? 1 : 0);
+            if (!dispatched) return "native shader dispatch required";
             state.completed = true;
             for (const Word base : ReleaseSlots) {
                 const Word flags = qmd[base + 1];
