@@ -131,6 +131,7 @@ private:
     void ProcessNativeComputeQmd(DmaPusher& dma_pusher, u32 method,
                                  u32 argument, u32 subchannel);
     void ProcessNativeComputeReportSemaphore(DmaPusher& dma_pusher, u32 control);
+    void ProcessNativeComputeInlineQmd(DmaPusher& dma_pusher, u32 subchannel);
     void ProcessFenceActionMethod(DmaPusher& dma_pusher);
     void ProcessSemaphoreAcquire(DmaPusher& dma_pusher);
     void ProcessSemaphoreRelease(DmaPusher& dma_pusher);
