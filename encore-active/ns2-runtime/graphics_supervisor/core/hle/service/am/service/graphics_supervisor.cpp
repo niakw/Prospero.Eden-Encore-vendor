@@ -616,11 +616,15 @@ void IGraphicsSupervisor::MapVideoGpuImage(HLERequestContext& ctx) {
                 size = image->size;
                 const auto key = std::make_pair(packet[4], packet[2]);
                 if (auto it = m_video_mappings.find(key); it != m_video_mappings.end()) {
-                    result = Kernel::ResultOutOfResource;
-                    if (it->second.references != std::numeric_limits<u32>::max()) {
-                        ++it->second.references;
-                        address = it->second.address;
-                        result = ResultSuccess;
+                    // A recycled numeric FD is not proof of the same AS/GMMU.
+                    result = Kernel::ResultInvalidState;
+                    if (it->second.address_space == as) {
+                        result = Kernel::ResultOutOfResource;
+                        if (it->second.references != std::numeric_limits<u32>::max()) {
+                            ++it->second.references;
+                            address = it->second.address;
+                            result = ResultSuccess;
+                        }
                     }
                 } else {
                     result = Kernel::ResultOutOfResource;
@@ -647,13 +651,15 @@ void IGraphicsSupervisor::UnmapVideoGpuImage(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     if (packet[0] == 0x1bb && packet[1] == 6) {
+        const auto as = FindRegisteredGpuAddressSpace(packet[3]);
         const std::scoped_lock lock{m_native_memory_mutex};
         result = Kernel::ResultNotFound;
         const auto key = std::make_pair(packet[3], packet[2]);
         const auto it = m_video_mappings.find(key);
         const u64 address = NativeU64(packet, 4);
         const u64 end = NativeU64(packet, 6);
-        if (it != m_video_mappings.end() && it->second.address == address &&
+        if (as && it != m_video_mappings.end() &&
+            it->second.address_space == as && it->second.address == address &&
             it->second.size > 0 && end >= address &&
             end - address == it->second.size - 1) {
             result = ResultSuccess;
