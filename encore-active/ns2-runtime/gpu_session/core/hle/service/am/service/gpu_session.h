@@ -6,6 +6,7 @@
 // real kernel/NVDRV lifetimes; worker submission remains unsupported.
 #include <array>
 #include <memory>
+#include <map>
 #include <mutex>
 #include <optional>
 #include "core/hle/service/service.h"
@@ -34,12 +35,17 @@ private:
     void GetAddressSpacePartition(HLERequestContext& ctx);
     void CreateGraphicsDevice(HLERequestContext& ctx);
     void DestroyGraphicsDevice(HLERequestContext& ctx);
+    [[nodiscard]] std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
+        ResolveOpenedAddressSpace(u32 id);
     std::mutex m_lock;
     // Module must be initialized before constructing the shared FD owner.
     std::shared_ptr<Nvidia::Module> m_module;
     std::shared_ptr<GpuWorkerSharedState> m_shared;
     Kernel::KProcess* const m_process;
     Kernel::KClientSession* m_worker{};
+    // Capture the actual device identity at Open("/dev/nvhost-as-gpu").
+    // Do not reinterpret a recycled numeric FD as nvhost_as_gpu later.
+    std::map<u32, std::weak_ptr<Nvidia::Devices::nvhost_as_gpu>> m_opened_gpu_as;
 
 };
 } // namespace Service::AM
