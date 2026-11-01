@@ -1,3 +1,4 @@
+#include "diagnostics.h"
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -7,7 +8,7 @@
 #include <unordered_map>
 #include <utility>
 
-#include "game_settings.h"
+#include "core/game_settings.h"
 #include "audio_core/audio_core.h"
 #include "common/fs/fs.h"
 #include "common/logging.h"
@@ -18,7 +19,7 @@
 #include "core/arm/exclusive_monitor.h"
 #include "core/core.h"
 
-#include "launch_timestamp_cache.h"
+#include "core/launch_timestamp_cache.h"
 #include "core/core_timing.h"
 #include "core/cpu_manager.h"
 #include "core/debugger/debugger.h"
@@ -110,10 +111,8 @@ FileSys::VirtualFile GetGameFileFromPath(const FileSys::VirtualFilesystem& vfs,
 }
 
 namespace {
-// Read the NPDM next to the selected ExeFS main before kernel initialization.
-// NS1 programs (or invalid/unavailable metadata) retain their configured
-// memory layout. NS2 identification comes from the reviewed dual-ACID parser,
-// never the title name or a filename containing "Switch2".
+// Read the NPDM beside ExeFS main before the kernel configures guest pools.
+// Never infer generation from a game's name or a non-verified file extension.
 bool IsSwitch2ExtractedProgram(const FileSys::VirtualFile& file) {
     const auto directory = file ? file->GetContainingDirectory() : nullptr;
     const auto npdm = directory ? directory->GetFile("main.npdm") : nullptr;
@@ -128,8 +127,6 @@ struct System::Impl {
     explicit Impl(System& system)
         : kernel{system}, fs_controller{system}, hid_core{kernel}, cpu_manager{system},
           reporter{system}, applet_manager{system}, frontend_applets{system}, profile_manager{} {}
-
-    u64 program_id;
 
     void Initialize(System& system) {
         device_memory.emplace();
@@ -242,6 +239,7 @@ struct System::Impl {
 
         core_timing.SyncPause(true);
         kernel.SuspendEmulation(true);
+        ::Eden::ReportStep("shutdown", "Completed kernel.SuspendEmulation(true)");
         is_paused.store(true, std::memory_order_relaxed);
     }
 
@@ -252,6 +250,7 @@ struct System::Impl {
     std::unique_lock<std::mutex> StallApplication() {
         std::unique_lock<std::mutex> lk(suspend_guard);
         kernel.SuspendEmulation(true);
+        ::Eden::ReportStep("shutdown", "Completed kernel.SuspendEmulation(true)");
         core_timing.SyncPause(true);
         return lk;
     }
@@ -326,8 +325,8 @@ struct System::Impl {
     }
 
     SystemResultStatus Load(System& system, Frontend::EmuWindow& emu_window, const std::string& filepath, Service::AM::FrontendAppletParameters& params) {
-        // Select the guest memory layout before the kernel configures memory
-        // pools. Ordinary NS1 applications retain the existing user preference.
+        // Set guest memory limits BEFORE kernel initialization, using only the
+        // reviewed dual-generation NPDM parser. NS1 retains configured layout.
         const bool is_ns2_program =
             virtual_filesystem && IsSwitch2ExtractedProgram(
                                       GetGameFileFromPath(virtual_filesystem, filepath));
@@ -351,6 +350,7 @@ struct System::Impl {
         auto process = Service::AM::CreateApplicationProcess(control, app_loader, load_result, system, file, params.program_id, params.program_index);
         if (load_result != Loader::ResultStatus::Success) {
             LOG_CRITICAL(Core, "Failed to load ROM (Error {})!", load_result);
+            process.reset();
             ShutdownMainProcess();
             return SystemResultStatus(u32(SystemResultStatus::ErrorLoader) + u32(load_result));
         }
@@ -384,6 +384,7 @@ struct System::Impl {
         SystemResultStatus init_result{SetupForApplicationProcess(system, emu_window)};
         if (init_result != SystemResultStatus::Success) {
             LOG_CRITICAL(Core, "Failed to initialize system (Error {})!", int(init_result));
+            process.reset();
             ShutdownMainProcess();
             return init_result;
         }
@@ -417,11 +418,7 @@ struct System::Impl {
         auto const metadata = pm.GetControlMetadata();
         std::string title_version = metadata.first != nullptr ? metadata.first->GetVersionString() : "";
 
-        if (app_loader->ReadProgramId(program_id) != Loader::ResultStatus::Success) {
-            LOG_ERROR(Core, "Failed to find program id for ROM");
-        }
-
-        GameSettings::LoadOverrides(program_id, gpu_core->Renderer());
+        GameSettings::LoadOverrides(params.program_id, gpu_core->Renderer());
         if (auto room_member = Network::GetRoomMember().lock()) {
             Network::GameInfo game_info;
             game_info.name = name;
@@ -444,14 +441,22 @@ struct System::Impl {
         exit_requested = false;
         if (gpu_core)
             gpu_core->NotifyShutdown();
+        ::Eden::ReportStep("shutdown", "Completed gpu_core->NotifyShutdown()");
 
+        if (audio_core) audio_core->Shutdown();
+        ::Eden::ReportStep("shutdown", "Completed if (audio_core) audio_core->Shutdown()");
         stop_event.request_stop();
         core_timing.SyncPause(false);
         Network::CancelPendingSocketOperations();
         kernel.SuspendEmulation(true);
+        ::Eden::ReportStep("shutdown", "Completed kernel.SuspendEmulation(true)");
+        cheat_engine.reset();
         kernel.CloseServices();
+        ::Eden::ReportStep("shutdown", "Completed kernel.CloseServices()");
         kernel.ShutdownCores();
+        ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");
         services.reset();
+        ::Eden::ReportStep("shutdown", "Completed services.reset()");
         service_manager.reset();
         fs_controller.Reset();
         cheat_engine.reset();
@@ -459,11 +464,14 @@ struct System::Impl {
         app_loader.reset();
         audio_core.reset();
         gpu_core.reset();
+        ::Eden::ReportStep("shutdown", "Completed gpu_core.reset()");
         host1x_core.reset();
         perf_stats.reset();
         cpu_manager.Shutdown();
+        ::Eden::ReportStep("shutdown", "Completed cpu_manager.Shutdown()");
         debugger.reset();
         kernel.Shutdown();
+        ::Eden::ReportStep("shutdown", "Completed kernel.Shutdown()");
         stop_event = {};
         Network::RestartSocketOperations();
 
@@ -495,6 +503,7 @@ struct System::Impl {
     }
 
     Timing::CoreTiming core_timing;
+    std::optional<Core::DeviceMemory> device_memory;
     Kernel::KernelCore kernel;
     /// RealVfsFilesystem instance
     FileSys::VirtualFilesystem virtual_filesystem;
@@ -523,7 +532,6 @@ struct System::Impl {
     std::optional<Service::Event> general_channel_event;
     std::optional<Core::PerfStats> perf_stats;
     std::optional<Tegra::Host1x::Host1x> host1x_core;
-    std::optional<Core::DeviceMemory> device_memory;
     std::optional<AudioCore::AudioCore> audio_core;
     std::optional<Memory::CheatEngine> cheat_engine;
     std::optional<Tools::Freezer> memory_freezer;
