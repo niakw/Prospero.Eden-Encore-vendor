@@ -80,6 +80,9 @@ class IVi2Session final : public ServiceFramework<IVi2Session> {
         u64 token{};
         u32 signals{};
         u32 release_bit{};
+        u32 available_bit{};
+        std::array<float,3> output_levels{};
+        bool output_levels_set{};
         std::optional<u64> display;
         std::optional<u64> layer;
         u64 available{0x7fff};
@@ -162,7 +165,11 @@ private:
         if(p[0]==0x1b&&p[1]==1&&p[2]==0){
             if(!m_event)m_event=m_context.CreateEvent("Vi2Notify");
             result=m_event?ResultSuccess:Kernel::ResultOutOfResource;
-            if(m_event){readable=&m_event->GetReadableEvent();readable->Open(kernel);}
+            if(m_event){
+                if(std::ranges::any_of(m_notes,[](u32 note){return note!=0;}))
+                    m_event->Signal(kernel);
+                readable=&m_event->GetReadableEvent();readable->Open(kernel);
+            }
         }
         IPC::ResponseBuilder rb{ctx,2,0,1};rb.Push(result.raw);
         ctx.AddMoveObject(readable);
@@ -219,7 +226,8 @@ private:
                 result=Kernel::ResultOutOfResource;
                 auto it=std::ranges::find(m_clients,u64{0},&Client::token);
                 if(it!=m_clients.end()){
-                    it->token=id;it->signals=slots;it->release_bit=p[4];
+                    it->token=id;it->signals=slots;
+                    it->release_bit=p[4];it->available_bit=p[5];
                     m_slots|=slots;result=ResultSuccess;
                 }
             }
@@ -290,8 +298,11 @@ private:
                 result=Kernel::ResultInvalidCombination;
                 if(std::ranges::all_of(values,[](float v){return std::isfinite(v);})&&
                     values[0]>=0.0f&&values[0]<=1.0f&&
-                    values[1]>=0.0f&&values[1]<=1.0f&&values[2]>=0.0f)
+                    values[1]>=0.0f&&values[1]<=1.0f&&values[2]>=0.0f){
+                    client->output_levels=values;
+                    client->output_levels_set=true;
                     result=ResultSuccess;
+                }
             }
         }
         IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
@@ -383,7 +394,7 @@ private:
                 c.release_fences[slot].reset();
                 c.retained[slot].reset();
                 c.available|=u64{1}<<slot;
-                Signal(c.release_bit);
+                Signal(c.available_bit);
             }
         }
     }
