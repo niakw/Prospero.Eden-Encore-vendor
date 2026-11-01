@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2025 Eden Emulator Project
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // SPDX-FileCopyrightText: Copyright 2020 yuzu Emulator Project
@@ -50,7 +50,7 @@ enum class MemoryAttribute : u32 {
     DeviceShared = (1 << 2),
     Uncached = (1 << 3),
     PermissionLocked = (1 << 4),
-    GpuAccessible = (1 << 5), // NS2 SVC 0x80; NS1 never sets this bit.
+    GpuAccessible = (1 << 5), // NS2 SVC 0x80; preserve maintained NS1 source ABI
 };
 DECLARE_ENUM_FLAG_OPERATORS(MemoryAttribute);
 
@@ -158,6 +158,11 @@ enum class InfoType : u32 {
     IsSvcPermitted = 26,
     IoRegionHint = 27,
     AliasRegionExtraSize = 28,
+
+    TransferMemoryHint = 34,
+
+    Unknown37 = 37,
+    Unknown38 = 38,
 
     MesosphereMeta = 65000,
     MesosphereCurrentProcess = 65001,
