@@ -5,6 +5,8 @@
 
 #include "common/assert.h"
 #include "common/literals.h"
+#include "common/settings.h"
+#include "common/settings_enums.h"
 #include "core/hle/kernel/k_address_space_info.h"
 
 namespace Kernel {
@@ -32,14 +34,24 @@ constexpr std::array<KAddressSpaceInfo, 13> AddressSpaceInfos{{
    { .bit_width = 39, .address = 128_MiB     , .size = 512_GiB - 128_MiB, .type = KAddressSpaceInfo::Type::Map39Bit, },
 #endif
    { .bit_width = 39, .address = Size_Invalid, .size = 64_GiB           , .type = KAddressSpaceInfo::Type::MapSmall  },
-   // NS2 requires a larger virtual heap address range; this reserves address space, not 16 GiB of RAM.
-   { .bit_width = 39, .address = Size_Invalid, .size = 16_GiB           , .type = KAddressSpaceInfo::Type::Heap,     },
+   { .bit_width = 39, .address = Size_Invalid, .size = 8_GiB            , .type = KAddressSpaceInfo::Type::Heap,     },
    { .bit_width = 39, .address = Size_Invalid, .size = 64_GiB           , .type = KAddressSpaceInfo::Type::Alias,    },
    { .bit_width = 39, .address = Size_Invalid, .size = 2_GiB            , .type = KAddressSpaceInfo::Type::Stack,    },
 }};
 // clang-format on
 
+// NS2's 12 GiB guest layout requires a 16 GiB *virtual* heap range.
+// Preserve the exact Switch 1 table when a smaller guest layout is in use.
+constexpr KAddressSpaceInfo Ns2HeapInfo{
+    .bit_width = 39, .address = Size_Invalid, .size = 16_GiB,
+    .type = KAddressSpaceInfo::Type::Heap,
+};
+
 const KAddressSpaceInfo& GetAddressSpaceInfo(size_t width, KAddressSpaceInfo::Type type) {
+    if (width == 39 && type == KAddressSpaceInfo::Type::Heap &&
+        Settings::values.memory_layout_mode.GetValue() == Settings::MemoryLayout::Memory_12Gb) {
+        return Ns2HeapInfo;
+    }
     for (auto& info : AddressSpaceInfos) {
         if (info.bit_width == width && info.type == type) {
             return info;
