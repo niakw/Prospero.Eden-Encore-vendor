@@ -263,6 +263,24 @@ template <typename IsMapped>
     return true;
 }
 
+// Native SET_REPORT_SEMAPHORE_D reduction operations (Ampere class 0xC7C0).
+// Side-effect free so the GPU fence callback can apply them only after
+// validating that the owning channel and destination mapping still exist.
+[[nodiscard]] constexpr std::uint32_t NativeComputeSemaphoreReduction(
+    std::uint32_t old_value, std::uint32_t payload, std::uint32_t mode) {
+    switch (mode) {
+    case 0: return old_value + payload;
+    case 1: return std::min(old_value, payload);
+    case 2: return std::max(old_value, payload);
+    case 3: return old_value >= payload ? 0U : old_value + 1U;
+    case 4: return old_value == 0 || old_value > payload
+                       ? payload : old_value - 1U;
+    case 5: return old_value & payload;
+    case 6: return old_value | payload;
+    default: return old_value ^ payload;
+    }
+}
+
 // A single authenticated GPU process owns this state and all its channels
 // share it. Mutex serializes cross-channel dependency changes; the process
 // registry invalidates the entire session on teardown/re-registration.
