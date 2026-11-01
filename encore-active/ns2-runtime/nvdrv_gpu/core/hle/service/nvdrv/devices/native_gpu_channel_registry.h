@@ -101,6 +101,25 @@ public:
             return std::nullopt;
         return owner->second.ticket;
     }
+    [[nodiscard]] bool IsGraphicsCurrent(const void* graphics_engine,
+                                         const Ticket& ticket) const {
+        if (!graphics_engine || !ticket.process || !ticket.generation ||
+            !ticket.channel_generation) return false;
+        const std::scoped_lock lock{mutex};
+        const auto owner = engines.find(graphics_engine);
+        if (owner == engines.end() || !owner->second.subchannels ||
+            owner->second.ticket.process != ticket.process ||
+            owner->second.ticket.generation != ticket.generation ||
+            owner->second.ticket.channel_generation != ticket.channel_generation)
+            return false;
+        const auto channel = channels.find(owner->second.channel);
+        return channel != channels.end() &&
+               channel->second.process == ticket.process &&
+               channel->second.generation == ticket.generation &&
+               channel->second.channel_generation == ticket.channel_generation &&
+               NativeGpuProcessRegistry::Instance().IsCurrent(
+                   {ticket.process, ticket.generation});
+    }
     // A native Vulkan worker may capture the exact GPU channel lifetime.
     // Before publishing shader/pipeline output, revalidate this ticket
     // against BOTH the process generation and the channel bind epoch.
