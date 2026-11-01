@@ -27,6 +27,12 @@ inline void Unregister(std::uint64_t pid) noexcept {
                                        std::memory_order_relaxed);
 }
 
+// Safe process-identity check for release-gated guest SVC adaptations.
+// The memory profile is checked independently by the kernel dispatcher.
+[[nodiscard]] inline bool IsActive(std::uint64_t pid) noexcept {
+    return pid != 0 && active_pid.load(std::memory_order_acquire) == pid;
+}
+
 [[nodiscard]] inline std::optional<std::uint32_t> Next(std::uint64_t pid) noexcept {
     if (pid == 0 || active_pid.load(std::memory_order_acquire) != pid)
         return std::nullopt;
