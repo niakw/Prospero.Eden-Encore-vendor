@@ -40,6 +40,36 @@ NativeGpuChannelRegistry::AcquireGraphicsTranslationCache(
                 4 * 1024 * 1024, 32);
     return it->second.translation_cache;
 }
+
+std::shared_ptr<Shader::Ampere::NativeTranslationCache>
+NativeGpuChannelRegistry::AcquireComputeTranslationCache(
+    const void* compute_engine, const Ticket& ticket) {
+    if (!compute_engine || !ticket.process || !ticket.generation ||
+        !ticket.channel_generation) return {};
+    const std::scoped_lock lock{mutex};
+    const auto owner = compute_engines.find(compute_engine);
+    if (owner == compute_engines.end() || !owner->second.subchannels ||
+        owner->second.ticket.process != ticket.process ||
+        owner->second.ticket.generation != ticket.generation ||
+        owner->second.ticket.channel_generation != ticket.channel_generation)
+        return {};
+    const auto channel = channels.find(owner->second.channel);
+    if (channel == channels.end() ||
+        channel->second.process != ticket.process ||
+        channel->second.generation != ticket.generation ||
+        channel->second.channel_generation != ticket.channel_generation ||
+        !NativeGpuProcessRegistry::Instance().IsCurrent(
+            {ticket.process, ticket.generation}))
+        return {};
+    // Independent native Compute epoch: never borrow the graphics shader
+    // translation cache or let a channel rebind reuse stale shader data.
+    // Bounded by both 4 MiB of translated code and 32 exact-byte entries.
+    if (!owner->second.translation_cache)
+        owner->second.translation_cache =
+            std::make_shared<Shader::Ampere::NativeTranslationCache>(
+                4 * 1024 * 1024, 32);
+    return owner->second.translation_cache;
+}
 } // namespace Service::Nvidia::Devices
 #endif
 
