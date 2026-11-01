@@ -189,6 +189,15 @@ void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
 
 Result IGpuSession::RegisterAddressSpace(u32 id) {
     const std::scoped_lock lock{m_shared->mutex};
+    if (!m_shared->address_spaces.Owns(id))
+        return Kernel::ResultNotFound;
+    if (id > static_cast<u32>(std::numeric_limits<std::int32_t>::max()) ||
+        m_module->VerifyFD(static_cast<Nvidia::DeviceFD>(id)) != Nvidia::NvResult::Success)
+        return Kernel::ResultInvalidState;
+    const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
+        static_cast<Nvidia::DeviceFD>(id));
+    if (!as || !as->OwnsNativeProcess(m_process))
+        return Kernel::ResultInvalidState;
     return Translate(m_shared->address_spaces.Register(id));
 }
 
