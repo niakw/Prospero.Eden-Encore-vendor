@@ -5,12 +5,15 @@
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <limits>
 #include "core/hle/service/nvdrv/nvdrv_interface.h"
 #include "core/hle/service/sm/sm.h"
 #include <span>
 #include "core/core.h"
 #include "core/hle/kernel/k_client_session.h"
 #include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_page_table.h"
+#include "core/hle/kernel/k_memory_block.h"
 #include "core/hle/kernel/k_scoped_resource_reservation.h"
 #include "core/hle/kernel/k_session.h"
 #include "core/hle/kernel/svc_results.h"
@@ -64,6 +67,9 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {402, &IGraphicsSupervisor::InitializeGpuContext, "ActivateGpuContext"},
         {434, &IGraphicsSupervisor::RegisterGpuAddressSpace, "RegisterGpuAddressSpace"},
         {497, &IGraphicsSupervisor::OpenGpuSession, "OpenGpuSession"},
+        {111, &IGraphicsSupervisor::CreateNativeMemory, "CreateNativeMemory"},
+        {112, &IGraphicsSupervisor::DestroyNativeMemory, "DestroyNativeMemory"},
+        {114, &IGraphicsSupervisor::BindNativeMemory, "BindNativeMemory"},
     };
     RegisterHandlersTipc(functions);
 }
@@ -155,5 +161,83 @@ void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
+}
+
+static Result NativeMemoryError(GraphicsSupervisorProtocol::NativeMemoryStatus status) {
+    using S = GraphicsSupervisorProtocol::NativeMemoryStatus;
+    switch (status) {
+    case S::Success:       return ResultSuccess;
+    case S::InvalidSize:   return Kernel::ResultInvalidSize;
+    case S::InvalidAddress:return Kernel::ResultInvalidAddress;
+    case S::InvalidHandle: return Kernel::ResultInvalidHandle;
+    case S::AlreadyBound:  return Kernel::ResultInvalidState;
+    case S::OutOfResource: return Kernel::ResultOutOfResource;
+    }
+    return Kernel::ResultNotImplemented;
+}
+static u64 NativeU64(const u32* packet, size_t word) {
+    return u64{packet[word]} | (u64{packet[word + 1]} << 32);
+}
+void IGraphicsSupervisor::CreateNativeMemory(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidState;
+    u32 id{};
+    if (m_bootstrap.GpuContextReady()) {
+        const u64 size = NativeU64(packet, 3);
+        const std::scoped_lock lock{m_native_memory_mutex};
+        const auto created = m_native_memory.Create(size);
+        result = NativeMemoryError(created.first);
+        id = created.second;
+    }
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(result.raw);
+    rb.Push(id);
+}
+void IGraphicsSupervisor::DestroyNativeMemory(HLERequestContext& ctx) {
+    Result result = Kernel::ResultInvalidState;
+    if (m_bootstrap.GpuContextReady()) {
+        const std::scoped_lock lock{m_native_memory_mutex};
+        result = NativeMemoryError(m_native_memory.Destroy(ctx.CommandBuffer()[2]));
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+void IGraphicsSupervisor::BindNativeMemory(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidState;
+    if (m_bootstrap.GpuContextReady()) {
+        const u32 id = packet[2];
+        const u64 address = NativeU64(packet, 3);
+        const u64 size = NativeU64(packet, 5);
+        const std::scoped_lock lock{m_native_memory_mutex};
+        const auto preflight = m_native_memory.ValidateBind(id, address, size);
+        result = NativeMemoryError(preflight);
+        if (preflight == GraphicsSupervisorProtocol::NativeMemoryStatus::Success) {
+            auto& table = m_process->GetPageTable();
+            result = Kernel::ResultInvalidCurrentMemory;
+            if (table.Contains(address, size)) {
+                const u64 end = address + size; // checked for overflow by ValidateBind
+                u64 cursor = address;
+                while (cursor < end) {
+                    Kernel::KMemoryInfo info{};
+                    Kernel::Svc::PageInfo page{};
+                    const Result status = table.QueryInfo(&info, &page, cursor);
+                    if (status.IsError() || info.m_size == 0 ||
+                        info.m_address > cursor ||
+                        info.m_size > std::numeric_limits<u64>::max() - info.m_address ||
+                        info.m_state == Kernel::KMemoryState::Free) {
+                        break;
+                    }
+                    const u64 next = info.m_address + info.m_size;
+                    if (next <= cursor) break;
+                    cursor = next;
+                }
+                if (cursor >= end)
+                    result = NativeMemoryError(m_native_memory.Bind(id, address, size));
+            }
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
 }
 } // namespace Service::AM

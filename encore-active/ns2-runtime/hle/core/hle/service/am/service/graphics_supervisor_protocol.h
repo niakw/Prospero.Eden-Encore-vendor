@@ -7,6 +7,9 @@
 #include <array>
 #include <optional>
 #include <span>
+#include <map>
+#include <limits>
+#include <utility>
 #include "common/common_types.h"
 
 namespace Service::AM::GraphicsSupervisorProtocol {
@@ -255,5 +258,62 @@ inline std::optional<BootstrapRequest> DecodeBootstrap(std::span<const u32> pack
     return BootstrapRequest{packet[3], Read64(4), Read64(6),
                             {Read64(8), Read64(10), Read64(12), Read64(14)}};
 }
+
+// NS2 GSV native-memory descriptors, not host Vulkan allocations. Commands
+// 111/112/114 establish a bounded, owned resource before real GPU mapping.
+// Reject unknown handles, address wrapping, duplicate binds and exhaustion.
+enum class NativeMemoryStatus {
+    Success, InvalidSize, InvalidAddress, InvalidHandle, AlreadyBound, OutOfResource,
+};
+struct NativeMemoryRecord {
+    u64 size{};
+    u64 guest_address{};
+    bool bound{};
+};
+class NativeMemoryLedger {
+public:
+    static constexpr u64 GuestPage = 0x1000;
+    static constexpr u64 MaxGuestMemory = 12ULL << 30;
+    static constexpr std::size_t MaxEntries = 2048;
+    [[nodiscard]] std::pair<NativeMemoryStatus, u32> Create(u64 size) {
+        if (!size || size > MaxGuestMemory || (size & (GuestPage - 1)))
+            return {NativeMemoryStatus::InvalidSize, 0};
+        if (m_records.size() >= MaxEntries || m_next == 0)
+            return {NativeMemoryStatus::OutOfResource, 0};
+        const u32 id = m_next++;
+        m_records.emplace(id, NativeMemoryRecord{size, 0, false});
+        return {NativeMemoryStatus::Success, id};
+    }
+    [[nodiscard]] NativeMemoryStatus ValidateBind(u32 id, u64 address, u64 size) const {
+        const auto found = m_records.find(id);
+        if (found == m_records.end()) return NativeMemoryStatus::InvalidHandle;
+        if (found->second.bound) return NativeMemoryStatus::AlreadyBound;
+        if (!size || size > found->second.size || (size & (GuestPage - 1)))
+            return NativeMemoryStatus::InvalidSize;
+        if ((address & (GuestPage - 1)) || size > std::numeric_limits<u64>::max() - address)
+            return NativeMemoryStatus::InvalidAddress;
+        return NativeMemoryStatus::Success;
+    }
+    [[nodiscard]] NativeMemoryStatus Bind(u32 id, u64 address, u64 size) {
+        const auto status = ValidateBind(id, address, size);
+        if (status != NativeMemoryStatus::Success) return status;
+        auto& record = m_records.at(id);
+        record.guest_address = address;
+        record.bound = true;
+        return NativeMemoryStatus::Success;
+    }
+    [[nodiscard]] NativeMemoryStatus Destroy(u32 id) {
+        if (m_records.erase(id) != 1) return NativeMemoryStatus::InvalidHandle;
+        return NativeMemoryStatus::Success;
+    }
+    [[nodiscard]] std::optional<NativeMemoryRecord> Get(u32 id) const {
+        const auto found = m_records.find(id);
+        return found == m_records.end() ? std::nullopt : std::optional{found->second};
+    }
+    [[nodiscard]] std::size_t Count() const { return m_records.size(); }
+private:
+    u32 m_next{1};
+    std::map<u32, NativeMemoryRecord> m_records;
+};
 
 } // namespace Service::AM::GraphicsSupervisorProtocol
