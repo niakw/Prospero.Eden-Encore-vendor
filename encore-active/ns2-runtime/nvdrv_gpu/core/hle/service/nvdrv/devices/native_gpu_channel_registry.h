@@ -104,6 +104,75 @@ public:
             return std::nullopt;
         return owner->second.ticket;
     }
+    // Ampere compute class 0xC7C0 uses the same legacy register object,
+    // but must not inherit the Switch 1 compute shader cache identity.
+    // Require an explicit subchannel binding and the same process/channel
+    // generation checks as native 3D, with an independent engine domain.
+    [[nodiscard]] bool BindComputeEngine(
+        const Tegra::Control::ChannelState* channel,
+        const void* compute_engine, std::uint32_t subchannel) {
+        if (!channel || !compute_engine || subchannel >= 8) return false;
+        const std::scoped_lock lock{mutex};
+        const auto owner = channels.find(channel);
+        if (owner == channels.end() ||
+            !NativeGpuProcessRegistry::Instance().IsCurrent(
+                {owner->second.process, owner->second.generation})) return false;
+        auto old = compute_engines.find(compute_engine);
+        if (old != compute_engines.end() &&
+            (old->second.channel != channel ||
+             old->second.ticket.channel_generation != owner->second.channel_generation))
+            return false;
+        auto [it, inserted] = compute_engines.try_emplace(
+            compute_engine, ComputeOwner{channel, owner->second, 0});
+        it->second.subchannels |= static_cast<std::uint8_t>(1u << subchannel);
+        return true;
+    }
+    void UnbindComputeSubchannel(
+        const Tegra::Control::ChannelState* channel,
+        const void* compute_engine, std::uint32_t subchannel) {
+        if (!channel || !compute_engine || subchannel >= 8) return;
+        const std::scoped_lock lock{mutex};
+        auto it = compute_engines.find(compute_engine);
+        if (it == compute_engines.end() || it->second.channel != channel) return;
+        it->second.subchannels &= static_cast<std::uint8_t>(~(1u << subchannel));
+        if (!it->second.subchannels) compute_engines.erase(it);
+    }
+    [[nodiscard]] std::optional<Ticket> CaptureComputeTicket(
+        const void* compute_engine) const {
+        if (!compute_engine) return std::nullopt;
+        const std::scoped_lock lock{mutex};
+        const auto owner = compute_engines.find(compute_engine);
+        if (owner == compute_engines.end() || !owner->second.subchannels)
+            return std::nullopt;
+        const auto channel = channels.find(owner->second.channel);
+        if (channel == channels.end() ||
+            channel->second.process != owner->second.ticket.process ||
+            channel->second.generation != owner->second.ticket.generation ||
+            channel->second.channel_generation != owner->second.ticket.channel_generation ||
+            !NativeGpuProcessRegistry::Instance().IsCurrent(
+                {owner->second.ticket.process, owner->second.ticket.generation}))
+            return std::nullopt;
+        return owner->second.ticket;
+    }
+    [[nodiscard]] bool IsComputeCurrent(
+        const void* compute_engine, const Ticket& ticket) const {
+        if (!compute_engine || !ticket.process || !ticket.generation ||
+            !ticket.channel_generation) return false;
+        const std::scoped_lock lock{mutex};
+        const auto owner = compute_engines.find(compute_engine);
+        if (owner == compute_engines.end() || !owner->second.subchannels ||
+            owner->second.ticket.process != ticket.process ||
+            owner->second.ticket.generation != ticket.generation ||
+            owner->second.ticket.channel_generation != ticket.channel_generation)
+            return false;
+        const auto channel = channels.find(owner->second.channel);
+        return channel != channels.end() &&
+               channel->second.process == ticket.process &&
+               channel->second.generation == ticket.generation &&
+               channel->second.channel_generation == ticket.channel_generation &&
+               NativeGpuProcessRegistry::Instance().IsCurrent(
+                   {ticket.process, ticket.generation});
+    }
     // QMD dependency state belongs to a guest process epoch, across its
     // distinct GPU channels. Definition lives in NS2 video_core so normal
     // NVDRV never links the research QMD compiler.
@@ -174,6 +243,10 @@ public:
             if (it->second.channel == channel) it = engines.erase(it);
             else ++it;
         }
+        for (auto it = compute_engines.begin(); it != compute_engines.end();) {
+            if (it->second.channel == channel) it = compute_engines.erase(it);
+            else ++it;
+        }
         if (process) {
             bool still_owned = false;
             for (const auto& [other, ticket] : channels) {
@@ -195,6 +268,12 @@ private:
         std::shared_ptr<Shader::Ampere::NativeTranslationCache> translation_cache{};
     };
     std::map<const void*, GraphicsOwner> engines;
+    struct ComputeOwner {
+        const Tegra::Control::ChannelState* channel{};
+        Ticket ticket{};
+        std::uint8_t subchannels{};
+    };
+    std::map<const void*, ComputeOwner> compute_engines;
     struct QmdOwner {
         std::uint64_t generation{};
         std::shared_ptr<Tegra::NativeQmdSession> session{};

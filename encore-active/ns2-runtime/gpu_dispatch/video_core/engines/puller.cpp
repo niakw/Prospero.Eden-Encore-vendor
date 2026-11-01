@@ -91,6 +91,15 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
                     method_call.subchannel);
         }
     };
+    const auto retire_native_compute = [&] {
+        if (bound_engines[method_call.subchannel] == static_cast<EngineID>(0xc7c0)) {
+            Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                .UnbindComputeSubchannel(
+                    &dma_pusher.channel_state,
+                    &dma_pusher.channel_state.payload->kepler_compute,
+                    method_call.subchannel);
+        }
+    };
     // Validate native class ownership before changing the effective subchannel
     // binding. A rejected Ampere bind must not poison subsequent dispatch.
     if (engine_id == static_cast<EngineID>(0xc797)) {
@@ -118,6 +127,7 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
             UNIMPLEMENTED_MSG("Ampere 3D engine ownership unavailable");
             return;
         }
+        retire_native_compute();
         bound_engines[method_call.subchannel] = engine_id;
         dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->maxwell_3d,
                                   method_call.subchannel, EngineTypes::Maxwell3D);
@@ -127,8 +137,12 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
         // Bind the real native compute class to the existing compute
         // register owner, as on NX2 upstream, WITHOUT running the legacy
         // Maxwell QMD launch: Ampere PCAS at 0xAF has different semantics.
-        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
-                &dma_pusher.channel_state)) {
+        auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+        if (registry.IsNative(&dma_pusher.channel_state) &&
+            registry.BindComputeEngine(
+                &dma_pusher.channel_state,
+                &dma_pusher.channel_state.payload->kepler_compute,
+                method_call.subchannel)) {
             retire_native_3d();
             bound_engines[method_call.subchannel] = engine_id;
             dma_pusher.BindSubchannel(
@@ -145,6 +159,7 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
         if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
                 &dma_pusher.channel_state)) {
             retire_native_3d();
+            retire_native_compute();
             bound_engines[method_call.subchannel] = engine_id;
             dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->maxwell_dma,
                                       method_call.subchannel, EngineTypes::MaxwellDMA);
@@ -157,6 +172,7 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
     // native Ampere classes. Rebinding a subchannel must revoke an earlier
     // 0xC797 renderer identity, including if other NS2 subchannels remain.
     retire_native_3d();
+    retire_native_compute();
     bound_engines[method_call.subchannel] = engine_id;
     switch (engine_id) {
     case EngineID::FERMI_TWOD_A:
@@ -532,8 +548,16 @@ void Puller::ProcessNativeComputeQmd(DmaPusher& pusher, u32 method,
         (method == 0xb0 && (argument & 15) <= 1)) return;
     auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
     const auto ticket = registry.CaptureTicket(&pusher.channel_state);
+    const auto compute_ticket = registry.CaptureComputeTicket(
+        &pusher.channel_state.payload->kepler_compute);
     auto session = registry.AcquireNativeQmdSession(&pusher.channel_state);
-    if (!ticket || !session || !pusher.rasterizer) return;
+    if (!ticket || !compute_ticket ||
+        !registry.IsComputeCurrent(
+            &pusher.channel_state.payload->kepler_compute, *compute_ticket) ||
+        ticket->process != compute_ticket->process ||
+        ticket->generation != compute_ticket->generation ||
+        ticket->channel_generation != compute_ticket->channel_generation ||
+        !session || !pusher.rasterizer) return;
     const GPUVAddr address =
         GPUVAddr{pusher.channel_state.payload->kepler_compute.regs.reg_array[0xad]} << 8;
     auto read = [&](u64 addr, Tegra::NativeQmdScheduler::Descriptor& data) {

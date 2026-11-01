@@ -923,6 +923,16 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
 }
 
 ComputePipeline* PipelineCache::CurrentComputePipeline() {
+#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+    // An authenticated Ampere compute engine must never enter the legacy
+    // Maxwell ShaderCache::ComputeShader() path: those 128-bit instructions
+    // need the new QMD-scoped native SPIR-V pipeline and resource binding.
+    // Until the renderer owns that real pipeline and submits the dispatch,
+    // reject instead of compiling native bytes as Switch 1 Maxwell.
+    if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+            .CaptureComputeTicket(kepler_compute))
+        return nullptr;
+#endif
 
     const ShaderInfo* const shader{ComputeShader()};
     if (!shader) {
