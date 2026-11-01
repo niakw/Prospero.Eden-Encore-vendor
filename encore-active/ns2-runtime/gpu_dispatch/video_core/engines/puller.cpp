@@ -653,18 +653,13 @@ void Puller::CallEngineMultiMethod(DmaPusher& dma_pusher, u32 method, u32 subcha
             UNIMPLEMENTED_MSG("Ampere compute multimethod on non-native channel");
             return;
         }
-        if ((amount && !base_start) || amount > 4096 ||
-            method >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS) {
-            UNIMPLEMENTED_MSG("Ampere compute multiword register invalid");
+        if ((amount && !base_start) || amount > 4096) {
+            UNIMPLEMENTED_MSG("Ampere compute multiword payload invalid");
             return;
         }
-        if (method == 0xaf || method == 0xb0 || method == 0xae) {
-            for (u32 i = 0; i < amount; ++i)
-                ProcessNativeComputeQmd(dma_pusher, method, base_start[i], subchannel);
-            return;
-        }
-        dma_pusher.channel_state.payload->kepler_compute.CallMultiMethod(
-            dma_pusher.system, method, base_start, amount, methods_pending);
+        CallNativeCompute(dma_pusher, method,
+                          std::span<const u32>{base_start, amount},
+                          amount == methods_pending, subchannel);
         return;
     }
     if (engine == static_cast<EngineID>(0xc7b5)) {
