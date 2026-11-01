@@ -736,11 +736,16 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                         // Maxwell image and recheck the owning GPU epoch.
                         // Do not substitute this for a Vulkan dispatch: no
                         // QMD resources or driver pipeline have been bound.
-                        const auto native = Shader::Ampere::CaptureNativeComputeShader(
-                            launch->program_address, VideoCommon::ReadNs2GpuShader,
-                            &pusher.memory_manager);
-                        const auto& registry =
+                        auto& registry =
                             Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+                        auto cache = registry.AcquireComputeTranslationCache(
+                            &pusher.channel_state.payload->kepler_compute,
+                            compute_ticket);
+                        const auto native = cache
+                            ? Shader::Ampere::CaptureNativeComputeShader(
+                                  launch->program_address, VideoCommon::ReadNs2GpuShader,
+                                  &pusher.memory_manager, cache.get())
+                            : Shader::Ampere::NativeCaptureResult{};
                         const bool current =
                             registry.IsCurrent(&pusher.channel_state, channel_ticket) &&
                             registry.IsComputeCurrent(
