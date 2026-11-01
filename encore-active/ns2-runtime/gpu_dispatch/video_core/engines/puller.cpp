@@ -18,6 +18,8 @@
 #include "video_core/engines/puller.h"
 #include <span>
 #include <memory>
+#include <atomic>
+#include <cstdio>
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "video_core/gpu.h"
 #include "video_core/memory_manager.h"
@@ -40,6 +42,20 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
     }
 
     const auto engine_id = static_cast<EngineID>(engine);
+#ifdef PS5_NATIVE
+    if (engine == 0xc797 || engine == 0xc7b5) {
+        static std::atomic<unsigned> native_binds{0};
+        const auto n = native_binds.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (n <= 24 || (n & (n - 1)) == 0)
+            std::fprintf(stderr,
+                         "EDEN_NS2_GPU_BIND count=%u cls=%04x sub=%u native=%u\n",
+                         n, static_cast<unsigned>(engine),
+                         static_cast<unsigned>(method_call.subchannel),
+                         static_cast<unsigned>(Service::Nvidia::Devices::
+                             NativeGpuChannelRegistry::Instance().IsNative(
+                                 &dma_pusher.channel_state)));
+    }
+#endif
     const auto retire_native_3d = [&] {
         if (bound_engines[method_call.subchannel] == static_cast<EngineID>(0xc797)) {
             Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
