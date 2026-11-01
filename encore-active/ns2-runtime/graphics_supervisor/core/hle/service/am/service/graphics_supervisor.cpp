@@ -9,6 +9,7 @@
 #include <limits>
 #include "core/hle/service/nvdrv/nvdrv_interface.h"
 #include "core/hle/service/nvdrv/core/container.h"
+#include "core/hle/service/nvdrv/core/syncpoint_manager.h"
 #include "core/hle/service/nvdrv/core/nvmap.h"
 #include "core/hle/service/nvdrv/nvdrv.h"
 #include "core/hle/service/nvdrv/devices/nvhost_as_gpu.h"
@@ -83,6 +84,10 @@ class IVi2Session final : public ServiceFramework<IVi2Session> {
         std::array<std::optional<s32>,15> queued{};
         std::array<u32,15> images{};
         std::array<std::shared_ptr<Nvidia::Module>,15> queued_modules{};
+        // Retain buffer pins through the real producer's Free->DetachNext
+        // transition, and until its returned release fence is satisfied.
+        std::array<std::shared_ptr<android::GraphicBuffer>,15> retained{};
+        std::array<std::optional<android::Fence>,15> release_fences{};
         std::shared_ptr<android::BufferQueueProducer> producer;
     };
 public:
@@ -274,28 +279,46 @@ private:
         IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
     }
     void Release() {
-        for(auto& c:m_clients){
-            if(!c.producer)continue;
-            for(u32 slot=0;slot<c.queued.size();++slot){
-                if(!c.queued[slot])continue;
-                auto fence=c.producer->GetReleasedBufferFence(*c.queued[slot]);
-                if(!fence)continue;
-                bool done=true;
-                for(u32 i=0;i<fence->num_fences;++i){
-                    const auto& f=fence->fences[i];
-                    if(f.id!=~u32{0}){
-                        const auto module=c.queued_modules[slot];
-                        if(!module){done=false;break;}
-                        const auto value=module->GetContainer().GetSyncpointManager()
-                            .ReadAllocatedSyncpoint(f.id);
-                        if(!value||static_cast<s32>(*value-f.value)<0){done=false;break;}
+        for (auto& c : m_clients) {
+            if (!c.producer) continue;
+            // This Eden Nvnflinger version exposes DetachNextBuffer, not
+            // upstream NS2's GetReleasedBufferFence/DetachReleasedBuffer.
+            // Only Free buffers can be detached by that API.
+            for (u32 tries=0;tries<c.queued.size();++tries) {
+                std::shared_ptr<android::GraphicBuffer> buffer;
+                android::Fence release_fence{};
+                if (c.producer->DetachNextBuffer(&buffer,&release_fence)!=
+                    android::Status::NoError) break;
+                for (u32 slot=0;slot<c.queued.size();++slot) {
+                    if (c.retained[slot] && c.retained[slot]==buffer) {
+                        c.release_fences[slot]=release_fence;
+                        break;
                     }
                 }
-                if(!done||c.producer->DetachReleasedBuffer(*c.queued[slot])!=
-                    android::Status::NoError)continue;
-                c.queued[slot].reset();c.images[slot]=0;
+            }
+            for (u32 slot=0;slot<c.queued.size();++slot) {
+                if (!c.queued[slot] || !c.release_fences[slot]) continue;
+                auto module=c.queued_modules[slot];
+                if (!module) continue;
+                const auto& fence=*c.release_fences[slot];
+                bool done=true;
+                for (u32 i=0;i<fence.num_fences;++i) {
+                    const auto& point=fence.fences[i];
+                    if (point.id==~u32{0}) continue;
+                    const auto value=module->GetContainer().GetSyncpointManager()
+                        .ReadAllocatedSyncpoint(point.id);
+                    if (!value || static_cast<s32>(*value-point.value)<0) {
+                        done=false;break;
+                    }
+                }
+                if (!done) continue;
+                c.queued[slot].reset();
+                c.images[slot]=0;
                 c.queued_modules[slot].reset();
-                c.available|=u64{1}<<slot;Signal(c.release_bit);
+                c.release_fences[slot].reset();
+                c.retained[slot].reset();
+                c.available|=u64{1}<<slot;
+                Signal(c.release_bit);
             }
         }
     }
@@ -319,7 +342,7 @@ private:
                         const u32 outh=(p[7]>>16)+1;
                         result=Kernel::ResultNotImplemented;
                         if(p[6]==0&&p[8]==3&&pref[4]==7&&
-                            (pref[6]==1||pref[6]==4)&&outw<=width&&outh<=height){
+                            pref[6]==1&&outw<=width&&outh<=height){
                             const u32 fence=~p[22];
                             auto& nv=img->module->GetContainer();
                             result=Kernel::ResultInvalidCombination;
@@ -351,8 +374,7 @@ private:
                                     native->width=static_cast<s32>(width);
                                     native->height=static_cast<s32>(height);
                                     native->stride=static_cast<s32>(pref[5]*16);
-                                    native->format=pref[6]==4?android::PixelFormat::Rgba1010102
-                                                              :android::PixelFormat::Rgba8888;
+                                    native->format=android::PixelFormat::Rgba8888;
                                     native->external_format=native->format;
                                     native->buffer_id=img->buffer_id;native->offset=img->offset;
                                     auto buffer=std::make_shared<android::GraphicBuffer>(
@@ -372,6 +394,7 @@ private:
                                             android::Status::NoError){
                                             c->queued[slot]=idx;c->images[slot]=p[5];
                                             c->queued_modules[slot]=img->module;
+                                            c->retained[slot]=buffer;
                                             c->available&=~(u64{1}<<slot);result=ResultSuccess;
                                             if(!m_poll){
                                                 auto weak=std::weak_ptr<IVi2Session>(
