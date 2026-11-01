@@ -428,6 +428,64 @@ void Puller::CallNative3D(DmaPusher& pusher, u32 method,
         engine.CallMethod(pusher.system,method,values[i],last && i+1==values.size());
 }
 
+// Native QMD3 PCAS: zero-grid commands may release real fences, but a
+// nonempty GPU program cannot complete without its compute shader backend.
+void Puller::ProcessNativeComputeQmd(DmaPusher& pusher, u32 method,
+                                     u32 argument, u32 subchannel) {
+    if (method == 0xae || (method == 0xaf && !(argument & 2)) ||
+        (method == 0xb0 && (argument & 15) <= 1)) return;
+    auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+    const auto ticket = registry.CaptureTicket(&pusher.channel_state);
+    auto session = registry.AcquireNativeQmdSession(&pusher.channel_state);
+    if (!ticket || !session || !pusher.rasterizer) return;
+    const GPUVAddr address =
+        GPUVAddr{pusher.channel_state.payload->kepler_compute.regs.reg_array[0xad]} << 8;
+    auto read = [&](u64 addr, Tegra::NativeQmdScheduler::Descriptor& data) {
+        if (!pusher.memory_manager.IsFullyMappedRange(addr, sizeof(data))) return false;
+        pusher.memory_manager.ReadBlockUnsafe(addr, data.data(), sizeof(data));
+        return true;
+    };
+    auto release = [&](u64 addr, u32 payload, u32 flags) {
+        if (!pusher.memory_manager.IsFullyMappedRange(addr, sizeof(u32))) return false;
+        const auto* channel = &pusher.channel_state;
+        auto* memory = &pusher.memory_manager;
+        pusher.rasterizer->SignalFence(
+            [channel, memory, ticket = *ticket, addr, payload, flags] {
+                const auto& current =
+                    Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+                if (!current.IsCurrent(channel, ticket) ||
+                    !memory->IsFullyMappedRange(addr, sizeof(u32))) return;
+                u32 value = payload;
+                if (flags & (1u << 26)) value = memory->Read<u32>(addr) + payload;
+                else if (flags & (1u << 19))
+                    value = std::max(memory->Read<u32>(addr), payload);
+                memory->Write<u32>(addr, value);
+            });
+        return true;
+    };
+    std::string_view error;
+    {
+        const std::scoped_lock lock{session->mutex};
+        error = session->scheduler.Signal(
+            address, argument, read, release,
+            [](const Tegra::NativeQmdScheduler::Descriptor&) { return false; });
+    }
+    if (!error.empty()) {
+#ifdef PS5_NATIVE
+        static std::atomic<unsigned> refused{0};
+        const auto n = refused.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (n <= 32 || (n & (n - 1)) == 0)
+            std::fprintf(stderr,
+                         "EDEN_NS2_COMPUTE_QMD_UNSUPPORTED count=%u sub=%u method=%03x address=%llx reason=%.*s\\n",
+                         n, static_cast<unsigned>(subchannel),
+                         static_cast<unsigned>(method),
+                         static_cast<unsigned long long>(address),
+                         static_cast<int>(error.size()), error.data());
+#endif
+        LOG_ERROR(HW_GPU, "Native QMD3 rejected: {}", error);
+    }
+}
+
 /// Calls a GPU engine method.
 void Puller::CallEngineMethod(DmaPusher& dma_pusher, const MethodCall& method_call) {
     const EngineID engine = bound_engines[method_call.subchannel];
