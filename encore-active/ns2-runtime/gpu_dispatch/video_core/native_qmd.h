@@ -242,6 +242,24 @@ struct NativeComputeLaunch {
     return launch;
 }
 
+// Confirm the first native 128-bit shader instruction and every enabled
+// constant-buffer span are backed by the current GMMU before any renderer
+// attempts native compilation or descriptor binding. The eventual full
+// shader capture must still validate each additional instruction read.
+// Do not use this preflight as a substitute for GPU resource ownership.
+template <typename IsMapped>
+[[nodiscard]] inline bool NativeComputeLaunchMapped(
+    const NativeComputeLaunch& launch, IsMapped&& mapped) {
+    if (!mapped(launch.program_address, std::size_t{16}))
+        return false;
+    for (const auto& cbuf : launch.constant_buffers) {
+        if (cbuf.enabled && cbuf.size &&
+            !mapped(cbuf.gpu_address, std::size_t{cbuf.size}))
+            return false;
+    }
+    return true;
+}
+
 // A single authenticated GPU process owns this state and all its channels
 // share it. Mutex serializes cross-channel dependency changes; the process
 // registry invalidates the entire session on teardown/re-registration.
