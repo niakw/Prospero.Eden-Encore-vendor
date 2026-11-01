@@ -47,10 +47,14 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
             UNIMPLEMENTED_MSG("Ampere 3D class on a non-native GPU channel");
             return;
         }
-        native_3d = std::make_unique<Tegra::NativeAmpereMacroState>();
-        native_parameters.clear();
-        native_macro_method = 0;
-        native_3d_failed = false;
+        // Rebinding a second 3D subchannel of the SAME GPU session must
+        // retain its uploaded MME code and DRAM. An invalid execution state
+        // cannot be laundered into a healthy one by rebinding the class.
+        if (native_3d_failed || native_macro_method) {
+            UNIMPLEMENTED_MSG("Native 3D macro channel requires a fresh session");
+            return;
+        }
+        if (!native_3d) native_3d = std::make_unique<Tegra::NativeAmpereMacroState>();
         dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->maxwell_3d,
                                   method_call.subchannel, EngineTypes::Maxwell3D);
         return;
