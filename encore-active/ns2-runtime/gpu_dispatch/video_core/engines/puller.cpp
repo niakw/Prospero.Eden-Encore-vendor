@@ -28,6 +28,9 @@
 #include "video_core/memory_manager.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/native_qmd.h"
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#include "video_core/native_shader_capture.h"
+#endif
 
 namespace Service::Nvidia::Devices {
 std::shared_ptr<Tegra::NativeQmdSession>
@@ -707,7 +710,8 @@ void Puller::ProcessNativeComputeQmd(DmaPusher& pusher, u32 method,
         const std::scoped_lock lock{session->mutex};
         error = session->scheduler.Signal(
             address, argument, read, release,
-            [&pusher](const Tegra::NativeQmdScheduler::Descriptor& descriptor) {
+            [&pusher, compute_ticket = *compute_ticket,
+             channel_ticket = *ticket](const Tegra::NativeQmdScheduler::Descriptor& descriptor) {
                 // Capture and verify a bounded native Ampere launch and
                 // its guest GMMU spans. The eventual backend must still
                 // compile, bind, submit and fence the real shader; never
@@ -720,19 +724,47 @@ void Puller::ProcessNativeComputeQmd(DmaPusher& pusher, u32 method,
 #ifdef PS5_NATIVE
                 static std::atomic<unsigned> attempts{0};
                 const auto n = attempts.fetch_add(1, std::memory_order_relaxed) + 1;
-                if (n <= 16 || (n & (n - 1)) == 0) {
-                    if (mapped)
+                const bool sample = n <= 4 || (n & (n - 1)) == 0;
+                if (sample) {
+                    if (mapped) {
+#if defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+                        // Production-facing QMD3 capture: fetch the ACTUAL
+                        // mapped guest Ampere program, lower to a bounded
+                        // Maxwell image and recheck the owning GPU epoch.
+                        // Do not substitute this for a Vulkan dispatch: no
+                        // QMD resources or driver pipeline have been bound.
+                        const auto native = Shader::Ampere::CaptureNativeComputeShader(
+                            launch->program_address, VideoCommon::ReadNs2GpuShader,
+                            &pusher.memory_manager);
+                        const auto& registry =
+                            Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+                        const bool current =
+                            registry.IsCurrent(&pusher.channel_state, channel_ticket) &&
+                            registry.IsComputeCurrent(
+                                &pusher.channel_state.payload->kepler_compute, compute_ticket);
                         std::fprintf(stderr,
-                            "EDEN_NS2_COMPUTE_PREPARED count=%u program=%llx grid=%u,%u,%u block=%u,%u,%u backend=missing\\n",
+                            "EDEN_NS2_COMPUTE_SHADER_CAPTURE count=%u program=%llx mapped=1 current=%u ready=%u status=%u bytes=%u failing_at=%u backend=missing\n",
+                            n, static_cast<unsigned long long>(launch->program_address),
+                            static_cast<unsigned>(current),
+                            static_cast<unsigned>(current && native.Ready()),
+                            static_cast<unsigned>(native.status),
+                            native.captured_native_bytes, native.first_error_offset);
+#else
+                        std::fprintf(stderr,
+                            "EDEN_NS2_COMPUTE_PREPARED count=%u program=%llx grid=%u,%u,%u block=%u,%u,%u shader_bridge=off backend=missing\n",
                             n, static_cast<unsigned long long>(launch->program_address),
                             launch->grid[0], launch->grid[1], launch->grid[2],
                             launch->block[0], launch->block[1], launch->block[2]);
-                    else
+#endif
+                    } else {
                         std::fprintf(stderr,
-                            "EDEN_NS2_COMPUTE_PREPARE_REJECTED count=%u backend=missing\\n", n);
+                            "EDEN_NS2_COMPUTE_PREPARE_REJECTED count=%u backend=missing\n", n);
+                    }
                 }
 #else
                 (void)mapped;
+                (void)compute_ticket;
+                (void)channel_ticket;
 #endif
                 return false;
             });
