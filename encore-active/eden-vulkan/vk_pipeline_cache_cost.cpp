@@ -923,7 +923,7 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
 }
 
 ComputePipeline* PipelineCache::CurrentComputePipeline() {
-#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+#if defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
     // An authenticated Ampere compute engine must never enter the legacy
     // Maxwell ShaderCache::ComputeShader() path: those 128-bit instructions
     // need the new QMD-scoped native SPIR-V pipeline and resource binding.
