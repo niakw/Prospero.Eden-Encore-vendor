@@ -97,6 +97,23 @@ constexpr std::optional<GpuSparseRegionRequest> DecodeGpuSparseRegion(
         packet[11]};
 }
 
+// Bound experimental GPU-only render-target backing. An unbacked sparse
+// reservation (allocation_mode 1) must never count toward physically resident
+// images, and an OOM must not return a successful 214 completion.
+inline constexpr u64 NativeDenseGpuRegionLimit = 512ULL << 20;
+inline constexpr u64 NativeDenseGpuTotalLimit = 2ULL << 30;
+inline constexpr u64 NativeDenseGpuFreeReserve = 128ULL << 20;
+
+constexpr bool CanBackNativeDenseGpuOnly(u8 allocation_mode, u64 size,
+                                         u64 used, u64 free_bytes) {
+    return allocation_mode == 0 && size >= 0x1000 &&
+           size <= NativeDenseGpuRegionLimit && (size & 0xfff) == 0 &&
+           used <= NativeDenseGpuTotalLimit &&
+           size <= NativeDenseGpuTotalLimit - used &&
+           free_bytes >= NativeDenseGpuFreeReserve &&
+           size <= free_bytes - NativeDenseGpuFreeReserve;
+}
+
 constexpr bool IsValidGpuSparseRegionRange(const GpuSparseRegionRequest& request) {
     if ((request.page_shift != 12 && request.page_shift != 16) || request.end < request.begin ||
         request.end == ~u64{0}) return false;
