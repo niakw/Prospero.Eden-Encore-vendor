@@ -16,6 +16,7 @@
 #include "core/hle/service/nvdrv/devices/nvhost_gpu.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_context.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_submission.h"
 #include "core/hle/service/nvdrv/nvdrv.h"
 #include "core/memory.h"
@@ -48,6 +49,7 @@ nvhost_gpu::nvhost_gpu(Core::System& system_, EventInterface& events_interface_,
 }
 
 nvhost_gpu::~nvhost_gpu() {
+    NativeGpuChannelRegistry::Instance().Unbind(channel_state.get());
     events_interface.FreeEvent(sm_exception_breakpoint_int_report_event);
     events_interface.FreeEvent(sm_exception_breakpoint_pause_report_event);
     events_interface.FreeEvent(error_notifier_event);
@@ -364,6 +366,20 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     const bool native = UsesNativeAbi(fd);
     if (native && (!channel_state->initialized || !channel_state->memory_manager))
         return NvResult::InvalidState;
+    // One nvhost-gpu device can expose multiple FDs. Never hand a native
+    // engine to a channel containing another process's GPU sessions.
+    if (native) {
+        const auto it = sessions.find(fd);
+        const auto* owner = it == sessions.end() ? nullptr : core.GetSession(it->second);
+        if (!owner || !owner->process) return NvResult::InvalidState;
+        for (const auto& [other_fd, session_id] : sessions) {
+            const auto* opened = core.GetSession(session_id);
+            if (!opened || opened->process != owner->process)
+                return NvResult::InvalidState;
+        }
+        if (!NativeGpuChannelRegistry::Instance().Bind(channel_state.get(), owner->process))
+            return NvResult::InvalidState;
+    }
 
     const auto bind_id = channel_state->bind_id;
     auto& flags = params.flags;
