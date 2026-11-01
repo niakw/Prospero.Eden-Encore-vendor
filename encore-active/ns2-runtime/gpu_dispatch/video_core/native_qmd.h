@@ -222,8 +222,11 @@ struct NativeComputeLaunch {
     launch.program_address = launch.code_base + launch.program_start;
     launch.linked_tsc = (qmd[11] & (1U << 30)) != 0;
     launch.shared_bytes = qmd[17] & 0x3ffffU;
-    launch.local_pos_bytes = qmd[23] & 0xfffffU;
-    launch.local_crs_bytes = qmd[50] & 0xfffffU;
+    // QMD3 allocates 24 bits to each native local-memory size field.
+    // A 20-bit mask silently dropped high allocation bits and could bind
+    // too little scratch space for an otherwise valid Ampere program.
+    launch.local_pos_bytes = qmd[23] & 0xffffffU;
+    launch.local_crs_bytes = qmd[50] & 0xffffffU;
     const std::uint32_t cbuf_mask = qmd[20] & 0xffU;
     for (std::size_t index = 0; index < launch.constant_buffers.size(); ++index) {
         const auto high = qmd[33 + index * 2];
