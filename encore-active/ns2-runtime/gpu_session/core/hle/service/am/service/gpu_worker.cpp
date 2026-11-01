@@ -127,6 +127,12 @@ IGpuWorker::~IGpuWorker() {
     // by the native engine; do not release backing while it is still mapped.
     if (!m_dense_regions.empty()) system.GPU().WaitForIdle();
     for (const auto& [key, mapping] : m_mappings.Mappings()) {
+        const auto dense = m_dense_regions.find({mapping.address_space, mapping.address});
+        // The VA can already be released after a failed physical retirement.
+        // Do not release it twice during teardown.
+        if (mapping.sparse && dense != m_dense_regions.end() &&
+            dense->second.gmmu_released)
+            continue;
         const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
             static_cast<Nvidia::DeviceFD>(mapping.address_space));
         if (as && (mapping.sparse
@@ -526,11 +532,18 @@ void IGpuWorker::DestroySparseRegion(HLERequestContext& ctx) {
                 const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
                     static_cast<Nvidia::DeviceFD>(request->address_space));
                 if (as) {
-                    const bool physical = m_dense_regions.contains(
+                    auto dense = m_dense_regions.find(
                         {request->address_space, request->address});
-                    if (physical) system.GPU().WaitForIdle();
-                    if (as->ReleaseNativeSparse4K(request->address, request->size) ==
-                            Nvidia::NvResult::Success) {
+                    const bool physical = dense != m_dense_regions.end();
+                    if (physical && !dense->second.gmmu_released)
+                        system.GPU().WaitForIdle();
+                    // The native GMMU release is destructive. If NVMap or
+                    // CPU-alias retirement fails, retry only the latter.
+                    const bool released = (physical && dense->second.gmmu_released) ||
+                        as->ReleaseNativeSparse4K(request->address, request->size) ==
+                            Nvidia::NvResult::Success;
+                    if (released) {
+                        if (physical) dense->second.gmmu_released = true;
                         const bool retired = !physical || RetireGpuOnlyRegion(
                             request->address_space, request->address);
                         if (retired) {
