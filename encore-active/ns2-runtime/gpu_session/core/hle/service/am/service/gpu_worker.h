@@ -49,6 +49,9 @@ private:
         u64 alias{};
         u32 nvmap_handle{};
         std::unique_ptr<Kernel::KPageGroup> pages;
+        // Weak ownership of the actual NVMap object detects remaining refs
+        // after our destructive FreeHandle; it does not extend its lifetime.
+        std::weak_ptr<void> nvmap_lifetime;
         // Once FreeHandle succeeds, retry only the CPU alias unmap.
         bool nvmap_released{};
         // VA release and physical retirement are independently retryable.

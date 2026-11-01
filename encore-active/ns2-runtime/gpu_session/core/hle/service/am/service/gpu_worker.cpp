@@ -262,9 +262,11 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size) {
     // Do not retain the preflight shared_ptr: FreeHandle needs to be able
     // to release the NVMap object after GMMU unpins on 215.
     const u32 handle_id = handle->id;
+    const std::weak_ptr<void> nvmap_lifetime{handle};
     handle.reset();
     m_dense_regions.emplace(std::make_pair(address_space, address),
-        DenseRegion{address, size, GetInteger(alias), handle_id, std::move(pages)});
+        DenseRegion{address, size, GetInteger(alias), handle_id,
+                    std::move(pages), nvmap_lifetime});
     m_dense_bytes += size;
     return ResultSuccess;
 }
@@ -274,13 +276,15 @@ bool IGpuWorker::RetireGpuOnlyRegion(u32 address_space, u64 address) {
     if (it == m_dense_regions.end()) return true;
     auto& region = it->second;
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
-    // FreeHandle is destructive (it decrements dupes). If CPU alias unmap
-    // fails, retrying the release must NOT decrement the NVMap handle twice.
+    // FreeHandle decrements dupes even when can_unlock is false; never
+    // call it twice for this owner. Wait for the original object's weak
+    // lifetime to expire before tearing down the CPU-visible page alias.
     if (!region.nvmap_released) {
         const auto info = nvmap.FreeHandle(region.nvmap_handle, false);
-        if (!info || !info->can_unlock) return false;
+        if (!info) return false;
         region.nvmap_released = true;
     }
+    if (!region.nvmap_lifetime.expired()) return false;
     const auto result = m_process->GetPageTable().UnmapPageGroup(
         Kernel::KProcessAddress{region.alias}, *region.pages, Kernel::KMemoryState::IoMemory);
     if (result.IsError()) return false;
