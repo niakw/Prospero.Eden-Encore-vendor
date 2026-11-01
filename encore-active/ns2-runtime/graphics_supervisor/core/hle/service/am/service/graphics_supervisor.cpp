@@ -721,7 +721,21 @@ IGraphicsSupervisor::GetPresentImage(u32 id) {
         offset=static_cast<u32>(handle->address-parent->address);
         backing=it->second;
     }
-    return PresentImage{image->preference,backing,offset,m_native_module};
+    const auto backing_handle=container.GetNvMapFile().GetHandle(backing);
+    if(!backing_handle||!backing_handle->allocated ||
+        offset>backing_handle->orig_size ||
+        image->size>backing_handle->orig_size-offset)
+        return {};
+    const auto* backing_session=container.GetSession(backing_handle->session_id);
+    if(!backing_session||backing_session->process!=m_process ||
+        backing_handle->Duplicate(true)!=Nvidia::NvResult::Success)
+        return {};
+    auto lease=std::shared_ptr<u32>(new u32(backing),
+        [module=m_native_module](u32* id){
+            module->GetContainer().GetNvMapFile().FreeHandle(*id,true);
+            delete id;
+        });
+    return PresentImage{image->preference,backing,offset,m_native_module,std::move(lease)};
 }
 void IGraphicsSupervisor::InitializeDisplayContext(HLERequestContext& ctx) {
     const auto* p=ctx.CommandBuffer();

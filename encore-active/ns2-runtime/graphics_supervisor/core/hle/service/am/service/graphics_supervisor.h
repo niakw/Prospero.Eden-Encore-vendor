@@ -26,6 +26,9 @@ public:
         u32 buffer_id{};
         u32 offset{};
         std::shared_ptr<Nvidia::Module> module;
+        // Temporary internal duplicate closes the GetPresentImage ->
+        // GraphicBuffer::DuplicateHandle race with guest handle retirement.
+        std::shared_ptr<u32> lease;
     };
     [[nodiscard]] std::optional<PresentImage> GetPresentImage(u32 id);
 private:
