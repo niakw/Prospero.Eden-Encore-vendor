@@ -2504,6 +2504,14 @@ static void Call64(Core::System& system, u32 imm, std::span<uint64_t, 8> args) {
 void Call(Core::System& system, u32 imm) {
     auto& kernel = system.Kernel();
     auto& process = GetCurrentProcess(kernel);
+#ifdef EDEN_NS2_SVC_TRACE
+    // Research instrumentation only, bounded to registered NS2 processes.
+    // Shipping builds do not pay for logging on the SVC dispatch hot path.
+    if (const auto sample = Eden::NS2::SvcTrace::Next(process.GetProcessId())) {
+        LOG_INFO(Kernel_SVC, "NS2 real HLE SVC[{}] pid={} imm={:#x} permitted={}",
+                 *sample, process.GetProcessId(), imm, process.IsPermittedSvc(imm));
+    }
+#endif
     std::array<uint64_t, 8> args;
     kernel.CurrentPhysicalCore().SaveSvcArguments(process, args);
     //kernel.EnterSVCProfile();

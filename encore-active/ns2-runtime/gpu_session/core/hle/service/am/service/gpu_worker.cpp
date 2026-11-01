@@ -398,13 +398,14 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
         Kernel::KMemoryInfo info{};
         Kernel::Svc::PageInfo page{};
         R_TRY(page_table.QueryInfo(&info, &page, address));
-        // Encore's maintained kernel has no upstream-only GpuAccessible
-        // attribute. Require precisely the aligned-device-map and referenced
-        // page-state capabilities consumed by LockForMapDeviceAddressSpace,
-        // and reject IPC/explicitly locked pages before taking a reference.
+        // NS2 svc 0x80 records the GPU-accessible bit in the actual guest
+        // KMemoryBlockManager. A native worker must not pin ordinary guest
+        // pages that the game never registered for GPU use. The physical
+        // mapping capabilities and lock guards remain mandatory as well.
         const auto required = Kernel::KMemoryState::FlagCanAlignedDeviceMap |
                               Kernel::KMemoryState::FlagReferenceCounted;
         R_UNLESS((info.m_state & required) == required &&
+                 True(info.m_attribute & Kernel::KMemoryAttribute::GpuAccessible) &&
                  False(info.m_attribute & (Kernel::KMemoryAttribute::IpcLocked |
                                            Kernel::KMemoryAttribute::Locked)),
                  Kernel::ResultInvalidCurrentMemory);
