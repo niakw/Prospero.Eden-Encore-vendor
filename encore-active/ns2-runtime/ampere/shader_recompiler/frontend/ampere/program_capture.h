@@ -3,6 +3,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <optional>
 #include <span>
 #include <vector>
@@ -16,6 +17,13 @@ public:
     static constexpr u32 MaximumInstructions = 65536;
 
     Result Observe(const Instruction& instruction, u32 index) {
+        if (index < exit_prefix.size()) {
+            exit_prefix[index] = instruction;
+            if (index + 1 == exit_prefix.size()) {
+                if (const auto target = StaticAtExitTarget(exit_prefix))
+                    last_forward_target = std::max(last_forward_target, *target);
+            }
+        }
         const u32 opcode = instruction.Bits(0, 12);
         if (opcode == 0x944 || opcode == 0x947 || opcode == 0x945) {
             const u64 raw = instruction.words[1] | (u64{instruction.words[2] & 0x3ffff} << 32);
@@ -45,6 +53,7 @@ public:
     }
 
 private:
+    std::array<Instruction, 5> exit_prefix{};
     u32 last_call_target{};
     u32 last_forward_target{};
     bool main_exited{};

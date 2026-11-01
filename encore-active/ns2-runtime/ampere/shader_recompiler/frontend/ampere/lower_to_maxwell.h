@@ -19,6 +19,25 @@
 
 namespace Shader::Ampere {
 
+// Only the exact NVN compiler prologue with a statically encoded ATEXIT_PC
+// is supported. Do not infer a dynamic guest PC or use a synthetic zero
+// address as a general LEPC lowering.
+[[nodiscard]] inline std::optional<u32> StaticAtExitTarget(std::span<const Instruction> code) {
+    if (code.size() < 5) return std::nullopt;
+    const auto matches = [&](u32 i, u32 a, u32 b, u32 c) {
+        return code[i].words[0] == a && code[i].words[1] == b && code[i].words[2] == c;
+    };
+    if (!matches(0, 0x0000734e, 0, 0) ||
+        code[1].words[0] != 0x00037802 || code[1].words[2] != 0x00000f00 ||
+        !matches(2, 0x00007210, 3, 0x07f1e0ff) ||
+        !matches(3, 0xff017224, 0xff, 0x000e0401) ||
+        !matches(4, 0x00007357, 0, 0)) return std::nullopt;
+    const u32 target = code[1].words[1];
+    if (target < 5 * sizeof(Instruction) || target % sizeof(Instruction) ||
+        target >= 4096 * sizeof(Instruction)) return std::nullopt;
+    return target / sizeof(Instruction);
+}
+
 // EDEN_NATIVE_LOWER_DISABLE=<group>[,<group>...] switches individual lowering fixes back to the
 // previous behaviour (rejecting or ignoring the form) so a visual regression can be bisected.
 // Groups: audit_fsel, audit_f2i, cube3d_lod, array2d_bias, byte_sel306. Unset leaves behaviour unchanged.
@@ -91,6 +110,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
     std::vector<u32> call_targets;
     std::vector<u32> call_links;
     bool main_exited = false;
+    std::optional<u32> at_exit_target;
     bool uses_uniform_bank = false;
     bool uses_extended_uniform_bank = false;
     std::array<bool, 16> used_low_uniform{};
@@ -1636,19 +1656,30 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 return fail(index, "native stage buffer read mode");
             emit(base(0x5c98000000000000ULL) | (u64{15} << 39) | (u64{insn.Bits(24, 8)} << 20));
             break;
-        case 0x34e: { // LEPC: 64-bit address of the next instruction
-            // Only seen in geometry shader prologues, where the address (plus an offset) is consumed
-            // by opcode 0x357 below and the registers are overwritten right after. Native code
-            // addresses mean nothing in the lowered program, so it reads as zero.
-            if (insn.Bits(24, 8) || insn.words[1] || insn.words[2] || dest >= 254)
-                return fail(index, "native program counter load mode");
+        case 0x34e: { // LEPC is admissible only in the verified static ATEXIT prologue.
+            if (index != 0 || !StaticAtExitTarget(code) || insn.Bits(24, 8) ||
+                insn.words[1] || insn.words[2] || dest >= 254)
+                return fail(index, "native dynamic program counter unsupported");
+            // The only consumer is the verified BMOV ATEXIT at instruction 4.
+            // Its actual target is relocated below, not read from this placeholder.
             mov_imm(static_cast<u32>(dest), 0);
             mov_imm(static_cast<u32>(dest) + 1, 0);
             break;
         }
-        case 0x357: // Takes the LEPC-derived address in geometry shader prologues; no Maxwell counterpart.
-            if (insn.Bits(16, 8) || insn.Bits(32, 32) || insn.words[2] || native_predicate != 7)
-                return fail(index, "native geometry prologue mode");
+        case 0x357: { // BMOV ATEXIT_PC from verified, statically addressed NVN prologue.
+            const auto target = StaticAtExitTarget(code);
+            if (index != 4 || !target || *target >= code.size() ||
+                insn.Bits(16, 8) || insn.Bits(32, 32) ||
+                insn.words[2] || native_predicate != 7)
+                return fail(index, "native dynamic exit handler unsupported");
+            at_exit_target = *target;
+            break;
+        }
+        case 0x957: // BMOV ATEXIT_PC, 0: subsequent EXIT terminates normally.
+            if (!at_exit_target || insn.words[0] != 0x00007957 ||
+                insn.words[1] || insn.words[2])
+                return fail(index, "native exit handler clear mode");
+            at_exit_target.reset();
             break;
         case 0x324: case 0x924: { // OUT (geometry emit/cut), register or immediate stream
             const u32 type = insn.Bits(78, 2);
@@ -3944,6 +3975,13 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         case 0x94d: { // EXIT
             if (insn.Bits(84, 2)) return fail(index, "native special EXIT mode");
             const u32 exit_condition = insn.Bits(87, 4);
+            if (at_exit_target) {
+                if (exit_condition != 7)
+                    return fail(index, "native exit handler extra condition");
+                relocations.push_back({static_cast<u32>(result.instructions.size()), *at_exit_target});
+                emit(0xe24000000000000fULL | predicate);
+                break;
+            }
             if (exit_condition != 7 && native_predicate != 7) {
                 relocations.push_back({static_cast<u32>(result.instructions.size()), index + 1});
                 emit(0xe24000000000000fULL | (u64{native_predicate ^ 8U} << 16));

@@ -16,10 +16,20 @@ struct OpcodeIndex {
     }
 };
 constexpr OpcodeIndex Opcodes{};
+// The generated NAK table lacks three geometry-prologue opcodes. Admit only
+// their documented fields here, so unknown modes still fail before lowering.
+constexpr IsaRow StaticLepc{"LEPC/verified", {0x00ffffffU, 0U, 0U, 0xfffffe00U}};
+constexpr IsaRow StaticAtExit{"BMOV.ATEXIT/verified", {0x0000ffffU, 0U, 0U, 0xfffffe00U}};
+constexpr IsaRow ClearAtExit{"BMOV.ATEXIT.ZERO/verified", {0x0000ffffU, 0U, 0U, 0xfffffe00U}};
 } // namespace
 
 const IsaRow* FindOpcodeRow(u32 op12) {
-    return Opcodes.slots[op12 & 0xfff];
+    switch (op12 & 0xfff) {
+    case 0x34e: return &StaticLepc;
+    case 0x357: return &StaticAtExit;
+    case 0x957: return &ClearAtExit;
+    default: return Opcodes.slots[op12 & 0xfff];
+    }
 }
 int FirstUnreviewedBit(const Instruction& instruction, const IsaRow& row) {
     for (u32 i = 0; i != 4; ++i) {
