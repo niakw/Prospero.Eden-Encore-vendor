@@ -225,7 +225,8 @@ void IGraphicsSupervisor::BindNativeMemory(HLERequestContext& ctx) {
                     if (status.IsError() || info.m_size == 0 ||
                         info.m_address > cursor ||
                         info.m_size > std::numeric_limits<u64>::max() - info.m_address ||
-                        info.m_state == Kernel::KMemoryState::Free) {
+                        (info.m_state & Kernel::KMemoryState::FlagMapped) !=
+                            Kernel::KMemoryState::FlagMapped) {
                         break;
                     }
                     const u64 next = info.m_address + info.m_size;
