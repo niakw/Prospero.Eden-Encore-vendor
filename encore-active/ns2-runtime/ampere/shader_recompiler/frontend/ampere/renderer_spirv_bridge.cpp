@@ -44,7 +44,7 @@ NativeSpirvResult CompileReviewedNativeGraphicsSpirv(
             words[0] != 0x07230203U || words[3] == 0)
             return {NativeSpirvStatus::InvalidModule, {}};
         return {NativeSpirvStatus::Ready, std::move(words),
-                std::move(ir.info), bindings};
+                std::move(ir.info), bindings, env.ShaderStage()};
     } catch (const std::exception&) {
         // No partial shader publication or fallback to raw NS2 GMMU bytes.
         return {NativeSpirvStatus::CompilationFailed, {}};
@@ -89,7 +89,7 @@ NativeSpirvResult CompileReviewedNativeMergedVertexSpirv(
             words[0]!=0x07230203U || words[3]==0)
             return {NativeSpirvStatus::InvalidModule, {}};
         return {NativeSpirvStatus::Ready,std::move(words),
-                std::move(merged.info),bindings};
+                std::move(merged.info),bindings, Shader::Stage::VertexB};
     } catch (const std::exception&) {
         return {NativeSpirvStatus::CompilationFailed, {}};
     }
