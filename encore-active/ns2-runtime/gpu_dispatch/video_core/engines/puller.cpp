@@ -99,6 +99,22 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
                                   method_call.subchannel, EngineTypes::Maxwell3D);
         return;
     }
+    if (engine_id == static_cast<EngineID>(0xc7c0)) {
+        // Bind the real native compute class to the existing compute
+        // register owner, as on NX2 upstream, WITHOUT running the legacy
+        // Maxwell QMD launch: Ampere PCAS at 0xAF has different semantics.
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            retire_native_3d();
+            bound_engines[method_call.subchannel] = engine_id;
+            dma_pusher.BindSubchannel(
+                &dma_pusher.channel_state.payload->kepler_compute,
+                method_call.subchannel, EngineTypes::KeplerCompute);
+        } else {
+            UNIMPLEMENTED_MSG("Ampere compute class on a non-native GPU channel");
+        }
+        return;
+    }
     if (engine_id == static_cast<EngineID>(0xc7b5)) {
         // Upstream uses the same Maxwell DMA method layout for Ampere copy.
         // Restrict it to a live process-generation authenticated native channel.
@@ -397,6 +413,38 @@ void Puller::CallEngineMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
                      method_call.IsLastCall());
         return;
     }
+    if (engine == static_cast<EngineID>(0xc7c0)) {
+        if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            UNIMPLEMENTED_MSG("Ampere compute command on non-native channel");
+            return;
+        }
+        // PCAS at 0xAF addresses a native 512-byte QMD 3.0, *not* the
+        // Maxwell LaunchParams structure. The legacy handler would treat
+        // it as a draw and read unrelated guest bytes. Refuse that unsafe
+        // substitution until the native QMD scheduler/compute shader
+        // dispatch is connected.
+        if (method_call.method == 0xaf) {
+#ifdef PS5_NATIVE
+            static std::atomic<unsigned> pcas_rejected{0};
+            const auto n = pcas_rejected.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (n <= 16 || (n & (n - 1)) == 0)
+                std::fprintf(stderr,
+                             "EDEN_NS2_COMPUTE_QMD_UNSUPPORTED count=%u sub=%u action=%08x\n",
+                             n, static_cast<unsigned>(method_call.subchannel),
+                             static_cast<unsigned>(method_call.argument));
+#endif
+            return;
+        }
+        if (method_call.method >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS) {
+            UNIMPLEMENTED_MSG("Ampere compute register outside supported range");
+            return;
+        }
+        dma_pusher.channel_state.payload->kepler_compute.CallMethod(
+            dma_pusher.system, method_call.method, method_call.argument,
+            method_call.IsLastCall());
+        return;
+    }
     if (engine == static_cast<EngineID>(0xc7b5)) {
         if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
                 &dma_pusher.channel_state)) {
@@ -440,6 +488,34 @@ void Puller::CallEngineMultiMethod(DmaPusher& dma_pusher, u32 method, u32 subcha
         CallNative3D(dma_pusher,method,
                      std::span<const u32>{base_start,amount},
                      amount==methods_pending);
+        return;
+    }
+    if (engine == static_cast<EngineID>(0xc7c0)) {
+        if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            UNIMPLEMENTED_MSG("Ampere compute multimethod on non-native channel");
+            return;
+        }
+        // A multiword PCAS is not a legacy Maxwell launch either.
+        if (method == 0xaf) {
+#ifdef PS5_NATIVE
+            static std::atomic<unsigned> qmd_batches_rejected{0};
+            const auto n = qmd_batches_rejected.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (n <= 16 || (n & (n - 1)) == 0)
+                std::fprintf(stderr,
+                             "EDEN_NS2_COMPUTE_QMD_UNSUPPORTED batch=%u sub=%u words=%u\n",
+                             n, static_cast<unsigned>(subchannel),
+                             static_cast<unsigned>(amount));
+#endif
+            return;
+        }
+        if (method >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS ||
+            (amount && !base_start)) {
+            UNIMPLEMENTED_MSG("Ampere compute multiword register invalid");
+            return;
+        }
+        dma_pusher.channel_state.payload->kepler_compute.CallMultiMethod(
+            dma_pusher.system, method, base_start, amount, methods_pending);
         return;
     }
     if (engine == static_cast<EngineID>(0xc7b5)) {
