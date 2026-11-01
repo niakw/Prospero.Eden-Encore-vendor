@@ -169,16 +169,12 @@ IGpuWorker::~IGpuWorker() {
 Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size) {
     // Called only after the exact native sparse VA has been reserved.
     // Keep a bounded physical budget and leave room for the guest/application.
-    if (!size || size > MaxDenseRegionBytes ||
-        m_dense_bytes > MaxTotalDenseBytes - size ||
-        m_dense_regions.contains({address_space, address}))
-        return Kernel::ResultOutOfResource;
-
     auto& memory = kernel.MemoryManager();
     using Pool = Kernel::KMemoryManager::Pool;
     using Direction = Kernel::KMemoryManager::Direction;
-    constexpr u64 ReserveBytes = 128ULL << 20;
-    if (memory.GetFreeSize(Pool::SystemNonSecure) < size + ReserveBytes)
+    if (m_dense_regions.contains({address_space, address}) ||
+        !CanBackNativeDenseGpuOnly(0, size, m_dense_bytes,
+                                    memory.GetFreeSize(Pool::SystemNonSecure)))
         return Kernel::ResultOutOfResource;
 
     auto pages = std::make_unique<Kernel::KPageGroup>(

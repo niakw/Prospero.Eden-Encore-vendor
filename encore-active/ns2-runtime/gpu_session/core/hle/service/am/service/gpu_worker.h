@@ -52,8 +52,7 @@ private:
     };
     std::map<std::pair<u32, u64>, DenseRegion> m_dense_regions;
     u64 m_dense_bytes{};
-    static constexpr u64 MaxDenseRegionBytes = 512ULL << 20;
-    static constexpr u64 MaxTotalDenseBytes = 2ULL << 30;
+    // Admission limits live in gpu_memory_registration.h and have host fixtures.
     Result BackGpuOnlyRegion(u32 address_space, u64 address, u64 size);
     bool RetireGpuOnlyRegion(u32 address_space, u64 address);
     std::shared_ptr<Nvidia::Module> m_module;
