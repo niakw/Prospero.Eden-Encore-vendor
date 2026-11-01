@@ -80,6 +80,8 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {423, &IGraphicsSupervisor::BindNativeGpuMemory, "BindNativeGpuMemory"},
         {429, &IGraphicsSupervisor::CreateNativeImage, "CreateNativeImage"},
         {430, &IGraphicsSupervisor::DestroyNativeImage, "DestroyNativeImage"},
+        {314, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "DestroyNativeWindowAliasImagePool"},
+        {315, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "CreateNativeWindowAliasImagePool"},
         {911, &IGraphicsSupervisor::CreateVideoImagePool, "CreateVideoImagePool"},
         {912, &IGraphicsSupervisor::DestroyVideoImagePool, "DestroyVideoImagePool"},
         {426, &IGraphicsSupervisor::MapVideoGpuImage, "MapNativeGpuImage"},
@@ -614,11 +616,15 @@ void IGraphicsSupervisor::MapVideoGpuImage(HLERequestContext& ctx) {
                 size = image->size;
                 const auto key = std::make_pair(packet[4], packet[2]);
                 if (auto it = m_video_mappings.find(key); it != m_video_mappings.end()) {
-                    result = Kernel::ResultOutOfResource;
-                    if (it->second.references != std::numeric_limits<u32>::max()) {
-                        ++it->second.references;
-                        address = it->second.address;
-                        result = ResultSuccess;
+                    // A recycled numeric FD is not proof of the same AS/GMMU.
+                    result = Kernel::ResultInvalidState;
+                    if (it->second.address_space == as) {
+                        result = Kernel::ResultOutOfResource;
+                        if (it->second.references != std::numeric_limits<u32>::max()) {
+                            ++it->second.references;
+                            address = it->second.address;
+                            result = ResultSuccess;
+                        }
                     }
                 } else {
                     result = Kernel::ResultOutOfResource;
@@ -645,13 +651,15 @@ void IGraphicsSupervisor::UnmapVideoGpuImage(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     if (packet[0] == 0x1bb && packet[1] == 6) {
+        const auto as = FindRegisteredGpuAddressSpace(packet[3]);
         const std::scoped_lock lock{m_native_memory_mutex};
         result = Kernel::ResultNotFound;
         const auto key = std::make_pair(packet[3], packet[2]);
         const auto it = m_video_mappings.find(key);
         const u64 address = NativeU64(packet, 4);
         const u64 end = NativeU64(packet, 6);
-        if (it != m_video_mappings.end() && it->second.address == address &&
+        if (as && it != m_video_mappings.end() &&
+            it->second.address_space == as && it->second.address == address &&
             it->second.size > 0 && end >= address &&
             end - address == it->second.size - 1) {
             result = ResultSuccess;
@@ -714,6 +722,25 @@ void IGraphicsSupervisor::CreateNativeImage(HLERequestContext& ctx) {
     rb.Push(id);
 }
 
+void IGraphicsSupervisor::ConfigureNativeWindowImagePool(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const bool create = ctx.GetCommand() == 315;
+    Result result = Kernel::ResultInvalidCombination;
+    if (packet[0] == (create ? 0x14bU : 0x14aU) &&
+        packet[1] == (create ? 2U : 1U)) {
+        const std::scoped_lock lock{m_native_memory_mutex};
+        result = Kernel::ResultNotFound;
+        if (m_native_images.Get(packet[2])) {
+            result = Kernel::ResultNotImplemented;
+            if (!create || packet[3] == 1)
+                result = m_native_images.ConfigureWindowPool(packet[2], create)
+                    ? ResultSuccess : Kernel::ResultInvalidState;
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
 void IGraphicsSupervisor::DestroyNativeImage(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
@@ -721,7 +748,7 @@ void IGraphicsSupervisor::DestroyNativeImage(HLERequestContext& ctx) {
         const std::scoped_lock lock{m_native_memory_mutex};
         result = Kernel::ResultNotFound;
         const auto image = m_native_images.Get(packet[2]);
-        if (image && m_native_module) {
+        if (image && m_native_module && !image->window_pool) {
             const auto freed = m_native_module->GetContainer().GetNvMapFile().FreeHandle(
                 image->backing, true);
             result = Kernel::ResultInvalidState;

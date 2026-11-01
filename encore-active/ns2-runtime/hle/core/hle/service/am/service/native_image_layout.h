@@ -56,6 +56,7 @@ struct NativeImageRecord {
     u32 backing{};
     u64 size{};
     std::array<u32, 16> preference{};
+    bool window_pool{};
 };
 class NativeImageLedger {
 public:
@@ -78,7 +79,18 @@ public:
         if (it == m_images.end()) return {};
         return it->second;
     }
-    [[nodiscard]] bool Destroy(u32 id) { return m_images.erase(id) == 1; }
+    [[nodiscard]] bool ConfigureWindowPool(u32 id, bool enabled) {
+        const auto it = m_images.find(id);
+        if (it == m_images.end() || it->second.window_pool == enabled) return false;
+        it->second.window_pool = enabled;
+        return true;
+    }
+    [[nodiscard]] bool Destroy(u32 id) {
+        const auto it = m_images.find(id);
+        if (it == m_images.end() || it->second.window_pool) return false;
+        m_images.erase(it);
+        return true;
+    }
     [[nodiscard]] std::size_t Count() const { return m_images.size(); }
     [[nodiscard]] const std::map<u32, NativeImageRecord>& Records() const {
         return m_images;
@@ -150,7 +162,12 @@ public:
     [[nodiscard]] bool Add(u32 first, u32 count, u32 backing, u64 backing_size,
                            u32 dimensions, NativeVideoImageLayout layout) {
         if (!first || !count || count > MaxImages || !backing ||
+            !layout.image_bytes || !layout.image_stride ||
+            layout.image_stride < layout.image_bytes ||
+            ((layout.image_bytes | layout.image_stride) & 0xfffU) != 0 ||
             layout.total_bytes == 0 || layout.total_bytes > backing_size ||
+            (count > 1 && u64{count - 1} * layout.image_stride >
+                              std::numeric_limits<u32>::max()) ||
             first > std::numeric_limits<u32>::max() - (count - 1) ||
             m_count > MaxImages - count || m_pools.contains(first))
             return false;

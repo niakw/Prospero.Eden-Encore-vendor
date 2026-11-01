@@ -35,6 +35,7 @@ private:
     Result BindNativeMemoryBacking(u32 id, u64 address, u64 size, u64 flags, u64 offset);
     void CreateNativeImage(HLERequestContext& ctx);
     void DestroyNativeImage(HLERequestContext& ctx);
+    void ConfigureNativeWindowImagePool(HLERequestContext& ctx);
     void CalculateNativeImageSize(HLERequestContext& ctx);
     void CalculateNativeImageRequirements(HLERequestContext& ctx);
     void RegisterGpuAddressSpace(HLERequestContext& ctx);
