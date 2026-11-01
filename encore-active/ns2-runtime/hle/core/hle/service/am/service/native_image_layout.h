@@ -162,7 +162,12 @@ public:
     [[nodiscard]] bool Add(u32 first, u32 count, u32 backing, u64 backing_size,
                            u32 dimensions, NativeVideoImageLayout layout) {
         if (!first || !count || count > MaxImages || !backing ||
+            !layout.image_bytes || !layout.image_stride ||
+            layout.image_stride < layout.image_bytes ||
+            ((layout.image_bytes | layout.image_stride) & 0xfffU) != 0 ||
             layout.total_bytes == 0 || layout.total_bytes > backing_size ||
+            (count > 1 && u64{count - 1} * layout.image_stride >
+                              std::numeric_limits<u32>::max()) ||
             first > std::numeric_limits<u32>::max() - (count - 1) ||
             m_count > MaxImages - count || m_pools.contains(first))
             return false;
