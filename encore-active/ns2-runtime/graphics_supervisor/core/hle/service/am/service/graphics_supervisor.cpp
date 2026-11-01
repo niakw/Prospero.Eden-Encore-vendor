@@ -80,6 +80,8 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {423, &IGraphicsSupervisor::BindNativeGpuMemory, "BindNativeGpuMemory"},
         {429, &IGraphicsSupervisor::CreateNativeImage, "CreateNativeImage"},
         {430, &IGraphicsSupervisor::DestroyNativeImage, "DestroyNativeImage"},
+        {314, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "DestroyNativeWindowAliasImagePool"},
+        {315, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "CreateNativeWindowAliasImagePool"},
         {911, &IGraphicsSupervisor::CreateVideoImagePool, "CreateVideoImagePool"},
         {912, &IGraphicsSupervisor::DestroyVideoImagePool, "DestroyVideoImagePool"},
         {426, &IGraphicsSupervisor::MapVideoGpuImage, "MapNativeGpuImage"},
@@ -714,6 +716,25 @@ void IGraphicsSupervisor::CreateNativeImage(HLERequestContext& ctx) {
     rb.Push(id);
 }
 
+void IGraphicsSupervisor::ConfigureNativeWindowImagePool(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const bool create = ctx.GetCommand() == 315;
+    Result result = Kernel::ResultInvalidCombination;
+    if (packet[0] == (create ? 0x14bU : 0x14aU) &&
+        packet[1] == (create ? 2U : 1U)) {
+        const std::scoped_lock lock{m_native_memory_mutex};
+        result = Kernel::ResultNotFound;
+        if (m_native_images.Get(packet[2])) {
+            result = Kernel::ResultNotImplemented;
+            if (!create || packet[3] == 1)
+                result = m_native_images.ConfigureWindowPool(packet[2], create)
+                    ? ResultSuccess : Kernel::ResultInvalidState;
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
 void IGraphicsSupervisor::DestroyNativeImage(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
@@ -721,7 +742,7 @@ void IGraphicsSupervisor::DestroyNativeImage(HLERequestContext& ctx) {
         const std::scoped_lock lock{m_native_memory_mutex};
         result = Kernel::ResultNotFound;
         const auto image = m_native_images.Get(packet[2]);
-        if (image && m_native_module) {
+        if (image && m_native_module && !image->window_pool) {
             const auto freed = m_native_module->GetContainer().GetNvMapFile().FreeHandle(
                 image->backing, true);
             result = Kernel::ResultInvalidState;
