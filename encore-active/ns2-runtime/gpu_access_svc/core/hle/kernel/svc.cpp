@@ -2534,8 +2534,16 @@ void Call(Core::System& system, u32 imm) {
             result = ResultInvalidCombination;
             break;
         case Eden::NS2::GpuAccess::Status::Success:
-            if (!process.GetPageTable().Contains(address, size))
+            if (!process.GetPageTable().Contains(address, size)) {
                 result = ResultInvalidCurrentMemory;
+            } else {
+                // Record the attribute in the real KMemoryBlockManager.
+                // QueryMemory and subsequent NVDRV allocations must see it;
+                // returning success without the update was a false stub.
+                result = process.GetPageTable().SetMemoryAttribute(
+                    address, size, static_cast<KMemoryAttribute>(mask),
+                    static_cast<KMemoryAttribute>(attribute));
+            }
             break;
         }
         SetArg64(args, 0, result.raw);
