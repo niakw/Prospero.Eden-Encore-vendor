@@ -30,6 +30,21 @@
 namespace Service::AM {
 namespace {
 constexpr std::size_t MaxOwnedGpuMemoryHandles = 4096;
+static void TraceNs2WorkerResult(unsigned command, u32 result) {
+#ifdef PS5_NATIVE
+    // Failures are actionable only with their actual guest-visible result.
+    // Bound the trace even if the guest retries an unsupported operation.
+    static std::atomic<unsigned> responses{0};
+    const auto n = responses.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (n <= 64 || (n & (n - 1)) == 0)
+        std::fprintf(stderr,
+                     "EDEN_NS2_GPU_WORKER_RESULT cmd=%u result=%08x count=%u\n",
+                     command, static_cast<unsigned>(result), n);
+#else
+    (void)command;
+    (void)result;
+#endif
+}
 }
 
 IGpuWorker::IGpuWorker(Core::System& system_, std::shared_ptr<Nvidia::Module> module,
@@ -160,6 +175,7 @@ void IGpuWorker::NormalMapGpuMemory4K(HLERequestContext& ctx) {
             }
         }
     }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(result.raw);
     rb.Push(selected);
@@ -192,6 +208,7 @@ void IGpuWorker::NormalModifyGpuMemory4K(HLERequestContext& ctx) {
             }
         }
     }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(result.raw);
     rb.Push(selected);
@@ -224,6 +241,7 @@ void IGpuWorker::NormalUnmapGpuMemory4K(HLERequestContext& ctx) {
             }
         }
     }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(result.raw);
     rb.Push(unmapped);
@@ -267,6 +285,7 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
             }
         }
     }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
 }
@@ -298,6 +317,7 @@ void IGpuWorker::DestroySparseRegion(HLERequestContext& ctx) {
             }
         }
     }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
 }
@@ -382,6 +402,7 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
             }
         }
     }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(result.raw);
     rb.Push(processed);
@@ -500,6 +521,7 @@ void IGpuWorker::CreateGpuAccessibleMemory(HLERequestContext& ctx) {
         const std::scoped_lock lock{m_mutex, m_shared->mutex};
         result = RegisterMemory(req->begin, req->end, req->flags, req->device, id);
     }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(result.raw);
     rb.Push(id);
@@ -513,6 +535,7 @@ void IGpuWorker::DestroyGpuAccessibleMemory(HLERequestContext& ctx) {
         const std::scoped_lock lock{m_mutex, m_shared->mutex};
         result = ReleaseMemory(release->id, release->notification);
     }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
 }
