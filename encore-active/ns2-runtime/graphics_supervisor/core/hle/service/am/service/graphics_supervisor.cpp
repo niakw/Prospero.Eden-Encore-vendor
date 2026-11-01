@@ -403,7 +403,7 @@ void IGraphicsSupervisor::CreateNativeImage(HLERequestContext& ctx) {
         result = Kernel::ResultInvalidState;
         if (m_bootstrap.GpuContextReady()) {
             const std::span<const u32> preferences{packet + 2, 16};
-            const auto requirements = CalculateNativeImageRequirements(preferences, packet[18]);
+            const auto requirements = ::Service::AM::CalculateNativeImageRequirements(preferences, packet[18]);
             result = Kernel::ResultNotImplemented;
             if (requirements) {
                 const std::scoped_lock lock{m_native_memory_mutex};
