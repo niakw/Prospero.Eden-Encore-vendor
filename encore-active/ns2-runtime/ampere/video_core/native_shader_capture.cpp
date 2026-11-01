@@ -3,6 +3,41 @@
 #include <limits>
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
 #include "video_core/memory_manager.h"
+#include "shader_recompiler/frontend/ampere/translation_cache.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
+
+namespace Service::Nvidia::Devices {
+std::shared_ptr<Shader::Ampere::NativeTranslationCache>
+NativeGpuChannelRegistry::AcquireGraphicsTranslationCache(
+    const void* graphics_engine, const Ticket& ticket) {
+    if (!graphics_engine || !ticket.process || !ticket.generation ||
+        !ticket.channel_generation) return {};
+    const std::scoped_lock lock{mutex};
+    const auto it = engines.find(graphics_engine);
+    if (it == engines.end() || !it->second.subchannels ||
+        it->second.ticket.process != ticket.process ||
+        it->second.ticket.generation != ticket.generation ||
+        it->second.ticket.channel_generation != ticket.channel_generation)
+        return {};
+    const auto channel = channels.find(it->second.channel);
+    if (channel == channels.end() ||
+        channel->second.process != ticket.process ||
+        channel->second.generation != ticket.generation ||
+        channel->second.channel_generation != ticket.channel_generation ||
+        !NativeGpuProcessRegistry::Instance().IsCurrent(
+            {ticket.process, ticket.generation}))
+        return {};
+    // 4 MiB / 32 images per active graphics engine; full native code bytes
+    // and the stage are checked by NativeTranslationCache before any hit.
+    // Unbind or subchannel retirement drops this shared cache. In-flight
+    // readers may finish but the renderer rechecks the engine epoch.
+    if (!it->second.translation_cache)
+        it->second.translation_cache =
+            std::make_shared<Shader::Ampere::NativeTranslationCache>(
+                4 * 1024 * 1024, 32);
+    return it->second.translation_cache;
+}
+} // namespace Service::Nvidia::Devices
 
 namespace VideoCommon {
 bool ReadNs2GpuShader(void* context, u64 address, void* dest, std::size_t size) {
