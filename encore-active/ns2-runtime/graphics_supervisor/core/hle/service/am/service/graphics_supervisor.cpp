@@ -11,6 +11,7 @@
 #include "core/hle/service/nvdrv/core/container.h"
 #include "core/hle/service/nvdrv/core/nvmap.h"
 #include "core/hle/service/nvdrv/nvdrv.h"
+#include "core/hle/service/nvdrv/devices/nvhost_as_gpu.h"
 #include "core/hle/kernel/k_memory_block.h"
 #include "core/hle/service/sm/sm.h"
 #include <span>
@@ -79,6 +80,11 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {423, &IGraphicsSupervisor::BindNativeGpuMemory, "BindNativeGpuMemory"},
         {429, &IGraphicsSupervisor::CreateNativeImage, "CreateNativeImage"},
         {430, &IGraphicsSupervisor::DestroyNativeImage, "DestroyNativeImage"},
+        {911, &IGraphicsSupervisor::CreateVideoImagePool, "CreateVideoImagePool"},
+        {912, &IGraphicsSupervisor::DestroyVideoImagePool, "DestroyVideoImagePool"},
+        {426, &IGraphicsSupervisor::MapVideoGpuImage, "MapNativeGpuImage"},
+        {427, &IGraphicsSupervisor::UnmapVideoGpuImage, "UnmapNativeGpuImage"},
+        {428, &IGraphicsSupervisor::QueryVideoGpuImage, "QueryNativeGpuImage"},
         {435, &IGraphicsSupervisor::CalculateNativeImageSize, "CalculateNativeImageSize"},
         {1510, &IGraphicsSupervisor::CalculateNativeImageRequirements, "CalculateRequirements"},
     };
@@ -90,6 +96,16 @@ IGraphicsSupervisor::~IGraphicsSupervisor() {
     const std::scoped_lock lock{m_native_memory_mutex};
     if (m_native_module) {
         auto& nvmap = m_native_module->GetContainer().GetNvMapFile();
+        // The GMMU VA owner outlives the mapping until it is retired.
+        for (const auto& [key, mapping] : m_video_mappings) {
+            if (mapping.address_space)
+                mapping.address_space->UnmapNative4K(mapping.address, mapping.size);
+        }
+        m_video_mappings.clear();
+        for (const auto& [first, pool] : m_video_pools.Records()) {
+            nvmap.UnpinHandle(pool.backing);
+            nvmap.FreeHandle(pool.backing, true);
+        }
         // Retire internal image duplicates before their underlying NVMap
         // allocations; otherwise the backing remains busy at shutdown.
         for (const auto& [image_id, image] : m_native_images.Records())
@@ -448,6 +464,204 @@ void IGraphicsSupervisor::BindNativeGpuMemory(HLERequestContext& ctx) {
                             nvmap.FreeHandle(request->parent, true);
                     }
                 }
+            }
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
+IGraphicsSupervisor::FindRegisteredGpuAddressSpace(u32 fd) {
+    // The process identity is enforced by IGpuSession's registered FD owner.
+    // A numeric FD alone must never grant access to another KProcess GMMU.
+    for (const auto& weak : m_gpu_sessions) {
+        if (const auto session = weak.lock()) {
+            if (auto as = session->GetRegisteredAddressSpace(fd))
+                return as;
+        }
+    }
+    return {};
+}
+
+void IGraphicsSupervisor::CreateVideoImagePool(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    u32 first{};
+    if (packet[0] == 0x39f && packet[1] == 18) {
+        result = Kernel::ResultInvalidState;
+        if (m_bootstrap.GpuContextReady()) {
+            const std::span<const u32> preference{packet + 2, 16};
+            const u32 count = packet[18];
+            const auto layout = CalculateNativeVideoImageLayout(preference, count);
+            result = Kernel::ResultNotImplemented;
+            if (layout && (layout->image_bytes & 0xfffU) == 0 &&
+                (layout->image_stride & 0xfffU) == 0) {
+                const std::scoped_lock lock{m_native_memory_mutex};
+                result = Kernel::ResultNotFound;
+                const u32 backing = packet[19];
+                const auto owned = m_native_memory.Get(backing);
+                if (owned && owned->bound && m_native_module) {
+                    auto& nvmap = m_native_module->GetContainer().GetNvMapFile();
+                    const auto handle = nvmap.GetHandle(backing);
+                    result = Kernel::ResultInvalidSize;
+                    if (handle && handle->allocated && handle->size >= layout->total_bytes) {
+                        const auto* session =
+                            m_native_module->GetContainer().GetSession(handle->session_id);
+                        result = Kernel::ResultInvalidHandle;
+                        if (session && session->process == m_process) {
+                            result = Kernel::ResultOutOfResource;
+                            if (m_next_video_image_id &&
+                                u64{m_next_video_image_id} + count - 1 <=
+                                    std::numeric_limits<u32>::max() &&
+                                m_video_pools.ImageCount() <=
+                                    NativeVideoPoolLedger::MaxImages - count &&
+                                handle->Duplicate(true) == Nvidia::NvResult::Success) {
+                                const DAddr pinned = nvmap.PinHandle(backing, false);
+                                if (pinned) {
+                                    if (m_video_pools.Add(m_next_video_image_id, count,
+                                                          backing, handle->size,
+                                                          preference[2], *layout)) {
+                                        first = m_next_video_image_id;
+                                        m_next_video_image_id += count;
+                                        result = ResultSuccess;
+                                    } else {
+                                        nvmap.UnpinHandle(backing);
+                                    }
+                                }
+                                if (result.IsError()) nvmap.FreeHandle(backing, true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(result.raw);
+    rb.Push(first);
+}
+
+void IGraphicsSupervisor::DestroyVideoImagePool(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    if (packet[0] == 0x3a0 && packet[1] == 1) {
+        const std::scoped_lock lock{m_native_memory_mutex};
+        result = Kernel::ResultNotFound;
+        const auto pool = m_video_pools.Get(packet[2]);
+        if (pool && m_native_module) {
+            result = Kernel::ResultBusy;
+            bool mapped = false;
+            for (const auto& [key, mapping] : m_video_mappings) {
+                const u32 image = key.second;
+                if (image >= pool->first_id &&
+                    image - pool->first_id < pool->count) {
+                    mapped = true;
+                    break;
+                }
+            }
+            if (!mapped) {
+                auto& nvmap = m_native_module->GetContainer().GetNvMapFile();
+                nvmap.UnpinHandle(pool->backing);
+                const auto freed = nvmap.FreeHandle(pool->backing, true);
+                result = freed && m_video_pools.Remove(pool->first_id)
+                    ? ResultSuccess : Kernel::ResultInvalidState;
+            }
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGraphicsSupervisor::QueryVideoGpuImage(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    std::array<u64, 16> descriptor{};
+    if (packet[0] == 0x1bc && packet[1] == 1) {
+        const std::scoped_lock lock{m_native_memory_mutex};
+        result = Kernel::ResultNotFound;
+        if (const auto image = m_video_pools.Lookup(packet[2])) {
+            descriptor[0] = 1;
+            descriptor[1] = image->packed_dimensions;
+            descriptor[4] = 0x101000001ULL;
+            descriptor[5] = image->offset | (image->size << 32);
+            result = ResultSuccess;
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 39};
+    rb.Push(result.raw);
+    rb.Push<u64>(0);
+    rb.Push<u64>(0);
+    for (const u64 field : descriptor) rb.Push(field);
+    rb.Push<u32>(0);
+}
+
+void IGraphicsSupervisor::MapVideoGpuImage(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    std::array<u64, 16> descriptor{};
+    u64 address{}, size{};
+    if (packet[0] == 0x1ba && packet[1] == 4 && packet[3] == 1 &&
+        ((packet[5] & 0xff) == 1 || (packet[5] & 0xff) == 3)) {
+        result = Kernel::ResultNotFound;
+        if (const auto as = FindRegisteredGpuAddressSpace(packet[4])) {
+            const std::scoped_lock lock{m_native_memory_mutex};
+            if (const auto image = m_video_pools.Lookup(packet[2])) {
+                descriptor[0] = 1;
+                descriptor[1] = image->packed_dimensions;
+                descriptor[4] = 0x101000001ULL;
+                descriptor[5] = image->offset | (image->size << 32);
+                size = image->size;
+                const auto key = std::make_pair(packet[4], packet[2]);
+                if (auto it = m_video_mappings.find(key); it != m_video_mappings.end()) {
+                    result = Kernel::ResultOutOfResource;
+                    if (it->second.references != std::numeric_limits<u32>::max()) {
+                        ++it->second.references;
+                        address = it->second.address;
+                        result = ResultSuccess;
+                    }
+                } else {
+                    result = Kernel::ResultOutOfResource;
+                    if (as->MapNativeImage(image->backing, image->offset,
+                                           image->size, address) == Nvidia::NvResult::Success) {
+                        m_video_mappings.emplace(key,
+                            VideoImageMapping{as, address, image->size, 1});
+                        result = ResultSuccess;
+                    }
+                }
+                if (result.IsSuccess()) descriptor[5] &= 0xffffffff00000000ULL;
+            }
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 39};
+    rb.Push(result.raw);
+    rb.Push(address);
+    rb.Push(size ? address + size - 1 : 0);
+    for (const u64 field : descriptor) rb.Push(field);
+    rb.Push<u32>(0);
+}
+
+void IGraphicsSupervisor::UnmapVideoGpuImage(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    if (packet[0] == 0x1bb && packet[1] == 6) {
+        const std::scoped_lock lock{m_native_memory_mutex};
+        result = Kernel::ResultNotFound;
+        const auto key = std::make_pair(packet[3], packet[2]);
+        const auto it = m_video_mappings.find(key);
+        const u64 address = NativeU64(packet, 4);
+        const u64 end = NativeU64(packet, 6);
+        if (it != m_video_mappings.end() && it->second.address == address &&
+            it->second.size > 0 && end >= address &&
+            end - address == it->second.size - 1) {
+            result = ResultSuccess;
+            if (it->second.references == 1) {
+                result = it->second.address_space->UnmapNative4K(
+                    address, it->second.size) == Nvidia::NvResult::Success
+                    ? ResultSuccess : Kernel::ResultInvalidState;
+                if (result.IsSuccess()) m_video_mappings.erase(it);
+            } else {
+                --it->second.references;
             }
         }
     }
