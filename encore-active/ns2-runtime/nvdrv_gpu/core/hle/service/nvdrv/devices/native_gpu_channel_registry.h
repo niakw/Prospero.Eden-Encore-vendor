@@ -51,6 +51,56 @@ public:
         }
         return true;
     }
+    // 3D class 0xC797 is bound by the GPU command puller, not by the
+    // NVDRV process registry. Track its explicit engine AND subchannel
+    // identity; the renderer must not infer Ampere from a title ID.
+    [[nodiscard]] bool BindGraphicsEngine(
+        const Tegra::Control::ChannelState* channel,
+        const void* graphics_engine, std::uint32_t subchannel) {
+        if (!channel || !graphics_engine || subchannel >= 8) return false;
+        const std::scoped_lock lock{mutex};
+        const auto channel_it = channels.find(channel);
+        if (channel_it == channels.end()) return false;
+        const auto& ticket = channel_it->second;
+        if (!NativeGpuProcessRegistry::Instance().IsCurrent(
+                {ticket.process, ticket.generation}))
+            return false;
+        const auto existing = engines.find(graphics_engine);
+        if (existing != engines.end() &&
+            (existing->second.channel != channel ||
+             existing->second.ticket.channel_generation != ticket.channel_generation))
+            return false;
+        auto [it, inserted] = engines.try_emplace(
+            graphics_engine, GraphicsOwner{channel, ticket, 0});
+        it->second.subchannels |= static_cast<std::uint8_t>(1u << subchannel);
+        return true;
+    }
+    void UnbindGraphicsSubchannel(
+        const Tegra::Control::ChannelState* channel,
+        const void* graphics_engine, std::uint32_t subchannel) {
+        if (!channel || !graphics_engine || subchannel >= 8) return;
+        const std::scoped_lock lock{mutex};
+        const auto it = engines.find(graphics_engine);
+        if (it == engines.end() || it->second.channel != channel) return;
+        it->second.subchannels &= static_cast<std::uint8_t>(~(1u << subchannel));
+        if (!it->second.subchannels) engines.erase(it);
+    }
+    [[nodiscard]] std::optional<Ticket> CaptureGraphicsTicket(
+        const void* graphics_engine) const {
+        if (!graphics_engine) return std::nullopt;
+        const std::scoped_lock lock{mutex};
+        const auto owner = engines.find(graphics_engine);
+        if (owner == engines.end() || !owner->second.subchannels) return std::nullopt;
+        const auto channel = channels.find(owner->second.channel);
+        if (channel == channels.end() ||
+            channel->second.process != owner->second.ticket.process ||
+            channel->second.generation != owner->second.ticket.generation ||
+            channel->second.channel_generation != owner->second.ticket.channel_generation ||
+            !NativeGpuProcessRegistry::Instance().IsCurrent(
+                {owner->second.ticket.process, owner->second.ticket.generation}))
+            return std::nullopt;
+        return owner->second.ticket;
+    }
     // A native Vulkan worker may capture the exact GPU channel lifetime.
     // Before publishing shader/pipeline output, revalidate this ticket
     // against BOTH the process generation and the channel bind epoch.
@@ -86,10 +136,20 @@ public:
         if (!channel) return;
         const std::scoped_lock lock{mutex};
         channels.erase(channel);
+        for (auto it = engines.begin(); it != engines.end();) {
+            if (it->second.channel == channel) it = engines.erase(it);
+            else ++it;
+        }
     }
 private:
     mutable std::mutex mutex;
     std::map<const Tegra::Control::ChannelState*, Ticket> channels;
+    struct GraphicsOwner {
+        const Tegra::Control::ChannelState* channel{};
+        Ticket ticket{};
+        std::uint8_t subchannels{};
+    };
+    std::map<const void*, GraphicsOwner> engines;
     std::uint64_t last_channel_generation{};
 };
 } // namespace Service::Nvidia::Devices
