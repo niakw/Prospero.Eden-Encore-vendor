@@ -116,6 +116,11 @@ void nvhost_as_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
 }
 void nvhost_as_gpu::OnClose(DeviceFD fd) {}
 
+bool nvhost_as_gpu::OwnsNativeProcess(Kernel::KProcess* process) {
+    const std::scoped_lock lock{mutex};
+    return process != nullptr && m_native_process == process && vm.initialised && gmmu;
+}
+
 // NS2 research: operate on a real, exclusive, 4-KiB guest GMMU allocation.
 // Unlike the old fixed IOCTL path, validation+reservation+mapping happen
 // under one address-space mutex and no failed/overlap request returns success.

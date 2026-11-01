@@ -13,13 +13,16 @@
 #include "core/hle/service/am/service/gpu_session_protocol.h"
 
 namespace Kernel { class KProcess; class KEvent; class KClientSession; }
-namespace Service::Nvidia { class Module; }
+namespace Service::Nvidia { class Module; namespace Devices { class nvhost_as_gpu; } }
 namespace Service::AM {
 class IGpuSession final : public ServiceFramework<IGpuSession> {
 public:
     IGpuSession(Core::System& system, std::shared_ptr<Nvidia::Module> module,
                 Kernel::KProcess* process);
     Result RegisterAddressSpace(u32 id);
+    // Only a registered guest AS from this KProcess may be consumed by GSV.
+    [[nodiscard]] std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
+        GetRegisteredAddressSpace(u32 id);
     ~IGpuSession() override;
     Result HandleSyncRequest(Kernel::KServerSession& session, HLERequestContext& ctx) override;
 private:

@@ -192,6 +192,18 @@ Result IGpuSession::RegisterAddressSpace(u32 id) {
     return Translate(m_shared->address_spaces.Register(id));
 }
 
+std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
+IGpuSession::GetRegisteredAddressSpace(u32 id) {
+    const std::scoped_lock lock{m_shared->mutex};
+    if (id == 0 || id > static_cast<u32>(std::numeric_limits<std::int32_t>::max()) ||
+        !m_shared->address_spaces.Registered(id) ||
+        m_module->VerifyFD(static_cast<Nvidia::DeviceFD>(id)) != Nvidia::NvResult::Success)
+        return {};
+    const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
+        static_cast<Nvidia::DeviceFD>(id));
+    return as && as->OwnsNativeProcess(m_process) ? as : nullptr;
+}
+
 void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
     const std::scoped_lock lock{m_shared->mutex};
     const auto* packet = ctx.CommandBuffer();
