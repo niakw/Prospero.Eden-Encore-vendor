@@ -592,7 +592,13 @@ void RasterizerVulkan::DrawTexture() {
     texture_cache.SynchronizeDescriptors(false);
     texture_cache.UpdateRenderTargets(false);
 
+#ifdef PS5_NATIVE
+    // Raw blit uses its own viewport/scissor and pipeline. The next
+    // guest draw restores dynamic state after Scheduler::InvalidateState.
+    // Avoid wasted state setup while texture_cache.mutex is held.
+#else
     UpdateDynamicStates();
+#endif
 
     query_cache.NotifySegment(true);
     query_cache.CounterEnable(VideoCommon::QueryType::ZPassPixelCount64, maxwell3d->regs.zpass_pixel_count_enable);
