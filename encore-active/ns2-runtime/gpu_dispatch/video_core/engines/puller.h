@@ -130,6 +130,8 @@ private:
                            std::span<const u32> values, bool last, u32 subchannel);
     void ProcessNativeComputeQmd(DmaPusher& dma_pusher, u32 method,
                                  u32 argument, u32 subchannel);
+    void ProcessNativeComputeQmdAt(DmaPusher& dma_pusher, GPUVAddr address,
+                                   u32 argument, u32 subchannel, u32 method);
     void ProcessNativeComputeReportSemaphore(DmaPusher& dma_pusher, u32 control);
     void ProcessNativeComputeInlineQmd(DmaPusher& dma_pusher, u32 subchannel);
     void ProcessFenceActionMethod(DmaPusher& dma_pusher);
