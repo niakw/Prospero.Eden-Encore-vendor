@@ -83,6 +83,32 @@ namespace VideoCommon {
     Shader::Ampere::NativeTranslationCache* cache = nullptr,
     Shader::Backend::Bindings initial_bindings = {});
 
+// Headerless QMD3 Compute compiler. Caller provides the authenticated
+// process, exact GMMU code address, and an owned Compute Environment with
+// actual QMD workgroup, buffers and bound texture metadata. No dispatch.
+[[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2ComputeSpirvFromReader(
+    const Kernel::KProcess* process,
+    std::unique_ptr<Shader::Environment> original,
+    u64 gpu_program_address,
+    Shader::Ampere::GuestShaderRead read,
+    void* context,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache = nullptr,
+    Shader::Backend::Bindings initial_bindings = {});
+
+[[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2ComputeSpirv(
+    Tegra::MemoryManager& memory,
+    const Kernel::KProcess* process,
+    std::unique_ptr<Shader::Environment> original,
+    u64 gpu_program_address,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache = nullptr,
+    Shader::Backend::Bindings initial_bindings = {});
+
 // Original vertex-only ABI remains explicitly restricted to VertexB.
 // Inject an explicitly bounded shader-memory reader for host qualification.
 [[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2VertexSpirvFromReader(

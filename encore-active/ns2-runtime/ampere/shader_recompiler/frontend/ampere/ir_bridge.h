@@ -17,4 +17,12 @@ namespace Shader::Ampere {
     NativeMaxwellEnvironment& env,
     const Shader::HostTranslateInfo& host_info,
     bool exits_to_dispatcher = false);
+// Compute entry point uses the QMD-owned workgroup and CBUF environment
+// and starts at the generated first instruction, without a graphics SPH.
+[[nodiscard]] Shader::IR::Program TranslateReviewedComputeIR(
+    Shader::ObjectPool<Shader::IR::Inst>& inst_pool,
+    Shader::ObjectPool<Shader::IR::Block>& block_pool,
+    Shader::ObjectPool<Shader::Maxwell::Flow::Block>& flow_pool,
+    NativeMaxwellEnvironment& env,
+    const Shader::HostTranslateInfo& host_info);
 } // namespace Shader::Ampere

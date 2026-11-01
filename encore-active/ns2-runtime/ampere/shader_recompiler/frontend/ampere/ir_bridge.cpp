@@ -26,4 +26,18 @@ Shader::IR::Program TranslateReviewedGraphicsIR(
     Shader::Maxwell::Flow::CFG cfg{env, flow_pool, address, exits_to_dispatcher};
     return Shader::Maxwell::TranslateProgram(inst_pool, block_pool, env, cfg, host_info);
 }
+Shader::IR::Program TranslateReviewedComputeIR(
+    Shader::ObjectPool<Shader::IR::Inst>& inst_pool,
+    Shader::ObjectPool<Shader::IR::Block>& block_pool,
+    Shader::ObjectPool<Shader::Maxwell::Flow::Block>& flow_pool,
+    NativeMaxwellEnvironment& env,
+    const Shader::HostTranslateInfo& host_info) {
+    if (env.ShaderStage() != Shader::Stage::Compute ||
+        !env.Image().ValidForCompiler() ||
+        env.Image().native_stage != static_cast<u32>(Shader::Stage::Compute) ||
+        !env.Image().ReadMaxwellInstruction(env.StartAddress()))
+        throw std::invalid_argument{"NS2 compute shader image or QMD stage invalid"};
+    Shader::Maxwell::Flow::CFG cfg{env, flow_pool, env.StartAddress()};
+    return Shader::Maxwell::TranslateProgram(inst_pool, block_pool, env, cfg, host_info);
+}
 } // namespace Shader::Ampere

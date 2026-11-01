@@ -39,6 +39,9 @@ struct NativeSpirvResult {
         return Ready() && info.has_value() && stage.has_value() &&
                (*stage == Shader::Stage::VertexB || *stage == Shader::Stage::Fragment);
     }
+    [[nodiscard]] bool ComputeMetadataReady() const noexcept {
+        return Ready() && info.has_value() && stage == Shader::Stage::Compute;
+    }
     [[nodiscard]] bool Ready() const noexcept {
         return status == NativeSpirvStatus::Ready && !words.empty();
     }
@@ -65,6 +68,16 @@ struct NativeSpirvResult {
 [[nodiscard]] NativeSpirvResult CompileReviewedNativeMergedVertexSpirv(
     NativeMaxwellEnvironment& vertex_a,
     NativeMaxwellEnvironment& vertex_b,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Backend::Bindings initial_bindings = {});
+
+// Stage-specific native Compute shader module; caller owns the true QMD
+// workgroup and resource environment. This compiles SPIR-V only, and does
+// NOT create/bind/submit a Vulkan compute pipeline.
+[[nodiscard]] NativeSpirvResult CompileReviewedNativeComputeSpirv(
+    NativeMaxwellEnvironment& env,
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,

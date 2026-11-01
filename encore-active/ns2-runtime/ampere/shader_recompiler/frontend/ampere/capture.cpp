@@ -13,23 +13,24 @@ constexpr std::size_t MaxwellHeaderBytes = 0x50;
 constexpr u32 MaxCapturedInstructions = 4096;
 } // namespace
 
-NativeCaptureResult CaptureNativeGraphicsShader(
+NativeCaptureResult CaptureNativeShader(
     u64 gpu_base, u32 stage, GuestShaderRead read, void* context,
-    NativeTranslationCache* cache) {
+    NativeTranslationCache* cache, bool compute) {
     NativeCaptureResult result;
-    // Shader::Stage is the maintained compiler's stage domain, not a
-    // native GPU enum or an unbounded cache discriminator. Compute needs
-    // QMD metadata and must never pass through the graphics SPH path.
-    if (stage > static_cast<u32>(Shader::Stage::VertexA) ||
-        stage == static_cast<u32>(Shader::Stage::Compute))
+    // The graphics SPH is never borrowed for compute. Stage identities
+    // and mapped read boundaries remain distinct across both paths.
+    if (compute ? stage != static_cast<u32>(Shader::Stage::Compute)
+                : stage > static_cast<u32>(Shader::Stage::VertexA) ||
+                  stage == static_cast<u32>(Shader::Stage::Compute))
         return result;
+    const u64 header_bytes = compute ? 0 : NativeHeaderBytes;
     if (!read || gpu_base > std::numeric_limits<u64>::max() -
-                                 NativeHeaderBytes -
+                                 header_bytes -
                                  u64{MaxCapturedInstructions} * sizeof(Instruction))
         return result;
 
     std::array<u8, NativeHeaderBytes> header{};
-    if (!read(context, gpu_base, header.data(), header.size())) {
+    if (!compute && !read(context, gpu_base, header.data(), header.size())) {
         result.status = NativeCaptureStatus::Unmapped;
         return result;
     }
@@ -41,10 +42,10 @@ NativeCaptureResult CaptureNativeGraphicsShader(
     ProgramCaptureState capture;
     for (u32 index = 0; index < MaxCapturedInstructions; ++index) {
         std::array<u8, sizeof(Instruction)> bytes{};
-        const u64 addr = gpu_base + NativeHeaderBytes + u64{index} * sizeof(Instruction);
+        const u64 addr = gpu_base + header_bytes + u64{index} * sizeof(Instruction);
         if (!read(context, addr, bytes.data(), bytes.size())) {
             result.status = NativeCaptureStatus::Unmapped;
-            result.first_error_offset = NativeHeaderBytes + index * sizeof(Instruction);
+            result.first_error_offset = header_bytes + index * sizeof(Instruction);
             return result;
         }
         Instruction inst{};
@@ -57,13 +58,13 @@ NativeCaptureResult CaptureNativeGraphicsShader(
         // as a valid shader with arbitrary unseen branch destinations.
         if (inst.Bits(0, 12) == 0x949) {
             result.status = NativeCaptureStatus::UnresolvedIndirectBranch;
-            result.first_error_offset = NativeHeaderBytes + index * sizeof(Instruction);
+            result.first_error_offset = header_bytes + index * sizeof(Instruction);
             return result;
         }
         const auto observed = capture.Observe(inst, index);
         if (observed == ProgramCaptureState::Result::InvalidTarget) {
             result.status = NativeCaptureStatus::InvalidBranch;
-            result.first_error_offset = NativeHeaderBytes + index * sizeof(Instruction);
+            result.first_error_offset = header_bytes + index * sizeof(Instruction);
             return result;
         }
         source.insert(source.end(), bytes.begin(), bytes.end());
@@ -77,7 +78,7 @@ NativeCaptureResult CaptureNativeGraphicsShader(
             : BuildMaxwellShaderImage(maxwell_header, source, stage);
         if (!result.image.Ready()) {
             result.status = NativeCaptureStatus::TranslationFailed;
-            result.first_error_offset = NativeHeaderBytes +
+            result.first_error_offset = header_bytes +
                                         result.image.failed_native_offset;
             return result;
         }
@@ -94,5 +95,18 @@ NativeCaptureResult CaptureNativeGraphicsShader(
     result.status = NativeCaptureStatus::NoTerminator;
     result.captured_native_bytes = static_cast<u32>(source.size());
     return result;
+}
+
+NativeCaptureResult CaptureNativeGraphicsShader(
+    u64 gpu_base, u32 stage, GuestShaderRead read, void* context,
+    NativeTranslationCache* cache) {
+    return CaptureNativeShader(gpu_base, stage, read, context, cache, false);
+}
+
+NativeCaptureResult CaptureNativeComputeShader(
+    u64 gpu_program_address, GuestShaderRead read, void* context,
+    NativeTranslationCache* cache) {
+    return CaptureNativeShader(gpu_program_address,
+        static_cast<u32>(Shader::Stage::Compute), read, context, cache, true);
 }
 } // namespace Shader::Ampere

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 
@@ -36,7 +37,9 @@ NativeMaxwellEnvironment::NativeMaxwellEnvironment(
     // The image already contains the 0x50-byte header; avoid a double
     // offset that would begin Maxwell CFG at 0xA0 instead of 0x50.
     static_assert(sizeof(Shader::ProgramHeader) == 0x50);
-    start_address = image.first_instruction_address - sizeof(Shader::ProgramHeader);
+    start_address = stage == Shader::Stage::Compute
+        ? image.first_instruction_address
+        : image.first_instruction_address - sizeof(Shader::ProgramHeader);
     is_proprietary_driver = source.IsProprietaryDriver();
 }
 std::unique_ptr<NativeMaxwellEnvironment> NativeMaxwellEnvironment::Create(
@@ -71,6 +74,28 @@ std::unique_ptr<NativeMaxwellEnvironment> NativeMaxwellEnvironment::CreateOwned(
     return std::unique_ptr<NativeMaxwellEnvironment>(
         new NativeMaxwellEnvironment(std::move(source), ref, std::move(image)));
 }
+std::unique_ptr<NativeMaxwellEnvironment> NativeMaxwellEnvironment::CreateComputeOwned(
+    std::unique_ptr<Shader::Environment> source, MaxwellShaderImage image) {
+    // Compute programs have no graphics SPH: validate the synthetic prefix
+    // instead of comparing it to an unrelated guest graphics header.
+    if (!source || source->ShaderStage() != Shader::Stage::Compute ||
+        !image.ValidForCompiler() ||
+        image.native_stage != static_cast<u32>(Shader::Stage::Compute) ||
+        image.first_instruction_address != 0x50 ||
+        !image.ReadMaxwellInstruction(0x50) ||
+        !std::all_of(image.code.begin(),
+                     image.code.begin() + sizeof(Shader::ProgramHeader) / sizeof(u64),
+                     [](u64 word) { return word == 0; })) {
+        source.reset();
+        return {};
+    }
+    const auto dims = source->WorkgroupSize();
+    if (!dims[0] || !dims[1] || !dims[2]) return {};
+    auto& ref = *source;
+    return std::unique_ptr<NativeMaxwellEnvironment>(
+        new NativeMaxwellEnvironment(std::move(source), ref, std::move(image)));
+}
+
 u64 NativeMaxwellEnvironment::ReadInstruction(u32 address) {
     // Fail closed instead of falling back to *native* GMMU bytes interpreted
     // as Maxwell instructions. Bounds and schedule slots are enforced by

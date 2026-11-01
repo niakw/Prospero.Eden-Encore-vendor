@@ -20,6 +20,11 @@ public:
     [[nodiscard]] static std::unique_ptr<NativeMaxwellEnvironment> CreateOwned(
         std::unique_ptr<Shader::Environment> original, MaxwellShaderImage image);
 
+    // Compute owns QMD metadata and begins at a headerless native code VA.
+    // It may not enter the graphics SPH-matching factory.
+    [[nodiscard]] static std::unique_ptr<NativeMaxwellEnvironment> CreateComputeOwned(
+        std::unique_ptr<Shader::Environment> original, MaxwellShaderImage image);
+
     [[nodiscard]] u64 ReadInstruction(u32 address) override;
     [[nodiscard]] u32 ReadCbufValue(u32 index, u32 offset) override;
     [[nodiscard]] Shader::TextureType ReadTextureType(u32 raw_handle) override;

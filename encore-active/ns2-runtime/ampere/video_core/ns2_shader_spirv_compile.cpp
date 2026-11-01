@@ -10,6 +10,61 @@
 #include "shader_recompiler/frontend/ampere/native_graphics_stage_policy.h"
 
 namespace VideoCommon {
+Shader::Ampere::NativeSpirvResult CompileCapturedNs2ComputeSpirvFromReader(
+    const Kernel::KProcess* process,
+    std::unique_ptr<Shader::Environment> original,
+    u64 gpu_program_address,
+    Shader::Ampere::GuestShaderRead read,
+    void* context,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache,
+    Shader::Backend::Bindings initial_bindings) {
+    using Shader::Ampere::NativeSpirvStatus;
+    auto& registry = Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+    const auto session = registry.CaptureTicket(process);
+    if (!session) return {NativeSpirvStatus::InactiveSession, {}};
+    if (!read || !original ||
+        original->ShaderStage() != Shader::Stage::Compute)
+        return {NativeSpirvStatus::UnsupportedStage, {}};
+    try {
+        auto captured = Shader::Ampere::CaptureNativeComputeShader(
+            gpu_program_address, read, context, cache);
+        if (!registry.IsCurrent(*session))
+            return {NativeSpirvStatus::InactiveSession, {}};
+        if (!captured.Ready())
+            return {NativeSpirvStatus::InvalidImage, {}};
+        auto env = Shader::Ampere::NativeMaxwellEnvironment::CreateComputeOwned(
+            std::move(original), std::move(captured.image));
+        if (!env)
+            return {NativeSpirvStatus::InvalidImage, {}};
+        auto compiled = Shader::Ampere::CompileReviewedNativeComputeSpirv(
+            *env, host_info, profile, runtime_info, initial_bindings);
+        if (!registry.IsCurrent(*session))
+            return {NativeSpirvStatus::InactiveSession, {}};
+        return compiled;
+    } catch (const std::exception&) {
+        return {NativeSpirvStatus::CompilationFailed, {}};
+    }
+}
+
+Shader::Ampere::NativeSpirvResult CompileCapturedNs2ComputeSpirv(
+    Tegra::MemoryManager& memory,
+    const Kernel::KProcess* process,
+    std::unique_ptr<Shader::Environment> original,
+    u64 gpu_program_address,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache,
+    Shader::Backend::Bindings initial_bindings) {
+    return CompileCapturedNs2ComputeSpirvFromReader(
+        process, std::move(original), gpu_program_address,
+        ReadNs2GpuShader, &memory, host_info, profile, runtime_info,
+        cache, initial_bindings);
+}
+
 Shader::Ampere::NativeSpirvResult CompileCapturedNs2GraphicsSpirvFromReader(
     const Kernel::KProcess* process,
     std::unique_ptr<Shader::Environment> original,

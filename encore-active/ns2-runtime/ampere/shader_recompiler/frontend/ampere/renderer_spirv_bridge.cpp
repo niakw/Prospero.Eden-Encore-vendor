@@ -95,6 +95,37 @@ NativeSpirvResult CompileReviewedNativeMergedVertexSpirv(
     }
 }
 
+NativeSpirvResult CompileReviewedNativeComputeSpirv(
+    NativeMaxwellEnvironment& env,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Backend::Bindings initial_bindings) {
+    if (env.ShaderStage() != Shader::Stage::Compute ||
+        !env.Image().ValidForCompiler() ||
+        env.Image().native_stage != static_cast<u32>(Shader::Stage::Compute))
+        return {NativeSpirvStatus::UnsupportedStage, {}};
+    try {
+        Shader::ObjectPool<Shader::IR::Inst> inst_pool{8192};
+        Shader::ObjectPool<Shader::IR::Block> block_pool{512};
+        Shader::ObjectPool<Shader::Maxwell::Flow::Block> flow_pool{512};
+        auto ir = TranslateReviewedComputeIR(
+            inst_pool, block_pool, flow_pool, env, host_info);
+        if (ir.stage != Shader::Stage::Compute || ir.blocks.empty())
+            return {NativeSpirvStatus::CompilationFailed, {}};
+        Shader::Maxwell::ConvertLegacyToGeneric(ir, runtime_info);
+        Shader::Backend::Bindings bindings{initial_bindings};
+        auto words = Shader::Backend::SPIRV::EmitSPIRV(profile, runtime_info, ir, bindings);
+        if (words.size() <= 5 || words.size() > 262144 ||
+            words[0] != 0x07230203U || words[3] == 0)
+            return {NativeSpirvStatus::InvalidModule, {}};
+        return {NativeSpirvStatus::Ready, std::move(words),
+                std::move(ir.info), bindings, Shader::Stage::Compute};
+    } catch (const std::exception&) {
+        return {NativeSpirvStatus::CompilationFailed, {}};
+    }
+}
+
 NativeSpirvResult CompileReviewedNativeVertexSpirv(
     NativeMaxwellEnvironment& env,
     const Shader::HostTranslateInfo& host_info,
