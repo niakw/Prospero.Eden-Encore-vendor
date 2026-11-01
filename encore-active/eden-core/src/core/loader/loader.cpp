@@ -121,7 +121,7 @@ bool HasApplicationProgramContent(const std::shared_ptr<FileSys::NSP>& nsp) {
 } // namespace
 
 FileType IdentifyFile(FileSys::VirtualFile file) {
-    if (const auto nsp_type = IdentifyFileLoader<AppLoader_NSP>(file)) {
+    // An ExeFS/main with its owning directory must use the directory loader.\n    // Generic NSO detection otherwise loses main.npdm identity and skips rtld/sdk.\n    // The directory validator keeps standalone NSOs on the NSO loader.\n    if (const auto romdir_type =\n            IdentifyFileLoader<AppLoader_DeconstructedRomDirectory>(file)) {\n        return *romdir_type;\n    } else if (const auto nsp_type = IdentifyFileLoader<AppLoader_NSP>(file)) {
         return *nsp_type;
     } else if (const auto xci_type = IdentifyFileLoader<AppLoader_XCI>(file)) {
         return *xci_type;
@@ -135,9 +135,6 @@ FileType IdentifyFile(FileSys::VirtualFile file) {
         return *kip_type;
     } else if (const auto nso_type = IdentifyFileLoader<AppLoader_NSO>(file)) {
         return *nso_type;
-    } else if (const auto romdir_type =
-                   IdentifyFileLoader<AppLoader_DeconstructedRomDirectory>(file)) {
-        return *romdir_type;
     } else {
         return FileType::Unknown;
     }
