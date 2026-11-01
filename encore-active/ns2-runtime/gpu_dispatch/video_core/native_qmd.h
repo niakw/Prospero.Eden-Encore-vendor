@@ -62,6 +62,9 @@ public:
                     state.deferred = 0;
                     state.loaded = true;
                     state.completed = false;
+                    // A fresh launch/reload starts a new completion transaction.
+                    state.dispatched = false;
+                    state.released_slots = 0;
                 }
                 state.scheduled = true;
             } else if (request.action == 7 || request.action == 12) {
@@ -102,13 +105,19 @@ public:
             // to advance guest queues; that masks incorrect rendering and
             // can let the guest reuse memory while GPU work never happened.
             // Keep this QMD pending for a future genuine dispatch backend.
-            const bool dispatched = !(qmd[12] && (qmd[13] & 0xffff) && (qmd[14] & 0xffff)) || dispatch(qmd);
+            // A failed semaphore delivery must not mark the QMD complete.
+            // On retry, never launch the same GPU work or queue an already
+            // accepted release a second time (especially atomic reductions).
+            const bool dispatched = state.dispatched ||
+                !(qmd[12] && (qmd[13] & 0xffff) && (qmd[14] & 0xffff)) || dispatch(qmd);
             if (trace) trace("run", request.address, dispatched ? 1 : 0);
             if (!dispatched) return "native shader dispatch required";
-            state.completed = true;
-            for (const Word base : ReleaseSlots) {
+            state.dispatched = true;
+            for (std::size_t slot = 0; slot < ReleaseSlots.size(); ++slot) {
+                const Word base = ReleaseSlots[slot];
                 const Word flags = qmd[base + 1];
-                if (!(flags & (1U << 23))) continue;
+                if (!(flags & (1U << 23)) || (state.released_slots & (Word{1} << slot)))
+                    continue;
                 const Address destination = (Address{flags & 0xff} << 32) | qmd[base];
                 bool released{};
                 if constexpr (std::is_invocable_r_v<bool, Release, Address, Word, Word>) {
@@ -117,7 +126,9 @@ public:
                     released = release(destination, qmd[base + 2]);
                 }
                 if (!released) return "unmapped QMD release";
+                state.released_slots |= Word{1} << slot;
             }
+            state.completed = true;
             if (qmd[16] & 1) {
                 const Word action = (qmd[16] >> 1) & 7;
                 if (action != 4 && action != 3 && action != 1) return "unsupported dependent QMD action";
@@ -140,6 +151,8 @@ private:
         bool loaded{};
         bool scheduled{};
         bool completed{};
+        bool dispatched{};
+        Word released_slots{};
     };
     // One instance must be shared by all GPU channels in a single process
     // epoch: dependency counters belong to QMD addresses, not subchannels.
