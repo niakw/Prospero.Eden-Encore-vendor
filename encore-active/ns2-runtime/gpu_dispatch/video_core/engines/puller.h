@@ -126,6 +126,8 @@ private:
     void ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_call);
     void CallNative3D(DmaPusher& dma_pusher, u32 method,
                       std::span<const u32> values, bool last);
+    void CallNativeCompute(DmaPusher& dma_pusher, u32 method,
+                           std::span<const u32> values, bool last, u32 subchannel);
     void ProcessNativeComputeQmd(DmaPusher& dma_pusher, u32 method,
                                  u32 argument, u32 subchannel);
     void ProcessFenceActionMethod(DmaPusher& dma_pusher);
@@ -142,6 +144,12 @@ private:
     std::vector<u32> native_parameters;
     u32 native_macro_method{};
     bool native_3d_failed{};
+    // Compute has its own TU104 MME code and pending parameter FIFO. It
+    // shares QMD dependency state by process via NativeGpuChannelRegistry.
+    std::unique_ptr<Tegra::NativeAmpereMacroState> native_compute;
+    std::vector<u32> native_compute_parameters;
+    u32 native_compute_macro_method{};
+    bool native_compute_failed{};
 
     enum class GpuSemaphoreOperation {
         AcquireEqual = 0x1,
