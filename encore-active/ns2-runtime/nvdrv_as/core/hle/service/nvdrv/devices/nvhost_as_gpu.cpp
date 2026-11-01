@@ -173,6 +173,55 @@ NvResult nvhost_as_gpu::MapNative4K(u32 handle_id, u64 address, u64 source, u64 
     return NvResult::Success;
 }
 
+NvResult nvhost_as_gpu::MapNativeImage(u32 handle_id, u64 source, u64 size, u64& address) {
+    address = 0;
+    constexpr u64 page = VM::YUZU_PAGESIZE;
+    if (!m_native_process || !handle_id || !size || ((source | size) & (page - 1)) ||
+        (size >> VM::PAGE_SIZE_BITS) > std::numeric_limits<u32>::max() ||
+        source > std::numeric_limits<u64>::max() - size)
+        return NvResult::BadParameter;
+    const auto handle = nvmap.GetHandle(handle_id);
+    if (!handle || !handle->allocated || source > handle->orig_size ||
+        size > handle->orig_size - source)
+        return NvResult::BadParameter;
+    const auto* session = container.GetSession(handle->session_id);
+    if (!session || session->process != m_native_process)
+        return NvResult::BadParameter;
+
+    const std::scoped_lock lock{mutex};
+    if (!vm.initialised || !gmmu || !vm.small_page_allocator)
+        return NvResult::InvalidState;
+    // A single allocation owns its VA and mapping. Do not use MapBufferEx:
+    // its legacy failure path can leak a pin or overlap a reserved region.
+    const u32 pages = static_cast<u32>(size >> VM::PAGE_SIZE_BITS);
+    const u32 allocated = vm.small_page_allocator->Allocate(pages);
+    if (!allocated) return NvResult::InsufficientMemory;
+    const u64 gpu_address = static_cast<u64>(allocated) << VM::PAGE_SIZE_BITS;
+    if (gpu_address < vm.va_range_start || gpu_address >= vm.va_range_split ||
+        size > vm.va_range_split - gpu_address ||
+        gpu_address > std::numeric_limits<u64>::max() - size ||
+        ((gpu_address + size) >> VM::PAGE_SIZE_BITS) > std::numeric_limits<u32>::max()) {
+        vm.small_page_allocator->Free(allocated, pages);
+        return NvResult::BadParameter;
+    }
+    const DAddr pinned = nvmap.PinHandle(handle_id, false);
+    if (!pinned || pinned > std::numeric_limits<u64>::max() - source) {
+        if (pinned) nvmap.UnpinHandle(handle_id);
+        vm.small_page_allocator->Free(allocated, pages);
+        return NvResult::InsufficientMemory;
+    }
+    // The VA allocator already reserved the pages. Mark the GMMU mapping
+    // fixed so FreeMappingLocked will unpin and unmap, while UnmapNative4K
+    // releases the single owning allocation exactly once.
+    allocation_map.emplace(gpu_address,
+                           Allocation{{gpu_address}, size, VM::YUZU_PAGESIZE, false, false});
+    mapping_map.emplace(gpu_address, Mapping(handle_id, pinned + source,
+                                            gpu_address, size, true, false, false));
+    gmmu->Map(gpu_address, pinned + source, size, Tegra::PTEKind{}, false);
+    address = gpu_address;
+    return NvResult::Success;
+}
+
 NvResult nvhost_as_gpu::ReserveNativeSparse4K(u64 address, u64 size) {
     constexpr u64 page = VM::YUZU_PAGESIZE;
     if (!m_native_process || !size || ((address | size) & (page - 1)) ||

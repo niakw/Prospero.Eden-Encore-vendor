@@ -187,16 +187,27 @@ void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
     // completed GPU work, and native GPU workers are still unsupported.
 }
 
+std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
+IGpuSession::ResolveOpenedAddressSpace(u32 id) {
+    if (!id || id > static_cast<u32>(std::numeric_limits<std::int32_t>::max()) ||
+        m_module->VerifyFD(static_cast<Nvidia::DeviceFD>(id)) != Nvidia::NvResult::Success)
+        return {};
+    const auto it = m_opened_gpu_as.find(id);
+    if (it == m_opened_gpu_as.end()) return {};
+    const auto as = it->second.lock();
+    // Module::GetDevice<T> is a static cast. For a potentially recycled FD,
+    // query ONLY the nvdevice base and compare the exact object identity.
+    const auto live = m_module->GetDevice<Nvidia::Devices::nvdevice>(
+        static_cast<Nvidia::DeviceFD>(id));
+    return as && live && as.get() == live.get() &&
+                   as->OwnsNativeProcess(m_process) ? as : nullptr;
+}
+
 Result IGpuSession::RegisterAddressSpace(u32 id) {
     const std::scoped_lock lock{m_shared->mutex};
     if (!m_shared->address_spaces.Owns(id))
         return Kernel::ResultNotFound;
-    if (id > static_cast<u32>(std::numeric_limits<std::int32_t>::max()) ||
-        m_module->VerifyFD(static_cast<Nvidia::DeviceFD>(id)) != Nvidia::NvResult::Success)
-        return Kernel::ResultInvalidState;
-    const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
-        static_cast<Nvidia::DeviceFD>(id));
-    if (!as || !as->OwnsNativeProcess(m_process))
+    if (!ResolveOpenedAddressSpace(id))
         return Kernel::ResultInvalidState;
     return Translate(m_shared->address_spaces.Register(id));
 }
@@ -204,13 +215,9 @@ Result IGpuSession::RegisterAddressSpace(u32 id) {
 std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
 IGpuSession::GetRegisteredAddressSpace(u32 id) {
     const std::scoped_lock lock{m_shared->mutex};
-    if (id == 0 || id > static_cast<u32>(std::numeric_limits<std::int32_t>::max()) ||
-        !m_shared->address_spaces.Registered(id) ||
-        m_module->VerifyFD(static_cast<Nvidia::DeviceFD>(id)) != Nvidia::NvResult::Success)
+    if (!m_shared->address_spaces.Registered(id))
         return {};
-    const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
-        static_cast<Nvidia::DeviceFD>(id));
-    return as && as->OwnsNativeProcess(m_process) ? as : nullptr;
+    return ResolveOpenedAddressSpace(id);
 }
 
 void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
@@ -236,13 +243,23 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
                 Nvidia::Ioctl ioctl{};
                 ioctl.raw = 0x40284109;
                 if (m_module->Ioctl1(fd, ioctl, input, output) == Nvidia::NvResult::Success) {
-                    const auto status = m_shared->address_spaces.Add(static_cast<u32>(fd));
-                    if (status == GP::Status::Success) {
-                        id = static_cast<u32>(fd);
-                        result = ResultSuccess;
-                    } else {
-                        result = Translate(status);
+                    // This FD comes from the explicit nvhost-as-gpu open above.
+                    // Capture its concrete identity once; every later lookup
+                    // compares a safe nvdevice base, never a foreign static cast.
+                    const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(fd);
+                    if (!as || !as->OwnsNativeProcess(m_process)) {
                         m_module->Close(fd);
+                        result = Kernel::ResultInvalidState;
+                    } else {
+                        const auto status = m_shared->address_spaces.Add(static_cast<u32>(fd));
+                        if (status == GP::Status::Success) {
+                            id = static_cast<u32>(fd);
+                            m_opened_gpu_as[id] = as;
+                            result = ResultSuccess;
+                        } else {
+                            result = Translate(status);
+                            m_module->Close(fd);
+                        }
                     }
                 } else {
                     m_module->Close(fd);
