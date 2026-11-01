@@ -40,6 +40,15 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
     }
 
     const auto engine_id = static_cast<EngineID>(engine);
+    const auto retire_native_3d = [&] {
+        if (bound_engines[method_call.subchannel] == static_cast<EngineID>(0xc797)) {
+            Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                .UnbindGraphicsSubchannel(
+                    &dma_pusher.channel_state,
+                    &dma_pusher.channel_state.payload->maxwell_3d,
+                    method_call.subchannel);
+        }
+    };
     // Validate native class ownership before changing the effective subchannel
     // binding. A rejected Ampere bind must not poison subsequent dispatch.
     if (engine_id == static_cast<EngineID>(0xc797)) {
@@ -56,6 +65,17 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
             return;
         }
         if (!native_3d) native_3d = std::make_unique<Tegra::NativeAmpereMacroState>();
+        // Register the engine BEFORE exposing the binding to GPFIFO dispatch.
+        // Only this authenticated 0xC797 path may opt in to native shader
+        // capture; an ordinary Maxwell engine can never inherit its identity.
+        if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                 .BindGraphicsEngine(
+                     &dma_pusher.channel_state,
+                     &dma_pusher.channel_state.payload->maxwell_3d,
+                     method_call.subchannel)) {
+            UNIMPLEMENTED_MSG("Ampere 3D engine ownership unavailable");
+            return;
+        }
         bound_engines[method_call.subchannel] = engine_id;
         dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->maxwell_3d,
                                   method_call.subchannel, EngineTypes::Maxwell3D);
@@ -66,6 +86,7 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
         // Restrict it to a live process-generation authenticated native channel.
         if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
                 &dma_pusher.channel_state)) {
+            retire_native_3d();
             bound_engines[method_call.subchannel] = engine_id;
             dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->maxwell_dma,
                                       method_call.subchannel, EngineTypes::MaxwellDMA);
@@ -75,7 +96,9 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
         return;
     }
     // Preserve the legacy Switch 1 binding behavior outside the guarded
-    // native Ampere classes.
+    // native Ampere classes. Rebinding a subchannel must revoke an earlier
+    // 0xC797 renderer identity, including if other NS2 subchannels remain.
+    retire_native_3d();
     bound_engines[method_call.subchannel] = engine_id;
     switch (engine_id) {
     case EngineID::FERMI_TWOD_A:
