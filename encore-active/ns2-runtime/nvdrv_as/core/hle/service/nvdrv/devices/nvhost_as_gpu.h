@@ -67,6 +67,8 @@ public:
 
     // Bounded NS2 research GMMU mappings. These do not enable Ampere shaders.
     NvResult MapNative4K(u32 handle_id, u64 address, u64 source, u64 size, u8 kind);
+    // Reserve native 4K VA and map a real NVMap-backed image in one AS lock.
+    NvResult MapNativeImage(u32 handle_id, u64 source, u64 size, u64& address);
     [[nodiscard]] bool OwnsNativeProcess(Kernel::KProcess* process);
     NvResult UnmapNative4K(u64 address, u64 size);
     NvResult ReserveNativeSparse4K(u64 address, u64 size);
