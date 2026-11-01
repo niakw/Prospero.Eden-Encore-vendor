@@ -4,6 +4,7 @@
 // NO native NVDRV address space, event, worker, queue or PS5 rendering path.
 #include <algorithm>
 #include <array>
+#include "common/logging.h"
 #include <memory>
 #include <limits>
 #include "core/hle/service/nvdrv/nvdrv_interface.h"
