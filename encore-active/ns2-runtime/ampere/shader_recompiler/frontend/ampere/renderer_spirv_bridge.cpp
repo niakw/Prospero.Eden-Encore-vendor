@@ -48,6 +48,49 @@ NativeSpirvResult CompileReviewedNativeGraphicsSpirv(
         return {NativeSpirvStatus::CompilationFailed, {}};
     }
 }
+NativeSpirvResult CompileReviewedNativeMergedVertexSpirv(
+    NativeMaxwellEnvironment& vertex_a,
+    NativeMaxwellEnvironment& vertex_b,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info) {
+    if (vertex_a.ShaderStage()!=Shader::Stage::VertexA ||
+        vertex_b.ShaderStage()!=Shader::Stage::VertexB ||
+        !vertex_a.Image().ValidForCompiler() || !vertex_b.Image().ValidForCompiler() ||
+        vertex_a.Image().native_stage!=static_cast<u32>(Shader::Stage::VertexA) ||
+        vertex_b.Image().native_stage!=static_cast<u32>(Shader::Stage::VertexB))
+        return {NativeSpirvStatus::UnsupportedStage, {}};
+    try {
+        // Preserve the exact upstream order: translate both independently,
+        // merge with the actual Maxwell VertexA/B IR passes, then lower to
+        // SPIR-V only once for the combined VertexB stage.
+        Shader::ObjectPool<Shader::IR::Inst> inst_pool{16384};
+        Shader::ObjectPool<Shader::IR::Block> block_pool{1024};
+        Shader::ObjectPool<Shader::Maxwell::Flow::Block> flow_pool{1024};
+        auto ir_a=TranslateReviewedGraphicsIR(
+            inst_pool,block_pool,flow_pool,vertex_a,host_info,true);
+        auto ir_b=TranslateReviewedGraphicsIR(
+            inst_pool,block_pool,flow_pool,vertex_b,host_info,false);
+        if (ir_a.stage!=Shader::Stage::VertexA ||
+            ir_b.stage!=Shader::Stage::VertexB ||
+            ir_a.blocks.empty() || ir_b.blocks.empty())
+            return {NativeSpirvStatus::CompilationFailed, {}};
+        auto merged=Shader::Maxwell::MergeDualVertexPrograms(ir_a,ir_b,vertex_b);
+        if (merged.stage!=Shader::Stage::VertexB || merged.blocks.empty())
+            return {NativeSpirvStatus::CompilationFailed, {}};
+        Shader::Maxwell::ConvertLegacyToGeneric(merged,runtime_info);
+        Shader::Backend::Bindings bindings{};
+        auto words=Shader::Backend::SPIRV::EmitSPIRV(
+            profile,runtime_info,merged,bindings);
+        if (words.size()<=5 || words.size()>262144 ||
+            words[0]!=0x07230203U || words[3]==0)
+            return {NativeSpirvStatus::InvalidModule, {}};
+        return {NativeSpirvStatus::Ready,std::move(words)};
+    } catch (const std::exception&) {
+        return {NativeSpirvStatus::CompilationFailed, {}};
+    }
+}
+
 NativeSpirvResult CompileReviewedNativeVertexSpirv(
     NativeMaxwellEnvironment& env,
     const Shader::HostTranslateInfo& host_info,

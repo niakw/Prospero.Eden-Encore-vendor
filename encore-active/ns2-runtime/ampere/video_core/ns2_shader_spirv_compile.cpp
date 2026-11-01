@@ -57,6 +57,76 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2GraphicsSpirvFromReader(
     }
 }
 
+Shader::Ampere::NativeSpirvResult CompileCapturedNs2MergedVertexSpirvFromReader(
+    const Kernel::KProcess* process,
+    std::unique_ptr<Shader::Environment> original_a,
+    std::unique_ptr<Shader::Environment> original_b,
+    u64 gpu_address_a,
+    u64 gpu_address_b,
+    Shader::Ampere::GuestShaderRead read,
+    void* context,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache) {
+    using Shader::Ampere::NativeSpirvStatus;
+    auto& registry=Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+    const auto session=registry.CaptureTicket(process);
+    if (!session) return {NativeSpirvStatus::InactiveSession, {}};
+    if (!read || !original_a || !original_b)
+        return {NativeSpirvStatus::InvalidImage, {}};
+    if (original_a->ShaderStage()!=Shader::Stage::VertexA ||
+        original_b->ShaderStage()!=Shader::Stage::VertexB ||
+        gpu_address_a==gpu_address_b)
+        return {NativeSpirvStatus::UnsupportedStage, {}};
+    try {
+        const auto captured_a=Shader::Ampere::CaptureNativeGraphicsShader(
+            gpu_address_a,static_cast<u32>(Shader::Stage::VertexA),
+            read,context,cache);
+        if (!registry.IsCurrent(*session))
+            return {NativeSpirvStatus::InactiveSession, {}};
+        if (!captured_a.Ready())
+            return {NativeSpirvStatus::InvalidImage, {}};
+        const auto captured_b=Shader::Ampere::CaptureNativeGraphicsShader(
+            gpu_address_b,static_cast<u32>(Shader::Stage::VertexB),
+            read,context,cache);
+        if (!registry.IsCurrent(*session))
+            return {NativeSpirvStatus::InactiveSession, {}};
+        if (!captured_b.Ready())
+            return {NativeSpirvStatus::InvalidImage, {}};
+        auto env_a=Shader::Ampere::NativeMaxwellEnvironment::CreateOwned(
+            std::move(original_a),captured_a.image);
+        auto env_b=Shader::Ampere::NativeMaxwellEnvironment::CreateOwned(
+            std::move(original_b),captured_b.image);
+        if (!env_a || !env_b)
+            return {NativeSpirvStatus::InvalidImage, {}};
+        auto result=Shader::Ampere::CompileReviewedNativeMergedVertexSpirv(
+            *env_a,*env_b,host_info,profile,runtime_info);
+        if (!registry.IsCurrent(*session))
+            return {NativeSpirvStatus::InactiveSession, {}};
+        return result;
+    } catch (const std::exception&) {
+        return {NativeSpirvStatus::CompilationFailed, {}};
+    }
+}
+
+Shader::Ampere::NativeSpirvResult CompileCapturedNs2MergedVertexSpirv(
+    Tegra::MemoryManager& memory,
+    const Kernel::KProcess* process,
+    std::unique_ptr<Shader::Environment> original_a,
+    std::unique_ptr<Shader::Environment> original_b,
+    u64 gpu_address_a,
+    u64 gpu_address_b,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache) {
+    return CompileCapturedNs2MergedVertexSpirvFromReader(
+        process,std::move(original_a),std::move(original_b),
+        gpu_address_a,gpu_address_b,ReadNs2GpuShader,&memory,
+        host_info,profile,runtime_info,cache);
+}
+
 Shader::Ampere::NativeSpirvResult CompileCapturedNs2VertexSpirvFromReader(
     const Kernel::KProcess* process,
     std::unique_ptr<Shader::Environment> original,

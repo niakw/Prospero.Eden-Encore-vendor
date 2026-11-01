@@ -50,6 +50,35 @@ namespace VideoCommon {
     Shader::Ampere::NativeTranslationCache* cache = nullptr,
     bool exits_to_dispatcher = false);
 
+// Process-generation-ticket guarded capture of BOTH native vertex stages.
+ // Both GPU addresses are read through the identical explicit GMMU reader,
+ // and the session ticket is checked after each capture and after compiling.
+ // No VertexA-only emission and no Switch 1 Vulkan pipeline interception.
+[[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2MergedVertexSpirvFromReader(
+    const Kernel::KProcess* process,
+    std::unique_ptr<Shader::Environment> original_a,
+    std::unique_ptr<Shader::Environment> original_b,
+    u64 gpu_address_a,
+    u64 gpu_address_b,
+    Shader::Ampere::GuestShaderRead read,
+    void* context,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache = nullptr);
+
+[[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2MergedVertexSpirv(
+    Tegra::MemoryManager& memory,
+    const Kernel::KProcess* process,
+    std::unique_ptr<Shader::Environment> original_a,
+    std::unique_ptr<Shader::Environment> original_b,
+    u64 gpu_address_a,
+    u64 gpu_address_b,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache = nullptr);
+
 // Original vertex-only ABI remains explicitly restricted to VertexB.
 // Inject an explicitly bounded shader-memory reader for host qualification.
 [[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2VertexSpirvFromReader(

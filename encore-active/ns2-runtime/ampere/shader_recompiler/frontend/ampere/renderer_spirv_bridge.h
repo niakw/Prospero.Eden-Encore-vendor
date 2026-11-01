@@ -45,6 +45,16 @@ struct NativeSpirvResult {
     const Shader::RuntimeInfo& runtime_info,
     bool exits_to_dispatcher = false);
 
+// Compile a genuine two-program vertex pipeline. The caller must supply
+// both owned, stage-matched environments and the real runtime pipeline
+// metadata. Unmerged VertexA may never escape as an independent module.
+[[nodiscard]] NativeSpirvResult CompileReviewedNativeMergedVertexSpirv(
+    NativeMaxwellEnvironment& vertex_a,
+    NativeMaxwellEnvironment& vertex_b,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info);
+
 // Keep the original vertex-only API strict for existing research callers.
 [[nodiscard]] NativeSpirvResult CompileReviewedNativeVertexSpirv(
     NativeMaxwellEnvironment& env,
