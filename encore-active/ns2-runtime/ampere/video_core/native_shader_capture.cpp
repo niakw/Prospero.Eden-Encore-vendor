@@ -3,9 +3,12 @@
 #include <limits>
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
 #include "video_core/memory_manager.h"
+#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
 #include "shader_recompiler/frontend/ampere/translation_cache.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
+#endif
 
+#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
 namespace Service::Nvidia::Devices {
 std::shared_ptr<Shader::Ampere::NativeTranslationCache>
 NativeGpuChannelRegistry::AcquireGraphicsTranslationCache(
@@ -38,6 +41,7 @@ NativeGpuChannelRegistry::AcquireGraphicsTranslationCache(
     return it->second.translation_cache;
 }
 } // namespace Service::Nvidia::Devices
+#endif
 
 namespace VideoCommon {
 bool ReadNs2GpuShader(void* context, u64 address, void* dest, std::size_t size) {
