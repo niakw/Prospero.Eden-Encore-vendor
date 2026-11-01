@@ -1653,8 +1653,10 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
                 return nullptr;
             // Shader key and translated stream must refer to exactly the
             // same guest bytes. A GMMU remap between key and build aborts.
+            // The factory above only creates NativeMaxwellEnvironment; avoid
+            // enabling RTTI in the PS5 video_core compilation profile.
             const auto* native_env =
-                dynamic_cast<const Shader::Ampere::NativeMaxwellEnvironment*>(
+                static_cast<const Shader::Ampere::NativeMaxwellEnvironment*>(
                     adapted.get());
             if (!native_env ||
                 native_env->Image().diagnostic_cache_key != graphics_key.unique_hashes[i])
