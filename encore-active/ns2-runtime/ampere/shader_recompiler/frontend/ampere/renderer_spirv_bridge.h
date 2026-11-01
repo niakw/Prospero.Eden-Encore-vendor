@@ -7,6 +7,7 @@
 #include "common/common_types.h"
 #include "shader_recompiler/backend/bindings.h"
 #include "shader_recompiler/shader_info.h"
+#include "shader_recompiler/stage.h"
 
 namespace Shader {
 struct HostTranslateInfo;
@@ -33,8 +34,10 @@ struct NativeSpirvResult {
     // index after each emitted shader; SPIR-V alone is insufficient.
     std::optional<Shader::Info> info{};
     Shader::Backend::Bindings next_bindings{};
+    std::optional<Shader::Stage> stage{};
     [[nodiscard]] bool PipelineMetadataReady() const noexcept {
-        return Ready() && info.has_value();
+        return Ready() && info.has_value() && stage.has_value() &&
+               (*stage == Shader::Stage::VertexB || *stage == Shader::Stage::Fragment);
     }
     [[nodiscard]] bool Ready() const noexcept {
         return status == NativeSpirvStatus::Ready && !words.empty();
