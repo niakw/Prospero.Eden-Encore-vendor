@@ -10,6 +10,7 @@
 #include <type_traits>
 #include <unordered_map>
 #include <limits>
+#include <mutex>
 
 namespace Tegra {
 
@@ -144,5 +145,12 @@ private:
     // epoch: dependency counters belong to QMD addresses, not subchannels.
     // The owner destroys the instance at process teardown.
     std::unordered_map<Address, State> states;
+};
+// A single authenticated GPU process owns this state and all its channels
+// share it. Mutex serializes cross-channel dependency changes; the process
+// registry invalidates the entire session on teardown/re-registration.
+struct NativeQmdSession {
+    std::mutex mutex{};
+    NativeQmdScheduler scheduler{};
 };
 } // namespace Tegra
