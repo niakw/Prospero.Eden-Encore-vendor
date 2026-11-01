@@ -693,8 +693,30 @@ NvResult nvhost_as_gpu::UnmapBuffer(IoctlUnmapBuffer& params) {
 NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {
     LOG_DEBUG(Service_NVDRV, "called, fd={:X}", params.fd);
 
+    // Never bind a channel to an absent or uninitialized GPU address space.
+    // The old path accepted a null GMMU and could crash on an unknown FD.
+    if (params.fd <= 0 || module.VerifyFD(params.fd) != NvResult::Success)
+        return NvResult::BadParameter;
     auto gpu_channel_device = module.GetDevice<nvhost_gpu>(params.fd);
-    gpu_channel_device->channel_state->memory_manager = gmmu.get();
+    if (!gpu_channel_device || !gpu_channel_device->channel_state)
+        return NvResult::BadParameter;
+    const std::scoped_lock lock{mutex, gpu_channel_device->channel_mutex};
+    if (!vm.initialised || !gmmu || !m_native_process)
+        return NvResult::InvalidState;
+
+    // NVDRV opens a distinct device for each FD. Match the GPU-channel owner
+    // to the AS owner, never bind a different title's GMMU by numeric FD.
+    const auto gpu_session = gpu_channel_device->sessions.find(params.fd);
+    if (gpu_session == gpu_channel_device->sessions.end())
+        return NvResult::BadParameter;
+    const auto* session = container.GetSession(gpu_session->second);
+    if (!session || session->process != m_native_process)
+        return NvResult::BadParameter;
+
+    auto& channel = *gpu_channel_device->channel_state;
+    if (channel.memory_manager && channel.memory_manager != gmmu.get())
+        return NvResult::InvalidState;
+    channel.memory_manager = gmmu.get();
     return NvResult::Success;
 }
 
