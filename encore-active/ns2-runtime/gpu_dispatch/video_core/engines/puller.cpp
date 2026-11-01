@@ -40,7 +40,8 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
     }
 
     const auto engine_id = static_cast<EngineID>(engine);
-    bound_engines[method_call.subchannel] = engine_id;
+    // Validate native class ownership before changing the effective subchannel
+    // binding. A rejected Ampere bind must not poison subsequent dispatch.
     if (engine_id == static_cast<EngineID>(0xc797)) {
         if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
                 &dma_pusher.channel_state)) {
@@ -55,6 +56,7 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
             return;
         }
         if (!native_3d) native_3d = std::make_unique<Tegra::NativeAmpereMacroState>();
+        bound_engines[method_call.subchannel] = engine_id;
         dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->maxwell_3d,
                                   method_call.subchannel, EngineTypes::Maxwell3D);
         return;
@@ -64,6 +66,7 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
         // Restrict it to a live process-generation authenticated native channel.
         if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
                 &dma_pusher.channel_state)) {
+            bound_engines[method_call.subchannel] = engine_id;
             dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->maxwell_dma,
                                       method_call.subchannel, EngineTypes::MaxwellDMA);
         } else {
@@ -71,6 +74,9 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
         }
         return;
     }
+    // Preserve the legacy Switch 1 binding behavior outside the guarded
+    // native Ampere classes.
+    bound_engines[method_call.subchannel] = engine_id;
     switch (engine_id) {
     case EngineID::FERMI_TWOD_A:
         dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->fermi_2d, method_call.subchannel, EngineTypes::Fermi2D);
