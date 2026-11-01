@@ -24,6 +24,30 @@
 #include "video_core/gpu.h"
 #include "video_core/memory_manager.h"
 #include "video_core/rasterizer_interface.h"
+#include "video_core/native_qmd.h"
+
+namespace Service::Nvidia::Devices {
+std::shared_ptr<Tegra::NativeQmdSession>
+NativeGpuChannelRegistry::AcquireNativeQmdSession(
+    const Tegra::Control::ChannelState* channel) {
+    if (!channel) return {};
+    const std::scoped_lock lock{mutex};
+    const auto owner = channels.find(channel);
+    if (owner == channels.end()) return {};
+    const auto ticket = owner->second;
+    if (!NativeGpuProcessRegistry::Instance().IsCurrent(
+            {ticket.process, ticket.generation})) return {};
+    const auto existing = qmd_sessions.find(ticket.process);
+    if (existing != qmd_sessions.end() &&
+        existing->second.generation == ticket.generation)
+        return existing->second.session;
+    if (existing == qmd_sessions.end() && qmd_sessions.size() >= 256)
+        return {};
+    auto session = std::make_shared<Tegra::NativeQmdSession>();
+    qmd_sessions[ticket.process] = {ticket.generation, session};
+    return session;
+}
+} // namespace Service::Nvidia::Devices
 
 namespace Tegra::Engines {
 
