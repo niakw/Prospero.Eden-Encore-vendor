@@ -79,19 +79,21 @@ static void TraceNs2GpuRegion214(const u32* packet,
     (void)result;
 #endif
 }
-static void TraceNs2GpuSparse216(u64 requested, u64 processed, u32 result) {
+static void TraceNs2GpuSparse216(u64 requested, u64 processed, u64 physical_entries, u32 result) {
 #ifdef PS5_NATIVE
     static std::atomic<unsigned> seen{0};
     const auto n = seen.fetch_add(1, std::memory_order_relaxed) + 1;
     if (n <= 24 || (n & (n - 1)) == 0) {
         std::fprintf(stderr,
-                     "EDEN_NS2_GPU_216 requested=%llu mapped=%llu result=%08x count=%u\n",
+                     "EDEN_NS2_GPU_216 requested=%llu processed=%llu physical_entries=%llu result=%08x count=%u\n",
                      static_cast<unsigned long long>(requested),
-                     static_cast<unsigned long long>(processed), result, n);
+                     static_cast<unsigned long long>(processed),
+                     static_cast<unsigned long long>(physical_entries), result, n);
     }
 #else
     (void)requested;
     (void)processed;
+    (void)physical_entries;
     (void)result;
 #endif
 }
@@ -377,6 +379,7 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
     std::array<GW::U32, 15> command{};
     std::copy_n(ctx.CommandBuffer(), command.size(), command.begin());
     u64 processed{};
+    u64 physical_entries{};
     Result result = Kernel::ResultInvalidCombination;
     const auto request = GW::DecodeSparseBatch(command);
     if (request) {
@@ -445,6 +448,8 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
                             static_cast<Nvidia::DeviceFD>(request->address_space));
                         if (as && as->RemapNativeSparse(staged) == Nvidia::NvResult::Success) {
                             processed = request->count;
+                            physical_entries = std::count_if(staged.begin(), staged.end(),
+                                [](const auto& entry) { return entry.handle != 0; });
                             ctx.WriteBuffer(selected);
                             result = ResultSuccess;
                             m_shared->events[request->notification]->Signal(kernel);
@@ -454,7 +459,7 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
             }
         }
     }
-    TraceNs2GpuSparse216(request ? request->count : 0, processed, result.raw);
+    TraceNs2GpuSparse216(request ? request->count : 0, processed, physical_entries, result.raw);
     TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(result.raw);
