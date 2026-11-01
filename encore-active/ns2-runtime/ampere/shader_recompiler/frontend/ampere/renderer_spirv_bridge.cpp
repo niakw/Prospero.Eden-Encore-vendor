@@ -16,7 +16,8 @@ NativeSpirvResult CompileReviewedNativeGraphicsSpirv(
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
-    bool exits_to_dispatcher) {
+    bool exits_to_dispatcher,
+    Shader::Backend::Bindings initial_bindings) {
     // Standalone Fragment is safe only with the real caller's stage-specific
     // RuntimeInfo. Do not pretend VertexA is merged or synthesize tessellation
     // interfaces, geometry linkage or compute QMD metadata.
@@ -36,13 +37,14 @@ NativeSpirvResult CompileReviewedNativeGraphicsSpirv(
         // The production renderer builds its own RuntimeInfo from the
         // pipeline key and bound device features; never invent these here.
         Shader::Maxwell::ConvertLegacyToGeneric(ir, runtime_info);
-        Shader::Backend::Bindings bindings{};
+        Shader::Backend::Bindings bindings{initial_bindings};
         auto words = Shader::Backend::SPIRV::EmitSPIRV(profile, runtime_info, ir,
                                                         bindings);
         if (words.size() <= 5 || words.size() > 262144 ||
             words[0] != 0x07230203U || words[3] == 0)
             return {NativeSpirvStatus::InvalidModule, {}};
-        return {NativeSpirvStatus::Ready, std::move(words)};
+        return {NativeSpirvStatus::Ready, std::move(words),
+                std::move(ir.info), bindings};
     } catch (const std::exception&) {
         // No partial shader publication or fallback to raw NS2 GMMU bytes.
         return {NativeSpirvStatus::CompilationFailed, {}};
@@ -53,7 +55,8 @@ NativeSpirvResult CompileReviewedNativeMergedVertexSpirv(
     NativeMaxwellEnvironment& vertex_b,
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
-    const Shader::RuntimeInfo& runtime_info) {
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Backend::Bindings initial_bindings) {
     if (vertex_a.ShaderStage()!=Shader::Stage::VertexA ||
         vertex_b.ShaderStage()!=Shader::Stage::VertexB ||
         !vertex_a.Image().ValidForCompiler() || !vertex_b.Image().ValidForCompiler() ||
@@ -79,13 +82,14 @@ NativeSpirvResult CompileReviewedNativeMergedVertexSpirv(
         if (merged.stage!=Shader::Stage::VertexB || merged.blocks.empty())
             return {NativeSpirvStatus::CompilationFailed, {}};
         Shader::Maxwell::ConvertLegacyToGeneric(merged,runtime_info);
-        Shader::Backend::Bindings bindings{};
+        Shader::Backend::Bindings bindings{initial_bindings};
         auto words=Shader::Backend::SPIRV::EmitSPIRV(
             profile,runtime_info,merged,bindings);
         if (words.size()<=5 || words.size()>262144 ||
             words[0]!=0x07230203U || words[3]==0)
             return {NativeSpirvStatus::InvalidModule, {}};
-        return {NativeSpirvStatus::Ready,std::move(words)};
+        return {NativeSpirvStatus::Ready,std::move(words),
+                std::move(merged.info),bindings};
     } catch (const std::exception&) {
         return {NativeSpirvStatus::CompilationFailed, {}};
     }
