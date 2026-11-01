@@ -591,11 +591,9 @@ void RasterizerVulkan::DrawTexture() {
     texture_cache.UpdateRenderTargets(false);
 
 #ifdef PS5_NATIVE
-    // DrawTexture uses an independent blit pipeline that sets its own viewport
-    // and scissor. Do not prepare unused guest graphics dynamic state while
-    // holding texture_cache.mutex. The blit is followed by
-    // Scheduler::InvalidateState(), which marks guest dynamic state dirty for
-    // the next ordinary PrepareDraw. Keep desktop behavior unchanged.
+    // Raw blit uses its own viewport/scissor and pipeline. The next
+    // guest draw restores dynamic state after Scheduler::InvalidateState.
+    // Avoid wasted state setup while texture_cache.mutex is held.
 #else
     UpdateDynamicStates();
 #endif
