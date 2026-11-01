@@ -94,24 +94,44 @@ IGraphicsSupervisor::~IGraphicsSupervisor() {
         // allocations; otherwise the backing remains busy at shutdown.
         for (const auto& [image_id, image] : m_native_images.Records())
             nvmap.FreeHandle(image.backing, true);
-        for (const u32 id : m_native_memory.OwnedIds()) {
+        // Release unborrowed children before dropping their parent's pin.
+        // Retry parents after child release: a parent may itself be an owned
+        // native-memory allocation that was busy on the first pass.
+        std::vector<u32> freed;
+        const auto release = [&](u32 id) {
             auto handle = nvmap.GetHandle(id);
-            if (!handle) continue;
-            bool busy{};
+            if (!handle) return;
             {
                 const std::scoped_lock handle_lock{handle->mutex};
-                busy = handle->dupes != 1 || handle->internal_dupes != 0 || handle->pins != 0;
+                if (handle->dupes != 1 || handle->internal_dupes != 0 ||
+                    handle->pins != 0) return;
             }
-            if (busy) continue; // Borrowed resources must never be unlocked.
             handle.reset();
             const auto info = nvmap.FreeHandle(id, false);
-            if (info && info->can_unlock && info->address != 0) {
+            if (!info || !info->can_unlock) return;
+            freed.push_back(id);
+            if (info->address != 0) {
                 const auto status = m_process->GetPageTable().UnlockForDeviceAddressSpace(
                     info->address, info->size);
                 if (status.IsError())
                     LOG_ERROR(Service_AM, "NS2 native supervisor teardown unlock failed: {:#x}",
                               status.raw);
             }
+        };
+        const auto ids = m_native_memory.OwnedIds();
+        for (const u32 id : ids) release(id);
+        for (const auto& [child, parent] : m_native_parents) {
+            if (std::find(freed.begin(), freed.end(), child) == freed.end()) {
+                // A live external child retains its parent pin. Never revoke
+                // another GPU owner just to make shutdown appear successful.
+                continue;
+            }
+            nvmap.UnpinHandle(parent);
+            nvmap.FreeHandle(parent, true);
+        }
+        for (const u32 id : ids) {
+            if (std::find(freed.begin(), freed.end(), id) == freed.end())
+                release(id);
         }
         if (m_native_memory_session)
             m_native_module->GetContainer().CloseSession(
