@@ -49,6 +49,11 @@ public:
             auto& state = states[request.address];
             if (request.action == 3 || request.action == 2) {
                 if (request.action == 3 || !state.loaded) {
+                    // A caller may retry a failed release with action 2. A
+                    // fresh action 3 must not reset accepted semaphore slots
+                    // and re-execute a shader from an unfinished transaction.
+                    if (request.action == 3 && state.dispatched && !state.completed)
+                        return "QMD reload during pending release";
                     if (!read(request.address, state.descriptor)) return "unmapped QMD";
                     const auto& qmd = state.descriptor;
                     if ((qmd[18] & 0xff) != 0x30 || (qmd[4] & 0x100)) return "unsupported QMD version or queue";
@@ -88,6 +93,16 @@ public:
             if (!read(request.address, state.descriptor)) return "unmapped QMD";
             const auto qmd = state.descriptor;
             if ((qmd[18] & 0xff) != 0x30 || (qmd[4] & 0x100)) return "unsupported QMD version or queue";
+            // Validate the complete dependent QMD structure before a shader
+            // launch or guest-visible release. A late error must never leave
+            // semaphores published while silently dropping the dependency.
+            if (qmd[16] & (1U << 5)) return "second dependent QMD unsupported";
+            const bool has_dependent = (qmd[16] & 1U) != 0;
+            const Word dependent_action = (qmd[16] >> 1) & 7U;
+            if (has_dependent &&
+                (dependent_action != 4 && dependent_action != 3 && dependent_action != 1))
+                return "unsupported dependent QMD action";
+            if (has_dependent && count == pending.size()) return "QMD chain limit";
             // Validate the release slots before making any visible.
             for (const Word base : ReleaseSlots) {
                 const Word flags = qmd[base + 1];
@@ -129,13 +144,10 @@ public:
                 state.released_slots |= Word{1} << slot;
             }
             state.completed = true;
-            if (qmd[16] & 1) {
-                const Word action = (qmd[16] >> 1) & 7;
-                if (action != 4 && action != 3 && action != 1) return "unsupported dependent QMD action";
-                if (count == pending.size()) return "QMD chain limit";
-                pending[count++] = {Address{qmd[15]} << 8, action == 4 ? 7U : action == 3 ? 3U : 2U, 1};
+            if (has_dependent) {
+                pending[count++] = {Address{qmd[15]} << 8,
+                                    dependent_action == 4 ? 7U : dependent_action == 3 ? 3U : 2U, 1};
             }
-            if (qmd[16] & (1U << 5)) return "second dependent QMD unsupported";
         }
         return error;
     }
