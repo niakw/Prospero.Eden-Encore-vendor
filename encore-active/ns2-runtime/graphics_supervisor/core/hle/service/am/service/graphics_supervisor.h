@@ -4,6 +4,7 @@
 // Bounded research-only supervisor. The upstream NVDRV/VI2 implementation
 // remains unported; command 497 yields metadata-only IGpuSession.
 #include <memory>
+#include <map>
 #include <optional>
 #include <mutex>
 #include <vector>
@@ -29,6 +30,9 @@ private:
     void CreateNativeMemory(HLERequestContext& ctx);
     void DestroyNativeMemory(HLERequestContext& ctx);
     void BindNativeMemory(HLERequestContext& ctx);
+    void BindNativeGpuMemory(HLERequestContext& ctx);
+    // Caller owns m_native_memory_mutex; shared by TIPC 114 and 423.
+    Result BindNativeMemoryBacking(u32 id, u64 address, u64 size, u64 flags, u64 offset);
     void CreateNativeImage(HLERequestContext& ctx);
     void DestroyNativeImage(HLERequestContext& ctx);
     void CalculateNativeImageSize(HLERequestContext& ctx);
@@ -42,5 +46,7 @@ private:
     std::shared_ptr<Nvidia::Module> m_native_module;
     std::optional<std::size_t> m_native_memory_session;
     NativeImageLedger m_native_images;
+    // child NVMap handle -> pinned, internally duplicated parent NVMap handle
+    std::map<u32, u32> m_native_parents;
 };
 } // namespace Service::AM

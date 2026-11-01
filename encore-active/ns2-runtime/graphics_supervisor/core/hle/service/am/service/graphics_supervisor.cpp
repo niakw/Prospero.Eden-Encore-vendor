@@ -76,6 +76,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {111, &IGraphicsSupervisor::CreateNativeMemory, "CreateNativeMemory"},
         {112, &IGraphicsSupervisor::DestroyNativeMemory, "DestroyNativeMemory"},
         {114, &IGraphicsSupervisor::BindNativeMemory, "BindNativeMemory"},
+        {423, &IGraphicsSupervisor::BindNativeGpuMemory, "BindNativeGpuMemory"},
         {429, &IGraphicsSupervisor::CreateNativeImage, "CreateNativeImage"},
         {430, &IGraphicsSupervisor::DestroyNativeImage, "DestroyNativeImage"},
         {435, &IGraphicsSupervisor::CalculateNativeImageSize, "CalculateNativeImageSize"},
@@ -300,6 +301,14 @@ void IGraphicsSupervisor::DestroyNativeMemory(HLERequestContext& ctx) {
                             result = m_process->GetPageTable().UnlockForDeviceAddressSpace(
                                 freed->address, freed->size);
                         }
+                        // Parent pin/duplicate are retained only while the
+                        // child's NVMap and its page-table lock remain alive.
+                        if (const auto parent = m_native_parents.find(packet[2]);
+                            parent != m_native_parents.end()) {
+                            nvmap.UnpinHandle(parent->second);
+                            nvmap.FreeHandle(parent->second, true);
+                            m_native_parents.erase(parent);
+                        }
                     }
                 }
             }
@@ -309,80 +318,114 @@ void IGraphicsSupervisor::DestroyNativeMemory(HLERequestContext& ctx) {
     rb.Push(result.raw);
 }
 
+Result IGraphicsSupervisor::BindNativeMemoryBacking(
+    u32 id, u64 address, u64 size, u64 flags, u64 offset) {
+    if (!m_bootstrap.GpuContextReady()) return Kernel::ResultInvalidState;
+    if ((flags != 0 && flags != 2) || offset != 0)
+        return Kernel::ResultNotImplemented;
+    const auto record = m_native_memory.Get(id);
+    const auto validated = m_native_memory.ValidateBind(id, address, size);
+    if (validated != GraphicsSupervisorProtocol::NativeMemoryStatus::Success)
+        return NativeMemoryError(validated);
+    if (!record || record->size != size || address == 0)
+        return Kernel::ResultInvalidSize;
+    if (!m_native_module) return Kernel::ResultInvalidState;
+
+    auto& nvmap = m_native_module->GetContainer().GetNvMapFile();
+    const auto handle = nvmap.GetHandle(id);
+    if (!handle || handle->allocated) return Kernel::ResultInvalidState;
+    auto& table = m_process->GetPageTable();
+    if (!table.Contains(address, size)) return Kernel::ResultInvalidCurrentMemory;
+    const u64 end = address + size; // Bounds checked by the owned ledger.
+    for (u64 cursor = address; cursor < end;) {
+        Kernel::KMemoryInfo info{};
+        Kernel::Svc::PageInfo page{};
+        const Result query = table.QueryInfo(&info, &page, cursor);
+        if (query.IsError() || info.m_size == 0 ||
+            info.m_address > cursor ||
+            info.m_size > std::numeric_limits<u64>::max() - info.m_address ||
+            (info.m_state & Kernel::KMemoryState::FlagMapped) !=
+                Kernel::KMemoryState::FlagMapped ||
+            (flags == 2 &&
+             !True(info.m_attribute & Kernel::KMemoryAttribute::GpuAccessible)))
+            return Kernel::ResultInvalidCurrentMemory;
+        const u64 next = info.m_address + info.m_size;
+        if (next <= cursor) return Kernel::ResultInvalidCurrentMemory;
+        cursor = next;
+    }
+
+    bool is_io{};
+    const Result locked = table.LockForMapDeviceAddressSpace(
+        &is_io, address, size, Kernel::KMemoryPermission::None, true, true);
+    if (locked.IsError()) return locked;
+    if (is_io) {
+        table.UnlockForDeviceAddressSpace(address, size);
+        return Kernel::ResultNotImplemented;
+    }
+    if (!m_native_memory_session)
+        m_native_memory_session = m_native_module->GetContainer().OpenSession(m_process).id;
+    const auto alloc = handle->Alloc(
+        {}, Kernel::PageSize, 0, address,
+        Nvidia::NvCore::SessionId{*m_native_memory_session});
+    if (alloc != Nvidia::NvResult::Success) {
+        table.UnlockForDeviceAddressSpace(address, size);
+        return Kernel::ResultOutOfResource;
+    }
+    return NativeMemoryError(m_native_memory.Bind(id, address, size));
+}
+
 void IGraphicsSupervisor::BindNativeMemory(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     if (packet[0] == 0x82 && packet[1] == 9) {
-        result = Kernel::ResultInvalidState;
-        if (m_bootstrap.GpuContextReady()) {
-            const u32 id = packet[2];
-            const u64 address = NativeU64(packet, 3);
-            const u64 size = NativeU64(packet, 5);
-            const u64 flags = NativeU64(packet, 7);
-            const u64 offset = NativeU64(packet, 9);
-            result = Kernel::ResultNotImplemented;
-            if ((flags == 0 || flags == 2) && offset == 0) {
-                const std::scoped_lock lock{m_native_memory_mutex};
-                const auto record = m_native_memory.Get(id);
-                result = NativeMemoryError(m_native_memory.ValidateBind(id, address, size));
-                if (result.IsSuccess()) {
-                    result = Kernel::ResultInvalidSize;
-                    if (record && record->size == size && address != 0 &&
-                        m_native_module) {
-                        auto& nvmap = m_native_module->GetContainer().GetNvMapFile();
-                        const auto handle = nvmap.GetHandle(id);
-                        result = Kernel::ResultInvalidState;
-                        if (handle && !handle->allocated) {
-                            auto& table = m_process->GetPageTable();
-                            result = Kernel::ResultInvalidCurrentMemory;
-                            bool valid = table.Contains(address, size);
-                            const u64 end = address + size; // Validated by ledger.
-                            for (u64 cursor = address; valid && cursor < end;) {
-                                Kernel::KMemoryInfo info{};
-                                Kernel::Svc::PageInfo page{};
-                                const Result status = table.QueryInfo(&info, &page, cursor);
-                                if (status.IsError() || info.m_size == 0 ||
-                                    info.m_address > cursor ||
-                                    info.m_size > std::numeric_limits<u64>::max() - info.m_address ||
-                                    (info.m_state & Kernel::KMemoryState::FlagMapped) !=
-                                        Kernel::KMemoryState::FlagMapped ||
-                                    (flags == 2 &&
-                                     !True(info.m_attribute & Kernel::KMemoryAttribute::GpuAccessible))) {
-                                    valid = false;
-                                    break;
-                                }
-                                const u64 next = info.m_address + info.m_size;
-                                if (next <= cursor) { valid = false; break; }
-                                cursor = next;
-                            }
-                            if (valid) {
-                                bool is_io{};
-                                result = table.LockForMapDeviceAddressSpace(
-                                    &is_io, address, size, Kernel::KMemoryPermission::None,
-                                    true, true);
-                                if (result.IsSuccess()) {
-                                    if (is_io) {
-                                        table.UnlockForDeviceAddressSpace(address, size);
-                                        result = Kernel::ResultNotImplemented;
-                                    } else {
-                                        if (!m_native_memory_session)
-                                            m_native_memory_session =
-                                                m_native_module->GetContainer().OpenSession(
-                                                    m_process).id;
-                                        const auto alloc = handle->Alloc(
-                                            {}, Kernel::PageSize, 0, address,
-                                            Nvidia::NvCore::SessionId{*m_native_memory_session});
-                                        if (alloc == Nvidia::NvResult::Success) {
-                                            result = NativeMemoryError(
-                                                m_native_memory.Bind(id, address, size));
-                                        } else {
-                                            table.UnlockForDeviceAddressSpace(address, size);
-                                            result = Kernel::ResultOutOfResource;
-                                        }
-                                    }
-                                }
+        const u32 id = packet[2];
+        const u64 address = NativeU64(packet, 3);
+        const u64 size = NativeU64(packet, 5);
+        const u64 flags = NativeU64(packet, 7);
+        const u64 offset = NativeU64(packet, 9);
+        const std::scoped_lock lock{m_native_memory_mutex};
+        result = BindNativeMemoryBacking(id, address, size, flags, offset);
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGraphicsSupervisor::BindNativeGpuMemory(HLERequestContext& ctx) {
+    const std::span<const u32> packet{ctx.CommandBuffer(), 14};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto request =
+            GraphicsSupervisorProtocol::DecodeNativeParentBind(packet)) {
+        const std::scoped_lock lock{m_native_memory_mutex};
+        result = Kernel::ResultNotFound;
+        if (m_native_module && m_native_memory.Get(request->child) &&
+            !m_native_parents.contains(request->child)) {
+            auto& container = m_native_module->GetContainer();
+            auto& nvmap = container.GetNvMapFile();
+            const auto parent = nvmap.GetHandle(request->parent);
+            if (parent && parent->allocated) {
+                const auto* session = container.GetSession(parent->session_id);
+                const u64 offset = request->parent_offset;
+                if (session && session->process == m_process &&
+                    offset <= parent->size && request->size <= parent->size - offset &&
+                    offset <= std::numeric_limits<u64>::max() - parent->address &&
+                    parent->address + offset == request->address) {
+                    result = Kernel::ResultOutOfResource;
+                    if (parent->Duplicate(true) == Nvidia::NvResult::Success) {
+                        // Pin the real parent through NVDRV before committing
+                        // the child. This is not a fabricated GMMU mapping.
+                        const auto pinned = nvmap.PinHandle(request->parent, false);
+                        if (pinned != 0) {
+                            result = BindNativeMemoryBacking(request->child,
+                                                             request->address,
+                                                             request->size, 2, 0);
+                            if (result.IsSuccess()) {
+                                m_native_parents.emplace(request->child, request->parent);
+                            } else {
+                                nvmap.UnpinHandle(request->parent);
                             }
                         }
+                        if (result.IsError())
+                            nvmap.FreeHandle(request->parent, true);
                     }
                 }
             }

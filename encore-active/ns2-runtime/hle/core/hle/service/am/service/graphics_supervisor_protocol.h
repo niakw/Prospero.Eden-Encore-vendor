@@ -260,6 +260,31 @@ inline std::optional<BootstrapRequest> DecodeBootstrap(std::span<const u32> pack
                             {Read64(8), Read64(10), Read64(12), Read64(14)}};
 }
 
+// TIPC 423 retains a real parent NVMap allocation while a child native GPU
+// allocation is bound to the same guest address range. The parser validates
+// the exact upstream packet before the real NVDRV owner is consulted.
+struct NativeParentBindRequest {
+    u32 child{};
+    u32 parent{};
+    u64 address{};
+    u64 size{};
+    u64 parent_offset{};
+};
+inline constexpr std::optional<NativeParentBindRequest> DecodeNativeParentBind(
+    std::span<const u32> packet) {
+    if (packet.size() != 14 || packet[0] != 0x1b7 || packet[1] != 12 ||
+        packet[2] == 0 || packet[7] == 0 || packet[2] == packet[7] ||
+        (packet[10] | packet[11] | packet[12] | packet[13]) != 0)
+        return {};
+    const u64 address = u64{packet[3]} | (u64{packet[4]} << 32);
+    const u64 size = u64{packet[5]} | (u64{packet[6]} << 32);
+    const u64 offset = u64{packet[8]} | (u64{packet[9]} << 32);
+    if (!address || !size || (address & 0xfff) || (size & 0xfff) ||
+        (offset & 0xfff) || size > std::numeric_limits<u64>::max() - address)
+        return {};
+    return NativeParentBindRequest{packet[2], packet[7], address, size, offset};
+}
+
 // NS2 GSV native-memory descriptors, not host Vulkan allocations. Commands
 // 111/112/114 establish a bounded, owned resource before real GPU mapping.
 // Reject unknown handles, address wrapping, duplicate binds and exhaustion.
