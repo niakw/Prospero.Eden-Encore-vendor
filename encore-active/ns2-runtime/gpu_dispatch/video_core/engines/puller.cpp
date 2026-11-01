@@ -567,22 +567,14 @@ void Puller::CallEngineMultiMethod(DmaPusher& dma_pusher, u32 method, u32 subcha
             UNIMPLEMENTED_MSG("Ampere compute multimethod on non-native channel");
             return;
         }
-        // A multiword PCAS is not a legacy Maxwell launch either.
-        if (method == 0xaf) {
-#ifdef PS5_NATIVE
-            static std::atomic<unsigned> qmd_batches_rejected{0};
-            const auto n = qmd_batches_rejected.fetch_add(1, std::memory_order_relaxed) + 1;
-            if (n <= 16 || (n & (n - 1)) == 0)
-                std::fprintf(stderr,
-                             "EDEN_NS2_COMPUTE_QMD_UNSUPPORTED batch=%u sub=%u words=%u\n",
-                             n, static_cast<unsigned>(subchannel),
-                             static_cast<unsigned>(amount));
-#endif
+        if ((amount && !base_start) || amount > 4096 ||
+            method >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS) {
+            UNIMPLEMENTED_MSG("Ampere compute multiword register invalid");
             return;
         }
-        if (method >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS ||
-            (amount && !base_start)) {
-            UNIMPLEMENTED_MSG("Ampere compute multiword register invalid");
+        if (method == 0xaf || method == 0xb0 || method == 0xae) {
+            for (u32 i = 0; i < amount; ++i)
+                ProcessNativeComputeQmd(dma_pusher, method, base_start[i], subchannel);
             return;
         }
         dma_pusher.channel_state.payload->kepler_compute.CallMultiMethod(
