@@ -126,6 +126,8 @@ private:
     void ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_call);
     void CallNative3D(DmaPusher& dma_pusher, u32 method,
                       std::span<const u32> values, bool last);
+    void ProcessNativeComputeQmd(DmaPusher& dma_pusher, u32 method,
+                                 u32 argument, u32 subchannel);
     void ProcessFenceActionMethod(DmaPusher& dma_pusher);
     void ProcessSemaphoreAcquire(DmaPusher& dma_pusher);
     void ProcessSemaphoreRelease(DmaPusher& dma_pusher);
