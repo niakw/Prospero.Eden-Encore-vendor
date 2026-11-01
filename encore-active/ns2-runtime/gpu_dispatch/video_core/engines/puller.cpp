@@ -39,6 +39,18 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
 
     const auto engine_id = static_cast<EngineID>(engine);
     bound_engines[method_call.subchannel] = engine_id;
+    if (engine_id == static_cast<EngineID>(0xc7b5)) {
+        // Upstream uses the same Maxwell DMA method layout for Ampere copy.
+        // Restrict it to a live process-generation authenticated native channel.
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->maxwell_dma,
+                                      method_call.subchannel, EngineTypes::MaxwellDMA);
+        } else {
+            UNIMPLEMENTED_MSG("Ampere DMA class on a non-native GPU channel");
+        }
+        return;
+    }
     switch (engine_id) {
     case EngineID::FERMI_TWOD_A:
         dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->fermi_2d, method_call.subchannel, EngineTypes::Fermi2D);
@@ -49,16 +61,6 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
     case EngineID::KEPLER_COMPUTE_B:
         dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->kepler_compute, method_call.subchannel, EngineTypes::KeplerCompute);
         break;
-    case static_cast<EngineID>(0xc7b5): // AMPERE_DMA_COPY_B
-        // Upstream NS2 routes 0xc7b5 through the existing DMA engine.
-        // The binding belongs exclusively to a live native GPU session;
-        // 3D and compute classes are deliberately not aliased to Maxwell.
-        if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
-                &dma_pusher.channel_state)) {
-            UNIMPLEMENTED_MSG("Ampere DMA class on a non-native GPU channel");
-            break;
-        }
-        [[fallthrough]];
     case EngineID::MAXWELL_DMA_COPY_A:
         dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->maxwell_dma, method_call.subchannel, EngineTypes::MaxwellDMA);
         break;
@@ -218,6 +220,17 @@ void Puller::CallPullerMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
 /// Calls a GPU engine method.
 void Puller::CallEngineMethod(DmaPusher& dma_pusher, const MethodCall& method_call) {
     const EngineID engine = bound_engines[method_call.subchannel];
+    if (engine == static_cast<EngineID>(0xc7b5)) {
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            dma_pusher.channel_state.payload->maxwell_dma.CallMethod(
+                dma_pusher.system, method_call.method, method_call.argument,
+                method_call.IsLastCall());
+        } else {
+            UNIMPLEMENTED_MSG("Ampere DMA method on a non-native GPU channel");
+        }
+        return;
+    }
     switch (engine) {
     case EngineID::FERMI_TWOD_A:
         dma_pusher.channel_state.payload->fermi_2d.CallMethod(dma_pusher.system, method_call.method, method_call.argument, method_call.IsLastCall());
@@ -228,13 +241,6 @@ void Puller::CallEngineMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
     case EngineID::KEPLER_COMPUTE_B:
         dma_pusher.channel_state.payload->kepler_compute.CallMethod(dma_pusher.system, method_call.method, method_call.argument, method_call.IsLastCall());
         break;
-    case static_cast<EngineID>(0xc7b5): // AMPERE_DMA_COPY_B
-        if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
-                &dma_pusher.channel_state)) {
-            UNIMPLEMENTED_MSG("Ampere DMA method on a non-native GPU channel");
-            break;
-        }
-        [[fallthrough]];
     case EngineID::MAXWELL_DMA_COPY_A:
         dma_pusher.channel_state.payload->maxwell_dma.CallMethod(dma_pusher.system, method_call.method, method_call.argument, method_call.IsLastCall());
         break;
@@ -253,6 +259,16 @@ void Puller::CallEngineMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
 /// Calls a GPU engine multivalue method.
 void Puller::CallEngineMultiMethod(DmaPusher& dma_pusher, u32 method, u32 subchannel, const u32* base_start, u32 amount, u32 methods_pending) {
     const EngineID engine = bound_engines[subchannel];
+    if (engine == static_cast<EngineID>(0xc7b5)) {
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            dma_pusher.channel_state.payload->maxwell_dma.CallMultiMethod(
+                dma_pusher.system, method, base_start, amount, methods_pending);
+        } else {
+            UNIMPLEMENTED_MSG("Ampere DMA multimethod on a non-native GPU channel");
+        }
+        return;
+    }
     switch (engine) {
     case EngineID::FERMI_TWOD_A:
         dma_pusher.channel_state.payload->fermi_2d.CallMultiMethod(dma_pusher.system, method, base_start, amount, methods_pending);
@@ -263,13 +279,6 @@ void Puller::CallEngineMultiMethod(DmaPusher& dma_pusher, u32 method, u32 subcha
     case EngineID::KEPLER_COMPUTE_B:
         dma_pusher.channel_state.payload->kepler_compute.CallMultiMethod(dma_pusher.system, method, base_start, amount, methods_pending);
         break;
-    case static_cast<EngineID>(0xc7b5): // AMPERE_DMA_COPY_B
-        if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
-                &dma_pusher.channel_state)) {
-            UNIMPLEMENTED_MSG("Ampere DMA multimethod on a non-native GPU channel");
-            break;
-        }
-        [[fallthrough]];
     case EngineID::MAXWELL_DMA_COPY_A:
         dma_pusher.channel_state.payload->maxwell_dma.CallMultiMethod(dma_pusher.system, method, base_start, amount, methods_pending);
         break;
