@@ -130,6 +130,7 @@ private:
                            std::span<const u32> values, bool last, u32 subchannel);
     void ProcessNativeComputeQmd(DmaPusher& dma_pusher, u32 method,
                                  u32 argument, u32 subchannel);
+    void ProcessNativeComputeReportSemaphore(DmaPusher& dma_pusher, u32 control);
     void ProcessFenceActionMethod(DmaPusher& dma_pusher);
     void ProcessSemaphoreAcquire(DmaPusher& dma_pusher);
     void ProcessSemaphoreRelease(DmaPusher& dma_pusher);
