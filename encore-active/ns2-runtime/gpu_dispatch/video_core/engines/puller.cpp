@@ -501,21 +501,10 @@ void Puller::CallEngineMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
             UNIMPLEMENTED_MSG("Ampere compute command on non-native channel");
             return;
         }
-        // PCAS at 0xAF addresses a native 512-byte QMD 3.0, *not* the
-        // Maxwell LaunchParams structure. The legacy handler would treat
-        // it as a draw and read unrelated guest bytes. Refuse that unsafe
-        // substitution until the native QMD scheduler/compute shader
-        // dispatch is connected.
-        if (method_call.method == 0xaf) {
-#ifdef PS5_NATIVE
-            static std::atomic<unsigned> pcas_rejected{0};
-            const auto n = pcas_rejected.fetch_add(1, std::memory_order_relaxed) + 1;
-            if (n <= 16 || (n & (n - 1)) == 0)
-                std::fprintf(stderr,
-                             "EDEN_NS2_COMPUTE_QMD_UNSUPPORTED count=%u sub=%u action=%08x\n",
-                             n, static_cast<unsigned>(method_call.subchannel),
-                             static_cast<unsigned>(method_call.argument));
-#endif
+        if (method_call.method == 0xaf || method_call.method == 0xb0 ||
+            method_call.method == 0xae) {
+            ProcessNativeComputeQmd(dma_pusher, method_call.method,
+                                    method_call.argument, method_call.subchannel);
             return;
         }
         if (method_call.method >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS) {
