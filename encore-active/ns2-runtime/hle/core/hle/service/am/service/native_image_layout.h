@@ -4,6 +4,10 @@
 #pragma once
 
 #include <optional>
+#include <array>
+#include <algorithm>
+#include <map>
+#include <vector>
 #include <span>
 #include "common/common_types.h"
 
@@ -43,5 +47,44 @@ inline std::optional<NativeImageRequirements> CalculateNativeImageRequirements(
     }
     return NativeImageRequirements{image_size * count, 4096};
 }
+
+// 429/430 maintain real NVMap-backed image reference ownership. The ledger
+// does not allocate VkImage, translate shaders or present any guest frame.
+struct NativeImageRecord {
+    u32 id{};
+    u32 backing{};
+    u64 size{};
+    std::array<u32, 16> preference{};
+};
+class NativeImageLedger {
+public:
+    static constexpr std::size_t MaxEntries = 1024;
+    [[nodiscard]] std::optional<u32> Create(u32 backing, u64 backing_size,
+                                            NativeImageRequirements requirements,
+                                            std::span<const u32> preferences) {
+        if (backing == 0 || preferences.size() != 16 || requirements.size == 0 ||
+            requirements.alignment != 4096 || requirements.size > backing_size ||
+            m_images.size() >= MaxEntries || m_next == 0)
+            return {};
+        const u32 id = m_next++;
+        NativeImageRecord record{id, backing, requirements.size, {}};
+        std::copy(preferences.begin(), preferences.end(), record.preference.begin());
+        m_images.emplace(id, record);
+        return id;
+    }
+    [[nodiscard]] std::optional<NativeImageRecord> Get(u32 id) const {
+        const auto it = m_images.find(id);
+        if (it == m_images.end()) return {};
+        return it->second;
+    }
+    [[nodiscard]] bool Destroy(u32 id) { return m_images.erase(id) == 1; }
+    [[nodiscard]] std::size_t Count() const { return m_images.size(); }
+    [[nodiscard]] const std::map<u32, NativeImageRecord>& Records() const {
+        return m_images;
+    }
+private:
+    u32 m_next{1};
+    std::map<u32, NativeImageRecord> m_images;
+};
 
 } // namespace Service::AM

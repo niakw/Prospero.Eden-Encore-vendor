@@ -76,6 +76,8 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {111, &IGraphicsSupervisor::CreateNativeMemory, "CreateNativeMemory"},
         {112, &IGraphicsSupervisor::DestroyNativeMemory, "DestroyNativeMemory"},
         {114, &IGraphicsSupervisor::BindNativeMemory, "BindNativeMemory"},
+        {429, &IGraphicsSupervisor::CreateNativeImage, "CreateNativeImage"},
+        {430, &IGraphicsSupervisor::DestroyNativeImage, "DestroyNativeImage"},
         {435, &IGraphicsSupervisor::CalculateNativeImageSize, "CalculateNativeImageSize"},
         {1510, &IGraphicsSupervisor::CalculateNativeImageRequirements, "CalculateRequirements"},
     };
@@ -87,6 +89,10 @@ IGraphicsSupervisor::~IGraphicsSupervisor() {
     const std::scoped_lock lock{m_native_memory_mutex};
     if (m_native_module) {
         auto& nvmap = m_native_module->GetContainer().GetNvMapFile();
+        // Retire internal image duplicates before their underlying NVMap
+        // allocations; otherwise the backing remains busy at shutdown.
+        for (const auto& [image_id, image] : m_native_images.Records())
+            nvmap.FreeHandle(image.backing, true);
         for (const u32 id : m_native_memory.OwnedIds()) {
             auto handle = nvmap.GetHandle(id);
             if (!handle) continue;
@@ -380,6 +386,70 @@ void IGraphicsSupervisor::BindNativeMemory(HLERequestContext& ctx) {
                     }
                 }
             }
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+// Image IDs are real logical resources: each holds one NVMap internal
+// duplicate on a previously bound guest allocation. Creating an ID does
+// not claim that a host Vulkan image has been instantiated.
+void IGraphicsSupervisor::CreateNativeImage(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    u32 id{};
+    if (packet[0] == 0x1bd && packet[1] == 18 && packet[3] == 1) {
+        result = Kernel::ResultInvalidState;
+        if (m_bootstrap.GpuContextReady()) {
+            const std::span<const u32> preferences{packet + 2, 16};
+            const auto requirements = CalculateNativeImageRequirements(preferences, packet[18]);
+            result = Kernel::ResultNotImplemented;
+            if (requirements) {
+                const std::scoped_lock lock{m_native_memory_mutex};
+                result = Kernel::ResultNotFound;
+                const u32 backing = packet[19];
+                const auto owned = m_native_memory.Get(backing);
+                if (owned && owned->bound && m_native_module) {
+                    auto& nvmap = m_native_module->GetContainer().GetNvMapFile();
+                    const auto handle = nvmap.GetHandle(backing);
+                    result = Kernel::ResultInvalidSize;
+                    if (handle && handle->allocated && handle->size >= requirements->size) {
+                        result = Kernel::ResultOutOfResource;
+                        if (m_native_images.Count() < NativeImageLedger::MaxEntries &&
+                            handle->Duplicate(true) == Nvidia::NvResult::Success) {
+                            if (const auto created =
+                                    m_native_images.Create(backing, handle->size,
+                                                           *requirements, preferences)) {
+                                id = *created;
+                                result = ResultSuccess;
+                            } else {
+                                nvmap.FreeHandle(backing, true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(result.raw);
+    rb.Push(id);
+}
+
+void IGraphicsSupervisor::DestroyNativeImage(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    if (packet[0] == 0x1be && packet[1] == 1) {
+        const std::scoped_lock lock{m_native_memory_mutex};
+        result = Kernel::ResultNotFound;
+        const auto image = m_native_images.Get(packet[2]);
+        if (image && m_native_module) {
+            const auto freed = m_native_module->GetContainer().GetNvMapFile().FreeHandle(
+                image->backing, true);
+            result = Kernel::ResultInvalidState;
+            if (freed && m_native_images.Destroy(packet[2]))
+                result = ResultSuccess;
         }
     }
     IPC::ResponseBuilder rb{ctx, 2};

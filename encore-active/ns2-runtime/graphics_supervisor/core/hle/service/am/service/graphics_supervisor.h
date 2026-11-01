@@ -10,6 +10,7 @@
 #include "core/hle/service/service.h"
 #include "core/hle/service/am/service/graphics_supervisor_bootstrap.h"
 #include "core/hle/service/am/service/graphics_supervisor_protocol.h"
+#include "core/hle/service/am/service/native_image_layout.h"
 namespace Kernel { class KProcess; }
 namespace Service::Nvidia { class Module; }
 namespace Service::AM {
@@ -28,6 +29,8 @@ private:
     void CreateNativeMemory(HLERequestContext& ctx);
     void DestroyNativeMemory(HLERequestContext& ctx);
     void BindNativeMemory(HLERequestContext& ctx);
+    void CreateNativeImage(HLERequestContext& ctx);
+    void DestroyNativeImage(HLERequestContext& ctx);
     void CalculateNativeImageSize(HLERequestContext& ctx);
     void CalculateNativeImageRequirements(HLERequestContext& ctx);
     void RegisterGpuAddressSpace(HLERequestContext& ctx);
@@ -38,5 +41,6 @@ private:
     GraphicsSupervisorProtocol::NativeMemoryLedger m_native_memory;
     std::shared_ptr<Nvidia::Module> m_native_module;
     std::optional<std::size_t> m_native_memory_session;
+    NativeImageLedger m_native_images;
 };
 } // namespace Service::AM
