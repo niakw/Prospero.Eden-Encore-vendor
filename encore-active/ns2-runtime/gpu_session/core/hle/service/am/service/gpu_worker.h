@@ -52,6 +52,7 @@ private:
     };
     std::map<std::pair<u32, u64>, DenseRegion> m_dense_regions;
     u64 m_dense_bytes{};
+    u64 m_alias_slot_hint{}; // Avoid retrying the same occupied alias range.
     // Admission limits live in gpu_memory_registration.h and have host fixtures.
     Result BackGpuOnlyRegion(u32 address_space, u64 address, u64 size);
     bool RetireGpuOnlyRegion(u32 address_space, u64 address);

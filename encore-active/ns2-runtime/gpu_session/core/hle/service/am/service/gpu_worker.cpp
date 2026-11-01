@@ -186,13 +186,35 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size) {
 
     auto& table = m_process->GetPageTable();
     Kernel::KProcessAddress alias{};
-    const auto mapped = table.MapPageGroup(
-        &alias, *pages, table.GetAliasCodeRegionStart(),
-        table.GetAliasCodeRegionSize() / Kernel::PageSize,
-        Kernel::KMemoryState::IoMemory, Kernel::KMemoryPermission::UserReadWrite);
-    if (mapped.IsError()) {
+    // KProcessPageTable exposes only the fixed-address four-argument
+    // MapPageGroup overload, unlike KPageTableBase. Search bounded 2 MiB
+    // aligned slots instead of guessing an address or spinning indefinitely.
+    constexpr u64 AliasAlignment = 2ULL << 20;
+    constexpr u64 MaxAliasAttempts = 4096;
+    const u64 start = GetInteger(table.GetAliasCodeRegionStart());
+    const u64 region_size = table.GetAliasCodeRegionSize();
+    const u64 slots = region_size / AliasAlignment;
+    bool mapped = false;
+    if (slots && size <= region_size) {
+        const u64 attempts = std::min(slots, MaxAliasAttempts);
+        for (u64 step = 0; step < attempts; ++step) {
+            const u64 slot = (m_alias_slot_hint + step) % slots;
+            const u64 offset = slot * AliasAlignment;
+            if (offset > region_size || size > region_size - offset) continue;
+            const Kernel::KProcessAddress candidate{start + offset};
+            if (table.MapPageGroup(candidate, *pages, Kernel::KMemoryState::IoMemory,
+                                   Kernel::KMemoryPermission::UserReadWrite).IsSuccess()) {
+                alias = candidate;
+                m_alias_slot_hint = (slot + (size + AliasAlignment - 1) /
+                                    AliasAlignment) % slots;
+                mapped = true;
+                break;
+            }
+        }
+    }
+    if (!mapped) {
         pages->Close(kernel);
-        return mapped;
+        return Kernel::ResultOutOfResource;
     }
 
     if (!m_nv_session)
