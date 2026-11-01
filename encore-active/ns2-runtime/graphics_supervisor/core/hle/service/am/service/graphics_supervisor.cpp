@@ -370,9 +370,9 @@ private:
                 for (u32 i=0;i<fence.num_fences;++i) {
                     const auto& point=fence.fences[i];
                     if (point.id==~u32{0}) continue;
-                    const auto value=module->GetContainer().GetSyncpointManager()
-                        .ReadAllocatedSyncpoint(point.id);
-                    if (!value || static_cast<s32>(*value-point.value)<0) {
+                    auto& syncpoints=module->GetContainer().GetSyncpointManager();
+                    if (!syncpoints.IsSyncpointAllocated(point.id) ||
+                        !syncpoints.HasSyncpointExpired(point.id,point.value)) {
                         done=false;break;
                     }
                 }
