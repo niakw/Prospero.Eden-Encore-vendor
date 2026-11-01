@@ -173,10 +173,13 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         case 0x83b:
             if (instruction.Bits(91, 1)) uses_extended_uniform_bank |= extended_uniform(instruction.Bits(32, 8));
             break;
+        case 0xd24: // Geometry OUT with uniform stream selector.
+            uses_extended_uniform_bank |= extended_uniform(instruction.Bits(32, 8));
+            break;
         default: break;
         }
         uses_uniform_bank |= op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
-                             op == 0x886 || op == 0x3c2 || op == 0xc82 || op == 0x882 || (op == 0x81c && instruction.Bits(67, 1));
+                             op == 0x886 || op == 0x3c2 || op == 0xc82 || op == 0x882 || op == 0xd24 || (op == 0x81c && instruction.Bits(67, 1));
     }
     const bool uses_async_copy = std::any_of(code.begin(), code.end(), [](const auto& instruction) {
         return instruction.Bits(0, 12) == 0xfae;
@@ -1697,17 +1700,38 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 return fail(index, "native exit handler clear mode");
             at_exit_target.reset();
             break;
-        case 0x324: case 0x924: { // OUT (geometry emit/cut), register or immediate stream
+        case 0x324: case 0x924: case 0xb24: case 0xd24: { // OUT: register, immediate, cbuf or uniform stream
             const u32 type = insn.Bits(78, 2);
-            if (!type || insn.words[2] & ~0xc000U) return fail(index, "native geometry output mode");
-            // Maxwell: output handle at 8, stream at 20, emit at 39, cut at 40.
-            const u64 handle = u64{insn.Bits(24, 8)} << 8;
-            const u64 flags = u64{type} << 39;
-            if (opcode == 0x324) {
-                emit(base(0xfbe0000000000000ULL) | handle | (u64{insn.Bits(32, 8)} << 20) | flags);
+            if (!type) return fail(index, "native geometry output empty emit/cut");
+            // Only reviewed source modes from EglantinePS5's Ampere geometry patch.
+            // The CBUF/uniform variants require an ordinary register operand
+            // materialization before Maxwell OUT; never reinterpret a CBUF offset
+            // or uniform register identifier as the stream value.
+            if (opcode == 0xb24 || opcode == 0xd24) {
+                const u32 expected_mode = opcode == 0xd24 ? 0x08000000U : 0U;
+                if ((insn.words[2] & ~0xc000U) != expected_mode)
+                    return fail(index, "native geometry indirect output mode");
+                const u32 stream = operand(1, false);
+                if (!operand_error.empty() || stream == ~0U)
+                    return fail(index, "native geometry output stream operand");
+                emit(base(0xfbe0000000000000ULL) |
+                     (u64{insn.Bits(24, 8)} << 8) |
+                     (u64{stream} << 20) | (u64{type} << 39));
             } else {
-                if (insn.words[1] > 0x7ffff) return fail(index, "native geometry output stream");
-                emit(base(0xf6e0000000000000ULL) | handle | (u64{insn.words[1]} << 20) | flags);
+                if (insn.words[2] & ~0xc000U)
+                    return fail(index, "native geometry output mode");
+                // Maxwell: output handle at 8, stream at 20, emit at 39, cut at 40.
+                const u64 handle = u64{insn.Bits(24, 8)} << 8;
+                const u64 flags = u64{type} << 39;
+                if (opcode == 0x324) {
+                    emit(base(0xfbe0000000000000ULL) | handle |
+                         (u64{insn.Bits(32, 8)} << 20) | flags);
+                } else {
+                    if (insn.words[1] > 0x7ffff)
+                        return fail(index, "native geometry output stream");
+                    emit(base(0xf6e0000000000000ULL) | handle |
+                         (u64{insn.words[1]} << 20) | flags);
+                }
             }
             break;
         }
