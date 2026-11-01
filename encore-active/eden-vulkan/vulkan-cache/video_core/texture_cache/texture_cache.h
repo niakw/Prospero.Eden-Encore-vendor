@@ -160,7 +160,7 @@ void TextureCache<P>::RunGarbageCollector() {
         ticks_to_destroy = aggressive_mode ? 10ULL : high_priority_mode ? 25ULL : 50ULL;
         num_iterations = aggressive_mode ? 40 : (high_priority_mode ? 20 : 10);
     };
-    const auto ReclaimedBytes = [&](const ImageBase& image) {
+    const auto ReclaimedBytes = [&](const Image& image) {
         u64 bytes = 0;
     if (image.HasScaled()) {
         bytes += GetScaledImageSizeBytes(image);
