@@ -4,6 +4,8 @@
 // NO native NVDRV address space, event, worker, queue or PS5 rendering path.
 #include <algorithm>
 #include <array>
+#include <cstring>
+#include <cmath>
 #include "common/logging.h"
 #include <memory>
 #include <limits>
@@ -110,6 +112,10 @@ public:
             {251,&IVi2Session::Bind,"BindClientDisplay"},
             {252,&IVi2Session::Unbind,"UnbindClientDisplay"},
             {351,&IVi2Session::Encoding,"SetClientOutputEncoding"},
+            {352,&IVi2Session::OutputLevels,"SetClientOutputLevels"},
+            {111,&IVi2Session::OpenEndpoint,"OpenEndpoint"},
+            {112,&IVi2Session::CloseEndpoint,"CloseEndpoint"},
+            {106,&IVi2Session::MaxResolution,"GetBufferMaxResolution"},
         };
         RegisterHandlersTipc(f);
     }
@@ -229,7 +235,9 @@ private:
                 result=Kernel::ResultBusy;
                 if(std::ranges::none_of(c->queued,[](auto x){return x.has_value();})){
                     if(c->layer&&m_vi)m_vi->GetContainer()->DestroyManagedLayer(*c->layer);
-                    Signal(c->release_bit);m_slots&=~c->signals;*c={};result=ResultSuccess;
+                    Signal(c->release_bit);
+                    if(m_endpoint==c->token)m_endpoint.reset();
+                    m_slots&=~c->signals;*c={};result=ResultSuccess;
                 }
             }
         }
@@ -269,6 +277,63 @@ private:
             }
         }
         IPC::ResponseBuilder rb{ctx,4};rb.Push(result.raw);rb.Push(mask);
+    }
+    void OutputLevels(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();
+        Result result=Kernel::ResultInvalidCombination;
+        if(p[0]==0x170&&p[1]==5){
+            const auto client=Find(W(p,2));
+            result=Kernel::ResultNotFound;
+            if(client){
+                std::array<float,3> values{};
+                std::memcpy(values.data(),p+4,sizeof(values));
+                result=Kernel::ResultInvalidCombination;
+                if(std::ranges::all_of(values,[](float v){return std::isfinite(v);})&&
+                    values[0]>=0.0f&&values[0]<=1.0f&&
+                    values[1]>=0.0f&&values[1]<=1.0f&&values[2]>=0.0f)
+                    result=ResultSuccess;
+            }
+        }
+        IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+    }
+    void OpenEndpoint(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();
+        Result result=Kernel::ResultInvalidCombination;
+        if(p[0]==0x7f&&p[1]==6&&W(p,2)==Default&&W(p,4)==Default){
+            const auto client=Find(W(p,6));
+            result=Kernel::ResultNotFound;
+            if(client&&client->display==m_display&&m_display){
+                result=Kernel::ResultInvalidState;
+                if(!m_endpoint){m_endpoint=client->token;result=ResultSuccess;}
+            }
+        }
+        IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+    }
+    void CloseEndpoint(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();
+        Result result=Kernel::ResultInvalidCombination;
+        if(p[0]==0x80&&p[1]==4&&W(p,2)==Default&&W(p,4)==Default){
+            result=Kernel::ResultNotFound;
+            if(m_endpoint){m_endpoint.reset();result=ResultSuccess;}
+        }
+        IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
+    }
+    void MaxResolution(HLERequestContext& ctx) {
+        const auto* p=ctx.CommandBuffer();
+        Result result=Kernel::ResultInvalidCombination;
+        u64 mode{};
+        if(p[0]==0x7a&&p[1]==2&&W(p,2)==Default){
+            result=Kernel::ResultInvalidState;
+            if(m_display&&m_vi){
+                s64 width{},height{};
+                result=m_vi->GetDisplayResolution(&width,&height,*m_display);
+                if(result.IsSuccess()){
+                    result=Kernel::ResultNotImplemented;
+                    if(width==1280&&height==720){mode=1;result=ResultSuccess;}
+                }
+            }
+        }
+        IPC::ResponseBuilder rb{ctx,4};rb.Push(result.raw);rb.Push(mode);
     }
     void Encoding(HLERequestContext& ctx) {
         const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;
@@ -451,6 +516,7 @@ private:
     u32 m_slots{};
     std::shared_ptr<VI::IApplicationDisplayService> m_vi;
     std::optional<u64> m_display;
+    std::optional<u64> m_endpoint;
     u32 m_refs{};
     std::array<u32,32> m_notes{};
     KernelHelpers::ServiceContext m_context;
