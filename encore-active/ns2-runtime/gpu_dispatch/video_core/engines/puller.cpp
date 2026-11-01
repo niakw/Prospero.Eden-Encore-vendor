@@ -564,7 +564,30 @@ void Puller::ProcessNativeComputeQmd(DmaPusher& pusher, u32 method,
         const std::scoped_lock lock{session->mutex};
         error = session->scheduler.Signal(
             address, argument, read, release,
-            [](const Tegra::NativeQmdScheduler::Descriptor&) { return false; });
+            [](const Tegra::NativeQmdScheduler::Descriptor& descriptor) {
+                // Capture a real, bounded Ampere compute launch description,
+                // but never claim completion before a native shader and
+                // Vulkan pipeline have actually executed on the GPU.
+                const auto launch = Tegra::DecodeNativeComputeLaunch(descriptor);
+#ifdef PS5_NATIVE
+                static std::atomic<unsigned> attempts{0};
+                const auto n = attempts.fetch_add(1, std::memory_order_relaxed) + 1;
+                if (n <= 16 || (n & (n - 1)) == 0) {
+                    if (launch)
+                        std::fprintf(stderr,
+                            "EDEN_NS2_COMPUTE_PREPARED count=%u program=%llx grid=%u,%u,%u block=%u,%u,%u backend=missing\\n",
+                            n, static_cast<unsigned long long>(launch->program_address),
+                            launch->grid[0], launch->grid[1], launch->grid[2],
+                            launch->block[0], launch->block[1], launch->block[2]);
+                    else
+                        std::fprintf(stderr,
+                            "EDEN_NS2_COMPUTE_PREPARE_REJECTED count=%u backend=missing\\n", n);
+                }
+#else
+                (void)launch;
+#endif
+                return false;
+            });
     }
     if (!error.empty()) {
 #ifdef PS5_NATIVE

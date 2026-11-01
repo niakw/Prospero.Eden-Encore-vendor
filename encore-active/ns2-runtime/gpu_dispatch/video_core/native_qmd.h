@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <limits>
 #include <mutex>
+#include <optional>
 
 namespace Tegra {
 
@@ -171,6 +172,70 @@ private:
     // The owner destroys the instance at process teardown.
     std::unordered_map<Address, State> states;
 };
+// Decode the real QMD3 launch ABI into an immutable host description. This
+// is deliberately NOT a Vulkan submission: the Ampere compute shader,
+// descriptors and target-device pipeline must first be installed by their
+// own authenticated NS2 renderer owner.
+struct NativeComputeLaunch {
+    struct ConstantBuffer {
+        std::uint64_t gpu_address{};
+        std::uint32_t size{};
+        bool enabled{};
+    };
+    std::uint64_t code_base{};
+    std::uint64_t program_address{};
+    std::uint32_t program_start{};
+    std::array<std::uint32_t, 3> grid{};
+    std::array<std::uint32_t, 3> block{};
+    std::array<ConstantBuffer, 8> constant_buffers{};
+    std::uint32_t shared_bytes{};
+    std::uint32_t local_pos_bytes{};
+    std::uint32_t local_crs_bytes{};
+    bool linked_tsc{};
+};
+
+[[nodiscard]] inline std::optional<NativeComputeLaunch> DecodeNativeComputeLaunch(
+    const NativeQmdScheduler::Descriptor& qmd) {
+    if ((qmd[18] & 0xffU) != 0x30U || (qmd[4] & 0x100U))
+        return std::nullopt;
+    NativeComputeLaunch launch;
+    launch.grid = {qmd[12], qmd[13] & 0xffffU, qmd[14] & 0xffffU};
+    launch.block = {qmd[18] >> 16, qmd[19] & 0xffffU, qmd[19] >> 16};
+    for (auto dim : launch.grid)
+        if (dim == 0) return std::nullopt;
+    for (auto dim : launch.block)
+        if (dim == 0) return std::nullopt;
+    // QMD3 stores a 49-bit code base as a low word and 17 address bits.
+    // The remaining bits of qmd[49] are control fields, not address bits.
+    constexpr std::uint64_t gpu_address_limit = std::uint64_t{1} << 49;
+    launch.code_base = (std::uint64_t{qmd[49] & 0x1ffffU} << 32) | qmd[48];
+    launch.program_start = qmd[8];
+    if (launch.code_base >= gpu_address_limit ||
+        launch.program_start >= gpu_address_limit - launch.code_base)
+        return std::nullopt;
+    launch.program_address = launch.code_base + launch.program_start;
+    launch.linked_tsc = (qmd[11] & (1U << 30)) != 0;
+    launch.shared_bytes = qmd[17] & 0x3ffffU;
+    launch.local_pos_bytes = qmd[23] & 0xfffffU;
+    launch.local_crs_bytes = qmd[50] & 0xfffffU;
+    const std::uint32_t cbuf_mask = qmd[20] & 0xffU;
+    for (std::size_t index = 0; index < launch.constant_buffers.size(); ++index) {
+        const auto high = qmd[33 + index * 2];
+        // The Maxwell-compatible launch metadata can encode only an
+        // eight-bit high cbuf address; never truncate a native address.
+        if (high & 0x1ff00U) return std::nullopt;
+        auto& buffer = launch.constant_buffers[index];
+        buffer.gpu_address = (std::uint64_t{high & 0xffU} << 32) |
+                             qmd[32 + index * 2];
+        buffer.size = ((high >> 19) & 0x1fffU) << 4;
+        buffer.enabled = (cbuf_mask & (1U << index)) != 0;
+        if (buffer.enabled && buffer.size &&
+            buffer.gpu_address >= gpu_address_limit - buffer.size)
+            return std::nullopt;
+    }
+    return launch;
+}
+
 // A single authenticated GPU process owns this state and all its channels
 // share it. Mutex serializes cross-channel dependency changes; the process
 // registry invalidates the entire session on teardown/re-registration.
