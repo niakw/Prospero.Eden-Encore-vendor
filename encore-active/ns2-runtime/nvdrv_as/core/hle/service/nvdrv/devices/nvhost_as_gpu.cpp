@@ -200,7 +200,7 @@ NvResult nvhost_as_gpu::MapNativeImage(u32 handle_id, u64 source, u64 size, u64&
     if (gpu_address < vm.va_range_start || gpu_address >= vm.va_range_split ||
         size > vm.va_range_split - gpu_address ||
         gpu_address > std::numeric_limits<u64>::max() - size ||
-        (gpu_address + size) >> VM::PAGE_SIZE_BITS > std::numeric_limits<u32>::max()) {
+        ((gpu_address + size) >> VM::PAGE_SIZE_BITS) > std::numeric_limits<u32>::max()) {
         vm.small_page_allocator->Free(allocated, pages);
         return NvResult::BadParameter;
     }
