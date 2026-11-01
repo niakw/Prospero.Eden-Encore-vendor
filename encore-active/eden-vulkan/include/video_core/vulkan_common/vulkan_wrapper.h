@@ -866,7 +866,74 @@ public:
 
     VkResult BindSparse(Span<VkBindSparseInfo> bind_infos,
                         VkFence fence = VK_NULL_HANDLE) const noexcept {
+        // Some native Vulkan dispatch tables omit sparse queue functions.
+        // A missing function must never crash the PS5 rendering thread.
+        if (!queue || !dld || !dld->vkQueueBindSparse) {
+            return VK_ERROR_FEATURE_NOT_PRESENT;
+        }
         return dld->vkQueueBindSparse(queue, bind_infos.size(), bind_infos.data(), fence);
+    }
+
+    // NSW2 N66/N67: submit sparse tiles/tails with optional GPU hand-off semaphores to
+    // Encore's existing Vulkan queue. The owner retains every VkDeviceMemory
+    // until the supplied fence is signalled; budget.Commit must happen only
+    // *after* fence completion. On submit/wait failure, poison and retire image.
+    // No secondary renderer, dispatch layout change, or game-specific path.
+    [[nodiscard]] VkResult BindSparseImage(VkImage image,
+                                           Span<VkSparseImageMemoryBind> tiles,
+                                           Span<VkSparseMemoryBind> tails,
+                                           VkFence completion,
+                                           VkSemaphore wait_semaphore = VK_NULL_HANDLE,
+                                           VkSemaphore signal_semaphore = VK_NULL_HANDLE) const noexcept {
+        if (!queue || !dld || !dld->vkQueueBindSparse) {
+            return VK_ERROR_FEATURE_NOT_PRESENT;
+        }
+        // The caller owns both semaphores and the fence until GPU retirement.
+        // A binary semaphore cannot be waited and signalled in the same bind.
+        if (wait_semaphore && wait_semaphore == signal_semaphore) {
+            return VK_ERROR_INITIALIZATION_FAILED;
+        }
+        if (!image || !completion || (tiles.empty() && tails.empty()) ||
+            tiles.size() > 65536 || tails.size() > 4096) {
+            return VK_ERROR_INITIALIZATION_FAILED;
+        }
+        for (const auto& bind : tiles) {
+            if (!bind.memory || bind.subresource.aspectMask == 0 ||
+                bind.extent.width == 0 || bind.extent.height == 0 ||
+                bind.extent.depth == 0) {
+                return VK_ERROR_INITIALIZATION_FAILED;
+            }
+        }
+        for (const auto& bind : tails) {
+            if (!bind.memory || bind.size == 0) {
+                return VK_ERROR_INITIALIZATION_FAILED;
+            }
+        }
+        const VkSparseImageMemoryBindInfo image_info{
+            .image = image,
+            .bindCount = tiles.size(),
+            .pBinds = tiles.data(),
+        };
+        const VkSparseImageOpaqueMemoryBindInfo tail_info{
+            .image = image,
+            .bindCount = tails.size(),
+            .pBinds = tails.data(),
+        };
+        const VkBindSparseInfo submit{
+            .sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO,
+            .pNext = nullptr,
+            .waitSemaphoreCount = wait_semaphore ? 1U : 0U,
+            .pWaitSemaphores = wait_semaphore ? &wait_semaphore : nullptr,
+            .bufferBindCount = 0,
+            .pBufferBinds = nullptr,
+            .imageOpaqueBindCount = tails.empty() ? 0U : 1U,
+            .pImageOpaqueBinds = tails.empty() ? nullptr : &tail_info,
+            .imageBindCount = tiles.empty() ? 0U : 1U,
+            .pImageBinds = tiles.empty() ? nullptr : &image_info,
+            .signalSemaphoreCount = signal_semaphore ? 1U : 0U,
+            .pSignalSemaphores = signal_semaphore ? &signal_semaphore : nullptr,
+        };
+        return BindSparse(submit, completion);
     }
 
     VkResult Present(const VkPresentInfoKHR& present_info) const noexcept {
@@ -1114,6 +1181,11 @@ public:
                                                      void* pnext = nullptr) const noexcept;
 
     VkMemoryRequirements GetImageMemoryRequirements(VkImage image) const noexcept;
+
+    // N65: query the actual sparse 2D tile/mip-tail requirements.
+    // No DeviceDispatch layout change: resolve entrypoint on demand.
+    [[nodiscard]] std::vector<VkSparseImageMemoryRequirements>
+        GetSparseImageMemoryRequirements(VkImage image) const;
 
     std::vector<VkPipelineExecutablePropertiesKHR> GetPipelineExecutablePropertiesKHR(
         VkPipeline pipeline) const;
