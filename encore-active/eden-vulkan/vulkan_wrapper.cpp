@@ -882,6 +882,25 @@ VkMemoryRequirements Device::GetImageMemoryRequirements(VkImage image) const noe
     return requirements;
 }
 
+std::vector<VkSparseImageMemoryRequirements>
+Device::GetSparseImageMemoryRequirements(VkImage image) const {
+    // Native PS5 Vulkan shim might not export this optional entry point.
+    if (!image || !dld || !dld->vkGetDeviceProcAddr) return {};
+    const auto fn = reinterpret_cast<PFN_vkGetImageSparseMemoryRequirements>(
+        dld->vkGetDeviceProcAddr(handle, "vkGetImageSparseMemoryRequirements"));
+    if (!fn) return {};
+    u32 count = 0;
+    fn(handle, image, &count, nullptr);
+    // Vulkan can report multiple aspects. Bound counts to avoid untrusted
+    // allocation sizes on malformed/buggy drivers.
+    if (!count || count > 64) return {};
+    std::vector<VkSparseImageMemoryRequirements> requirements(count);
+    fn(handle, image, &count, requirements.data());
+    if (!count || count > requirements.size()) return {};
+    requirements.resize(count);
+    return requirements;
+}
+
 std::vector<VkPipelineExecutablePropertiesKHR> Device::GetPipelineExecutablePropertiesKHR(
     VkPipeline pipeline) const {
     const VkPipelineInfoKHR info{
