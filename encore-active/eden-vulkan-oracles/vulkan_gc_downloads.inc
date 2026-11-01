@@ -47,7 +47,7 @@
             // Model both clean and dirty future evictions, but only submit
             // readbacks that Cleanup could actually need. This estimate
             // never changes a live GPU/guest texture or its synchronization.
-            const auto NoteProjectedEviction = [&](const ImageBase& image) {
+            const auto NoteProjectedEviction = [&](const Image& image) {
                 usage = ::Eden::VulkanMemory::AfterProjectedEviction(
                     usage, ReclaimedBytes(image));
                 return usage < projected_stop;
