@@ -124,10 +124,12 @@ FileType IdentifyFile(FileSys::VirtualFile file) {
     // An ExeFS/main with its owning directory must use the directory loader.
     // Generic NSO detection otherwise loses main.npdm identity and skips rtld/sdk.
     // The directory validator keeps standalone NSOs on the NSO loader.
-    if (const auto romdir_type =
-            IdentifyFileLoader<AppLoader_DeconstructedRomDirectory>(file)) {
-        return *romdir_type;
-    } else if (const auto nsp_type = IdentifyFileLoader<AppLoader_NSP>(file)) {
+    if (file->GetName() == "main") {
+        if (const auto romdir_type =
+                IdentifyFileLoader<AppLoader_DeconstructedRomDirectory>(file))
+            return *romdir_type;
+    }
+    if (const auto nsp_type = IdentifyFileLoader<AppLoader_NSP>(file)) {
         return *nsp_type;
     } else if (const auto xci_type = IdentifyFileLoader<AppLoader_XCI>(file)) {
         return *xci_type;
