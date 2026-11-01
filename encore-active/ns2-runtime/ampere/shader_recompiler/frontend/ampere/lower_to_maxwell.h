@@ -498,6 +498,22 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             emit(base(0x5c18000000000000ULL) | (u64{250} << 8) | (u64{251} << 20) | (u64{16} << 39));
             break;
         }
+        case 0x234: { // HSETP2, packed half compare with register sources
+            // Reviewed form from the EglantinePS5 Bananza geometry shader
+            // patch. Other modes still fail closed; no fabricated predicate.
+            if (insn.Bits(64, 5) || insn.Bits(69, 2) > 2 || insn.Bits(91, 1))
+                return fail(index, "native half predicate comparison mode");
+            const auto a = half_source(0), b = half_source(1);
+            emit(0x5d20000000000000ULL | predicate | insn.Bits(84, 3) |
+                 (u64{insn.Bits(81, 3)} << 3) | (u64{insn.Bits(80, 1)} << 6) |
+                 (u64{a.reg} << 8) | (u64{b.reg} << 20) | (u64{b.swizzle} << 28) |
+                 (u64{b.absolute} << 30) | (u64{b.negate} << 31) |
+                 (u64{insn.Bits(76, 4)} << 35) | (u64{insn.Bits(87, 4)} << 39) |
+                 (u64{a.negate} << 43) | (u64{a.absolute} << 44) |
+                 (u64{insn.Bits(69, 2)} << 45) | (u64{a.swizzle} << 47) |
+                 (u64{insn.Bits(71, 1)} << 49));
+            break;
+        }
         case 0x232: case 0x832: case 0xa32: { // HMUL2
             if (insn.Bits(78, 2) || insn.Bits(81, 10) || insn.Bits(91, 1))
                 return fail(index, "native half multiply mode");
@@ -1246,9 +1262,9 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                  (u64{uniform_register(high_result ? high : low)} << 8) | (u64{insn.words[1]} << 20));
             break;
         }
-        case 0xb82: { // LDC.64 indexed byte offset
+        case 0xb82: { // LDC U8/S8/U16/S16/U32/U64, indexed byte offset
             const u32 width = insn.Bits(73, 3);
-            if ((width != 0 && width != 4 && width != 5) || insn.Bits(78, 2) || insn.Bits(91, 1) ||
+            if (width > 5 || insn.Bits(78, 2) || insn.Bits(91, 1) ||
                 insn.Bits(54, 5) >= 18 ||
                 (width == 5 && ((dest & 1) || dest >= 254))) return fail(index, "native indexed constant load mode");
             emit(base(0xef90000000000000ULL) | (u64{insn.Bits(24, 8)} << 8) |
