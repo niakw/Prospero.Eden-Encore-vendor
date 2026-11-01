@@ -10,6 +10,9 @@
 #include "core/arm/dynarmic/arm_dynarmic_64.h"
 #include "core/arm/dynarmic/dynarmic_exclusive_monitor.h"
 #include "core/core_timing.h"
+#ifdef EDEN_NS2_GUEST_COUNTER
+#include "encore/guest_counter_policy.h"
+#endif
 #include "core/hle/kernel/k_process.h"
 
 namespace Core {
@@ -249,7 +252,12 @@ void ArmDynarmic64::MakeJit(Common::PageTable* page_table, std::size_t address_s
     config.tpidr_el0 = &m_cb->m_tpidr_el0;
     config.dczid_el0 = 4;
     config.ctr_el0 = 0x8444c004;
+#ifdef EDEN_NS2_GUEST_COUNTER
+    // Set before JIT is instantiated; never hardcode a game-specific name.
+    config.cntfrq_el0 = static_cast<u32>(Eden::GuestCounter::Rate());
+#else
     config.cntfrq_el0 = Hardware::CNTFREQ;
+#endif
 
     // Unpredictable instructions
     config.define_unpredictable_behaviour = true;
