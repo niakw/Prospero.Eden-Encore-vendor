@@ -4,6 +4,7 @@
 // Never infer native ownership from a global title flag or a recycled FD.
 #include <map>
 #include <mutex>
+#include <optional>
 #include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
 
 namespace Tegra::Control { struct ChannelState; }
@@ -28,16 +29,26 @@ public:
              it->second.generation != ticket->generation)) return false;
         return registry.IsCurrent(*ticket);
     }
-    [[nodiscard]] bool IsNative(const Tegra::Control::ChannelState* channel) const {
-        if (!channel) return false;
+    // A graphics worker needs the EXACT channel's process generation to
+    // capture guest shaders. Never guess from a global NS2 title flag or
+    // current KProcess pointer. Callers must re-check IsCurrent(ticket)
+    // before publishing asynchronous shader/pipeline work.
+    [[nodiscard]] std::optional<NativeGpuProcessRegistry::Ticket> CaptureTicket(
+        const Tegra::Control::ChannelState* channel) const {
+        if (!channel) return std::nullopt;
         std::optional<NativeGpuProcessRegistry::Ticket> ticket;
         {
             const std::scoped_lock lock{mutex};
             const auto it = channels.find(channel);
-            if (it == channels.end()) return false;
+            if (it == channels.end()) return std::nullopt;
             ticket = it->second;
         }
-        return NativeGpuProcessRegistry::Instance().IsCurrent(*ticket);
+        if (!NativeGpuProcessRegistry::Instance().IsCurrent(*ticket))
+            return std::nullopt;
+        return ticket;
+    }
+    [[nodiscard]] bool IsNative(const Tegra::Control::ChannelState* channel) const {
+        return CaptureTicket(channel).has_value();
     }
     void Unbind(const Tegra::Control::ChannelState* channel) {
         if (!channel) return;
