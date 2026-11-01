@@ -1020,10 +1020,14 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
 #endif
 
 #ifdef PS5_NATIVE
-    // Eight entries at most: restore some persisted pipelines without
-    // rebuilding an unbounded title cache at launch. This token controls only
-    // the disk READER; the persistent Vulkan compiler workers stay alive.
-    constexpr size_t kStartupPrewarmPipelines = 8;
+    // FC27 has heavy first-use shader bursts at kick-off. Restore a bounded
+    // prefix of its persisted pipelines BEFORE gameplay, leaving other NS1/NS2
+    // titles on the existing 8-entry budget. No change to draw/fence order.
+    constexpr u64 kFc27TitleId = 0x0100C49025D3E000ULL;
+    constexpr size_t kDefaultPrewarmPipelines = 8;
+    constexpr size_t kFc27PrewarmPipelines = 64;
+    const size_t kStartupPrewarmPipelines =
+        title_id == kFc27TitleId ? kFc27PrewarmPipelines : kDefaultPrewarmPipelines;
     const auto startup_prewarm_started = std::chrono::steady_clock::now();
     std::stop_source startup_reader;
 #endif
@@ -1185,7 +1189,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     // A cancelled title-cache load must never stop the persistent shader
     // compiler pool: StatefulThreadWorker::WaitForRequests(stop_token)
     // requests stop on every worker when that token is cancelled.
-    // Only the disk reader observes cancellation. The queued <=8 jobs
+    // Only the disk reader observes cancellation. The bounded queued jobs
     // must complete before their borrowed stack state can be destroyed.
     workers.WaitForRequests();
     prewarm_drain.joined = true;
@@ -1197,9 +1201,9 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     // One startup summary, never a per-frame or per-draw instrumentation cost.
     const auto startup_prewarm_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - startup_prewarm_started).count();
-    std::printf("EDEN_PS5_SHADER_PREWARM queued=%zu completed=%zu valid=%zu rejected=%zu prebuild_ms=%lld\n",
+    std::printf("EDEN_PS5_SHADER_PREWARM queued=%zu completed=%zu valid=%zu rejected=%zu prebuild_ms=%lld limit=%zu\n",
                 state.total, state.built, state.valid, state.built - state.valid,
-                static_cast<long long>(startup_prewarm_ms));
+                static_cast<long long>(startup_prewarm_ms), kStartupPrewarmPipelines);
 #endif
 
     if (use_vulkan_pipeline_cache) {
