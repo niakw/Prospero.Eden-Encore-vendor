@@ -20,7 +20,8 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2GraphicsSpirvFromReader(
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
     Shader::Ampere::NativeTranslationCache* cache,
-    bool exits_to_dispatcher) {
+    bool exits_to_dispatcher,
+    Shader::Backend::Bindings initial_bindings) {
     using Shader::Ampere::NativeSpirvStatus;
     auto& registry = Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
     const auto session = registry.CaptureTicket(process);
@@ -46,7 +47,8 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2GraphicsSpirvFromReader(
         // Only a complete, independently owned module escapes this call.
         // Existing Vulkan pipeline/layout construction is NOT overridden.
         auto compiled = Shader::Ampere::CompileReviewedNativeGraphicsSpirv(
-            *env, host_info, profile, runtime_info, exits_to_dispatcher);
+            *env, host_info, profile, runtime_info, exits_to_dispatcher,
+            initial_bindings);
         // A teardown/reopen or owner re-registration during compilation must
         // never publish a module, even when the process address was reused.
         if (!registry.IsCurrent(*session))
@@ -68,7 +70,8 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2MergedVertexSpirvFromReader(
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
-    Shader::Ampere::NativeTranslationCache* cache) {
+    Shader::Ampere::NativeTranslationCache* cache,
+    Shader::Backend::Bindings initial_bindings) {
     using Shader::Ampere::NativeSpirvStatus;
     auto& registry=Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
     const auto session=registry.CaptureTicket(process);
@@ -101,7 +104,7 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2MergedVertexSpirvFromReader(
         if (!env_a || !env_b)
             return {NativeSpirvStatus::InvalidImage, {}};
         auto result=Shader::Ampere::CompileReviewedNativeMergedVertexSpirv(
-            *env_a,*env_b,host_info,profile,runtime_info);
+            *env_a,*env_b,host_info,profile,runtime_info,initial_bindings);
         if (!registry.IsCurrent(*session))
             return {NativeSpirvStatus::InactiveSession, {}};
         return result;
@@ -120,11 +123,12 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2MergedVertexSpirv(
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
-    Shader::Ampere::NativeTranslationCache* cache) {
+    Shader::Ampere::NativeTranslationCache* cache,
+    Shader::Backend::Bindings initial_bindings) {
     return CompileCapturedNs2MergedVertexSpirvFromReader(
         process,std::move(original_a),std::move(original_b),
         gpu_address_a,gpu_address_b,ReadNs2GpuShader,&memory,
-        host_info,profile,runtime_info,cache);
+        host_info,profile,runtime_info,cache,initial_bindings);
 }
 
 Shader::Ampere::NativeSpirvResult CompileCapturedNs2VertexSpirvFromReader(
@@ -154,11 +158,12 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2GraphicsSpirv(
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
     Shader::Ampere::NativeTranslationCache* cache,
-    bool exits_to_dispatcher) {
+    bool exits_to_dispatcher,
+    Shader::Backend::Bindings initial_bindings) {
     return CompileCapturedNs2GraphicsSpirvFromReader(
         process, std::move(original), gpu_program_address,
         ReadNs2GpuShader, &memory, host_info, profile, runtime_info,
-        cache, exits_to_dispatcher);
+        cache, exits_to_dispatcher, initial_bindings);
 }
 
 Shader::Ampere::NativeSpirvResult CompileCapturedNs2VertexSpirv(
