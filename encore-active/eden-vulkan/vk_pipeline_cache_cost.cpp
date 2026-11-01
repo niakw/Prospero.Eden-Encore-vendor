@@ -1020,14 +1020,11 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
 #endif
 
 #ifdef PS5_NATIVE
-    // FC27 has heavy first-use shader bursts at kick-off. Restore a bounded
-    // prefix of its persisted pipelines BEFORE gameplay, leaving other NS1/NS2
-    // titles on the existing 8-entry budget. No change to draw/fence order.
-    constexpr u64 kFc27TitleId = 0x0100C49025D3E000ULL;
-    constexpr size_t kDefaultPrewarmPipelines = 8;
-    constexpr size_t kFc27PrewarmPipelines = 64;
-    const size_t kStartupPrewarmPipelines =
-        title_id == kFc27TitleId ? kFc27PrewarmPipelines : kDefaultPrewarmPipelines;
+    // Restore a bounded prefix of a title's saved pipelines before gameplay.
+    // Games with fewer cached entries load only those entries. This policy
+    // applies to every title (NS1 and NS2) without any title ID exceptions.
+    // Keep the worker queue, draw order and GPU fences unchanged.
+    constexpr size_t kStartupPrewarmPipelines = 32;
     const auto startup_prewarm_started = std::chrono::steady_clock::now();
     std::stop_source startup_reader;
 #endif
