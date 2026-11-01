@@ -11,6 +11,7 @@
 #include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
 
 namespace Tegra::Control { struct ChannelState; }
+namespace Tegra { struct NativeQmdSession; }
 namespace Shader::Ampere { class NativeTranslationCache; }
 namespace Service::Nvidia::Devices {
 class NativeGpuChannelRegistry {
@@ -103,6 +104,11 @@ public:
             return std::nullopt;
         return owner->second.ticket;
     }
+    // QMD dependency state belongs to a guest process epoch, across its
+    // distinct GPU channels. Definition lives in NS2 video_core so normal
+    // NVDRV never links the research QMD compiler.
+    [[nodiscard]] std::shared_ptr<Tegra::NativeQmdSession> AcquireNativeQmdSession(
+        const Tegra::Control::ChannelState* channel);
     // Shader translation cache is owned by this exact engine bind epoch.
     // Implemented in video_core's opt-in native shader owner, so ordinary
     // NVDRV/core builds never acquire Ampere compiler dependencies.
@@ -161,10 +167,22 @@ public:
     void Unbind(const Tegra::Control::ChannelState* channel) {
         if (!channel) return;
         const std::scoped_lock lock{mutex};
+        const auto bound = channels.find(channel);
+        const auto process = bound == channels.end() ? nullptr : bound->second.process;
         channels.erase(channel);
         for (auto it = engines.begin(); it != engines.end();) {
             if (it->second.channel == channel) it = engines.erase(it);
             else ++it;
+        }
+        if (process) {
+            bool still_owned = false;
+            for (const auto& [other, ticket] : channels) {
+                if (ticket.process == process) {
+                    still_owned = true;
+                    break;
+                }
+            }
+            if (!still_owned) qmd_sessions.erase(process);
         }
     }
 private:
@@ -177,6 +195,11 @@ private:
         std::shared_ptr<Shader::Ampere::NativeTranslationCache> translation_cache{};
     };
     std::map<const void*, GraphicsOwner> engines;
+    struct QmdOwner {
+        std::uint64_t generation{};
+        std::shared_ptr<Tegra::NativeQmdSession> session{};
+    };
+    std::map<const Kernel::KProcess*, QmdOwner> qmd_sessions;
     std::uint64_t last_channel_generation{};
 };
 } // namespace Service::Nvidia::Devices
