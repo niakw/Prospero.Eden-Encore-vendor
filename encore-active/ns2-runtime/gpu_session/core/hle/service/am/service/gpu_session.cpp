@@ -24,6 +24,7 @@
 #include "core/hle/kernel/k_readable_event.h"
 #include "core/hle/service/nvdrv/nvdrv.h"
 #include "core/hle/service/nvdrv/devices/nvhost_as_gpu.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_va_layout.h"
 #include "core/hle/service/am/service/gpu_session.h"
 #include "core/hle/service/am/service/gpu_worker.h"
 #include "core/hle/service/am/service/gpu_worker_shared.h"
@@ -252,6 +253,17 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
                 std::array<u8, 40> output{};
                 const u32_le big_page_size{0x20000};
                 std::memcpy(input.data() + 8, &big_page_size, sizeof(big_page_size));
+                // The inherited 37-bit GPU VA defaults reject native NS2
+                // GPU-only render targets at 0x81_0000_0000 (above 512 GiB).
+                // Explicitly request 40-bit VA for THIS NS2 TIPC-created FD.
+                // MapNative4K and ReserveNativeSparse4K must still enforce
+                // live ownership and a real backing before a render succeeds.
+                const u64_le range_start{Nvidia::Devices::NativeNs2GpuVaStart};
+                const u64_le range_end{Nvidia::Devices::NativeNs2GpuVaEnd};
+                const u64_le range_split{Nvidia::Devices::NativeNs2GpuVaSmallSplit};
+                std::memcpy(input.data() + 16, &range_start, sizeof(range_start));
+                std::memcpy(input.data() + 24, &range_end, sizeof(range_end));
+                std::memcpy(input.data() + 32, &range_split, sizeof(range_split));
                 Nvidia::Ioctl ioctl{};
                 ioctl.raw = 0x40284109;
                 if (m_module->Ioctl1(fd, ioctl, input, output) == Nvidia::NvResult::Success) {

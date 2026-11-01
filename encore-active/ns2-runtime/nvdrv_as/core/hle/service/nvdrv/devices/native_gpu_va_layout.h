@@ -8,6 +8,13 @@
 #include <optional>
 
 namespace Service::Nvidia::Devices {
+// Switch 2's GPU-only render targets can be allocated at 0x81_0000_0000,
+// above the 37-bit Maxwell default. Keep these constants exclusive to the
+// explicitly created NS2 GPU session; legacy NVDRV retains its original VA.
+inline constexpr std::uint64_t NativeNs2GpuVaStart = 0x08000000ULL;
+inline constexpr std::uint64_t NativeNs2GpuVaSmallSplit = 3ULL << 38; // 768 GiB
+inline constexpr std::uint64_t NativeNs2GpuVaEnd = 1ULL << 40; // 1 TiB
+
 struct NativeGpuVaPageLayout {
     std::uint32_t small_begin;
     std::uint32_t small_end;
@@ -41,4 +48,8 @@ struct NativeGpuVaPageLayout {
         static_cast<std::uint32_t>(big_end),
     };
 }
+static_assert(PlanNativeGpuVaLayout(NativeNs2GpuVaStart, NativeNs2GpuVaSmallSplit,
+                                    NativeNs2GpuVaEnd, 0x20000).has_value());
+static_assert(NativeNs2GpuVaStart < 0x8100000000ULL &&
+              0x8100000000ULL < NativeNs2GpuVaSmallSplit);
 } // namespace Service::Nvidia::Devices
