@@ -572,7 +572,7 @@ void Puller::ProcessNativeComputeQmd(DmaPusher& pusher, u32 method,
         const auto n = refused.fetch_add(1, std::memory_order_relaxed) + 1;
         if (n <= 32 || (n & (n - 1)) == 0)
             std::fprintf(stderr,
-                         "EDEN_NS2_COMPUTE_QMD_UNSUPPORTED count=%u sub=%u method=%03x address=%llx reason=%.*s\\n",
+                         "EDEN_NS2_COMPUTE_QMD_UNSUPPORTED count=%u sub=%u method=%03x address=%llx reason=%.*s\n",
                          n, static_cast<unsigned>(subchannel),
                          static_cast<unsigned>(method),
                          static_cast<unsigned long long>(address),
