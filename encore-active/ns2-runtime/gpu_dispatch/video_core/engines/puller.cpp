@@ -577,8 +577,11 @@ void Puller::ProcessNativeComputeInlineQmd(DmaPusher& pusher, u32 subchannel) {
 
     auto& regs = pusher.channel_state.payload->kepler_compute.regs.reg_array;
     const u64 qmd_units = (u64{regs[0xc6]} << 32) | regs[0xc7];
-    if (qmd_units > (std::numeric_limits<GPUVAddr>::max() >> 8)) {
-        LOG_ERROR(HW_GPU, "Native inline QMD destination overflows GPU address");
+    // Native QMD addresses are 256-byte units in the NS2 49-bit GPU VA
+    // domain. Unlike the legacy PCAS pointer, the inline register pair can
+    // describe the upper nine address bits without truncation.
+    if (qmd_units >= (u64{1} << 41)) {
+        LOG_ERROR(HW_GPU, "Native inline QMD destination exceeds 49-bit GPU VA");
         return;
     }
     const GPUVAddr address = qmd_units << 8;
@@ -597,15 +600,10 @@ void Puller::ProcessNativeComputeInlineQmd(DmaPusher& pusher, u32 subchannel) {
     const u32 control = regs[0xa7];
     if (!(control & (1U << 24)) && (descriptor[4] & (1U << 12)))
         return;
-    if (qmd_units > std::numeric_limits<u32>::max()) {
-        LOG_ERROR(HW_GPU, "Native inline QMD PCAS register cannot address descriptor");
-        return;
-    }
-    auto& qmd_pointer = regs[0xad];
-    const u32 previous = qmd_pointer;
-    SCOPE_EXIT { qmd_pointer = previous; };
-    qmd_pointer = static_cast<u32>(qmd_units);
-    ProcessNativeComputeQmd(pusher, 0xb0, 3, subchannel);
+    // The full address is already validated and the 256-byte descriptor is
+    // uploaded. Never downcast it into a 32-bit PCAS register: upper QMD3
+    // addresses are legitimate and the legacy register must remain untouched.
+    ProcessNativeComputeQmdAt(pusher, address, 3, subchannel, 0x107);
 }
 
 // Native Ampere SET_REPORT_SEMAPHORE_A-D (0x6c0-0x6c3).
@@ -668,6 +666,13 @@ void Puller::ProcessNativeComputeQmd(DmaPusher& pusher, u32 method,
                                      u32 argument, u32 subchannel) {
     if (method == 0xae || (method == 0xaf && !(argument & 2)) ||
         (method == 0xb0 && (argument & 15) <= 1)) return;
+    const GPUVAddr address =
+        GPUVAddr{pusher.channel_state.payload->kepler_compute.regs.reg_array[0xad]} << 8;
+    ProcessNativeComputeQmdAt(pusher, address, argument, subchannel, method);
+}
+
+void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
+                                       u32 argument, u32 subchannel, u32 method) {
     auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
     const auto ticket = registry.CaptureTicket(&pusher.channel_state);
     const auto compute_ticket = registry.CaptureComputeTicket(
@@ -680,8 +685,6 @@ void Puller::ProcessNativeComputeQmd(DmaPusher& pusher, u32 method,
         ticket->generation != compute_ticket->generation ||
         ticket->channel_generation != compute_ticket->channel_generation ||
         !session || !pusher.rasterizer) return;
-    const GPUVAddr address =
-        GPUVAddr{pusher.channel_state.payload->kepler_compute.regs.reg_array[0xad]} << 8;
     auto read = [&](u64 addr, Tegra::NativeQmdScheduler::Descriptor& data) {
         if (!pusher.memory_manager.IsFullyMappedRange(addr, sizeof(data))) return false;
         pusher.memory_manager.ReadBlockUnsafe(addr, data.data(), sizeof(data));
