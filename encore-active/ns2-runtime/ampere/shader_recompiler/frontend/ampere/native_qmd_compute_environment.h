@@ -470,6 +470,8 @@ struct NativeQmdTextureTables {
             case MsaaMode::Msaa4x4:
             case MsaaMode::Msaa2x2_VC4:
             case MsaaMode::Msaa2x2_VC12:
+            case MsaaMode::Msaa4x2_VC8:
+            case MsaaMode::Msaa4x2_VC24:
                 break;
             default:
                 return std::nullopt;
