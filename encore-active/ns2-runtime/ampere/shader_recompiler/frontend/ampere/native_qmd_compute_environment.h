@@ -331,18 +331,18 @@ struct NativeQmdTextureTables {
     u32 tsc_limit{};
     bool linked_tsc{};
 
-    template <typename Read>
-    [[nodiscard]] std::optional<std::vector<NativeQmdImageTableRecord>>
-    Capture(const NativeQmdResourcePlan& plan, Read&& read) const {
-        if (plan.image_handles.empty())
-            return plan.requires_tic_tsc
-                ? std::nullopt
-                : std::optional<std::vector<NativeQmdImageTableRecord>>{
-                      std::vector<NativeQmdImageTableRecord>{}};
+    // The capture and snapshot check use ONE descriptor-table walker.
+    // The first pass owns a vector; the second runs under TextureCache's
+    // channel lock without allocating or creating another descriptor array.
+    // Refuse a mixed table as soon as any TIC/TSC byte or handle differs.
+    template <typename Read, typename Accept>
+    [[nodiscard]] bool ForEachCapturedRecord(const NativeQmdResourcePlan& plan,
+                                              Read&& read, Accept&& accept) const {
+        if (plan.image_handles.empty()) return !plan.requires_tic_tsc;
         if (!plan.requires_tic_tsc || plan.image_handles.size() > 256)
-            return std::nullopt;
+            return false;
         constexpr u64 gpu_limit = u64{1} << 49;
-        constexpr u64 entry_bytes = 32; // TICEntry and TSCEntry owner ABI
+        constexpr u64 entry_bytes = 32;
         const auto entry_address = [&](u64 base, u32 limit,
                                        u32 index) -> std::optional<u64> {
             if (!base || base >= gpu_limit || (base & (entry_bytes - 1)) ||
@@ -354,24 +354,20 @@ struct NativeQmdTextureTables {
                 return std::nullopt;
             return base + offset;
         };
-        std::vector<NativeQmdImageTableRecord> captured;
-        captured.reserve(plan.image_handles.size());
         for (const auto& handle : plan.image_handles) {
             if (handle.primary_shift >= 32 ||
                 (handle.has_secondary && handle.secondary_shift >= 32))
-                return std::nullopt;
+                return false;
             const u64 primary = u64{handle.primary_word} << handle.primary_shift;
             const u64 secondary = handle.has_secondary
                 ? u64{handle.secondary_word} << handle.secondary_shift : 0;
             const u64 raw64 = primary | secondary;
-            if (raw64 > 0xffffffffU)
-                return std::nullopt; // no silent truncation to a wrong guest handle
+            if (raw64 > 0xffffffffU) return false;
             const u32 raw = static_cast<u32>(raw64);
             const u32 tic = linked_tsc ? raw : (raw & 0xfffffU);
             const u32 tsc = linked_tsc ? raw : (raw >> 20);
             const auto tic_addr = entry_address(tic_base, tic_limit, tic);
-            if (!tic_addr)
-                return std::nullopt;
+            if (!tic_addr) return false;
             NativeQmdImageTableRecord record{};
             record.kind = handle.kind;
             record.raw_handle = raw;
@@ -380,17 +376,33 @@ struct NativeQmdTextureTables {
             record.is_written = handle.is_written;
             if (!read(*tic_addr, record.tic_words.data(),
                       sizeof(record.tic_words)))
-                return std::nullopt;
+                return false;
             record.has_sampler = handle.kind == NativeQmdImageKind::SampledTexture;
             if (record.has_sampler) {
                 const auto tsc_addr = entry_address(tsc_base, tsc_limit, tsc);
                 if (!tsc_addr ||
                     !read(*tsc_addr, record.tsc_words.data(),
                           sizeof(record.tsc_words)))
-                    return std::nullopt;
+                    return false;
             }
-            captured.push_back(record);
+            if (!accept(record)) return false;
         }
+        return true;
+    }
+
+    template <typename Read>
+    [[nodiscard]] std::optional<std::vector<NativeQmdImageTableRecord>>
+    Capture(const NativeQmdResourcePlan& plan, Read&& read) const {
+        if (plan.image_handles.size() > 256) return std::nullopt;
+        std::vector<NativeQmdImageTableRecord> captured;
+        captured.reserve(plan.image_handles.size());
+        if (!ForEachCapturedRecord(
+                plan, std::forward<Read>(read),
+                [&](const NativeQmdImageTableRecord& record) {
+                    captured.push_back(record);
+                    return true;
+                }))
+            return std::nullopt;
         return captured;
     }
 
@@ -403,18 +415,21 @@ struct NativeQmdTextureTables {
         const NativeQmdResourcePlan& plan,
         const std::vector<NativeQmdImageTableRecord>& snapshot,
         Read&& read) const {
-        const auto fresh = Capture(plan, std::forward<Read>(read));
-        if (!fresh || fresh->size() != snapshot.size()) return false;
-        for (std::size_t i = 0; i < snapshot.size(); ++i) {
-            const auto& a = snapshot[i];
-            const auto& b = (*fresh)[i];
-            if (a.kind != b.kind || a.raw_handle != b.raw_handle ||
-                a.tic_index != b.tic_index || a.tsc_index != b.tsc_index ||
-                a.has_sampler != b.has_sampler || a.is_written != b.is_written ||
-                a.tic_words != b.tic_words || a.tsc_words != b.tsc_words)
-                return false;
-        }
-        return true;
+        if (plan.image_handles.size() != snapshot.size()) return false;
+        std::size_t index{};
+        return ForEachCapturedRecord(
+            plan, std::forward<Read>(read),
+            [&](const NativeQmdImageTableRecord& current) {
+                const auto& saved = snapshot[index++];
+                return saved.kind == current.kind &&
+                       saved.raw_handle == current.raw_handle &&
+                       saved.tic_index == current.tic_index &&
+                       saved.tsc_index == current.tsc_index &&
+                       saved.has_sampler == current.has_sampler &&
+                       saved.is_written == current.is_written &&
+                       saved.tic_words == current.tic_words &&
+                       saved.tsc_words == current.tsc_words;
+            });
     }
 
     // Transcode already admitted snapshot bytes to the EXACT shared cache
