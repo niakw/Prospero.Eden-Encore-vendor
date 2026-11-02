@@ -357,14 +357,34 @@ template <typename Map>
             }
             const u64 budget = sample_mode == MsaaMode::Msaa1x1
                 ? 64ULL * 1024 * 1024 : 4ULL * 1024 * 1024;
-            // ImageInfo expands cube and cube-array descriptors to six
-            // faces per cube. Budget ALL faces, not only the QMD's cube
-            // count, or an oversized cube can wrap u32 guest byte math.
-            const bool cubes = type == static_cast<u32>(
-                                   Tegra::Texture::TextureType::TextureCubemap) ||
-                               type == static_cast<u32>(
-                                   Tegra::Texture::TextureType::TextureCubeArray);
-            const u64 layers = (u64{tic.BaseLayer()} + 1) * (cubes ? 6U : 1U);
+            // Match ImageInfo::ImageInfo(TICEntry) EXACTLY. Its layer
+            // count includes the guest array depth: BaseLayer+Depth for
+            // 1D/2D arrays and BaseLayer+Depth*6 for cube arrays. The old
+            // BaseLayer+1 estimate undercounted these allocations and could
+            // admit a texture far beyond the shared cache budget.
+            using Tegra::Texture::TextureType;
+            const u64 base_layer = tic.BaseLayer();
+            const u64 depth = tic.Depth();
+            const u64 layers = [&]() -> u64 {
+                switch (tic.texture_type.Value()) {
+                case TextureType::Texture1D:
+                case TextureType::Texture1DArray:
+                case TextureType::Texture2DArray:
+                    return base_layer + depth;
+                case TextureType::Texture2D:
+                case TextureType::Texture2DNoMipmap:
+                    return base_layer + 1;
+                case TextureType::TextureCubemap:
+                    return base_layer + 6;
+                case TextureType::TextureCubeArray:
+                    return base_layer + depth * 6;
+                case TextureType::Texture3D:
+                case TextureType::Texture1DBuffer:
+                    return 1;
+                default:
+                    return 0;
+                }
+            }();
             if (!NativeQmdWithinTexelBudget(
                     tic.Width(), tic.Height(), tic.Depth(), layers, budget))
                 return false;
