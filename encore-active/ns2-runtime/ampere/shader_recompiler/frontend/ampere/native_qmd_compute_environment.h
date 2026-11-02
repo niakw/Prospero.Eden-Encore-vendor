@@ -357,11 +357,10 @@ template <typename Map>
             }
             const u64 budget = sample_mode == MsaaMode::Msaa1x1
                 ? 64ULL * 1024 * 1024 : 4ULL * 1024 * 1024;
-            // Match ImageInfo::ImageInfo(TICEntry) EXACTLY. Its layer
-            // count includes the guest array depth: BaseLayer+Depth for
-            // 1D/2D arrays and BaseLayer+Depth*6 for cube arrays. The old
-            // BaseLayer+1 estimate undercounted these allocations and could
-            // admit a texture far beyond the shared cache budget.
+            // Match ImageInfo::ImageInfo(TICEntry) dimensions exactly:
+            // arrays put TIC Depth in the layer count, 3D puts it in the
+            // image depth, and 1D/buffer images have height 1. Counting both
+            // TIC Depth and array layers would wrongly reject valid views.
             using Tegra::Texture::TextureType;
             const u64 base_layer = tic.BaseLayer();
             const u64 depth = tic.Depth();
@@ -385,8 +384,15 @@ template <typename Map>
                     return 0;
                 }
             }();
+            const bool one_dimensional =
+                type == static_cast<u32>(TextureType::Texture1D) ||
+                type == static_cast<u32>(TextureType::Texture1DArray) ||
+                type == static_cast<u32>(TextureType::Texture1DBuffer);
+            const u64 image_height = one_dimensional ? 1 : tic.Height();
+            const u64 image_depth =
+                type == static_cast<u32>(TextureType::Texture3D) ? depth : 1;
             if (!NativeQmdWithinTexelBudget(
-                    tic.Width(), tic.Height(), tic.Depth(), layers, budget))
+                    tic.Width(), image_height, image_depth, layers, budget))
                 return false;
 
     return true;
