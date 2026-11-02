@@ -11,8 +11,10 @@
 #include <optional>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 #include "shader_recompiler/environment.h"
+#include "shader_recompiler/shader_info.h"
 #include "video_core/native_qmd.h"
 
 namespace Shader::Ampere {
@@ -21,6 +23,23 @@ namespace Shader::Ampere {
 // It MUST return false for an unmapped or partially mapped 32-bit word.
 using NativeQmdRead = bool (*)(void* context, u64 gpu_addr,
                                void* destination, std::size_t bytes);
+
+// A descriptor plan is NOT a GPU binding: the renderer must still validate
+// the targets against the active GMMU and upload/couple Vulkan descriptors.
+// The original per-resource layout and access direction are preserved.
+struct NativeQmdStorageBinding {
+    u64 gpu_address{};
+    u32 bytes{};
+    bool is_written{};
+    bool known_size{};
+};
+struct NativeQmdResourcePlan {
+    std::vector<Tegra::NativeComputeLaunch::ConstantBuffer> uniform_buffers;
+    std::vector<NativeQmdStorageBinding> storage_buffers;
+    bool requires_tic_tsc{};
+    bool requires_memory_layout{};
+    bool uses_global_memory{};
+};
 
 class NativeQmdComputeEnvironment final : public Shader::Environment {
 public:
@@ -103,6 +122,69 @@ public:
     }
     void Dump(u64, u64) override {
         // Never use the Switch 1 shader dumper on NS2 Ampere code.
+    }
+
+    [[nodiscard]] std::optional<NativeQmdResourcePlan> BuildResourcePlan(
+        const Shader::Info& shader_info) {
+        constexpr u64 gpu_limit = u64{1} << 49;
+        NativeQmdResourcePlan result{};
+        // The native QMD carries exactly 8 CBUFs; Maxwell's synthetic
+        // SPIR-V metadata can address up to 18, but those extra bindings
+        // cannot be silently redirected to a Switch 1 constant buffer.
+        if ((shader_info.constant_buffer_mask & ~u32{0xff}) != 0 ||
+            shader_info.uses_cbuf_indirect)
+            return std::nullopt;
+        for (const auto& desc : shader_info.constant_buffer_descriptors) {
+            if (!desc.count || desc.index >= launch.constant_buffers.size() ||
+                desc.count > launch.constant_buffers.size() - desc.index)
+                return std::nullopt;
+            for (u32 i = 0; i < desc.count; ++i) {
+                const auto index = desc.index + i;
+                const auto& cbuf = launch.constant_buffers[index];
+                if (!cbuf.enabled ||
+                    shader_info.constant_buffer_used_sizes[index] > cbuf.size)
+                    return std::nullopt;
+                result.uniform_buffers.push_back(cbuf);
+            }
+        }
+        // Shader SSBO descriptors are 16-byte records inside the QMD CBUF
+        // (target VA low, target VA high, packed length, tag). The maintained
+        // BufferCache uses that exact guest descriptor layout. Read the same
+        // words through our 49-bit, mapping-checked QMD Compute Environment.
+        try {
+            for (const auto& desc : shader_info.storage_buffers_descriptors) {
+                if (desc.count != 1 || desc.cbuf_index >= launch.constant_buffers.size() ||
+                    desc.cbuf_offset > 0xfffffff0U)
+                    return std::nullopt;
+                const u32 lo = ReadCbufValue(desc.cbuf_index, desc.cbuf_offset);
+                const u32 hi = ReadCbufValue(desc.cbuf_index, desc.cbuf_offset + 4);
+                const u32 bytes = ReadCbufValue(desc.cbuf_index, desc.cbuf_offset + 8);
+                const u32 tag = ReadCbufValue(desc.cbuf_index, desc.cbuf_offset + 12);
+                if ((hi & ~u32{0x1ffff}) != 0)
+                    return std::nullopt;
+                const u64 target = (u64{hi} << 32) | lo;
+                if (target >= gpu_limit || (bytes && bytes > gpu_limit - target))
+                    return std::nullopt;
+                // A nonzero tag/zero size uses upstream's memory-layout
+                // fallback. Do not invent its length or call it bound.
+                const bool known_size = tag == 0 && bytes != 0;
+                result.storage_buffers.push_back(
+                    {target, known_size ? bytes : 0U, desc.is_written, known_size});
+                result.requires_memory_layout |= !known_size;
+            }
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
+        // Native TIC/TSC layout, image views and SSBO backing still require
+        // the Vulkan texture/buffer caches; a decoded handle is not a bound
+        // image or a permission to submit the dispatch.
+        result.requires_tic_tsc = !shader_info.texture_descriptors.empty() ||
+            !shader_info.texture_buffer_descriptors.empty() ||
+            !shader_info.image_descriptors.empty() ||
+            !shader_info.image_buffer_descriptors.empty();
+        result.uses_global_memory = shader_info.uses_global_memory ||
+            shader_info.stores_global_memory;
+        return result;
     }
 
     [[nodiscard]] const Tegra::NativeComputeLaunch& Launch() const noexcept {
