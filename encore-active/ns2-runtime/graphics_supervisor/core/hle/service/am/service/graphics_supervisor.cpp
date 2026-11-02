@@ -114,6 +114,12 @@ public:
             // These are independent 60Hz vblank events, not the 11 notification.
             {31,&IVi2Session::VsyncEvent,"GetVsyncEvent"},
             {32,&IVi2Session::VsyncEvent,"GetDisplayVsyncEvent"},
+            // Observed NVN2 VI2 request-group/display polling controls.
+            // The upstream NX2 service acknowledges these without changing
+            // display/producer state. Keep other unknown IDs fail-closed.
+            {51,&IVi2Session::AcknowledgeDisplayPoll,"ConfigureRequestGroups"},
+            {104,&IVi2Session::AcknowledgeDisplayPoll,"QueryDisplayState104"},
+            {105,&IVi2Session::AcknowledgeDisplayPoll,"QueryDisplayState105"},
             {101,&IVi2Session::Open,"OpenDisplay"},
             {102,&IVi2Session::Close,"CloseDisplay"},
             {201,&IVi2Session::Register,"RegisterClientState"},
@@ -177,6 +183,14 @@ private:
         if (bit>=1024)return;
         m_notes[bit/32]|=1U<<(bit%32);
         if(m_event)m_event->Signal(kernel);
+    }
+    void AcknowledgeDisplayPoll(HLERequestContext& ctx) {
+        // Native NX2 VI2 SDK request-group configuration (51) and
+        // display polling (104/105) have no observed output payload.
+        // Match the bounded upstream compatibility reply; unknown VI2
+        // commands still pass through the explicit NotImplemented path.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess.raw);
     }
     void Limit(HLERequestContext& ctx) {
         const auto* p=ctx.CommandBuffer();
