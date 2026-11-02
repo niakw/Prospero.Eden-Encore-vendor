@@ -66,6 +66,34 @@ struct NativeQmdResourcePlan {
     // This only validates the CPU-facing descriptor plan. The Vulkan owner
     // MUST still create/upload buffer objects, acquire image views, publish
     // the compute pipeline and fence the dispatch before reporting success.
+    // Buffer descriptors originate from writable guest CBUF memory.
+    // Compare the complete captured binding plan, not only its mapping:
+    // a guest rewrite can keep both old and new GPU ranges resident.
+    // No hashing/padding comparisons or allocations in this validation.
+    [[nodiscard]] bool SameBufferBindings(const NativeQmdResourcePlan& other) const noexcept {
+        if (requires_tic_tsc != other.requires_tic_tsc ||
+            requires_memory_layout != other.requires_memory_layout ||
+            uses_global_memory != other.uses_global_memory ||
+            uniform_buffers.size() != other.uniform_buffers.size() ||
+            storage_buffers.size() != other.storage_buffers.size())
+            return false;
+        for (std::size_t i = 0; i < uniform_buffers.size(); ++i) {
+            const auto& a = uniform_buffers[i];
+            const auto& b = other.uniform_buffers[i];
+            if (a.qmd_index != b.qmd_index || a.gpu_address != b.gpu_address ||
+                a.bytes != b.bytes)
+                return false;
+        }
+        for (std::size_t i = 0; i < storage_buffers.size(); ++i) {
+            const auto& a = storage_buffers[i];
+            const auto& b = other.storage_buffers[i];
+            if (a.gpu_address != b.gpu_address || a.bytes != b.bytes ||
+                a.is_written != b.is_written || a.known_size != b.known_size)
+                return false;
+        }
+        return true;
+    }
+
     [[nodiscard]] bool HasResolvedBufferBindings() const noexcept {
         if (requires_tic_tsc || requires_memory_layout || uses_global_memory)
             return false;

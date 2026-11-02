@@ -1188,13 +1188,25 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         pipeline->PreflightDescriptorScratch();
         if (!registry.IsComputeCurrent(kepler_compute, *ticket))
             return false;
+        // The original QMD resource plan was read before shader compilation.
+        // CBUF descriptors are mutable even when both GPU address ranges
+        // remain mapped. Refuse stale/aliased captures before staging Vulkan.
+        const auto before_binding = resource_owner->BuildResourcePlan(*compiled.info);
+        if (!before_binding || !resources->SameBufferBindings(*before_binding) ||
+            !registry.IsComputeCurrent(kepler_compute, *ticket))
+            return false;
         scheduler.RequestOutsideRenderPassOperationContext();
         {
             std::scoped_lock lock{buffer_cache.mutex};
             if (!pipeline->ConfigureNative(
                     *resources, *gpu_memory, scheduler, buffer_cache)) return false;
         }
-        if (!registry.IsComputeCurrent(kepler_compute, *ticket)) {
+        // ConfigureNative may have recorded descriptor closures already.
+        // Validate CBUF bytes one final time after staging; an inconsistent
+        // dispatch must retain its Vulkan owner until those commands retire.
+        const auto after_binding = resource_owner->BuildResourcePlan(*compiled.info);
+        if (!after_binding || !resources->SameBufferBindings(*after_binding) ||
+            !registry.IsComputeCurrent(kepler_compute, *ticket)) {
             // ConfigureNative has already recorded a Vulkan descriptor-bind
             // closure that captures ComputePipeline*. Even when this QMD is
             // refused, retain the object until those queued commands retire.
