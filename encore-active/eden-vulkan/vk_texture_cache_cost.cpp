@@ -1120,7 +1120,14 @@ void TextureCacheRuntime::RetireGpuImage(Image&& image) {
     try {
         // Reserve BEFORE moving the Vulkan owner: a failed vector growth
         // must never destroy the temporary image before the GPU drain below.
-        pending_retired_images.reserve(pending_retired_images.size() + 1);
+        // Geometric growth avoids O(n^2) reallocations under texture churn.
+        if (pending_retired_images.size() == pending_retired_images.capacity()) {
+            const auto capacity = pending_retired_images.capacity();
+            const auto max_size = pending_retired_images.max_size();
+            if (capacity == max_size) throw std::bad_alloc{};
+            pending_retired_images.reserve(
+                capacity + std::min(std::max<std::size_t>(capacity, 8), max_size - capacity));
+        }
         pending_retired_images.push_back({tick, gpu_retire_frame, std::make_unique<Image>(std::move(image))});
     } catch (...) {
         // If queue allocation fails, wait before any moved owner can die.
@@ -1134,7 +1141,14 @@ void TextureCacheRuntime::RetireGpuImageView(ImageView&& view) {
     try {
         // Retain the original view until all throwing container allocation
         // has completed, then move it into a preallocated retirement slot.
-        pending_retired_views.reserve(pending_retired_views.size() + 1);
+        // Geometric growth avoids O(n^2) reallocations under texture churn.
+        if (pending_retired_views.size() == pending_retired_views.capacity()) {
+            const auto capacity = pending_retired_views.capacity();
+            const auto max_size = pending_retired_views.max_size();
+            if (capacity == max_size) throw std::bad_alloc{};
+            pending_retired_views.reserve(
+                capacity + std::min(std::max<std::size_t>(capacity, 8), max_size - capacity));
+        }
         pending_retired_views.push_back({tick, gpu_retire_frame, std::make_unique<ImageView>(std::move(view))});
     } catch (...) {
         scheduler.Finish();
