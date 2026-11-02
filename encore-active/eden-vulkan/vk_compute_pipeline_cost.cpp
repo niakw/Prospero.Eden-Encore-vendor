@@ -730,10 +730,12 @@ bool ComputePipeline::ConfigureNative(
     // never during a possibly rejected descriptor preflight.
     for (const auto& item : staged) {
         if (item.is_written) {
-            buffer_cache.ObtainBuffer(
+            // MarkAsWritten is the intentional side effect; no returned
+            // buffer handle is consumed by this native descriptor path.
+            static_cast<void>(buffer_cache.ObtainBuffer(
                 item.gpu, item.bytes,
                 VideoCommon::ObtainBufferSynchronize::NoSynchronize,
-                VideoCommon::ObtainBufferOperation::MarkAsWritten);
+                VideoCommon::ObtainBufferOperation::MarkAsWritten));
         }
     }
 
