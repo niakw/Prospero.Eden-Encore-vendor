@@ -133,6 +133,91 @@ struct NativeQmdResourcePlan {
     }
 };
 
+// P2.2: an authenticated GPU channel owns the TIC/TSC table registers.
+// Capture actual 32-byte guest entries through the channel's checked GMMU
+// reader; never interpret a CBUF handle as an image or sampler by itself.
+// No Vulkan descriptors, cache allocations or guest writes occur here.
+struct NativeQmdImageTableRecord {
+    NativeQmdImageKind kind{};
+    u32 raw_handle{};
+    u32 tic_index{};
+    u32 tsc_index{};
+    bool has_sampler{};
+    bool is_written{};
+    std::array<u32, 8> tic_words{};
+    std::array<u32, 8> tsc_words{};
+};
+struct NativeQmdTextureTables {
+    u64 tic_base{};
+    u64 tsc_base{};
+    u32 tic_limit{};
+    u32 tsc_limit{};
+    bool linked_tsc{};
+
+    template <typename Read>
+    [[nodiscard]] std::optional<std::vector<NativeQmdImageTableRecord>>
+    Capture(const NativeQmdResourcePlan& plan, Read&& read) const {
+        if (plan.image_handles.empty())
+            return plan.requires_tic_tsc
+                ? std::nullopt
+                : std::optional<std::vector<NativeQmdImageTableRecord>>{
+                      std::vector<NativeQmdImageTableRecord>{}};
+        if (!plan.requires_tic_tsc || plan.image_handles.size() > 256)
+            return std::nullopt;
+        constexpr u64 gpu_limit = u64{1} << 49;
+        constexpr u64 entry_bytes = 32; // TICEntry and TSCEntry owner ABI
+        const auto entry_address = [&](u64 base, u32 limit,
+                                       u32 index) -> std::optional<u64> {
+            if (!base || base >= gpu_limit || (base & (entry_bytes - 1)) ||
+                index > limit)
+                return std::nullopt;
+            const u64 offset = u64{index} * entry_bytes;
+            if (offset > gpu_limit - base ||
+                entry_bytes > gpu_limit - base - offset)
+                return std::nullopt;
+            return base + offset;
+        };
+        std::vector<NativeQmdImageTableRecord> captured;
+        captured.reserve(plan.image_handles.size());
+        for (const auto& handle : plan.image_handles) {
+            if (handle.primary_shift >= 32 ||
+                (handle.has_secondary && handle.secondary_shift >= 32))
+                return std::nullopt;
+            const u64 primary = u64{handle.primary_word} << handle.primary_shift;
+            const u64 secondary = handle.has_secondary
+                ? u64{handle.secondary_word} << handle.secondary_shift : 0;
+            const u64 raw64 = primary | secondary;
+            if (raw64 > 0xffffffffU)
+                return std::nullopt; // no silent truncation to a wrong guest handle
+            const u32 raw = static_cast<u32>(raw64);
+            const u32 tic = linked_tsc ? raw : (raw & 0xfffffU);
+            const u32 tsc = linked_tsc ? raw : (raw >> 20);
+            const auto tic_addr = entry_address(tic_base, tic_limit, tic);
+            if (!tic_addr)
+                return std::nullopt;
+            NativeQmdImageTableRecord record{};
+            record.kind = handle.kind;
+            record.raw_handle = raw;
+            record.tic_index = tic;
+            record.tsc_index = tsc;
+            record.is_written = handle.is_written;
+            if (!read(*tic_addr, record.tic_words.data(),
+                      sizeof(record.tic_words)))
+                return std::nullopt;
+            record.has_sampler = handle.kind == NativeQmdImageKind::SampledTexture;
+            if (record.has_sampler) {
+                const auto tsc_addr = entry_address(tsc_base, tsc_limit, tsc);
+                if (!tsc_addr ||
+                    !read(*tsc_addr, record.tsc_words.data(),
+                          sizeof(record.tsc_words)))
+                    return std::nullopt;
+            }
+            captured.push_back(record);
+        }
+        return captured;
+    }
+};
+
 class NativeQmdComputeEnvironment final : public Shader::Environment {
 public:
     NativeQmdComputeEnvironment(
