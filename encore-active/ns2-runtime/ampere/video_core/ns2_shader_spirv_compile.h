@@ -7,7 +7,7 @@
 #include "shader_recompiler/frontend/ampere/renderer_spirv_bridge.h"
 #include "shader_recompiler/frontend/ampere/capture.h"
 
-namespace Tegra { class MemoryManager; }
+namespace Tegra { class MemoryManager; struct NativeComputeLaunch; }
 namespace Kernel { class KProcess; }
 namespace Shader {
 class Environment;
@@ -103,6 +103,23 @@ namespace VideoCommon {
     const Kernel::KProcess* process,
     std::unique_ptr<Shader::Environment> original,
     u64 gpu_program_address,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache = nullptr,
+    Shader::Backend::Bindings initial_bindings = {});
+
+// Complete QMD3 -> real guest GMMU shader -> stage-correct SPIR-V handoff.
+// The caller supplies a live Compute texture/TIC metadata owner, while the
+// native QMD environment owns full 49-bit constant-buffer and workgroup state.
+// The process ticket is verified before the compiler reads guest memory.
+// This returns an owned SPIR-V module and bindings metadata, NOT a Vulkan
+// pipeline or successful QMD dispatch.
+[[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2QmdComputeSpirv(
+    Tegra::MemoryManager& memory,
+    const Kernel::KProcess* process,
+    const Tegra::NativeComputeLaunch& launch,
+    std::unique_ptr<Shader::Environment> texture_metadata,
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
