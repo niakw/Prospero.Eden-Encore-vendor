@@ -185,13 +185,24 @@ template <typename Scheduler, typename FenceManager, typename Owner>
 void RetainNativeComputeUntilGpuTick(Scheduler& scheduler,
                                      FenceManager& fences,
                                      std::shared_ptr<Owner> owner) {
+    // Keep an independent reference until registration succeeds. If a
+    // std::function allocation or guest-fence submission throws after the
+    // Vulkan work was submitted, the registration lambda may be destroyed
+    // before the GPU finishes. The fallback waits that exact submitted tick.
+    auto emergency_owner = owner;
     const u64 tick = scheduler.Flush();
-    fences.SyncOperation([owner = std::move(owner), tick,
-                          gpu_scheduler = &scheduler] {
-        gpu_scheduler->Wait(tick);
-        static_cast<void>(owner);
-    });
-    fences.SignalReference();
+    try {
+        fences.SyncOperation([owner = std::move(owner), tick,
+                              gpu_scheduler = &scheduler] {
+            gpu_scheduler->Wait(tick);
+            static_cast<void>(owner);
+        });
+        fences.SignalReference();
+    } catch (...) {
+        scheduler.Wait(tick);
+        static_cast<void>(emergency_owner);
+        throw;
+    }
 }
 
 // Shared NS2 GMMU preflight for real guest buffers and texture image spans.
