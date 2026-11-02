@@ -409,6 +409,23 @@ struct NativeQmdTextureTables {
             if (src.kind != wanted.kind || src.is_written != wanted.is_written ||
                 src.has_sampler != sampled)
                 return std::nullopt;
+            // A captured 32-byte TIC/TSC snapshot belongs to one exact
+            // reflected QMD handle, not merely a descriptor of the same
+            // texture kind. Refuse a stale/mixed plan before decoding it
+            // into the shared TextureCache ABI.
+            if (wanted.primary_shift >= 32 ||
+                (wanted.has_secondary && wanted.secondary_shift >= 32))
+                return std::nullopt;
+            const u64 primary = u64{wanted.primary_word} << wanted.primary_shift;
+            const u64 secondary = wanted.has_secondary
+                ? u64{wanted.secondary_word} << wanted.secondary_shift : 0;
+            const u64 raw64 = primary | secondary;
+            if (raw64 > 0xffffffffU) return std::nullopt;
+            const u32 raw = static_cast<u32>(raw64);
+            if (src.raw_handle != raw ||
+                src.tic_index != (linked_tsc ? raw : (raw & 0xfffffU)) ||
+                src.tsc_index != (linked_tsc ? raw : (raw >> 20)))
+                return std::nullopt;
             NativeQmdTypedTextureRecord entry{};
             entry.kind = src.kind;
             entry.tic_index = src.tic_index;
