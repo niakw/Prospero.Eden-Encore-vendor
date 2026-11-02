@@ -654,23 +654,14 @@ bool ComputePipeline::ConfigureNative(
     if (!native_layout_valid || storage_count != resources.storage_buffers.size())
         return false;
 
-    // A single Vulkan buffer binding can cover only a CPU-contiguous mapping.
-    // Check every 4 KiB GPU page and the final byte, not merely the first
-    // page. Sparse/non-contiguous backing needs the separate GMMU owner.
+    // CBUF/SSBO and TIC images share ONE 49-bit GMMU admission policy.
+    // Only physically contiguous full spans are admitted; sparse mappings
+    // must be handled by their dedicated residency owner, never guessed.
     const auto mapped = [&](u64 addr, u32 bytes) {
-        constexpr u64 max_span = 256ULL * 1024 * 1024;
-        if (!bytes || bytes > max_span || addr >= (u64{1} << 49) ||
-            bytes > (u64{1} << 49) - addr)
-            return false;
-        const auto first = gpu_memory.GpuToCpuAddress(addr);
-        if (!first || *first > ~u64{0} - bytes)
-            return false;
-        for (u64 delta = 4096 - (addr & 4095); delta < bytes; delta += 4096) {
-            const auto page = gpu_memory.GpuToCpuAddress(addr + delta);
-            if (!page || *page != *first + delta) return false;
-        }
-        const auto last = gpu_memory.GpuToCpuAddress(addr + bytes - 1);
-        return last && *last == *first + bytes - 1;
+        return Shader::Ampere::NativeQmdContiguousGpuSpan(
+            addr, bytes, [&](u64 page) {
+                return gpu_memory.GpuToCpuAddress(page);
+            });
     };
     if (!resources.ValidateGpuMappings(mapped))
         return false;
