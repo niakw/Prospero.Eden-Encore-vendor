@@ -703,6 +703,7 @@ bool ComputePipeline::ConfigureNative(
 
     VkDeviceSize descriptor_buffer_offset{};
     u32 descriptor_buffer_chunk{};
+    u8* descriptor_buffer_host{};
     if (uses_descriptor_buffer) {
         const DescriptorBufferRing::Allocation allocation{
             descriptor_buffer_ring.Allocate(scheduler, descriptor_buffer_layout.size)};
@@ -710,6 +711,7 @@ bool ComputePipeline::ConfigureNative(
             return false;
         descriptor_buffer_offset = allocation.offset;
         descriptor_buffer_chunk = allocation.chunk;
+        descriptor_buffer_host = allocation.host;
     }
     guest_descriptor_queue.Acquire(scheduler, num_descriptor_entries,
                                    uses_descriptor_buffer);
@@ -733,12 +735,9 @@ bool ComputePipeline::ConfigureNative(
         uses_descriptor_buffer &&
         scheduler.UpdateDescriptorBufferChunk(descriptor_buffer_chunk);
     if (uses_descriptor_buffer) {
-        // Write only the buffer-only layout; images/TIC/TSC were rejected.
-        const auto allocation = descriptor_buffer_ring.BindingInfo(descriptor_buffer_chunk);
-        (void)allocation;
-        // The ring allocation address is retained above, not recoverable
-        // from the allocator after another reservation. Descriptor bytes
-        // are written before queue recording below.
+        // The ring owns this exact mapped allocation until GPU retirement.
+        WriteDescriptorBuffer(device, descriptor_buffer_layout,
+                              data, descriptor_buffer_host);
     }
     scheduler.Record([this, data, descriptor_buffer_offset,
                       descriptor_buffer_chunk, bind_descriptor_buffer](
