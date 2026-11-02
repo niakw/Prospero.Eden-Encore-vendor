@@ -247,7 +247,19 @@ void RetainNativeComputeUntilGpuTick(Scheduler& scheduler,
     // Vulkan work was submitted, the registration lambda may be destroyed
     // before the GPU finishes. The fallback waits that exact submitted tick.
     auto emergency_owner = owner;
-    const u64 tick = scheduler.Flush();
+    u64 tick{};
+    try {
+        tick = scheduler.Flush();
+    } catch (...) {
+        // A failed Flush can occur AFTER queuing callbacks which capture
+        // ComputePipeline*. Without a timeline tick, the normal fence
+        // registration cannot retain that owner. Drain outstanding commands
+        // before the emergency shared_ptr leaves scope. Keep the original
+        // failure and let the renderer's fatal GPU policy handle a broken
+        // scheduler; never pretend this dispatch succeeded.
+        try { scheduler.Finish(); } catch (...) {}
+        throw;
+    }
     try {
         fences.SyncOperation([owner = std::move(owner), tick,
                               gpu_scheduler = &scheduler] {
