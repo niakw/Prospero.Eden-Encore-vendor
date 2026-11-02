@@ -209,8 +209,16 @@ struct NativeComputeLaunch {
     launch.block = {qmd[18] >> 16, qmd[19] & 0xffffU, qmd[19] >> 16};
     for (auto dim : launch.grid)
         if (dim == 0) return std::nullopt;
-    for (auto dim : launch.block)
-        if (dim == 0) return std::nullopt;
+    // Ampere CTAs have at most 1024 active threads. Reject an oversized
+    // QMD before shader capture or allocating guest/host compute resources.
+    // Divide before multiplying so malicious 16-bit dimensions cannot
+    // overflow the aggregate thread count.
+    std::uint64_t threads_per_block{1};
+    for (const auto dim : launch.block) {
+        if (dim == 0 || dim > 1024U / threads_per_block)
+            return std::nullopt;
+        threads_per_block *= dim;
+    }
     // QMD3 stores a 49-bit code base as a low word and 17 address bits.
     // The remaining bits of qmd[49] are control fields, not address bits.
     constexpr std::uint64_t gpu_address_limit = std::uint64_t{1} << 49;
