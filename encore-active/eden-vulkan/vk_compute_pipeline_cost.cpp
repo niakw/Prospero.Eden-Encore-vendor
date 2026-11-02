@@ -16,6 +16,9 @@
 #include <boost/container/small_vector.hpp>
 #include <fmt/format.h>
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#include "shader_recompiler/frontend/ampere/native_qmd_compute_environment.h"
+#endif
 #include "video_core/renderer_vulkan/pipeline_helper.h"
 #include "video_core/renderer_vulkan/pipeline_statistics.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
@@ -592,5 +595,181 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     });
     return true;
 }
+
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+// Native QMD3 buffer-only Vulkan descriptor path. The caller owns the GPU
+// channel lock and must revalidate its native engine ticket before dispatch.
+// The legacy KeplerCompute::launch_description is never read here.
+bool ComputePipeline::ConfigureNative(
+    const Shader::Ampere::NativeQmdResourcePlan& resources,
+    Tegra::MemoryManager& gpu_memory, Scheduler& scheduler,
+    BufferCache& buffer_cache) {
+    if (!resources.HasResolvedBufferBindings() ||
+        !info.texture_descriptors.empty() || !info.image_descriptors.empty() ||
+        !info.texture_buffer_descriptors.empty() ||
+        !info.image_buffer_descriptors.empty() ||
+        resources.uniform_buffers.size() + resources.storage_buffers.size() !=
+            num_descriptor_entries) {
+        return false;
+    }
+    // Never bind the wrong bank. Layout order is fixed by the compiled SPIR-V
+    // descriptor vectors; QMD CBUF bank indices are not contiguous in general.
+    size_t uniform_pos{};
+    for (const auto& entry : info.constant_buffer_descriptors) {
+        for (u32 n = 0; n < entry.count; ++n) {
+            if (uniform_pos >= resources.uniform_buffers.size() ||
+                resources.uniform_buffers[uniform_pos++].qmd_index != entry.index + n)
+                return false;
+        }
+    }
+    if (uniform_pos != resources.uniform_buffers.size())
+        return false;
+    size_t storage_count{};
+    for (const auto& entry : info.storage_buffers_descriptors) {
+        if (entry.count != 1 || storage_count >= resources.storage_buffers.size() ||
+            resources.storage_buffers[storage_count++].is_written != entry.is_written)
+            return false;
+    }
+    if (storage_count != resources.storage_buffers.size())
+        return false;
+
+    // A single Vulkan buffer binding can cover only a CPU-contiguous mapping.
+    // Check every 4 KiB GPU page and the final byte, not merely the first
+    // page. Sparse/non-contiguous backing needs the separate GMMU owner.
+    const auto mapped = [&](u64 addr, u32 bytes) {
+        constexpr u64 max_span = 256ULL * 1024 * 1024;
+        if (!bytes || bytes > max_span || addr >= (u64{1} << 49) ||
+            bytes > (u64{1} << 49) - addr)
+            return false;
+        const auto first = gpu_memory.GpuToCpuAddress(addr);
+        if (!first || *first > ~u64{0} - bytes)
+            return false;
+        for (u64 delta = 4096 - (addr & 4095); delta < bytes; delta += 4096) {
+            const auto page = gpu_memory.GpuToCpuAddress(addr + delta);
+            if (!page || *page != *first + delta) return false;
+        }
+        const auto last = gpu_memory.GpuToCpuAddress(addr + bytes - 1);
+        return last && *last == *first + bytes - 1;
+    };
+    if (!resources.ValidateGpuMappings(mapped))
+        return false;
+
+    // Avoid declaring a pending asynchronous pipeline successful. Unlike the
+    // NS1 path, this experimental path fails closed if driver creation failed.
+    {
+        std::unique_lock lock{build_mutex};
+        build_condvar.wait(lock, [this] {
+            return is_built.load(std::memory_order_acquire);
+        });
+        if (!pipeline) return false;
+    }
+
+    struct BoundBuffer {
+        VkBuffer handle{};
+        VkDeviceAddress address{};
+        u32 offset{};
+        u32 bytes{};
+        u64 gpu{};
+        bool is_written{};
+    };
+    std::vector<BoundBuffer> staged;
+    staged.reserve(num_descriptor_entries);
+    const auto resolve = [&](u64 address, u32 size, bool written) {
+        auto [buffer, offset] = buffer_cache.ObtainBuffer(
+            address, size, VideoCommon::ObtainBufferSynchronize::FullSynchronize,
+            VideoCommon::ObtainBufferOperation::DoNothing);
+        if (!buffer || buffer->Handle() == VK_NULL_HANDLE ||
+            (uses_descriptor_buffer && buffer->DeviceAddress() == 0))
+            return false;
+        staged.push_back({buffer->Handle(), buffer->DeviceAddress(),
+                          offset, size, address, written});
+        return true;
+    };
+    const bool ready = resources.StageVulkanBufferBindings(
+        mapped,
+        [&](u32, u32, u64 address, u32 size) {
+            return resolve(address, size, false);
+        },
+        [&](u32, u64 address, u32 size, bool written) {
+            return resolve(address, size, written);
+        },
+        [&] { staged.clear(); });
+    if (!ready || staged.size() != num_descriptor_entries)
+        return false;
+    // Recheck: an unrelated GMMU unmap between staging and descriptor
+    // publication must never be mistaken for a valid compute binding.
+    if (!resources.ValidateGpuMappings(mapped))
+        return false;
+
+    VkDeviceSize descriptor_buffer_offset{};
+    u32 descriptor_buffer_chunk{};
+    if (uses_descriptor_buffer) {
+        const DescriptorBufferRing::Allocation allocation{
+            descriptor_buffer_ring.Allocate(scheduler, descriptor_buffer_layout.size)};
+        if (!allocation.host)
+            return false;
+        descriptor_buffer_offset = allocation.offset;
+        descriptor_buffer_chunk = allocation.chunk;
+    }
+    guest_descriptor_queue.Acquire(scheduler, num_descriptor_entries,
+                                   uses_descriptor_buffer);
+    for (const auto& item : staged) {
+        guest_descriptor_queue.AddBuffer(item.handle, item.address,
+                                         item.offset, item.bytes);
+    }
+    // All buffers are now admitted. Register guest writes after admission,
+    // never during a possibly rejected descriptor preflight.
+    for (const auto& item : staged) {
+        if (item.is_written) {
+            buffer_cache.ObtainBuffer(
+                item.gpu, item.bytes,
+                VideoCommon::ObtainBufferSynchronize::NoSynchronize,
+                VideoCommon::ObtainBufferOperation::MarkAsWritten);
+        }
+    }
+
+    const DescriptorUpdateEntry* const data = guest_descriptor_queue.UpdateData();
+    const bool bind_descriptor_buffer =
+        uses_descriptor_buffer &&
+        scheduler.UpdateDescriptorBufferChunk(descriptor_buffer_chunk);
+    if (uses_descriptor_buffer) {
+        // Write only the buffer-only layout; images/TIC/TSC were rejected.
+        const auto allocation = descriptor_buffer_ring.BindingInfo(descriptor_buffer_chunk);
+        (void)allocation;
+        // The ring allocation address is retained above, not recoverable
+        // from the allocator after another reservation. Descriptor bytes
+        // are written before queue recording below.
+    }
+    scheduler.Record([this, data, descriptor_buffer_offset,
+                      descriptor_buffer_chunk, bind_descriptor_buffer](
+                         vk::CommandBuffer cmdbuf) {
+        if (!pipeline) return;
+        if (bind_descriptor_buffer) {
+            cmdbuf.BindDescriptorBuffersEXT(
+                descriptor_buffer_ring.BindingInfo(descriptor_buffer_chunk));
+        }
+        cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline);
+        if (!descriptor_set_layout) return;
+        if (uses_descriptor_buffer) {
+            cmdbuf.SetDescriptorBufferOffsetsEXT(
+                VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline_layout,
+                0, 0, descriptor_buffer_offset);
+        } else if (uses_push_descriptor) {
+            cmdbuf.PushDescriptorSetWithTemplateKHR(
+                *descriptor_update_template, *pipeline_layout, 0, data);
+        } else {
+            const VkDescriptorSet descriptor_set{descriptor_allocator.Commit()};
+            device.GetLogical().UpdateDescriptorSet(
+                descriptor_set, *descriptor_update_template, data);
+            cmdbuf.BindDescriptorSets(
+                VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline_layout,
+                0, descriptor_set, nullptr);
+        }
+    });
+    // Binds the pipeline/descriptors only. The caller still must order and
+    // record vkCmdDispatch, QMD semaphore and GPU fence via RasterizerVulkan.
+    return true;
+}
+#endif
 
 } // namespace Vulkan
