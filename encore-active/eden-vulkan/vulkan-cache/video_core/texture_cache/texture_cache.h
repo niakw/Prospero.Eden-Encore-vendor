@@ -2395,7 +2395,14 @@ void TextureCache<P>::InvalidateScale(Image& image) {
     RemoveImageViewReferences(image_view_ids);
     RemoveFramebuffers(image_view_ids);
     for (const ImageViewId image_view_id : image_view_ids) {
-        sentenced_image_view.Push(std::move(slot_image_views[image_view_id]));
+#ifdef PS5_NATIVE
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            runtime.RetireGpuImageView(std::move(slot_image_views[image_view_id]));
+        } else
+#endif
+        {
+            sentenced_image_view.Push(std::move(slot_image_views[image_view_id]));
+        }
         slot_image_views.erase(image_view_id);
     }
     image.image_view_ids.clear();
@@ -3856,11 +3863,22 @@ void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
                    num_removed_overlaps);
     }
     for (const ImageViewId image_view_id : image_view_ids) {
+#ifdef PS5_NATIVE
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            // Both ordinary GC and immediate eviction must respect GPU completion.
+            runtime.RetireGpuImageView(std::move(slot_image_views[image_view_id]));
+        } else
+#endif
         if (!immediate_delete) {
             sentenced_image_view.Push(std::move(slot_image_views[image_view_id]));
         }
         slot_image_views.erase(image_view_id);
     }
+#ifdef PS5_NATIVE
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        runtime.RetireGpuImage(std::move(slot_images[image_id]));
+    } else
+#endif
     if (!immediate_delete) {
         sentenced_images.Push(std::move(slot_images[image_id]));
     }
