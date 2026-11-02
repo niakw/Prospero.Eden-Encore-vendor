@@ -1104,6 +1104,39 @@ void TextureCacheRuntime::Finish() {
     { auto timer = Eden::Performance::VulkanTimer(8); scheduler.Finish(); }
 }
 
+#ifdef PS5_NATIVE
+TextureCacheRuntime::~TextureCacheRuntime() {
+    // Never destroy Vulkan image/view owners with outstanding GPU commands.
+    // Teardown is the only blocking case; frame reclamation remains async.
+    if (!pending_retired_views.empty() || !pending_retired_images.empty()) {
+        scheduler.Finish();
+        pending_retired_views.clear();
+        pending_retired_images.clear();
+    }
+}
+
+void TextureCacheRuntime::RetireGpuImage(Image&& image) {
+    const u64 tick = scheduler.CurrentTick();
+    try {
+        pending_retired_images.emplace_back(tick, std::make_unique<Image>(std::move(image)));
+    } catch (...) {
+        // If queue allocation fails, wait before any moved owner can die.
+        scheduler.Wait(tick);
+        throw;
+    }
+}
+
+void TextureCacheRuntime::RetireGpuImageView(ImageView&& view) {
+    const u64 tick = scheduler.CurrentTick();
+    try {
+        pending_retired_views.emplace_back(tick, std::make_unique<ImageView>(std::move(view)));
+    } catch (...) {
+        scheduler.Wait(tick);
+        throw;
+    }
+}
+#endif
+
 StagingBufferRef TextureCacheRuntime::UploadStagingBuffer(size_t size, bool deferred) {
     return staging_buffer_pool.Request(size, MemoryUsage::Upload, deferred);
 }
@@ -2161,13 +2194,15 @@ void TextureCacheRuntime::TickFrame() {
 #ifdef PS5_NATIVE
     // With neither MSAA scratch nor resolve retirements pending, there is
     // nothing to collect and no reason to sample the GPU semaphore.
-    if (msaa_scratch_images.empty() && pending_resolve_shadows.empty()) {
+    if (msaa_scratch_images.empty() && pending_resolve_shadows.empty() &&
+        pending_retired_views.empty() && pending_retired_images.empty()) {
         return;
     }
     // A live scratch is marked UINT64_MAX until the caller releases it.
     // With no released scratch and no pending resolve shadow, no frame can
     // age or retire an image: skip the GPU completion probe entirely.
-    if (pending_resolve_shadows.empty() &&
+    if (pending_resolve_shadows.empty() && pending_retired_views.empty() &&
+        pending_retired_images.empty() &&
         std::all_of(msaa_scratch_images.begin(), msaa_scratch_images.end(),
                     [](const MsaaScratchImage& scratch) {
                         return scratch.tick == (std::numeric_limits<u64>::max)();
@@ -2193,6 +2228,16 @@ void TextureCacheRuntime::TickFrame() {
     std::erase_if(pending_resolve_shadows, [is_free](const auto& pending) {
         return is_free(pending.first);
     });
+#ifdef PS5_NATIVE
+    // Erase image views before images: both own real Vulkan resources.
+    // Frame age alone never proves completion of an outstanding GPU tick.
+    std::erase_if(pending_retired_views, [is_free](const auto& pending) {
+        return is_free(pending.first);
+    });
+    std::erase_if(pending_retired_images, [is_free](const auto& pending) {
+        return is_free(pending.first);
+    });
+#endif
 }
 
 Image::Image(TextureCacheRuntime& runtime_, const ImageInfo& info_, GPUVAddr gpu_addr_,
