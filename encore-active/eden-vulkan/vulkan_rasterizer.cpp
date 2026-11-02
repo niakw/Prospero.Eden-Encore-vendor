@@ -1111,6 +1111,21 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                 });
             if (!descriptors || !registry.IsComputeCurrent(kepler_compute, *ticket))
                 return false;
+            // The native process ticket alone is insufficient: the shared
+            // TextureCache may currently belong to another Maxwell/Ampere
+            // GPU channel or address space. Check the exact cache owner
+            // under its existing mutex; never bind a view from another GMMU.
+            // Registry epoch check remains OUTSIDE this lock to avoid a
+            // potential registry->texture lock inversion on channel teardown.
+            bool same_cache_channel{};
+            {
+                std::scoped_lock lock{texture_cache.mutex};
+                same_cache_channel = texture_cache.NativeChannelMatches(
+                    kepler_compute, *gpu_memory);
+            }
+            if (!same_cache_channel ||
+                !registry.IsComputeCurrent(kepler_compute, *ticket))
+                return false;
             return false; // no unbacked image/sampler descriptor publication
         }
         if (!resources->HasResolvedBufferBindings())

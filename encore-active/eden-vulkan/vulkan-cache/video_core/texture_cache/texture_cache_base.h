@@ -173,9 +173,17 @@ public:
     // channel and validate the entire 49-bit GMMU span first.
     // These IDs are NOT fence-held Vulkan leases. The native renderer may
     // only publish the objects after a separate GPU lifetime proof.
-    [[nodiscard]] ImageViewId AcquireNativeImageView(const TICEntry& descriptor,
-                                                     bool is_written = false);
-    [[nodiscard]] SamplerId AcquireNativeSampler(const TSCEntry& descriptor);
+    [[nodiscard]] bool NativeChannelMatches(
+        const Tegra::Engines::KeplerCompute& expected_compute,
+        const Tegra::MemoryManager& expected_memory) const noexcept;
+    [[nodiscard]] ImageViewId AcquireNativeImageView(
+        const Tegra::Engines::KeplerCompute& expected_compute,
+        const Tegra::MemoryManager& expected_memory,
+        const TICEntry& descriptor, bool is_written = false);
+    [[nodiscard]] SamplerId AcquireNativeSampler(
+        const Tegra::Engines::KeplerCompute& expected_compute,
+        const Tegra::MemoryManager& expected_memory,
+        const TSCEntry& descriptor);
 #endif
 
     /// Fill image_view_ids with the graphics/compute images in indices

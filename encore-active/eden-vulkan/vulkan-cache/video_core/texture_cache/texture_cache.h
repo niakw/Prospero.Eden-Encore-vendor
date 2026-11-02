@@ -1054,9 +1054,26 @@ typename P::Framebuffer* TextureCache<P>::GetFramebuffer() {
 // path. Native callers have already authenticated their TIC and 49-bit GMMU.
 // Never run legacy IsValidEntry here: its 40-bit VA limit is Maxwell-only.
 template <class P>
-ImageViewId TextureCache<P>::AcquireNativeImageView(const TICEntry& descriptor,
-                                                    bool is_written) {
-    if (!channel_state || !gpu_memory) return NULL_IMAGE_VIEW_ID;
+bool TextureCache<P>::NativeChannelMatches(
+    const Tegra::Engines::KeplerCompute& expected_compute,
+    const Tegra::MemoryManager& expected_memory) const noexcept {
+    // ChannelSetupCaches can switch the active space without changing the
+    // TIC bytes. Require both the actual engine and GMMU identity under
+    // texture_cache.mutex; the process registry's epoch is checked outside.
+    return channel_state && gpu_memory &&
+           kepler_compute == &expected_compute &&
+           gpu_memory == &expected_memory &&
+           &channel_state->kepler_compute == &expected_compute &&
+           &channel_state->gpu_memory == &expected_memory;
+}
+
+template <class P>
+ImageViewId TextureCache<P>::AcquireNativeImageView(
+    const Tegra::Engines::KeplerCompute& expected_compute,
+    const Tegra::MemoryManager& expected_memory,
+    const TICEntry& descriptor, bool is_written) {
+    if (!NativeChannelMatches(expected_compute, expected_memory))
+        return NULL_IMAGE_VIEW_ID;
     const auto [pair, is_new] = channel_state->image_views.try_emplace(descriptor);
     bool remapped = false;
     if (pair->second != NULL_IMAGE_VIEW_ID) {
@@ -1077,8 +1094,12 @@ ImageViewId TextureCache<P>::AcquireNativeImageView(const TICEntry& descriptor,
 }
 
 template <class P>
-SamplerId TextureCache<P>::AcquireNativeSampler(const TSCEntry& descriptor) {
-    if (!channel_state) return NULL_SAMPLER_ID;
+SamplerId TextureCache<P>::AcquireNativeSampler(
+    const Tegra::Engines::KeplerCompute& expected_compute,
+    const Tegra::MemoryManager& expected_memory,
+    const TSCEntry& descriptor) {
+    if (!NativeChannelMatches(expected_compute, expected_memory))
+        return NULL_SAMPLER_ID;
     // FindSampler already owns slot_samplers and the per-channel TSC
     // descriptor key. No parallel Ampere sampler cache is permitted.
     return FindSampler(descriptor, true);
