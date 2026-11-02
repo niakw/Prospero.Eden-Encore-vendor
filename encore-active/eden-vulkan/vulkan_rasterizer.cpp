@@ -949,7 +949,13 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
             if (!pipeline->ConfigureNative(
                     *resources, *gpu_memory, scheduler, buffer_cache)) return false;
         }
-        if (!registry.IsComputeCurrent(kepler_compute, *ticket)) return false;
+        if (!registry.IsComputeCurrent(kepler_compute, *ticket)) {
+            // ConfigureNative has already recorded a Vulkan descriptor-bind
+            // closure that captures ComputePipeline*. Even when this QMD is
+            // refused, retain the object until those queued commands retire.
+            fence_manager.SignalFence([pipeline = std::move(pipeline)] {});
+            return false;
+        }
 
         const auto dim = launch.grid;
         scheduler.Record([](vk::CommandBuffer cmdbuf) {
