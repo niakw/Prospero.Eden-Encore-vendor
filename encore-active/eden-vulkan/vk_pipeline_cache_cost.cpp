@@ -940,7 +940,7 @@ Shader::Ampere::NativeSpirvResult PipelineCache::CompileNativeComputeSpirv(
         env, host_info, profile, Shader::RuntimeInfo{});
 }
 
-std::unique_ptr<ComputePipeline> PipelineCache::CreateNativeComputePipeline(
+std::shared_ptr<ComputePipeline> PipelineCache::CreateNativeComputePipeline(
     const Shader::Ampere::NativeSpirvResult& shader, u64 shader_hash) {
     if (!shader_hash || !shader.ComputeMetadataReady() ||
         shader.words.size() < 6 || shader.words[0] != 0x07230203U ||
@@ -950,15 +950,29 @@ std::unique_ptr<ComputePipeline> PipelineCache::CreateNativeComputePipeline(
     auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
     const auto ticket = registry.CaptureComputeTicket(kepler_compute);
     if (!ticket) return nullptr;
+    // A hash is only a lookup hint. Require the same live GPU process,
+    // channel bind epoch AND entire SPIR-V payload before reusing a Vulkan
+    // pipeline whose driver creation cost was already paid.
+    for (auto it = native_compute_reuse.begin(); it != native_compute_reuse.end(); ++it) {
+        if (it->process != ticket->process ||
+            it->generation != ticket->generation ||
+            it->channel_generation != ticket->channel_generation ||
+            it->hash != shader_hash || it->words.size() != shader.words.size() ||
+            !std::equal(it->words.begin(), it->words.end(), shader.words.begin()) ||
+            !it->pipeline || !it->pipeline->IsBound())
+            continue;
+        if (!registry.IsComputeCurrent(kepler_compute, *ticket)) return nullptr;
+        auto reused = it->pipeline;
+        std::rotate(it, it + 1, native_compute_reuse.end());
+        return reused;
+    }
     try {
         vk::ShaderModule spv_module = BuildShader(device, shader.words);
         if (!spv_module ||
             !registry.IsComputeCurrent(kepler_compute, *ticket))
             return nullptr;
-        // Synchronous construction: the PS5 driver has actually accepted
-        // the shader before an owner may attempt to bind resources. No
-        // native pipeline is cached beyond the caller's process lifetime.
-        auto pipeline = std::make_unique<ComputePipeline>(
+        // Synchronous construction, timeline-safe shared ownership.
+        auto pipeline = std::make_shared<ComputePipeline>(
             device, scheduler, vulkan_pipeline_cache,
             descriptor_pool, guest_descriptor_queue, descriptor_buffer_ring,
             nullptr, nullptr, &shader_notify, *shader.info,
@@ -966,6 +980,25 @@ std::unique_ptr<ComputePipeline> PipelineCache::CreateNativeComputePipeline(
         if (!registry.IsComputeCurrent(kepler_compute, *ticket) ||
             !pipeline->IsBound())
             return nullptr;
+        // A bounded successful cache, never a negative memo. Oversized
+        // shaders remain valid one-shot dispatches, not resident entries.
+        if (shader.words.size() <= 65536) {
+            try {
+                NativeComputeReuse saved{
+                    .process = ticket->process,
+                    .generation = ticket->generation,
+                    .channel_generation = ticket->channel_generation,
+                    .hash = shader_hash,
+                    .words = {shader.words.begin(), shader.words.end()},
+                    .pipeline = pipeline,
+                };
+                if (native_compute_reuse.size() == 12)
+                    native_compute_reuse.erase(native_compute_reuse.begin());
+                native_compute_reuse.push_back(std::move(saved));
+            } catch (const std::bad_alloc&) {
+                // Cache allocation must not reject an already valid dispatch.
+            }
+        }
         return pipeline;
     } catch (const std::exception& exception) {
         LOG_WARNING(Render_Vulkan,

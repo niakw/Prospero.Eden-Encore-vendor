@@ -122,7 +122,8 @@ public:
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
     [[nodiscard]] Shader::Ampere::NativeSpirvResult CompileNativeComputeSpirv(
         Shader::Ampere::NativeMaxwellEnvironment& env) const;
-    [[nodiscard]] std::unique_ptr<ComputePipeline> CreateNativeComputePipeline(
+    // Shared GPU timeline owner and bounded native pipeline reuse.
+    [[nodiscard]] std::shared_ptr<ComputePipeline> CreateNativeComputePipeline(
         const Shader::Ampere::NativeSpirvResult& shader, u64 shader_hash);
 #endif
 
@@ -174,6 +175,20 @@ private:
     GraphicsPipeline* current_pipeline{};
 
     ::Common::unordered_map<ComputePipelineCacheKey, std::unique_ptr<ComputePipeline>> compute_cache;
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    // Authentic Ampere Compute is keyed by process and channel bind epoch
+    // plus the complete SPIR-V words, never Maxwell's shader-cache key.
+    // Bounded 12-entry LRU; in-flight dispatches retain shared owners.
+    struct NativeComputeReuse {
+        const void* process{};
+        u64 generation{};
+        u64 channel_generation{};
+        u64 hash{};
+        std::vector<u32> words;
+        std::shared_ptr<ComputePipeline> pipeline;
+    };
+    std::vector<NativeComputeReuse> native_compute_reuse;
+#endif
 #ifdef PS5_NATIVE
     // GPU-owner-only: four fixed positive entries avoid repeatedly hashing
     // alternating compute shaders. The map owns these pipeline objects for
