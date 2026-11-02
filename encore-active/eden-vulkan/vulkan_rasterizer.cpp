@@ -873,8 +873,8 @@ constexpr VkPipelineStageFlags COMPUTE_CONSUMER_STAGES =
 
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
 namespace {
-// Compute without TIC/TSC may compile without a Switch 1 Kepler context.
-// Refuse texture metadata rather than invent NS2 image descriptors.
+// Native QMD shader metadata reads authenticated channel TIC records.
+// Vulkan images/samplers still fail closed until shared TextureCache binding.
 class NativeQmdTextureMetadata final : public Shader::Environment {
 public:
     NativeQmdTextureMetadata(Tegra::MemoryManager& memory,
