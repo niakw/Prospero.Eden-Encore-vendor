@@ -18,6 +18,9 @@
 
 namespace Tegra {
 class MemoryManager;
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+struct NativeComputeLaunch;
+#endif
 namespace Engines {
 class AccelerateDMAInterface;
 }
@@ -53,6 +56,16 @@ public:
 
     /// Dispatches a compute shader invocation
     virtual void DispatchCompute() = 0;
+
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    // QMD3 has a distinct native shader/program/resource ABI; never forward
+    // it to the Switch 1 Kepler launch path. The default is fail-closed until
+    // a renderer can record the real Vulkan work and own it through retirement.
+    // Return true ONLY after a valid native submission has been accepted.
+    virtual bool DispatchNativeCompute(const Tegra::NativeComputeLaunch&) {
+        return false;
+    }
+#endif
 
     /// Resets the counter of a query
     virtual void ResetCounter(VideoCommon::QueryType type) = 0;

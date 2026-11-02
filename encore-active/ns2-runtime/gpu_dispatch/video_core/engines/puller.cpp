@@ -787,6 +787,20 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                 (void)compute_ticket;
                 (void)channel_ticket;
 #endif
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+                if (mapped) {
+                    // This is the only native QMD3 -> rasterizer handoff.
+                    // Do not treat a valid capture as a submitted shader, and
+                    // never expose dependent releases for a retired GPU epoch.
+                    auto& live_registry =
+                        Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+                    if (!live_registry.IsCurrent(&pusher.channel_state, channel_ticket) ||
+                        !live_registry.IsComputeCurrent(
+                            &pusher.channel_state.payload->kepler_compute, compute_ticket))
+                        return false;
+                    return pusher.rasterizer->DispatchNativeCompute(*launch);
+                }
+#endif
                 return false;
             });
     }
