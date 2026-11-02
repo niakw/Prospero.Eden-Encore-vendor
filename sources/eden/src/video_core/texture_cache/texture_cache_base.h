@@ -167,6 +167,15 @@ public:
     /// Mark an image as modified from the GPU
     void MarkModification(ImageId id) noexcept;
 
+    // Common typed TIC/TSC ownership entry points for Maxwell and Ampere.
+    // Caller MUST hold mutex, select the correct GPU channel, authenticate
+    // guest table records and preflight the full GMMU image span first.
+    // Returned slot IDs are cache-owned, not GPU-fence ownership leases.
+    // A separate fence-held lifetime is mandatory before native publication.
+    [[nodiscard]] ImageViewId AcquireImageView(const TICEntry& descriptor,
+                                               bool is_written = false);
+    [[nodiscard]] SamplerId AcquireSampler(const TSCEntry& descriptor);
+
     /// Fill image_view_ids with the graphics/compute images in indices
     void FillImageViews(std::span<ImageViewInOut> views, bool compute, bool blacklist = true);
 
@@ -337,9 +346,6 @@ private:
     [[nodiscard]] std::optional<BlitImages> GetBlitImages(
         const Tegra::Engines::Fermi2D::Surface& dst, const Tegra::Engines::Fermi2D::Surface& src,
         const Tegra::Engines::Fermi2D::Config& copy);
-
-    /// Find or create a sampler from a guest descriptor sampler
-    [[nodiscard]] SamplerId FindSampler(const TSCEntry& config, bool compute);
 
     /// Find or create an image view for the given color buffer index
     [[nodiscard]] ImageViewId FindColorBuffer(size_t index);

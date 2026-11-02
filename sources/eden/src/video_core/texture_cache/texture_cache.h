@@ -316,7 +316,7 @@ SamplerId TextureCache<P>::GetSamplerId(u32 index, bool compute) {
     auto const map_index = index | (compute ? Common::SlotId::TAGGED_VALUE : 0);
     auto const [descriptor, is_new] = table.Read(*gpu_memory, index);
     if (is_new) {
-        auto const id = FindSampler(descriptor, compute);
+        auto const id = AcquireSampler(descriptor);
         channel_state->sampler_ids.insert_or_assign(map_index, id);
         return id;
     }
@@ -537,6 +537,17 @@ typename P::Framebuffer* TextureCache<P>::GetFramebuffer() {
 }
 
 template <class P>
+ImageViewId TextureCache<P>::AcquireImageView(const TICEntry& descriptor, bool is_written) {
+    // Match Switch 1's deduplicated view owner, never instantiate a
+    // second Ampere-specific image or bypass cache invalidation.
+    const auto [pair, is_new] = channel_state->image_views.try_emplace(descriptor);
+    if (is_new)
+        pair->second = CreateImageView(descriptor);
+    PrepareImageView(pair->second, is_written, false);
+    return pair->second;
+}
+
+template <class P>
 ImageViewId TextureCache<P>::VisitImageView(u32 index, bool compute) {
     auto& table = compute ? channel_state->compute_image_table : channel_state->graphics_image_table;
     if (index > table.current_limit) {
@@ -548,13 +559,11 @@ ImageViewId TextureCache<P>::VisitImageView(u32 index, bool compute) {
     auto const [descriptor, is_new] = table.Read(*gpu_memory, index);
     if (is_new) {
         if (IsValidEntry(*gpu_memory, descriptor)) {
-            // Is new (registered view) on the texture cache side?
-            const auto [pair, is_new_tc] = channel_state->image_views.try_emplace(descriptor);
-            if (is_new_tc)
-                pair->second = CreateImageView(descriptor);
-            PrepareImageView(pair->second, false, false);
-            channel_state->image_view_ids.insert_or_assign(map_index, pair->second);
-            return pair->second;
+            // Both NS1's indexed lookup and native typed TIC callers share
+            // the same per-channel image view ownership and eviction map.
+            const auto id = AcquireImageView(descriptor);
+            channel_state->image_view_ids.insert_or_assign(map_index, id);
+            return id;
         }
         channel_state->image_view_ids.insert_or_assign(map_index, NULL_IMAGE_VIEW_ID);
         return NULL_IMAGE_VIEW_ID;
@@ -1889,7 +1898,7 @@ std::pair<u32, u32> TextureCache<P>::PrepareDmaImage(ImageId dst_id, GPUVAddr ba
 }
 
 template <class P>
-SamplerId TextureCache<P>::FindSampler(const TSCEntry& config, bool compute) {
+SamplerId TextureCache<P>::AcquireSampler(const TSCEntry& config) {
     if (std::ranges::all_of(config.raw, [](u64 value) { return value == 0; })) {
         return NULL_SAMPLER_ID;
     }
