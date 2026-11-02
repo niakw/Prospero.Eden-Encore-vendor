@@ -517,7 +517,26 @@ struct NativeQmdTextureTables {
             entry.is_written = src.is_written;
             static_assert(sizeof(entry.tic) == sizeof(src.tic_words));
             std::memcpy(&entry.tic, src.tic_words.data(), sizeof(entry.tic));
-            if (!entry.tic.Address() || entry.tic.Address() >= (u64{1} << 49))
+            // DecodeAdmitted must be safe even if a caller supplies an old
+            // or corrupted snapshot without rerunning CaptureAdmissible.
+            // Do not turn invalid guest layouts into typed TextureCache IDs.
+            const auto type = entry.tic.texture_type.Value();
+            if (!entry.tic.Address() || entry.tic.Address() >= (u64{1} << 49) ||
+                static_cast<u32>(entry.tic.header_version.Value()) >
+                    static_cast<u32>(Tegra::Texture::TICHeaderVersion::BlockLinearColorKey) ||
+                static_cast<u32>(type) >
+                    static_cast<u32>(Tegra::Texture::TextureType::TextureCubeArray) ||
+                entry.tic.is_sparse ||
+                entry.tic.res_min_mip_level > entry.tic.res_max_mip_level ||
+                entry.tic.res_max_mip_level > entry.tic.max_mip_level ||
+                (entry.tic.IsBuffer() !=
+                    (type == Tegra::Texture::TextureType::Texture1DBuffer)) ||
+                ((type == Tegra::Texture::TextureType::Texture2D ||
+                  type == Tegra::Texture::TextureType::Texture2DNoMipmap ||
+                  type == Tegra::Texture::TextureType::TextureCubemap) &&
+                 entry.tic.Depth() != 1) ||
+                (type == Tegra::Texture::TextureType::Texture3D &&
+                 entry.tic.BaseLayer() != 0))
                 return std::nullopt;
             if (sampled) {
                 Tegra::Texture::TSCEntry sampler{};
