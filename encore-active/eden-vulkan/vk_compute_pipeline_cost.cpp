@@ -757,9 +757,12 @@ bool ComputePipeline::ConfigureNative(
         cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline);
         if (!descriptor_set_layout) return;
         if (uses_descriptor_buffer) {
+            // The wrapper expects a typed u32 descriptor-binding index;
+            // an int literal selects the generic vk::Span constructor.
+            const u32 buffer_index{};
             cmdbuf.SetDescriptorBufferOffsetsEXT(
                 VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline_layout,
-                0, 0, descriptor_buffer_offset);
+                0, buffer_index, descriptor_buffer_offset);
         } else if (uses_push_descriptor) {
             cmdbuf.PushDescriptorSetWithTemplateKHR(
                 *descriptor_update_template, *pipeline_layout, 0, data);
