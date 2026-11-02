@@ -1111,6 +1111,15 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                 });
             if (!descriptors || !registry.IsComputeCurrent(kepler_compute, *ticket))
                 return false;
+            // A captured array of raw u32s is not yet a cache descriptor.
+            // Decode the real TICEntry/TSCEntry ABI with no slot allocation.
+            // The second guest-table read below still authenticates these
+            // exact bytes under the current TextureCache channel lock.
+            const auto typed_descriptors = tables.DecodeAdmitted(
+                *resources, *descriptors);
+            if (!typed_descriptors ||
+                !registry.IsComputeCurrent(kepler_compute, *ticket))
+                return false;
             // The native process ticket alone is insufficient: the shared
             // TextureCache may currently belong to another Maxwell/Ampere
             // GPU channel or address space. Check the exact cache owner

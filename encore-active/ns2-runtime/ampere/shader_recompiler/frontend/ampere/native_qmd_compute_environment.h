@@ -255,6 +255,17 @@ struct NativeQmdImageTableRecord {
     std::array<u32, 8> tic_words{};
     std::array<u32, 8> tsc_words{};
 };
+// Immutable, typed guest descriptors after CaptureAdmissible. These are
+// metadata ONLY: no live TextureCache slot, VkImageView, VkSampler or GPU
+// lifetime is acquired by decoding a snapshot.
+struct NativeQmdTypedTextureRecord {
+    NativeQmdImageKind kind{};
+    u32 tic_index{};
+    u32 tsc_index{};
+    bool is_written{};
+    Tegra::Texture::TICEntry tic{};
+    std::optional<Tegra::Texture::TSCEntry> sampler{};
+};
 struct NativeQmdTextureTables {
     u64 tic_base{};
     u64 tsc_base{};
@@ -346,6 +357,48 @@ struct NativeQmdTextureTables {
                 return false;
         }
         return true;
+    }
+
+    // Transcode already admitted snapshot bytes to the EXACT shared cache
+    // TICEntry/TSCEntry ABI. Keep every entry on the stack/vector, then
+    // check table equality again under the active channel cache lock.
+    // No cached image or Vulkan descriptor is created here.
+    [[nodiscard]] std::optional<std::vector<NativeQmdTypedTextureRecord>>
+    DecodeAdmitted(const NativeQmdResourcePlan& plan,
+                   const std::vector<NativeQmdImageTableRecord>& records) const {
+        if (plan.image_handles.size() != records.size() ||
+            records.size() > 256 ||
+            plan.requires_tic_tsc != !records.empty())
+            return std::nullopt;
+        std::vector<NativeQmdTypedTextureRecord> typed;
+        typed.reserve(records.size());
+        for (std::size_t index = 0; index < records.size(); ++index) {
+            const auto& src = records[index];
+            const auto& wanted = plan.image_handles[index];
+            const bool sampled = wanted.kind == NativeQmdImageKind::SampledTexture;
+            if (src.kind != wanted.kind || src.is_written != wanted.is_written ||
+                src.has_sampler != sampled)
+                return std::nullopt;
+            NativeQmdTypedTextureRecord entry{};
+            entry.kind = src.kind;
+            entry.tic_index = src.tic_index;
+            entry.tsc_index = src.tsc_index;
+            entry.is_written = src.is_written;
+            static_assert(sizeof(entry.tic) == sizeof(src.tic_words));
+            std::memcpy(&entry.tic, src.tic_words.data(), sizeof(entry.tic));
+            if (!entry.tic.Address() || entry.tic.Address() >= (u64{1} << 49))
+                return std::nullopt;
+            if (sampled) {
+                Tegra::Texture::TSCEntry sampler{};
+                static_assert(sizeof(sampler) == sizeof(src.tsc_words));
+                std::memcpy(&sampler, src.tsc_words.data(), sizeof(sampler));
+                if (!NativeQmdSamplerSupported(sampler))
+                    return std::nullopt;
+                entry.sampler = sampler;
+            }
+            typed.emplace_back(std::move(entry));
+        }
+        return typed;
     }
 
     // The first native admission boundary: validate actual typed TIC/TSC
