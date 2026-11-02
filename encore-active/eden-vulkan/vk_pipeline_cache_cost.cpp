@@ -931,6 +931,14 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
 // (which parses Switch 1 Maxwell code) or serialize this in the NS1 cache.
 // A caller must bind the matching QMD3 resource plan through ConfigureNative
 // and perform its own channel-epoch check immediately before vkCmdDispatch.
+// Use the device's actual SPIR-V profile/translation features for QMD3.
+// The host synthetic test is not a substitute for device capability checks.
+Shader::Ampere::NativeSpirvResult PipelineCache::CompileNativeComputeSpirv(
+    Shader::Ampere::NativeMaxwellEnvironment& env) const {
+    return Shader::Ampere::CompileReviewedNativeComputeSpirv(
+        env, host_info, profile, Shader::RuntimeInfo{});
+}
+
 std::unique_ptr<ComputePipeline> PipelineCache::CreateNativeComputePipeline(
     const Shader::Ampere::NativeSpirvResult& shader, u64 shader_hash) {
     if (!shader_hash || !shader.ComputeMetadataReady() ||

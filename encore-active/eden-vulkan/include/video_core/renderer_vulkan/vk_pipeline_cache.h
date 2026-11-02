@@ -46,7 +46,7 @@ class ShaderNotify;
 }
 
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
-namespace Shader::Ampere { struct NativeSpirvResult; }
+namespace Shader::Ampere { class NativeMaxwellEnvironment; struct NativeSpirvResult; }
 #endif
 namespace Vulkan {
 
@@ -120,6 +120,8 @@ public:
     [[nodiscard]] ComputePipeline* CurrentComputePipeline();
 
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    [[nodiscard]] Shader::Ampere::NativeSpirvResult CompileNativeComputeSpirv(
+        Shader::Ampere::NativeMaxwellEnvironment& env) const;
     [[nodiscard]] std::unique_ptr<ComputePipeline> CreateNativeComputePipeline(
         const Shader::Ampere::NativeSpirvResult& shader, u64 shader_hash);
 #endif

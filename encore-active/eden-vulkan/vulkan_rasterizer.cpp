@@ -50,6 +50,18 @@
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#include <stdexcept>
+#include "common/cityhash.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
+#include "shader_recompiler/frontend/ampere/capture.h"
+#include "shader_recompiler/frontend/ampere/maxwell_environment.h"
+#include "shader_recompiler/frontend/ampere/native_qmd_compute_environment.h"
+#include "shader_recompiler/frontend/ampere/renderer_spirv_bridge.h"
+#include "video_core/native_qmd.h"
+#include "video_core/native_shader_capture.h"
+#endif
+
 namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
@@ -852,6 +864,116 @@ constexpr VkPipelineStageFlags COMPUTE_CONSUMER_STAGES =
     VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
     VK_PIPELINE_STAGE_TRANSFER_BIT;
 } // namespace
+
+
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+namespace {
+// Compute without TIC/TSC may compile without a Switch 1 Kepler context.
+// Refuse texture metadata rather than invent NS2 image descriptors.
+class NativeBufferOnlyMetadata final : public Shader::Environment {
+public:
+    NativeBufferOnlyMetadata() {
+        stage = Shader::Stage::Compute;
+        start_address = 0;
+    }
+    u64 ReadInstruction(u32) override { throw std::runtime_error{"native code must be translated"}; }
+    u32 ReadCbufValue(u32, u32) override { throw std::runtime_error{"QMD CBUF owner missing"}; }
+    Shader::TextureType ReadTextureType(u32) override {
+        throw std::runtime_error{"native Compute texture metadata unavailable"};
+    }
+    Shader::TexturePixelFormat ReadTexturePixelFormat(u32) override {
+        throw std::runtime_error{"native Compute image format unavailable"};
+    }
+    bool IsTexturePixelFormatInteger(u32) override {
+        throw std::runtime_error{"native Compute texture metadata unavailable"};
+    }
+    u32 ReadViewportTransformState() override { return 0; }
+    u32 TextureBoundBuffer() const override { return 0; }
+    u32 LocalMemorySize() const override { return 0; }
+    u32 SharedMemorySize() const override { return 0; }
+    std::array<u32, 3> WorkgroupSize() const override { return {1, 1, 1}; }
+    bool HasHLEMacroState() const override { return false; }
+    std::optional<Shader::ReplaceConstant> GetReplaceConstBuffer(u32, u32) override {
+        return std::nullopt;
+    }
+    void Dump(u64, u64) override {}
+};
+} // namespace
+
+bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& launch) {
+    auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+    const auto ticket = registry.CaptureComputeTicket(kepler_compute);
+    if (!ticket) return false;
+
+    const auto max_grid = device.GetMaxComputeWorkGroupCount();
+    for (size_t axis = 0; axis < 3; ++axis) {
+        if (!launch.grid[axis] || launch.grid[axis] > max_grid[axis] ||
+            !launch.block[axis]) return false;
+    }
+    // A native program must be captured through the authenticated GMMU;
+    // never pass Ampere words through CurrentComputePipeline (Maxwell).
+    FlushWork();
+    gpu_memory->FlushCaching();
+    auto cache = registry.AcquireComputeTranslationCache(kepler_compute, *ticket);
+    if (!cache) return false;
+    try {
+        auto captured = Shader::Ampere::CaptureNativeComputeShader(
+            launch.program_address, VideoCommon::ReadNs2GpuShader,
+            gpu_memory, cache.get());
+        if (!captured.Ready() || !registry.IsComputeCurrent(kepler_compute, *ticket))
+            return false;
+        auto qmd_context = std::make_unique<Shader::Ampere::NativeQmdComputeEnvironment>(
+            launch, VideoCommon::ReadNs2GpuShader, gpu_memory,
+            std::make_unique<NativeBufferOnlyMetadata>());
+        auto* const resource_owner = qmd_context.get();
+        auto environment = Shader::Ampere::NativeMaxwellEnvironment::CreateComputeOwned(
+            std::move(qmd_context), std::move(captured.image));
+        if (!environment) return false;
+        auto compiled = pipeline_cache.CompileNativeComputeSpirv(*environment);
+        if (!compiled.ComputeMetadataReady()) return false;
+        auto resources = resource_owner->BuildResourcePlan(*compiled.info);
+        // No unsupported image/TIC/TSC or global-memory path is submitted.
+        if (!resources || !resources->HasResolvedBufferBindings() ||
+            !registry.IsComputeCurrent(kepler_compute, *ticket)) return false;
+
+        const auto bytes = compiled.words.size() * sizeof(u32);
+        const u64 shader_hash = Common::CityHash64(
+            reinterpret_cast<const char*>(compiled.words.data()), bytes) | u64{1};
+        auto owned = pipeline_cache.CreateNativeComputePipeline(compiled, shader_hash);
+        if (!owned || !registry.IsComputeCurrent(kepler_compute, *ticket))
+            return false;
+        std::shared_ptr<ComputePipeline> pipeline{std::move(owned)};
+        scheduler.RequestOutsideRenderPassOperationContext();
+        {
+            std::scoped_lock lock{buffer_cache.mutex};
+            if (!pipeline->ConfigureNative(
+                    *resources, *gpu_memory, scheduler, buffer_cache)) return false;
+        }
+        if (!registry.IsComputeCurrent(kepler_compute, *ticket)) return false;
+
+        const auto dim = launch.grid;
+        scheduler.Record([](vk::CommandBuffer cmdbuf) {
+            cmdbuf.PipelineBarrier(
+                vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, COMPUTE_INPUT_BARRIER);
+        });
+        scheduler.Record([pipeline, dim](vk::CommandBuffer cmdbuf) {
+            if (!pipeline->IsBound()) return;
+            cmdbuf.Dispatch(dim[0], dim[1], dim[2]);
+            cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                   COMPUTE_CONSUMER_STAGES, 0, COMPUTE_WRITE_BARRIER);
+        });
+        // Scheduler::Record is deferred, and Vulkan keeps using the pipeline
+        // after vkCmdDispatch. Retain ownership through the GPU fence, not
+        // merely until the C++ renderer returns to the QMD scheduler.
+        fence_manager.SignalFence([pipeline = std::move(pipeline)] {});
+        return true;
+    } catch (const std::exception& error) {
+        LOG_WARNING(Render_Vulkan, "Native QMD3 Compute refused: {}", error.what());
+        return false;
+    }
+}
+#endif
 
 void RasterizerVulkan::DispatchCompute() {
     FlushWork();
