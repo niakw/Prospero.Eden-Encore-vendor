@@ -802,7 +802,7 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                         pusher.rasterizer->DispatchNativeCompute(*launch);
                     if (sample)
                         std::fprintf(stderr,
-                            "EDEN_NS2_COMPUTE_DISPATCH count=%u accepted=%u program=%llx grid=%u,%u,%u\\n",
+                            "EDEN_NS2_COMPUTE_DISPATCH count=%u accepted=%u program=%llx grid=%u,%u,%u\n",
                             n, static_cast<unsigned>(accepted),
                             static_cast<unsigned long long>(launch->program_address),
                             launch->grid[0], launch->grid[1], launch->grid[2]);
