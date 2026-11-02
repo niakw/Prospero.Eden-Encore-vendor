@@ -63,6 +63,8 @@
 #include "video_core/native_qmd.h"
 #include "video_core/native_shader_capture.h"
 #include "video_core/texture_cache/format_lookup_table.h"
+#include "video_core/texture_cache/image_info.h"
+#include "video_core/texture_cache/util.h"
 #include <cstring>
 #endif
 
@@ -1063,10 +1065,32 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                 .tic_limit = regs.tic.limit,
                 .tsc_limit = regs.tsc.limit,
                 .linked_tsc = launch.linked_tsc};
-            const auto descriptors = tables.Capture(
-                *resources, [this](u64 address, void* bytes, std::size_t size) {
+            // Source records are not image views. Admit only guest layouts
+            // with a real, complete 49-bit GMMU backing that the single
+            // TextureCache can eventually own. Do not reuse the NS1-only
+            // IsValidEntry's <40-bit check or GpuToCpuAddress(addr, size),
+            // which can succeed when only ONE page is mapped.
+            const auto descriptors = tables.CaptureAdmissible(
+                *resources,
+                [this](u64 address, void* bytes, std::size_t size) {
                     return VideoCommon::ReadNs2GpuShader(
                         gpu_memory, address, bytes, size);
+                },
+                [this](const Tegra::Texture::TICEntry& tic) {
+                    const VideoCommon::ImageInfo info{tic};
+                    if (info.format == VideoCore::Surface::PixelFormat::Invalid ||
+                        !info.resources.levels || !info.resources.layers)
+                        return false;
+                    const u64 layer_offset =
+                        u64{tic.BaseLayer()} * info.layer_stride;
+                    if (tic.Address() < layer_offset)
+                        return false;
+                    const u64 image_base = tic.Address() - layer_offset;
+                    const u32 bytes = VideoCommon::CalculateGuestSizeInBytes(info);
+                    return Shader::Ampere::NativeQmdContiguousGpuSpan(
+                        image_base, bytes, [this](u64 address) {
+                            return gpu_memory->GpuToCpuAddress(address);
+                        });
                 });
             if (!descriptors || !registry.IsComputeCurrent(kepler_compute, *ticket))
                 return false;
