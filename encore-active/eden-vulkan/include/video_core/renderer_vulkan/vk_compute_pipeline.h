@@ -27,6 +27,9 @@ namespace VideoCore {
 class ShaderNotify;
 }
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+namespace Shader::Ampere { struct NativeQmdResourcePlan; }
+#endif
 namespace Vulkan {
 
 class Device;
@@ -78,6 +81,12 @@ public:
                         last_descriptor_payload.size() != num_descriptor_entries)
                    ? descriptor_buffer_layout.size : 0;
     }
+#endif
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    [[nodiscard]] bool ConfigureNative(
+        const Shader::Ampere::NativeQmdResourcePlan& resources,
+        Tegra::MemoryManager& gpu_memory, Scheduler& scheduler,
+        BufferCache& buffer_cache);
 #endif
     bool IsBound() const noexcept {
         return static_cast<bool>(pipeline);
