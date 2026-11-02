@@ -479,7 +479,7 @@ struct NativeQmdTypedTextureRecord {
                         // from the dimension. A single-sample sampler must not
                         // alias a multisampled guest TIC (or vice versa).
                         const bool tic_msaa =
-                            record.tic.msaa_mode != Tegra::Texture::MsaaMode::Msaa1x1;
+                            record.tic.msaa_mode.Value() != Tegra::Texture::MsaaMode::Msaa1x1;
                         if (desc.is_multisample != tic_msaa) return false;
                     }
                 } else if (record.tic.texture_type !=
