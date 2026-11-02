@@ -93,6 +93,9 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2QmdComputeSpirvWithResources
     Shader::Ampere::NativeTranslationCache* cache,
     Shader::Backend::Bindings initial_bindings) {
     using Shader::Ampere::NativeSpirvStatus;
+    // A rejected or stale compilation may never leave the caller's old
+    // resource plan behind for accidental use with a new shader/session.
+    if (resources) *resources = {};
     // All shader bytes AND descriptor words come from this specific guest
     // process. Reject a stale process generation before and after both phases.
     auto& registry = Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
