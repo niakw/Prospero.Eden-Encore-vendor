@@ -1075,6 +1075,13 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                         gpu_memory, address, bytes, size);
                 },
                 [this](const Tegra::Texture::TICEntry& tic) {
+                    // PixelFormat::Invalid must be refused BEFORE ImageInfo
+                    // invokes block-size and mip-stride calculations.
+                    const auto format = VideoCommon::PixelFormatFromTextureInfo(
+                        tic.format, tic.r_type, tic.g_type, tic.b_type,
+                        tic.a_type, tic.srgb_conversion);
+                    if (format == VideoCore::Surface::PixelFormat::Invalid)
+                        return false;
                     const VideoCommon::ImageInfo info{tic};
                     if (info.format == VideoCore::Surface::PixelFormat::Invalid ||
                         !info.resources.levels || !info.resources.layers)

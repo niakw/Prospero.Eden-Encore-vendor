@@ -255,30 +255,37 @@ struct NativeQmdTextureTables {
             Tegra::Texture::TICEntry tic{};
             static_assert(sizeof(tic) == sizeof(record.tic_words));
             std::memcpy(&tic, record.tic_words.data(), sizeof(tic));
-            using namespace Tegra::Texture;
             if (static_cast<u32>(tic.header_version.Value()) >
-                    static_cast<u32>(TICHeaderVersion::BlockLinearColorKey) ||
+                    static_cast<u32>(Tegra::Texture::TICHeaderVersion::BlockLinearColorKey) ||
                 static_cast<u32>(tic.texture_type.Value()) >
-                    static_cast<u32>(TextureType::TextureCubeArray) ||
+                    static_cast<u32>(Tegra::Texture::TextureType::TextureCubeArray) ||
                 !tic.Address() || tic.Address() >= (u64{1} << 49) ||
                 tic.is_sparse || !tic.Width() || !tic.Height() || !tic.Depth() ||
                 tic.res_min_mip_level > tic.res_max_mip_level ||
                 tic.res_max_mip_level > tic.max_mip_level ||
-                (tic.IsBuffer() != (tic.texture_type == TextureType::Texture1DBuffer)))
+                (tic.IsBuffer() != (tic.texture_type == Tegra::Texture::TextureType::Texture1DBuffer)))
                 return std::nullopt;
             const auto type = static_cast<u32>(tic.texture_type.Value());
-            if (((type == static_cast<u32>(TextureType::Texture2D) ||
-                   type == static_cast<u32>(TextureType::Texture2DNoMipmap) ||
-                   type == static_cast<u32>(TextureType::TextureCubemap)) &&
+            if (((type == static_cast<u32>(Tegra::Texture::TextureType::Texture2D) ||
+                   type == static_cast<u32>(Tegra::Texture::TextureType::Texture2DNoMipmap) ||
+                   type == static_cast<u32>(Tegra::Texture::TextureType::TextureCubemap)) &&
                   tic.Depth() != 1) ||
-                (type == static_cast<u32>(TextureType::Texture3D) &&
+                (type == static_cast<u32>(Tegra::Texture::TextureType::Texture3D) &&
                  tic.BaseLayer() != 0))
                 return std::nullopt;
             // Prevent ImageInfo's u32 size calculations from wrapping on a
             // huge guest allocation, before reaching the shared cache.
             const u64 pixel_budget = u64{tic.Width()} * tic.Height() *
                 tic.Depth() * (u64{tic.BaseLayer()} + 1);
-            if (pixel_budget > 128ULL * 1024 * 1024)
+            // Keep u32 ImageInfo size math below overflow, including
+            // amplified MSAA allocations, until native texture lifetime is
+            // proven. Large images are refused rather than truncated.
+            const u32 sample_mode = static_cast<u32>(tic.msaa_mode.Value());
+            if (sample_mode == 7 || sample_mode > 11)
+                return std::nullopt;
+            const u64 budget = sample_mode == 0
+                ? 64ULL * 1024 * 1024 : 4ULL * 1024 * 1024;
+            if (pixel_budget > budget)
                 return std::nullopt;
             if (record.has_sampler) {
                 bool any_sampler_word{};
