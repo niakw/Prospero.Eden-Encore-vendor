@@ -1122,6 +1122,18 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                 std::scoped_lock lock{texture_cache.mutex};
                 same_cache_channel = texture_cache.NativeChannelMatches(
                     kepler_compute, *gpu_memory);
+                // TIC/TSC can be rewritten while the shader is compiled.
+                // Recheck the captured table while the cache's selected
+                // engine/space is stable, before a future binding path is
+                // permitted to acquire or publish any cache slot.
+                if (same_cache_channel) {
+                    same_cache_channel = tables.MatchesSnapshot(
+                        *resources, *descriptors,
+                        [this](u64 address, void* bytes, std::size_t size) {
+                            return VideoCommon::ReadNs2GpuShader(
+                                gpu_memory, address, bytes, size);
+                        });
+                }
             }
             if (!same_cache_channel ||
                 !registry.IsComputeCurrent(kepler_compute, *ticket))
