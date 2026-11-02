@@ -474,6 +474,14 @@ struct NativeQmdTypedTextureRecord {
                 if constexpr (has_type) {
                     if (!NativeQmdTicMatchesShaderType(desc.type, record.tic))
                         return false;
+                    if constexpr (std::is_same_v<Descriptor, Shader::TextureDescriptor>) {
+                        // SPIR-V OpTypeImage encodes multisampling separately
+                        // from the dimension. A single-sample sampler must not
+                        // alias a multisampled guest TIC (or vice versa).
+                        const bool tic_msaa =
+                            record.tic.msaa_mode != Tegra::Texture::MsaaMode::Msaa1x1;
+                        if (desc.is_multisample != tic_msaa) return false;
+                    }
                 } else if (record.tic.texture_type !=
                            Tegra::Texture::TextureType::Texture1DBuffer) {
                     return false;
