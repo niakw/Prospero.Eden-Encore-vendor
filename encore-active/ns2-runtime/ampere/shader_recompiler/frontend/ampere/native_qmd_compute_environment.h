@@ -256,9 +256,9 @@ struct NativeQmdTextureTables {
             static_assert(sizeof(tic) == sizeof(record.tic_words));
             std::memcpy(&tic, record.tic_words.data(), sizeof(tic));
             using namespace Tegra::Texture;
-            if (tic.header_version.Value() >
+            if (static_cast<u32>(tic.header_version.Value()) >
                     static_cast<u32>(TICHeaderVersion::BlockLinearColorKey) ||
-                tic.texture_type.Value() >
+                static_cast<u32>(tic.texture_type.Value()) >
                     static_cast<u32>(TextureType::TextureCubeArray) ||
                 !tic.Address() || tic.Address() >= (u64{1} << 49) ||
                 tic.is_sparse || !tic.Width() || !tic.Height() || !tic.Depth() ||
@@ -266,7 +266,7 @@ struct NativeQmdTextureTables {
                 tic.res_max_mip_level > tic.max_mip_level ||
                 (tic.IsBuffer() != (tic.texture_type == TextureType::Texture1DBuffer)))
                 return std::nullopt;
-            const auto type = tic.texture_type.Value();
+            const auto type = static_cast<u32>(tic.texture_type.Value());
             if (((type == static_cast<u32>(TextureType::Texture2D) ||
                    type == static_cast<u32>(TextureType::Texture2DNoMipmap) ||
                    type == static_cast<u32>(TextureType::TextureCubemap)) &&
