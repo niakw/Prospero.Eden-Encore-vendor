@@ -328,8 +328,8 @@ template <typename Map>
             if (tic.IsPitchLinear() &&
                 ((type != static_cast<u32>(Tegra::Texture::TextureType::Texture2D) &&
                   type != static_cast<u32>(Tegra::Texture::TextureType::Texture2DNoMipmap)) ||
-                 !tic.Pitch() ||
-                 u64{tic.Pitch()} * tic.Height() > ~u32{0}))
+                 !tic.pitch_high.Value() ||
+                 u64{tic.pitch_high.Value()} * 32U * tic.Height() > ~u32{0}))
                 return false;
             // Prevent ImageInfo's u32 size calculations from wrapping on a
             // huge guest allocation, before reaching the shared cache.
