@@ -6,6 +6,7 @@
 #include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
 #include "video_core/native_shader_capture.h"
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
+#include "shader_recompiler/frontend/ampere/native_qmd_compute_environment.h"
 #include "shader_recompiler/frontend/ampere/renderer_spirv_bridge.h"
 #include "shader_recompiler/frontend/ampere/native_graphics_stage_policy.h"
 
@@ -63,6 +64,30 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2ComputeSpirv(
         process, std::move(original), gpu_program_address,
         ReadNs2GpuShader, &memory, host_info, profile, runtime_info,
         cache, initial_bindings);
+}
+
+Shader::Ampere::NativeSpirvResult CompileCapturedNs2QmdComputeSpirv(
+    Tegra::MemoryManager& memory,
+    const Kernel::KProcess* process,
+    const Tegra::NativeComputeLaunch& launch,
+    std::unique_ptr<Shader::Environment> texture_metadata,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache,
+    Shader::Backend::Bindings initial_bindings) {
+    // The new wrapper's constructor does not touch guest memory. Actual
+    // GMMU reads remain inside the existing authenticated process-ticket
+    // compiler entry point, which rejects stale and foreign sessions.
+    try {
+        auto original = std::make_unique<Shader::Ampere::NativeQmdComputeEnvironment>(
+            launch, ReadNs2GpuShader, &memory, std::move(texture_metadata));
+        return CompileCapturedNs2ComputeSpirv(
+            memory, process, std::move(original), launch.program_address,
+            host_info, profile, runtime_info, cache, initial_bindings);
+    } catch (const std::exception&) {
+        return {Shader::Ampere::NativeSpirvStatus::InvalidImage, {}};
+    }
 }
 
 Shader::Ampere::NativeSpirvResult CompileCapturedNs2GraphicsSpirvFromReader(
