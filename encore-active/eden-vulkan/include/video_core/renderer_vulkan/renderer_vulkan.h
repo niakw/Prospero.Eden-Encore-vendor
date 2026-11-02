@@ -101,6 +101,7 @@ private:
     u32 loading_jacket_width{};
     u32 loading_jacket_height{};
     bool loading_jacket_attempted{};
+    u32 loading_jacket_attempts{};
 #endif
     StateTracker state_tracker;
     Scheduler scheduler;
