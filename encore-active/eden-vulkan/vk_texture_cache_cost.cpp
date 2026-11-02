@@ -1118,6 +1118,9 @@ TextureCacheRuntime::~TextureCacheRuntime() {
 void TextureCacheRuntime::RetireGpuImage(Image&& image) {
     const u64 tick = scheduler.CurrentTick();
     try {
+        // Reserve BEFORE moving the Vulkan owner: a failed vector growth
+        // must never destroy the temporary image before the GPU drain below.
+        pending_retired_images.reserve(pending_retired_images.size() + 1);
         pending_retired_images.push_back({tick, gpu_retire_frame, std::make_unique<Image>(std::move(image))});
     } catch (...) {
         // If queue allocation fails, wait before any moved owner can die.
@@ -1129,6 +1132,9 @@ void TextureCacheRuntime::RetireGpuImage(Image&& image) {
 void TextureCacheRuntime::RetireGpuImageView(ImageView&& view) {
     const u64 tick = scheduler.CurrentTick();
     try {
+        // Retain the original view until all throwing container allocation
+        // has completed, then move it into a preallocated retirement slot.
+        pending_retired_views.reserve(pending_retired_views.size() + 1);
         pending_retired_views.push_back({tick, gpu_retire_frame, std::make_unique<ImageView>(std::move(view))});
     } catch (...) {
         scheduler.Finish();
