@@ -77,6 +77,44 @@ struct NativeQmdResourcePlan {
         }
         return true;
     }
+
+    // Renderer handoff for the Vulkan BufferCache owner. First preflight
+    // EVERY GMMU span; then bind in descriptor-layout order (CBUFs before
+    // SSBOs, as ComputePipeline::Configure does). On any refusal discard all
+    // staged bindings. No Vulkan command is submitted here, and the caller
+    // must recheck the engine epoch before committing/scheduling the QMD.
+    template <typename IsMapped, typename BindUniform, typename BindStorage,
+              typename Rollback>
+    [[nodiscard]] bool StageVulkanBufferBindings(
+        IsMapped&& mapped, BindUniform&& bind_uniform,
+        BindStorage&& bind_storage, Rollback&& rollback) const {
+        if (!ValidateGpuMappings(mapped)) return false;
+        bool staged{};
+        try {
+            u32 descriptor_index{};
+            for (const auto& cbuf : uniform_buffers) {
+                staged = true;
+                if (!bind_uniform(descriptor_index++, cbuf.qmd_index,
+                                  cbuf.gpu_address, cbuf.bytes)) {
+                    rollback();
+                    return false;
+                }
+            }
+            descriptor_index = 0;
+            for (const auto& storage : storage_buffers) {
+                staged = true;
+                if (!bind_storage(descriptor_index++, storage.gpu_address,
+                                  storage.bytes, storage.is_written)) {
+                    rollback();
+                    return false;
+                }
+            }
+            return true;
+        } catch (...) {
+            if (staged) rollback();
+            return false;
+        }
+    }
 };
 
 class NativeQmdComputeEnvironment final : public Shader::Environment {
