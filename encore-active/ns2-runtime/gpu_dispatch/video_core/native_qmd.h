@@ -265,6 +265,27 @@ template <typename IsMapped>
     return true;
 }
 
+// Native 0xC7C0 bulk register writes are mostly raw state updates.
+// Eden's KeplerCompute::CallMethod() is equivalent to one store for these
+// methods, but dispatching that virtual call for thousands of native MME
+// writes each frame is avoidable. Preserve every special side-effect method:
+// TU104 MME uploads, legacy DMA uploads/launch, QMD3 PCAS, inline QMD
+// publication and native report semaphore. The caller still authenticates
+// the engine and checks the actual register-file bound.
+[[nodiscard]] constexpr bool NativeComputePlainRegister(std::uint32_t method) {
+    if (method >= 0xe00U) return false;
+    switch (method) {
+    case 0x45U: case 0x46U: case 0x47U: case 0x48U:
+    case 0x6cU: case 0x6dU: // legacy upload execution / data
+    case 0xaeU: case 0xafU: case 0xb0U: // native PCAS and legacy launch
+    case 0x107U: // native inline QMD publication
+    case 0x6c3U: // compute semaphore report/reduction
+        return false;
+    default:
+        return true;
+    }
+}
+
 // Native SET_REPORT_SEMAPHORE_D reduction operations (Ampere class 0xC7C0).
 // Side-effect free so the GPU fence callback can apply them only after
 // validating that the owning channel and destination mapping still exist.
