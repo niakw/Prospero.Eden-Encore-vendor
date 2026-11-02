@@ -417,7 +417,6 @@ struct NativeQmdTypedTextureRecord {
 [[nodiscard]] inline bool NativeQmdTicMatchesShaderType(
     Shader::TextureType reflected, const Tegra::Texture::TICEntry& tic) {
     using Shader::TextureType;
-    using Tegra::Texture::TextureType;
     const auto type = tic.texture_type.Value();
     switch (reflected) {
     case TextureType::Color1D:
