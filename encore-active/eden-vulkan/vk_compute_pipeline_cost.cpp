@@ -713,8 +713,15 @@ bool ComputePipeline::ConfigureNative(
         descriptor_buffer_chunk = allocation.chunk;
         descriptor_buffer_host = allocation.host;
     }
-    guest_descriptor_queue.Acquire(scheduler, num_descriptor_entries,
-                                   uses_descriptor_buffer);
+    // Match the optimized Switch 1 path: an empty native shader does not
+    // acquire the legacy 1024-entry reservation or wait on a GPU worker
+    // while BufferCache::mutex is held by the rasterizer.
+    if (num_descriptor_entries == 0) {
+        guest_descriptor_queue.AcquireKnownEmpty(uses_descriptor_buffer);
+    } else {
+        guest_descriptor_queue.Acquire(scheduler, num_descriptor_entries,
+                                       uses_descriptor_buffer);
+    }
     for (const auto& item : staged) {
         guest_descriptor_queue.AddBuffer(item.handle, item.address,
                                          item.offset, item.bytes);
