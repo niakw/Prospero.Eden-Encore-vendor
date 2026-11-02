@@ -1120,6 +1120,8 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
             const auto typed_descriptors = tables.DecodeAdmitted(
                 *resources, *descriptors);
             if (!typed_descriptors ||
+                !Shader::Ampere::NativeQmdTypedImageLayoutMatches(
+                    *compiled.info, *typed_descriptors) ||
                 !registry.IsComputeCurrent(kepler_compute, *ticket))
                 return false;
             // The native process ticket alone is insufficient: the shared

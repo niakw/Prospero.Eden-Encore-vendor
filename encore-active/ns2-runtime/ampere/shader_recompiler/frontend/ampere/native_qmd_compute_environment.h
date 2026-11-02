@@ -411,6 +411,89 @@ struct NativeQmdTypedTextureRecord {
     Tegra::Texture::TICEntry tic{};
     std::optional<Tegra::Texture::TSCEntry> sampler{};
 };
+// Reflected SPIR-V image dimensions must agree with the exact guest TIC
+// decoded for this QMD. The native shader metadata reader uses this mapping;
+// a changed image type must not silently bind an unrelated cache view.
+[[nodiscard]] inline bool NativeQmdTicMatchesShaderType(
+    Shader::TextureType reflected, const Tegra::Texture::TICEntry& tic) {
+    using Shader::TextureType;
+    using Tegra::Texture::TextureType;
+    const auto type = tic.texture_type.Value();
+    switch (reflected) {
+    case TextureType::Color1D:
+        return type == Tegra::Texture::TextureType::Texture1D;
+    case TextureType::ColorArray1D:
+        return type == Tegra::Texture::TextureType::Texture1DArray;
+    case TextureType::Color2D:
+    case TextureType::Color2DRect:
+        return (type == Tegra::Texture::TextureType::Texture2D ||
+                type == Tegra::Texture::TextureType::Texture2DNoMipmap) &&
+               bool(tic.normalized_coords) == (reflected == TextureType::Color2D);
+    case TextureType::ColorArray2D:
+        return type == Tegra::Texture::TextureType::Texture2DArray;
+    case TextureType::Color3D:
+        return type == Tegra::Texture::TextureType::Texture3D;
+    case TextureType::ColorCube:
+        return type == Tegra::Texture::TextureType::TextureCubemap;
+    case TextureType::ColorArrayCube:
+        return type == Tegra::Texture::TextureType::TextureCubeArray;
+    case TextureType::Buffer:
+        return type == Tegra::Texture::TextureType::Texture1DBuffer;
+    default:
+        return false;
+    }
+}
+
+// This matches the actual descriptor flattening order, but acts ONLY on
+// typed snapshots. It does not acquire cache views, samplers or GPU leases.
+[[nodiscard]] inline bool NativeQmdTypedImageLayoutMatches(
+    const Shader::Info& info,
+    const std::vector<NativeQmdTypedTextureRecord>& typed) {
+    if (typed.size() > 256) return false;
+    std::size_t pos{};
+    const auto matches = [&](const auto& descriptions, NativeQmdImageKind kind) {
+        for (const auto& desc : descriptions) {
+            if (!desc.count || desc.count > typed.size() - pos) return false;
+            using Descriptor = std::remove_cvref_t<decltype(desc)>;
+            constexpr bool has_type =
+                std::is_same_v<Descriptor, Shader::TextureDescriptor> ||
+                std::is_same_v<Descriptor, Shader::ImageDescriptor>;
+            constexpr bool has_write =
+                std::is_same_v<Descriptor, Shader::ImageBufferDescriptor> ||
+                std::is_same_v<Descriptor, Shader::ImageDescriptor>;
+            for (u32 index = 0; index < desc.count; ++index) {
+                const auto& record = typed[pos++];
+                const bool writable = [&] {
+                    if constexpr (has_write) return desc.is_written;
+                    return false;
+                }();
+                if (record.kind != kind || record.is_written != writable ||
+                    record.sampler.has_value() !=
+                        (kind == NativeQmdImageKind::SampledTexture) ||
+                    !NativeQmdTicLayoutSupported(record.tic))
+                    return false;
+                if constexpr (has_type) {
+                    if (!NativeQmdTicMatchesShaderType(desc.type, record.tic))
+                        return false;
+                } else if (record.tic.texture_type !=
+                           Tegra::Texture::TextureType::Texture1DBuffer) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+    return matches(info.texture_buffer_descriptors,
+                   NativeQmdImageKind::TextureBuffer) &&
+           matches(info.image_buffer_descriptors,
+                   NativeQmdImageKind::ImageBuffer) &&
+           matches(info.texture_descriptors,
+                   NativeQmdImageKind::SampledTexture) &&
+           matches(info.image_descriptors,
+                   NativeQmdImageKind::StorageImage) &&
+           pos == typed.size();
+}
+
 struct NativeQmdTextureTables {
     u64 tic_base{};
     u64 tsc_base{};
