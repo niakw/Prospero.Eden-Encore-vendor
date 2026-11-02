@@ -17,14 +17,20 @@ template <typename Descriptors, typename Callback>
 [[nodiscard]] bool ForEach(const Descriptors& descriptors,
                            std::uint32_t max_bindings,
                            Callback&& callback) {
+    // The *whole* final 16-byte CBUF record must fit in a 32-bit offset,
+    // not just the address of its first word. Checking only the start would
+    // let offset 0xfffffff4 with count=1 wrap when reading the record tail.
+    constexpr std::uint32_t last_full_record_start =
+        std::numeric_limits<std::uint32_t>::max() - (kDescriptorBytes - 1U);
     std::uint32_t flattened{};
     for (const auto& descriptor : descriptors) {
         const std::uint32_t count = descriptor.count;
         if (count == 0 || count > max_bindings - flattened ||
             (descriptor.cbuf_offset & 3U) != 0 ||
+            descriptor.cbuf_offset > last_full_record_start ||
             count - 1U >
-                (std::numeric_limits<std::uint32_t>::max() -
-                 descriptor.cbuf_offset) / kDescriptorBytes)
+                (last_full_record_start - descriptor.cbuf_offset) /
+                    kDescriptorBytes)
             return false;
         for (std::uint32_t element = 0; element < count; ++element) {
             const std::uint32_t offset =
