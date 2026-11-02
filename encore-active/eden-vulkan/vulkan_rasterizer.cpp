@@ -270,6 +270,9 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
       fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache, device, scheduler),
       wfi_event(device.GetLogical().CreateEvent()) {
     scheduler.SetQueryCache(query_cache);
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    native_compute_device_limits = device.GetPhysical().GetProperties().limits;
+#endif
 }
 
 RasterizerVulkan::~RasterizerVulkan() {
@@ -905,11 +908,19 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
     const auto ticket = registry.CaptureComputeTicket(kepler_compute);
     if (!ticket) return false;
 
-    const auto max_grid = device.GetMaxComputeWorkGroupCount();
-    for (size_t axis = 0; axis < 3; ++axis) {
-        if (!launch.grid[axis] || launch.grid[axis] > max_grid[axis] ||
-            !launch.block[axis]) return false;
-    }
+    // Query physical-device limits once during rasterizer construction.
+    // Refuse invalid local sizes or shared-memory requests before expensive
+    // Ampere capture, SPIR-V compilation and Vulkan pipeline allocation.
+    const auto& limits = native_compute_device_limits;
+    const Tegra::NativeComputeDeviceLimits host_limits{
+        {limits.maxComputeWorkGroupCount[0], limits.maxComputeWorkGroupCount[1],
+         limits.maxComputeWorkGroupCount[2]},
+        {limits.maxComputeWorkGroupSize[0], limits.maxComputeWorkGroupSize[1],
+         limits.maxComputeWorkGroupSize[2]},
+        limits.maxComputeWorkGroupInvocations, limits.maxComputeSharedMemorySize,
+    };
+    if (!Tegra::NativeComputeLaunchWithinDeviceLimits(launch, host_limits))
+        return false;
     // A native program must be captured through the authenticated GMMU;
     // never pass Ampere words through CurrentComputePipeline (Maxwell).
     FlushWork();
