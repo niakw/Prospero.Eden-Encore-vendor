@@ -175,6 +175,25 @@ struct NativeQmdResourcePlan {
            position == plan.image_handles.size();
 }
 
+// Actual GPU retirement, independent of guest fence callback policy.
+// GenericFenceManager::SignalFence may call its callback synchronously;
+// SyncOperation instead runs only when the pending operations fence is
+// retired. Always submit the recorded Vulkan work first and wait its exact
+// timeline tick inside the deferred operation. The shared owner stays alive
+// through the end of the wait even if the guest fence is stubbed.
+template <typename Scheduler, typename FenceManager, typename Owner>
+void RetainNativeComputeUntilGpuTick(Scheduler& scheduler,
+                                     FenceManager& fences,
+                                     std::shared_ptr<Owner> owner) {
+    const u64 tick = scheduler.Flush();
+    fences.SyncOperation([owner = std::move(owner), tick,
+                          gpu_scheduler = &scheduler] {
+        gpu_scheduler->Wait(tick);
+        static_cast<void>(owner);
+    });
+    fences.SignalReference();
+}
+
 // Shared NS2 GMMU preflight for real guest buffers and texture image spans.
 // GpuToCpuAddress(addr, size) in the older memory manager merely searches for
 // ANY mapped page, not full coverage. Check all 4 KiB boundaries and the
