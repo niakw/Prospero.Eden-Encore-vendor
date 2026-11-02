@@ -956,6 +956,33 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         if (!owned || !registry.IsComputeCurrent(kepler_compute, *ticket))
             return false;
         std::shared_ptr<ComputePipeline> pipeline{std::move(owned)};
+        // ConfigureNative takes BufferCache::mutex. The descriptor queue
+        // and ring can synchronously wait for GPU work, so perform the same
+        // preflight used by Switch 1 BEFORE acquiring that cache mutex.
+        // No native descriptor is published until the epoch is rechecked.
+        const auto preflight_guest = [&] {
+            return pipeline->HasDescriptorEntries() &&
+                guest_descriptor_queue.PreflightExactGuestDraw(
+                    [this] { scheduler.WaitWorker(); },
+                    pipeline->DescriptorEntryReservation());
+        };
+        if (preflight_guest())
+            gpu_memory->FlushCaching();
+        if (pipeline->CanUseDescriptorBuffer() &&
+            descriptor_buffer_ring.PreflightFrameReuse(scheduler)) {
+            gpu_memory->FlushCaching();
+            if (preflight_guest())
+                gpu_memory->FlushCaching();
+        }
+        if (descriptor_buffer_ring.PreflightCapacity(
+                scheduler, pipeline->DescriptorRingPreflightSize())) {
+            gpu_memory->FlushCaching();
+            if (preflight_guest())
+                gpu_memory->FlushCaching();
+        }
+        pipeline->PreflightDescriptorScratch();
+        if (!registry.IsComputeCurrent(kepler_compute, *ticket))
+            return false;
         scheduler.RequestOutsideRenderPassOperationContext();
         {
             std::scoped_lock lock{buffer_cache.mutex};
