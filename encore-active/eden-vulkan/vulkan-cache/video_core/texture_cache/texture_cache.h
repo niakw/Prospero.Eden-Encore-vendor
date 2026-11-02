@@ -1060,6 +1060,10 @@ bool TextureCache<P>::NativeChannelMatches(
     // ChannelSetupCaches can switch the active space without changing the
     // TIC bytes. Require both the actual engine and GMMU identity under
     // texture_cache.mutex; the process registry's epoch is checked outside.
+    // BindToChannel/EraseChannel mutate these pointers under config_mutex.
+    // The renderer holds texture_cache.mutex; take the configuration lock
+    // briefly as well so a concurrent channel switch cannot race this proof.
+    std::scoped_lock channel_lock{config_mutex};
     return channel_state && gpu_memory &&
            kepler_compute == &expected_compute &&
            gpu_memory == &expected_memory &&
