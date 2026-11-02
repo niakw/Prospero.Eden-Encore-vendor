@@ -27,6 +27,11 @@ using NativeQmdRead = bool (*)(void* context, u64 gpu_addr,
 // A descriptor plan is NOT a GPU binding: the renderer must still validate
 // the targets against the active GMMU and upload/couple Vulkan descriptors.
 // The original per-resource layout and access direction are preserved.
+struct NativeQmdUniformBinding {
+    u32 qmd_index{};
+    u64 gpu_address{};
+    u32 bytes{};
+};
 struct NativeQmdStorageBinding {
     u64 gpu_address{};
     u32 bytes{};
@@ -34,11 +39,44 @@ struct NativeQmdStorageBinding {
     bool known_size{};
 };
 struct NativeQmdResourcePlan {
-    std::vector<Tegra::NativeComputeLaunch::ConstantBuffer> uniform_buffers;
+    std::vector<NativeQmdUniformBinding> uniform_buffers;
     std::vector<NativeQmdStorageBinding> storage_buffers;
     bool requires_tic_tsc{};
     bool requires_memory_layout{};
     bool uses_global_memory{};
+
+    // This only validates the CPU-facing descriptor plan. The Vulkan owner
+    // MUST still create/upload buffer objects, acquire image views, publish
+    // the compute pipeline and fence the dispatch before reporting success.
+    [[nodiscard]] bool HasResolvedBufferBindings() const noexcept {
+        if (requires_tic_tsc || requires_memory_layout || uses_global_memory)
+            return false;
+        for (const auto& cbuf : uniform_buffers)
+            if (!cbuf.bytes) return false;
+        for (const auto& storage : storage_buffers)
+            if (!storage.known_size || !storage.bytes || !storage.gpu_address)
+                return false;
+        return true;
+    }
+
+    template <typename IsMapped>
+    [[nodiscard]] bool ValidateGpuMappings(IsMapped&& mapped) const {
+        if (!HasResolvedBufferBindings()) return false;
+        constexpr u64 gpu_limit = u64{1} << 49;
+        for (const auto& cbuf : uniform_buffers) {
+            if (cbuf.gpu_address >= gpu_limit ||
+                cbuf.bytes > gpu_limit - cbuf.gpu_address ||
+                !mapped(cbuf.gpu_address, cbuf.bytes))
+                return false;
+        }
+        for (const auto& storage : storage_buffers) {
+            if (storage.gpu_address >= gpu_limit ||
+                storage.bytes > gpu_limit - storage.gpu_address ||
+                !mapped(storage.gpu_address, storage.bytes))
+                return false;
+        }
+        return true;
+    }
 };
 
 class NativeQmdComputeEnvironment final : public Shader::Environment {
@@ -144,7 +182,7 @@ public:
                 if (!cbuf.enabled ||
                     shader_info.constant_buffer_used_sizes[index] > cbuf.size)
                     return std::nullopt;
-                result.uniform_buffers.push_back(cbuf);
+                result.uniform_buffers.push_back({index, cbuf.gpu_address, cbuf.size});
             }
         }
         // Shader SSBO descriptors are 16-byte records inside the QMD CBUF
