@@ -1206,8 +1206,16 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         // ConfigureNative may have recorded descriptor closures already.
         // Validate CBUF bytes one final time after staging; an inconsistent
         // dispatch must retain its Vulkan owner until those commands retire.
-        const auto after_binding = resource_owner->BuildResourcePlan(*compiled.info);
-        if (!after_binding || !resources->SameBufferBindings(*after_binding) ||
+        bool current_after_staging = false;
+        try {
+            const auto after_binding = resource_owner->BuildResourcePlan(*compiled.info);
+            current_after_staging = after_binding &&
+                resources->SameBufferBindings(*after_binding);
+        } catch (...) {
+            // A guest CBUF may become unmapped while re-reading it. A failed
+            // read is a refused dispatch, never early pipeline destruction.
+        }
+        if (!current_after_staging ||
             !registry.IsComputeCurrent(kepler_compute, *ticket)) {
             // ConfigureNative has already recorded a Vulkan descriptor-bind
             // closure that captures ComputePipeline*. Even when this QMD is
