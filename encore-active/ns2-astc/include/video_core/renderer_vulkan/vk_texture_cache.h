@@ -7,6 +7,10 @@
 #pragma once
 
 #include <span>
+#ifdef PS5_NATIVE
+#include <memory>
+#include <vector>
+#endif
 
 #include "video_core/texture_cache/texture_cache_base.h"
 
@@ -51,6 +55,13 @@ public:
                                  ComputePassDescriptorQueue& compute_pass_descriptor_queue);
 
     void Finish();
+#ifdef PS5_NATIVE
+    ~TextureCacheRuntime();
+    // Retire shared Vulkan cache ownership only after actual GPU completion.
+    // Image views must retire before their backing images.
+    void RetireGpuImage(Image&& image);
+    void RetireGpuImageView(ImageView&& view);
+#endif
 #ifdef EDEN_NS2_SPARSE_CACHE_PROBE
     // N73: native cache-side Vulkan sparse admission/bind/retire probe.
     // Never replaces the dense guest texture or samples an unbound image.
@@ -200,6 +211,10 @@ public:
     std::vector<MsaaScratchImage> msaa_scratch_images;
     ::Common::unordered_map<VkImage, ResolveShadow> resolve_shadows;
     std::vector<std::pair<u64, ResolveShadow>> pending_resolve_shadows;
+#ifdef PS5_NATIVE
+    std::vector<std::pair<u64, std::unique_ptr<ImageView>>> pending_retired_views;
+    std::vector<std::pair<u64, std::unique_ptr<Image>>> pending_retired_images;
+#endif
 };
 
 class Framebuffer {
