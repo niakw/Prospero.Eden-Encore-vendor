@@ -19,7 +19,7 @@ ChannelSetupCaches<P>::~ChannelSetupCaches() = default;
 
 template <class P>
 void ChannelSetupCaches<P>::CreateChannel(struct Tegra::Control::ChannelState& channel) {
-    std::unique_lock<std::mutex> lk(config_mutex);
+    std::unique_lock lk(config_mutex);
     ASSERT(channel_map.find(channel.bind_id) == channel_map.end() && channel.bind_id >= 0);
     auto new_id = [this, &channel]() {
         if (!free_channel_ids.empty()) {
@@ -53,7 +53,7 @@ void ChannelSetupCaches<P>::CreateChannel(struct Tegra::Control::ChannelState& c
 /// Bind a channel for execution.
 template <class P>
 void ChannelSetupCaches<P>::BindToChannel(s32 id) {
-    std::unique_lock<std::mutex> lk(config_mutex);
+    std::unique_lock lk(config_mutex);
     auto it = channel_map.find(id);
     ASSERT(it != channel_map.end() && id >= 0);
     current_channel_id = it->second;
@@ -68,7 +68,7 @@ void ChannelSetupCaches<P>::BindToChannel(s32 id) {
 /// Erase channel's channel_state.
 template <class P>
 void ChannelSetupCaches<P>::EraseChannel(s32 id) {
-    std::unique_lock<std::mutex> lk(config_mutex);
+    std::unique_lock lk(config_mutex);
     const auto it = channel_map.find(id);
     ASSERT(it != channel_map.end() && id >= 0);
     const auto this_id = it->second;
