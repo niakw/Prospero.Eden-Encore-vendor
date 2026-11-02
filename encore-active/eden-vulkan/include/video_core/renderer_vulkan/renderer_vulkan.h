@@ -94,6 +94,14 @@ private:
 
     Device device;
     MemoryAllocator memory_allocator;
+#ifdef PS5_NATIVE
+    // Kept alive until Vulkan scheduler/device retirement. One persistent
+    // upload buffer per title: no per-vblank CPU copies or decoder work.
+    vk::Buffer loading_jacket_buffer{};
+    u32 loading_jacket_width{};
+    u32 loading_jacket_height{};
+    bool loading_jacket_attempted{};
+#endif
     StateTracker state_tracker;
     Scheduler scheduler;
     Swapchain swapchain;
