@@ -1000,9 +1000,11 @@ private:
         Tegra::Texture::TICEntry entry{};
         static_assert(sizeof(entry) == sizeof((*captured)[0].tic_words));
         std::memcpy(&entry, (*captured)[0].tic_words.data(), sizeof(entry));
-        if (static_cast<u32>(entry.header_version.Value()) >
-            static_cast<u32>(Tegra::Texture::TICHeaderVersion::BlockLinearColorKey))
-            throw std::runtime_error{"unsupported native Compute TIC header"};
+        // Shader metadata must not be translated from a TIC the later
+        // shared TextureCache cannot admit. Reject an invalid format layout,
+        // MSAA mode or overflow budget before spending CPU on native SPIR-V.
+        if (!Shader::Ampere::NativeQmdTicLayoutSupported(entry))
+            throw std::runtime_error{"unsupported native Compute TIC layout"};
         return entry;
     }
     Tegra::MemoryManager& gpu_memory;
