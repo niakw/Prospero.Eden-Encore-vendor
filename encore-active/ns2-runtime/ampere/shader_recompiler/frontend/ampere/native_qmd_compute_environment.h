@@ -152,13 +152,21 @@ struct NativeQmdResourcePlan {
         BindStorage&& bind_storage, Rollback&& rollback) const {
         if (!ValidateGpuMappings(mapped)) return false;
         bool staged{};
+        // Rollback is a one-shot operation. A failing cleanup callback must
+        // never be re-entered by this function's exception handler, since
+        // descriptor owners may already have been released by its first call.
+        const auto rollback_once = [&] {
+            if (!staged) return;
+            staged = false;
+            rollback();
+        };
         try {
             u32 descriptor_index{};
             for (const auto& cbuf : uniform_buffers) {
                 staged = true;
                 if (!bind_uniform(descriptor_index++, cbuf.qmd_index,
                                   cbuf.gpu_address, cbuf.bytes)) {
-                    rollback();
+                    rollback_once();
                     return false;
                 }
             }
@@ -167,13 +175,18 @@ struct NativeQmdResourcePlan {
                 staged = true;
                 if (!bind_storage(descriptor_index++, storage.gpu_address,
                                   storage.bytes, storage.is_written)) {
-                    rollback();
+                    rollback_once();
                     return false;
                 }
             }
             return true;
         } catch (...) {
-            if (staged) rollback();
+            // A rollback failure is still a failed staging transaction.
+            // It must not trigger a second release of the same descriptors.
+            try {
+                rollback_once();
+            } catch (...) {
+            }
             return false;
         }
     }
