@@ -254,6 +254,29 @@ struct NativeQmdTextureTables {
         return captured;
     }
 
+    // A channel ticket only guards channel ownership. TIC/TSC are guest
+    // memory and can change independently while images are being validated.
+    // Compare typed fields and complete raw records, never padding bytes.
+    // This is a pre-publication check, not a GPU fence or ownership token.
+    template <typename Read>
+    [[nodiscard]] bool MatchesSnapshot(
+        const NativeQmdResourcePlan& plan,
+        const std::vector<NativeQmdImageTableRecord>& snapshot,
+        Read&& read) const {
+        const auto fresh = Capture(plan, std::forward<Read>(read));
+        if (!fresh || fresh->size() != snapshot.size()) return false;
+        for (std::size_t i = 0; i < snapshot.size(); ++i) {
+            const auto& a = snapshot[i];
+            const auto& b = (*fresh)[i];
+            if (a.kind != b.kind || a.raw_handle != b.raw_handle ||
+                a.tic_index != b.tic_index || a.tsc_index != b.tsc_index ||
+                a.has_sampler != b.has_sampler || a.is_written != b.is_written ||
+                a.tic_words != b.tic_words || a.tsc_words != b.tsc_words)
+                return false;
+        }
+        return true;
+    }
+
     // The first native admission boundary: validate actual typed TIC/TSC
     // guest records against the same Maxwell descriptor ABI as TextureCache,
     // but use the authenticated Ampere 49-bit GMMU callback for image spans.
@@ -321,6 +344,9 @@ struct NativeQmdTextureTables {
             }
             if (!admit_image(tic)) return std::nullopt;
         }
+        // Texture layout probing can take time. Detect guest table writes
+        // during that interval before the renderer accepts the plan.
+        if (!MatchesSnapshot(plan, *records, read)) return std::nullopt;
         return records;
     }
 };
