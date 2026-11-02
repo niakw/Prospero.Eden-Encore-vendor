@@ -236,24 +236,30 @@ public:
         // words through our 49-bit, mapping-checked QMD Compute Environment.
         try {
             for (const auto& desc : shader_info.storage_buffers_descriptors) {
-                if (desc.count != 1 || desc.cbuf_index >= launch.constant_buffers.size() ||
-                    desc.cbuf_offset > 0xfffffff0U)
+                // Flatten 16-byte native QMD3 SSBO arrays in reflection order.
+                // Reject a truncated CBUF or a descriptor count above 32.
+                if (!desc.count || result.storage_buffers.size() > 32 ||
+                    desc.count > 32 - result.storage_buffers.size() ||
+                    desc.cbuf_index >= launch.constant_buffers.size() ||
+                    (desc.cbuf_offset & 3U) ||
+                    desc.cbuf_offset > 0xfffffff0U - 16U * (desc.count - 1U))
                     return std::nullopt;
-                const u32 lo = ReadCbufValue(desc.cbuf_index, desc.cbuf_offset);
-                const u32 hi = ReadCbufValue(desc.cbuf_index, desc.cbuf_offset + 4);
-                const u32 bytes = ReadCbufValue(desc.cbuf_index, desc.cbuf_offset + 8);
-                const u32 tag = ReadCbufValue(desc.cbuf_index, desc.cbuf_offset + 12);
-                if ((hi & ~u32{0x1ffff}) != 0)
-                    return std::nullopt;
-                const u64 target = (u64{hi} << 32) | lo;
-                if (target >= gpu_limit || (bytes && bytes > gpu_limit - target))
-                    return std::nullopt;
-                // A nonzero tag/zero size uses upstream's memory-layout
-                // fallback. Do not invent its length or call it bound.
-                const bool known_size = tag == 0 && bytes != 0;
-                result.storage_buffers.push_back(
-                    {target, known_size ? bytes : 0U, desc.is_written, known_size});
-                result.requires_memory_layout |= !known_size;
+                for (u32 index = 0; index < desc.count; ++index) {
+                    const u32 offset = desc.cbuf_offset + index * 16U;
+                    const u32 lo = ReadCbufValue(desc.cbuf_index, offset);
+                    const u32 hi = ReadCbufValue(desc.cbuf_index, offset + 4);
+                    const u32 bytes = ReadCbufValue(desc.cbuf_index, offset + 8);
+                    const u32 tag = ReadCbufValue(desc.cbuf_index, offset + 12);
+                    if ((hi & ~u32{0x1ffff}) != 0)
+                        return std::nullopt;
+                    const u64 target = (u64{hi} << 32) | lo;
+                    if (target >= gpu_limit || (bytes && bytes > gpu_limit - target))
+                        return std::nullopt;
+                    const bool known_size = tag == 0 && bytes != 0;
+                    result.storage_buffers.push_back(
+                        {target, known_size ? bytes : 0U, desc.is_written, known_size});
+                    result.requires_memory_layout |= !known_size;
+                }
             }
         } catch (const std::exception&) {
             return std::nullopt;
