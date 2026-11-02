@@ -70,8 +70,10 @@
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "video_core/native_shader_capture.h"
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
-#include "shader_recompiler/frontend/ampere/renderer_spirv_bridge.h"
 #include "shader_recompiler/stage.h"
+#endif
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#include "shader_recompiler/frontend/ampere/renderer_spirv_bridge.h"
 #endif
 #include "video_core/gpu_logging/gpu_logging.h"
 
