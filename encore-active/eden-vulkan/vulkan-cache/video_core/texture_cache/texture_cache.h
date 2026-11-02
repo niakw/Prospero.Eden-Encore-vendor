@@ -1049,6 +1049,42 @@ typename P::Framebuffer* TextureCache<P>::GetFramebuffer() {
     return &slot_framebuffers[framebuffer_id];
 }
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+// NS2 and NS1 use one TextureCache channel map, image slots and invalidation
+// path. Native callers have already authenticated their TIC and 49-bit GMMU.
+// Never run legacy IsValidEntry here: its 40-bit VA limit is Maxwell-only.
+template <class P>
+ImageViewId TextureCache<P>::AcquireNativeImageView(const TICEntry& descriptor,
+                                                    bool is_written) {
+    if (!channel_state || !gpu_memory) return NULL_IMAGE_VIEW_ID;
+    const auto [pair, is_new] = channel_state->image_views.try_emplace(descriptor);
+    bool remapped = false;
+    if (pair->second != NULL_IMAGE_VIEW_ID) {
+        const ImageViewBase& view = slot_image_views[pair->second];
+        remapped = !view.IsBuffer() &&
+            True(slot_images[view.image_id].flags & ImageFlagBits::Remapped);
+    }
+    // Invalidated NULL and remapped slots are always retried. A guest image
+    // that failed to map once must never poison this channel forever.
+    if (is_new || pair->second == NULL_IMAGE_VIEW_ID || remapped) {
+        const ImageViewId fresh = CreateImageView(descriptor);
+        if (fresh != pair->second) ++texture_bindings_serial;
+        pair->second = fresh;
+    }
+    if (pair->second != NULL_IMAGE_VIEW_ID)
+        PrepareImageView(pair->second, is_written, false);
+    return pair->second;
+}
+
+template <class P>
+SamplerId TextureCache<P>::AcquireNativeSampler(const TSCEntry& descriptor) {
+    if (!channel_state) return NULL_SAMPLER_ID;
+    // FindSampler already owns slot_samplers and the per-channel TSC
+    // descriptor key. No parallel Ampere sampler cache is permitted.
+    return FindSampler(descriptor, true);
+}
+#endif
+
 template <class P>
 ImageViewId TextureCache<P>::VisitImageView(u32 index, bool compute) {
     auto& table = compute ? channel_state->compute_image_table : channel_state->graphics_image_table;
