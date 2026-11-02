@@ -560,6 +560,20 @@ struct NativeQmdTypedTextureRecord {
                         (kind == NativeQmdImageKind::SampledTexture) ||
                     !NativeQmdTicLayoutSupported(record.tic))
                     return false;
+                // SPIR-V's element type is distinct from its image
+                // dimension and explicit format. An integer guest TIC may
+                // not be bound to a reflected float image (or vice versa).
+                // Texture buffers carry no is_integer metadata in this ABI.
+                if constexpr (std::is_same_v<Descriptor, Shader::TextureDescriptor> ||
+                              std::is_same_v<Descriptor, Shader::ImageDescriptor> ||
+                              std::is_same_v<Descriptor, Shader::ImageBufferDescriptor>) {
+                    const auto channel_type = record.tic.r_type.Value();
+                    const bool tic_integer =
+                        channel_type == Tegra::Texture::ComponentType::UINT ||
+                        channel_type == Tegra::Texture::ComponentType::SINT;
+                    if (desc.is_integer != tic_integer)
+                        return false;
+                }
                 if constexpr (std::is_same_v<Descriptor, Shader::ImageDescriptor> ||
                               std::is_same_v<Descriptor, Shader::ImageBufferDescriptor>) {
                     if (!NativeQmdStorageImageFormatMatches(desc.format, record.tic))
