@@ -25,6 +25,7 @@
 #include "video_core/renderer_vulkan/vk_compute_pipeline.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
+#include "video_core/renderer_vulkan/vk_compute_storage_layout.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_update_descriptor.h"
 #include "video_core/shader_notify.h"
@@ -280,6 +281,14 @@ void ComputePipeline::PreflightDescriptorScratch() {
 bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
                                 Tegra::MemoryManager& gpu_memory, Scheduler& scheduler,
                                 BufferCache& buffer_cache, TextureCache& texture_cache) {
+    // Same reflection walker as native Ampere: validate the flattened SSBO
+    // layout *before* changing any guest descriptor state. Maxwell's one-
+    // element descriptors preserve the exact existing binding and order.
+    const auto valid_storage_layout = ComputeStorageLayout::ForEach(
+        info.storage_buffers_descriptors,
+        static_cast<u32>(num_descriptor_entries),
+        [](u32, u32, u32, bool) { return true; });
+    if (!valid_storage_layout) return false;
     // A descriptor-free compute shader must not reserve the legacy 1024
     // guest entries or wait for a GPU worker while holding both cache locks.
     if (num_descriptor_entries == 0) {
@@ -290,13 +299,17 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
 
     buffer_cache.SetComputeUniformBufferState(info.constant_buffer_mask, &uniform_buffer_sizes);
     buffer_cache.UnbindComputeStorageBuffers();
-    size_t ssbo_index{};
-    for (const auto& desc : info.storage_buffers_descriptors) {
-        ASSERT(desc.count == 1);
-        buffer_cache.BindComputeStorageBuffer(ssbo_index, desc.cbuf_index, desc.cbuf_offset,
-                                              desc.is_written);
-        ++ssbo_index;
-    }
+    // Reflected descriptor arrays are a sequence of 16-byte CBUF records.
+    // This shared walker handles 1-element NS1 descriptors unchanged and
+    // also admits valid arrays; no Kepler/Ampere decoding is performed here.
+    const bool bound_storage = ComputeStorageLayout::ForEach(
+        info.storage_buffers_descriptors,
+        static_cast<u32>(num_descriptor_entries),
+        [&](u32 index, u32 bank, u32 offset, bool writable) {
+            buffer_cache.BindComputeStorageBuffer(index, bank, offset, writable);
+            return true;
+        });
+    if (!bound_storage) return false;
 
     // No TIC/TSC state is consumed by a shader that has no sampled,
     // storage or texel-buffer images. Defer table synchronization until a
@@ -624,18 +637,17 @@ bool ComputePipeline::ConfigureNative(
     }
     if (uniform_pos != resources.uniform_buffers.size())
         return false;
+    // Match the same flattened SPIR-V layout used by Switch 1. Native GPU
+    // VA mapping/epoch safety still belongs to its QMD3 owner below.
     size_t storage_count{};
-    for (const auto& entry : info.storage_buffers_descriptors) {
-        if (!entry.count || storage_count > resources.storage_buffers.size() ||
-            entry.count > resources.storage_buffers.size() - storage_count)
-            return false;
-        for (u32 index = 0; index < entry.count; ++index) {
-            // Match flattened QMD3 records to SPIR-V descriptor reflection.
-            if (resources.storage_buffers[storage_count++].is_written != entry.is_written)
-                return false;
-        }
-    }
-    if (storage_count != resources.storage_buffers.size())
+    const bool native_layout_valid = ComputeStorageLayout::ForEach(
+        info.storage_buffers_descriptors,
+        static_cast<u32>(resources.storage_buffers.size()),
+        [&](u32 index, u32, u32, bool writable) {
+            ++storage_count;
+            return resources.storage_buffers[index].is_written == writable;
+        });
+    if (!native_layout_valid || storage_count != resources.storage_buffers.size())
         return false;
 
     // A single Vulkan buffer binding can cover only a CPU-contiguous mapping.
