@@ -170,6 +170,29 @@ template <typename Map>
     return true;
 }
 
+// Decode a sampler only after complete 32-byte TSC capture. The shared
+// Vulkan sampler creator asserts on unrecognized filter/reduction values;
+// reject malformed guest records instead of creating partial GPU objects.
+[[nodiscard]] constexpr bool NativeQmdSamplerSupported(
+    const Tegra::Texture::TSCEntry& sampler) noexcept {
+    using namespace Tegra::Texture;
+    const auto filter_ok = [](TextureFilter value) {
+        return value == TextureFilter::Nearest || value == TextureFilter::Linear;
+    };
+    const auto mip_ok = [](TextureMipmapFilter value) {
+        return value == TextureMipmapFilter::None ||
+               value == TextureMipmapFilter::Nearest ||
+               value == TextureMipmapFilter::Linear;
+    };
+    const auto reduction = sampler.reduction_filter.Value();
+    return filter_ok(sampler.mag_filter.Value()) &&
+           filter_ok(sampler.min_filter.Value()) &&
+           mip_ok(sampler.mipmap_filter.Value()) &&
+           (reduction == SamplerReduction::WeightedAverage ||
+            reduction == SamplerReduction::Min ||
+            reduction == SamplerReduction::Max);
+}
+
 // P2.2: an authenticated GPU channel owns the TIC/TSC table registers.
 // Capture actual 32-byte guest entries through the channel's checked GMMU
 // reader; never interpret a CBUF handle as an image or sampler by itself.
@@ -338,9 +361,14 @@ struct NativeQmdTextureTables {
                     u64{tic.BaseLayer()} + 1, budget))
                 return std::nullopt;
             if (record.has_sampler) {
-                bool any_sampler_word{};
-                for (const u32 word : record.tsc_words) any_sampler_word |= word != 0;
-                if (!any_sampler_word) return std::nullopt;
+                // A nonzero TSC is not necessarily a supported Vulkan
+                // sampler. Decode the same TSCEntry ABI as TextureCache
+                // and verify the filter/reduction enums before allocation.
+                Tegra::Texture::TSCEntry sampler{};
+                static_assert(sizeof(sampler) == sizeof(record.tsc_words));
+                std::memcpy(&sampler, record.tsc_words.data(), sizeof(sampler));
+                if (!NativeQmdSamplerSupported(sampler))
+                    return std::nullopt;
             }
             if (!admit_image(tic)) return std::nullopt;
         }
