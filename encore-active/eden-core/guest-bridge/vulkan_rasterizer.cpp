@@ -1054,6 +1054,10 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         auto resources = resource_owner->BuildResourcePlan(*compiled.info);
         if (!resources || !registry.IsComputeCurrent(kepler_compute, *ticket))
             return false;
+        // Match the authentic TIC/TSC handle order and write permissions
+        // to the emitted SPIR-V reflection before any Vulkan cache access.
+        if (!Shader::Ampere::NativeQmdImageLayoutMatches(*compiled.info, *resources))
+            return false;
         // Authenticate the full table records as well as QMD CBUF handles.
         // This only proves mapped metadata, not usable Vulkan images. Keep
         // the image path closed until TextureCache owns the views/samplers.

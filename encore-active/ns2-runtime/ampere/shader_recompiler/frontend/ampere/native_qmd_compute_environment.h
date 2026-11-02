@@ -135,6 +135,46 @@ struct NativeQmdResourcePlan {
     }
 };
 
+// Match the original Vulkan ComputePipeline::Configure image flattening:
+// texture buffers, image buffers, sampled textures, then storage images.
+// Require every QMD image handle to correspond to a reflected SPIR-V slot,
+// preserving access direction and count; never silently reorder or truncate.
+[[nodiscard]] inline bool NativeQmdImageLayoutMatches(
+    const Shader::Info& info, const NativeQmdResourcePlan& plan) {
+    constexpr std::size_t max_slots = 256;
+    if (plan.image_handles.size() > max_slots ||
+        plan.requires_tic_tsc != !plan.image_handles.empty())
+        return false;
+    std::size_t position{};
+    const auto matches = [&](const auto& descriptions,
+                             NativeQmdImageKind expected) {
+        for (const auto& desc : descriptions) {
+            if (!desc.count || desc.count > plan.image_handles.size() - position)
+                return false;
+            bool writable{};
+            using Descriptor = std::remove_cvref_t<decltype(desc)>;
+            if constexpr (std::is_same_v<Descriptor, Shader::ImageBufferDescriptor> ||
+                          std::is_same_v<Descriptor, Shader::ImageDescriptor>)
+                writable = desc.is_written;
+            for (u32 i = 0; i < desc.count; ++i) {
+                const auto& handle = plan.image_handles[position++];
+                if (handle.kind != expected || handle.is_written != writable)
+                    return false;
+            }
+        }
+        return true;
+    };
+    return matches(info.texture_buffer_descriptors,
+                   NativeQmdImageKind::TextureBuffer) &&
+           matches(info.image_buffer_descriptors,
+                   NativeQmdImageKind::ImageBuffer) &&
+           matches(info.texture_descriptors,
+                   NativeQmdImageKind::SampledTexture) &&
+           matches(info.image_descriptors,
+                   NativeQmdImageKind::StorageImage) &&
+           position == plan.image_handles.size();
+}
+
 // Shared NS2 GMMU preflight for real guest buffers and texture image spans.
 // GpuToCpuAddress(addr, size) in the older memory manager merely searches for
 // ANY mapped page, not full coverage. Check all 4 KiB boundaries and the
@@ -185,7 +225,15 @@ template <typename Map>
                value == TextureMipmapFilter::Linear;
     };
     const auto reduction = sampler.reduction_filter.Value();
-    return filter_ok(sampler.mag_filter.Value()) &&
+    // MaxwellToVK::Sampler::WrapMode marks MirrorOnceBorder unimplemented.
+    // Its fallback is not an authentic guest sampler interpretation.
+    const auto wrap_ok = [](WrapMode value) {
+        return value != WrapMode::MirrorOnceBorder;
+    };
+    return wrap_ok(sampler.wrap_u.Value()) &&
+           wrap_ok(sampler.wrap_v.Value()) &&
+           wrap_ok(sampler.wrap_p.Value()) &&
+           filter_ok(sampler.mag_filter.Value()) &&
            filter_ok(sampler.min_filter.Value()) &&
            mip_ok(sampler.mipmap_filter.Value()) &&
            (reduction == SamplerReduction::WeightedAverage ||
