@@ -1161,6 +1161,23 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         if (!owned || !registry.IsComputeCurrent(kepler_compute, *ticket))
             return false;
         std::shared_ptr<ComputePipeline> pipeline{std::move(owned)};
+        // ConfigureNative and Scheduler::Record can throw AFTER recording
+        // closures that capture ComputePipeline*. A normal return-false or
+        // exception must not release that owner before its GPU timeline.
+        // The scope guard is armed only after descriptor staging can start.
+        bool native_recording_started = false;
+        auto native_compute_retirement = SCOPE_GUARD {
+            if (!native_recording_started || !pipeline) return;
+            try {
+                Shader::Ampere::RetainNativeComputeUntilGpuTick(
+                    scheduler, fence_manager, pipeline);
+            } catch (...) {
+                // The retention helper already waits a submitted tick on
+                // callback-registration failure. Keep this final emergency
+                // drain noexcept while unwinding another exception.
+                try { scheduler.Finish(); } catch (...) {}
+            }
+        };
         // The native owner must survive GPU completion independently of
         // immediate guest callbacks. Use the host-tested timeline helper.
         // ConfigureNative takes BufferCache::mutex. The descriptor queue
@@ -1198,6 +1215,7 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
             !registry.IsComputeCurrent(kepler_compute, *ticket))
             return false;
         scheduler.RequestOutsideRenderPassOperationContext();
+        native_recording_started = true;
         {
             std::scoped_lock lock{buffer_cache.mutex};
             if (!pipeline->ConfigureNative(
@@ -1217,11 +1235,8 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         }
         if (!current_after_staging ||
             !registry.IsComputeCurrent(kepler_compute, *ticket)) {
-            // ConfigureNative has already recorded a Vulkan descriptor-bind
-            // closure that captures ComputePipeline*. Even when this QMD is
-            // refused, retain the object until those queued commands retire.
-            Shader::Ampere::RetainNativeComputeUntilGpuTick(
-                scheduler, fence_manager, std::move(pipeline));
+            // Scope retirement also handles this rejection; do not release
+            // already recorded Vulkan descriptor-bind closures early.
             return false;
         }
 
@@ -1240,6 +1255,9 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         // Scheduler::Record is deferred, and Vulkan keeps using the pipeline
         // after vkCmdDispatch. Retain ownership through the GPU fence, not
         // merely until the C++ renderer returns to the QMD scheduler.
+        // Successful submissions already hold their exact timeline owner.
+        // Cancel exception/early-return recovery before normal retirement.
+        native_compute_retirement.Cancel();
         Shader::Ampere::RetainNativeComputeUntilGpuTick(
                 scheduler, fence_manager, std::move(pipeline));
         return true;
