@@ -136,4 +136,5 @@ void RendererVulkan::PresentLoading() {
 #endif
     scheduler.Flush(*frame->render_ready);
     present_manager.Present(frame);
+    ::Eden::FrameMetrics::OnLoadingQueued();
 }
