@@ -923,18 +923,36 @@ public:
         }
     }
     Shader::TexturePixelFormat ReadTexturePixelFormat(u32 handle) override {
-        const auto entry = ReadTic(handle);
-        const auto format = VideoCommon::PixelFormatFromTextureInfo(
-            entry.format, entry.r_type, entry.g_type, entry.b_type,
-            entry.a_type, entry.srgb_conversion);
-        if (format == VideoCore::Surface::PixelFormat::Invalid)
-            throw std::runtime_error{"unsupported native Compute texture format"};
-        return static_cast<Shader::TexturePixelFormat>(format);
+        const auto format = ReadNativePixelFormat(handle);
+        // Surface and shader formats share the same numeric prefix only.
+        // ETC2/EAC extend Surface before depth formats; a whole-enum cast
+        // would turn valid depth TICs into the wrong shader pixel format.
+        static_assert(static_cast<u32>(VideoCore::Surface::PixelFormat::E5B9G9R9_FLOAT) ==
+                      static_cast<u32>(Shader::TexturePixelFormat::E5B9G9R9_FLOAT));
+        if (format <= VideoCore::Surface::PixelFormat::E5B9G9R9_FLOAT)
+            return static_cast<Shader::TexturePixelFormat>(format);
+        switch (format) {
+        case VideoCore::Surface::PixelFormat::D32_FLOAT:
+            return Shader::TexturePixelFormat::D32_FLOAT;
+        case VideoCore::Surface::PixelFormat::D16_UNORM:
+            return Shader::TexturePixelFormat::D16_UNORM;
+        case VideoCore::Surface::PixelFormat::X8_D24_UNORM:
+            return Shader::TexturePixelFormat::X8_D24_UNORM;
+        case VideoCore::Surface::PixelFormat::S8_UINT:
+            return Shader::TexturePixelFormat::S8_UINT;
+        case VideoCore::Surface::PixelFormat::D24_UNORM_S8_UINT:
+            return Shader::TexturePixelFormat::D24_UNORM_S8_UINT;
+        case VideoCore::Surface::PixelFormat::S8_UINT_D24_UNORM:
+            return Shader::TexturePixelFormat::S8_UINT_D24_UNORM;
+        case VideoCore::Surface::PixelFormat::D32_FLOAT_S8_UINT:
+            return Shader::TexturePixelFormat::D32_FLOAT_S8_UINT;
+        default:
+            throw std::runtime_error{"unsupported native Compute shader pixel format"};
+        }
     }
     bool IsTexturePixelFormatInteger(u32 handle) override {
-        return VideoCore::Surface::IsPixelFormatInteger(
-            static_cast<VideoCore::Surface::PixelFormat>(
-                ReadTexturePixelFormat(handle)));
+        // Check the real Surface format, not a shader enum reinterpreted back.
+        return VideoCore::Surface::IsPixelFormatInteger(ReadNativePixelFormat(handle));
     }
     u32 ReadViewportTransformState() override { return 0; }
     u32 TextureBoundBuffer() const override { return texture_cbuf; }
@@ -948,6 +966,16 @@ public:
     void Dump(u64, u64) override {}
 
 private:
+    VideoCore::Surface::PixelFormat ReadNativePixelFormat(u32 handle) const {
+        const auto entry = ReadTic(handle);
+        const auto format = VideoCommon::PixelFormatFromTextureInfo(
+            entry.format, entry.r_type, entry.g_type, entry.b_type,
+            entry.a_type, entry.srgb_conversion);
+        if (format == VideoCore::Surface::PixelFormat::Invalid)
+            throw std::runtime_error{"unsupported native Compute texture format"};
+        return format;
+    }
+
     Tegra::Texture::TICEntry ReadTic(u32 raw_handle) const {
         // Shader translation only needs the TIC format/dimension, never a
         // fabricated Vulkan view. Native channel registers provide the
