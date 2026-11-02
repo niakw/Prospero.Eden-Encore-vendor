@@ -297,6 +297,64 @@ template <typename Map>
     return true;
 }
 
+// The raw guest TIC policy is shared by both initial capture and later
+// typed replay. A forged replay must never skip the image-size/MSAA guards:
+// neither step creates a Vulkan image, but both can hand metadata to one
+// common TextureCache owner. Keep this single admission policy in sync.
+[[nodiscard]] inline bool NativeQmdTicLayoutSupported(
+    const Tegra::Texture::TICEntry& tic) {
+            if (static_cast<u32>(tic.header_version.Value()) >
+                    static_cast<u32>(Tegra::Texture::TICHeaderVersion::BlockLinearColorKey) ||
+                static_cast<u32>(tic.texture_type.Value()) >
+                    static_cast<u32>(Tegra::Texture::TextureType::TextureCubeArray) ||
+                !tic.Address() || tic.Address() >= (u64{1} << 49) ||
+                tic.is_sparse || !tic.Width() || !tic.Height() || !tic.Depth() ||
+                tic.res_min_mip_level > tic.res_max_mip_level ||
+                tic.res_max_mip_level > tic.max_mip_level ||
+                (tic.IsBuffer() != (tic.texture_type == Tegra::Texture::TextureType::Texture1DBuffer)))
+                return false;
+            const auto type = static_cast<u32>(tic.texture_type.Value());
+            if (((type == static_cast<u32>(Tegra::Texture::TextureType::Texture2D) ||
+                   type == static_cast<u32>(Tegra::Texture::TextureType::Texture2DNoMipmap) ||
+                   type == static_cast<u32>(Tegra::Texture::TextureType::TextureCubemap)) &&
+                  tic.Depth() != 1) ||
+                (type == static_cast<u32>(Tegra::Texture::TextureType::Texture3D) &&
+                 tic.BaseLayer() != 0))
+                return false;
+            // Prevent ImageInfo's u32 size calculations from wrapping on a
+            // huge guest allocation, before reaching the shared cache.
+            // Keep u32 ImageInfo size math below overflow, including
+            // amplified MSAA allocations, until native texture lifetime is
+            // proven. Refuse unrecognized MSAA modes rather than sending
+            // them to MaxwellToVK::MsaaMode's fallback assertion.
+            const auto sample_mode = tic.msaa_mode.Value();
+            using Tegra::Texture::MsaaMode;
+            switch (sample_mode) {
+            case MsaaMode::Msaa1x1:
+            case MsaaMode::Msaa2x1:
+            case MsaaMode::Msaa2x2:
+            case MsaaMode::Msaa4x2:
+            case MsaaMode::Msaa4x2_D3D:
+            case MsaaMode::Msaa2x1_D3D:
+            case MsaaMode::Msaa4x4:
+            case MsaaMode::Msaa2x2_VC4:
+            case MsaaMode::Msaa2x2_VC12:
+            case MsaaMode::Msaa4x2_VC8:
+            case MsaaMode::Msaa4x2_VC24:
+                break;
+            default:
+                return false;
+            }
+            const u64 budget = sample_mode == MsaaMode::Msaa1x1
+                ? 64ULL * 1024 * 1024 : 4ULL * 1024 * 1024;
+            if (!NativeQmdWithinTexelBudget(
+                    tic.Width(), tic.Height(), tic.Depth(),
+                    u64{tic.BaseLayer()} + 1, budget))
+                return false;
+
+    return true;
+}
+
 // Decode a sampler only after complete 32-byte TSC capture. The shared
 // Vulkan sampler creator asserts on unrecognized filter/reduction values;
 // reject malformed guest records instead of creating partial GPU objects.
@@ -517,27 +575,9 @@ struct NativeQmdTextureTables {
             entry.is_written = src.is_written;
             static_assert(sizeof(entry.tic) == sizeof(src.tic_words));
             std::memcpy(&entry.tic, src.tic_words.data(), sizeof(entry.tic));
-            // DecodeAdmitted must be safe even if a caller supplies an old
-            // or corrupted snapshot without rerunning CaptureAdmissible.
-            // Do not turn invalid guest layouts into typed TextureCache IDs.
-            const auto type = entry.tic.texture_type.Value();
-            if (!entry.tic.Address() || entry.tic.Address() >= (u64{1} << 49) ||
-                static_cast<u32>(entry.tic.header_version.Value()) >
-                    static_cast<u32>(Tegra::Texture::TICHeaderVersion::BlockLinearColorKey) ||
-                static_cast<u32>(type) >
-                    static_cast<u32>(Tegra::Texture::TextureType::TextureCubeArray) ||
-                entry.tic.is_sparse ||
-                entry.tic.res_min_mip_level > entry.tic.res_max_mip_level ||
-                entry.tic.res_max_mip_level > entry.tic.max_mip_level ||
-                (entry.tic.IsBuffer() !=
-                    (type == Tegra::Texture::TextureType::Texture1DBuffer)) ||
-                ((type == Tegra::Texture::TextureType::Texture2D ||
-                  type == Tegra::Texture::TextureType::Texture2DNoMipmap ||
-                  type == Tegra::Texture::TextureType::TextureCubemap) &&
-                 entry.tic.Depth() != 1) ||
-                (type == Tegra::Texture::TextureType::Texture3D &&
-                 entry.tic.BaseLayer() != 0))
-                return std::nullopt;
+            // The same layout, MSAA and texel-budget policy is checked on
+            // both captured and replayed typed guest TIC records.
+            if (!NativeQmdTicLayoutSupported(entry.tic)) return std::nullopt;
             if (sampled) {
                 Tegra::Texture::TSCEntry sampler{};
                 static_assert(sizeof(sampler) == sizeof(src.tsc_words));
@@ -565,54 +605,7 @@ struct NativeQmdTextureTables {
             Tegra::Texture::TICEntry tic{};
             static_assert(sizeof(tic) == sizeof(record.tic_words));
             std::memcpy(&tic, record.tic_words.data(), sizeof(tic));
-            if (static_cast<u32>(tic.header_version.Value()) >
-                    static_cast<u32>(Tegra::Texture::TICHeaderVersion::BlockLinearColorKey) ||
-                static_cast<u32>(tic.texture_type.Value()) >
-                    static_cast<u32>(Tegra::Texture::TextureType::TextureCubeArray) ||
-                !tic.Address() || tic.Address() >= (u64{1} << 49) ||
-                tic.is_sparse || !tic.Width() || !tic.Height() || !tic.Depth() ||
-                tic.res_min_mip_level > tic.res_max_mip_level ||
-                tic.res_max_mip_level > tic.max_mip_level ||
-                (tic.IsBuffer() != (tic.texture_type == Tegra::Texture::TextureType::Texture1DBuffer)))
-                return std::nullopt;
-            const auto type = static_cast<u32>(tic.texture_type.Value());
-            if (((type == static_cast<u32>(Tegra::Texture::TextureType::Texture2D) ||
-                   type == static_cast<u32>(Tegra::Texture::TextureType::Texture2DNoMipmap) ||
-                   type == static_cast<u32>(Tegra::Texture::TextureType::TextureCubemap)) &&
-                  tic.Depth() != 1) ||
-                (type == static_cast<u32>(Tegra::Texture::TextureType::Texture3D) &&
-                 tic.BaseLayer() != 0))
-                return std::nullopt;
-            // Prevent ImageInfo's u32 size calculations from wrapping on a
-            // huge guest allocation, before reaching the shared cache.
-            // Keep u32 ImageInfo size math below overflow, including
-            // amplified MSAA allocations, until native texture lifetime is
-            // proven. Refuse unrecognized MSAA modes rather than sending
-            // them to MaxwellToVK::MsaaMode's fallback assertion.
-            const auto sample_mode = tic.msaa_mode.Value();
-            using Tegra::Texture::MsaaMode;
-            switch (sample_mode) {
-            case MsaaMode::Msaa1x1:
-            case MsaaMode::Msaa2x1:
-            case MsaaMode::Msaa2x2:
-            case MsaaMode::Msaa4x2:
-            case MsaaMode::Msaa4x2_D3D:
-            case MsaaMode::Msaa2x1_D3D:
-            case MsaaMode::Msaa4x4:
-            case MsaaMode::Msaa2x2_VC4:
-            case MsaaMode::Msaa2x2_VC12:
-            case MsaaMode::Msaa4x2_VC8:
-            case MsaaMode::Msaa4x2_VC24:
-                break;
-            default:
-                return std::nullopt;
-            }
-            const u64 budget = sample_mode == MsaaMode::Msaa1x1
-                ? 64ULL * 1024 * 1024 : 4ULL * 1024 * 1024;
-            if (!NativeQmdWithinTexelBudget(
-                    tic.Width(), tic.Height(), tic.Depth(),
-                    u64{tic.BaseLayer()} + 1, budget))
-                return std::nullopt;
+            if (!NativeQmdTicLayoutSupported(tic)) return std::nullopt;
             if (record.has_sampler) {
                 // A nonzero TSC is not necessarily a supported Vulkan
                 // sampler. Decode the same TSCEntry ABI as TextureCache
