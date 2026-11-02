@@ -370,6 +370,13 @@ template <typename Map>
                value == TextureMipmapFilter::Linear;
     };
     const auto reduction = sampler.reduction_filter.Value();
+    // Vulkan's VkSamplerCreateInfo requires minLod <= maxLod. The shared
+    // sampler owner uses these raw clamps whenever mipmapping is enabled;
+    // reject an inverted guest range before it reaches vkCreateSampler.
+    // With mipmapping disabled the owner intentionally uses fixed LODs.
+    if (sampler.mipmap_filter.Value() != TextureMipmapFilter::None &&
+        sampler.min_lod_clamp.Value() > sampler.max_lod_clamp.Value())
+        return false;
     // MaxwellToVK::Sampler::WrapMode marks MirrorOnceBorder unimplemented.
     // Its fallback is not an authentic guest sampler interpretation.
     const auto wrap_ok = [](WrapMode value) {
