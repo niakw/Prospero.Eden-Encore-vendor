@@ -62,6 +62,8 @@
 #include "shader_recompiler/frontend/ampere/renderer_spirv_bridge.h"
 #include "video_core/native_qmd.h"
 #include "video_core/native_shader_capture.h"
+#include "video_core/texture_cache/format_lookup_table.h"
+#include <cstring>
 #endif
 
 namespace Vulkan {
@@ -873,27 +875,71 @@ constexpr VkPipelineStageFlags COMPUTE_CONSUMER_STAGES =
 
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
 namespace {
-// Compute without TIC/TSC may compile without a Switch 1 Kepler context.
-// Refuse texture metadata rather than invent NS2 image descriptors.
-class NativeBufferOnlyMetadata final : public Shader::Environment {
+// Native QMD shader metadata reads authenticated channel TIC records.
+// Vulkan images/samplers still fail closed until shared TextureCache binding.
+class NativeQmdTextureMetadata final : public Shader::Environment {
 public:
-    NativeBufferOnlyMetadata() {
+    NativeQmdTextureMetadata(Tegra::MemoryManager& memory,
+                             const Tegra::Engines::KeplerCompute::Regs& regs,
+                             bool linked)
+        : gpu_memory{memory},
+          tables{.tic_base = regs.tic.Address(),
+                 .tsc_base = regs.tsc.Address(),
+                 .tic_limit = regs.tic.limit,
+                 .tsc_limit = regs.tsc.limit,
+                 .linked_tsc = linked},
+          texture_cbuf{regs.tex_cb_index} {
         stage = Shader::Stage::Compute;
         start_address = 0;
     }
-    u64 ReadInstruction(u32) override { throw std::runtime_error{"native code must be translated"}; }
-    u32 ReadCbufValue(u32, u32) override { throw std::runtime_error{"QMD CBUF owner missing"}; }
-    Shader::TextureType ReadTextureType(u32) override {
-        throw std::runtime_error{"native Compute texture metadata unavailable"};
+
+    u64 ReadInstruction(u32) override {
+        throw std::runtime_error{"native code must be translated"};
     }
-    Shader::TexturePixelFormat ReadTexturePixelFormat(u32) override {
-        throw std::runtime_error{"native Compute image format unavailable"};
+    u32 ReadCbufValue(u32, u32) override {
+        throw std::runtime_error{"QMD CBUF owner missing"};
     }
-    bool IsTexturePixelFormatInteger(u32) override {
-        throw std::runtime_error{"native Compute texture metadata unavailable"};
+    Shader::TextureType ReadTextureType(u32 handle) override {
+        const auto entry = ReadTic(handle);
+        switch (entry.texture_type) {
+        case Tegra::Texture::TextureType::Texture1D:
+            return Shader::TextureType::Color1D;
+        case Tegra::Texture::TextureType::Texture2D:
+        case Tegra::Texture::TextureType::Texture2DNoMipmap:
+            return entry.normalized_coords ? Shader::TextureType::Color2D
+                                           : Shader::TextureType::Color2DRect;
+        case Tegra::Texture::TextureType::Texture3D:
+            return Shader::TextureType::Color3D;
+        case Tegra::Texture::TextureType::TextureCubemap:
+            return Shader::TextureType::ColorCube;
+        case Tegra::Texture::TextureType::Texture1DArray:
+            return Shader::TextureType::ColorArray1D;
+        case Tegra::Texture::TextureType::Texture2DArray:
+            return Shader::TextureType::ColorArray2D;
+        case Tegra::Texture::TextureType::Texture1DBuffer:
+            return Shader::TextureType::Buffer;
+        case Tegra::Texture::TextureType::TextureCubeArray:
+            return Shader::TextureType::ColorArrayCube;
+        default:
+            throw std::runtime_error{"unsupported native Compute texture type"};
+        }
+    }
+    Shader::TexturePixelFormat ReadTexturePixelFormat(u32 handle) override {
+        const auto entry = ReadTic(handle);
+        const auto format = VideoCommon::PixelFormatFromTextureInfo(
+            entry.format, entry.r_type, entry.g_type, entry.b_type,
+            entry.a_type, entry.srgb_conversion);
+        if (format == VideoCore::Surface::PixelFormat::Invalid)
+            throw std::runtime_error{"unsupported native Compute texture format"};
+        return static_cast<Shader::TexturePixelFormat>(format);
+    }
+    bool IsTexturePixelFormatInteger(u32 handle) override {
+        return VideoCore::Surface::IsPixelFormatInteger(
+            static_cast<VideoCore::Surface::PixelFormat>(
+                ReadTexturePixelFormat(handle)));
     }
     u32 ReadViewportTransformState() override { return 0; }
-    u32 TextureBoundBuffer() const override { return 0; }
+    u32 TextureBoundBuffer() const override { return texture_cbuf; }
     u32 LocalMemorySize() const override { return 0; }
     u32 SharedMemorySize() const override { return 0; }
     std::array<u32, 3> WorkgroupSize() const override { return {1, 1, 1}; }
@@ -902,6 +948,36 @@ public:
         return std::nullopt;
     }
     void Dump(u64, u64) override {}
+
+private:
+    Tegra::Texture::TICEntry ReadTic(u32 raw_handle) const {
+        // Shader translation only needs the TIC format/dimension, never a
+        // fabricated Vulkan view. Native channel registers provide the
+        // real table address; the GMMU reader checks the complete 32 bytes.
+        Shader::Ampere::NativeQmdResourcePlan plan{};
+        plan.requires_tic_tsc = true;
+        Shader::Ampere::NativeQmdImageHandle word{};
+        word.kind = Shader::Ampere::NativeQmdImageKind::StorageImage;
+        word.primary_word = raw_handle;
+        plan.image_handles.push_back(word);
+        const auto captured = tables.Capture(
+            plan, [this](u64 address, void* destination, std::size_t bytes) {
+                return VideoCommon::ReadNs2GpuShader(
+                    &gpu_memory, address, destination, bytes);
+            });
+        if (!captured || captured->size() != 1)
+            throw std::runtime_error{"native Compute TIC unavailable or unmapped"};
+        Tegra::Texture::TICEntry entry{};
+        static_assert(sizeof(entry) == sizeof((*captured)[0].tic_words));
+        std::memcpy(&entry, (*captured)[0].tic_words.data(), sizeof(entry));
+        if (entry.header_version.Value() >
+            static_cast<u32>(Tegra::Texture::TICHeaderVersion::BlockLinearColorKey))
+            throw std::runtime_error{"unsupported native Compute TIC header"};
+        return entry;
+    }
+    Tegra::MemoryManager& gpu_memory;
+    Shader::Ampere::NativeQmdTextureTables tables;
+    u32 texture_cbuf{};
 };
 } // namespace
 
@@ -937,7 +1013,8 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
             return false;
         auto qmd_context = std::make_unique<Shader::Ampere::NativeQmdComputeEnvironment>(
             launch, VideoCommon::ReadNs2GpuShader, gpu_memory,
-            std::make_unique<NativeBufferOnlyMetadata>());
+            std::make_unique<NativeQmdTextureMetadata>(
+                *gpu_memory, kepler_compute.regs, launch.linked_tsc));
         auto* const resource_owner = qmd_context.get();
         auto environment = Shader::Ampere::NativeMaxwellEnvironment::CreateComputeOwned(
             std::move(qmd_context), std::move(captured.image));
@@ -945,9 +1022,30 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         auto compiled = pipeline_cache.CompileNativeComputeSpirv(*environment);
         if (!compiled.ComputeMetadataReady()) return false;
         auto resources = resource_owner->BuildResourcePlan(*compiled.info);
-        // No unsupported image/TIC/TSC or global-memory path is submitted.
-        if (!resources || !resources->HasResolvedBufferBindings() ||
-            !registry.IsComputeCurrent(kepler_compute, *ticket)) return false;
+        if (!resources || !registry.IsComputeCurrent(kepler_compute, *ticket))
+            return false;
+        // Authenticate the full table records as well as QMD CBUF handles.
+        // This only proves mapped metadata, not usable Vulkan images. Keep
+        // the image path closed until TextureCache owns the views/samplers.
+        if (resources->requires_tic_tsc) {
+            const auto& regs = kepler_compute.regs;
+            const Shader::Ampere::NativeQmdTextureTables tables{
+                .tic_base = regs.tic.Address(),
+                .tsc_base = regs.tsc.Address(),
+                .tic_limit = regs.tic.limit,
+                .tsc_limit = regs.tsc.limit,
+                .linked_tsc = launch.linked_tsc};
+            const auto descriptors = tables.Capture(
+                *resources, [this](u64 address, void* bytes, std::size_t size) {
+                    return VideoCommon::ReadNs2GpuShader(
+                        gpu_memory, address, bytes, size);
+                });
+            if (!descriptors || !registry.IsComputeCurrent(kepler_compute, *ticket))
+                return false;
+            return false; // no unbacked image/sampler descriptor publication
+        }
+        if (!resources->HasResolvedBufferBindings())
+            return false;
 
         const auto bytes = compiled.words.size() * sizeof(u32);
         const u64 shader_hash = Common::CityHash64(
