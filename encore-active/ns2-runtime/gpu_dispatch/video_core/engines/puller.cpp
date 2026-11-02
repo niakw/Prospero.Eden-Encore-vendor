@@ -764,7 +764,7 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                             registry.IsComputeCurrent(
                                 &pusher.channel_state.payload->kepler_compute, compute_ticket);
                         std::fprintf(stderr,
-                            "EDEN_NS2_COMPUTE_SHADER_CAPTURE count=%u program=%llx mapped=1 current=%u ready=%u status=%u bytes=%u failing_at=%u backend=missing\n",
+                            "EDEN_NS2_COMPUTE_SHADER_CAPTURE count=%u program=%llx mapped=1 current=%u ready=%u status=%u bytes=%u failing_at=%u backend=await_dispatch\n",
                             n, static_cast<unsigned long long>(launch->program_address),
                             static_cast<unsigned>(current),
                             static_cast<unsigned>(current && native.Ready()),
@@ -798,7 +798,15 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                         !live_registry.IsComputeCurrent(
                             &pusher.channel_state.payload->kepler_compute, compute_ticket))
                         return false;
-                    return pusher.rasterizer->DispatchNativeCompute(*launch);
+                    const bool accepted =
+                        pusher.rasterizer->DispatchNativeCompute(*launch);
+                    if (sample)
+                        std::fprintf(stderr,
+                            "EDEN_NS2_COMPUTE_DISPATCH count=%u accepted=%u program=%llx grid=%u,%u,%u\\n",
+                            n, static_cast<unsigned>(accepted),
+                            static_cast<unsigned long long>(launch->program_address),
+                            launch->grid[0], launch->grid[1], launch->grid[2]);
+                    return accepted;
                 }
 #endif
                 return false;
