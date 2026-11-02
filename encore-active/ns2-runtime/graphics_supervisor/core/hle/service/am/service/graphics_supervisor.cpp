@@ -202,18 +202,23 @@ private:
     void Event(HLERequestContext& ctx) {
         const auto* p=ctx.CommandBuffer();
         Result result=Kernel::ResultInvalidCombination;
-        Kernel::KReadableEvent* readable{};
         if(p[0]==0x1b&&p[1]==1&&p[2]==0){
             if(!m_event)m_event=m_context.CreateEvent("Vi2Notify");
             result=m_event?ResultSuccess:Kernel::ResultOutOfResource;
-            if(m_event){
-                if(std::ranges::any_of(m_notes,[](u32 note){return note!=0;}))
-                    m_event->Signal(kernel);
-                readable=&m_event->GetReadableEvent();readable->Open(kernel);
-            }
+            if(m_event&&std::ranges::any_of(m_notes,[](u32 note){return note!=0;}))
+                m_event->Signal(kernel);
         }
-        IPC::ResponseBuilder rb{ctx,2,0,1};rb.Push(result.raw);
-        ctx.AddMoveObject(readable);
+        // VI2 notification cmd 11, like vsync 31/32, returns a COPY
+        // event handle. A moved handle changes the guest TIPC handle
+        // descriptor and can strand the SDK notification waiter.
+        if (result.IsSuccess()) {
+            IPC::ResponseBuilder rb{ctx,2,1,0};
+            rb.Push(result.raw);
+            rb.PushCopyObjects(ctx,m_event->GetReadableEvent());
+        } else {
+            IPC::ResponseBuilder rb{ctx,2};
+            rb.Push(result.raw);
+        }
     }
     void VsyncEvent(HLERequestContext& ctx) {
         // Native VI2 commands 31/32 return one readable kernel event. Both
