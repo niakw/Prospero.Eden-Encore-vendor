@@ -1118,7 +1118,7 @@ TextureCacheRuntime::~TextureCacheRuntime() {
 void TextureCacheRuntime::RetireGpuImage(Image&& image) {
     const u64 tick = scheduler.CurrentTick();
     try {
-        pending_retired_images.emplace_back(tick, std::make_unique<Image>(std::move(image)));
+        pending_retired_images.push_back({tick, gpu_retire_frame, std::make_unique<Image>(std::move(image))});
     } catch (...) {
         // If queue allocation fails, wait before any moved owner can die.
         scheduler.Finish();
@@ -1129,7 +1129,7 @@ void TextureCacheRuntime::RetireGpuImage(Image&& image) {
 void TextureCacheRuntime::RetireGpuImageView(ImageView&& view) {
     const u64 tick = scheduler.CurrentTick();
     try {
-        pending_retired_views.emplace_back(tick, std::make_unique<ImageView>(std::move(view)));
+        pending_retired_views.push_back({tick, gpu_retire_frame, std::make_unique<ImageView>(std::move(view))});
     } catch (...) {
         scheduler.Finish();
         throw;
@@ -2192,6 +2192,9 @@ void TextureCacheRuntime::ReleaseMsaaScratchImage(VkImage image) {
 void TextureCacheRuntime::TickFrame() {
     static constexpr u32 MAX_UNUSED_SCRATCH_FRAMES = 60;
 #ifdef PS5_NATIVE
+    ++gpu_retire_frame;
+#endif
+#ifdef PS5_NATIVE
     // With neither MSAA scratch nor resolve retirements pending, there is
     // nothing to collect and no reason to sample the GPU semaphore.
     if (msaa_scratch_images.empty() && pending_resolve_shadows.empty() &&
@@ -2231,12 +2234,15 @@ void TextureCacheRuntime::TickFrame() {
 #ifdef PS5_NATIVE
     // Erase image views before images: both own real Vulkan resources.
     // Frame age alone never proves completion of an outstanding GPU tick.
-    std::erase_if(pending_retired_views, [is_free](const auto& pending) {
-        return is_free(pending.first);
-    });
-    std::erase_if(pending_retired_images, [is_free](const auto& pending) {
-        return is_free(pending.first);
-    });
+    // Keep the prior eight-frame framebuffer retirement ordering: the
+    // sentenced framebuffer ring is ticked immediately before this runtime.
+    static constexpr u64 MIN_TEXTURE_RETIRE_FRAMES = 8;
+    const auto ready = [this, is_free](const auto& pending) {
+        return is_free(pending.tick) &&
+               gpu_retire_frame - pending.frame >= MIN_TEXTURE_RETIRE_FRAMES;
+    };
+    std::erase_if(pending_retired_views, ready);
+    std::erase_if(pending_retired_images, ready);
 #endif
 }
 
