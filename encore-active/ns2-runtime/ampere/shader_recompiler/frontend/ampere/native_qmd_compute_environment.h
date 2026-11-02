@@ -172,19 +172,26 @@ public:
         if ((shader_info.constant_buffer_mask & ~u32{0xff}) != 0 ||
             shader_info.uses_cbuf_indirect)
             return std::nullopt;
+        u32 declared_banks{};
         for (const auto& desc : shader_info.constant_buffer_descriptors) {
             if (!desc.count || desc.index >= launch.constant_buffers.size() ||
                 desc.count > launch.constant_buffers.size() - desc.index)
                 return std::nullopt;
             for (u32 i = 0; i < desc.count; ++i) {
                 const auto index = desc.index + i;
+                const u32 bit = u32{1} << index;
                 const auto& cbuf = launch.constant_buffers[index];
-                if (!cbuf.enabled ||
+                if ((declared_banks & bit) || !cbuf.enabled || !cbuf.size ||
                     shader_info.constant_buffer_used_sizes[index] > cbuf.size)
                     return std::nullopt;
+                declared_banks |= bit;
                 result.uniform_buffers.push_back({index, cbuf.gpu_address, cbuf.size});
             }
         }
+        // A required shader bank without a matching CBUF descriptor cannot
+        // be bound. Reject instead of accepting a partial layout.
+        if (shader_info.constant_buffer_mask & ~declared_banks)
+            return std::nullopt;
         // Shader SSBO descriptors are 16-byte records inside the QMD CBUF
         // (target VA low, target VA high, packed length, tag). The maintained
         // BufferCache uses that exact guest descriptor layout. Read the same
