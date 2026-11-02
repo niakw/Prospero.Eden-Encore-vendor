@@ -1161,6 +1161,25 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         if (!owned || !registry.IsComputeCurrent(kepler_compute, *ticket))
             return false;
         std::shared_ptr<ComputePipeline> pipeline{std::move(owned)};
+        // GenericFenceManager::SignalFence can invoke its callback
+        // immediately when guest fence delay is disabled. That is NOT a
+        // Vulkan GPU-retirement fence and can destroy native pipelines
+        // while the submitted command buffer still references them.
+        // Submit the command stream, then retire its owner only after the
+        // exact GPU timeline tick completes. SyncOperation is ALWAYS
+        // deferred through the fence operations queue, independently of
+        // the guest fence callback policy.
+        const auto retain_native_pipeline =
+            [this](std::shared_ptr<ComputePipeline> retained) {
+                const u64 tick = scheduler.Flush();
+                fence_manager.SyncOperation(
+                    [retained = std::move(retained), tick,
+                     gpu_scheduler = &scheduler] {
+                        gpu_scheduler->Wait(tick);
+                        static_cast<void>(retained);
+                    });
+                fence_manager.SignalReference();
+            };
         // ConfigureNative takes BufferCache::mutex. The descriptor queue
         // and ring can synchronously wait for GPU work, so perform the same
         // preflight used by Switch 1 BEFORE acquiring that cache mutex.
@@ -1198,7 +1217,7 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
             // ConfigureNative has already recorded a Vulkan descriptor-bind
             // closure that captures ComputePipeline*. Even when this QMD is
             // refused, retain the object until those queued commands retire.
-            fence_manager.SignalFence([pipeline = std::move(pipeline)] {});
+            retain_native_pipeline(std::move(pipeline));
             return false;
         }
 
@@ -1217,7 +1236,7 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         // Scheduler::Record is deferred, and Vulkan keeps using the pipeline
         // after vkCmdDispatch. Retain ownership through the GPU fence, not
         // merely until the C++ renderer returns to the QMD scheduler.
-        fence_manager.SignalFence([pipeline = std::move(pipeline)] {});
+        retain_native_pipeline(std::move(pipeline));
         return true;
     } catch (const std::exception& error) {
         LOG_WARNING(Render_Vulkan, "Native QMD3 Compute refused: {}", error.what());
