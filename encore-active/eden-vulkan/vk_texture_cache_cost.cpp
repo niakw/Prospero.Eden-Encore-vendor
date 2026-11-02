@@ -1121,7 +1121,7 @@ void TextureCacheRuntime::RetireGpuImage(Image&& image) {
         pending_retired_images.emplace_back(tick, std::make_unique<Image>(std::move(image)));
     } catch (...) {
         // If queue allocation fails, wait before any moved owner can die.
-        scheduler.Wait(tick);
+        scheduler.Finish();
         throw;
     }
 }
@@ -1131,7 +1131,7 @@ void TextureCacheRuntime::RetireGpuImageView(ImageView&& view) {
     try {
         pending_retired_views.emplace_back(tick, std::make_unique<ImageView>(std::move(view)));
     } catch (...) {
-        scheduler.Wait(tick);
+        scheduler.Finish();
         throw;
     }
 }
