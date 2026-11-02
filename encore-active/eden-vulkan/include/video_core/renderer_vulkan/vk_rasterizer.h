@@ -96,8 +96,7 @@ public:
     void Clear(u32 layer_count) override;
     void DispatchCompute() override;
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
-    // Separate NS2 QMD3 path: never reuse Switch 1 Kepler compute state.
-    bool DispatchNativeCompute(const Tegra::NativeComputeLaunch& launch);
+    [[nodiscard]] bool DispatchNativeCompute(const Tegra::NativeComputeLaunch& launch) override;
 #endif
     void ResetCounter(VideoCommon::QueryType type) override;
     void Query(GPUVAddr gpu_addr, VideoCommon::QueryType type,
