@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -38,9 +39,24 @@ struct NativeQmdStorageBinding {
     bool is_written{};
     bool known_size{};
 };
+// Descriptor words, NOT guest TIC/TSC table entries and NOT Vulkan image views.
+// Keep Maxwell/Ampere interpretation outside this QMD CBUF reader.
+enum class NativeQmdImageKind : std::uint8_t {
+    TextureBuffer, ImageBuffer, SampledTexture, StorageImage
+};
+struct NativeQmdImageHandle {
+    NativeQmdImageKind kind{};
+    u32 primary_word{};
+    u32 secondary_word{};
+    u32 primary_shift{};
+    u32 secondary_shift{};
+    bool has_secondary{};
+    bool is_written{};
+};
 struct NativeQmdResourcePlan {
     std::vector<NativeQmdUniformBinding> uniform_buffers;
     std::vector<NativeQmdStorageBinding> storage_buffers;
+    std::vector<NativeQmdImageHandle> image_handles;
     bool requires_tic_tsc{};
     bool requires_memory_layout{};
     bool uses_global_memory{};
@@ -264,13 +280,77 @@ public:
         } catch (const std::exception&) {
             return std::nullopt;
         }
-        // Native TIC/TSC layout, image views and SSBO backing still require
-        // the Vulkan texture/buffer caches; a decoded handle is not a bound
-        // image or a permission to submit the dispatch.
-        result.requires_tic_tsc = !shader_info.texture_descriptors.empty() ||
-            !shader_info.texture_buffer_descriptors.empty() ||
-            !shader_info.image_descriptors.empty() ||
-            !shader_info.image_buffer_descriptors.empty();
+        // P2.2: read reflected texture handle WORDS through this generation's
+        // authenticated, 49-bit QMD CBUF, in the SAME descriptor order as
+        // the shared Vulkan ComputePipeline. Do not guess Ampere TIC/TSC
+        // table layouts, reinterpret them as Kepler, or invent image views.
+        // Every image still fails closed until the cache owns the table and
+        // validates formats, mappings, sampler state and GPU lifetime.
+        const auto capture_images = [&](const auto& descriptors,
+                                        NativeQmdImageKind kind) -> bool {
+            for (const auto& desc : descriptors) {
+                constexpr u32 max_handles = 256; // preflight resource budget
+                if (!desc.count ||
+                    result.image_handles.size() > max_handles ||
+                    desc.count > max_handles - result.image_handles.size() ||
+                    desc.size_shift >= 32 || (desc.cbuf_offset & 3U))
+                    return false;
+                using Descriptor = std::decay_t<decltype(desc)>;
+                constexpr bool has_pair =
+                    std::is_same_v<Descriptor, Shader::TextureDescriptor> ||
+                    std::is_same_v<Descriptor, Shader::TextureBufferDescriptor>;
+                bool separate = false;
+                if constexpr (has_pair) {
+                    separate = desc.has_secondary;
+                    if (desc.shift_left >= 32 ||
+                        (separate && (desc.secondary_shift_left >= 32 ||
+                                      (desc.secondary_cbuf_offset & 3U))))
+                        return false;
+                }
+                for (u32 index = 0; index < desc.count; ++index) {
+                    const u64 stride = u64{index} << desc.size_shift;
+                    const u64 first = u64{desc.cbuf_offset} + stride;
+                    if (first > u64{0xffffffff} - sizeof(u32) + 1U)
+                        return false;
+                    NativeQmdImageHandle record{};
+                    record.kind = kind;
+                    record.primary_word = ReadCbufValue(desc.cbuf_index,
+                                                         static_cast<u32>(first));
+                    if constexpr (has_pair) {
+                        record.primary_shift = desc.shift_left;
+                        record.has_secondary = separate;
+                        if (separate) {
+                            const u64 second =
+                                u64{desc.secondary_cbuf_offset} + stride;
+                            if (second > u64{0xffffffff} - sizeof(u32) + 1U)
+                                return false;
+                            record.secondary_word = ReadCbufValue(
+                                desc.secondary_cbuf_index, static_cast<u32>(second));
+                            record.secondary_shift = desc.secondary_shift_left;
+                        }
+                    }
+                    if constexpr (std::is_same_v<Descriptor, Shader::ImageDescriptor> ||
+                                  std::is_same_v<Descriptor, Shader::ImageBufferDescriptor>)
+                        record.is_written = desc.is_written;
+                    result.image_handles.push_back(record);
+                }
+            }
+            return true;
+        };
+        try {
+            if (!capture_images(shader_info.texture_buffer_descriptors,
+                                NativeQmdImageKind::TextureBuffer) ||
+                !capture_images(shader_info.image_buffer_descriptors,
+                                NativeQmdImageKind::ImageBuffer) ||
+                !capture_images(shader_info.texture_descriptors,
+                                NativeQmdImageKind::SampledTexture) ||
+                !capture_images(shader_info.image_descriptors,
+                                NativeQmdImageKind::StorageImage))
+                return std::nullopt;
+        } catch (const std::exception&) {
+            return std::nullopt; // unmapped/truncated CBUF must not dispatch
+        }
+        result.requires_tic_tsc = !result.image_handles.empty();
         result.uses_global_memory = shader_info.uses_global_memory ||
             shader_info.stores_global_memory;
         return result;
