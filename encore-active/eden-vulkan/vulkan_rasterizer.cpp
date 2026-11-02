@@ -1088,10 +1088,18 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                         return false;
                     const u64 layer_offset =
                         u64{tic.BaseLayer()} * info.layer_stride;
-                    if (tic.Address() < layer_offset)
+                    // CreateImageView still computes this offset in u32;
+                    // never allow its implicit narrowing to point to a
+                    // different layer or image allocation on 49-bit NS2.
+                    constexpr u64 u32_limit = ~u32{0};
+                    if (layer_offset > u32_limit ||
+                        tic.Address() < layer_offset ||
+                        (info.resources.layers > 1 &&
+                         u64{info.layer_stride} * info.resources.layers > u32_limit))
                         return false;
                     const u64 image_base = tic.Address() - layer_offset;
                     const u32 bytes = VideoCommon::CalculateGuestSizeInBytes(info);
+                    if (!bytes) return false;
                     return Shader::Ampere::NativeQmdContiguousGpuSpan(
                         image_base, bytes, [this](u64 address) {
                             return gpu_memory->GpuToCpuAddress(address);
