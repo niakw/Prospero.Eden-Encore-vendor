@@ -493,6 +493,45 @@ struct NativeQmdTypedTextureRecord {
     }
 }
 
+// The eight explicitly typed storage formats in the shared SPIR-V ABI
+// must agree with the actual guest TIC format AND signed channel types.
+// An incorrect but dimension-compatible image would otherwise bind with
+// the wrong storage format. Typeless shaders retain their separate runtime
+// format policy; this helper does not publish Vulkan descriptors.
+[[nodiscard]] inline bool NativeQmdStorageImageFormatMatches(
+    Shader::ImageFormat expected, const Tegra::Texture::TICEntry& tic) {
+    using Tegra::Texture::ComponentType;
+    using Tegra::Texture::TextureFormat;
+    const auto channels_are = [&](TextureFormat format, ComponentType kind,
+                                  u32 components) {
+        return tic.format.Value() == format &&
+               tic.r_type.Value() == kind &&
+               (components < 2 || tic.g_type.Value() == kind) &&
+               (components < 3 || tic.b_type.Value() == kind) &&
+               (components < 4 || tic.a_type.Value() == kind);
+    };
+    switch (expected) {
+    case Shader::ImageFormat::Typeless:
+        return true;
+    case Shader::ImageFormat::R8_UINT:
+        return channels_are(TextureFormat::R8, ComponentType::UINT, 1);
+    case Shader::ImageFormat::R8_SINT:
+        return channels_are(TextureFormat::R8, ComponentType::SINT, 1);
+    case Shader::ImageFormat::R16_UINT:
+        return channels_are(TextureFormat::R16, ComponentType::UINT, 1);
+    case Shader::ImageFormat::R16_SINT:
+        return channels_are(TextureFormat::R16, ComponentType::SINT, 1);
+    case Shader::ImageFormat::R32_UINT:
+        return channels_are(TextureFormat::R32, ComponentType::UINT, 1);
+    case Shader::ImageFormat::R32G32_UINT:
+        return channels_are(TextureFormat::R32G32, ComponentType::UINT, 2);
+    case Shader::ImageFormat::R32G32B32A32_UINT:
+        return channels_are(TextureFormat::R32G32B32A32, ComponentType::UINT, 4);
+    default:
+        return false;
+    }
+}
+
 // This matches the actual descriptor flattening order, but acts ONLY on
 // typed snapshots. It does not acquire cache views, samplers or GPU leases.
 [[nodiscard]] inline bool NativeQmdTypedImageLayoutMatches(
@@ -521,6 +560,11 @@ struct NativeQmdTypedTextureRecord {
                         (kind == NativeQmdImageKind::SampledTexture) ||
                     !NativeQmdTicLayoutSupported(record.tic))
                     return false;
+                if constexpr (std::is_same_v<Descriptor, Shader::ImageDescriptor> ||
+                              std::is_same_v<Descriptor, Shader::ImageBufferDescriptor>) {
+                    if (!NativeQmdStorageImageFormatMatches(desc.format, record.tic))
+                        return false;
+                }
                 if constexpr (has_type) {
                     if (!NativeQmdTicMatchesShaderType(desc.type, record.tic))
                         return false;
