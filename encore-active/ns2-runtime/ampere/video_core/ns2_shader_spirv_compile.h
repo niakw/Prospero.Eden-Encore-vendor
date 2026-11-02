@@ -15,7 +15,7 @@ struct HostTranslateInfo;
 struct Profile;
 struct RuntimeInfo;
 }
-namespace Shader::Ampere { class NativeTranslationCache; }
+namespace Shader::Ampere { class NativeTranslationCache; struct NativeQmdResourcePlan; }
 
 namespace VideoCommon {
 // Caller must provide the actual guest process associated with the NS2 NVDRV
@@ -123,6 +123,21 @@ namespace VideoCommon {
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeTranslationCache* cache = nullptr,
+    Shader::Backend::Bindings initial_bindings = {});
+
+// Optional renderer-facing plan contains the resolved 49-bit CBUF and SSBO
+// descriptor records obtained from the SAME authenticated shader environment.
+// It does not imply that Vulkan image views, backing buffers or fences exist.
+[[nodiscard]] Shader::Ampere::NativeSpirvResult CompileCapturedNs2QmdComputeSpirvWithResources(
+    Tegra::MemoryManager& memory,
+    const Kernel::KProcess* process,
+    const Tegra::NativeComputeLaunch& launch,
+    std::unique_ptr<Shader::Environment> texture_metadata,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeQmdResourcePlan* resources,
     Shader::Ampere::NativeTranslationCache* cache = nullptr,
     Shader::Backend::Bindings initial_bindings = {});
 
