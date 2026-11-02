@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -17,6 +18,7 @@
 #include "shader_recompiler/environment.h"
 #include "shader_recompiler/shader_info.h"
 #include "video_core/native_qmd.h"
+#include "video_core/textures/texture.h"
 
 namespace Shader::Ampere {
 
@@ -133,6 +135,28 @@ struct NativeQmdResourcePlan {
     }
 };
 
+// Shared NS2 GMMU preflight for real guest buffers and texture image spans.
+// GpuToCpuAddress(addr, size) in the older memory manager merely searches for
+// ANY mapped page, not full coverage. Check all 4 KiB boundaries and the
+// final byte, including physical contiguity. Do not truncate 49-bit VAs.
+template <typename Map>
+[[nodiscard]] bool NativeQmdContiguousGpuSpan(u64 gpu_addr, u32 bytes,
+                                               Map&& map) {
+    constexpr u64 gpu_limit = u64{1} << 49;
+    constexpr u64 max_bytes = 256ULL * 1024 * 1024;
+    if (!bytes || bytes > max_bytes || !gpu_addr ||
+        gpu_addr >= gpu_limit || bytes > gpu_limit - gpu_addr)
+        return false;
+    const auto start = map(gpu_addr);
+    if (!start || *start > ~u64{0} - bytes) return false;
+    for (u64 delta = 4096 - (gpu_addr & 4095U); delta < bytes; delta += 4096) {
+        const auto page = map(gpu_addr + delta);
+        if (!page || *page != *start + delta) return false;
+    }
+    const auto last = map(gpu_addr + bytes - 1);
+    return last && *last == *start + bytes - 1;
+}
+
 // P2.2: an authenticated GPU channel owns the TIC/TSC table registers.
 // Capture actual 32-byte guest entries through the channel's checked GMMU
 // reader; never interpret a CBUF handle as an image or sampler by itself.
@@ -215,6 +239,55 @@ struct NativeQmdTextureTables {
             captured.push_back(record);
         }
         return captured;
+    }
+
+    // The first native admission boundary: validate actual typed TIC/TSC
+    // guest records against the same Maxwell descriptor ABI as TextureCache,
+    // but use the authenticated Ampere 49-bit GMMU callback for image spans.
+    // No image-view allocation, sampler publication or Vulkan submission.
+    template <typename Read, typename Admit>
+    [[nodiscard]] std::optional<std::vector<NativeQmdImageTableRecord>>
+    CaptureAdmissible(const NativeQmdResourcePlan& plan, Read&& read,
+                      Admit&& admit_image) const {
+        auto records = Capture(plan, std::forward<Read>(read));
+        if (!records) return std::nullopt;
+        for (const auto& record : *records) {
+            Tegra::Texture::TICEntry tic{};
+            static_assert(sizeof(tic) == sizeof(record.tic_words));
+            std::memcpy(&tic, record.tic_words.data(), sizeof(tic));
+            using namespace Tegra::Texture;
+            if (tic.header_version.Value() >
+                    static_cast<u32>(TICHeaderVersion::BlockLinearColorKey) ||
+                tic.texture_type.Value() >
+                    static_cast<u32>(TextureType::TextureCubeArray) ||
+                !tic.Address() || tic.Address() >= (u64{1} << 49) ||
+                tic.is_sparse || !tic.Width() || !tic.Height() || !tic.Depth() ||
+                tic.res_min_mip_level > tic.res_max_mip_level ||
+                tic.res_max_mip_level > tic.max_mip_level ||
+                (tic.IsBuffer() != (tic.texture_type == TextureType::Texture1DBuffer)))
+                return std::nullopt;
+            const auto type = tic.texture_type.Value();
+            if (((type == static_cast<u32>(TextureType::Texture2D) ||
+                   type == static_cast<u32>(TextureType::Texture2DNoMipmap) ||
+                   type == static_cast<u32>(TextureType::TextureCubemap)) &&
+                  tic.Depth() != 1) ||
+                (type == static_cast<u32>(TextureType::Texture3D) &&
+                 tic.BaseLayer() != 0))
+                return std::nullopt;
+            // Prevent ImageInfo's u32 size calculations from wrapping on a
+            // huge guest allocation, before reaching the shared cache.
+            const u64 pixel_budget = u64{tic.Width()} * tic.Height() *
+                tic.Depth() * (u64{tic.BaseLayer()} + 1);
+            if (pixel_budget > 128ULL * 1024 * 1024)
+                return std::nullopt;
+            if (record.has_sampler) {
+                bool any_sampler_word{};
+                for (const u32 word : record.tsc_words) any_sampler_word |= word != 0;
+                if (!any_sampler_word) return std::nullopt;
+            }
+            if (!admit_image(tic)) return std::nullopt;
+        }
+        return records;
     }
 };
 
