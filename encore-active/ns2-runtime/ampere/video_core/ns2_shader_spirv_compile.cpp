@@ -76,17 +76,59 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2QmdComputeSpirv(
     const Shader::RuntimeInfo& runtime_info,
     Shader::Ampere::NativeTranslationCache* cache,
     Shader::Backend::Bindings initial_bindings) {
-    // The new wrapper's constructor does not touch guest memory. Actual
-    // GMMU reads remain inside the existing authenticated process-ticket
-    // compiler entry point, which rejects stale and foreign sessions.
+    return CompileCapturedNs2QmdComputeSpirvWithResources(
+        memory, process, launch, std::move(texture_metadata),
+        host_info, profile, runtime_info, nullptr, cache, initial_bindings);
+}
+
+Shader::Ampere::NativeSpirvResult CompileCapturedNs2QmdComputeSpirvWithResources(
+    Tegra::MemoryManager& memory,
+    const Kernel::KProcess* process,
+    const Tegra::NativeComputeLaunch& launch,
+    std::unique_ptr<Shader::Environment> texture_metadata,
+    const Shader::HostTranslateInfo& host_info,
+    const Shader::Profile& profile,
+    const Shader::RuntimeInfo& runtime_info,
+    Shader::Ampere::NativeQmdResourcePlan* resources,
+    Shader::Ampere::NativeTranslationCache* cache,
+    Shader::Backend::Bindings initial_bindings) {
+    using Shader::Ampere::NativeSpirvStatus;
+    // All shader bytes AND descriptor words come from this specific guest
+    // process. Reject a stale process generation before and after both phases.
+    auto& registry = Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+    const auto session = registry.CaptureTicket(process);
+    if (!session) return {NativeSpirvStatus::InactiveSession, {}};
     try {
-        auto original = std::make_unique<Shader::Ampere::NativeQmdComputeEnvironment>(
+        auto native = std::make_unique<Shader::Ampere::NativeQmdComputeEnvironment>(
             launch, ReadNs2GpuShader, &memory, std::move(texture_metadata));
-        return CompileCapturedNs2ComputeSpirv(
-            memory, process, std::move(original), launch.program_address,
-            host_info, profile, runtime_info, cache, initial_bindings);
+        auto* const resource_owner = native.get();
+        auto captured = Shader::Ampere::CaptureNativeComputeShader(
+            launch.program_address, ReadNs2GpuShader, &memory, cache);
+        if (!registry.IsCurrent(*session))
+            return {NativeSpirvStatus::InactiveSession, {}};
+        if (!captured.Ready())
+            return {NativeSpirvStatus::InvalidImage, {}};
+        auto env = Shader::Ampere::NativeMaxwellEnvironment::CreateComputeOwned(
+            std::move(native), std::move(captured.image));
+        if (!env) return {NativeSpirvStatus::InvalidImage, {}};
+        auto compiled = Shader::Ampere::CompileReviewedNativeComputeSpirv(
+            *env, host_info, profile, runtime_info, initial_bindings);
+        if (!registry.IsCurrent(*session))
+            return {NativeSpirvStatus::InactiveSession, {}};
+        if (!compiled.ComputeMetadataReady()) return compiled;
+        // resource_owner is owned by 'env' through NativeMaxwellEnvironment.
+        // It remains alive until this call returns and must not escape.
+        auto plan = resource_owner->BuildResourcePlan(*compiled.info);
+        if (!registry.IsCurrent(*session))
+            return {NativeSpirvStatus::InactiveSession, {}};
+        if (!plan) return {NativeSpirvStatus::InvalidImage, {}};
+        // The caller receives owned metadata, NOT a borrowed guest pointer.
+        // Shader dispatch is still forbidden until Vulkan binds/validates
+        // target resources and orders the native compute fence.
+        if (resources) *resources = std::move(*plan);
+        return compiled;
     } catch (const std::exception&) {
-        return {Shader::Ampere::NativeSpirvStatus::InvalidImage, {}};
+        return {NativeSpirvStatus::CompilationFailed, {}};
     }
 }
 
