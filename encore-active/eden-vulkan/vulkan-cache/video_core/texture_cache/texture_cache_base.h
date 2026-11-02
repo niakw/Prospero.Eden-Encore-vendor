@@ -176,6 +176,19 @@ public:
     [[nodiscard]] bool NativeChannelMatches(
         const Tegra::Engines::KeplerCompute& expected_compute,
         const Tegra::MemoryManager& expected_memory) const noexcept;
+    // Native acquisitions hold config_mutex across texture-cache work.
+    // The existing GPU-region enumerators call getStorageID() internally:
+    // never re-acquire this non-recursive mutex on the owner thread. Other
+    // threads and all NS1 call sites retain the original locking behavior.
+    inline static thread_local const TextureCache<P>* native_channel_lock_owner = nullptr;
+    [[nodiscard]] std::optional<size_t> getStorageID(size_t id) const {
+        if (native_channel_lock_owner == this) {
+            const auto it = this->address_spaces.find(id);
+            return it == this->address_spaces.end()
+                ? std::nullopt : std::optional<size_t>{it->second.storage_id};
+        }
+        return VideoCommon::ChannelSetupCaches<TextureCacheChannelInfo>::getStorageID(id);
+    }
     [[nodiscard]] ImageViewId AcquireNativeImageView(
         const Tegra::Engines::KeplerCompute& expected_compute,
         const Tegra::MemoryManager& expected_memory,

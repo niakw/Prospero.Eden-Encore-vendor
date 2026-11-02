@@ -61,13 +61,13 @@ public:
     void EraseChannel(s32 id);
 
     Tegra::MemoryManager* GetFromID(size_t id) const {
-        std::unique_lock lk(config_mutex);
+        std::unique_lock<std::mutex> lk(config_mutex);
         const auto ref = address_spaces.find(id);
         return ref->second.gpu_memory;
     }
 
     std::optional<size_t> getStorageID(size_t id) const {
-        std::unique_lock lk(config_mutex);
+        std::unique_lock<std::mutex> lk(config_mutex);
         const auto ref = address_spaces.find(id);
         if (ref == address_spaces.end()) {
             return std::nullopt;
@@ -96,15 +96,7 @@ protected:
         Tegra::MemoryManager* gpu_memory;
     };
     ::Common::unordered_map<size_t, AddressSpaceRef> address_spaces;
-    // Native NS2 texture TIC/TSC acquisition must hold the channel
-    // configuration lock through CreateImageView/PrepareImageView. Those
-    // paths can call getStorageID() recursively on the SAME thread.
-    // Keep NS1's ordinary non-recursive mutex and ABI unchanged.
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
-    mutable std::recursive_mutex config_mutex;
-#else
     mutable std::mutex config_mutex;
-#endif
 
     virtual void OnGPUASRegister([[maybe_unused]] size_t map_id) {}
 };

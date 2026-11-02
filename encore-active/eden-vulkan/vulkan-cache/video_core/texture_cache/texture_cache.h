@@ -1089,6 +1089,11 @@ ImageViewId TextureCache<P>::AcquireNativeImageView(
         &channel_state->kepler_compute != &expected_compute ||
         &channel_state->gpu_memory != &expected_memory)
         return NULL_IMAGE_VIEW_ID;
+    // Suppress only same-thread nested getStorageID locking while the
+    // configuration lease remains live; never waive locks on other threads.
+    const auto prior_native_owner = native_channel_lock_owner;
+    native_channel_lock_owner = this;
+    SCOPE_EXIT { native_channel_lock_owner = prior_native_owner; };
     const auto [pair, is_new] = channel_state->image_views.try_emplace(descriptor);
     bool remapped = false;
     if (pair->second != NULL_IMAGE_VIEW_ID) {
@@ -1123,6 +1128,11 @@ SamplerId TextureCache<P>::AcquireNativeSampler(
         &channel_state->kepler_compute != &expected_compute ||
         &channel_state->gpu_memory != &expected_memory)
         return NULL_SAMPLER_ID;
+    // Suppress only same-thread nested getStorageID locking while the
+    // configuration lease remains live; never waive locks on other threads.
+    const auto prior_native_owner = native_channel_lock_owner;
+    native_channel_lock_owner = this;
+    SCOPE_EXIT { native_channel_lock_owner = prior_native_owner; };
     // FindSampler already owns slot_samplers and the per-channel TSC
     // descriptor key. No parallel Ampere sampler cache is permitted.
     return FindSampler(descriptor, true);
