@@ -8,10 +8,13 @@ void RendererVulkan::PresentLoading() {
                               render_window.GetFramebufferLayout(), present_manager.SwapchainImageCount(),
                               present_manager.SwapchainImageViewFormat(), true);
 #ifdef PS5_NATIVE
-    if (!loading_jacket_attempted) {
-        loading_jacket_attempted = true;
-        // One lock/acquire per title, never per warm-up presentation.
-        auto jacket = Eden::LaunchHandoff::Take();
+    // Do not consume the screenshot while the swapchain has zero extent.
+    // A transient staging failure may retry at most three times; no guest
+    // work or network request occurs on this launcher-render path.
+    if (!loading_jacket_attempted &&
+        frame->width > 0 && frame->height > 0 &&
+        frame->width <= 4096 && frame->height <= 2160) {
+        auto jacket = Eden::LaunchHandoff::Peek();
         const VkFormat format = present_manager.SwapchainImageViewFormat();
         const bool bgra = format == VK_FORMAT_B8G8R8A8_UNORM ||
                           format == VK_FORMAT_B8G8R8A8_SRGB;
@@ -20,9 +23,8 @@ void RendererVulkan::PresentLoading() {
                           format == VK_FORMAT_A8B8G8R8_UNORM_PACK32 ||
                           format == VK_FORMAT_A8B8G8R8_SRGB_PACK32;
         if (jacket && Eden::LaunchHandoff::Valid(*jacket) &&
-            frame->width > 0 && frame->height > 0 &&
-            frame->width <= 4096 && frame->height <= 2160 &&
             (bgra || rgba)) {
+            ++loading_jacket_attempts;
             const std::size_t row_bytes =
                 static_cast<std::size_t>(frame->width) * 4;
             const VkDeviceSize bytes =
@@ -67,6 +69,10 @@ void RendererVulkan::PresentLoading() {
                     loading_jacket_width = frame->width;
                     loading_jacket_height = frame->height;
                     loading_jacket_buffer = std::move(buffer);
+                    // Clear only AFTER the upload buffer is ready.
+                    // Failed allocations preserve the title's last GL frame.
+                    Eden::LaunchHandoff::Clear();
+                    loading_jacket_attempted = true;
                     LOG_INFO(Render_Vulkan,
                              "EDEN_LOADER_JACKET_HANDOFF_VULKAN size={}x{} format={} ready=1",
                              loading_jacket_width, loading_jacket_height,
@@ -77,6 +83,24 @@ void RendererVulkan::PresentLoading() {
                             "EDEN_LOADER_JACKET_HANDOFF_VULKAN ready=0 reason={}",
                             error.what());
             }
+            if (!loading_jacket_attempted && loading_jacket_attempts >= 3) {
+                // A hard failure should release up to 34 MiB of screenshot
+                // pixels, not retry allocation every 60 Hz indefinitely.
+                Eden::LaunchHandoff::Clear();
+                loading_jacket_attempted = true;
+                LOG_WARNING(Render_Vulkan,
+                            "EDEN_LOADER_JACKET_HANDOFF_VULKAN retries_exhausted=1");
+            }
+        } else if (!jacket || !Eden::LaunchHandoff::Valid(*jacket)) {
+            loading_jacket_attempted = true;
+        } else {
+            // Format not supported by this byte-order conversion. Do not
+            // submit a wrongly swizzled screenshot as if it were valid.
+            Eden::LaunchHandoff::Clear();
+            loading_jacket_attempted = true;
+            LOG_WARNING(Render_Vulkan,
+                        "EDEN_LOADER_JACKET_HANDOFF_VULKAN unsupported_format={}",
+                        static_cast<u32>(format));
         }
     }
     if (loading_jacket_buffer &&
