@@ -498,16 +498,20 @@ struct NativeQmdTypedTextureRecord {
                 if constexpr (has_type) {
                     if (!NativeQmdTicMatchesShaderType(desc.type, record.tic))
                         return false;
+                    // SPIR-V texture descriptors carry an explicit MSAA
+                    // bit, unlike storage image descriptors. Never infer
+                    // multisampled storage from a non-MSAA reflection ABI.
+                    const bool tic_msaa =
+                        record.tic.msaa_mode.Value() != Tegra::Texture::MsaaMode::Msaa1x1;
                     if constexpr (std::is_same_v<Descriptor, Shader::TextureDescriptor>) {
-                        // SPIR-V OpTypeImage encodes multisampling separately
-                        // from the dimension. A single-sample sampler must not
-                        // alias a multisampled guest TIC (or vice versa).
-                        const bool tic_msaa =
-                            record.tic.msaa_mode.Value() != Tegra::Texture::MsaaMode::Msaa1x1;
                         if (desc.is_multisample != tic_msaa) return false;
+                    } else if (tic_msaa) {
+                        return false;
                     }
                 } else if (record.tic.texture_type !=
-                           Tegra::Texture::TextureType::Texture1DBuffer) {
+                               Tegra::Texture::TextureType::Texture1DBuffer ||
+                           record.tic.msaa_mode.Value() != Tegra::Texture::MsaaMode::Msaa1x1) {
+                    // Buffer images likewise cannot be multisampled.
                     return false;
                 }
             }
