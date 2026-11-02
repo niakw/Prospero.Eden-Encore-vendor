@@ -273,6 +273,32 @@ struct NativeComputeLaunch {
     return launch;
 }
 
+// A valid Ampere QMD can still exceed the destination Vulkan device's
+// per-axis group limits, total invocations, or shared-memory budget.
+// Keep this preflight independent of Vulkan so host tests can exercise
+// the exact policy used by the native PS5 renderer.
+struct NativeComputeDeviceLimits {
+    std::array<std::uint32_t, 3> max_grid{};
+    std::array<std::uint32_t, 3> max_block{};
+    std::uint32_t max_invocations{};
+    std::uint32_t max_shared_bytes{};
+};
+
+[[nodiscard]] constexpr bool NativeComputeLaunchWithinDeviceLimits(
+    const NativeComputeLaunch& launch, const NativeComputeDeviceLimits& limits) noexcept {
+    if (!limits.max_invocations || launch.shared_bytes > limits.max_shared_bytes)
+        return false;
+    std::uint64_t threads{1};
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        if (!launch.grid[axis] || launch.grid[axis] > limits.max_grid[axis] ||
+            !launch.block[axis] || launch.block[axis] > limits.max_block[axis] ||
+            launch.block[axis] > limits.max_invocations / threads)
+            return false;
+        threads *= launch.block[axis];
+    }
+    return true;
+}
+
 // Confirm the first native 128-bit shader instruction and every enabled
 // constant-buffer span are backed by the current GMMU before any renderer
 // attempts native compilation or descriptor binding. The eventual full
