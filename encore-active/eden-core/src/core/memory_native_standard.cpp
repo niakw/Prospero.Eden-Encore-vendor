@@ -347,7 +347,11 @@ struct Memory::Impl {
 
     [[nodiscard]] inline const u8* GetSpan(const VAddr addr, const std::size_t size) const noexcept {
 #ifdef PS5_NATIVE
-        if (!size || !AddressSpaceContains(*current_page_table, addr, size)) return nullptr;
+        // AudioOut can request its initial guest buffer before the process
+        // page table is installed. Never dereference a missing table: the
+        // GuestMemory fallback performs a checked ReadBlockUnsafe instead.
+        if (!size || current_page_table == nullptr ||
+            !AddressSpaceContains(*current_page_table, addr, size)) return nullptr;
         const auto first = addr >> YUZU_PAGEBITS;
         const auto last = (addr + size - 1) >> YUZU_PAGEBITS;
         if (last != first) {
