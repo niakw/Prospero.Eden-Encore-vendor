@@ -45,6 +45,9 @@ namespace VideoCore {
 class ShaderNotify;
 }
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+namespace Shader::Ampere { struct NativeSpirvResult; }
+#endif
 namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
@@ -115,6 +118,11 @@ public:
     [[nodiscard]] GraphicsPipeline* CurrentGraphicsPipeline();
 
     [[nodiscard]] ComputePipeline* CurrentComputePipeline();
+
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    [[nodiscard]] std::unique_ptr<ComputePipeline> CreateNativeComputePipeline(
+        const Shader::Ampere::NativeSpirvResult& shader, u64 shader_hash);
+#endif
 
     void LoadDiskResources(u64 title_id, std::stop_token stop_loading,
                            const VideoCore::DiskResourceLoadCallback& callback);
