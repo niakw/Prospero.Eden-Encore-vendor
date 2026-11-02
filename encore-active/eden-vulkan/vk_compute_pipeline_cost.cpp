@@ -284,9 +284,13 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     // Same reflection walker as native Ampere: validate the flattened SSBO
     // layout *before* changing any guest descriptor state. Maxwell's one-
     // element descriptors preserve the exact existing binding and order.
+    // BufferCache tracks enabled compute SSBO slots with one u32 mask.
+    // Never admit a 33rd reflected slot that the guest cache cannot bind.
+    const u32 max_storage_slots = num_descriptor_entries > 32
+        ? 32U : static_cast<u32>(num_descriptor_entries);
     const auto valid_storage_layout = ComputeStorageLayout::ForEach(
         info.storage_buffers_descriptors,
-        static_cast<u32>(num_descriptor_entries),
+        max_storage_slots,
         [](u32, u32, u32, bool) { return true; });
     if (!valid_storage_layout) return false;
     // A descriptor-free compute shader must not reserve the legacy 1024
@@ -304,7 +308,7 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     // also admits valid arrays; no Kepler/Ampere decoding is performed here.
     const bool bound_storage = ComputeStorageLayout::ForEach(
         info.storage_buffers_descriptors,
-        static_cast<u32>(num_descriptor_entries),
+        max_storage_slots,
         [&](u32 index, u32 bank, u32 offset, bool writable) {
             buffer_cache.BindComputeStorageBuffer(index, bank, offset, writable);
             return true;
