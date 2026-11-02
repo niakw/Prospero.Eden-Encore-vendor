@@ -157,6 +157,19 @@ template <typename Map>
     return last && *last == *start + bytes - 1;
 }
 
+// Check a multi-dimensional guest texture budget without overflowing u64.
+// TIC 1D buffers can expose 32-bit widths, and a malformed layered descriptor
+// can otherwise wrap an unchecked width*height*depth*layers product.
+[[nodiscard]] constexpr bool NativeQmdWithinTexelBudget(
+    u64 width, u64 height, u64 depth, u64 layers, u64 budget) noexcept {
+    if (!budget) return false;
+    for (const u64 dim : std::array<u64, 4>{width, height, depth, layers}) {
+        if (!dim || dim > budget) return false;
+        budget /= dim;
+    }
+    return true;
+}
+
 // P2.2: an authenticated GPU channel owns the TIC/TSC table registers.
 // Capture actual 32-byte guest entries through the channel's checked GMMU
 // reader; never interpret a CBUF handle as an image or sampler by itself.
@@ -275,17 +288,31 @@ struct NativeQmdTextureTables {
                 return std::nullopt;
             // Prevent ImageInfo's u32 size calculations from wrapping on a
             // huge guest allocation, before reaching the shared cache.
-            const u64 pixel_budget = u64{tic.Width()} * tic.Height() *
-                tic.Depth() * (u64{tic.BaseLayer()} + 1);
             // Keep u32 ImageInfo size math below overflow, including
             // amplified MSAA allocations, until native texture lifetime is
-            // proven. Large images are refused rather than truncated.
-            const u32 sample_mode = static_cast<u32>(tic.msaa_mode.Value());
-            if (sample_mode == 7 || sample_mode > 11)
+            // proven. Refuse unrecognized MSAA modes rather than sending
+            // them to MaxwellToVK::MsaaMode's fallback assertion.
+            const auto sample_mode = tic.msaa_mode.Value();
+            using Tegra::Texture::MsaaMode;
+            switch (sample_mode) {
+            case MsaaMode::Msaa1x1:
+            case MsaaMode::Msaa2x1:
+            case MsaaMode::Msaa2x2:
+            case MsaaMode::Msaa4x2:
+            case MsaaMode::Msaa4x2_D3D:
+            case MsaaMode::Msaa2x1_D3D:
+            case MsaaMode::Msaa4x4:
+            case MsaaMode::Msaa2x2_VC4:
+            case MsaaMode::Msaa2x2_VC12:
+                break;
+            default:
                 return std::nullopt;
-            const u64 budget = sample_mode == 0
+            }
+            const u64 budget = sample_mode == MsaaMode::Msaa1x1
                 ? 64ULL * 1024 * 1024 : 4ULL * 1024 * 1024;
-            if (pixel_budget > budget)
+            if (!NativeQmdWithinTexelBudget(
+                    tic.Width(), tic.Height(), tic.Depth(),
+                    u64{tic.BaseLayer()} + 1, budget))
                 return std::nullopt;
             if (record.has_sampler) {
                 bool any_sampler_word{};
