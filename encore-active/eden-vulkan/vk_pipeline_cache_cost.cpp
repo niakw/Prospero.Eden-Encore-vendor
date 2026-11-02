@@ -70,6 +70,7 @@
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "video_core/native_shader_capture.h"
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
+#include "shader_recompiler/frontend/ampere/renderer_spirv_bridge.h"
 #include "shader_recompiler/stage.h"
 #endif
 #include "video_core/gpu_logging/gpu_logging.h"
@@ -921,6 +922,48 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
     }
     return CurrentGraphicsPipelineSlowPath();
 }
+
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+// Build a genuine VkComputePipeline from an authenticated Ampere shader's
+// owned SPIR-V + Shader::Info. Never call ShaderCache::ComputeShader()
+// (which parses Switch 1 Maxwell code) or serialize this in the NS1 cache.
+// A caller must bind the matching QMD3 resource plan through ConfigureNative
+// and perform its own channel-epoch check immediately before vkCmdDispatch.
+std::unique_ptr<ComputePipeline> PipelineCache::CreateNativeComputePipeline(
+    const Shader::Ampere::NativeSpirvResult& shader, u64 shader_hash) {
+    if (!shader_hash || !shader.ComputeMetadataReady() ||
+        shader.words.size() < 6 || shader.words[0] != 0x07230203U ||
+        device.HasBrokenCompute()) {
+        return nullptr;
+    }
+    auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+    const auto ticket = registry.CaptureComputeTicket(kepler_compute);
+    if (!ticket) return nullptr;
+    try {
+        vk::ShaderModule spv_module = BuildShader(device, shader.words);
+        if (!spv_module ||
+            !registry.IsComputeCurrent(kepler_compute, *ticket))
+            return nullptr;
+        // Synchronous construction: the PS5 driver has actually accepted
+        // the shader before an owner may attempt to bind resources. No
+        // native pipeline is cached beyond the caller's process lifetime.
+        auto pipeline = std::make_unique<ComputePipeline>(
+            device, scheduler, vulkan_pipeline_cache,
+            descriptor_pool, guest_descriptor_queue, descriptor_buffer_ring,
+            nullptr, nullptr, &shader_notify, *shader.info,
+            std::move(spv_module), shader_hash);
+        if (!registry.IsComputeCurrent(kepler_compute, *ticket) ||
+            !pipeline->IsBound())
+            return nullptr;
+        return pipeline;
+    } catch (const std::exception& exception) {
+        LOG_WARNING(Render_Vulkan,
+                    "Native QMD3 Compute pipeline creation rejected: {}",
+                    exception.what());
+        return nullptr;
+    }
+}
+#endif
 
 ComputePipeline* PipelineCache::CurrentComputePipeline() {
 #if defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
