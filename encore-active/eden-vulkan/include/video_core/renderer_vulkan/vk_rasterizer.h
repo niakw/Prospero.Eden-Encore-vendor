@@ -231,6 +231,11 @@ private:
 
     vk::Event wfi_event;
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    // Cached once per native rasterizer, never queried on each hot-path QMD.
+    VkPhysicalDeviceLimits native_compute_device_limits{};
+#endif
+
     boost::container::static_vector<u32, MAX_IMAGE_VIEWS> image_view_indices;
     std::array<VideoCommon::ImageViewId, MAX_IMAGE_VIEWS> image_view_ids;
     boost::container::static_vector<VkSampler, MAX_TEXTURES> sampler_handles;
