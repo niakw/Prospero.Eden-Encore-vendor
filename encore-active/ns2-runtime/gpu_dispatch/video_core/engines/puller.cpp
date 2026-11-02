@@ -520,6 +520,11 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
                 return false;
             if (reg == 0xae || reg == 0xaf || reg == 0xb0) {
                 ProcessNativeComputeQmd(pusher, reg, value, subchannel);
+            } else if (Tegra::NativeComputePlainRegister(reg)) {
+                // Side-effect-free 0xC7C0 register write. Native MME emits
+                // these at high frequency; the legacy Kepler method path
+                // would only store this exact value in the same register.
+                engine.regs.reg_array[reg] = value;
             } else {
                 engine.CallMethod(pusher.system, reg, value, true);
                 if (reg == 0x6c3)
@@ -544,12 +549,20 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
         fail("compute method outside declared register file");
         return;
     }
+    auto& engine = pusher.channel_state.payload->kepler_compute;
+    if (Tegra::NativeComputePlainRegister(method)) {
+        // The native bulk method writes one register repeatedly. No trigger
+        // observes intermediate values for plain registers, so one final
+        // assignment is identical to calling KeplerCompute for every word.
+        if (!values.empty())
+            engine.regs.reg_array[method] = values.back();
+        return;
+    }
     for (u32 value : values) {
         if (method == 0xae || method == 0xaf || method == 0xb0) {
             ProcessNativeComputeQmd(pusher, method, value, subchannel);
         } else {
-            pusher.channel_state.payload->kepler_compute.CallMethod(
-                pusher.system, method, value, true);
+            engine.CallMethod(pusher.system, method, value, true);
             if (method == 0x6c3)
                 ProcessNativeComputeReportSemaphore(pusher, value);
             if (method == 0x107)
