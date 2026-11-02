@@ -1131,6 +1131,16 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                 std::scoped_lock lock{texture_cache.mutex};
                 same_cache_channel = texture_cache.NativeChannelMatches(
                     kepler_compute, *gpu_memory);
+                // The engine epoch can stay valid while guest code rewrites
+                // TIC/TSC base/limit registers. Never authenticate bytes from
+                // an OLD table and bind them as the currently active one.
+                if (same_cache_channel) {
+                    const auto& live_regs = kepler_compute.regs;
+                    same_cache_channel = tables.SameRegisters(
+                        live_regs.tic.Address(), live_regs.tic.limit,
+                        live_regs.tsc.Address(), live_regs.tsc.limit,
+                        launch.linked_tsc);
+                }
                 // TIC/TSC can be rewritten while the shader is compiled.
                 // Recheck the captured table while the cache's selected
                 // engine/space is stable, before a future binding path is

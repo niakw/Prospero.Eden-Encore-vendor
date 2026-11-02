@@ -75,7 +75,8 @@ struct NativeQmdResourcePlan {
             requires_memory_layout != other.requires_memory_layout ||
             uses_global_memory != other.uses_global_memory ||
             uniform_buffers.size() != other.uniform_buffers.size() ||
-            storage_buffers.size() != other.storage_buffers.size())
+            storage_buffers.size() != other.storage_buffers.size() ||
+            image_handles.size() != other.image_handles.size())
             return false;
         for (std::size_t i = 0; i < uniform_buffers.size(); ++i) {
             const auto& a = uniform_buffers[i];
@@ -89,6 +90,21 @@ struct NativeQmdResourcePlan {
             const auto& b = other.storage_buffers[i];
             if (a.gpu_address != b.gpu_address || a.bytes != b.bytes ||
                 a.is_written != b.is_written || a.known_size != b.known_size)
+                return false;
+        }
+        // The QMD image-handle words also live in mutable guest CBUFs.
+        // A rewrite may reuse every mapped buffer address while selecting
+        // unrelated TIC/TSC indices, texture types or write permissions.
+        // No hash, padding comparison, allocation or cache publication.
+        for (std::size_t i = 0; i < image_handles.size(); ++i) {
+            const auto& a = image_handles[i];
+            const auto& b = other.image_handles[i];
+            if (a.kind != b.kind || a.primary_word != b.primary_word ||
+                a.secondary_word != b.secondary_word ||
+                a.primary_shift != b.primary_shift ||
+                a.secondary_shift != b.secondary_shift ||
+                a.has_secondary != b.has_secondary ||
+                a.is_written != b.is_written)
                 return false;
         }
         return true;
@@ -330,6 +346,18 @@ struct NativeQmdTextureTables {
     u32 tic_limit{};
     u32 tsc_limit{};
     bool linked_tsc{};
+
+    // A ticket proves the GPU engine epoch, not that TIC/TSC table registers
+    // stayed unchanged while shader compilation/guest CBUF reads executed.
+    // This check reads only the channel's live registers under the existing
+    // TextureCache mutex; all five values belong to one logical table owner.
+    [[nodiscard]] bool SameRegisters(u64 live_tic, u32 live_tic_limit,
+                                     u64 live_tsc, u32 live_tsc_limit,
+                                     bool live_linked_tsc) const noexcept {
+        return tic_base == live_tic && tic_limit == live_tic_limit &&
+               tsc_base == live_tsc && tsc_limit == live_tsc_limit &&
+               linked_tsc == live_linked_tsc;
+    }
 
     // The capture and snapshot check use ONE descriptor-table walker.
     // The first pass owns a vector; the second runs under TextureCache's
