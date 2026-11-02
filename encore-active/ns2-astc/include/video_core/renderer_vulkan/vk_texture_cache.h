@@ -212,8 +212,17 @@ public:
     ::Common::unordered_map<VkImage, ResolveShadow> resolve_shadows;
     std::vector<std::pair<u64, ResolveShadow>> pending_resolve_shadows;
 #ifdef PS5_NATIVE
-    std::vector<std::pair<u64, std::unique_ptr<ImageView>>> pending_retired_views;
-    std::vector<std::pair<u64, std::unique_ptr<Image>>> pending_retired_images;
+    template <typename T>
+    struct GpuRetireEntry {
+        u64 tick;
+        u64 frame;
+        std::unique_ptr<T> resource;
+    };
+    // Preserve the old eight-frame framebuffer/view ordering in addition
+    // to waiting for the actual GPU timeline; neither condition alone suffices.
+    u64 gpu_retire_frame{};
+    std::vector<GpuRetireEntry<ImageView>> pending_retired_views;
+    std::vector<GpuRetireEntry<Image>> pending_retired_images;
 #endif
 };
 
