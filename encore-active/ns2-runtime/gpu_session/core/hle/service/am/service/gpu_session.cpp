@@ -187,17 +187,22 @@ void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
             event = m_shared->event_context.CreateEvent("GpuNotification");
         if (event) {
             readable = &event->GetReadableEvent();
-            readable->Open(kernel); // Move handle retains a real reference.
             result = ResultSuccess;
         } else {
             result = Kernel::ResultOutOfResource;
         }
     }
-    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
-    rb.Push(result.raw);
-    ctx.AddMoveObject(readable);
-    // No signal is sent: notification events are only signalled by real
-    // completed GPU work, and native GPU workers are still unsupported.
+    // GPU session cmd 12 returns a COPY handle, not a moved handle.
+    // The SDK owns its event wait independently of the service object.
+    if (result.IsSuccess()) {
+        IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+        rb.Push(result.raw);
+        rb.PushCopyObjects(ctx, *readable);
+    } else {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+    }
+    // Notification events signal only after real completed GPU work.
 }
 
 std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
