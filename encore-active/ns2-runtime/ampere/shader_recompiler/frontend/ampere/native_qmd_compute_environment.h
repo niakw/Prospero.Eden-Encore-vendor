@@ -321,6 +321,15 @@ template <typename Map>
                 (type == static_cast<u32>(Tegra::Texture::TextureType::Texture3D) &&
                  tic.BaseLayer() != 0))
                 return false;
+            // ImageInfo asserts when a pitch-linear TIC is not a 2D image;
+            // its Vulkan cache owner cannot represent that guest layout.
+            // A zero row pitch would also manufacture a zero-sized backing.
+            // Reject both before ImageInfo is constructed by the renderer.
+            if (tic.IsPitchLinear() &&
+                ((type != static_cast<u32>(Tegra::Texture::TextureType::Texture2D) &&
+                  type != static_cast<u32>(Tegra::Texture::TextureType::Texture2DNoMipmap)) ||
+                 !tic.Pitch()))
+                return false;
             // Prevent ImageInfo's u32 size calculations from wrapping on a
             // huge guest allocation, before reaching the shared cache.
             // Keep u32 ImageInfo size math below overflow, including
