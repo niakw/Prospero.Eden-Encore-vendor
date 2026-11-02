@@ -626,9 +626,14 @@ bool ComputePipeline::ConfigureNative(
         return false;
     size_t storage_count{};
     for (const auto& entry : info.storage_buffers_descriptors) {
-        if (entry.count != 1 || storage_count >= resources.storage_buffers.size() ||
-            resources.storage_buffers[storage_count++].is_written != entry.is_written)
+        if (!entry.count || storage_count > resources.storage_buffers.size() ||
+            entry.count > resources.storage_buffers.size() - storage_count)
             return false;
+        for (u32 index = 0; index < entry.count; ++index) {
+            // Match flattened QMD3 records to SPIR-V descriptor reflection.
+            if (resources.storage_buffers[storage_count++].is_written != entry.is_written)
+                return false;
+        }
     }
     if (storage_count != resources.storage_buffers.size())
         return false;
