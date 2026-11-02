@@ -1076,7 +1076,18 @@ ImageViewId TextureCache<P>::AcquireNativeImageView(
     const Tegra::Engines::KeplerCompute& expected_compute,
     const Tegra::MemoryManager& expected_memory,
     const TICEntry& descriptor, bool is_written) {
-    if (!NativeChannelMatches(expected_compute, expected_memory))
+    // BindToChannel/EraseChannel use config_mutex, NOT texture_cache.mutex.
+    // A standalone NativeChannelMatches() returns with that lock released;
+    // the channel may change before image_views is accessed. Hold the same
+    // configuration lock through slot lookup, creation and preparation.
+    // The caller already holds texture_cache.mutex (lock order: texture,
+    // then config), exactly as NativeChannelMatches() does.
+    std::scoped_lock channel_lock{config_mutex};
+    if (!channel_state || !gpu_memory ||
+        kepler_compute != &expected_compute ||
+        gpu_memory != &expected_memory ||
+        &channel_state->kepler_compute != &expected_compute ||
+        &channel_state->gpu_memory != &expected_memory)
         return NULL_IMAGE_VIEW_ID;
     const auto [pair, is_new] = channel_state->image_views.try_emplace(descriptor);
     bool remapped = false;
@@ -1102,7 +1113,15 @@ SamplerId TextureCache<P>::AcquireNativeSampler(
     const Tegra::Engines::KeplerCompute& expected_compute,
     const Tegra::MemoryManager& expected_memory,
     const TSCEntry& descriptor) {
-    if (!NativeChannelMatches(expected_compute, expected_memory))
+    // Hold config_mutex until FindSampler has finished its per-channel
+    // lookup. Checking the engine once and unlocking before FindSampler
+    // could publish a sampler belonging to a different channel.
+    std::scoped_lock channel_lock{config_mutex};
+    if (!channel_state || !gpu_memory ||
+        kepler_compute != &expected_compute ||
+        gpu_memory != &expected_memory ||
+        &channel_state->kepler_compute != &expected_compute ||
+        &channel_state->gpu_memory != &expected_memory)
         return NULL_SAMPLER_ID;
     // FindSampler already owns slot_samplers and the per-channel TSC
     // descriptor key. No parallel Ampere sampler cache is permitted.
