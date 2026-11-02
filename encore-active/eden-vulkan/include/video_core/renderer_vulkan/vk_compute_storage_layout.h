@@ -22,9 +22,9 @@ template <typename Descriptors, typename Callback>
         const std::uint32_t count = descriptor.count;
         if (count == 0 || count > max_bindings - flattened ||
             (descriptor.cbuf_offset & 3U) != 0 ||
-            descriptor.cbuf_offset >
-                std::numeric_limits<std::uint32_t>::max() -
-                    kDescriptorBytes * (count - 1U))
+            count - 1U >
+                (std::numeric_limits<std::uint32_t>::max() -
+                 descriptor.cbuf_offset) / kDescriptorBytes)
             return false;
         for (std::uint32_t element = 0; element < count; ++element) {
             const std::uint32_t offset =
