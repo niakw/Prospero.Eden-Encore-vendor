@@ -15,6 +15,17 @@
 
 namespace Tegra {
 
+// Guest QMD counters are signed: untrusted PCAS dependency updates can
+// accumulate beyond the representable range. Reject them before changing
+// state rather than overflowing a signed integer (undefined behaviour).
+[[nodiscard]] constexpr std::optional<std::int32_t> NativeQmdDependencyAdd(
+    std::int32_t value, std::int32_t delta) noexcept {
+    if ((delta > 0 && value > std::numeric_limits<std::int32_t>::max() - delta) ||
+        (delta < 0 && value < std::numeric_limits<std::int32_t>::min() - delta))
+        return std::nullopt;
+    return value + delta;
+}
+
 // Ampere QMD 3.0 dependency scheduling, adapted from Eglantine NX2.
 // Research component only. No legacy Maxwell compute dispatch is implied.
 // A scheduler instance is owned by an authenticated GPU process epoch; it
@@ -62,7 +73,10 @@ public:
                         if (qmd[12] && (qmd[13] & 0xffff) && (qmd[14] & 0xffff))
                             return "native shader dispatch required";
                     }
-                    state.dependencies = std::int32_t((qmd[4] >> 14) & 0xffff) + state.deferred;
+                    const auto dependencies = NativeQmdDependencyAdd(
+                        std::int32_t((qmd[4] >> 14) & 0xffff), state.deferred);
+                    if (!dependencies) return "QMD dependency overflow";
+                    state.dependencies = *dependencies;
                     if (trace) trace("base", request.address, std::int32_t((qmd[4] >> 14) & 0xffff));
                     if (trace) trace("load", request.address, state.dependencies);
                     state.deferred = 0;
@@ -76,11 +90,15 @@ public:
             } else if (request.action == 7 || request.action == 12) {
                 const auto delta = request.action == 7 ? -std::int32_t(request.count) : std::int32_t(request.count);
                 if (!state.loaded || state.completed) {
-                    state.deferred += delta;
+                    const auto deferred = NativeQmdDependencyAdd(state.deferred, delta);
+                    if (!deferred) return "QMD dependency overflow";
+                    state.deferred = *deferred;
                     if (trace) trace("defer", request.address, state.deferred);
                     continue;
                 }
-                state.dependencies += delta;
+                const auto dependencies = NativeQmdDependencyAdd(state.dependencies, delta);
+                if (!dependencies) return "QMD dependency overflow";
+                state.dependencies = *dependencies;
                 if (trace) trace("count", request.address, state.dependencies);
             } else if (request.action == 0 || request.action == 1) {
                 continue;
