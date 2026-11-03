@@ -9,6 +9,7 @@
 #include <atomic>
 #include <deque>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <span>
 #include <type_traits>
@@ -197,6 +198,19 @@ public:
         const Tegra::Engines::KeplerCompute& expected_compute,
         const Tegra::MemoryManager& expected_memory,
         const TSCEntry& descriptor);
+
+    // The caller holds texture_cache.mutex and must copy the Vulkan handles
+    // while it remains held. A lease pins both the VkImageView owner and its
+    // backing VkImage across a remap, eviction, and asynchronous fence wait.
+    // Raw ImageViewId alone cannot provide this guarantee.
+    struct NativePinnedImageView {
+        ImageViewId id{};
+        std::shared_ptr<u8> backing_image;
+        std::shared_ptr<u8> image_view;
+    };
+    [[nodiscard]] std::optional<NativePinnedImageView>
+    PinNativeImageView(ImageViewId id);
+    [[nodiscard]] std::shared_ptr<u8> PinNativeSampler(SamplerId id);
 #endif
 
     /// Fill image_view_ids with the graphics/compute images in indices
