@@ -422,4 +422,53 @@ template <typename ReadInstruction, typename ReadCbuf>
     return result;
 }
 
+// Convert a *verified* immutable CBUF snapshot into the precise dispatch
+// contract consumed by LowerToMaxwell. No guessing of SPH inclusion and no
+// fallback to the legacy BRX/JMX instruction, whose Maxwell CFG would see
+// unconverted native PCs. The caller must still bind a current shader/CBUF
+// memory snapshot to the GPU execution epoch.
+[[nodiscard]] inline std::optional<std::vector<NativeIndirectBranchPlan>>
+MakeNativeIndirectBranchPlans(const CaptureIndirectResult& capture,
+                              std::span<const Instruction> native) {
+    if (native.empty() || native.size() > 4096 ||
+        capture.tables.empty() || capture.tables.size() > 32 ||
+        (capture.base != 0 && capture.base != 0x80U))
+        return std::nullopt;
+    const auto motifs = TrackCaptureIndirectBranches(native);
+    if (motifs.size() != capture.tables.size())
+        return std::nullopt;
+    u32 branch_count{};
+    for (const auto& inst : native) {
+        if (inst.Bits(0, 12) == 0x958) return std::nullopt;
+        branch_count += inst.Bits(0, 12) == 0x949;
+    }
+    if (branch_count != capture.tables.size())
+        return std::nullopt;
+    std::vector<NativeIndirectBranchPlan> plans;
+    plans.reserve(capture.tables.size());
+    for (const auto& table : capture.tables) {
+        const auto motif = std::ranges::find_if(motifs, [&](const auto& entry) {
+            return entry.index == table.branch;
+        });
+        if (motif == motifs.end() || table.values.size() != motif->entries ||
+            table.cbuf_index != motif->cbuf_index ||
+            table.cbuf_offset != motif->cbuf_offset ||
+            std::ranges::any_of(plans, [&](const auto& plan) {
+                return plan.branch_instruction_index == table.branch;
+            })) return std::nullopt;
+        auto& plan = plans.emplace_back();
+        plan.branch_instruction_index = table.branch;
+        plan.raw_pc_base = capture.base;
+        for (const u32 value : table.values) {
+            if (value < capture.base ||
+                (value - capture.base) % sizeof(Instruction))
+                return std::nullopt;
+            const u32 target = (value - capture.base) / sizeof(Instruction);
+            if (target >= native.size()) return std::nullopt;
+            plan.targets.push_back({value,target});
+        }
+    }
+    return plans;
+}
+
 } // namespace Shader::Ampere
