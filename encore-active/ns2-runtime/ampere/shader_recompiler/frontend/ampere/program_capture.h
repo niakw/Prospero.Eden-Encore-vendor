@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <exception>
 #include <optional>
 #include <span>
 #include <vector>
@@ -314,6 +315,103 @@ TranslateCaptureIndirectTargets(const CaptureIndirectResult& capture,
                         return std::nullopt;
             mapped.entries.push_back({value, native_offset, *maxwell});
         }
+    }
+    return result;
+}
+
+// Strict capture of recognized native jump tables. Unlike the legacy
+// advisory resolver, this API never ignores a missing/unaligned target, never
+// guesses whether table entries include the SPH, and never keeps a partially
+// extended instruction stream after a fault. The caller supplies *verified*
+// CBUF reads, not raw GPU addresses. Still a source-capture primitive: the
+// compiled shader cannot execute BRX until shader-visible targets are lowered.
+template <typename ReadInstruction, typename ReadCbuf>
+[[nodiscard]] std::optional<CaptureIndirectResult> ResolveCaptureIndirectBranchesChecked(
+    std::vector<Instruction>& native, ProgramCaptureState& state,
+    CaptureIndirectValueOrigin origin,
+    ReadInstruction&& read_instruction, ReadCbuf&& read_cbuf) {
+    constexpr u32 MaximumCaptured = 4096;
+    if (native.empty() || native.size() > MaximumCaptured) return std::nullopt;
+    const auto branches = TrackCaptureIndirectBranches(native);
+    u32 indirect_count{};
+    for (const auto& instruction : native) {
+        const u32 opcode = instruction.Bits(0, 12);
+        if (opcode == 0x958) return std::nullopt;
+        if (opcode == 0x949) ++indirect_count;
+    }
+    if (!indirect_count || indirect_count != branches.size() ||
+        branches.size() > 32) return std::nullopt;
+    const u32 origin_bytes =
+        origin == CaptureIndirectValueOrigin::GraphicsHeader ? 0x80U : 0U;
+    const std::size_t initial_size = native.size();
+    const auto initial_state = state;
+    const auto rollback = [&]() -> std::optional<CaptureIndirectResult> {
+        native.resize(initial_size);
+        state = initial_state;
+        return std::nullopt;
+    };
+    CaptureIndirectResult result;
+    result.base = origin_bytes;
+    u32 furthest{};
+    try {
+        for (const auto& branch : branches) {
+            if (branch.entries < 2 || branch.entries > 16 ||
+                branch.cbuf_index >= 18 || (branch.cbuf_offset & 3U) ||
+                branch.cbuf_offset > 0x10000U - branch.entries * sizeof(u32))
+                return rollback();
+            auto& table = result.tables.emplace_back();
+            table.branch = branch.index;
+            table.cbuf_index = branch.cbuf_index;
+            table.cbuf_offset = branch.cbuf_offset;
+            for (u32 i = 0; i < branch.entries; ++i) {
+                const auto maybe_word =
+                    read_cbuf(branch.cbuf_index, branch.cbuf_offset + i * 4);
+                if (!maybe_word || *maybe_word < origin_bytes ||
+                    (*maybe_word - origin_bytes) % sizeof(Instruction))
+                    return rollback();
+                const u32 index = (*maybe_word - origin_bytes) / sizeof(Instruction);
+                if (index >= MaximumCaptured) return rollback();
+                furthest = (std::max)(furthest, index);
+                table.values.push_back(*maybe_word);
+                table.targets.push_back(index);
+            }
+            std::ranges::sort(table.targets);
+            table.targets.erase(
+                std::unique(table.targets.begin(), table.targets.end()),
+                table.targets.end());
+        }
+        // Read only through a subsequent validated terminator, *not* to
+        // arbitrary unmapped shader pages. Do not treat an earlier EXIT as
+        // final if a recognized BRX can reach a later basic block.
+        if (furthest >= native.size()) {
+            bool terminated = false;
+            for (u32 index = static_cast<u32>(native.size());
+                 index < MaximumCaptured; ++index) {
+                const auto instruction = read_instruction(index);
+                if (!instruction) return rollback();
+                native.push_back(*instruction);
+                const auto observed = state.Observe(*instruction, index);
+                if (observed == ProgramCaptureState::Result::InvalidTarget)
+                    return rollback();
+                if (observed == ProgramCaptureState::Result::Complete &&
+                    index >= furthest) {
+                    terminated = true;
+                    break;
+                }
+            }
+            if (!terminated) return rollback();
+            result.extended = true;
+        }
+        // The CBUF table may be concurrently changed between the first
+        // target read and the shader capture. Never bind a stale CFG map.
+        for (const auto& table : result.tables)
+            for (u32 i = 0; i < table.values.size(); ++i) {
+                const auto live =
+                    read_cbuf(table.cbuf_index, table.cbuf_offset + i * 4);
+                if (!live || *live != table.values[i]) return rollback();
+            }
+    } catch (const std::exception&) {
+        return rollback();
     }
     return result;
 }
