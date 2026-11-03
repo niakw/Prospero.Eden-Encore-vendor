@@ -1064,6 +1064,12 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         // This only proves mapped metadata, not usable Vulkan images. Keep
         // the image path closed until TextureCache owns the views/samplers.
         if (resources->requires_tic_tsc) {
+            // A reflected TIC/TSC does not waive the real CBUF/SSBO ABI.
+            // Reject unknown bounds and missing guest storage BEFORE any
+            // image-table snapshot. Vulkan image descriptor publication is
+            // still gated on the shared texture-cache GPU lifetime owner.
+            if (!resources->HasResolvedGpuBufferBindings())
+                return false;
             const auto& regs = kepler_compute.regs;
             const Shader::Ampere::NativeQmdTextureTables tables{
                 .tic_base = regs.tic.Address(),
