@@ -781,6 +781,10 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                         break;
                     }
                 }
+                // The shader bridge can be switched off during host
+                // preflight; still compile the same shared source with
+                // -Werror=unused-but-set-variable under either definition.
+                (void)release_targets_mapped;
 #ifdef PS5_NATIVE
                 static std::atomic<unsigned> attempts{0};
                 const auto n = attempts.fetch_add(1, std::memory_order_relaxed) + 1;
