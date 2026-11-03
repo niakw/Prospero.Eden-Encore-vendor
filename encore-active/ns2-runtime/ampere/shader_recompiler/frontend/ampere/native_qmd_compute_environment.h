@@ -302,8 +302,7 @@ template <typename Map>
 [[nodiscard]] bool NativeQmdContiguousGpuSpan(u64 gpu_addr, u32 bytes,
                                                Map&& map) {
     constexpr u64 gpu_limit = u64{1} << 49;
-    constexpr u64 max_bytes = 256ULL * 1024 * 1024;
-    if (!bytes || bytes > max_bytes || !gpu_addr ||
+    if (!bytes || bytes > kNativeQmdMaxContiguousBytes || !gpu_addr ||
         gpu_addr >= gpu_limit || bytes > gpu_limit - gpu_addr)
         return false;
     const auto start = map(gpu_addr);
@@ -327,6 +326,22 @@ template <typename Map>
         budget /= dim;
     }
     return true;
+}
+
+// The memory manager's CalculateGuestSizeInBytes returns u32 and multiplies
+// layer stride, pitch and buffer width without overflow checks. Reject raw
+// TIC image extents that exceed the actual 256 MiB Vulkan/GMMU admission
+// budget BEFORE doing those narrower multiplications. For a block-linear
+// single-layer image the caller supplies its minimum level-zero byte count;
+// it must separately check the computed guest size against that lower bound.
+inline constexpr u64 kNativeQmdMaxContiguousBytes = 256ULL * 1024 * 1024;
+[[nodiscard]] constexpr bool NativeQmdWithinByteBudget(
+    u64 width_blocks, u64 height_blocks, u64 depth, u64 layers,
+    u64 bytes_per_block) noexcept {
+    return bytes_per_block &&
+           NativeQmdWithinTexelBudget(
+               width_blocks, height_blocks, depth, layers,
+               kNativeQmdMaxContiguousBytes / bytes_per_block);
 }
 
 // The raw guest TIC policy is shared by both initial capture and later
