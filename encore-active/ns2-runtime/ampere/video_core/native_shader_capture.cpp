@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "video_core/native_shader_capture.h"
+#include <exception>
 #include <limits>
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
 #include "video_core/memory_manager.h"
@@ -77,11 +78,18 @@ namespace VideoCommon {
 bool ReadNs2GpuShader(void* context, u64 address, void* dest, std::size_t size) {
     auto* const memory = static_cast<Tegra::MemoryManager*>(context);
     if (!memory || !dest || !size ||
-        address > std::numeric_limits<u64>::max() - size ||
-        !memory->IsFullyMappedRange(address, size))
+        address > std::numeric_limits<u64>::max() - size)
         return false;
-    memory->ReadBlock(address, dest, size);
-    return true;
+    try {
+        if (!memory->IsFullyMappedRange(address, size))
+            return false;
+        // Mappings may disappear between admission and the actual read.
+        // A failed/partial copy never publishes a native shader image.
+        memory->ReadBlock(address, dest, size);
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
 }
 
 Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(

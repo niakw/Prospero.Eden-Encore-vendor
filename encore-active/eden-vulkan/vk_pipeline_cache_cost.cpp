@@ -1734,6 +1734,21 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     LOG_ERROR(Render_Vulkan, "{}", exception.what());
     return nullptr;
 }
+#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+catch (const std::exception& exception) {
+    // Native Ampere lowerers, GMMU adapters and SPIR-V helpers may reject
+    // unimplemented guest instruction forms with std::runtime_error rather
+    // than Shader::Exception. A failed guest draw must not escape the GPU
+    // owner thread. The RAII native scope belongs to the outer call and
+    // remains active throughout this synchronous translation.
+    // Do not swallow or change the historical Switch 1 error path.
+    if (!Shader::Ampere::NativeSpirvCbufBoundsActive())
+        throw;
+    LOG_WARNING(Render_Vulkan, "NS2 native graphics shader rejected: {}",
+                exception.what());
+    return nullptr;
+}
+#endif
 
 std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
     auto timer = Eden::Performance::VulkanTimer(17);
