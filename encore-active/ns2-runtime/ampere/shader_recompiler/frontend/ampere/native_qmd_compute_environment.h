@@ -110,8 +110,12 @@ struct NativeQmdResourcePlan {
         return true;
     }
 
-    [[nodiscard]] bool HasResolvedBufferBindings() const noexcept {
-        if (requires_tic_tsc || requires_memory_layout || uses_global_memory)
+    // P2.2b: shaders with TIC/TSC images still require genuine CBUF and
+    // SSBO backing. Split their 49-bit GPU-span proof from image publication,
+    // which remains forbidden until the Vulkan view/sampler lifetime owner
+    // is connected. Never admit indirect CBUF, unknown SSBO or global memory.
+    [[nodiscard]] bool HasResolvedGpuBufferBindings() const noexcept {
+        if (requires_memory_layout || uses_global_memory)
             return false;
         for (const auto& cbuf : uniform_buffers)
             if (!cbuf.bytes) return false;
@@ -121,9 +125,13 @@ struct NativeQmdResourcePlan {
         return true;
     }
 
+    [[nodiscard]] bool HasResolvedBufferBindings() const noexcept {
+        return !requires_tic_tsc && HasResolvedGpuBufferBindings();
+    }
+
     template <typename IsMapped>
-    [[nodiscard]] bool ValidateGpuMappings(IsMapped&& mapped) const {
-        if (!HasResolvedBufferBindings()) return false;
+    [[nodiscard]] bool ValidateGpuBufferMappings(IsMapped&& mapped) const {
+        if (!HasResolvedGpuBufferBindings()) return false;
         constexpr u64 gpu_limit = u64{1} << 49;
         for (const auto& cbuf : uniform_buffers) {
             if (cbuf.gpu_address >= gpu_limit ||
@@ -138,6 +146,15 @@ struct NativeQmdResourcePlan {
                 return false;
         }
         return true;
+    }
+
+    // The already-published Vulkan BufferCache path is intentionally
+    // buffer-only. Do not let this refactor turn an image shader into a
+    // successful dispatch before the shared TextureCache owns its views.
+    template <typename IsMapped>
+    [[nodiscard]] bool ValidateGpuMappings(IsMapped&& mapped) const {
+        return !requires_tic_tsc &&
+               ValidateGpuBufferMappings(std::forward<IsMapped>(mapped));
     }
 
     // Renderer handoff for the Vulkan BufferCache owner. First preflight
