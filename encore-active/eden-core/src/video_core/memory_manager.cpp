@@ -250,8 +250,13 @@ std::optional<DAddr> MemoryManager::GpuToCpuAddress(GPUVAddr gpu_addr) const {
 }
 
 std::optional<DAddr> MemoryManager::GpuToCpuAddress(GPUVAddr addr, std::size_t size) const {
+    // Reject invalid guest VA before any page-table walk. In particular,
+    // addr + size + page_size - 1 must never wrap on a malicious span.
+    if (size == 0 || addr >= address_space_size ||
+        size > address_space_size - addr)
+        return std::nullopt;
     size_t page_index{addr >> page_bits};
-    const size_t page_last{(addr + size + page_size - 1) >> page_bits};
+    const size_t page_last{((addr + size - 1) >> page_bits) + 1};
     while (page_index < page_last) {
         const auto page_addr{GpuToCpuAddress(page_index << page_bits)};
         if (page_addr) {
@@ -627,6 +632,10 @@ bool MemoryManager::IsGranularRange(GPUVAddr gpu_addr, std::size_t size) const {
 }
 
 bool MemoryManager::IsContinuousRange(GPUVAddr gpu_addr, std::size_t size) const {
+    // Before looking up any 4 KiB/64 KiB PTE, prove the entire interval.
+    if (size == 0 || gpu_addr >= address_space_size ||
+        size > address_space_size - gpu_addr)
+        return false;
     std::optional<DAddr> old_page_addr{};
     bool result{true};
     auto fail = [&]([[maybe_unused]] std::size_t page_index, [[maybe_unused]] std::size_t offset,
@@ -665,6 +674,11 @@ bool MemoryManager::IsContinuousRange(GPUVAddr gpu_addr, std::size_t size) const
 }
 
 bool MemoryManager::IsFullyMappedRange(GPUVAddr gpu_addr, std::size_t size) const {
+    // Native QMD, TIC/TSC and GPFIFO callbacks must not walk past the
+    // configured GPU page table or accept the empty interval as mapped.
+    if (size == 0 || gpu_addr >= address_space_size ||
+        size > address_space_size - gpu_addr)
+        return false;
     bool result{true};
     auto fail = [&]([[maybe_unused]] std::size_t page_index, [[maybe_unused]] std::size_t offset,
                     [[maybe_unused]] std::size_t copy_amount) {
