@@ -421,14 +421,15 @@ void Puller::CallNative3D(DmaPusher& pusher, u32 method,
             }
             return engine.regs.reg_array[addr];
         };
-        const auto emit=[&](u32 addr,u32 value)->bool {
-            if (addr<0x40 || addr>=Tegra::Engines::Maxwell3D::Regs::NUM_REGS)
-                return false;
-            engine.CallMethod(pusher.system,addr,value,true);
-            return true;
+        const auto allowed = [](u32 addr, u32) {
+            return addr >= 0x40 && addr < Tegra::Engines::Maxwell3D::Regs::NUM_REGS;
         };
-        const auto outcome=native_3d->Execute(
-            native_macro_method,std::span<const u32>{native_parameters},read,emit);
+        const auto commit = [&](u32 addr, u32 value) {
+            engine.CallMethod(pusher.system, addr, value, true);
+        };
+        const auto outcome = native_3d->ExecuteStaged(
+            native_macro_method, std::span<const u32>{native_parameters},
+            read, allowed, commit, [&] { return !bad_read; });
         native_macro_method=0;
         native_parameters.clear();
         if (!outcome.success || bad_read) {
