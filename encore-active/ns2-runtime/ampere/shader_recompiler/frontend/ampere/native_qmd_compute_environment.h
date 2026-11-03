@@ -345,6 +345,35 @@ template <typename Map>
                kNativeQmdMaxContiguousBytes / bytes_per_block);
 }
 
+// Conservative lower bound for EVERY tiled mip level, not only level zero.
+// ImageInfo/CalculateLevelOffset still accumulate u32 GOB-aligned sizes.
+// A smaller wrapped value cannot authenticate a larger native allocation.
+// This checks only layout arithmetic: no image slot or Vulkan handle is created.
+[[nodiscard]] constexpr bool NativeQmdMipChainMinimumBytes(
+    u64 width, u64 height, u64 depth, u64 layers, u32 levels,
+    u64 block_width, u64 block_height, u64 bytes_per_block,
+    u64& minimum) noexcept {
+    minimum = 0;
+    if (!width || !height || !depth || !layers ||
+        !levels || levels > 32 || !block_width || !block_height || !bytes_per_block)
+        return false;
+    for (u32 level = 0; level < levels; ++level) {
+        const u64 blocks_x = width / block_width + (width % block_width != 0);
+        const u64 blocks_y = height / block_height + (height % block_height != 0);
+        if (!NativeQmdWithinByteBudget(
+                blocks_x, blocks_y, depth, layers, bytes_per_block))
+            return false;
+        const u64 level_bytes = blocks_x * blocks_y * depth * layers * bytes_per_block;
+        if (level_bytes > kNativeQmdMaxContiguousBytes - minimum)
+            return false;
+        minimum += level_bytes;
+        width = width > 1 ? width >> 1 : 1;
+        height = height > 1 ? height >> 1 : 1;
+        depth = depth > 1 ? depth >> 1 : 1;
+    }
+    return true;
+}
+
 // The raw guest TIC policy is shared by both initial capture and later
 // typed replay. A forged replay must never skip the image-size/MSAA guards:
 // neither step creates a Vulkan image, but both can hand metadata to one
