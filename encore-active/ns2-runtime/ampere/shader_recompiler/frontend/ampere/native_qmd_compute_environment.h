@@ -127,8 +127,20 @@ struct NativeQmdResourcePlan {
         // Zero is the unmapped/null guest buffer sentinel. Shader CBUFs
         // are required real bindings, not optional descriptors: never
         // delegate a zero address to a permissive mapping callback.
-        for (const auto& cbuf : uniform_buffers)
-            if (!cbuf.gpu_address || !cbuf.bytes) return false;
+        // A detached/forged plan must obey the same real eight-bank,
+        // 64-KiB CBUF ABI as BuildResourcePlan and the Vulkan owner.
+        // Reject duplicate slots before any GMMU probe or descriptor bind.
+        if (uniform_buffers.size() > 8 || storage_buffers.size() > 32 ||
+            image_handles.size() > 256)
+            return false;
+        u32 seen_cbuf_banks{};
+        for (const auto& cbuf : uniform_buffers) {
+            if (!cbuf.gpu_address || !cbuf.bytes || cbuf.bytes > 0x10000U ||
+                cbuf.qmd_index >= 8 ||
+                (seen_cbuf_banks & (u32{1} << cbuf.qmd_index)))
+                return false;
+            seen_cbuf_banks |= u32{1} << cbuf.qmd_index;
+        }
         for (const auto& storage : storage_buffers)
             if (!storage.known_size || !storage.bytes || !storage.gpu_address)
                 return false;
@@ -274,8 +286,14 @@ struct NativeQmdResourcePlan {
          i < info.nvn_buffer_used.size(); ++i)
         if (info.nvn_buffer_used.test(i))
             return false;
-    for (const auto& cbuf : plan.uniform_buffers)
-        if (!cbuf.gpu_address || !cbuf.bytes) return false;
+    u32 reflected_banks{};
+    for (const auto& cbuf : plan.uniform_buffers) {
+        if (!cbuf.gpu_address || !cbuf.bytes || cbuf.bytes > 0x10000U ||
+            cbuf.qmd_index >= 8 ||
+            (reflected_banks & (u32{1} << cbuf.qmd_index)))
+            return false;
+        reflected_banks |= u32{1} << cbuf.qmd_index;
+    }
     for (const auto& storage : plan.storage_buffers)
         if (!storage.known_size || !storage.bytes || !storage.gpu_address)
             return false;
