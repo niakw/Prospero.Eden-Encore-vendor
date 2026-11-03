@@ -10,6 +10,7 @@
 
 #include "shader_recompiler/backend/spirv/emit_spirv_instructions.h"
 #include "shader_recompiler/backend/spirv/spirv_emit_context.h"
+#include "shader_recompiler/frontend/ampere/native_indirect_cbuf.h"
 
 namespace Shader::Backend::SPIRV {
 namespace {
@@ -133,6 +134,21 @@ Id GetCbuf(EmitContext& ctx, Id result_type, Id UniformDefinitions::*member_ptr,
     }
 
     const Id cbuf{ctx.cbufs[binding.U32()].*member_ptr};
+    if (!Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+        // Byte-for-byte equivalent to the original Maxwell SPIR-V path.
+        // It remains active for Switch 1 even when NS2 source overlays are
+        // compiled into the SAME shader_recompiler binary.
+        const Id access_chain{ctx.OpAccessChain(uniform_type, cbuf, ctx.u32_zero_value, buffer_offset)};
+        const Id val = ctx.OpLoad(result_type, access_chain);
+
+        if (offset.IsImmediate() || !ctx.profile.has_broken_robust) {
+            return val;
+        }
+
+        const Id cond = ctx.OpULessThanEqual(ctx.TypeBool(), buffer_offset, ctx.Const(0xFFFFu));
+        const Id zero = ctx.ConstantNull(result_type);
+        return ctx.OpSelect(result_type, cond, val, zero);
+    }
     if (offset.IsImmediate()) {
         // Maxwell's signed LDC immediate can fold to a large U32 constant
         // (e.g. RZ - 4). Never let the generic used-size collector's 32-bit

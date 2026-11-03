@@ -71,6 +71,7 @@
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "video_core/native_shader_capture.h"
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
+#include "shader_recompiler/frontend/ampere/native_indirect_cbuf.h"
 #include "shader_recompiler/stage.h"
 #endif
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
@@ -1777,6 +1778,10 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
             native_envs.emplace_back(std::move(adapted));
         }
         main_pools.ReleaseContents();
+        // The graphics builder emits SPIR-V synchronously on this thread,
+        // including the merged VertexA/B stage. Native-only bounds must not
+        // leak into later Switch 1 draws or unrelated compiler workers.
+        Shader::Ampere::NativeSpirvCbufBoundsScope native_bounds;
         auto pipeline = CreateGraphicsPipeline(
             main_pools, graphics_key,
             std::span<Shader::Environment* const>{ptrs.data(), active}, nullptr, true);

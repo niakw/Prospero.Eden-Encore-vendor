@@ -12,6 +12,31 @@
 namespace Shader::Ampere {
 inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
 
+// The same opt-in shader_recompiler library services Switch 1 and Switch 2.
+// Only reviewed native Ampere callers may request stricter CBUF SPIR-V
+// bounds; selecting the NS2 source overlay must never rewrite Maxwell's
+// established shader behavior. The scope follows the synchronous shader
+// emission on its calling thread, and restores the previous value even
+// when EmitSPIRV throws. Other compiler workers are independent.
+inline thread_local bool native_spirv_cbuf_bounds_active = false;
+[[nodiscard]] inline bool NativeSpirvCbufBoundsActive() noexcept {
+    return native_spirv_cbuf_bounds_active;
+}
+class NativeSpirvCbufBoundsScope {
+public:
+    NativeSpirvCbufBoundsScope() noexcept
+        : previous{native_spirv_cbuf_bounds_active} {
+        native_spirv_cbuf_bounds_active = true;
+    }
+    ~NativeSpirvCbufBoundsScope() {
+        native_spirv_cbuf_bounds_active = previous;
+    }
+    NativeSpirvCbufBoundsScope(const NativeSpirvCbufBoundsScope&) = delete;
+    NativeSpirvCbufBoundsScope& operator=(const NativeSpirvCbufBoundsScope&) = delete;
+private:
+    bool previous;
+};
+
 // SPIR-V can emit a 16-byte uniform-vector load even for a narrower source
 // opcode when descriptor aliasing is unavailable. Conservatively round a
 // statically addressed CBUF read to the complete 16-byte record. Zero means

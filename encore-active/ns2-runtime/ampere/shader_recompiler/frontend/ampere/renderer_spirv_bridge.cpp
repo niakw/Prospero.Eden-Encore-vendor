@@ -40,6 +40,7 @@ NativeSpirvResult CompileReviewedNativeGraphicsSpirv(
         // pipeline key and bound device features; never invent these here.
         Shader::Maxwell::ConvertLegacyToGeneric(ir, runtime_info);
         Shader::Backend::Bindings bindings{initial_bindings};
+        NativeSpirvCbufBoundsScope native_bounds;
         auto words = Shader::Backend::SPIRV::EmitSPIRV(profile, runtime_info, ir,
                                                         bindings);
         if (words.size() <= 5 || words.size() > 262144 ||
@@ -85,6 +86,7 @@ NativeSpirvResult CompileReviewedNativeMergedVertexSpirv(
             return {NativeSpirvStatus::CompilationFailed, {}};
         Shader::Maxwell::ConvertLegacyToGeneric(merged,runtime_info);
         Shader::Backend::Bindings bindings{initial_bindings};
+        NativeSpirvCbufBoundsScope native_bounds;
         auto words=Shader::Backend::SPIRV::EmitSPIRV(
             profile,runtime_info,merged,bindings);
         if (words.size()<=5 || words.size()>262144 ||
@@ -160,6 +162,7 @@ NativeSpirvResult CompileReviewedNativeComputeSpirv(
                 Shader::IR::Type::U32 | Shader::IR::Type::U32x2;
         }
         Shader::Backend::Bindings bindings{initial_bindings};
+        NativeSpirvCbufBoundsScope native_bounds;
         auto words = Shader::Backend::SPIRV::EmitSPIRV(profile, runtime_info, ir, bindings);
         if (words.size() <= 5 || words.size() > 262144 ||
             words[0] != 0x07230203U || words[3] == 0)
