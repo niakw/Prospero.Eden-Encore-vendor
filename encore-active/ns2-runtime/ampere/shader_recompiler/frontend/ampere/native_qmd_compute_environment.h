@@ -294,6 +294,8 @@ void RetainNativeComputeUntilGpuTick(Scheduler& scheduler,
     }
 }
 
+inline constexpr u64 kNativeQmdMaxContiguousBytes = 256ULL * 1024 * 1024;
+
 // Shared NS2 GMMU preflight for real guest buffers and texture image spans.
 // GpuToCpuAddress(addr, size) in the older memory manager merely searches for
 // ANY mapped page, not full coverage. Check all 4 KiB boundaries and the
@@ -334,7 +336,6 @@ template <typename Map>
 // budget BEFORE doing those narrower multiplications. For a block-linear
 // single-layer image the caller supplies its minimum level-zero byte count;
 // it must separately check the computed guest size against that lower bound.
-inline constexpr u64 kNativeQmdMaxContiguousBytes = 256ULL * 1024 * 1024;
 [[nodiscard]] constexpr bool NativeQmdWithinByteBudget(
     u64 width_blocks, u64 height_blocks, u64 depth, u64 layers,
     u64 bytes_per_block) noexcept {
