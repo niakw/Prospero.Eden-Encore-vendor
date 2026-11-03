@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "shader_recompiler/frontend/ampere/renderer_spirv_bridge.h"
+#include <cstddef>
 #include <exception>
 #include <utility>
 #include "shader_recompiler/backend/spirv/emit_spirv.h"
