@@ -472,6 +472,13 @@ NvResult nvhost_gpu::SubmitGPFIFOBase1(IoctlSubmitGpfifo& params,
         if (params.num_entries > MaxKickoffEntries ||
             (params.num_entries != 0 && params.address == 0))
             return NvResult::InvalidSize;
+        // A pointer-backed command list must be read from the exact owner
+        // process for THIS FD. GetSessionMemory's legacy fallback to the
+        // application process would otherwise read a different title's RAM.
+        const auto it = sessions.find(fd);
+        const auto* session = it == sessions.end() ? nullptr : core.GetSession(it->second);
+        if (!session || !session->process)
+            return NvResult::InvalidState;
     } else if (params.num_entries > commands.size()) {
         UNIMPLEMENTED();
         return NvResult::InvalidSize;
