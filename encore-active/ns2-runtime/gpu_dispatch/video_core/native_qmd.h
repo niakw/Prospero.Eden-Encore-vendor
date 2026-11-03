@@ -46,7 +46,9 @@ public:
     std::string_view Signal(Address address, Word argument, Read read, Release release, Dispatch dispatch) {
         struct Pending { Address address; Word action; Word count; };
         std::string_view error;
-        std::array<Pending, 256> pending{};
+        // Every used slot is initialized before access; avoid clearing all
+        // 256 entries (4 KiB) for each ordinary one-QMD PCAS signal.
+        std::array<Pending, 256> pending;
         std::size_t count = 1;
         pending[0] = {address, argument & 15, ((argument >> 14) & 0x3ff) + 1};
         for (std::size_t i = 0; i < count; ++i) {
@@ -70,7 +72,8 @@ public:
                 });
                 if (states.size() >= 4096) return "QMD cache limit";
             }
-            auto& state = states[request.address];
+            auto [state_it, newly_inserted] = states.try_emplace(request.address);
+            auto& state = state_it->second;
             if (request.action == 3 || request.action == 2) {
                 if (request.action == 3 || !state.loaded) {
                     // A caller may retry a failed release with action 2. A
@@ -78,12 +81,22 @@ public:
                     // and re-execute a shader from an unfinished transaction.
                     if (request.action == 3 && state.dispatched && !state.completed)
                         return "QMD reload during pending release";
-                    if (!read(request.address, state.descriptor)) return "unmapped QMD";
+                    if (!read(request.address, state.descriptor)) {
+                        // A bad guest QMD VA must not exhaust the process cache
+                        // with 4096 empty, never-loaded state entries.
+                        if (newly_inserted) states.erase(state_it);
+                        return "unmapped QMD";
+                    }
                     const auto& qmd = state.descriptor;
-                    if ((qmd[18] & 0xff) != 0x30 || (qmd[4] & 0x100)) return "unsupported QMD version or queue";
+                    if ((qmd[18] & 0xff) != 0x30 || (qmd[4] & 0x100)) {
+                        if (newly_inserted) states.erase(state_it);
+                        return "unsupported QMD version or queue";
+                    }
                     if constexpr (std::is_same_v<Dispatch, RejectShaderDispatch>) {
-                        if (qmd[12] && (qmd[13] & 0xffff) && (qmd[14] & 0xffff))
+                        if (qmd[12] && (qmd[13] & 0xffff) && (qmd[14] & 0xffff)) {
+                            if (newly_inserted) states.erase(state_it);
                             return "native shader dispatch required";
+                        }
                     }
                     const auto dependencies = NativeQmdDependencyAdd(
                         std::int32_t((qmd[4] >> 14) & 0xffff), state.deferred);
