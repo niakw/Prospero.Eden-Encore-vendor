@@ -1042,7 +1042,11 @@ public:
     }
 
     [[nodiscard]] u32 ReadCbufValue(u32 index, u32 offset) override {
-        if (index >= launch.constant_buffers.size() || (offset & 3U))
+        // Native shader constant banks expose exactly 64 KiB even when
+        // the underlying GMMU allocation or QMD size is larger. Never read
+        // adjacent guest memory through an oversized descriptor.
+        if (index >= launch.constant_buffers.size() || (offset & 3U) ||
+            offset > 0x10000U - sizeof(u32))
             throw std::out_of_range{"invalid native Compute CBUF word"};
         const auto& cbuf = launch.constant_buffers[index];
         if (!cbuf.enabled || !cbuf.size || offset > cbuf.size ||
@@ -1101,7 +1105,8 @@ public:
     // checks already performed by the native Vulkan owner.
     [[nodiscard]] std::array<u32, 4> ReadStorageDescriptor(
         u32 bank, u32 offset) {
-        if (bank >= launch.constant_buffers.size() || (offset & 3U))
+        if (bank >= launch.constant_buffers.size() || (offset & 3U) ||
+            offset > 0x10000U - 4U * sizeof(u32))
             throw std::out_of_range{"invalid native SSBO descriptor alignment/bank"};
         const auto& cbuf = launch.constant_buffers[bank];
         constexpr u64 limit = u64{1} << 49;
@@ -1140,10 +1145,14 @@ public:
                 const u32 bit = u32{1} << index;
                 const auto& cbuf = launch.constant_buffers[index];
                 if ((declared_banks & bit) || !cbuf.enabled || !cbuf.size ||
-                    shader_info.constant_buffer_used_sizes[index] > cbuf.size)
+                    shader_info.constant_buffer_used_sizes[index] > cbuf.size ||
+                    shader_info.constant_buffer_used_sizes[index] > 0x10000U)
                     return std::nullopt;
                 declared_banks |= bit;
-                result.uniform_buffers.push_back({index, cbuf.gpu_address, cbuf.size});
+                // Vulkan UBO range must not expose more than the hardware
+                // 64-KiB shader CBUF window, even if QMD reserves more VA.
+                result.uniform_buffers.push_back(
+                    {index, cbuf.gpu_address, (std::min)(cbuf.size, 0x10000U)});
             }
         }
         // A required shader bank without a matching CBUF descriptor cannot
@@ -1162,7 +1171,7 @@ public:
                     desc.count > 32 - result.storage_buffers.size() ||
                     desc.cbuf_index >= launch.constant_buffers.size() ||
                     (desc.cbuf_offset & 3U) ||
-                    desc.cbuf_offset > 0xfffffff0U - 16U * (desc.count - 1U))
+                    desc.cbuf_offset > 0x10000U - 16U * desc.count)
                     return std::nullopt;
                 for (u32 index = 0; index < desc.count; ++index) {
                     const u32 offset = desc.cbuf_offset + index * 16U;
@@ -1213,7 +1222,7 @@ public:
                 for (u32 index = 0; index < desc.count; ++index) {
                     const u64 stride = u64{index} << desc.size_shift;
                     const u64 first = u64{desc.cbuf_offset} + stride;
-                    if (first > u64{0xffffffff} - sizeof(u32) + 1U)
+                    if (first > 0x10000U - sizeof(u32))
                         return false;
                     NativeQmdImageHandle record{};
                     record.kind = kind;
@@ -1225,7 +1234,7 @@ public:
                         if (separate) {
                             const u64 second =
                                 u64{desc.secondary_cbuf_offset} + stride;
-                            if (second > u64{0xffffffff} - sizeof(u32) + 1U)
+                            if (second > 0x10000U - sizeof(u32))
                                 return false;
                             record.secondary_word = ReadCbufValue(
                                 desc.secondary_cbuf_index, static_cast<u32>(second));
