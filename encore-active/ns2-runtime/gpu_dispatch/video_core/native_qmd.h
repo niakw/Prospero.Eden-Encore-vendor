@@ -232,6 +232,28 @@ private:
     // The owner destroys the instance at process teardown.
     std::unordered_map<Address, State> states;
 };
+
+// A native QMD can patch up to three completion semaphores. Authenticate
+// ALL enabled target spans before submitting its shader: rejecting the
+// second/third target only after dispatch leaves work running with a queue
+// that can never signal completion. This is a pure 49-bit GMMU preflight;
+// the real fence callback still rechecks mapping and process ownership.
+template <typename IsMapped>
+[[nodiscard]] bool NativeQmdReleaseTargetsMapped(
+    const NativeQmdScheduler::Descriptor& qmd, IsMapped&& is_mapped) {
+    constexpr std::uint64_t gpu_limit = std::uint64_t{1} << 49;
+    for (const std::uint32_t base : {24U, 28U, 52U}) {
+        const std::uint32_t flags = qmd[base + 1];
+        if (!(flags & (1U << 23))) continue;
+        const std::uint64_t addr =
+            (std::uint64_t{flags & 0xffU} << 32) | qmd[base];
+        if (!addr || (addr & 3U) || addr >= gpu_limit ||
+            sizeof(std::uint32_t) > gpu_limit - addr ||
+            !is_mapped(addr, sizeof(std::uint32_t)))
+            return false;
+    }
+    return true;
+}
 // Decode the real QMD3 launch ABI into an immutable host description. This
 // is deliberately NOT a Vulkan submission: the Ampere compute shader,
 // descriptors and target-device pipeline must first be installed by their
