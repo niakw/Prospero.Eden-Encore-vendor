@@ -136,17 +136,23 @@ struct NativeQmdResourcePlan {
     [[nodiscard]] bool ValidateGpuBufferMappings(IsMapped&& mapped) const {
         if (!HasResolvedGpuBufferBindings()) return false;
         constexpr u64 gpu_limit = u64{1} << 49;
-        for (const auto& cbuf : uniform_buffers) {
-            if (cbuf.gpu_address >= gpu_limit ||
-                cbuf.bytes > gpu_limit - cbuf.gpu_address ||
-                !mapped(cbuf.gpu_address, cbuf.bytes))
-                return false;
-        }
-        for (const auto& storage : storage_buffers) {
-            if (storage.gpu_address >= gpu_limit ||
-                storage.bytes > gpu_limit - storage.gpu_address ||
-                !mapped(storage.gpu_address, storage.bytes))
-                return false;
+        try {
+            for (const auto& cbuf : uniform_buffers) {
+                if (cbuf.gpu_address >= gpu_limit ||
+                    cbuf.bytes > gpu_limit - cbuf.gpu_address ||
+                    !mapped(cbuf.gpu_address, cbuf.bytes))
+                    return false;
+            }
+            for (const auto& storage : storage_buffers) {
+                if (storage.gpu_address >= gpu_limit ||
+                    storage.bytes > gpu_limit - storage.gpu_address ||
+                    !mapped(storage.gpu_address, storage.bytes))
+                    return false;
+            }
+        } catch (...) {
+            // A sparse GMMU unmap or failed CPU-backed span lookup must not
+            // escape the native Compute pusher. No descriptor is admitted.
+            return false;
         }
         return true;
     }
