@@ -97,8 +97,16 @@ Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
     Shader::Ampere::NativeTranslationCache* cache) {
     // The GMMU mapping check is repeated for EVERY individual native
     // instruction. A fault aborts capture without populating a shader image.
-    return Shader::Ampere::CaptureNativeGraphicsShader(
-        gpu_program_address, stage, ReadNs2GpuShader, &memory, cache);
+    try {
+        return Shader::Ampere::CaptureNativeGraphicsShader(
+            gpu_program_address, stage, ReadNs2GpuShader, &memory, cache);
+    } catch (const std::exception&) {
+        // A failure before shader publication must not unwind through the
+        // 3D engine's CurrentGraphicsPipeline() capture phase.
+        Shader::Ampere::NativeCaptureResult failed{};
+        failed.status = Shader::Ampere::NativeCaptureStatus::TranslationFailed;
+        return failed;
+    }
 }
 
 std::unique_ptr<Shader::Environment> CreateNs2GraphicsShaderEnvironment(
@@ -111,10 +119,16 @@ std::unique_ptr<Shader::Environment> CreateNs2GraphicsShaderEnvironment(
     // expensive capture cannot make a graphics context from another stage.
     if (!original || stage != static_cast<u32>(original->ShaderStage()))
         return {};
-    auto captured = CaptureNs2GraphicsShaderFromGpu(
-        memory, gpu_program_address, stage, cache);
-    if (!captured.Ready()) return {};
-    return Shader::Ampere::NativeMaxwellEnvironment::CreateOwned(
-        std::move(original), std::move(captured.image));
+    try {
+        auto captured = CaptureNs2GraphicsShaderFromGpu(
+            memory, gpu_program_address, stage, cache);
+        if (!captured.Ready()) return {};
+        return Shader::Ampere::NativeMaxwellEnvironment::CreateOwned(
+            std::move(original), std::move(captured.image));
+    } catch (const std::exception&) {
+        // A valid captured instruction stream is not enough if allocating
+        // the owned compiler environment fails during a GMMU/session change.
+        return {};
+    }
 }
 } // namespace VideoCommon

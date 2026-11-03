@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <exception>
 #include <limits>
 #include "shader_recompiler/frontend/ampere/program_capture.h"
 #include "shader_recompiler/frontend/ampere/translation_cache.h"
@@ -35,8 +36,17 @@ NativeCaptureResult CaptureNativeShader(
                                  u64{MaxCapturedInstructions} * sizeof(Instruction))
         return result;
 
+    // Every guest GPU read can fail concurrently with an unmap. Capture
+    // must report Unmapped, not propagate exceptions to the GPU worker.
+    const auto checked_read = [&](u64 address, void* dest, std::size_t bytes) {
+        try {
+            return read(context, address, dest, bytes);
+        } catch (const std::exception&) {
+            return false;
+        }
+    };
     std::array<u8, NativeHeaderBytes> header{};
-    if (!compute && !read(context, gpu_base, header.data(), header.size())) {
+    if (!compute && !checked_read(gpu_base, header.data(), header.size())) {
         result.status = NativeCaptureStatus::Unmapped;
         return result;
     }
@@ -74,7 +84,7 @@ NativeCaptureResult CaptureNativeShader(
             const auto batch = (std::min)(page_remaining, shader_remaining);
             const auto aligned_batch = batch - batch % sizeof(Instruction);
             if (aligned_batch >= 4 * sizeof(Instruction)) {
-                if (read(context, addr, page.data(), aligned_batch)) {
+                if (checked_read(addr, page.data(), aligned_batch)) {
                     page_start = addr;
                     page_bytes = aligned_batch;
                     std::memcpy(bytes.data(), page.data(), bytes.size());
@@ -89,7 +99,7 @@ NativeCaptureResult CaptureNativeShader(
             // A short tail at a page boundary is NOT a failed bulk read:
             // retry from the next page after its 16-byte checked reads.
         }
-        if (!fetched && !read(context, addr, bytes.data(), bytes.size())) {
+        if (!fetched && !checked_read(addr, bytes.data(), bytes.size())) {
             result.status = NativeCaptureStatus::Unmapped;
             result.first_error_offset = header_bytes + index * sizeof(Instruction);
             return result;
@@ -119,9 +129,19 @@ NativeCaptureResult CaptureNativeShader(
         result.captured_native_bytes = static_cast<u32>(source.size());
         const auto maxwell_header =
             std::span<const u8>{header.data(), MaxwellHeaderBytes};
-        result.image = cache
-            ? cache->GetOrTranslate(maxwell_header, source, stage)
-            : BuildMaxwellShaderImage(maxwell_header, source, stage);
+        try {
+            result.image = cache
+                ? cache->GetOrTranslate(maxwell_header, source, stage)
+                : BuildMaxwellShaderImage(maxwell_header, source, stage);
+        } catch (const std::exception&) {
+            // Failed allocation/cache/lowering is a capture failure, not a
+            // partially valid module or an uncaught GPU worker exception.
+            result.image = {};
+            result.status = NativeCaptureStatus::TranslationFailed;
+            result.first_error_offset = header_bytes +
+                                        result.captured_native_bytes;
+            return result;
+        }
         if (!result.image.Ready()) {
             result.status = NativeCaptureStatus::TranslationFailed;
             result.first_error_offset = header_bytes +
