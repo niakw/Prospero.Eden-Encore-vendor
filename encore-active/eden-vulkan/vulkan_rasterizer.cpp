@@ -1108,6 +1108,41 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                     if (info.format == VideoCore::Surface::PixelFormat::Invalid ||
                         !info.resources.levels || !info.resources.layers)
                         return false;
+                    // CalculateGuestSizeInBytes returns u32, but multiplies
+                    // width/pitch/stride by layers before checking overflow.
+                    // First establish an exact (linear/buffer/layered) or
+                    // conservative minimum (single-layer tiled) byte bound
+                    // in u64, before any 32-bit size arithmetic.
+                    const u64 block_bytes = VideoCore::Surface::BytesPerBlock(info.format);
+                    const u64 block_height = VideoCore::Surface::DefaultBlockHeight(info.format);
+                    const u64 block_width = VideoCore::Surface::DefaultBlockWidth(info.format);
+                    if (!block_bytes || !block_width || !block_height)
+                        return false;
+                    u64 minimum_bytes{};
+                    if (info.type == VideoCommon::ImageType::Buffer) {
+                        if (!Shader::Ampere::NativeQmdWithinByteBudget(
+                                info.size.width, 1, 1, 1, block_bytes))
+                            return false;
+                        minimum_bytes = u64{info.size.width} * block_bytes;
+                    } else if (info.type == VideoCommon::ImageType::Linear) {
+                        const u64 rows = (u64{info.size.height} + block_height - 1) / block_height;
+                        if (!Shader::Ampere::NativeQmdWithinByteBudget(
+                                info.pitch, rows, 1, 1, 1))
+                            return false;
+                        minimum_bytes = u64{info.pitch} * rows;
+                    } else if (info.resources.layers > 1) {
+                        if (!Shader::Ampere::NativeQmdWithinByteBudget(
+                                info.layer_stride, info.resources.layers, 1, 1, 1))
+                            return false;
+                        minimum_bytes = u64{info.layer_stride} * info.resources.layers;
+                    } else {
+                        const u64 blocks_x = (u64{info.size.width} + block_width - 1) / block_width;
+                        const u64 blocks_y = (u64{info.size.height} + block_height - 1) / block_height;
+                        if (!Shader::Ampere::NativeQmdWithinByteBudget(
+                                blocks_x, blocks_y, info.size.depth, 1, block_bytes))
+                            return false;
+                        minimum_bytes = blocks_x * blocks_y * info.size.depth * block_bytes;
+                    }
                     const u64 layer_offset =
                         u64{tic.BaseLayer()} * info.layer_stride;
                     // CreateImageView still computes this offset in u32;
@@ -1121,7 +1156,7 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                         return false;
                     const u64 image_base = tic.Address() - layer_offset;
                     const u32 bytes = VideoCommon::CalculateGuestSizeInBytes(info);
-                    if (!bytes) return false;
+                    if (!bytes || bytes < minimum_bytes) return false;
                     return Shader::Ampere::NativeQmdContiguousGpuSpan(
                         image_base, bytes, [this](u64 address) {
                             return gpu_memory->GpuToCpuAddress(address);
