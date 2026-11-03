@@ -57,6 +57,12 @@ public:
             // legitimate Ampere compute launches from entering the cache.
             if (request.action == 0 || request.action == 1)
                 continue;
+            // Rejected command types are also stateless. Otherwise a guest
+            // stream of malformed PCAS actions creates empty entries before
+            // returning an error, exhausting the quota of real QMD3 work.
+            if (request.action != 2 && request.action != 3 &&
+                request.action != 7 && request.action != 12)
+                return "unsupported PCAS action";
             if (states.size() >= 4096 && !states.contains(request.address)) {
                 // Finished QMDs with nothing deferred are only history, drop them instead of stalling.
                 std::erase_if(states, [](const auto& entry) {
