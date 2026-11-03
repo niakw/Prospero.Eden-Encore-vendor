@@ -96,6 +96,20 @@ inline s64 CaptureRelativeOffset48(const Instruction& instruction) {
 // match is simply not tracked.
 inline std::vector<CaptureIndirectBranch> TrackCaptureIndirectBranches(std::span<const Instruction> code) {
     std::vector<CaptureIndirectBranch> result;
+    // We have no general native def-use proof for interleaved instructions.
+    // Never bind an older IMNMX/SHF/LDC sequence to a newer BRX after an
+    // intervening register write. Only canonical NOPs may separate the
+    // reviewed operations; other instruction layouts fail closed.
+    const auto transparent_gap = [&](u32 after, u32 before) {
+        if (before < after || before - after > 32) return false;
+        for (u32 i = after; i < before; ++i) {
+            const auto& instruction = code[i];
+            if (instruction.words[0] != ((7U << 12) | 0x918U) ||
+                instruction.words[1] || instruction.words[2] ||
+                instruction.words[3]) return false;
+        }
+        return true;
+    };
     for (u32 branch_index = 0; branch_index < code.size(); ++branch_index) {
         const auto& branch = code[branch_index];
         if (branch.Bits(0, 12) != 0x949)
@@ -114,7 +128,7 @@ inline std::vector<CaptureIndirectBranch> TrackCaptureIndirectBranches(std::span
                 break;
             }
         }
-        if (!load_index)
+        if (!load_index || !transparent_gap(*load_index + 1, branch_index))
             continue;
         const auto& load = code[*load_index];
         const u32 selector = load.Bits(24, 8);
@@ -128,20 +142,23 @@ inline std::vector<CaptureIndirectBranch> TrackCaptureIndirectBranches(std::span
                 break;
             }
         }
-        if (!shift_index)
+        if (!shift_index || !transparent_gap(*shift_index + 1, *load_index))
             continue;
         const u32 bounded_selector = code[*shift_index].Bits(24, 8);
         std::optional<u32> maximum;
+        std::optional<u32> maximum_index;
         for (u32 index = *shift_index; index-- > 0;) {
             const auto& instruction = code[index];
             if (instruction.Bits(0, 12) == 0x817 && instruction.Bits(12, 4) == 7 &&
                 instruction.Bits(16, 8) == bounded_selector && instruction.words[1] >= 1 &&
                 instruction.words[1] <= 15 && instruction.words[2] == 0x03800000) {
                 maximum = instruction.words[1];
+                maximum_index = index;
                 break;
             }
         }
-        if (!maximum)
+        if (!maximum || !maximum_index ||
+            !transparent_gap(*maximum_index + 1, *shift_index))
             continue;
         // CBUF tables cannot wrap the 64-KiB shader constant-buffer
         // address space. The last entry must be entirely mapped, with
