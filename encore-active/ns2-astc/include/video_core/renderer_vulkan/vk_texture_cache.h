@@ -354,6 +354,19 @@ public:
 
     Image(Image&&) = default;
     Image& operator=(Image&&) = default;
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    // A reference is held by the REAL GPU descriptor owner until its fence.
+    // The runtime's retirement queue cannot destroy this Vulkan resource
+    // while a native QMD dispatch still pins it.
+    [[nodiscard]] std::shared_ptr<u8> PinNativeGpu() {
+        if (!native_gpu_pin) native_gpu_pin = std::make_shared<u8>(0);
+        return native_gpu_pin;
+    }
+    [[nodiscard]] bool CanRetireNativeGpu() const noexcept {
+        return !native_gpu_pin || native_gpu_pin.use_count() == 1;
+    }
+#endif
+
 
     void UploadMemory(VkBuffer buffer, VkDeviceSize offset,
                       std::span<const VideoCommon::BufferImageCopy> copies);
@@ -410,6 +423,9 @@ private:
 
     bool NeedsScaleHelper() const;
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    std::shared_ptr<u8> native_gpu_pin;
+#endif
     Scheduler* scheduler{};
     TextureCacheRuntime* runtime{};
 
@@ -455,6 +471,19 @@ public:
 
     ImageView(ImageView&&) = default;
     ImageView& operator=(ImageView&&) = default;
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    // A reference is held by the REAL GPU descriptor owner until its fence.
+    // The runtime's retirement queue cannot destroy this Vulkan resource
+    // while a native QMD dispatch still pins it.
+    [[nodiscard]] std::shared_ptr<u8> PinNativeGpu() {
+        if (!native_gpu_pin) native_gpu_pin = std::make_shared<u8>(0);
+        return native_gpu_pin;
+    }
+    [[nodiscard]] bool CanRetireNativeGpu() const noexcept {
+        return !native_gpu_pin || native_gpu_pin.use_count() == 1;
+    }
+#endif
+
 
     [[nodiscard]] VkImageView DepthView();
 
@@ -520,6 +549,9 @@ private:
     [[nodiscard]] vk::ImageView MakeView(VkFormat vk_format, VkImageAspectFlags aspect_mask,
                                          std::optional<Shader::TextureType> texture_type = std::nullopt);
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    std::shared_ptr<u8> native_gpu_pin;
+#endif
     const Device* device = nullptr;
     const SlotVector<Image>* slot_images = nullptr;
 
@@ -569,6 +601,20 @@ class Sampler {
 public:
     explicit Sampler(TextureCacheRuntime&, const Tegra::Texture::TSCEntry&);
 
+
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    // A reference is held by the REAL GPU descriptor owner until its fence.
+    // The runtime's retirement queue cannot destroy this Vulkan resource
+    // while a native QMD dispatch still pins it.
+    [[nodiscard]] std::shared_ptr<u8> PinNativeGpu() {
+        if (!native_gpu_pin) native_gpu_pin = std::make_shared<u8>(0);
+        return native_gpu_pin;
+    }
+    [[nodiscard]] bool CanRetireNativeGpu() const noexcept {
+        return !native_gpu_pin || native_gpu_pin.use_count() == 1;
+    }
+#endif
+
     [[nodiscard]] VkSampler Handle() const noexcept {
         return *variants.front().sampler;
     }
@@ -603,6 +649,9 @@ private:
     [[nodiscard]] VkSampler Find(const VariantKey& key) const noexcept;
     VkSampler Emplace(VariantKey key);
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    std::shared_ptr<u8> native_gpu_pin;
+#endif
     CustomBorderColorBudget custom_border_color_budget;
     std::vector<Variant> variants;
 
