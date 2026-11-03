@@ -72,6 +72,7 @@
 #include "video_core/native_shader_capture.h"
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
 #include "shader_recompiler/frontend/ampere/native_indirect_cbuf.h"
+#include "shader_recompiler/frontend/ampere/native_graphics_stage_policy.h"
 #include "shader_recompiler/stage.h"
 #endif
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
@@ -842,6 +843,19 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
     }
     bool stages_valid{};
     if (native) {
+        // Before any GMMU shader reads, reject unsupported stage
+        // combinations. In particular VertexA alone cannot generate a
+        // Vulkan vertex module: it must be merged with VertexB.
+        u32 configured_stages{};
+        for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {
+            if (maxwell3d->regs.IsShaderConfigEnabled(i) &&
+                (i != 5 || maxwell3d->regs.rasterize_enable))
+                configured_stages |= u32{1} << i;
+        }
+        if (!Shader::Ampere::NativeGraphicsStageMaskSupported(configured_stages)) {
+            current_pipeline = nullptr;
+            return nullptr;
+        }
         stages_valid = true;
         const auto base = maxwell3d->regs.program_region.Address();
         for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {
@@ -1742,6 +1756,15 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
             Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
                 .AcquireGraphicsTranslationCache(maxwell3d, *ticket);
         if (!native_translation_cache) return nullptr;
+        // A stale key or program reconfiguration must not bypass the
+        // pre-capture stage guard. Check the exact stages in this key.
+        u32 keyed_stages{};
+        for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {
+            if (graphics_key.unique_hashes[i])
+                keyed_stages |= u32{1} << i;
+        }
+        if (!Shader::Ampere::NativeGraphicsStageMaskSupported(keyed_stages))
+            return nullptr;
         const auto base = maxwell3d->regs.program_region.Address();
         std::array<Shader::Environment*, Maxwell::MaxShaderProgram> ptrs{};
         std::vector<std::unique_ptr<Shader::Environment>> native_envs;
