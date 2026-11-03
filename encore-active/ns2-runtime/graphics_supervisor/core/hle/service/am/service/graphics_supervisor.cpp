@@ -507,6 +507,11 @@ private:
                 auto module=c.queued_modules[slot];
                 if (!module) continue;
                 const auto& fence=*c.release_fences[slot];
+                // A producer fence has four fixed syncpoint entries.
+                // Reject an invalid reported count before indexing them;
+                // retaining the queued image is safer than releasing its
+                // NVMap backing while GPU work might still be outstanding.
+                if (fence.num_fences > fence.fences.size()) continue;
                 bool done=true;
                 for (u32 i=0;i<fence.num_fences;++i) {
                     const auto& point=fence.fences[i];
