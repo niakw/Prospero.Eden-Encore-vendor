@@ -635,6 +635,16 @@ bool ComputePipeline::ConfigureNative(
         resources.uniform_buffers.size() + resources.storage_buffers.size() +
             images.size() != num_descriptor_entries)
         return false;
+    // Shared SPIR-V global load/store masks NVN SSBO addresses to this
+    // physical device's alignment. Reject a native QMD record whose
+    // BufferCache base would differ from the address seen in the shader.
+    // This also checks the 1:1 reflected NVN-used slot layout and rejects
+    // missing/unknown-size backing. NS1 Configure is untouched.
+    if (resources.uses_global_memory &&
+        (!device.IsShaderInt64Supported() ||
+         !Shader::Ampere::NativeQmdGlobalMemoryLayoutMatches(
+             info, resources, device.GetStorageBufferAlignment())))
+        return false;
     for (size_t i = 0; i < images.size(); ++i) {
         const auto& image = images[i];
         const bool expected_storage = i >= sampled;
