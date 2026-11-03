@@ -1137,6 +1137,40 @@ SamplerId TextureCache<P>::AcquireNativeSampler(
     // descriptor key. No parallel Ampere sampler cache is permitted.
     return FindSampler(descriptor, true);
 }
+
+template <class P>
+std::optional<typename TextureCache<P>::NativePinnedImageView>
+TextureCache<P>::PinNativeImageView(ImageViewId id) {
+    // Call only under texture_cache.mutex. AcquireNativeImageView has already
+    // checked the live channel under config_mutex. Moving a cache image out
+    // of its slot during an eviction transfers its pin into the retirement
+    // queue, which waits for all external GPU owners before destroying it.
+    if (id == NULL_IMAGE_VIEW_ID || id == ImageViewId{})
+        return std::nullopt;
+    auto& view = slot_image_views[id];
+    if (view.IsBuffer() || view.image_id == NULL_IMAGE_ID ||
+        view.image_id == ImageId{})
+        return std::nullopt;
+    auto& image = slot_images[view.image_id];
+    auto image_pin = image.PinNativeGpu();
+    auto view_pin = view.PinNativeGpu();
+    if (!image_pin || !view_pin)
+        return std::nullopt;
+    return NativePinnedImageView{
+        .id = id,
+        .backing_image = std::move(image_pin),
+        .image_view = std::move(view_pin)};
+}
+
+template <class P>
+std::shared_ptr<u8> TextureCache<P>::PinNativeSampler(SamplerId id) {
+    // Unlike images, the shared sampler slot is not separately evicted.
+    // Still hold an explicit owner until the last native GPU fence releases
+    // its descriptors; the rasterizer Finish drains cache destruction.
+    if (id == NULL_SAMPLER_ID || id == SamplerId{})
+        return {};
+    return slot_samplers[id].PinNativeGpu();
+}
 #endif
 
 template <class P>
