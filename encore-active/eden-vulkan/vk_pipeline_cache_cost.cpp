@@ -877,9 +877,11 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
             }
             const auto stage = i == 0 ? Shader::Stage::VertexA :
                 Shader::StageFromIndex(i - 1);
+            const VideoCommon::Ns2GraphicsCbufContext cbuf_context{
+                gpu_memory, maxwell3d, i == 5 ? 4U : 0U};
             const auto captured = VideoCommon::CaptureNs2GraphicsShaderFromGpu(
                 *gpu_memory, base + offset, static_cast<u32>(stage),
-                native_translation_cache.get());
+                native_translation_cache.get(), &cbuf_context);
             if (!captured.Ready() || !captured.image.diagnostic_cache_key ||
                 !Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
                     .IsGraphicsCurrent(maxwell3d, *native_ticket)) {
@@ -1822,9 +1824,12 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
             auto original = std::make_unique<GraphicsEnvironment>(
                 *maxwell3d, *gpu_memory,
                 static_cast<Maxwell::ShaderType>(i), base, offset);
+            const VideoCommon::Ns2GraphicsCbufContext cbuf_context{
+                gpu_memory, maxwell3d, i == 5 ? 4U : 0U};
             auto adapted = VideoCommon::CreateNs2GraphicsShaderEnvironment(
                 *gpu_memory, std::move(original), base + offset,
-                static_cast<u32>(stage), native_translation_cache.get());
+                static_cast<u32>(stage), native_translation_cache.get(),
+                &cbuf_context);
             if (!adapted || !Service::Nvidia::Devices::NativeGpuChannelRegistry::
                                 Instance().IsGraphicsCurrent(maxwell3d, *ticket))
                 return nullptr;

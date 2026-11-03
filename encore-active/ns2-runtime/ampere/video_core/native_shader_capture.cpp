@@ -4,6 +4,7 @@
 #include <limits>
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
 #include "video_core/memory_manager.h"
+#include "video_core/engines/maxwell_3d.h"
 #ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
 #include "shader_recompiler/frontend/ampere/translation_cache.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
@@ -75,6 +76,31 @@ NativeGpuChannelRegistry::AcquireComputeTranslationCache(
 #endif
 
 namespace VideoCommon {
+std::optional<u32> ReadNs2GraphicsCbuf(void* context, u32 bank, u32 offset) {
+    const auto* owner = static_cast<const Ns2GraphicsCbufContext*>(context);
+    if (!owner || !owner->memory || !owner->engine || (offset & 3U) ||
+        owner->stage_index >= owner->engine->state.shader_stages.size())
+        return {};
+    const auto& buffers = owner->engine->state
+                              .shader_stages[owner->stage_index].const_buffers;
+    if (bank >= buffers.size()) return {};
+    const auto& cbuf = buffers[bank];
+    if (!cbuf.enabled || !cbuf.address || cbuf.size < sizeof(u32) ||
+        offset > cbuf.size - sizeof(u32) ||
+        cbuf.address > std::numeric_limits<u64>::max() - offset)
+        return {};
+    const u64 address = cbuf.address + offset;
+    try {
+        if (!owner->memory->IsFullyMappedRange(address, sizeof(u32)))
+            return {};
+        u32 value{};
+        owner->memory->ReadBlock(address, &value, sizeof(value));
+        return value;
+    } catch (const std::exception&) {
+        return {};
+    }
+}
+
 bool ReadNs2GpuShader(void* context, u64 address, void* dest, std::size_t size) {
     auto* const memory = static_cast<Tegra::MemoryManager*>(context);
     if (!memory || !dest || !size ||
@@ -94,10 +120,18 @@ bool ReadNs2GpuShader(void* context, u64 address, void* dest, std::size_t size) 
 
 Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
     Tegra::MemoryManager& memory, u64 gpu_program_address, u32 stage,
-    Shader::Ampere::NativeTranslationCache* cache) {
+    Shader::Ampere::NativeTranslationCache* cache,
+    const Ns2GraphicsCbufContext* cbuf) {
     // The GMMU mapping check is repeated for EVERY individual native
     // instruction. A fault aborts capture without populating a shader image.
     try {
+        if (cbuf) {
+            if (cbuf->memory != &memory) return {};
+            return Shader::Ampere::CaptureNativeGraphicsShaderChecked(
+                gpu_program_address, stage, ReadNs2GpuShader, &memory,
+                ReadNs2GraphicsCbuf, const_cast<Ns2GraphicsCbufContext*>(cbuf),
+                cache);
+        }
         return Shader::Ampere::CaptureNativeGraphicsShader(
             gpu_program_address, stage, ReadNs2GpuShader, &memory, cache);
     } catch (const std::exception&) {
@@ -112,7 +146,8 @@ Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
 std::unique_ptr<Shader::Environment> CreateNs2GraphicsShaderEnvironment(
     Tegra::MemoryManager& memory, std::unique_ptr<Shader::Environment> original,
     u64 gpu_program_address, u32 stage,
-    Shader::Ampere::NativeTranslationCache* cache) {
+    Shader::Ampere::NativeTranslationCache* cache,
+    const Ns2GraphicsCbufContext* cbuf) {
     // Creating the environment requires BOTH a fully verified translation
     // and a caller-provided graphics context. Never publish invalid partials.
     // Reject stage mismatches before even touching guest GMMU mappings:
@@ -121,7 +156,7 @@ std::unique_ptr<Shader::Environment> CreateNs2GraphicsShaderEnvironment(
         return {};
     try {
         auto captured = CaptureNs2GraphicsShaderFromGpu(
-            memory, gpu_program_address, stage, cache);
+            memory, gpu_program_address, stage, cache, cbuf);
         if (!captured.Ready()) return {};
         return Shader::Ampere::NativeMaxwellEnvironment::CreateOwned(
             std::move(original), std::move(captured.image));
