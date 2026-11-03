@@ -275,6 +275,15 @@ struct NativeQmdResourcePlan {
         const auto& descriptor = info.storage_buffers_descriptors[i];
         if (descriptor.count != 1) return false;
         if (!info.nvn_buffer_used.test(i)) continue;
+        // The SPIR-V global load/store helper directly loads its address
+        // and size from cbufs[descriptor.cbuf_index]. A QMD bank that was
+        // not reflected into a real uniform binding would generate an
+        // invalid SPIR-V pointer even with a mapped storage target.
+        bool has_uniform_bank = false;
+        for (const auto& cbuf : plan.uniform_buffers)
+            if (cbuf.qmd_index == descriptor.cbuf_index)
+                has_uniform_bank = true;
+        if (!has_uniform_bank) return false;
         has_used_slot = true;
         const auto& storage = plan.storage_buffers[i];
         // Global stores can target any NVN-used descriptor at runtime.
