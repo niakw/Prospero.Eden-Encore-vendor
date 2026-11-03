@@ -6,6 +6,13 @@
 
 #pragma once
 
+// Host ABI witness: when the ASTC profile is selected, the active
+// TextureCache header must be THIS maintained variant, not Vulkan's
+// similarly named cache base or the historical Eden owner.
+#if defined(EDEN_NS2_ASTC_CACHE_BRIDGE)
+#define EDEN_NS2_ASTC_TEXTURE_CACHE_OWNER_SELECTED 1
+#endif
+
 #include <atomic>
 #include <deque>
 #include <limits>
