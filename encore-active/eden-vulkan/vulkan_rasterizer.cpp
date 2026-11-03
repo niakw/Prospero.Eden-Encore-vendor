@@ -1066,7 +1066,10 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
             // Reject unknown bounds and missing guest storage BEFORE any
             // image-table snapshot. Vulkan image descriptor publication is
             // still gated on the shared texture-cache GPU lifetime owner.
-            if (!resources->HasResolvedGpuBufferBindings())
+            if (!resources->ValidateGpuBufferMappings(
+                    [this](u64 address, u32 bytes) {
+                        return gpu_memory->IsFullyMappedRange(address, bytes);
+                    }))
                 return false;
             const auto& regs = kepler_compute.regs;
             const Shader::Ampere::NativeQmdTextureTables tables{
