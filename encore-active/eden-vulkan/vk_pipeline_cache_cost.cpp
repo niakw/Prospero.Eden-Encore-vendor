@@ -931,14 +931,40 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
     }
     eden_static_vertex_input_bound = static_vertex_input;
 
+#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+    // A GPU channel may unbind/rebind between the last mapped instruction
+    // and the graphics cache lookup. Every native draw, including an LRU or
+    // immediate Next(key) hit, must authenticate its original engine epoch.
+    const auto native_session_current = [&]() {
+        return !native || Service::Nvidia::Devices::NativeGpuChannelRegistry::
+                   Instance().IsGraphicsCurrent(maxwell3d, *native_ticket);
+    };
+    if (!native_session_current()) {
+        current_pipeline = nullptr;
+        return nullptr;
+    }
+#endif
     if (current_pipeline) {
         GraphicsPipeline* const next{current_pipeline->Next(graphics_key)};
         if (next) {
             current_pipeline = next;
+#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+            if (!native_session_current()) {
+                current_pipeline = nullptr;
+                return nullptr;
+            }
+#endif
             return BuiltPipeline(current_pipeline);
         }
     }
-    return CurrentGraphicsPipelineSlowPath();
+    GraphicsPipeline* selected = CurrentGraphicsPipelineSlowPath();
+#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+    if (!native_session_current()) {
+        current_pipeline = nullptr;
+        return nullptr;
+    }
+#endif
+    return selected;
 }
 
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
