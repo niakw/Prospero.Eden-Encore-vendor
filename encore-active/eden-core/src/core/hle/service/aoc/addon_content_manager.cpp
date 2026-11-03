@@ -48,8 +48,10 @@ static std::vector<u64> AccumulateAOCTitleIDs(Core::System& system) {
         std::remove_if(
             add_on_content.begin(), add_on_content.end(),
             [&rcu](u64 tid) {
-                return rcu.GetEntry(tid, FileSys::ContentRecordType::Data)->GetStatus() !=
-                       Loader::ResultStatus::Success;
+                // A registered content ID can become unavailable before
+                // aoc:u is constructed. Never dereference a missing NCA.
+                const auto entry = rcu.GetEntry(tid, FileSys::ContentRecordType::Data);
+                return !entry || entry->GetStatus() != Loader::ResultStatus::Success;
             }),
         add_on_content.end());
     // Also advertise safely extracted AOC content by its explicit Nintendo
@@ -142,10 +144,15 @@ Result IAddOnContentManager::ListAddOnContent(Out<u32> out_count,
 
     R_UNLESS(out.size() >= offset, AM::ResultApplicationRecordNotFound);
 
-    *out_count = static_cast<u32>(std::min<size_t>(out.size() - offset, count));
-    std::rotate(out.begin(), out.begin() + offset, out.end());
-
-    std::memcpy(out_addons.data(), out.data(), *out_count * sizeof(u32));
+    // HIPC map-alias output size comes from the actual guest buffer, not
+    // the caller's requested count. Avoid writing past a short span.
+    const std::size_t capacity = out_addons.size() / sizeof(u32);
+    *out_count = static_cast<u32>(std::min({
+        out.size() - offset, static_cast<std::size_t>(count), capacity}));
+    if (*out_count) {
+        std::memcpy(out_addons.data(), out.data() + offset,
+                    static_cast<std::size_t>(*out_count) * sizeof(u32));
+    }
 
     R_SUCCEED();
 }
