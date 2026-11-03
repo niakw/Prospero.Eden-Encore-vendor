@@ -144,23 +144,36 @@ public:
             // Validate the complete dependent QMD structure before a shader
             // launch or guest-visible release. A late error must never leave
             // semaphores published while silently dropping the dependency.
-            if (qmd[16] & (1U << 5)) return "second dependent QMD unsupported";
+            if (qmd[16] & (1U << 5)) {
+                if (newly_inserted) states.erase(state_it);
+                return "second dependent QMD unsupported";
+            }
             const bool has_dependent = (qmd[16] & 1U) != 0;
             const Word dependent_action = (qmd[16] >> 1) & 7U;
             if (has_dependent &&
-                (dependent_action != 4 && dependent_action != 3 && dependent_action != 1))
+                (dependent_action != 4 && dependent_action != 3 && dependent_action != 1)) {
+                if (newly_inserted) states.erase(state_it);
                 return "unsupported dependent QMD action";
-            if (has_dependent && count == pending.size()) return "QMD chain limit";
+            }
+            if (has_dependent && count == pending.size()) {
+                if (newly_inserted) states.erase(state_it);
+                return "QMD chain limit";
+            }
             // Validate the release slots before making any visible.
             for (const Word base : ReleaseSlots) {
                 const Word flags = qmd[base + 1];
                 if (!(flags & (1U << 23))) continue;
                 const bool add = (flags & (1U << 26)) != 0;
                 if ((flags & (0x3bU << 24)) || (flags >> 30) != 1 ||
-                    (add && (flags & (7U << 20)))) return "unsupported QMD release format";
+                    (add && (flags & (7U << 20)))) {
+                    if (newly_inserted) states.erase(state_it);
+                    return "unsupported QMD release format";
+                }
                 if (add) {
-                    if constexpr (!std::is_invocable_r_v<bool, Release, Address, Word, Word>)
+                    if constexpr (!std::is_invocable_r_v<bool, Release, Address, Word, Word>) {
+                        if (newly_inserted) states.erase(state_it);
                         return "unsupported QMD reduction callback";
+                    }
                 }
             }
             // Never forge completion of a native shader which did not
