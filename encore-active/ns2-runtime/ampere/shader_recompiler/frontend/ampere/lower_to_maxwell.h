@@ -3507,26 +3507,45 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             const auto plan = std::find_if(indirect_dispatch.begin(), indirect_dispatch.end(),
                 [&](const auto& item) { return item.branch_instruction_index == index; });
             if (plan != indirect_dispatch.end()) {
-                // Native LDC still loads the *original* u32 PC. Compare it
-                // against the immutable checked table values and branch to
-                // relocated native source indices. No fake Maxwell CBUF
-                // offsets, no runtime index renumbering and no BRX CFG.
-                // P6 and high scratch R252 belong to the reserved translator
-                // register bank; this path is unconditional and P6 is reset
-                // before every branch, so a missed comparison falls through.
+                // Native LDC still loads the original u32 PC. Compare
+                // against snapshot values and jump to relocated native source
+                // indices, never raw Ampere byte offsets. Dynamic BRX cannot
+                // escape a live barrier/reconvergence stack with a synthetic
+                // per-thread predicate, so reject that combination for now.
+                if (!barrier_tokens.empty())
+                    return fail(index, "native indirect branch through barrier scope");
+                // P6 is *not* scratch: the native program may read it later.
+                // Preserve it in reserved R253 and branch to local stubs
+                // that restore it before transferring to real targets.
+                save_predicate();
+                std::vector<std::size_t> stub_relocations;
+                stub_relocations.reserve(plan->targets.size());
                 for (const auto& entry : plan->targets) {
                     mov_imm(252, entry.native_value);
-                    // ISETP.EQ.U32.AND P6, PT, Rsource, R252, PT
+                    // ISETP.EQ.U32.AND P6, PT, Rsource, R252, PT.
                     emit(0x5b60000000070000ULL | 7U | (u64{6} << 3) |
                          (u64{source} << 8) | (u64{252} << 20) |
                          (u64{7} << 39) | (u64{2} << 49));
+                    stub_relocations.push_back(relocations.size());
                     relocations.push_back({static_cast<u32>(result.instructions.size()),
-                                           entry.native_instruction_index});
+                                           index});
                     emit(0xe24000000000000fULL | (u64{6} << 16));
                 }
-                // If a guest rewrites CBUF between shader capture and
-                // execution, an unrecognized PC cannot run arbitrary code.
+                // A CBUF race or unsupported PC is never executable as a
+                // fabricated Maxwell instruction. Restore guest P6 on miss.
+                restore_predicate();
                 emit(0xe30000000007000fULL);
+                for (std::size_t entry_index = 0; entry_index < plan->targets.size();
+                     ++entry_index) {
+                    // The branch from the comparison targets this exact
+                    // emitted-word stub, including scheduling-word offsets.
+                    relocations[stub_relocations[entry_index]].output_target =
+                        static_cast<u32>(result.instructions.size());
+                    restore_predicate();
+                    relocations.push_back({static_cast<u32>(result.instructions.size()),
+                                           plan->targets[entry_index].native_instruction_index});
+                    emit(0xe24000000007000fULL);
+                }
                 break;
             }
             emit(0xe25000000000000fULL | predicate | (u64{source} << 8) |
