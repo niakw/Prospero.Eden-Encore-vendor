@@ -1058,6 +1058,7 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         // to the emitted SPIR-V reflection before any Vulkan cache access.
         if (!Shader::Ampere::NativeQmdImageLayoutMatches(*compiled.info, *resources))
             return false;
+        std::vector<NativeComputeImageBinding> native_images;
         // Authenticate the full table records as well as QMD CBUF handles.
         // This only proves mapped metadata, not usable Vulkan images. Keep
         // the image path closed until TextureCache owns the views/samplers.
@@ -1215,13 +1216,95 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                                 gpu_memory, address, bytes, size);
                         });
                 }
+                // Acquire ONLY actual shared TextureCache objects while its
+                // channel and slot state remain locked. No guest TIC/TSC ID
+                // may escape this section as a purported Vulkan binding.
+                if (same_cache_channel &&
+                    ( !compiled.info->texture_buffer_descriptors.empty() ||
+                      !compiled.info->image_buffer_descriptors.empty()))
+                    same_cache_channel = false; // texel-buffer Vulkan lease not ready
+                if (same_cache_channel) {
+                    native_images.reserve(typed_descriptors->size());
+                    size_t position{};
+                    const auto bind = [&](const Shader::Ampere::NativeQmdTypedTextureRecord& item,
+                                          Shader::TextureType type, bool storage,
+                                          Shader::ImageFormat format, bool depth, bool written) {
+                        if (item.kind != (storage
+                                ? Shader::Ampere::NativeQmdImageKind::StorageImage
+                                : Shader::Ampere::NativeQmdImageKind::SampledTexture) ||
+                            item.is_written != written)
+                            return false;
+                        const auto id = texture_cache.AcquireNativeImageView(
+                            kepler_compute, *gpu_memory, item.tic, written);
+                        const auto pinned = texture_cache.PinNativeImageView(id);
+                        if (!pinned) return false;
+                        auto& view = texture_cache.GetImageView(id);
+                        if (view.ImageHandle() == VK_NULL_HANDLE) return false;
+                        const VkImageView handle = storage
+                            ? view.StorageView(type, format) : view.Handle(type);
+                        if (handle == VK_NULL_HANDLE) return false;
+                        NativeComputeImageBinding native{};
+                        native.view = handle;
+                        native.storage = storage;
+                        native.image_pin = pinned->backing_image;
+                        native.view_pin = pinned->image_view;
+                        if (!storage) {
+                            if (!item.sampler) return false;
+                            const auto sid = texture_cache.AcquireNativeSampler(
+                                kepler_compute, *gpu_memory, *item.sampler);
+                            native.sampler_pin = texture_cache.PinNativeSampler(sid);
+                            if (!native.sampler_pin) return false;
+                            native.sampler = texture_cache.GetSampler(sid).HandleFor(view, depth);
+                            if (native.sampler == VK_NULL_HANDLE) return false;
+                        }
+                        native_images.push_back(std::move(native));
+                        return true;
+                    };
+                    for (const auto& reflection : compiled.info->texture_descriptors) {
+                        for (u32 index = 0; index < reflection.count; ++index) {
+                            if (position >= typed_descriptors->size() ||
+                                !bind((*typed_descriptors)[position++],
+                                      reflection.type, false, Shader::ImageFormat{},
+                                      reflection.is_depth, false)) {
+                                same_cache_channel = false;
+                                break;
+                            }
+                        }
+                        if (!same_cache_channel) break;
+                    }
+                    if (same_cache_channel) {
+                        for (const auto& reflection : compiled.info->image_descriptors) {
+                            for (u32 index = 0; index < reflection.count; ++index) {
+                                if (position >= typed_descriptors->size() ||
+                                    !bind((*typed_descriptors)[position++],
+                                          reflection.type, true, reflection.format,
+                                          false, reflection.is_written)) {
+                                    same_cache_channel = false;
+                                    break;
+                                }
+                            }
+                            if (!same_cache_channel) break;
+                        }
+                    }
+                    if (same_cache_channel) {
+                        same_cache_channel = position == typed_descriptors->size() &&
+                            tables.MatchesSnapshot(
+                                *resources, *descriptors,
+                                [this](u64 address, void* bytes, std::size_t size) {
+                                    return VideoCommon::ReadNs2GpuShader(
+                                        gpu_memory, address, bytes, size);
+                                });
+                    }
+                }
             }
             if (!same_cache_channel ||
                 !registry.IsComputeCurrent(kepler_compute, *ticket))
                 return false;
-            return false; // no unbacked image/sampler descriptor publication
+            if (native_images.size() != typed_descriptors->size())
+                return false;
         }
-        if (!resources->HasResolvedBufferBindings())
+        if (!(native_images.empty() ? resources->HasResolvedBufferBindings()
+                                   : resources->HasResolvedGpuBufferBindings()))
             return false;
 
         const auto bytes = compiled.words.size() * sizeof(u32);
@@ -1231,6 +1314,16 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         if (!owned || !registry.IsComputeCurrent(kepler_compute, *ticket))
             return false;
         std::shared_ptr<ComputePipeline> pipeline{std::move(owned)};
+        struct NativeComputePinnedLifetime {
+            std::shared_ptr<ComputePipeline> pipeline;
+            std::vector<NativeComputeImageBinding> images;
+        };
+        std::shared_ptr<NativeComputePinnedLifetime> pinned_lifetime;
+        if (!native_images.empty()) {
+            pinned_lifetime = std::make_shared<NativeComputePinnedLifetime>();
+            pinned_lifetime->pipeline = pipeline;
+            pinned_lifetime->images = std::move(native_images);
+        }
         // ConfigureNative and Scheduler::Record can throw AFTER recording
         // closures that capture ComputePipeline*. A normal return-false or
         // exception must not release that owner before its GPU timeline.
@@ -1239,8 +1332,12 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         auto native_compute_retirement = SCOPE_GUARD {
             if (!native_recording_started || !pipeline) return;
             try {
-                Shader::Ampere::RetainNativeComputeUntilGpuTick(
-                    scheduler, fence_manager, pipeline);
+                if (pinned_lifetime)
+                    Shader::Ampere::RetainNativeComputeUntilGpuTick(
+                        scheduler, fence_manager, pinned_lifetime);
+                else
+                    Shader::Ampere::RetainNativeComputeUntilGpuTick(
+                        scheduler, fence_manager, pipeline);
             } catch (...) {
                 // The retention helper already waits a submitted tick on
                 // callback-registration failure. Keep this final emergency
@@ -1288,8 +1385,13 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         native_recording_started = true;
         {
             std::scoped_lock lock{buffer_cache.mutex};
+            const std::span<const NativeComputeImageBinding> bindings =
+                pinned_lifetime
+                    ? std::span<const NativeComputeImageBinding>{pinned_lifetime->images}
+                    : std::span<const NativeComputeImageBinding>{};
             if (!pipeline->ConfigureNative(
-                    *resources, *gpu_memory, scheduler, buffer_cache)) return false;
+                    *resources, *gpu_memory, scheduler, buffer_cache, bindings))
+                return false;
         }
         // ConfigureNative may have recorded descriptor closures already.
         // Validate CBUF bytes one final time after staging; an inconsistent
@@ -1328,7 +1430,11 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         // Successful submissions already hold their exact timeline owner.
         // Cancel exception/early-return recovery before normal retirement.
         native_compute_retirement.Cancel();
-        Shader::Ampere::RetainNativeComputeUntilGpuTick(
+        if (pinned_lifetime)
+            Shader::Ampere::RetainNativeComputeUntilGpuTick(
+                scheduler, fence_manager, std::move(pinned_lifetime));
+        else
+            Shader::Ampere::RetainNativeComputeUntilGpuTick(
                 scheduler, fence_manager, std::move(pipeline));
         return true;
     } catch (const std::exception& error) {
