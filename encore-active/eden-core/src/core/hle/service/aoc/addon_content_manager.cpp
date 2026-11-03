@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <limits>
 #include <numeric>
 #include <vector>
 
@@ -177,9 +178,27 @@ Result IAddOnContentManager::GetAddOnContentBaseId(Out<u64> out_title_id,
 }
 
 Result IAddOnContentManager::PrepareAddOnContent(s32 addon_index, ClientProcessId process_id) {
-    LOG_WARNING(Service_AOC, "(STUBBED) called with addon_index={}, process_id={}", addon_index,
-                process_id.pid);
-
+    const auto program_id = system.ResolveCallerProgramId(*process_id);
+    const auto current = FileSys::GetBaseTitleID(program_id);
+    const auto& disabled = Settings::values.disabled_addons[current];
+    R_UNLESS(addon_index >= 0 &&
+             static_cast<u32>(addon_index) <= FileSys::AOC_TITLE_ID_MASK &&
+             std::find(disabled.begin(), disabled.end(), "DLC") == disabled.end(),
+             AM::ResultApplicationRecordNotFound);
+    const FileSys::PatchManager pm{program_id, system.GetFileSystemController(),
+                                   system.GetContentProvider()};
+    const auto control = pm.GetControlMetadata();
+    const u64 aoc_base = control.first ? control.first->GetDLCBaseTitleId()
+                                       : FileSys::GetAOCBaseTitleID(program_id);
+    R_UNLESS(aoc_base != 0 &&
+             aoc_base <= std::numeric_limits<u64>::max() -
+                             static_cast<u32>(addon_index),
+             AM::ResultApplicationRecordNotFound);
+    const u64 requested_id = aoc_base + static_cast<u32>(addon_index);
+    // NCA and extracted content were validated by the provider inventory
+    // at service construction. Only that exact installed ID may prepare.
+    R_UNLESS(std::find(add_on_content.begin(), add_on_content.end(), requested_id) !=
+                 add_on_content.end(), AM::ResultApplicationRecordNotFound);
     R_SUCCEED();
 }
 
