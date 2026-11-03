@@ -406,7 +406,15 @@ void RetainNativeComputeUntilGpuTick(Scheduler& scheduler,
         });
         fences.SignalReference();
     } catch (...) {
-        scheduler.Wait(tick);
+        // A callback-registration failure occurs AFTER Vulkan work has
+        // been flushed. If waiting on its ticket throws, drain the pending
+        // scheduler before releasing the emergency pipeline reference.
+        // Otherwise a failed fence setup can destroy a live GPU owner.
+        try {
+            scheduler.Wait(tick);
+        } catch (...) {
+            scheduler.Finish();
+        }
         static_cast<void>(emergency_owner);
         throw;
     }
