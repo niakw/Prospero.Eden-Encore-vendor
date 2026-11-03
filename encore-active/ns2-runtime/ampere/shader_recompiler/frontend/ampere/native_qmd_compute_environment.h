@@ -265,6 +265,14 @@ struct NativeQmdResourcePlan {
         info.storage_buffers_descriptors.size() != plan.storage_buffers.size() ||
         plan.requires_memory_layout)
         return false;
+    // The IR's NVN-used bits index the flattened SSBO array, not its
+    // last populated slot. A used bit beyond the reflected descriptor
+    // vector would otherwise be silently ignored, and a shader global
+    // access could target a descriptor never bound by BufferCache.
+    for (std::size_t i = info.storage_buffers_descriptors.size();
+         i < info.nvn_buffer_used.size(); ++i)
+        if (info.nvn_buffer_used.test(i))
+            return false;
     for (const auto& cbuf : plan.uniform_buffers)
         if (!cbuf.gpu_address || !cbuf.bytes) return false;
     for (const auto& storage : plan.storage_buffers)
