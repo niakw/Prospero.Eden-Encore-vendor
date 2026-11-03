@@ -721,7 +721,10 @@ bool ComputePipeline::ConfigureNative(
             return resolve(address, size, written);
         },
         [&] { staged.clear(); }, with_images);
-    if (!ready || staged.size() != num_descriptor_entries)
+    // Staging covers CBUF/SSBO only. Image descriptors are independently
+    // pinned and appended below, so comparing buffers to the full reflected
+    // descriptor count would reject every valid native image shader.
+    if (!ready || staged.size() != num_descriptor_entries - images.size())
         return false;
     // Recheck: an unrelated GMMU unmap between staging and descriptor
     // publication must never be mistaken for a valid compute binding.
