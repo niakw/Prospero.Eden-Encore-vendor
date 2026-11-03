@@ -11,7 +11,8 @@ constexpr u64 ImageSalt = 0x4e53325053354d31ULL; // NS2PS5M1 (versioned)
 constexpr u64 FnvPrime = 0x100000001b3ULL;
 
 [[nodiscard]] u64 ImageKey(std::span<const u8> header,
-                           std::span<const u8> native, u32 stage) {
+                           std::span<const u8> native, u32 stage,
+                           std::span<const NativeIndirectBranchPlan> indirect_dispatch) {
     // The key is deliberately distinct from Switch 1 shader cache keys.
     // This is a diagnostic identity, not yet wired into disk-cache lookup.
     u64 h = 0xcbf29ce484222325ULL ^ ImageSalt;
@@ -24,6 +25,16 @@ constexpr u64 FnvPrime = 0x100000001b3ULL;
         mix(static_cast<u8>(native.size() >> shift));
     for (u8 byte : header) mix(byte);
     for (u8 byte : native) mix(byte);
+    // Preserve historical identities for shaders without indirect dispatch.
+    // A newly resolved CBUF table must never alias an older shader key.
+    for (const auto& plan : indirect_dispatch) {
+        for (u32 shift = 0; shift < 32; shift += 8)
+            mix(static_cast<u8>(plan.branch_instruction_index >> shift));
+        for (const auto& entry : plan.targets)
+            for (const u32 value : {entry.native_value, entry.native_instruction_index})
+                for (u32 shift = 0; shift < 32; shift += 8)
+                    mix(static_cast<u8>(value >> shift));
+    }
     return h;
 }
 } // namespace
@@ -70,11 +81,12 @@ std::optional<u32> MaxwellShaderImage::TranslateNativeAddress(u32 address) const
 
 MaxwellShaderImage BuildMaxwellShaderImage(
     std::span<const u8> maxwell_header, std::span<const u8> native_code,
-    u32 shader_stage) {
+    u32 shader_stage,
+    std::span<const NativeIndirectBranchPlan> indirect_dispatch) {
     MaxwellShaderImage image;
     if (maxwell_header.size() != MaxwellHeaderSize) return image;
     image.status = MaxwellImageStatus::LoweringFailed;
-    auto lowered = LowerReviewedToMaxwell(native_code);
+    auto lowered = LowerReviewedToMaxwell(native_code, indirect_dispatch);
     image.lowering_status = lowered.status;
     image.failed_native_offset = lowered.failed_native_byte_offset;
     if (!lowered.Ready()) return image;
@@ -112,7 +124,7 @@ MaxwellShaderImage BuildMaxwellShaderImage(
     image.instruction_end_address = maxwell_end;
     image.cached_highest_address =
         static_cast<u32>((code.size() - 1) * sizeof(u64));
-    image.diagnostic_cache_key = ImageKey(maxwell_header, native_code, shader_stage);
+    image.diagnostic_cache_key = ImageKey(maxwell_header, native_code, shader_stage, indirect_dispatch);
     image.native_stage = shader_stage;
     image.code = std::move(code);
     for (u32 source = 0; source < lowered.source_instruction_offsets.size(); ++source) {

@@ -7,6 +7,7 @@
 #include <vector>
 #include "common/common_types.h"
 #include "shader_recompiler/frontend/ampere/probe.h"
+#include "shader_recompiler/frontend/ampere/native_indirect_branch_plan.h"
 
 namespace Shader::Ampere {
 enum class LowerBridgeStatus : u8 {
@@ -30,5 +31,7 @@ struct LowerBridgeResult {
 // A real, tested translation for precisely the native instructions supported
 // by the pinned upstream lowering table. Fail-closed for every other opcode,
 // unreviewed bit, branch relocation or unsupported semantic. No guest I/O.
-[[nodiscard]] LowerBridgeResult LowerReviewedToMaxwell(std::span<const u8> native_code);
+[[nodiscard]] LowerBridgeResult LowerReviewedToMaxwell(
+    std::span<const u8> native_code,
+    std::span<const NativeIndirectBranchPlan> indirect_dispatch = {});
 } // namespace Shader::Ampere

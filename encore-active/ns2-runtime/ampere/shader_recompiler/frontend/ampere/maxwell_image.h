@@ -45,5 +45,6 @@ struct MaxwellShaderImage {
 // The shader_stage value is for cache/domain separation, NOT stage support.
 [[nodiscard]] MaxwellShaderImage BuildMaxwellShaderImage(
     std::span<const u8> maxwell_header, std::span<const u8> native_code,
-    u32 shader_stage);
+    u32 shader_stage,
+    std::span<const NativeIndirectBranchPlan> indirect_dispatch = {});
 } // namespace Shader::Ampere

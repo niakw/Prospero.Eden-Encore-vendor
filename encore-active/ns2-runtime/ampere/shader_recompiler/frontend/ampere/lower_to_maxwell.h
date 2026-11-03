@@ -15,6 +15,7 @@
 #include <vector>
 #include "common/common_types.h"
 #include "shader_recompiler/frontend/ampere/instruction.h"
+#include "shader_recompiler/frontend/ampere/native_indirect_branch_plan.h"
 #include "shader_recompiler/frontend/ampere/register_pressure.h"
 
 namespace Shader::Ampere {
@@ -89,15 +90,6 @@ struct LoweredProgram {
 // dispatch. This avoids the Maxwell indirect-branch CFG interpreting raw
 // Ampere PCs. The runtime table must be authenticated separately and the
 // image must be invalidated when its contents change.
-struct NativeIndirectBranchTarget {
-    u32 native_value{};
-    u32 native_instruction_index{};
-};
-struct NativeIndirectBranchPlan {
-    u32 branch_instruction_index{};
-    std::vector<NativeIndirectBranchTarget> targets;
-};
-
 // Lower only operations whose semantics are representable by the existing
 // Maxwell frontend. These are new instructions, not reinterpretations of the
 // native bytes. Scheduling/control words are added by the environment adapter.
