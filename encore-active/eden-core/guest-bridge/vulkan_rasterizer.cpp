@@ -1068,9 +1068,16 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
             // Reject unknown bounds and missing guest storage BEFORE any
             // image-table snapshot. Vulkan image descriptor publication is
             // still gated on the shared texture-cache GPU lifetime owner.
+            // Match ConfigureNative's actual BufferCache admission:
+            // full 4 KiB GMMU coverage AND one contiguous CPU-backed span.
+            // IsFullyMappedRange alone is insufficient when later Vulkan
+            // staging requires a single real backing allocation.
             if (!resources->ValidateGpuBufferMappings(
                     [this](u64 address, u32 bytes) {
-                        return gpu_memory->IsFullyMappedRange(address, bytes);
+                        return Shader::Ampere::NativeQmdContiguousGpuSpan(
+                            address, bytes, [this](u64 page) {
+                                return gpu_memory->GpuToCpuAddress(page);
+                            });
                     }))
                 return false;
             const auto& regs = kepler_compute.regs;
