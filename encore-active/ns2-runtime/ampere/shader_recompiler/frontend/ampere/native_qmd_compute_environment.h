@@ -110,12 +110,12 @@ struct NativeQmdResourcePlan {
         return true;
     }
 
-    // P2.2b: shaders with TIC/TSC images still require genuine CBUF and
-    // SSBO backing. Split their 49-bit GPU-span proof from image publication,
-    // which remains forbidden until the Vulkan view/sampler lifetime owner
-    // is connected. Never admit indirect CBUF, unknown SSBO or global memory.
+    // Images still require a real pinned TextureCache owner. Unknown
+    // SSBO lengths and indirect CBUFs remain unsupported. Global memory is
+    // admitted ONLY through the reflected, bounded SSBO layout below.
     [[nodiscard]] bool HasResolvedGpuBufferBindings() const noexcept {
-        if (requires_memory_layout || uses_global_memory)
+        if (requires_memory_layout ||
+            (uses_global_memory && storage_buffers.empty()))
             return false;
         // Zero is the unmapped/null guest buffer sentinel. Shader CBUFs
         // are required real bindings, not optional descriptors: never
@@ -234,6 +234,45 @@ struct NativeQmdResourcePlan {
         }
     }
 };
+
+// Native global load/store lowering is already implemented by the shared
+// SPIR-V backend as a scan of reflected NVN SSBOs. Admit only the subset
+// whose flattened descriptor layout matches that backend exactly:
+//   * a known-size buffer for every reflected slot;
+//   * no descriptor arrays (the backend indexes descriptors, not elements);
+//   * at least one NVN-used slot, all among the 16 representable indices;
+//   * base addresses aligned as the backend masks them to the host SSBO
+//     offset alignment. An unaligned base would address DIFFERENT memory
+//     in SPIR-V than the Vulkan BufferCache binding.
+// No guest title IDs, synthetic buffers or inferred allocation lengths.
+[[nodiscard]] inline bool NativeQmdGlobalMemoryLayoutMatches(
+    const Shader::Info& info, const NativeQmdResourcePlan& plan,
+    u64 host_ssbo_alignment) noexcept {
+    if (plan.uses_global_memory !=
+        (info.uses_global_memory || info.stores_global_memory))
+        return false;
+    if (!plan.uses_global_memory) return true;
+    if (!info.uses_global_memory || !host_ssbo_alignment ||
+        (host_ssbo_alignment & (host_ssbo_alignment - 1)) ||
+        info.storage_buffers_descriptors.empty() ||
+        info.storage_buffers_descriptors.size() > info.nvn_buffer_used.size() ||
+        info.storage_buffers_descriptors.size() != plan.storage_buffers.size() ||
+        !plan.HasResolvedGpuBufferBindings())
+        return false;
+    bool has_used_slot = false;
+    for (std::size_t i = 0; i < info.storage_buffers_descriptors.size(); ++i) {
+        const auto& descriptor = info.storage_buffers_descriptors[i];
+        if (descriptor.count != 1) return false;
+        if (!info.nvn_buffer_used.test(i)) continue;
+        has_used_slot = true;
+        const auto& storage = plan.storage_buffers[i];
+        if (!storage.known_size || !storage.bytes ||
+            !storage.gpu_address ||
+            (storage.gpu_address % host_ssbo_alignment))
+            return false;
+    }
+    return has_used_slot;
+}
 
 // Match the original Vulkan ComputePipeline::Configure image flattening:
 // texture buffers, image buffers, sampled textures, then storage images.
@@ -1179,6 +1218,11 @@ public:
         result.requires_tic_tsc = !result.image_handles.empty();
         result.uses_global_memory = shader_info.uses_global_memory ||
             shader_info.stores_global_memory;
+        // Plan construction cannot know the host device alignment. One-byte
+        // alignment here proves reflected descriptor order and actual sizes;
+        // ConfigureNative checks the real Vulkan alignment before binding.
+        if (!NativeQmdGlobalMemoryLayoutMatches(shader_info, result, 1))
+            return std::nullopt;
         return result;
     }
 
