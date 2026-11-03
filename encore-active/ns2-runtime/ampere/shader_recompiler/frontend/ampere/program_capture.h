@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "shader_recompiler/frontend/ampere/lower_to_maxwell.h"
+#include "shader_recompiler/frontend/ampere/maxwell_image.h"
 
 namespace Shader::Ampere {
 class ProgramCaptureState {
@@ -72,6 +73,8 @@ struct CaptureIndirectBranch {
 
 struct CaptureIndirectTable {
     u32 branch{};
+    u32 cbuf_index{};
+    u32 cbuf_offset{};
     std::vector<u32> values;  // raw table words
     std::vector<u32> targets; // sorted distinct instruction indices inside the capture
 };
@@ -173,6 +176,8 @@ CaptureIndirectResult ResolveCaptureIndirectBranches(std::vector<Instruction>& n
         for (const auto& branch : TrackCaptureIndirectBranches(native)) {
             auto& table = tables.emplace_back();
             table.branch = branch.index;
+            table.cbuf_index = branch.cbuf_index;
+            table.cbuf_offset = branch.cbuf_offset;
             for (u32 entry = 0; entry < branch.entries; ++entry)
                 table.values.push_back(read_cbuf(branch.cbuf_index, branch.cbuf_offset + entry * 4));
         }
@@ -235,4 +240,73 @@ CaptureIndirectResult ResolveCaptureIndirectBranches(std::vector<Instruction>& n
     }
     return result;
 }
+// Native branch-table words and Maxwell instruction addresses are different
+// coordinate systems. In particular, a 16-byte Ampere instruction can lower
+// to multiple 8-byte Maxwell words plus scheduling slots. A raw CBUF address
+// must never be injected into Maxwell CFG or used for native BRX execution.
+enum class CaptureIndirectValueOrigin {
+    NativeCode,       // first 128-bit instruction is offset zero
+    GraphicsHeader,   // values include the 0x80-byte native graphics SPH
+};
+
+struct CaptureTranslatedIndirectEntry {
+    u32 raw_value{};
+    u32 native_code_offset{};
+    u32 maxwell_byte_offset{};
+};
+struct CaptureTranslatedIndirectTable {
+    u32 branch{};
+    u32 cbuf_index{};
+    u32 cbuf_offset{};
+    std::vector<CaptureTranslatedIndirectEntry> entries;
+};
+
+// Resolve *every* entry using the actual lowered-program map. Reject a
+// mixed-origin, unmapped, misaligned, or beyond-capture target as a whole;
+// do not publish a partially remapped branch table. Zero is a valid target
+// only for the code-relative convention. This metadata alone cannot enable
+// BRX: shader-visible LDC results must also be rewritten or compared against
+// the original native values before a translated branch can execute.
+[[nodiscard]] inline std::optional<std::vector<CaptureTranslatedIndirectTable>>
+TranslateCaptureIndirectTargets(const CaptureIndirectResult& capture,
+                                const MaxwellShaderImage& image,
+                                CaptureIndirectValueOrigin origin,
+                                u32 graphics_header_bytes = 0x80) {
+    if (!image.ValidForCompiler() || capture.tables.empty() ||
+        (origin == CaptureIndirectValueOrigin::GraphicsHeader &&
+         graphics_header_bytes != 0x80))
+        return std::nullopt;
+    const u32 origin_bytes =
+        origin == CaptureIndirectValueOrigin::GraphicsHeader
+            ? graphics_header_bytes : 0;
+    std::vector<CaptureTranslatedIndirectTable> result;
+    result.reserve(capture.tables.size());
+    for (const auto& table : capture.tables) {
+        const u32 count = static_cast<u32>(table.values.size());
+        if (count < 2 || count > 16 ||
+            table.branch >= image.consumed_native_bytes / sizeof(Instruction) ||
+            table.cbuf_index >= 18 || (table.cbuf_offset & 3U) ||
+            table.cbuf_offset > 0x10000U - count * sizeof(u32) ||
+            std::any_of(result.begin(), result.end(),
+                        [&](const auto& prior) { return prior.branch == table.branch; }))
+            return std::nullopt;
+        auto& mapped = result.emplace_back();
+        mapped.branch = table.branch;
+        mapped.cbuf_index = table.cbuf_index;
+        mapped.cbuf_offset = table.cbuf_offset;
+        for (const u32 value : table.values) {
+            if (value < origin_bytes || (value - origin_bytes) % sizeof(Instruction))
+                return std::nullopt;
+            const u32 native_offset = value - origin_bytes;
+            if (native_offset >= image.consumed_native_bytes)
+                return std::nullopt;
+            const auto maxwell = image.TranslateNativeAddress(native_offset);
+            if (!maxwell)
+                return std::nullopt;
+            mapped.entries.push_back({value, native_offset, *maxwell});
+        }
+    }
+    return result;
+}
+
 } // namespace Shader::Ampere
