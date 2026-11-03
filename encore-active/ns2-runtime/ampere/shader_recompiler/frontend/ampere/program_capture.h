@@ -389,6 +389,12 @@ template <typename ReadInstruction, typename ReadCbuf>
                  index < MaximumCaptured; ++index) {
                 const auto instruction = read_instruction(index);
                 if (!instruction) return rollback();
+                // A new indirect branch beyond the first EXIT needs its
+                // own resolved table. Never validate a tail containing an
+                // untracked native BRX or BRXU.
+                if (instruction->Bits(0, 12) == 0x949 ||
+                    instruction->Bits(0, 12) == 0x958)
+                    return rollback();
                 native.push_back(*instruction);
                 const auto observed = state.Observe(*instruction, index);
                 if (observed == ProgramCaptureState::Result::InvalidTarget)
