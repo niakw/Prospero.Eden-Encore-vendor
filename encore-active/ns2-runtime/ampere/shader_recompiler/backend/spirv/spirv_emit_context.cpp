@@ -1168,7 +1168,8 @@ void EmitContext::DefineConstantBufferIndirectFunctions(const Info& info) {
     if (!info.uses_cbuf_indirect) {
         return;
     }
-    const auto make_accessor{[&](Id buffer_type, Id UniformDefinitions::*member_ptr) {
+    const auto make_accessor{[&](Id buffer_type, Id UniformDefinitions::*member_ptr,
+                                  u32 bytes_per_element) {
         const Id func_type{TypeFunction(buffer_type, U32[1], U32[1])};
         const Id func{OpFunction(buffer_type, spv::FunctionControlMask::MaskNone, func_type)};
         const Id binding{OpFunctionParameter(U32[1])};
@@ -1202,8 +1203,22 @@ void EmitContext::DefineConstantBufferIndirectFunctions(const Info& info) {
         // QMD3 bank set must not alias an absent bank to unrelated memory.
         const Id invalid_label{bank_count < Info::MAX_INDIRECT_CBUFS
                                    ? OpLabel() : buf_labels[0]};
+        // GetCbuf() passes an offset in *elements*, not bytes. The generated
+        // uniform array has exactly 0x10000 / bytes_per_element entries.
+        // An unchecked dynamic offset would emit an out-of-bounds SPIR-V
+        // OpAccessChain even when its CBUF bank is genuine and fully mapped.
+        // For native QMD3 only, route invalid offsets through the SAME
+        // constant-zero default as disabled banks. Do not mask/wrap them
+        // into a different valid guest address.
+        const Id selector{[&] {
+            if (bank_count == Info::MAX_INDIRECT_CBUFS)
+                return binding; // preserve the historical Maxwell path
+            const Id valid_offset{OpULessThan(
+                U1, offset, Const(0x10000U / bytes_per_element))};
+            return OpSelect(U32[1], valid_offset, binding, Const(~u32{0}));
+        }()};
         OpSelectionMerge(merge_label, spv::SelectionControlMask::MaskNone);
-        OpSwitch(binding, invalid_label,
+        OpSwitch(selector, invalid_label,
                  std::span{buf_literals}.first(bank_count),
                  std::span{buf_labels}.first(bank_count));
         for (u32 i = 0; i < bank_count; ++i) {
@@ -1226,29 +1241,29 @@ void EmitContext::DefineConstantBufferIndirectFunctions(const Info& info) {
     bool supports_aliasing = profile.support_descriptor_aliasing;
     if (supports_aliasing && True(types & IR::Type::U8)) {
         if (profile.support_int8 && profile.support_uniform_and_storage_buffer_8bit) {
-            load_const_func_u8 = make_accessor(U8, &UniformDefinitions::U8);
+            load_const_func_u8 = make_accessor(U8, &UniformDefinitions::U8, 1);
         } else {
             types |= IR::Type::U32;
         }
     }
     if (supports_aliasing && True(types & IR::Type::U16)) {
         if (profile.support_int16 && profile.support_uniform_and_storage_buffer_16bit) {
-            load_const_func_u16 = make_accessor(U16, &UniformDefinitions::U16);
+            load_const_func_u16 = make_accessor(U16, &UniformDefinitions::U16, 2);
         } else {
             types |= IR::Type::U32;
         }
     }
     if (supports_aliasing && True(types & IR::Type::F32)) {
-        load_const_func_f32 = make_accessor(F32[1], &UniformDefinitions::F32);
+        load_const_func_f32 = make_accessor(F32[1], &UniformDefinitions::F32, 4);
     }
     if (supports_aliasing && True(types & IR::Type::U32)) {
-        load_const_func_u32 = make_accessor(U32[1], &UniformDefinitions::U32);
+        load_const_func_u32 = make_accessor(U32[1], &UniformDefinitions::U32, 4);
     }
     if (supports_aliasing && True(types & IR::Type::U32x2)) {
-        load_const_func_u32x2 = make_accessor(U32[2], &UniformDefinitions::U32x2);
+        load_const_func_u32x2 = make_accessor(U32[2], &UniformDefinitions::U32x2, 8);
     }
     if (!supports_aliasing || True(types & IR::Type::U32x4)) {
-        load_const_func_u32x4 = make_accessor(U32[4], &UniformDefinitions::U32x4);
+        load_const_func_u32x4 = make_accessor(U32[4], &UniformDefinitions::U32x4, 16);
     }
 }
 
