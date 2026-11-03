@@ -114,6 +114,39 @@ NativeSpirvResult CompileReviewedNativeComputeSpirv(
         if (ir.stage != Shader::Stage::Compute || ir.blocks.empty())
             return {NativeSpirvStatus::CompilationFailed, {}};
         Shader::Maxwell::ConvertLegacyToGeneric(ir, runtime_info);
+        // The shared SPIR-V global load/store accessor directly reads
+        // cbufs[bank].U32x2 (address) and .U32 (length). Those uniform
+        // types must exist even when the Ampere guest's direct LDC usage
+        // never referenced them. Do this ONLY for the native Compute IR;
+        // the Switch 1 translator and renderer remain untouched.
+        if (ir.info.uses_global_memory) {
+            if (!profile.support_int64 || !profile.support_descriptor_aliasing ||
+                ir.info.storage_buffers_descriptors.empty() ||
+                ir.info.storage_buffers_descriptors.size() >
+                    ir.info.nvn_buffer_used.size())
+                return {NativeSpirvStatus::CompilationFailed, {}};
+            bool any_used = false;
+            for (std::size_t i = 0;
+                 i < ir.info.storage_buffers_descriptors.size(); ++i) {
+                const auto& storage = ir.info.storage_buffers_descriptors[i];
+                if (storage.count != 1)
+                    return {NativeSpirvStatus::CompilationFailed, {}};
+                if (!ir.info.nvn_buffer_used.test(i)) continue;
+                any_used = true;
+                bool bank_declared = false;
+                for (const auto& cbuf : ir.info.constant_buffer_descriptors) {
+                    if (storage.cbuf_index >= cbuf.index &&
+                        storage.cbuf_index - cbuf.index < cbuf.count)
+                        bank_declared = true;
+                }
+                if (!bank_declared)
+                    return {NativeSpirvStatus::CompilationFailed, {}};
+            }
+            if (!any_used)
+                return {NativeSpirvStatus::CompilationFailed, {}};
+            ir.info.used_constant_buffer_types |=
+                Shader::IR::Type::U32 | Shader::IR::Type::U32x2;
+        }
         Shader::Backend::Bindings bindings{initial_bindings};
         auto words = Shader::Backend::SPIRV::EmitSPIRV(profile, runtime_info, ir, bindings);
         if (words.size() <= 5 || words.size() > 262144 ||
