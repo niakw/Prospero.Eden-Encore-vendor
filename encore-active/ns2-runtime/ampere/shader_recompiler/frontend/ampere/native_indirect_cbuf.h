@@ -5,10 +5,20 @@
 // creates fourteen for register-indexed loads. Narrow reflection ONLY after
 // translating a reviewed NS2 Compute IR; never patch the shared collector or
 // introduce fabricated guest uniform buffers.
+#include <algorithm>
+#include <array>
 #include "shader_recompiler/frontend/ir/program.h"
 
 namespace Shader::Ampere {
 inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
+
+// SPIR-V can emit a 16-byte uniform-vector load even for a narrower source
+// opcode when descriptor aliasing is unavailable. Conservatively round a
+// statically addressed CBUF read to the complete 16-byte record. Zero means
+// an invalid offset outside the hardware's 64-KiB shader-CBUF window.
+[[nodiscard]] constexpr u32 NativeQmdStaticCbufReadExtent(u32 byte_offset) noexcept {
+    return byte_offset < 0x10000U ? (byte_offset | 15U) + 1U : 0U;
+}
 
 [[nodiscard]] inline bool NormalizeNativeQmdIndirectCbufMetadata(Shader::Info& info,
                                                                 u32 enabled_mask = 0xffU) {
@@ -45,10 +55,13 @@ inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
 [[nodiscard]] inline bool NormalizeNativeQmdIndirectCbufIR(Shader::IR::Program& program,
                                                           u32 enabled_mask = 0xffU) {
     if (!program.info.uses_cbuf_indirect) return true;
-    // The collector's all-bank declaration loses the distinction between
-    // implicit indirect slots and explicit direct loads. Check the actual
-    // IR first: a literal bank >=8 is not a QMD3 resource, even if another
-    // dynamic load made it appear in the original fourteen-slot metadata.
+    // Check all actual CBUF loads before narrowing the generic fourteen-bank
+    // reflection. A dynamic bank selector can touch any enabled slot; the
+    // offset may be narrowed only if EVERY load uses a literal byte offset.
+    // The backend may load an aligned 16-byte vector for a narrow operation.
+    std::array<u32, kNativeQmdIndirectCbufBanks> read_extents{};
+    bool has_register_indexed_read = false;
+    bool all_offsets_static = true;
     for (const Shader::IR::Block* const block : program.blocks) {
         for (const Shader::IR::Inst& inst : block->Instructions()) {
             switch (inst.GetOpcode()) {
@@ -58,19 +71,57 @@ inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
             case Shader::IR::Opcode::GetCbufS16:
             case Shader::IR::Opcode::GetCbufU32:
             case Shader::IR::Opcode::GetCbufF32:
-            case Shader::IR::Opcode::GetCbufU32x2:
-                if (inst.Arg(0).IsImmediate()) {
-                    const u32 bank = inst.Arg(0).U32();
+            case Shader::IR::Opcode::GetCbufU32x2: {
+                const auto index = inst.Arg(0);
+                const auto offset = inst.Arg(1);
+                if (index.IsImmediate()) {
+                    const u32 bank = index.U32();
                     if (bank >= kNativeQmdIndirectCbufBanks ||
                         !(enabled_mask & (u32{1} << bank)))
                         return false;
+                } else {
+                    has_register_indexed_read = true;
+                }
+                if (!offset.IsImmediate()) {
+                    all_offsets_static = false;
+                    break;
+                }
+                const u32 extent = NativeQmdStaticCbufReadExtent(offset.U32());
+                if (!extent) return false;
+                if (index.IsImmediate()) {
+                    auto& current = read_extents[index.U32()];
+                    current = (std::max)(current, extent);
+                } else {
+                    for (u32 bank = 0; bank < kNativeQmdIndirectCbufBanks; ++bank)
+                        if (enabled_mask & (u32{1} << bank))
+                            read_extents[bank] = (std::max)(read_extents[bank], extent);
                 }
                 break;
+            }
             default:
                 break;
             }
         }
     }
-    return NormalizeNativeQmdIndirectCbufMetadata(program.info, enabled_mask);
+    if (!NormalizeNativeQmdIndirectCbufMetadata(program.info, enabled_mask))
+        return false;
+    const auto& info = program.info;
+    // NVN global memory, image and storage handle readers use CBUF regions
+    // outside the explicit GetCbuf IR opcodes. Keep the full 64-KiB
+    // conservative requirement for these layouts and dynamic offsets.
+    if (!has_register_indexed_read || !all_offsets_static ||
+        info.uses_global_memory || info.stores_global_memory ||
+        !info.storage_buffers_descriptors.empty() ||
+        !info.texture_buffer_descriptors.empty() ||
+        !info.image_buffer_descriptors.empty() ||
+        !info.texture_descriptors.empty() ||
+        !info.image_descriptors.empty())
+        return true;
+    for (u32 bank = 0; bank < kNativeQmdIndirectCbufBanks; ++bank) {
+        if (!(enabled_mask & (u32{1} << bank))) continue;
+        if (!read_extents[bank]) return false;
+        program.info.constant_buffer_used_sizes[bank] = read_extents[bank];
+    }
+    return true;
 }
 } // namespace Shader::Ampere
