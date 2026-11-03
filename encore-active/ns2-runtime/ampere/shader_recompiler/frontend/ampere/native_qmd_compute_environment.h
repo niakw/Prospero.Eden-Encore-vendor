@@ -4,6 +4,7 @@
 // Native Ampere QMD3 Compute metadata for the reviewed Maxwell/SPIR-V bridge.
 // No Switch 1 Kepler launch-descriptor reinterpretation: those legacy fields
 // truncate NS2 constant-buffer addresses above 40 bits and local memory sizes.
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
