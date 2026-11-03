@@ -2258,8 +2258,16 @@ void TextureCacheRuntime::TickFrame() {
     // sentenced framebuffer ring is ticked immediately before this runtime.
     static constexpr u64 MIN_TEXTURE_RETIRE_FRAMES = 8;
     const auto ready = [this, is_free](const auto& pending) {
-        return is_free(pending.tick) &&
-               gpu_retire_frame - pending.frame >= MIN_TEXTURE_RETIRE_FRAMES;
+        const bool gpu_completed = is_free(pending.tick) &&
+            gpu_retire_frame - pending.frame >= MIN_TEXTURE_RETIRE_FRAMES;
+#if defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+        // A guest remap/eviction can race a freshly acquired native image
+        // before that dispatch flushes its timeline. Do not destroy the REAL
+        // VkImage or VkImageView until its final fence-held pin is released.
+        return gpu_completed && pending.resource->CanRetireNativeGpu();
+#else
+        return gpu_completed;
+#endif
     };
     std::erase_if(pending_retired_views, ready);
     std::erase_if(pending_retired_images, ready);
