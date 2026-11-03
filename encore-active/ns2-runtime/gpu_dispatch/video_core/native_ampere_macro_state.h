@@ -109,8 +109,17 @@ public:
                         "invalid guest MME register read"};
             return result;
         }
-        for (const auto& [address, value] : pending)
-            commit(address, value);
+        // The external GPU method owner can throw during commit. Restore
+        // channel-local DRAM even then; published GPU methods cannot be
+        // undone here, so the Puller MUST poison the native channel on
+        // that exception rather than resume a partially applied macro.
+        try {
+            for (const auto& [address, value] : pending)
+                commit(address, value);
+        } catch (...) {
+            dram = old_dram;
+            throw;
+        }
         return result;
     }
     [[nodiscard]] std::size_t UploadedWords() const {return uploaded;}

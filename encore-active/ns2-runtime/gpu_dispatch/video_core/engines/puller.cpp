@@ -427,9 +427,17 @@ void Puller::CallNative3D(DmaPusher& pusher, u32 method,
         const auto commit = [&](u32 addr, u32 value) {
             engine.CallMethod(pusher.system, addr, value, true);
         };
-        const auto outcome = native_3d->ExecuteStaged(
-            native_macro_method, std::span<const u32>{native_parameters},
-            read, allowed, commit, [&] { return !bad_read; });
+        Tegra::NativeAmpereMacroState::Result outcome{};
+        try {
+            outcome = native_3d->ExecuteStaged(
+                native_macro_method, std::span<const u32>{native_parameters},
+                read, allowed, commit, [&] { return !bad_read; });
+        } catch (...) {
+            // A method commit may already have reached the GPU. Retire
+            // this native channel, never resume its partially applied MME.
+            fail("native 3D MME staging/commit exception");
+            return;
+        }
         native_macro_method=0;
         native_parameters.clear();
         if (!outcome.success || bad_read) {
@@ -542,10 +550,18 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
                     ProcessNativeComputeInlineQmd(pusher, subchannel);
             }
         };
-        const auto result = native_compute->ExecuteStaged(
-            native_compute_macro_method, native_compute_parameters,
-            read, allowed, commit,
-            [&] { return !invalid_compute_register_read; });
+        Tegra::NativeAmpereMacroState::Result result{};
+        try {
+            result = native_compute->ExecuteStaged(
+                native_compute_macro_method, native_compute_parameters,
+                read, allowed, commit,
+                [&] { return !invalid_compute_register_read; });
+        } catch (...) {
+            // Part of a QMD/PCAS method sequence might have committed.
+            // Never resume this native Compute channel after an exception.
+            fail("native Compute MME staging/commit exception");
+            return;
+        }
         native_compute_macro_method = 0;
         native_compute_parameters.clear();
         if (!result.success || invalid_compute_register_read)
