@@ -462,7 +462,17 @@ Core::Memory::Memory& nvhost_gpu::GetSessionMemory(DeviceFD fd) {
 NvResult nvhost_gpu::SubmitGPFIFOBase1(IoctlSubmitGpfifo& params,
                                        std::span<Tegra::CommandListHeader> commands, DeviceFD fd,
                                        bool kickoff) {
-    if (params.num_entries > commands.size()) {
+    // Kickoff H:0x1b passes only the fixed ioctl header. Its GPFIFO list
+    // lives in guest memory at params.address, NOT in the inline variable
+    // span (which may legitimately be empty). Comparing its count against
+    // commands.size() silently rejected the native GPU's first submission.
+    // Bound pointer-backed lists independently before allocation/guest read.
+    constexpr u32 MaxKickoffEntries = 1U << 16; // 512 KiB of 8-byte headers
+    if (kickoff) {
+        if (params.num_entries > MaxKickoffEntries ||
+            (params.num_entries != 0 && params.address == 0))
+            return NvResult::InvalidSize;
+    } else if (params.num_entries > commands.size()) {
         UNIMPLEMENTED();
         return NvResult::InvalidSize;
     }
