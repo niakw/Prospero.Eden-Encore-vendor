@@ -85,6 +85,37 @@ private:
     // become a valid-looking native shader whose Vulkan binding will fail.
     if (enabled_mask & ~u32{0xff}) return false;
     if (!program.info.uses_cbuf_indirect) {
+        // Reflection without uses_cbuf_indirect must NEVER hide an actual
+        // register-selected CBUF operation: the SPIR-V backend would otherwise
+        // call an uncreated indirect-load function. Also check the 64-KiB
+        // offset domain for statically addressed CBUFs in this path.
+        for (const Shader::IR::Block* const block : program.blocks) {
+            for (const Shader::IR::Inst& inst : block->Instructions()) {
+                switch (inst.GetOpcode()) {
+                case Shader::IR::Opcode::GetCbufU8:
+                case Shader::IR::Opcode::GetCbufS8:
+                case Shader::IR::Opcode::GetCbufU16:
+                case Shader::IR::Opcode::GetCbufS16:
+                case Shader::IR::Opcode::GetCbufU32:
+                case Shader::IR::Opcode::GetCbufF32:
+                case Shader::IR::Opcode::GetCbufU32x2: {
+                    const auto bank_value = inst.Arg(0);
+                    const auto offset_value = inst.Arg(1);
+                    if (!bank_value.IsImmediate()) return false;
+                    const u32 bank = bank_value.U32();
+                    if (bank >= kNativeQmdIndirectCbufBanks ||
+                        !(enabled_mask & (u32{1} << bank)))
+                        return false;
+                    if (offset_value.IsImmediate() &&
+                        !NativeQmdStaticCbufReadExtent(offset_value.U32()))
+                        return false;
+                    break;
+                }
+                default:
+                    break;
+                }
+            }
+        }
         u32 declared_mask{};
         for (const auto& desc : program.info.constant_buffer_descriptors) {
             if (!desc.count || desc.index >= kNativeQmdIndirectCbufBanks ||
