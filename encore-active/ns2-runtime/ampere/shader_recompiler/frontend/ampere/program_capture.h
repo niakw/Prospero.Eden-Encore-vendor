@@ -139,10 +139,20 @@ inline std::vector<CaptureIndirectBranch> TrackCaptureIndirectBranches(std::span
         }
         if (!maximum)
             continue;
+        // CBUF tables cannot wrap the 64-KiB shader constant-buffer
+        // address space. The last entry must be entirely mapped, with
+        // U32 alignment; rejecting the motif here prevents a future GPU
+        // reader from probing an unrelated bank or a wrapped offset.
+        const u32 bank = (load.words[1] >> 22) & 0x1f;
+        const u32 offset = (load.words[1] >> 6) & 0xffff;
+        const u32 entries = *maximum + 1;
+        if (bank >= 18 || (offset & 3U) ||
+            offset > 0x10000U - entries * sizeof(u32))
+            continue;
         result.push_back({.index = branch_index,
-                          .cbuf_index = (load.words[1] >> 22) & 0x1f,
-                          .cbuf_offset = (load.words[1] >> 6) & 0xffff,
-                          .entries = *maximum + 1});
+                          .cbuf_index = bank,
+                          .cbuf_offset = offset,
+                          .entries = entries});
     }
     return result;
 }

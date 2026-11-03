@@ -109,10 +109,13 @@ NativeCaptureResult CaptureNativeShader(
             for (u32 b = 0; b < 4; ++b)
                 inst.words[w] |= u32{bytes[w * 4 + b]} << (8 * b);
         }
-        // BRX uses a constant-buffer jump table that the standalone
-        // adapter cannot resolve. Never accept a truncated linear capture
-        // as a valid shader with arbitrary unseen branch destinations.
-        if (inst.Bits(0, 12) == 0x949) {
+        // BRX and BRXU both use computed native-PC targets. The Maxwell
+        // CFG reads their guest CBUF table as Maxwell addresses, which is
+        // invalid without a complete native-PC -> Maxwell-PC remap AND a
+        // matching shader-visible index transform. Do not publish a partial
+        // linear shader or silently accept uniform BRXU either.
+        const u32 opcode = inst.Bits(0, 12);
+        if (opcode == 0x949 || opcode == 0x958) {
             result.status = NativeCaptureStatus::UnresolvedIndirectBranch;
             result.first_error_offset = header_bytes + index * sizeof(Instruction);
             return result;
