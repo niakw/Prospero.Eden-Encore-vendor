@@ -169,8 +169,15 @@ struct NativeQmdResourcePlan {
               typename Rollback>
     [[nodiscard]] bool StageVulkanBufferBindings(
         IsMapped&& mapped, BindUniform&& bind_uniform,
-        BindStorage&& bind_storage, Rollback&& rollback) const {
-        if (!ValidateGpuMappings(mapped)) return false;
+        BindStorage&& bind_storage, Rollback&& rollback,
+        bool image_descriptors_fence_owned = false) const {
+        // The original buffer-only policy remains strict. An image shader
+        // may stage its independent CBUF/SSBO spans only after the renderer
+        // presents real pinned TextureCache image/sampler descriptors.
+        if (!(image_descriptors_fence_owned
+                  ? ValidateGpuBufferMappings(mapped)
+                  : ValidateGpuMappings(mapped)))
+            return false;
         bool staged{};
         // Rollback is a one-shot operation. A failing cleanup callback must
         // never be re-entered by this function's exception handler, since
