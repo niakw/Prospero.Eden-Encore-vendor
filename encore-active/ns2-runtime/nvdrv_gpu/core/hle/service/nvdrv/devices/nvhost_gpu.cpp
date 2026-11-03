@@ -508,8 +508,12 @@ NvResult nvhost_gpu::SubmitGPFIFOBase2(IoctlSubmitGpfifo& params,
     }
 
     Tegra::CommandList entries(params.num_entries);
-    std::memcpy(entries.command_lists.data(), commands.data(),
-                params.num_entries * sizeof(Tegra::CommandListHeader));
+    // Ioctl2 H:0x1b may carry a fence-only zero-entry submit, just like
+    // Ioctl H:0x1b/H:0x8. A zero-length memcpy on null vector/span data
+    // pointers is not guaranteed valid by the C/C++ memory contract.
+    if (params.num_entries != 0)
+        std::memcpy(entries.command_lists.data(), commands.data(),
+                    params.num_entries * sizeof(Tegra::CommandListHeader));
     return SubmitGPFIFOImpl(params, std::move(entries), fd);
 }
 
