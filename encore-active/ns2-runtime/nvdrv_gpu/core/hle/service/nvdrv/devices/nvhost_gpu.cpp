@@ -479,6 +479,16 @@ NvResult nvhost_gpu::SubmitGPFIFOBase1(IoctlSubmitGpfifo& params,
         const auto* session = it == sessions.end() ? nullptr : core.GetSession(it->second);
         if (!session || !session->process)
             return NvResult::InvalidState;
+        // A native FIFO pointer is guest-controlled. A partial/unmapped
+        // ReadBlock can return zero-filled commands yet still acknowledge
+        // the GPU fence as if real work had been submitted. Require that
+        // every header belongs to this FD's actual guest address space.
+        if (UsesNativeAbi(fd) && params.num_entries != 0 &&
+            !session->process->GetMemory().IsValidVirtualAddressRange(
+                params.address,
+                static_cast<std::size_t>(params.num_entries) *
+                    sizeof(Tegra::CommandListHeader)))
+            return NvResult::InvalidSize;
     } else if (params.num_entries > commands.size()) {
         UNIMPLEMENTED();
         return NvResult::InvalidSize;
