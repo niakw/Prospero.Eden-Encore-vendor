@@ -51,6 +51,12 @@ public:
         pending[0] = {address, argument & 15, ((argument >> 14) & 0x3ff) + 1};
         for (std::size_t i = 0; i < count; ++i) {
             const auto request = pending[i];
+            // PCAS actions 0/1 do not read, schedule, or modify a QMD.
+            // Never allocate a persistent state for them: an untrusted
+            // no-op stream can otherwise fill all 4096 entries and prevent
+            // legitimate Ampere compute launches from entering the cache.
+            if (request.action == 0 || request.action == 1)
+                continue;
             if (states.size() >= 4096 && !states.contains(request.address)) {
                 // Finished QMDs with nothing deferred are only history, drop them instead of stalling.
                 std::erase_if(states, [](const auto& entry) {
@@ -100,8 +106,6 @@ public:
                 if (!dependencies) return "QMD dependency overflow";
                 state.dependencies = *dependencies;
                 if (trace) trace("count", request.address, state.dependencies);
-            } else if (request.action == 0 || request.action == 1) {
-                continue;
             } else {
                 return "unsupported PCAS action";
             }
