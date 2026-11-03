@@ -277,9 +277,13 @@ struct NativeQmdResourcePlan {
         if (!info.nvn_buffer_used.test(i)) continue;
         has_used_slot = true;
         const auto& storage = plan.storage_buffers[i];
+        // Global stores can target any NVN-used descriptor at runtime.
+        // The shared BufferCache must mark every such binding writable,
+        // otherwise Vulkan writes would never be downloaded to guest RAM.
         if (!storage.known_size || !storage.bytes ||
             !storage.gpu_address ||
-            (storage.gpu_address % host_ssbo_alignment))
+            (storage.gpu_address % host_ssbo_alignment) ||
+            (info.stores_global_memory && !storage.is_written))
             return false;
     }
     return has_used_slot;
