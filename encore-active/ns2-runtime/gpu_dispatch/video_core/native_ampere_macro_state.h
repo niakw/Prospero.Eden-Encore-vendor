@@ -91,13 +91,18 @@ public:
             return true;
         };
         Result result{};
+        bool validation_ok{};
         try {
             result = Execute(macro_method, parameters, stage_read, stage_emit);
+            // Validation is part of staging. If the channel epoch or a
+            // register-read validator throws, restore MME DRAM before the
+            // caller rejects the invocation; no methods have been committed.
+            if (result.success) validation_ok = valid();
         } catch (...) {
             dram = old_dram;
             throw;
         }
-        if (!result.success || !valid()) {
+        if (!result.success || !validation_ok) {
             dram = old_dram;
             if (result.success)
                 return {false, result.pc, result.consumed,
