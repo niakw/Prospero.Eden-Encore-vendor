@@ -33,14 +33,18 @@ NativeCaptureResult CaptureNativeShader(
                   stage == static_cast<u32>(Shader::Stage::Compute))
         return result;
     const u64 header_bytes = compute ? 0 : NativeHeaderBytes;
+    // Only the first native word must fit at admission. Later branches and
+    // sparse shader pages are validated individually during their actual
+    // reads; a short shader near the 49-bit ceiling is still legitimate.
     if (!read || !NativeGpuRange49(
-            gpu_base, header_bytes +
-            u64{MaxCapturedInstructions} * sizeof(Instruction)))
+            gpu_base, header_bytes + sizeof(Instruction)))
         return result;
 
     // Every guest GPU read can fail concurrently with an unmap. Capture
     // must report Unmapped, not propagate exceptions to the GPU worker.
     const auto checked_read = [&](u64 address, void* dest, std::size_t bytes) {
+        if (!NativeGpuRange49(address,bytes))
+            return false;
         try {
             return read(context, address, dest, bytes);
         } catch (const std::exception&) {
