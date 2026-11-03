@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cmath>
 #include "common/logging.h"
+#include "common/settings.h"
 #include <memory>
 #include <limits>
 #include <chrono>
@@ -118,8 +119,9 @@ public:
             // The upstream NX2 service acknowledges these without changing
             // display/producer state. Keep other unknown IDs fail-closed.
             {51,&IVi2Session::AcknowledgeDisplayPoll,"ConfigureRequestGroups"},
-            {104,&IVi2Session::AcknowledgeDisplayPoll,"QueryDisplayState104"},
-            {105,&IVi2Session::AcknowledgeDisplayPoll,"QueryDisplayState105"},
+            {103,&IVi2Session::QueryRefreshRate,"QueryDisplayRefreshRate"},
+            {104,&IVi2Session::QueryHdrStatus,"QueryDisplayHdrStatus"},
+            {105,&IVi2Session::QueryPaperWhite,"QueryDisplayHdrPaperWhite"},
             {101,&IVi2Session::Open,"OpenDisplay"},
             {102,&IVi2Session::Close,"CloseDisplay"},
             {201,&IVi2Session::Register,"RegisterClientState"},
@@ -184,13 +186,45 @@ private:
         m_notes[bit/32]|=1U<<(bit%32);
         if(m_event)m_event->Signal(kernel);
     }
+    // Validate native TIPC request shape, display identity and live VI
+    // session. A bare success would leave stale guest message-buffer words
+    // as HDR or output-mode data, producing invalid GPU color constants.
+    Result ValidateDisplayStatus(HLERequestContext& ctx, u32 command) const {
+        const auto* packet = ctx.CommandBuffer();
+        if (!GraphicsSupervisorProtocol::IsDefaultVi2DisplayQuery(
+                packet[0], packet[1], W(packet, 2), command))
+            return Kernel::ResultInvalidCombination;
+        return m_display && m_vi ? ResultSuccess : Kernel::ResultInvalidState;
+    }
     void AcknowledgeDisplayPoll(HLERequestContext& ctx) {
-        // Native NX2 VI2 SDK request-group configuration (51) and
-        // display polling (104/105) have no observed output payload.
-        // Match the bounded upstream compatibility reply; unknown VI2
-        // commands still pass through the explicit NotImplemented path.
+        // Only the request-group configure command 51 has no output payload.
+        // Unknown commands still fail through the TIPC NotImplemented path.
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess.raw);
+    }
+    void QueryRefreshRate(HLERequestContext& ctx) {
+        const Result result = ValidateDisplayStatus(ctx, 103);
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(result.raw);
+        rb.Push<u32>(result.IsSuccess()
+                          ? GraphicsSupervisorProtocol::Vi2NominalRefreshRateHz : 0);
+        rb.Push<u32>(0); // SDK's refresh-rate capability boolean.
+    }
+    void QueryHdrStatus(HLERequestContext& ctx) {
+        const Result result = ValidateDisplayStatus(ctx, 104);
+        IPC::ResponseBuilder rb{ctx, 5};
+        rb.Push(result.raw);
+        rb.Push<u64>(result.IsSuccess()
+                          ? GraphicsSupervisorProtocol::Vi2SdrOutputFormat : 0);
+        rb.Push<u32>(result.IsSuccess()
+                          ? GraphicsSupervisorProtocol::Vi2SdrPeakNits : 0);
+    }
+    void QueryPaperWhite(HLERequestContext& ctx) {
+        const Result result = ValidateDisplayStatus(ctx, 105);
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(result.raw);
+        rb.Push<u32>(result.IsSuccess()
+                          ? GraphicsSupervisorProtocol::Vi2SdrPaperWhiteNits : 0);
     }
     void Limit(HLERequestContext& ctx) {
         const auto* p=ctx.CommandBuffer();
@@ -421,21 +455,26 @@ private:
         IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
     }
     void MaxResolution(HLERequestContext& ctx) {
-        const auto* p=ctx.CommandBuffer();
-        Result result=Kernel::ResultInvalidCombination;
+        // The SDK asks for the emulated Switch 2 display's maximum buffer
+        // tier, not the PS5 output resolution. A hard-coded 720p mode made
+        // 1080p/1440p guests silently select a reduced fallback pipeline.
+        const auto* p = ctx.CommandBuffer();
+        Result result = ValidateDisplayStatus(ctx, 106);
         u64 mode{};
-        if(p[0]==0x7a&&p[1]==2&&W(p,2)==Default){
-            result=Kernel::ResultInvalidState;
-            if(m_display&&m_vi){
-                s64 width{},height{};
-                result=m_vi->GetDisplayResolution(&width,&height,*m_display);
-                if(result.IsSuccess()){
-                    result=Kernel::ResultNotImplemented;
-                    if(width==1280&&height==720){mode=1;result=ResultSuccess;}
-                }
+        if (result.IsSuccess()) {
+            s64 width{}, height{};
+            result = m_vi->GetDisplayResolution(&width, &height, *m_display);
+            if (result.IsSuccess()) {
+                if (width > 0 && height > 0)
+                    mode = GraphicsSupervisorProtocol::Vi2MaxResolutionMode(
+                        Settings::IsDockedMode());
+                else
+                    result = Kernel::ResultNotImplemented;
             }
         }
-        IPC::ResponseBuilder rb{ctx,4};rb.Push(result.raw);rb.Push(mode);
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(result.raw);
+        rb.Push(mode);
     }
     void Encoding(HLERequestContext& ctx) {
         const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;

@@ -15,6 +15,27 @@
 
 namespace Service::AM::GraphicsSupervisorProtocol {
 
+// Native VI2 display capability replies are device-wide SDK contracts, not
+// game-specific overrides. Keep this policy shared by the service and the
+// Clang/GCC HLE tests; unknown displays and malformed requests fail closed.
+constexpr u64 Vi2DefaultDisplayName = 0x00746c7561666564ULL; // "default"
+[[nodiscard]] constexpr bool IsDefaultVi2DisplayQuery(
+    u32 header, u32 word_count, u64 display_name, u32 command) noexcept {
+    return command >= 103 && command <= 106 &&
+           header == command + 16 && word_count == 2 &&
+           display_name == Vi2DefaultDisplayName;
+}
+[[nodiscard]] constexpr u64 Vi2MaxResolutionMode(bool docked) noexcept {
+    // SDK-defined tier: 4 = 2560x1440 docked, 2 = 1920x1080 handheld.
+    // This describes the emulated Switch 2 display, not host PS5 output.
+    return docked ? 4ULL : 2ULL;
+}
+constexpr u32 Vi2NominalRefreshRateHz = 60;
+constexpr u64 Vi2SdrOutputFormat = 1;
+constexpr u32 Vi2SdrPeakNits = 400;
+constexpr u32 Vi2SdrPaperWhiteNits = 203;
+
+
 constexpr size_t RequestGroupCount = 8;
 
 enum class RequestGroupDuplicateStatus {
