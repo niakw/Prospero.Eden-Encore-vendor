@@ -16,6 +16,7 @@
 #include "video_core/host1x/host1x.h"
 #include "video_core/invalidation_accumulator.h"
 #include "video_core/memory_manager.h"
+#include "native_paged_scalar.h"
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
 #include "video_core/ns2_egl_gpu_range_batch.h"
 #endif
@@ -263,26 +264,27 @@ std::optional<DAddr> MemoryManager::GpuToCpuAddress(GPUVAddr addr, std::size_t s
 
 template <typename T>
 T MemoryManager::Read(GPUVAddr addr) const {
-    if (auto page_pointer{GetPointer(addr)}; page_pointer) {
-        // NOTE: Avoid adding any extra logic to this fast-path block
-        T value;
-        std::memcpy(&value, page_pointer, sizeof(T));
+    T value{};
+    // The physical backing of consecutive guest GPU 4 KiB pages need not
+    // be contiguous. This shared NS1/NS2 owner preserves the single-page
+    // fast path while translating cross-page scalars one page at a time.
+    if (Eden::GpuScalar::Read(addr, value, [this](u64 gpu_addr) {
+            return GetPointer(gpu_addr);
+        }))
         return value;
-    }
-
     ASSERT(false);
-
     return {};
 }
 
 template <typename T>
 void MemoryManager::Write(GPUVAddr addr, T data) {
-    if (auto page_pointer{GetPointer(addr)}; page_pointer) {
-        // NOTE: Avoid adding any extra logic to this fast-path block
-        std::memcpy(page_pointer, &data, sizeof(T));
+    // Resolve both physical pages before writing any bytes. A missing
+    // trailing page is a refused write, never a partial/cross-allocation
+    // modification of another guest resource.
+    if (Eden::GpuScalar::Write(addr, data, [this](u64 gpu_addr) {
+            return GetPointer(gpu_addr);
+        }))
         return;
-    }
-
     ASSERT(false);
 }
 
