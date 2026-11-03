@@ -621,6 +621,130 @@ typename P::Framebuffer* TextureCache<P>::GetFramebuffer() {
     return &slot_framebuffers[framebuffer_id];
 }
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+// NS2 and NS1 use one TextureCache channel map, image slots and invalidation
+// path. Native callers have already authenticated their TIC and 49-bit GMMU.
+// Never run legacy IsValidEntry here: its 40-bit VA limit is Maxwell-only.
+template <class P>
+bool TextureCache<P>::NativeChannelMatches(
+    const Tegra::Engines::KeplerCompute& expected_compute,
+    const Tegra::MemoryManager& expected_memory) const noexcept {
+    // ChannelSetupCaches can switch the active space without changing the
+    // TIC bytes. Require both the actual engine and GMMU identity under
+    // texture_cache.mutex; the process registry's epoch is checked outside.
+    // BindToChannel/EraseChannel mutate these pointers under config_mutex.
+    // The renderer holds texture_cache.mutex; take the configuration lock
+    // briefly as well so a concurrent channel switch cannot race this proof.
+    std::scoped_lock channel_lock{config_mutex};
+    return channel_state && gpu_memory &&
+           kepler_compute == &expected_compute &&
+           gpu_memory == &expected_memory &&
+           &channel_state->kepler_compute == &expected_compute &&
+           &channel_state->gpu_memory == &expected_memory;
+}
+
+template <class P>
+ImageViewId TextureCache<P>::AcquireNativeImageView(
+    const Tegra::Engines::KeplerCompute& expected_compute,
+    const Tegra::MemoryManager& expected_memory,
+    const TICEntry& descriptor, bool is_written) {
+    // BindToChannel/EraseChannel use config_mutex, NOT texture_cache.mutex.
+    // A standalone NativeChannelMatches() returns with that lock released;
+    // the channel may change before image_views is accessed. Hold the same
+    // configuration lock through slot lookup, creation and preparation.
+    // The caller already holds texture_cache.mutex (lock order: texture,
+    // then config), exactly as NativeChannelMatches() does.
+    std::scoped_lock channel_lock{config_mutex};
+    if (!channel_state || !gpu_memory ||
+        kepler_compute != &expected_compute ||
+        gpu_memory != &expected_memory ||
+        &channel_state->kepler_compute != &expected_compute ||
+        &channel_state->gpu_memory != &expected_memory)
+        return NULL_IMAGE_VIEW_ID;
+    // Suppress only same-thread nested getStorageID locking while the
+    // configuration lease remains live; never waive locks on other threads.
+    const auto prior_native_owner = native_channel_lock_owner;
+    native_channel_lock_owner = this;
+    SCOPE_EXIT { native_channel_lock_owner = prior_native_owner; };
+    const auto [pair, is_new] = channel_state->image_views.try_emplace(descriptor);
+    bool remapped = false;
+    if (pair->second != NULL_IMAGE_VIEW_ID) {
+        const ImageViewBase& view = slot_image_views[pair->second];
+        remapped = !view.IsBuffer() &&
+            True(slot_images[view.image_id].flags & ImageFlagBits::Remapped);
+    }
+    // Invalidated NULL and remapped slots are always retried. A guest image
+    // that failed to map once must never poison this channel forever.
+    if (is_new || pair->second == NULL_IMAGE_VIEW_ID || remapped) {
+        const ImageViewId fresh = CreateImageView(descriptor);
+        if (fresh != pair->second) ++texture_bindings_serial;
+        pair->second = fresh;
+    }
+    if (pair->second != NULL_IMAGE_VIEW_ID)
+        PrepareImageView(pair->second, is_written, false);
+    return pair->second;
+}
+
+template <class P>
+SamplerId TextureCache<P>::AcquireNativeSampler(
+    const Tegra::Engines::KeplerCompute& expected_compute,
+    const Tegra::MemoryManager& expected_memory,
+    const TSCEntry& descriptor) {
+    // Hold config_mutex until FindSampler has finished its per-channel
+    // lookup. Checking the engine once and unlocking before FindSampler
+    // could publish a sampler belonging to a different channel.
+    std::scoped_lock channel_lock{config_mutex};
+    if (!channel_state || !gpu_memory ||
+        kepler_compute != &expected_compute ||
+        gpu_memory != &expected_memory ||
+        &channel_state->kepler_compute != &expected_compute ||
+        &channel_state->gpu_memory != &expected_memory)
+        return NULL_SAMPLER_ID;
+    // Suppress only same-thread nested getStorageID locking while the
+    // configuration lease remains live; never waive locks on other threads.
+    const auto prior_native_owner = native_channel_lock_owner;
+    native_channel_lock_owner = this;
+    SCOPE_EXIT { native_channel_lock_owner = prior_native_owner; };
+    // FindSampler already owns slot_samplers and the per-channel TSC
+    // descriptor key. No parallel Ampere sampler cache is permitted.
+    return FindSampler(descriptor, true);
+}
+
+template <class P>
+std::optional<typename TextureCache<P>::NativePinnedImageView>
+TextureCache<P>::PinNativeImageView(ImageViewId id) {
+    // Call only under texture_cache.mutex. AcquireNativeImageView has already
+    // checked the live channel under config_mutex. Moving a cache image out
+    // of its slot during an eviction transfers its pin into the retirement
+    // queue, which waits for all external GPU owners before destroying it.
+    if (id == NULL_IMAGE_VIEW_ID || id == ImageViewId{})
+        return std::nullopt;
+    auto& view = slot_image_views[id];
+    if (view.IsBuffer() || view.image_id == NULL_IMAGE_ID ||
+        view.image_id == ImageId{})
+        return std::nullopt;
+    auto& image = slot_images[view.image_id];
+    auto image_pin = image.PinNativeGpu();
+    auto view_pin = view.PinNativeGpu();
+    if (!image_pin || !view_pin)
+        return std::nullopt;
+    return NativePinnedImageView{
+        .id = id,
+        .backing_image = std::move(image_pin),
+        .image_view = std::move(view_pin)};
+}
+
+template <class P>
+std::shared_ptr<u8> TextureCache<P>::PinNativeSampler(SamplerId id) {
+    // Unlike images, the shared sampler slot is not separately evicted.
+    // Still hold an explicit owner until the last native GPU fence releases
+    // its descriptors; the rasterizer Finish drains cache destruction.
+    if (id == NULL_SAMPLER_ID || id == SamplerId{})
+        return {};
+    return slot_samplers[id].PinNativeGpu();
+}
+#endif
+
 template <class P>
 ImageViewId TextureCache<P>::VisitImageView(u32 index, bool compute) {
     auto& table = compute ? channel_state->compute_image_table : channel_state->graphics_image_table;
