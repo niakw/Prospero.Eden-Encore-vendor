@@ -116,7 +116,7 @@ struct NativeQmdResourcePlan {
     }
 
     // Images still require a real pinned TextureCache owner. Unknown
-    // SSBO lengths and indirect CBUFs remain unsupported. Global memory is
+    // SSBO lengths remain unsupported; indirect CBUFs require genuine QMD3 banks. Global memory is
     // admitted ONLY through the reflected, bounded SSBO layout below.
     [[nodiscard]] bool HasResolvedGpuBufferBindings() const noexcept {
         if (requires_memory_layout ||
@@ -1128,8 +1128,7 @@ public:
         // cannot be silently redirected to a Switch 1 constant buffer.
         if ((shader_info.constant_buffer_mask & ~u32{0xff}) != 0 ||
             (shader_info.uses_cbuf_indirect &&
-             (shader_info.constant_buffer_mask != 0xffU ||
-              shader_info.constant_buffer_descriptors.size() != 8)))
+             !shader_info.constant_buffer_mask))
             return std::nullopt;
         u32 declared_banks{};
         for (const auto& desc : shader_info.constant_buffer_descriptors) {
@@ -1149,7 +1148,7 @@ public:
         }
         // A required shader bank without a matching CBUF descriptor cannot
         // be bound. Reject instead of accepting a partial layout.
-        if (shader_info.constant_buffer_mask & ~declared_banks)
+        if (shader_info.constant_buffer_mask != declared_banks)
             return std::nullopt;
         // Shader SSBO descriptors are 16-byte records inside the QMD CBUF
         // (target VA low, target VA high, packed length, tag). The maintained

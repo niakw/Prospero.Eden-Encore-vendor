@@ -102,7 +102,8 @@ NativeSpirvResult CompileReviewedNativeComputeSpirv(
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
-    Shader::Backend::Bindings initial_bindings) {
+    Shader::Backend::Bindings initial_bindings,
+    u32 qmd_enabled_cbuf_mask) {
     if (env.ShaderStage() != Shader::Stage::Compute ||
         !env.Image().ValidForCompiler() ||
         env.Image().native_stage != static_cast<u32>(Shader::Stage::Compute))
@@ -118,7 +119,7 @@ NativeSpirvResult CompileReviewedNativeComputeSpirv(
         Shader::Maxwell::ConvertLegacyToGeneric(ir, runtime_info);
         // QMD3 has eight physical Compute CBUF slots; do not emit the
         // generic fourteen-slot OpSwitch or bind phantom descriptors.
-        if (!NormalizeNativeQmdIndirectCbufIR(ir))
+        if (!NormalizeNativeQmdIndirectCbufIR(ir, qmd_enabled_cbuf_mask))
             return {NativeSpirvStatus::CompilationFailed, {}};
         // The shared SPIR-V global load/store accessor directly reads
         // cbufs[bank].U32x2 (address) and .U32 (length). Those uniform

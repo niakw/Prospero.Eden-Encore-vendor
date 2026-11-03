@@ -1185,21 +1185,21 @@ void EmitContext::DefineConstantBufferIndirectFunctions(const Info& info) {
         // extent from those actual contiguous descriptors: never emit an
         // OpAccessChain through an absent uniform-variable ID. No NS1
         // behavior changes when the normal fourteen banks are declared.
-        u32 bank_count{};
-        while (bank_count < Info::MAX_INDIRECT_CBUFS &&
-               (info.constant_buffer_mask & (u32{1} << bank_count)))
-            ++bank_count;
-        if (!bank_count)
-            throw std::runtime_error("Indirect CBUF has no reflected uniform banks");
         std::array<Id, Info::MAX_INDIRECT_CBUFS> buf_labels{};
         std::array<Sirit::Literal, Info::MAX_INDIRECT_CBUFS> buf_literals{};
-        for (u32 i = 0; i < bank_count; ++i) {
-            buf_labels[i] = OpLabel();
-            buf_literals[i] = Sirit::Literal{i};
+        std::array<u32, Info::MAX_INDIRECT_CBUFS> bank_indices{};
+        u32 bank_count{};
+        for (u32 bank = 0; bank < Info::MAX_INDIRECT_CBUFS; ++bank) {
+            if (!(info.constant_buffer_mask & (u32{1} << bank))) continue;
+            buf_labels[bank_count] = OpLabel();
+            buf_literals[bank_count] = Sirit::Literal{bank};
+            bank_indices[bank_count] = bank;
+            ++bank_count;
         }
-        // Maxwell's original out-of-range default is bank zero. For the
-        // explicitly narrowed native QMD3 layout, undefined bank indices
-        // must instead yield zero without accessing another guest CBUF.
+        if (!bank_count)
+            throw std::runtime_error("Indirect CBUF has no reflected uniform banks");
+        // Maxwell's original out-of-range default is bank zero. A sparse
+        // QMD3 bank set must not alias an absent bank to unrelated memory.
         const Id invalid_label{bank_count < Info::MAX_INDIRECT_CBUFS
                                    ? OpLabel() : buf_labels[0]};
         OpSelectionMerge(merge_label, spv::SelectionControlMask::MaskNone);
@@ -1208,7 +1208,7 @@ void EmitContext::DefineConstantBufferIndirectFunctions(const Info& info) {
                  std::span{buf_labels}.first(bank_count));
         for (u32 i = 0; i < bank_count; ++i) {
             AddLabel(buf_labels[i]);
-            const Id cbuf{cbufs[i].*member_ptr};
+            const Id cbuf{cbufs[bank_indices[i]].*member_ptr};
             const Id access_chain{OpAccessChain(uniform_type, cbuf, u32_zero_value, offset)};
             const Id result{OpLoad(buffer_type, access_chain)};
             OpReturnValue(result);

@@ -81,7 +81,8 @@ struct NativeSpirvResult {
     const Shader::HostTranslateInfo& host_info,
     const Shader::Profile& profile,
     const Shader::RuntimeInfo& runtime_info,
-    Shader::Backend::Bindings initial_bindings = {});
+    Shader::Backend::Bindings initial_bindings = {},
+    u32 qmd_enabled_cbuf_mask = 0xffU);
 
 // Keep the original vertex-only API strict for existing research callers.
 [[nodiscard]] NativeSpirvResult CompileReviewedNativeVertexSpirv(

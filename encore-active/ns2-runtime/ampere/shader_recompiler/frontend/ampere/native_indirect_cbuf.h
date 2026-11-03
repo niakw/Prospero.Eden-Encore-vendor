@@ -10,8 +10,10 @@
 namespace Shader::Ampere {
 inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
 
-[[nodiscard]] inline bool NormalizeNativeQmdIndirectCbufMetadata(Shader::Info& info) {
+[[nodiscard]] inline bool NormalizeNativeQmdIndirectCbufMetadata(Shader::Info& info,
+                                                                u32 enabled_mask = 0xffU) {
     if (!info.uses_cbuf_indirect) return true;
+    if (!enabled_mask || (enabled_mask & ~u32{0xff})) return false;
     // Each original slot must be a distinct, singleton Maxwell descriptor.
     // A direct CBUF at 14..17 or missing slot is not silently remapped.
     if (info.constant_buffer_descriptors.size() != Shader::Info::MAX_INDIRECT_CBUFS ||
@@ -22,18 +24,26 @@ inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
         if (desc.index != bank || desc.count != 1)
             return false;
     }
-    while (info.constant_buffer_descriptors.size() > kNativeQmdIndirectCbufBanks)
-        info.constant_buffer_descriptors.pop_back();
-    info.constant_buffer_mask = (u32{1} << kNativeQmdIndirectCbufBanks) - 1U;
-    for (u32 bank = kNativeQmdIndirectCbufBanks;
-         bank < Shader::Info::MAX_INDIRECT_CBUFS; ++bank)
-        info.constant_buffer_used_sizes[bank] = 0;
-    // The original 64-KiB used-size requirements for all eight possible
-    // indirect banks stay intact and are checked against QMD3 at binding.
+    // QMD3's enable mask can be sparse. Drop disabled banks from reflection
+    // and Vulkan layout; never invent a guest CBUF to fill a missing slot.
+    for (u32 bank = Shader::Info::MAX_INDIRECT_CBUFS; bank != 0; --bank) {
+        const u32 index = bank - 1;
+        if (index >= kNativeQmdIndirectCbufBanks ||
+            !(enabled_mask & (u32{1} << index))) {
+            info.constant_buffer_descriptors.erase(
+                info.constant_buffer_descriptors.begin() + index);
+            info.constant_buffer_used_sizes[index] = 0;
+        }
+    }
+    info.constant_buffer_mask = enabled_mask;
+    // Preserve the original 64-KiB size requirement for each live bank.
+    // Shorter dynamic-offset backing still fails closed until bound checks
+    // have their own native SPIR-V proof.
     return true;
 }
 
-[[nodiscard]] inline bool NormalizeNativeQmdIndirectCbufIR(Shader::IR::Program& program) {
+[[nodiscard]] inline bool NormalizeNativeQmdIndirectCbufIR(Shader::IR::Program& program,
+                                                          u32 enabled_mask = 0xffU) {
     if (!program.info.uses_cbuf_indirect) return true;
     // The collector's all-bank declaration loses the distinction between
     // implicit indirect slots and explicit direct loads. Check the actual
@@ -49,15 +59,18 @@ inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
             case Shader::IR::Opcode::GetCbufU32:
             case Shader::IR::Opcode::GetCbufF32:
             case Shader::IR::Opcode::GetCbufU32x2:
-                if (inst.Arg(0).IsImmediate() &&
-                    inst.Arg(0).U32() >= kNativeQmdIndirectCbufBanks)
-                    return false;
+                if (inst.Arg(0).IsImmediate()) {
+                    const u32 bank = inst.Arg(0).U32();
+                    if (bank >= kNativeQmdIndirectCbufBanks ||
+                        !(enabled_mask & (u32{1} << bank)))
+                        return false;
+                }
                 break;
             default:
                 break;
             }
         }
     }
-    return NormalizeNativeQmdIndirectCbufMetadata(program.info);
+    return NormalizeNativeQmdIndirectCbufMetadata(program.info, enabled_mask);
 }
 } // namespace Shader::Ampere

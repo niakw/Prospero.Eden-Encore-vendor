@@ -114,8 +114,14 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2QmdComputeSpirvWithResources
         auto env = Shader::Ampere::NativeMaxwellEnvironment::CreateComputeOwned(
             std::move(native), std::move(captured.image));
         if (!env) return {NativeSpirvStatus::InvalidImage, {}};
+        u32 enabled_cbuf_mask{};
+        for (u32 bank = 0; bank < launch.constant_buffers.size(); ++bank) {
+            if (launch.constant_buffers[bank].enabled)
+                enabled_cbuf_mask |= u32{1} << bank;
+        }
         auto compiled = Shader::Ampere::CompileReviewedNativeComputeSpirv(
-            *env, host_info, profile, runtime_info, initial_bindings);
+            *env, host_info, profile, runtime_info, initial_bindings,
+            enabled_cbuf_mask);
         if (!registry.IsCurrent(*session))
             return {NativeSpirvStatus::InactiveSession, {}};
         if (!compiled.ComputeMetadataReady()) return compiled;
