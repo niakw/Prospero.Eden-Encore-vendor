@@ -35,8 +35,13 @@ template <typename T, typename Translate>
     T staged{};
     auto* out = reinterpret_cast<std::uint8_t*>(&staged);
     std::memcpy(out, first, first_bytes);
-    if (tail_bytes)
-        std::memcpy(out + first_bytes, second, tail_bytes);
+    // A 1-byte scalar cannot cross a 4 KiB page. Compile that impossible
+    // tail out entirely so fortified GCC never treats it as an out-of-bounds
+    // write on a one-byte object. Wider reads still verify both mappings.
+    if constexpr (sizeof(T) > 1) {
+        if (tail_bytes)
+            std::memcpy(out + first_bytes, second, tail_bytes);
+    }
     result = staged;
     return true;
 }
@@ -57,8 +62,13 @@ template <typename T, typename Translate>
         return false;
     const auto* bytes = reinterpret_cast<const std::uint8_t*>(&value);
     std::memcpy(first, bytes, first_bytes);
-    if (tail_bytes)
-        std::memcpy(second, bytes + first_bytes, tail_bytes);
+    // For u8, a second-page copy is impossible. Do not instantiate a
+    // pointer past the 1-byte source object: GCC 13 -O2 correctly rejects
+    // the potentially overreading memcpy even though tail_bytes is zero.
+    if constexpr (sizeof(T) > 1) {
+        if (tail_bytes)
+            std::memcpy(second, bytes + first_bytes, tail_bytes);
+    }
     return true;
 }
 
