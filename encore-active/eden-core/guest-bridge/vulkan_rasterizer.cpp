@@ -1132,18 +1132,25 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                                 info.pitch, rows, 1, 1, 1))
                             return false;
                         minimum_bytes = u64{info.pitch} * rows;
-                    } else if (info.resources.layers > 1) {
-                        if (!Shader::Ampere::NativeQmdWithinByteBudget(
-                                info.layer_stride, info.resources.layers, 1, 1, 1))
-                            return false;
-                        minimum_bytes = u64{info.layer_stride} * info.resources.layers;
                     } else {
-                        const u64 blocks_x = (u64{info.size.width} + block_width - 1) / block_width;
-                        const u64 blocks_y = (u64{info.size.height} + block_height - 1) / block_height;
-                        if (!Shader::Ampere::NativeQmdWithinByteBudget(
-                                blocks_x, blocks_y, info.size.depth, 1, block_bytes))
+                        // Tiled mipmaps accumulate multiple GOB-aligned levels
+                        // in legacy u32 arithmetic. Prove a full-chain u64
+                        // lower bound BEFORE trusting that computed size.
+                        u64 tiled_minimum{};
+                        if (!Shader::Ampere::NativeQmdMipChainMinimumBytes(
+                                info.size.width, info.size.height, info.size.depth,
+                                info.resources.layers, info.resources.levels,
+                                block_width, block_height, block_bytes, tiled_minimum))
                             return false;
-                        minimum_bytes = blocks_x * blocks_y * info.size.depth * block_bytes;
+                        if (info.resources.layers > 1) {
+                            if (!Shader::Ampere::NativeQmdWithinByteBudget(
+                                    info.layer_stride, info.resources.layers, 1, 1, 1))
+                                return false;
+                            minimum_bytes = u64{info.layer_stride} * info.resources.layers;
+                            if (minimum_bytes < tiled_minimum) return false;
+                        } else {
+                            minimum_bytes = tiled_minimum;
+                        }
                     }
                     const u64 layer_offset =
                         u64{tic.BaseLayer()} * info.layer_stride;
