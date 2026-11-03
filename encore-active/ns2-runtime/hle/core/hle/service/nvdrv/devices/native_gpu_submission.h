@@ -3,10 +3,28 @@
 #pragma once
 // Pure native GP FIFO envelope guard. Actual GPU work is scheduled by
 // nvhost_gpu only after this validation succeeds.
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 
 namespace Service::Nvidia::Devices {
+// Guest CPU pointers are NOT the GPU virtual addresses used by the native
+// GMMU. Check all kickoff headers in their owning process's CPU map before
+// reading them. A zero-entry fence submission legitimately has no pointer.
+template <typename Readable>
+[[nodiscard]] constexpr bool NativeGpfifoGuestHeadersReadable(
+    std::uint64_t address, std::uint32_t count, std::size_t entry_size,
+    Readable&& readable) {
+    if (count == 0) return true;
+    if (address == 0 || entry_size == 0 ||
+        count > std::numeric_limits<std::size_t>::max() / entry_size)
+        return false;
+    const std::size_t bytes = static_cast<std::size_t>(count) * entry_size;
+    if (address > std::numeric_limits<std::uint64_t>::max() - bytes)
+        return false;
+    return readable(address, bytes);
+}
 struct NativeSubmissionPlan {
     std::uint32_t completion_count;
     std::uint32_t increment_total;
