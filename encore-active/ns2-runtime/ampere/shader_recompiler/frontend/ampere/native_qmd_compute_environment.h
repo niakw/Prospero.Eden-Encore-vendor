@@ -324,14 +324,22 @@ template <typename Map>
     if (!bytes || bytes > kNativeQmdMaxContiguousBytes || !gpu_addr ||
         gpu_addr >= gpu_limit || bytes > gpu_limit - gpu_addr)
         return false;
-    const auto start = map(gpu_addr);
-    if (!start || *start > ~u64{0} - bytes) return false;
-    for (u64 delta = 4096 - (gpu_addr & 4095U); delta < bytes; delta += 4096) {
-        const auto page = map(gpu_addr + delta);
-        if (!page || *page != *start + delta) return false;
+    // A sparse GMMU unmap or host-side memory failure can invalidate a
+    // mapping between the first and last checked pages. Refuse the image
+    // span without publishing any TextureCache view or leaking exceptions
+    // into the render worker. All address/overflow checks above still run.
+    try {
+        const auto start = map(gpu_addr);
+        if (!start || *start > ~u64{0} - bytes) return false;
+        for (u64 delta = 4096 - (gpu_addr & 4095U); delta < bytes; delta += 4096) {
+            const auto page = map(gpu_addr + delta);
+            if (!page || *page != *start + delta) return false;
+        }
+        const auto last = map(gpu_addr + bytes - 1);
+        return last && *last == *start + bytes - 1;
+    } catch (...) {
+        return false;
     }
-    const auto last = map(gpu_addr + bytes - 1);
-    return last && *last == *start + bytes - 1;
 }
 
 // Check a multi-dimensional guest texture budget without overflowing u64.
