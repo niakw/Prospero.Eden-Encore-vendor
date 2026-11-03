@@ -303,6 +303,15 @@ TranslateCaptureIndirectTargets(const CaptureIndirectResult& capture,
             const auto maxwell = image.TranslateNativeAddress(native_offset);
             if (!maxwell)
                 return std::nullopt;
+            // Some native instructions produce no Maxwell words. Two
+            // distinct native PCs mapping to one emitted instruction would
+            // make a computed jump skip source-level effects or enter the
+            // wrong basic block. Never publish that ambiguous branch map.
+            for (const auto& prior_table : result)
+                for (const auto& prior : prior_table.entries)
+                    if (prior.native_code_offset != native_offset &&
+                        prior.maxwell_byte_offset == *maxwell)
+                        return std::nullopt;
             mapped.entries.push_back({value, native_offset, *maxwell});
         }
     }
