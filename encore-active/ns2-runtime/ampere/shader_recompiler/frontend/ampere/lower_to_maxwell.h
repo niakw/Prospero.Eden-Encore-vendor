@@ -223,6 +223,10 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         return result;
     };
     if (code.empty() || code.size() > 65536) return fail(0, "invalid native program size");
+    // A standalone BRX/BRXU without an authenticated CBUF snapshot can be
+    // syntactically translated but MUST NOT enter Maxwell CFG or a pipeline.
+    if (has_indirect_branch && indirect_dispatch.empty())
+        return fail(0, "native indirect control flow requires checked CBUF plan");
     if (!indirect_dispatch.empty()) {
         u32 branch_count{};
         for (u32 i = 0; i < code.size(); ++i) {
