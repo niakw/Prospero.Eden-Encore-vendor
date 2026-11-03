@@ -133,6 +133,11 @@ NativeSpirvResult CompileReviewedNativeComputeSpirv(
                 if (storage.count != 1)
                     return {NativeSpirvStatus::CompilationFailed, {}};
                 if (!ir.info.nvn_buffer_used.test(i)) continue;
+                // Global address is emitted as a U32x2 at offset / 8;
+                // the QMD descriptor reader instead uses the literal byte
+                // offset. Reject +4 aliases before producing SPIR-V.
+                if (storage.cbuf_offset & 7U)
+                    return {NativeSpirvStatus::CompilationFailed, {}};
                 any_used = true;
                 bool bank_declared = false;
                 for (const auto& cbuf : ir.info.constant_buffer_descriptors) {

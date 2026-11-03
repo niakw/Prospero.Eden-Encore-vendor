@@ -283,6 +283,11 @@ struct NativeQmdResourcePlan {
         const auto& descriptor = info.storage_buffers_descriptors[i];
         if (descriptor.count != 1) return false;
         if (!info.nvn_buffer_used.test(i)) continue;
+        // The SPIR-V backend indexes the address as U32x2 at offset / 8,
+        // but reads the length as U32 at offset / 4 + 2. A +4 offset
+        // makes those reads come from DIFFERENT guest records even when
+        // the native QMD reader accepted the 16-byte descriptor.
+        if (descriptor.cbuf_offset & 7U) return false;
         // The SPIR-V global load/store helper directly loads its address
         // and size from cbufs[descriptor.cbuf_index]. A QMD bank that was
         // not reflected into a real uniform binding would generate an
