@@ -197,6 +197,45 @@ NativeCaptureResult CaptureNativeShader(
                     result.image = {};
                     return result;
                 }
+                // A 4-KiB read-ahead cannot prove that the source bytes
+                // stayed unchanged while CBUF tables and later shader blocks
+                // were read. Compare every native instruction again through
+                // the mapped GMMU callback before publishing this image.
+                // This applies only to BRX (not the established NS1 path).
+                for (u32 native_index = 0; native_index < native.size();
+                     ++native_index) {
+                    const auto current = read_instruction(native_index);
+                    if (!current) {
+                        result.first_error_offset = header_bytes +
+                            native_index * sizeof(Instruction);
+                        result.status = NativeCaptureStatus::Unmapped;
+                        result.image = {};
+                        return result;
+                    }
+                    if (current->words != native[native_index].words) {
+                        result.first_error_offset = header_bytes +
+                            native_index * sizeof(Instruction);
+                        result.status = NativeCaptureStatus::TranslationFailed;
+                        result.image = {};
+                        return result;
+                    }
+                }
+                if (!compute) {
+                    std::array<u8, NativeHeaderBytes> live_header{};
+                    if (!checked_read(gpu_base, live_header.data(),
+                                      live_header.size())) {
+                        result.status = NativeCaptureStatus::Unmapped;
+                        result.image = {};
+                        return result;
+                    }
+                    if (live_header != header) {
+                        result.status = NativeCaptureStatus::TranslationFailed;
+                        result.image = {};
+                        return result;
+                    }
+                }
+                // Read CBUF last, after the source/header recheck, so a
+                // source mutation cannot leave a valid key for stale tables.
                 for (const auto& table : resolved->tables)
                     for (u32 entry = 0; entry < table.values.size(); ++entry) {
                         const auto current = checked_cbuf(

@@ -3,6 +3,7 @@
 #include <exception>
 #include <limits>
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
+#include "shader_recompiler/stage.h"
 #include "video_core/memory_manager.h"
 #include "video_core/engines/maxwell_3d.h"
 #ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
@@ -126,7 +127,16 @@ Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
     // instruction. A fault aborts capture without populating a shader image.
     try {
         if (cbuf) {
-            if (cbuf->memory != &memory) return {};
+            // Graphics source and CBUF must belong to the same pipeline
+            // stage. Never accept a caller-provided bank from another stage.
+            const u32 required_bank =
+                stage == static_cast<u32>(Shader::Stage::Fragment) ? 4U : 0U;
+            if (cbuf->memory != &memory || !cbuf->engine ||
+                (stage != static_cast<u32>(Shader::Stage::Fragment) &&
+                 stage != static_cast<u32>(Shader::Stage::VertexA) &&
+                 stage != static_cast<u32>(Shader::Stage::VertexB)) ||
+                cbuf->stage_index != required_bank)
+                return {};
             return Shader::Ampere::CaptureNativeGraphicsShaderChecked(
                 gpu_program_address, stage, ReadNs2GpuShader, &memory,
                 ReadNs2GraphicsCbuf, const_cast<Ns2GraphicsCbufContext*>(cbuf),
