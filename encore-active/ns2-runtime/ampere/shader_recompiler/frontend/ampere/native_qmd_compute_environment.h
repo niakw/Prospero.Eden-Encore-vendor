@@ -62,6 +62,10 @@ struct NativeQmdResourcePlan {
     bool requires_tic_tsc{};
     bool requires_memory_layout{};
     bool uses_global_memory{};
+    // Set ONLY after BuildResourcePlan authenticates the reflected NVN
+    // global SSBO descriptors. A manually flipped global flag is not proof
+    // of real SPIR-V/GMMU backing.
+    bool global_layout_resolved{};
 
     // This only validates the CPU-facing descriptor plan. The Vulkan owner
     // MUST still create/upload buffer objects, acquire image views, publish
@@ -74,6 +78,7 @@ struct NativeQmdResourcePlan {
         if (requires_tic_tsc != other.requires_tic_tsc ||
             requires_memory_layout != other.requires_memory_layout ||
             uses_global_memory != other.uses_global_memory ||
+            global_layout_resolved != other.global_layout_resolved ||
             uniform_buffers.size() != other.uniform_buffers.size() ||
             storage_buffers.size() != other.storage_buffers.size() ||
             image_handles.size() != other.image_handles.size())
@@ -115,7 +120,8 @@ struct NativeQmdResourcePlan {
     // admitted ONLY through the reflected, bounded SSBO layout below.
     [[nodiscard]] bool HasResolvedGpuBufferBindings() const noexcept {
         if (requires_memory_layout ||
-            (uses_global_memory && storage_buffers.empty()))
+            (uses_global_memory &&
+             (!global_layout_resolved || storage_buffers.empty())))
             return false;
         // Zero is the unmapped/null guest buffer sentinel. Shader CBUFs
         // are required real bindings, not optional descriptors: never
@@ -257,8 +263,13 @@ struct NativeQmdResourcePlan {
         info.storage_buffers_descriptors.empty() ||
         info.storage_buffers_descriptors.size() > info.nvn_buffer_used.size() ||
         info.storage_buffers_descriptors.size() != plan.storage_buffers.size() ||
-        !plan.HasResolvedGpuBufferBindings())
+        plan.requires_memory_layout)
         return false;
+    for (const auto& cbuf : plan.uniform_buffers)
+        if (!cbuf.gpu_address || !cbuf.bytes) return false;
+    for (const auto& storage : plan.storage_buffers)
+        if (!storage.known_size || !storage.bytes || !storage.gpu_address)
+            return false;
     bool has_used_slot = false;
     for (std::size_t i = 0; i < info.storage_buffers_descriptors.size(); ++i) {
         const auto& descriptor = info.storage_buffers_descriptors[i];
@@ -1223,6 +1234,7 @@ public:
         // ConfigureNative checks the real Vulkan alignment before binding.
         if (!NativeQmdGlobalMemoryLayoutMatches(shader_info, result, 1))
             return std::nullopt;
+        result.global_layout_resolved = result.uses_global_memory;
         return result;
     }
 
