@@ -1287,7 +1287,19 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                         }
                     }
                     if (same_cache_channel) {
+                        // The selected cache channel can change between the
+                        // individual view and sampler acquisitions, since
+                        // they each release config_mutex. Check the exact
+                        // engine/GMMU AND current TIC/TSC registers again
+                        // while the outer texture mutex is still held.
+                        const auto& live_regs = kepler_compute.regs;
                         same_cache_channel = position == typed_descriptors->size() &&
+                            texture_cache.NativeChannelMatches(
+                                kepler_compute, *gpu_memory) &&
+                            tables.SameRegisters(
+                                live_regs.tic.Address(), live_regs.tic.limit,
+                                live_regs.tsc.Address(), live_regs.tsc.limit,
+                                launch.linked_tsc) &&
                             tables.MatchesSnapshot(
                                 *resources, *descriptors,
                                 [this](u64 address, void* bytes, std::size_t size) {
