@@ -174,10 +174,20 @@ struct NativeQmdResourcePlan {
         // The original buffer-only policy remains strict. An image shader
         // may stage its independent CBUF/SSBO spans only after the renderer
         // presents real pinned TextureCache image/sampler descriptors.
-        if (!(image_descriptors_fence_owned
-                  ? ValidateGpuBufferMappings(mapped)
-                  : ValidateGpuMappings(mapped)))
+        // An authenticated GMMU callback may throw while pinning a guest
+        // span (e.g. sparse unmap or failed host-memory allocation). Such a
+        // failure happens BEFORE any Vulkan descriptor is staged, so return
+        // refusal without calling rollback on resources we do not own yet.
+        // Keep the existing one-shot rollback for subsequent bind failures.
+        bool mappings_valid{};
+        try {
+            mappings_valid = image_descriptors_fence_owned
+                                 ? ValidateGpuBufferMappings(mapped)
+                                 : ValidateGpuMappings(mapped);
+        } catch (...) {
             return false;
+        }
+        if (!mappings_valid) return false;
         bool staged{};
         // Rollback is a one-shot operation. A failing cleanup callback must
         // never be re-entered by this function's exception handler, since
