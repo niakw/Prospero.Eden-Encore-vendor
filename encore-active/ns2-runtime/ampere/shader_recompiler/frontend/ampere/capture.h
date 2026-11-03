@@ -3,6 +3,7 @@
 // Research-only, bounded guest GPU memory capture of native Ampere
 // graphics shaders. The resulting image is not an executing GPU pipeline.
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <vector>
 #include "common/common_types.h"
@@ -11,6 +12,7 @@
 namespace Shader::Ampere {
 class NativeTranslationCache;
 using GuestShaderRead = bool (*)(void* context, u64 gpu_address, void* buffer, std::size_t size);
+using GuestCbufRead = std::optional<u32> (*)(void* context, u32 bank, u32 byte_offset);
 
 enum class NativeCaptureStatus : u8 {
     Ready,
@@ -43,6 +45,13 @@ struct NativeCaptureResult {
 // Headerless Ampere compute instructions, starting at the QMD program
 // address. The generated 0x50-byte Maxwell prefix is synthetic and zeroed;
 // it is never read from the guest GMMU or mistaken for graphics SPH data.
+// BRX requires both mapping-checked native shader reads and verified CBUF
+// entries. The original entrypoint remains fail-closed without this callback.
+[[nodiscard]] NativeCaptureResult CaptureNativeGraphicsShaderChecked(
+    u64 gpu_base, u32 stage, GuestShaderRead read, void* context,
+    GuestCbufRead read_cbuf, void* cbuf_context,
+    NativeTranslationCache* cache = nullptr);
+
 [[nodiscard]] NativeCaptureResult CaptureNativeComputeShader(
     u64 gpu_program_address, GuestShaderRead read, void* context,
     NativeTranslationCache* cache = nullptr);

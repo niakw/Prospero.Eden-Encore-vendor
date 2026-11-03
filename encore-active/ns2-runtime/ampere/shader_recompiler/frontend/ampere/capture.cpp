@@ -22,7 +22,8 @@ static_assert(NativeShaderReadPage % sizeof(Instruction) == 0);
 
 NativeCaptureResult CaptureNativeShader(
     u64 gpu_base, u32 stage, GuestShaderRead read, void* context,
-    NativeTranslationCache* cache, bool compute) {
+    NativeTranslationCache* cache, bool compute,
+    GuestCbufRead read_cbuf, void* cbuf_context) {
     NativeCaptureResult result;
     // The graphics SPH is never borrowed for compute. Stage identities
     // and mapped read boundaries remain distinct across both paths.
@@ -56,6 +57,9 @@ NativeCaptureResult CaptureNativeShader(
     std::vector<u8> source;
     source.reserve(MaxCapturedInstructions * sizeof(Instruction));
     ProgramCaptureState capture;
+    std::vector<Instruction> native;
+    native.reserve(MaxCapturedInstructions);
+    bool saw_indirect = false;
     std::array<u8, NativeShaderReadPage> page{};
     u64 page_start{};
     std::size_t page_bytes{};
@@ -115,17 +119,19 @@ NativeCaptureResult CaptureNativeShader(
         // matching shader-visible index transform. Do not publish a partial
         // linear shader or silently accept uniform BRXU either.
         const u32 opcode = inst.Bits(0, 12);
-        if (opcode == 0x949 || opcode == 0x958) {
+        if (opcode == 0x958 || (opcode == 0x949 && !read_cbuf)) {
             result.status = NativeCaptureStatus::UnresolvedIndirectBranch;
             result.first_error_offset = header_bytes + index * sizeof(Instruction);
             return result;
         }
+        saw_indirect |= opcode == 0x949;
         const auto observed = capture.Observe(inst, index);
         if (observed == ProgramCaptureState::Result::InvalidTarget) {
             result.status = NativeCaptureStatus::InvalidBranch;
             result.first_error_offset = header_bytes + index * sizeof(Instruction);
             return result;
         }
+        native.push_back(inst);
         source.insert(source.end(), bytes.begin(), bytes.end());
         if (observed != ProgramCaptureState::Result::Complete) continue;
 
@@ -133,9 +139,79 @@ NativeCaptureResult CaptureNativeShader(
         const auto maxwell_header =
             std::span<const u8>{header.data(), MaxwellHeaderBytes};
         try {
-            result.image = cache
-                ? cache->GetOrTranslate(maxwell_header, source, stage)
-                : BuildMaxwellShaderImage(maxwell_header, source, stage);
+            if (saw_indirect) {
+                // BRX targets can jump beyond the first EXIT. Recover the
+                // exact bytes through the same bounded, mapping-checked GMMU
+                // reader, and authenticate every CBUF word twice.
+                const auto read_instruction = [&](u32 native_index)
+                    -> std::optional<Instruction> {
+                    if (native_index >= MaxCapturedInstructions)
+                        return {};
+                    std::array<u8, sizeof(Instruction)> raw{};
+                    const u64 location = gpu_base + header_bytes +
+                                         u64{native_index} * sizeof(Instruction);
+                    if (!checked_read(location, raw.data(), raw.size()))
+                        return {};
+                    Instruction decoded{};
+                    for (u32 word = 0; word < 4; ++word)
+                        for (u32 byte = 0; byte < 4; ++byte)
+                            decoded.words[word] |= u32{raw[word*4+byte]} << (byte*8);
+                    return decoded;
+                };
+                const auto checked_cbuf = [&](u32 bank, u32 offset)
+                    -> std::optional<u32> {
+                    try {
+                        return read_cbuf(cbuf_context,bank,offset);
+                    } catch (const std::exception&) {
+                        return {};
+                    }
+                };
+                const auto resolved = ResolveCaptureIndirectBranchesChecked(
+                    native, capture, CaptureIndirectValueOrigin::GraphicsHeader,
+                    read_instruction, checked_cbuf);
+                const auto plans = resolved
+                    ? MakeNativeIndirectBranchPlans(*resolved, native)
+                    : std::nullopt;
+                if (!plans) {
+                    result.status = NativeCaptureStatus::UnresolvedIndirectBranch;
+                    result.first_error_offset =
+                        header_bytes + index * sizeof(Instruction);
+                    return result;
+                }
+                source.clear();
+                for (const auto& instruction : native)
+                    for (u32 word : instruction.words)
+                        for (u32 byte = 0; byte < 4; ++byte)
+                            source.push_back(static_cast<u8>(word >> (byte * 8)));
+                result.captured_native_bytes = static_cast<u32>(source.size());
+                // Do not reuse the shader-only LRU for a CBUF-dependent
+                // program. The complete native table contents are part of
+                // the image key and are revalidated before publication.
+                result.image = BuildMaxwellShaderImage(
+                    maxwell_header, source, stage, *plans);
+                if (!result.image.Ready() ||
+                    !TranslateCaptureIndirectTargets(
+                        *resolved, result.image,
+                        CaptureIndirectValueOrigin::GraphicsHeader)) {
+                    result.status = NativeCaptureStatus::TranslationFailed;
+                    result.image = {};
+                    return result;
+                }
+                for (const auto& table : resolved->tables)
+                    for (u32 entry = 0; entry < table.values.size(); ++entry) {
+                        const auto current = checked_cbuf(
+                            table.cbuf_index, table.cbuf_offset + entry * 4);
+                        if (!current || *current != table.values[entry]) {
+                            result.status = NativeCaptureStatus::UnresolvedIndirectBranch;
+                            result.image = {};
+                            return result;
+                        }
+                    }
+            } else {
+                result.image = cache
+                    ? cache->GetOrTranslate(maxwell_header, source, stage)
+                    : BuildMaxwellShaderImage(maxwell_header, source, stage);
+            }
         } catch (const std::exception&) {
             // Failed allocation/cache/lowering is a capture failure, not a
             // partially valid module or an uncaught GPU worker exception.
@@ -169,13 +245,24 @@ NativeCaptureResult CaptureNativeShader(
 NativeCaptureResult CaptureNativeGraphicsShader(
     u64 gpu_base, u32 stage, GuestShaderRead read, void* context,
     NativeTranslationCache* cache) {
-    return CaptureNativeShader(gpu_base, stage, read, context, cache, false);
+    return CaptureNativeShader(gpu_base, stage, read, context, cache, false,
+                               nullptr, nullptr);
+}
+
+NativeCaptureResult CaptureNativeGraphicsShaderChecked(
+    u64 gpu_base, u32 stage, GuestShaderRead read, void* context,
+    GuestCbufRead read_cbuf, void* cbuf_context,
+    NativeTranslationCache* cache) {
+    if (!read_cbuf) return {};
+    return CaptureNativeShader(gpu_base, stage, read, context, cache, false,
+                               read_cbuf, cbuf_context);
 }
 
 NativeCaptureResult CaptureNativeComputeShader(
     u64 gpu_program_address, GuestShaderRead read, void* context,
     NativeTranslationCache* cache) {
     return CaptureNativeShader(gpu_program_address,
-        static_cast<u32>(Shader::Stage::Compute), read, context, cache, true);
+        static_cast<u32>(Shader::Stage::Compute), read, context, cache, true,
+        nullptr, nullptr);
 }
 } // namespace Shader::Ampere
