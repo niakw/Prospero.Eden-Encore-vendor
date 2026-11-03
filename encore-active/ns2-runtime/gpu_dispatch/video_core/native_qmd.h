@@ -302,8 +302,10 @@ struct NativeComputeLaunch {
                              qmd[32 + index * 2];
         buffer.size = ((high >> 19) & 0x1fffU) << 4;
         buffer.enabled = (cbuf_mask & (1U << index)) != 0;
+        // A half-open CBUF span ending exactly at 2^49 is valid:
+        // its final byte is 2^49-1. Only a strict overflow is rejected.
         if (buffer.enabled && buffer.size &&
-            buffer.gpu_address >= gpu_address_limit - buffer.size)
+            buffer.gpu_address > gpu_address_limit - buffer.size)
             return std::nullopt;
     }
     return launch;
