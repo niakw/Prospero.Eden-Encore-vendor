@@ -132,6 +132,13 @@ inline std::optional<VideoContextRequest> DecodeVideoContext(std::span<const u32
     return VideoContextRequest{packet[2] != 0, u64{packet[3]} | (u64{packet[4]} << 32)};
 }
 
+// VI2 PresentClientBuffer word 12 contains (swap interval << 16) | refresh Hz.
+// The queue compositor honors the guest's requested 1..4 vblank cadence;
+// a zero/unsupported interval conservatively keeps the original single vblank.
+constexpr u32 DecodePresentSwapInterval(u32 timing) {
+    return std::clamp(timing >> 16, 1u, 4u);
+}
+
 constexpr u8 DecodeBufferSlot(u32 packed) {
     return static_cast<u8>(packed);
 }

@@ -552,7 +552,8 @@ private:
                                         android::QueueBufferOutput output{};
                                         input.crop={0,0,static_cast<s32>(outw),
                                             static_cast<s32>(outh)};
-                                        input.swap_interval=1;input.fence=android::Fence::NoFence();
+                                        input.swap_interval=static_cast<s32>(GraphicsSupervisorProtocol::DecodePresentSwapInterval(p[12]));
+                                        input.fence=android::Fence::NoFence();
                                         if(fence!=~u32{0}){
                                             input.fence.num_fences=1;
                                             input.fence.fences[0]={static_cast<s32>(fence),p[24]};
