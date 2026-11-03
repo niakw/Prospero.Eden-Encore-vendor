@@ -485,12 +485,16 @@ NvResult nvhost_gpu::SubmitGPFIFOBase1(IoctlSubmitGpfifo& params,
     }
 
     Tegra::CommandList entries(params.num_entries);
-    if (kickoff) {
-        this->GetSessionMemory(fd).ReadBlock(params.address, entries.command_lists.data(),
-                                             params.num_entries * sizeof(Tegra::CommandListHeader));
-    } else {
-        std::memcpy(entries.command_lists.data(), commands.data(),
-                    params.num_entries * sizeof(Tegra::CommandListHeader));
+    // A zero-entry submission can still carry a syncpoint fence. Never
+    // hand a null vector pointer to guest ReadBlock or libc memcpy(0).
+    if (params.num_entries != 0) {
+        if (kickoff) {
+            this->GetSessionMemory(fd).ReadBlock(params.address, entries.command_lists.data(),
+                                                 params.num_entries * sizeof(Tegra::CommandListHeader));
+        } else {
+            std::memcpy(entries.command_lists.data(), commands.data(),
+                        params.num_entries * sizeof(Tegra::CommandListHeader));
+        }
     }
 
     return SubmitGPFIFOImpl(params, std::move(entries), fd);
