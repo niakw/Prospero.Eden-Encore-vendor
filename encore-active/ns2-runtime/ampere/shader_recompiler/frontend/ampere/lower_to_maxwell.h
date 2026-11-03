@@ -236,6 +236,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             const auto& plan = indirect_dispatch[p];
             if (plan.branch_instruction_index >= code.size() ||
                 code[plan.branch_instruction_index].Bits(0, 12) != 0x949 ||
+                (plan.raw_pc_base != 0 && plan.raw_pc_base != 0x80U) ||
                 plan.targets.size() < 2 || plan.targets.size() > 16)
                 return fail(0, "invalid native indirect dispatch table");
             for (u32 q = 0; q < p; ++q)
@@ -243,8 +244,11 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                     plan.branch_instruction_index)
                     return fail(0, "duplicate native indirect branch");
             for (u32 i = 0; i < plan.targets.size(); ++i) {
-                if (plan.targets[i].native_instruction_index >= code.size())
-                    return fail(0, "native indirect target not captured");
+                if (plan.targets[i].native_instruction_index >= code.size() ||
+                    u64{plan.raw_pc_base} +
+                        u64{plan.targets[i].native_instruction_index} * 16 !=
+                        plan.targets[i].native_value)
+                    return fail(0, "native indirect target PC mismatch");
                 for (u32 j = 0; j < i; ++j)
                     if (plan.targets[i].native_value == plan.targets[j].native_value &&
                         plan.targets[i].native_instruction_index !=

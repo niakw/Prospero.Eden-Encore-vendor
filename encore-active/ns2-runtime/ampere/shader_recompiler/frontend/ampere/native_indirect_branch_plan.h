@@ -14,6 +14,9 @@ struct NativeIndirectBranchTarget {
 };
 struct NativeIndirectBranchPlan {
     u32 branch_instruction_index{};
+    // Exactly zero (native instruction zero) or 0x80 (graphics SPH).
+    // The captured CBUF word must equal raw_pc_base + source_index*16.
+    u32 raw_pc_base{};
     std::vector<NativeIndirectBranchTarget> targets;
 };
 } // namespace Shader::Ampere

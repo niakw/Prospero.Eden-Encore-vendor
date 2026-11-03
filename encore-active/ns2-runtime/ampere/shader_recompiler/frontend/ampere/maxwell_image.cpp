@@ -28,8 +28,10 @@ constexpr u64 FnvPrime = 0x100000001b3ULL;
     // Preserve historical identities for shaders without indirect dispatch.
     // A newly resolved CBUF table must never alias an older shader key.
     for (const auto& plan : indirect_dispatch) {
-        for (u32 shift = 0; shift < 32; shift += 8)
-            mix(static_cast<u8>(plan.branch_instruction_index >> shift));
+        for (u32 value : {plan.branch_instruction_index,plan.raw_pc_base,
+                          static_cast<u32>(plan.targets.size())})
+            for (u32 shift = 0; shift < 32; shift += 8)
+                mix(static_cast<u8>(value >> shift));
         for (const auto& entry : plan.targets)
             for (const u32 value : {entry.native_value, entry.native_instruction_index})
                 for (u32 shift = 0; shift < 32; shift += 8)
