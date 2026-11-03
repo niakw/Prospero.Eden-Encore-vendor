@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
