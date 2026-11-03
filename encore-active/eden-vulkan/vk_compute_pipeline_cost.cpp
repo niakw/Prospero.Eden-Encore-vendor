@@ -620,14 +620,29 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
 bool ComputePipeline::ConfigureNative(
     const Shader::Ampere::NativeQmdResourcePlan& resources,
     Tegra::MemoryManager& gpu_memory, Scheduler& scheduler,
-    BufferCache& buffer_cache) {
-    if (!resources.HasResolvedBufferBindings() ||
-        !info.texture_descriptors.empty() || !info.image_descriptors.empty() ||
+    BufferCache& buffer_cache,
+    std::span<const NativeComputeImageBinding> images) {
+    // Only real Vulkan handles whose backing owners survive the GPU timeline
+    // may enter this descriptor path; unsupported texel buffers fail closed.
+    const size_t sampled = Shader::NumDescriptors(info.texture_descriptors);
+    const size_t storage = Shader::NumDescriptors(info.image_descriptors);
+    const bool with_images = !images.empty();
+    if (!resources.HasResolvedGpuBufferBindings() ||
+        resources.requires_tic_tsc != with_images ||
         !info.texture_buffer_descriptors.empty() ||
         !info.image_buffer_descriptors.empty() ||
-        resources.uniform_buffers.size() + resources.storage_buffers.size() !=
-            num_descriptor_entries) {
+        images.size() != sampled + storage ||
+        resources.uniform_buffers.size() + resources.storage_buffers.size() +
+            images.size() != num_descriptor_entries)
         return false;
+    for (size_t i = 0; i < images.size(); ++i) {
+        const auto& image = images[i];
+        const bool expected_storage = i >= sampled;
+        if (!image.view || !image.image_pin || !image.view_pin ||
+            image.storage != expected_storage ||
+            (!expected_storage && (!image.sampler || !image.sampler_pin)) ||
+            (expected_storage && image.sampler != VK_NULL_HANDLE))
+            return false;
     }
     // Never bind the wrong bank. Layout order is fixed by the compiled SPIR-V
     // descriptor vectors; QMD CBUF bank indices are not contiguous in general.
@@ -663,7 +678,7 @@ bool ComputePipeline::ConfigureNative(
                 return gpu_memory.GpuToCpuAddress(page);
             });
     };
-    if (!resources.ValidateGpuMappings(mapped))
+    if (!resources.ValidateGpuBufferMappings(mapped))
         return false;
 
     // Avoid declaring a pending asynchronous pipeline successful. Unlike the
@@ -705,12 +720,12 @@ bool ComputePipeline::ConfigureNative(
         [&](u32, u64 address, u32 size, bool written) {
             return resolve(address, size, written);
         },
-        [&] { staged.clear(); });
+        [&] { staged.clear(); }, with_images);
     if (!ready || staged.size() != num_descriptor_entries)
         return false;
     // Recheck: an unrelated GMMU unmap between staging and descriptor
     // publication must never be mistaken for a valid compute binding.
-    if (!resources.ValidateGpuMappings(mapped))
+    if (!resources.ValidateGpuBufferMappings(mapped))
         return false;
 
     VkDeviceSize descriptor_buffer_offset{};
@@ -737,6 +752,14 @@ bool ComputePipeline::ConfigureNative(
     for (const auto& item : staged) {
         guest_descriptor_queue.AddBuffer(item.handle, item.address,
                                          item.offset, item.bytes);
+    }
+    // Match SPIR-V descriptor order: sampled then storage images after
+    // the CBUF/SSBO buffers. The caller keeps image owners until GPU fence.
+    for (const auto& item : images) {
+        if (item.storage)
+            guest_descriptor_queue.AddImage(item.view);
+        else
+            guest_descriptor_queue.AddSampledImage(item.view, item.sampler);
     }
     // All buffers are now admitted. Register guest writes after admission,
     // never during a possibly rejected descriptor preflight.
