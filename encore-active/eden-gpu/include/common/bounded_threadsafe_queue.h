@@ -7,11 +7,13 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <mutex>
 #include <new>
+#include <utility>
 
 #include "common/polyfill_thread.h"
 
@@ -23,9 +25,22 @@ constexpr size_t DefaultCapacity = 0x1000;
 
 template <typename T, size_t Capacity = detail::DefaultCapacity>
 class SPSCQueue {
-    static_assert((Capacity & (Capacity - 1)) == 0, "Capacity must be a power of two.");
+    static_assert(Capacity != 0 && (Capacity & (Capacity - 1)) == 0,
+                  "Capacity must be a nonzero power of two.");
 
 public:
+    SPSCQueue() = default;
+
+    // Producers and consumers must be stopped before queue destruction.
+    // Only slots within the committed cursor range contain live elements.
+    ~SPSCQueue() {
+        const auto end = producer.index.load(std::memory_order_relaxed);
+        for (auto cursor = consumer.index.load(std::memory_order_relaxed);
+             cursor != end; ++cursor) {
+            std::destroy_at(std::addressof(m_data[cursor % Capacity].value));
+        }
+    }
+
     template <typename... Args>
     bool TryEmplace(Args&&... args) noexcept {
         return Emplace<PushMode::Try>(std::forward<Args>(args)...);
@@ -55,8 +70,7 @@ public:
         // Keep the original shutdown gate even on the unlocked fast path.
         if (stop_token.stop_requested()) return false;
         const std::size_t pos = write_index % Capacity;
-        std::destroy_at(std::addressof(m_data[pos]));
-        std::construct_at(std::addressof(m_data[pos]), std::forward<Args>(args)...);
+        std::construct_at(std::addressof(m_data[pos].value), std::forward<Args>(args)...);
         ++producer.index;
         std::scoped_lock lock{consumer.cv_mutex};
         consumer.cv.notify_one();
@@ -122,8 +136,7 @@ private:
         // Determine the position to write to.
         const std::size_t pos = write_index % Capacity;
         // Emplace into the queue.
-        std::destroy_at(std::addressof(m_data[pos]));
-        std::construct_at(std::addressof(m_data[pos]), std::forward<Args>(args)...);
+        std::construct_at(std::addressof(m_data[pos].value), std::forward<Args>(args)...);
         // Increment the write index.
         ++producer.index;
         // Notify the consumer that we have pushed into the queue.
@@ -161,7 +174,9 @@ private:
         // Determine the position to read from.
         const std::size_t pos = read_index % Capacity;
         // Pop the data off the queue, moving it.
-        t = std::move(m_data[pos]);
+        t = std::move(m_data[pos].value);
+        // Destroy moved-from commands before the producer can reuse the slot.
+        std::destroy_at(std::addressof(m_data[pos].value));
         // Increment the read index.
         ++consumer.index;
         // Notify the producer that we have popped off the queue.
@@ -170,7 +185,12 @@ private:
         return true;
     }
 
-    std::array<T, Capacity> m_data;
+    union Slot {
+        Slot() noexcept {}
+        ~Slot() {}
+        T value;
+    };
+    std::array<Slot, Capacity> m_data;
     alignas(64) struct {
         std::atomic_size_t index{0};
         std::condition_variable_any cv;
