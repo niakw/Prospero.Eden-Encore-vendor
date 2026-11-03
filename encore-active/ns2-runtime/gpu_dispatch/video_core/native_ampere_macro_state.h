@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <span>
 #include <string_view>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 #include "video_core/macro_turing.h"
 
@@ -62,6 +64,49 @@ public:
         interpreter.active_dram=&dram;
         return interpreter.Execute(
             std::span<const Word>{code.data(),uploaded},start,fifo,read,emit);
+    }
+    // Stage an entire guest MME invocation before publishing GPU methods.
+    // A rejected late register read, invalid emit, or missing terminator
+    // must not leave the first half of a draw/PCAS command live. Reads of
+    // earlier emitted registers see the pending value, never stale hardware
+    // state. The channel DRAM is restored if the interpreter rejects.
+    template<class Read, class Allowed, class Commit, class Valid>
+    [[nodiscard]] Result ExecuteStaged(
+        Word macro_method, std::span<const Word> parameters,
+        Read read, Allowed allowed, Commit commit, Valid valid) {
+        static constexpr std::size_t MaxPendingMethods = 65536;
+        const auto old_dram = dram;
+        std::vector<std::pair<Word, Word>> pending;
+        std::unordered_map<Word, Word> shadow;
+        const auto stage_read = [&](Word address) -> Word {
+            if (const auto it = shadow.find(address); it != shadow.end())
+                return it->second;
+            return read(address);
+        };
+        const auto stage_emit = [&](Word address, Word value) -> bool {
+            if (pending.size() >= MaxPendingMethods || !allowed(address, value))
+                return false;
+            pending.emplace_back(address, value);
+            shadow[address] = value;
+            return true;
+        };
+        Result result{};
+        try {
+            result = Execute(macro_method, parameters, stage_read, stage_emit);
+        } catch (...) {
+            dram = old_dram;
+            throw;
+        }
+        if (!result.success || !valid()) {
+            dram = old_dram;
+            if (result.success)
+                return {false, result.pc, result.consumed,
+                        "invalid guest MME register read"};
+            return result;
+        }
+        for (const auto& [address, value] : pending)
+            commit(address, value);
+        return result;
     }
     [[nodiscard]] std::size_t UploadedWords() const {return uploaded;}
 private:
