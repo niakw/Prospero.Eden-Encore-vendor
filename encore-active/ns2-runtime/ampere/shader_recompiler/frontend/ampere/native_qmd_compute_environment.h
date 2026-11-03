@@ -1127,7 +1127,9 @@ public:
         // SPIR-V metadata can address up to 18, but those extra bindings
         // cannot be silently redirected to a Switch 1 constant buffer.
         if ((shader_info.constant_buffer_mask & ~u32{0xff}) != 0 ||
-            shader_info.uses_cbuf_indirect)
+            (shader_info.uses_cbuf_indirect &&
+             (shader_info.constant_buffer_mask != 0xffU ||
+              shader_info.constant_buffer_descriptors.size() != 8)))
             return std::nullopt;
         u32 declared_banks{};
         for (const auto& desc : shader_info.constant_buffer_descriptors) {

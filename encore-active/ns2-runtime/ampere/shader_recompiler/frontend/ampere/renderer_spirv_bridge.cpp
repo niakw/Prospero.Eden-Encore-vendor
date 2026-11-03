@@ -5,6 +5,7 @@
 #include <utility>
 #include "shader_recompiler/backend/spirv/emit_spirv.h"
 #include "shader_recompiler/frontend/ampere/ir_bridge.h"
+#include "shader_recompiler/frontend/ampere/native_indirect_cbuf.h"
 #include "shader_recompiler/frontend/ampere/native_graphics_stage_policy.h"
 #include "shader_recompiler/frontend/maxwell/translate_program.h"
 #include "shader_recompiler/host_translate_info.h"
@@ -115,6 +116,10 @@ NativeSpirvResult CompileReviewedNativeComputeSpirv(
         if (ir.stage != Shader::Stage::Compute || ir.blocks.empty())
             return {NativeSpirvStatus::CompilationFailed, {}};
         Shader::Maxwell::ConvertLegacyToGeneric(ir, runtime_info);
+        // QMD3 has eight physical Compute CBUF slots; do not emit the
+        // generic fourteen-slot OpSwitch or bind phantom descriptors.
+        if (!NormalizeNativeQmdIndirectCbufIR(ir))
+            return {NativeSpirvStatus::CompilationFailed, {}};
         // The shared SPIR-V global load/store accessor directly reads
         // cbufs[bank].U32x2 (address) and .U32 (length). Those uniform
         // types must exist even when the Ampere guest's direct LDC usage
