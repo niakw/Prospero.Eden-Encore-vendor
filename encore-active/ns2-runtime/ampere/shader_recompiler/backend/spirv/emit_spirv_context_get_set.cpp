@@ -134,8 +134,14 @@ Id GetCbuf(EmitContext& ctx, Id result_type, Id UniformDefinitions::*member_ptr,
 
     const Id cbuf{ctx.cbufs[binding.U32()].*member_ptr};
     if (offset.IsImmediate()) {
-        // The native QMD3 resource planner checks the reflected constant
-        // offset against the real launch buffer size before GPU dispatch.
+        // Maxwell's signed LDC immediate can fold to a large U32 constant
+        // (e.g. RZ - 4). Never let the generic used-size collector's 32-bit
+        // addition overflow create a valid-looking native out-of-bounds load.
+        // Offsets inside the 64-KiB window are aligned in element units.
+        if (offset.U32() >= 0x10000U)
+            return ctx.ConstantNull(result_type);
+        // The native QMD3 resource planner checks the reflected in-range
+        // constant offset against the real launch buffer size at dispatch.
         const Id ptr{ctx.OpAccessChain(uniform_type, cbuf, ctx.u32_zero_value,
                                       buffer_offset)};
         return ctx.OpLoad(result_type, ptr);
