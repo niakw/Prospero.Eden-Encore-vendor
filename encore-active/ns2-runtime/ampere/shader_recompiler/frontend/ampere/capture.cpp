@@ -5,6 +5,7 @@
 #include <cstring>
 #include <exception>
 #include <limits>
+#include <utility>
 #include "shader_recompiler/frontend/ampere/program_capture.h"
 #include "shader_recompiler/frontend/ampere/translation_cache.h"
 #include "shader_recompiler/stage.h"
@@ -166,12 +167,40 @@ NativeCaptureResult CaptureNativeShader(
                         return {};
                     }
                 };
-                const auto resolved = ResolveCaptureIndirectBranchesChecked(
-                    native, capture, CaptureIndirectValueOrigin::GraphicsHeader,
-                    read_instruction, checked_cbuf);
-                const auto plans = resolved
-                    ? MakeNativeIndirectBranchPlans(*resolved, native)
-                    : std::nullopt;
+                // Games may encode CBUF jump targets from the beginning
+                // of native code (0) or after the graphics header (0x80).
+                // Never infer the convention from just one CBUF word:
+                // resolve both independently and accept ONLY one complete,
+                // mapping-checked interpretation. Two valid origins are
+                // ambiguous and therefore must not publish a pipeline.
+                const auto attempt = [&](CaptureIndirectValueOrigin origin) {
+                    auto candidate_code = native;
+                    auto candidate_state = capture;
+                    auto candidate = ResolveCaptureIndirectBranchesChecked(
+                        candidate_code, candidate_state, origin,
+                        read_instruction, checked_cbuf);
+                    return std::pair{std::move(candidate_code),
+                                     std::move(candidate)};
+                };
+                auto [header_code, header_table] = attempt(
+                    CaptureIndirectValueOrigin::GraphicsHeader);
+                auto [code_code, code_table] = attempt(
+                    CaptureIndirectValueOrigin::NativeCode);
+                if (bool(header_table) == bool(code_table)) {
+                    result.status = NativeCaptureStatus::UnresolvedIndirectBranch;
+                    result.first_error_offset =
+                        header_bytes + index * sizeof(Instruction);
+                    return result;
+                }
+                const bool with_header = bool(header_table);
+                auto resolved = with_header ? std::move(header_table)
+                                            : std::move(code_table);
+                native = with_header ? std::move(header_code)
+                                     : std::move(code_code);
+                const auto origin = with_header
+                    ? CaptureIndirectValueOrigin::GraphicsHeader
+                    : CaptureIndirectValueOrigin::NativeCode;
+                const auto plans = MakeNativeIndirectBranchPlans(*resolved,native);
                 if (!plans) {
                     result.status = NativeCaptureStatus::UnresolvedIndirectBranch;
                     result.first_error_offset =
@@ -191,8 +220,7 @@ NativeCaptureResult CaptureNativeShader(
                     maxwell_header, source, stage, *plans);
                 if (!result.image.Ready() ||
                     !TranslateCaptureIndirectTargets(
-                        *resolved, result.image,
-                        CaptureIndirectValueOrigin::GraphicsHeader)) {
+                        *resolved, result.image, origin)) {
                     result.status = NativeCaptureStatus::TranslationFailed;
                     result.image = {};
                     return result;
