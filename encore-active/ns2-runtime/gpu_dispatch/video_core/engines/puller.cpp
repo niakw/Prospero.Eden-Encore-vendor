@@ -511,12 +511,20 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
                                          values.begin(), values.end());
         if (!last) return;
         auto& engine = pusher.channel_state.payload->kepler_compute;
-        const auto read = [&](u32 index) {
-            return index < Tegra::Engines::KeplerCompute::Regs::NUM_REGS
-                       ? engine.regs.reg_array[index] : 0U;
+        // Ampere MME register operands are guest-controlled. Returning zero
+        // for an out-of-range read used to make malformed scripts appear
+        // successful, potentially issuing later QMD work with fake state.
+        bool invalid_compute_register_read = false;
+        const auto read = [&](u32 index) -> u32 {
+            if (index >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS) {
+                invalid_compute_register_read = true;
+                return 0;
+            }
+            return engine.regs.reg_array[index];
         };
         const auto emit = [&](u32 reg, u32 value) {
-            if (reg >= 0xe00 || reg >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS)
+            if (invalid_compute_register_read ||
+                reg >= 0xe00 || reg >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS)
                 return false;
             if (reg == 0xae || reg == 0xaf || reg == 0xb0) {
                 ProcessNativeComputeQmd(pusher, reg, value, subchannel);
@@ -538,7 +546,8 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
             native_compute_macro_method, native_compute_parameters, read, emit);
         native_compute_macro_method = 0;
         native_compute_parameters.clear();
-        if (!result.success) fail("compute MME interpreter rejected instruction");
+        if (!result.success || invalid_compute_register_read)
+            fail("compute MME interpreter or register access rejected");
         return;
     }
     if (native_compute_macro_method) {
