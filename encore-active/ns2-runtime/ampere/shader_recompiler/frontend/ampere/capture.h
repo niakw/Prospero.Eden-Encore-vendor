@@ -11,6 +11,13 @@
 
 namespace Shader::Ampere {
 class NativeTranslationCache;
+// Native GMMU addresses are 49-bit on this GPU, independent of the host
+// process pointer width. Check the full range BEFORE any mapped callback;
+// size zero is never an admissible guest shader/CBUF memory request.
+[[nodiscard]] constexpr bool NativeGpuRange49(u64 address,u64 bytes) noexcept {
+    constexpr u64 limit = u64{1} << 49;
+    return bytes && address < limit && bytes <= limit - address;
+}
 using GuestShaderRead = bool (*)(void* context, u64 gpu_address, void* buffer, std::size_t size);
 using GuestCbufRead = std::optional<u32> (*)(void* context, u32 bank, u32 byte_offset);
 

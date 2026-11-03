@@ -33,9 +33,9 @@ NativeCaptureResult CaptureNativeShader(
                   stage == static_cast<u32>(Shader::Stage::Compute))
         return result;
     const u64 header_bytes = compute ? 0 : NativeHeaderBytes;
-    if (!read || gpu_base > std::numeric_limits<u64>::max() -
-                                 header_bytes -
-                                 u64{MaxCapturedInstructions} * sizeof(Instruction))
+    if (!read || !NativeGpuRange49(
+            gpu_base, header_bytes +
+            u64{MaxCapturedInstructions} * sizeof(Instruction)))
         return result;
 
     // Every guest GPU read can fail concurrently with an unmap. Capture

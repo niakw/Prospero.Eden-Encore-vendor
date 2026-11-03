@@ -91,6 +91,8 @@ std::optional<u32> ReadNs2GraphicsCbuf(void* context, u32 bank, u32 offset) {
         cbuf.address > std::numeric_limits<u64>::max() - offset)
         return {};
     const u64 address = cbuf.address + offset;
+    if (!Shader::Ampere::NativeGpuRange49(address, sizeof(u32)))
+        return {};
     try {
         if (!owner->memory->IsFullyMappedRange(address, sizeof(u32)))
             return {};
@@ -104,8 +106,8 @@ std::optional<u32> ReadNs2GraphicsCbuf(void* context, u32 bank, u32 offset) {
 
 bool ReadNs2GpuShader(void* context, u64 address, void* dest, std::size_t size) {
     auto* const memory = static_cast<Tegra::MemoryManager*>(context);
-    if (!memory || !dest || !size ||
-        address > std::numeric_limits<u64>::max() - size)
+    if (!memory || !dest ||
+        !Shader::Ampere::NativeGpuRange49(address, size))
         return false;
     try {
         if (!memory->IsFullyMappedRange(address, size))
