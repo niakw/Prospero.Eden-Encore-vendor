@@ -766,21 +766,11 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                 // span. Otherwise the shader can run but never release its
                 // dependent queue, and a later retry can publish a false
                 // completion for work already submitted.
-                bool release_targets_mapped = true;
-                for (const u32 base : {24U, 28U, 52U}) {
-                    const u32 flags = descriptor[base + 1];
-                    if (!(flags & (1U << 23))) continue;
-                    const u64 destination =
-                        (u64{flags & 0xffU} << 32) | descriptor[base];
-                    constexpr u64 native_limit = u64{1} << 49;
-                    if (!destination || (destination & 3U) ||
-                        destination >= native_limit ||
-                        sizeof(u32) > native_limit - destination ||
-                        !pusher.memory_manager.IsFullyMappedRange(destination, sizeof(u32))) {
-                        release_targets_mapped = false;
-                        break;
-                    }
-                }
+                const bool release_targets_mapped =
+                    Tegra::NativeQmdReleaseTargetsMapped(
+                        descriptor, [&pusher](u64 address, std::size_t bytes) {
+                            return pusher.memory_manager.IsFullyMappedRange(address, bytes);
+                        });
                 // The shader bridge can be switched off during host
                 // preflight; still compile the same shared source with
                 // -Werror=unused-but-set-variable under either definition.
