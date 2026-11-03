@@ -221,7 +221,10 @@ GPUVAddr MemoryManager::MapSparse(GPUVAddr gpu_addr, std::size_t size, bool is_b
 }
 
 void MemoryManager::Unmap(GPUVAddr gpu_addr, std::size_t size) {
-    if (size == 0) {
+    // Malformed sparse unmaps must not traverse or invalidate PTEs outside
+    // this process's configured 40/49-bit GPU VA allocation.
+    if (size == 0 || gpu_addr >= address_space_size ||
+        size > address_space_size - gpu_addr) {
         return;
     }
     GetSubmappedRangeImpl<false>(gpu_addr, size, page_stash);
@@ -699,6 +702,11 @@ bool MemoryManager::IsFullyMappedRange(GPUVAddr gpu_addr, std::size_t size) cons
 boost::container::small_vector<std::pair<GPUVAddr, std::size_t>, 32>
 MemoryManager::GetSubmappedRange(GPUVAddr gpu_addr, std::size_t size) const {
     boost::container::small_vector<std::pair<GPUVAddr, std::size_t>, 32> result{};
+    // The read-only sparse walker has the same exact half-open VA policy
+    // as GMMU map, unmap and native QMD descriptor admission.
+    if (size == 0 || gpu_addr >= address_space_size ||
+        size > address_space_size - gpu_addr)
+        return result;
     GetSubmappedRangeImpl<true>(gpu_addr, size, result);
     return result;
 }
