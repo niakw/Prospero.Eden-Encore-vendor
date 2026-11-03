@@ -1012,6 +1012,31 @@ public:
         // Never use the Switch 1 shader dumper on NS2 Ampere code.
     }
 
+    // Capture the complete 16-byte SSBO descriptor with one coherent GMMU
+    // read. Four independent word reads could splice an old GPU-written
+    // address together with a newer length/tag while a producer updates
+    // the descriptor. Re-read entire records at the pre/post-bind epoch
+    // checks already performed by the native Vulkan owner.
+    [[nodiscard]] std::array<u32, 4> ReadStorageDescriptor(
+        u32 bank, u32 offset) {
+        if (bank >= launch.constant_buffers.size() || (offset & 3U))
+            throw std::out_of_range{"invalid native SSBO descriptor alignment/bank"};
+        const auto& cbuf = launch.constant_buffers[bank];
+        constexpr u64 limit = u64{1} << 49;
+        constexpr u32 bytes = 4U * sizeof(u32);
+        if (!cbuf.enabled || !cbuf.size || offset > cbuf.size ||
+            bytes > cbuf.size - offset ||
+            cbuf.gpu_address >= limit ||
+            offset > limit - cbuf.gpu_address ||
+            bytes > limit - cbuf.gpu_address - offset)
+            throw std::out_of_range{"native SSBO descriptor outside mapped CBUF"};
+        std::array<u32, 4> descriptor{};
+        if (!read(context, cbuf.gpu_address + offset,
+                  descriptor.data(), sizeof(descriptor)))
+            throw std::out_of_range{"native SSBO descriptor GMMU read failed"};
+        return descriptor;
+    }
+
     [[nodiscard]] std::optional<NativeQmdResourcePlan> BuildResourcePlan(
         const Shader::Info& shader_info) {
         constexpr u64 gpu_limit = u64{1} << 49;
@@ -1058,10 +1083,9 @@ public:
                     return std::nullopt;
                 for (u32 index = 0; index < desc.count; ++index) {
                     const u32 offset = desc.cbuf_offset + index * 16U;
-                    const u32 lo = ReadCbufValue(desc.cbuf_index, offset);
-                    const u32 hi = ReadCbufValue(desc.cbuf_index, offset + 4);
-                    const u32 bytes = ReadCbufValue(desc.cbuf_index, offset + 8);
-                    const u32 tag = ReadCbufValue(desc.cbuf_index, offset + 12);
+                    const auto record = ReadStorageDescriptor(desc.cbuf_index, offset);
+                    const u32 lo = record[0], hi = record[1];
+                    const u32 bytes = record[2], tag = record[3];
                     if ((hi & ~u32{0x1ffff}) != 0)
                         return std::nullopt;
                     const u64 target = (u64{hi} << 32) | lo;
