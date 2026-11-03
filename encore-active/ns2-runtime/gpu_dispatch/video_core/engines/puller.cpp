@@ -523,16 +523,16 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
             }
             return engine.regs.reg_array[index];
         };
-        const auto emit = [&](u32 reg, u32 value) {
-            if (invalid_compute_register_read ||
-                reg >= 0xe00 || reg >= Tegra::Engines::KeplerCompute::Regs::NUM_REGS)
-                return false;
+        const auto allowed = [&](u32 reg, u32) {
+            return !invalid_compute_register_read &&
+                   reg < 0xe00 &&
+                   reg < Tegra::Engines::KeplerCompute::Regs::NUM_REGS;
+        };
+        const auto commit = [&](u32 reg, u32 value) {
             if (reg == 0xae || reg == 0xaf || reg == 0xb0) {
                 ProcessNativeComputeQmd(pusher, reg, value, subchannel);
             } else if (Tegra::NativeComputePlainRegister(reg)) {
-                // Side-effect-free 0xC7C0 register write. Native MME emits
-                // these at high frequency; the legacy Kepler method path
-                // would only store this exact value in the same register.
+                // Commit the validated register snapshot in emission order.
                 engine.regs.reg_array[reg] = value;
             } else {
                 engine.CallMethod(pusher.system, reg, value, true);
@@ -541,10 +541,11 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
                 if (reg == 0x107)
                     ProcessNativeComputeInlineQmd(pusher, subchannel);
             }
-            return true;
         };
-        const auto result = native_compute->Execute(
-            native_compute_macro_method, native_compute_parameters, read, emit);
+        const auto result = native_compute->ExecuteStaged(
+            native_compute_macro_method, native_compute_parameters,
+            read, allowed, commit,
+            [&] { return !invalid_compute_register_read; });
         native_compute_macro_method = 0;
         native_compute_parameters.clear();
         if (!result.success || invalid_compute_register_read)
