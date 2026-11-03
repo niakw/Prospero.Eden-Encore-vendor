@@ -85,11 +85,26 @@ struct LoweredProgram {
     explicit operator bool() const { return error.empty(); }
 };
 
+// A checked native CBUF table can be compiled into explicit compare-and-BRA
+// dispatch. This avoids the Maxwell indirect-branch CFG interpreting raw
+// Ampere PCs. The runtime table must be authenticated separately and the
+// image must be invalidated when its contents change.
+struct NativeIndirectBranchTarget {
+    u32 native_value{};
+    u32 native_instruction_index{};
+};
+struct NativeIndirectBranchPlan {
+    u32 branch_instruction_index{};
+    std::vector<NativeIndirectBranchTarget> targets;
+};
+
 // Lower only operations whose semantics are representable by the existing
 // Maxwell frontend. These are new instructions, not reinterpretations of the
 // native bytes. Scheduling/control words are added by the environment adapter.
 inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
-                                     std::span<const u32> verified_traps = {}, bool allow_register_spills = false) {
+                                     std::span<const u32> verified_traps = {},
+                                     bool allow_register_spills = false,
+                                     std::span<const NativeIndirectBranchPlan> indirect_dispatch = {}) {
     LoweredProgram result;
     struct Relocation { u32 output_index; s64 target; bool call = false; u32 output_target = ~0U; };
     std::vector<Relocation> relocations;
@@ -216,6 +231,36 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         return result;
     };
     if (code.empty() || code.size() > 65536) return fail(0, "invalid native program size");
+    if (!indirect_dispatch.empty()) {
+        u32 branch_count{};
+        for (u32 i = 0; i < code.size(); ++i) {
+            if (code[i].Bits(0, 12) == 0x949) ++branch_count;
+            if (code[i].Bits(0, 12) == 0x958)
+                return fail(i, "uniform computed branch has no reviewed dispatch");
+        }
+        if (branch_count != indirect_dispatch.size())
+            return fail(0, "unresolved native computed branch in dispatch");
+        for (u32 p = 0; p < indirect_dispatch.size(); ++p) {
+            const auto& plan = indirect_dispatch[p];
+            if (plan.branch_instruction_index >= code.size() ||
+                code[plan.branch_instruction_index].Bits(0, 12) != 0x949 ||
+                plan.targets.size() < 2 || plan.targets.size() > 16)
+                return fail(0, "invalid native indirect dispatch table");
+            for (u32 q = 0; q < p; ++q)
+                if (indirect_dispatch[q].branch_instruction_index ==
+                    plan.branch_instruction_index)
+                    return fail(0, "duplicate native indirect branch");
+            for (u32 i = 0; i < plan.targets.size(); ++i) {
+                if (plan.targets[i].native_instruction_index >= code.size())
+                    return fail(0, "native indirect target not captured");
+                for (u32 j = 0; j < i; ++j)
+                    if (plan.targets[i].native_value == plan.targets[j].native_value &&
+                        plan.targets[i].native_instruction_index !=
+                            plan.targets[j].native_instruction_index)
+                        return fail(0, "ambiguous native indirect branch value");
+            }
+        }
+    }
     const auto branches_to = [&](u32 at, u32 pred, s64 destination) {
         if (at >= code.size()) return false;
         const auto& branch = code[at];
@@ -3459,6 +3504,31 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             if (offset < -0x800000) return fail(index, "native computed branch range");
             const u32 source = opcode == 0x958 ? uniform_register(insn.Bits(24, 8)) : insn.Bits(24, 8);
             if (source == ~0U) return fail(index, "native uniform computed branch source");
+            const auto plan = std::find_if(indirect_dispatch.begin(), indirect_dispatch.end(),
+                [&](const auto& item) { return item.branch_instruction_index == index; });
+            if (plan != indirect_dispatch.end()) {
+                // Native LDC still loads the *original* u32 PC. Compare it
+                // against the immutable checked table values and branch to
+                // relocated native source indices. No fake Maxwell CBUF
+                // offsets, no runtime index renumbering and no BRX CFG.
+                // P6 and high scratch R252 belong to the reserved translator
+                // register bank; this path is unconditional and P6 is reset
+                // before every branch, so a missed comparison falls through.
+                for (const auto& entry : plan->targets) {
+                    mov_imm(252, entry.native_value);
+                    // ISETP.EQ.U32.AND P6, PT, Rsource, R252, PT
+                    emit(0x5b60000000070000ULL | 7U | (u64{6} << 3) |
+                         (u64{source} << 8) | (u64{252} << 20) |
+                         (u64{7} << 39) | (u64{2} << 49));
+                    relocations.push_back({static_cast<u32>(result.instructions.size()),
+                                           entry.native_instruction_index});
+                    emit(0xe24000000000000fULL | (u64{6} << 16));
+                }
+                // If a guest rewrites CBUF between shader capture and
+                // execution, an unrecognized PC cannot run arbitrary code.
+                emit(0xe30000000007000fULL);
+                break;
+            }
             emit(0xe25000000000000fULL | predicate | (u64{source} << 8) |
                  ((static_cast<u64>(offset) & 0xffffff) << 20));
             break;
