@@ -117,8 +117,11 @@ struct NativeQmdResourcePlan {
     [[nodiscard]] bool HasResolvedGpuBufferBindings() const noexcept {
         if (requires_memory_layout || uses_global_memory)
             return false;
+        // Zero is the unmapped/null guest buffer sentinel. Shader CBUFs
+        // are required real bindings, not optional descriptors: never
+        // delegate a zero address to a permissive mapping callback.
         for (const auto& cbuf : uniform_buffers)
-            if (!cbuf.bytes) return false;
+            if (!cbuf.gpu_address || !cbuf.bytes) return false;
         for (const auto& storage : storage_buffers)
             if (!storage.known_size || !storage.bytes || !storage.gpu_address)
                 return false;
