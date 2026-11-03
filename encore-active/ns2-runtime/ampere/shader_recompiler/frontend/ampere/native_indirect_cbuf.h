@@ -54,7 +54,26 @@ inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
 
 [[nodiscard]] inline bool NormalizeNativeQmdIndirectCbufIR(Shader::IR::Program& program,
                                                           u32 enabled_mask = 0xffU) {
-    if (!program.info.uses_cbuf_indirect) return true;
+    // LDC/ULDC with an immediate bank is also a QMD3 launch dependency.
+    // The generic Maxwell IR permits banks 0..17, but QMD3 exposes 0..7.
+    // Refuse a missing/disabled bank BEFORE emitting SPIR-V; it must never
+    // become a valid-looking native shader whose Vulkan binding will fail.
+    if (enabled_mask & ~u32{0xff}) return false;
+    if (!program.info.uses_cbuf_indirect) {
+        u32 declared_mask{};
+        for (const auto& desc : program.info.constant_buffer_descriptors) {
+            if (!desc.count || desc.index >= kNativeQmdIndirectCbufBanks ||
+                desc.count > kNativeQmdIndirectCbufBanks - desc.index)
+                return false;
+            for (u32 i = 0; i < desc.count; ++i) {
+                const u32 bit = u32{1} << (desc.index + i);
+                if ((declared_mask & bit) || !(enabled_mask & bit))
+                    return false;
+                declared_mask |= bit;
+            }
+        }
+        return declared_mask == program.info.constant_buffer_mask;
+    }
     // Check all actual CBUF loads before narrowing the generic fourteen-bank
     // reflection. A dynamic bank selector can touch any enabled slot; the
     // offset may be narrowed only if EVERY load uses a literal byte offset.
