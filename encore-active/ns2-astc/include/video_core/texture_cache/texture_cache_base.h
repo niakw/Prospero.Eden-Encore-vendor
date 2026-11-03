@@ -9,6 +9,7 @@
 #include <atomic>
 #include <deque>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <span>
 #include <type_traits>
@@ -171,6 +172,51 @@ public:
 
     /// Mark an image as modified from the GPU
     void MarkModification(ImageId id) noexcept;
+
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+    // An already authenticated native TIC/TSC record can use the SAME slot
+    // owner as Maxwell. Caller must hold mutex, bind the correct GPU
+    // channel and validate the entire 49-bit GMMU span first.
+    // These IDs are NOT fence-held Vulkan leases. The native renderer may
+    // only publish the objects after a separate GPU lifetime proof.
+    [[nodiscard]] bool NativeChannelMatches(
+        const Tegra::Engines::KeplerCompute& expected_compute,
+        const Tegra::MemoryManager& expected_memory) const noexcept;
+    // Native acquisitions hold config_mutex across texture-cache work.
+    // The existing GPU-region enumerators call getStorageID() internally:
+    // never re-acquire this non-recursive mutex on the owner thread. Other
+    // threads and all NS1 call sites retain the original locking behavior.
+    inline static thread_local const TextureCache<P>* native_channel_lock_owner = nullptr;
+    [[nodiscard]] std::optional<size_t> getStorageID(size_t id) const {
+        if (native_channel_lock_owner == this) {
+            const auto it = this->address_spaces.find(id);
+            return it == this->address_spaces.end()
+                ? std::nullopt : std::optional<size_t>{it->second.storage_id};
+        }
+        return VideoCommon::ChannelSetupCaches<TextureCacheChannelInfo>::getStorageID(id);
+    }
+    [[nodiscard]] ImageViewId AcquireNativeImageView(
+        const Tegra::Engines::KeplerCompute& expected_compute,
+        const Tegra::MemoryManager& expected_memory,
+        const TICEntry& descriptor, bool is_written = false);
+    [[nodiscard]] SamplerId AcquireNativeSampler(
+        const Tegra::Engines::KeplerCompute& expected_compute,
+        const Tegra::MemoryManager& expected_memory,
+        const TSCEntry& descriptor);
+
+    // The caller holds texture_cache.mutex and must copy the Vulkan handles
+    // while it remains held. A lease pins both the VkImageView owner and its
+    // backing VkImage across a remap, eviction, and asynchronous fence wait.
+    // Raw ImageViewId alone cannot provide this guarantee.
+    struct NativePinnedImageView {
+        ImageViewId id{};
+        std::shared_ptr<u8> backing_image;
+        std::shared_ptr<u8> image_view;
+    };
+    [[nodiscard]] std::optional<NativePinnedImageView>
+    PinNativeImageView(ImageViewId id);
+    [[nodiscard]] std::shared_ptr<u8> PinNativeSampler(SamplerId id);
+#endif
 
     /// Fill image_view_ids with the graphics/compute images in indices
     void FillImageViews(std::span<ImageViewInOut> views, bool compute, bool blacklist = true);
