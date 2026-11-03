@@ -8,7 +8,9 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
+#include <span>
 #include <vector>
 
 #include "common/common_types.h"
@@ -35,6 +37,19 @@ namespace Vulkan {
 class Device;
 class PipelineStatistics;
 class Scheduler;
+
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+// The actual shared-cache Vulkan handles plus their fence-held object pins.
+// Raw TIC/TSC IDs never cross the Vulkan descriptor publication boundary.
+struct NativeComputeImageBinding {
+    VkImageView view{VK_NULL_HANDLE};
+    VkSampler sampler{VK_NULL_HANDLE};
+    bool storage{};
+    std::shared_ptr<u8> image_pin;
+    std::shared_ptr<u8> view_pin;
+    std::shared_ptr<u8> sampler_pin;
+};
+#endif
 
 class ComputePipeline {
 public:
@@ -86,7 +101,8 @@ public:
     [[nodiscard]] bool ConfigureNative(
         const Shader::Ampere::NativeQmdResourcePlan& resources,
         Tegra::MemoryManager& gpu_memory, Scheduler& scheduler,
-        BufferCache& buffer_cache);
+        BufferCache& buffer_cache,
+        std::span<const NativeComputeImageBinding> images);
 #endif
     bool IsBound() const noexcept {
         return static_cast<bool>(pipeline);
