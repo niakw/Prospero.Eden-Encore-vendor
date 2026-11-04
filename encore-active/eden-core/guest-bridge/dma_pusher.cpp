@@ -15,6 +15,9 @@
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/gpu.h"
 #include "video_core/guest_memory.h"
+#ifdef EDEN_NS2_NATIVE_GPU_DISPATCH
+#include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
+#endif
 #include "video_core/memory_manager.h"
 #include "video_core/rasterizer_interface.h"
 
@@ -108,7 +111,15 @@ bool DmaPusher::Step() {
                 subchannels[dma_state.subchannel]->current_dirty = memory_manager.IsMemoryDirty(dma_state.dma_get, words * sizeof(u32));
             }
         }
-        const bool use_safe = Settings::IsDMALevelDefault() ? Settings::IsGPULevelHigh() : Settings::IsDMALevelSafe();
+        bool use_safe = Settings::IsDMALevelDefault() ? Settings::IsGPULevelHigh() : Settings::IsDMALevelSafe();
+#ifdef EDEN_NS2_NATIVE_GPU_DISPATCH
+        // P2.7: C7x0 native GPFIFO command words can have been produced by
+        // an earlier GPU dispatch. A guest setting for UNSAFE DMA must never
+        // bypass GPU cache coherency for an authenticated NS2 channel.
+        // SafeRead flushes the actual guest GPU region before consuming the
+        // live words, including the non-contiguous backing fallback.
+        use_safe |= Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(&channel_state);
+#endif
         if (use_safe) {
             Tegra::Memory::GpuGuestMemory<Tegra::CommandHeader, Tegra::Memory::GuestMemoryFlags::SafeRead>headers(memory_manager, dma_state.dma_get, header.size, &command_headers);
             ProcessCommands(headers);
