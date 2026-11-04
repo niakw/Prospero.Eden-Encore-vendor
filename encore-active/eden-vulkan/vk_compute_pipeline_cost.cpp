@@ -774,18 +774,10 @@ bool ComputePipeline::ConfigureNative(
         else
             guest_descriptor_queue.AddSampledImage(item.view, item.sampler);
     }
-    // All buffers are now admitted. Register guest writes after admission,
-    // never during a possibly rejected descriptor preflight.
-    for (const auto& item : staged) {
-        if (item.is_written) {
-            // MarkAsWritten is the intentional side effect; no returned
-            // buffer handle is consumed by this native descriptor path.
-            static_cast<void>(buffer_cache.ObtainBuffer(
-                item.gpu, item.bytes,
-                VideoCommon::ObtainBufferSynchronize::NoSynchronize,
-                VideoCommon::ObtainBufferOperation::MarkAsWritten));
-        }
-    }
+    // Do not mark any guest SSBO written yet. The renderer has not checked
+    // whether the mutable QMD CBUF and TIC/TSC records still match their
+    // capture after descriptor staging. It commits write tracking only
+    // after that final check, immediately before recording vkCmdDispatch.
 
     const DescriptorUpdateEntry* const data = guest_descriptor_queue.UpdateData();
     const bool bind_descriptor_buffer =

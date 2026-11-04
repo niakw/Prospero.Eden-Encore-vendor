@@ -1481,6 +1481,34 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
             return false;
         }
 
+        // Deferred GPU write tracking is a commit, not descriptor staging.
+        // Rejecting a QMD because its guest CBUF or TIC/TSC changed must
+        // never tag unrelated guest RAM as GPU-written: a later CPU read
+        // could otherwise download stale Vulkan storage over newer CPU data.
+        // Keep the existing BufferCache lock and full 49-bit contiguous GMMU
+        // checks, but perform the side effect only after final authentication.
+        {
+            std::scoped_lock lock{buffer_cache.mutex};
+            if (!resources->ValidateGpuBufferMappings(
+                    [this](u64 address, u32 bytes) {
+                        return Shader::Ampere::NativeQmdContiguousGpuSpan(
+                            address, bytes, [this](u64 page) {
+                                return gpu_memory->GpuToCpuAddress(page);
+                            });
+                    }))
+                return false;
+            for (const auto& storage : resources->storage_buffers) {
+                if (!storage.is_written) continue;
+                auto [buffer, offset] = buffer_cache.ObtainBuffer(
+                    storage.gpu_address, storage.bytes,
+                    VideoCommon::ObtainBufferSynchronize::NoSynchronize,
+                    VideoCommon::ObtainBufferOperation::MarkAsWritten);
+                if (!buffer || buffer->Handle() == VK_NULL_HANDLE)
+                    return false;
+                static_cast<void>(offset);
+            }
+        }
+
         const auto dim = launch.grid;
         scheduler.Record([](vk::CommandBuffer cmdbuf) {
             cmdbuf.PipelineBarrier(
