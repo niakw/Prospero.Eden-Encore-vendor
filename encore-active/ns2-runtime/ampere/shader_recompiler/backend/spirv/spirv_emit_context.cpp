@@ -18,6 +18,7 @@
 #include "common/div_ceil.h"
 #include "shader_recompiler/backend/spirv/emit_spirv.h"
 #include "shader_recompiler/backend/spirv/spirv_emit_context.h"
+#include "shader_recompiler/frontend/ampere/native_indirect_cbuf.h"
 
 namespace Shader::Backend::SPIRV {
 namespace {
@@ -966,9 +967,33 @@ void EmitContext::DefineGlobalMemoryFunctions(const Info& info) {
             const Id unaligned_addr{OpBitcast(U64, OpLoad(U32[2], ssbo_addr_pointer))};
             const Id ssbo_addr{OpBitwiseAnd(U64, unaligned_addr, Constant(U64, ssbo_align_mask))};
             const Id ssbo_size{OpUConvert(U64, OpLoad(U32[1], ssbo_size_pointer))};
-            const Id ssbo_end{OpIAdd(U64, ssbo_addr, ssbo_size)};
-            const Id cond{OpLogicalAnd(U1, OpUGreaterThanEqual(U1, addr, ssbo_addr),
-                                       OpULessThan(U1, addr, ssbo_end))};
+            const Id cond{[&] {
+                if (!Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+                    // Preserve the original Maxwell/NS1 global accessor.
+                    const Id ssbo_end{OpIAdd(U64, ssbo_addr, ssbo_size)};
+                    return OpLogicalAnd(U1, OpUGreaterThanEqual(U1, addr, ssbo_addr),
+                                        OpULessThan(U1, addr, ssbo_end));
+                }
+                // Ampere QMD3 global storage is authenticated against a
+                // complete, known-size 49-bit descriptor before dispatch.
+                // Checking only the first byte can still let an 8/16-byte
+                // load or store cross the end of an SSBO. The shared emitter
+                // then floors its byte offset to an element index, so also
+                // refuse unaligned addresses instead of aliasing earlier data.
+                const u64 width = u64{1} << shift; // 4, 8 or 16 bytes
+                const Id span{Constant(U64, width)};
+                const Id byte_offset{OpISub(U64, addr, ssbo_addr)};
+                const Id enough_bytes{OpUGreaterThanEqual(U1, ssbo_size, span)};
+                const Id fully_covered{OpULessThanEqual(
+                    U1, byte_offset, OpISub(U64, ssbo_size, span))};
+                const Id aligned{OpIEqual(
+                    U1, OpBitwiseAnd(U64, byte_offset, Constant(U64, width - 1)),
+                    Constant(U64, u64{0}))};
+                return OpLogicalAnd(
+                    U1, OpUGreaterThanEqual(U1, addr, ssbo_addr),
+                    OpLogicalAnd(
+                        U1, enough_bytes, OpLogicalAnd(U1, fully_covered, aligned)));
+            }()};
             const Id then_label{OpLabel()};
             const Id else_label{OpLabel()};
             OpSelectionMerge(else_label, spv::SelectionControlMask::MaskNone);

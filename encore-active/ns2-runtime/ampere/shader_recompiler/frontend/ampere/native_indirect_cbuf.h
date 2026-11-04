@@ -12,6 +12,24 @@
 namespace Shader::Ampere {
 inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
 
+// Scalar oracle for the exact native SPIR-V global access condition.
+// SPIR-V applies the same unsigned byte-span and alignment predicate
+// before constructing an OpAccessChain. This is a host-side regression
+// witness only: actual guest addresses are checked by emitted SPIR-V.
+[[nodiscard]] constexpr bool NativeQmdGlobalAccessWithinStorage(
+    u64 guest_base, u32 storage_bytes, u64 address, u32 access_bytes) noexcept {
+    constexpr u64 limit = u64{1} << 49;
+    if (!guest_base || guest_base >= limit ||
+        storage_bytes > limit - guest_base ||
+        (access_bytes != 4 && access_bytes != 8 && access_bytes != 16) ||
+        storage_bytes < access_bytes || address < guest_base)
+        return false;
+    const u64 offset = address - guest_base;
+    return offset <= storage_bytes - access_bytes &&
+           (offset & (access_bytes - 1U)) == 0;
+}
+
+
 // The common Maxwell translator adds NVN global SSBO records only when
 // uses_global_memory is set. A genuine native Compute program may WRITE
 // globals without reading them, so stores_global_memory alone is not enough
