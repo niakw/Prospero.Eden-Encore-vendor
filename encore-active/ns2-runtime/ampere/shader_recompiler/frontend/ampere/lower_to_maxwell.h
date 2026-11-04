@@ -1555,10 +1555,14 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             const u32 binding = insn.Bits(54, 5), offset = insn.Bits(40, 14);
             const u32 data = insn.Bits(32, 8), coordinate = insn.Bits(24, 8);
             const u32 dimension = insn.Bits(61, 3);
+            // Native GPU register operands must not overlap synthetic
+            // Maxwell lowering scratch or the emulated uniform bank.
+            const u32 reserved = std::min<u32>(reserved_register, 246U);
             if (insn.words[2] != 0x0010e000U ||
                 (dimension != 1 && dimension != 3) ||
                 binding >= 18 || offset > 0x1fffU || insn.Bits(59, 2) ||
-                data == 255 || coordinate > 253)
+                data >= reserved ||
+                coordinate + (dimension == 3 ? 2U : 1U) > reserved)
                 return fail(index, "native surface reduction mode");
             if (result.required_texture_buffer != ~0U &&
                 result.required_texture_buffer != binding)
