@@ -115,7 +115,8 @@ std::optional<OutAttr> OutputAttrPointer(EmitContext& ctx, IR::Attribute attr) {
 }
 
 Id GetCbuf(EmitContext& ctx, Id result_type, Id UniformDefinitions::*member_ptr, u32 element_size,
-           const IR::Value& binding, const IR::Value& offset, const Id indirect_func) {
+           const IR::Value& binding, const IR::Value& offset, const Id indirect_func,
+           u32 native_access_bytes, bool next_vector_for_pair = false) {
     Id buffer_offset;
     const Id uniform_type{ctx.uniform_types.*member_ptr};
     if (offset.IsImmediate()) {
@@ -128,6 +129,40 @@ Id GetCbuf(EmitContext& ctx, Id result_type, Id UniformDefinitions::*member_ptr,
         buffer_offset = ctx.OpShiftRightLogical(ctx.U32[1], ctx.Def(offset), shift);
     } else {
         buffer_offset = ctx.Def(offset);
+    }
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive() && offset.IsImmediate() &&
+        offset.U32() > 0x10000U - native_access_bytes) {
+        return ctx.ConstantNull(result_type);
+    }
+    if (next_vector_for_pair) {
+        // Without descriptor aliasing, native U32x2 is two scalar elements.
+        // At byte offsets 12..15 the SECOND element lives in the next
+        // 16-byte uniform row. Do not extract component 4 from the first.
+        if (offset.IsImmediate()) {
+            if ((offset.U32() & 15U) >= 12U)
+                buffer_offset = ctx.OpIAdd(ctx.U32[1], buffer_offset, ctx.Const(1U));
+        } else {
+            const Id last_word{ctx.OpUGreaterThanEqual(
+                ctx.U1, ctx.OpBitwiseAnd(ctx.U32[1], ctx.Def(offset), ctx.Const(15U)),
+                ctx.Const(12U))};
+            const Id delta{ctx.OpSelect(ctx.U32[1], last_word,
+                                        ctx.Const(1U), ctx.u32_zero_value)};
+            buffer_offset = ctx.OpIAdd(ctx.U32[1], buffer_offset, delta);
+        }
+    }
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive() && !offset.IsImmediate()) {
+        // The old index-only test silently accepted a U32x2 read at
+        // 0xfffc by rounding down to the in-range row at 0xfff8.
+        // Validate ORIGINAL guest bytes, not only the rounded SPIR-V
+        // element index. U8 through an aligned U32x4 must still admit
+        // byte 0xffff, while a genuine U32x2 cannot cross that boundary.
+        const Id valid_span{ctx.OpULessThanEqual(
+            ctx.U1, ctx.Def(offset), ctx.Const(0x10000U - native_access_bytes))};
+        // Both the indirect QMD3 bank switch and the direct-bank bounds
+        // guard below reject this sentinel before creating a guest pointer.
+        // No change to the legacy Maxwell compiler path.
+        buffer_offset = ctx.OpSelect(ctx.U32[1], valid_span,
+                                     buffer_offset, ctx.Const(~u32{0}));
     }
     if (!binding.IsImmediate()) {
         return ctx.OpFunctionCall(result_type, indirect_func, ctx.Def(binding), buffer_offset);
@@ -180,26 +215,34 @@ Id GetCbuf(EmitContext& ctx, Id result_type, Id UniformDefinitions::*member_ptr,
                         ctx.ConstantNull(result_type));
 }
 
-Id GetCbufU32(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset) {
+Id GetCbufU32(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset,
+              u32 native_access_bytes = 4) {
     return GetCbuf(ctx, ctx.U32[1], &UniformDefinitions::U32, sizeof(u32), binding, offset,
-                   ctx.load_const_func_u32);
+                   ctx.load_const_func_u32, native_access_bytes);
 }
 
-Id GetCbufU32x4(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset) {
+Id GetCbufU32x4(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset,
+                u32 native_access_bytes = 4, bool next_vector_for_pair = false) {
     return GetCbuf(ctx, ctx.U32[4], &UniformDefinitions::U32x4, sizeof(u32[4]), binding, offset,
-                   ctx.load_const_func_u32x4);
+                   ctx.load_const_func_u32x4, native_access_bytes, next_vector_for_pair);
 }
 
 Id GetCbufElement(EmitContext& ctx, Id vector, const IR::Value& offset, u32 index_offset) {
     if (offset.IsImmediate()) {
         const u32 element{(offset.U32() / 4) % 4 + index_offset};
-        return ctx.OpCompositeExtract(ctx.U32[1], vector, element);
+        return ctx.OpCompositeExtract(ctx.U32[1], vector,
+            Shader::Ampere::NativeSpirvCbufBoundsActive() ? element % 4 : element);
     }
     const Id shift{ctx.OpShiftRightLogical(ctx.U32[1], ctx.Def(offset), ctx.Const(2u))};
     Id element{ctx.OpBitwiseAnd(ctx.U32[1], shift, ctx.Const(3u))};
     if (index_offset > 0) {
         element = ctx.OpIAdd(ctx.U32[1], element, ctx.Const(index_offset));
     }
+    // The native U32x2 caller selects the following uniform vector row
+    // for a pair crossing the row boundary, then wraps the component index.
+    // NS1 retains its original extraction instructions unchanged.
+    if (index_offset && Shader::Ampere::NativeSpirvCbufBoundsActive())
+        element = ctx.OpBitwiseAnd(ctx.U32[1], element, ctx.Const(3U));
     return ctx.OpVectorExtractDynamic(ctx.U32[1], vector, element);
 }
 } // Anonymous namespace
@@ -240,14 +283,14 @@ Id EmitGetCbufU8(EmitContext& ctx, const IR::Value& binding, const IR::Value& of
     if (ctx.profile.support_descriptor_aliasing && ctx.profile.support_int8 &&
         ctx.profile.support_uniform_and_storage_buffer_8bit) {
         const Id load{GetCbuf(ctx, ctx.U8, &UniformDefinitions::U8, sizeof(u8), binding, offset,
-                              ctx.load_const_func_u8)};
+                              ctx.load_const_func_u8, 1)};
         return ctx.OpUConvert(ctx.U32[1], load);
     }
     Id element{};
     if (ctx.profile.support_descriptor_aliasing) {
-        element = GetCbufU32(ctx, binding, offset);
+        element = GetCbufU32(ctx, binding, offset, 1);
     } else {
-        const Id vector{GetCbufU32x4(ctx, binding, offset)};
+        const Id vector{GetCbufU32x4(ctx, binding, offset, 1)};
         element = GetCbufElement(ctx, vector, offset, 0u);
     }
     const Id bit_offset{ctx.BitOffset8(offset)};
@@ -258,14 +301,14 @@ Id EmitGetCbufS8(EmitContext& ctx, const IR::Value& binding, const IR::Value& of
     if (ctx.profile.support_descriptor_aliasing && ctx.profile.support_int8 &&
         ctx.profile.support_uniform_and_storage_buffer_8bit) {
         const Id load{GetCbuf(ctx, ctx.S8, &UniformDefinitions::S8, sizeof(s8), binding, offset,
-                              ctx.load_const_func_u8)};
+                              ctx.load_const_func_u8, 1)};
         return ctx.OpSConvert(ctx.U32[1], load);
     }
     Id element{};
     if (ctx.profile.support_descriptor_aliasing) {
-        element = GetCbufU32(ctx, binding, offset);
+        element = GetCbufU32(ctx, binding, offset, 1);
     } else {
-        const Id vector{GetCbufU32x4(ctx, binding, offset)};
+        const Id vector{GetCbufU32x4(ctx, binding, offset, 1)};
         element = GetCbufElement(ctx, vector, offset, 0u);
     }
     const Id bit_offset{ctx.BitOffset8(offset)};
@@ -276,14 +319,14 @@ Id EmitGetCbufU16(EmitContext& ctx, const IR::Value& binding, const IR::Value& o
     if (ctx.profile.support_descriptor_aliasing && ctx.profile.support_int16 &&
         ctx.profile.support_uniform_and_storage_buffer_16bit) {
         const Id load{GetCbuf(ctx, ctx.U16, &UniformDefinitions::U16, sizeof(u16), binding, offset,
-                              ctx.load_const_func_u16)};
+                              ctx.load_const_func_u16, 2)};
         return ctx.OpUConvert(ctx.U32[1], load);
     }
     Id element{};
     if (ctx.profile.support_descriptor_aliasing) {
-        element = GetCbufU32(ctx, binding, offset);
+        element = GetCbufU32(ctx, binding, offset, 2);
     } else {
-        const Id vector{GetCbufU32x4(ctx, binding, offset)};
+        const Id vector{GetCbufU32x4(ctx, binding, offset, 2)};
         element = GetCbufElement(ctx, vector, offset, 0u);
     }
     const Id bit_offset{ctx.BitOffset16(offset)};
@@ -294,14 +337,14 @@ Id EmitGetCbufS16(EmitContext& ctx, const IR::Value& binding, const IR::Value& o
     if (ctx.profile.support_descriptor_aliasing && ctx.profile.support_int16 &&
         ctx.profile.support_uniform_and_storage_buffer_16bit) {
         const Id load{GetCbuf(ctx, ctx.S16, &UniformDefinitions::S16, sizeof(s16), binding, offset,
-                              ctx.load_const_func_u16)};
+                              ctx.load_const_func_u16, 2)};
         return ctx.OpSConvert(ctx.U32[1], load);
     }
     Id element{};
     if (ctx.profile.support_descriptor_aliasing) {
-        element = GetCbufU32(ctx, binding, offset);
+        element = GetCbufU32(ctx, binding, offset, 2);
     } else {
-        const Id vector{GetCbufU32x4(ctx, binding, offset)};
+        const Id vector{GetCbufU32x4(ctx, binding, offset, 2)};
         element = GetCbufElement(ctx, vector, offset, 0u);
     }
     const Id bit_offset{ctx.BitOffset16(offset)};
@@ -320,7 +363,7 @@ Id EmitGetCbufU32(EmitContext& ctx, const IR::Value& binding, const IR::Value& o
 Id EmitGetCbufF32(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset) {
     if (ctx.profile.support_descriptor_aliasing) {
         return GetCbuf(ctx, ctx.F32[1], &UniformDefinitions::F32, sizeof(f32), binding, offset,
-                       ctx.load_const_func_f32);
+                       ctx.load_const_func_f32, 4);
     } else {
         const Id vector{GetCbufU32x4(ctx, binding, offset)};
         return ctx.OpBitcast(ctx.F32[1], GetCbufElement(ctx, vector, offset, 0u));
@@ -330,8 +373,19 @@ Id EmitGetCbufF32(EmitContext& ctx, const IR::Value& binding, const IR::Value& o
 Id EmitGetCbufU32x2(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset) {
     if (ctx.profile.support_descriptor_aliasing) {
         return GetCbuf(ctx, ctx.U32[2], &UniformDefinitions::U32x2, sizeof(u32[2]), binding, offset,
-                       ctx.load_const_func_u32x2);
+                       ctx.load_const_func_u32x2, 8);
     } else {
+        if (Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+            // Source U32x2 can straddle two aligned 16-byte uniform rows.
+            // This must not silently extract nonexistent component 4.
+            // The first/second rows share one authenticated 8-byte guest
+            // span and are independently checked before OpAccessChain.
+            const Id first_row{GetCbufU32x4(ctx, binding, offset, 8)};
+            const Id second_row{GetCbufU32x4(ctx, binding, offset, 8, true)};
+            return ctx.OpCompositeConstruct(ctx.U32[2],
+                GetCbufElement(ctx, first_row, offset, 0u),
+                GetCbufElement(ctx, second_row, offset, 1u));
+        }
         const Id vector{GetCbufU32x4(ctx, binding, offset)};
         return ctx.OpCompositeConstruct(ctx.U32[2], GetCbufElement(ctx, vector, offset, 0u),
                                         GetCbufElement(ctx, vector, offset, 1u));
