@@ -864,10 +864,10 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
                 graphics_key.unique_hashes[i] = 0;
                 continue;
             }
-            // Tessellation and task/mesh still need their own Ampere ABI.
-            // Geometry uses the reviewed native lowerer and the real
-            // upstream Vulkan graphics pipeline's interstage RuntimeInfo.
-            if (i != 0 && i != 1 && i != 4 && i != 5) {
+            // TessControl/TessEval must be paired by stage policy above;
+            // Vulkan owns their linked RuntimeInfo and tessellation state.
+            // Task/mesh are not represented by these graphics stage slots.
+            if (i >= 6) {
                 stages_valid = false;
                 break;
             }
@@ -879,7 +879,7 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
             const auto stage = i == 0 ? Shader::Stage::VertexA :
                 Shader::StageFromIndex(i - 1);
             const VideoCommon::Ns2GraphicsCbufContext cbuf_context{
-                gpu_memory, maxwell3d, i == 5 ? 4U : (i == 4 ? 3U : 0U)};
+                gpu_memory, maxwell3d, Shader::Ampere::NativeGraphicsCbufBank(stage)};
             const auto captured = VideoCommon::CaptureNs2GraphicsShaderFromGpu(
                 *gpu_memory, base + offset, static_cast<u32>(stage),
                 native_translation_cache.get(), &cbuf_context);
@@ -1819,7 +1819,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
         std::size_t active{};
         for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {
             if (!graphics_key.unique_hashes[i]) continue;
-            if (i != 0 && i != 1 && i != 4 && i != 5) return nullptr;
+            if (i >= 6) return nullptr;
             const auto stage = i == 0 ? Shader::Stage::VertexA :
                 Shader::StageFromIndex(i - 1);
             const auto offset = maxwell3d->regs.pipelines[i].offset;
@@ -1830,7 +1830,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
                 *maxwell3d, *gpu_memory,
                 static_cast<Maxwell::ShaderType>(i), base, offset);
             const VideoCommon::Ns2GraphicsCbufContext cbuf_context{
-                gpu_memory, maxwell3d, i == 5 ? 4U : (i == 4 ? 3U : 0U)};
+                gpu_memory, maxwell3d, Shader::Ampere::NativeGraphicsCbufBank(stage)};
             auto adapted = VideoCommon::CreateNs2GraphicsShaderEnvironment(
                 *gpu_memory, std::move(original), base + offset,
                 static_cast<u32>(stage), native_translation_cache.get(),
@@ -1881,7 +1881,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
             const auto stage = i == 0 ? Shader::Stage::VertexA :
                 Shader::StageFromIndex(i - 1);
             const VideoCommon::Ns2GraphicsCbufContext cbuf_context{
-                gpu_memory, maxwell3d, i == 5 ? 4U : (i == 4 ? 3U : 0U)};
+                gpu_memory, maxwell3d, Shader::Ampere::NativeGraphicsCbufBank(stage)};
             // Capture reauthenticates all native 128-bit instructions and
             // indirect BRX CBUF targets on every cache hit. No title hacks.
             const auto verified = VideoCommon::CaptureNs2GraphicsShaderFromGpu(

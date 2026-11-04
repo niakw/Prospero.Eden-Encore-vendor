@@ -16,19 +16,30 @@ namespace Shader::Ampere {
 }
 
 // Maxwell graphics_key.unique_hashes has six slots: VertexA, VertexB,
-// tessellation control/evaluation, geometry and Fragment. Native Ampere can
-// currently compile the two vertex stages (merged when VertexA is present)
-// and Fragment. A Geometry stage is admitted only through the full Vulkan
-// graphics pipeline, which supplies previous-stage linkage and output state;
-// standalone research compilation still refuses unlinked Geometry.
+// tessellation control/evaluation, geometry and Fragment. Native Ampere
+// tessellation requires the linked control + evaluation pair. It is admitted
+// exclusively by the real Vulkan pipeline builder, where the guest tess
+// state and adjacent stage interfaces are available. Standalone compilation
+// must not fabricate a tessellation or geometry RuntimeInfo.
 // A pipeline requires a VertexB implementation, including when
 // rasterization is discarded; a standalone VertexA program must never be
 // sent to the Vulkan pipeline builder as a fictitious vertex shader.
 [[nodiscard]] constexpr bool NativeGraphicsStageMaskSupported(u32 mask) noexcept {
     constexpr u32 vertex_b = u32{1} << 1;
-    constexpr u32 available = (u32{1} << 0) | vertex_b |
+    constexpr u32 tessellation = (u32{1} << 2) | (u32{1} << 3);
+    constexpr u32 available = (u32{1} << 0) | vertex_b | tessellation |
                               (u32{1} << 4) | (u32{1} << 5);
-    return (mask & vertex_b) != 0 && (mask & ~available) == 0;
+    const u32 active_tessellation = mask & tessellation;
+    return (mask & vertex_b) != 0 && (mask & ~available) == 0 &&
+           (active_tessellation == 0 || active_tessellation == tessellation);
+}
+
+// Maxwell's graphics CBUF stage banks are VertexA/VertexB=0,
+// TessControl=1, TessEval=2, Geometry=3, Fragment=4. The shared IR
+// stage enum follows that order except VertexA, which is appended.
+[[nodiscard]] constexpr u32 NativeGraphicsCbufBank(Shader::Stage stage) noexcept {
+    return stage == Shader::Stage::VertexA ? 0U :
+           stage <= Shader::Stage::Fragment ? static_cast<u32>(stage) : ~u32{0};
 }
 
 static_assert(NativeGraphicsStageMaskSupported(0x02)); // VertexB only
@@ -39,11 +50,22 @@ static_assert(NativeGraphicsStageMaskSupported(0x12)); // VertexB + Geometry
 static_assert(NativeGraphicsStageMaskSupported(0x13)); // merged + Geometry
 static_assert(NativeGraphicsStageMaskSupported(0x32)); // Geometry + Fragment
 static_assert(NativeGraphicsStageMaskSupported(0x33)); // merged + Geometry + Fragment
+static_assert(NativeGraphicsStageMaskSupported(0x0e)); // linked TessControl + TessEval
+static_assert(NativeGraphicsStageMaskSupported(0x2e)); // linked tessellation + Fragment
+static_assert(NativeGraphicsStageMaskSupported(0x3f)); // all linked graphics stages
 static_assert(!NativeGraphicsStageMaskSupported(0x00));
 static_assert(!NativeGraphicsStageMaskSupported(0x01)); // unmerged VertexA
 static_assert(!NativeGraphicsStageMaskSupported(0x20)); // Fragment only
 static_assert(!NativeGraphicsStageMaskSupported(0x21)); // VertexA + Fragment
-static_assert(!NativeGraphicsStageMaskSupported(0x06)); // tessellation
+static_assert(!NativeGraphicsStageMaskSupported(0x06)); // control without evaluation
+static_assert(!NativeGraphicsStageMaskSupported(0x0a)); // eval without control
+static_assert(NativeGraphicsCbufBank(Shader::Stage::VertexA) == 0U);
+static_assert(NativeGraphicsCbufBank(Shader::Stage::VertexB) == 0U);
+static_assert(NativeGraphicsCbufBank(Shader::Stage::TessellationControl) == 1U);
+static_assert(NativeGraphicsCbufBank(Shader::Stage::TessellationEval) == 2U);
+static_assert(NativeGraphicsCbufBank(Shader::Stage::Geometry) == 3U);
+static_assert(NativeGraphicsCbufBank(Shader::Stage::Fragment) == 4U);
+static_assert(NativeGraphicsCbufBank(Shader::Stage::Compute) == ~u32{0});
 static_assert(IsStandaloneNativeGraphicsStage(Shader::Stage::VertexB));
 static_assert(IsStandaloneNativeGraphicsStage(Shader::Stage::Fragment));
 static_assert(!IsStandaloneNativeGraphicsStage(Shader::Stage::VertexA));

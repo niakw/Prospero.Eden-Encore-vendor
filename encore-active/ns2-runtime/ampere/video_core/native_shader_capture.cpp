@@ -4,6 +4,7 @@
 #include <exception>
 #include <limits>
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
+#include "shader_recompiler/frontend/ampere/native_graphics_stage_policy.h"
 #include "shader_recompiler/stage.h"
 #include "video_core/memory_manager.h"
 #include "video_core/engines/maxwell_3d.h"
@@ -135,18 +136,13 @@ Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
         if (cbuf) {
             // Graphics source and CBUF must belong to the same pipeline
             // stage. Never accept a caller-provided bank from another stage.
-            // Hardware stage CBUF slots: VertexA/B=0, Geometry=3,
-            // Fragment=4. Reusing Vertex0 for Geometry compiles a shader
-            // against unrelated guest uniform data.
-            const u32 required_bank =
-                stage == static_cast<u32>(Shader::Stage::Fragment) ? 4U :
-                stage == static_cast<u32>(Shader::Stage::Geometry) ? 3U : 0U;
+            // The same CBUF stage bank map is used for initial key capture,
+            // linked pipeline translation and post-compile source replay.
+            // Never use Vertex's bank for guest tessellation or geometry.
+            const u32 required_bank = Shader::Ampere::NativeGraphicsCbufBank(
+                static_cast<Shader::Stage>(stage));
             if (cbuf->memory != &memory || !cbuf->engine ||
-                (stage != static_cast<u32>(Shader::Stage::Fragment) &&
-                 stage != static_cast<u32>(Shader::Stage::Geometry) &&
-                 stage != static_cast<u32>(Shader::Stage::VertexA) &&
-                 stage != static_cast<u32>(Shader::Stage::VertexB)) ||
-                cbuf->stage_index != required_bank)
+                required_bank == ~u32{0} || cbuf->stage_index != required_bank)
                 return {};
             return Shader::Ampere::CaptureNativeGraphicsShaderChecked(
                 gpu_program_address, stage, ReadNs2GpuShader, &memory,
