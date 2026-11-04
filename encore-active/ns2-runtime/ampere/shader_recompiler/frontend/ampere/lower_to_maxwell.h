@@ -338,7 +338,16 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         RegisterPressure pressure{insn, {}, {}, true};
         bool requires_shadow = false;
         for (u32 bit : {16U, 24U, 32U, 64U}) {
-            if (bit == 32 && insn.Bits(9, 3) != 1 && opcode != 0xb60 && opcode != 0xb66 && opcode != 0x986) continue;
+            // These reviewed opcodes have a real GPR source at bit 32
+            // even when bits 9..11 do not select the generic register mode.
+            // Their high operands must not alias Maxwell scratch state.
+            if (bit == 32 && insn.Bits(9, 3) != 1 &&
+                opcode != 0xb60 && opcode != 0xb66 &&
+                opcode != 0x386 && opcode != 0x986 &&
+                opcode != 0x20b && opcode != 0x208 &&
+                opcode != 0x221 && opcode != 0x223 &&
+                opcode != 0x245)
+                continue;
             const u32 reg = insn.Bits(bit, 8);
             if (reg >= reserved_register && reg < 255) requires_shadow = true;
         }

@@ -24,11 +24,18 @@ inline RegisterPressure PrepareRegisterPressure(const Instruction& input, u32 re
     const auto operand = [&](u32 bit, u32 count = 1) { operands.push_back({bit, count}); };
     const u32 opcode = input.Bits(0, 12);
     switch (opcode) {
-    case 0x802: case 0xb08: case 0xd08: operand(16); break;
-    case 0x308: operand(16); operand(32); break;
+    case 0x802: case 0xb08: case 0xd08: case 0x919: operand(16); break;
+    case 0x308: case 0x245: operand(16); operand(32); break;
     case 0x433: case 0x633: operand(16); operand(24); break;
-    case 0x233: operand(16); operand(24); operand(32); break;
-    case 0x812: case 0x824: case 0x831: case 0x424: case 0x624:
+    case 0x233: case 0x208: case 0x221:
+        operand(16); operand(24); operand(32); break;
+    case 0x223: // FFMA uses a third real source register at bit 64.
+        operand(16); operand(24); operand(32); operand(64); break;
+    case 0x80b: operand(24); break;
+    case 0x20b: operand(24); operand(32); break;
+    case 0x820: case 0x421: case 0x817:
+        operand(16); operand(24); break;
+    case 0x812: case 0x823: case 0x824: case 0x831: case 0x424: case 0x624:
         operand(16); operand(24); operand(64); break;
     case 0x230: case 0x231:
         operand(16); operand(24); operand(32); operand(64); break;
@@ -55,10 +62,15 @@ inline RegisterPressure PrepareRegisterPressure(const Instruction& input, u32 re
     }
     case 0x387: case 0x983:
         operand(opcode == 0x387 ? 32 : 16); operand(24); break;
-    case 0x981: case 0x986: {
+    case 0x381: case 0x386: case 0x981: case 0x986: {
         const u32 width = input.Bits(73, 3), count = width == 6 ? 4 : width == 5 ? 2 : 1;
-        operand(opcode == 0x981 ? 16 : 32, count);
-        operand(24, input.Bits(72, 1) ? 2 : 1); break;
+        operand(opcode == 0x386 || opcode == 0x986 ? 32 : 16, count);
+        // Register-address forms 0x381/0x386 require a 64-bit pair.
+        // Other forms use the actual extended-address bit at 90, not
+        // the size-mode bit at 72. Include both halves in the spill plan.
+        operand(24, opcode == 0x381 || opcode == 0x386 ||
+                          input.Bits(90, 1) ? 2 : 1);
+        break;
     }
     default:
         result.valid = false; return result;
