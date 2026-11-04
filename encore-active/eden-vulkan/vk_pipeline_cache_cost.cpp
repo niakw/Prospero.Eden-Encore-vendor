@@ -1810,6 +1810,9 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
         if (!Shader::Ampere::NativeGraphicsStageMaskSupported(keyed_stages))
             return nullptr;
         const auto base = maxwell3d->regs.program_region.Address();
+        // Preserve the stage-program register set used by the SPIR-V
+        // translation, not merely a graphics channel epoch.
+        std::array<GPUVAddr, Maxwell::MaxShaderProgram> captured_offsets{};
         std::array<Shader::Environment*, Maxwell::MaxShaderProgram> ptrs{};
         std::vector<std::unique_ptr<Shader::Environment>> native_envs;
         native_envs.reserve(Maxwell::MaxShaderProgram);
@@ -1822,6 +1825,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
             const auto offset = maxwell3d->regs.pipelines[i].offset;
             if (base > std::numeric_limits<GPUVAddr>::max() - offset)
                 return nullptr;
+            captured_offsets[i] = offset;
             auto original = std::make_unique<GraphicsEnvironment>(
                 *maxwell3d, *gpu_memory,
                 static_cast<Maxwell::ShaderType>(i), base, offset);
@@ -1855,9 +1859,41 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
         auto pipeline = CreateGraphicsPipeline(
             main_pools, graphics_key,
             std::span<Shader::Environment* const>{ptrs.data(), active}, nullptr, true);
-        if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
-                 .IsGraphicsCurrent(maxwell3d, *ticket))
+        auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+        if (!pipeline || !registry.IsGraphicsCurrent(maxwell3d, *ticket) ||
+            maxwell3d->regs.program_region.Address() != base)
             return nullptr;
+        // The compiler may have spent substantial time on CFG/IR/SPIR-V.
+        // Guest code, stage enables, or per-stage base offsets can change
+        // without advancing the channel epoch. Refuse a pipeline assembled
+        // from old source even when its diagnostic hash matched at entry.
+        u32 live_stages{};
+        for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {
+            if (maxwell3d->regs.IsShaderConfigEnabled(i) &&
+                (i != 5 || maxwell3d->regs.rasterize_enable))
+                live_stages |= u32{1} << i;
+        }
+        if (live_stages != keyed_stages) return nullptr;
+        for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {
+            if (!graphics_key.unique_hashes[i]) continue;
+            if (maxwell3d->regs.pipelines[i].offset != captured_offsets[i])
+                return nullptr;
+            const auto stage = i == 0 ? Shader::Stage::VertexA :
+                Shader::StageFromIndex(i - 1);
+            const VideoCommon::Ns2GraphicsCbufContext cbuf_context{
+                gpu_memory, maxwell3d, i == 5 ? 4U : (i == 4 ? 3U : 0U)};
+            // Capture reauthenticates all native 128-bit instructions and
+            // indirect BRX CBUF targets on every cache hit. No title hacks.
+            const auto verified = VideoCommon::CaptureNs2GraphicsShaderFromGpu(
+                *gpu_memory, base + captured_offsets[i],
+                static_cast<u32>(stage), native_translation_cache.get(),
+                &cbuf_context);
+            if (!verified.Ready() ||
+                verified.image.diagnostic_cache_key !=
+                    graphics_key.unique_hashes[i] ||
+                !registry.IsGraphicsCurrent(maxwell3d, *ticket))
+                return nullptr;
+        }
         // NS2 translated shader keys/layouts are deliberately never
         // serialized into the NS1 disk shader cache.
         return pipeline;
