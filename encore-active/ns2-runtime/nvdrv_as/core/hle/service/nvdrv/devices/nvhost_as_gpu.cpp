@@ -162,7 +162,10 @@ NvResult nvhost_as_gpu::MapNative4K(u32 handle_id, u64 address, u64 source, u64 
         ((address + size) >> VM::PAGE_SIZE_BITS) > std::numeric_limits<u32>::max())
         return NvResult::BadParameter;
     const DAddr pinned = nvmap.PinHandle(handle_id, false);
-    if (!pinned) return NvResult::InsufficientMemory;
+    if (!NativePinnedPhysicalSpan(pinned, source, size)) {
+        if (pinned) nvmap.UnpinHandle(handle_id);
+        return NvResult::InsufficientMemory;
+    }
     vm.small_page_allocator->AllocateFixed(static_cast<u32>(address >> VM::PAGE_SIZE_BITS),
                                            static_cast<u32>(size >> VM::PAGE_SIZE_BITS));
     allocation_map.emplace(address, Allocation{{}, size, VM::YUZU_PAGESIZE, false, false});
@@ -205,7 +208,7 @@ NvResult nvhost_as_gpu::MapNativeImage(u32 handle_id, u64 source, u64 size, u64&
         return NvResult::BadParameter;
     }
     const DAddr pinned = nvmap.PinHandle(handle_id, false);
-    if (!pinned || pinned > std::numeric_limits<u64>::max() - source) {
+    if (!NativePinnedPhysicalSpan(pinned, source, size)) {
         if (pinned) nvmap.UnpinHandle(handle_id);
         vm.small_page_allocator->Free(allocated, pages);
         return NvResult::InsufficientMemory;
@@ -324,6 +327,19 @@ NvResult nvhost_as_gpu::RemapNativeSparse(std::span<const NativeSparseRemapEntry
         newly_pinned.emplace(handle, pinned);
     }
 
+    // Preflight every pinned source span before changing ANY GMMU page.
+    // A wrapped physical offset in a later sparse entry must not leave the
+    // earlier entries committed to the wrong host allocation.
+    for (const auto& range : ranges) {
+        if (!range.handle) continue;
+        const auto old = native_sparse_pins.find(range.handle);
+        const DAddr pinned = old == native_sparse_pins.end()
+                                 ? newly_pinned.at(range.handle) : old->second;
+        if (!NativePinnedPhysicalSpan(pinned, range.source_offset, range.size)) {
+            for (const auto& [id, address] : newly_pinned) nvmap.UnpinHandle(id);
+            return NvResult::BadParameter;
+        }
+    }
     for (std::size_t i = 0; i < ranges.size(); ++i) {
         const auto& range = ranges[i];
         if (!range.handle) {

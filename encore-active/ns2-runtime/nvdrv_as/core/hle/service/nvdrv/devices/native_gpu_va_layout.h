@@ -15,6 +15,17 @@ inline constexpr std::uint64_t NativeNs2GpuVaStart = 0x08000000ULL;
 inline constexpr std::uint64_t NativeNs2GpuVaSmallSplit = 3ULL << 38; // 768 GiB
 inline constexpr std::uint64_t NativeNs2GpuVaEnd = 1ULL << 40; // 1 TiB
 
+// NVMap pins return a CPU physical base, not a guest VA. Check the complete
+// mapped interval before adding the caller's suballocation offset: an
+// overflowing sum must never wrap into a different physical backing.
+// The half-open end must remain representable for the GMMU mapping API.
+[[nodiscard]] constexpr bool NativePinnedPhysicalSpan(
+    std::uint64_t pinned, std::uint64_t offset, std::uint64_t bytes) noexcept {
+    constexpr auto limit = std::numeric_limits<std::uint64_t>::max();
+    return pinned != 0 && bytes != 0 && offset <= limit - pinned &&
+           bytes <= limit - pinned - offset;
+}
+
 struct NativeGpuVaPageLayout {
     std::uint32_t small_begin;
     std::uint32_t small_end;
