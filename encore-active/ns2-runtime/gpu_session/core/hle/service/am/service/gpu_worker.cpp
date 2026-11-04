@@ -370,7 +370,8 @@ void IGpuWorker::NormalMapGpuMemory4K(HLERequestContext& ctx) {
             result = Kernel::ResultInvalidCombination;
             if (backing && request->memory_offset <= backing->orig_size &&
                 request->size <= backing->orig_size - request->memory_offset) {
-                const auto preflight = m_mappings.CanMap(*request);
+                GW::MappingLedger::Pending staged_ledger;
+                const auto preflight = m_mappings.PrepareMapped(*request, staged_ledger);
                 result = TranslateMappingStatus(preflight);
                 if (preflight == GW::LedgerStatus::Success) {
                     result = Kernel::ResultInvalidState;
@@ -380,7 +381,7 @@ void IGpuWorker::NormalMapGpuMemory4K(HLERequestContext& ctx) {
                                                 request->memory_offset, request->size,
                                                 request->backend_kind) ==
                                       Nvidia::NvResult::Success) {
-                        const auto committed = m_mappings.RecordMapped(*request);
+                        const auto committed = m_mappings.CommitPrepared(staged_ledger);
                         if (committed == GW::LedgerStatus::Success) {
                             selected = request->selected_kind;
                             result = ResultSuccess;
@@ -482,8 +483,10 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
                 m_shared->address_spaces.Owns(request->address_space) &&
                 m_shared->devices.Get(request->device).has_value()) {
                 const u64 size = request->end - request->begin + 1;
-                const auto preflight = m_mappings.CanReserveSparse(
-                    request->address_space, request->device, request->begin, size);
+                GW::MappingLedger::Pending staged_ledger;
+                const auto preflight = m_mappings.PrepareSparse(
+                    request->address_space, request->device, request->begin, size,
+                    staged_ledger);
                 result = TranslateMappingStatus(preflight);
                 if (preflight == GW::LedgerStatus::Success) {
                     result = Kernel::ResultInvalidState;
@@ -491,8 +494,7 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
                         static_cast<Nvidia::DeviceFD>(request->address_space));
                     if (as && as->ReserveNativeSparse4K(request->begin, size) ==
                                   Nvidia::NvResult::Success) {
-                        const auto committed = m_mappings.RecordSparse(
-                            request->address_space, request->device, request->begin, size);
+                        const auto committed = m_mappings.CommitPrepared(staged_ledger);
                         if (committed == GW::LedgerStatus::Success) {
                             // Mode 0 requests physical GPU-only render storage.
                             // Mode 1 remains an explicitly unbacked sparse VA

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <new>
 #include <optional>
 #include <span>
 #include <utility>
@@ -164,10 +165,56 @@ enum class LedgerStatus {
     OutOfResource,
 };
 
-// No allocation or GPU command is made by the ledger. All callbacks must
-// run under the future worker's mutex, with a stable owner process + FD.
+// The ledger never executes GPU commands. PrepareMapped/PrepareSparse may
+// allocate a CPU map node; CommitPrepared must not allocate once the driver
+// has published its GMMU mapping. All callbacks run under the worker lock.
 class MappingLedger {
 public:
+    using Pending = std::map<std::pair<U32, U64>, Mapping>;
+    // Stage a real map node before the GPU driver modifies GMMU. std::map
+    // merge transfers that node without a new allocation at the commit.
+    // Callers hold the same worker lock throughout prepare/map/commit.
+    LedgerStatus PrepareMapped(const Map4K& request, Pending& pending) const {
+        if (!pending.empty()) return LedgerStatus::Invalid;
+        const auto status = CanMap(request);
+        if (status != LedgerStatus::Success) return status;
+        try {
+            pending.emplace(std::make_pair(request.address_space, request.address),
+                Mapping{request.address_space, request.memory, request.device,
+                        request.address, request.size, request.selected_kind,
+                        request.backend_kind});
+        } catch (const std::bad_alloc&) {
+            return LedgerStatus::OutOfResource;
+        }
+        return LedgerStatus::Success;
+    }
+    LedgerStatus PrepareSparse(U32 as, U32 device, U64 address,
+                               U64 size, Pending& pending) const {
+        if (!pending.empty()) return LedgerStatus::Invalid;
+        const auto status = CanReserveSparse(as, device, address, size);
+        if (status != LedgerStatus::Success) return status;
+        try {
+            pending.emplace(std::make_pair(as, address),
+                            Mapping{as, 0, device, address, size, 0, 0, true});
+        } catch (const std::bad_alloc&) {
+            return LedgerStatus::OutOfResource;
+        }
+        return LedgerStatus::Success;
+    }
+    LedgerStatus CommitPrepared(Pending& pending) {
+        if (pending.size() != 1) return LedgerStatus::Invalid;
+        const auto& staged = pending.begin()->second;
+        const auto status = staged.sparse
+            ? CanReserveSparse(staged.address_space, staged.device,
+                               staged.address, staged.size)
+            : CanMap(Map4K{staged.address_space, staged.memory,
+                           staged.device, 0, staged.address,
+                           staged.size, 0, staged.selected_kind,
+                           staged.backend_kind});
+        if (status != LedgerStatus::Success) return status;
+        mappings.merge(pending);
+        return pending.empty() ? LedgerStatus::Success : LedgerStatus::Overlap;
+    }
     LedgerStatus CanMap(const Map4K& request) const {
         if (!request.address_space || !request.memory || !request.device ||
             request.device >= MaxDevices || !request.size ||
@@ -195,7 +242,11 @@ public:
         const Mapping mapping{request.address_space, request.memory, request.device,
                               request.address, request.size, request.selected_kind,
                               request.backend_kind};
-        mappings.emplace(std::make_pair(request.address_space, request.address), mapping);
+        try {
+            mappings.emplace(std::make_pair(request.address_space, request.address), mapping);
+        } catch (const std::bad_alloc&) {
+            return LedgerStatus::OutOfResource;
+        }
         return LedgerStatus::Success;
     }
     LedgerStatus CanUnmap(const Unmap4K& request) const {
@@ -236,8 +287,12 @@ public:
     LedgerStatus RecordSparse(U32 as, U32 device, U64 address, U64 size) {
         const auto status = CanReserveSparse(as, device, address, size);
         if (status != LedgerStatus::Success) return status;
-        mappings.emplace(std::make_pair(as, address),
-                         Mapping{as, 0, device, address, size, 0, 0, true});
+        try {
+            mappings.emplace(std::make_pair(as, address),
+                             Mapping{as, 0, device, address, size, 0, 0, true});
+        } catch (const std::bad_alloc&) {
+            return LedgerStatus::OutOfResource;
+        }
         return LedgerStatus::Success;
     }
     LedgerStatus CanReleaseSparse(U32 as, U64 address, U64 size) const {
@@ -271,6 +326,6 @@ public:
     [[nodiscard]] std::size_t Count() const { return mappings.size(); }
     [[nodiscard]] const auto& Mappings() const { return mappings; }
 private:
-    std::map<std::pair<U32, U64>, Mapping> mappings;
+    Pending mappings;
 };
 } // namespace Service::AM::GpuWorkerProtocol
