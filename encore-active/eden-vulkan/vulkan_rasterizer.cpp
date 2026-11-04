@@ -1495,15 +1495,25 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                             });
                     }))
                 return false;
+            // Validate every writable VkBuffer BEFORE marking any guest
+            // page GPU-dirty. A null handle discovered on the Nth binding
+            // must not taint earlier buffers when no vkCmdDispatch exists.
             for (const auto& storage : resources->storage_buffers) {
                 if (!storage.is_written) continue;
-                auto [buffer, offset] = buffer_cache.ObtainBuffer(
+                const auto [buffer, offset] = buffer_cache.ObtainBuffer(
                     storage.gpu_address, storage.bytes,
                     VideoCommon::ObtainBufferSynchronize::NoSynchronize,
-                    VideoCommon::ObtainBufferOperation::MarkAsWritten);
+                    VideoCommon::ObtainBufferOperation::DoNothing);
                 if (!buffer || buffer->Handle() == VK_NULL_HANDLE)
                     return false;
                 static_cast<void>(offset);
+            }
+            for (const auto& storage : resources->storage_buffers) {
+                if (!storage.is_written) continue;
+                static_cast<void>(buffer_cache.ObtainBuffer(
+                    storage.gpu_address, storage.bytes,
+                    VideoCommon::ObtainBufferSynchronize::NoSynchronize,
+                    VideoCommon::ObtainBufferOperation::MarkAsWritten));
             }
         }
 
