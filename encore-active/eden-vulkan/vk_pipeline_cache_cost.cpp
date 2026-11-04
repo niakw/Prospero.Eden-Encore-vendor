@@ -864,9 +864,10 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
                 graphics_key.unique_hashes[i] = 0;
                 continue;
             }
-            // Tessellation and geometry need complete Ampere stage ABI and
-            // driver metadata. Never silently reinterpret them as Maxwell.
-            if (i != 0 && i != 1 && i != 5) {
+            // Tessellation and task/mesh still need their own Ampere ABI.
+            // Geometry uses the reviewed native lowerer and the real
+            // upstream Vulkan graphics pipeline's interstage RuntimeInfo.
+            if (i != 0 && i != 1 && i != 4 && i != 5) {
                 stages_valid = false;
                 break;
             }
@@ -878,7 +879,7 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
             const auto stage = i == 0 ? Shader::Stage::VertexA :
                 Shader::StageFromIndex(i - 1);
             const VideoCommon::Ns2GraphicsCbufContext cbuf_context{
-                gpu_memory, maxwell3d, i == 5 ? 4U : 0U};
+                gpu_memory, maxwell3d, i == 5 ? 4U : (i == 4 ? 3U : 0U)};
             const auto captured = VideoCommon::CaptureNs2GraphicsShaderFromGpu(
                 *gpu_memory, base + offset, static_cast<u32>(stage),
                 native_translation_cache.get(), &cbuf_context);
@@ -1815,7 +1816,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
         std::size_t active{};
         for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {
             if (!graphics_key.unique_hashes[i]) continue;
-            if (i != 0 && i != 1 && i != 5) return nullptr;
+            if (i != 0 && i != 1 && i != 4 && i != 5) return nullptr;
             const auto stage = i == 0 ? Shader::Stage::VertexA :
                 Shader::StageFromIndex(i - 1);
             const auto offset = maxwell3d->regs.pipelines[i].offset;
@@ -1825,7 +1826,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
                 *maxwell3d, *gpu_memory,
                 static_cast<Maxwell::ShaderType>(i), base, offset);
             const VideoCommon::Ns2GraphicsCbufContext cbuf_context{
-                gpu_memory, maxwell3d, i == 5 ? 4U : 0U};
+                gpu_memory, maxwell3d, i == 5 ? 4U : (i == 4 ? 3U : 0U)};
             auto adapted = VideoCommon::CreateNs2GraphicsShaderEnvironment(
                 *gpu_memory, std::move(original), base + offset,
                 static_cast<u32>(stage), native_translation_cache.get(),

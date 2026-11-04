@@ -135,10 +135,15 @@ Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
         if (cbuf) {
             // Graphics source and CBUF must belong to the same pipeline
             // stage. Never accept a caller-provided bank from another stage.
+            // Hardware stage CBUF slots: VertexA/B=0, Geometry=3,
+            // Fragment=4. Reusing Vertex0 for Geometry compiles a shader
+            // against unrelated guest uniform data.
             const u32 required_bank =
-                stage == static_cast<u32>(Shader::Stage::Fragment) ? 4U : 0U;
+                stage == static_cast<u32>(Shader::Stage::Fragment) ? 4U :
+                stage == static_cast<u32>(Shader::Stage::Geometry) ? 3U : 0U;
             if (cbuf->memory != &memory || !cbuf->engine ||
                 (stage != static_cast<u32>(Shader::Stage::Fragment) &&
+                 stage != static_cast<u32>(Shader::Stage::Geometry) &&
                  stage != static_cast<u32>(Shader::Stage::VertexA) &&
                  stage != static_cast<u32>(Shader::Stage::VertexB)) ||
                 cbuf->stage_index != required_bank)

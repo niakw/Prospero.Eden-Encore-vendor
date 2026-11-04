@@ -18,12 +18,16 @@ namespace Shader::Ampere {
 // Maxwell graphics_key.unique_hashes has six slots: VertexA, VertexB,
 // tessellation control/evaluation, geometry and Fragment. Native Ampere can
 // currently compile the two vertex stages (merged when VertexA is present)
-// and Fragment. A pipeline requires a VertexB implementation, including when
+// and Fragment. A Geometry stage is admitted only through the full Vulkan
+// graphics pipeline, which supplies previous-stage linkage and output state;
+// standalone research compilation still refuses unlinked Geometry.
+// A pipeline requires a VertexB implementation, including when
 // rasterization is discarded; a standalone VertexA program must never be
 // sent to the Vulkan pipeline builder as a fictitious vertex shader.
 [[nodiscard]] constexpr bool NativeGraphicsStageMaskSupported(u32 mask) noexcept {
     constexpr u32 vertex_b = u32{1} << 1;
-    constexpr u32 available = (u32{1} << 0) | vertex_b | (u32{1} << 5);
+    constexpr u32 available = (u32{1} << 0) | vertex_b |
+                              (u32{1} << 4) | (u32{1} << 5);
     return (mask & vertex_b) != 0 && (mask & ~available) == 0;
 }
 
@@ -31,6 +35,10 @@ static_assert(NativeGraphicsStageMaskSupported(0x02)); // VertexB only
 static_assert(NativeGraphicsStageMaskSupported(0x03)); // VertexA + VertexB
 static_assert(NativeGraphicsStageMaskSupported(0x22)); // VertexB + Fragment
 static_assert(NativeGraphicsStageMaskSupported(0x23)); // merged + Fragment
+static_assert(NativeGraphicsStageMaskSupported(0x12)); // VertexB + Geometry
+static_assert(NativeGraphicsStageMaskSupported(0x13)); // merged + Geometry
+static_assert(NativeGraphicsStageMaskSupported(0x32)); // Geometry + Fragment
+static_assert(NativeGraphicsStageMaskSupported(0x33)); // merged + Geometry + Fragment
 static_assert(!NativeGraphicsStageMaskSupported(0x00));
 static_assert(!NativeGraphicsStageMaskSupported(0x01)); // unmerged VertexA
 static_assert(!NativeGraphicsStageMaskSupported(0x20)); // Fragment only
