@@ -464,6 +464,84 @@ template <typename Map>
     }
 }
 
+// A guest can remap QMD CBUF or SSBO GPU VAs without rewriting any of the
+// descriptor words. ConfigureNative would then bind the old Vulkan BufferCache
+// allocation while a post-staging mapping-only check incorrectly succeeds.
+// Preserve exact physical backing for every bounded reflected buffer. Fixed
+// capacity avoids heap failure and never changes Maxwell/NS1 ownership.
+struct NativeQmdPhysicalBufferSnapshot final {
+    struct Mapping {
+        u64 guest_gpu{};
+        u64 guest_cpu{};
+        u32 bytes{};
+    };
+    std::array<Mapping, 40> bound{};
+    std::size_t count{};
+    bool captured{};
+
+    template <typename Map>
+    [[nodiscard]] bool Capture(const NativeQmdResourcePlan& plan, Map&& map) {
+        captured = false;
+        count = 0;
+        if (!plan.HasResolvedGpuBufferBindings() ||
+            plan.uniform_buffers.size() + plan.storage_buffers.size() > bound.size())
+            return false;
+        try {
+            const auto bind = [&](u64 address, u32 bytes) {
+                if (count >= bound.size()) return false;
+                const auto first = map(address);
+                if (!first || !NativeQmdContiguousGpuSpan(address, bytes, map))
+                    return false;
+                const auto last = map(address);
+                if (!last || *first != *last) return false;
+                bound[count++] = {address, *first, bytes};
+                return true;
+            };
+            for (const auto& uniform : plan.uniform_buffers)
+                if (!bind(uniform.gpu_address, uniform.bytes)) {
+                    count = 0;
+                    return false;
+                }
+            for (const auto& storage : plan.storage_buffers)
+                if (!bind(storage.gpu_address, storage.bytes)) {
+                    count = 0;
+                    return false;
+                }
+        } catch (...) {
+            count = 0;
+            return false;
+        }
+        captured = true;
+        return true;
+    }
+
+    template <typename Map>
+    [[nodiscard]] bool Matches(const NativeQmdResourcePlan& plan, Map&& map) const {
+        if (!captured || !plan.HasResolvedGpuBufferBindings() ||
+            plan.uniform_buffers.size() + plan.storage_buffers.size() != count)
+            return false;
+        try {
+            std::size_t pos{};
+            const auto same = [&](u64 address, u32 bytes) {
+                if (pos >= count) return false;
+                const auto& original = bound[pos++];
+                if (address != original.guest_gpu || bytes != original.bytes)
+                    return false;
+                const auto current = map(address);
+                return current && *current == original.guest_cpu &&
+                       NativeQmdContiguousGpuSpan(address, bytes, map);
+            };
+            for (const auto& uniform : plan.uniform_buffers)
+                if (!same(uniform.gpu_address, uniform.bytes)) return false;
+            for (const auto& storage : plan.storage_buffers)
+                if (!same(storage.gpu_address, storage.bytes)) return false;
+            return pos == count;
+        } catch (...) {
+            return false;
+        }
+    }
+};
+
 // Check a multi-dimensional guest texture budget without overflowing u64.
 // TIC 1D buffers can expose 32-bit widths, and a malformed layered descriptor
 // can otherwise wrap an unchecked width*height*depth*layers product.

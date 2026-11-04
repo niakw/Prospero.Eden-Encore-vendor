@@ -1442,6 +1442,15 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         if (!before_binding || !resources->SameBufferBindings(*before_binding) ||
             !registry.IsComputeCurrent(kepler_compute, *ticket))
             return false;
+        // Match every actual BufferCache allocation to its physical GMMU
+        // backing before descriptor staging. QMD bytes and GPU addresses
+        // alone cannot detect same-address guest remapping.
+        Shader::Ampere::NativeQmdPhysicalBufferSnapshot staged_buffer_mappings{};
+        if (!staged_buffer_mappings.Capture(
+                *resources, [this](u64 address) {
+                    return gpu_memory->GpuToCpuAddress(address);
+                }))
+            return false;
         scheduler.RequestOutsideRenderPassOperationContext();
         native_recording_started = true;
         {
@@ -1465,6 +1474,15 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         } catch (...) {
             // A guest CBUF may become unmapped while re-reading it. A failed
             // read is a refused dispatch, never early pipeline destruction.
+        }
+        // A guest can remap CBUF/SSBO physical backing without altering
+        // the QMD descriptor bytes. Refuse the old Vulkan buffers BEFORE
+        // any native GPU-dirty write publication or vkCmdDispatch enqueue.
+        if (current_after_staging) {
+            current_after_staging = staged_buffer_mappings.Matches(
+                *resources, [this](u64 address) {
+                    return gpu_memory->GpuToCpuAddress(address);
+                });
         }
         // A guest can rewrite TIC/TSC after the shared TextureCache pinned
         // the original view and while BufferCache stages its descriptors.
