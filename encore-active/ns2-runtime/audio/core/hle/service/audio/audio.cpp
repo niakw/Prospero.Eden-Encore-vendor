@@ -190,7 +190,11 @@ void LoopProcess(Core::System& system) {
     // Native Switch 2 aud:u delegates to Eden's maintained audout:u and
     // audren:u interfaces, leaving all existing Switch 1 services untouched.
     server_manager->RegisterNamedService("aud:u", std::make_shared<INx2AudioUserClient>(system));
-    // NS2 stream-play discovery requires a real user service and kernel event.
+    // Switch 2 virtual audio device discovery is native; stream opening
+    // still refuses until the real sysmix ring/audio backend is wired.
+    server_manager->RegisterNamedService("auddmg:u", std::make_shared<INx2AudioDeviceManagerService>(system));
+    // The NS2 stream-play user service holds a real guest HID shared memory,
+    // not a placeholder event or simulated GameShare stream.
     server_manager->RegisterNamedService("stpl:u", std::make_shared<INx2StreamPlayService>(system));
     server_manager->RegisterNamedService("aud:a", std::make_shared<IAudioSystemManagerForApplet>(system));
     server_manager->RegisterNamedService("aud:d", std::make_shared<IAudioSystemManagerForDebugger>(system));
