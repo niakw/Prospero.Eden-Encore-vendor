@@ -621,19 +621,22 @@ bool ComputePipeline::ConfigureNative(
     const Shader::Ampere::NativeQmdResourcePlan& resources,
     Tegra::MemoryManager& gpu_memory, Scheduler& scheduler,
     BufferCache& buffer_cache,
-    std::span<const NativeComputeImageBinding> images) {
-    // Only real Vulkan handles whose backing owners survive the GPU timeline
-    // may enter this descriptor path; unsupported texel buffers fail closed.
+    std::span<const NativeComputeImageBinding> images,
+    std::span<const NativeComputeTexelBinding> texels) {
+    // Exactly the shared NS1 descriptor layout: CBUF, SSBO, sampled texel,
+    // storage texel, sampled image, storage image. Native QMD3 owns guest
+    // addresses and the GPU fence; BufferCache owns VkBuffer/VkBufferView.
     const size_t sampled = Shader::NumDescriptors(info.texture_descriptors);
     const size_t storage = Shader::NumDescriptors(info.image_descriptors);
-    const bool with_images = !images.empty();
+    const size_t sampled_texel = Shader::NumDescriptors(info.texture_buffer_descriptors);
+    const size_t storage_texel = Shader::NumDescriptors(info.image_buffer_descriptors);
+    const bool with_images = !images.empty() || !texels.empty();
     if (!resources.HasResolvedGpuBufferBindings() ||
         resources.requires_tic_tsc != with_images ||
-        !info.texture_buffer_descriptors.empty() ||
-        !info.image_buffer_descriptors.empty() ||
+        texels.size() != sampled_texel + storage_texel ||
         images.size() != sampled + storage ||
         resources.uniform_buffers.size() + resources.storage_buffers.size() +
-            images.size() != num_descriptor_entries)
+            images.size() + texels.size() != num_descriptor_entries)
         return false;
     // Shared SPIR-V global load/store masks NVN SSBO addresses to this
     // physical device's alignment. Reject a native QMD record whose
@@ -653,6 +656,15 @@ bool ComputePipeline::ConfigureNative(
             image.storage != expected_storage ||
             (!expected_storage && (!image.sampler || !image.sampler_pin)) ||
             (expected_storage && image.sampler != VK_NULL_HANDLE))
+            return false;
+    }
+    // Refuse a mismatched TIC-backed texel span before allocating a Vulkan
+    // descriptor. Only buffer-mode TIC views can arrive through this path.
+    for (size_t i = 0; i < texels.size(); ++i) {
+        const auto& texel = texels[i];
+        if (!texel.guest_gpu_address || !texel.guest_bytes ||
+            texel.format == VideoCore::Surface::PixelFormat::Invalid ||
+            texel.storage != (i >= sampled_texel))
             return false;
     }
     // Never bind the wrong bank. Layout order is fixed by the compiled SPIR-V
@@ -691,6 +703,12 @@ bool ComputePipeline::ConfigureNative(
     };
     if (!resources.ValidateGpuBufferMappings(mapped))
         return false;
+    for (const auto& texel : texels) {
+        const auto cpu = gpu_memory.GpuToCpuAddress(texel.guest_gpu_address);
+        if (!cpu || *cpu != texel.guest_cpu_address ||
+            !mapped(texel.guest_gpu_address, texel.guest_bytes))
+            return false;
+    }
 
     // Avoid declaring a pending asynchronous pipeline successful. Unlike the
     // NS1 path, this experimental path fails closed if driver creation failed.
@@ -735,7 +753,8 @@ bool ComputePipeline::ConfigureNative(
     // Staging covers CBUF/SSBO only. Image descriptors are independently
     // pinned and appended below, so comparing buffers to the full reflected
     // descriptor count would reject every valid native image shader.
-    if (!ready || staged.size() != num_descriptor_entries - images.size())
+    if (!ready || staged.size() !=
+                      num_descriptor_entries - images.size() - texels.size())
         return false;
     // Recheck: an unrelated GMMU unmap between staging and descriptor
     // publication must never be mistaken for a valid compute binding.
@@ -767,8 +786,30 @@ bool ComputePipeline::ConfigureNative(
         guest_descriptor_queue.AddBuffer(item.handle, item.address,
                                          item.offset, item.bytes);
     }
+    // The shared BufferCache resolves/upload texel data and creates REAL
+    // VkBufferView objects. Its existing GPU tick/delayed-destruction path
+    // owns each view; there is no parallel Ampere texture-buffer cache.
+    // The same descriptor callback supports uniform and storage texel
+    // buffers; storage writes are committed by the renderer only after the
+    // final guest QMD/TIC/GMMU snapshot is authenticated.
+    for (const auto& texel : texels) {
+        const auto cpu = gpu_memory.GpuToCpuAddress(texel.guest_gpu_address);
+        if (!cpu || *cpu != texel.guest_cpu_address ||
+            !mapped(texel.guest_gpu_address, texel.guest_bytes))
+            return false;
+        auto [buffer, offset] = buffer_cache.ObtainBuffer(
+            texel.guest_gpu_address, texel.guest_bytes,
+            VideoCommon::ObtainBufferSynchronize::FullSynchronize,
+            VideoCommon::ObtainBufferOperation::DoNothing);
+        if (!buffer || buffer->Handle() == VK_NULL_HANDLE ||
+            (uses_descriptor_buffer && buffer->DeviceAddress() == 0))
+            return false;
+        buffer->MarkUsage(offset, texel.guest_bytes);
+        buffer_cache.runtime.BindTextureBuffer(
+            *buffer, offset, texel.guest_bytes, texel.format);
+    }
     // Match SPIR-V descriptor order: sampled then storage images after
-    // the CBUF/SSBO buffers. The caller keeps image owners until GPU fence.
+    // CBUF/SSBO and texel buffers. Image owners survive until GPU fence.
     for (const auto& item : images) {
         if (item.storage)
             guest_descriptor_queue.AddImage(item.view);

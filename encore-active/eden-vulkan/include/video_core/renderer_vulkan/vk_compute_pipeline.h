@@ -41,6 +41,16 @@ class Scheduler;
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
 // The actual shared-cache Vulkan handles plus their fence-held object pins.
 // Raw TIC/TSC IDs never cross the Vulkan descriptor publication boundary.
+// A 1D TIC buffer is a BufferCache allocation, not a VkImage. The renderer
+// authenticates its complete physical backing before and after staging.
+struct NativeComputeTexelBinding {
+    u64 guest_gpu_address{};
+    u64 guest_cpu_address{};
+    u32 guest_bytes{};
+    VideoCore::Surface::PixelFormat format{VideoCore::Surface::PixelFormat::Invalid};
+    bool storage{};
+    bool is_written{};
+};
 struct NativeComputeImageBinding {
     VkImageView view{VK_NULL_HANDLE};
     VkSampler sampler{VK_NULL_HANDLE};
@@ -107,7 +117,8 @@ public:
         const Shader::Ampere::NativeQmdResourcePlan& resources,
         Tegra::MemoryManager& gpu_memory, Scheduler& scheduler,
         BufferCache& buffer_cache,
-        std::span<const NativeComputeImageBinding> images);
+        std::span<const NativeComputeImageBinding> images,
+        std::span<const NativeComputeTexelBinding> texels);
 #endif
     bool IsBound() const noexcept {
         return static_cast<bool>(pipeline);

@@ -1080,6 +1080,7 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         if (!Shader::Ampere::NativeQmdImageLayoutMatches(*compiled.info, *resources))
             return false;
         std::vector<NativeComputeImageBinding> native_images;
+        std::vector<NativeComputeTexelBinding> native_texels;
         // Keep the original guest TIC/TSC bytes across descriptor staging.
         // A channel epoch alone does not protect writable descriptor tables
         // while ConfigureNative records Vulkan bind operations.
@@ -1246,16 +1247,70 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                                 gpu_memory, address, bytes, size);
                         });
                 }
-                // Acquire ONLY actual shared TextureCache objects while its
-                // channel and slot state remain locked. No guest TIC/TSC ID
-                // may escape this section as a purported Vulkan binding.
-                if (same_cache_channel &&
-                    ( !compiled.info->texture_buffer_descriptors.empty() ||
-                      !compiled.info->image_buffer_descriptors.empty()))
-                    same_cache_channel = false; // texel-buffer Vulkan lease not ready
+                // A 1D buffer TIC is owned by BufferCache; TextureCache
+                // resolves its typed view metadata, not a fake VkImageView.
+                // Decode under the same channel mutex used for 2D images.
                 if (same_cache_channel) {
                     native_images.reserve(typed_descriptors->size());
+                    native_texels.reserve(typed_descriptors->size());
                     size_t position{};
+                    const auto bind_texel = [&](const Shader::Ampere::NativeQmdTypedTextureRecord& item,
+                                                Shader::Ampere::NativeQmdImageKind kind,
+                                                bool written) {
+                        if (item.kind != kind || item.is_written != written ||
+                            !item.tic.IsBuffer())
+                            return false;
+                        const auto id = texture_cache.AcquireNativeImageView(
+                            kepler_compute, *gpu_memory, item.tic, written);
+                        if (id == VideoCommon::NULL_IMAGE_VIEW_ID)
+                            return false;
+                        const auto& view = texture_cache.GetImageView(id);
+                        if (!view.IsBuffer() || !view.GpuAddr() ||
+                            !view.BufferSize() ||
+                            view.format == VideoCore::Surface::PixelFormat::Invalid)
+                            return false;
+                        const auto cpu = gpu_memory->GpuToCpuAddress(view.GpuAddr());
+                        if (!cpu || !Shader::Ampere::NativeQmdContiguousGpuSpan(
+                                view.GpuAddr(), view.BufferSize(), [this](u64 page) {
+                                    return gpu_memory->GpuToCpuAddress(page);
+                                }))
+                            return false;
+                        native_texels.push_back({
+                            .guest_gpu_address = view.GpuAddr(),
+                            .guest_cpu_address = *cpu,
+                            .guest_bytes = view.BufferSize(),
+                            .format = view.format,
+                            .storage = kind == Shader::Ampere::NativeQmdImageKind::ImageBuffer,
+                            .is_written = written,
+                        });
+                        return true;
+                    };
+                    for (const auto& reflection : compiled.info->texture_buffer_descriptors) {
+                        for (u32 index = 0; index < reflection.count; ++index) {
+                            if (position >= typed_descriptors->size() ||
+                                !bind_texel((*typed_descriptors)[position++],
+                                    Shader::Ampere::NativeQmdImageKind::TextureBuffer,
+                                    false)) {
+                                same_cache_channel = false;
+                                break;
+                            }
+                        }
+                        if (!same_cache_channel) break;
+                    }
+                    if (same_cache_channel) {
+                        for (const auto& reflection : compiled.info->image_buffer_descriptors) {
+                            for (u32 index = 0; index < reflection.count; ++index) {
+                                if (position >= typed_descriptors->size() ||
+                                    !bind_texel((*typed_descriptors)[position++],
+                                        Shader::Ampere::NativeQmdImageKind::ImageBuffer,
+                                        reflection.is_written)) {
+                                    same_cache_channel = false;
+                                    break;
+                                }
+                            }
+                            if (!same_cache_channel) break;
+                        }
+                    }
                     const auto bind = [&](const Shader::Ampere::NativeQmdTypedTextureRecord& item,
                                           Shader::TextureType type, bool storage,
                                           Shader::ImageFormat format, bool depth, bool written) {
@@ -1359,15 +1414,17 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
             if (!same_cache_channel ||
                 !registry.IsComputeCurrent(kepler_compute, *ticket))
                 return false;
-            if (native_images.size() != typed_descriptors->size())
+            if (native_images.size() + native_texels.size() !=
+                typed_descriptors->size())
                 return false;
             // Move, do not re-read or approximate the original table: these
             // exact records must still match just before vkCmdDispatch.
             staged_image_tables = tables;
             staged_image_records = std::move(*descriptors);
         }
-        if (!(native_images.empty() ? resources->HasResolvedBufferBindings()
-                                   : resources->HasResolvedGpuBufferBindings()))
+        if (!(native_images.empty() && native_texels.empty()
+                  ? resources->HasResolvedBufferBindings()
+                  : resources->HasResolvedGpuBufferBindings()))
             return false;
 
         const auto bytes = compiled.words.size() * sizeof(u32);
@@ -1462,7 +1519,8 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                     ? std::span<const NativeComputeImageBinding>{pinned_lifetime->images}
                     : std::span<const NativeComputeImageBinding>{};
             if (!pipeline->ConfigureNative(
-                    *resources, *gpu_memory, scheduler, buffer_cache, bindings))
+                    *resources, *gpu_memory, scheduler, buffer_cache,
+                    bindings, native_texels))
                 return false;
         }
         // ConfigureNative may have recorded descriptor closures already.
@@ -1528,6 +1586,23 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                 }
             }
         }
+        // Texel buffer VkBufferViews live in the shared BufferCache, not
+        // pinned VkImageViews. Reject same-VA GMMU remaps after staging.
+        // Storage writes are still not marked until ALL views pass.
+        if (current_after_staging) {
+            for (const auto& texel : native_texels) {
+                const auto cpu = gpu_memory->GpuToCpuAddress(texel.guest_gpu_address);
+                if (!cpu || *cpu != texel.guest_cpu_address ||
+                    !Shader::Ampere::NativeQmdContiguousGpuSpan(
+                        texel.guest_gpu_address, texel.guest_bytes,
+                        [this](u64 page) {
+                            return gpu_memory->GpuToCpuAddress(page);
+                        })) {
+                    current_after_staging = false;
+                    break;
+                }
+            }
+        }
         // SPIR-V compilation and descriptor staging can outlast a guest
         // code rewrite without changing TIC, TSC or QMD CBUF metadata.
         // Recheck the exact original Ampere words after image admission.
@@ -1570,10 +1645,29 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                     return false;
                 static_cast<void>(offset);
             }
+            // Validate all writable texel views as well, before any
+            // CBUF/SSBO/image-buffer page is marked GPU-dirty.
+            for (const auto& texel : native_texels) {
+                if (!texel.is_written) continue;
+                const auto [buffer, offset] = buffer_cache.ObtainBuffer(
+                    texel.guest_gpu_address, texel.guest_bytes,
+                    VideoCommon::ObtainBufferSynchronize::NoSynchronize,
+                    VideoCommon::ObtainBufferOperation::DoNothing);
+                if (!buffer || buffer->Handle() == VK_NULL_HANDLE)
+                    return false;
+                static_cast<void>(offset);
+            }
             for (const auto& storage : resources->storage_buffers) {
                 if (!storage.is_written) continue;
                 static_cast<void>(buffer_cache.ObtainBuffer(
                     storage.gpu_address, storage.bytes,
+                    VideoCommon::ObtainBufferSynchronize::NoSynchronize,
+                    VideoCommon::ObtainBufferOperation::MarkAsWritten));
+            }
+            for (const auto& texel : native_texels) {
+                if (!texel.is_written) continue;
+                static_cast<void>(buffer_cache.ObtainBuffer(
+                    texel.guest_gpu_address, texel.guest_bytes,
                     VideoCommon::ObtainBufferSynchronize::NoSynchronize,
                     VideoCommon::ObtainBufferOperation::MarkAsWritten));
             }
