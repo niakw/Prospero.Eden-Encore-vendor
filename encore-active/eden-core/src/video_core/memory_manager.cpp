@@ -329,6 +329,11 @@ const u8* MemoryManager::GetPointer(GPUVAddr gpu_addr) const {
 
 template <typename FuncMapped, typename FuncReserved, typename FuncUnmapped>
 inline void MemoryManager::MemoryOperation(GPUVAddr gpu_src_addr, std::size_t size, bool is_big_page, FuncMapped&& func_mapped, FuncReserved&& func_reserved, FuncUnmapped&& func_unmapped) const {
+    // Every mapped/unmapped guest region traverses this common PTE walker.
+    // Neither a wrapped 64-bit range nor a span past the configured 40/49-bit
+    // guest VA limit may probe the backing page table, even via SafeRead.
+    if (size == 0 || gpu_src_addr >= address_space_size ||
+        size > address_space_size - gpu_src_addr) return;
     using FuncMappedReturn =
         typename std::invoke_result<FuncMapped, std::size_t, std::size_t, std::size_t>::type;
     using FuncReservedReturn =
@@ -394,6 +399,14 @@ inline void MemoryManager::MemoryOperation(GPUVAddr gpu_src_addr, std::size_t si
 }
 
 void MemoryManager::ReadBlockImpl(GPUVAddr gpu_src_addr, void* dest_buffer, std::size_t size, [[maybe_unused]] VideoCommon::CacheType which, bool unsafe) const {
+    // Invalid GPU command spans follow the existing unmapped-read contract:
+    // return zero bytes without visiting an out-of-range PTE or stale page.
+    if (size == 0) return;
+    if (gpu_src_addr >= address_space_size ||
+        size > address_space_size - gpu_src_addr) {
+        std::memset(dest_buffer, 0, size);
+        return;
+    }
     auto set_to_zero = [&]([[maybe_unused]] std::size_t page_index, [[maybe_unused]] std::size_t offset, std::size_t copy_amount) {
         std::memset(dest_buffer, 0, copy_amount);
         dest_buffer = static_cast<u8*>(dest_buffer) + copy_amount;
@@ -489,6 +502,9 @@ void MemoryManager::WriteBlockUnsafe(GPUVAddr gpu_dest_addr, const void* src_buf
 }
 
 void MemoryManager::WriteBlockCached(GPUVAddr gpu_dest_addr, const void* src_buffer, std::size_t size) {
+    // A refused write must not queue a dirty interval with a wrapping address.
+    if (size == 0 || gpu_dest_addr >= address_space_size ||
+        size > address_space_size - gpu_dest_addr) return;
     WriteBlockImpl(gpu_dest_addr, src_buffer, size, VideoCommon::CacheType::None, true);
     accumulator.Add(gpu_dest_addr, size);
 }
