@@ -75,6 +75,11 @@ public:
             }
             auto [state_it, newly_inserted] = states.try_emplace(request.address);
             auto& state = state_it->second;
+            // A callback can throw after queuing irreversible Vulkan work or
+            // a guest semaphore. Neither the GPU command nor its fence can
+            // be rolled back. Keep the QMD quarantined until process reset;
+            // retries must never duplicate dispatches or reductions.
+            if (state.poisoned) return "QMD transaction poisoned";
             if (request.action == 3 || request.action == 2) {
                 if (request.action == 3 || !state.loaded) {
                     // A caller may retry a failed release with action 2. A
@@ -82,7 +87,14 @@ public:
                     // and re-execute a shader from an unfinished transaction.
                     if (request.action == 3 && state.dispatched && !state.completed)
                         return "QMD reload during pending release";
-                    if (!read(request.address, state.descriptor)) {
+                    bool descriptor_loaded{};
+                    try {
+                        descriptor_loaded = read(request.address, state.descriptor);
+                    } catch (...) {
+                        if (newly_inserted) states.erase(state_it);
+                        return "QMD read exception";
+                    }
+                    if (!descriptor_loaded) {
                         // A bad guest QMD VA must not exhaust the process cache
                         // with 4096 empty, never-loaded state entries.
                         if (newly_inserted) states.erase(state_it);
@@ -137,9 +149,15 @@ public:
             // release payloads form a single immutable transaction. On a
             // partial semaphore failure, do not read possibly reused guest
             // memory and attach different releases to the original dispatch.
-            if (!state.dispatched &&
-                !read(request.address, state.descriptor))
-                return "unmapped QMD";
+            if (!state.dispatched) {
+                bool descriptor_loaded{};
+                try {
+                    descriptor_loaded = read(request.address, state.descriptor);
+                } catch (...) {
+                    return "QMD read exception";
+                }
+                if (!descriptor_loaded) return "unmapped QMD";
+            }
             const auto qmd = state.descriptor;
             if ((qmd[18] & 0xff) != 0x30 || (qmd[4] & 0x100)) return "unsupported QMD version or queue";
             // Validate the complete dependent QMD structure before a shader
@@ -185,8 +203,16 @@ public:
             // A failed semaphore delivery must not mark the QMD complete.
             // On retry, never launch the same GPU work or queue an already
             // accepted release a second time (especially atomic reductions).
-            const bool dispatched = state.dispatched ||
-                !(qmd[12] && (qmd[13] & 0xffff) && (qmd[14] & 0xffff)) || dispatch(qmd);
+            bool dispatched = state.dispatched ||
+                !(qmd[12] && (qmd[13] & 0xffff) && (qmd[14] & 0xffff));
+            if (!dispatched) {
+                try {
+                    dispatched = dispatch(qmd);
+                } catch (...) {
+                    state.poisoned = true;
+                    return "QMD dispatch exception";
+                }
+            }
             if (trace) trace("run", request.address, dispatched ? 1 : 0);
             if (!dispatched) return "native shader dispatch required";
             state.dispatched = true;
@@ -197,10 +223,15 @@ public:
                     continue;
                 const Address destination = (Address{flags & 0xff} << 32) | qmd[base];
                 bool released{};
-                if constexpr (std::is_invocable_r_v<bool, Release, Address, Word, Word>) {
-                    released = release(destination, qmd[base + 2], flags);
-                } else {
-                    released = release(destination, qmd[base + 2]);
+                try {
+                    if constexpr (std::is_invocable_r_v<bool, Release, Address, Word, Word>) {
+                        released = release(destination, qmd[base + 2], flags);
+                    } else {
+                        released = release(destination, qmd[base + 2]);
+                    }
+                } catch (...) {
+                    state.poisoned = true;
+                    return "QMD release exception";
                 }
                 if (!released) return "unmapped QMD release";
                 state.released_slots |= Word{1} << slot;
@@ -226,6 +257,7 @@ private:
         bool scheduled{};
         bool completed{};
         bool dispatched{};
+        bool poisoned{};
         Word released_slots{};
     };
     // One instance must be shared by all GPU channels in a single process
