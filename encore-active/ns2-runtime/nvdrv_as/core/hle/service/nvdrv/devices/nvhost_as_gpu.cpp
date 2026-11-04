@@ -16,6 +16,7 @@
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_kind.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_va_layout.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_allocation_range.h"
 #include "common/common_types.h"
 #include "common/logging.h"
 #include "core/core.h"
@@ -612,10 +613,9 @@ NvResult nvhost_as_gpu::Remap(std::span<IoctlRemapEntry> entries) {
                                  << vm.big_page_size_bits};
         u64 size{static_cast<u64>(entry.big_pages) << vm.big_page_size_bits};
 
-        auto alloc{allocation_map.upper_bound(virtual_address)};
-
-        if (alloc-- == allocation_map.begin() ||
-            (virtual_address - alloc->first) + size > alloc->second.size) {
+        const auto alloc = NativeGpuAllocation::FindContaining(
+            allocation_map, virtual_address, size);
+        if (alloc == allocation_map.end()) {
             LOG_WARNING(Service_NVDRV, "Cannot remap into an unallocated region!");
             return NvResult::BadValue;
         }
@@ -663,7 +663,15 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
     if ((params.flags & MappingFlags::Remap) != MappingFlags::None) {
         if (auto const it = mapping_map.find(params.offset); it != mapping_map.end()) {
             auto const mapping = it->second;
-            if (mapping.size < params.mapping_size) {
+            // A remap into an existing buffer must fit its original offset
+            // and size. Reject wrapped GPU VAs before any page-table change.
+            constexpr u64 gpu_limit = u64{1} << 49;
+            if (!NativeGpuAllocation::ContainsSubrange(
+                    mapping.size, params.buffer_offset, params.mapping_size) ||
+                params.offset >= gpu_limit ||
+                params.buffer_offset >= gpu_limit - params.offset ||
+                params.mapping_size > gpu_limit - params.offset - params.buffer_offset ||
+                mapping.ptr > std::numeric_limits<VAddr>::max() - params.buffer_offset) {
                 LOG_WARNING(Service_NVDRV, "Cannot remap a partially mapped GPU address space region: {:#x}", params.offset);
                 return NvResult::BadValue;
             }
@@ -682,8 +690,22 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
         return NvResult::BadValue;
     }
 
+    const u64 size{params.mapping_size ? params.mapping_size : handle->orig_size};
+    if (!NativeGpuAllocation::ContainsSubrange(handle->orig_size,
+                                               params.buffer_offset, size))
+        return NvResult::BadValue;
+    // Validate the fixed GPU allocation BEFORE pinning NvMap. Refusing
+    // an invalid ioctl after PinHandle leaked its underlying GPU pin.
+    auto fixed_alloc = allocation_map.end();
+    if ((params.flags & MappingFlags::Fixed) != MappingFlags::None) {
+        fixed_alloc = NativeGpuAllocation::FindContaining(
+            allocation_map, params.offset, size);
+        if (fixed_alloc == allocation_map.end()) {
+            LOG_WARNING(Service_NVDRV, "Fixed GPU map outside allocation: {:#x}", params.offset);
+            return NvResult::BadValue;
+        }
+    }
     DAddr device_address = DAddr(nvmap.PinHandle(params.handle, false) + params.buffer_offset);
-    u64 size{params.mapping_size ? params.mapping_size : handle->orig_size};
 
     bool big_page{[&]() {
         if (Common::IsAligned(handle->align, vm.big_page_size)) {
@@ -697,14 +719,7 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
     }()};
 
     if ((params.flags & MappingFlags::Fixed) != MappingFlags::None) {
-        auto alloc{allocation_map.upper_bound(params.offset)};
-
-        if (alloc-- == allocation_map.begin() ||
-            (params.offset - alloc->first) + size > alloc->second.size) {
-            ASSERT_MSG(false, "Cannot perform a fixed mapping into an unallocated region!");
-            return NvResult::BadValue;
-        }
-
+        const auto alloc = fixed_alloc; // Validated before NvMap pin.
         const bool use_big_pages = alloc->second.big_pages && big_page;
         gmmu->Map(params.offset, device_address, size, static_cast<Tegra::PTEKind>(params.kind), use_big_pages);
 
@@ -717,6 +732,7 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
 
         params.offset = u64(allocator.Allocate(u32(Common::AlignUp(size, page_size) >> page_size_bits))) << page_size_bits;
         if (!params.offset) {
+            nvmap.UnpinHandle(params.handle); // Allocation failed after NvMap pin.
             ASSERT_MSG(false, "Failed to allocate free space in the GPU AS!");
             return NvResult::InsufficientMemory;
         }
