@@ -10,8 +10,11 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <new>
 #include <mutex>
 #include <optional>
+#include <span>
+#include <utility>
 #include <string_view>
 #include <vector>
 
@@ -54,16 +57,64 @@ struct Nx2SysmixStreams {
         system.CoreTiming().UnscheduleEvent(timer);
     }
 
-    Result SetEngaged(u32 id, bool engaged, const Kernel::KProcess* process) {
-        std::shared_ptr<SysmixOutput> stream;
-        {
-            std::scoped_lock lock{mutex};
-            const auto it = streams.find(id);
+    // A request may name several stream IDs. Authenticate every ID and
+    // process BEFORE changing any host stream, so a later invalid item
+    // cannot leave an earlier stream spuriously playing. Retain the
+    // registry mutex through the transition: service-domain CloseStream
+    // cannot remove an owner between admission and the operation.
+    Result SetEngagedBatch(std::span<const u32> ids, bool engaged,
+                           const Kernel::KProcess* process) {
+        R_UNLESS(process, ResultInvalidHandle);
+        R_UNLESS(ids.size() <= 32, ResultInvalidArgument);
+        std::array<std::shared_ptr<SysmixOutput>, 32> selected{};
+        std::array<bool, 32> original{};
+        std::scoped_lock lock{mutex};
+        for (std::size_t i = 0; i < ids.size(); ++i) {
+            if (std::find(ids.begin(), ids.begin() + i, ids[i]) != ids.begin() + i)
+                return ResultInvalidArgument;
+            const auto it = streams.find(ids[i]);
             R_UNLESS(it != streams.end(), ResultNotFound);
-            stream = it->second;
+            R_UNLESS(it->second && it->second->IsOwnedBy(process), ResultInvalidHandle);
+            const u32 state = it->second->GetState();
+            R_UNLESS(state != 0, ResultOperationFailed);
+            original[i] = state == 2;
+            selected[i] = it->second;
         }
-        R_UNLESS(stream->IsOwnedBy(process), ResultInvalidHandle);
-        return stream->SetEngaged(engaged);
+        for (std::size_t i = 0; i < ids.size(); ++i) {
+            const Result result = selected[i]->SetEngaged(engaged);
+            if (result.IsFailure()) {
+                // The sink may reject Start or Stop. Best-effort rollback
+                // of earlier accepted operations; never advertise success
+                // for a partially failed batch.
+                for (std::size_t j = i; j > 0; --j)
+                    (void)selected[j - 1]->SetEngaged(original[j - 1]);
+                return result;
+            }
+        }
+        return ResultSuccess;
+    }
+
+    Result SetEngaged(u32 id, bool engaged, const Kernel::KProcess* process) {
+        return SetEngagedBatch(std::span<const u32>{&id, 1}, engaged, process);
+    }
+
+    // Reserve and publish an ID under ONE critical section. The previous
+    // check-unlock-allocate-lock-insert sequence allowed two concurrent
+    // sessions to pass the 32-stream cap; the timer could observe the
+    // intermediate state. A failed factory/insert never consumes an ID.
+    template <typename Factory>
+    Result CreateBounded(Factory&& factory, u32& out_id,
+                         std::shared_ptr<SysmixOutput>& out_stream) {
+        std::scoped_lock lock{mutex};
+        R_UNLESS(streams.size() < 32 && next_id != 0, ResultOutOfSessions);
+        const u32 candidate = next_id;
+        auto stream = factory(candidate);
+        R_UNLESS(stream, ResultOperationFailed);
+        R_UNLESS(streams.emplace(candidate, stream).second, ResultOutOfSessions);
+        ++next_id;
+        out_id = candidate;
+        out_stream = std::move(stream);
+        return ResultSuccess;
     }
 
     std::mutex mutex;
@@ -223,22 +274,23 @@ private:
             return;
         }
         u32 id{};
-        {
-            std::scoped_lock lock{streams->mutex};
-            // Never publish a wrapped/reused ID or allow an unbounded set
-            // of sink streams to exhaust the host's audio resources.
-            if (streams->streams.size() >= 32 || !streams->next_id) {
-                IPC::ResponseBuilder rb{ctx, 2};
-                rb.Push(ResultOutOfSessions);
-                return;
-            }
-            id = streams->next_id++;
+        std::shared_ptr<SysmixOutput> stream;
+        Result admitted = ResultOutOfSessions;
+        try {
+            admitted = streams->CreateBounded(
+                [&](u32 candidate) {
+                    return std::make_shared<SysmixOutput>(
+                        system, *process, system.AudioCore().GetOutputSink(),
+                        candidate, buffer, size, flags);
+                }, id, stream);
+        } catch (const std::bad_alloc&) {
+            // The map and next_id stay unchanged when allocation fails.
+            admitted = ResultOutOfSessions;
         }
-        auto stream = std::make_shared<SysmixOutput>(system, *process,
-            system.AudioCore().GetOutputSink(), id, buffer, size, flags);
-        {
-            std::scoped_lock lock{streams->mutex};
-            streams->streams.emplace(id, stream);
+        if (admitted.IsFailure()) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(admitted);
+            return;
         }
         LOG_INFO(Service_Audio, "stream {} '{}': flags {:#x}, buffer {:#x} size {:#x}", id,
                  Common::StringFromBuffer(ctx.ReadBuffer(0)), flags, buffer, size);
@@ -251,16 +303,14 @@ private:
     void SetEngaged(HLERequestContext& ctx, bool engaged) {
         const auto buffer = ctx.ReadBuffer(0);
         Result result = ResultInvalidArgument;
-        if (buffer.size() % sizeof(u32) == 0) {
-            result = ResultSuccess;
-            for (std::size_t offset = 0; offset < buffer.size(); offset += sizeof(u32)) {
-                u32 id{};
-                std::memcpy(&id, buffer.data() + offset, sizeof(id));
-                result = streams->SetEngaged(id, engaged, ctx.GetThread().GetOwnerProcess());
-                if (result.IsFailure()) {
-                    break;
-                }
-            }
+        if (buffer.size() % sizeof(u32) == 0 && buffer.size() <= 32 * sizeof(u32)) {
+            std::array<u32, 32> ids{};
+            const auto count = buffer.size() / sizeof(u32);
+            for (std::size_t i = 0; i < count; ++i)
+                std::memcpy(&ids[i], buffer.data() + i * sizeof(u32), sizeof(u32));
+            result = streams->SetEngagedBatch(
+                std::span<const u32>{ids.data(), count}, engaged,
+                ctx.GetThread().GetOwnerProcess());
         }
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result);
