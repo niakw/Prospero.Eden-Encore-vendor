@@ -38,6 +38,10 @@
 #include "video_core/renderer_base.h"
 #include "video_core/shader_notify.h"
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_GUEST_COUNTER)
+#include "encore/guest_counter_policy.h"
+#endif
+
 namespace Tegra {
 
 namespace {
@@ -165,6 +169,18 @@ struct GPU::Impl {
     }
 
     [[nodiscard]] u64 GetTicks() const {
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_GUEST_COUNTER)
+        // The reviewed ExeFS loader selects the guest counter from NPDM
+        // before the first guest JIT instruction. Native Ampere reports
+        // and CPU/GPU calibration are in nanoseconds, not the Maxwell
+        // 614.4-MHz GPU-tick domain. This switch is shared across titles:
+        // when an NS1 program is selected again, SelectProgram(false)
+        // restores the original tick units without a title-specific hack.
+        if (Eden::GuestCounter::Rate() == Eden::GuestCounter::Switch2Hz) {
+            const auto elapsed_ns = system.CoreTiming().GetGlobalTimeNs().count();
+            return elapsed_ns > 0 ? static_cast<u64>(elapsed_ns) : 0ULL;
+        }
+#endif
         const u64 gpu_tick = system.CoreTiming().GetGPUTicks();
         return gpu_tick / GpuClockMultiplier(Settings::values.gpu_clock.GetValue());
     }
