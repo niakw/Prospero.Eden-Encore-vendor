@@ -1510,7 +1510,13 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                 }
             }
         }
+        // SPIR-V compilation and descriptor staging can outlast a guest
+        // code rewrite without changing TIC, TSC or QMD CBUF metadata.
+        // Recheck the exact original Ampere words after image admission.
         if (!current_after_staging ||
+            !captured.ComputeSourceMatches(
+                launch.program_address, VideoCommon::ReadNs2GpuShader,
+                gpu_memory) ||
             !registry.IsComputeCurrent(kepler_compute, *ticket)) {
             // Scope retirement also handles this rejection; do not release
             // already recorded Vulkan descriptor-bind closures early.

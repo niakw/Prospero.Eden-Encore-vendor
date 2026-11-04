@@ -35,6 +35,13 @@ struct NativeCaptureResult {
     u32 captured_native_bytes{};
     u32 first_error_offset{};
     MaxwellShaderImage image{};
+    // Immutable original QMD program bytes kept until Vulkan dispatch.
+    // Graphics still has its own SPH/CBUF owner; compute has no SPH.
+    std::vector<u8> captured_compute_bytes{};
+    // Works after image has been moved to the compiler: never use a
+    // diagnostic shader hash as proof that guest code remained unchanged.
+    [[nodiscard]] bool ComputeSourceMatches(
+        u64 code_address, GuestShaderRead read, void* context) const;
     [[nodiscard]] bool Ready() const {
         return status == NativeCaptureStatus::Ready && image.Ready();
     }

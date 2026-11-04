@@ -382,11 +382,65 @@ NativeCaptureResult CaptureNativeShader(
             }
         }
         result.status = NativeCaptureStatus::Ready;
+        // Keep the verified guest Compute bytes across SPIR-V compilation
+        // and Vulkan descriptor staging. Move, never duplicate, the bounded
+        // (at most 64-KiB) shader capture into its dispatch-local owner.
+        if (compute) result.captured_compute_bytes = std::move(source);
         return result;
     }
     result.status = NativeCaptureStatus::NoTerminator;
     result.captured_native_bytes = static_cast<u32>(source.size());
     return result;
+}
+
+bool NativeCaptureResult::ComputeSourceMatches(
+    u64 code_address, GuestShaderRead read, void* context) const {
+    // The image can already have been moved to the real SPIR-V compiler.
+    // The immutable source and checked capture status remain owned here.
+    if (status != NativeCaptureStatus::Ready || !read ||
+        captured_compute_bytes.empty() ||
+        captured_compute_bytes.size() != captured_native_bytes ||
+        captured_compute_bytes.size() > 4096 * sizeof(Instruction) ||
+        !NativeGpuRange49(code_address, captured_compute_bytes.size()))
+        return false;
+    std::array<u8, NativeShaderReadPage> scratch{};
+    const auto safe_read = [&](u64 address, void* dst, std::size_t bytes) {
+        if (!NativeGpuRange49(address, bytes)) return false;
+        try {
+            return read(context, address, dst, bytes);
+        } catch (...) {
+            return false;
+        }
+    };
+    const auto matches = [&](std::size_t offset, std::size_t size) {
+        return std::equal(captured_compute_bytes.begin() + offset,
+                          captured_compute_bytes.begin() + offset + size,
+                          scratch.begin());
+    };
+    for (std::size_t offset = 0; offset < captured_compute_bytes.size();) {
+        const u64 address = code_address + offset;
+        std::size_t bytes = (std::min)(
+            NativeShaderReadPage - static_cast<std::size_t>(
+                address & (NativeShaderReadPage - 1)),
+            captured_compute_bytes.size() - offset);
+        bytes -= bytes % sizeof(Instruction);
+        if (!bytes) bytes = sizeof(Instruction);
+        if (safe_read(address, scratch.data(), bytes)) {
+            if (!matches(offset, bytes)) return false;
+        } else {
+            // Preserve legitimate exact-instruction readers and reject
+            // any unmapped/changed word without trusting speculative bulk.
+            for (std::size_t part = 0; part < bytes;
+                 part += sizeof(Instruction)) {
+                if (!safe_read(address + part, scratch.data(),
+                               sizeof(Instruction)) ||
+                    !matches(offset + part, sizeof(Instruction)))
+                    return false;
+            }
+        }
+        offset += bytes;
+    }
+    return true;
 }
 
 NativeCaptureResult CaptureNativeGraphicsShader(
