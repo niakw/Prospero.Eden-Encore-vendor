@@ -27,7 +27,7 @@ inline RegisterPressure PrepareRegisterPressure(const Instruction& input, u32 re
     case 0x802: case 0xb08: case 0xd08: case 0x919: operand(16); break;
     case 0x308: case 0x245: operand(16); operand(32); break;
     case 0x433: case 0x633: operand(16); operand(24); break;
-    case 0x233: case 0x208: case 0x221:
+    case 0x233: case 0x208: case 0x220: case 0x221:
         operand(16); operand(24); operand(32); break;
     case 0x223: // FFMA uses a third real source register at bit 64.
         operand(16); operand(24); operand(32); operand(64); break;

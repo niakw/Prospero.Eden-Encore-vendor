@@ -345,7 +345,8 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 opcode != 0xb60 && opcode != 0xb66 &&
                 opcode != 0x386 && opcode != 0x986 &&
                 opcode != 0x20b && opcode != 0x208 &&
-                opcode != 0x221 && opcode != 0x223 &&
+                opcode != 0x220 && opcode != 0x221 &&
+                opcode != 0x223 &&
                 opcode != 0x245)
                 continue;
             const u32 reg = insn.Bits(bit, 8);
