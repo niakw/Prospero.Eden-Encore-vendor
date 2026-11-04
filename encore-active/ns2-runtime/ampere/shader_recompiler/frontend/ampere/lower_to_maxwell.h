@@ -347,7 +347,8 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 opcode != 0x20b && opcode != 0x208 &&
                 opcode != 0x220 && opcode != 0x221 &&
                 opcode != 0x223 &&
-                opcode != 0x245)
+                opcode != 0x245 &&
+                opcode != 0x9a8)
                 continue;
             const u32 reg = insn.Bits(bit, 8);
             if (reg >= reserved_register && reg < 255) requires_shadow = true;
@@ -1552,8 +1553,12 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         }
         case 0x9a8: { // ATOMG.E.ADD.STRONG.GPU U32 through a uniform pointer.
-            const u32 address = uniform_register(insn.Bits(64, 6));
-            if (insn.Bits(24, 8) != 255 || insn.Bits(40, 24) ||
+            const u32 uniform_pointer = insn.Bits(64, 6);
+            const u32 address = uniform_register(uniform_pointer);
+            // Uniform U63 maps to zero-register RZ, NOT the upper word of
+            // U62. A 64-bit pointer at U62 would incorrectly read the
+            // adjacent physical GPR U47 instead of a valid uniform pair.
+            if (uniform_pointer >= 62 || insn.Bits(24, 8) != 255 || insn.Bits(40, 24) ||
                 (insn.words[2] & ~0x3fU) != 0x081ee140 || address == ~0U || (address & 1))
                 return fail(index, "native global atomic mode");
             emit(0xed00000000000000ULL | predicate | dest | (u64{address} << 8) |

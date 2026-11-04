@@ -41,6 +41,7 @@ inline bool NativeVectorCrossesScratch(const Instruction& input, u32 reserved) {
     case 0x984: return crosses(16, count);
     case 0x381: return crosses(16, count) || crosses(24, 2);
     case 0x386: return crosses(32, count) || crosses(24, 2);
+    case 0x3a8: return crosses(24, 2); // Global ATOMG uses an implicit 64-bit address pair.
     case 0x981: return crosses(16, count) ||
                        (input.Bits(90, 1) && crosses(24, 2));
     case 0x986: return crosses(32, count) ||
@@ -95,6 +96,11 @@ inline RegisterPressure PrepareRegisterPressure(const Instruction& input, u32 re
     }
     case 0x387: case 0x983:
         operand(opcode == 0x387 ? 32 : 16); operand(24); break;
+    case 0x3a8: // ATOMG with a genuine GPR address pair + GPR data.
+        operand(16); operand(24, 2); operand(32); break;
+    case 0x9a8: // ATOMG with a uniform pointer but GPR destination/data.
+        // Bits 64..69 select the virtual uniform bank, not a guest GPR.
+        operand(16); operand(32); break;
     case 0x381: case 0x386: case 0x981: case 0x986: {
         const u32 width = input.Bits(73, 3), count = width == 6 ? 4 : width == 5 ? 2 : 1;
         operand(opcode == 0x386 || opcode == 0x986 ? 32 : 16, count);
