@@ -74,6 +74,25 @@ using VideoCommon::ImageViewType;
 
 
 namespace {
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+// A native TIC/TSC snapshot can read GPU memory while holding the common
+// TextureCache mutex. GPU ReadBlock flushes registered image pages through
+// RasterizerVulkan::FlushRegion, which must not lock that same mutex twice.
+// Thread-local scope is armed only after the outer mutex is acquired.
+thread_local const RasterizerVulkan* native_texture_read_lock_owner{};
+struct NativeTextureReadLockScope {
+    const RasterizerVulkan* previous;
+    explicit NativeTextureReadLockScope(const RasterizerVulkan* owner) noexcept
+        : previous{native_texture_read_lock_owner} {
+        native_texture_read_lock_owner = owner;
+    }
+    ~NativeTextureReadLockScope() {
+        native_texture_read_lock_owner = previous;
+    }
+    NativeTextureReadLockScope(const NativeTextureReadLockScope&) = delete;
+    NativeTextureReadLockScope& operator=(const NativeTextureReadLockScope&) = delete;
+};
+#endif
 struct DrawParams {
     u32 base_instance;
     u32 num_instances;
@@ -1192,6 +1211,9 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
             bool same_cache_channel{};
             {
                 std::scoped_lock lock{texture_cache.mutex};
+                // A reentrant GMMU read can flush this same image cache.
+                // Keep ownership until ALL TIC/TSC checks and leases finish.
+                NativeTextureReadLockScope native_texture_read_scope{this};
                 same_cache_channel = texture_cache.NativeChannelMatches(
                     kepler_compute, *gpu_memory);
                 // The engine epoch can stay valid while guest code rewrites
@@ -1665,8 +1687,18 @@ void RasterizerVulkan::FlushRegion(DAddr addr, u64 size, VideoCommon::CacheType 
     // Unknown, large or previously registered pages keep the original lock.
     if (True(which & VideoCommon::CacheType::TextureCache) &&
         !::Eden::ImagePages::NeverHeld(addr, size)) {
-        std::scoped_lock lock{texture_cache.mutex};
-        texture_cache.DownloadMemory(addr, size);
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+        if (native_texture_read_lock_owner == this) {
+            // Our caller already holds texture_cache.mutex. Preserve the
+            // exact GPU-dirty readback, but never recursively lock a
+            // non-recursive shared cache mutex on a native TIC/TSC read.
+            texture_cache.DownloadMemory(addr, size);
+        } else
+#endif
+        {
+            std::scoped_lock lock{texture_cache.mutex};
+            texture_cache.DownloadMemory(addr, size);
+        }
     }
     // DownloadMemory visits registered buffers only. Pages with no
     // registration history cannot require a buffer readback or mutex.

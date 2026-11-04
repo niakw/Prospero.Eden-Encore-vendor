@@ -45,6 +45,20 @@ private:
     return byte_offset < 0x10000U ? (byte_offset | 15U) + 1U : 0U;
 }
 
+// A U32/U64 load near the final word may straddle the 64-KiB hardware
+// window even when its start lies inside a 16-byte SPIR-V vector.
+// Native U8 still permits the last byte. Do not extend the guest CBUF.
+[[nodiscard]] constexpr u32 NativeQmdStaticCbufReadExtent(
+    Shader::IR::Opcode op, u32 byte_offset) noexcept {
+    const u32 width = (op == Shader::IR::Opcode::GetCbufU8 ||
+                       op == Shader::IR::Opcode::GetCbufS8) ? 1U :
+                      (op == Shader::IR::Opcode::GetCbufU16 ||
+                       op == Shader::IR::Opcode::GetCbufS16) ? 2U :
+                       op == Shader::IR::Opcode::GetCbufU32x2 ? 8U : 4U;
+    return byte_offset <= 0x10000U - width
+        ? NativeQmdStaticCbufReadExtent(byte_offset) : 0U;
+}
+
 [[nodiscard]] inline bool NormalizeNativeQmdIndirectCbufMetadata(Shader::Info& info,
                                                                 u32 enabled_mask = 0xffU) {
     if (!info.uses_cbuf_indirect) return true;
@@ -89,6 +103,8 @@ private:
         // register-selected CBUF operation: the SPIR-V backend would otherwise
         // call an uncreated indirect-load function. Also check the 64-KiB
         // offset domain for statically addressed CBUFs in this path.
+        u32 referenced_mask{};
+        std::array<u32, kNativeQmdIndirectCbufBanks> required_sizes{};
         for (const Shader::IR::Block* const block : program.blocks) {
             for (const Shader::IR::Inst& inst : block->Instructions()) {
                 switch (inst.GetOpcode()) {
@@ -106,9 +122,12 @@ private:
                     if (bank >= kNativeQmdIndirectCbufBanks ||
                         !(enabled_mask & (u32{1} << bank)))
                         return false;
-                    if (offset_value.IsImmediate() &&
-                        !NativeQmdStaticCbufReadExtent(offset_value.U32()))
-                        return false;
+                    const u32 extent = offset_value.IsImmediate()
+                        ? NativeQmdStaticCbufReadExtent(inst.GetOpcode(),offset_value.U32())
+                        : 0x10000U;
+                    if (!extent) return false;
+                    referenced_mask |= u32{1} << bank;
+                    required_sizes[bank] = (std::max)(required_sizes[bank], extent);
                     break;
                 }
                 default:
@@ -128,7 +147,16 @@ private:
                 declared_mask |= bit;
             }
         }
-        return declared_mask == program.info.constant_buffer_mask;
+        // Every immediate guest load needs a reflected and bound UBO.
+        // A QMD enable bit alone cannot authenticate an unbound bank.
+        if (declared_mask != program.info.constant_buffer_mask ||
+            (referenced_mask & ~declared_mask))
+            return false;
+        for (u32 bank = 0; bank < kNativeQmdIndirectCbufBanks; ++bank)
+            program.info.constant_buffer_used_sizes[bank] =
+                (std::max)(program.info.constant_buffer_used_sizes[bank],
+                           required_sizes[bank]);
+        return true;
     }
     // Check all actual CBUF loads before narrowing the generic fourteen-bank
     // reflection. A dynamic bank selector can touch any enabled slot; the
@@ -161,7 +189,7 @@ private:
                     all_offsets_static = false;
                     break;
                 }
-                const u32 extent = NativeQmdStaticCbufReadExtent(offset.U32());
+                const u32 extent = NativeQmdStaticCbufReadExtent(inst.GetOpcode(),offset.U32());
                 if (!extent) return false;
                 if (index.IsImmediate()) {
                     auto& current = read_extents[index.U32()];
