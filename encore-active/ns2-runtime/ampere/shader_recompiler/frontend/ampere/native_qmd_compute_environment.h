@@ -1350,8 +1350,15 @@ public:
                         record.primary_shift = desc.shift_left;
                         record.has_secondary = separate;
                         if (separate) {
-                            const u64 second =
-                                u64{desc.secondary_cbuf_offset} + stride;
+                            // The reviewed texture pass combines a
+                            // dynamically indexed PRIMARY TIC table with
+                            // one STATIC secondary sampler (count == 1).
+                            // The second CBUF word is not an array element:
+                            // advancing it with the primary stride can
+                            // silently bind a different sampler for every
+                            // texture and eventually read past the QMD CBUF.
+                            // No secondary-dynamic-array ABI is admitted.
+                            const u64 second = desc.secondary_cbuf_offset;
                             if (second > 0x10000U - sizeof(u32))
                                 return false;
                             record.secondary_word = ReadCbufValue(
