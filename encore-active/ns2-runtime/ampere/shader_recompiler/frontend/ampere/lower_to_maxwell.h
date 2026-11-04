@@ -4136,6 +4136,17 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 insn.words[1] &= ~3U;
                 insn.words[2] = 0x03800000 | (insn.words[2] & 0x3ffffU);
             }
+            // Ampere BRA.U encodes its warp-uniform branch modifier in
+            // address bits 32..33; these bits are NOT part of the signed
+            // relative PC. Admit only the reviewed U mode with all
+            // convergence/reserved fields clear, then reuse the same
+            // checked Maxwell relocation path as ordinary BRA.
+            if (opcode == 0x947 && (insn.words[1] & 3U) == 1U) {
+                if (insn.Bits(91, 1) || insn.Bits(82, 5) ||
+                    insn.Bits(92, 13))
+                    return fail(index, "native branch convergence mode");
+                insn.words[1] &= ~3U;
+            }
             u64 branch_predicate = predicate;
             if (opcode == 0x947 && insn.Bits(87, 4) != 7) {
                 if (insn.Bits(12, 4) != 7) {
