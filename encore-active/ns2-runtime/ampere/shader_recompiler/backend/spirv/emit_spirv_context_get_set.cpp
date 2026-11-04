@@ -131,20 +131,26 @@ Id GetCbuf(EmitContext& ctx, Id result_type, Id UniformDefinitions::*member_ptr,
         buffer_offset = ctx.Def(offset);
     }
     if (Shader::Ampere::NativeSpirvCbufBoundsActive() && offset.IsImmediate() &&
-        offset.U32() > 0x10000U - native_access_bytes) {
+        (offset.U32() > 0x10000U - native_access_bytes ||
+         (native_access_bytes == 8 && (offset.U32() & 3U)))) {
+        // Two guest words require a word-aligned 64-bit span. An offset
+        // at 4/12 is valid: a second 8-byte vector carries its high word.
+        // Sub-word native U32x2 behavior has not been authenticated.
         return ctx.ConstantNull(result_type);
     }
     if (next_vector_for_pair) {
-        // Without descriptor aliasing, native U32x2 is two scalar elements.
-        // At byte offsets 12..15 the SECOND element lives in the next
-        // 16-byte uniform row. Do not extract component 4 from the first.
+        // The second guest 32-bit word may occupy the following U32x2
+        // (8 bytes) or U32x4 (16 bytes) uniform vector. The first word
+        // always uses the original vector; bump only the second vector's
+        // array index at its last component boundary.
         if (offset.IsImmediate()) {
-            if ((offset.U32() & 15U) >= 12U)
+            if ((offset.U32() & (element_size - 1U)) >= element_size - 4U)
                 buffer_offset = ctx.OpIAdd(ctx.U32[1], buffer_offset, ctx.Const(1U));
         } else {
             const Id last_word{ctx.OpUGreaterThanEqual(
-                ctx.U1, ctx.OpBitwiseAnd(ctx.U32[1], ctx.Def(offset), ctx.Const(15U)),
-                ctx.Const(12U))};
+                ctx.U1, ctx.OpBitwiseAnd(ctx.U32[1], ctx.Def(offset),
+                                        ctx.Const(element_size - 1U)),
+                ctx.Const(element_size - 4U))};
             const Id delta{ctx.OpSelect(ctx.U32[1], last_word,
                                         ctx.Const(1U), ctx.u32_zero_value)};
             buffer_offset = ctx.OpIAdd(ctx.U32[1], buffer_offset, delta);
@@ -158,10 +164,15 @@ Id GetCbuf(EmitContext& ctx, Id result_type, Id UniformDefinitions::*member_ptr,
         // byte 0xffff, while a genuine U32x2 cannot cross that boundary.
         const Id valid_span{ctx.OpULessThanEqual(
             ctx.U1, ctx.Def(offset), ctx.Const(0x10000U - native_access_bytes))};
+        const Id valid_offset{native_access_bytes != 8 ? valid_span :
+            ctx.OpLogicalAnd(ctx.U1, valid_span,
+                ctx.OpIEqual(ctx.U1,
+                    ctx.OpBitwiseAnd(ctx.U32[1], ctx.Def(offset), ctx.Const(3U)),
+                    ctx.u32_zero_value))};
         // Both the indirect QMD3 bank switch and the direct-bank bounds
         // guard below reject this sentinel before creating a guest pointer.
         // No change to the legacy Maxwell compiler path.
-        buffer_offset = ctx.OpSelect(ctx.U32[1], valid_span,
+        buffer_offset = ctx.OpSelect(ctx.U32[1], valid_offset,
                                      buffer_offset, ctx.Const(~u32{0}));
     }
     if (!binding.IsImmediate()) {
@@ -227,22 +238,25 @@ Id GetCbufU32x4(EmitContext& ctx, const IR::Value& binding, const IR::Value& off
                    ctx.load_const_func_u32x4, native_access_bytes, next_vector_for_pair);
 }
 
-Id GetCbufElement(EmitContext& ctx, Id vector, const IR::Value& offset, u32 index_offset) {
+Id GetCbufElement(EmitContext& ctx, Id vector, const IR::Value& offset, u32 index_offset,
+                  u32 vector_components = 4) {
     if (offset.IsImmediate()) {
-        const u32 element{(offset.U32() / 4) % 4 + index_offset};
+        const u32 element{(offset.U32() / 4) % vector_components + index_offset};
         return ctx.OpCompositeExtract(ctx.U32[1], vector,
-            Shader::Ampere::NativeSpirvCbufBoundsActive() ? element % 4 : element);
+            Shader::Ampere::NativeSpirvCbufBoundsActive()
+                ? element % vector_components : element);
     }
     const Id shift{ctx.OpShiftRightLogical(ctx.U32[1], ctx.Def(offset), ctx.Const(2u))};
-    Id element{ctx.OpBitwiseAnd(ctx.U32[1], shift, ctx.Const(3u))};
+    Id element{ctx.OpBitwiseAnd(ctx.U32[1], shift, ctx.Const(vector_components - 1U))};
     if (index_offset > 0) {
         element = ctx.OpIAdd(ctx.U32[1], element, ctx.Const(index_offset));
     }
-    // The native U32x2 caller selects the following uniform vector row
-    // for a pair crossing the row boundary, then wraps the component index.
-    // NS1 retains its original extraction instructions unchanged.
+    // The native pair caller may select the next uniform vector when a
+    // source U32x2 straddles its boundary. Wrap the component *inside*
+    // that vector. NS1's original four-component indexing is preserved.
     if (index_offset && Shader::Ampere::NativeSpirvCbufBoundsActive())
-        element = ctx.OpBitwiseAnd(ctx.U32[1], element, ctx.Const(3U));
+        element = ctx.OpBitwiseAnd(ctx.U32[1], element,
+                                   ctx.Const(vector_components - 1U));
     return ctx.OpVectorExtractDynamic(ctx.U32[1], vector, element);
 }
 } // Anonymous namespace
@@ -372,6 +386,20 @@ Id EmitGetCbufF32(EmitContext& ctx, const IR::Value& binding, const IR::Value& o
 
 Id EmitGetCbufU32x2(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset) {
     if (ctx.profile.support_descriptor_aliasing) {
+        if (Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+            // Native guest U32x2 is two consecutive 32-bit words, not a
+            // rounded-down 64-bit vector. Reading at byte 4 (or 12) must
+            // combine the last component of one U32x2 uniform vector
+            // with the first component of the NEXT. Both loads preserve
+            // the original 8-byte guest-span/authenticated bank guard.
+            const Id first_row{GetCbuf(ctx, ctx.U32[2], &UniformDefinitions::U32x2,
+                sizeof(u32[2]), binding, offset, ctx.load_const_func_u32x2, 8)};
+            const Id second_row{GetCbuf(ctx, ctx.U32[2], &UniformDefinitions::U32x2,
+                sizeof(u32[2]), binding, offset, ctx.load_const_func_u32x2, 8, true)};
+            return ctx.OpCompositeConstruct(ctx.U32[2],
+                GetCbufElement(ctx, first_row, offset, 0u, 2),
+                GetCbufElement(ctx, second_row, offset, 1u, 2));
+        }
         return GetCbuf(ctx, ctx.U32[2], &UniformDefinitions::U32x2, sizeof(u32[2]), binding, offset,
                        ctx.load_const_func_u32x2, 8);
     } else {

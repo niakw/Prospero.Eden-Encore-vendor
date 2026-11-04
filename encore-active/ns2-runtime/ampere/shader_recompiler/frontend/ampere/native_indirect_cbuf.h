@@ -130,8 +130,23 @@ private:
                       (op == Shader::IR::Opcode::GetCbufU16 ||
                        op == Shader::IR::Opcode::GetCbufS16) ? 2U :
                        op == Shader::IR::Opcode::GetCbufU32x2 ? 8U : 4U;
+    // U32x2 can start at the second word of a backing U32x2 vector.
+    // The native SPIR-V emitter fetches two adjacent, independently
+    // bounded 8-byte vectors and assembles the actual guest words. It
+    // never rounds offset 4/12 to an unrelated 64-bit uniform value.
+    // 32-bit word alignment is required; sub-word native pair loads
+    // remain unproven and must fail closed.
+    if (op == Shader::IR::Opcode::GetCbufU32x2 && (byte_offset & 3U))
+        return 0U;
+    // Only the wide pair requires a new uniform vector at the next
+    // 8-/16-byte boundary. Other Maxwell-compatible sub-word loads
+    // retain their original aligned-read extent, without expanding
+    // CBUF residency for unrelated U8/U16/U32 instructions.
+    const u32 last_reflected_byte =
+        op == Shader::IR::Opcode::GetCbufU32x2
+            ? byte_offset + width - 1U : byte_offset;
     return byte_offset <= 0x10000U - width
-        ? NativeQmdStaticCbufReadExtent(byte_offset) : 0U;
+        ? NativeQmdStaticCbufReadExtent(last_reflected_byte) : 0U;
 }
 
 [[nodiscard]] inline bool NormalizeNativeQmdIndirectCbufMetadata(Shader::Info& info,
