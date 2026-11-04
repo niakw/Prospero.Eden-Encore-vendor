@@ -133,7 +133,19 @@ bool DmaPusher::Step() {
         dma_pushbuffer.pop();
         dma_pushbuffer_subindex = 0;
     } else {
-        signal_sync = command_list.command_lists[dma_pushbuffer_subindex].sync && Settings::values.sync_memory_operations.GetValue();
+        const bool explicit_sync = command_list.command_lists[dma_pushbuffer_subindex].sync;
+        const bool user_sync = Settings::values.sync_memory_operations.GetValue();
+#ifdef EDEN_NS2_NATIVE_GPU_DISPATCH
+        // A native NS2 GPFIFO fence is part of the guest-visible ordering
+        // contract, not an optional host quality preset. Its previous
+        // Compute/3D writes must retire BEFORE the next live command list
+        // is read, even if the user's NS1 sync optimization is disabled.
+        signal_sync = explicit_sync &&
+            (user_sync || Service::Nvidia::Devices::NativeGpuChannelRegistry::
+                              Instance().IsNative(&channel_state));
+#else
+        signal_sync = explicit_sync && user_sync;
+#endif
     }
 
     if (signal_sync) {

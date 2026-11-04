@@ -1078,6 +1078,12 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         if (!Shader::Ampere::NativeQmdImageLayoutMatches(*compiled.info, *resources))
             return false;
         std::vector<NativeComputeImageBinding> native_images;
+        // Keep the original guest TIC/TSC bytes across descriptor staging.
+        // A channel epoch alone does not protect writable descriptor tables
+        // while ConfigureNative records Vulkan bind operations.
+        std::optional<Shader::Ampere::NativeQmdTextureTables> staged_image_tables;
+        std::optional<std::vector<Shader::Ampere::NativeQmdImageTableRecord>>
+            staged_image_records;
         // Authenticate the full table records as well as QMD CBUF handles.
         // This only proves mapped metadata, not usable Vulkan images. Keep
         // the image path closed until TextureCache owns the views/samplers.
@@ -1110,7 +1116,7 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
             // TextureCache can eventually own. Do not reuse the NS1-only
             // IsValidEntry's <40-bit check or GpuToCpuAddress(addr, size),
             // which can succeed when only ONE page is mapped.
-            const auto descriptors = tables.CaptureAdmissible(
+            auto descriptors = tables.CaptureAdmissible(
                 *resources,
                 [this](u64 address, void* bytes, std::size_t size) {
                     return VideoCommon::ReadNs2GpuShader(
@@ -1336,6 +1342,10 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                 return false;
             if (native_images.size() != typed_descriptors->size())
                 return false;
+            // Move, do not re-read or approximate the original table: these
+            // exact records must still match just before vkCmdDispatch.
+            staged_image_tables = tables;
+            staged_image_records = std::move(*descriptors);
         }
         if (!(native_images.empty() ? resources->HasResolvedBufferBindings()
                                    : resources->HasResolvedGpuBufferBindings()))
@@ -1438,6 +1448,29 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         } catch (...) {
             // A guest CBUF may become unmapped while re-reading it. A failed
             // read is a refused dispatch, never early pipeline destruction.
+        }
+        // A guest can rewrite TIC/TSC after the shared TextureCache pinned
+        // the original view and while BufferCache stages its descriptors.
+        // The CBUF reread above cannot detect that race. Re-authenticate
+        // complete raw TIC/TSC records and channel identity once more AFTER
+        // staging, before any compute Dispatch is recorded. The outer
+        // texture mutex also preserves the scoped reentrant readback lease.
+        if (current_after_staging && staged_image_tables && staged_image_records) {
+            std::scoped_lock lock{texture_cache.mutex};
+            NativeTextureReadLockScope native_texture_read_scope{this};
+            const auto& live_regs = kepler_compute.regs;
+            current_after_staging = texture_cache.NativeChannelMatches(
+                    kepler_compute, *gpu_memory) &&
+                staged_image_tables->SameRegisters(
+                    live_regs.tic.Address(), live_regs.tic.limit,
+                    live_regs.tsc.Address(), live_regs.tsc.limit,
+                    launch.linked_tsc) &&
+                staged_image_tables->MatchesSnapshot(
+                    *resources, *staged_image_records,
+                    [this](u64 address, void* bytes, std::size_t size) {
+                        return VideoCommon::ReadNs2GpuShader(
+                            gpu_memory, address, bytes, size);
+                    });
         }
         if (!current_after_staging ||
             !registry.IsComputeCurrent(kepler_compute, *ticket)) {
