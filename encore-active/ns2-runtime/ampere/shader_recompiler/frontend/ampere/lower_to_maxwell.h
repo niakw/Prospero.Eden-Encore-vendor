@@ -241,7 +241,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             if (plan.branch_instruction_index >= code.size() ||
                 code[plan.branch_instruction_index].Bits(0, 12) != 0x949 ||
                 (plan.raw_pc_base != 0 && plan.raw_pc_base != 0x80U) ||
-                plan.targets.size() < 2 || plan.targets.size() > 16)
+                plan.targets.empty() || plan.targets.size() > 16)
                 return fail(0, "invalid native indirect dispatch table");
             for (u32 q = 0; q < p; ++q)
                 if (indirect_dispatch[q].branch_instruction_index ==

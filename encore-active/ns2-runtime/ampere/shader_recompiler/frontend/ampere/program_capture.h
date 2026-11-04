@@ -150,7 +150,7 @@ inline std::vector<CaptureIndirectBranch> TrackCaptureIndirectBranches(std::span
         for (u32 index = *shift_index; index-- > 0;) {
             const auto& instruction = code[index];
             if (instruction.Bits(0, 12) == 0x817 && instruction.Bits(12, 4) == 7 &&
-                instruction.Bits(16, 8) == bounded_selector && instruction.words[1] >= 1 &&
+                instruction.Bits(16, 8) == bounded_selector &&
                 instruction.words[1] <= 15 && instruction.words[2] == 0x03800000) {
                 maximum = instruction.words[1];
                 maximum_index = index;
@@ -301,7 +301,7 @@ TranslateCaptureIndirectTargets(const CaptureIndirectResult& capture,
     result.reserve(capture.tables.size());
     for (const auto& table : capture.tables) {
         const u32 count = static_cast<u32>(table.values.size());
-        if (count < 2 || count > 16 ||
+        if (count < 1 || count > 16 ||
             table.branch >= image.consumed_native_bytes / sizeof(Instruction) ||
             table.cbuf_index >= 18 || (table.cbuf_offset & 3U) ||
             table.cbuf_offset > 0x10000U - count * sizeof(u32) ||
@@ -372,7 +372,7 @@ template <typename ReadInstruction, typename ReadCbuf>
     u32 furthest{};
     try {
         for (const auto& branch : branches) {
-            if (branch.entries < 2 || branch.entries > 16 ||
+            if (branch.entries < 1 || branch.entries > 16 ||
                 branch.cbuf_index >= 18 || (branch.cbuf_offset & 3U) ||
                 branch.cbuf_offset > 0x10000U - branch.entries * sizeof(u32))
                 return rollback();
