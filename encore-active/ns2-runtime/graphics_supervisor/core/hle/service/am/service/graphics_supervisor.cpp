@@ -612,6 +612,34 @@ private:
                                             ->SetLayerVisibility(*c->layer,true);
                                     }
                                 }else result=ResultSuccess;
+                                // Release polling must be ready BEFORE
+                                // QueueBuffer publishes its producer slot.
+                                // If CreateEvent/Schedule throws afterwards,
+                                // a frame is live with no retirement path and
+                                // the TIPC caller never sees its accepted queue.
+                                if(result.IsSuccess() && !m_poll){
+                                    try {
+                                        auto weak=std::weak_ptr<IVi2Session>(
+                                            std::static_pointer_cast<IVi2Session>(
+                                                shared_from_this()));
+                                        auto timer=Core::Timing::CreateEvent(
+                                            "NativeVi2Release",
+                                            [weak](s64,std::chrono::nanoseconds)
+                                                ->std::optional<std::chrono::nanoseconds>{
+                                                if(auto self=weak.lock()){
+                                                    const auto guard=self->LockService();
+                                                    self->Release();
+                                                }
+                                                return std::nullopt;
+                                            });
+                                        system.CoreTiming().ScheduleLoopingEvent(
+                                            std::chrono::milliseconds{1},
+                                            std::chrono::milliseconds{1},timer);
+                                        m_poll=std::move(timer);
+                                    } catch (const std::bad_alloc&) {
+                                        result=Kernel::ResultOutOfResource;
+                                    }
+                                }
                                 if(result.IsSuccess()){
                                     auto native=std::make_shared<android::NvGraphicBuffer>();
                                     native->width=static_cast<s32>(width);
@@ -640,24 +668,6 @@ private:
                                             c->queued_modules[slot]=img->module;
                                             c->retained[slot]=buffer;
                                             c->available&=~(u64{1}<<slot);result=ResultSuccess;
-                                            if(!m_poll){
-                                                auto weak=std::weak_ptr<IVi2Session>(
-                                                    std::static_pointer_cast<IVi2Session>(
-                                                        shared_from_this()));
-                                                m_poll=Core::Timing::CreateEvent(
-                                                    "NativeVi2Release",
-                                                    [weak](s64,std::chrono::nanoseconds)
-                                                        ->std::optional<std::chrono::nanoseconds>{
-                                                        if(auto self=weak.lock()){
-                                                            const auto guard=self->LockService();
-                                                            self->Release();
-                                                        }
-                                                        return std::nullopt;
-                                                    });
-                                                system.CoreTiming().ScheduleLoopingEvent(
-                                                    std::chrono::milliseconds{1},
-                                                    std::chrono::milliseconds{1},m_poll);
-                                            }
                                         }else{
                                             c->producer->CancelBuffer(idx,input.fence);
                                             result=Kernel::ResultInvalidState;
