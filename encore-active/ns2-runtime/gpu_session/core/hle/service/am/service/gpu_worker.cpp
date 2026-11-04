@@ -722,6 +722,14 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
         address = next;
     }
 
+    // The bounded handle owner must not allocate after a page-table lock
+    // or an NVMap handle has been created. Reserve before any such side
+    // effect so vector growth cannot strand GPU-accessible guest pages.
+    try {
+        m_memory.reserve(MaxOwnedGpuMemoryHandles);
+    } catch (const std::bad_alloc&) {
+        return Kernel::ResultOutOfResource;
+    }
     if (!m_nv_session)
         m_nv_session = m_module->GetContainer().OpenSession(m_process).id;
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
