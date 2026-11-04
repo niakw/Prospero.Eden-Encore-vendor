@@ -17,6 +17,7 @@
 #include "video_core/invalidation_accumulator.h"
 #include "video_core/memory_manager.h"
 #include "native_paged_scalar.h"
+#include "native_gpu_page_remap.h"
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
 #include "video_core/ns2_egl_gpu_range_batch.h"
 #endif
@@ -123,21 +124,26 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
 #endif
     for (u64 offset{}; offset < size; offset += page_size) {
         const GPUVAddr current_gpu_addr = gpu_addr + offset;
-        [[maybe_unused]] const auto current_entry_type = GetEntry(current_gpu_addr, false);
+        const auto current_entry_type = GetEntry(current_gpu_addr, false);
+        const auto page_index = PageEntryIndex(current_gpu_addr, false);
+        const u32 previous_page = current_entry_type == EntryType::Mapped &&
+                                          entry_type == EntryType::Mapped
+                                      ? page_table[page_index] : 0;
+        const u32 replacement_page = entry_type == EntryType::Mapped
+                                         ? static_cast<u32>((dev_addr + offset) >> cpu_page_bits)
+                                         : 0;
+        const bool mapping_changed = Eden::GpuMemory::NeedsRasterizerUnmap(
+            current_entry_type, entry_type, EntryType::Mapped, previous_page, replacement_page);
         SetEntry(current_gpu_addr, entry_type, false);
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
-        changed_runs.Record(current_gpu_addr, current_entry_type != entry_type,
-                            notify_changed);
+        changed_runs.Record(current_gpu_addr, mapping_changed, notify_changed);
 #else
-        if (current_entry_type != entry_type) {
+        if (mapping_changed) {
             rasterizer->ModifyGPUMemory(unique_identifier, current_gpu_addr, page_size);
         }
 #endif
         if (entry_type == EntryType::Mapped) {
-            const DAddr current_dev_addr = dev_addr + offset;
-            const auto index = PageEntryIndex(current_gpu_addr, false);
-            const u32 sub_value = static_cast<u32>(current_dev_addr >> cpu_page_bits);
-            page_table[index] = sub_value;
+            page_table[page_index] = replacement_page;
         }
         remaining_size -= page_size;
     }
@@ -159,21 +165,28 @@ GPUVAddr MemoryManager::BigPageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr
 #endif
     for (u64 offset{}; offset < size; offset += big_page_size) {
         const GPUVAddr current_gpu_addr = gpu_addr + offset;
-        [[maybe_unused]] const auto current_entry_type = GetEntry(current_gpu_addr, true);
+        const auto current_entry_type = GetEntry(current_gpu_addr, true);
+        const auto page_index = PageEntryIndex(current_gpu_addr, true);
+        const u32 previous_page = current_entry_type == EntryType::Mapped &&
+                                          entry_type == EntryType::Mapped
+                                      ? big_page_table_dev[page_index] : 0;
+        const u32 replacement_page = entry_type == EntryType::Mapped
+                                         ? static_cast<u32>((dev_addr + offset) >> cpu_page_bits)
+                                         : 0;
+        const bool mapping_changed = Eden::GpuMemory::NeedsRasterizerUnmap(
+            current_entry_type, entry_type, EntryType::Mapped, previous_page, replacement_page);
         SetEntry(current_gpu_addr, entry_type, true);
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
-        changed_runs.Record(current_gpu_addr, current_entry_type != entry_type,
-                            notify_changed);
+        changed_runs.Record(current_gpu_addr, mapping_changed, notify_changed);
 #else
-        if (current_entry_type != entry_type) {
+        if (mapping_changed) {
             rasterizer->ModifyGPUMemory(unique_identifier, current_gpu_addr, big_page_size);
         }
 #endif
         if (entry_type == EntryType::Mapped) {
             const DAddr current_dev_addr = dev_addr + offset;
-            const auto index = PageEntryIndex(current_gpu_addr, true);
-            const u32 sub_value = static_cast<u32>(current_dev_addr >> cpu_page_bits);
-            big_page_table_dev.Set(index, sub_value);
+            const auto index = page_index;
+            big_page_table_dev.Set(index, replacement_page);
             const bool is_continuous = ([&] {
                 uintptr_t base_ptr{
                     reinterpret_cast<uintptr_t>(memory.GetPointer<u8>(current_dev_addr))};
