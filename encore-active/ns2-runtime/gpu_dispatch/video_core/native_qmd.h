@@ -46,6 +46,13 @@ public:
     template <typename Read, typename Release, typename Dispatch>
     std::string_view Signal(Address address, Word argument, Read read, Release release, Dispatch dispatch) {
         struct Pending { Address address; Word action; Word count; };
+        // A diagnostic observer may allocate or throw. Never let logging
+        // unwind between a successful vkCmdDispatch and the accepted-state
+        // bit, or between partially queued semaphore releases.
+        const auto safe_trace = [&](std::string_view event, Address qmd_addr,
+                                    std::int32_t value) noexcept {
+            try { if (trace) trace(event, qmd_addr, value); } catch (...) {}
+        };
         std::string_view error;
         // Every used slot is initialized before access; avoid clearing all
         // 256 entries (4 KiB) for each ordinary one-QMD PCAS signal.
@@ -115,8 +122,8 @@ public:
                         std::int32_t((qmd[4] >> 14) & 0xffff), state.deferred);
                     if (!dependencies) return "QMD dependency overflow";
                     state.dependencies = *dependencies;
-                    if (trace) trace("base", request.address, std::int32_t((qmd[4] >> 14) & 0xffff));
-                    if (trace) trace("load", request.address, state.dependencies);
+                    safe_trace("base", request.address, std::int32_t((qmd[4] >> 14) & 0xffff));
+                    safe_trace("load", request.address, state.dependencies);
                     state.deferred = 0;
                     state.loaded = true;
                     state.completed = false;
@@ -131,13 +138,13 @@ public:
                     const auto deferred = NativeQmdDependencyAdd(state.deferred, delta);
                     if (!deferred) return "QMD dependency overflow";
                     state.deferred = *deferred;
-                    if (trace) trace("defer", request.address, state.deferred);
+                    safe_trace("defer", request.address, state.deferred);
                     continue;
                 }
                 const auto dependencies = NativeQmdDependencyAdd(state.dependencies, delta);
                 if (!dependencies) return "QMD dependency overflow";
                 state.dependencies = *dependencies;
-                if (trace) trace("count", request.address, state.dependencies);
+                safe_trace("count", request.address, state.dependencies);
             } else {
                 return "unsupported PCAS action";
             }
@@ -213,7 +220,7 @@ public:
                     return "QMD dispatch exception";
                 }
             }
-            if (trace) trace("run", request.address, dispatched ? 1 : 0);
+            safe_trace("run", request.address, dispatched ? 1 : 0);
             if (!dispatched) return "native shader dispatch required";
             state.dispatched = true;
             for (std::size_t slot = 0; slot < ReleaseSlots.size(); ++slot) {
