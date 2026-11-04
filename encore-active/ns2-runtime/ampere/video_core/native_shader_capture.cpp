@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "video_core/native_shader_capture.h"
+#include "video_core/native_graphics_cbuf_bounds.h"
 #include <exception>
 #include <limits>
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
@@ -86,9 +87,12 @@ std::optional<u32> ReadNs2GraphicsCbuf(void* context, u32 bank, u32 offset) {
                               .shader_stages[owner->stage_index].const_buffers;
     if (bank >= buffers.size()) return {};
     const auto& cbuf = buffers[bank];
-    if (!cbuf.enabled || !cbuf.address || cbuf.size < sizeof(u32) ||
-        offset > cbuf.size - sizeof(u32) ||
-        cbuf.address > std::numeric_limits<u64>::max() - offset)
+    // Do not trust the register's allocation size as a shader-readable
+    // range: the Ampere graphics CBUF window ends at 64 KiB, regardless
+    // of how much guest memory follows the allocation. Guard the full
+    // 49-bit address before IsFullyMappedRange and any rasterizer flush.
+    if (!NativeGraphicsCbufWordAdmissible(
+            cbuf.enabled, cbuf.address, cbuf.size, offset))
         return {};
     const u64 address = cbuf.address + offset;
     if (!Shader::Ampere::NativeGpuRange49(address, sizeof(u32)))
