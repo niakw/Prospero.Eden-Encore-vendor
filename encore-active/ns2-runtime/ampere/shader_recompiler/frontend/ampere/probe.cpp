@@ -21,6 +21,11 @@ constexpr OpcodeIndex Opcodes{};
 constexpr IsaRow StaticLepc{"LEPC/verified", {0x00ffffffU, 0U, 0U, 0xfffffe00U}};
 constexpr IsaRow StaticAtExit{"BMOV.ATEXIT/verified", {0x0000ffffU, 0U, 0U, 0xfffffe00U}};
 constexpr IsaRow ClearAtExit{"BMOV.ATEXIT.ZERO/verified", {0x0000ffffU, 0U, 0U, 0xfffffe00U}};
+// The imported ISA table lacks SURED 0x59f. Accept only the captured
+// direct-descriptor mode; the lowerer separately checks dimensions and
+// all semantic fields before it can enter the Maxwell image pipeline.
+constexpr IsaRow VerifiedSured{"SURED.ADD/verified",
+    {0xff00ffffU, 0xe7ffffffU, 0x0010e000U, 0xfffffe00U}};
 } // namespace
 
 const IsaRow* FindOpcodeRow(u32 op12) {
@@ -28,6 +33,7 @@ const IsaRow* FindOpcodeRow(u32 op12) {
     case 0x34e: return &StaticLepc;
     case 0x357: return &StaticAtExit;
     case 0x957: return &ClearAtExit;
+    case 0x59f: return &VerifiedSured;
     default: return Opcodes.slots[op12 & 0xfff];
     }
 }
