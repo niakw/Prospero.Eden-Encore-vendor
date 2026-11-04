@@ -352,6 +352,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             const u32 reg = insn.Bits(bit, 8);
             if (reg >= reserved_register && reg < 255) requires_shadow = true;
         }
+        requires_shadow |= NativeVectorCrossesScratch(insn, reserved_register);
         if (requires_shadow) {
             if (!allow_register_spills) return fail(index, "native program uses lowering scratch registers");
             pressure = PrepareRegisterPressure(insn, reserved_register);

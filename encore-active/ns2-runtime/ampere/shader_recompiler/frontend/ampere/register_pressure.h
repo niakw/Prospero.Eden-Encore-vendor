@@ -15,6 +15,39 @@ inline u64 NativeRegisterCopy(u32 destination_bank, u32 destination, u32 source_
     return 0x5c98000000070000ULL | (u64{10} << 44) | destination |
         (u64{destination_bank} << 8) | (u64{source_bank} << 10) | (u64{source} << 20);
 }
+// A vector instruction encodes only its first GPR. The generic scalar
+// operand scanner in LowerToMaxwell cannot see implicit following registers.
+// Detect a low base that crosses into the compiler-owned scratch region so
+// that it must pass through the full contiguous-register spill validator.
+inline bool NativeVectorCrossesScratch(const Instruction& input, u32 reserved) {
+    const auto crosses = [&](u32 bit, u32 count) {
+        const u32 reg = input.Bits(bit, 8);
+        return count > 1 && reg != 255 && reg < reserved && reg + count > reserved;
+    };
+    const u32 opcode = input.Bits(0, 12);
+    const u32 width = input.Bits(73, 3);
+    const u32 count = width == 6 ? 4 : width == 5 ? 2 : 1;
+    switch (opcode) {
+    case 0x225: return crosses(16, 2) || crosses(64, 2);
+    case 0x625: return crosses(16, 2);
+    case 0x825: return crosses(16, 2) || crosses(64, 2);
+    case 0x83b: return crosses(16, input.Bits(72, 2) == 1 ? 2 : 4);
+    case 0x23c: {
+        const bool wide = input.Bits(75, 1);
+        return crosses(16, 2) || crosses(24, wide ? 4 : 2) ||
+               crosses(32, wide ? 2 : 1) || crosses(64, 2);
+    }
+    case 0x388: return crosses(32, count);
+    case 0x984: return crosses(16, count);
+    case 0x381: return crosses(16, count) || crosses(24, 2);
+    case 0x386: return crosses(32, count) || crosses(24, 2);
+    case 0x981: return crosses(16, count) ||
+                       (input.Bits(90, 1) && crosses(24, 2));
+    case 0x986: return crosses(32, count) ||
+                       (input.Bits(90, 1) && crosses(24, 2));
+    default: return false;
+    }
+}
 // Preserve high guest registers in SSA while borrowing aligned low quartets
 // for one native instruction. The expanded instruction owns its temporary bank.
 inline RegisterPressure PrepareRegisterPressure(const Instruction& input, u32 reserved) {
@@ -105,6 +138,30 @@ inline RegisterPressure PrepareRegisterPressure(const Instruction& input, u32 re
             result.prefix.push_back(NativeRegisterCopy(0, low, 1, high));
             result.suffix.push_back(NativeRegisterCopy(1, high, 0, low));
             result.suffix.push_back(NativeRegisterCopy(0, low, 2, low));
+        }
+    }
+    // A multi-register operand is encoded by one base register. The
+    // Maxwell instruction implicitly reads/writes the following registers;
+    // rewriting just the base is safe only when every component remains
+    // contiguous after a spill. In particular, a pair crossing reserved
+    // or two borrowed quartets would otherwise silently address the wrong
+    // physical GPRs.
+    const auto physical = [&](u32 guest) {
+        return groups[guest / 4] ? mapped[guest / 4] + guest % 4 : guest;
+    };
+    for (const auto [bit, count] : operands) {
+        const u32 reg = input.Bits(bit, 8);
+        if (reg == 255 || count == 1) continue;
+        const u32 base = physical(reg);
+        if (base + count > 255) {
+            result.valid = false;
+            return result;
+        }
+        for (u32 part = 1; part < count; ++part) {
+            if (physical(reg + part) != base + part) {
+                result.valid = false;
+                return result;
+            }
         }
     }
     for (const auto [bit, count] : operands) {
