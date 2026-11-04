@@ -271,7 +271,12 @@ struct NativeQmdResourcePlan {
         (info.uses_global_memory || info.stores_global_memory))
         return false;
     if (!plan.uses_global_memory) return true;
-    if (!info.uses_global_memory || !host_ssbo_alignment ||
+    // Write-only NVN global shaders have stores_global_memory set but no
+    // global loads. Their output still needs a real writable, known-size
+    // SSBO; rejecting them here made valid Ampere store pipelines fail
+    // before the Vulkan binder could submit any work.
+    if (!(info.uses_global_memory || info.stores_global_memory) ||
+        !host_ssbo_alignment ||
         (host_ssbo_alignment & (host_ssbo_alignment - 1)) ||
         info.storage_buffers_descriptors.empty() ||
         info.storage_buffers_descriptors.size() > info.nvn_buffer_used.size() ||
