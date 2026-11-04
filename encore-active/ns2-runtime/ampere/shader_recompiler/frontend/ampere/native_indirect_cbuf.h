@@ -8,9 +8,79 @@
 #include <algorithm>
 #include <array>
 #include "shader_recompiler/frontend/ir/program.h"
+#include "shader_recompiler/profile.h"
 
 namespace Shader::Ampere {
 inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
+
+
+// Native QMD3's shared SPIR-V emitter does not implement unresolved global
+// atomics, and its StorageAtomicU32x2 fallback is explicitly NON-atomic.
+// A 64-bit StorageAtomic also falls back to a non-atomic load/store unless
+// the host advertises true 64-bit atomics and descriptor aliasing. Refuse
+// those variants before any shader module can be published as "Ready".
+// For supported 32-/64-bit atomics, authenticate the actual flattened,
+// writable SSBO descriptor and its real, reflected QMD3 CBUF bank; never
+// interpret a dynamic/phantom binding index as a valid buffer.
+// The real Vulkan buffer owner still validates target sizes/mappings and
+// access ordering at dispatch. This guard is NOT a GPU atomic proof.
+// Called exclusively by the native Compute bridge after conversion.
+[[nodiscard]] inline bool NativeQmdAtomicStorageIRAdmissible(
+    const Shader::IR::Program& program, const Shader::Profile& profile) {
+    using Shader::IR::Opcode;
+    static_assert(static_cast<u32>(Opcode::GlobalAtomicIAdd64) ==
+                  static_cast<u32>(Opcode::GlobalAtomicExchange32) + 1U);
+    static_assert(static_cast<u32>(Opcode::GlobalAtomicMaxF32x2) + 1U ==
+                  static_cast<u32>(Opcode::StorageAtomicIAdd32));
+    static_assert(static_cast<u32>(Opcode::StorageAtomicIAdd64) ==
+                  static_cast<u32>(Opcode::StorageAtomicExchange32) + 1U);
+    static_assert(static_cast<u32>(Opcode::StorageAtomicIAdd32x2) ==
+                  static_cast<u32>(Opcode::StorageAtomicExchange64) + 1U);
+    static_assert(static_cast<u32>(Opcode::StorageAtomicMaxF32x2) ==
+                  static_cast<u32>(Opcode::StorageAtomicIAdd32) + 35U);
+    const auto& info = program.info;
+    for (const Shader::IR::Block* const block : program.blocks) {
+        if (!block) return false;
+        for (const Shader::IR::Inst& inst : block->Instructions()) {
+            const Opcode opcode = inst.GetOpcode();
+            if (opcode >= Opcode::GlobalAtomicIAdd32 &&
+                opcode <= Opcode::GlobalAtomicMaxF32x2)
+                return false; // Cannot resolve guest pointer to a real SSBO.
+            if (opcode < Opcode::StorageAtomicIAdd32 ||
+                opcode > Opcode::StorageAtomicMaxF32x2)
+                continue;
+            const auto bank = inst.Arg(0);
+            if (!bank.IsImmediate() ||
+                bank.U32() >= info.storage_buffers_descriptors.size() ||
+                bank.U32() >= info.nvn_buffer_used.size() ||
+                !info.nvn_buffer_used.test(bank.U32()))
+                return false;
+            const auto& storage = info.storage_buffers_descriptors[bank.U32()];
+            if (!storage.is_written || storage.count != 1 ||
+                storage.cbuf_index >= kNativeQmdIndirectCbufBanks ||
+                !(info.constant_buffer_mask & (u32{1} << storage.cbuf_index)) ||
+                (storage.cbuf_offset & 7U) ||
+                storage.cbuf_offset > 0x10000U - 16U)
+                return false;
+            if (opcode >= Opcode::StorageAtomicIAdd32x2 &&
+                opcode <= Opcode::StorageAtomicExchange32x2)
+                return false; // Shared emitter's U32x2 read+store is NOT atomic.
+            const bool wide = opcode >= Opcode::StorageAtomicIAdd64 &&
+                              opcode <= Opcode::StorageAtomicExchange64;
+            if (wide && (!profile.support_int64 || !profile.support_int64_atomics ||
+                         !profile.support_descriptor_aliasing))
+                return false; // No silent non-atomic 64-bit fallback on NS2.
+            const auto byte_offset = inst.Arg(1);
+            if (byte_offset.IsImmediate() &&
+                (byte_offset.U32() & (wide ? 7U : 3U)))
+                return false; // No rounding an atomic to the PREVIOUS word.
+            // Dynamic byte offsets still need actual renderer/GMMU bounds
+            // proof at dispatch; this gate authenticates only their SSBO
+            // binding and the non-emulated atomic operation.
+        }
+    }
+    return true;
+}
 
 // Scalar oracle for the exact native SPIR-V global access condition.
 // SPIR-V applies the same unsigned byte-span and alignment predicate

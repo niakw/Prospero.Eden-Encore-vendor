@@ -130,6 +130,12 @@ NativeSpirvResult CompileReviewedNativeComputeSpirv(
         // generic fourteen-slot OpSwitch or bind phantom descriptors.
         if (!NormalizeNativeQmdIndirectCbufIR(ir, qmd_enabled_cbuf_mask))
             return {NativeSpirvStatus::CompilationFailed, {}};
+        // An unresolved global atomic has no SPIR-V emitter. The shared
+        // storage backend also implements some 64-bit atomics as
+        // non-atomic stores when the Vulkan feature is missing. Never
+        // publish such a QMD3 shader as an executing GPU atomic.
+        if (!NativeQmdAtomicStorageIRAdmissible(ir, profile))
+            return {NativeSpirvStatus::CompilationFailed, {}};
         // The shared SPIR-V global load/store accessor directly reads
         // cbufs[bank].U32x2 (address) and .U32 (length). Those uniform
         // types must exist even when the Ampere guest's direct LDC usage
