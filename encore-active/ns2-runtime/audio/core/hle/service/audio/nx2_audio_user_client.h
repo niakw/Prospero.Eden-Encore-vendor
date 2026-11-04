@@ -7,6 +7,8 @@
 #include <array>
 #include <cstring>
 #include <string_view>
+#include <memory>
+#include "core/hle/service/audio/nx2_sysmix_user_service.h"
 
 #include "core/hle/service/audio/audio_in_manager.h"
 #include "core/hle/service/audio/errors.h"
@@ -59,30 +61,28 @@ private:
 
 };
 
-// NS2 virtual-output DEVICE DISCOVERY. This is deliberately not a synthetic
-// sound mixer: the actual sysmix stream/ring owner has not been linked into
-// Encore. Discovery returns truthful static device metadata, while format
-// admission and stream attach explicitly refuse rather than claiming audio
-// playback or publishing fabricated stream IDs. The maintained NS1 audio
-// managers and audio sink are not replaced.
+// NS2 virtual-output device discovery and real process-owned Sysmix stream
+// attachment. Both services share Nx2SysmixStreams and the maintained Eden
+// audio sink; unknown formats, stream IDs, device names and foreign owners
+// return real errors instead of fabricated playback. The existing NS1 audio
+// managers and backend are never replaced.
 class INx2AudioVirtualDeviceManager final
     : public ServiceFramework<INx2AudioVirtualDeviceManager> {
 public:
-    explicit INx2AudioVirtualDeviceManager(Core::System& system_)
-        : ServiceFramework{system_, "nx2:auddmg:u:manager"} {
+    INx2AudioVirtualDeviceManager(Core::System& system_,
+                                  std::shared_ptr<Nx2SysmixStreams> streams_)
+        : ServiceFramework{system_, "nx2:auddmg:u:manager"}, streams{std::move(streams_)} {
         static const FunctionInfo functions[] = {
             {0, &INx2AudioVirtualDeviceManager::ListVirtualOutputDevices,
              "ListVirtualOutputDevices"},
             {100, &INx2AudioVirtualDeviceManager::GetDefaultVirtualOutputDevice,
              "GetDefaultVirtualOutputDevice"},
-            {300, &INx2AudioVirtualDeviceManager::UnsupportedStream,
-             "IsVirtualOutputDeviceStreamFormatSupported (not available)"},
+            {300, &INx2AudioVirtualDeviceManager::IsStreamFormatSupported,
+             "IsVirtualOutputDeviceStreamFormatSupported"},
             {401, &INx2AudioVirtualDeviceManager::GetVirtualOutputDeviceProperties,
              "GetVirtualOutputDeviceProperties"},
-            {700, &INx2AudioVirtualDeviceManager::UnsupportedStream,
-             "AttachStream (not available)"},
-            {800, &INx2AudioVirtualDeviceManager::UnsupportedStream,
-             "DetachStream (not available)"},
+            {700, &INx2AudioVirtualDeviceManager::AttachStream, "AttachStream"},
+            {800, &INx2AudioVirtualDeviceManager::DetachStream, "DetachStream"},
         };
         RegisterHandlers(functions);
     }
@@ -155,17 +155,54 @@ private:
         rb.Push(ResultSuccess);
     }
 
-    void UnsupportedStream(HLERequestContext& ctx) {
-        IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(ResultNotSupported);
+    static bool RequestedDevice(std::span<const u8> name) {
+        return name.size() >= DeviceName.size() &&
+            std::equal(DeviceName.begin(), DeviceName.end(), name.begin()) &&
+            (name.size() == DeviceName.size() || name[DeviceName.size()] == 0);
     }
+
+    void IsStreamFormatSupported(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const u32 format = rp.Pop<u32>();
+        const u32 channels = rp.Pop<u32>();
+        const u32 sample_rate = rp.Pop<u32>();
+        const u32 functionality = rp.Pop<u32>();
+        // Success here means the real shared Sysmix sink accepts this PCM
+        // format; unsupported functionality must not advertise a fake stream.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(functionality == 1 &&
+                SysmixOutput::IsFormatSupported(format, channels, sample_rate)
+                    ? ResultSuccess : ResultNotSupported);
+    }
+
+    void AttachStream(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const u32 id = rp.Pop<u32>();
+        const u32 functionality = rp.Pop<u32>();
+        const auto name = ctx.ReadBuffer(0);
+        const Result result = functionality == 1 && RequestedDevice(name)
+            ? streams->SetEngaged(id, true, ctx.GetThread().GetOwnerProcess())
+            : ResultNotSupported;
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result);
+    }
+
+    void DetachStream(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const u32 id = rp.Pop<u32>();
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(streams->SetEngaged(id, false, ctx.GetThread().GetOwnerProcess()));
+    }
+
+    std::shared_ptr<Nx2SysmixStreams> streams;
 };
 
 class INx2AudioDeviceManagerService final
     : public ServiceFramework<INx2AudioDeviceManagerService> {
 public:
-    explicit INx2AudioDeviceManagerService(Core::System& system_)
-        : ServiceFramework{system_, "nx2:auddmg:u"} {
+    INx2AudioDeviceManagerService(Core::System& system_,
+                                  std::shared_ptr<Nx2SysmixStreams> streams_)
+        : ServiceFramework{system_, "nx2:auddmg:u"}, streams{std::move(streams_)} {
         static const FunctionInfo functions[] = {
             {0, &INx2AudioDeviceManagerService::OpenVirtualDeviceManager,
              "OpenVirtualDeviceManager"},
@@ -177,8 +214,10 @@ private:
     void OpenVirtualDeviceManager(HLERequestContext& ctx) {
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(ResultSuccess);
-        rb.PushIpcInterface<INx2AudioVirtualDeviceManager>(ctx, system);
+        rb.PushIpcInterface<INx2AudioVirtualDeviceManager>(ctx, system, streams);
     }
+
+    std::shared_ptr<Nx2SysmixStreams> streams;
 };
 
 } // namespace Service::Audio
