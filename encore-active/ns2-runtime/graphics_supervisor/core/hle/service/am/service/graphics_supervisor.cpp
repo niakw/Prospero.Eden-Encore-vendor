@@ -880,15 +880,32 @@ IGraphicsSupervisor::GetPresentImage(u32 id) {
         image->size>backing_handle->orig_size-offset)
         return {};
     const auto* backing_session=container.GetSession(backing_handle->session_id);
-    if(!backing_session||backing_session->process!=m_process ||
-        backing_handle->Duplicate(true)!=Nvidia::NvResult::Success)
+    if (!backing_session || backing_session->process != m_process)
         return {};
-    auto lease=std::shared_ptr<u32>(new u32(backing),
-        [module=m_native_module](u32* id){
-            module->GetContainer().GetNvMapFile().FreeHandle(*id,true);
-            delete id;
-        });
-    return PresentImage{image->preference,backing,offset,m_native_module,std::move(lease)};
+    // Allocate the handle token BEFORE acquiring a new NVMap duplicate.
+    // Otherwise a bad_alloc here leaks the internal duplicate. The
+    // shared_ptr(raw, deleter) constructor invokes the deleter if its
+    // control-block allocation fails after the successful duplication.
+    std::unique_ptr<u32> lease_token;
+    try {
+        lease_token = std::make_unique<u32>(backing);
+    } catch (const std::bad_alloc&) {
+        return {};
+    }
+    if (backing_handle->Duplicate(true) != Nvidia::NvResult::Success)
+        return {};
+    try {
+        auto lease=std::shared_ptr<u32>(lease_token.release(),
+            [module=m_native_module](u32* id){
+                module->GetContainer().GetNvMapFile().FreeHandle(*id,true);
+                delete id;
+            });
+        return PresentImage{image->preference,backing,offset,m_native_module,std::move(lease)};
+    } catch (const std::bad_alloc&) {
+        // shared_ptr invoked our NVMap deleter if its allocation failed.
+        // Return an absent present image rather than unwinding through IPC.
+        return {};
+    }
 }
 void IGraphicsSupervisor::InitializeDisplayContext(HLERequestContext& ctx) {
     const auto* p=ctx.CommandBuffer();
@@ -1400,15 +1417,24 @@ void IGraphicsSupervisor::CreateNativeImage(HLERequestContext& ctx) {
                         if (m_native_images.Count() < NativeImageLedger::MaxEntries &&
                             m_next_image_id <= std::numeric_limits<u32>::max() &&
                             handle->Duplicate(true) == Nvidia::NvResult::Success) {
-                            if (const auto created =
-                                    m_native_images.Create(
-                                        backing, handle->size, *requirements, preferences,
-                                        static_cast<u32>(m_next_image_id))) {
-                                id = *created;
-                                ++m_next_image_id;
-                                result = ResultSuccess;
-                            } else {
+                            // The map insertion in NativeImageLedger::Create
+                            // can allocate after the NVMap duplicate succeeds.
+                            // An allocation failure must not leak that live
+                            // handle or escape as an uncaught HLE exception.
+                            try {
+                                if (const auto created =
+                                        m_native_images.Create(
+                                            backing, handle->size, *requirements, preferences,
+                                            static_cast<u32>(m_next_image_id))) {
+                                    id = *created;
+                                    ++m_next_image_id;
+                                    result = ResultSuccess;
+                                } else {
+                                    nvmap.FreeHandle(backing, true);
+                                }
+                            } catch (const std::bad_alloc&) {
                                 nvmap.FreeHandle(backing, true);
+                                result = Kernel::ResultOutOfResource;
                             }
                         }
                     }
