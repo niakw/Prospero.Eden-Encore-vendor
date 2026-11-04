@@ -182,8 +182,25 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size) {
                                     memory.GetFreeSize(Pool::SystemNonSecure)))
         return Kernel::ResultOutOfResource;
 
-    auto pages = std::make_unique<Kernel::KPageGroup>(
-        kernel, std::addressof(kernel.GetSystemSystemResource().GetBlockInfoManager()));
+    // Reserve the ledger's std::map node BEFORE allocating kernel pages or
+    // publishing any guest-visible GMMU remap. The old emplace() ran after
+    // RemapNativeSparse succeeded: a host OOM there orphaned a live mapping,
+    // NVMap handle and CPU alias without a retryable owner.
+    // The caller holds m_mutex for this entire transaction. Transferring a
+    // preallocated std::map node with merge() needs no further allocation.
+    decltype(m_dense_regions) pending_region;
+    try {
+        pending_region.try_emplace(std::make_pair(address_space, address));
+    } catch (const std::bad_alloc&) {
+        return Kernel::ResultOutOfResource;
+    }
+    std::unique_ptr<Kernel::KPageGroup> pages;
+    try {
+        pages = std::make_unique<Kernel::KPageGroup>(
+            kernel, std::addressof(kernel.GetSystemSystemResource().GetBlockInfoManager()));
+    } catch (const std::bad_alloc&) {
+        return Kernel::ResultOutOfResource;
+    }
     const auto allocated = memory.AllocateAndOpen(
         pages.get(), size / Kernel::PageSize,
         Kernel::KMemoryManager::EncodeOption(Pool::SystemNonSecure, Direction::FromBack));
@@ -264,9 +281,12 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size) {
     const u32 handle_id = handle->id;
     const std::weak_ptr<void> nvmap_lifetime{handle};
     handle.reset();
-    m_dense_regions.emplace(std::make_pair(address_space, address),
+    pending_region.begin()->second =
         DenseRegion{address, size, GetInteger(alias), handle_id,
-                    std::move(pages), nvmap_lifetime});
+                    std::move(pages), nvmap_lifetime};
+    // Transfer the already allocated node. No new allocation or failure
+    // point remains after the GMMU mapping becomes guest-visible.
+    m_dense_regions.merge(pending_region);
     m_dense_bytes += size;
     return ResultSuccess;
 }
