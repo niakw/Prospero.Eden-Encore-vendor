@@ -1866,16 +1866,27 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             if (output == 7 || insn.Bits(84, 3) != 7 || insn.Bits(72, 1) || combine > 2 ||
                 native_predicate != 7 || a == ~0U || b == ~0U)
                 return fail(index, "native uniform comparison mode");
-            const u32 temporary = 6 - output, mask = 1U << temporary;
+            // UISETP updates one uniform predicate while optionally reading
+            // another for boolean accumulation. Translate only those two
+            // predicate lanes: the former 0x7f-wide spill/restore could
+            // overwrite unrelated UP values used by later instructions.
+            // A condition value of 7 selects PT and has no register lane.
+            const u32 temporary = 6 - output;
+            const u32 combine_slot = condition == 7 ? 7U : 6U - condition;
+            const u32 combine_mask = condition == 7 ? 0U : 1U << combine_slot;
+            const u32 output_mask = 1U << temporary;
+            const u32 mask = output_mask | combine_mask;
             if (opcode == 0x88c) mov_imm(252, insn.words[1]);
-            emit(0x38e8000000070000ULL | 253 | (u64{255} << 8) | (u64{0x7f} << 20));
-            emit(0x38f0000000070000ULL | (u64{239} << 8) | (u64{0x7f} << 20));
+            emit(0x38e8000000070000ULL | 253 | (u64{255} << 8) | (u64{mask} << 20));
+            if (combine_mask) emit(0x38f0000000070000ULL | (u64{239} << 8) |
+                                   (u64{combine_mask} << 20));
             emit(0x5b60000000070000ULL | 7 | (u64{temporary} << 3) |
-                (u64{a} << 8) | (u64{b} << 20) | (u64{condition == 7 ? 7 : 6 - condition} << 39) |
+                (u64{a} << 8) | (u64{b} << 20) | (u64{combine_slot} << 39) |
                 (u64{insn.Bits(90, 1)} << 42) | (u64{combine} << 45) |
                 (u64{insn.Bits(73, 1)} << 48) | (u64{insn.Bits(76, 3)} << 49));
-            emit(0x38e8000000070000ULL | 239 | (u64{239} << 8) | (u64{mask} << 20));
-            emit(0x38f0000000070000ULL | (u64{253} << 8) | (u64{0x7f} << 20));
+            emit(0x38e8000000070000ULL | 239 | (u64{239} << 8) |
+                 (u64{output_mask} << 20));
+            emit(0x38f0000000070000ULL | (u64{253} << 8) | (u64{mask} << 20));
             break;
         }
         case 0x287: case 0x887: { // USEL; preserve ordinary predicates.
@@ -1885,12 +1896,18 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             if (condition > 6 || target == ~0U || a == ~0U || b == ~0U ||
                 insn.Bits(12, 4) != 7 || (insn.words[2] & ~0x07800000U) != 0x08000000U)
                 return fail(index, "native uniform select mode");
-            if (opcode == 0x887 && index > 0 && insn.words[1] <= 0x7ffff &&
+            // The one-instruction unsigned-clamp fast path is valid only
+            // for the canonical zero-condition UISETP/USEL pair. Other
+            // uniform select conditions have a different predicate meaning
+            // and must keep the ordinary predicated USEL lowering.
+            if (opcode == 0x887 && index > 0 && condition == 0 &&
+                insn.words[1] <= 0x7ffff &&
                 code[index - 1].Bits(0, 12) == 0x88c &&
+                code[index - 1].Bits(12, 4) == 7 &&
                 code[index - 1].Bits(24, 8) == insn.Bits(24, 8) &&
                 code[index - 1].words[1] == insn.words[1] &&
-                code[index - 1].words[2] == (0x0bf01070U | (condition << 17)) &&
-                insn.words[2] == (0x08000000U | (condition << 23))) {
+                code[index - 1].words[2] == 0x0bf01070U &&
+                insn.words[2] == 0x08000000U) {
                 // Preserve the unsigned clamp idiom for indirect-table analysis.
                 emit(0x3820000000070000ULL | target | (u64{a} << 8) |
                      (u64{insn.words[1]} << 20) | (u64{7} << 39));
