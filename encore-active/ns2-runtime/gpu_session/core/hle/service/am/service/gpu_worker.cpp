@@ -125,7 +125,13 @@ IGpuWorker::IGpuWorker(Core::System& system_, std::shared_ptr<Nvidia::Module> mo
 IGpuWorker::~IGpuWorker() {
     // Drain guest GPU work before removing any memory that can be consumed
     // by the native engine; do not release backing while it is still mapped.
-    if (!m_dense_regions.empty()) system.GPU().WaitForIdle();
+    // Ordinary 211 GMMU mappings and 111 registered guest memory can also
+    // be referenced by already submitted compute/graphics work. The old
+    // drain only handled dense 214 backing; a worker without dense regions
+    // could retire a live command buffer or GPU-written SSBO prematurely.
+    if (!m_dense_regions.empty() || !m_mappings.Mappings().empty() ||
+        !m_memory.empty())
+        system.GPU().WaitForIdle();
     for (const auto& [key, mapping] : m_mappings.Mappings()) {
         const auto dense = m_dense_regions.find({mapping.address_space, mapping.address});
         // The VA can already be released after a failed physical retirement.
