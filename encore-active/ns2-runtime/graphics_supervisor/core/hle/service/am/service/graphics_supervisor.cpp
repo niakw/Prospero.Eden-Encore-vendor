@@ -14,6 +14,7 @@
 #include <limits>
 #include <chrono>
 #include <mutex>
+#include <new>
 #include <vector>
 #include "core/hle/service/nvdrv/nvdrv_interface.h"
 #include "core/hle/service/nvdrv/core/container.h"
@@ -263,33 +264,64 @@ private:
             rb.Push(Kernel::ResultOutOfResource.raw);
             return;
         }
+        // Reserve both event registries before allocating a kernel event.
+        // Otherwise vector growth (or first timer scheduling) can throw
+        // after CreateEvent, leaking a kernel handle or publishing a pointer
+        // that the vblank callback might access after CloseEvent.
+        try {
+            m_vsync_events.reserve(32);
+            const std::scoped_lock lock{m_vsync->mutex};
+            m_vsync->events.reserve(32);
+        } catch (const std::bad_alloc&) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultOutOfResource.raw);
+            return;
+        }
         auto* event = m_context.CreateEvent("NativeVi2Vsync");
         if (!event) {
             IPC::ResponseBuilder rb{ctx, 2};
             rb.Push(Kernel::ResultOutOfResource.raw);
             return;
         }
+        // Both vectors are already provisioned, so appending a pointer
+        // cannot allocate. The timer callback sees only committed events.
         m_vsync_events.push_back(event);
         {
             const std::scoped_lock lock{m_vsync->mutex};
             m_vsync->events.push_back(event);
         }
         if (!m_vsync_timer) {
-            auto state = m_vsync;
-            auto& event_kernel = system.Kernel();
-            m_vsync_timer = Core::Timing::CreateEvent(
-                "NativeVi2Vsync60Hz",
-                [state, &event_kernel](
-                    s64, std::chrono::nanoseconds)
-                    ->std::optional<std::chrono::nanoseconds> {
-                    const std::scoped_lock lock{state->mutex};
-                    for (auto* target : state->events)
-                        target->Signal(event_kernel);
-                    return std::nullopt;
-                });
-            constexpr std::chrono::nanoseconds period{16'666'667};
-            system.CoreTiming().ScheduleLoopingEvent(
-                period, period, m_vsync_timer);
+            try {
+                auto state = m_vsync;
+                auto& event_kernel = system.Kernel();
+                auto new_timer = Core::Timing::CreateEvent(
+                    "NativeVi2Vsync60Hz",
+                    [state, &event_kernel](
+                        s64, std::chrono::nanoseconds)
+                        ->std::optional<std::chrono::nanoseconds> {
+                        const std::scoped_lock lock{state->mutex};
+                        for (auto* target : state->events)
+                            target->Signal(event_kernel);
+                        return std::nullopt;
+                    });
+                constexpr std::chrono::nanoseconds period{16'666'667};
+                system.CoreTiming().ScheduleLoopingEvent(
+                    period, period, new_timer);
+                m_vsync_timer = std::move(new_timer);
+            } catch (const std::bad_alloc&) {
+                // Scheduling failed before the timer was published. Remove
+                // the pointer under the callback lock BEFORE closing the
+                // kernel event, preserving a retryable healthy VI2 session.
+                {
+                    const std::scoped_lock lock{m_vsync->mutex};
+                    m_vsync->events.pop_back();
+                }
+                m_vsync_events.pop_back();
+                m_context.CloseEvent(event);
+                IPC::ResponseBuilder rb{ctx, 2};
+                rb.Push(Kernel::ResultOutOfResource.raw);
+                return;
+            }
         }
 #ifdef PS5_NATIVE
         std::fprintf(stderr, "EDEN_NS2_VI2_VSYNC cmd=%u registered=%zu hz=60\n",
