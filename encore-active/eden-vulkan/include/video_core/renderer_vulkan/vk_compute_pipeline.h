@@ -45,6 +45,11 @@ struct NativeComputeImageBinding {
     VkImageView view{VK_NULL_HANDLE};
     VkSampler sampler{VK_NULL_HANDLE};
     bool storage{};
+    // Authenticated guest TIC layout, pinned to the exact physical mapping.
+    // Metadata is revalidated after Vulkan descriptor staging.
+    u64 guest_gpu_address{};
+    u64 guest_cpu_address{};
+    u32 guest_bytes{};
     std::shared_ptr<u8> image_pin;
     std::shared_ptr<u8> view_pin;
     std::shared_ptr<u8> sampler_pin;

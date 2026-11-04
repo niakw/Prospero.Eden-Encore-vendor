@@ -649,6 +649,7 @@ bool ComputePipeline::ConfigureNative(
         const auto& image = images[i];
         const bool expected_storage = i >= sampled;
         if (!image.view || !image.image_pin || !image.view_pin ||
+            !image.guest_gpu_address || !image.guest_bytes ||
             image.storage != expected_storage ||
             (!expected_storage && (!image.sampler || !image.sampler_pin)) ||
             (expected_storage && image.sampler != VK_NULL_HANDLE))

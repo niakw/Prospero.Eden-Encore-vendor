@@ -1273,9 +1273,26 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                         const VkImageView handle = storage
                             ? view.StorageView(type, format) : view.Handle(type);
                         if (handle == VK_NULL_HANDLE) return false;
+                        // The TIC payload was mapped when its VkImageView
+                        // was acquired. Record the backing physical address
+                        // so a same-bytes GMMU remap during Vulkan staging
+                        // cannot publish the stale image at vkCmdDispatch.
+                        const VideoCommon::ImageInfo pinned_info{item.tic};
+                        const u64 layer_offset =
+                            u64{item.tic.BaseLayer()} * pinned_info.layer_stride;
+                        if (item.tic.Address() < layer_offset) return false;
+                        const u64 guest_base = item.tic.Address() - layer_offset;
+                        const u32 guest_bytes =
+                            VideoCommon::CalculateGuestSizeInBytes(pinned_info);
+                        const auto guest_cpu_base =
+                            gpu_memory->GpuToCpuAddress(guest_base);
+                        if (!guest_bytes || !guest_cpu_base) return false;
                         NativeComputeImageBinding native{};
                         native.view = handle;
                         native.storage = storage;
+                        native.guest_gpu_address = guest_base;
+                        native.guest_cpu_address = *guest_cpu_base;
+                        native.guest_bytes = guest_bytes;
                         native.image_pin = pinned->backing_image;
                         native.view_pin = pinned->image_view;
                         if (!storage) {
@@ -1473,6 +1490,25 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                         return VideoCommon::ReadNs2GpuShader(
                             gpu_memory, address, bytes, size);
                     });
+            // Unchanged raw TIC/TSC words do not prove unchanged physical
+            // image contents. Recheck the full 4-KiB GMMU span and exact
+            // original CPU backing of every fence-owned VkImage before
+            // publishing any writable guest buffer side effects.
+            if (current_after_staging && pinned_lifetime) {
+                for (const auto& image : pinned_lifetime->images) {
+                    const auto cpu = gpu_memory->GpuToCpuAddress(
+                        image.guest_gpu_address);
+                    if (!cpu || *cpu != image.guest_cpu_address ||
+                        !Shader::Ampere::NativeQmdContiguousGpuSpan(
+                            image.guest_gpu_address, image.guest_bytes,
+                            [this](u64 page) {
+                                return gpu_memory->GpuToCpuAddress(page);
+                            })) {
+                        current_after_staging = false;
+                        break;
+                    }
+                }
+            }
         }
         if (!current_after_staging ||
             !registry.IsComputeCurrent(kepler_compute, *ticket)) {

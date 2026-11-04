@@ -1152,6 +1152,17 @@ TextureCache<P>::PinNativeImageView(ImageViewId id) {
         view.image_id == ImageId{})
         return std::nullopt;
     auto& image = slot_images[view.image_id];
+    // TIC bytes can remain identical when the GPU remaps the physical
+    // backing. Refuse the stale image even if its old Vulkan view is pinned.
+    // A subsequent acquisition rebuilds the shared cache's remapped slot.
+    const auto mapped_base = gpu_memory
+                                 ? gpu_memory->GpuToCpuAddress(image.gpu_addr)
+                                 : std::nullopt;
+    if (True(image.flags & ImageFlagBits::Remapped) || !mapped_base ||
+        *mapped_base != image.cpu_addr) {
+        image.flags |= ImageFlagBits::Remapped;
+        return std::nullopt;
+    }
     auto image_pin = image.PinNativeGpu();
     auto view_pin = view.PinNativeGpu();
     if (!image_pin || !view_pin)
