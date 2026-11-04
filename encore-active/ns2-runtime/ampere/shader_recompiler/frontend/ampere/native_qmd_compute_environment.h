@@ -401,7 +401,15 @@ void RetainNativeComputeUntilGpuTick(Scheduler& scheduler,
     try {
         fences.SyncOperation([owner = std::move(owner), tick,
                               gpu_scheduler = &scheduler] {
-            gpu_scheduler->Wait(tick);
+            // This callback owns image/view/sampler and pipeline handles.
+            // A failed timeline Wait must not release those live GPU owners
+            // before a full drain. This failure can happen during deferred
+            // retirement too, not only during callback registration.
+            try {
+                gpu_scheduler->Wait(tick);
+            } catch (...) {
+                gpu_scheduler->Finish();
+            }
             static_cast<void>(owner);
         });
         fences.SignalReference();
