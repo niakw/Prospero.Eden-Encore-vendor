@@ -118,6 +118,13 @@ NativeSpirvResult CompileReviewedNativeComputeSpirv(
             inst_pool, block_pool, flow_pool, env, host_info);
         if (ir.stage != Shader::Stage::Compute || ir.blocks.empty())
             return {NativeSpirvStatus::CompilationFailed, {}};
+        // The common translator's NVN helper skips write-only global
+        // shaders. Reconstruct ONLY provable Compute CBUF0 descriptors
+        // before the shared SPIR-V global load/store helper is emitted.
+        // Fail closed on sparse slot maps, absent CBUF0, or pre-existing
+        // descriptors of uncertain order; the NS1 translator is untouched.
+        if (!NormalizeNativeQmdGlobalStoreOnlyInfo(ir.info, qmd_enabled_cbuf_mask))
+            return {NativeSpirvStatus::CompilationFailed, {}};
         Shader::Maxwell::ConvertLegacyToGeneric(ir, runtime_info);
         // QMD3 has eight physical Compute CBUF slots; do not emit the
         // generic fourteen-slot OpSwitch or bind phantom descriptors.

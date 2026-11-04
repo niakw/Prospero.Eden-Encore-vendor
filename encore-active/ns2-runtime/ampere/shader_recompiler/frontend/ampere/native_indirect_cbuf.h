@@ -12,6 +12,63 @@
 namespace Shader::Ampere {
 inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
 
+// The common Maxwell translator adds NVN global SSBO records only when
+// uses_global_memory is set. A genuine native Compute program may WRITE
+// globals without reading them, so stores_global_memory alone is not enough
+// for its SPIR-V accessor and QMD3 descriptor plan to agree.
+//
+// Infer only the documented NVN Compute driver CBUF layout (bank 0, byte
+// offsets 0x310 + 16 * slot) and only when the real shader reflection proves
+// a contiguous set of live slots. Do not invent an absent QMD CBUF, guess
+// SSBO sizes, or mix this layout with unrelated reflected buffers.
+// This must run on the native Compute IR before SPIR-V emission; NS1 never
+// calls it.
+[[nodiscard]] inline bool NormalizeNativeQmdGlobalStoreOnlyInfo(
+    Shader::Info& info, u32 enabled_cbuf_mask) {
+    if (!info.stores_global_memory || info.uses_global_memory)
+        return true;
+    if ((enabled_cbuf_mask & ~u32{0xff}) ||
+        !(enabled_cbuf_mask & 1U) || !(info.constant_buffer_mask & 1U) ||
+        !info.storage_buffers_descriptors.empty() ||
+        !info.nvn_buffer_used.any())
+        return false;
+    bool bank_zero_declared{};
+    for (const auto& cbuf : info.constant_buffer_descriptors) {
+        if (cbuf.index == 0 && cbuf.count == 1)
+            bank_zero_declared = true;
+    }
+    if (!bank_zero_declared)
+        return false;
+    u32 slot_count{};
+    for (u32 i = 0; i < info.nvn_buffer_used.size(); ++i) {
+        if (!info.nvn_buffer_used.test(i))
+            continue;
+        // NVN global accessors index the FLATTENED array by slot, not
+        // the original hardware ID. A gap would bind the wrong buffer.
+        if (i != slot_count)
+            return false;
+        ++slot_count;
+    }
+    if (!slot_count || slot_count > Shader::Info::MAX_SSBOS ||
+        0x310U + slot_count * 16U > 0x10000U)
+        return false;
+    for (u32 i = 0; i < slot_count; ++i) {
+        info.storage_buffers_descriptors.push_back({
+            .cbuf_index = 0,
+            .cbuf_offset = 0x310U + i * 16U,
+            .count = 1,
+            .is_written = true,
+        });
+    }
+    info.constant_buffer_used_sizes[0] = std::max(
+        info.constant_buffer_used_sizes[0], 0x310U + slot_count * 16U);
+    info.uses_global_memory = true;
+    info.used_constant_buffer_types |= Shader::IR::Type::U32 |
+                                       Shader::IR::Type::U32x2;
+    return true;
+}
+
+
 // The same opt-in shader_recompiler library services Switch 1 and Switch 2.
 // Only reviewed native Ampere callers may request stricter CBUF SPIR-V
 // bounds; selecting the NS2 source overlay must never rewrite Maxwell's
