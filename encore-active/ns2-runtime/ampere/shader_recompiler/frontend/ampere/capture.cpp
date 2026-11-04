@@ -305,6 +305,82 @@ NativeCaptureResult CaptureNativeShader(
             result.image = {};
             return result;
         }
+        if (!saw_indirect) {
+            // The first two instructions were read separately, but the
+            // remainder may have come from speculative page batches. A guest
+            // can rewrite the same mapped VA while the translation cache
+            // compiles. Reauthenticate the EXACT original native instruction
+            // bytes before exposing any shader key or Vulkan pipeline.
+            // BRX has a stricter source+CBUF replay above.
+            std::array<u8, NativeShaderReadPage> verify{};
+            for (std::size_t offset = 0; offset < source.size();) {
+                const u64 address = gpu_base + header_bytes + offset;
+                const std::size_t remaining_in_page =
+                    NativeShaderReadPage - static_cast<std::size_t>(
+                        address & (NativeShaderReadPage - 1));
+                std::size_t bytes = (std::min)(
+                    remaining_in_page, source.size() - offset);
+                bytes -= bytes % sizeof(Instruction);
+                // An unaligned guest code start can cross a page in one
+                // 16-byte instruction; the checked GMMU callback owns the
+                // corresponding full-span proof.
+                if (!bytes) bytes = sizeof(Instruction);
+                const auto mismatch = [&](std::size_t at, std::size_t length) {
+                    return !std::equal(source.begin() + at,
+                                       source.begin() + at + length,
+                                       verify.begin());
+                };
+                if (checked_read(address, verify.data(), bytes)) {
+                    if (mismatch(offset, bytes)) {
+                        result.status = NativeCaptureStatus::TranslationFailed;
+                        result.first_error_offset = header_bytes +
+                            static_cast<u32>(offset);
+                        result.image = {};
+                        return result;
+                    }
+                } else {
+                    // A page-batch rejection is not proof of a missing
+                    // instruction. Some guest readers only accept 16 bytes.
+                    // Recheck each exact word rather than refusing a valid
+                    // shader or trusting data not successfully re-read.
+                    for (std::size_t part = 0; part < bytes;
+                         part += sizeof(Instruction)) {
+                        if (!checked_read(address + part, verify.data(),
+                                          sizeof(Instruction))) {
+                            result.status = NativeCaptureStatus::Unmapped;
+                            result.first_error_offset = header_bytes +
+                                static_cast<u32>(offset + part);
+                            result.image = {};
+                            return result;
+                        }
+                        if (mismatch(offset + part, sizeof(Instruction))) {
+                            result.status = NativeCaptureStatus::TranslationFailed;
+                            result.first_error_offset = header_bytes +
+                                static_cast<u32>(offset + part);
+                            result.image = {};
+                            return result;
+                        }
+                    }
+                }
+                offset += bytes;
+            }
+            if (!compute) {
+                std::array<u8, NativeHeaderBytes> latest_header{};
+                if (!checked_read(gpu_base, latest_header.data(),
+                                  latest_header.size())) {
+                    result.status = NativeCaptureStatus::Unmapped;
+                    result.first_error_offset = 0;
+                    result.image = {};
+                    return result;
+                }
+                if (latest_header != header) {
+                    result.status = NativeCaptureStatus::TranslationFailed;
+                    result.first_error_offset = 0;
+                    result.image = {};
+                    return result;
+                }
+            }
+        }
         result.status = NativeCaptureStatus::Ready;
         return result;
     }
