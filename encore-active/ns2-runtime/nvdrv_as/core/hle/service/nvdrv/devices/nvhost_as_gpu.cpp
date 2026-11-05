@@ -140,7 +140,10 @@ NvResult nvhost_as_gpu::MapNative4K(u32 handle_id, u64 address, u64 source, u64 
         return NvResult::BadParameter;
 
     const std::scoped_lock lock{mutex};
-    if (!vm.initialised || address < vm.va_range_start || address >= vm.va_range_split ||
+    // A revoked GPU address-space owner must never pin NvMap memory,
+    // allocate pages or dereference a stale GMMU in the same call.
+    if (!vm.initialised || !gmmu ||
+        address < vm.va_range_start || address >= vm.va_range_split ||
         size > vm.va_range_split - address || !vm.small_page_allocator)
         return NvResult::BadParameter;
 
@@ -232,7 +235,7 @@ NvResult nvhost_as_gpu::ReserveNativeSparse4K(u64 address, u64 size) {
         (size >> VM::PAGE_SIZE_BITS) > std::numeric_limits<u32>::max())
         return NvResult::BadParameter;
     const std::scoped_lock lock{mutex};
-    if (!vm.initialised || !vm.small_page_allocator ||
+    if (!vm.initialised || !gmmu || !vm.small_page_allocator ||
         address < vm.va_range_start || address >= vm.va_range_split ||
         size > vm.va_range_split - address ||
         native_sparse_regions.size() >= 4096)
@@ -373,7 +376,7 @@ NvResult nvhost_as_gpu::ReleaseNativeSparse4K(u64 address, u64 size) {
     const std::scoped_lock lock{mutex};
     const auto owned = native_sparse_regions.find(address);
     const auto allocation = allocation_map.find(address);
-    if (!vm.initialised || !vm.small_page_allocator ||
+    if (!vm.initialised || !gmmu || !vm.small_page_allocator ||
         owned == native_sparse_regions.end() || owned->second != size ||
         allocation == allocation_map.end() || !allocation->second.sparse ||
         allocation->second.big_pages || allocation->second.page_size != page ||
@@ -412,7 +415,8 @@ NvResult nvhost_as_gpu::UnmapNative4K(u64 address, u64 size) {
     const std::scoped_lock lock{mutex};
     const auto mapping = mapping_map.find(address);
     const auto reservation = allocation_map.find(address);
-    if (!vm.initialised || mapping == mapping_map.end() ||
+    if (!vm.initialised || !gmmu || !vm.small_page_allocator ||
+        mapping == mapping_map.end() ||
         reservation == allocation_map.end() || mapping->second.size != size ||
         reservation->second.size != size || reservation->second.page_size != page ||
         reservation->second.mappings.size() != 1 ||
@@ -430,7 +434,7 @@ NvResult nvhost_as_gpu::ModifyNativeKind(u64 address, u64 size, u8 kind) {
     constexpr u64 page = VM::YUZU_PAGESIZE;
     if (!size || (address | size) & (page - 1)) return NvResult::BadParameter;
     const std::scoped_lock lock{mutex};
-    if (!vm.initialised) return NvResult::InvalidState;
+    if (!vm.initialised || !gmmu) return NvResult::InvalidState;
     auto it = mapping_map.upper_bound(address);
     if (it == mapping_map.begin()) return NvResult::BadParameter;
     --it;
