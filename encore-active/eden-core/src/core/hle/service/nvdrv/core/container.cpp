@@ -119,7 +119,17 @@ SessionId Container::OpenSession(Kernel::KProcess* process) {
 
 void Container::CloseSession(SessionId session_id) {
     std::unique_lock lk(impl->session_guard);
+    // SessionId originates in the NVDRV FD table; stale and malformed FDs
+    // must not index outside the stable deque or close a reused ASID twice.
+    // Keep the existing lock through NvMap cleanup: the cleanup may call
+    // GetSession recursively and already depends on that ordering.
+    if (session_id.id >= impl->sessions.size()) {
+        return;
+    }
     auto& session = impl->sessions[session_id.id];
+    if (!session.is_active || session.ref_count <= 0 || !session.process) {
+        return;
+    }
     if (--session.ref_count > 0) {
         return;
     }
