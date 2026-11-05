@@ -48,6 +48,11 @@ public:
     }
 
     void Gather(std::function<void(PAddr, size_t)>& callback) {
+        // Host1x video decoding may Gather off the GPU worker while another
+        // flush is already iterating front_buffer. Keep the entire swap,
+        // callback walk and clear exclusive to one gatherer. Collect uses
+        // only guard and remains able to record newly dirtied pages.
+        std::scoped_lock gather_lock(gather_guard);
         {
             std::scoped_lock lk(guard);
             TransformAddress t = current.exchange(default_transform, std::memory_order_relaxed);
@@ -115,6 +120,7 @@ private:
 
     std::atomic<TransformAddress> current{};
     std::mutex guard;
+    std::mutex gather_guard;
     std::vector<TransformAddress> back_buffer;
     std::vector<TransformAddress> front_buffer;
 };
