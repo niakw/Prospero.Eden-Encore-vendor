@@ -1338,6 +1338,18 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
     // Scratch vectors are created after native extent and budget validation.
     const VkImageAspectFlags src_aspect_mask = src.AspectMask();
     const VkImageAspectFlags dst_aspect_mask = dst.AspectMask();
+    // VkBufferImageCopy names a SINGLE depth/stencil aspect. Passing
+    // DEPTH|STENCIL in one region violates VUID-09103 and can invalidate
+    // the Vulkan device. Preserve full masks on image barriers, but
+    // reinterpret the depth plane only for combined DS aliases.
+    // This does not claim stencil values are copied; that would need a
+    // separately sized/reinterpreted scratch region and explicit copies.
+    const auto copy_aspect = [](VkImageAspectFlags mask) {
+        return mask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)
+                   ? VkImageAspectFlags{VK_IMAGE_ASPECT_DEPTH_BIT} : mask;
+    };
+    const VkImageAspectFlags src_copy_aspect = copy_aspect(src_aspect_mask);
+    const VkImageAspectFlags dst_copy_aspect = copy_aspect(dst_aspect_mask);
 
 #ifdef PS5_NATIVE
     // Do not divide by an invalid format width or truncate converted source
@@ -1416,7 +1428,7 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
     boost::container::small_vector<VkBufferImageCopy, 16> vk_in_copies(copies.size());
     boost::container::small_vector<VkBufferImageCopy, 16> vk_out_copies(copies.size());
     std::ranges::transform(copies, vk_in_copies.begin(),
-                           [src_aspect_mask, bpp_in, bpp_out](const auto& copy) {
+                           [src_copy_aspect, bpp_in, bpp_out](const auto& copy) {
                                auto copy2 = copy;
 #ifdef PS5_NATIVE
                                copy2.src_offset.x = static_cast<decltype(copy2.src_offset.x)>(
@@ -1427,10 +1439,10 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
                                copy2.src_offset.x = (bpp_out * copy.src_offset.x) / bpp_in;
                                copy2.extent.width = (bpp_out * copy.extent.width) / bpp_in;
 #endif
-                               return MakeBufferImageCopy(copy2, true, src_aspect_mask);
+                               return MakeBufferImageCopy(copy2, true, src_copy_aspect);
                            });
-    std::ranges::transform(copies, vk_out_copies.begin(), [dst_aspect_mask](const auto& copy) {
-        return MakeBufferImageCopy(copy, false, dst_aspect_mask);
+    std::ranges::transform(copies, vk_out_copies.begin(), [dst_copy_aspect](const auto& copy) {
+        return MakeBufferImageCopy(copy, false, dst_copy_aspect);
     });
     const VkBuffer copy_buffer = GetTemporaryBuffer(total_size);
 #ifdef PS5_NATIVE
@@ -1546,7 +1558,11 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
 
         cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER, VK_PIPELINE_STAGE_TRANSFER_BIT,
                        0, READ_BARRIER, {}, middle_out_barrier);
-        cmdbuf.CopyBufferToImage(copy_buffer, dst_image, VK_IMAGE_LAYOUT_GENERAL, vk_out_copies);
+        // The preceding middle_out_barrier transitions dst to
+        // TRANSFER_DST_OPTIMAL. The Vulkan command MUST name that actual
+        // layout (VUID-vkCmdCopyBufferToImage-dstImageLayout-00180).
+        cmdbuf.CopyBufferToImage(copy_buffer, dst_image,
+                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk_out_copies);
         cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, vk::PIPELINE_STAGE_GRAPHICS_COMPUTE,
                        0, {}, {}, post_barriers);
     });
