@@ -133,9 +133,10 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2QmdComputeSpirvWithResources
         if (!plan) return {NativeSpirvStatus::InvalidImage, {}};
         // Even a correctly reflected writable SSBO is not proof that
         // every atomic byte lies within its live QMD3 descriptor length.
-        // The shared SPIR-V emitter has no dynamic atomic bounds checks.
-        // Validate the exact source IR ranges BEFORE publishing any
-        // resource plan or reporting this shader as executable.
+        // The shared SPIR-V emitter has no general dynamic bounds check.
+        // Validate the maximum byte extent of both static offsets and
+        // the strictly aligned/constant-masked dynamic subset BEFORE
+        // publishing a plan or reporting the shader as executable.
         if (!Shader::Ampere::NativeQmdAtomicSpansFitBindings(
                 std::span<const Shader::Ampere::NativeAtomicSpan>{
                     compiled.native_atomic_spans.data(), compiled.native_atomic_spans.size()},
