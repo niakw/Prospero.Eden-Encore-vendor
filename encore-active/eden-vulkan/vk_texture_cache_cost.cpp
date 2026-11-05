@@ -1373,7 +1373,9 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
             (static_cast<u64>(bpp_out) * static_cast<u64>(copy.src_offset.x)) / bpp_in;
         const u64 scaled_width =
             (static_cast<u64>(bpp_out) * copy.extent.width) / bpp_in;
-        if (scaled_offset > static_cast<u64>(
+        if ((static_cast<u64>(bpp_out) * static_cast<u64>(copy.src_offset.x)) % bpp_in ||
+            (static_cast<u64>(bpp_out) * copy.extent.width) % bpp_in ||
+            scaled_offset > static_cast<u64>(
                 (std::numeric_limits<decltype(copy.src_offset.x)>::max)()) ||
             scaled_width == 0 || scaled_width > static_cast<u64>(
                 (std::numeric_limits<decltype(copy.extent.width)>::max)())) {
@@ -1444,6 +1446,93 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
     std::ranges::transform(copies, vk_out_copies.begin(), [dst_copy_aspect](const auto& copy) {
         return MakeBufferImageCopy(copy, false, dst_copy_aspect);
     });
+#ifdef PS5_NATIVE
+    // Every VkBufferImageCopy must occupy a disjoint aligned scratch
+    // interval. MakeBufferImageCopy initializes bufferOffset=0, which was
+    // previously reused for every copy in a multi-region reinterpret.
+    // Depth/stencil formats have distinct Vulkan buffer planes. When
+    // source and destination are the SAME combined format, copy both
+    // planes using separate aspect regions; mixed-format D/S reinterpret
+    // cannot safely preserve stencil and must fail closed instead.
+    constexpr VkImageAspectFlags both_ds =
+        VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    const bool src_both = src_aspect_mask == both_ds;
+    const bool dst_both = dst_aspect_mask == both_ds;
+    if ((src_both || dst_both) &&
+        (!src_both || !dst_both || src.info.format != dst.info.format)) {
+        return;
+    }
+    const bool dual_planes = src_both && dst_both;
+    // Align the guest scratch to all Vulkan texel block widths, plus the
+    // minimum four-byte offset alignment of VkBufferImageCopy.
+    const size_t alignment = (std::max)({
+        size_t{4}, static_cast<size_t>(BytesPerBlock(src.info.format)),
+        static_cast<size_t>(img_bpp)});
+    if (alignment == 0) {
+        return;
+    }
+    size_t scratch_used = 0;
+    constexpr size_t scratch_ceiling =
+        size_t{1} << (std::numeric_limits<size_t>::digits - 1);
+    for (size_t i = 0; i < copies.size(); ++i) {
+        auto& from = vk_in_copies[i];
+        auto& to = vk_out_copies[i];
+        const size_t layers = from.imageSubresource.layerCount;
+        if (layers == 0 || to.imageSubresource.layerCount != layers ||
+            from.imageExtent.height != to.imageExtent.height ||
+            from.imageExtent.depth != to.imageExtent.depth) {
+            return;
+        }
+        // The existing native scale conversion must describe exactly
+        // the same transfer bytes. Never truncate a partial texel row.
+        const size_t source_width = from.imageExtent.width;
+        const size_t dest_width = to.imageExtent.width;
+        if (source_width == 0 || dest_width == 0 ||
+            source_width > max_size / bpp_in ||
+            dest_width > max_size / bpp_out ||
+            source_width * bpp_in != dest_width * bpp_out) {
+            return;
+        }
+        const size_t height = to.imageExtent.height;
+        const size_t depth = to.imageExtent.depth;
+        if (dest_width > max_size / height ||
+            dest_width * height > max_size / depth ||
+            dest_width * height * depth > max_size / layers) {
+            return;
+        }
+        const size_t pixels = dest_width * height * depth * layers;
+        if (pixels > max_size / img_bpp) {
+            return;
+        }
+        // Overestimate compressed formats safely. Combined D/S planes
+        // allocate one conservative image-sized interval EACH: a D24S8
+        // depth plane needs 4 B/texel and stencil needs 1 B/texel.
+        const size_t plane_bytes = pixels * img_bpp;
+        const size_t padding = (alignment - scratch_used % alignment) % alignment;
+        if (scratch_used > scratch_ceiling - padding) {
+            return;
+        }
+        scratch_used += padding;
+        if (plane_bytes > (scratch_ceiling - scratch_used) /
+                               (dual_planes ? 2U : 1U)) {
+            return;
+        }
+        from.bufferOffset = scratch_used;
+        to.bufferOffset = scratch_used;
+        if (dual_planes) {
+            VkBufferImageCopy from_stencil = from;
+            VkBufferImageCopy to_stencil = to;
+            from_stencil.imageSubresource.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+            to_stencil.imageSubresource.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+            from_stencil.bufferOffset = scratch_used + plane_bytes;
+            to_stencil.bufferOffset = scratch_used + plane_bytes;
+            vk_in_copies.push_back(from_stencil);
+            vk_out_copies.push_back(to_stencil);
+        }
+        scratch_used += plane_bytes * (dual_planes ? 2U : 1U);
+    }
+    total_size = scratch_used;
+#endif
     const VkBuffer copy_buffer = GetTemporaryBuffer(total_size);
 #ifdef PS5_NATIVE
     // A mapped scratch allocation can still contain a null Vulkan handle.
