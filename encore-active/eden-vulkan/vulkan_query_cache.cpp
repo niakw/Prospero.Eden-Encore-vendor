@@ -215,6 +215,13 @@ public:
 
     void CloseCounter() override {
         PauseCounter();
+        // The guest may leave counting enabled through menu/title screens
+        // without issuing a report or reset. A query spanning more than
+        // one 256-slot host bank pins unbounded GPU query resources.
+        // Bound it to one bank while keeping ordinary cross-submit counts.
+        if (current_query && current_query->size_slots > SamplesQueryBank::BANK_SIZE) {
+            ResetCounter();
+        }
     }
 
     bool HasPendingSync() const override {

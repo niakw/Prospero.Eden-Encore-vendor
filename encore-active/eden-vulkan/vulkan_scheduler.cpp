@@ -646,7 +646,10 @@ void Scheduler::InvalidateState() {
 }
 
 void Scheduler::EndPendingOperations() {
-    query_cache->CounterReset(VideoCommon::QueryType::ZPassPixelCount64);
+    // A guest ZPass counter measures from its own reset until its report.
+    // A Vulkan queue submission is not a guest reset: only close/pause the
+    // current host query so a subsequent draw resumes its sample window.
+    query_cache->CounterClose(VideoCommon::QueryType::ZPassPixelCount64);
     EndRenderPass();
 }
 
