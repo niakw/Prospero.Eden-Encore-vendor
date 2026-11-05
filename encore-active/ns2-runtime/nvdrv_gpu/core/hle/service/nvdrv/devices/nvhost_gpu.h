@@ -192,6 +192,9 @@ private:
     NvResult ZCullBind(IoctlZCullBind& params);
     NvResult SetErrorNotifier(IoctlSetErrorNotifier& params);
     NvResult SetChannelPriority(IoctlChannelSetPriority& params);
+    // Authenticate the exact FD before changing channel/engine state. Native
+    // sessions may not share a GPU channel with another guest process.
+    [[nodiscard]] NvResult ValidateChannelOwner(DeviceFD fd, u64& program_id) const;
     NvResult AllocGPFIFOEx(IoctlAllocGpfifoEx& params, DeviceFD fd);
     NvResult AllocGPFIFOEx2(IoctlAllocGpfifoEx& params, DeviceFD fd);
 

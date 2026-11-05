@@ -188,20 +188,49 @@ NvResult nvhost_gpu::SetChannelPriority(IoctlChannelSetPriority& params) {
     return NvResult::Success;
 }
 
+NvResult nvhost_gpu::ValidateChannelOwner(DeviceFD fd, u64& program_id) const {
+    // Never index the session map: a malformed FD creates a ghost entry, and a
+    // null GetSession/process could dereference during GPFIFO allocation.
+    const auto it = sessions.find(fd);
+    if (it == sessions.end()) return NvResult::InvalidState;
+    const auto* session = core.GetSession(it->second);
+    if (!session || !session->process) return NvResult::InvalidState;
+    const auto* process = session->process;
+
+    // Unlike a legacy Maxwell channel, a native Ampere channel may not be
+    // initialised by a foreign FD that shares the same NVDRV device object.
+    // Match the real per-FD owner BEFORE InitChannel, program_id or ctxObjs
+    // are changed, not only at the later SubmitGPFIFOImpl boundary.
+    const bool native = NativeGpuProcessRegistry::Instance().Contains(process);
+    for (const auto& opened_fd : sessions) {
+        const auto* opened = core.GetSession(opened_fd.second);
+        if (native) {
+            if (!opened || opened->process != process) return NvResult::InvalidState;
+        } else if (opened && opened->process &&
+                   NativeGpuProcessRegistry::Instance().Contains(opened->process)) {
+            // A legacy FD cannot initialise a device with any native owner.
+            // Mixed legacy/legacy FDs keep their original compatibility.
+            return NvResult::InvalidState;
+        }
+    }
+    program_id = process->GetProgramId();
+    return NvResult::Success;
+}
+
 NvResult nvhost_gpu::AllocGPFIFOEx(IoctlAllocGpfifoEx& params, DeviceFD fd) {
     LOG_DEBUG(Service_NVDRV, "called, num_entries={:X}, flags={:X}, reserved1={:X}, "
               "reserved2={:X}, reserved3={:X}",
               params.num_entries, params.flags, params.reserved[0], params.reserved[1],
               params.reserved[2]);
 
+    std::scoped_lock lk(channel_mutex);
+    u64 program_id{};
+    if (const auto status = ValidateChannelOwner(fd, program_id);
+        status != NvResult::Success)
+        return status;
     if (channel_state->initialized) {
         LOG_DEBUG(Service_NVDRV, "Channel already initialized; AllocGPFIFOEx returning AlreadyAllocated");
         return NvResult::AlreadyAllocated;
-    }
-
-    u64 program_id{};
-    if (auto* const session = core.GetSession(sessions[fd]); session != nullptr) {
-        program_id = session->process->GetProgramId();
     }
 
     // Store program id for later lazy initialization
@@ -227,14 +256,14 @@ NvResult nvhost_gpu::AllocGPFIFOEx2(IoctlAllocGpfifoEx& params, DeviceFD fd) {
               params.num_entries, params.flags, params.reserved[0], params.reserved[1],
               params.reserved[2]);
 
+    std::scoped_lock lk(channel_mutex);
+    u64 program_id{};
+    if (const auto status = ValidateChannelOwner(fd, program_id);
+        status != NvResult::Success)
+        return status;
     if (channel_state->initialized) {
         LOG_DEBUG(Service_NVDRV, "Channel already initialized; AllocGPFIFOEx2 returning AlreadyAllocated");
         return NvResult::AlreadyAllocated;
-    }
-
-    u64 program_id{};
-    if (auto* const session = core.GetSession(sessions[fd]); session != nullptr) {
-        program_id = session->process->GetProgramId();
     }
 
     // Store program id for later lazy initialization
@@ -277,6 +306,10 @@ NvResult nvhost_gpu::AllocateObjectContext(IoctlAllocObjCtx& params, DeviceFD fd
     }
 
     std::scoped_lock lk(channel_mutex);
+    u64 verified_program_id{};
+    if (const auto status = ValidateChannelOwner(fd, verified_program_id);
+        status != NvResult::Success)
+        return status;
 
     if (params.flags) {
         LOG_WARNING(Service_NVDRV, "non-zero flags={:#x} for class={:#x}", params.flags,
