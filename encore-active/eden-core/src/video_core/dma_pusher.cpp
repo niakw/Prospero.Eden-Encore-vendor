@@ -114,12 +114,16 @@ bool DmaPusher::Step() {
             LOG_ERROR(HW_GPU, "Native GPFIFO command unmapped at fetch: address={:#x} words={}",
                       dma_state.dma_get, static_cast<u64>(header.size));
 #ifdef PS5_NATIVE
-            // Report a fatal native channel failure to the main title owner
-            // without throwing across the GPU worker's std::jthread boundary.
-            ::Eden::RecordGpuFailure(std::make_exception_ptr(
-                std::runtime_error("Native GPFIFO command unmapped at GPU fetch")));
-#endif
+            // Returning false silently finishes DispatchCalls; its caller
+            // would then publish a completed GPU queue fence and process
+            // later syncpoint increments for work that was never executed.
+            // The maintained PS5 GPU pthread entry catches this exception,
+            // records its fatal cause and requests worker stop before any
+            // queue fence is signaled. No exception leaves the OS thread.
+            throw std::runtime_error("Native GPFIFO command unmapped at GPU fetch");
+#else
             return false;
+#endif
         }
 #endif
         if (subchannels[dma_state.subchannel] && dma_state.method_count) {
