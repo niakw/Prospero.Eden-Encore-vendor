@@ -884,14 +884,14 @@ private:
             if (node.type != Type::Block) {
                 continue;
             }
-            if (branch_depth > 1) {
-                // Skip reordering nested demote branches.
-                continue;
-            }
+            // Skip moving nested demotes, but never skip nested Epilogue:
+            // a nested early return makes moving a demote to the final
+            // return unsafe, even when only one shallow Epilogue exists.
             for (const IR::Inst& inst : node.data.block->Instructions()) {
                 const IR::Opcode op{inst.GetOpcode()};
                 if (op == IR::Opcode::DemoteToHelperInvocation) {
-                    demote_blocks.push_back(node.data.block);
+                    if (branch_depth <= 1)
+                        demote_blocks.push_back(node.data.block);
                     break;
                 }
                 if (op == IR::Opcode::Epilogue) {
