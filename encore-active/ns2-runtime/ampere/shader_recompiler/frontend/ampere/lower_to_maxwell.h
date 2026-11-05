@@ -169,7 +169,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         // Uniform operand B in SEL's 0xC07 form uses the same protected
         // UR→GPR bank as all other native uniform instructions.
-        case 0xc07:
+        case 0xc07: case 0xc0a:
             uses_extended_uniform_bank |= extended_uniform(instruction.Bits(32, 8));
             break;
         case 0xc0b: case 0xc0c: case 0xc10: case 0xc11: case 0xc12: case 0xc17: case 0xc19: case 0xc20: case 0xc24: case 0xd06:
@@ -194,7 +194,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         default: break;
         }
-        uses_uniform_bank |= op == 0xc07 || op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
+        uses_uniform_bank |= op == 0xc07 || op == 0xc0a || op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
                              op == 0x886 || op == 0x3c2 || op == 0xc82 || op == 0x882 || op == 0xd24 || op == 0x499 || (op == 0x98e && instruction.Bits(91, 1)) || (op == 0x81c && instruction.Bits(67, 1));
     }
     const bool uses_async_copy = std::any_of(code.begin(), code.end(), [](const auto& instruction) {
@@ -3218,10 +3218,11 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 (u64{insn.Bits(87, 3)} << 39) | (u64{insn.Bits(90, 1)} << 42));
             break;
         }
-        case 0x20a: case 0x80a: case 0xa0a: { // FSET.BF, combined with a predicate (AND/OR/XOR)
+        case 0x20a: case 0x80a: case 0xa0a: case 0xc0a: { // FSET.BF, combined with a predicate (AND/OR/XOR)
             // The combine predicate (bits 87-90) and operation (bits 74-75) map directly onto
             // Maxwell FSET; this covers the FastFusion PT-OR form as well.
-            if (insn.Bits(64, 8) || insn.Bits(74, 2) == 3 || insn.Bits(81, 6) || insn.Bits(91, 1))
+            if (insn.Bits(64, 8) || insn.Bits(74, 2) == 3 || insn.Bits(81, 6) ||
+                (opcode != 0xc0a && insn.Bits(91, 1)))
                 return fail(index, "native floating comparison output mode");
             const u32 a = operand(0), b = operand(1);
             emit(base(0x5800000000000000ULL) | (u64{a} << 8) | (u64{b} << 20) |
