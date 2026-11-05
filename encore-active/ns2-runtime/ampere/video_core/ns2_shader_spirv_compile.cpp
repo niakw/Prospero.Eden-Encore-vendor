@@ -131,6 +131,16 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2QmdComputeSpirvWithResources
         if (!registry.IsCurrent(*session))
             return {NativeSpirvStatus::InactiveSession, {}};
         if (!plan) return {NativeSpirvStatus::InvalidImage, {}};
+        // Even a correctly reflected writable SSBO is not proof that
+        // every atomic byte lies within its live QMD3 descriptor length.
+        // The shared SPIR-V emitter has no dynamic atomic bounds checks.
+        // Validate the exact source IR ranges BEFORE publishing any
+        // resource plan or reporting this shader as executable.
+        if (!Shader::Ampere::NativeQmdAtomicSpansFitBindings(
+                std::span<const Shader::Ampere::NativeAtomicSpan>{
+                    compiled.native_atomic_spans.data(), compiled.native_atomic_spans.size()},
+                plan->storage_buffers))
+            return {NativeSpirvStatus::InvalidImage, {}};
         // The caller receives owned metadata, NOT a borrowed guest pointer.
         // Shader dispatch is still forbidden until Vulkan binds/validates
         // target resources and orders the native compute fence.

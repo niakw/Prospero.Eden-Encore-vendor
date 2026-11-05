@@ -136,6 +136,13 @@ NativeSpirvResult CompileReviewedNativeComputeSpirv(
         // publish such a QMD3 shader as an executing GPU atomic.
         if (!NativeQmdAtomicStorageIRAdmissible(ir, profile))
             return {NativeSpirvStatus::CompilationFailed, {}};
+        // The shared SPIR-V atomic emitter has no runtime check against
+        // the actual bound SSBO size. Collect ONLY constant, word-aligned
+        // atomic spans, then authenticate them against real QMD3 descriptor
+        // lengths after resource capture. Dynamic offsets remain fail-closed.
+        const auto atomic_spans = CollectNativeQmdAtomicSpans(ir);
+        if (!atomic_spans)
+            return {NativeSpirvStatus::CompilationFailed, {}};
         // The shared SPIR-V global load/store accessor directly reads
         // cbufs[bank].U32x2 (address) and .U32 (length). Those uniform
         // types must exist even when the Ampere guest's direct LDC usage
@@ -181,7 +188,8 @@ NativeSpirvResult CompileReviewedNativeComputeSpirv(
             words[0] != 0x07230203U || words[3] == 0)
             return {NativeSpirvStatus::InvalidModule, {}};
         return {NativeSpirvStatus::Ready, std::move(words),
-                std::move(ir.info), bindings, Shader::Stage::Compute};
+                std::move(ir.info), bindings, Shader::Stage::Compute,
+                std::move(*atomic_spans)};
     } catch (const std::exception&) {
         return {NativeSpirvStatus::CompilationFailed, {}};
     }

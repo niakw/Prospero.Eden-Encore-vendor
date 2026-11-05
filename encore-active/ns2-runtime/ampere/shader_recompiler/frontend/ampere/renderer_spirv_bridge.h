@@ -8,6 +8,7 @@
 #include "shader_recompiler/backend/bindings.h"
 #include "shader_recompiler/shader_info.h"
 #include "shader_recompiler/stage.h"
+#include "shader_recompiler/frontend/ampere/native_atomic_span.h"
 
 namespace Shader {
 struct HostTranslateInfo;
@@ -35,6 +36,10 @@ struct NativeSpirvResult {
     std::optional<Shader::Info> info{};
     Shader::Backend::Bindings next_bindings{};
     std::optional<Shader::Stage> stage{};
+    // Compile-proven immediate atomic spans. Empty means no atomics.
+    // The QMD3 resource owner checks each span against the real live
+    // buffer length AFTER compiling and BEFORE returning a bindable plan.
+    std::vector<NativeAtomicSpan> native_atomic_spans{};
     [[nodiscard]] bool PipelineMetadataReady() const noexcept {
         return Ready() && info.has_value() && stage.has_value() &&
                (*stage == Shader::Stage::VertexB || *stage == Shader::Stage::Fragment);
