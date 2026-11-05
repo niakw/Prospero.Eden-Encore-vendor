@@ -2,6 +2,7 @@
 #include "video_core/native_shader_capture.h"
 #include "video_core/native_graphics_cbuf_bounds.h"
 #include <exception>
+#include <new>
 #include <limits>
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
 #include "shader_recompiler/frontend/ampere/native_graphics_stage_policy.h"
@@ -39,10 +40,18 @@ NativeGpuChannelRegistry::AcquireGraphicsTranslationCache(
     // and the stage are checked by NativeTranslationCache before any hit.
     // Unbind or subchannel retirement drops this shared cache. In-flight
     // readers may finish but the renderer rechecks the engine epoch.
-    if (!it->second.translation_cache)
-        it->second.translation_cache =
-            std::make_shared<Shader::Ampere::NativeTranslationCache>(
-                4 * 1024 * 1024, 32);
+    if (!it->second.translation_cache) {
+        // Native shader capture may allocate a per-engine cache on the GPU
+        // worker. Failed cache creation must be a normal rejected capture,
+        // never an exception unwinding through live Vulkan work.
+        try {
+            it->second.translation_cache =
+                std::make_shared<Shader::Ampere::NativeTranslationCache>(
+                    4 * 1024 * 1024, 32);
+        } catch (const std::bad_alloc&) {
+            return {};
+        }
+    }
     return it->second.translation_cache;
 }
 
@@ -69,10 +78,15 @@ NativeGpuChannelRegistry::AcquireComputeTranslationCache(
     // Independent native Compute epoch: never borrow the graphics shader
     // translation cache or let a channel rebind reuse stale shader data.
     // Bounded by both 4 MiB of translated code and 32 exact-byte entries.
-    if (!owner->second.translation_cache)
-        owner->second.translation_cache =
-            std::make_shared<Shader::Ampere::NativeTranslationCache>(
-                4 * 1024 * 1024, 32);
+    if (!owner->second.translation_cache) {
+        try {
+            owner->second.translation_cache =
+                std::make_shared<Shader::Ampere::NativeTranslationCache>(
+                    4 * 1024 * 1024, 32);
+        } catch (const std::bad_alloc&) {
+            return {};
+        }
+    }
     return owner->second.translation_cache;
 }
 } // namespace Service::Nvidia::Devices

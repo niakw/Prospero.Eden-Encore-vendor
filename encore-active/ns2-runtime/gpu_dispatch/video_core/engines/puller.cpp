@@ -22,6 +22,7 @@
 #include "video_core/engines/puller.h"
 #include <span>
 #include <memory>
+#include <new>
 #include <atomic>
 #include <algorithm>
 #include <limits>
@@ -52,9 +53,17 @@ NativeGpuChannelRegistry::AcquireNativeQmdSession(
         return existing->second.session;
     if (existing == qmd_sessions.end() && qmd_sessions.size() >= 256)
         return {};
-    auto session = std::make_shared<Tegra::NativeQmdSession>();
-    qmd_sessions[ticket.process] = {ticket.generation, session};
-    return session;
+    // Native QMD sessions are created by authenticated but guest-driven
+    // GPU opens. Handle both the session allocation and the map-node
+    // allocation: an OOM must not kill the GPU worker or publish an
+    // incomplete process epoch. A later valid request can retry.
+    try {
+        auto session = std::make_shared<Tegra::NativeQmdSession>();
+        qmd_sessions[ticket.process] = {ticket.generation, session};
+        return session;
+    } catch (const std::bad_alloc&) {
+        return {};
+    }
 }
 } // namespace Service::Nvidia::Devices
 

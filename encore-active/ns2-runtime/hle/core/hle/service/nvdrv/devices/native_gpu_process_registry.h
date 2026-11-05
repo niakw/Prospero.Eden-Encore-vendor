@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <map>
 #include <mutex>
+#include <new>
 #include <optional>
 #include <limits>
 #include <cstdint>
@@ -32,17 +33,24 @@ public:
         if (!process) return false;
         const std::scoped_lock lock{mutex};
         if (owners.size() >= 256 && !owners.contains(process)) return false;
-        auto [it, inserted] = owners.try_emplace(process);
-        if (inserted) {
-            it->second.generation = NextGeneration();
-            if (!it->second.generation) {
-                owners.erase(it);
-                return false;
+        // A guest GPU session can cause a map-node allocation. Allocation
+        // failure must not unwind through HLE or partially publish a native
+        // process epoch: no ticket exists until insertion succeeds.
+        try {
+            auto [it, inserted] = owners.try_emplace(process);
+            if (inserted) {
+                it->second.generation = NextGeneration();
+                if (!it->second.generation) {
+                    owners.erase(it);
+                    return false;
+                }
             }
+            if (it->second.references == std::numeric_limits<std::size_t>::max()) return false;
+            ++it->second.references;
+            return true;
+        } catch (const std::bad_alloc&) {
+            return false;
         }
-        if (it->second.references == std::numeric_limits<std::size_t>::max()) return false;
-        ++it->second.references;
-        return true;
     }
     void Unregister(Kernel::KProcess* process) {
         if (!process) return;

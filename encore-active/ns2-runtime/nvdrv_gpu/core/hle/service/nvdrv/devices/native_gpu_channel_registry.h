@@ -4,6 +4,7 @@
 // Never infer native ownership from a global title flag or a recycled FD.
 #include <map>
 #include <mutex>
+#include <new>
 #include <optional>
 #include <memory>
 #include <limits>
@@ -39,9 +40,16 @@ public:
         if (it == channels.end()) {
             if (last_channel_generation == std::numeric_limits<std::uint64_t>::max())
                 return false;
-            it = channels.emplace(
-                channel, Ticket{process_ticket->process, process_ticket->generation,
-                                ++last_channel_generation}).first;
+            // Commit the epoch only after the map node is allocated; a
+            // failed guest channel bind must not consume a channel generation.
+            try {
+                it = channels.emplace(
+                    channel, Ticket{process_ticket->process, process_ticket->generation,
+                                    last_channel_generation + 1}).first;
+            } catch (const std::bad_alloc&) {
+                return false;
+            }
+            ++last_channel_generation;
         } else if (it->second.process != process_ticket->process ||
                    it->second.generation != process_ticket->generation) {
             return false;
@@ -73,10 +81,14 @@ public:
             (existing->second.channel != channel ||
              existing->second.ticket.channel_generation != ticket.channel_generation))
             return false;
-        auto [it, inserted] = engines.try_emplace(
-            graphics_engine, GraphicsOwner{channel, ticket, 0});
-        it->second.subchannels |= static_cast<std::uint8_t>(1u << subchannel);
-        return true;
+        try {
+            auto [it, inserted] = engines.try_emplace(
+                graphics_engine, GraphicsOwner{channel, ticket, 0});
+            it->second.subchannels |= static_cast<std::uint8_t>(1u << subchannel);
+            return true;
+        } catch (const std::bad_alloc&) {
+            return false;
+        }
     }
     void UnbindGraphicsSubchannel(
         const Tegra::Control::ChannelState* channel,
@@ -122,10 +134,14 @@ public:
             (old->second.channel != channel ||
              old->second.ticket.channel_generation != owner->second.channel_generation))
             return false;
-        auto [it, inserted] = compute_engines.try_emplace(
-            compute_engine, ComputeOwner{channel, owner->second, 0});
-        it->second.subchannels |= static_cast<std::uint8_t>(1u << subchannel);
-        return true;
+        try {
+            auto [it, inserted] = compute_engines.try_emplace(
+                compute_engine, ComputeOwner{channel, owner->second, 0});
+            it->second.subchannels |= static_cast<std::uint8_t>(1u << subchannel);
+            return true;
+        } catch (const std::bad_alloc&) {
+            return false;
+        }
     }
     void UnbindComputeSubchannel(
         const Tegra::Control::ChannelState* channel,
