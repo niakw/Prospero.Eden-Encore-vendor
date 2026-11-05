@@ -24,7 +24,10 @@
 #include "core/cpu_manager.h"
 #include "core/debugger/debugger.h"
 #include "core/device_memory.h"
+#include "core/file_sys/card_image.h"
+#include "core/file_sys/content_archive.h"
 #include "core/file_sys/fs_filesystem.h"
+#include "core/file_sys/submission_package.h"
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/program_metadata.h"
 #include "core/file_sys/registered_cache.h"
@@ -112,15 +115,54 @@ FileSys::VirtualFile GetGameFileFromPath(const FileSys::VirtualFilesystem& vfs,
 }
 
 namespace {
-// Read the NPDM beside ExeFS main before the kernel configures guest pools.
-// Never infer generation from a game's name or a non-verified file extension.
-bool IsSwitch2ExtractedProgram(const FileSys::VirtualFile& file) {
-    const auto directory = file ? file->GetContainingDirectory() : nullptr;
-    const auto npdm = directory ? directory->GetFile("main.npdm") : nullptr;
-    if (!npdm) return false;
-    FileSys::ProgramMetadata metadata;
-    return metadata.Load(npdm) == Loader::ResultStatus::Success &&
-           metadata.IsSwitch2();
+// Select NS2 guest memory BEFORE InitializeKernel, using only decrypted
+// program NPDM. This must cover NSP/XCI/NCA as well as extracted ExeFS:
+// detecting a container's filename alone would misclassify NS1 games.
+[[nodiscard]] bool IsSwitch2LaunchProgram(const FileSys::VirtualFile& file,
+                                          u64 program_id, std::size_t program_index) {
+    if (!file) return false;
+    const auto check_npdm = [](const FileSys::VirtualFile& npdm) {
+        if (!npdm) return false;
+        FileSys::ProgramMetadata metadata;
+        return metadata.Load(npdm) == Loader::ResultStatus::Success &&
+               metadata.IsSwitch2();
+    };
+    const auto check_program_nca = [&](const std::shared_ptr<FileSys::NCA>& program) {
+        if (!program || program->GetStatus() != Loader::ResultStatus::Success)
+            return false;
+        const auto exefs = program->GetExeFS();
+        return check_npdm(exefs ? exefs->GetFile("main.npdm") : nullptr);
+    };
+    try {
+        // Retain the existing extracted ExeFS path for both generations.
+        const auto directory = file->GetContainingDirectory();
+        const auto extracted = directory ? directory->GetFile("main.npdm") : nullptr;
+        if (extracted) return check_npdm(extracted);
+        switch (Loader::IdentifyFile(file)) {
+        case Loader::FileType::XCI: {
+            FileSys::XCI xci{file, program_id, program_index};
+            if (xci.GetStatus() != Loader::ResultStatus::Success) return false;
+            const auto secure = xci.GetSecurePartitionNSP();
+            return secure && secure->GetStatus() == Loader::ResultStatus::Success &&
+                   check_program_nca(secure->GetNCA(
+                       xci.GetProgramTitleID(), FileSys::ContentRecordType::Program));
+        }
+        case Loader::FileType::NSP: {
+            FileSys::NSP nsp{file, program_id, program_index};
+            return nsp.GetStatus() == Loader::ResultStatus::Success &&
+                   check_program_nca(nsp.GetNCA(
+                       nsp.GetProgramTitleID(), FileSys::ContentRecordType::Program));
+        }
+        case Loader::FileType::NCA:
+            return check_program_nca(std::make_shared<FileSys::NCA>(file));
+        default:
+            return false;
+        }
+    } catch (const std::exception&) {
+        // Absent keys, damaged archives or a failed metadata read must not
+        // select a 12 GiB guest layout based on an unverified container.
+        return false;
+    }
 }
 } // namespace
 
@@ -334,8 +376,9 @@ struct System::Impl {
         // string. NS2 may temporarily require a 12 GiB guest layout, but that
         // override must not survive a subsequent NS1 launch in the same app.
         const bool is_ns2_program =
-            virtual_filesystem && IsSwitch2ExtractedProgram(
-                                      GetGameFileFromPath(virtual_filesystem, filepath));
+            virtual_filesystem && IsSwitch2LaunchProgram(
+                                      GetGameFileFromPath(virtual_filesystem, filepath),
+                                      params.program_id, params.program_index);
         if (is_ns2_program) {
             if (!ns2_memory_layout_override &&
                 Settings::values.memory_layout_mode.GetValue() != Settings::MemoryLayout::Memory_12Gb) {
