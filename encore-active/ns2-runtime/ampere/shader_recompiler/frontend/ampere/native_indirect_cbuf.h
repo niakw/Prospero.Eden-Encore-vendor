@@ -59,8 +59,31 @@ inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
             if (!storage.is_written || storage.count != 1 ||
                 storage.cbuf_index >= kNativeQmdIndirectCbufBanks ||
                 !(info.constant_buffer_mask & (u32{1} << storage.cbuf_index)) ||
-                (storage.cbuf_offset & 7U) ||
+                (storage.cbuf_offset & 15U) ||
                 storage.cbuf_offset > 0x10000U - 16U)
+                return false;
+            // A CBUF mask bit is not a proof that a real uniform-buffer
+            // descriptor covers the requested bank. It can outlive a
+            // rejected/partially reconstructed NVN descriptor layout.
+            const bool declared_bank = std::ranges::any_of(
+                info.constant_buffer_descriptors, [&](const auto& cbuf) {
+                    return cbuf.count != 0 &&
+                           cbuf.index <= storage.cbuf_index &&
+                           storage.cbuf_index - cbuf.index < cbuf.count;
+                });
+            if (!declared_bank ||
+                info.constant_buffer_used_sizes[storage.cbuf_index] <
+                    storage.cbuf_offset + 16U)
+                return false;
+            // The native NVN Compute accessor indexes descriptors by
+            // FLATTENED SSBO slot. A valid-looking slot whose actual
+            // reflected address belongs to another slot must never
+            // silently redirect an atomic write. 0x310 is supplied by
+            // the real QMD3 Compute collector, not inferred from a game.
+            if ((info.nvn_buffer_base & 15U) ||
+                info.nvn_buffer_base > 0x10000U - 16U ||
+                bank.U32() > (0x10000U - 16U - info.nvn_buffer_base) / 16U ||
+                storage.cbuf_offset != info.nvn_buffer_base + bank.U32() * 16U)
                 return false;
             if (opcode >= Opcode::StorageAtomicIAdd32x2 &&
                 opcode <= Opcode::StorageAtomicExchange32x2)
