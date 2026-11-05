@@ -357,6 +357,33 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
 
     std::scoped_lock lock(channel_mutex);
 
+    // Reject malformed native submits BEFORE InitChannel, GPU channel
+    // registry mutations or syncpoint reservations. Invalid guest flags
+    // used to initialise a channel and bind an owner despite returning
+    // BadParameter later. Maxwell/NS1 retains its original admission.
+    const bool native = UsesNativeAbi(fd);
+    auto& flags = params.flags;
+    const auto native_plan = native
+        ? PlanNativeSubmission(static_cast<u32>(flags.raw),
+                               static_cast<u32>(params.fence.value), true)
+        : std::optional<NativeSubmissionPlan>{};
+    if (native && !native_plan) return NvResult::BadParameter;
+
+    // A native GPU device may expose multiple FDs. A rejected or foreign
+    // process must not cause InitChannel on another guest's address space.
+    const Kernel::KProcess* native_owner = nullptr;
+    if (native) {
+        const auto it = sessions.find(fd);
+        const auto* owner = it == sessions.end() ? nullptr : core.GetSession(it->second);
+        if (!owner || !owner->process) return NvResult::InvalidState;
+        native_owner = owner->process;
+        for (const auto& [other_fd, session_id] : sessions) {
+            const auto* opened = core.GetSession(session_id);
+            if (!opened || opened->process != native_owner)
+                return NvResult::InvalidState;
+        }
+    }
+
     // Lazily initialize channel when address space is available
     if (!channel_state->initialized && channel_state->memory_manager) {
         system.GPU().InitChannel(*channel_state, channel_state->program_id);
@@ -365,7 +392,6 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     // A real native GPU channel requires a bound GMMU and initialized
     // command scheduler. Never acknowledge 2nd-gen submissions before those
     // resources exist, and never change the existing Switch 1 path.
-    const bool native = UsesNativeAbi(fd);
 #ifdef PS5_NATIVE
     // Capture the actual NVDRV -> GPFIFO boundary, including cases where a
     // guest submission is incorrectly treated as legacy. Bounded: quiet in
@@ -383,29 +409,13 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
 #endif
     if (native && (!channel_state->initialized || !channel_state->memory_manager))
         return NvResult::InvalidState;
-    // One nvhost-gpu device can expose multiple FDs. Never hand a native
-    // engine to a channel containing another process's GPU sessions.
-    if (native) {
-        const auto it = sessions.find(fd);
-        const auto* owner = it == sessions.end() ? nullptr : core.GetSession(it->second);
-        if (!owner || !owner->process) return NvResult::InvalidState;
-        for (const auto& [other_fd, session_id] : sessions) {
-            const auto* opened = core.GetSession(session_id);
-            if (!opened || opened->process != owner->process)
-                return NvResult::InvalidState;
-        }
-        if (!NativeGpuChannelRegistry::Instance().Bind(channel_state.get(), owner->process))
-            return NvResult::InvalidState;
-    }
+    // Bind only a validated process, after the channel has a real GMMU
+    // and the complete native fence plan has already passed admission.
+    if (native && !NativeGpuChannelRegistry::Instance().Bind(
+                      channel_state.get(), native_owner))
+        return NvResult::InvalidState;
 
     const auto bind_id = channel_state->bind_id;
-    auto& flags = params.flags;
-    // Preflight before mutating syncpoint maxima or enqueueing GPU entries.
-    const auto native_plan = native
-        ? PlanNativeSubmission(static_cast<u32>(flags.raw),
-                               static_cast<u32>(params.fence.value), true)
-        : std::optional<NativeSubmissionPlan>{};
-    if (native && !native_plan) return NvResult::BadParameter;
     const u32 native_completion = native_plan ? native_plan->completion_count : 0;
 
     if (flags.fence_wait.Value()) {
@@ -420,8 +430,13 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
 
     params.fence.id = channel_syncpoint;
 
-    u32 increment{(flags.fence_increment.Value() != 0 ? 2 : 0) +
-                  (flags.increment_value.Value() != 0 ? params.fence.value : 0)};
+    // Use the SAME reviewed native envelope that determined how many
+    // completion commands the GPU queue will issue. Never reserve a fence
+    // using a second, independently computed native increment count.
+    const u32 increment = native
+        ? native_plan->increment_total
+        : (flags.fence_increment.Value() != 0 ? 2U : 0U) +
+          (flags.increment_value.Value() != 0 ? u32{params.fence.value} : 0U);
     params.fence.value = syncpoint_manager.IncrementSyncpointMaxExt(channel_syncpoint, increment);
     gpu.PushGPUEntries(bind_id, std::move(entries));
 

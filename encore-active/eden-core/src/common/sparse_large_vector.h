@@ -214,7 +214,11 @@ private:
         const std::size_t first_page = slot_offset / HostPageSize;
         const std::size_t total_pages = alloc_size / HostPageSize +
                                         (alloc_size % HostPageSize != 0);
-        const std::size_t last_page = (std::min)(first_page + span / HostPageSize,
+        // HostPageSize is u64 while std::size_t may be a distinct 64-bit
+        // type on ARM64. Keep both min operands in the actual page-count
+        // domain; the mixed types failed the real nvhost GPU TU parse.
+        const std::size_t pages_per_slot = span / static_cast<std::size_t>(HostPageSize);
+        const std::size_t last_page = (std::min)(first_page + pages_per_slot,
                                                   total_pages);
         if (last_page <= first_page) return;
         // The caller owns sparse_mutation_mutex. Read each 64-page bitmap word
