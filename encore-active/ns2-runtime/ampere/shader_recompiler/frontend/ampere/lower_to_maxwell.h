@@ -3111,8 +3111,13 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             }
             break;
         }
-        case 0x308: case 0xb08: case 0xd08: { // MUFU
+        case 0x308: case 0x908: case 0xb08: case 0xd08: { // MUFU
             const u32 operation = insn.Bits(74, 6);
+            // 0x908 is the reviewed 32-bit immediate form; its source A
+            // register and unsupported modifier fields must be zero.
+            if (opcode == 0x908 &&
+                (insn.Bits(24, 8) || (insn.words[2] & ~0xfc00U)))
+                return fail(index, "native immediate MUFU mode");
             if (operation > 9 || (operation == 9 && insn.Bits(73, 1)) || operation == 6 || operation == 7 || insn.Bits(80, 11) ||
                 (opcode == 0xd08 ? !insn.Bits(91, 1) || (insn.words[1] & ~0xc00000ffU) != 0 : insn.Bits(91, 1) != 0)) return fail(index, "native MUFU mode");
             // SM70+ MUFU.COS/SIN take the angle in turns (compilers multiply by 1/2pi first);
