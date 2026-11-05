@@ -7,6 +7,7 @@
 
 #ifdef PS5_NATIVE
 #include "gpu_failure.h"
+#include <stdexcept>
 #endif
 #include "common/logging.h"
 #include "common/settings.h"
@@ -17,6 +18,7 @@
 #include "video_core/guest_memory.h"
 #ifdef EDEN_NS2_NATIVE_GPU_DISPATCH
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_fetch_admission.h"
 #endif
 #include "video_core/memory_manager.h"
 #include "video_core/rasterizer_interface.h"
@@ -96,6 +98,30 @@ bool DmaPusher::Step() {
     }
 
     if (header.size > 0) {
+#ifdef EDEN_NS2_NATIVE_GPU_DISPATCH
+        // Command headers are validated by NVDRV at submission, but the
+        // address space can change before the GPU worker consumes the live
+        // command words. Revalidate after the inter-list fence wait and
+        // before dirty-memory probes, SafeRead, or ProcessCommands. Never
+        // acknowledge a revoked native GPFIFO as an all-zero pushbuffer.
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &channel_state) &&
+            !Service::Nvidia::Devices::NativeGpfifoFetchMapped(
+                dma_state.dma_get, static_cast<u64>(header.size),
+                [this](u64 addr, u64 bytes) {
+                    return memory_manager.IsFullyMappedRange(addr, bytes);
+                })) {
+            LOG_ERROR(HW_GPU, "Native GPFIFO command unmapped at fetch: address={:#x} words={}",
+                      dma_state.dma_get, static_cast<u64>(header.size));
+#ifdef PS5_NATIVE
+            // Report a fatal native channel failure to the main title owner
+            // without throwing across the GPU worker's std::jthread boundary.
+            ::Eden::RecordGpuFailure(std::make_exception_ptr(
+                std::runtime_error("Native GPFIFO command unmapped at GPU fetch")));
+#endif
+            return false;
+        }
+#endif
         if (subchannels[dma_state.subchannel] && dma_state.method_count) {
             const auto engine = subchannel_type[dma_state.subchannel];
             const bool kepler_payload = engine == Engines::EngineTypes::KeplerCompute && dma_state.method == ComputeInline && dma_state.non_incrementing;
