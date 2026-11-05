@@ -50,7 +50,7 @@ inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
                 opcode > Opcode::StorageAtomicMaxF32x2)
                 continue;
             const auto bank = inst.Arg(0);
-            if (!bank.IsImmediate() ||
+            if (!bank.IsImmediate() || bank.Type() != Shader::IR::Type::U32 ||
                 bank.U32() >= info.storage_buffers_descriptors.size() ||
                 bank.U32() >= info.nvn_buffer_used.size() ||
                 !info.nvn_buffer_used.test(bank.U32()))
@@ -95,7 +95,8 @@ inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
                 return false; // No silent non-atomic 64-bit fallback on NS2.
             const auto byte_offset = inst.Arg(1);
             if (byte_offset.IsImmediate() &&
-                (byte_offset.U32() & (wide ? 7U : 3U)))
+                (byte_offset.Type() != Shader::IR::Type::U32 ||
+                 (byte_offset.U32() & (wide ? 7U : 3U))))
                 return false; // No rounding an atomic to the PREVIOUS word.
             // Dynamic byte offsets still need actual renderer/GMMU bounds
             // proof at dispatch; this gate authenticates only their SSBO
@@ -143,12 +144,25 @@ inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
         !info.storage_buffers_descriptors.empty() ||
         !info.nvn_buffer_used.any())
         return false;
+    // A mask bit alone does not authenticate the source descriptor.
+    // Reject overlapping, absent and disabled CBUF records before creating
+    // any flattened SSBO; a duplicate bank 0 could alias an atomic store.
+    u32 declared_mask{};
     bool bank_zero_declared{};
     for (const auto& cbuf : info.constant_buffer_descriptors) {
+        if (!cbuf.count || cbuf.index >= kNativeQmdIndirectCbufBanks ||
+            cbuf.count > kNativeQmdIndirectCbufBanks - cbuf.index)
+            return false;
+        for (u32 i = 0; i < cbuf.count; ++i) {
+            const u32 bit = u32{1} << (cbuf.index + i);
+            if ((declared_mask & bit) || !(enabled_cbuf_mask & bit))
+                return false;
+            declared_mask |= bit;
+        }
         if (cbuf.index == 0 && cbuf.count == 1)
             bank_zero_declared = true;
     }
-    if (!bank_zero_declared)
+    if (!bank_zero_declared || declared_mask != info.constant_buffer_mask)
         return false;
     u32 slot_count{};
     for (u32 i = 0; i < info.nvn_buffer_used.size(); ++i) {
@@ -289,6 +303,7 @@ private:
         u32 referenced_mask{};
         std::array<u32, kNativeQmdIndirectCbufBanks> required_sizes{};
         for (const Shader::IR::Block* const block : program.blocks) {
+            if (!block) return false;
             for (const Shader::IR::Inst& inst : block->Instructions()) {
                 switch (inst.GetOpcode()) {
                 case Shader::IR::Opcode::GetCbufU8:
@@ -349,6 +364,7 @@ private:
     bool has_register_indexed_read = false;
     bool all_offsets_static = true;
     for (const Shader::IR::Block* const block : program.blocks) {
+        if (!block) return false;
         for (const Shader::IR::Inst& inst : block->Instructions()) {
             switch (inst.GetOpcode()) {
             case Shader::IR::Opcode::GetCbufU8:
