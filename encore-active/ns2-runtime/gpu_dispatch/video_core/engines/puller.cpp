@@ -672,7 +672,8 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
     const bool reduction_enabled = (control & (1U << 3)) != 0;
     const std::size_t write_bytes =
         (reduction_enabled || one_word) ? sizeof(u32) : 16U;
-    if ((operation != 0 && operation != 2) || (address & 3U) ||
+    if ((operation != 0 && operation != 2) ||
+        !Tegra::NativeComputeSemaphoreSpanValid(address, write_bytes) ||
         !memory->IsFullyMappedRange(address, write_bytes)) {
         LOG_ERROR(HW_GPU, "Native Compute report semaphore rejected: operation={} address={:#x}",
                   operation, address);
@@ -685,6 +686,7 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
                 auto& current =
                     Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
                 if (!current.IsCurrent(channel, ticket) ||
+                    !Tegra::NativeComputeSemaphoreSpanValid(address, sizeof(u32)) ||
                     !memory->IsFullyMappedRange(address, sizeof(u32))) return;
                 const u32 old_value = memory->Read<u32>(address);
                 memory->Write<u32>(

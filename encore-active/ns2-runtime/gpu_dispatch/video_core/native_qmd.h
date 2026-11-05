@@ -461,6 +461,20 @@ template <typename IsMapped>
     }
 }
 
+// Ampere SET_REPORT_SEMAPHORE_A/D has an extended high-address field.
+// Preserve the full guest address for validation: truncating it to 49 bits
+// would silently signal an unrelated low GPU page. The native GMMU has
+// exactly 49 VA bits. A report writes either one word or four words.
+// Validate the complete span before queueing any GPU fence/query.
+[[nodiscard]] constexpr bool NativeComputeSemaphoreSpanValid(
+    std::uint64_t address, std::size_t bytes) noexcept {
+    constexpr std::uint64_t limit = std::uint64_t{1} << 49;
+    return (bytes == sizeof(std::uint32_t) ||
+            bytes == 4U * sizeof(std::uint32_t)) &&
+           address != 0 && (address & 3U) == 0 &&
+           address < limit && bytes <= limit - address;
+}
+
 // Native SET_REPORT_SEMAPHORE_D reduction operations (Ampere class 0xC7C0).
 // Side-effect free so the GPU fence callback can apply them only after
 // validating that the owning channel and destination mapping still exist.
