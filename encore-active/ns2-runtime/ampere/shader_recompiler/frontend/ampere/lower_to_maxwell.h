@@ -131,7 +131,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         const bool uniform_destination = op == 0x291 || op == 0x2be || op == 0x896 || op == 0x883 || op == 0x2a4 || op == 0x8a4 || op == 0x290 || op == 0x890 ||
             op == 0x891 || op == 0x892 || op == 0x899 || op == 0x882 || op == 0xc82 || op == 0x2bd || op == 0x3c4 ||
             op == 0x3c2 || op == 0x886 || op == 0xab9 || op == 0xabb || op == 0x9c3 || op == 0x287 || op == 0x887 ||
-            op == 0x292 || op == 0x299 || op == 0x499;
+            op == 0x292 || op == 0x299 || op == 0x499 || op == 0x2bf;
         if (uniform_destination) uses_extended_uniform_bank |= extended_uniform(instruction.Bits(16, 8));
         switch (op) {
         case 0x291: case 0x2a4: case 0x290: case 0x292: case 0x299:
@@ -143,7 +143,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         case 0x499:
             uses_extended_uniform_bank |= extended_uniform(instruction.Bits(64, 8));
             break;
-        case 0x2be:
+        case 0x2be: case 0x2bf:
             uses_extended_uniform_bank |= extended_uniform(instruction.Bits(32, 8));
             break;
         case 0x896: case 0x526:
@@ -194,7 +194,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         default: break;
         }
-        uses_uniform_bank |= op == 0xc07 || op == 0xc0a || op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
+        uses_uniform_bank |= op == 0x2bf || op == 0xc07 || op == 0xc0a || op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
                              op == 0x886 || op == 0x3c2 || op == 0xc82 || op == 0x882 || op == 0xd24 || op == 0x499 || (op == 0x98e && instruction.Bits(91, 1)) || (op == 0x81c && instruction.Bits(67, 1));
     }
     const bool uses_async_copy = std::any_of(code.begin(), code.end(), [](const auto& instruction) {
@@ -1724,6 +1724,20 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 return fail(index, "native uniform bit reverse mode");
             emit(0x3828000000070000ULL | uniform_register(static_cast<u32>(dest)) | (u64{source} << 8) |
                  (u64{1} << 39) | (u64{1} << 40));
+            break;
+        }
+        case 0x2bf: { // UPOPC: popcount of one uniform register into another.
+            // Reserve the uniform GPR bank before lowering, as for UBREV.
+            // Native UR63 is zero, but cannot be the result destination.
+            const u32 destination = uniform_register(static_cast<u32>(dest));
+            const u32 source = uniform_register(insn.Bits(32, 8));
+            if (dest >= 63 || destination == ~0U || source == ~0U ||
+                native_predicate != 7 || insn.Bits(24, 8) ||
+                (insn.words[1] & ~0x800000ffU) ||
+                insn.words[2] != 0x08000000U)
+                return fail(index, "native uniform population count mode");
+            emit(0x5c08000000070000ULL | destination | (u64{source} << 20) |
+                 (u64{insn.Bits(63, 1)} << 40));
             break;
         }
         case 0x301: // BREV register.
