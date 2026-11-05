@@ -1331,7 +1331,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                  (u64{uniform_register(insn.words[1])} << 20) | (u64{15} << 39));
             break;
         }
-        case 0xab9: case 0xabb: { // ULDC U8/U16/U32/U64, direct or indexed.
+        case 0xab9: case 0xabb: { // ULDC U8/S8/U16/S16/U32/U64, direct or indexed.
             const u32 uniform_dest = insn.Bits(16, 8), index_reg = insn.Bits(24, 8);
             const u32 width = insn.Bits(73, 3);
             const u32 offset = insn.Bits(38, 16);
@@ -1339,9 +1339,9 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             // the UR index contributes the final byte address. Direct
             // reads must retain natural alignment and the unsigned
             // short displacement required by Maxwell subword LDC.
-            const bool subword = width == 0 || width == 2;
-            const u32 alignment = width == 0 ? 1U : width == 2 ? 2U : 4U;
-            if (uniform_dest >= 63 || (!subword && width != 4 && width != 5) ||
+            const bool subword = width <= 3; // Include signed S8/S16 variants.
+            const u32 alignment = width <= 1 ? 1U : width <= 3 ? 2U : 4U;
+            if (uniform_dest >= 63 || width > 5 ||
                 (width == 5 && ((uniform_dest & 1) || uniform_dest >= 62)) ||
                 (opcode == 0xab9 && (offset % alignment ||
                                      (subword && offset >= 0x8000U))) || insn.Bits(62, 2) ||
