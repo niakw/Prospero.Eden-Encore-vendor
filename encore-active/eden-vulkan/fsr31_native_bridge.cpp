@@ -3,6 +3,7 @@
 // There is deliberately NO automatic call from PresentManager here: the
 // colour-only screen image does not contain real guest motion/depth/jitter.
 #include <cmath>
+#include "fsr31_vram_budget.h"
 #include "video_core/renderer_vulkan/fsr31_native_bridge.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/vulkan_common/vulkan_device.h"
@@ -39,6 +40,33 @@ std::optional<Fsr31NativeOutput> Fsr31NativeBridge::TryRecord(
         ResetHistory();
         return std::nullopt;
     }
+    if ((frame.color_format!=VK_FORMAT_R16G16B16A16_SFLOAT &&
+         frame.color_format!=VK_FORMAT_B10G11R11_UFLOAT_PACK32) ||
+        frame.depth_format!=VK_FORMAT_D32_SFLOAT ||
+        frame.motion_format!=VK_FORMAT_R16G16_SFLOAT) {
+        last_rejection=Temporal::Rejection::UnsupportedInputFormat;
+        ResetHistory();
+        return std::nullopt;
+    }
+    const auto& input=frame.metadata;
+    // Preallocation check runs only for a new temporal history or whenever
+    // the renderer changes resolution. Avoid querying memory each frame.
+    if (!upscaler || input.render_width!=last_render_width ||
+        input.render_height!=last_render_height ||
+        input.output_width!=last_output_width ||
+        input.output_height!=last_output_height) {
+        const auto estimate=Fsr31Budget::Evaluate(
+            {.render_width=input.render_width,.render_height=input.render_height,
+             .output_width=input.output_width,.output_height=input.output_height},
+            {.device_local_bytes=device.GetDeviceLocalMemory(),
+             .used_bytes=device.CanReportMemoryUsage()?device.GetDeviceMemoryUsage():0,
+             .usage_is_known=device.CanReportMemoryUsage()});
+        if (estimate.decision!=Fsr31Budget::Decision::Allowed) {
+            last_rejection=Temporal::Rejection::InsufficientMemoryBudget;
+            ResetHistory();
+            return std::nullopt;
+        }
+    }
     if (!std::isfinite(frame.sharpness) ||
         frame.sharpness < 0.0f || frame.sharpness > 1.0f) {
         last_rejection = Temporal::Rejection::InvalidSharpening;
@@ -70,9 +98,16 @@ std::optional<Fsr31NativeOutput> Fsr31NativeBridge::TryRecord(
         .sharpen=frame.sharpen,
         .sharpness=frame.sharpness,
     };
-    // Caller owns guest images through GPU completion and must composite
-    // OutputImage/View under correct VK_IMAGE_LAYOUT_GENERAL barriers.
+    // All work is recorded against the same guest GPU scheduler and
+    // must execute outside any existing rasterization pass.
+    scheduler.RequestOutsideRenderPassOperationContext();
+    // Caller retains ownership of the original VkImageViews and must keep
+    // them resident until this scheduler's GPU tick has completed.
     upscaler->Upscale(native);
+    last_render_width=input.render_width;
+    last_render_height=input.render_height;
+    last_output_width=input.output_width;
+    last_output_height=input.output_height;
     needs_reset=false;
     return Fsr31NativeOutput{upscaler->OutputImage(),upscaler->OutputView()};
 }
