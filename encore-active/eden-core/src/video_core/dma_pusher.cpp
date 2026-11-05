@@ -8,6 +8,7 @@
 #ifdef PS5_NATIVE
 #include "gpu_failure.h"
 #endif
+#include "common/logging.h"
 #include "common/settings.h"
 #include "core/core.h"
 #include "video_core/dma_pusher.h"
@@ -223,6 +224,13 @@ void DmaPusher::CallMethod(u32 argument) {
         });
     } else {
         auto subchannel = subchannels[dma_state.subchannel];
+        if (!subchannel) {
+            // A guest may submit methods before binding an engine. Never
+            // dereference a missing subchannel or replay it as a valid method.
+            LOG_ERROR(HW_GPU, "GPFIFO method {:#x} on unbound subchannel {}",
+                      dma_state.method, dma_state.subchannel);
+            return;
+        }
         if (!subchannel->execution_mask[dma_state.method]) {
             subchannel->method_sink.emplace_back(dma_state.method, argument);
         } else {
@@ -238,6 +246,13 @@ void DmaPusher::CallMultiMethod(const u32* base_start, u32 num_methods) {
         puller.CallMultiMethod(*this, dma_state.method, dma_state.subchannel, base_start, num_methods, dma_state.method_count);
     } else {
         auto subchannel = subchannels[dma_state.subchannel];
+        if (!subchannel) {
+            // A guest may submit methods before binding an engine. Never
+            // dereference a missing subchannel or replay it as a valid method.
+            LOG_ERROR(HW_GPU, "GPFIFO method {:#x} on unbound subchannel {}",
+                      dma_state.method, dma_state.subchannel);
+            return;
+        }
         subchannel->ConsumeSink(system);
         subchannel->current_dma_segment = dma_state.dma_get + dma_state.dma_word_offset;
         subchannel->CallMultiMethod(system, dma_state.method, base_start, num_methods, dma_state.method_count);
