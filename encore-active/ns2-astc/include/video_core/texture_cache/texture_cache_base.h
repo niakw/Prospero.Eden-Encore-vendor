@@ -180,7 +180,7 @@ public:
     /// Mark an image as modified from the GPU
     void MarkModification(ImageId id) noexcept;
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     // An already authenticated native TIC/TSC record can use the SAME slot
     // owner as Maxwell. Caller must hold mutex, bind the correct GPU
     // channel and validate the entire 49-bit GMMU span first.

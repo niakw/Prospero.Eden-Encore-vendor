@@ -1049,7 +1049,7 @@ typename P::Framebuffer* TextureCache<P>::GetFramebuffer() {
     return &slot_framebuffers[framebuffer_id];
 }
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 // NS2 and NS1 use one TextureCache channel map, image slots and invalidation
 // path. Native callers have already authenticated their TIC and 49-bit GMMU.
 // Never run legacy IsValidEntry here: its 40-bit VA limit is Maxwell-only.

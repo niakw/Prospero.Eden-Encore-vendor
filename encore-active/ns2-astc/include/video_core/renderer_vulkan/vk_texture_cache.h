@@ -354,7 +354,7 @@ public:
 
     Image(Image&&) = default;
     Image& operator=(Image&&) = default;
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     // A reference is held by the REAL GPU descriptor owner until its fence.
     // The runtime's retirement queue cannot destroy this Vulkan resource
     // while a native QMD dispatch still pins it.
@@ -423,7 +423,7 @@ private:
 
     bool NeedsScaleHelper() const;
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     std::shared_ptr<u8> native_gpu_pin;
 #endif
     Scheduler* scheduler{};
@@ -471,7 +471,7 @@ public:
 
     ImageView(ImageView&&) = default;
     ImageView& operator=(ImageView&&) = default;
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     // A reference is held by the REAL GPU descriptor owner until its fence.
     // The runtime's retirement queue cannot destroy this Vulkan resource
     // while a native QMD dispatch still pins it.
@@ -549,7 +549,7 @@ private:
     [[nodiscard]] vk::ImageView MakeView(VkFormat vk_format, VkImageAspectFlags aspect_mask,
                                          std::optional<Shader::TextureType> texture_type = std::nullopt);
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     std::shared_ptr<u8> native_gpu_pin;
 #endif
     const Device* device = nullptr;
@@ -602,7 +602,7 @@ public:
     explicit Sampler(TextureCacheRuntime&, const Tegra::Texture::TSCEntry&);
 
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     // A reference is held by the REAL GPU descriptor owner until its fence.
     // The runtime's retirement queue cannot destroy this Vulkan resource
     // while a native QMD dispatch still pins it.
@@ -649,7 +649,7 @@ private:
     [[nodiscard]] VkSampler Find(const VariantKey& key) const noexcept;
     VkSampler Emplace(VariantKey key);
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     std::shared_ptr<u8> native_gpu_pin;
 #endif
     CustomBorderColorBudget custom_border_color_budget;

@@ -17,7 +17,7 @@
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/gpu.h"
 #include "video_core/guest_memory.h"
-#ifdef EDEN_NS2_NATIVE_GPU_DISPATCH
+#ifdef PS5_NATIVE
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_fetch_admission.h"
 #endif
@@ -103,7 +103,7 @@ bool DmaPusher::Step() {
     }
 
     if (header.size > 0) {
-#ifdef EDEN_NS2_NATIVE_GPU_DISPATCH
+#ifdef PS5_NATIVE
         // Command headers are validated by NVDRV at submission, but the
         // address space can change before the GPU worker consumes the live
         // command words. Revalidate after the inter-list fence wait and
@@ -141,7 +141,7 @@ bool DmaPusher::Step() {
             }
         }
         bool use_safe = Settings::IsDMALevelDefault() ? Settings::IsGPULevelHigh() : Settings::IsDMALevelSafe();
-#ifdef EDEN_NS2_NATIVE_GPU_DISPATCH
+#ifdef PS5_NATIVE
         // P2.7: C7x0 native GPFIFO command words can have been produced by
         // an earlier GPU dispatch. A guest setting for UNSAFE DMA must never
         // bypass GPU cache coherency for an authenticated NS2 channel.
@@ -164,7 +164,7 @@ bool DmaPusher::Step() {
     } else {
         const bool explicit_sync = command_list.command_lists[dma_pushbuffer_subindex].sync;
         const bool user_sync = Settings::values.sync_memory_operations.GetValue();
-#ifdef EDEN_NS2_NATIVE_GPU_DISPATCH
+#ifdef PS5_NATIVE
         // A native NS2 GPFIFO fence is part of the guest-visible ordering
         // contract, not an optional host quality preset. Its previous
         // Compute/3D writes must retire BEFORE the next live command list

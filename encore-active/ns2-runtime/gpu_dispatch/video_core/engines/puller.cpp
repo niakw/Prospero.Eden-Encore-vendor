@@ -32,7 +32,7 @@
 #include "video_core/memory_manager.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/native_qmd.h"
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 #include "video_core/native_shader_capture.h"
 #endif
 
@@ -834,7 +834,7 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                 const bool sample = n <= 4 || (n & (n - 1)) == 0;
                 if (sample) {
                     if (mapped) {
-#if defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
                         // Production-facing QMD3 capture: fetch the ACTUAL
                         // mapped guest Ampere program, lower to a bounded
                         // Maxwell image and recheck the owning GPU epoch.
@@ -879,7 +879,7 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                 (void)compute_ticket;
                 (void)channel_ticket;
 #endif
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
                 if (mapped && release_targets_mapped) {
                     // This is the only native QMD3 -> rasterizer handoff.
                     // Do not treat a valid capture as a submitted shader, and

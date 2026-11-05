@@ -9,12 +9,12 @@
 #include "shader_recompiler/stage.h"
 #include "video_core/memory_manager.h"
 #include "video_core/engines/maxwell_3d.h"
-#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+#ifdef PS5_NATIVE
 #include "shader_recompiler/frontend/ampere/translation_cache.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #endif
 
-#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+#ifdef PS5_NATIVE
 namespace Service::Nvidia::Devices {
 std::shared_ptr<Shader::Ampere::NativeTranslationCache>
 NativeGpuChannelRegistry::AcquireGraphicsTranslationCache(

@@ -16,7 +16,7 @@
 #include <boost/container/small_vector.hpp>
 #include <fmt/format.h>
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 #include "shader_recompiler/frontend/ampere/native_qmd_compute_environment.h"
 #endif
 #include "video_core/renderer_vulkan/pipeline_helper.h"
@@ -613,7 +613,7 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     return true;
 }
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 // Native QMD3 buffer-only Vulkan descriptor path. The caller owns the GPU
 // channel lock and must revalidate its native engine ticket before dispatch.
 // The legacy KeplerCompute::launch_description is never read here.

@@ -29,7 +29,7 @@ namespace VideoCore {
 class ShaderNotify;
 }
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 namespace Shader::Ampere { struct NativeQmdResourcePlan; }
 #endif
 namespace Vulkan {
@@ -38,7 +38,7 @@ class Device;
 class PipelineStatistics;
 class Scheduler;
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 // The actual shared-cache Vulkan handles plus their fence-held object pins.
 // Raw TIC/TSC IDs never cross the Vulkan descriptor publication boundary.
 // A 1D TIC buffer is a BufferCache allocation, not a VkImage. The renderer
@@ -112,7 +112,7 @@ public:
                    ? descriptor_buffer_layout.size : 0;
     }
 #endif
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     [[nodiscard]] bool ConfigureNative(
         const Shader::Ampere::NativeQmdResourcePlan& resources,
         Tegra::MemoryManager& gpu_memory, Scheduler& scheduler,

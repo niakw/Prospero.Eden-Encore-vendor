@@ -52,7 +52,7 @@
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 #include <stdexcept>
 #include "common/cityhash.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
@@ -76,7 +76,7 @@ using VideoCommon::ImageViewType;
 
 
 namespace {
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 // A native TIC/TSC snapshot can read GPU memory while holding the common
 // TextureCache mutex. GPU ReadBlock flushes registered image pages through
 // RasterizerVulkan::FlushRegion, which must not lock that same mutex twice.
@@ -295,7 +295,7 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
       fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache, device, scheduler),
       wfi_event(device.GetLogical().CreateEvent()) {
     scheduler.SetQueryCache(query_cache);
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     native_compute_device_limits = device.GetPhysical().GetProperties().limits;
 #endif
 }
@@ -894,7 +894,7 @@ constexpr VkPipelineStageFlags COMPUTE_CONSUMER_STAGES =
 } // namespace
 
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 namespace {
 // Native QMD shader metadata reads authenticated channel TIC records.
 // Vulkan images/samplers still fail closed until shared TextureCache binding.
@@ -1914,7 +1914,7 @@ void RasterizerVulkan::FlushRegion(DAddr addr, u64 size, VideoCommon::CacheType 
     // Unknown, large or previously registered pages keep the original lock.
     if (True(which & VideoCommon::CacheType::TextureCache) &&
         !::Eden::ImagePages::NeverHeld(addr, size)) {
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
         if (native_texture_read_lock_owner == this) {
             // Our caller already holds texture_cache.mutex. Preserve the
             // exact GPU-dirty readback, but never recursively lock a

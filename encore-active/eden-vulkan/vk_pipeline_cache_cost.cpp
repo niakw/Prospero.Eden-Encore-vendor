@@ -66,7 +66,7 @@
 #include "video_core/surface.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
-#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+#ifdef PS5_NATIVE
 #include <limits>
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "video_core/native_shader_capture.h"
@@ -75,7 +75,7 @@
 #include "shader_recompiler/frontend/ampere/native_graphics_stage_policy.h"
 #include "shader_recompiler/stage.h"
 #endif
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 #include "shader_recompiler/frontend/ampere/renderer_spirv_bridge.h"
 #endif
 #include "video_core/gpu_logging/gpu_logging.h"
@@ -823,7 +823,7 @@ bool EdenAttributelessStaticKey(const FixedPipelineState& state) {
 
 GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
 
-#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+#ifdef PS5_NATIVE
     // A real 0xC797 GPU bind, never title/firmware heuristics, chooses the
     // native 128-bit shader reader. RefreshStages interprets 64-bit Maxwell
     // words and must NOT touch an authenticated Ampere graphics channel.
@@ -934,7 +934,7 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
     }
     eden_static_vertex_input_bound = static_vertex_input;
 
-#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+#ifdef PS5_NATIVE
     // A GPU channel may unbind/rebind between the last mapped instruction
     // and the graphics cache lookup. Every native draw, including an LRU or
     // immediate Next(key) hit, must authenticate its original engine epoch.
@@ -951,7 +951,7 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
         GraphicsPipeline* const next{current_pipeline->Next(graphics_key)};
         if (next) {
             current_pipeline = next;
-#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+#ifdef PS5_NATIVE
             if (!native_session_current()) {
                 current_pipeline = nullptr;
                 return nullptr;
@@ -961,7 +961,7 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
         }
     }
     GraphicsPipeline* selected = CurrentGraphicsPipelineSlowPath();
-#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+#ifdef PS5_NATIVE
     if (!native_session_current()) {
         current_pipeline = nullptr;
         return nullptr;
@@ -970,7 +970,7 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
     return selected;
 }
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 // Build a genuine VkComputePipeline from an authenticated Ampere shader's
 // owned SPIR-V + Shader::Info. Never call ShaderCache::ComputeShader()
 // (which parses Switch 1 Maxwell code) or serialize this in the NS1 cache.
@@ -1054,7 +1054,7 @@ std::shared_ptr<ComputePipeline> PipelineCache::CreateNativeComputePipeline(
 #endif
 
 ComputePipeline* PipelineCache::CurrentComputePipeline() {
-#if defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     // An authenticated Ampere compute engine must never enter the legacy
     // Maxwell ShaderCache::ComputeShader() path: those 128-bit instructions
     // need the new QMD-scoped native SPIR-V pipeline and resource binding.
@@ -1763,7 +1763,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     LOG_ERROR(Render_Vulkan, "{}", exception.what());
     return nullptr;
 }
-#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+#ifdef PS5_NATIVE
 catch (const std::exception& exception) {
     // Native Ampere lowerers, GMMU adapters and SPIR-V helpers may reject
     // unimplemented guest instruction forms with std::runtime_error rather
@@ -1788,7 +1788,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
     GraphicsTranslationPriorityScope first_use_preparation_priority{
         ::Eden::DevVulkan::fast_first_pipelines};
 #endif
-#ifdef EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL
+#ifdef PS5_NATIVE
     // Research-only real GPU bridge: feed the maintained Vulkan
     // CFG -> IR -> SPIR-V -> GraphicsPipeline builder with *translated*
     // Maxwell-compatible instructions, never raw 128-bit Ampere words.

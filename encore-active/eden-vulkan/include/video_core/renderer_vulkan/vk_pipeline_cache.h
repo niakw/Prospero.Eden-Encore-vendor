@@ -45,7 +45,7 @@ namespace VideoCore {
 class ShaderNotify;
 }
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 namespace Shader::Ampere { class NativeMaxwellEnvironment; struct NativeSpirvResult; }
 #endif
 namespace Vulkan {
@@ -119,7 +119,7 @@ public:
 
     [[nodiscard]] ComputePipeline* CurrentComputePipeline();
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     [[nodiscard]] Shader::Ampere::NativeSpirvResult CompileNativeComputeSpirv(
         Shader::Ampere::NativeMaxwellEnvironment& env) const;
     // Shared GPU timeline owner and bounded native pipeline reuse.
@@ -175,7 +175,7 @@ private:
     GraphicsPipeline* current_pipeline{};
 
     ::Common::unordered_map<ComputePipelineCacheKey, std::unique_ptr<ComputePipeline>> compute_cache;
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     // Authentic Ampere Compute is keyed by process and channel bind epoch
     // plus the complete SPIR-V words, never Maxwell's shader-cache key.
     // Bounded 12-entry LRU; in-flight dispatches retain shared owners.
