@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <limits>
 #include <mutex>
+#include <new>
 #include <optional>
 
 namespace Tegra {
@@ -80,7 +81,19 @@ public:
                 });
                 if (states.size() >= 4096) return "QMD cache limit";
             }
-            auto [state_it, newly_inserted] = states.try_emplace(request.address);
+            // QMD state allocation is driven by untrusted PCAS addresses.
+            // A failed unordered_map growth must produce an ordinary GPU
+            // rejection, not unwind through the GPU worker/process thread.
+            // No dispatch or semaphore has been accepted at this point.
+            decltype(states)::iterator state_it;
+            bool newly_inserted{};
+            try {
+                const auto [it, inserted] = states.try_emplace(request.address);
+                state_it = it;
+                newly_inserted = inserted;
+            } catch (const std::bad_alloc&) {
+                return "QMD state allocation failed";
+            }
             auto& state = state_it->second;
             // A callback can throw after queuing irreversible Vulkan work or
             // a guest semaphore. Neither the GPU command nor its fence can
