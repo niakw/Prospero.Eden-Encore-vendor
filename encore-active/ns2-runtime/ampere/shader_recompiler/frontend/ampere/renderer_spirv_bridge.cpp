@@ -138,10 +138,10 @@ NativeSpirvResult CompileReviewedNativeComputeSpirv(
             return {NativeSpirvStatus::CompilationFailed, {}};
         // The shared SPIR-V atomic emitter has no runtime check against
         // the actual bound SSBO size. Collect either constant word offsets
-        // or final BitwiseAnd32 offsets whose fixed mask proves alignment
-        // AND maximum byte extent. Authenticate that maximum against the
-        // real live QMD3 length after resource capture. All other dynamic
-        // offsets still fail closed, not rounded to a different word.
+        // or final BitwiseAnd32 offsets (optionally plus a single aligned
+        // constant base) whose mask/checked addition proves alignment and
+        // maximum byte extent. Authenticate that maximum against the real
+        // live QMD3 length. All other dynamic offsets still fail closed.
         const auto atomic_spans = CollectNativeQmdAtomicSpans(ir);
         if (!atomic_spans)
             return {NativeSpirvStatus::CompilationFailed, {}};

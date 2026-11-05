@@ -135,8 +135,10 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2QmdComputeSpirvWithResources
         // every atomic byte lies within its live QMD3 descriptor length.
         // The shared SPIR-V emitter has no general dynamic bounds check.
         // Validate the maximum byte extent of both static offsets and
-        // the strictly aligned/constant-masked dynamic subset BEFORE
-        // publishing a plan or reporting the shader as executable.
+        // strictly aligned AND-masked dynamic offsets, optionally with
+        // one non-wrapping constant base, BEFORE publishing the plan.
+        // The atomic's actual guest GMMU base must also be aligned and
+        // within the native 49-bit range; no guessed Vulkan binding.
         if (!Shader::Ampere::NativeQmdAtomicSpansFitBindings(
                 std::span<const Shader::Ampere::NativeAtomicSpan>{
                     compiled.native_atomic_spans.data(), compiled.native_atomic_spans.size()},
