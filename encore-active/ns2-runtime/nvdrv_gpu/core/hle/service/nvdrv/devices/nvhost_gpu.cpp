@@ -25,6 +25,7 @@
 #include "video_core/control/channel_state.h"
 #include "video_core/engines/puller.h"
 #include "video_core/gpu.h"
+#include "video_core/memory_manager.h"
 // GPU pushbuffer and syncpoint method types come from dma_pusher.h.
 
 namespace Service::Nvidia::Devices {
@@ -381,6 +382,27 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
             const auto* opened = core.GetSession(session_id);
             if (!opened || opened->process != native_owner)
                 return NvResult::InvalidState;
+        }
+    }
+
+    // P2.7: every native GPFIFO entry must refer to a fully mapped GMMU
+    // command span BEFORE InitChannel, owner binding or fence reservation.
+    // A valid guest ioctl pointer only proves that the *list of headers*
+    // was readable, not the GPU virtual addresses inside its entries.
+    // Otherwise an unmapped command buffer can be read back as zero words
+    // and falsely acknowledged as work submitted. Maxwell retains its
+    // original command admission; the native mapper is synchronous here.
+    if (native && channel_state->memory_manager) {
+        for (const auto& command : entries.command_lists) {
+            if (command.size == 0) continue;
+            const u64 address = command.addr;
+            const u64 bytes = static_cast<u64>(command.size) * sizeof(Tegra::CommandHeader);
+            if (!channel_state->memory_manager->IsFullyMappedRange(address, bytes)) {
+                LOG_ERROR(Service_NVDRV,
+                          "Native GPFIFO rejected unmapped command span address={:#x} bytes={:#x}",
+                          address, bytes);
+                return NvResult::InvalidSize;
+            }
         }
     }
 
