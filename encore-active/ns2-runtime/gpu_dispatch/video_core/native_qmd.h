@@ -433,15 +433,25 @@ template <typename IsMapped>
     // crossing the real 49-bit VA limit. A failed mapping callback must
     // reject the whole launch BEFORE dispatch, like release-target checks.
     constexpr std::uint64_t gpu_limit = std::uint64_t{1} << 49;
+    // Authenticate every descriptor BEFORE the first GMMU probe. An enabled
+    // QMD3 CBUF with an empty/null backing is not an optional binding, and
+    // a caller can mutate this launch after DecodeNativeComputeLaunch.
+    // Never turn missing guest metadata into a successful Vulkan dispatch.
+    if (!launch.program_address || launch.program_address >= gpu_limit ||
+        std::uint64_t{16} > gpu_limit - launch.program_address)
+        return false;
+    for (const auto& cbuf : launch.constant_buffers) {
+        if (!cbuf.enabled) continue;
+        if (!cbuf.gpu_address || !cbuf.size ||
+            cbuf.gpu_address >= gpu_limit ||
+            cbuf.size > gpu_limit - cbuf.gpu_address)
+            return false;
+    }
     try {
-        if (launch.program_address >= gpu_limit ||
-            std::uint64_t{16} > gpu_limit - launch.program_address ||
-            !mapped(launch.program_address, std::size_t{16}))
+        if (!mapped(launch.program_address, std::size_t{16}))
             return false;
         for (const auto& cbuf : launch.constant_buffers) {
-            if (!cbuf.enabled || !cbuf.size) continue;
-            if (cbuf.gpu_address >= gpu_limit ||
-                cbuf.size > gpu_limit - cbuf.gpu_address ||
+            if (cbuf.enabled &&
                 !mapped(cbuf.gpu_address, std::size_t{cbuf.size}))
                 return false;
         }
