@@ -203,6 +203,16 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
         dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->nv01_timer, method_call.subchannel, EngineTypes::Nv01Timer);
         break;
     default:
+        // An unknown class cannot continue dispatching into the previously
+        // bound native engine. Drop its live DmaPusher pointer after retiring
+        // any Ampere ownership; the null-guarded common DmaPusher refuses
+        // subsequent guest methods until a valid bind. Leave legacy NS1's
+        // historical binding policy unchanged.
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            dma_pusher.BindSubchannel(nullptr, method_call.subchannel,
+                                      EngineTypes::Nv01Timer);
+        }
         UNIMPLEMENTED_MSG("Unimplemented engine {:04X}", engine_id);
         break;
     }
