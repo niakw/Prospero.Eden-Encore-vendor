@@ -8,6 +8,13 @@
 #include <array>
 #include <cstddef>
 #include <cstring>
+#ifdef PS5_NATIVE
+#include <filesystem>
+#include <system_error>
+#include <nlohmann/json.hpp>
+#include "common/fs/path_util.h"
+#include "core/file_sys/vfs/vfs_real.h"
+#endif
 
 #include "common/hex_util.h"
 #include "common/logging.h"
@@ -500,17 +507,91 @@ std::vector<Core::Memory::CheatEntry> PatchManager::CreateCheatList(const BuildI
     return out;
 }
 
+#ifdef PS5_NATIVE
+// R10: HD textures live under a dedicated root next to mods/. Their RomFS
+// overlay is data-only (no ExeFS/IPS/cheats), without copied/symlinked mods.
+static std::vector<VirtualDir> GetEncoreHdTextureLayers(
+    u64 title_id, const std::vector<std::string>& disabled) {
+    std::vector<VirtualDir> found;
+    if (title_id == 0) return found;
+    const auto base = Common::FS::GetEdenPath(Common::FS::EdenPath::LoadDir)
+                          .parent_path() / "textures";
+    std::error_code ec;
+    if (!std::filesystem::is_directory(base, ec) || ec ||
+        std::filesystem::is_symlink(base, ec) || ec) return found;
+    // Keep the filesystem alive while any lazy virtual directory references it.
+    static RealVfsFilesystem hd_filesystem;
+    const auto root = hd_filesystem.OpenDirectory(base.string(), OpenMode::Read);
+    if (!root) return found;
+    const auto tid = fmt::format("{:016x}", title_id);
+    const auto title_dir = FindSubdirectoryCaseless(root, tid);
+    if (!title_dir) return found;
+    const auto title_path = base / title_dir->GetName();
+    if (std::filesystem::is_symlink(title_path, ec) || ec) return found;
+    auto packs = title_dir->GetSubdirectories();
+    std::sort(packs.begin(), packs.end(),
+              [](const VirtualDir& a, const VirtualDir& b) {
+                  return a->GetName() < b->GetName();
+              });
+    for (const auto& pack : packs) {
+        const std::string name = pack->GetName();
+        if (name.empty() || name.front() == '.' ||
+            name.find('/') != std::string::npos ||
+            name.find('\\') != std::string::npos ||
+            std::find(disabled.cbegin(), disabled.cend(), "@hd:" + name) != disabled.cend())
+            continue;
+        const auto pack_path = title_path / name;
+        if (std::filesystem::is_symlink(pack_path, ec) || ec) continue;
+        const auto manifest = pack->GetFile("encore-hd-textures.json");
+        if (!manifest || !manifest->GetSize() ||
+            manifest->GetSize() > (1U << 20)) continue;
+        std::vector<u8> bytes(manifest->GetSize());
+        if (manifest->Read(bytes.data(), bytes.size()) != bytes.size()) continue;
+        const auto doc = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
+        if (!doc.is_object()) continue;
+        const auto matches = [&doc](const char* key, const std::string& expected) {
+            const auto it = doc.find(key);
+            return it != doc.end() && it->is_string() &&
+                   it->get<std::string>() == expected;
+        };
+        if (!matches("schema", "eden-encore-hd-romfs-v1") ||
+            !matches("title_id", fmt::format("{:016X}", title_id)) ||
+            !matches("replacement_mode", "game-compatible-romfs"))
+            continue;
+        const auto count = doc.find("file_count");
+        const auto bytes_size = doc.find("total_bytes");
+        if (count == doc.end() || bytes_size == doc.end() ||
+            !count->is_number_unsigned() || !bytes_size->is_number_unsigned() ||
+            count->get<u64>() == 0 || count->get<u64>() > 10000 ||
+            bytes_size->get<u64>() == 0 || bytes_size->get<u64>() > (8ULL << 30))
+            continue;
+        const auto romfs_dir = FindSubdirectoryCaseless(pack, "romfs");
+        if (!romfs_dir ||
+            std::filesystem::is_symlink(pack_path / romfs_dir->GetName(), ec) || ec ||
+            (romfs_dir->GetFiles().empty() && romfs_dir->GetSubdirectories().empty()))
+            continue;
+        found.emplace_back(std::make_shared<CachedVfsDirectory>(romfs_dir));
+    }
+    return found;
+}
+#endif
+
 static void ApplyLayeredFS(VirtualFile& romfs, u64 title_id, ContentRecordType type,
                            const Service::FileSystem::FileSystemController& fs_controller) {
     const auto load_dir = fs_controller.GetModificationLoadRoot(title_id);
     const auto sdmc_load_dir = fs_controller.GetSDMCModificationLoadRoot(title_id);
-    if ((type != ContentRecordType::Program && type != ContentRecordType::Data &&
-         type != ContentRecordType::HtmlDocument) ||
-        (load_dir == nullptr && sdmc_load_dir == nullptr)) {
-        return;
-    }
+    if (type != ContentRecordType::Program && type != ContentRecordType::Data &&
+        type != ContentRecordType::HtmlDocument) return;
 
     const auto& disabled = Settings::values.disabled_addons[title_id];
+#ifdef PS5_NATIVE
+    const auto hd_layers = (type == ContentRecordType::Program ||
+                            type == ContentRecordType::Data)
+        ? GetEncoreHdTextureLayers(title_id, disabled) : std::vector<VirtualDir>{};
+    if (!load_dir && !sdmc_load_dir && hd_layers.empty()) return;
+#else
+    if (!load_dir && !sdmc_load_dir) return;
+#endif
     std::vector<VirtualDir> patch_dirs;
     if (load_dir != nullptr) patch_dirs = load_dir->GetSubdirectories();
     if (sdmc_load_dir != nullptr && std::find(disabled.cbegin(), disabled.cend(), "SDMC") == disabled.cend()) {
@@ -548,6 +629,11 @@ static void ApplyLayeredFS(VirtualFile& romfs, u64 title_id, ContentRecordType t
         }
     }
 
+#ifdef PS5_NATIVE
+    // Existing ordinary mods have priority over dedicated HD texture packs.
+    // Empty packs cannot turn a game RomFS into an invalid custom payload.
+    layers.insert(layers.end(), hd_layers.begin(), hd_layers.end());
+#endif
     // When there are no layers to apply, return early as there is no need to rebuild the RomFS
     if (layers.empty() && layers_ext.empty()) {
         return;
