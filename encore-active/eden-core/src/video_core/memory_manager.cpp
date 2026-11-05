@@ -5,6 +5,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -27,6 +29,14 @@
 
 namespace Tegra {
 using Tegra::Memory::GuestMemoryFlags;
+
+namespace {
+// Shared revision is conservative: a GPU page-table mutation invalidates
+// every thread's cached contiguous-range answer, across all NS1/NS2 guests.
+// Source-generation ID also prevents aliasing a reused MemoryManager address.
+// A deliberately global revision avoids changing the upstream class ABI.
+std::atomic<u64> gpu_page_table_revision{1};
+} // namespace
 
 std::atomic<size_t> MemoryManager::unique_identifier_generator{};
 
@@ -111,6 +121,8 @@ inline void MemoryManager::SetBigPageContinuous(size_t big_page_index, bool valu
 }
 
 GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr dev_addr, size_t size, PTEKind kind, MemoryManager::EntryType entry_type) {
+    // Invalidate prior cached ranges BEFORE the first mapping update.
+    gpu_page_table_revision.fetch_add(1, std::memory_order_release);
     [[maybe_unused]] u64 remaining_size{size};
     if (entry_type == EntryType::Mapped) {
         page_table.ReserveRange(gpu_addr, size);
@@ -155,10 +167,13 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
         remaining_size -= page_size;
     }
     kind_map.Map(gpu_addr, gpu_addr + size, kind);
+    gpu_page_table_revision.fetch_add(1, std::memory_order_release);
     return gpu_addr;
 }
 
 GPUVAddr MemoryManager::BigPageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr dev_addr, size_t size, PTEKind kind, MemoryManager::EntryType entry_type) {
+    // Invalidate prior cached ranges BEFORE the first mapping update.
+    gpu_page_table_revision.fetch_add(1, std::memory_order_release);
     [[maybe_unused]] u64 remaining_size{size};
     // Evict dirty GPU cache owners before switching the underlying big PTE.
     const auto notify_changed = [this](GPUVAddr address, u64 length) {
@@ -221,6 +236,7 @@ GPUVAddr MemoryManager::BigPageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr
         std::unique_lock<std::mutex> lock(guard);
         kind_map.Map(gpu_addr, gpu_addr + size, kind);
     }
+    gpu_page_table_revision.fetch_add(1, std::memory_order_release);
     return gpu_addr;
 }
 
@@ -580,6 +596,28 @@ bool MemoryManager::IsMemoryDirty(GPUVAddr gpu_addr, size_t size,
 }
 
 size_t MemoryManager::MaxContinuousRange(GPUVAddr gpu_addr, size_t size) const {
+    // Repeated native SSBO/vertex binds ask for identical multi-megabyte
+    // contiguous windows. A direct-mapped per-thread cache avoids rewalking
+    // thousands of GPU PTEs until ANY manager maps, reserves or unmaps.
+    // A result is published only if no page-table mutation raced the scan.
+    struct Entry {
+        const MemoryManager* owner{};
+        size_t owner_id{};
+        GPUVAddr address{};
+        size_t length{};
+        u64 revision{};
+        size_t result{};
+    };
+    thread_local std::array<Entry, 64> cache{};
+    const u64 revision = gpu_page_table_revision.load(std::memory_order_acquire);
+    Entry& entry = cache[
+        ((gpu_addr ^ static_cast<u64>(size)) * 0x9E3779B97F4A7C15ULL) >> 58];
+    if (entry.owner == this && entry.owner_id == unique_identifier &&
+        entry.address == gpu_addr && entry.length == size &&
+        entry.revision == revision &&
+        gpu_page_table_revision.load(std::memory_order_acquire) == revision)
+        return entry.result;
+    const size_t value = [&]() -> size_t {
     std::optional<DAddr> old_page_addr{};
     size_t range_so_far = 0;
     bool result{false};
@@ -617,6 +655,10 @@ size_t MemoryManager::MaxContinuousRange(GPUVAddr gpu_addr, size_t size) const {
     };
     MemoryOperation(gpu_addr, size, true, big_check, fail, check_short_pages);
     return range_so_far;
+    }();
+    if (gpu_page_table_revision.load(std::memory_order_acquire) == revision)
+        entry = {this, unique_identifier, gpu_addr, size, revision, value};
+    return value;
 }
 
 size_t MemoryManager::GetMemoryLayoutSize(GPUVAddr gpu_addr, size_t max_size) const {
