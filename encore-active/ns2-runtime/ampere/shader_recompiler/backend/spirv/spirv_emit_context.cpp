@@ -1205,6 +1205,31 @@ void EmitContext::DefineConstantBufferIndirectFunctions(const Info& info) {
         const Id merge_label{OpLabel()};
         const Id uniform_type{uniform_types.*member_ptr};
 
+        // Keep Maxwell/NS1 indirect CBUF emission BYTE-FOR-BYTE equivalent
+        // to the pinned upstream owner. Native QMD3 uses a scoped selector;
+        // a sparse Maxwell descriptor mask alone must NEVER activate it.
+        if (!Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+            std::array<Id, Info::MAX_INDIRECT_CBUFS> buf_labels;
+            std::array<Sirit::Literal, Info::MAX_INDIRECT_CBUFS> buf_literals;
+            for (u32 i = 0; i < Info::MAX_INDIRECT_CBUFS; i++) {
+                buf_labels[i] = OpLabel();
+                buf_literals[i] = Sirit::Literal{i};
+            }
+            OpSelectionMerge(merge_label, spv::SelectionControlMask::MaskNone);
+            OpSwitch(binding, buf_labels[0], buf_literals, buf_labels);
+            for (u32 i = 0; i < Info::MAX_INDIRECT_CBUFS; i++) {
+                AddLabel(buf_labels[i]);
+                const Id cbuf{cbufs[i].*member_ptr};
+                const Id access_chain{OpAccessChain(uniform_type, cbuf, u32_zero_value, offset)};
+                const Id result{OpLoad(buffer_type, access_chain)};
+                OpReturnValue(result);
+            }
+            AddLabel(merge_label);
+            OpUnreachable();
+            OpFunctionEnd();
+            return func;
+        }
+
         // The stock collector supplies all fourteen Maxwell banks. The
         // reviewed native QMD3 Compute bridge removes unavailable banks
         // 8..13 from reflection before SPIR-V emission. Derive the switch
