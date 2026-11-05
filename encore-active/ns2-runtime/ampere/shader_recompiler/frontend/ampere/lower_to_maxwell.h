@@ -189,7 +189,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         default: break;
         }
         uses_uniform_bank |= op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
-                             op == 0x886 || op == 0x3c2 || op == 0xc82 || op == 0x882 || op == 0xd24 || op == 0x499 || (op == 0x81c && instruction.Bits(67, 1));
+                             op == 0x886 || op == 0x3c2 || op == 0xc82 || op == 0x882 || op == 0xd24 || op == 0x499 || (op == 0x98e && instruction.Bits(91, 1)) || (op == 0x81c && instruction.Bits(67, 1));
     }
     const bool uses_async_copy = std::any_of(code.begin(), code.end(), [](const auto& instruction) {
         return instruction.Bits(0, 12) == 0xfae;
@@ -348,7 +348,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 opcode != 0x220 && opcode != 0x221 &&
                 opcode != 0x223 &&
                 opcode != 0x245 &&
-                opcode != 0x9a8)
+                opcode != 0x9a8 && opcode != 0x98e)
                 continue;
             const u32 reg = insn.Bits(bit, 8);
             if (reg >= reserved_register && reg < 255) requires_shadow = true;
@@ -1445,21 +1445,41 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 (u64{1} << 29) | (u64{shuffle_mode} << 30) | (u64{insn.Bits(40, 13)} << 34) | (u64{insn.Bits(81, 3)} << 48));
             break;
         }
-        case 0x98e: { // RED.E.ADD/MAX.STRONG.GPU U32; uniform pointers support ADD.
+        case 0x98e: { // RED.E op over an authenticated 64-bit GPR/uniform address.
+            const bool uniform_pointer = insn.Bits(24, 8) == 255;
+            const u32 type = insn.Bits(73, 3);
+            const u32 operation = insn.Bits(87, 3);
+            const u32 variable = 0x03800e00U | (uniform_pointer ? 0x3fU : 0U);
+            const u32 mode = uniform_pointer ? 0x0c10e100U : 0x0010e100U;
+            const s32 offset = static_cast<s32>(insn.Bits(40, 24) << 8) >> 8;
+            // Source modes are the native 32-bit unsigned/signed reductions;
+            // all other types remain unreviewed. The Maxwell RED byte
+            // displacement is a SIGNED 20-bit value, not a 24-bit native
+            // offset, and the GPR address must contain TWO real registers.
+            if ((insn.words[2] & ~variable) != mode ||
+                (type != 0 && type != 1) ||
+                offset < -0x80000 || offset > 0x7ffff)
+                return fail(index, "native global reduction mode");
             u32 address = insn.Bits(24, 8);
-            if ((insn.words[2] & ~0xffU) == 0x0c10e100 && address == 255 &&
-                insn.Bits(40, 24) == 0 && insn.Bits(64, 8) < 63 - 1 && !(insn.Bits(64, 8) & 1)) {
-                const u32 uniform = uniform_register(insn.Bits(64, 8));
+            if (uniform_pointer) {
+                const u32 u_address = insn.Bits(64, 6);
+                const u32 uniform = uniform_register(u_address);
+                // U63 is RZ, not the next high half of uniform U62.
+                if ((u_address & 1U) || u_address >= 62 ||
+                    uniform == ~0U || uniform == 255 || (uniform & 1U))
+                    return fail(index, "native global reduction uniform address");
                 for (u32 word = 0; word < 2; ++word)
                     emit(0x5c98000000000000ULL | predicate | (250 + word) |
                          (u64{uniform + word} << 20) | (u64{15} << 39));
                 address = 250;
-            } else if ((insn.words[2] & ~0x03800000U) != 0x0010e100 || // bits 87-89 pick ADD/MIN/MAX/INC/DEC/AND/OR/XOR
-                       insn.Bits(40, 24) || (address & 1)) {
-                return fail(index, "native global reduction mode");
+            } else if ((address & 1U) || address >= 254) {
+                return fail(index, "native global reduction register address");
             }
             emit(0xebf8000000000000ULL | predicate | insn.Bits(32, 8) |
-                (u64{address} << 8) | (u64{insn.Bits(87, 3)} << 23) | (u64{1} << 48));
+                 (u64{address} << 8) | (u64{type} << 20) |
+                 (u64{operation} << 23) |
+                 (u64{static_cast<u32>(offset) & 0xfffffU} << 28) |
+                 (u64{1} << 48));
             break;
         }
         case 0x2bd: // UFLO.U32, optionally returning the normalization shift.
