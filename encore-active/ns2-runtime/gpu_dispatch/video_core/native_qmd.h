@@ -414,14 +414,30 @@ struct NativeComputeDeviceLimits {
 template <typename IsMapped>
 [[nodiscard]] inline bool NativeComputeLaunchMapped(
     const NativeComputeLaunch& launch, IsMapped&& mapped) {
-    if (!mapped(launch.program_address, std::size_t{16}))
-        return false;
-    for (const auto& cbuf : launch.constant_buffers) {
-        if (cbuf.enabled && cbuf.size &&
-            !mapped(cbuf.gpu_address, std::size_t{cbuf.size}))
+    // DecodeNativeComputeLaunch authenticates QMD3 metadata, but this is
+    // also a public preflight taking an owned/possibly modified launch.
+    // Never call a GMMU walker with a 128-bit shader instruction or a CBUF
+    // crossing the real 49-bit VA limit. A failed mapping callback must
+    // reject the whole launch BEFORE dispatch, like release-target checks.
+    constexpr std::uint64_t gpu_limit = std::uint64_t{1} << 49;
+    try {
+        if (launch.program_address >= gpu_limit ||
+            std::uint64_t{16} > gpu_limit - launch.program_address ||
+            !mapped(launch.program_address, std::size_t{16}))
             return false;
+        for (const auto& cbuf : launch.constant_buffers) {
+            if (!cbuf.enabled || !cbuf.size) continue;
+            if (cbuf.gpu_address >= gpu_limit ||
+                cbuf.size > gpu_limit - cbuf.gpu_address ||
+                !mapped(cbuf.gpu_address, std::size_t{cbuf.size}))
+                return false;
+        }
+        return true;
+    } catch (...) {
+        // The map may change during sparse remap/unmap. A throwing walker
+        // must not escape into the irreversible QMD scheduler transaction.
+        return false;
     }
-    return true;
 }
 
 // Native 0xC7C0 bulk register writes are mostly raw state updates.
