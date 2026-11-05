@@ -184,6 +184,7 @@ struct InstanceDispatch {
     PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices{};
     PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr{};
     PFN_vkGetPhysicalDeviceFeatures2 vkGetPhysicalDeviceFeatures2{};
+    PFN_vkGetPhysicalDeviceImageFormatProperties vkGetPhysicalDeviceImageFormatProperties{};
     PFN_vkGetPhysicalDeviceFormatProperties vkGetPhysicalDeviceFormatProperties{};
     PFN_vkGetPhysicalDeviceFormatProperties2 vkGetPhysicalDeviceFormatProperties2{};
     PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties{};
@@ -1199,6 +1200,11 @@ public:
     VkPhysicalDeviceFeatures GetFeatures() const noexcept;
 
     void GetFeatures2(VkPhysicalDeviceFeatures2&) const noexcept;
+
+    // Fail closed if this exact VkFormat+usage+tiling+flags cannot create the requested samples.
+    bool GetImageFormatProperties(VkFormat, VkImageType, VkImageTiling,
+                                  VkImageUsageFlags, VkImageCreateFlags,
+                                  VkImageFormatProperties&) const noexcept;
 
     VkFormatProperties GetFormatProperties(VkFormat) const noexcept;
 

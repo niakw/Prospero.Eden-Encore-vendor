@@ -63,9 +63,21 @@ MsaaColorClearShadowPass::TryPrepare(
     }
     const VkSampleCountFlagBits samples{
         static_cast<VkSampleCountFlagBits>(Bit(requested))};
+    constexpr VkImageUsageFlags shadow_usage =
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+    VkImageFormatProperties format_limits{};
+    // The global framebuffer sample mask is not a per-format/usage guarantee.
+    // Vulkan must explicitly admit the same transient image we will allocate.
+    const bool exact_format_supported = device.GetPhysical().GetImageFormatProperties(
+        target.vk_format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+        shadow_usage, 0, format_limits);
     const VkSampleCountFlags supported{
         device.GetPhysical().GetProperties().limits.framebufferColorSampleCounts};
-    if (!(supported & samples) ||
+    if (!exact_format_supported || !(format_limits.sampleCounts & samples) ||
+        target.extent.width > format_limits.maxExtent.width ||
+        target.extent.height > format_limits.maxExtent.height ||
+        format_limits.maxArrayLayers < 1 ||
+        !(supported & samples) ||
         !device.IsFormatSupported(target.vk_format, VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT,
                                   FormatType::Optimal) ||
         MaxwellToVK::SurfaceFormat(device,FormatType::Optimal,true,target.guest_format).format !=
@@ -107,8 +119,7 @@ MsaaColorClearShadowPass::TryPrepare(
                 .arrayLayers=1,
                 .samples=samples,
                 .tiling=VK_IMAGE_TILING_OPTIMAL,
-                .usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                       VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
+                .usage=shadow_usage,
                 .sharingMode=VK_SHARING_MODE_EXCLUSIVE,
                 .queueFamilyIndexCount=0,
                 .pQueueFamilyIndices=nullptr,
