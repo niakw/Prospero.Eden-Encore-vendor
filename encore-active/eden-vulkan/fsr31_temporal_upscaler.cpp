@@ -519,7 +519,16 @@ void Fsr3Upscaler::Upscale(const Inputs& in) {
                                     *spd_mips.image};
     std::vector<VkImage> clear_frame_info;
     if (reset) {
-        clear_zero.push_back(*accumulation[p].image);
+        // A scene switch, dropped guest frame or resized history invalidates
+        // BOTH ping-pong copies. A previous scene's internal-upscaled / luma
+        // history must never be sampled after a temporal reset, even when the
+        // current FSR frame index has returned to zero.
+        for (const auto* pair : {&accumulation, &luma, &luma_history, &internal_upscaled}) {
+            for (const Texture& texture : *pair) {
+                clear_zero.push_back(*texture.image);
+            }
+        }
+        clear_zero.push_back(*new_locks.image);
         clear_frame_info.push_back(*frame_info.image);
     }
     std::vector<VkImage> initialize;
