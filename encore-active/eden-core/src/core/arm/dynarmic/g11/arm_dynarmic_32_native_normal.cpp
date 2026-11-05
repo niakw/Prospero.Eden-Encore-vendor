@@ -1,6 +1,6 @@
 #include <bit>
 #include "jit-startup-retry.h"
-#include "experimental_performance.h"
+#include "jit_memory_policy.h"
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -224,7 +224,7 @@ void ArmDynarmic32::MakeJit(Common::PageTable* page_table) {
 #if defined(ARCHITECTURE_arm64) || defined(__sun__) || defined(__NetBSD__) || defined(__DragonFly__) || defined(__OpenBSD__)
     config.code_cache_size = std::uint32_t(128_MiB);
 #else
-    config.code_cache_size = std::uint32_t(::Eden::Experimental::A32CacheBytes(m_core_index, m_core_index == 0 ? 512_MiB : m_core_index < 3 ? 64_MiB : 16_MiB));
+    config.code_cache_size = std::uint32_t(::Eden::JitMemory::A32CacheBytes(m_core_index, m_core_index == 0 ? 512_MiB : m_core_index < 3 ? 64_MiB : 16_MiB));
 #endif
 
     // Allow memory fault handling to work
@@ -324,7 +324,7 @@ void ArmDynarmic32::MakeJit(Common::PageTable* page_table) {
         config.fastmem_exclusive_access = false;
     }
     ::Eden::JitStartup::ConstructWithCapacityFallback(
-        config.code_cache_size, ::Eden::Experimental::kA32Baseline[m_core_index], 32, m_core_index,
+        config.code_cache_size, ::Eden::JitMemory::A32BaselineBytes(m_core_index), 32, m_core_index,
         [&]() { m_jit.emplace(config); });
 }
 

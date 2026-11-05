@@ -5,7 +5,7 @@
 #include "core/hle/kernel/kernel.h"
 #include "crash_site.h"
 #include "performance.h"
-#include "experimental_performance.h"
+#include "jit_memory_policy.h"
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -305,7 +305,7 @@ void ArmDynarmic64::MakeJit(Common::PageTable* page_table, std::size_t address_s
 #if defined(ARCHITECTURE_arm64) || defined(__sun__) || defined(__NetBSD__) || defined(__DragonFly__) || defined(__OpenBSD__)
     config.code_cache_size = std::uint32_t(128_MiB);
 #else
-    config.code_cache_size = std::uint32_t(::Eden::Experimental::A64CacheBytes(m_core_index, m_core_index == 0 ? 256_MiB : m_core_index < 3 ? 192_MiB : 16_MiB));
+    config.code_cache_size = std::uint32_t(::Eden::JitMemory::A64CacheBytes(m_core_index, m_core_index == 0 ? 256_MiB : m_core_index < 3 ? 192_MiB : 16_MiB));
 #endif
 
     // Allow memory fault handling to work
@@ -405,7 +405,7 @@ void ArmDynarmic64::MakeJit(Common::PageTable* page_table, std::size_t address_s
     }
     std::printf("EDEN_DEV_JIT bits=64 core=%zu cache=%u\n", m_core_index, config.code_cache_size);
     ::Eden::JitStartup::ConstructWithCapacityFallback(
-        config.code_cache_size, ::Eden::Experimental::kA64Baseline[m_core_index], 64, m_core_index,
+        config.code_cache_size, ::Eden::JitMemory::A64BaselineBytes(m_core_index), 64, m_core_index,
         [&]() { m_jit.emplace(config); });
 }
 
