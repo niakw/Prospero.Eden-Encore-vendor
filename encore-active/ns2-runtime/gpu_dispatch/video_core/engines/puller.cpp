@@ -4,6 +4,9 @@
 // SPDX-FileCopyrightText: 2022 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#ifdef PS5_NATIVE
+#include "gpu_failure.h"
+#endif
 #include "common/assert.h"
 #include "common/scope_exit.h"
 #include "common/logging.h"
@@ -268,7 +271,18 @@ void Puller::ProcessSemaphoreRelease(DmaPusher& dma_pusher) {
 void Puller::ProcessSemaphoreAcquire(DmaPusher& dma_pusher) {
     u32 word = dma_pusher.memory_manager.Read<u32>(regs.semaphore_address.SemaphoreAddress());
     const auto value = regs.semaphore_acquire;
-    while (word != value) {
+#ifdef PS5_NATIVE
+    // On a failed graphics worker, a stale GPU semaphore can never progress.
+    // Sample failure once per 64 unsuccessful polls, starting with the first.
+    unsigned acquire_polls = 0;
+#endif
+    while (word != value && !dma_pusher.system.IsShuttingDown()) {
+#ifdef PS5_NATIVE
+        if ((acquire_polls++ & 63u) == 0u) {
+            if (auto failure = ::Eden::PeekGpuFailure())
+                std::rethrow_exception(failure);
+        }
+#endif
         regs.acquire_active = true;
         regs.acquire_value = value;
         dma_pusher.rasterizer->ReleaseFences();
