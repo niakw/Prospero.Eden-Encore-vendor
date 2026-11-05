@@ -143,12 +143,20 @@ NativeCaptureResult CaptureNativeShader(
         result.captured_native_bytes = static_cast<u32>(source.size());
         const auto maxwell_header =
             std::span<const u8>{header.data(), MaxwellHeaderBytes};
-        // Only Geometry has a reviewed LEPC stage owner. Keep the true,
-        // GMMU-validated native shader PC separate from Maxwell's 0x50
-        // translated address map and from the shared NS1 path.
-        const std::optional<u64> native_code_address =
-            !compute && stage == static_cast<u32>(Shader::Stage::Geometry)
-                ? std::optional<u64>{gpu_base + header_bytes} : std::nullopt;
+        // LEPC has the same native 16-byte instruction PC in every
+        // graphics stage. The GMMU callback authenticates the original
+        // shader header and each code word BEFORE translation; Maxwell's
+        // relocated 8-byte PC must never stand in for this guest address.
+        // No LEPC -> no address-dependent image/cache identity: identical
+        // shaders captured at different VAs can still share a translation.
+        const auto code_address_for = [&](std::span<const Instruction> program)
+            -> std::optional<u64> {
+            if (compute || !std::ranges::any_of(program, [](const auto& insn) {
+                    return insn.Bits(0, 12) == 0x34e;
+                }))
+                return std::nullopt;
+            return gpu_base + header_bytes; // validated by checked_read
+        };
         try {
             if (saw_indirect) {
                 // BRX targets can jump beyond the first EXIT. Recover the
@@ -227,7 +235,8 @@ NativeCaptureResult CaptureNativeShader(
                 // program. The complete native table contents are part of
                 // the image key and are revalidated before publication.
                 result.image = BuildMaxwellShaderImage(
-                    maxwell_header, source, stage, *plans, native_code_address);
+                    maxwell_header, source, stage, *plans,
+                    code_address_for(native));
                 if (!result.image.Ready() ||
                     !TranslateCaptureIndirectTargets(
                         *resolved, result.image, origin)) {
@@ -286,8 +295,11 @@ NativeCaptureResult CaptureNativeShader(
                     }
             } else {
                 result.image = cache
-                    ? cache->GetOrTranslate(maxwell_header, source, stage, native_code_address)
-                    : BuildMaxwellShaderImage(maxwell_header, source, stage, {}, native_code_address);
+                    ? cache->GetOrTranslate(
+                          maxwell_header, source, stage, code_address_for(native))
+                    : BuildMaxwellShaderImage(
+                          maxwell_header, source, stage, {},
+                          code_address_for(native));
             }
         } catch (const std::exception&) {
             // Failed allocation/cache/lowering is a capture failure, not a

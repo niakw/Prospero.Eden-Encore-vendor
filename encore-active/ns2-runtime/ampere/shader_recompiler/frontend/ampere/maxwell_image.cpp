@@ -98,11 +98,12 @@ MaxwellShaderImage BuildMaxwellShaderImage(
     std::span<const NativeIndirectBranchPlan> indirect_dispatch,
     std::optional<u64> native_code_address) {
     MaxwellShaderImage image;
-    // The only authenticated non-prologue LEPC owner is native Geometry
-    // through GMMU shader capture. Vertex/Fragment cannot opt into a
-    // caller-supplied PC merely because they share this graphics bridge.
+    // The LEPC PC is a source-GMMU value for a captured graphics stage,
+    // not a Maxwell relocated PC. Compute has no 0x80 graphics SPH,
+    // and unrecognized stages may never supply a guessed code VA.
     if (native_code_address &&
-        shader_stage != static_cast<u32>(Shader::Stage::Geometry))
+        shader_stage != static_cast<u32>(Shader::Stage::VertexA) &&
+        shader_stage > static_cast<u32>(Shader::Stage::Fragment))
         return image;
     if (maxwell_header.size() != MaxwellHeaderSize) return image;
     image.status = MaxwellImageStatus::LoweringFailed;
