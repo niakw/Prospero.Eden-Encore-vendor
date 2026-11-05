@@ -20,6 +20,11 @@ struct Fsr31NativeFrame {
     VkImageView color{VK_NULL_HANDLE};
     VkImageView depth{VK_NULL_HANDLE};
     VkImageView motion{VK_NULL_HANDLE};
+    // Real Vulkan views are handed to the bridge by the guest texture cache;
+    // no format guessing based on size, handles or rendered frame pixels.
+    VkFormat color_format{VK_FORMAT_UNDEFINED};
+    VkFormat depth_format{VK_FORMAT_UNDEFINED};
+    VkFormat motion_format{VK_FORMAT_UNDEFINED};
     float sharpness{0.5f};
     bool sharpen{true};
 };
@@ -54,5 +59,7 @@ private:
     std::unique_ptr<Vulkan::Fsr3Upscaler> upscaler;
     Temporal::Rejection last_rejection{Temporal::Rejection::MissingFrame};
     bool needs_reset{true};
+    std::uint32_t last_render_width{},last_render_height{},
+                  last_output_width{},last_output_height{};
 };
 } // namespace Eden::Graphics
