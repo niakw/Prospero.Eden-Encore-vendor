@@ -99,6 +99,8 @@ inline RegisterPressure PrepareRegisterPressure(const Instruction& input, u32 re
         operand(opcode == 0x387 ? 32 : 16); operand(24); break;
     case 0x3a8: // ATOMG with a genuine GPR address pair + GPR data.
         operand(16); operand(24, 2); operand(32); break;
+    case 0x3c4: // REDUX consumes a real GPR and writes the separate U bank.
+        operand(24); break;
     case 0x9a8: // ATOMG with a uniform pointer but GPR destination/data.
         // Bits 64..69 select the virtual uniform bank, not a guest GPR.
         operand(16); operand(32); break;

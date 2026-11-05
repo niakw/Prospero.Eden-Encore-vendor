@@ -1509,30 +1509,50 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             restore_predicate();
             break;
         }
-        case 0x3c4: { // REDUX.SUM/OR/MIN/MAX.U32 over the actual active lanes.
+        case 0x3c4: { // REDUX.SUM/OR/XOR/MIN/MAX on active lanes, with signed MIN/MAX.
             const u32 source = insn.Bits(24, 8);
-            if (dest >= 63 || insn.words[1] || (insn.words[2] != 0xc000 && insn.words[2] != 0x4000 && insn.words[2] != 0x10000 && insn.words[2] != 0x14000) || native_predicate != 7)
+            const u32 target = uniform_register(static_cast<u32>(dest));
+            const u32 mode = insn.words[2] & ~0x200U;
+            const bool minimum = mode == 0x10000U;
+            const bool maximum = mode == 0x14000U;
+            const bool signed_order = insn.Bits(73, 1);
+            const u32 logical = insn.words[2] == 0x4000U ? 1U :
+                                insn.words[2] == 0x8000U ? 2U : 0U;
+            // Unsigned ordering cannot be reused for signed MIN/MAX:
+            // XOR the sign bit before the unsigned reduction and restore it
+            // afterwards. No signed variant is defined for SUM/OR/XOR.
+            if (target == ~0U || target == 255 || source == 255 ||
+                insn.words[1] || native_predicate != 7 ||
+                (mode != 0xc000U && !minimum && !maximum && !logical) ||
+                (signed_order && !minimum && !maximum))
                 return fail(index, "native warp sum mode");
             emit(0x50d8000000070000ULL | 250 | (u64{7} << 39) | (u64{7} << 45) | (u64{1} << 48));
-            mov_imm(uniform_register(static_cast<u32>(dest)), insn.words[2] == 0x10000 ? 0xffffffffU : 0U);
+            mov_imm(target, minimum ? 0xffffffffU : 0U);
             for (u32 lane = 0; lane < 32; ++lane) {
                 emit(0xef10000000070000ULL | 251 | (u64{source} << 8) | (u64{lane} << 20) |
                     (u64{1} << 28) | (u64{1} << 29) | (u64{31} << 34) | (u64{7} << 48));
+                if (signed_order)
+                    emit(0x0400000000070000ULL | 251 | (u64{251} << 8) |
+                         (u64{0x80000000U} << 20) | (u64{2} << 53));
                 emit(0x3828000000070000ULL | 252 | (u64{250} << 8) | (u64{lane} << 20));
                 emit(0x0400000000070000ULL | 252 | (u64{252} << 8) | (u64{1} << 20));
                 emit(0x5c10000000070000ULL | 252 | (u64{255} << 8) | (u64{252} << 20) | (u64{1} << 48));
                 emit(0x5c40000000070000ULL | 251 | (u64{251} << 8) | (u64{252} << 20) |
-                     (insn.words[2] == 0x10000 ? (u64{1} << 40) | (u64{1} << 41) : 0) | (u64{7} << 48));
-                if (insn.words[2] == 0x4000) {
-                    emit(0x5c40000000070000ULL | (uniform_register(static_cast<u32>(dest))) | (u64{uniform_register(static_cast<u32>(dest))} << 8) |
-                         (u64{251} << 20) | (u64{1} << 41) | (u64{7} << 48));
-                } else if (insn.words[2] == 0x10000 || insn.words[2] == 0x14000) {
-                    emit(0x5c20000000070000ULL | (uniform_register(static_cast<u32>(dest))) | (u64{uniform_register(static_cast<u32>(dest))} << 8) |
-                         (u64{251} << 20) | (u64{7} << 39) | (u64{insn.words[2] == 0x14000} << 42));
+                     (minimum ? (u64{1} << 40) | (u64{1} << 41) : 0) | (u64{7} << 48));
+                if (logical) {
+                    emit(0x5c40000000070000ULL | target | (u64{target} << 8) |
+                         (u64{251} << 20) | (u64{logical} << 41) | (u64{7} << 48));
+                } else if (minimum || maximum) {
+                    emit(0x5c20000000070000ULL | target | (u64{target} << 8) |
+                         (u64{251} << 20) | (u64{7} << 39) | (u64{maximum} << 42));
                 } else {
-                    emit(0x5c10000000070000ULL | (uniform_register(static_cast<u32>(dest))) | (u64{uniform_register(static_cast<u32>(dest))} << 8) | (u64{251} << 20));
+                    emit(0x5c10000000070000ULL | target | (u64{target} << 8) |
+                         (u64{251} << 20));
                 }
             }
+            if (signed_order)
+                emit(0x0400000000070000ULL | target | (u64{target} << 8) |
+                     (u64{0x80000000U} << 20) | (u64{2} << 53));
             break;
         }
         case 0xf8c: { // ATOMS.POPC.INC.32 with no returned value: one increment per active lane.
