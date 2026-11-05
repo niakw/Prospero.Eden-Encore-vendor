@@ -9,10 +9,12 @@ NativeTranslationCache::NativeTranslationCache(std::size_t bytes, std::size_t en
 
 bool NativeTranslationCache::Matches(
     const Entry& e, std::span<const u8> header,
-    std::span<const u8> native, u32 stage) {
+    std::span<const u8> native, u32 stage,
+    std::optional<u64> native_code_address) {
     // Verify FULL source bytes and header. Never trust a hash alone: a
     // collision must not alias two GPU programs.
-    return e.stage == stage && e.native.size() == native.size() &&
+    return e.stage == stage && e.native_code_address == native_code_address &&
+           e.native.size() == native.size() &&
            std::equal(e.header.begin(), e.header.end(), header.begin()) &&
            std::equal(e.native.begin(), e.native.end(), native.begin());
 }
@@ -26,7 +28,8 @@ void NativeTranslationCache::EvictOne() {
 }
 
 MaxwellShaderImage NativeTranslationCache::GetOrTranslate(
-    std::span<const u8> header, std::span<const u8> native, u32 stage) {
+    std::span<const u8> header, std::span<const u8> native, u32 stage,
+    std::optional<u64> native_code_address) {
     if (header.size() != 0x50 || native.empty() ||
         native.size() > 4096 * 16 || native.size() % 16) {
         std::scoped_lock lock{mutex};
@@ -38,7 +41,7 @@ MaxwellShaderImage NativeTranslationCache::GetOrTranslate(
         std::scoped_lock lock{mutex};
         started_generation = generation;
         for (auto it = lru.begin(); it != lru.end(); ++it) {
-            if (!Matches(*it, header, native, stage)) continue;
+            if (!Matches(*it, header, native, stage, native_code_address)) continue;
             auto copy = it->image;
             lru.splice(lru.begin(), lru, it);
             ++stats.hits;
@@ -50,7 +53,7 @@ MaxwellShaderImage NativeTranslationCache::GetOrTranslate(
 
     // Do not hold the cache mutex over the potentially costly native
     // lowering; another worker may compute the same image concurrently.
-    auto image = BuildMaxwellShaderImage(header, native, stage);
+    auto image = BuildMaxwellShaderImage(header, native, stage, {}, native_code_address);
     {
         std::scoped_lock lock{mutex};
         ++stats.translations;
@@ -65,7 +68,7 @@ MaxwellShaderImage NativeTranslationCache::GetOrTranslate(
         // and this LRU remains bounded per authenticated GPU engine.
         if (!image.Ready()) ++stats.rejected;
         for (auto it = lru.begin(); it != lru.end(); ++it) {
-            if (!Matches(*it, header, native, stage)) continue;
+            if (!Matches(*it, header, native, stage, native_code_address)) continue;
             auto copy = it->image;
             lru.splice(lru.begin(), lru, it);
             ++stats.hits;
@@ -83,6 +86,7 @@ MaxwellShaderImage NativeTranslationCache::GetOrTranslate(
         std::copy(header.begin(), header.end(), entry.header.begin());
         entry.native.assign(native.begin(), native.end());
         entry.stage = stage;
+        entry.native_code_address = native_code_address;
         entry.image = image;
         entry.cost = cost;
         lru.push_front(std::move(entry));

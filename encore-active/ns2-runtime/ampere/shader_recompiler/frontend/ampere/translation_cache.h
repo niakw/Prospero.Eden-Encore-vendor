@@ -32,7 +32,8 @@ public:
     explicit NativeTranslationCache(std::size_t limit_bytes = 16 * 1024 * 1024,
                                     std::size_t limit_entries = 64);
     [[nodiscard]] MaxwellShaderImage GetOrTranslate(
-        std::span<const u8> header, std::span<const u8> native, u32 stage);
+        std::span<const u8> header, std::span<const u8> native, u32 stage,
+        std::optional<u64> native_code_address = std::nullopt);
     [[nodiscard]] NativeTranslationCacheStats Stats() const;
     void Clear();
 private:
@@ -40,12 +41,14 @@ private:
         std::array<u8, 0x50> header{};
         std::vector<u8> native{};
         u32 stage{};
+        std::optional<u64> native_code_address{};
         MaxwellShaderImage image{};
         std::size_t cost{};
     };
     [[nodiscard]] static bool Matches(const Entry& entry,
                                       std::span<const u8> header,
-                                      std::span<const u8> native, u32 stage);
+                                      std::span<const u8> native, u32 stage,
+                                      std::optional<u64> native_code_address);
     void EvictOne();
     mutable std::mutex mutex;
     std::list<Entry> lru;

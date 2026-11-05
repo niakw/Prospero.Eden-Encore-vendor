@@ -15,7 +15,8 @@ constexpr std::size_t BridgeMaxMaxwellWords = 131072;
 
 LowerBridgeResult LowerReviewedToMaxwell(
     std::span<const u8> native_code,
-    std::span<const NativeIndirectBranchPlan> indirect_dispatch) {
+    std::span<const NativeIndirectBranchPlan> indirect_dispatch,
+    std::optional<u64> native_code_address) {
     LowerBridgeResult result;
     if (native_code.empty() || native_code.size() % sizeof(Instruction) ||
         native_code.size() / sizeof(Instruction) > BridgeMaxInstructions) {
@@ -47,7 +48,7 @@ LowerBridgeResult LowerReviewedToMaxwell(
             for (u32 byte = 0; byte != 4; ++byte)
                 input[i].words[word] |= u32{p[word * 4 + byte]} << (byte * 8);
     }
-    auto lowered = LowerToMaxwell(input, {}, false, indirect_dispatch);
+    auto lowered = LowerToMaxwell(input, {}, false, indirect_dispatch, native_code_address);
     if (!lowered) {
         result.status = LowerBridgeStatus::UnsupportedSemantics;
         result.failed_native_byte_offset = lowered.error_offset;

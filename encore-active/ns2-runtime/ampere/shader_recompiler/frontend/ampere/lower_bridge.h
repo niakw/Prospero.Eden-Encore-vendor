@@ -2,6 +2,7 @@
 #pragma once
 // Research-only Ampere -> Maxwell lowering handoff. It returns a bounded
 // legacy instruction stream, NOT a compiled shader nor an executable pipeline.
+#include <optional>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -33,5 +34,6 @@ struct LowerBridgeResult {
 // unreviewed bit, branch relocation or unsupported semantic. No guest I/O.
 [[nodiscard]] LowerBridgeResult LowerReviewedToMaxwell(
     std::span<const u8> native_code,
-    std::span<const NativeIndirectBranchPlan> indirect_dispatch = {});
+    std::span<const NativeIndirectBranchPlan> indirect_dispatch = {},
+    std::optional<u64> native_code_address = std::nullopt);
 } // namespace Shader::Ampere

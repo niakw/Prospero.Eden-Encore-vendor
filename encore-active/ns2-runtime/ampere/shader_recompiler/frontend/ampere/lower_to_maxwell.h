@@ -96,7 +96,8 @@ struct LoweredProgram {
 inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                                      std::span<const u32> verified_traps = {},
                                      bool allow_register_spills = false,
-                                     std::span<const NativeIndirectBranchPlan> indirect_dispatch = {}) {
+                                     std::span<const NativeIndirectBranchPlan> indirect_dispatch = {},
+                                     std::optional<u64> native_code_address = std::nullopt) {
     LoweredProgram result;
     struct Relocation { u32 output_index; s64 target; bool call = false; u32 output_target = ~0U; };
     std::vector<Relocation> relocations;
@@ -1832,14 +1833,29 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 return fail(index, "native stage buffer read mode");
             emit(base(0x5c98000000000000ULL) | (u64{15} << 39) | (u64{insn.Bits(24, 8)} << 20));
             break;
-        case 0x34e: { // LEPC is admissible only in the verified static ATEXIT prologue.
-            if (index != 0 || !StaticAtExitTarget(code) || insn.Bits(24, 8) ||
-                insn.words[1] || insn.words[2] || dest >= 254)
+        case 0x34e: { // LEPC: materialize the authenticated native shader PC, not Maxwell's PC.
+            const bool static_exit = index == 0 && StaticAtExitTarget(code).has_value();
+            if (insn.Bits(24, 8) || insn.words[1] || insn.words[2] ||
+                native_predicate != 7 || dest >= 254 ||
+                dest + 1 >= reserved_register ||
+                (!static_exit && !native_code_address))
                 return fail(index, "native dynamic program counter unsupported");
-            // The only consumer is the verified BMOV ATEXIT at instruction 4.
-            // Its actual target is relocated below, not read from this placeholder.
-            mov_imm(static_cast<u32>(dest), 0);
-            mov_imm(static_cast<u32>(dest) + 1, 0);
+            // A non-prologue LEPC can only be lowered if the source GMMU
+            // capture supplied the original graphics code VA. Native and
+            // Maxwell instruction sizes differ; deriving LEPC from a
+            // translated PC would silently corrupt pointer arithmetic.
+            // The verified static ATEXIT prologue retains its historical
+            // zero placeholder when called by source-only host decoders.
+            u64 address{};
+            if (native_code_address) {
+                constexpr u64 limit = u64{1} << 49;
+                const u64 bytes = (u64{index} + 1) * sizeof(Instruction);
+                if (*native_code_address >= limit || bytes > limit - *native_code_address)
+                    return fail(index, "native program counter GMMU range");
+                address = *native_code_address + u64{index} * sizeof(Instruction);
+            }
+            mov_imm(static_cast<u32>(dest), static_cast<u32>(address));
+            mov_imm(static_cast<u32>(dest) + 1, static_cast<u32>(address >> 32));
             break;
         }
         case 0x357: { // BMOV ATEXIT_PC from verified, statically addressed NVN prologue.

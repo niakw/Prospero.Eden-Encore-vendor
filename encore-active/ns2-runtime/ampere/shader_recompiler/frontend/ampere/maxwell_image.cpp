@@ -2,6 +2,7 @@
 #include "shader_recompiler/frontend/ampere/maxwell_image.h"
 #include <limits>
 #include "shader_recompiler/frontend/ampere/program_address_map.h"
+#include "shader_recompiler/stage.h"
 
 namespace Shader::Ampere {
 namespace {
@@ -12,7 +13,8 @@ constexpr u64 FnvPrime = 0x100000001b3ULL;
 
 [[nodiscard]] u64 ImageKey(std::span<const u8> header,
                            std::span<const u8> native, u32 stage,
-                           std::span<const NativeIndirectBranchPlan> indirect_dispatch) {
+                           std::span<const NativeIndirectBranchPlan> indirect_dispatch,
+                           std::optional<u64> native_code_address) {
     // The key is deliberately distinct from Switch 1 shader cache keys.
     // This is a diagnostic identity, not yet wired into disk-cache lookup.
     u64 h = 0xcbf29ce484222325ULL ^ ImageSalt;
@@ -25,6 +27,15 @@ constexpr u64 FnvPrime = 0x100000001b3ULL;
         mix(static_cast<u8>(native.size() >> shift));
     for (u8 byte : header) mix(byte);
     for (u8 byte : native) mix(byte);
+    // LEPC references a guest shader PC, not the relocated Maxwell PC.
+    // Distinct GPU code addresses with identical native bytes CANNOT
+    // share a lowered image or cache identity. Preserve existing hashes
+    // for shaders without a source PC and keep this value diagnostic only.
+    if (native_code_address) {
+        mix(0xa5);
+        for (u32 shift = 0; shift < 64; shift += 8)
+            mix(static_cast<u8>(*native_code_address >> shift));
+    }
     // Preserve historical identities for shaders without indirect dispatch.
     // A newly resolved CBUF table must never alias an older shader key.
     for (const auto& plan : indirect_dispatch) {
@@ -84,11 +95,18 @@ std::optional<u32> MaxwellShaderImage::TranslateNativeAddress(u32 address) const
 MaxwellShaderImage BuildMaxwellShaderImage(
     std::span<const u8> maxwell_header, std::span<const u8> native_code,
     u32 shader_stage,
-    std::span<const NativeIndirectBranchPlan> indirect_dispatch) {
+    std::span<const NativeIndirectBranchPlan> indirect_dispatch,
+    std::optional<u64> native_code_address) {
     MaxwellShaderImage image;
+    // The only authenticated non-prologue LEPC owner is native Geometry
+    // through GMMU shader capture. Vertex/Fragment cannot opt into a
+    // caller-supplied PC merely because they share this graphics bridge.
+    if (native_code_address &&
+        shader_stage != static_cast<u32>(Shader::Stage::Geometry))
+        return image;
     if (maxwell_header.size() != MaxwellHeaderSize) return image;
     image.status = MaxwellImageStatus::LoweringFailed;
-    auto lowered = LowerReviewedToMaxwell(native_code, indirect_dispatch);
+    auto lowered = LowerReviewedToMaxwell(native_code, indirect_dispatch, native_code_address);
     image.lowering_status = lowered.status;
     image.failed_native_offset = lowered.failed_native_byte_offset;
     if (!lowered.Ready()) return image;
@@ -126,7 +144,8 @@ MaxwellShaderImage BuildMaxwellShaderImage(
     image.instruction_end_address = maxwell_end;
     image.cached_highest_address =
         static_cast<u32>((code.size() - 1) * sizeof(u64));
-    image.diagnostic_cache_key = ImageKey(maxwell_header, native_code, shader_stage, indirect_dispatch);
+    image.diagnostic_cache_key = ImageKey(maxwell_header, native_code, shader_stage,
+                                          indirect_dispatch, native_code_address);
     image.native_stage = shader_stage;
     image.code = std::move(code);
     for (u32 source = 0; source < lowered.source_instruction_offsets.size(); ++source) {
