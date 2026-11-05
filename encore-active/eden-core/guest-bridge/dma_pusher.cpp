@@ -8,7 +8,9 @@
 
 #ifdef PS5_NATIVE
 #include "gpu_failure.h"
+#include <stdexcept>
 #endif
+#include "common/logging.h"
 #include "common/settings.h"
 #include "core/core.h"
 #include "video_core/dma_pusher.h"
@@ -17,6 +19,7 @@
 #include "video_core/guest_memory.h"
 #ifdef PS5_NATIVE
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_fetch_admission.h"
 #endif
 #include "video_core/memory_manager.h"
 #include "video_core/rasterizer_interface.h"
@@ -102,6 +105,34 @@ bool DmaPusher::Step() {
     }
 
     if (header.size > 0) {
+#ifdef PS5_NATIVE
+        // Command headers are validated by NVDRV at submission, but the
+        // address space can change before the GPU worker consumes the live
+        // command words. Revalidate after the inter-list fence wait and
+        // before dirty-memory probes, SafeRead, or ProcessCommands. Never
+        // acknowledge a revoked native GPFIFO as an all-zero pushbuffer.
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &channel_state) &&
+            !Service::Nvidia::Devices::NativeGpfifoFetchMapped(
+                dma_state.dma_get, static_cast<u64>(header.size),
+                [this](u64 addr, u64 bytes) {
+                    return memory_manager.IsFullyMappedRange(addr, bytes);
+                })) {
+            LOG_ERROR(HW_GPU, "Native GPFIFO command unmapped at fetch: address={:#x} words={}",
+                      dma_state.dma_get, static_cast<u64>(header.size));
+#ifdef PS5_NATIVE
+            // Returning false silently finishes DispatchCalls; its caller
+            // would then publish a completed GPU queue fence and process
+            // later syncpoint increments for work that was never executed.
+            // The maintained PS5 GPU pthread entry catches this exception,
+            // records its fatal cause and requests worker stop before any
+            // queue fence is signaled. No exception leaves the OS thread.
+            throw std::runtime_error("Native GPFIFO command unmapped at GPU fetch");
+#else
+            return false;
+#endif
+        }
+#endif
         if (subchannels[dma_state.subchannel] && dma_state.method_count) {
             const auto engine = subchannel_type[dma_state.subchannel];
             const bool kepler_payload = engine == Engines::EngineTypes::KeplerCompute && dma_state.method == ComputeInline && dma_state.non_incrementing;
@@ -230,6 +261,13 @@ void DmaPusher::CallMethod(u32 argument) {
         });
     } else {
         auto subchannel = subchannels[dma_state.subchannel];
+        if (!subchannel) {
+            // A guest may submit methods before binding an engine. Never
+            // dereference a missing subchannel or replay it as a valid method.
+            LOG_ERROR(HW_GPU, "GPFIFO method {:#x} on unbound subchannel {}",
+                      dma_state.method, dma_state.subchannel);
+            return;
+        }
         if (!subchannel->execution_mask[dma_state.method]) {
             subchannel->method_sink.emplace_back(dma_state.method, argument);
         } else {
@@ -245,6 +283,13 @@ void DmaPusher::CallMultiMethod(const u32* base_start, u32 num_methods) {
         puller.CallMultiMethod(*this, dma_state.method, dma_state.subchannel, base_start, num_methods, dma_state.method_count);
     } else {
         auto subchannel = subchannels[dma_state.subchannel];
+        if (!subchannel) {
+            // A guest may submit methods before binding an engine. Never
+            // dereference a missing subchannel or replay it as a valid method.
+            LOG_ERROR(HW_GPU, "GPFIFO method {:#x} on unbound subchannel {}",
+                      dma_state.method, dma_state.subchannel);
+            return;
+        }
         subchannel->ConsumeSink(system);
         subchannel->current_dma_segment = dma_state.dma_get + dma_state.dma_word_offset;
         subchannel->CallMultiMethod(system, dma_state.method, base_start, num_methods, dma_state.method_count);
