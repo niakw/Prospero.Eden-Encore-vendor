@@ -1331,17 +1331,20 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                  (u64{uniform_register(insn.words[1])} << 20) | (u64{15} << 39));
             break;
         }
-        case 0xab9: case 0xabb: { // ULDC: direct U32/U64; indexed U8/U16/U32/U64.
+        case 0xab9: case 0xabb: { // ULDC U8/U16/U32/U64, direct or indexed.
             const u32 uniform_dest = insn.Bits(16, 8), index_reg = insn.Bits(24, 8);
             const u32 width = insn.Bits(73, 3);
             const u32 offset = insn.Bits(38, 16);
-            // An indexed ULDC can fetch U8/U16 at an unaligned immediate:
-            // its uniform register contributes the remaining byte address.
-            // A direct load retains the old word-alignment constraint.
-            const bool indexed_subword = opcode == 0xabb && (width == 0 || width == 2);
-            if (uniform_dest >= 63 || (!indexed_subword && width != 4 && width != 5) ||
+            // Indexed reads may use a byte-granular immediate because
+            // the UR index contributes the final byte address. Direct
+            // reads must retain natural alignment and the unsigned
+            // short displacement required by Maxwell subword LDC.
+            const bool subword = width == 0 || width == 2;
+            const u32 alignment = width == 0 ? 1U : width == 2 ? 2U : 4U;
+            if (uniform_dest >= 63 || (!subword && width != 4 && width != 5) ||
                 (width == 5 && ((uniform_dest & 1) || uniform_dest >= 62)) ||
-                (opcode == 0xab9 && (offset & 3U)) || insn.Bits(62, 2) ||
+                (opcode == 0xab9 && (offset % alignment ||
+                                     (subword && offset >= 0x8000U))) || insn.Bits(62, 2) ||
                 (insn.words[2] & ~0xe00U) != (opcode == 0xab9 ? 0U : 0x08000000U) ||
                 (opcode == 0xabb && index_reg >= 63))
                 return fail(index, "native uniform constant load mode");
