@@ -131,7 +131,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         const bool uniform_destination = op == 0x291 || op == 0x2be || op == 0x896 || op == 0x883 || op == 0x2a4 || op == 0x8a4 || op == 0x290 || op == 0x890 ||
             op == 0x891 || op == 0x892 || op == 0x899 || op == 0x882 || op == 0xc82 || op == 0x2bd || op == 0x3c4 ||
             op == 0x3c2 || op == 0x886 || op == 0xab9 || op == 0xabb || op == 0x9c3 || op == 0x287 || op == 0x887 ||
-            op == 0x292 || op == 0x299 || op == 0x499 || op == 0x2bf;
+            op == 0x292 || op == 0x299 || op == 0x499 || op == 0x2bf || op == 0x4a4;
         if (uniform_destination) uses_extended_uniform_bank |= extended_uniform(instruction.Bits(16, 8));
         switch (op) {
         case 0x291: case 0x2a4: case 0x290: case 0x292: case 0x299:
@@ -145,6 +145,10 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         case 0x2be: case 0x2bf:
             uses_extended_uniform_bank |= extended_uniform(instruction.Bits(32, 8));
+            break;
+        case 0x4a4: // UIMAD with a literal B: only A, C and result are UR.
+            uses_extended_uniform_bank |= extended_uniform(instruction.Bits(24, 8)) ||
+                                          extended_uniform(instruction.Bits(64, 8));
             break;
         case 0x896: case 0x526:
             uses_extended_uniform_bank |= extended_uniform(instruction.Bits(24, 8));
@@ -194,7 +198,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         default: break;
         }
-        uses_uniform_bank |= op == 0x2bf || op == 0xc07 || op == 0xc0a || op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
+        uses_uniform_bank |= op == 0x4a4 || op == 0x2bf || op == 0xc07 || op == 0xc0a || op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
                              op == 0x886 || op == 0x3c2 || op == 0xc82 || op == 0x882 || op == 0xd24 || op == 0x499 || (op == 0x98e && instruction.Bits(91, 1)) || (op == 0x81c && instruction.Bits(67, 1));
     }
     const bool uses_async_copy = std::any_of(code.begin(), code.end(), [](const auto& instruction) {
@@ -376,11 +380,13 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         if (opcode == 0x292 && (insn.Bits(12, 4) != 7 || insn.Bits(40, 24) || insn.Bits(80, 1) ||
                                 insn.Bits(81, 3) != 7 || insn.Bits(87, 4) != 15 || !insn.Bits(91, 1)))
             return fail(index, "native uniform logic mode");
-        if (opcode == 0x291 || opcode == 0x2a4 || opcode == 0x2a5 || opcode == 0x8a4 || opcode == 0x891 || opcode == 0x892 || opcode == 0x890 || opcode == 0x290 || opcode == 0x292) {
+        if (opcode == 0x291 || opcode == 0x2a4 || opcode == 0x4a4 || opcode == 0x2a5 || opcode == 0x8a4 || opcode == 0x891 || opcode == 0x892 || opcode == 0x890 || opcode == 0x290 || opcode == 0x292) {
             const u32 dst = uniform_register(insn.Bits(16, 8));
             const u32 a = uniform_register(insn.Bits(24, 8));
             const u32 c = uniform_register(insn.Bits(64, 8));
             if (dst == ~0U || a == ~0U || c == ~0U) return fail(index, "native uniform arithmetic register");
+            if (opcode == 0x4a4 && insn.Bits(12, 4) != 7)
+                return fail(index, "native uniform multiply immediate predication");
             insn.words[0] = (insn.words[0] & 0xffff) | (dst << 16) | (a << 24);
             insn.words[2] = (insn.words[2] & ~0x080000ffU) | c;
             if (opcode == 0x291 || opcode == 0x2a4 || opcode == 0x2a5 || opcode == 0x290 || opcode == 0x292) {
@@ -388,7 +394,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 if (b == ~0U) return fail(index, "native uniform arithmetic second register");
                 insn.words[1] = (insn.words[1] & ~0xffU) | b;
             }
-            opcode = opcode == 0x291 ? 0x211 : opcode == 0x2a4 ? 0x224 : opcode == 0x2a5 ? 0x225 : opcode == 0x8a4 ? 0x824 : opcode == 0x891 ? 0x811 : opcode == 0x892 ? 0x812 : opcode == 0x890 ? 0x810 : opcode == 0x292 ? 0x212 : 0x210;
+            opcode = opcode == 0x291 ? 0x211 : opcode == 0x2a4 ? 0x224 : opcode == 0x4a4 ? 0x424 : opcode == 0x2a5 ? 0x225 : opcode == 0x8a4 ? 0x824 : opcode == 0x891 ? 0x811 : opcode == 0x892 ? 0x812 : opcode == 0x890 ? 0x810 : opcode == 0x292 ? 0x212 : 0x210;
         }
         const bool uniform_predicate_bank = original_opcode == 0x290 || original_opcode == 0x890 || original_opcode == 0x892;
         if (uniform_predicate_bank) {
