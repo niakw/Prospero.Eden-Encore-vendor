@@ -716,15 +716,24 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
         const u32 reduction = (control >> 9) & 7U;
         pusher.rasterizer->SignalFence(
             [channel, memory, ticket = *ticket, address, payload, reduction] {
-                auto& current =
-                    Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
-                if (!current.IsCurrent(channel, ticket) ||
-                    !Tegra::NativeComputeSemaphoreSpanValid(address, sizeof(u32)) ||
-                    !memory->IsFullyMappedRange(address, sizeof(u32))) return;
-                const u32 old_value = memory->Read<u32>(address);
-                memory->Write<u32>(
-                    address, Tegra::NativeComputeSemaphoreReduction(
-                                 old_value, payload, reduction));
+                // The deferred fence may execute after a sparse GMMU unmap.
+                // Never let a guest-memory exception unwind through Vulkan
+                // retirement or fabricate a completed reduction.
+                try {
+                    auto& current =
+                        Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+                    if (!current.IsCurrent(channel, ticket) ||
+                        !Tegra::NativeComputeSemaphoreSpanValid(address, sizeof(u32)) ||
+                        !memory->IsFullyMappedRange(address, sizeof(u32))) return;
+                    const u32 old_value = memory->Read<u32>(address);
+                    memory->Write<u32>(
+                        address, Tegra::NativeComputeSemaphoreReduction(
+                                     old_value, payload, reduction));
+                } catch (...) {
+#ifdef PS5_NATIVE
+                    Eden::RecordGpuFailure(std::current_exception());
+#endif
+                }
             });
     } else {
         pusher.rasterizer->Query(
@@ -786,15 +795,25 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
         auto* memory = &pusher.memory_manager;
         pusher.rasterizer->SignalFence(
             [channel, memory, ticket = *ticket, addr, payload, flags] {
-                const auto& current =
-                    Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
-                if (!current.IsCurrent(channel, ticket) ||
-                    !memory->IsFullyMappedRange(addr, sizeof(u32))) return;
-                u32 value = payload;
-                if (flags & (1u << 26)) value = memory->Read<u32>(addr) + payload;
-                else if (flags & (1u << 19))
-                    value = std::max(memory->Read<u32>(addr), payload);
-                memory->Write<u32>(addr, value);
+                // A QMD3 dispatch can already be accepted when this
+                // completion callback runs. If guest memory disappears or
+                // fails during Read/Write, latch the fatal worker error;
+                // neither publish a guessed semaphore nor unwind Vulkan.
+                try {
+                    const auto& current =
+                        Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+                    if (!current.IsCurrent(channel, ticket) ||
+                        !memory->IsFullyMappedRange(addr, sizeof(u32))) return;
+                    u32 value = payload;
+                    if (flags & (1u << 26)) value = memory->Read<u32>(addr) + payload;
+                    else if (flags & (1u << 19))
+                        value = std::max(memory->Read<u32>(addr), payload);
+                    memory->Write<u32>(addr, value);
+                } catch (...) {
+#ifdef PS5_NATIVE
+                    Eden::RecordGpuFailure(std::current_exception());
+#endif
+                }
             });
         return true;
     };
