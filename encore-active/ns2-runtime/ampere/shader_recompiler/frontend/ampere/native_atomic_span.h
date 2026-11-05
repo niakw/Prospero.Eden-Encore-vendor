@@ -4,8 +4,8 @@
 // to the CURRENT QMD3 resource plan, not just a reflected SSBO index.
 // Arbitrary dynamic byte offsets remain closed: the shared backend has
 // no SPIR-V runtime bounds predicate. A 32-bit offset explicitly masked
-// with an aligned constant AND, optionally plus a proven aligned base,
-// is a provably bounded exception.
+// with an aligned AND (optionally shifted by a constant), plus at most
+// one proven aligned base, is a provably bounded exception.
 // No Maxwell / Switch 1 code includes this header.
 #include <cstdint>
 #include <limits>
@@ -18,7 +18,7 @@ namespace Shader::Ampere {
 struct NativeAtomicSpan {
     u32 binding{};
     // Immediate byte offset or a proven inclusive U32 upper bound of
-    // a masked and optionally base-shifted dynamic byte offset.
+    // a masked / constant-shifted / optionally base-shifted byte offset.
     // Verifying the MAXIMUM protects every possible index on the
     // live QMD3 storage buffer.
     u32 offset{};
@@ -26,28 +26,58 @@ struct NativeAtomicSpan {
     friend bool operator==(const NativeAtomicSpan&, const NativeAtomicSpan&) = default;
 };
 
-// This accepts only the EXACT IR address expression emitted by the backend.
-// A 32-bit AND with an aligned constant mask bounds every possible value;
-// the same result may be translated by a single IAdd32 with a word-aligned
-// constant base. The 32-bit sum is proven not to wrap before admission.
-// No other address arithmetic, PHI, signed offset, or arbitrary register
-// expression can use a host-estimated range in place of a runtime guard.
-[[nodiscard]] inline std::optional<u32> NativeQmdAtomicAlignedMask(
-    const Shader::IR::Value& raw, u32 width) {
+// Read a genuinely literal mask from the exact U32 AND IR node; its
+// other operand is allowed to be dynamic, but no guessed register range.
+[[nodiscard]] inline std::optional<u32> NativeQmdAtomicLiteralAndMask(
+    const Shader::IR::Value& raw) {
     const auto* instruction = raw.Resolve().TryInstRecursive();
     if (!instruction ||
         instruction->GetOpcode() != Shader::IR::Opcode::BitwiseAnd32)
         return std::nullopt;
     const auto lhs = instruction->Arg(0).Resolve();
     const auto rhs = instruction->Arg(1).Resolve();
-    // Exactly one input must be a real U32 literal. No disguised SSA
-    // constant, unknown type or extra arithmetic is used as a mask.
     if (lhs.IsImmediate() == rhs.IsImmediate()) return std::nullopt;
     const auto constant = lhs.IsImmediate() ? lhs : rhs;
     if (constant.Type() != Shader::IR::Type::U32) return std::nullopt;
-    const u32 mask = constant.U32();
-    if (mask & (width - 1U)) return std::nullopt;
-    return mask;
+    return constant.U32();
+}
+
+// These are the EXACT IR offset patterns whose maximum can be proven
+// without a dynamic SPIR-V bounds predicate:
+//   x & constant_mask
+//   (x & constant_mask) << constant_shift
+// Both may be followed by ONE aligned constant IAdd32 at the call site.
+// The shift must be a real U32 literal in [0,31], and all set bits must
+// survive the 32-bit shift; a truncated mask would not be this proof.
+[[nodiscard]] inline std::optional<u32> NativeQmdAtomicAlignedMask(
+    const Shader::IR::Value& raw, u32 width) {
+    const auto* instruction = raw.Resolve().TryInstRecursive();
+    if (!instruction) return std::nullopt;
+    u32 maximum{};
+    if (instruction->GetOpcode() == Shader::IR::Opcode::BitwiseAnd32) {
+        const auto mask = NativeQmdAtomicLiteralAndMask(raw);
+        if (!mask) return std::nullopt;
+        maximum = *mask;
+    } else if (instruction->GetOpcode() ==
+               Shader::IR::Opcode::ShiftLeftLogical32) {
+        const auto shift_value = instruction->Arg(1).Resolve();
+        if (!shift_value.IsImmediate() ||
+            shift_value.Type() != Shader::IR::Type::U32)
+            return std::nullopt;
+        const u32 shift = shift_value.U32();
+        if (shift >= 32) return std::nullopt;
+        const auto mask = NativeQmdAtomicLiteralAndMask(
+            instruction->Arg(0));
+        if (!mask || *mask > (std::numeric_limits<u32>::max() >> shift))
+            return std::nullopt;
+        maximum = *mask << shift;
+    } else {
+        return std::nullopt;
+    }
+    // Every result uses only bit positions enabled by this mask. Its low
+    // alignment bits are therefore zero for every possible register value.
+    if (maximum & (width - 1U)) return std::nullopt;
+    return maximum;
 }
 
 [[nodiscard]] inline std::optional<u32> NativeQmdAtomicMaximumByteOffset(
@@ -109,7 +139,7 @@ CollectNativeQmdAtomicSpans(const Shader::IR::Program& program) {
             const auto binding = inst.Arg(0);
             const auto offset = inst.Arg(1);
             // No general runtime-sized guard exists: only fixed offsets,
-            // aligned AND masks or verified non-wrapping base+AND offsets
+            // aligned AND/shift masks or verified non-wrapping base+mask
             // are admissible.
             // The resource planner checks the worst possible byte span,
             // not just one observed invocation's offset.
@@ -141,7 +171,7 @@ CollectNativeQmdAtomicSpans(const Shader::IR::Program& program) {
 
 // Each span.offset is a maximum (not a sampled dynamic value) after the
 // proof above; the same live-size check therefore covers every valid
-// runtime offset generated by AND or aligned_base+AND, including the last word.
+// runtime offset generated by AND, shifted-AND or aligned-base+mask.
 // Plan is a real, read-back QMD3 binding vector: known_size, gpu_address,
 // bytes and is_written originate from authenticated guest descriptor words.
 // Reject a smaller live buffer before the renderer can submit an atomic.

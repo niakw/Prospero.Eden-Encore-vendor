@@ -136,7 +136,8 @@ Shader::Ampere::NativeSpirvResult CompileCapturedNs2QmdComputeSpirvWithResources
         // The shared SPIR-V emitter has no general dynamic bounds check.
         // Validate the maximum byte extent of both static offsets and
         // strictly aligned AND-masked dynamic offsets, optionally with
-        // one non-wrapping constant base, BEFORE publishing the plan.
+        // one non-overflowing left shift and aligned constant base,
+        // BEFORE publishing the plan.
         // The atomic's actual guest GMMU base must also be aligned and
         // within the native 49-bit range; no guessed Vulkan binding.
         if (!Shader::Ampere::NativeQmdAtomicSpansFitBindings(
