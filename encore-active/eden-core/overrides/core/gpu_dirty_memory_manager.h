@@ -52,6 +52,10 @@ public:
     }
 
     void Gather(std::function<void(PAddr, size_t)>& callback) {
+        // Video decode can gather GPU dirty regions off the graphics worker.
+        // Keep the complete swap, callback walk and clear exclusive among
+        // gatherers. Collect still runs under its independent producer guard.
+        std::scoped_lock gather_lock(gather_guard);
         {
             std::scoped_lock lk(guard);
             TransformAddress t = current.exchange(default_transform, std::memory_order_relaxed);
@@ -146,6 +150,7 @@ private:
 
     std::atomic<TransformAddress> current{};
     std::mutex guard;
+    std::mutex gather_guard;
     std::vector<TransformAddress> back_buffer;
     std::vector<TransformAddress> front_buffer;
 };
