@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "common/assert.h"
+#include "core/core.h"
 #include "video_core/control/channel_state.h"
 #include "video_core/control/scheduler.h"
 #include "video_core/gpu.h"
