@@ -3,6 +3,7 @@
 // adjacent blocks. Unknown layouts and resolution changes fail closed.
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_chain.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_raster_host.h"
+#include "video_core/renderer_vulkan/nr_rdna2_native_plan_bridge.h"
 #include "video_core/renderer_vulkan/present/util.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/vulkan_common/vulkan_device.h"
@@ -137,6 +138,28 @@ bool NrRdna2FSwinChain::Initialize(
     layers=std::move(prepared);
     ready=true;
     return true;
+}
+
+bool NrRdna2FSwinChain::InitializeNativeSegment(
+    const NeuralModelFile& model,std::string_view native_plan,
+    std::size_t segment_index){
+    if(ready || !model.IsOpen())return false;
+    using namespace Eden::Graphics::NeuralRDNA2;
+    std::vector<NativePlanStep> rows;
+    if(ParseNativePlan(native_plan,rows)!=NativePlanError::Ok)return false;
+    auto segments=ExtractNativeFSwinSegments(rows);
+    if(segment_index>=segments.size())return false;
+    const auto& source=segments[segment_index].layers;
+    if(source.empty())return false;
+    std::vector<FSwinLayerSpec> specs;
+    specs.reserve(source.size());
+    for(const auto& layer:source){
+        specs.push_back(FSwinLayerSpec{
+            layer.weight_prefix,layer.channels,layer.windows,
+            false,layer.layout});
+    }
+    return Initialize(model,std::span<const FSwinLayerSpec>{
+        specs.data(),specs.size()});
 }
 
 bool NrRdna2FSwinChain::UploadInput(

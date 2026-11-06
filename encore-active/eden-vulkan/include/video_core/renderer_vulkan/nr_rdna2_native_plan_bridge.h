@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <utility>
 namespace Eden::Graphics::NeuralRDNA2 {
 enum class NativePlanError : std::uint8_t {
     Ok, Empty, TooManyRows, MalformedRow, InvalidShape,

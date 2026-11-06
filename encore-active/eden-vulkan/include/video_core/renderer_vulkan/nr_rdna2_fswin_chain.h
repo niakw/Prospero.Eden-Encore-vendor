@@ -11,6 +11,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 namespace Vulkan {
 class Device;
@@ -34,6 +35,12 @@ public:
     [[nodiscard]] bool Initialize(
         const Eden::Graphics::NeuralRDNA2::NeuralModelFile& model,
         std::span<const FSwinLayerSpec> layers);
+    // Parse the 19/21-column upstream plan, then initialize one
+    // consecutive compatible FSwin section by its zero-based index.
+    // Other plan families are NOT silently considered executed.
+    [[nodiscard]] bool InitializeNativeSegment(
+        const Eden::Graphics::NeuralRDNA2::NeuralModelFile& model,
+        std::string_view native_plan,std::size_t segment_index);
     // Input is E4M3FN [window,64,C] and must be coherent with layer model.
     [[nodiscard]] bool UploadInput(
         std::span<const std::uint8_t> tokens);
