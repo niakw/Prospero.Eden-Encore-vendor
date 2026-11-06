@@ -20,6 +20,15 @@ class NrRdna2FSwinGraph final {
 public:
     NrRdna2FSwinGraph(const Device& device,Scheduler& scheduler);
     ~NrRdna2FSwinGraph();
+    [[nodiscard]] VkDescriptorSetLayout DenseDescriptorLayout() const noexcept {
+        return dense.DescriptorLayout();
+    }
+    [[nodiscard]] VkDescriptorSetLayout QkvDescriptorLayout() const noexcept {
+        return qkv.DescriptorLayout();
+    }
+    [[nodiscard]] VkDescriptorSetLayout AttentionDescriptorLayout() const noexcept {
+        return attention.DescriptorLayout();
+    }
     // No commands recorded if a descriptor is null or contract invalid.
     // Caller must bind each intermediate producer to the following consumer.
     [[nodiscard]] bool Record(
