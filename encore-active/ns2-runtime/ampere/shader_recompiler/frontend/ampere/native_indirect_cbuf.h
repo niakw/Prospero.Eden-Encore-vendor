@@ -28,16 +28,20 @@ inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
 [[nodiscard]] inline bool NativeQmdAtomicStorageIRAdmissible(
     const Shader::IR::Program& program, const Shader::Profile& profile) {
     using Shader::IR::Opcode;
-    static_assert(static_cast<u32>(Opcode::GlobalAtomicIAdd64) ==
+    static_assert(static_cast<u32>(Opcode::GlobalAtomicCompareExchange32) ==
                   static_cast<u32>(Opcode::GlobalAtomicExchange32) + 1U);
+    static_assert(static_cast<u32>(Opcode::GlobalAtomicIAdd64) ==
+                  static_cast<u32>(Opcode::GlobalAtomicCompareExchange32) + 1U);
     static_assert(static_cast<u32>(Opcode::GlobalAtomicMaxF32x2) + 1U ==
                   static_cast<u32>(Opcode::StorageAtomicIAdd32));
-    static_assert(static_cast<u32>(Opcode::StorageAtomicIAdd64) ==
+    static_assert(static_cast<u32>(Opcode::StorageAtomicCompareExchange32) ==
                   static_cast<u32>(Opcode::StorageAtomicExchange32) + 1U);
+    static_assert(static_cast<u32>(Opcode::StorageAtomicIAdd64) ==
+                  static_cast<u32>(Opcode::StorageAtomicCompareExchange32) + 1U);
     static_assert(static_cast<u32>(Opcode::StorageAtomicIAdd32x2) ==
                   static_cast<u32>(Opcode::StorageAtomicExchange64) + 1U);
     static_assert(static_cast<u32>(Opcode::StorageAtomicMaxF32x2) ==
-                  static_cast<u32>(Opcode::StorageAtomicIAdd32) + 35U);
+                  static_cast<u32>(Opcode::StorageAtomicIAdd32) + 36U);
     const auto& info = program.info;
     for (const Shader::IR::Block* const block : program.blocks) {
         if (!block) return false;

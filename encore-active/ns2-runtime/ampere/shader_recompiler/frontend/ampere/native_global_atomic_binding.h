@@ -121,6 +121,8 @@ struct Address {
                                    op <= Opcode::GlobalAtomicExchange32;
             const bool integer64 = op >= Opcode::GlobalAtomicIAdd64 &&
                                    op <= Opcode::GlobalAtomicExchange64;
+            const bool compare_exchange32 =
+                op == Opcode::GlobalAtomicCompareExchange32;
             // These seven float operations all use the real shared CAS
             // emitter on a single 32-bit word: scalar F32 and two packed
             // half lanes, whether the guest presents F16x2 or F32x2 input.
@@ -133,7 +135,8 @@ struct Address {
                 op == Opcode::GlobalAtomicMinF32x2 ||
                 op == Opcode::GlobalAtomicMaxF16x2 ||
                 op == Opcode::GlobalAtomicMaxF32x2;
-            if (!integer32 && !integer64 && !float_cas) continue;
+            if (!integer32 && !integer64 && !float_cas && !compare_exchange32)
+                continue;
             const u32 width = integer64 ? 8U : 4U;
             const auto address = Resolve(inst.Arg(0));
             const auto max_offset = address ?
@@ -179,6 +182,8 @@ struct Address {
                 new_op = static_cast<Opcode>(
                     static_cast<u32>(Opcode::StorageAtomicIAdd32) +
                     static_cast<u32>(op) - static_cast<u32>(Opcode::GlobalAtomicIAdd32));
+            } else if (compare_exchange32) {
+                new_op = Opcode::StorageAtomicCompareExchange32;
             } else if (float_cas) {
                 // These all use the genuine shared SPIR-V CAS helper;
                 // they never degrade to a non-atomic load/store.
@@ -211,9 +216,15 @@ struct Address {
             }
             // Keep the original value and use-def edges. The genuine IR
             // block owns the new instruction until later SPIR-V emission.
+            // CAS carries BOTH comparator and replacement value; dropping
+            // either converts a conditional write into a different atomic.
             const Value replacement{&*block->PrependNewInst(
                 Shader::IR::Block::InstructionList::s_iterator_to(inst), new_op,
-                {Value{*slot}, address->byte_offset, inst.Arg(1)})};
+                compare_exchange32 ?
+                    std::initializer_list<Value>{Value{*slot}, address->byte_offset,
+                                                 inst.Arg(1), inst.Arg(2)} :
+                    std::initializer_list<Value>{Value{*slot}, address->byte_offset,
+                                                 inst.Arg(1)})};
             // ReplaceUsesWith first clears the old operands and turns this
             // very instruction into an IR::Identity pointing to the new
             // atomic result. Invalidating it a second time would silently
