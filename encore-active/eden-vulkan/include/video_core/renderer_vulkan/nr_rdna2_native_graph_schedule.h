@@ -113,7 +113,7 @@ struct NativeNrSchedule {
     }
     if(IsNativeNrSplitOp(op)){
         if(s.channels!=512u||s.width>128u||s.height>128u||
-           s.heads!=4u&&s.heads!=8u)return false;
+           (s.heads!=4u&&s.heads!=8u))return false;
         if(op==NativeNrOp::SplitFinalHead)
             return s.input_channels==512u&&s.output_channels==1024u;
         return s.input_channels==512u&&s.output_channels==512u;
