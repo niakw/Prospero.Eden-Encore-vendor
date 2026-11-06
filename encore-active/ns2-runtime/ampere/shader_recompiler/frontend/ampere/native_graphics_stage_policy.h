@@ -99,6 +99,34 @@ static_assert(NativeMeshRegisterPipelineKey(77, {1, 0, 0}) !=
 static_assert(NativeMeshRegisterPipelineKey(77, {1, 2, 0}) !=
               NativeMeshRegisterPipelineKey(77, {1, 2, 3}));
 
+// In NVN mesh pipelines a bound Geometry slot contains a primitive-output
+// ProgramHeader, not a runnable stage. NVIDIA NVC597 places its 40-bit
+// address in the two reserved program-address fields (high 8, low 32).
+[[nodiscard]] constexpr u64 NativeMeshPrimitiveHeaderAddress(
+    u32 address_high, u32 address_low) noexcept {
+    return (u64{address_high & 0xffU} << 32) | u64{address_low};
+}
+
+// Whether that header is enabled and ALL of its bytes alter the Vulkan
+// mesh output interface. Hash the declared header and its enable flag into
+// the native Mesh shader key; a stale geometry header must never hit cache.
+[[nodiscard]] constexpr u64 NativeMeshPrimitiveHeaderPipelineKey(
+    u64 original, bool header_enabled, const u8* bytes, std::size_t size) noexcept {
+    if (!original || (size && !bytes) || (!header_enabled && size)) return 0;
+    u64 hash = original ^ u64{0xcbf29ce484222325};
+    hash = (hash ^ (header_enabled ? 1U : 0U)) * u64{0x100000001b3};
+    for (std::size_t i = 0; i < size; ++i) {
+        hash = (hash ^ bytes[i]) * u64{0x100000001b3};
+    }
+    return hash == 0 ? 1 : hash;
+}
+static_assert(NativeMeshPrimitiveHeaderAddress(0x1234, 0x12345678) ==
+              u64{0x3412345678});
+static_assert(NativeMeshPrimitiveHeaderPipelineKey(17, false, nullptr, 0) !=
+              NativeMeshPrimitiveHeaderPipelineKey(17, true, nullptr, 0));
+static_assert(NativeMeshPrimitiveHeaderPipelineKey(17, true, nullptr, 1) == 0);
+static_assert(NativeMeshPrimitiveHeaderPipelineKey(17, true, nullptr, 0) != 0);
+
 // Maxwell's graphics CBUF stage banks are VertexA/VertexB=0,
 // TessControl=1, TessEval=2, Geometry=3, Fragment=4. The shared IR
 // stage enum follows that order except VertexA, which is appended.

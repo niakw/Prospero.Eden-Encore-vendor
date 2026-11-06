@@ -868,12 +868,11 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
         const bool mesh_control = (maxwell3d->regs.reg_array[0x114c / 4] & 1U) != 0;
         const bool has_task = Shader::Ampere::NativeMeshTaskPresent(
             configured_stages, mesh_control);
-        // Geometry is only a pass-through header in mesh mode. Until its
-        // primitive-output header is linked, do not compile it as a
-        // runnable geometry shader or silently lose primitive attributes.
+        // A mesh Geometry slot is a header-only primitive output map.
+        // Mesh shader capture hashes its complete GMMU bytes and is the
+        // sole executable owner; the slot itself emits no SPIR-V module.
         if (!Shader::Ampere::NativeMeshGraphicsStageMaskSupported(
-                configured_stages, mesh_control) ||
-            (mesh_control && (configured_stages & (1U << 4)) != 0)) {
+                configured_stages, mesh_control)) {
             current_pipeline = nullptr;
             return nullptr;
         }
@@ -882,6 +881,13 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
         for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {
             if (!maxwell3d->regs.IsShaderConfigEnabled(i) ||
                 (i == 5 && !maxwell3d->regs.rasterize_enable)) {
+                graphics_key.unique_hashes[i] = 0;
+                continue;
+            }
+            if (mesh_control && i == 4) {
+                // Geometry is a primitive-output ProgramHeader for the
+                // Mesh stage, and is included in the Mesh program's
+                // diagnostic key. Never compile it independently.
                 graphics_key.unique_hashes[i] = 0;
                 continue;
             }
@@ -1839,8 +1845,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
         const bool has_task = Shader::Ampere::NativeMeshTaskPresent(
             keyed_stages, mesh_control);
         if (!Shader::Ampere::NativeMeshGraphicsStageMaskSupported(
-                keyed_stages, mesh_control) ||
-            (mesh_control && (keyed_stages & (1U << 4)) != 0))
+                keyed_stages, mesh_control))
             return nullptr;
         const auto base = maxwell3d->regs.program_region.Address();
         // Preserve the stage-program register set used by the SPIR-V
@@ -1913,7 +1918,9 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
                 (i != 5 || maxwell3d->regs.rasterize_enable))
                 live_stages |= u32{1} << i;
         }
-        if (live_stages != keyed_stages ||
+        const u32 live_executable_stages =
+            mesh_control ? live_stages & ~(1U << 4) : live_stages;
+        if (live_executable_stages != keyed_stages ||
             ((maxwell3d->regs.reg_array[0x114c / 4] & 1U) != 0) != mesh_control)
             return nullptr;
         for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {

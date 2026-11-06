@@ -359,6 +359,21 @@ GraphicsEnvironment::GraphicsEnvironment(Tegra::Engines::Maxwell3D& maxwell3d_,
         mesh_registers = {maxwell3d->regs.reg_array[0x1150 / 4],
                           maxwell3d->regs.reg_array[0x1154 / 4],
                           maxwell3d->regs.reg_array[0x1158 / 4]};
+        if (stage == Shader::Stage::Mesh &&
+            maxwell3d->regs.IsShaderConfigEnabled(Maxwell::ShaderType::Geometry)) {
+            // NVC597 uses Geometry only as a per-primitive output map
+            // header. Do not compile a phantom geometry shader.
+            const auto& geometry = maxwell3d->regs.pipelines[
+                static_cast<std::size_t>(Maxwell::ShaderType::Geometry)];
+            const GPUVAddr address =
+                (GPUVAddr{geometry.reserved[0] & 0xffU} << 32) |
+                GPUVAddr{geometry.reserved[1]};
+            if (!gpu_memory->IsFullyMappedRange(address, sizeof(mesh_primitive_header))) {
+                throw std::out_of_range("Native mesh primitive-output header unmapped");
+            }
+            gpu_memory->ReadBlock(address, &mesh_primitive_header,
+                                  sizeof(mesh_primitive_header));
+        }
     }
     const u64 local_size{sph.LocalMemorySize()};
     ASSERT(local_size <= (std::numeric_limits<u32>::max)());

@@ -186,6 +186,30 @@ Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
                 captured.image.diagnostic_cache_key =
                     Shader::Ampere::NativeMeshRegisterPipelineKey(
                         captured.image.diagnostic_cache_key, mesh_regs);
+                if (shader_stage == Shader::Stage::Mesh) {
+                    const bool primitive_header_enabled =
+                        regs.IsShaderConfigEnabled(
+                            Tegra::Engines::Maxwell3D::Regs::ShaderType::Geometry);
+                    std::array<u8, sizeof(Shader::ProgramHeader)> primitive_header{};
+                    if (primitive_header_enabled) {
+                        const auto& geometry = regs.pipelines[
+                            static_cast<std::size_t>(
+                                Tegra::Engines::Maxwell3D::Regs::ShaderType::Geometry)];
+                        const u64 address = Shader::Ampere::NativeMeshPrimitiveHeaderAddress(
+                            geometry.reserved[0], geometry.reserved[1]);
+                        if (!Shader::Ampere::NativeGpuRange49(
+                                address, primitive_header.size()) ||
+                            !ReadNs2GpuShader(&memory, address,
+                                              primitive_header.data(), primitive_header.size()))
+                            return {};
+                    }
+                    captured.image.diagnostic_cache_key =
+                        Shader::Ampere::NativeMeshPrimitiveHeaderPipelineKey(
+                            captured.image.diagnostic_cache_key,
+                            primitive_header_enabled,
+                            primitive_header_enabled ? primitive_header.data() : nullptr,
+                            primitive_header_enabled ? primitive_header.size() : 0);
+                }
             }
             return captured;
         }
