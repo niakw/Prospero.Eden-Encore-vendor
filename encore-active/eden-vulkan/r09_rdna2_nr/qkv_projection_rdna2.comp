@@ -1,0 +1,113 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// RDNA2 portable QKV triplet projection from MIT DLSSNR-AMD attn.comp.
+// Baseline 64-token window, 512 input channels, 32 output channels / head.
+// Both X and W are explicit row-major E4M3FN bytes, not upstream tiled
+// storage. Three preprojected FP8 tensors feed window_attention_rdna2.comp.
+// FP16-round-to-nearest via packHalf2x16, no FP8/cooperative matrix extension.
+layout(local_size_x=8,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Activations {uint words[];} activations;
+layout(set=0,binding=1,std430) readonly buffer Weights {uint words[];} weights;
+layout(set=0,binding=2,std430) readonly buffer Scales {float factors[];} scales;
+layout(set=0,binding=3,std430) writeonly buffer QueryOut {uint words[];} q_output;
+layout(set=0,binding=4,std430) writeonly buffer KeyOut {uint words[];} k_output;
+layout(set=0,binding=5,std430) writeonly buffer ValueOut {uint words[];} v_output;
+layout(push_constant) uniform Params {
+    uint a_base_bytes;
+    uint w_base_bytes;
+    uint scale_base_floats;
+    uint q_base_bytes;
+    uint k_base_bytes;
+    uint v_base_bytes;
+    uint windows;
+    uint heads;
+} pc;
+shared float q_proj[32];
+shared float k_proj[32];
+shared float norms[2];
+
+float fp8_to_f32(uint raw) {
+    uint e=(raw>>3u)&15u, m=raw&7u;
+    float sign=(raw&128u)!=0u?-1.0:1.0;
+    if(e==15u && m==7u)return uintBitsToFloat(0x7fc00000u);
+    if(e==0u)return sign*float(m)*exp2(-9.0);
+    return sign*float(8u+m)*exp2(float(int(e)-10));
+}
+uint f32_to_fp8(float v) {
+    uint sign=(floatBitsToUint(v)>>24u)&128u;
+    if(isnan(v))return sign|127u;
+    float a=min(abs(v),448.0);
+    if(a<0.015625) {
+        uint m=uint(roundEven(a*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int e=int(floor(log2(a)));
+    uint m=uint(roundEven((a/exp2(float(e))-1.0)*8.0));
+    if(m==8u){++e;m=0u;}
+    uint ex=uint(e+7);
+    if(ex>15u || (ex==15u && m>6u))return sign|126u;
+    return sign|(ex<<3u)|m;
+}
+float round_half(float value) {
+    return unpackHalf2x16(packHalf2x16(vec2(value,0.0))).x;
+}
+void main(){
+    const uint lane=gl_LocalInvocationID.x;
+    const uint window=gl_WorkGroupID.x;
+    const uint head=gl_WorkGroupID.y;
+    const uint token=gl_WorkGroupID.z;
+    if(window>=pc.windows || head>=pc.heads)return;
+    const uint a=(pc.a_base_bytes>>2u)+(window*64u+token)*128u;
+    float q[4],k[4],v[4];
+    for(uint i=0u;i<4u;++i){q[i]=0.0;k[i]=0.0;v[i]=0.0;}
+    // A single workgroup projects a token to Q, K and V in one launch.
+    // Scalar GEMMs are intentionally a correctness baseline, NOT optimized.
+    for(uint kw=0u;kw<128u;++kw) {
+        uint ap=activations.words[a+kw];
+        vec4 x=vec4(
+            fp8_to_f32((ap>>0u)&255u),fp8_to_f32((ap>>8u)&255u),
+            fp8_to_f32((ap>>16u)&255u),fp8_to_f32((ap>>24u)&255u));
+        for(uint i=0u;i<4u;++i) {
+            uint c=lane*4u+i;
+            uint wq=(pc.w_base_bytes>>2u)+(head*96u+c)*128u+kw;
+            uint wk=wq+32u*128u;
+            uint wv=wk+32u*128u;
+            uint pq=weights.words[wq],pk=weights.words[wk],pv=weights.words[wv];
+            for(uint z=0u;z<4u;++z){
+                float invalue=x[z];
+                q[i]=fma(invalue,fp8_to_f32((pq>>(z*8u))&255u),q[i]);
+                k[i]=fma(invalue,fp8_to_f32((pk>>(z*8u))&255u),k[i]);
+                v[i]=fma(invalue,fp8_to_f32((pv>>(z*8u))&255u),v[i]);
+            }
+        }
+    }
+    for(uint i=0u;i<4u;++i) {
+        q_proj[lane*4u+i]=q[i];
+        k_proj[lane*4u+i]=k[i];
+    }
+    barrier();
+    if(lane==0u) {
+        float nq=0.0,nk=0.0;
+        for(uint i=0u;i<32u;++i){
+            nq=fma(q_proj[i],q_proj[i],nq);
+            nk=fma(k_proj[i],k_proj[i],nk);
+        }
+        norms[0]=sqrt(nq);
+        norms[1]=sqrt(nk);
+    }
+    barrier();
+    uint packed_q=0u,packed_k=0u,packed_v=0u;
+    float factor=scales.factors[pc.scale_base_floats+head];
+    for(uint i=0u;i<4u;++i){
+        float qn=norms[0]>0.0?q[i]/norms[0]:0.0;
+        float kn=norms[1]>0.0?k[i]/norms[1]:0.0;
+        // Keep the upstream f16 rounding points before FP8 quantization.
+        packed_q|=f32_to_fp8(round_half(factor*round_half(qn)))<<(i*8u);
+        packed_k|=f32_to_fp8(round_half(kn))<<(i*8u);
+        packed_v|=f32_to_fp8(round_half(v[i]))<<(i*8u);
+    }
+    uint output_index=((window*pc.heads+head)*64u+token)*8u+lane;
+    q_output.words[(pc.q_base_bytes>>2u)+output_index]=packed_q;
+    k_output.words[(pc.k_base_bytes>>2u)+output_index]=packed_k;
+    v_output.words[(pc.v_base_bytes>>2u)+output_index]=packed_v;
+}
