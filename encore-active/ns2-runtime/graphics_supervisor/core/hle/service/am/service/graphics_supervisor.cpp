@@ -1277,7 +1277,12 @@ IGraphicsSupervisor::LookupVideoSurface(u32 image_id) {
         if (pool.layout.image_bytes != view->size ||
             pool.layout.row_bytes == 0 || pool.layout.cpu_kind < 8 ||
             pool.layout.cpu_kind > 10) return {};
-        return VideoSurface{image_id, view->backing, address, width, height, pool.layout};
+        const bool gpu_mapped = std::any_of(m_video_mappings.begin(), m_video_mappings.end(),
+            [image_id](const auto& entry) {
+                return entry.first.second == image_id && entry.second.references != 0;
+            });
+        return VideoSurface{image_id, view->backing, address, width, height,
+                            pool.layout, gpu_mapped};
     }
     return {};
 }
@@ -1290,9 +1295,16 @@ bool IGraphicsSupervisor::WriteVideoSurface(
     if (pixels.size() != expected.layout.image_bytes || !pixels.data()) return false;
     const std::scoped_lock lock{m_native_memory_mutex};
     const auto view = m_video_pools.Lookup(image_id);
-    if (!view || view->backing != expected.backing ||
+    if (!view || view->backing != expected.backing || expected.image_id != image_id ||
         view->size != pixels.size() || !m_native_module || !m_process)
         return false;
+    // A 426/427 map can change while the codec was rendering. Never write
+    // pitch-linear bytes into a newly GPU-mapped block-linear allocation.
+    const bool gpu_mapped = std::any_of(m_video_mappings.begin(), m_video_mappings.end(),
+        [image_id](const auto& entry) {
+            return entry.first.second == image_id && entry.second.references != 0;
+        });
+    if (gpu_mapped != expected.gpu_mapped) return false;
     const auto record = m_native_memory.Get(view->backing);
     if (!record || !record->bound || !record->guest_address ||
         view->offset > record->size || view->size > record->size - view->offset ||

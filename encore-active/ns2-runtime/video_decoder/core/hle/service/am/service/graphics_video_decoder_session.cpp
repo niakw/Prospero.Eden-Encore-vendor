@@ -26,6 +26,7 @@
 #include "core/hle/service/nvdrv/core/syncpoint_manager.h"
 #include "video_core/host1x/host1x.h"
 #include "video_core/host1x/syncpoint_manager.h"
+#include "video_core/textures/decoders.h"
 
 namespace Service::AM {
 namespace {
@@ -319,6 +320,28 @@ void IGraphicsVideoDecoderSession::Pump() {
         if (!m_decoder->Render(frame.picture, format, width, height,
                                target->layout.row_bytes, target->layout.chroma_offset, pixels))
             return;
+        if (target->gpu_mapped && !target->layout.nv12) {
+            // A GPU 426 image is consumed in Maxwell block-linear RGB layout,
+            // unlike the pitch-linear 961 CPU image. Convert ALL allocated
+            // rows, not just the cropped frame, before invalidating textures.
+            constexpr u32 BytesPerPixel = 4;
+            constexpr u32 BlockHeightLog2 = 4; // 16 GOB rows (128 pixels)
+            const u32 pitch = target->layout.row_bytes;
+            if (!pitch || (pitch % BytesPerPixel) != 0 ||
+                Tegra::Texture::CalculateSize(true, BytesPerPixel, pitch / BytesPerPixel,
+                                             target->height, 1, BlockHeightLog2, 0) > pixels.size())
+                return;
+            std::vector<u8> tiled;
+            try {
+                tiled.resize(pixels.size());
+            } catch (const std::bad_alloc&) {
+                return;
+            }
+            Tegra::Texture::SwizzleTexture(tiled, pixels, BytesPerPixel,
+                                           pitch / BytesPerPixel, target->height, 1,
+                                           BlockHeightLog2, 0);
+            pixels.swap(tiled);
+        }
         if (!m_owner->WriteVideoSurface(next.id, *target, pixels)) return;
         m_outputs.push_back({next.id, width, height, frame.picture.pts, frame.eos});
         m_guest_owned.insert(next.id);

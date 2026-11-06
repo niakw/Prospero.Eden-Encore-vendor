@@ -42,6 +42,7 @@ private:
         u32 width{};
         u32 height{};
         NativeVideoImageLayout layout{};
+        bool gpu_mapped{}; // An active 426 map consumes block-linear RGB images.
     };
     [[nodiscard]] std::optional<VideoSurface> LookupVideoSurface(u32 image_id);
     [[nodiscard]] bool WriteVideoSurface(u32 image_id, const VideoSurface& expected,
