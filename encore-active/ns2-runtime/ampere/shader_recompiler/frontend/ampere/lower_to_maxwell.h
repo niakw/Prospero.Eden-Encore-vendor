@@ -34,12 +34,13 @@ namespace Shader::Ampere {
         !matches(3, 0xff017224, 0xff, 0x000e0401) ||
         !matches(4, 0x00007357, 0, 0)) return std::nullopt;
     const u32 target = code[1].words[1];
-    // A statically authenticated ATEXIT PC may lie beyond the legacy 4096
-    // analysis window. It must still point into this exact captured code;
-    // never permit a dangling branch into unmapped or later guest memory.
+    // Capture calls this with ONLY the five-instruction prologue; its
+    // forward ATEXIT target may not have been read yet. Accept an aligned
+    // target within the 65536-instruction domain here. The real lowerer
+    // rechecks target < code.size() at BMOV (0x357), after GMMU capture.
     if (code.size() > 65536 || target < 5 * sizeof(Instruction) ||
         target % sizeof(Instruction) ||
-        target / sizeof(Instruction) >= code.size()) return std::nullopt;
+        target / sizeof(Instruction) >= 65536) return std::nullopt;
     return target / sizeof(Instruction);
 }
 
