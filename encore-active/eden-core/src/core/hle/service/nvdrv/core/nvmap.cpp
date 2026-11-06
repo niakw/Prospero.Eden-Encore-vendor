@@ -217,17 +217,28 @@ DAddr NvMap::PinHandle(NvMap::Handle::Id handle, bool low_area_pin) {
         } else {
             size_t aligned_up = Common::AlignUp(map_size, BIG_PAGE_SIZE);
             while ((address = smmu.Allocate(aligned_up)) == 0) {
-                // Free handles until the allocation succeeds
+                // Reclaim only real, unpinned entries. A depleted/stale queue
+                // must fail explicitly instead of looping forever or calling
+                // list::front() on an empty list. Do not test the NEW handle's
+                // d_address: it has not been mapped yet.
                 std::scoped_lock queueLock(unmap_queue_lock);
-                if (auto freeHandleDesc{unmap_queue.front()}) {
-                    // Handles in the unmap queue are guaranteed not to be pinned so don't bother
-                    // checking if they are before unmapping
-                    std::scoped_lock freeLock(freeHandleDesc->mutex);
-                    if (handle_description->d_address)
-                        UnmapHandle(*freeHandleDesc);
-                } else {
-                    LOG_CRITICAL(Service_NVDRV, "Ran out of SMMU address space!");
+                if (unmap_queue.empty()) {
+                    LOG_ERROR(Service_NVDRV, "No reclaimable NVMap mappings for SMMU allocation");
+                    return 0;
                 }
+                auto freeHandleDesc = unmap_queue.front();
+                if (!freeHandleDesc || freeHandleDesc.get() == handle_description.get()) {
+                    if (freeHandleDesc) freeHandleDesc->unmap_queue_entry.reset();
+                    unmap_queue.pop_front();
+                    continue;
+                }
+                std::scoped_lock freeLock(freeHandleDesc->mutex);
+                if (!freeHandleDesc->d_address) {
+                    freeHandleDesc->unmap_queue_entry.reset();
+                    unmap_queue.pop_front();
+                    continue;
+                }
+                UnmapHandle(*freeHandleDesc);
             }
 
             handle_description->d_address = address;
