@@ -19,8 +19,13 @@ class Scheduler;
 // Four pinned Anime4K v4 3D CNN stages in Vulkan compute, source/MIT in vendor.
 class Anime4K3D final {
 public:
+    enum class Profile : u8 {
+        Details, // 3DGraphics CNN v4: 4 native convolution/reconstruction stages
+        Soft,    // Restore Soft CNN v4: 4 stages, then 3DGraphics CNN x2
+        Denoise, // Upscale+Denoise CNN v3.2: 5 native stages
+    };
     Anime4K3D(const Device&, MemoryAllocator&, Scheduler&, size_t image_count,
-              VkExtent2D output_extent);
+              VkExtent2D output_extent, Profile profile = Profile::Details);
     ~Anime4K3D();
 
     [[nodiscard]] std::optional<VkImageView> Draw(
@@ -29,16 +34,24 @@ public:
 
 private:
     struct Frame {
-        // Three Vulkan images: conv0/conv2 reuse slot 0; conv1 uses slot 1;
-        // final 2x result uses slot 2. No in-place shader sampling.
-        std::array<vk::Image, 3> images{};
-        std::array<vk::ImageView, 3> views{};
+        // Scratch 0/1 reused by convolutions; Soft also needs scratch 2
+        // for restored input. Image 3 is always the separate x2 output.
+        std::array<vk::Image, 4> images{};
+        std::array<vk::ImageView, 4> views{};
         vk::DescriptorSets sets{};
         bool initialized{};
     };
 
+    struct StageIO {
+        int source{-1};   // -1: original input, otherwise a scratch image
+        int features{-1}; // -1: no auxiliary sampled CNN feature image
+        int destination{}; // 0/1/2 scratch, 3 output
+    };
     [[nodiscard]] bool InitializeFrames(VkExtent2D input_extent);
 
+    Profile profile;
+    std::array<StageIO, 8> stages{};
+    u32 stage_count{};
     const Device& device;
     MemoryAllocator& memory_allocator;
     Scheduler& scheduler;
@@ -50,8 +63,8 @@ private:
     vk::DescriptorPool descriptor_pool{};
     std::array<vk::DescriptorSetLayout, 2> descriptor_layouts{};
     std::array<vk::PipelineLayout, 2> pipeline_layouts{};
-    std::array<vk::ShaderModule, 4> shader_modules{};
-    std::array<vk::Pipeline, 4> pipelines{};
+    std::array<vk::ShaderModule, 8> shader_modules{};
+    std::array<vk::Pipeline, 8> pipelines{};
     std::vector<Frame> frames{};
     bool disabled{};
 };

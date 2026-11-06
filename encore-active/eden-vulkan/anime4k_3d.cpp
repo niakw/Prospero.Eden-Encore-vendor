@@ -14,6 +14,15 @@
 #include "video_core/host_shaders/anime4k_3d_us_stage_1_comp_spv.h"
 #include "video_core/host_shaders/anime4k_3d_us_stage_2_comp_spv.h"
 #include "video_core/host_shaders/anime4k_3d_us_stage_3_comp_spv.h"
+#include "video_core/host_shaders/anime4k_soft_stage_0_comp_spv.h"
+#include "video_core/host_shaders/anime4k_soft_stage_1_comp_spv.h"
+#include "video_core/host_shaders/anime4k_soft_stage_2_comp_spv.h"
+#include "video_core/host_shaders/anime4k_soft_stage_3_comp_spv.h"
+#include "video_core/host_shaders/anime4k_denoise_stage_0_comp_spv.h"
+#include "video_core/host_shaders/anime4k_denoise_stage_1_comp_spv.h"
+#include "video_core/host_shaders/anime4k_denoise_stage_2_comp_spv.h"
+#include "video_core/host_shaders/anime4k_denoise_stage_3_comp_spv.h"
+#include "video_core/host_shaders/anime4k_denoise_stage_4_comp_spv.h"
 
 namespace Vulkan {
 namespace {
@@ -39,8 +48,8 @@ constexpr VkMemoryBarrier kBetweenConvolutions{
 
 Anime4K3D::Anime4K3D(
     const Device& device_, MemoryAllocator& memory_allocator_, Scheduler& scheduler_,
-    size_t image_count_, VkExtent2D output_extent_)
-    : device{device_}, memory_allocator{memory_allocator_}, scheduler{scheduler_},
+    size_t image_count_, VkExtent2D output_extent_, Profile profile_)
+    : profile{profile_}, device{device_}, memory_allocator{memory_allocator_}, scheduler{scheduler_},
       image_count{image_count_}, output_extent{output_extent_} {
     constexpr VkFormatFeatureFlags needed = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
                                              VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
@@ -53,10 +62,49 @@ Anime4K3D::Anime4K3D(
 
     // All kernels were compiled on the build host from the exact MIT
     // convolution weights. No shader compiler or NVIDIA runtime on PS5.
-    const std::array<std::span<const u32>, 4> code{
-        ANIME4K_3D_US_STAGE_0_COMP_SPV, ANIME4K_3D_US_STAGE_1_COMP_SPV,
-        ANIME4K_3D_US_STAGE_2_COMP_SPV, ANIME4K_3D_US_STAGE_3_COMP_SPV,
-    };
+    // Stage graphs are pinned to the actual upstream CNN weights. These
+    // paths are NOT presets for a single shader. The restorative variant
+    // must preserve the original source through its final residual pass.
+    std::array<std::span<const u32>, 8> code{};
+    switch (profile) {
+    case Profile::Details:
+        stage_count = 4;
+        stages = {{
+            {-1,-1,0}, {0,-1,1}, {1,-1,0}, {-1,0,3},
+        }};
+        code[0] = ANIME4K_3D_US_STAGE_0_COMP_SPV;
+        code[1] = ANIME4K_3D_US_STAGE_1_COMP_SPV;
+        code[2] = ANIME4K_3D_US_STAGE_2_COMP_SPV;
+        code[3] = ANIME4K_3D_US_STAGE_3_COMP_SPV;
+        break;
+    case Profile::Soft:
+        stage_count = 8;
+        stages = {{
+            {-1,-1,0}, {0,-1,1}, {1,-1,0}, {-1,0,2},
+            {2,-1,0}, {0,-1,1}, {1,-1,0}, {2,0,3},
+        }};
+        code[0] = ANIME4K_SOFT_STAGE_0_COMP_SPV;
+        code[1] = ANIME4K_SOFT_STAGE_1_COMP_SPV;
+        code[2] = ANIME4K_SOFT_STAGE_2_COMP_SPV;
+        code[3] = ANIME4K_SOFT_STAGE_3_COMP_SPV;
+        code[4] = ANIME4K_3D_US_STAGE_0_COMP_SPV;
+        code[5] = ANIME4K_3D_US_STAGE_1_COMP_SPV;
+        code[6] = ANIME4K_3D_US_STAGE_2_COMP_SPV;
+        code[7] = ANIME4K_3D_US_STAGE_3_COMP_SPV;
+        break;
+    case Profile::Denoise:
+        stage_count = 5;
+        stages = {{
+            {-1,-1,0}, {0,-1,1}, {1,-1,0}, {0,-1,1},
+            {-1,1,3},
+        }};
+        code[0] = ANIME4K_DENOISE_STAGE_0_COMP_SPV;
+        code[1] = ANIME4K_DENOISE_STAGE_1_COMP_SPV;
+        code[2] = ANIME4K_DENOISE_STAGE_2_COMP_SPV;
+        code[3] = ANIME4K_DENOISE_STAGE_3_COMP_SPV;
+        code[4] = ANIME4K_DENOISE_STAGE_4_COMP_SPV;
+        break;
+    }
     sampler = CreateBilinearSampler(device);
     descriptor_layouts[0] = CreateWrappedDescriptorSetLayout(
         device, {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -67,14 +115,16 @@ Anime4K3D::Anime4K3D(
                  VK_DESCRIPTOR_TYPE_STORAGE_IMAGE}, VK_SHADER_STAGE_COMPUTE_BIT);
     pipeline_layouts[0] = CreateWrappedPipelineLayout(device, descriptor_layouts[0]);
     pipeline_layouts[1] = CreateWrappedPipelineLayout(device, descriptor_layouts[1]);
-    for (size_t i = 0; i < code.size(); ++i) {
+    u32 sampler_count = 0;
+    for (u32 i = 0; i < stage_count; ++i) {
+        sampler_count += stages[i].features < 0 ? 1u : 2u;
         shader_modules[i] = CreateWrappedShaderModule(device, code[i]);
         pipelines[i] = CreateWrappedComputePipeline(
-            device, pipeline_layouts[i == 3 ? 1 : 0], *shader_modules[i]);
+            device, pipeline_layouts[stages[i].features < 0 ? 0 : 1],
+            *shader_modules[i]);
     }
-    // 5 combined samplers + 4 storage images per frame, four sets each.
     descriptor_pool = CreateWrappedDescriptorPool(
-        device, image_count * 5, image_count * 4,
+        device, image_count * sampler_count, image_count * stage_count,
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
          VK_DESCRIPTOR_TYPE_STORAGE_IMAGE});
 }
@@ -99,32 +149,39 @@ bool Anime4K3D::InitializeFrames(VkExtent2D extent) {
                extent.height == input_extent.height;
     }
     const u64 pixels = static_cast<u64>(extent.width) * extent.height;
-    // Two 16-bit RGBA convolution surfaces at input size, one x2 output.
-    // 2*8 + 4*8 bytes/pixel = 48 bytes per input pixel/per frame.
-    const u64 required = pixels * 48u * image_count;
+    // Details/Denoise need two lowres feature images + a 2x output:
+    // 48 bytes per source pixel. Soft needs an extra restored original:
+    // 56 bytes per pixel. All frames-in-flight share a strict 384MiB cap.
+    const u32 scratch_count = profile == Profile::Soft ? 3u : 2u;
+    const u64 required = pixels * (u64(scratch_count) * 8u + 32u) * image_count;
     if (required > kMaxCnnTransientBytes) return false;
 
     try {
         frames.resize(image_count);
-        const std::array<VkDescriptorSetLayout, 4> layouts{
-            *descriptor_layouts[0], *descriptor_layouts[0],
-            *descriptor_layouts[0], *descriptor_layouts[1]};
+        std::array<VkDescriptorSetLayout, 8> layouts{};
+        for (u32 i = 0; i < stage_count; ++i) {
+            layouts[i] = *descriptor_layouts[stages[i].features < 0 ? 0 : 1];
+        }
         for (auto& frame : frames) {
-            for (u32 surface = 0; surface < 3; ++surface) {
-                const VkExtent2D dimensions = surface == 2 ? output_extent : extent;
-                frame.images[surface] = CreateWrappedImage(
+            std::array<VkImage, 4> images{};
+            for (u32 surface = 0; surface <= scratch_count; ++surface) {
+                const u32 slot = surface == scratch_count ? 3 : surface;
+                const VkExtent2D dimensions = slot == 3 ? output_extent : extent;
+                frame.images[slot] = CreateWrappedImage(
                     memory_allocator, dimensions, kCnnFormat);
-                frame.views[surface] = CreateWrappedImageView(
-                    device, frame.images[surface], kCnnFormat);
+                frame.views[slot] = CreateWrappedImageView(
+                    device, frame.images[slot], kCnnFormat);
+                images[slot] = *frame.images[slot];
             }
-            frame.sets = CreateWrappedDescriptorSets(descriptor_pool, layouts);
-            std::array<VkImage, 3> images{
-                *frame.images[0], *frame.images[1], *frame.images[2]};
+            frame.sets = CreateWrappedDescriptorSets(
+                descriptor_pool, std::span(layouts.data(), stage_count));
             scheduler.RequestOutsideRenderPassOperationContext();
             scheduler.Record([images](vk::CommandBuffer command) {
                 for (const auto image : images) {
-                    TransitionImageLayout(
-                        command, image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_UNDEFINED);
+                    if (image) {
+                        TransitionImageLayout(
+                            command, image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_UNDEFINED);
+                    }
                 }
             });
         }
@@ -147,26 +204,27 @@ std::optional<VkImageView> Anime4K3D::Draw(
         !FullCrop(crop) || !InitializeFrames(extent)) return std::nullopt;
 
     auto& frame = frames[image_index];
-    const std::array<VkImageView, 4> input_views{
-        source_view, *frame.views[0], *frame.views[1], source_view};
-    const std::array<VkImageView, 4> destination_views{
-        *frame.views[0], *frame.views[1], *frame.views[0], *frame.views[2]};
-    const std::array<VkImage, 4> destination_images{
-        *frame.images[0], *frame.images[1], *frame.images[0], *frame.images[2]};
-
-    // One descriptor set per stage AND frame-in-flight, synchronized by
-    // Layer::resource_ticks. Descriptor writes happen outside GPU callback.
-    std::array<VkDescriptorImageInfo, 9> infos{};
-    std::array<VkWriteDescriptorSet, 9> writes{};
+    // Maximum 8 stages: each has one storage image and either one or
+    // two sampled inputs. Every write stays tied to its own frame slot.
+    std::array<VkDescriptorImageInfo, 24> infos{};
+    std::array<VkWriteDescriptorSet, 24> writes{};
+    std::array<VkDescriptorSet, 8> sets{};
+    std::array<VkPipeline, 8> native_pipelines{};
+    std::array<VkPipelineLayout, 8> native_layouts{};
     u32 cursor = 0;
-    for (u32 stage = 0; stage != 4; ++stage) {
-        const u32 binding_count = stage == 3 ? 3 : 2;
+    for (u32 stage = 0; stage < stage_count; ++stage) {
+        const StageIO& plan = stages[stage];
+        const u32 binding_count = plan.features < 0 ? 2 : 3;
+        const auto view_for = [&](int slot) -> VkImageView {
+            return slot < 0 ? source_view : *frame.views[static_cast<u32>(slot)];
+        };
         for (u32 binding = 0; binding < binding_count; ++binding) {
-            auto& info = infos[cursor];
             const bool storage = binding == binding_count - 1;
+            const int image_slot = storage ? plan.destination :
+                                   binding == 1 ? plan.features : plan.source;
+            auto& info = infos[cursor];
             info.sampler = storage ? VK_NULL_HANDLE : *sampler;
-            info.imageView = storage ? destination_views[stage] :
-                (stage == 3 && binding == 1 ? *frame.views[0] : input_views[stage]);
+            info.imageView = view_for(image_slot);
             info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
             writes[cursor] = {
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -181,37 +239,34 @@ std::optional<VkImageView> Anime4K3D::Draw(
             };
             ++cursor;
         }
+        sets[stage] = frame.sets[stage];
+        native_pipelines[stage] = *pipelines[stage];
+        native_layouts[stage] = *pipeline_layouts[plan.features < 0 ? 0 : 1];
     }
-    device.GetLogical().UpdateDescriptorSets(std::span(writes.data(), cursor), {});
+    device.GetLogical().UpdateDescriptorSets(
+        std::span(writes.data(), cursor), {});
 
-    const std::array<VkDescriptorSet, 4> sets{
-        frame.sets[0], frame.sets[1], frame.sets[2], frame.sets[3]};
-    const std::array<VkPipeline, 4> native_pipelines{
-        *pipelines[0], *pipelines[1], *pipelines[2], *pipelines[3]};
-    const std::array<VkPipelineLayout, 4> native_layouts{
-        *pipeline_layouts[0], *pipeline_layouts[0],
-        *pipeline_layouts[0], *pipeline_layouts[1]};
     const VkExtent2D output = output_extent;
-
+    const u32 passes = stage_count;
+    const auto io = stages;
     scheduler.RequestOutsideRenderPassOperationContext();
-    scheduler.Record([source_image, destination_images, native_pipelines,
-                      native_layouts, sets, extent, output](vk::CommandBuffer command) {
+    scheduler.Record([source_image, native_pipelines, native_layouts, sets,
+                      io, passes, extent, output](vk::CommandBuffer command) {
         TransitionImageLayout(command, source_image, VK_IMAGE_LAYOUT_GENERAL);
-        for (u32 stage = 0; stage != 4; ++stage) {
+        for (u32 stage = 0; stage < passes; ++stage) {
             command.BindPipeline(VK_PIPELINE_BIND_POINT_COMPUTE, native_pipelines[stage]);
             command.BindDescriptorSets(
                 VK_PIPELINE_BIND_POINT_COMPUTE, native_layouts[stage], 0, sets[stage], {});
-            const VkExtent2D dimensions = stage == 3 ? output : extent;
+            const VkExtent2D dimensions = io[stage].destination == 3 ? output : extent;
             command.Dispatch(Groups(dimensions.width), Groups(dimensions.height), 1);
             command.PipelineBarrier(
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                 0, kBetweenConvolutions);
         }
-        // The present pass reads this output using a sampled descriptor.
         command.PipelineBarrier(
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
             0, kBetweenConvolutions);
     });
-    return *frame.views[2];
+    return *frame.views[3];
 }
 } // namespace Vulkan
