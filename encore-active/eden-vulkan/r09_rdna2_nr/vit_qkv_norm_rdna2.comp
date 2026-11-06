@@ -3,7 +3,8 @@
 // RDNA2 portable QKV post-GEMM normalization for 32-head global ViT.
 // Input: FP32 row-major [token][Q(1024),K(1024),V(1024)].
 // Output: three packed E4M3FN row-major [token][head=32][dim=32].
-// Upstream's qkv_norm uses 32 learned FP32 head temperatures. Scalar
+// Round each GEMM result to FP16 before the Q/K norm (upstream input is
+// a half-precision projection); use 32 learned FP32 head temperatures. Scalar
 // reference; half-rounding/reduction order is not claimed bit-identical.
 layout(local_size_x=8,local_size_y=1,local_size_z=1) in;
 layout(set=0,binding=0,std430) readonly buffer InputF32 {float values[];} input_f32;
@@ -50,9 +51,9 @@ void main(){
     float q[4],k[4],v[4];
     for(uint i=0u;i<4u;++i){
         uint channel=lane*4u+i;
-        q[i]=input_f32.values[input_base+channel];
-        k[i]=input_f32.values[input_base+1024u+channel];
-        v[i]=input_f32.values[input_base+2048u+channel];
+        q[i]=round_half(input_f32.values[input_base+channel]);
+        k[i]=round_half(input_f32.values[input_base+1024u+channel]);
+        v[i]=round_half(input_f32.values[input_base+2048u+channel]);
         qs[channel]=q[i];
         ks[channel]=k[i];
     }
