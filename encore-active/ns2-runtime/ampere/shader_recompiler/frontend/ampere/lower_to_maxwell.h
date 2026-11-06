@@ -178,7 +178,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         // Uniform operand B in SEL's 0xC07 form uses the same protected
         // UR→GPR bank as all other native uniform instructions.
-        case 0xc07: case 0xc0a: case 0xd07:
+        case 0xc07: case 0xc0a: case 0xd07: case 0xd04:
             uses_extended_uniform_bank |= extended_uniform(instruction.Bits(32, 8));
             break;
         case 0xc0b: case 0xc0c: case 0xc10: case 0xc11: case 0xc12: case 0xc17: case 0xc19: case 0xc20: case 0xc24: case 0xd06:
@@ -203,7 +203,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         default: break;
         }
-        uses_uniform_bank |= op == 0x4a4 || op == 0x2bf || op == 0xc07 || op == 0xc0a || op == 0xd07 || op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0xd01 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
+        uses_uniform_bank |= op == 0x4a4 || op == 0x2bf || op == 0xc07 || op == 0xc0a || op == 0xd07 || op == 0xd04 || op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0xd01 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
                              op == 0x886 || op == 0x3c2 || op == 0xc82 || op == 0x882 || op == 0xd24 || op == 0x499 || (op == 0x98e && instruction.Bits(91, 1)) || (op == 0x81c && instruction.Bits(67, 1));
     }
     const bool uses_async_copy = std::any_of(code.begin(), code.end(), [](const auto& instruction) {
@@ -568,13 +568,29 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             emit(0x5c10000000000000ULL | predicate | target | (u64{250} << 8) | (u64{252} << 20));
         };
         switch (opcode) {
-        case 0x304: { // F2F.F16.F32, scalar round-to-nearest conversion.
-            if (insn.words[2] != 0x00200800 || insn.Bits(24, 8) ||
-                (insn.words[1] & ~0xc00000ffU))
-                return fail(index, "native scalar float conversion mode");
-            emit(base(0x5ca8000000000000ULL) | (u64{1} << 8) | (u64{2} << 10) |
-                 (u64{insn.Bits(32, 8)} << 20) | (u64{insn.Bits(62, 1)} << 49) |
-                 (u64{insn.Bits(63, 1)} << 45));
+        case 0x304: case 0x904: case 0xb04: case 0xd04: { // F2F.F16.F32 all native sources.
+            const bool immediate = opcode == 0x904;
+            const bool constant = opcode == 0xb04;
+            const bool uniform = opcode == 0xd04;
+            if (insn.words[2] != (0x00200800U | (uniform ? 0x08000000U : 0U)) ||
+                insn.Bits(24, 8) ||
+                (opcode == 0x304 && (insn.words[1] & ~0xc00000ffU)) ||
+                (uniform && insn.words[1] > 63U) ||
+                (constant && (!valid_cbuf() || insn.Bits(54, 5) >= 18)))
+                return fail(index, "native scalar float conversion source mode");
+            // Keep full IEEE-754 immediate bits, including bit31, as data.
+            // The F16 F2F conversion is the same Maxwell instruction as the
+            // original GPR path; banked CBUF is its direct constant variant.
+            if (immediate) mov_imm(251, insn.words[1]);
+            const u32 source = immediate ? 251U :
+                uniform ? uniform_register(insn.Bits(32, 8)) : insn.Bits(32, 8);
+            if (source == ~0U)
+                return fail(index, "native scalar float uniform register");
+            emit(base(constant ? 0x4ca8000000000000ULL : 0x5ca8000000000000ULL) |
+                 (u64{1} << 8) | (u64{2} << 10) |
+                 (constant ? cbuf() : (u64{source} << 20)) |
+                 (u64{immediate ? 0U : insn.Bits(62, 1)} << 49) |
+                 (u64{immediate ? 0U : insn.Bits(63, 1)} << 45));
             break;
         }
         case 0x23e: case 0xa3e: { // F2FP.PACK_AB / MERGE_C, round-to-nearest
