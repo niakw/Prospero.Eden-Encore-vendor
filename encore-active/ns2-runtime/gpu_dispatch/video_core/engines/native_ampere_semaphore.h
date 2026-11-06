@@ -27,8 +27,8 @@ namespace Tegra::Engines::NativeSemaphore {
     default: return std::nullopt; // release 1 and invalid 6/7 are not waits
     }
 }
-static_assert(Address(0x1000001, 0x1043) == 0x10000010140ULL);
-static_assert(IsAddressAdmissible(0x10000010140ULL));
+static_assert(Address(0x10001, 0x1043) == 0x1000100001040ULL);
+static_assert(IsAddressAdmissible(0x1000100001040ULL));
 static_assert(!IsAddressAdmissible(std::uint64_t{1} << 49));
 static_assert(AcquireReady(0, 3, 3) == true);
 static_assert(AcquireReady(2, 4, 3) == true);
