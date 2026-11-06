@@ -389,7 +389,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         if (opcode == 0x292 && (insn.Bits(12, 4) != 7 || insn.Bits(40, 24) || insn.Bits(80, 1) ||
                                 insn.Bits(81, 3) != 7 || insn.Bits(87, 4) != 15 || !insn.Bits(91, 1)))
             return fail(index, "native uniform logic mode");
-        if (opcode == 0x291 || opcode == 0x2a4 || opcode == 0x4a4 || opcode == 0x2a5 || opcode == 0x8a4 || opcode == 0x891 || opcode == 0x892 || opcode == 0x890 || opcode == 0x290 || opcode == 0x292) {
+        if (opcode == 0x291 || opcode == 0x2a4 || opcode == 0x4a4 || opcode == 0x8a4 || opcode == 0x891 || opcode == 0x892 || opcode == 0x890 || opcode == 0x290 || opcode == 0x292) {
             const u32 dst = uniform_register(insn.Bits(16, 8));
             const u32 a = uniform_register(insn.Bits(24, 8));
             const u32 c = uniform_register(insn.Bits(64, 8));
@@ -398,12 +398,12 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 return fail(index, "native uniform multiply immediate predication");
             insn.words[0] = (insn.words[0] & 0xffff) | (dst << 16) | (a << 24);
             insn.words[2] = (insn.words[2] & ~0x080000ffU) | c;
-            if (opcode == 0x291 || opcode == 0x2a4 || opcode == 0x2a5 || opcode == 0x290 || opcode == 0x292) {
+            if (opcode == 0x291 || opcode == 0x2a4 || opcode == 0x290 || opcode == 0x292) {
                 const u32 b = uniform_register(insn.Bits(32, 8));
                 if (b == ~0U) return fail(index, "native uniform arithmetic second register");
                 insn.words[1] = (insn.words[1] & ~0xffU) | b;
             }
-            opcode = opcode == 0x291 ? 0x211 : opcode == 0x2a4 ? 0x224 : opcode == 0x4a4 ? 0x424 : opcode == 0x2a5 ? 0x225 : opcode == 0x8a4 ? 0x824 : opcode == 0x891 ? 0x811 : opcode == 0x892 ? 0x812 : opcode == 0x890 ? 0x810 : opcode == 0x292 ? 0x212 : 0x210;
+            opcode = opcode == 0x291 ? 0x211 : opcode == 0x2a4 ? 0x224 : opcode == 0x4a4 ? 0x424 : opcode == 0x8a4 ? 0x824 : opcode == 0x891 ? 0x811 : opcode == 0x892 ? 0x812 : opcode == 0x890 ? 0x810 : opcode == 0x292 ? 0x212 : 0x210;
         }
         const bool uniform_predicate_bank = original_opcode == 0x290 || original_opcode == 0x890 || original_opcode == 0x892;
         if (uniform_predicate_bank) {
@@ -1000,6 +1000,35 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             xmad(static_cast<u32>(dest), a, 251, 252, true, false, 0, false);
             break;
         }
+        // Lichii nx2 UIMAD.WIDE: preserve both uniform destination words and
+        // the high 32 bits of the product, rather than routing 0x2a5 into
+        // the generic 0x225 GPR path (which does not preserve that ABI).
+        case 0x2a5: { // UIMAD.WIDE.U32 UR(d):UR(d+1) = URa * URb + URc:UR(c+1)
+            const u32 a = uniform_register(insn.Bits(24, 8)), b = uniform_register(insn.Bits(32, 8));
+            const u32 c = insn.Bits(64, 8);
+            const u32 c_low = uniform_register(c), c_high = c == 63 ? 255U : uniform_register(c + 1);
+            const u32 d_low = uniform_register(insn.Bits(16, 8)), d_high = uniform_register(insn.Bits(16, 8) + 1);
+            if (native_predicate != 7 || (insn.words[1] & ~0xffU) || (insn.words[2] & ~0xffU) != 0x0f8e0000 ||
+                (insn.Bits(16, 8) & 1) || (c != 63 && (c & 1)) || a == ~0U || b == ~0U || c_low == ~0U ||
+                c_high == ~0U || d_low == ~0U || d_high == ~0U || d_low == 255)
+                return fail(index, "native uniform wide multiply mode");
+            // High word in R253 (base-2^16 long multiplication, as IMAD.HI), low word in R250.
+            xmad(250, a, b, 255, false, false, 0, false);
+            xmad(251, a, b, 250, true, false, 2, false);
+            xmad(250, a, b, 251, false, true, 1, false);
+            xmad(252, a, b, 251, true, true, 2, false);
+            emit(0x3828000000070000ULL | 250 | (u64{250} << 8) | (u64{16} << 20));
+            emit(0x5c10000000070000ULL | 253 | (u64{250} << 8) | (u64{252} << 20));
+            xmad(250, a, b, 255, false, false, 0, false);
+            xmad(251, a, b, 255, true, false, 0, false);
+            xmad(251, a, b, 251, false, true, 0, false);
+            emit(0x5c18000000070000ULL | 250 | (u64{251} << 8) | (u64{250} << 20) | (u64{16} << 39));
+            emit(0x5c10000000070000ULL | 250 | (u64{250} << 8) | (u64{c_low} << 20) | (u64{1} << 47));
+            emit(0x5c10000000070000ULL | d_high | (u64{253} << 8) | (u64{c_high} << 20) | (u64{1} << 43));
+            emit(0x5c10000000070000ULL | d_low | (u64{250} << 8) | (u64{255} << 20));
+            break;
+        }
+
         case 0x225: case 0x227: case 0x625: case 0x825: { // Unsigned wide/high multiply-add with optional carry output.
             const bool immediate = opcode == 0x825;
             const bool constant_addend = opcode == 0x625;
