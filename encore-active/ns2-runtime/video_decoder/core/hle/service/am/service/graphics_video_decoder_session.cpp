@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/hle/service/am/service/graphics_video_decoder_session.h"
 #include "core/hle/service/am/service/native_video_eos.h"
+#include "core/hle/service/am/service/native_video_work_buffer.h"
 
 #include <algorithm>
 #include <array>
@@ -40,7 +41,8 @@ constexpr u32 MaxDimension = 8192;
 IGraphicsVideoDecoderSession::IGraphicsVideoDecoderSession(
     Core::System& system_, std::shared_ptr<IGraphicsSupervisor> owner, bool creator)
     : ServiceFramework{system_, creator ? "nx2:vdec" : "nx2:vdecsvc"},
-      m_owner{std::move(owner)}, m_context{system_, "nx2:vdec"}, m_creator{creator} {
+      m_owner{std::move(owner)}, m_context{system_, "nx2:vdec"},
+      m_work_buffer{system_.Kernel()}, m_creator{creator} {
     static const FunctionInfo functions[] = {
         {1, &IGraphicsVideoDecoderSession::CreateDecoderService, "CreateVideoDecoderService"},
         {3, &IGraphicsVideoDecoderSession::GetEvent, "GetInputReadyEvent"},
@@ -105,11 +107,18 @@ void IGraphicsVideoDecoderSession::Initialize(HLERequestContext& ctx) {
     }
     // These SDK methods supply a real work-buffer transfer memory handle.
     // An arbitrary or expired handle must never initialize a decoder.
-    const auto memory = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(ctx.GetCopyHandle(0));
-    if (memory.IsNull()) {
+    auto memory = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(ctx.GetCopyHandle(0));
+    if (!VideoDecoderProtocol::IsWorkBufferOwned(memory.GetPointerUnsafe(),
+                                                  m_owner->m_process)) {
         Acknowledge(ctx, Kernel::ResultInvalidHandle);
         return;
     }
+    if (!VideoDecoderProtocol::IsValidWorkBufferSize(memory->GetSize())) {
+        Acknowledge(ctx, Kernel::ResultInvalidSize);
+        return;
+    }
+    // Retain an actual kernel KAutoObject reference, not just the raw handle.
+    m_work_buffer = std::move(memory);
     m_initialized = true;
     Acknowledge(ctx, ResultSuccess);
 }
@@ -181,6 +190,7 @@ void IGraphicsVideoDecoderSession::Finalize(HLERequestContext& ctx) {
     m_started = false;
     m_pending.clear();
     m_decoder.reset();
+    m_work_buffer.Reset(nullptr);
     m_finalized = true;
     Acknowledge(ctx, ResultSuccess);
 }

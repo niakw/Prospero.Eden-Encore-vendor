@@ -13,6 +13,8 @@
 
 #include "core/hle/service/service.h"
 #include "core/hle/service/kernel_helpers.h"
+#include "core/hle/kernel/k_auto_object.h"
+#include "core/hle/kernel/k_transfer_memory.h"
 #include "video_core/host1x/nx2_video_decoder.h"
 
 namespace Kernel { class KEvent; }
@@ -67,6 +69,9 @@ private:
     [[nodiscard]] std::optional<std::array<u32, 4>> ReserveFence();
     std::shared_ptr<IGraphicsSupervisor> m_owner;
     KernelHelpers::ServiceContext m_context;
+    // A session-owned kernel reference: guest closing its original COPY
+    // handle must not finalize the transfer memory during active decoding.
+    Kernel::KScopedAutoObject<Kernel::KTransferMemory> m_work_buffer;
     Kernel::KEvent* m_event{};
     std::unique_ptr<Tegra::Host1x::Nx2VideoDecoder> m_decoder;
     std::deque<PendingPicture> m_pending;
