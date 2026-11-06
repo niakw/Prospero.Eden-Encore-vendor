@@ -17,7 +17,18 @@ public:
         VkDescriptorBufferInfo activations,VkDescriptorBufferInfo weights,
         VkDescriptorBufferInfo fp32_transient,VkDescriptorBufferInfo fp8_output,
         const Eden::Graphics::NeuralRDNA2::Projection& shape,
-        std::uint64_t free_transient_bytes);
+        std::uint64_t free_transient_bytes,
+        std::uint32_t fp8_output_byte_offset=0u);
+    // For ViT FFN matrices too wide for a single guarded GEMM: record
+    // sequential token slices using the SAME immutable descriptors.
+    // The FP32 transient is reused, but E4M3FN output spans do not overlap.
+    [[nodiscard]] bool RecordBatched(
+        VkDescriptorSet gemm_set,VkDescriptorSet quantize_set,
+        VkDescriptorBufferInfo activations,VkDescriptorBufferInfo weights,
+        VkDescriptorBufferInfo fp32_transient,VkDescriptorBufferInfo fp8_output,
+        const Eden::Graphics::NeuralRDNA2::Projection& full_shape,
+        std::uint64_t free_transient_bytes,
+        std::uint32_t tokens_per_batch=1024u);
     [[nodiscard]] VkDescriptorSetLayout GemmLayout() const noexcept{
         return projection.DescriptorLayout();
     }

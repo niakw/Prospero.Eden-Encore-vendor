@@ -12,7 +12,8 @@ bool NrRdna2ProjectionQuantized::Record(
     VkDescriptorSet gemm_set,VkDescriptorSet quantize_set,
     VkDescriptorBufferInfo activations,VkDescriptorBufferInfo weights,
     VkDescriptorBufferInfo fp32_transient,VkDescriptorBufferInfo fp8_output,
-    const NR::Projection& shape,std::uint64_t free_transient_bytes){
+    const NR::Projection& shape,std::uint64_t free_transient_bytes,
+    std::uint32_t fp8_output_byte_offset){
     if(!gemm_set||!quantize_set)return false;
     const std::array<VkDescriptorBufferInfo,4> buffers{
         activations,weights,fp32_transient,fp8_output};
@@ -27,12 +28,47 @@ bool NrRdna2ProjectionQuantized::Record(
         free_transient_bytes};
     NR::QuantizedProjectionPlan plan{};
     if(!NR::PrepareQuantizedProjection(
-           shape,storage,fp8_output.range,plan))return false;
+           shape,storage,fp8_output.range,plan,
+           fp8_output_byte_offset))return false;
     // Both descriptor sets MUST be written by the caller using exactly the
     // same buffer descriptions. Preflight every stage before recording any.
     if(!projection.Record(gemm_set,shape,storage))return false;
     // GEMM's compute->compute barrier makes the FP32 transient visible.
     // The quantizer's barrier exposes the packed E4M3FN output downstream.
     return quantizer.Record(quantize_set,fp32_transient,fp8_output,plan.quant);
+}
+bool NrRdna2ProjectionQuantized::RecordBatched(
+    VkDescriptorSet gemm_set,VkDescriptorSet quantize_set,
+    VkDescriptorBufferInfo activations,VkDescriptorBufferInfo weights,
+    VkDescriptorBufferInfo fp32_transient,VkDescriptorBufferInfo fp8_output,
+    const NR::Projection& full_shape,std::uint64_t free_transient_bytes,
+    std::uint32_t tokens_per_batch){
+    if(!gemm_set||!quantize_set)return false;
+    const std::array<VkDescriptorBufferInfo,4> buffers{
+        activations,weights,fp32_transient,fp8_output};
+    for(std::size_t i=0u;i<buffers.size();++i){
+        if(!buffers[i].buffer||!buffers[i].range||
+           buffers[i].range==VK_WHOLE_SIZE)return false;
+        for(std::size_t j=0u;j<i;++j)
+            if(buffers[i].buffer==buffers[j].buffer)return false;
+    }
+    const NR::Storage storage{
+        activations.range,weights.range,fp32_transient.range,
+        free_transient_bytes};
+    NR::QuantizedProjectionBatches plan{};
+    if(!NR::BuildQuantizedProjectionBatches(
+        full_shape,storage,fp8_output.range,tokens_per_batch,plan))
+        return false;
+    // The entire plan is prevalidated: no out-of-range later slice
+    // can be discovered AFTER GPU commands have been recorded.
+    for(std::uint32_t i=0u;i<plan.count;++i){
+        const auto& slice=plan.batches[i];
+        if(!Record(gemm_set,quantize_set,activations,weights,
+                   fp32_transient,fp8_output,slice.gemm,
+                   free_transient_bytes,
+                   slice.prepared.quant.output_offset_bytes))
+            return false;
+    }
+    return true;
 }
 } // namespace Vulkan
