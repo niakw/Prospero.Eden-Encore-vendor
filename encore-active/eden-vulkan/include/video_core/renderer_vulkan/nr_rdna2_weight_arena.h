@@ -44,6 +44,17 @@ public:
         NeuralWeightRange& recorded) {
         return Append(model,name,true,rows,columns,recorded);
     }
+    // The normal NRMODEL1 source is already row-major: preserve byte order.
+    [[nodiscard]] bool AppendModelMatrix(
+        const NeuralModelFile& model,std::string_view name,
+        std::uint32_t rows,std::uint32_t columns,
+        NeuralWeightRange& recorded) {
+        recorded={};
+        if(!ValidNeuralTileShape(rows,columns))return false;
+        const auto* entry=model.Find(name);
+        if(!entry||entry->size!=std::uint64_t(rows)*columns)return false;
+        return AppendRaw(model,name,recorded);
+    }
 private:
     [[nodiscard]] bool Append(
         const NeuralModelFile& model,std::string_view name,
@@ -53,7 +64,7 @@ private:
         if(name.empty()||Find(name))return false;
         std::vector<std::uint8_t> source;
         const bool valid=tiled?
-            model.LoadRowMajor(name,rows,columns,source):
+            model.LoadTiledMatrix(name,rows,columns,source):
             model.LoadRaw(name,source);
         if(!valid||source.empty())return false;
         constexpr std::size_t kMaxArena=256ull<<20;

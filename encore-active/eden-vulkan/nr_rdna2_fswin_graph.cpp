@@ -15,10 +15,14 @@ bool NrRdna2FSwinGraph::Record(
     const FSwinGraphDescriptorSets& sets,const FSwinGraph& plan){
     if(!CanFSwinGraph(plan)||!sets.qkv||!sets.attention)
         return false;
-    for(const auto& set:sets.dense)if(!set)return false;
+    for(unsigned i=0u;i<4u;++i){
+        if(i==1u&&plan.dense[0].channels==32u)continue;
+        if(!sets.dense[i])return false;
+    }
     // Each Record queues its own compute->compute storage visibility barrier.
     // Validate every pass BEFORE submitting any command to avoid partial plans.
     for(unsigned i=0;i<3u;++i){
+        if(i==1u&&plan.dense[0].channels==32u)continue;
         if(!dense.Record(sets.dense[i],plan.dense[i],plan.dense_storage[i]))
             return false;
     }

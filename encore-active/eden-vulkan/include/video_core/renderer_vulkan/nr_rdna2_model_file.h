@@ -90,9 +90,22 @@ public:
         output=std::move(bytes);
         return true;
     }
+    // NRMODEL1 stores original ROW-MAJOR matrix bytes; do not apply
+    // 16x16 tile transforms here (the upstream Vulkan host tiles later).
+    [[nodiscard]] bool LoadModelMatrix(
+        std::string_view name,std::uint32_t rows,std::uint32_t columns,
+        std::vector<std::uint8_t>& output) const {
+        output.clear();
+        if(!ValidNeuralTileShape(rows,columns))return false;
+        const auto needed=std::size_t(std::uint64_t(rows)*columns);
+        std::vector<std::uint8_t> raw;
+        if(!LoadRaw(name,raw)||raw.size()!=needed)return false;
+        output=std::move(raw);
+        return true;
+    }
     // Exact E4M3FN tile bytes -> linear; no rescaling or re-quantization.
     // Does not cover the INT4/GPTQ model variants.
-    [[nodiscard]] bool LoadRowMajor(
+    [[nodiscard]] bool LoadTiledMatrix(
         std::string_view name,std::uint32_t rows,std::uint32_t columns,
         std::vector<std::uint8_t>& output) const {
         output.clear();

@@ -65,7 +65,9 @@ uint load_input_word(uint window,uint token,uint k,uint output_channel) {
         uint offset=pc.x_base_bytes+((window*(C/32u)+head)*64u+token)*32u+k%32u;
         return input_tensor.words[offset>>2u];
     }
-    uint offset=pc.x_base_bytes+(window*64u+token)*C+k;
+    // C=32 has no grouped middle; its contraction reads 4C hidden features.
+    uint input_channels=(pc.stage==2u&&C==32u)?4u*C:C;
+    uint offset=pc.x_base_bytes+(window*64u+token)*input_channels+k;
     return input_tensor.words[offset>>2u];
 }
 void main(){
@@ -76,7 +78,8 @@ void main(){
     if(window>=pc.windows||token>=64u||first_channel>=output_channels||
        pc.stage>3u)return;
     uint packed=0u;
-    uint kernel_inputs=pc.stage==1u?128u:pc.channels;
+    uint kernel_inputs=(pc.stage==1u ||
+        (pc.stage==2u&&pc.channels==32u))?128u:pc.channels;
     for(uint out_byte=0u;out_byte<4u;++out_byte){
         uint feature=first_channel+out_byte;
         if(feature>=output_channels)break;
