@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 #include "video_core/renderer_vulkan/nr_rdna2_vit_qkv_attention_link.h"
+#include "video_core/renderer_vulkan/nr_rdna2_vit_model_buffers.h"
 #include "video_core/renderer_vulkan/present/util.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <utility>
 namespace Vulkan {
 namespace NR=Eden::Graphics::NeuralRDNA2;
@@ -85,6 +87,20 @@ bool NrRdna2VitQkvAttentionLink::Initialize(
     attention_shape=proposed_attention;
     attention_storage=proposed_attention_storage;
     ready=true;
+    return true;
+}
+bool NrRdna2VitQkvAttentionLink::InitializeWithModel(
+    std::uint32_t tokens,
+    const NR::NeuralModelFile& model,std::string_view prefix,
+    MemoryAllocator& allocator,NrRdna2VitQkvAttentionBuffers buffers){
+    if(ready||model_buffers)return false;
+    auto proposed=std::make_unique<NrRdna2VitModelBuffers>(
+        device,allocator);
+    if(!proposed->Initialize(model,prefix))return false;
+    buffers.weights=proposed->WeightDescriptor();
+    buffers.temperatures=proposed->TemperatureDescriptor();
+    if(!Initialize(tokens,buffers))return false;
+    model_buffers=std::move(proposed);
     return true;
 }
 bool NrRdna2VitQkvAttentionLink::Record(){
