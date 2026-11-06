@@ -121,13 +121,18 @@ struct Address {
                                    op <= Opcode::GlobalAtomicExchange32;
             const bool integer64 = op >= Opcode::GlobalAtomicIAdd64 &&
                                    op <= Opcode::GlobalAtomicExchange64;
-            // The shared SPIR-V backend has real compare-and-swap loops
-            // for scalar F32 addition and packed F16x2 add/min/max. Other
-            // float-vector forms are not assumed equivalent without proof.
+            // These seven float operations all use the real shared CAS
+            // emitter on a single 32-bit word: scalar F32 and two packed
+            // half lanes, whether the guest presents F16x2 or F32x2 input.
+            // Verify the CAS helper uses OpPackHalf2x16/OpUnpackHalf2x16;
+            // never treat F32x2 as an unprotected 8-byte storage vector.
             const bool float_cas = op == Opcode::GlobalAtomicAddF32 ||
                 op == Opcode::GlobalAtomicAddF16x2 ||
+                op == Opcode::GlobalAtomicAddF32x2 ||
                 op == Opcode::GlobalAtomicMinF16x2 ||
-                op == Opcode::GlobalAtomicMaxF16x2;
+                op == Opcode::GlobalAtomicMinF32x2 ||
+                op == Opcode::GlobalAtomicMaxF16x2 ||
+                op == Opcode::GlobalAtomicMaxF32x2;
             if (!integer32 && !integer64 && !float_cas) continue;
             const u32 width = integer64 ? 8U : 4U;
             const auto address = Resolve(inst.Arg(0));
@@ -180,8 +185,11 @@ struct Address {
                 switch (op) {
                 case Opcode::GlobalAtomicAddF32: new_op=Opcode::StorageAtomicAddF32; break;
                 case Opcode::GlobalAtomicAddF16x2: new_op=Opcode::StorageAtomicAddF16x2; break;
+                case Opcode::GlobalAtomicAddF32x2: new_op=Opcode::StorageAtomicAddF32x2; break;
                 case Opcode::GlobalAtomicMinF16x2: new_op=Opcode::StorageAtomicMinF16x2; break;
+                case Opcode::GlobalAtomicMinF32x2: new_op=Opcode::StorageAtomicMinF32x2; break;
                 case Opcode::GlobalAtomicMaxF16x2: new_op=Opcode::StorageAtomicMaxF16x2; break;
+                case Opcode::GlobalAtomicMaxF32x2: new_op=Opcode::StorageAtomicMaxF32x2; break;
                 default: return false;
                 }
             } else {
@@ -206,8 +214,12 @@ struct Address {
             const Value replacement{&*block->PrependNewInst(
                 Shader::IR::Block::InstructionList::s_iterator_to(inst), new_op,
                 {Value{*slot}, address->byte_offset, inst.Arg(1)})};
+            // ReplaceUsesWith first clears the old operands and turns this
+            // very instruction into an IR::Identity pointing to the new
+            // atomic result. Invalidating it a second time would silently
+            // discard the guest-visible returned *old value* and break all
+            // instructions that consume the atomic return value.
             inst.ReplaceUsesWith(replacement);
-            inst.Invalidate();
         }
     }
     return true;
