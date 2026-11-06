@@ -2414,7 +2414,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             if (coordinates == 0 || insn.Bits(76, 4) || insn.Bits(80, 10) || mask == 0 ||
                 insn.Bits(59, 1) != (opcode == 0x36a ? 1U : 0U) || source_a + in_a > reserved_register ||
                 (in_a < coordinates && source_b + (coordinates - in_a) > reserved_register) ||
-                (opcode == 0xf69 && (handle >= reserved_register || insn.Bits(46, 13) || !insn.Bits(91, 1))) ||
+                (opcode == 0xf69 && (handle >= 246U || insn.Bits(46, 13) || !insn.Bits(91, 1))) ||
                 (opcode == 0x36a && (handle >= reserved_register || insn.Bits(40, 19) || insn.Bits(91, 1))) ||
                 (!bindless && (insn.Bits(40, 14) > 0x1fff || binding >= 18 ||
                                (result.required_texture_buffer != ~0U && result.required_texture_buffer != binding))))
