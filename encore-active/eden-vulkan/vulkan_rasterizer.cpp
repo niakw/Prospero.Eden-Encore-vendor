@@ -1073,6 +1073,17 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         auto resources = resource_owner->BuildResourcePlan(*compiled.info);
         if (!resources || !registry.IsComputeCurrent(kepler_compute, *ticket))
             return false;
+        // The production Vulkan path must enforce the SAME authenticated
+        // atomic byte extents as the captured-QMD compiler. A successful
+        // SPIR-V module alone does not prove a dynamic atomic stays within
+        // its real, writable GMMU-backed SSBO. Reject before any image,
+        // descriptor or pipeline is allocated; never round the offset down.
+        if (!Shader::Ampere::NativeQmdAtomicSpansFitBindings(
+                std::span<const Shader::Ampere::NativeAtomicSpan>{
+                    compiled.native_atomic_spans.data(),
+                    compiled.native_atomic_spans.size()},
+                resources->storage_buffers))
+            return false;
         // Match the authentic TIC/TSC handle order and write permissions
         // to the emitted SPIR-V reflection before any Vulkan cache access.
         if (!Shader::Ampere::NativeQmdImageLayoutMatches(*compiled.info, *resources))
