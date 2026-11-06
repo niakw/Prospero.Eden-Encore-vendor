@@ -3,11 +3,23 @@
 // There is deliberately NO automatic call from PresentManager here: the
 // colour-only screen image does not contain real guest motion/depth/jitter.
 #include <cmath>
+#include <type_traits>
 #include "fsr31_vram_budget.h"
+#include "fsr31_native_resource_contract.h"
 #include "video_core/renderer_vulkan/fsr31_native_bridge.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 namespace Eden::Graphics {
+namespace {
+template <typename T>
+std::uint64_t HandleIdentity(T handle) noexcept {
+    if constexpr (std::is_pointer_v<T>) {
+        return static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(handle));
+    } else {
+        return static_cast<std::uint64_t>(handle);
+    }
+}
+} // namespace
 
 Fsr31NativeBridge::Fsr31NativeBridge(
     const Vulkan::Device& device_, Vulkan::Scheduler& scheduler_,
@@ -40,10 +52,33 @@ std::optional<Fsr31NativeOutput> Fsr31NativeBridge::TryRecord(
         ResetHistory();
         return std::nullopt;
     }
+    // The continuity check validates declared guest provenance. This additional
+    // check verifies that the images and views we actually submit to Vulkan
+    // are exactly the authenticated guest resources (not unrelated handles).
+    last_rejection = Temporal::ValidateNativeResources(
+        frame.metadata, Temporal::NativeResources{
+            .color={HandleIdentity(frame.color_image),HandleIdentity(frame.color)},
+            .depth={HandleIdentity(frame.depth_image),HandleIdentity(frame.depth)},
+            .motion={HandleIdentity(frame.motion_image),HandleIdentity(frame.motion)},
+        });
+    if (last_rejection != Temporal::Rejection::None) {
+        ResetHistory();
+        return std::nullopt;
+    }
     if ((frame.color_format!=VK_FORMAT_R16G16B16A16_SFLOAT &&
          frame.color_format!=VK_FORMAT_B10G11R11_UFLOAT_PACK32) ||
         frame.depth_format!=VK_FORMAT_D32_SFLOAT ||
         frame.motion_format!=VK_FORMAT_R16G16_SFLOAT) {
+        last_rejection=Temporal::Rejection::UnsupportedInputFormat;
+        ResetHistory();
+        return std::nullopt;
+    }
+    // Shader reads must actually be legal for each input format on this
+    // Vulkan device. A matching enum alone does not prove sampled-image support.
+    constexpr auto sampled = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+    if (!device.IsFormatSupported(frame.color_format, sampled, Vulkan::FormatType::Optimal) ||
+        !device.IsFormatSupported(frame.depth_format, sampled, Vulkan::FormatType::Optimal) ||
+        !device.IsFormatSupported(frame.motion_format, sampled, Vulkan::FormatType::Optimal)) {
         last_rejection=Temporal::Rejection::UnsupportedInputFormat;
         ResetHistory();
         return std::nullopt;

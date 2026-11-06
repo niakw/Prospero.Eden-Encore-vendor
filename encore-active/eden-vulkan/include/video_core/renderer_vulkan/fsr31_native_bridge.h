@@ -17,6 +17,11 @@ class DescriptorPool;
 namespace Eden::Graphics {
 struct Fsr31NativeFrame {
     Temporal::Inputs metadata;
+    // Own no guest memory. The caller must provide the real VkImage AND its
+    // sampled VkImageView; their identities are cross-checked against metadata.
+    VkImage color_image{VK_NULL_HANDLE};
+    VkImage depth_image{VK_NULL_HANDLE};
+    VkImage motion_image{VK_NULL_HANDLE};
     VkImageView color{VK_NULL_HANDLE};
     VkImageView depth{VK_NULL_HANDLE};
     VkImageView motion{VK_NULL_HANDLE};
