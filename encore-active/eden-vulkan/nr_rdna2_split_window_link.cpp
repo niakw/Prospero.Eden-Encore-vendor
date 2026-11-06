@@ -55,7 +55,7 @@ bool NrRdna2SplitWindowLink::Initialize(
 
     const std::array<VkDescriptorBufferInfo,11> infos{
         b.input,b.weights,b.scales,b.query,b.key,b.value,
-        b.query,b.key,b.value,b.context,b.bias};
+        b.query,b.key,b.value,b.bias,b.context};
     std::array<VkWriteDescriptorSet,11> writes{};
     for(std::uint32_t i=0;i<writes.size();++i) {
         writes[i]=VkWriteDescriptorSet{
