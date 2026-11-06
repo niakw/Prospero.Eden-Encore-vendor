@@ -1,21 +1,31 @@
-# Security Policy
+# Security policy — Eden Encore vendor
 
-## Supported Versions
+## Maintained code
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+The `main` branch contains the vendor snapshot used by Eden Encore. Prior
+historical branches and old snapshots are **not** separately supported. No
+"5.1.x" or "4.0.x" support promise applies to this repository.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+## Reporting a vulnerability
 
-## Reporting a Vulnerability
+Please use the repository's GitHub **Security** area and private vulnerability
+reporting when available. If that option is unavailable, contact the repository
+maintainer privately before publishing proof-of-concept code, credentials or
+exploit details in a public issue.
 
-Use this section to tell people how to report a vulnerability.
+A useful report identifies the affected source path, exact vendor commit,
+reachability in the PS5 build, reproduction steps, expected versus observed
+behavior and any publicly known CVE or GHSA.
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+## Scope and remediation
+
+Third-party source under `sources/` is vendored and may have its own upstream
+security advisories; its presence alone does not demonstrate reachability in
+the actual PS5 artifact. We investigate both dependency versions and whether
+the maintained `encore-active/` / PS5 runtime actually compiles or calls the
+affected code.
+
+No historical import workflow may overwrite `main`. Security fixes must be
+reviewed in `main`, with the engine's `vendor` gitlink updated to the exact
+new SHA and qualified by relevant host checks. Secret leakage requires
+credential revocation/rotation, not merely deleting the exposed file.
