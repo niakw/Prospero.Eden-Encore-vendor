@@ -72,6 +72,11 @@ public:
     // close an unrelated guest render pass after texture cache invalidation.
     [[nodiscard]] bool FinishNativeColorResolveRenderpass(
         VkRenderPass render_pass, VkFramebuffer framebuffer);
+    [[nodiscard]] bool HasNativeColorResolveRenderpass(
+        VkRenderPass render_pass) const noexcept {
+        return state.native_color_resolve && render_pass &&
+               state.renderpass == render_pass;
+    }
     [[nodiscard]] bool IsNativeColorResolveActive(
         VkRenderPass render_pass, VkFramebuffer framebuffer) const noexcept {
         return render_pass && framebuffer && state.renderpass == render_pass &&
@@ -300,6 +305,7 @@ private:
         VkRenderPass renderpass{};
         VkFramebuffer framebuffer{};
         VkExtent2D render_area = {0, 0};
+        bool native_color_resolve{};
         GraphicsPipeline* graphics_pipeline = nullptr;
         bool is_rescaling = false;
         bool rescaling_defined = false;

@@ -113,6 +113,11 @@ public:
     ~PipelineCache();
 
     [[nodiscard]] GraphicsPipeline* CurrentGraphicsPipeline();
+    // Creates/selects a distinct native MSAA variant without modifying guest
+    // registers, image sample counts, or the ordinary 1x pipeline cache key.
+    // Caller must prove a clear, single colour RT, no depth/aliasing.
+    [[nodiscard]] GraphicsPipeline* CurrentGraphicsPipelineForMsaa(
+        VkSampleCountFlagBits samples);
 
     [[nodiscard]] ComputePipeline* CurrentComputePipeline();
 

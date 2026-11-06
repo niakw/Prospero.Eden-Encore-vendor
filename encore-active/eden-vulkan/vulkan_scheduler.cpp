@@ -243,6 +243,7 @@ void Scheduler::BeginRenderPassImpl(const Framebuffer* framebuffer, VkRenderPass
     const VkFramebuffer framebuffer_handle = framebuffer->Handle();
     const VkExtent2D render_area = framebuffer->RenderArea();
     state.renderpass = renderpass;
+    state.native_color_resolve = false;
     state.framebuffer = framebuffer_handle;
     state.render_area = render_area;
 
@@ -389,6 +390,7 @@ bool Scheduler::RequestNativeColorResolveRenderpass(
     // BEFORE a shadow pass begins; no guest clear is silently consumed.
     EndRenderPass();
     state.renderpass = render_pass;
+    state.native_color_resolve = true;
     state.framebuffer = framebuffer;
     state.render_area = extent;
     const std::array<VkClearValue, 2> clears{guest_clear_color, {}};
@@ -711,6 +713,7 @@ void Scheduler::EndRenderPass()
         });
 
         state.renderpass = VkRenderPass{};
+        state.native_color_resolve = false;
         num_renderpass_images = 0;
     }
 
