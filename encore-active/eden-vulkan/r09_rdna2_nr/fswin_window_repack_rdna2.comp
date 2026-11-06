@@ -1,0 +1,52 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// RDNA2 FSwin 8x8 window retile between 4x4 pixel-tile shifts.
+// Input and output: [window_y*windows_x+window_x][quadrant][slot][C].
+// Each quadrant is a 4x4 tile; shifts are signed tile offsets.
+// Out-of-raster coordinates become FP8 zero. Source/output never alias.
+layout(local_size_x=64,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Input {uint words[];} input_words;
+layout(set=0,binding=1,std430) writeonly buffer Output {uint words[];} output_words;
+layout(push_constant) uniform Params {
+    uint windows_x;
+    uint windows_y;
+    uint channels;
+    int src_shift_x;
+    int src_shift_y;
+    int dst_shift_x;
+    int dst_shift_y;
+} pc;
+void main(){
+    const uint lane=gl_GlobalInvocationID.x;
+    const uint words_per_token=pc.channels/4u;
+    const uint total=pc.windows_x*pc.windows_y*64u*words_per_token;
+    if(lane>=total)return;
+    const uint chword=lane%words_per_token;
+    const uint token_address=lane/words_per_token;
+    const uint token=token_address%64u;
+    const uint window=token_address/64u;
+    const uint wx=window%pc.windows_x, wy=window/pc.windows_x;
+    const uint quadrant=token/16u,slot=token%16u;
+    // Global 4x4 tile coordinates under the target window shift.
+    const int tx=2*int(wx)+pc.dst_shift_x+int(quadrant%2u);
+    const int ty=2*int(wy)+pc.dst_shift_y+int(quadrant/2u);
+    // Reject pixels outside the padded raster rather than wrap.
+    const int src_tx=tx-pc.src_shift_x;
+    const int src_ty=ty-pc.src_shift_y;
+    uint encoded=0u;
+    if(tx>=0&&ty>=0&&tx<2*int(pc.windows_x)&&
+       ty<2*int(pc.windows_y)&&
+       src_tx>=0&&src_ty>=0&&
+       src_tx<2*int(pc.windows_x)&&
+       src_ty<2*int(pc.windows_y)){
+        const uint source_wx=uint(src_tx)/2u;
+        const uint source_wy=uint(src_ty)/2u;
+        const uint source_quad=uint(src_tx%2)+2u*uint(src_ty%2);
+        const uint src_token=source_quad*16u+slot;
+        const uint src_window=source_wy*pc.windows_x+source_wx;
+        const uint source_word=(src_window*64u+src_token)*
+                                   words_per_token+chword;
+        encoded=input_words.words[source_word];
+    }
+    output_words.words[lane]=encoded;
+}
