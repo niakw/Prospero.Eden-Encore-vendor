@@ -1,0 +1,105 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Portable RDNA2 FSwin _ds epilogue (MIT DLSSNR-AMD arithmetic baseline).
+// Read shifted [window,quad,slot,C] E4M3FN, pool 2x2 -> E4M3FN,
+// then learned row-major E4M3FN [2C,C] projection to a half-size raster.
+// Deliberately unfused with the preceding FSwin body. No FP8 ISA needed.
+layout(local_size_x=64,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Source {uint words[];} input_tensor;
+layout(set=0,binding=1,std430) readonly buffer Weight {uint words[];} weight_tensor;
+layout(set=0,binding=2,std430) writeonly buffer Output {uint words[];} output_tensor;
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    uint windows_x;
+    uint windows_y;
+    uint channels;
+    int shift_x;
+    int shift_y;
+    uint input_base_bytes;
+    uint weight_base_bytes;
+    uint output_base_bytes;
+} pc;
+float from_fp8(uint b){
+    uint e=(b>>3u)&15u,m=b&7u;
+    float sign=(b&128u)!=0u?-1.0:1.0;
+    if(e==15u&&m==7u)return uintBitsToFloat(0x7fc00000u);
+    if(e==0u)return sign*float(m)*exp2(-9.0);
+    return sign*float(8u+m)*exp2(float(int(e)-10));
+}
+uint to_fp8(float value){
+    uint sign=(floatBitsToUint(value)>>24u)&128u;
+    if(isnan(value))return sign|127u;
+    float a=min(abs(value),448.0);
+    if(a<0.015625){
+        uint m=uint(roundEven(a*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int e=int(floor(log2(a)));
+    uint m=uint(roundEven((a/exp2(float(e))-1.0)*8.0));
+    if(m==8u){++e;m=0u;}
+    uint ex=uint(e+7);
+    if(ex>15u||(ex==15u&&m>6u))return sign|126u;
+    return sign|(ex<<3u)|m;
+}
+float half_round(float x){
+    return unpackHalf2x16(packHalf2x16(vec2(x,0.0))).x;
+}
+uint input_byte(uint x,uint y,uint c){
+    if(x>=pc.width||y>=pc.height)return 0u;
+    // FSwin source quadrants are shifted in 4x4-pixel tiles.
+    int tile_x=int(x/4u)-pc.shift_x;
+    int tile_y=int(y/4u)-pc.shift_y;
+    if(tile_x<0||tile_y<0||
+       tile_x>=2*int(pc.windows_x)||
+       tile_y>=2*int(pc.windows_y))return 0u;
+    uint wx=uint(tile_x)/2u,wy=uint(tile_y)/2u;
+    uint quad=uint(tile_x%2)+2u*uint(tile_y%2);
+    uint slot=(y%4u)*4u+(x%4u);
+    uint offset=pc.input_base_bytes+
+        ((wy*pc.windows_x+wx)*64u+quad*16u+slot)*pc.channels+c;
+    uint packed=input_tensor.words[offset>>2u];
+    return (packed>>(8u*(offset&3u)))&255u;
+}
+uint weight_byte(uint out_feature,uint k){
+    uint offset=pc.weight_base_bytes+out_feature*pc.channels+k;
+    uint packed=weight_tensor.words[offset>>2u];
+    return (packed>>(8u*(offset&3u)))&255u;
+}
+float pooled_fp8(uint ox,uint oy,uint c){
+    uint x=ox*2u,y=oy*2u;
+    float a=from_fp8(input_byte(x,y,c));
+    float b=from_fp8(input_byte(x+1u,y,c));
+    float d=from_fp8(input_byte(x,y+1u,c));
+    float e=from_fp8(input_byte(x+1u,y+1u,c));
+    // Scalar FP16 reduction baseline; verify GPU numeric parity separately.
+    float row0=half_round(a+b),row1=half_round(d+e);
+    float mean=half_round(half_round(row0+row1)*0.25);
+    return from_fp8(to_fp8(mean));
+}
+void main(){
+    uint wx=gl_WorkGroupID.y,wy=gl_WorkGroupID.z;
+    uint words_per_pixel=pc.channels/2u; // 2*C output channels / four bytes
+    uint local_word=gl_WorkGroupID.x*64u+gl_LocalInvocationID.x;
+    uint pixel=local_word/words_per_pixel;
+    uint channel_word=local_word%words_per_pixel;
+    if(pixel>=16u||wx>=pc.windows_x||wy>=pc.windows_y)return;
+    uint out_x=wx*4u+(pixel%4u);
+    uint out_y=wy*4u+(pixel/4u);
+    uint out_w=(pc.width+1u)/2u,out_h=(pc.height+1u)/2u;
+    if(out_x>=out_w||out_y>=out_h)return;
+    uint result=0u;
+    for(uint byte=0u;byte<4u;++byte){
+        uint feature=4u*channel_word+byte;
+        float sum=0.0;
+        for(uint k=0u;k<pc.channels;++k){
+            float x=pooled_fp8(out_x,out_y,k);
+            float w=from_fp8(weight_byte(feature,k));
+            sum=fma(x,w,sum);
+        }
+        result|=to_fp8(half_round(sum))<<(8u*byte);
+    }
+    uint out_offset=pc.output_base_bytes+
+        (out_y*out_w+out_x)*(pc.channels*2u)+channel_word*4u;
+    output_tensor.words[out_offset>>2u]=result;
+}
