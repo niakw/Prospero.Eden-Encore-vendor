@@ -115,8 +115,8 @@ bool NrRdna2FSwinDescriptors::Initialize(
     put(ready.attention,0u,b.query);
     put(ready.attention,1u,b.key);
     put(ready.attention,2u,b.value);
-    put(ready.attention,3u,b.context);
-    put(ready.attention,4u,b.weights);
+    put(ready.attention,3u,b.weights); // GLSL binding 3 = relative bias
+    put(ready.attention,4u,b.context); // GLSL binding 4 = output
     device.GetLogical().UpdateDescriptorSets(
         vk::Span<VkWriteDescriptorSet>{writes.data(),count},{});
     pool=std::move(new_pool);
