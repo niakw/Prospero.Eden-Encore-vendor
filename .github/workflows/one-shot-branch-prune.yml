@@ -1,0 +1,42 @@
+name: One-time exact-SHA vendor branch retirement
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-branch-prune.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  retire-only-merged:
+    if: github.repository == 'niakw/Prospero.Eden-Encore-vendor' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Remove only four verified merged ancestor refs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          while IFS='|' read -r branch expected; do
+            [ -n "$branch" ] || continue
+            found="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${branch}" --jq '.object.sha')"
+            test "$found" = "$expected" || {
+              echo "Ref moved, refusing to prune: $branch" >&2
+              exit 1
+            }
+            ahead="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${branch}" --jq '.ahead_by')"
+            test "$ahead" = 0 || {
+              echo "Unique commits would be lost, refusing: $branch ahead=$ahead" >&2
+              exit 1
+            }
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}"
+            echo "Retired exact ancestor branch: $branch"
+          done <<'EXACT_MERGED_BRANCHES'
+          feat/ns2-csmtest-semantics-20261106|db7bf7b4ca6da7e6307dc9f2e123b6818764a34c
+          feat/r07-fsr31-temporal-native|eb4d078de62aeb5bce48f3a7428824769697f3c9
+          integration/unified-native-runtime-20261105|ecb4d9877ef6a5baac8e1335c105d5bc0abf478f
+          research/ns2-pre-production-cleanup-20261105|657efeab4302a15b59af7d0265a4f65478afc86d
+          EXACT_MERGED_BRANCHES
