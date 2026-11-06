@@ -6,10 +6,11 @@
 
 namespace Shader::Ampere {
 namespace {
-// This bridge is used only for early shader analysis. The upstream lowering
-// supports up to 65536 instructions, but keep this entry point much smaller
-// until native shader allocation and cache lifetimes have been qualified.
-constexpr std::size_t BridgeMaxInstructions = 4096;
+// Keep this ingress aligned with the real ProbeProgram and LowerToMaxwell
+// limits. The old 4096-instruction artificial clamp refused otherwise valid
+// >64-KiB guest shader code before either backend could inspect it.
+// The 131072-word Maxwell output bound below still fails closed on expansion.
+constexpr std::size_t BridgeMaxInstructions = 65536;
 constexpr std::size_t BridgeMaxMaxwellWords = 131072;
 }
 

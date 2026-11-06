@@ -34,8 +34,12 @@ namespace Shader::Ampere {
         !matches(3, 0xff017224, 0xff, 0x000e0401) ||
         !matches(4, 0x00007357, 0, 0)) return std::nullopt;
     const u32 target = code[1].words[1];
-    if (target < 5 * sizeof(Instruction) || target % sizeof(Instruction) ||
-        target >= 4096 * sizeof(Instruction)) return std::nullopt;
+    // A statically authenticated ATEXIT PC may lie beyond the legacy 4096
+    // analysis window. It must still point into this exact captured code;
+    // never permit a dangling branch into unmapped or later guest memory.
+    if (code.size() > 65536 || target < 5 * sizeof(Instruction) ||
+        target % sizeof(Instruction) ||
+        target / sizeof(Instruction) >= code.size()) return std::nullopt;
     return target / sizeof(Instruction);
 }
 
