@@ -1,0 +1,75 @@
+name: One-shot pinned Encore Overrides Git bundle refresh
+on:
+  push:
+    branches: [feat/overrides-offline-vault-95f21ed]
+    paths:
+      - '.github/workflows/one-shot-overrides-vault.yml'
+permissions:
+  contents: write
+jobs:
+  capture:
+    if: github.repository == 'niakw/Prospero.Eden-Encore-vendor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Capture and check SHA-pinned git bundle, source and revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$(mktemp -d)"
+          trap 'rm -rf "$repo"' EXIT
+          git init -q "$repo"
+          git -C "$repo" remote add origin https://github.com/niakw/encore-overrides.git
+          git -C "$repo" fetch -q --depth 1 origin 95f21edf13bfbd2888602f2b419dd856d6d0fbfa
+          git -C "$repo" checkout --detach -q FETCH_HEAD
+          test "$(git -C "$repo" rev-parse HEAD)" = 95f21edf13bfbd2888602f2b419dd856d6d0fbfa
+          test -f sources/encore-overrides/VENDOR-ORIGIN.json
+          REPO_SRC="$repo" python3 - <<'PY'
+          from pathlib import Path
+          import json, os, hashlib, subprocess, shutil
+          src=Path(os.environ["REPO_SRC"])
+          dest=Path("objects/encore-overrides")
+          git_sha=subprocess.check_output(["git","-C",str(src),"rev-parse","HEAD"],text=True).strip()
+          receipt=json.loads(Path("sources/encore-overrides/VENDOR-ORIGIN.json").read_text())
+          assert git_sha==receipt['commit']=="95f21edf13bfbd2888602f2b419dd856d6d0fbfa"
+          manifest=json.loads(Path("sources/encore-overrides/manifest.json").read_text())
+          assert len(manifest['entries'])==9460,len(manifest['entries'])
+          print("DATABASE_REVISION",manifest.get("database_revision"),"GAMES",len(manifest['entries']))
+          print("VENDORED_OVERRIDES_PIN_VERIFIED",git_sha,flush=True)
+          PY
+          git -C "$repo" bundle create "$repo/capture.bundle" HEAD
+          git bundle list-heads "$repo/capture.bundle" | grep -F '95f21edf13bfbd2888602f2b419dd856d6d0fbfa HEAD'
+          REPO_SRC="$repo" python3 - <<'PY'
+          from pathlib import Path
+          import os,hashlib,json
+          blob=(Path(os.environ["REPO_SRC"])/"capture.bundle").read_bytes()
+          assert blob.startswith(b"# v2 git bundle\n")
+          assert b"95f21edf13bfbd2888602f2b419dd856d6d0fbfa HEAD" in blob[:250]
+          root=Path("objects/encore-overrides")
+          root.mkdir(parents=True,exist_ok=True)
+          for old in root.glob("*.chunk"):old.unlink()
+          parts=[]
+          for i,offset in enumerate(range(0,len(blob),40*1024*1024)):
+              chunk=blob[offset:offset+40*1024*1024]
+              filename=f"{i:04d}.chunk"
+              (root/filename).write_bytes(chunk)
+              parts.append({"file":filename,"size":len(chunk),"sha256":hashlib.sha256(chunk).hexdigest()})
+          rec={"name":"encore-overrides","size":len(blob),"sha256":hashlib.sha256(blob).hexdigest(),"chunks":parts}
+          (root/"chunks.json").write_text(json.dumps(rec,indent=2)+"\n")
+          assert b"95f21edf13bfbd2888602f2b419dd856d6d0fbfa HEAD" in (root/parts[0]["file"]).read_bytes()[:250]
+          print("OVERRIDES_AIRGAP_BUNDLE_CREATED",len(blob),len(parts),flush=True)
+          PY
+      - name: Commit binary bundle only to temporary branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A -- objects/encore-overrides
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore(vendor): refresh airgapped Encore Overrides SHA 95f21ed Git object'
+          git push origin HEAD:refs/heads/feat/overrides-offline-vault-95f21ed
