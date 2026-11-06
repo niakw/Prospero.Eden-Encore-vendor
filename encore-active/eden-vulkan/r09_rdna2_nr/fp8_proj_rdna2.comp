@@ -1,0 +1,81 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Eden Encore — vendor R09 RDNA2 scalar/tiling projection baseline.
+// Shape/layout compatible in principle with NHWC 1x1 projection in the
+// MIT DLSSNR-AMD architecture: A[M,K], W[N,K] are E4M3FN bytes;
+// C[M,N] accumulates in FP32. This is a *single primitive*, not DLSS NR.
+// Deliberately no shaderFloat8, cooperativeMatrix, HIP or NVIDIA code.
+
+layout(local_size_x=16, local_size_y=16, local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Activations { uint words[]; } activations;
+layout(set=0,binding=1,std430) readonly buffer Weights { uint words[]; } weights;
+layout(set=0,binding=2,std430) writeonly buffer Output { float values[]; } output_tensor;
+
+layout(push_constant) uniform Dispatch {
+    uint M;           // token count (rows)
+    uint N;           // output channels (rows of W)
+    uint K;           // inner dimension
+    uint flags;       // reserved, must be zero
+    uint lda_bytes;   // byte stride A per token, >= K
+    uint ldw_bytes;   // byte stride W per channel, >= K
+    uint a_base_bytes;
+    uint w_base_bytes;
+} pc;
+
+// At least 16 * 16 * 2 * sizeof(float) = 2 KiB shared per workgroup;
+// 16 global reads per row/column instead of 16x redundant K loads.
+shared float a_tile[16][16];
+shared float w_tile[16][16];
+
+uint packed_byte(uint flat_byte, bool from_weights) {
+    const uint word = from_weights ? weights.words[flat_byte >> 2u]
+                                   : activations.words[flat_byte >> 2u];
+    return (word >> ((flat_byte & 3u) * 8u)) & 0xffu;
+}
+
+float unpack_e4m3fn(uint raw) {
+    uint e = (raw >> 3u) & 0xfu;
+    uint m = raw & 7u;
+    float sign = (raw & 0x80u) == 0u ? 1.0 : -1.0;
+    // E4M3FN has no infinity. Exponent 15 / fraction 7 is NaN.
+    // Preserve that error (rather than silently changing model weights).
+    // Only the separate host importer can reject malformed weights.
+    if (e == 15u && m == 7u) return uintBitsToFloat(0x7fc00000u);
+    if (e == 0u) return sign * float(m) * exp2(-9.0);
+    return sign * float(8u + m) * exp2(float(int(e) - 10));
+}
+
+void main() {
+    const uint n = gl_GlobalInvocationID.x;
+    const uint m = gl_GlobalInvocationID.y;
+    const uint lx = gl_LocalInvocationID.x;
+    const uint ly = gl_LocalInvocationID.y;
+    const uint batch = (pc.K + 15u) / 16u;
+    float value = 0.0;
+
+    // All 256 lanes, including padded tails, participate in barriers.
+    for (uint tile = 0u; tile < batch; ++tile) {
+        const uint ak = tile * 16u + lx;
+        const uint wk = tile * 16u + ly;
+        const uint channel = gl_WorkGroupID.x * 16u + lx;
+
+        a_tile[ly][lx] =
+            m < pc.M && ak < pc.K
+                ? unpack_e4m3fn(packed_byte(pc.a_base_bytes +
+                        m * pc.lda_bytes + ak, false))
+                : 0.0;
+        w_tile[ly][lx] =
+            channel < pc.N && wk < pc.K
+                ? unpack_e4m3fn(packed_byte(pc.w_base_bytes +
+                        channel * pc.ldw_bytes + wk, true))
+                : 0.0;
+        barrier();
+        for (uint k = 0u; k < 16u; ++k) {
+            value = fma(a_tile[ly][k], w_tile[k][lx], value);
+        }
+        barrier();
+    }
+    if (m < pc.M && n < pc.N) {
+        output_tensor.values[m * pc.N + n] = value;
+    }
+}
