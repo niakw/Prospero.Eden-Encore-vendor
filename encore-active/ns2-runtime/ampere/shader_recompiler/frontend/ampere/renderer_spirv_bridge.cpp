@@ -6,6 +6,7 @@
 #include "shader_recompiler/backend/spirv/emit_spirv.h"
 #include "shader_recompiler/frontend/ampere/ir_bridge.h"
 #include "shader_recompiler/frontend/ampere/native_indirect_cbuf.h"
+#include "shader_recompiler/frontend/ampere/native_global_atomic_binding.h"
 #include "shader_recompiler/frontend/ampere/native_graphics_stage_policy.h"
 #include "shader_recompiler/frontend/maxwell/translate_program.h"
 #include "shader_recompiler/host_translate_info.h"
@@ -129,6 +130,11 @@ NativeSpirvResult CompileReviewedNativeComputeSpirv(
         // QMD3 has eight physical Compute CBUF slots; do not emit the
         // generic fourteen-slot OpSwitch or bind phantom descriptors.
         if (!NormalizeNativeQmdIndirectCbufIR(ir, qmd_enabled_cbuf_mask))
+            return {NativeSpirvStatus::CompilationFailed, {}};
+        // Complete the shared upstream GlobalMemoryToStorageBufferPass for
+        // canonical QMD3 pointer-derived atomics (CBUF0 slot address plus
+        // constant byte offset). All non-provable guest pointers fail closed.
+        if (!NativeAtomic::Rewrite(ir))
             return {NativeSpirvStatus::CompilationFailed, {}};
         // An unresolved global atomic has no SPIR-V emitter. The shared
         // storage backend also implements some 64-bit atomics as
