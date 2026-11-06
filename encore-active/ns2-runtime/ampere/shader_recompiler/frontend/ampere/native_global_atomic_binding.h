@@ -30,6 +30,48 @@ struct Address {
     return value.Resolve().TryInstRecursive();
 }
 
+// Maxwell IR may pack an already-vectorized CBUF address, or assemble the
+// exact same 64-bit address from two independent scalar CBUF words. Accept
+// either *only when* both halves are contiguous and in one real CBUF bank.
+[[nodiscard]] inline std::optional<std::pair<u32, u32>> DescriptorPointer(
+    const Value& raw) {
+    const auto* const packed = Definition(raw);
+    if (!packed || packed->GetOpcode() != Opcode::PackUint2x32)
+        return std::nullopt;
+    const auto* const vector = Definition(packed->Arg(0));
+    if (!vector) return std::nullopt;
+    if (vector->GetOpcode() == Opcode::GetCbufU32x2) {
+        const auto bank = vector->Arg(0).Resolve();
+        const auto offset = vector->Arg(1).Resolve();
+        if (!bank.IsImmediate() || bank.Type() != Shader::IR::Type::U32 ||
+            !offset.IsImmediate() || offset.Type() != Shader::IR::Type::U32)
+            return std::nullopt;
+        return std::pair{bank.U32(), offset.U32()};
+    }
+    if (vector->GetOpcode() != Opcode::CompositeConstructU32x2)
+        return std::nullopt;
+    const auto* const low = Definition(vector->Arg(0));
+    const auto* const high = Definition(vector->Arg(1));
+    if (!low || !high || low->GetOpcode() != Opcode::GetCbufU32 ||
+        high->GetOpcode() != Opcode::GetCbufU32)
+        return std::nullopt;
+    const Value l_bank = low->Arg(0).Resolve();
+    const Value h_bank = high->Arg(0).Resolve();
+    const Value l_offset = low->Arg(1).Resolve();
+    const Value h_offset = high->Arg(1).Resolve();
+    if (!l_bank.IsImmediate() || !h_bank.IsImmediate() ||
+        !l_offset.IsImmediate() || !h_offset.IsImmediate() ||
+        l_bank.Type() != Shader::IR::Type::U32 ||
+        h_bank.Type() != Shader::IR::Type::U32 ||
+        l_offset.Type() != Shader::IR::Type::U32 ||
+        h_offset.Type() != Shader::IR::Type::U32 ||
+        l_bank.U32() != h_bank.U32() ||
+        l_offset.U32() > std::numeric_limits<u32>::max() - 4U ||
+        h_offset.U32() != l_offset.U32() + 4U)
+        return std::nullopt;
+    return std::pair{l_bank.U32(), l_offset.U32()};
+}
+
 [[nodiscard]] inline std::optional<Address> Resolve(const Value& pointer) {
     Value base = pointer.Resolve();
     Value relative{u32{0}};
@@ -37,34 +79,31 @@ struct Address {
         add && add->GetOpcode() == Opcode::IAdd64) {
         const Value left = add->Arg(0).Resolve();
         const Value right = add->Arg(1).Resolve();
-        if (right.IsImmediate()) {
-            if (right.Type() != Shader::IR::Type::U64 ||
-                right.U64() > std::numeric_limits<u32>::max())
+        // IAdd64 commutes: both legitimate compiler operand orders must
+        // resolve to the same authenticated descriptor and byte offset.
+        const bool left_pointer = DescriptorPointer(left).has_value();
+        const bool right_pointer = DescriptorPointer(right).has_value();
+        if (left_pointer == right_pointer) return std::nullopt;
+        base = left_pointer ? left : right;
+        const Value increment = left_pointer ? right : left;
+        if (increment.IsImmediate()) {
+            if (increment.Type() != Shader::IR::Type::U64 ||
+                increment.U64() > std::numeric_limits<u32>::max())
                 return std::nullopt;
-            relative = Value{static_cast<u32>(right.U64())};
+            relative = Value{static_cast<u32>(increment.U64())};
         } else {
-            // The IR conversion is an exact ZERO extension of a U32
-            // byte offset. Never truncate an arbitrary U64 pointer.
-            const auto* const convert = Definition(right);
+            // A 64-bit guest displacement is admitted only as an exact
+            // zero-extension of an independently bounded U32 value.
+            const auto* const convert = Definition(increment);
             if (!convert || convert->GetOpcode() != Opcode::ConvertU64U32)
                 return std::nullopt;
             relative = convert->Arg(0).Resolve();
             if (relative.Type() != Shader::IR::Type::U32) return std::nullopt;
         }
-        base = left;
     }
-    const auto* const packed = Definition(base);
-    if (!packed || packed->GetOpcode() != Opcode::PackUint2x32)
-        return std::nullopt;
-    const auto* const vector = Definition(packed->Arg(0));
-    if (!vector || vector->GetOpcode() != Opcode::GetCbufU32x2)
-        return std::nullopt;
-    const Value bank = vector->Arg(0).Resolve();
-    const Value offset = vector->Arg(1).Resolve();
-    if (!bank.IsImmediate() || bank.Type() != Shader::IR::Type::U32 ||
-        !offset.IsImmediate() || offset.Type() != Shader::IR::Type::U32)
-        return std::nullopt;
-    return Address{bank.U32(), offset.U32(), relative};
+    const auto descriptor = DescriptorPointer(base);
+    if (!descriptor) return std::nullopt;
+    return Address{descriptor->first, descriptor->second, relative};
 }
 
 [[nodiscard]] inline bool Rewrite(Shader::IR::Program& program) {
