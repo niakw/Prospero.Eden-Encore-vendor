@@ -1918,8 +1918,12 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         case 0x34e: { // LEPC: materialize the authenticated native shader PC, not Maxwell's PC.
             const bool static_exit = index == 0 && StaticAtExitTarget(code).has_value();
+            // LEPC's two 32-bit MOVs must carry the same guest execution
+            // predicate. This is safe only with an authenticated GMMU code
+            // address; never fabricate an unconditional or placeholder PC.
+            // The inverted true predicate (!PT) remains unreviewed.
             if (insn.Bits(24, 8) || insn.words[1] || insn.words[2] ||
-                native_predicate != 7 || dest >= 254 ||
+                native_predicate == 15 || dest >= 254 ||
                 dest + 1 >= reserved_register ||
                 (!static_exit && !native_code_address))
                 return fail(index, "native dynamic program counter unsupported");
