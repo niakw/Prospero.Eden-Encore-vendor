@@ -13,7 +13,7 @@ namespace {
 [[nodiscard]] bool CanBind(const NrRdna2SplitWindowBuffers& b,
                            VkDeviceSize max_range) {
     const std::array<VkDescriptorBufferInfo,8> all{
-        b.input,b.weights,b.scales,b.query,b.key,b.value,b.context,b.bias};
+        b.input,b.weights,b.scales,b.query,b.key,b.value,b.bias,b.context};
     for(std::size_t i=0;i<all.size();++i) {
         const auto& info=all[i];
         // All base offsets are relative to the descriptor's own range.
