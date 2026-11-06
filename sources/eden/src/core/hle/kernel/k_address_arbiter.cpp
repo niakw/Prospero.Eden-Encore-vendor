@@ -303,7 +303,7 @@ Result KAddressArbiter::WaitIfLessThan(uint64_t addr, s32 value, bool decrement,
     return cur_thread->GetWaitResult();
 }
 
-Result KAddressArbiter::WaitIfEqual(uint64_t addr, s32 value, s64 timeout) {
+Result KAddressArbiter::WaitIfEqual(uint64_t addr, s64 value, s64 timeout, bool is_64_bit) {
     // Prepare to wait.
     KThread* cur_thread = GetCurrentThreadPointer(system.Kernel());
     KHardwareTimer* timer{};
@@ -318,9 +318,22 @@ Result KAddressArbiter::WaitIfEqual(uint64_t addr, s32 value, s64 timeout) {
             R_THROW(ResultTerminationRequested);
         }
 
-        // Read the value from userspace.
-        s32 user_value{};
-        if (!ReadFromUser(system.Kernel(), std::addressof(user_value), addr)) {
+        // AArch64 WaitIfEqual64 compares a full 64-bit user value. The
+        // original 32-bit mode retains its signed extension and alignment.
+        s64 user_value{};
+        bool succeeded{};
+        if (is_64_bit) {
+            auto& memory = GetCurrentMemory(system.Kernel());
+            succeeded = memory.IsValidVirtualAddressRange(addr, sizeof(s64));
+            if (succeeded) {
+                user_value = static_cast<s64>(memory.Read64(addr));
+            }
+        } else {
+            s32 user_value32{};
+            succeeded = ReadFromUser(system.Kernel(), std::addressof(user_value32), addr);
+            user_value = user_value32;
+        }
+        if (!succeeded) {
             slp.CancelSleep();
             R_THROW(ResultInvalidCurrentMemory);
         }
