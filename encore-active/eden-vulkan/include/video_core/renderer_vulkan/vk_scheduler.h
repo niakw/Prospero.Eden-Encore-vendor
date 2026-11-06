@@ -59,6 +59,25 @@ public:
     /// Requests to begin a renderpass.
     void RequestRenderpass(const Framebuffer* framebuffer);
 
+    // MSAA shadow pass: render to a separate multisampled colour image and
+    // resolve to the original 1x guest image when the pass ends. The caller
+    // MUST bind a graphics pipeline created with the matching sample count
+    // and render-pass attachment topology; this method never changes guest
+    // pipeline state and is NOT a general-purpose sample-count override.
+    [[nodiscard]] bool RequestNativeColorResolveRenderpass(
+        VkRenderPass render_pass, VkFramebuffer framebuffer, VkExtent2D extent,
+        VkImage multisample_image, VkImage guest_resolve_image,
+        VkClearValue guest_clear_color);
+    // End only the native pass that owns the specified framebuffer. Never
+    // close an unrelated guest render pass after texture cache invalidation.
+    [[nodiscard]] bool FinishNativeColorResolveRenderpass(
+        VkRenderPass render_pass, VkFramebuffer framebuffer);
+    [[nodiscard]] bool IsNativeColorResolveActive(
+        VkRenderPass render_pass, VkFramebuffer framebuffer) const noexcept {
+        return render_pass && framebuffer && state.renderpass == render_pass &&
+               state.framebuffer == framebuffer;
+    }
+
     /// Defers a full-attachment color clear so it becomes the next render pass.
     bool DeferColorClear(const Framebuffer* framebuffer, u32 rt_slot, const VkClearValue& value);
 

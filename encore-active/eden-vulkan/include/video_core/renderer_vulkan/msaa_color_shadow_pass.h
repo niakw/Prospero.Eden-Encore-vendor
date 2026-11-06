@@ -50,6 +50,16 @@ public:
         const Target& target, Eden::Graphics::MsaaForce::Requested samples,
         const Eden::Graphics::MsaaForce::GuestPass& guest_pass,
         const Eden::Graphics::MsaaForce::Limits& verified_limits);
+    // The matching graphics pipeline and guest-clear provenance must be
+    // validated by the draw integration before scheduling this pass.
+    [[nodiscard]] bool BeginPrepared(const Prepared&, const Target&,
+                                     VkRenderPass graphics_pipeline_renderpass,
+                                     VkSampleCountFlagBits graphics_pipeline_samples,
+                                     bool shader_read_aliases_target);
+    // End the custom multisample renderpass; this performs its colour
+    // resolve and emits visibility barriers for the original guest image.
+    [[nodiscard]] bool EndPrepared();
+
     void Reset();
     [[nodiscard]] Eden::Graphics::MsaaForce::Decision LastDecision() const noexcept {
         return last_decision;

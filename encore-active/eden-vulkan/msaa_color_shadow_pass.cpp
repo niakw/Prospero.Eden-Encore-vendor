@@ -4,6 +4,8 @@
 // Must be paired with a matching multisample graphics pipeline at draw time.
 #include <array>
 #include "video_core/renderer_vulkan/msaa_color_shadow_pass.h"
+#include <cstring>
+#include <type_traits>
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_render_pass_cache.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -188,8 +190,11 @@ MsaaColorClearShadowPass::TryPrepare(
     // The caller has proved a full clear, so old shadow data is discarded.
     // The actual render pass uses LOAD_OP_CLEAR for the multisample image and
     // an implicit native Vulkan colour resolve into the original guest view.
-    scheduler.RequestOutsideRenderPassOperationContext();
-    scheduler.Record([image=*msaa_image](vk::CommandBuffer cmd) {
+    if (!scheduler.IsNativeColorResolveActive(render_pass, *framebuffer)) {
+        // Do not accidentally end and re-clear an active shadow pass when
+        // multiple consecutive guest draws share the same attachment.
+        scheduler.RequestOutsideRenderPassOperationContext();
+        scheduler.Record([image=*msaa_image](vk::CommandBuffer cmd) {
         const VkImageMemoryBarrier barrier{
             .sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
             .pNext=nullptr,
@@ -209,7 +214,54 @@ MsaaColorClearShadowPass::TryPrepare(
         cmd.PipelineBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                             0,{}, {}, barrier);
-    });
+        });
+    }
     return Prepared{render_pass,*framebuffer,target.extent,samples,target.guest_clear_color};
 }
+bool MsaaColorClearShadowPass::BeginPrepared(
+    const Prepared& prepared, const Target& target,
+    VkRenderPass graphics_pipeline_renderpass,
+    VkSampleCountFlagBits graphics_pipeline_samples,
+    bool shader_read_aliases_target) {
+    // A stale prepare result must never resolve into an unrelated guest
+    // image after a framebuffer alias or texture-cache remap.
+    const auto renderpass_id = []<class T>(T handle) {
+        if constexpr (std::is_pointer_v<T>) {
+            return static_cast<std::uint64_t>(
+                reinterpret_cast<std::uintptr_t>(handle));
+        } else {
+            return static_cast<std::uint64_t>(handle);
+        }
+    };
+    if (!Eden::Graphics::MsaaForce::CompatibleNativeDraw({
+            .shadow_renderpass=renderpass_id(prepared.render_pass),
+            .graphics_pipeline_renderpass=renderpass_id(graphics_pipeline_renderpass),
+            .shadow_samples=static_cast<u32>(prepared.samples),
+            .graphics_pipeline_samples=static_cast<u32>(graphics_pipeline_samples),
+            .guest_clear_verified=target.has_verified_guest_clear_color &&
+                                  target.clear_entire_target,
+            .shader_read_aliases_target=shader_read_aliases_target,
+        })) return false;
+    if (!msaa_image || !framebuffer || prepared.render_pass != render_pass ||
+        prepared.framebuffer != *framebuffer ||
+        prepared.samples != last_samples ||
+        target.guest_image != last_guest_image ||
+        target.guest_view != last_guest_view ||
+        !target.clear_entire_target || !target.has_verified_guest_clear_color ||
+        std::memcmp(&target.guest_clear_color, &prepared.first_pass_clear,
+                    sizeof(VkClearValue)) != 0 ||
+        target.extent.width != last_extent.width ||
+        target.extent.height != last_extent.height) {
+        return false;
+    }
+    return scheduler.RequestNativeColorResolveRenderpass(
+        prepared.render_pass, prepared.framebuffer, prepared.extent,
+        *msaa_image, target.guest_image, prepared.first_pass_clear);
+}
+
+bool MsaaColorClearShadowPass::EndPrepared() {
+    return render_pass && framebuffer &&
+           scheduler.FinishNativeColorResolveRenderpass(render_pass, *framebuffer);
+}
+
 } // namespace Vulkan
