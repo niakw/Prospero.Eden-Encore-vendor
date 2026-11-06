@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "source": "https://www.switchbrew.org/wiki/Switch_2:_Title_list/Games",
+  "auto_apply": false,
+  "reason": "0100 title IDs may also identify NS1 games; never overwrite.",
+  "editions": [
+    {
+      "title_id": "010015100B514000",
+      "name": "Super Mario Bros.™ Wonder – Nintendo Switch™ 2 Edition + Meetup in Bellabel Park"
+    },
+    {
+      "title_id": "010019A01E2F2000",
+      "name": "Metroid Prime™ 4: Beyond – Nintendo Switch™ 2 Edition"
+    },
+    {
+      "title_id": "01004D300C5AE000",
+      "name": "Kirby™ and the Forgotten Land – Nintendo Switch™ 2 Edition + Star-Crossed World"
+    },
+    {
+      "title_id": "01006F8002326000",
+      "name": "Animal Crossing™: New Horizons – Nintendo Switch™ 2 Edition"
+    },
+    {
+      "title_id": "01007EF00011E000",
+      "name": "The Legend of Zelda™: Breath of the Wild – Nintendo Switch™ 2 Edition"
+    },
+    {
+      "title_id": "0100965017338000",
+      "name": "Super Mario Party™ Jamboree – Nintendo Switch™ 2 Edition + Jamboree TV"
+    },
+    {
+      "title_id": "0100B7C00933A000",
+      "name": "Pikmin™ 4 – Nintendo Switch™ 2 Edition + Dandori Academy"
+    },
+    {
+      "title_id": "0100F2C0115B6000",
+      "name": "The Legend of Zelda™: Tears of the Kingdom – Nintendo Switch™ 2 Edition"
+    },
+    {
+      "title_id": "0100F43008C44000",
+      "name": "Pokémon™ Legends: Z-A – Nintendo Switch™ 2 Edition"
+    }
+  ]
+}

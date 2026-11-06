@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "recommended",
+  "name": "Recommandé",
+  "scope": "general-ns2",
+  "source_platform": "Nintendo Switch 2",
+  "target_hardware": "PS5 standard",
+  "intent": "Conservative candidate graphics preset, not measured or game-specific; native NS2 GPU compatibility is separately qualified.",
+  "settings": {
+    "renderer": "vulkan",
+    "console_mode": "docked",
+    "game_resolution": 1.0,
+    "tv_output": "1440p",
+    "upscaling_filter": "fsr",
+    "fsr_sharpness": 40,
+    "anti_aliasing": "fxaa",
+    "refresh_rate_hz": 60,
+    "texture_anisotropy": "4x"
+  },
+  "technical_basis": {
+    "confidence": "unverified on PS5",
+    "source_game_resolution": null,
+    "source_game_fps": null,
+    "reasoning": [
+      "Do not infer title-specific resolution or FPS from public Switch 2 catalogs.",
+      "Recommended FSR 1 is spatial; this is not FSR 3.1 temporal.",
+      "Higher tiers may be expensive; user overrides always win."
+    ]
+  }
+}

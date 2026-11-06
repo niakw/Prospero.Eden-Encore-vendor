@@ -30,7 +30,7 @@
         "console_mode": "docked",
         "game_resolution": 1.25,
         "tv_output": "1440p",
-        "upscaling_filter": "bilinear",
+        "upscaling_filter": "fsr",
         "fsr_sharpness": 50,
         "anti_aliasing": "fxaa",
         "refresh_rate_hz": 60

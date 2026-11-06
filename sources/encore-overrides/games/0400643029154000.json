@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "title_id": "0400643029154000",
+  "name": "Dicevaders",
+  "source_console": "Nintendo Switch 2",
+  "target_hardware": "PS5 standard",
+  "status": "auto-baseline",
+  "auto_apply": true,
+  "default_profile": "recommended",
+  "profiles": {
+    "minimum": {
+      "name": "Minimum",
+      "profile_source": "general/ns2/minimum.json",
+      "settings": {
+        "renderer": "vulkan",
+        "console_mode": "docked",
+        "game_resolution": 0.75,
+        "tv_output": "1080p",
+        "upscaling_filter": "bilinear",
+        "fsr_sharpness": 0,
+        "anti_aliasing": "none",
+        "refresh_rate_hz": 60,
+        "texture_anisotropy": "default"
+      }
+    },
+    "recommended": {
+      "name": "Recommandé",
+      "profile_source": "general/ns2/recommended.json",
+      "settings": {
+        "renderer": "vulkan",
+        "console_mode": "docked",
+        "game_resolution": 1.0,
+        "tv_output": "1440p",
+        "upscaling_filter": "fsr",
+        "fsr_sharpness": 40,
+        "anti_aliasing": "fxaa",
+        "refresh_rate_hz": 60,
+        "texture_anisotropy": "4x"
+      }
+    },
+    "high": {
+      "name": "Haute",
+      "profile_source": "general/ns2/high.json",
+      "settings": {
+        "renderer": "vulkan",
+        "console_mode": "docked",
+        "game_resolution": 1.25,
+        "tv_output": "1440p",
+        "upscaling_filter": "fsr",
+        "fsr_sharpness": 50,
+        "anti_aliasing": "smaa",
+        "refresh_rate_hz": 60,
+        "texture_anisotropy": "8x"
+      }
+    },
+    "ultra": {
+      "name": "Ultra",
+      "profile_source": "general/ns2/ultra.json",
+      "settings": {
+        "renderer": "vulkan",
+        "console_mode": "docked",
+        "game_resolution": 1.5,
+        "tv_output": "2160p",
+        "upscaling_filter": "fsr",
+        "fsr_sharpness": 50,
+        "anti_aliasing": "smaa",
+        "refresh_rate_hz": 60,
+        "texture_anisotropy": "16x"
+      }
+    }
+  },
+  "technical_data": {
+    "catalog": {
+      "source": "Nintendo Switch Brew Switch 2 Title list/Games",
+      "url": "https://www.switchbrew.org/wiki/Switch_2:_Title_list/Games",
+      "regions": [
+        "USA"
+      ],
+      "versions_text": ""
+    },
+    "source_game": {
+      "docked_resolution": null,
+      "handheld_resolution": null,
+      "target_fps": null,
+      "confidence": "unknown",
+      "rule": "Do not infer render resolution or FPS from title catalog."
+    },
+    "switch_2": {
+      "platform": "Nintendo Switch 2",
+      "game_namespace": "0400",
+      "gpu_family": "Ampere-class"
+    },
+    "ps5_standard": {
+      "platform": "PS5",
+      "gpu_family": "RDNA2-class"
+    },
+    "encore": {
+      "profile_model": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ],
+      "profile_origin": "NS2 conservative generic baseline",
+      "manual_user_override_wins": true
+    }
+  },
+  "generated": {
+    "generator": "tools/sync_switch2_games.py",
+    "policy": "new-title-only; no edits to existing profiles"
+  }
+}

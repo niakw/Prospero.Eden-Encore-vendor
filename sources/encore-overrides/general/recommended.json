@@ -11,17 +11,19 @@
     "console_mode": "docked",
     "game_resolution": 1.25,
     "tv_output": "1440p",
-    "upscaling_filter": "bilinear",
+    "upscaling_filter": "fsr",
     "fsr_sharpness": 50,
     "anti_aliasing": "fxaa",
-    "refresh_rate_hz": 60
+    "refresh_rate_hz": 60,
+    "texture_anisotropy": "4x"
   },
   "technical_basis": {
     "pixel_workload_vs_1x": 1.5625,
     "reasoning": [
-      "A 1080p-class source at 1.25x is approximately 2400x1350, already close to 2560x1440 output.",
-      "This raises image quality substantially without approaching the 4x pixel cost of a 2.0x profile.",
-      "FXAA is a low-cost general anti-aliasing pass at this scale."
+      "A 1080p-class source at 1.25x reaches about 2400x1350, near 2560x1440 output.",
+      "FSR 1 EASU/RCAS replaces generic Bilinear for this balance profile; it is spatial, not FSR 3.1 temporal.",
+      "The initial 50% sharpening is configurable and applied only when FSR 1 is chosen.",
+      "FXAA is a low-cost general anti-aliasing pass. Actual quality/cost must still be measured on PS5."
     ]
   }
 }

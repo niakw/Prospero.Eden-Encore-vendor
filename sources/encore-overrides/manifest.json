@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "database_revision": 6,
+  "database_revision": 7,
   "profile_order": [
     "minimum",
     "recommended",
@@ -125910,6 +125910,6544 @@
       "title_id": "0100FFE01DBFE000",
       "name": "Party Party Time 2",
       "path": "games/0100FFE01DBFE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040000B024672000",
+      "name": "Console Archives MAGMAX",
+      "path": "games/040000B024672000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000170288DC000",
+      "name": "Echo Weaver",
+      "path": "games/04000170288DC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400018025B92000",
+      "name": "Arcade Archives 2 ROC'N ROPE",
+      "path": "games/0400018025B92000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000220234BA000",
+      "name": "DRAGON QUEST I & II HD-2D Remake",
+      "path": "games/04000220234BA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400029028B0E000",
+      "name": "Decollate Decoration",
+      "path": "games/0400029028B0E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040002D02752C000",
+      "name": "SPRAWL zero",
+      "path": "games/040002D02752C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000360270F4000",
+      "name": "The Necromancer's Tale",
+      "path": "games/04000360270F4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040003901FBC2000",
+      "name": "Survival Kids",
+      "path": "games/040003901FBC2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040003C023FC4000",
+      "name": "LEGO® Batman™: Legacy of the Dark Knight",
+      "path": "games/040003C023FC4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000470212CE000",
+      "name": "Kunitsu-Gami: Path of the Goddess",
+      "path": "games/04000470212CE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040004B024908000",
+      "name": "Arcade Archives 2 VIDEO HUSTLER",
+      "path": "games/040004B024908000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040004C027E4C000",
+      "name": "Constance",
+      "path": "games/040004C027E4C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040004F027560000",
+      "name": "Orbitals: Global Friend's Pass",
+      "path": "games/040004F027560000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000510239A8000",
+      "name": "Arcade Archives2 AIR COMBAT 22",
+      "path": "games/04000510239A8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400054025D02000",
+      "name": "Rushing Beat X: Return of Brawl Brothers",
+      "path": "games/0400054025D02000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400056025574000",
+      "name": "Arcade Archives 2 Tatakae! Big Fighter",
+      "path": "games/0400056025574000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400063028FA2000",
+      "name": "Trinity Trigger DX",
+      "path": "games/0400063028FA2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000730260A0000",
+      "name": "Jotunnslayer: Hordes of Hel",
+      "path": "games/04000730260A0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400077027D24000",
+      "name": "Console Archives BUBBLE BOBBLE",
+      "path": "games/0400077027D24000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040007C026F72000",
+      "name": "NOSTALGIC TRAIN",
+      "path": "games/040007C026F72000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400083024FF0000",
+      "name": "Diablo® IV: Age of Hatred Collection",
+      "path": "games/0400083024FF0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000A3024F22000",
+      "name": "Darwin's Paradox!",
+      "path": "games/04000A3024F22000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000A8024AEE000",
+      "name": "GRID™ Legends: Deluxe Edition",
+      "path": "games/04000A8024AEE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000B0024B12000",
+      "name": "UNDERWARD: LASTBOSS, Genius Gyaru Doctor",
+      "path": "games/04000B0024B12000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000B4027D7E000",
+      "name": "Momento",
+      "path": "games/04000B4027D7E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000D0027188000",
+      "name": "Arcade Archives 2 POLARIS",
+      "path": "games/04000D0027188000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000D9025B16000",
+      "name": "Minecraft Dungeons II",
+      "path": "games/04000D9025B16000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000DD026A96000",
+      "name": "Console Archives TOUKI DENSHOU ANGEL EYES",
+      "path": "games/04000DD026A96000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000DE025BF6000",
+      "name": "Arcade Archives 2 SPACE INVADERS PART II",
+      "path": "games/04000DE025BF6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000DE027BEC000",
+      "name": "Resident Evil 3",
+      "path": "games/04000DE027BEC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000E1023AB4000",
+      "name": "Bandit Trap",
+      "path": "games/04000E1023AB4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000E9024DDA000",
+      "name": "Ys X: Proud Nordics",
+      "path": "games/04000E9024DDA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000EE026672000",
+      "name": "Arcade Archives 2 Rave Racer",
+      "path": "games/04000EE026672000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000EF028608000",
+      "name": "Dogpile",
+      "path": "games/04000EF028608000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000F4027E30000",
+      "name": "Model Debut4",
+      "path": "games/04000F4027E30000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000FA027E8E000",
+      "name": "Arcade Archives 2 V'BALL",
+      "path": "games/04000FA027E8E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04000FC022CC8000",
+      "name": "Cyberpunk 2077: Ultimate Edition",
+      "path": "games/04000FC022CC8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040010002804A000",
+      "name": "BRIGANDINE ABYSS",
+      "path": "games/040010002804A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400101024F7A000",
+      "name": "Resident Evil 7 biohazard Gold Edition",
+      "path": "games/0400101024F7A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04001040243D4000",
+      "name": "The Legend of Heroes: Trails beyond the Horizon",
+      "path": "games/04001040243D4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400114025CCA000",
+      "name": "Shadow Tactics: Blades of the Shogun",
+      "path": "games/0400114025CCA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400125024470000",
+      "name": "Console Archives NOBUNAGA'S AMBITION",
+      "path": "games/0400125024470000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040012F028BC2000",
+      "name": "The Witcher 3: Wild Hunt — Remastered",
+      "path": "games/040012F028BC2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400135024684000",
+      "name": "Console Archives Ninja-Kid II",
+      "path": "games/0400135024684000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040013C024128000",
+      "name": "Atelier Ryza: Ever Darkness & the Secret Hideout DX",
+      "path": "games/040013C024128000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400152025A96000",
+      "name": "Arcade Archives 2 THE OUTFOXIES",
+      "path": "games/0400152025A96000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400160026F40000",
+      "name": "Arcade Archives 2 KONAMI GT",
+      "path": "games/0400160026F40000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040016E025052000",
+      "name": "Arcade Archives 2 GEE BEE",
+      "path": "games/040016E025052000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400172024E7A000",
+      "name": "Overwatch®",
+      "path": "games/0400172024E7A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040019C028C6E000",
+      "name": "CloverPit",
+      "path": "games/040019C028C6E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04001A3028890000",
+      "name": "Clive Barker's Hellraiser: Revival",
+      "path": "games/04001A3028890000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04001B102590C000",
+      "name": "Arcade Archives 2 MIDNIGHT LANDING",
+      "path": "games/04001B102590C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04001B602909A000",
+      "name": "Arcade Archives 2 CRAZY BALLOON",
+      "path": "games/04001B602909A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04001BD027712000",
+      "name": "Vampire Crawlers: The Turbo Wildcard from Vampire Survivors",
+      "path": "games/04001BD027712000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04001CD025B68000",
+      "name": "Octopath Traveler™",
+      "path": "games/04001CD025B68000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04001DF022CE6000",
+      "name": "KINGDOM HEARTS III + Re Mind (DLC)",
+      "path": "games/04001DF022CE6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04001F2025DCC000",
+      "name": "Smalland: Survive the Wilds",
+      "path": "games/04001F2025DCC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400207026A48000",
+      "name": "Arcade Archives 2 ADVENTURE CANOE",
+      "path": "games/0400207026A48000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400208024DFE000",
+      "name": "MY HERO ACADEMIA: All's Justice",
+      "path": "games/0400208024DFE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040021E02594A000",
+      "name": "The Disney Afternoon Collection",
+      "path": "games/040021E02594A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400224023CF8000",
+      "name": "Relayer Advanced Definitive Edition",
+      "path": "games/0400224023CF8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040022A0261D8000",
+      "name": "Console Archives Rhapsody: A Musical Adventure",
+      "path": "games/040022A0261D8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04002310235C2000",
+      "name": "Handy Hockey",
+      "path": "games/04002310235C2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040023502410A000",
+      "name": "Cronos: The New Dawn",
+      "path": "games/040023502410A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400245021D2C000",
+      "name": "Yoshi and the Mysterious Book",
+      "path": "games/0400245021D2C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040024F0275F2000",
+      "name": "The Legend of Heroes: Trails to Azure",
+      "path": "games/040024F0275F2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04002550248C4000",
+      "name": "Content Warning",
+      "path": "games/04002550248C4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400255024C1C000",
+      "name": "Arcade Archives 2 TOKYO WARS",
+      "path": "games/0400255024C1C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400255025990000",
+      "name": "Ultimate Sheep Raccoon",
+      "path": "games/0400255025990000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400256024344000",
+      "name": "Gear.Club Unlimited 3",
+      "path": "games/0400256024344000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040025902298A000",
+      "name": "Little Nightmares II Enhanced Edition",
+      "path": "games/040025902298A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040025D02743A000",
+      "name": "Sektori",
+      "path": "games/040025D02743A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040026002669C000",
+      "name": "Wanderstop",
+      "path": "games/040026002669C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040026802427E000",
+      "name": "The Rogue Prince of Persia™",
+      "path": "games/040026802427E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040027D028688000",
+      "name": "Mind Diver",
+      "path": "games/040027D028688000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400288028C8C000",
+      "name": "Parkasaurus: Dinoluxe Edition",
+      "path": "games/0400288028C8C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040029202747A000",
+      "name": "Balatro",
+      "path": "games/040029202747A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400299025B08000",
+      "name": "Console Archives Doraemon",
+      "path": "games/0400299025B08000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040029D02823A000",
+      "name": "Spooky Spirit Shooting Gallery for Nintendo Switch 2",
+      "path": "games/040029D02823A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04002A6027344000",
+      "name": "Junkster",
+      "path": "games/04002A6027344000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04002B1027BF2000",
+      "name": "Resident Evil 4 Gold Edition",
+      "path": "games/04002B1027BF2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04002D602483C000",
+      "name": "\"Run for Money\": Hunter VS Runner! Which Side Will You Win With!?",
+      "path": "games/04002D602483C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04002DA026B14000",
+      "name": "Console Archives UFO -A day in the life-",
+      "path": "games/04002DA026B14000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04002E502935C000",
+      "name": "EVERSPACE 2 - Galactic Edition",
+      "path": "games/04002E502935C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04002F5028CA4000",
+      "name": "Dead Age 2",
+      "path": "games/04002F5028CA4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04002FC02493E000",
+      "name": "Outbound",
+      "path": "games/04002FC02493E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400303021AAC000",
+      "name": "DELTARUNE",
+      "path": "games/0400303021AAC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400304025212000",
+      "name": "WWE 2K26 Standard Edition",
+      "path": "games/0400304025212000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400309024ECC000",
+      "name": "Dream Shogi 4K",
+      "path": "games/0400309024ECC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040030D022A5A000",
+      "name": "KINGDOM HEARTS HD 2.8 Final Chapter Prologue",
+      "path": "games/040030D022A5A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04003170238F0000",
+      "name": "Valheim",
+      "path": "games/04003170238F0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400322024480000",
+      "name": "Virtua Fighter 5 R.E.V.O. World Stage",
+      "path": "games/0400322024480000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400327026C56000",
+      "name": "Arcade Archives 2 PLUMP POP",
+      "path": "games/0400327026C56000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400328024BEA000",
+      "name": "STARSEEKER: Astroneer Expeditions",
+      "path": "games/0400328024BEA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040032B023CA4000",
+      "name": "Orbitals",
+      "path": "games/040032B023CA4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040033C029D9E000",
+      "name": "The Convenience Store",
+      "path": "games/040033C029D9E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040033E0271EE000",
+      "name": "Hello Kitty Party Land",
+      "path": "games/040033E0271EE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400340027A84000",
+      "name": "Moros Protocol",
+      "path": "games/0400340027A84000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400341027E14000",
+      "name": "Stellar Blade™ Complete Edition",
+      "path": "games/0400341027E14000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400360024B26000",
+      "name": "Console Archives Cool Boarders",
+      "path": "games/0400360024B26000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04003610271C2000",
+      "name": "Solarpunk",
+      "path": "games/04003610271C2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040036B0237FA000",
+      "name": "Majogami",
+      "path": "games/040036B0237FA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040036C0287C2000",
+      "name": "BioEden",
+      "path": "games/040036C0287C2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040036E024882000",
+      "name": "Yakuza Kiwami 3 & Dark Ties",
+      "path": "games/040036E024882000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040036E0268F8000",
+      "name": "D-topia",
+      "path": "games/040036E0268F8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040037C025346000",
+      "name": "PGA TOUR 2K25",
+      "path": "games/040037C025346000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400380020056000",
+      "name": "Splatoon Raiders",
+      "path": "games/0400380020056000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040038D02786C000",
+      "name": "Disgaea Mayhem",
+      "path": "games/040038D02786C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04003940236DC000",
+      "name": "PAC-MAN WORLD 2 Re-PAC",
+      "path": "games/04003940236DC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040039D027322000",
+      "name": "Console Archives BOKOSUKA WARS",
+      "path": "games/040039D027322000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04003A4026868000",
+      "name": "City Hunter",
+      "path": "games/04003A4026868000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04003AD024B32000",
+      "name": "Console Archives Master of Monsters: Disciples of Gaia",
+      "path": "games/04003AD024B32000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04003AD02923E000",
+      "name": "Hyrule Warriors: Age of Calamity - Definitive Edition",
+      "path": "games/04003AD02923E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04003D7026C78000",
+      "name": "Arcade Archives 2 COMBAT SCHOOL",
+      "path": "games/04003D7026C78000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04003DC020784000",
+      "name": "シャインポスト Be Your アイドル！",
+      "path": "games/04003DC020784000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04003EB02655E000",
+      "name": "The Lord of the Rings: War in the North™ - Legacy Edition",
+      "path": "games/04003EB02655E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04003F40232DE000",
+      "name": "Hyrule Warriors: Age of Imprisonment",
+      "path": "games/04003F40232DE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04003FB022F4E000",
+      "name": "RAIDOU Remastered: The Mystery of the Soulless Army",
+      "path": "games/04003FB022F4E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400408021236000",
+      "name": "Daemon X Machina: Titanic Scion",
+      "path": "games/0400408021236000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040040C028AE2000",
+      "name": "Duskfade",
+      "path": "games/040040C028AE2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400410024C4E000",
+      "name": "High On Life 2",
+      "path": "games/0400410024C4E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400412024EB4000",
+      "name": "Nicktoons & The Dice of Destiny",
+      "path": "games/0400412024EB4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040041601D83A000",
+      "name": "Drag x Drive™",
+      "path": "games/040041601D83A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040041E0212AE000",
+      "name": "Fast Fusion",
+      "path": "games/040041E0212AE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400422027B8E000",
+      "name": "Arcade Archives 2 RACK'EM UP",
+      "path": "games/0400422027B8E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040042E02684C000",
+      "name": "Dosa Divas",
+      "path": "games/040042E02684C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400435027DEC000",
+      "name": "One Military Camp",
+      "path": "games/0400435027DEC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040043D0240DC000",
+      "name": "Marvel's Guardians of the Galaxy: Encore Edition",
+      "path": "games/040043D0240DC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004400293B0000",
+      "name": "Sp(L/R)ite",
+      "path": "games/04004400293B0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004400297EE000",
+      "name": "Arcade Archives 2 BALLOON BOMBER",
+      "path": "games/04004400297EE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004500271B8000",
+      "name": "Moonlighter 2: The Endless Vault",
+      "path": "games/04004500271B8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040045B025E5A000",
+      "name": "Layers of Fear: The Final Masterpiece Edition",
+      "path": "games/040045B025E5A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040045D02798E000",
+      "name": "Arcade Archives 2 Lady Bug",
+      "path": "games/040045D02798E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040045F02661E000",
+      "name": "Mixtape",
+      "path": "games/040045F02661E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400460023F04000",
+      "name": "ANOMALITH",
+      "path": "games/0400460023F04000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040046201D3E8000",
+      "name": "Pokémon Waves",
+      "path": "games/040046201D3E8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040046A0248C0000",
+      "name": "BOKURA: planet",
+      "path": "games/040046A0248C0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040046B028FB6000",
+      "name": "The Walking Dead: Streets of Survival",
+      "path": "games/040046B028FB6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004710276DA000",
+      "name": "and Roger",
+      "path": "games/04004710276DA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400472025966000",
+      "name": "Arcade Archives 2 TOP SPEED",
+      "path": "games/0400472025966000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400473025B00000",
+      "name": "Arcade Archives 2 SPACE INVADERS",
+      "path": "games/0400473025B00000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040047D020DB2000",
+      "name": "Puyo Puyo Tetris 2S",
+      "path": "games/040047D020DB2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004800254A6000",
+      "name": "PUNYAN for Nintendo Switch 2",
+      "path": "games/04004800254A6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400483024390000",
+      "name": "Arcade Archives 2 STEEL WORKER",
+      "path": "games/0400483024390000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400486024DEC000",
+      "name": "The Legend of Zelda™: Ocarina of Time",
+      "path": "games/0400486024DEC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004890268C0000",
+      "name": "THE NEW DENPA MEN",
+      "path": "games/04004890268C0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040048B025160000",
+      "name": "Possessor(s)",
+      "path": "games/040048B025160000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040048B027F7E000",
+      "name": "PAW Patrol™: Dino World",
+      "path": "games/040048B027F7E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040048C027456000",
+      "name": "Dread Delusion",
+      "path": "games/040048C027456000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004A00263D6000",
+      "name": "Arcade Archives 2 LABYRINTH RUNNER",
+      "path": "games/04004A00263D6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004A1024BD6000",
+      "name": "MIO: Memories in Orbit",
+      "path": "games/04004A1024BD6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004A40277F8000",
+      "name": "Arcade Archives 2 TAG TEAM WRESTLING",
+      "path": "games/04004A40277F8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004BF027BB2000",
+      "name": "Rugby League 26",
+      "path": "games/04004BF027BB2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004CD022304000",
+      "name": "Little Nightmares III",
+      "path": "games/04004CD022304000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004D302590A000",
+      "name": "CRISIS CORE -FINAL FANTASY VII- REUNION",
+      "path": "games/04004D302590A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004E8025EC4000",
+      "name": "RuneScape: Dragonwilds",
+      "path": "games/04004E8025EC4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004EA0268B8000",
+      "name": "Destroy All Humans!",
+      "path": "games/04004EA0268B8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04004F70262B2000",
+      "name": "Draw King",
+      "path": "games/04004F70262B2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040050B02954E000",
+      "name": "Scritchy Scratchy",
+      "path": "games/040050B02954E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04005130275CA000",
+      "name": "Arcade Archives 2 Mr.Do!",
+      "path": "games/04005130275CA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040051B0269D8000",
+      "name": "Arcade Archives 2 MEGA ZONE",
+      "path": "games/040051B0269D8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400528024B30000",
+      "name": "Console Archives NINJA GAIDEN II: THE DARK SWORD OF CHAOS",
+      "path": "games/0400528024B30000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04005290268BE000",
+      "name": "SUSHI BAR MOEBIUS for Nintendo Switch™ 2",
+      "path": "games/04005290268BE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040052F026A52000",
+      "name": "R-Type Dimensions III",
+      "path": "games/040052F026A52000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400532026F18000",
+      "name": "FINAL FANTASY RESONANCE",
+      "path": "games/0400532026F18000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400543027FFC000",
+      "name": "Graveyard Keeper 2",
+      "path": "games/0400543027FFC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040055202608A000",
+      "name": "Back to the Dawn",
+      "path": "games/040055202608A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04005550254B8000",
+      "name": "FATAL FRAME II: Crimson Butterfly REMAKE",
+      "path": "games/04005550254B8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400557024B3E000",
+      "name": "Under Par Golf Architect",
+      "path": "games/0400557024B3E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040057B028776000",
+      "name": "EXSTETRA",
+      "path": "games/040057B028776000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040057C02159A000",
+      "name": "Nintendo Switch 2 Welcome Tour",
+      "path": "games/040057C02159A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04005860239F4000",
+      "name": "Plants vs. Zombies™: Replanted",
+      "path": "games/04005860239F4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04005870238DA000",
+      "name": "The Duskbloods",
+      "path": "games/04005870238DA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04005A40277E8000",
+      "name": "The Immortal John Triptych",
+      "path": "games/04005A40277E8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04005A702546E000",
+      "name": "Metaphor: ReFantazio",
+      "path": "games/04005A702546E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04005C902322C000",
+      "name": "No Sleep For Kaname Date - From AI: THE SOMNIUM FILES",
+      "path": "games/04005C902322C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04005CB027440000",
+      "name": "Royal Revolt Survivors",
+      "path": "games/04005CB027440000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04005CC022C9E000",
+      "name": "DRAGON QUEST VII Reimagined",
+      "path": "games/04005CC022C9E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04005E2024678000",
+      "name": "Console Archives Dezaemon",
+      "path": "games/04005E2024678000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04006020233D4000",
+      "name": "MARVEL Cosmic Invasion",
+      "path": "games/04006020233D4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040060B0224CC000",
+      "name": "Middle-earth™: Shadow of Mordor™ Game of the Year Edition",
+      "path": "games/040060B0224CC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040060B024D6A000",
+      "name": "Arcade Archives 2 TX-1",
+      "path": "games/040060B024D6A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040060C0265DE000",
+      "name": "AKIBA LOST",
+      "path": "games/040060C0265DE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400617024E42000",
+      "name": "DYNASTY WARRIORS: ORIGINS",
+      "path": "games/0400617024E42000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040062C02722A000",
+      "name": "Super Meat Boy 3D",
+      "path": "games/040062C02722A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400630027D22000",
+      "name": "Console Archives Rhapsody II: Ballad of the Little Princess",
+      "path": "games/0400630027D22000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400631023D10000",
+      "name": "Arcade Archives 2 ACE DRIVER",
+      "path": "games/0400631023D10000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400643029154000",
+      "name": "Dicevaders",
+      "path": "games/0400643029154000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040064902843C000",
+      "name": "Space Warlord Baby Trading Simulator",
+      "path": "games/040064902843C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400657028EE0000",
+      "name": "Arcade Archives 2 XEVIOUS 3D/G",
+      "path": "games/0400657028EE0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040065A023ABA000",
+      "name": "ChromaGun 2: Dye Hard",
+      "path": "games/040065A023ABA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400660027DA2000",
+      "name": "THE ASCENT ULTIMATE EDITION",
+      "path": "games/0400660027DA2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400668024E94000",
+      "name": "Squirrel with a Gun",
+      "path": "games/0400668024E94000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040067A025F2C000",
+      "name": "Granblue Fantasy Versus: Rising Legendary Edition",
+      "path": "games/040067A025F2C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040067F027F54000",
+      "name": "Gecko Gods",
+      "path": "games/040067F027F54000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400686028654000",
+      "name": "Old Coin Pusher Gaiden",
+      "path": "games/0400686028654000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400691028286000",
+      "name": "Two Point Hospital: Full Health Collection",
+      "path": "games/0400691028286000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04006940243CA000",
+      "name": "Rise of the Tomb Raider: 20 Year Celebration",
+      "path": "games/04006940243CA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040069E024F5A000",
+      "name": "Deadzone: Rogue",
+      "path": "games/040069E024F5A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04006A4025F9A000",
+      "name": "DRAGON QUEST MONSTERS: The Withered World",
+      "path": "games/04006A4025F9A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04006B0029F68000",
+      "name": "Sniper Dan",
+      "path": "games/04006B0029F68000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04006B10291EE000",
+      "name": "Ground Zero Hero",
+      "path": "games/04006B10291EE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04006C5025F8A000",
+      "name": "Digimon Story Time Stranger",
+      "path": "games/04006C5025F8A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04006CC0223D2000",
+      "name": "HITMAN World of Assassination – Signature Edition",
+      "path": "games/04006CC0223D2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04006D1023DB6000",
+      "name": "Rotwood",
+      "path": "games/04006D1023DB6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04006D2028CDC000",
+      "name": "Funguys Swarm",
+      "path": "games/04006D2028CDC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04006F70246E2000",
+      "name": "Console Archives SONIC WINGS Special",
+      "path": "games/04006F70246E2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040071401FF84000",
+      "name": "Chillin' by the Fire",
+      "path": "games/040071401FF84000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040073D025D98000",
+      "name": "Scott Pilgrim EX",
+      "path": "games/040073D025D98000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040074A01BF12000",
+      "name": "Donkey Kong Bananza",
+      "path": "games/040074A01BF12000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040074F0253B8000",
+      "name": "EA SPORTS™ Madden NFL 27",
+      "path": "games/040074F0253B8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400763028E20000",
+      "name": "Arcade Archives 2 ARKANOID REVENGE OF DOH",
+      "path": "games/0400763028E20000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400766027BCA000",
+      "name": "Console Archives T.R.A.G.: Tactical Rescue Assault Group - Mission of Mercy",
+      "path": "games/0400766027BCA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040076E025B46000",
+      "name": "Star Trek: Voyager - Across the Unknown",
+      "path": "games/040076E025B46000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040076F026128000",
+      "name": "Tales of ARISE - Beyond the Dawn Edition",
+      "path": "games/040076F026128000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040077201BE50000",
+      "name": "Kirby™ Air Riders",
+      "path": "games/040077201BE50000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040078001CCF6000",
+      "name": "Street Fighter 6",
+      "path": "games/040078001CCF6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400786026244000",
+      "name": "Warhammer Survivors",
+      "path": "games/0400786026244000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040078A028E6C000",
+      "name": "Maestro",
+      "path": "games/040078A028E6C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040078C026E4C000",
+      "name": "Disney Epic Mickey: Rebrushed",
+      "path": "games/040078C026E4C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040078D025266000",
+      "name": "Exit Lab ~15 Rooms~",
+      "path": "games/040078D025266000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400792025D04000",
+      "name": "FZ: Formation Z",
+      "path": "games/0400792025D04000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04007A7024024000",
+      "name": "Warhammer 40,000: Rogue Trader",
+      "path": "games/04007A7024024000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04007CF02469A000",
+      "name": "Console Archives Ishin no Arashi",
+      "path": "games/04007CF02469A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04007D1024268000",
+      "name": "Yakuza Kiwami 2",
+      "path": "games/04007D1024268000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04007D3026DE0000",
+      "name": "Pit Panic",
+      "path": "games/04007D3026DE0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04007E00249C2000",
+      "name": "Skate Story",
+      "path": "games/04007E00249C2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04007E0027682000",
+      "name": "Arcade Archives 2 SPACE CYCLONE",
+      "path": "games/04007E0027682000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04007EF01F8AE000",
+      "name": "Fire Emblem™: Fortune’s Weave",
+      "path": "games/04007EF01F8AE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04007FD027432000",
+      "name": "Ratatan",
+      "path": "games/04007FD027432000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04007FD027916000",
+      "name": "Police Simulator: Patrol Officers",
+      "path": "games/04007FD027916000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040080D0277C6000",
+      "name": "Haste",
+      "path": "games/040080D0277C6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400813022B32000",
+      "name": "Fortnite",
+      "path": "games/0400813022B32000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008150213A2000",
+      "name": "Assassin's Creed Shadows",
+      "path": "games/04008150213A2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040081702541E000",
+      "name": "DYNASTY WARRIORS 3: Complete Edition Remastered",
+      "path": "games/040081702541E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400817025C2C000",
+      "name": "The Midnight Walk",
+      "path": "games/0400817025C2C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040081A0292C2000",
+      "name": "Quest of Dungeons",
+      "path": "games/040081A0292C2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008210270D4000",
+      "name": "TCG Card Shop Simulator",
+      "path": "games/04008210270D4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040082902313C000",
+      "name": "Arcade Archives 2 RIDGE RACER",
+      "path": "games/040082902313C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040082B02550C000",
+      "name": "Yooka-Replaylee DEMO",
+      "path": "games/040082B02550C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400831029682000",
+      "name": "Jenny LeClue - Detectivu",
+      "path": "games/0400831029682000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008430258C6000",
+      "name": "Arcade Archives 2 GALACTIC WARRIORS",
+      "path": "games/04008430258C6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040084E028032000",
+      "name": "Console Archives KARATE CHAMP",
+      "path": "games/040084E028032000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008510259C0000",
+      "name": "Arcade Archives 2 ARKANOID",
+      "path": "games/04008510259C0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400878028EB4000",
+      "name": "Queen's Domain",
+      "path": "games/0400878028EB4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400886026B2A000",
+      "name": "to a T",
+      "path": "games/0400886026B2A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400890023806000",
+      "name": "OCTOPATH TRAVELER 0",
+      "path": "games/0400890023806000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008980227DC000",
+      "name": "DRAGON QUEST XI S: Echoes of an Elusive Age - Definitive Edition",
+      "path": "games/04008980227DC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008A9025E38000",
+      "name": "Arcade Archives 2 BOMB JACK TWIN",
+      "path": "games/04008A9025E38000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008AB026174000",
+      "name": "Console Archives THE CONVENI",
+      "path": "games/04008AB026174000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008AC027588000",
+      "name": "Console Archives Toujinmakyouden Hercules no eikou",
+      "path": "games/04008AC027588000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008BE0262BC000",
+      "name": "FINAL FANTASY VII REBIRTH",
+      "path": "games/04008BE0262BC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008C6024BB4000",
+      "name": "The Elder Scrolls V: Skyrim Anniversary Edition",
+      "path": "games/04008C6024BB4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008D30269A4000",
+      "name": "SHINOBI: Art of Vengeance",
+      "path": "games/04008D30269A4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008E302412C000",
+      "name": "Atelier Ryza 3: Alchemist of the End & the Secret Key DX",
+      "path": "games/04008E302412C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008FD02612C000",
+      "name": "Console Archives THE CONVENI 2",
+      "path": "games/04008FD02612C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04008FD029A16000",
+      "name": "Truck-kun is Supporting Me from Another World?!",
+      "path": "games/04008FD029A16000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400903029096000",
+      "name": "Arcade Archives 2 DACHOLER",
+      "path": "games/0400903029096000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040090C026ED0000",
+      "name": "NBA 2K27",
+      "path": "games/040090C026ED0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400912023308000",
+      "name": "Goat Simulator 3",
+      "path": "games/0400912023308000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040091C0232EE000",
+      "name": "Persona 3 Reload",
+      "path": "games/040091C0232EE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040091F027876000",
+      "name": "STAR OCEAN THE SECOND STORY R",
+      "path": "games/040091F027876000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400921025B32000",
+      "name": "Sonic Frontiers - Definitive Edition",
+      "path": "games/0400921025B32000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040092B029C14000",
+      "name": "What have you done, father?",
+      "path": "games/040092B029C14000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040092E026C70000",
+      "name": "Bluey's Quest For The Gold Pen",
+      "path": "games/040092E026C70000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04009360204A8000",
+      "name": "Wo Long: Fallen Dynasty Complete Edition",
+      "path": "games/04009360204A8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400937027696000",
+      "name": "Grim Trials",
+      "path": "games/0400937027696000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040093D0233B0000",
+      "name": "FINAL FANTASY VII REMAKE INTERGRADE",
+      "path": "games/040093D0233B0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400945028B8C000",
+      "name": "Montabi",
+      "path": "games/0400945028B8C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04009480266D0000",
+      "name": "Resident Evil 2 Deluxe Edition",
+      "path": "games/04009480266D0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040094B02455C000",
+      "name": "MOUSE: P.I. For Hire",
+      "path": "games/040094B02455C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04009570209F8000",
+      "name": "Hogwarts Legacy",
+      "path": "games/04009570209F8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040096D024506000",
+      "name": "TOKYO SCRAMBLE",
+      "path": "games/040096D024506000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040096F0285C6000",
+      "name": "Skatesterre",
+      "path": "games/040096F0285C6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040097D02412A000",
+      "name": "Atelier Ryza 2: Lost Legends & the Secret Fairy DX",
+      "path": "games/040097D02412A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400984020BE8000",
+      "name": "eFootball™ Kick-Off!",
+      "path": "games/0400984020BE8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400994022308000",
+      "name": "Little Nightmares Enhanced Edition - Complete Edition",
+      "path": "games/0400994022308000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "040099F027C2C000",
+      "name": "Teeto",
+      "path": "games/040099F027C2C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04009A60272CA000",
+      "name": "Shape of Dreams",
+      "path": "games/04009A60272CA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04009A70262D0000",
+      "name": "Yakuza Kiwami 3 & Dark Ties (Demo Version)",
+      "path": "games/04009A70262D0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04009B802881A000",
+      "name": "Mewgenics",
+      "path": "games/04009B802881A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04009B9023ABC000",
+      "name": "Yooka-Replaylee",
+      "path": "games/04009B9023ABC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04009DE020850000",
+      "name": "NOBUNAGA'S AMBITION: Awakening Complete Edition",
+      "path": "games/04009DE020850000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04009E10268BA000",
+      "name": "Destroy All Humans! 2 - Reprobed",
+      "path": "games/04009E10268BA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "04009EA02749E000",
+      "name": "Arcade Archives 2 CYBER COMMANDO",
+      "path": "games/04009EA02749E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A02022D2A000",
+      "name": "Two Point Museum",
+      "path": "games/0400A02022D2A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A0C027CAA000",
+      "name": "Arcade Archives 2 ARMADILLO RACING",
+      "path": "games/0400A0C027CAA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A0D0246C6000",
+      "name": "Console Archives CRAZY CLIMBER",
+      "path": "games/0400A0D0246C6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A15024D62000",
+      "name": "Turok: Origins",
+      "path": "games/0400A15024D62000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A1B0289D4000",
+      "name": "Touhou Koumakyou: New Classic - the Embodiment of Scarlet Devil",
+      "path": "games/0400A1B0289D4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A1C028E96000",
+      "name": "Arcade Archives 2 NINJA EMAKI",
+      "path": "games/0400A1C028E96000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A2B02653E000",
+      "name": "Starship Troopers: Ultimate Bug War!",
+      "path": "games/0400A2B02653E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A2B026600000",
+      "name": "Devil May Cry 5 Devil Hunter Edition",
+      "path": "games/0400A2B026600000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A3A01EE4C000",
+      "name": "Pokémon Pokopia",
+      "path": "games/0400A3A01EE4C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A3A0269E6000",
+      "name": "Citadelum",
+      "path": "games/0400A3A0269E6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A4802437E000",
+      "name": "Drag x Drive™: Global Jam",
+      "path": "games/0400A4802437E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A54026088000",
+      "name": "Kinki Spiritual Affairs Bureau",
+      "path": "games/0400A54026088000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A58024718000",
+      "name": "Resident Evil Requiem",
+      "path": "games/0400A58024718000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A5A025B6A000",
+      "name": "OCTOPATH TRAVELER II",
+      "path": "games/0400A5A025B6A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A62026C7E000",
+      "name": "Arcade Archives 2 FINAL LAP",
+      "path": "games/0400A62026C7E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A69024378000",
+      "name": "Arcade Archives 2 SCRAMBLED EGG",
+      "path": "games/0400A69024378000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A6B025CAE000",
+      "name": "BLUE REFLECTION Quartet",
+      "path": "games/0400A6B025CAE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A6C026276000",
+      "name": "Teenage Mutant Ninja Turtles Arcade: Wrath of The Mutants - Ninja Edition",
+      "path": "games/0400A6C026276000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A71024D16000",
+      "name": "The Elder Scrolls IV: Oblivion Remastered",
+      "path": "games/0400A71024D16000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A78028A18000",
+      "name": "NAMCO LEGENDARY Mountains",
+      "path": "games/0400A78028A18000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A79026B36000",
+      "name": "Kena: Bridge of Spirits",
+      "path": "games/0400A79026B36000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A8102411A000",
+      "name": "Valkyrie Saga",
+      "path": "games/0400A8102411A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A86024AF6000",
+      "name": "MotoGP™26",
+      "path": "games/0400A86024AF6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A940233E0000",
+      "name": "Daemon X Machina: Titanic Scion",
+      "path": "games/0400A940233E0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400A95026AB2000",
+      "name": "Alien: Rogue Incursion Evolved Edition",
+      "path": "games/0400A95026AB2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400AA60270A4000",
+      "name": "Dragon Quest Heroes: Torneko's Mystery Dungeon -Classic HD-",
+      "path": "games/0400AA60270A4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400AB8026BAA000",
+      "name": "Chit Chat Party!",
+      "path": "games/0400AB8026BAA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400AC8025344000",
+      "name": "Total Chaos",
+      "path": "games/0400AC8025344000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400ACB025A42000",
+      "name": "Ira",
+      "path": "games/0400ACB025A42000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400ACD027BDC000",
+      "name": "The Mermaid Mask",
+      "path": "games/0400ACD027BDC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400AE40256CE000",
+      "name": "RippleIsland Kyle and Cal’s Restaurant",
+      "path": "games/0400AE40256CE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400AEE0246B0000",
+      "name": "POOL ROOM BILLIARD",
+      "path": "games/0400AEE0246B0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B08022A58000",
+      "name": "KINGDOM HEARTS -HD 1.5+2.5 ReMIX-",
+      "path": "games/0400B08022A58000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B12025A14000",
+      "name": "Arcade Archives 2 MOON SHUTTLE",
+      "path": "games/0400B12025A14000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B1E02610C000",
+      "name": "People of Note",
+      "path": "games/0400B1E02610C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B20025A70000",
+      "name": "Tomb Raider I-III Remastered",
+      "path": "games/0400B20025A70000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B21022266000",
+      "name": "WWE 2K25 Standard Edition",
+      "path": "games/0400B21022266000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B3402468C000",
+      "name": "Console Archives SEICROSS",
+      "path": "games/0400B3402468C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B3C02768C000",
+      "name": "KOKUTOTO",
+      "path": "games/0400B3C02768C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B3E026C64000",
+      "name": "SnowRunner",
+      "path": "games/0400B3E026C64000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B3F0259BE000",
+      "name": "FATAL FURY: City of the Wolves - STANDARD Edition",
+      "path": "games/0400B3F0259BE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B4B021792000",
+      "name": "REANIMAL",
+      "path": "games/0400B4B021792000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B5B029444000",
+      "name": "Meccha Chameleon",
+      "path": "games/0400B5B029444000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B5D024694000",
+      "name": "Console Archives NINJA GAIDEN III: THE ANCIENT SHIP OF DOOM",
+      "path": "games/0400B5D024694000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B5E02408A000",
+      "name": "Farming Simulator: Signature Edition",
+      "path": "games/0400B5E02408A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B6302227E000",
+      "name": "The Adventures of Elliot: The Millennium Tales",
+      "path": "games/0400B6302227E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B6E025CE8000",
+      "name": "Big Walk",
+      "path": "games/0400B6E025CE8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B78024F7E000",
+      "name": "Resident Evil Village Gold Edition",
+      "path": "games/0400B78024F7E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B7A02454A000",
+      "name": "Fallout 4: Anniversary Edition",
+      "path": "games/0400B7A02454A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B960276E2000",
+      "name": "Yu-Gi-Oh! TAG FORCE GX",
+      "path": "games/0400B960276E2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B9702562E000",
+      "name": "CARD&CASINO",
+      "path": "games/0400B9702562E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400B99028910000",
+      "name": "TOEM 2",
+      "path": "games/0400B99028910000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400BA202340A000",
+      "name": "Daemon X Machina: Titanic Scion",
+      "path": "games/0400BA202340A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400BB80271AE000",
+      "name": "Dragon's Dogma 2: Dark Arisen",
+      "path": "games/0400BB80271AE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400BBB020FF0000",
+      "name": "Yakuza 0 Director’s Cut",
+      "path": "games/0400BBB020FF0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400BBE027A0A000",
+      "name": "One Move Away",
+      "path": "games/0400BBE027A0A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400BD002562A000",
+      "name": "RIICHI MAHJONG",
+      "path": "games/0400BD002562A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400BDE024DF4000",
+      "name": "ShapeHero Factory",
+      "path": "games/0400BDE024DF4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400BE102811E000",
+      "name": "Sea of Stars",
+      "path": "games/0400BE102811E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400BE601F38A000",
+      "name": "EA SPORTS Madden NFL 26",
+      "path": "games/0400BE601F38A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400BE70262DA000",
+      "name": "System Shock",
+      "path": "games/0400BE70262DA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400BFD0236DE000",
+      "name": "Little Nightmares III - Free Trial & Friend's Pass",
+      "path": "games/0400BFD0236DE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C09029454000",
+      "name": "Banchou Tactics: Lion Heart",
+      "path": "games/0400C09029454000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C11023B5A000",
+      "name": "Indiana Jones and the Great Circle™",
+      "path": "games/0400C11023B5A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C130282AC000",
+      "name": "CRYMELIGHT",
+      "path": "games/0400C130282AC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C18025BBA000",
+      "name": "Blue Prince",
+      "path": "games/0400C18025BBA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C22026E48000",
+      "name": "Escape the Backrooms",
+      "path": "games/0400C22026E48000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C23027834000",
+      "name": "EARTH DEFENSE FORCE5 for Nintendo Switch™ 2",
+      "path": "games/0400C23027834000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C3F00006E000",
+      "name": "Mario Kart World",
+      "path": "games/0400C3F00006E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C3F0272EE000",
+      "name": "Starsand Island",
+      "path": "games/0400C3F0272EE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C420250EC000",
+      "name": "The Touryst Deluxe",
+      "path": "games/0400C420250EC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C44028CF4000",
+      "name": "Arcade Archives 2 PINBALL ACTION",
+      "path": "games/0400C44028CF4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C45026074000",
+      "name": "Tombi! 2: The Evil Swine Return Special Edition",
+      "path": "games/0400C45026074000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C460219B2000",
+      "name": "EA SPORTS FC™ 26",
+      "path": "games/0400C460219B2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C470236D6000",
+      "name": "FULL METAL SCHOOLGIRL",
+      "path": "games/0400C470236D6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C59027562000",
+      "name": "Console Archives Firework Thrower Kantaro's 53 Stations of the Tokaido",
+      "path": "games/0400C59027562000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C6202853E000",
+      "name": "Arcade Archives 2 MOUSER",
+      "path": "games/0400C6202853E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C66027F60000",
+      "name": "Arcade Archives 2 HYPER CRASH",
+      "path": "games/0400C66027F60000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C76024710000",
+      "name": "PRAGMATA",
+      "path": "games/0400C76024710000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C800247DE000",
+      "name": "SpongeBob SquarePants: Titans of the Tide",
+      "path": "games/0400C800247DE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C94027292000",
+      "name": "Observer: System Redux",
+      "path": "games/0400C94027292000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400C9C0288CA000",
+      "name": "Sports Camp: A 35-Game Adventure",
+      "path": "games/0400C9C0288CA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400CA20271D6000",
+      "name": "Jurassic World Evolution 2: Complete Edition",
+      "path": "games/0400CA20271D6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400CA40208C8000",
+      "name": "Split Fiction",
+      "path": "games/0400CA40208C8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400CB3024EF8000",
+      "name": "Suika Game Planet",
+      "path": "games/0400CB3024EF8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400CB8025AF6000",
+      "name": "Arcade Archives 2 CAMELTRY",
+      "path": "games/0400CB8025AF6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400CBA0221EA000",
+      "name": "BRAVELY DEFAULT FLYING FAIRY HD Remaster",
+      "path": "games/0400CBA0221EA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400CCD028712000",
+      "name": "XENOTILT: HOSTILE PINBALL ACTION",
+      "path": "games/0400CCD028712000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400CE0025D42000",
+      "name": "EA SPORTS FC™ 27",
+      "path": "games/0400CE0025D42000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400CE7022F4A000",
+      "name": "RAIDOU Remastered: The Mystery of the Soulless Army",
+      "path": "games/0400CE7022F4A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400CF702589C000",
+      "name": "Warframe",
+      "path": "games/0400CF702589C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D030265D8000",
+      "name": "BOKURA",
+      "path": "games/0400D030265D8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D09026580000",
+      "name": "AFL 26",
+      "path": "games/0400D09026580000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D0902721E000",
+      "name": "Rudolph the Red-Nosed Reindeer - Holiday Play Edition",
+      "path": "games/0400D0902721E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D14025AFA000",
+      "name": "Arcade Archives 2 SYVALION",
+      "path": "games/0400D14025AFA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D1C026514000",
+      "name": "Tombi! Special Edition",
+      "path": "games/0400D1C026514000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D1E0237CC000",
+      "name": "Monster Hunter Stories 3: Twisted Reflection",
+      "path": "games/0400D1E0237CC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D28024076000",
+      "name": "Call of the Elder Gods",
+      "path": "games/0400D28024076000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D30025242000",
+      "name": "Arcade Archives 2 BOMB BEE",
+      "path": "games/0400D30025242000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D3F029270000",
+      "name": "Gobliiins Collection",
+      "path": "games/0400D3F029270000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D4201C6EA000",
+      "name": "Mario Tennis Fever",
+      "path": "games/0400D4201C6EA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D68027B20000",
+      "name": "DayZ: Cool Edition",
+      "path": "games/0400D68027B20000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D7302662E000",
+      "name": "Heave Ho 2",
+      "path": "games/0400D7302662E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D8D02466E000",
+      "name": "Console Archives TERRA CRESTA",
+      "path": "games/0400D8D02466E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D8D027BC8000",
+      "name": "Console Archives THE LEGEND OF KAGE",
+      "path": "games/0400D8D027BC8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D940263CC000",
+      "name": "Onimusha: Way of the Sword",
+      "path": "games/0400D940263CC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D97028CB6000",
+      "name": "Heartworm",
+      "path": "games/0400D97028CB6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D9E01D3E6000",
+      "name": "Pokémon Winds",
+      "path": "games/0400D9E01D3E6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400D9E02053C000",
+      "name": "NOBUNAGA'S AMBITION: Awakening Complete Edition",
+      "path": "games/0400D9E02053C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DA10226BE000",
+      "name": "NBA 2K26",
+      "path": "games/0400DA10226BE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DAE0251C8000",
+      "name": "LEGO® Voyagers",
+      "path": "games/0400DAE0251C8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DB8025084000",
+      "name": "Arcade Archives 2 SCION",
+      "path": "games/0400DB8025084000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DBB02626E000",
+      "name": "HOT WHEELS™ Infinite Rush",
+      "path": "games/0400DBB02626E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DC401FCE6000",
+      "name": "BRAVELY DEFAULT FLYING FAIRY HD Remaster",
+      "path": "games/0400DC401FCE6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DCC0223F8000",
+      "name": "No Sleep For Kaname Date - From AI: THE SOMNIUM FILES",
+      "path": "games/0400DCC0223F8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DCD02519C000",
+      "name": "Console Archives ROHGA: ARMOR FORCE",
+      "path": "games/0400DCD02519C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DD30263FE000",
+      "name": "Kernel Hearts",
+      "path": "games/0400DD30263FE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DD5027B04000",
+      "name": "Arcade Archives 2 TEKKEN",
+      "path": "games/0400DD5027B04000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DDB020648000",
+      "name": "Cyberpunk 2077: Ultimate Edition",
+      "path": "games/0400DDB020648000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DDF027542000",
+      "name": "Amanda the Adventurer 3",
+      "path": "games/0400DDF027542000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DE0026B22000",
+      "name": "Hell is Us",
+      "path": "games/0400DE0026B22000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DF60259F6000",
+      "name": "METAL GEAR SOLID 4: Guns of the Patriots - Master Collection Version",
+      "path": "games/0400DF60259F6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DF9028C54000",
+      "name": "Deck of Haunts",
+      "path": "games/0400DF9028C54000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DFA0246A6000",
+      "name": "Console Archives L'Empereur",
+      "path": "games/0400DFA0246A6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400DFF0273FA000",
+      "name": "Coffee Talk Tokyo",
+      "path": "games/0400DFF0273FA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E070279B6000",
+      "name": "Amnesia: Rebirth",
+      "path": "games/0400E070279B6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E13029AF2000",
+      "name": "Console Archives Chack'n Pop",
+      "path": "games/0400E13029AF2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E140216D4000",
+      "name": "SONIC X SHADOW GENERATIONS",
+      "path": "games/0400E140216D4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E17026432000",
+      "name": "inKONBINI: One Store. Many Stories",
+      "path": "games/0400E17026432000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E220275DC000",
+      "name": "Console Archives Hercules no eikou II Taitan no metsubou",
+      "path": "games/0400E220275DC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E23021102000",
+      "name": "WILD HEARTS S",
+      "path": "games/0400E23021102000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E2D028F7C000",
+      "name": "Tormented Souls 2",
+      "path": "games/0400E2D028F7C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E32022656000",
+      "name": "ドラゴンクエストXI 過ぎ去りし時を求めて S",
+      "path": "games/0400E32022656000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E380261E2000",
+      "name": "Arcade Archives 2 QUESTER",
+      "path": "games/0400E380261E2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E3A024B4E000",
+      "name": "Fading Echo",
+      "path": "games/0400E3A024B4E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E440238BC000",
+      "name": "Dear me, I was ...",
+      "path": "games/0400E440238BC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E54024C2E000",
+      "name": "Arcade Archives 2 BATTLANTIS",
+      "path": "games/0400E54024C2E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E5502720C000",
+      "name": "Truxton Extreme",
+      "path": "games/0400E5502720C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E570261A2000",
+      "name": "South of Midnight Weaver's Edition",
+      "path": "games/0400E570261A2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E5B029092000",
+      "name": "Arcade Archives 2 Wiz",
+      "path": "games/0400E5B029092000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E7D0239DC000",
+      "name": "Mortal Kombat: Legacy Kollection",
+      "path": "games/0400E7D0239DC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E86027798000",
+      "name": "Moss: The Forgotten Relic",
+      "path": "games/0400E86027798000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E88025B1A000",
+      "name": "Star Fox™",
+      "path": "games/0400E88025B1A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E8D0265C8000",
+      "name": "FINAL FANTASY X/X-2 HD Remaster",
+      "path": "games/0400E8D0265C8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E900246AA000",
+      "name": "Console Archives NOBUNAGA'S AMBITION II",
+      "path": "games/0400E900246AA000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E98025DE4000",
+      "name": "OPUS: Prism Peak",
+      "path": "games/0400E98025DE4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E9A025B02000",
+      "name": "Monopoly: Star Wars™ Heroes vs. Villains",
+      "path": "games/0400E9A025B02000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400E9D02894E000",
+      "name": "Arcade Archives 2 KARNOV",
+      "path": "games/0400E9D02894E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400EA202949C000",
+      "name": "Arcade Archives 2 Mr.Do!'s Castle",
+      "path": "games/0400EA202949C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400EA6028FB8000",
+      "name": "Warrior Cats: Clans of the Forest",
+      "path": "games/0400EA6028FB8000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400EBD0236AE000",
+      "name": "Tony Hawk's™ Pro Skater 3 + 4",
+      "path": "games/0400EBD0236AE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400EDD023C64000",
+      "name": "Arcade Archives 2 MACH BREAKERS",
+      "path": "games/0400EDD023C64000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400EE2024E98000",
+      "name": "Denshattack!",
+      "path": "games/0400EE2024E98000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400EEA025554000",
+      "name": "LEGO® Harry Potter™ Collection",
+      "path": "games/0400EEA025554000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400EF4026274000",
+      "name": "Snoopy & The Great Mystery Club",
+      "path": "games/0400EF4026274000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F00022A1A000",
+      "name": "OBAKEIDORO 2: Chase & Seek",
+      "path": "games/0400F00022A1A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F0C0246DE000",
+      "name": "Console Archives Geki-Oh ShienRyu",
+      "path": "games/0400F0C0246DE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F0E024D46000",
+      "name": "Lies of P: Complete Edition",
+      "path": "games/0400F0E024D46000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F12025CCC000",
+      "name": "Shadow Tactics: Blades of the Shogun - Aiko's Choice",
+      "path": "games/0400F12025CCC000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F16026F62000",
+      "name": "Arcade Archives 2 DEVASTATORS",
+      "path": "games/0400F16026F62000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F1C021178000",
+      "name": "Granblue Fantasy: Relink - Endless Ragnarok",
+      "path": "games/0400F1C021178000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F22025F02000",
+      "name": "The Last Salvage Squad",
+      "path": "games/0400F22025F02000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F23024BDE000",
+      "name": "Carmageddon: Rogue Shift",
+      "path": "games/0400F23024BDE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F410224DE000",
+      "name": "Middle-earth™: Shadow of War™: Definitive Edition",
+      "path": "games/0400F410224DE000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F470274C2000",
+      "name": "Stray",
+      "path": "games/0400F470274C2000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F5802371E000",
+      "name": "ELDEN RING Tarnished Edition",
+      "path": "games/0400F5802371E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F65024266000",
+      "name": "Yakuza Kiwami",
+      "path": "games/0400F65024266000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F6D020A02000",
+      "name": "Suikoden I&II HD Remaster for Nintendo Switch 2: Gate Rune and Dunan Unification Wars",
+      "path": "games/0400F6D020A02000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F7D0239A6000",
+      "name": "PowerWash Simulator 2",
+      "path": "games/0400F7D0239A6000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F7F02353E000",
+      "name": "Goodnight Universe",
+      "path": "games/0400F7F02353E000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F8A0275F0000",
+      "name": "The Legend of Heroes: Trails from Zero",
+      "path": "games/0400F8A0275F0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F8D026D6A000",
+      "name": "Demeo x Dungeons & Dragons: Battlemarked",
+      "path": "games/0400F8D026D6A000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F92028212000",
+      "name": "Arcade Archives 2 CYBER CYCLES",
+      "path": "games/0400F92028212000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F97023C72000",
+      "name": "Disgaea 7 Complete",
+      "path": "games/0400F97023C72000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F98023D16000",
+      "name": "Arcade Archives 2 AQUA JET",
+      "path": "games/0400F98023D16000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F9A021142000",
+      "name": "DRAGON BALL: Sparking! ZERO",
+      "path": "games/0400F9A021142000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400F9E025342000",
+      "name": "Bubsy 4D",
+      "path": "games/0400F9E025342000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400FA6025B54000",
+      "name": "METAL GEAR SOLID: Peace Walker - Master Collection Version",
+      "path": "games/0400FA6025B54000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400FDB022B7C000",
+      "name": "Tomb Raider: Definitive Edition",
+      "path": "games/0400FDB022B7C000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400FED0215A4000",
+      "name": "Star Wars Outlaws Gold Edition",
+      "path": "games/0400FED0215A4000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400FF8023CF0000",
+      "name": "They are Billions",
+      "path": "games/0400FF8023CF0000.json",
+      "status": "auto-baseline",
+      "auto_apply": true,
+      "default_profile": "recommended",
+      "profiles": [
+        "minimum",
+        "recommended",
+        "high",
+        "ultra"
+      ]
+    },
+    {
+      "title_id": "0400FF902081C000",
+      "name": "Apex Legends™",
+      "path": "games/0400FF902081C000.json",
       "status": "auto-baseline",
       "auto_apply": true,
       "default_profile": "recommended",
