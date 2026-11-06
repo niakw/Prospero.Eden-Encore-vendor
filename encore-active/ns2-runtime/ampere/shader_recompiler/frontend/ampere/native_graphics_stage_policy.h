@@ -60,7 +60,10 @@ static_assert(!NativeMeshGraphicsStageMaskSupported(0x03, true));
 static_assert(!NativeMeshGraphicsStageMaskSupported(0x06, true));
 static_assert(!NativeMeshGraphicsStageMaskSupported(0x0e, true));
 static_assert(!NativeMeshGraphicsStageMaskSupported(0x00, true));
-static_assert(!NativeMeshGraphicsStageMaskSupported(0x12, true));
+// Solo Mesh in VertexB may use Geometry as its non-executable
+// primitive output header, exactly as Task+Mesh may use that header.
+static_assert(NativeMeshGraphicsStageMaskSupported(0x12, true));
+static_assert(!NativeMeshGraphicsStageMaskSupported(0x10, true));
 static_assert(NativeMeshTaskPresent(0x0a, true));
 static_assert(!NativeMeshTaskPresent(0x02, true));
 static_assert(!NativeMeshTaskPresent(0x0a, false));
