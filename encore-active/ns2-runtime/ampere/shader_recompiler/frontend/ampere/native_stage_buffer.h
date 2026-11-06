@@ -48,6 +48,13 @@ DecodeNativeStageBufferAccess(const Instruction& instruction) {
         (write != output) ||
         (!write && region != 3) ||
         (!write && value == 255) ||
+        // The current IR IsbeRead is word-wide. Without a byte-extract
+        // lowering, an U8 read would return the wrong guest value.
+        (!write && !is_32) ||
+        // The pseudo-IR currently carries SKEW but the active translator
+        // cannot apply the required lane-relative byte offset. Reject it
+        // rather than returning a plausible but incorrect mesh attribute.
+        instruction.Bits(78, 1) != 0 ||
         (write && region == 3 && !is_32)) {
         return std::nullopt;
     }
