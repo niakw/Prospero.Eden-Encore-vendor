@@ -1,0 +1,76 @@
+name: One-shot audited vendor branch cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-vendor-branch-cleanup.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prune:
+    if: github.repository == 'niakw/Prospero.Eden-Encore-vendor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify archived SHAs before deleting only the named stale branches
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = "niakw/Prospero.Eden-Encore-vendor"
+          archive = "716e37d6f29c2a1fbfab30d4b1a3b5cc94fae42a"
+          expected = {
+              "feat/overrides-ns2-fsr1-defaults": "b3591111268046cbff1267e62a3552570b009da6",
+              "feat/r09-rdna2-neural-noise": "c609409ba5c1a6c8a6c566d99361833413513b02",
+              "feat/r10-textures-separate-romfs-loader": "af5f16da3ab32a72ac03b959637e9bf310130393",
+          }
+          token = os.environ["GITHUB_TOKEN"]
+          base = "https://api.github.com/repos/" + repo
+
+          def request(method, path):
+              req = urllib.request.Request(
+                  base + path,
+                  headers={
+                      "Authorization": "Bearer " + token,
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "User-Agent": "audited-one-shot-vendor-cleanup",
+                  },
+                  method=method,
+              )
+              with urllib.request.urlopen(req, timeout=25) as response:
+                  raw = response.read()
+                  return json.loads(raw) if raw else None
+
+          parent_shas = {p["sha"] for p in request("GET", "/git/commits/" + archive)["parents"]}
+          if not set(expected.values()).issubset(parent_shas):
+              raise RuntimeError("Archive commit does not retain all three historical branch tips")
+          ancestry = request("GET", "/compare/" + archive + "...main")
+          if ancestry["behind_by"] != 0:
+              raise RuntimeError("Archived parent merge is not an ancestor of main")
+          request("GET", "/contents/docs/VENDOR_BRANCH_RECONCILIATION_2026-11-06.md?ref=main")
+
+          # First validate all refs, then perform writes; never prune a moved branch.
+          for branch, sha in expected.items():
+              branch_path = urllib.parse.quote(branch, safe="")
+              actual = request("GET", "/branches/" + branch_path)["commit"]["sha"]
+              comparison = request("GET", "/compare/main..." + branch_path)
+              if actual != sha or comparison["ahead_by"] != 0:
+                  raise RuntimeError("Ref is moved or has unmerged commits: " + branch)
+              print("SAFE_TO_DELETE", branch, actual)
+          for branch in expected:
+              ref_path = urllib.parse.quote("heads/" + branch, safe="/")
+              request("DELETE", "/git/refs/" + ref_path)
+              print("DELETED_BRANCH", branch)
+          PY
