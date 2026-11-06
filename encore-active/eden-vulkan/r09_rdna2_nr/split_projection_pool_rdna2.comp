@@ -1,0 +1,98 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Split-Swin16H ProjPool SECONDARY output. Consume original FP32 GEMM
+// scratch and FP8 residual + 512 FP16 skip weights. Pool 2x2 AFTER
+// FP16 residual epilogue, BEFORE E4M3FN quantization (MIT gold behavior).
+// Source windows: [win8x8][quadrant TL/TR/BL/BR][4x4 slot][512].
+// Destination: half-resolution 4x4-tiled [token][512], padded zero tail.
+layout(local_size_x=128,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Source {float values[];} source;
+layout(set=0,binding=1,std430) readonly buffer Residual {uint words[];} residual;
+layout(set=0,binding=2,std430) readonly buffer Gains {uint words[];} gains;
+layout(set=0,binding=3,std430) writeonly buffer Pooled {uint words[];} pooled;
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    uint windows_x;
+    uint windows_y;
+    uint scratch_base_floats;
+    uint residual_base_bytes;
+    uint gain_base_halfwords;
+    uint pool_base_bytes;
+    uint output_tokens;
+} pc;
+float round_half(float value) {
+    return unpackHalf2x16(packHalf2x16(vec2(value,0.0))).x;
+}
+float unpack_fp8(uint raw) {
+    uint expbit=(raw>>3u)&15u,m=raw&7u;
+    float sign=(raw&128u)!=0u?-1.0:1.0;
+    if(expbit==15u&&m==7u)return uintBitsToFloat(0x7fc00000u);
+    if(expbit==0u)return sign*float(m)*exp2(-9.0);
+    return sign*float(8u+m)*exp2(float(int(expbit)-10));
+}
+uint pack_fp8(float x) {
+    uint sign=(floatBitsToUint(x)>>24u)&128u;
+    if(isnan(x))return sign|127u;
+    float v=min(abs(x),448.0);
+    if(v==0.0)return sign;
+    if(v<0.015625){
+        uint m=uint(roundEven(v*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int ex=int(floor(log2(v)));
+    uint m=uint(roundEven((v/exp2(float(ex))-1.0)*8.0));
+    if(m==8u){++ex;m=0u;}
+    uint eb=uint(ex+7);
+    if(eb>15u||(eb==15u&&m>6u))return sign|126u;
+    return sign|(eb<<3u)|m;
+}
+float source_value(uint x,uint y,uint channel,float gain) {
+    if(x>=pc.width||y>=pc.height)return 0.0;
+    uint window=(y/8u)*pc.windows_x+(x/8u);
+    uint quadrant=((y%8u)/4u)*2u+(x%8u)/4u;
+    uint slot=(y%4u)*4u+(x%4u);
+    uint source_index=((window*64u+quadrant*16u+slot)*512u+channel);
+    uint packed_index=pc.residual_base_bytes+source_index;
+    uint packed=residual.words[packed_index>>2u];
+    float r=unpack_fp8((packed>>((packed_index&3u)*8u))&255u);
+    float gemm=source.values[pc.scratch_base_floats+source_index];
+    return round_half(round_half(gemm)+round_half(gain*r));
+}
+void main(){
+    const uint token=gl_WorkGroupID.x;
+    const uint lane=gl_LocalInvocationID.x; // 4 channels per lane
+    const uint pooled_width=((pc.width+1u)/2u+3u)&~3u;
+    const uint pooled_height=((pc.height+1u)/2u+3u)&~3u;
+    const uint live_tokens=pooled_width*pooled_height;
+    const uint output_tokens=pc.output_tokens!=0u?pc.output_tokens:live_tokens;
+    if(token>=output_tokens)return;
+    uint packed=0u;
+    if(token<live_tokens){
+        // Half-resolution raster in 4x4 tile-major order.
+        uint tile=token/16u,slot=token%16u;
+        uint ox=(tile%(pooled_width/4u))*4u+(slot%4u);
+        uint oy=(tile/(pooled_width/4u))*4u+(slot/4u);
+        if(ox<(pc.width+1u)/2u&&oy<(pc.height+1u)/2u){
+            const uint chword=lane*4u;
+            for(uint j=0u;j<4u;++j){
+                uint channel=chword+j;
+                uint hindex=pc.gain_base_halfwords+channel;
+                vec2 pair=unpackHalf2x16(gains.words[hindex>>1u]);
+                float gain=(hindex&1u)!=0u?pair.y:pair.x;
+                uint sx=ox*2u,sy=oy*2u;
+                float a=round_half(
+                    source_value(sx,sy,channel,gain)+
+                    source_value(sx+1u,sy,channel,gain));
+                float b=round_half(
+                    source_value(sx,sy+1u,channel,gain)+
+                    source_value(sx+1u,sy+1u,channel,gain));
+                float v=round_half(round_half(a+b)*0.25);
+                packed|=pack_fp8(v)<<(j*8u);
+            }
+        }
+    }
+    // Entire padded target and optional downstream FinalHead tail explicitly
+    // initialized; no stale bytes from a previous GPU frame.
+    pooled.words[(pc.pool_base_bytes>>2u)+token*128u+lane]=packed;
+}
