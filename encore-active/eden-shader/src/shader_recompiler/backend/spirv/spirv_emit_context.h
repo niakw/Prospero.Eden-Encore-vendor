@@ -353,6 +353,10 @@ public:
     Id output_position{};
     std::array<std::array<GenericElementInfo, 4>, 32> output_generics{};
 
+    // Input tessellation levels are provided by the preceding control stage.
+    // Never interpret output level variables as TES input interface storage.
+    Id input_tess_level_outer{};
+    Id input_tess_level_inner{};
     Id output_tess_level_outer{};
     Id output_tess_level_inner{};
     std::array<Id, 30> patches{};

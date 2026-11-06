@@ -1744,6 +1744,16 @@ void EmitContext::DefineInputs(const IR::Program& program) {
         }
     }
     if (stage == Stage::TessellationEval) {
+        // Tessellation level patch reads use built-in Input variables, not
+        // the TCS Output variables. All four outer and two inner slots are
+        // declared so that a dynamic IR patch selection cannot read an
+        // absent interface member.
+        input_tess_level_outer = DefineInput(
+            *this, TypeArray(F32[1], Const(4U)), false, spv::BuiltIn::TessLevelOuter);
+        Decorate(input_tess_level_outer, spv::Decoration::Patch);
+        input_tess_level_inner = DefineInput(
+            *this, TypeArray(F32[1], Const(2U)), false, spv::BuiltIn::TessLevelInner);
+        Decorate(input_tess_level_inner, spv::Decoration::Patch);
         for (size_t index = 0; index < info.uses_patches.size(); ++index) {
             if (!info.uses_patches[index]) {
                 continue;

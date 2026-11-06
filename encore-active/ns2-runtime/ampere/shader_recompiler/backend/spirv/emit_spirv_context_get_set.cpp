@@ -565,14 +565,49 @@ void EmitSetAttributeIndexed(EmitContext& ctx, Id offset, Id value, [[maybe_unus
 }
 
 Id EmitGetPatch(EmitContext& ctx, IR::Patch patch) {
-    if (!IR::IsGeneric(patch)) {
-        throw NotImplementedException("Non-generic patch load");
+    if (IR::IsGeneric(patch)) {
+        const u32 index{IR::GenericPatchIndex(patch)};
+        const Id element{ctx.Const(IR::GenericPatchElement(patch))};
+        const Id type{ctx.stage == Stage::TessellationControl ? ctx.output_f32 : ctx.input_f32};
+        const Id pointer{ctx.OpAccessChain(type, ctx.patches.at(index), element)};
+        return ctx.OpLoad(ctx.F32[1], pointer);
     }
-    const u32 index{IR::GenericPatchIndex(patch)};
-    const Id element{ctx.Const(IR::GenericPatchElement(patch))};
-    const Id type{ctx.stage == Stage::TessellationControl ? ctx.output_f32 : ctx.input_f32};
-    const Id pointer{ctx.OpAccessChain(type, ctx.patches.at(index), element)};
-    return ctx.OpLoad(ctx.F32[1], pointer);
+
+    const bool control{ctx.stage == Stage::TessellationControl};
+    const bool evaluation{ctx.stage == Stage::TessellationEval};
+    if (!control && !evaluation) {
+        throw NotImplementedException("Tessellation patch read outside tessellation stage");
+    }
+    Id variable{};
+    Id element{};
+    switch (patch) {
+    case IR::Patch::TessellationLodLeft:
+    case IR::Patch::TessellationLodTop:
+    case IR::Patch::TessellationLodRight:
+    case IR::Patch::TessellationLodBottom:
+        variable = control ? ctx.output_tess_level_outer : ctx.input_tess_level_outer;
+        element = ctx.Const(static_cast<u32>(patch) -
+                            static_cast<u32>(IR::Patch::TessellationLodLeft));
+        break;
+    case IR::Patch::TessellationLodInteriorU:
+        variable = control ? ctx.output_tess_level_inner : ctx.input_tess_level_inner;
+        element = ctx.u32_zero_value;
+        break;
+    case IR::Patch::TessellationLodInteriorV:
+        variable = control ? ctx.output_tess_level_inner : ctx.input_tess_level_inner;
+        element = ctx.Const(1u);
+        break;
+    default:
+        throw NotImplementedException("Unsupported tessellation patch {}", patch);
+    }
+    // Do not manufacture levels when a TCS program did not declare the
+    // corresponding output. TES always declares the read-only inputs.
+    if (!ValidId(variable)) {
+        throw NotImplementedException("Undeclared tessellation patch {}", patch);
+    }
+    const Id element_ptr{ctx.OpAccessChain(
+        control ? ctx.output_f32 : ctx.input_f32, variable, element)};
+    return ctx.OpLoad(ctx.F32[1], element_ptr);
 }
 
 void EmitSetPatch(EmitContext& ctx, IR::Patch patch, Id value) {
