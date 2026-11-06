@@ -1,0 +1,24 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Convert FinalHead 4x4 tile-major FP8 tokens to raster-major ViT tokens.
+// Both are row-major 1024-channel vectors, NOT 16x16-channel fragments.
+// One 256-thread workgroup per raster token; no FP8 arithmetic or CPU I/O.
+layout(local_size_x=256,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Input {uint words[];} input_words;
+layout(set=0,binding=1,std430) writeonly buffer Output {uint words[];} output_words;
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    uint input_base_bytes;
+    uint output_base_bytes;
+} pc;
+void main(){
+    uint raster=gl_WorkGroupID.x;
+    uint channel_word=gl_LocalInvocationID.x;
+    if(raster>=pc.width*pc.height)return;
+    uint x=raster%pc.width,y=raster/pc.width;
+    uint source_token=((y/4u)*(pc.width/4u)+x/4u)*16u+
+                       (y%4u)*4u+(x%4u);
+    output_words.words[(pc.output_base_bytes>>2u)+raster*256u+channel_word]=
+        input_words.words[(pc.input_base_bytes>>2u)+source_token*256u+channel_word];
+}
