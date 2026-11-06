@@ -856,14 +856,52 @@ void EmitContext::DefineAttributeMemAccess(const Info& info) {
             if (!info.stores.Generic(index)) {
                 continue;
             }
-            if (output_generics[index][0].num_components != 4) {
-                throw NotImplementedException("Physical stores and transform feedbacks");
+            const auto& elements{output_generics[index]};
+            // Full float4 output keeps its native indexed access path.
+            // Transform feedback can split the same location into several
+            // scalars/vectors with distinct OpVariable IDs and Component
+            // decorations; indexing one four-component vector is invalid.
+            if (elements[0].num_components != 4 &&
+                stage == Stage::TessellationControl) {
+                // TCS outputs additionally require an invocation coordinate.
+                // This two-parameter store function cannot represent it.
+                throw NotImplementedException("Indexed TCS transform feedback store");
             }
             AddLabel(labels[label_index]);
-            const Id generic_id{output_generics[index][0].id};
-            const Id pointer{OpAccessChain(output_f32, generic_id, masked_index)};
-            OpStore(pointer, store_value);
-            OpReturn();
+            if (elements[0].num_components == 4) {
+                const Id pointer{OpAccessChain(output_f32, elements[0].id, masked_index)};
+                OpStore(pointer, store_value);
+                OpReturn();
+            } else {
+                // Select the actual decorated output variable for each
+                // generic component. Reject missing/overlapping partitions
+                // at shader compilation rather than dropping a guest store.
+                std::vector<Sirit::Literal> component_values;
+                std::vector<Id> component_labels;
+                for (u32 component = 0; component < 4; ++component) {
+                    const auto& output{elements[component]};
+                    if (!ValidId(output.id) || output.num_components == 0 ||
+                        component < output.first_element ||
+                        component - output.first_element >= output.num_components) {
+                        throw NotImplementedException("Invalid transform feedback component");
+                    }
+                    component_values.push_back(component);
+                    component_labels.push_back(OpLabel());
+                }
+                const Id merge_label{OpLabel()};
+                OpSelectionMerge(merge_label, spv::SelectionControlMask::MaskNone);
+                OpSwitch(masked_index, merge_label, component_values, component_labels);
+                for (u32 component = 0; component < 4; ++component) {
+                    AddLabel(component_labels[component]);
+                    const auto& output{elements[component]};
+                    const Id local_component{Const(component - output.first_element)};
+                    const Id pointer{OpAccessChain(output_f32, output.id, local_component)};
+                    OpStore(pointer, store_value);
+                    OpReturn();
+                }
+                AddLabel(merge_label);
+                OpUnreachable();
+            }
             ++label_index;
         }
         if (info.stores.ClipDistances()) {
