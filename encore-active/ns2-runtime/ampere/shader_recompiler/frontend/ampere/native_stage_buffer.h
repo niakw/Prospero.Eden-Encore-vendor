@@ -10,6 +10,14 @@ namespace Shader::Ampere {
 // Decoding is NOT an implementation of stage-buffer reads/writes: a valid
 // instruction must still be lowered through the Task/Mesh IR, SPIR-V payload
 // and Vulkan pipeline; returning an ordinary Maxwell MOV would lose geometry.
+// The default must stay legacy until the real NVN mesh-control registers and
+// stage-buffer environment authenticate the current Task/Mesh program.
+enum class NativeStageBufferProgram : u8 {
+    Legacy,
+    Task,
+    Mesh,
+};
+
 struct NativeStageBufferAccess {
     u32 address_register{};
     u32 value_register{};
