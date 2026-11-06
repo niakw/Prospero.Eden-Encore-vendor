@@ -1790,12 +1790,21 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 (u64{right ? 255U : low} << 39) | (u64{insn.Bits(75, 1)} << 50));
             break;
         }
-        case 0x300: case 0xd00: { // FLO, including a uniform source.
-            if ((insn.words[2] & ~(0x600U | (opcode == 0xd00 ? 0x08000000U : 0U))) != 0x000e0000U)
-                return fail(index, "native leading bit mode");
+        case 0x300: case 0x900: case 0xb00: case 0xd00: { // FLO GPR, literal, CBUF, uniform.
+            const bool constant = opcode == 0xb00;
+            const bool uniform = opcode == 0xd00;
+            if ((insn.words[2] & ~0x600U) !=
+                    (0x000e0000U | (uniform ? 0x08000000U : 0U)) ||
+                (opcode == 0x300 && (insn.words[1] & ~0xc00000ffU)) ||
+                (uniform && (insn.words[1] & ~0xc000003fU)) ||
+                (constant && (!valid_cbuf() || insn.Bits(54, 5) >= 18 ||
+                              insn.Bits(62, 1))))
+                return fail(index, "native leading bit source mode");
             const u32 source = operand(1, false);
+            // A literal's bit 31 is data, not the independent inversion bit.
+            const u32 invert = opcode == 0x900 ? 0 : insn.Bits(63, 1);
             emit(base(0x5c30000000000000ULL) | (u64{source} << 20) |
-                (u64{insn.Bits(63, 1)} << 40) | (u64{insn.Bits(74, 1)} << 41) |
+                (u64{invert} << 40) | (u64{insn.Bits(74, 1)} << 41) |
                 (u64{insn.Bits(73, 1)} << 48));
             break;
         }
