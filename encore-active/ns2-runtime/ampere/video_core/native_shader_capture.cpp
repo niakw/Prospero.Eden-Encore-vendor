@@ -153,8 +153,21 @@ Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
             // The same CBUF stage bank map is used for initial key capture,
             // linked pipeline translation and post-compile source replay.
             // Never use Vertex's bank for guest tessellation or geometry.
-            const u32 required_bank = Shader::Ampere::NativeGraphicsCbufBank(
-                static_cast<Shader::Stage>(stage));
+            if (!cbuf->engine) return {};
+            // Resolve Task/Mesh physical slots only from live NVC597 mode:
+            // Mesh is VertexB when solo and TessControl when Task is enabled.
+            const auto shader_stage = static_cast<Shader::Stage>(stage);
+            const auto& regs = cbuf->engine->regs;
+            const bool native_mesh = (regs.reg_array[0x114c / 4] & 1U) != 0;
+            const bool has_task = native_mesh &&
+                regs.IsShaderConfigEnabled(
+                    Tegra::Engines::Maxwell3D::Regs::ShaderType::TessellationInit);
+            const u32 required_bank =
+                shader_stage == Shader::Stage::Task || shader_stage == Shader::Stage::Mesh
+                    ? (native_mesh
+                           ? Shader::Ampere::NativeMeshSlotCbufBank(shader_stage, has_task)
+                           : ~u32{0})
+                    : Shader::Ampere::NativeGraphicsCbufBank(shader_stage);
             if (cbuf->memory != &memory || !cbuf->engine ||
                 required_bank == ~u32{0} || cbuf->stage_index != required_bank)
                 return {};

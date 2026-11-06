@@ -865,7 +865,15 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
                 (i != 5 || maxwell3d->regs.rasterize_enable))
                 configured_stages |= u32{1} << i;
         }
-        if (!Shader::Ampere::NativeGraphicsStageMaskSupported(configured_stages)) {
+        const bool mesh_control = (maxwell3d->regs.reg_array[0x114c / 4] & 1U) != 0;
+        const bool has_task = Shader::Ampere::NativeMeshTaskPresent(
+            configured_stages, mesh_control);
+        // Geometry is only a pass-through header in mesh mode. Until its
+        // primitive-output header is linked, do not compile it as a
+        // runnable geometry shader or silently lose primitive attributes.
+        if (!Shader::Ampere::NativeMeshGraphicsStageMaskSupported(
+                configured_stages, mesh_control) ||
+            (mesh_control && (configured_stages & (1U << 4)) != 0)) {
             current_pipeline = nullptr;
             return nullptr;
         }
@@ -889,10 +897,17 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
                 stages_valid = false;
                 break;
             }
-            const auto stage = i == 0 ? Shader::Stage::VertexA :
-                Shader::StageFromIndex(i - 1);
+            const auto stage = mesh_control && i == 1
+                ? (has_task ? Shader::Stage::Task : Shader::Stage::Mesh)
+                : mesh_control && i == 2 ? Shader::Stage::Mesh
+                : i == 0 ? Shader::Stage::VertexA
+                : Shader::StageFromIndex(i - 1);
+            const u32 physical_bank = mesh_control &&
+                (stage == Shader::Stage::Task || stage == Shader::Stage::Mesh)
+                    ? Shader::Ampere::NativeMeshSlotCbufBank(stage, has_task)
+                    : Shader::Ampere::NativeGraphicsCbufBank(stage);
             const VideoCommon::Ns2GraphicsCbufContext cbuf_context{
-                gpu_memory, maxwell3d, Shader::Ampere::NativeGraphicsCbufBank(stage)};
+                gpu_memory, maxwell3d, physical_bank};
             const auto captured = VideoCommon::CaptureNs2GraphicsShaderFromGpu(
                 *gpu_memory, base + offset, static_cast<u32>(stage),
                 native_translation_cache.get(), &cbuf_context);
@@ -1820,7 +1835,12 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
             if (graphics_key.unique_hashes[i])
                 keyed_stages |= u32{1} << i;
         }
-        if (!Shader::Ampere::NativeGraphicsStageMaskSupported(keyed_stages))
+        const bool mesh_control = (maxwell3d->regs.reg_array[0x114c / 4] & 1U) != 0;
+        const bool has_task = Shader::Ampere::NativeMeshTaskPresent(
+            keyed_stages, mesh_control);
+        if (!Shader::Ampere::NativeMeshGraphicsStageMaskSupported(
+                keyed_stages, mesh_control) ||
+            (mesh_control && (keyed_stages & (1U << 4)) != 0))
             return nullptr;
         const auto base = maxwell3d->regs.program_region.Address();
         // Preserve the stage-program register set used by the SPIR-V
@@ -1833,8 +1853,15 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
         for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {
             if (!graphics_key.unique_hashes[i]) continue;
             if (i >= 6) return nullptr;
-            const auto stage = i == 0 ? Shader::Stage::VertexA :
-                Shader::StageFromIndex(i - 1);
+            const auto stage = mesh_control && i == 1
+                ? (has_task ? Shader::Stage::Task : Shader::Stage::Mesh)
+                : mesh_control && i == 2 ? Shader::Stage::Mesh
+                : i == 0 ? Shader::Stage::VertexA
+                : Shader::StageFromIndex(i - 1);
+            const u32 physical_bank = mesh_control &&
+                (stage == Shader::Stage::Task || stage == Shader::Stage::Mesh)
+                    ? Shader::Ampere::NativeMeshSlotCbufBank(stage, has_task)
+                    : Shader::Ampere::NativeGraphicsCbufBank(stage);
             const auto offset = maxwell3d->regs.pipelines[i].offset;
             if (base > std::numeric_limits<GPUVAddr>::max() - offset)
                 return nullptr;
@@ -1843,7 +1870,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
                 *maxwell3d, *gpu_memory,
                 static_cast<Maxwell::ShaderType>(i), base, offset);
             const VideoCommon::Ns2GraphicsCbufContext cbuf_context{
-                gpu_memory, maxwell3d, Shader::Ampere::NativeGraphicsCbufBank(stage)};
+                gpu_memory, maxwell3d, physical_bank};
             auto adapted = VideoCommon::CreateNs2GraphicsShaderEnvironment(
                 *gpu_memory, std::move(original), base + offset,
                 static_cast<u32>(stage), native_translation_cache.get(),
@@ -1886,15 +1913,24 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
                 (i != 5 || maxwell3d->regs.rasterize_enable))
                 live_stages |= u32{1} << i;
         }
-        if (live_stages != keyed_stages) return nullptr;
+        if (live_stages != keyed_stages ||
+            ((maxwell3d->regs.reg_array[0x114c / 4] & 1U) != 0) != mesh_control)
+            return nullptr;
         for (std::size_t i = 0; i < graphics_key.unique_hashes.size(); ++i) {
             if (!graphics_key.unique_hashes[i]) continue;
             if (maxwell3d->regs.pipelines[i].offset != captured_offsets[i])
                 return nullptr;
-            const auto stage = i == 0 ? Shader::Stage::VertexA :
-                Shader::StageFromIndex(i - 1);
+            const auto stage = mesh_control && i == 1
+                ? (has_task ? Shader::Stage::Task : Shader::Stage::Mesh)
+                : mesh_control && i == 2 ? Shader::Stage::Mesh
+                : i == 0 ? Shader::Stage::VertexA
+                : Shader::StageFromIndex(i - 1);
+            const u32 physical_bank = mesh_control &&
+                (stage == Shader::Stage::Task || stage == Shader::Stage::Mesh)
+                    ? Shader::Ampere::NativeMeshSlotCbufBank(stage, has_task)
+                    : Shader::Ampere::NativeGraphicsCbufBank(stage);
             const VideoCommon::Ns2GraphicsCbufContext cbuf_context{
-                gpu_memory, maxwell3d, Shader::Ampere::NativeGraphicsCbufBank(stage)};
+                gpu_memory, maxwell3d, physical_bank};
             // Capture reauthenticates all native 128-bit instructions and
             // indirect BRX CBUF targets on every cache hit. No title hacks.
             const auto verified = VideoCommon::CaptureNs2GraphicsShaderFromGpu(

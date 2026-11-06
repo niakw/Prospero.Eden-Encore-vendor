@@ -33,6 +33,8 @@ NativeMaxwellEnvironment::NativeMaxwellEnvironment(
     sph = source.SPH();
     stage = source.ShaderStage();
     gp_passthrough_mask = source.GpPassthroughMask();
+    mesh_registers = source.MeshRegisters();
+    mesh_primitive_header = source.MeshPrimitiveHeader();
     // Graphics PipelineCache adds sizeof(ProgramHeader) to StartAddress().
     // The image already contains the 0x50-byte header; avoid a double
     // offset that would begin Maxwell CFG at 0xA0 instead of 0x50.
@@ -59,7 +61,9 @@ std::unique_ptr<NativeMaxwellEnvironment> NativeMaxwellEnvironment::CreateOwned(
     std::unique_ptr<Shader::Environment> source, MaxwellShaderImage image) {
     if (!source || !image.ValidForCompiler() ||
         source->ShaderStage() == Shader::Stage::Compute ||
-        static_cast<u32>(source->ShaderStage()) > static_cast<u32>(Shader::Stage::VertexA) ||
+        (static_cast<u32>(source->ShaderStage()) > static_cast<u32>(Shader::Stage::VertexA) &&
+         source->ShaderStage() != Shader::Stage::Task &&
+         source->ShaderStage() != Shader::Stage::Mesh) ||
         image.native_stage != static_cast<u32>(source->ShaderStage()) ||
         image.first_instruction_address != 0x50 ||
         !image.ReadMaxwellInstruction(0x50) ||

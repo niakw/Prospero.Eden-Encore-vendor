@@ -29,6 +29,9 @@
 #include "video_core/memory_manager.h"
 #include "video_core/shader_environment.h"
 #include "video_core/texture_cache/format_lookup_table.h"
+#ifdef PS5_NATIVE
+#include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
+#endif
 #include "video_core/textures/texture.h"
 
 namespace VideoCommon {
@@ -303,6 +306,20 @@ GraphicsEnvironment::GraphicsEnvironment(Tegra::Engines::Maxwell3D& maxwell3d_,
     gpu_memory->ReadBlock(program_base + start_address, &sph, sizeof(sph));
     initial_offset = sizeof(sph);
     gp_passthrough_mask = maxwell3d->regs.post_vtg_shader_attrib_skip_mask;
+#ifdef PS5_NATIVE
+    // NVC597 SET_MESH_CONTROL (0x114c) replaces the vertex stage with
+    // Task or Mesh. Only a verified native 0xC797 engine may select it.
+    const auto& regs = maxwell3d->regs;
+    const bool native_mesh =
+        Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+            .CaptureGraphicsTicket(maxwell3d).has_value() &&
+        (regs.reg_array[0x114c / 4] & 1U) != 0;
+    const bool has_task = native_mesh &&
+        regs.IsShaderConfigEnabled(Maxwell::ShaderType::TessellationInit);
+#else
+    constexpr bool native_mesh = false;
+    constexpr bool has_task = false;
+#endif
     switch (program) {
     case Maxwell::ShaderType::VertexA:
         stage = Shader::Stage::VertexA;
@@ -331,6 +348,17 @@ GraphicsEnvironment::GraphicsEnvironment(Tegra::Engines::Maxwell3D& maxwell3d_,
     default:
         ASSERT_MSG(false, "Invalid program={}", program);
         break;
+    }
+    if (native_mesh &&
+        (program == Maxwell::ShaderType::VertexB ||
+         program == Maxwell::ShaderType::TessellationInit)) {
+        // Physical banks: VertexB=0 (Task or solo Mesh); TCS=1 (Mesh
+        // only with Task). No reinterpretation of ordinary NS1 stages.
+        stage = program == Maxwell::ShaderType::VertexB && has_task
+                    ? Shader::Stage::Task : Shader::Stage::Mesh;
+        mesh_registers = {maxwell3d->regs.reg_array[0x1150 / 4],
+                          maxwell3d->regs.reg_array[0x1154 / 4],
+                          maxwell3d->regs.reg_array[0x1158 / 4]};
     }
     const u64 local_size{sph.LocalMemorySize()};
     ASSERT(local_size <= (std::numeric_limits<u32>::max)());
