@@ -69,8 +69,15 @@ static_assert(!NativeMeshTaskPresent(0x0a, false));
 // TessControl=1, TessEval=2, Geometry=3, Fragment=4. The shared IR
 // stage enum follows that order except VertexA, which is appended.
 [[nodiscard]] constexpr u32 NativeGraphicsCbufBank(Shader::Stage stage) noexcept {
-    return stage == Shader::Stage::VertexA ? 0U :
-           stage <= Shader::Stage::Fragment ? static_cast<u32>(stage) : ~u32{0};
+    // The appended NVN Task stage owns the VertexB CBUF bank.
+    // An NVN Mesh stage is currently admissible only in the TessEval
+    // slot with a matching linked Task stage; solo Mesh-in-VertexB must
+    // wait for a verified slot owner rather than guessing its CBUF bank.
+    const u32 stage_id = static_cast<u32>(stage);
+    const u32 vertex_a = static_cast<u32>(Shader::Stage::VertexA);
+    return stage == Shader::Stage::VertexA || stage_id == vertex_a + 1U ? 0U :
+           stage_id == vertex_a + 2U ? 2U :
+           stage <= Shader::Stage::Fragment ? stage_id : ~u32{0};
 }
 
 static_assert(NativeGraphicsStageMaskSupported(0x02)); // VertexB only
@@ -97,6 +104,10 @@ static_assert(NativeGraphicsCbufBank(Shader::Stage::TessellationEval) == 2U);
 static_assert(NativeGraphicsCbufBank(Shader::Stage::Geometry) == 3U);
 static_assert(NativeGraphicsCbufBank(Shader::Stage::Fragment) == 4U);
 static_assert(NativeGraphicsCbufBank(Shader::Stage::Compute) == ~u32{0});
+static_assert(NativeGraphicsCbufBank(
+    static_cast<Shader::Stage>(static_cast<u32>(Shader::Stage::VertexA) + 1U)) == 0U);
+static_assert(NativeGraphicsCbufBank(
+    static_cast<Shader::Stage>(static_cast<u32>(Shader::Stage::VertexA) + 2U)) == 2U);
 static_assert(IsStandaloneNativeGraphicsStage(Shader::Stage::VertexB));
 static_assert(IsStandaloneNativeGraphicsStage(Shader::Stage::Fragment));
 static_assert(!IsStandaloneNativeGraphicsStage(Shader::Stage::VertexA));
