@@ -178,7 +178,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         // Uniform operand B in SEL's 0xC07 form uses the same protected
         // UR→GPR bank as all other native uniform instructions.
-        case 0xc07: case 0xc0a:
+        case 0xc07: case 0xc0a: case 0xd07:
             uses_extended_uniform_bank |= extended_uniform(instruction.Bits(32, 8));
             break;
         case 0xc0b: case 0xc0c: case 0xc10: case 0xc11: case 0xc12: case 0xc17: case 0xc19: case 0xc20: case 0xc24: case 0xd06:
@@ -203,7 +203,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         default: break;
         }
-        uses_uniform_bank |= op == 0x4a4 || op == 0x2bf || op == 0xc07 || op == 0xc0a || op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0xd01 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
+        uses_uniform_bank |= op == 0x4a4 || op == 0x2bf || op == 0xc07 || op == 0xc0a || op == 0xd07 || op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0xd01 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
                              op == 0x886 || op == 0x3c2 || op == 0xc82 || op == 0x882 || op == 0xd24 || op == 0x499 || (op == 0x98e && instruction.Bits(91, 1)) || (op == 0x81c && instruction.Bits(67, 1));
     }
     const bool uses_async_copy = std::any_of(code.begin(), code.end(), [](const auto& instruction) {
@@ -2166,7 +2166,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                  (u64{insn.Bits(32, 8)} << 20) | (u64{3} << 39) | (u64{1} << 44));
             break;
         }
-        case 0x305: case 0xb05: case 0xd05: { // F2I NTZ, register/constant-buffer/uniform source
+        case 0x305: case 0x905: case 0xb05: case 0xd05: { // F2I register/literal/CBUF/uniform source
             const u32 control = insn.words[2] & ~(opcode == 0xd05 ? 0x08000000U : 0U);
             const bool half = opcode == 0x305 && control == 0x0010f000;
             const bool small = control == 0x00212800;
@@ -2176,12 +2176,18 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             // = 0 or 1).
             const bool byte = (control & ~0x100U) == 0x0021e000;
             const bool short_word = (control & ~0x100U) == 0x0021e800;
-            if ((!half && !small && !word && !byte && !short_word) || (opcode != 0xb05 && (insn.words[1] & 0xffffff00U))) {
+            if ((!half && !small && !word && !byte && !short_word) ||
+                (opcode != 0xb05 && opcode != 0x905 && (insn.words[1] & 0xffffff00U))) {
                 return fail(index, "native float-to-integer conversion mode");
             }
             const bool is_signed = insn.Bits(72, 1);
+            // F2I's full-width literal (0x905) contains IEEE-754 data,
+            // including bit 31. Keep it intact in a scratch GPR rather than
+            // extracting the unrelated CBUF abs/negate modifier fields.
+            if (opcode == 0x905) mov_imm(252, insn.words[1]);
             u32 source = opcode == 0xb05 ? materialize(2, 0, 252, insn.Bits(62, 1) != 0 && !LowerGroupDisabled("audit_f2i"), insn.Bits(63, 1) != 0 && !LowerGroupDisabled("audit_f2i"))
-                       : opcode == 0xd05 ? uniform_register(insn.Bits(32, 8)) : insn.Bits(32, 8);
+                       : opcode == 0xd05 ? uniform_register(insn.Bits(32, 8)) :
+                       opcode == 0x905 ? 252U : insn.Bits(32, 8);
             if (source == ~0U) return fail(index, "native uniform conversion source");
             if (half) {
                 extract_half({source, 2, false, false}, 0, 252);
@@ -3027,21 +3033,35 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             }
             break;
         }
-        case 0x307: case 0xb07: { // FRND.F32: GPR or directly addressed CBUF source.
-            if (insn.Bits(75, 2) != 2 || insn.Bits(84, 2) != 2 || insn.Bits(81, 3) ||
-                insn.Bits(86, 6)) return fail(index, "native floating round format");
-            // The native CBUF form must be aligned and refer to an actual
-            // graphics QMD stage bank; never translate an arbitrary guest
-            // bank to a syntactically valid but unrelated Maxwell descriptor.
+        case 0x307: case 0x907: case 0xb07: case 0xd07: { // FRND.F32 all four native source types.
+            const bool immediate = opcode == 0x907;
             const bool constant_source = opcode == 0xb07;
-            if (constant_source && (!valid_cbuf() || insn.Bits(54, 5) >= 18))
-                return fail(index, "native floating round CBUF address");
+            const bool uniform_source = opcode == 0xd07;
+            // The uniform source selector is bit 91, not an unsupported
+            // rounding-mode bit. 32-bit immediate bit 31 is floating DATA,
+            // not a CBUF source modifier. Do not rewrite either field.
+            if (insn.Bits(75, 2) != 2 || insn.Bits(84, 2) != 2 ||
+                insn.Bits(81, 3) || insn.Bits(86, 5) ||
+                (insn.Bits(91, 1) != (uniform_source ? 1U : 0U)) ||
+                (constant_source && (!valid_cbuf() || insn.Bits(54, 5) >= 18)) ||
+                (uniform_source && insn.words[1] > 63U) ||
+                (opcode == 0x307 && (insn.words[1] & ~0xc00000ffU)))
+                return fail(index, "native floating round source or format");
+            // Materialize the entire IEEE-754 immediate without host float
+            // conversion, or fetch the matching protected uniform register.
+            if (immediate) mov_imm(251, insn.words[1]);
+            const u32 source = immediate ? 251U :
+                               uniform_source ? uniform_register(insn.Bits(32, 8)) :
+                               insn.Bits(32, 8);
+            if (source == ~0U)
+                return fail(index, "native floating round uniform register");
             emit(base(constant_source ? 0x4ca8000000000000ULL : 0x5ca8000000000000ULL) |
                  (u64{2} << 8) | (u64{2} << 10) |
-                 (constant_source ? cbuf() : (u64{insn.Bits(32, 8)} << 20)) |
+                 (constant_source ? cbuf() : (u64{source} << 20)) |
                  (u64{8 + insn.Bits(78, 2)} << 39) |
-                 (u64{insn.Bits(80, 1)} << 44) | (u64{insn.Bits(63, 1)} << 45) |
-                 (u64{insn.Bits(62, 1)} << 49));
+                 (u64{insn.Bits(80, 1)} << 44) |
+                 (u64{immediate ? 0U : insn.Bits(63, 1)} << 45) |
+                 (u64{immediate ? 0U : insn.Bits(62, 1)} << 49));
             break;
         }
         case 0x321: // ALD
