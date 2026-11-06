@@ -4,6 +4,7 @@
 // Input remains a preconverted 64-token/window E4M3FN tensor, not an image.
 #pragma once
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_plan.h"
+#include "video_core/renderer_vulkan/nr_rdna2_fswin_window_repack.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_bindings.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_weight_loader.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_gpu_tensors.h"
@@ -36,8 +37,19 @@ public:
     // GPU-to-GPU copy from the immediately preceding FSwin layer.
     // Both runtimes must share one scheduler, width, channels and layout.
     [[nodiscard]] bool LinkInputFrom(const NrRdna2FSwinLayerRuntime& previous);
+    // Repack a shifted source window grid into this block's input buffer.
+    // The descriptor set is bound and owned by the containing chain.
+    [[nodiscard]] bool LinkInputFromShifted(
+        const NrRdna2FSwinLayerRuntime& previous,
+        NrRdna2FSwinWindowRepack& repacker,VkDescriptorSet validated_set,
+        const Eden::Graphics::NeuralRDNA2::FSwinWindowRepack& layout);
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
+    [[nodiscard]] VkDescriptorBufferInfo Input() const noexcept {
+        return VkDescriptorBufferInfo{
+            .buffer=tensors.InputBuffer(),.offset=0,
+            .range=tensors.InputSize()};
+    }
     [[nodiscard]] VkDescriptorBufferInfo Output() const noexcept {
         return VkDescriptorBufferInfo{
             .buffer=tensors.OutputBuffer(),.offset=0,

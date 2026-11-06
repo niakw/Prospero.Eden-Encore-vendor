@@ -5,6 +5,8 @@
 // intentionally require explicit adapters not included in this class.
 #pragma once
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_layer_runtime.h"
+#include "video_core/renderer_vulkan/nr_rdna2_fswin_window_repack.h"
+#include "rdna2_nr_fswin_chain_layout_policy.h"
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -19,6 +21,8 @@ struct FSwinLayerSpec {
     std::uint32_t channels{};
     std::uint32_t windows{};
     bool residual_last{};
+    // Explicit window raster/shift; legacy all-zero layout means unshifted.
+    Eden::Graphics::NeuralRDNA2::FSwinWindowLayout layout{};
 };
 class NrRdna2FSwinChain final {
 public:
@@ -46,6 +50,12 @@ private:
     MemoryAllocator& allocator;
     Scheduler& scheduler;
     std::vector<std::unique_ptr<NrRdna2FSwinLayerRuntime>> layers;
+    NrRdna2FSwinWindowRepack window_repack;
+    vk::DescriptorPool window_pool;
+    vk::DescriptorSets window_allocations;
+    std::vector<VkDescriptorSet> window_sets;
+    std::vector<Eden::Graphics::NeuralRDNA2::FSwinWindowRepack> window_plans;
+    std::vector<Eden::Graphics::NeuralRDNA2::FSwinWindowLayout> layouts;
     bool ready{};
 };
 } // namespace Vulkan

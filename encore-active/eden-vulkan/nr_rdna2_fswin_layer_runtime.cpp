@@ -85,6 +85,28 @@ bool NrRdna2FSwinLayerRuntime::LinkInputFrom(
     output_recorded=false;
     return true;
 }
+bool NrRdna2FSwinLayerRuntime::LinkInputFromShifted(
+    const NrRdna2FSwinLayerRuntime& previous,
+    NrRdna2FSwinWindowRepack& repacker,VkDescriptorSet validated_set,
+    const Eden::Graphics::NeuralRDNA2::FSwinWindowRepack& layout){
+    if(!ready||!previous.ready||!previous.output_recorded||
+       !validated_set||&scheduler!=&previous.scheduler||
+       plan.dense[0].channels!=previous.plan.dense[0].channels||
+       plan.dense[0].windows!=previous.plan.dense[0].windows||
+       tensors.InputSize()!=previous.tensors.OutputSize()||
+       layout.channels!=plan.dense[0].channels||
+       std::uint64_t(layout.windows_x)*layout.windows_y!=
+           plan.dense[0].windows)return false;
+    const auto src=previous.Output();
+    const auto dst=Input();
+    if(!src.buffer||!dst.buffer||src.buffer==dst.buffer||
+       src.offset||dst.offset||src.range!=dst.range||
+       !repacker.Record(validated_set,layout,{src.range,dst.range}))
+        return false;
+    input_loaded=true;
+    output_recorded=false;
+    return true;
+}
 bool NrRdna2FSwinLayerRuntime::Record(){
     if(!ready||!input_loaded||
        !graph.Record(descriptors.Sets(),plan))return false;
