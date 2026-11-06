@@ -11,7 +11,8 @@ struct NativeUNetSkipEdge {
     std::uint32_t down_block{};
     std::uint32_t up_block{};
     std::uint32_t channels{};
-    std::uint32_t skip_width{},skip_height{};
+    std::uint32_t skip_width{},skip_height{}; // native W/H, not raster axes
+    std::uint32_t skip_windows_x{},skip_windows_y{};
     std::uint32_t up_input_width{},up_input_height{};
     std::uint32_t up_input_block{};
 };
@@ -73,6 +74,7 @@ enum class NativeUNetSkipError : std::uint8_t {
         staged.edges[staged.count++]={
             producer->block,step.block,step.channels,
             producer->width,producer->height,
+            producer->grid_x,producer->grid_y,
             step.width,step.height,
             static_cast<std::uint32_t>(step.input0),
         };
