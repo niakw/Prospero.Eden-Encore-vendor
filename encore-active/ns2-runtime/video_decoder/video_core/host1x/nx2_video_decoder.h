@@ -49,17 +49,17 @@ public:
     const std::string& Name() const;
 
     /// Decodes one compressed frame and appends the pictures it completes.
-    void Decode(std::span<const u8> data, u64 pts, std::vector<Nx2Picture>& pictures);
+    [[nodiscard]] bool Decode(std::span<const u8> data, u64 pts, std::vector<Nx2Picture>& pictures);
 
     /// End of stream: appends the pictures the decoder still holds, then starts over.
-    void Drain(std::vector<Nx2Picture>& pictures);
+    [[nodiscard]] bool Drain(std::vector<Nx2Picture>& pictures);
 
     /// Drops everything queued in the decoder (the game flushed it to seek).
     void Reset();
 
     /// Converts a picture to `format` in `out`: rows `pitch` bytes apart, NV12's chroma plane at
     /// `chroma_offset`, scaled to width x height.
-    void Render(const Nx2Picture& picture, Nx2PictureFormat format, u32 width, u32 height,
+    [[nodiscard]] bool Render(const Nx2Picture& picture, Nx2PictureFormat format, u32 width, u32 height,
                 u64 pitch, u64 chroma_offset, std::span<u8> out);
 
 private:

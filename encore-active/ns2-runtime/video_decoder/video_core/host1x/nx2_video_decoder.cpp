@@ -157,10 +157,8 @@ const std::string& Nx2VideoDecoder::Name() const {
     return impl->name;
 }
 
-void Nx2VideoDecoder::Decode(std::span<const u8> data, u64 pts, std::vector<Nx2Picture>& pictures) {
-    if (!impl->open || data.empty()) {
-        return;
-    }
+bool Nx2VideoDecoder::Decode(std::span<const u8> data, u64 pts, std::vector<Nx2Picture>& pictures) {
+    if (!impl->open || data.empty()) return false;
     impl->packet.assign(data.size() + AV_INPUT_BUFFER_PADDING_SIZE, 0);
     std::memcpy(impl->packet.data(), data.data(), data.size());
 
@@ -176,17 +174,22 @@ void Nx2VideoDecoder::Decode(std::span<const u8> data, u64 pts, std::vector<Nx2P
         impl->pending_pts.erase(impl->pending_pts.begin());
     }
     impl->pending_pts.insert(pts);
-    impl->context->SendPacket(packet);
+    if (!impl->context->SendPacket(packet)) {
+        if (const auto it = impl->pending_pts.find(pts); it != impl->pending_pts.end())
+            impl->pending_pts.erase(it);
+        return false;
+    }
     impl->Receive(pictures);
+    return true;
 }
 
-void Nx2VideoDecoder::Drain(std::vector<Nx2Picture>& pictures) {
-    if (!impl->open) {
-        return;
-    }
-    avcodec_send_packet(impl->context->GetCodecContext(), nullptr);
+bool Nx2VideoDecoder::Drain(std::vector<Nx2Picture>& pictures) {
+    if (!impl->open) return false;
+    const int status = avcodec_send_packet(impl->context->GetCodecContext(), nullptr);
+    if (status < 0 && status != AVERROR_EOF) return false;
     impl->Receive(pictures);
     Reset();
+    return true;
 }
 
 void Nx2VideoDecoder::Reset() {
@@ -197,7 +200,7 @@ void Nx2VideoDecoder::Reset() {
     impl->h264_packets.Reset();
 }
 
-void Nx2VideoDecoder::Render(const Nx2Picture& picture, Nx2PictureFormat format, u32 width,
+bool Nx2VideoDecoder::Render(const Nx2Picture& picture, Nx2PictureFormat format, u32 width,
                              u32 height, u64 pitch, u64 chroma_offset, std::span<u8> out) {
     const AVFrame* f = picture.frame->GetFrame();
     const u64 needed = format == Nx2PictureFormat::Nv12
@@ -205,7 +208,7 @@ void Nx2VideoDecoder::Render(const Nx2Picture& picture, Nx2PictureFormat format,
                            : pitch * height;
     const u64 min_pitch = format == Nx2PictureFormat::Nv12 ? ((u64{width} + 1) / 2) * 2 : 0;
     if (width == 0 || height == 0 || pitch < min_pitch || out.size() < needed) {
-        return;
+        return false;
     }
     const AVPixelFormat target = format == Nx2PictureFormat::Nv12    ? AV_PIX_FMT_NV12
                                  : format == Nx2PictureFormat::Rgba8 ? AV_PIX_FMT_RGBA
@@ -222,7 +225,7 @@ void Nx2VideoDecoder::Render(const Nx2Picture& picture, Nx2PictureFormat format,
             std::memcpy(out.data() + chroma_offset + y * pitch, f->data[1] + y * f->linesize[1],
                         min_pitch);
         }
-        return;
+        return true;
     }
     if (target == AV_PIX_FMT_NV12 && f->format == AV_PIX_FMT_YUV420P &&
         f->color_range != AVCOL_RANGE_JPEG && static_cast<u32>(f->width) == width &&
@@ -240,7 +243,7 @@ void Nx2VideoDecoder::Render(const Nx2Picture& picture, Nx2PictureFormat format,
                 dst[x * 2 + 1] = v[x];
             }
         }
-        return;
+        return true;
     }
     impl->scaler = sws_getCachedContext(impl->scaler, f->width, f->height,
                                         static_cast<AVPixelFormat>(f->format),
@@ -250,7 +253,7 @@ void Nx2VideoDecoder::Render(const Nx2Picture& picture, Nx2PictureFormat format,
         LOG_ERROR(HW_GPU, "nx2 video: cannot convert {} to {}",
                   av_get_pix_fmt_name(static_cast<AVPixelFormat>(f->format)),
                   av_get_pix_fmt_name(target));
-        return;
+        return false;
     }
     // The stream's matrix and range; untagged HD video is BT.709.
     int space = SWS_CS_ITU601;
@@ -275,7 +278,8 @@ void Nx2VideoDecoder::Render(const Nx2Picture& picture, Nx2PictureFormat format,
         planes[1] = out.data() + chroma_offset;
         strides[1] = static_cast<int>(pitch);
     }
-    sws_scale(impl->scaler, f->data, f->linesize, 0, f->height, planes.data(), strides.data());
+    return sws_scale(impl->scaler, f->data, f->linesize, 0, f->height,
+                     planes.data(), strides.data()) == static_cast<int>(height);
 }
 
 } // namespace Tegra::Host1x

@@ -26,6 +26,7 @@
 #include "core/hle/service/sm/sm.h"
 #include <span>
 #include "core/core.h"
+#include "video_core/gpu.h"
 #include "core/hle/kernel/k_client_session.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/k_page_table.h"
@@ -35,6 +36,7 @@
 #include "core/hle/kernel/svc_results.h"
 #include "core/hle/service/am/service/gpu_session.h"
 #include "core/hle/service/am/service/graphics_supervisor.h"
+#include "core/hle/service/am/service/graphics_video_decoder_session.h"
 #include "core/hle/service/am/service/native_image_layout.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/server_manager.h"
@@ -744,6 +746,10 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {430, &IGraphicsSupervisor::DestroyNativeImage, "DestroyNativeImage"},
         {314, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "DestroyNativeWindowAliasImagePool"},
         {315, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "CreateNativeWindowAliasImagePool"},
+        {902, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSession"},
+        {905, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSessionWithFlag"},
+        {906, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSessionWithVersion"},
+        {1002, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSession2"},
         {911, &IGraphicsSupervisor::CreateVideoImagePool, "CreateVideoImagePool"},
         {912, &IGraphicsSupervisor::DestroyVideoImagePool, "DestroyVideoImagePool"},
         {961, &IGraphicsSupervisor::GetCpuVideoImageDescriptor, "GetCpuUserImageDescriptor"},
@@ -1141,7 +1147,8 @@ Result IGraphicsSupervisor::BindNativeMemoryBacking(
             (info.m_state & Kernel::KMemoryState::FlagMapped) !=
                 Kernel::KMemoryState::FlagMapped ||
             (flags == 2 &&
-             !True(info.m_attribute & Kernel::KMemoryAttribute::GpuAccessible)))
+             (info.m_state & Kernel::KMemoryState::FlagCanDeviceMap) !=
+                 Kernel::KMemoryState::FlagCanDeviceMap))
             return Kernel::ResultInvalidCurrentMemory;
         const u64 next = info.m_address + info.m_size;
         if (next <= cursor) return Kernel::ResultInvalidCurrentMemory;
@@ -1240,6 +1247,118 @@ IGraphicsSupervisor::FindRegisteredGpuAddressSpace(u32 fd) {
         }
     }
     return {};
+}
+
+// Select only pool IDs whose memory is owned, CPU bound, and still backed by
+// the process that created this graphics supervisor. No synthetic image ID.
+std::optional<IGraphicsSupervisor::VideoSurface>
+IGraphicsSupervisor::LookupVideoSurface(u32 image_id) {
+    const std::scoped_lock lock{m_native_memory_mutex};
+    const auto view = m_video_pools.Lookup(image_id);
+    if (!view || !m_native_module || !m_process) return {};
+    const auto record = m_native_memory.Get(view->backing);
+    if (!record || !record->bound || !record->guest_address ||
+        view->offset > record->size || view->size > record->size - view->offset ||
+        record->guest_address > std::numeric_limits<u64>::max() - view->offset)
+        return {};
+    auto& container = m_native_module->GetContainer();
+    const auto handle = container.GetNvMapFile().GetHandle(view->backing);
+    if (!handle || !handle->allocated || handle->size < record->size ||
+        handle->address != record->guest_address) return {};
+    const auto* session = container.GetSession(handle->session_id);
+    if (!session || session->process != m_process) return {};
+    const u64 address = record->guest_address + view->offset;
+    if (!m_process->GetMemory().IsValidVirtualAddressRange(
+            Common::ProcessAddress{address}, view->size)) return {};
+    for (const auto& [_, pool] : m_video_pools.Records()) {
+        if (image_id < pool.first_id || image_id - pool.first_id >= pool.count) continue;
+        const u32 width = (pool.packed_dimensions & 0xffff) + 1;
+        const u32 height = (pool.packed_dimensions >> 16) + 1;
+        if (pool.layout.image_bytes != view->size ||
+            pool.layout.row_bytes == 0 || pool.layout.cpu_kind < 8 ||
+            pool.layout.cpu_kind > 10) return {};
+        return VideoSurface{image_id, view->backing, address, width, height, pool.layout};
+    }
+    return {};
+}
+
+// Re-check the exact allocation after rendering; guest 912/112 may retire
+// the pool while FFmpeg decodes. The actual guest write and validity checks
+// are serialized against pool destruction under m_native_memory_mutex.
+bool IGraphicsSupervisor::WriteVideoSurface(
+    u32 image_id, const VideoSurface& expected, std::span<const u8> pixels) {
+    if (pixels.size() != expected.layout.image_bytes || !pixels.data()) return false;
+    const std::scoped_lock lock{m_native_memory_mutex};
+    const auto view = m_video_pools.Lookup(image_id);
+    if (!view || view->backing != expected.backing ||
+        view->size != pixels.size() || !m_native_module || !m_process)
+        return false;
+    const auto record = m_native_memory.Get(view->backing);
+    if (!record || !record->bound || !record->guest_address ||
+        view->offset > record->size || view->size > record->size - view->offset ||
+        record->guest_address > std::numeric_limits<u64>::max() - view->offset ||
+        record->guest_address + view->offset != expected.address)
+        return false;
+    auto& container = m_native_module->GetContainer();
+    const auto handle = container.GetNvMapFile().GetHandle(view->backing);
+    if (!handle || !handle->allocated || handle->address != record->guest_address ||
+        !handle->d_address || view->offset > std::numeric_limits<u64>::max() - handle->d_address)
+        return false;
+    const auto* session = container.GetSession(handle->session_id);
+    if (!session || session->process != m_process ||
+        !m_process->GetMemory().IsValidVirtualAddressRange(
+            Common::ProcessAddress{expected.address}, pixels.size())) return false;
+    if (!m_process->GetMemory().WriteBlock(
+            Common::ProcessAddress{expected.address}, pixels.data(), pixels.size())) return false;
+    system.GPU().InvalidateRegion(handle->d_address + view->offset, pixels.size());
+    return true;
+}
+
+// 902/905/906/1002 create real child kernel sessions. No codec operation
+// reports success until the session has initialized its actual FFmpeg owner.
+void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
+    const auto* w = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    Kernel::KClientSession* client{};
+    const u32 cmd = ctx.GetCommand();
+    // 902/1002 have no input words; 905 carries a flag, 906 a flag and
+    // library version. Reject malformed TIPC lengths before creating a
+    // kernel session or reserving a service handle.
+    const bool shape = (cmd == 902 || cmd == 1002) ? w[1] == 0 :
+                       cmd == 905 ? w[1] == 1 : cmd == 906 && w[1] == 3;
+    if (w[0] == cmd + 0x10 && shape) {
+        result = Kernel::ResultInvalidState;
+        if (m_process && m_bootstrap.GpuContextReady()) {
+            auto owner = std::static_pointer_cast<IGraphicsSupervisor>(shared_from_this());
+            auto handler = std::make_shared<IGraphicsVideoDecoderSession>(system,
+                                                                          std::move(owner), true);
+            result = CreateMetadataSession(system, ctx, std::move(handler), &client);
+        }
+    }
+    if (result.IsError()) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
+    }
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(result.raw);
+    ctx.AddMoveObject(client);
+}
+
+void IGraphicsSupervisor::OpenVideoDecoderChildSession(HLERequestContext& ctx) {
+    Kernel::KClientSession* client{};
+    auto owner = std::static_pointer_cast<IGraphicsSupervisor>(shared_from_this());
+    auto child = std::make_shared<IGraphicsVideoDecoderSession>(system,
+                                                                std::move(owner), false);
+    const Result result = CreateMetadataSession(system, ctx, std::move(child), &client);
+    if (result.IsError()) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
+    }
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(result.raw);
+    ctx.AddMoveObject(client);
 }
 
 void IGraphicsSupervisor::CreateVideoImagePool(HLERequestContext& ctx) {

@@ -8,6 +8,7 @@
 #include <optional>
 #include <mutex>
 #include <vector>
+#include <span>
 #include "core/hle/service/service.h"
 #include "core/hle/service/am/service/graphics_supervisor_bootstrap.h"
 #include "core/hle/service/am/service/graphics_supervisor_protocol.h"
@@ -16,6 +17,7 @@ namespace Kernel { class KProcess; }
 namespace Service::Nvidia { class Module; namespace Devices { class nvhost_as_gpu; } }
 namespace Service::AM {
 class IGpuSession;
+class IGraphicsVideoDecoderSession;
 class IGraphicsSupervisor final : public ServiceFramework<IGraphicsSupervisor> {
 public:
     IGraphicsSupervisor(Core::System& system, Kernel::KProcess* process, u64 aruid);
@@ -32,6 +34,20 @@ public:
     };
     [[nodiscard]] std::optional<PresentImage> GetPresentImage(u32 id);
 private:
+    friend class IGraphicsVideoDecoderSession;
+    struct VideoSurface {
+        u32 image_id{};
+        u32 backing{};
+        u64 address{};
+        u32 width{};
+        u32 height{};
+        NativeVideoImageLayout layout{};
+    };
+    [[nodiscard]] std::optional<VideoSurface> LookupVideoSurface(u32 image_id);
+    [[nodiscard]] bool WriteVideoSurface(u32 image_id, const VideoSurface& expected,
+                                         std::span<const u8> pixels);
+    void OpenVideoDecoderSession(HLERequestContext& ctx);
+    void OpenVideoDecoderChildSession(HLERequestContext& ctx);
     void Initialize(HLERequestContext& ctx);
     void BindProcess(HLERequestContext& ctx);
     void CompleteBootstrap(HLERequestContext& ctx);
