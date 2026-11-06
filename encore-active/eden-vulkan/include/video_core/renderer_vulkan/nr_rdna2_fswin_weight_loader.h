@@ -4,6 +4,7 @@
 // No Vulkan allocation, model weights, or built-in neural network included.
 #pragma once
 #include "video_core/renderer_vulkan/nr_rdna2_weight_arena.h"
+#include "video_core/renderer_vulkan/nr_rdna2_fswin_qkv_layout.h"
 #include "video_core/renderer_vulkan/nr_rdna2_weight_decode.h"
 #include <bit>
 #include <cmath>
@@ -45,8 +46,12 @@ struct FSwinLayerWeightRanges {
     const auto contract_inputs=heads>1u?C:4u*C;
     if(!staged.AppendModelMatrix(model,file(".mlp_contract.bin"),
                                  C,contract_inputs,layer.contract))return false;
-    if(!staged.AppendModelMatrix(model,file(".qkv.bin"),
-                                 3u*C,C,layer.qkv))return false;
+    // Model matrix order is [Q all C rows][K all C][V all C].
+    // The portable shader expects [head][Q32][K32][V32] rows.
+    std::vector<std::uint8_t> qkv_raw,qkv_heads;
+    if(!model.LoadModelMatrix(file(".qkv.bin"),3u*C,C,qkv_raw)||
+       !ReorderFSwinQkvRowMajor(qkv_raw,C,qkv_heads)||
+       !staged.AppendBytes(file(".qkv.bin"),qkv_heads,layer.qkv))return false;
     if(!staged.AppendModelMatrix(model,file(".attn_out_proj.bin"),
                                  C,C,layer.projection))return false;
 
