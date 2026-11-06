@@ -37,6 +37,7 @@ struct NativePlanCoverage {
     std::uint32_t fswin_input_view{},fswin_output_view{};
     std::uint32_t fswin_input_view_ready{},fswin_output_view_ready{};
     std::uint32_t fswin_down{},fswin_up{},fswin_unknown{};
+    std::uint32_t fswin_down_ready{};
     std::uint32_t other{};
     std::uint32_t compatible_segments{};
     [[nodiscard]] constexpr std::uint32_t FSwinSpecial() const noexcept {
@@ -48,7 +49,8 @@ struct NativePlanCoverage {
                fswin_plain+FSwinSpecial()+other;
     }
     [[nodiscard]] constexpr std::uint32_t CanonicalFSwinReady() const noexcept {
-        return fswin_ready+fswin_input_view_ready+fswin_output_view_ready;
+        return fswin_ready+fswin_input_view_ready+
+               fswin_output_view_ready+fswin_down_ready;
     }
     [[nodiscard]] constexpr std::uint32_t Uncovered() const noexcept {
         // Only standard FSwin inside the current safe shape/budget
@@ -84,7 +86,10 @@ struct NativePlanCoverage {
                 ++c.fswin_output_view_ready;
             continue;
         }
-        case NativeFSwinKind::Downsample:++c.fswin_down;continue;
+        case NativeFSwinKind::Downsample:
+            ++c.fswin_down;
+            if(NativeDownsampleFSwin(row))++c.fswin_down_ready;
+            continue;
         case NativeFSwinKind::Upsample:++c.fswin_up;continue;
         case NativeFSwinKind::Unknown:++c.fswin_unknown;continue;
         case NativeFSwinKind::NotFSwin:break;

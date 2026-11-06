@@ -28,7 +28,7 @@ struct NativePlanStep {
     std::string type,kernel;
     std::int32_t shift_x{100},shift_y{100};
 };
-enum class NativeFSwinView : std::uint8_t { Plain, InputView, OutputView };
+enum class NativeFSwinView : std::uint8_t { Plain, InputView, OutputView, Downsample };
 struct NativeFSwinLayer {
     std::string weight_prefix;
     FSwinWindowLayout layout{};
@@ -171,6 +171,22 @@ struct NativeFSwinSegment {
 // layer but expose a view raster at the level boundary. We select a
 // canonical internal window representation and REQUIRE an explicit
 // view<->window adapter at the exposed ends.
+[[nodiscard]] inline bool NativeDownsampleFSwin(
+    const NativePlanStep& row) {
+    if(!row.type.starts_with("CCTinlayoutFusedSwin")||
+       !row.kernel.starts_with("cc_tinlayout_fused_swin_")||
+       !row.kernel.ends_with("_ds_fp8")||
+       row.channels>std::numeric_limits<std::uint32_t>::max()/2u||
+       row.input_channels!=row.channels||
+       row.output_channels!=row.channels*2u)
+        return false;
+    // The fused downsample first executes an ordinary C-channel FSwin
+    // block and then a separate learned [2C,C] pooling/projection.
+    NativePlanStep canonical=row;
+    canonical.output_channels=row.channels;
+    canonical.kernel="cc_tinlayout_fused_swin_canonical_fp8";
+    return NativePlainFSwin(canonical);
+}
 [[nodiscard]] inline bool NativeViewFSwin(
     const NativePlanStep& row,NativeFSwinView& view) {
     const bool input=row.kernel.ends_with("_inpview_fp8");
@@ -201,7 +217,8 @@ ExtractNativeFSwinSegments(std::span<const NativePlanStep> rows){
     for(const auto& s:rows){
         NativeFSwinView kind=NativeFSwinView::Plain;
         if(!NativePlainFSwin(s)&&!NativeViewFSwin(s,kind)){
-            flush();continue;
+            if(NativeDownsampleFSwin(s))kind=NativeFSwinView::Downsample;
+            else{flush();continue;}
         }
         // An input-view may only start a chain segment, and an
         // output-view must terminate it. Never elide the boundary.
@@ -226,7 +243,8 @@ ExtractNativeFSwinSegments(std::span<const NativePlanStep> rows){
         layer.view=kind;
         current.layers.push_back(std::move(layer));
         if(current.layers.size()==160u||
-           kind==NativeFSwinView::OutputView)flush();
+           kind==NativeFSwinView::OutputView||
+           kind==NativeFSwinView::Downsample)flush();
     }
     flush();
     return segments;

@@ -7,6 +7,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_layer_runtime.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_window_repack.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_output_view.h"
+#include "video_core/renderer_vulkan/nr_rdna2_fswin_downsample_output.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_raster_layout.h"
 #include "video_core/renderer_vulkan/nr_rdna2_native_plan_bridge.h"
 #include "rdna2_nr_fswin_chain_layout_policy.h"
@@ -29,6 +30,7 @@ struct FSwinLayerSpec {
     Eden::Graphics::NeuralRDNA2::FSwinWindowLayout layout{};
     bool input_view{};
     bool output_view{};
+    bool downsample{};
 };
 class NrRdna2FSwinChain final {
 public:
@@ -67,13 +69,23 @@ public:
     [[nodiscard]] bool BindRasterOutput(
         VkDescriptorBufferInfo destination,std::uint32_t width,
         std::uint32_t height);
+    // Terminal _ds: bind the learned 2x2 pooled [2C,C] output to a
+    // caller-owned half-resolution FP8 raster (not an RGB framebuffer).
+    [[nodiscard]] bool BindDownsampleOutput(
+        const Eden::Graphics::NeuralRDNA2::NeuralModelFile& model,
+        VkDescriptorBufferInfo destination,
+        std::uint32_t input_width,std::uint32_t input_height);
+    // Only usable after the corresponding command buffer has completed.
+    [[nodiscard]] VkDescriptorBufferInfo ResultRaster() const noexcept{
+        return ready?raster_destination:VkDescriptorBufferInfo{};
+    }
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
     [[nodiscard]] bool RequiresRasterInput() const noexcept {
         return ready&&input_view;
     }
     [[nodiscard]] bool RequiresRasterOutput() const noexcept {
-        return ready&&output_view;
+        return ready&&(output_view||downsample);
     }
     [[nodiscard]] std::size_t LayerCount() const noexcept {
         return layers.size();
@@ -89,6 +101,9 @@ private:
     NrRdna2FSwinWindowRepack window_repack;
     NrRdna2FSwinRasterLayout raster_input;
     std::unique_ptr<NrRdna2FSwinOutputView> raster_output;
+    std::unique_ptr<NrRdna2FSwinDownsampleOutput> downsample_output;
+    VkDescriptorBufferInfo raster_destination{};
+    std::string downsample_prefix;
     vk::DescriptorPool input_pool;
     vk::DescriptorSets input_allocations;
     VkDescriptorSet input_set{VK_NULL_HANDLE};
@@ -102,5 +117,6 @@ private:
     bool ready{};
     bool input_view{};
     bool output_view{};
+    bool downsample{};
 };
 } // namespace Vulkan

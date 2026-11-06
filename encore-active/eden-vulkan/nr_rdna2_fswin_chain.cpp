@@ -43,7 +43,9 @@ bool NrRdna2FSwinChain::Initialize(
            spec.windows!=windows||
            (spec.input_view&&i!=0u)||
            (spec.output_view&&i+1u!=specs.size())||
-           (spec.input_view&&spec.output_view))return false;
+           (spec.downsample&&i+1u!=specs.size())||
+           (spec.output_view&&spec.downsample)||
+           (spec.input_view&&(spec.output_view||spec.downsample)))return false;
         proposed_layouts.emplace_back(spec.layout);
     }
     if(!CanFSwinChainWindowLayouts(
@@ -143,6 +145,8 @@ bool NrRdna2FSwinChain::Initialize(
     layers=std::move(prepared);
     input_view=specs.front().input_view;
     output_view=specs.back().output_view;
+    downsample=specs.back().downsample;
+    if(downsample)downsample_prefix=specs.back().prefix;
     ready=true;
     return true;
 }
@@ -165,7 +169,8 @@ bool NrRdna2FSwinChain::InitializeNativeSegment(
             layer.weight_prefix,layer.channels,layer.windows,
             false,layer.layout,
             layer.view==NativeFSwinView::InputView,
-            layer.view==NativeFSwinView::OutputView});
+            layer.view==NativeFSwinView::OutputView,
+            layer.view==NativeFSwinView::Downsample});
     }
     return Initialize(model,std::span<const FSwinLayerSpec>{
         specs.data(),specs.size()});
@@ -256,13 +261,34 @@ bool NrRdna2FSwinChain::BindRasterOutput(
             layers.back()->Plan().dense[0].channels,width,height))
         return false;
     raster_output=std::move(exporter);
+    raster_destination=destination;
+    return true;
+}
+
+bool NrRdna2FSwinChain::BindDownsampleOutput(
+    const NeuralModelFile& model,VkDescriptorBufferInfo destination,
+    std::uint32_t input_width,std::uint32_t input_height){
+    if(!ready||!downsample||downsample_output||!model.IsOpen()||
+       layers.empty()||layouts.empty()||downsample_prefix.empty())
+        return false;
+    const auto& layout=layouts.back();
+    auto endpoint=std::make_unique<NrRdna2FSwinDownsampleOutput>(
+        device,allocator,scheduler);
+    if(!endpoint->Initialize(
+           model,downsample_prefix,layers.back()->Output(),destination,
+           input_width,input_height,
+           layers.back()->Plan().dense[0].channels,
+           layout.shift_x,layout.shift_y))
+        return false;
+    downsample_output=std::move(endpoint);
+    raster_destination=destination;
     return true;
 }
 
 bool NrRdna2FSwinChain::Record(){
-    // Never submit a partial _outview chain without its required
-    // boundary adapter. The descriptor is bound once, before recording.
-    if(!ready||(output_view&&!raster_output))return false;
+    // Validate terminal adapters before submitting ANY chain commands.
+    if(!ready||(output_view&&!raster_output)||
+       (downsample&&!downsample_output))return false;
     if(input_set){
         if(!raster_input.Record(input_set,input_plan,input_storage)||
            !layers.front()->MarkGpuInputReady())return false;
@@ -281,6 +307,7 @@ bool NrRdna2FSwinChain::Record(){
         if(!layers[i]->Record())return false;
     }
     if(raster_output&&!raster_output->Record())return false;
+    if(downsample_output&&!downsample_output->Record())return false;
     return true;
 }
 } // namespace Vulkan
