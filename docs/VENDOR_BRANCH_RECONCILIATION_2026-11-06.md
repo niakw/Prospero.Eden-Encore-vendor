@@ -1,5 +1,18 @@
 # Vendor — revue des trois branches historiques (2026-11-06)
 
+## Mise à jour — réintégrations effectives des lots R07/R09/R10
+
+Les décisions de non-fusion en bloc ci-dessous étaient **temporaires**, prises lors de l'audit de branches historiques. Elles ont été remplacées par un portage contrôlé et un import épinglé.
+
+- **R09 neural FinalHead → ViT : repris et fusionné** dans la [PR vendor #8](https://github.com/niakw/Prospero.Eden-Encore-vendor/pull/8), commit de fusion [`380cb334`](https://github.com/niakw/Prospero.Eden-Encore-vendor/commit/380cb334a4763cb6f33d6d2c515d96a2712c43fe). Sources GPU historiques restaurées, contrat de validation stricte des formes/buffers ajouté. Branche moteur liée : [PR #27](https://github.com/niakw/ProsperoEden-Encore/pull/27) (CMake, géométrie ViT, tests C++ Clang/GCC UBSan et SPIR-V Vulkan 1.1). Le test hôte [Action #42310811334](https://github.com/niakw/ProsperoEden-Encore/actions/runs/42310811334) a réussi. Ne pas confondre le raccord de graphes natifs avec l'activation finale du modèle DLSS-NR.
+- **Overrides R07/R10 : repris et fusionnés** dans [encore-overrides PR #1](https://github.com/niakw/encore-overrides/pull/1) au commit [`95f21edf`](https://github.com/niakw/encore-overrides/commit/95f21edf13bfbd2888602f2b419dd856d6d0fbfa). Audit et tests de génération NS2 verts. Snapshot complet (et non l'ancien commit partiel `b359111`) intégré au vendor dans [PR #9](https://github.com/niakw/Prospero.Eden-Encore-vendor/pull/9), commit [`6b7bc406`](https://github.com/niakw/Prospero.Eden-Encore-vendor/commit/6b7bc4068e3cdaa0ff708a197b46dcf433445ae7), avec provenance `VENDOR-ORIGIN.json`. Import SHA-pinné et testé par [Action #42310669721](https://github.com/niakw/Prospero.Eden-Encore-vendor/actions/runs/42310669721) ; workflow privilégié éphémère supprimé après exécution.
+- **R10 chargeur HD RomFS** (`af5f16d`) : non fusionné; audit et portage distincts nécessaires (ne pas le confondre avec l'anisotropie R10).
+- Les anciens commits des trois branches restent accessibles dans l'ascendance de `main`, même si leurs refs ont été nettoyées. La sélection du vendor dans le moteur doit suivre le dernier commit fusionné; les CI P0–P4 et la validation console restent des contrôles séparés.
+
+---
+
+
+
 Ce document conserve la provenance **avant** retrait éventuel des références de branches. Il ne constitue **pas** une attestation de compilation, d'intégration fonctionnelle, ni de validation PS5. Référence canonique du suivi : [roadmap moteur #15](https://github.com/niakw/ProsperoEden-Encore/issues/15).
 
 | Branche | Commit à conserver | Écart à l'audit du 06/11 | Décision technique |
