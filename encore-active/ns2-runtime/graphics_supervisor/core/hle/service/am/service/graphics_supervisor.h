@@ -47,6 +47,7 @@ private:
     [[nodiscard]] std::optional<VideoSurface> LookupVideoSurface(u32 image_id);
     [[nodiscard]] bool WriteVideoSurface(u32 image_id, const VideoSurface& expected,
                                          std::span<const u8> pixels);
+    void InitializeVideoCodecContext(HLERequestContext& ctx);
     void OpenVideoDecoderSession(HLERequestContext& ctx);
     void OpenVideoDecoderChildSession(HLERequestContext& ctx);
     void Initialize(HLERequestContext& ctx);

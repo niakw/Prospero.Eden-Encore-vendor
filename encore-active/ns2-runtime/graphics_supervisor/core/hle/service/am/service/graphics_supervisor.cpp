@@ -746,6 +746,8 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {430, &IGraphicsSupervisor::DestroyNativeImage, "DestroyNativeImage"},
         {314, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "DestroyNativeWindowAliasImagePool"},
         {315, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "CreateNativeWindowAliasImagePool"},
+        {901, &IGraphicsSupervisor::InitializeVideoCodecContext, "InitializeVideoDecoderContext"},
+        {1001, &IGraphicsSupervisor::InitializeVideoCodecContext, "InitializeVideoCodecContext2"},
         {902, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSession"},
         {905, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSessionWithFlag"},
         {906, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSessionWithVersion"},
@@ -1324,6 +1326,28 @@ bool IGraphicsSupervisor::WriteVideoSurface(
             Common::ProcessAddress{expected.address}, pixels.data(), pixels.size())) return false;
     system.GPU().InvalidateRegion(handle->d_address + view->offset, pixels.size());
     return true;
+}
+
+// 901 and 1001 are the SDK's video codec/server-context admission calls.
+// Acknowledging these without a live GPU context and NVDRV module would
+// falsely advertise a usable decoder and cause later codec handle failures.
+// Existing 902/905/906/1002 still authenticate real child sessions, rather
+// than relying on a guessed global initialized flag shared across SDKs.
+void IGraphicsSupervisor::InitializeVideoCodecContext(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const u32 command = ctx.GetCommand();
+    Result result = Kernel::ResultInvalidCombination;
+    if ((command == 901 || command == 1001) &&
+        packet[0] == command + 0x10 && packet[1] == 0) {
+        result = Kernel::ResultInvalidState;
+        if (m_process && m_bootstrap.GpuContextReady()) {
+            const auto source = system.ServiceManager().GetService<Nvidia::NVDRV>("nvdrv:s", true);
+            const auto module = source ? source->GetModule() : nullptr;
+            if (module) result = ResultSuccess;
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
 }
 
 // 902/905/906/1002 create real child kernel sessions. No codec operation
