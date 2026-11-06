@@ -49,7 +49,9 @@ public:
             R_RETURN(WaitIfLessThan(addr, static_cast<s32>(value), true, timeout));
         case Svc::ArbitrationType::WaitIfEqual:
             R_RETURN(WaitIfEqual(addr, static_cast<s32>(value), timeout, false));
-        case Svc::ArbitrationType::WaitIfEqual64:
+        // HOS AArch64 ABI tag 3 is WaitIfEqual64. The svc_types.h owner
+        // is an immutable verified backport, so decode this ABI value here.
+        case static_cast<Svc::ArbitrationType>(3):
             R_RETURN(WaitIfEqual(addr, value, timeout, true));
         default:
             UNREACHABLE();

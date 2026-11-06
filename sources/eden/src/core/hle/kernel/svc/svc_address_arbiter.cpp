@@ -32,7 +32,7 @@ constexpr bool IsValidArbitrationType(Svc::ArbitrationType type) {
     case Svc::ArbitrationType::WaitIfLessThan:
     case Svc::ArbitrationType::DecrementAndWaitIfLessThan:
     case Svc::ArbitrationType::WaitIfEqual:
-    case Svc::ArbitrationType::WaitIfEqual64:
+    case static_cast<Svc::ArbitrationType>(3): // HOS WaitIfEqual64
         return true;
     default:
         return false;
@@ -50,7 +50,7 @@ Result WaitForAddress(Core::System& system, u64 address, ArbitrationType arb_typ
     // Validate input.
     R_UNLESS(!IsKernelAddress(address), ResultInvalidCurrentMemory);
     const size_t alignment =
-        arb_type == ArbitrationType::WaitIfEqual64 ? sizeof(s64) : sizeof(s32);
+        arb_type == static_cast<ArbitrationType>(3) ? sizeof(s64) : sizeof(s32);
     R_UNLESS(Common::IsAligned(address, alignment), ResultInvalidAddress);
     R_UNLESS(IsValidArbitrationType(arb_type), ResultInvalidEnumValue);
 
