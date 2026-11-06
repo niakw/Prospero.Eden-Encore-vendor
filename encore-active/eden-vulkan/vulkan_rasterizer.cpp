@@ -445,6 +445,15 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
         }
     }
 #endif
+    // Authenticate the final graphics pipeline AFTER descriptor preflight may
+    // have reselected it. Never dispatch mesh work without the host feature.
+    mesh_draw = pipeline->IsMeshPipeline();
+    if (mesh_draw && !device.IsExtMeshShaderSupported()) {
+        ::Eden::Performance::RecordGraphicsDrawDrop(
+            ::Eden::Performance::GraphicsDrawDrop::ConfigureRejected);
+        LOG_ERROR(Render_Vulkan, "Task/Mesh draw rejected: VK_EXT_mesh_shader unavailable");
+        return;
+    }
 #ifdef PS5_NATIVE
     // Only reserve thread-local storage here. Cache descriptors and shader
     // bindings are still read and validated under the paired cache locks.
@@ -503,6 +512,12 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
                     ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
                 return;
             }
+            if (pipeline->IsMeshPipeline()) {
+                // Native NVN draw vertex count represents task workgroups.
+                // Do not reinterpret this as a legacy vertex-index draw.
+                cmdbuf.DrawMeshTasksEXT(draw_params.num_vertices, 1, 1);
+                return;
+            }
             if (draw_params.is_indexed) {
                 cmdbuf.DrawIndexed(draw_params.num_vertices, draw_params.num_instances,
                                    draw_params.first_index, draw_params.base_vertex,
@@ -534,6 +549,15 @@ void RasterizerVulkan::DrawIndirect() {
     const auto& params = maxwell3d->draw_manager.indirect_state;
     buffer_cache.SetDrawIndirect(&params);
     PrepareDraw(params.is_indexed, [this, &params] {
+        // A native mesh indirect command has a different buffer ABI.
+        // Reject it explicitly; invoking legacy DrawIndirect would use the
+        // wrong command format and could corrupt the render stream.
+        if (mesh_draw) {
+            ::Eden::Performance::RecordGraphicsDrawDrop(
+                ::Eden::Performance::GraphicsDrawDrop::ConfigureRejected);
+            LOG_ERROR(Render_Vulkan, "Task/Mesh indirect draw unsupported");
+            return;
+        }
         const auto indirect_buffer = buffer_cache.GetDrawIndirectBuffer();
         const auto& buffer = indirect_buffer.first;
         const auto& offset = indirect_buffer.second;
