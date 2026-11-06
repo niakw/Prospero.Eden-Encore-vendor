@@ -47,7 +47,7 @@ bool NrRdna2SplitWindowLink::Initialize(
     // producer and consumer bindings.
     auto new_pool=CreateWrappedDescriptorPool(
         device,11u,2u,{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER});
-    const std::array<VkDescriptorSetLayout,2> layouts{
+    std::array<VkDescriptorSetLayout,2> layouts{
         qkv.DescriptorLayout(),attention.DescriptorLayout()};
     auto new_sets=CreateWrappedDescriptorSets(
         new_pool,vk::Span<VkDescriptorSetLayout>{layouts.data(),layouts.size()});
