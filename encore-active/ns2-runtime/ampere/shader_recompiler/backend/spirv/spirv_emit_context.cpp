@@ -714,7 +714,11 @@ void EmitContext::DefineSharedMemoryFunctions(const IR::Program& program) {
 
 void EmitContext::DefineAttributeMemAccess(const Info& info) {
     const auto make_load{[&] {
-        const bool is_array{stage == Stage::Geometry};
+        // Indexed fetch uses an explicit vertex coordinate in TCS/TES and
+        // Geometry. Keep the function signature identical to the IR caller.
+        const bool is_array{stage == Stage::Geometry ||
+                            stage == Stage::TessellationControl ||
+                            stage == Stage::TessellationEval};
         const Id end_block{OpLabel()};
         const Id default_label{OpLabel()};
 
@@ -805,13 +809,19 @@ void EmitContext::DefineAttributeMemAccess(const Info& info) {
         return func;
     }};
     const auto make_store{[&] {
+        // Tessellation control outputs are arrays indexed by the caller's
+        // actual vertex, NOT by InvocationId. The IR already passes vertex
+        // to EmitSetAttributeIndexed; use it for both full and split outputs.
+        const bool is_array{stage == Stage::TessellationControl};
         const Id end_block{OpLabel()};
         const Id default_label{OpLabel()};
 
-        const Id func_type_store{TypeFunction(void_id, U32[1], F32[1])};
+        const Id func_type_store{is_array ? TypeFunction(void_id, U32[1], F32[1], U32[1])
+                                          : TypeFunction(void_id, U32[1], F32[1])};
         const Id func{OpFunction(void_id, spv::FunctionControlMask::MaskNone, func_type_store)};
         const Id offset{OpFunctionParameter(U32[1])};
         const Id store_value{OpFunctionParameter(F32[1])};
+        const Id vertex{is_array ? OpFunctionParameter(U32[1]) : Id{}};
         AddLabel();
         const Id base_index{OpShiftRightArithmetic(U32[1], offset, Const(2U))};
         const Id masked_index{OpBitwiseAnd(U32[1], base_index, Const(3U))};
@@ -847,7 +857,9 @@ void EmitContext::DefineAttributeMemAccess(const Info& info) {
         size_t label_index{0};
         if (info.stores.AnyComponent(IR::Attribute::PositionX)) {
             AddLabel(labels[label_index]);
-            const Id pointer{OpAccessChain(output_f32, output_position, masked_index)};
+            const Id pointer{is_array
+                                 ? OpAccessChain(output_f32, output_position, vertex, masked_index)
+                                 : OpAccessChain(output_f32, output_position, masked_index)};
             OpStore(pointer, store_value);
             OpReturn();
             ++label_index;
@@ -861,15 +873,11 @@ void EmitContext::DefineAttributeMemAccess(const Info& info) {
             // Transform feedback can split the same location into several
             // scalars/vectors with distinct OpVariable IDs and Component
             // decorations; indexing one four-component vector is invalid.
-            if (elements[0].num_components != 4 &&
-                stage == Stage::TessellationControl) {
-                // TCS outputs additionally require an invocation coordinate.
-                // This two-parameter store function cannot represent it.
-                throw NotImplementedException("Indexed TCS transform feedback store");
-            }
             AddLabel(labels[label_index]);
             if (elements[0].num_components == 4) {
-                const Id pointer{OpAccessChain(output_f32, elements[0].id, masked_index)};
+                const Id pointer{is_array
+                                     ? OpAccessChain(output_f32, elements[0].id, vertex, masked_index)
+                                     : OpAccessChain(output_f32, elements[0].id, masked_index)};
                 OpStore(pointer, store_value);
                 OpReturn();
             } else {
@@ -895,7 +903,9 @@ void EmitContext::DefineAttributeMemAccess(const Info& info) {
                     AddLabel(component_labels[component]);
                     const auto& output{elements[component]};
                     const Id local_component{Const(component - output.first_element)};
-                    const Id pointer{OpAccessChain(output_f32, output.id, local_component)};
+                    const Id pointer{is_array
+                                         ? OpAccessChain(output_f32, output.id, vertex, local_component)
+                                         : OpAccessChain(output_f32, output.id, local_component)};
                     OpStore(pointer, store_value);
                     OpReturn();
                 }
@@ -907,7 +917,9 @@ void EmitContext::DefineAttributeMemAccess(const Info& info) {
         if (info.stores.ClipDistances()) {
             if (profile.max_user_clip_distances >= 4) {
                 AddLabel(labels[label_index]);
-                const Id pointer{OpAccessChain(output_f32, clip_distances, masked_index)};
+                const Id pointer{is_array
+                                     ? OpAccessChain(output_f32, clip_distances, vertex, masked_index)
+                                     : OpAccessChain(output_f32, clip_distances, masked_index)};
                 OpStore(pointer, store_value);
                 OpReturn();
                 ++label_index;
@@ -915,7 +927,9 @@ void EmitContext::DefineAttributeMemAccess(const Info& info) {
             if (profile.max_user_clip_distances >= 8) {
                 AddLabel(labels[label_index]);
                 const Id fixed_index{OpIAdd(U32[1], masked_index, Const(4U))};
-                const Id pointer{OpAccessChain(output_f32, clip_distances, fixed_index)};
+                const Id pointer{is_array
+                                     ? OpAccessChain(output_f32, clip_distances, vertex, fixed_index)
+                                     : OpAccessChain(output_f32, clip_distances, fixed_index)};
                 OpStore(pointer, store_value);
                 OpReturn();
                 ++label_index;

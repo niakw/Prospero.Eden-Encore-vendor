@@ -560,8 +560,12 @@ Id EmitGetAttributeIndexed(EmitContext& ctx, Id offset, Id vertex) {
     }
 }
 
-void EmitSetAttributeIndexed(EmitContext& ctx, Id offset, Id value, [[maybe_unused]] Id vertex) {
-    ctx.OpFunctionCall(ctx.void_id, ctx.indexed_store_func, offset, value);
+void EmitSetAttributeIndexed(EmitContext& ctx, Id offset, Id value, Id vertex) {
+    if (ctx.stage == Stage::TessellationControl) {
+        ctx.OpFunctionCall(ctx.void_id, ctx.indexed_store_func, offset, value, vertex);
+    } else {
+        ctx.OpFunctionCall(ctx.void_id, ctx.indexed_store_func, offset, value);
+    }
 }
 
 Id EmitGetPatch(EmitContext& ctx, IR::Patch patch) {
