@@ -108,6 +108,11 @@ void ConvertDepth(EmitContext& ctx, Id vertex) {
 }
 
 void TaskEpilogue(EmitContext& ctx) {
+    // The mesh-group count is at payload word 1. A shorter task payload
+    // cannot supply a valid count and must not alias word 0 via Clamped().
+    if (ctx.mesh_info.payload_words < 2) {
+        throw NotImplementedException("Task shader payload missing mesh-group count");
+    }
     Barrier(ctx);
     const Id count{ctx.OpLoad(ctx.U32[1], PayloadWord(ctx, ctx.Const(1U)))};
     const Id one{ctx.Const(1U)};
@@ -119,6 +124,12 @@ void TaskEpilogue(EmitContext& ctx) {
 
 void MeshEpilogue(EmitContext& ctx) {
     const MeshInfo& mesh{ctx.mesh_info};
+    // Zero thread count would make both per-vertex and per-primitive loops
+    // below non-terminating during host shader compilation.
+    const u32 threads{ctx.mesh_threads};
+    if (threads == 0) {
+        throw NotImplementedException("Mesh shader has zero workgroup threads");
+    }
     Barrier(ctx);
     const Id count{ctx.OpUMin(ctx.U32[1], ctx.OpLoad(ctx.U32[1], ctx.mesh_primitive_count),
                               ctx.Const(mesh.max_primitives))};
@@ -128,7 +139,6 @@ void MeshEpilogue(EmitContext& ctx) {
     ctx.mesh_outputs_marker = {max_vertices, count};
 
     const Id invocation{LocalInvocation(ctx)};
-    const u32 threads{ctx.mesh_threads};
     const bool convert_depth{ctx.runtime_info.convert_depth_mode && !ctx.profile.support_native_ndc &&
                              Sirit::ValidId(ctx.output_position)};
     const u32 vertex_lines{static_cast<u32>(mesh.vertex_lines.size())};
@@ -174,6 +184,9 @@ Id EmitIsbeRead(EmitContext& ctx, Id address) {
     if (ctx.stage == Stage::Task) {
         return workgroup; // the input region holds the workgroup index (VERTEX_ID)
     }
+    if (ctx.mesh_info.payload_words == 0) {
+        throw NotImplementedException("Mesh shader has no task payload words");
+    }
     const Id index{ctx.OpShiftRightLogical(ctx.U32[1], address, ctx.Const(2U))};
     const Id word{ctx.OpLoad(ctx.U32[1], PayloadWord(ctx, index))};
     return ctx.OpSelect(ctx.U32[1], ctx.OpIEqual(ctx.U1, address, ctx.u32_zero_value), workgroup,
@@ -182,20 +195,28 @@ Id EmitIsbeRead(EmitContext& ctx, Id address) {
 
 void EmitIsbeWriteAttribute(EmitContext& ctx, Id address, Id value) {
     const Id index{ctx.OpShiftRightLogical(ctx.U32[1], address, ctx.Const(2U))};
+    // An out-of-range guest write must not be clamped onto the final valid
+    // payload/attribute word. That would silently corrupt a different output.
     if (ctx.stage == Stage::Task) {
-        ctx.OpStore(PayloadWord(ctx, index), value);
+        If(ctx, ctx.OpULessThan(ctx.U1, index, ctx.Const(ctx.mesh_info.payload_words)), [&] {
+            ctx.OpStore(ctx.OpAccessChain(ctx.mesh_payload_u32, ctx.mesh_payload, index), value);
+        });
         return;
     }
-    ctx.OpStore(SharedWord(ctx, ctx.mesh_attributes, Clamped(ctx, index, ctx.mesh_attribute_words)),
-                value);
+    If(ctx, ctx.OpULessThan(ctx.U1, index, ctx.Const(ctx.mesh_attribute_words)), [&] {
+        ctx.OpStore(SharedWord(ctx, ctx.mesh_attributes, index), value);
+    });
 }
 
 void EmitIsbeWriteMapU8(EmitContext& ctx, Id address, Id value) {
     if (ctx.stage != Stage::Mesh) {
         throw NotImplementedException("Stage buffer map write outside mesh programs");
     }
-    ctx.OpStore(SharedWord(ctx, ctx.mesh_map, Clamped(ctx, address, ctx.mesh_map_bytes)),
-                ctx.OpBitwiseAnd(ctx.U32[1], value, ctx.Const(0xffU)));
+    // Never alias an out-of-bounds primitive-index byte to the last map byte.
+    If(ctx, ctx.OpULessThan(ctx.U1, address, ctx.Const(ctx.mesh_map_bytes)), [&] {
+        ctx.OpStore(SharedWord(ctx, ctx.mesh_map, address),
+                    ctx.OpBitwiseAnd(ctx.U32[1], value, ctx.Const(0xffU)));
+    });
 }
 
 void EmitIsbeWriteMapU32(EmitContext& ctx, const IR::Value& address, Id value) {
