@@ -1,0 +1,80 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Portable scalar RDNA2 realization of the MIT DLSSNR-AMD
+// decoder_upsample.comp primitive (nearest 2x + rounded FP16 skip/gain
+// + E4M3FN output). No FP8 or cooperative matrix Vulkan extensions.
+// Deliberately fixed to 512 channels and complete, 8-padded 2x grids.
+layout(local_size_x=64, local_size_y=1, local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Projected {uint words[];} projection;
+layout(set=0,binding=1,std430) buffer Activations {uint words[];} activations;
+layout(set=0,binding=2,std430) readonly buffer Gains {uint words[];} gains;
+layout(push_constant) uniform Params {
+    uint src_base_bytes;
+    uint skip_base_bytes;
+    uint dst_base_bytes;
+    uint gain_base_bytes;
+    uint input_width;
+    uint output_width;
+    uint output_height;
+} pc;
+
+uint token(uint x,uint y,uint w) {
+    return ((y/4u)*(w/4u)+x/4u)*16u+(y%4u)*4u+x%4u;
+}
+uint at(uint t,uint c) {
+    return ((t/16u)*32u+c/16u)*256u+(t%16u)*16u+c%16u;
+}
+float unpack_e4m3fn(uint v) {
+    uint e=(v>>3u)&15u, m=v&7u;
+    float s=(v&128u)!=0u?-1.0:1.0;
+    if(e==15u && m==7u) return uintBitsToFloat(0x7fc00000u);
+    if(e==0u) return s*float(m)*exp2(-9.0);
+    return s*float(8u+m)*exp2(float(int(e)-10));
+}
+float as_half(float v) {
+    return unpackHalf2x16(packHalf2x16(vec2(v,0.0))).x;
+}
+float read_half(uint packed,uint byte_offset) {
+    vec2 both=unpackHalf2x16(packed);
+    return (byte_offset&2u)==0u?both.x:both.y;
+}
+uint quant_e4m3fn(float v) {
+    uint sign=(floatBitsToUint(v)>>24u)&128u;
+    if(isnan(v)) return sign|127u;
+    float a=min(abs(v),448.0);
+    if(a<0.015625) {
+        uint q=uint(roundEven(a*512.0));
+        if(q>=8u) return sign|8u;
+        return sign|q;
+    }
+    int e=int(floor(log2(a)));
+    uint m=uint(roundEven((a/exp2(float(e))-1.0)*8.0));
+    if(m==8u){++e;m=0u;}
+    uint exponent=uint(e+7);
+    if(exponent>15u || (exponent==15u && m>6u))return sign|126u;
+    return sign|(exponent<<3u)|m;
+}
+void main() {
+    uint pixel=gl_GlobalInvocationID.x;
+    uint count=pc.output_width*pc.output_height;
+    if(pixel>=count)return;
+    uint x=pixel%pc.output_width, y=pixel/pc.output_width;
+    uint c=gl_WorkGroupID.y*4u;
+    uint t=token(x,y,pc.output_width);
+    uint it=token(x/2u,y/2u,pc.input_width);
+    uint skip_index=(pc.skip_base_bytes+at(t,c))/4u;
+    uint packed_skip=activations.words[skip_index];
+    uint output_word=0u;
+    for(uint j=0u;j<4u;++j) {
+        uint channel=c+j;
+        uint sp=(packed_skip>>(j*8u))&255u;
+        uint pbyte=pc.src_base_bytes+(it*512u+channel)*2u;
+        uint gbyte=pc.gain_base_bytes+channel*2u;
+        float p=read_half(projection.words[pbyte/4u],pbyte);
+        float gain=read_half(gains.words[gbyte/4u],gbyte);
+        float residual=as_half(unpack_e4m3fn(sp)*gain);
+        float value=as_half(p+residual);
+        output_word|=quant_e4m3fn(value)<<(j*8u);
+    }
+    activations.words[(pc.dst_base_bytes+at(t,c))/4u]=output_word;
+}
