@@ -16,6 +16,7 @@
 #include "common/common_types.h"
 #include "shader_recompiler/frontend/ampere/instruction.h"
 #include "shader_recompiler/frontend/ampere/native_indirect_branch_plan.h"
+#include "shader_recompiler/frontend/ampere/native_stage_buffer.h"
 #include "shader_recompiler/frontend/ampere/register_pressure.h"
 
 namespace Shader::Ampere {
@@ -2045,10 +2046,14 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 return fail(index, "native CSMTEST requires unmodeled shading-mode predicate state");
             break;
         }
-        case 0x927: // ISBEWR stores into the task/mesh stage buffer, not a Maxwell attribute.
-            // Lowering a register write here would silently lose mesh geometry.
-            // Only the full IR/TaskPayload/SPIR-V/Vulkan stage path can admit it.
+        case 0x927: { // ISBEWR stores into the Task/Mesh stage buffer, not a Maxwell attribute.
+            // Validate the real operands here, but do not turn them into a no-op or a
+            // general Maxwell store: both would silently discard guest geometry.
+            const auto access = DecodeNativeStageBufferAccess(insn);
+            if (!access)
+                return fail(index, "native ISBEWR invalid stage-buffer encoding");
             return fail(index, "native ISBEWR requires task/mesh stage-buffer pipeline");
+        }
         case 0x923: // ISBERD map read: geometry vertex index to attribute handle. Eden's ALD takes the
                     // index itself (Maxwell ISBERD in this mode is a copy), so this is a move.
             if (insn.Bits(32, 32) || insn.words[2] || insn.Bits(24, 8) == 255)
