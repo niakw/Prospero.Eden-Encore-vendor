@@ -4,6 +4,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_split_residual_projection.h"
 #include "video_core/renderer_vulkan/nr_rdna2_split_window_link.h"
 #include "video_core/renderer_vulkan/nr_rdna2_split_context_repack.h"
+#include "video_core/renderer_vulkan/nr_rdna2_fswin_window_repack.h"
 #include "video_core/renderer_vulkan/nr_rdna2_split_projection_pool.h"
 #include "video_core/renderer_vulkan/nr_rdna2_split_final_head.h"
 #include "video_core/renderer_vulkan/present/util.h"
@@ -19,39 +20,28 @@ namespace NR=Eden::Graphics::NeuralRDNA2;
 namespace {
 [[nodiscard]] bool ValidResources(
     const NrRdna2SplitSwinBlockBuffers& b,VkDeviceSize limit,
-    bool has_pooled_projection,bool has_final_head){
-    const std::array<VkDescriptorBufferInfo,10> all{
+    bool has_pooled_projection,bool has_final_head,bool needs_shift){
+    std::array<VkDescriptorBufferInfo,15> used{};
+    std::size_t count=0u;
+    const auto add=[&](const VkDescriptorBufferInfo& resource){
+        if(!resource.buffer||resource.offset||!resource.range||
+           resource.range==VK_WHOLE_SIZE||resource.range>limit||
+           count>=used.size())return false;
+        for(std::size_t i=0u;i<count;++i)
+            if(used[i].buffer==resource.buffer)return false;
+        used[count++]=resource;
+        return true;
+    };
+    const std::array<VkDescriptorBufferInfo,10> base{
         b.input,b.ffwd,b.ffwd_projected,b.context_heads,b.context_tokens,
         b.projected,b.query,b.key,b.value,b.fp32_scratch};
-    for(std::size_t i=0u;i<all.size();++i){
-        const auto& a=all[i];
-        if(!a.buffer||a.offset||!a.range||
-           a.range==VK_WHOLE_SIZE||a.range>limit)return false;
-        // Scratch is reused sequentially by two projections, not aliased.
-        for(std::size_t j=0u;j<i;++j)
-            if(a.buffer==all[j].buffer)return false;
-    }
-    if(has_pooled_projection){
-        const auto& pooled=b.pooled;
-        if(!pooled.buffer||pooled.offset||!pooled.range||
-           pooled.range==VK_WHOLE_SIZE||pooled.range>limit)return false;
-        for(const auto& used:all)
-            if(used.buffer==pooled.buffer)return false;
-    }
-    if(has_final_head){
-        if(!has_pooled_projection)return false;
-        const std::array<VkDescriptorBufferInfo,2> final{
-            b.final_fp32,b.final_output};
-        for(std::size_t i=0u;i<final.size();++i){
-            const auto& item=final[i];
-            if(!item.buffer||item.offset||!item.range||
-               item.range==VK_WHOLE_SIZE||item.range>limit||
-               item.buffer==b.pooled.buffer)return false;
-            for(const auto& used:all)
-                if(used.buffer==item.buffer)return false;
-            if(i&&item.buffer==final[0].buffer)return false;
-        }
-    }
+    for(const auto& resource:base)if(!add(resource))return false;
+    if(needs_shift&&
+       (!add(b.shifted_input)||!add(b.unshifted_context)))return false;
+    if(has_pooled_projection&&!add(b.pooled))return false;
+    if(has_final_head&&
+       (!has_pooled_projection||
+        !add(b.final_fp32)||!add(b.final_output)))return false;
     return true;
 }
 NR::SplitBlockCapacity Capacities(
@@ -59,7 +49,8 @@ NR::SplitBlockCapacity Capacities(
     return {b.input.range,b.ffwd.range,b.ffwd_projected.range,
             b.context_heads.range,b.context_tokens.range,b.projected.range,
             b.query.range,b.key.range,b.value.range,b.fp32_scratch.range,
-            b.pooled.range,b.final_fp32.range,b.final_output.range};
+            b.pooled.range,b.final_fp32.range,b.final_output.range,
+            b.shifted_input.range,b.unshifted_context.range};
 }
 }
 struct NrRdna2SplitSwinBlock::State {
@@ -67,6 +58,12 @@ struct NrRdna2SplitSwinBlock::State {
     NrRdna2SplitResidualProjection ffwd_proj;
     NrRdna2SplitWindowLink attention;
     NrRdna2SplitContextRepack transpose;
+    NrRdna2FSwinWindowRepack shift;
+    vk::DescriptorPool shift_pool;
+    vk::DescriptorSets shift_sets;
+    NR::FSwinWindowRepack shift_forward{},shift_reverse{};
+    NR::FSwinWindowRepackStorage shift_forward_storage{},shift_reverse_storage{};
+    bool has_shift{};
     NrRdna2SplitResidualProjection proj;
     NrRdna2SplitProjectionPool pool_stage;
     NrRdna2SplitFinalHead final_head;
@@ -82,7 +79,7 @@ struct NrRdna2SplitSwinBlock::State {
     VkDescriptorBufferInfo transpose_input{},transpose_output{};
     State(const Device& d,MemoryAllocator& a,Scheduler& s)
       :ffwd{d,a,s},ffwd_proj{d,a,s},attention{d,s},
-       transpose{d,s},proj{d,a,s},pool_stage{d,s},
+       transpose{d,s},shift{d,s},proj{d,a,s},pool_stage{d,s},
        final_head{d,a,s}{}
 };
 NrRdna2SplitSwinBlock::NrRdna2SplitSwinBlock(
@@ -93,10 +90,12 @@ bool NrRdna2SplitSwinBlock::InitializeWithModel(
     const NR::NeuralModelFile& model,std::uint32_t block,
     const NR::SplitBlockPlan& plan,
     const NrRdna2SplitSwinBlockBuffers& b){
+    const bool need_shift=plan.attention_shift_x!=0||
+                          plan.attention_shift_y!=0;
     if(state||!model.IsOpen()||!ValidResources(
            b,device.GetMaxStorageBufferRange(),
            plan.has_pooled_projection,
-           plan.final_head_tokens!=0u)||
+           plan.final_head_tokens!=0u,need_shift)||
        !NR::CanSplitBlock(plan,Capacities(b)))return false;
     // A pooled projection must produce its second, independent tensor,
     // including padded zero columns/rows and downstream tail tokens.
@@ -112,12 +111,61 @@ bool NrRdna2SplitSwinBlock::InitializeWithModel(
     if(!next->ffwd_proj.InitializeWithModel(
            model,layer(1u),tokens,b.ffwd,b.input,
            b.fp32_scratch,b.ffwd_projected))return false;
+    if(need_shift){
+        // Native QKV carries a signed shift in 4x4 tile units; the QKV
+        // shader itself consumes plain windows. Repack before QKV and
+        // reverse only AFTER the head->token context transposition.
+        next->shift_forward={
+            plan.window_grid_x,plan.window_grid_y,512u,0,0,
+            plan.attention_shift_x,plan.attention_shift_y};
+        next->shift_reverse={
+            plan.window_grid_x,plan.window_grid_y,512u,
+            plan.attention_shift_x,plan.attention_shift_y,0,0};
+        next->shift_forward_storage={
+            b.ffwd_projected.range,b.shifted_input.range};
+        next->shift_reverse_storage={
+            b.context_tokens.range,b.unshifted_context.range};
+        if(!NR::CanFSwinWindowRepack(next->shift_forward,
+                                    next->shift_forward_storage)||
+           !NR::CanFSwinWindowRepack(next->shift_reverse,
+                                    next->shift_reverse_storage))
+            return false;
+        auto shift_pool=CreateWrappedDescriptorPool(
+            device,4u,2u,{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER});
+        std::array<VkDescriptorSetLayout,2> shift_layouts{
+            next->shift.DescriptorLayout(),next->shift.DescriptorLayout()};
+        auto shift_sets=CreateWrappedDescriptorSets(
+            shift_pool,vk::Span<VkDescriptorSetLayout>{
+                shift_layouts.data(),shift_layouts.size()});
+        if(shift_sets.IsOutOfPoolMemory()||shift_sets.size()!=2u)
+            return false;
+        const std::array<VkDescriptorBufferInfo,4> shift_infos{
+            b.ffwd_projected,b.shifted_input,
+            b.context_tokens,b.unshifted_context};
+        std::array<VkWriteDescriptorSet,4> shift_writes{};
+        for(std::uint32_t i=0u;i<4u;++i){
+            shift_writes[i]=VkWriteDescriptorSet{
+                .sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .pNext=nullptr,.dstSet=shift_sets[i/2u],
+                .dstBinding=i%2u,.dstArrayElement=0u,
+                .descriptorCount=1u,
+                .descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pImageInfo=nullptr,.pBufferInfo=&shift_infos[i],
+                .pTexelBufferView=nullptr};
+        }
+        device.GetLogical().UpdateDescriptorSets(
+            vk::Span<VkWriteDescriptorSet>{
+                shift_writes.data(),shift_writes.size()},{});
+        next->shift_pool=std::move(shift_pool);
+        next->shift_sets=std::move(shift_sets);
+        next->has_shift=true;
+    }
     const NR::SplitWindowLink window{
         {0u,0u,0u,0u,0u,0u,plan.windows,16u},
         {0u,0u,0u,0u,0u,plan.windows,16u}};
     const NrRdna2SplitWindowBuffers wb{
-        b.ffwd_projected,{},{},b.query,b.key,b.value,
-        b.context_heads,{}};
+        need_shift?b.shifted_input:b.ffwd_projected,
+        {},{},b.query,b.key,b.value,b.context_heads,{}};
     if(!next->attention.InitializeWithModel(
            window,model,layer(2u),allocator,wb))return false;
     next->transpose_shape={plan.windows,16u,0u,0u};
@@ -147,8 +195,9 @@ bool NrRdna2SplitSwinBlock::InitializeWithModel(
     next->pool=std::move(pool);
     next->sets=std::move(sets);
     if(!next->proj.InitializeWithModel(
-           model,layer(3u),tokens,b.context_tokens,b.ffwd_projected,
-           b.fp32_scratch,b.projected))return false;
+           model,layer(3u),tokens,
+           need_shift?b.unshifted_context:b.context_tokens,
+           b.ffwd_projected,b.fp32_scratch,b.projected))return false;
     if(plan.has_pooled_projection){
         // The main projection's GEMM scratch is still live. The secondary
         // output must be computed from its unquantized half residual, NOT
@@ -208,12 +257,25 @@ bool NrRdna2SplitSwinBlock::Record(){
           state->transpose_shape,
           {state->transpose_input.range,
            state->transpose_output.range}))return false;
+    if(state->has_shift&&
+       (state->shift_sets.size()!=2u||
+        !NR::CanFSwinWindowRepack(
+            state->shift_forward,state->shift_forward_storage)||
+        !NR::CanFSwinWindowRepack(
+            state->shift_reverse,state->shift_reverse_storage)))
+        return false;
     if(!state->ffwd.Record())return false;
     if(!state->ffwd_proj.Record())return false;
+    if(state->has_shift&&!state->shift.Record(
+          state->shift_sets[0],state->shift_forward,
+          state->shift_forward_storage))return false;
     if(!state->attention.Record())return false;
     if(!state->transpose.Record(
           state->sets[0],state->transpose_input,
           state->transpose_output,state->transpose_shape))return false;
+    if(state->has_shift&&!state->shift.Record(
+          state->shift_sets[1],state->shift_reverse,
+          state->shift_reverse_storage))return false;
     if(!state->proj.Record())return false;
     if(!state->has_pool)return true;
     if(state->pooled_sets.size()!=1u||!NR::CanSplitProjectionPool(

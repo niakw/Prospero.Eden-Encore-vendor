@@ -18,6 +18,8 @@ struct NrRdna2SplitSwinBlockBuffers {
     VkDescriptorBufferInfo query{},key{},value{},fp32_scratch{};
     VkDescriptorBufferInfo pooled{}; // mandatory only for ProjPool
     VkDescriptorBufferInfo final_fp32{},final_output{}; // optional layer4
+    // Required only when QKV window shift != (0,0).
+    VkDescriptorBufferInfo shifted_input{},unshifted_context{};
 };
 class NrRdna2SplitSwinBlock final {
 public:
