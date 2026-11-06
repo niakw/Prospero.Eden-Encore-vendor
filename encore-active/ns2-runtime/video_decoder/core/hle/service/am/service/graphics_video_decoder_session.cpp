@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -14,6 +15,7 @@
 #include <utility>
 
 #include "core/core.h"
+#include "core/core_timing.h"
 #include "core/hle/kernel/k_event.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/k_readable_event.h"
@@ -65,6 +67,10 @@ IGraphicsVideoDecoderSession::IGraphicsVideoDecoderSession(
 }
 
 IGraphicsVideoDecoderSession::~IGraphicsVideoDecoderSession() {
+    // CoreTiming may execute off-thread. Detach before unscheduling, then
+    // close the event: the callback owns only shared ready-state, never this.
+    m_ready->Detach();
+    if (m_ready_timer) system.CoreTiming().UnscheduleEvent(m_ready_timer);
     std::shared_ptr<Nvidia::Module> module;
     {
         const std::scoped_lock lock{m_owner->m_native_memory_mutex};
@@ -165,7 +171,8 @@ void IGraphicsVideoDecoderSession::Start(HLERequestContext& ctx) {
         return;
     }
     m_started = true;
-    if (m_event) m_event->Signal(system.Kernel());
+    m_ready->Set(true, m_pending.size() < MaxFrames);
+    m_ready->Notify();
     Acknowledge(ctx, ResultSuccess);
 }
 
@@ -177,6 +184,8 @@ void IGraphicsVideoDecoderSession::Stop(HLERequestContext& ctx) {
     m_pending.clear();
     if (m_decoder) m_decoder->Reset();
     if (ctx.GetCommand() == 207) m_started = false;
+    m_ready->Set(m_started, m_pending.size() < MaxFrames);
+    if (!m_started && m_event) m_event->Clear(system.Kernel());
     // No fake fence completion: buffered output without a decoded image
     // cannot become a successful GPU presentation on Flush or Stop.
     Acknowledge(ctx, ResultSuccess);
@@ -188,6 +197,8 @@ void IGraphicsVideoDecoderSession::Finalize(HLERequestContext& ctx) {
         return;
     }
     m_started = false;
+    m_ready->Set(false, false);
+    if (m_event) m_event->Clear(system.Kernel());
     m_pending.clear();
     m_decoder.reset();
     m_work_buffer.Reset(nullptr);
@@ -201,13 +212,33 @@ void IGraphicsVideoDecoderSession::GetEvent(HLERequestContext& ctx) {
         rb.Push(Kernel::ResultInvalidState.raw);
         return;
     }
-    if (!m_event) m_event = m_context.CreateEvent("NS2VideoInputReady");
+    if (!m_event) {
+        m_event = m_context.CreateEvent("NS2VideoInputReady");
+        if (m_event) {
+            auto* event = m_event;
+            m_ready->Attach([event, &kernel = system.Kernel()] {
+                event->Signal(kernel);
+            });
+            // The guest uses an auto-clearing wait handle: a second wait
+            // must be satisfied while there is still input ring capacity.
+            m_ready_timer = Core::Timing::CreateEvent(
+                "NS2VideoInputReadyPulse",
+                [ready = m_ready](s64, std::chrono::nanoseconds)
+                    -> std::optional<std::chrono::nanoseconds> {
+                    ready->Notify();
+                    return std::nullopt;
+                });
+            constexpr auto Interval = std::chrono::milliseconds{4};
+            system.CoreTiming().ScheduleLoopingEvent(Interval, Interval, m_ready_timer);
+        }
+    }
     if (!m_event) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(Kernel::ResultOutOfResource.raw);
         return;
     }
-    if (m_started && m_pending.size() < MaxFrames) m_event->Signal(system.Kernel());
+    m_ready->Set(m_started, m_pending.size() < MaxFrames);
+    m_ready->Notify();
     IPC::ResponseBuilder rb{ctx, 2, 1, 0};
     rb.Push(ResultSuccess);
     rb.PushCopyObjects(ctx, m_event->GetReadableEvent());
@@ -362,7 +393,8 @@ void IGraphicsVideoDecoderSession::Pump() {
         m_pending.pop_front();
         syncpoints.IncrementGuest(m_syncpoint); // Only after real guest buffer was written.
     }
-    if (m_event && m_pending.size() < MaxFrames) m_event->Signal(system.Kernel());
+    m_ready->SetRoom(m_pending.size() < MaxFrames);
+    m_ready->Notify();
 }
 
 void IGraphicsVideoDecoderSession::SubmitInput(HLERequestContext& ctx) {
@@ -423,8 +455,8 @@ void IGraphicsVideoDecoderSession::SubmitInput(HLERequestContext& ctx) {
     for (std::size_t i = 0; i < decoded.size(); ++i)
         m_pending.push_back({std::move(decoded[i]), eos && i + 1 == decoded.size()});
     Pump();
-    if (m_event && m_pending.size() < MaxFrames)
-        m_event->Signal(system.Kernel());
+    m_ready->SetRoom(m_pending.size() < MaxFrames);
+    m_ready->Notify();
     ++m_submitted;
     IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(ResultSuccess);
