@@ -113,17 +113,21 @@ struct NativeVideoImageLayout {
     u32 row_bytes{};
     bool nv12{};
     u32 chroma_offset{};
+    u32 cpu_kind{}; // nn::gsv::CpuUserImageDescriptor: 8 RGBA, 9 BGRA, 10 NV12
 };
 inline std::optional<NativeVideoImageLayout> CalculateNativeVideoImageLayout(
     std::span<const u32> preference, u32 count) {
     if (preference.size() != 16 || !count || count > 1024 ||
-        preference[0] != 0 || (preference[1] != 1 && preference[1] != 5) ||
+        preference[0] != 0 || preference[1] < 1 || preference[1] > 6 ||
         std::any_of(preference.begin() + 3, preference.end(),
                     [](u32 word) { return word != 0; }))
         return {};
     const u64 width = (preference[2] & 0xffffU) + 1;
     const u64 height = (preference[2] >> 16) + 1;
-    if (preference[1] == 1) {
+    const bool nv12 = preference[1] == 1 || preference[1] == 4;
+    const u32 cpu_kind = nv12 ? 10U :
+                         (preference[1] == 2 || preference[1] == 5) ? 9U : 8U;
+    if (nv12) {
         if (width < 2 || height < 2 || ((width | height) & 1)) return {};
         const u64 pitch = (width + 255) & ~u64{255};
         const u64 chroma_offset = pitch * ((height + 3) & ~u64{3});
@@ -134,7 +138,7 @@ inline std::optional<NativeVideoImageLayout> CalculateNativeVideoImageLayout(
             return {};
         return NativeVideoImageLayout{bytes * count, static_cast<u32>(bytes),
             static_cast<u32>(bytes), static_cast<u32>(pitch), true,
-            static_cast<u32>(chroma_offset)};
+            static_cast<u32>(chroma_offset), cpu_kind};
     }
     const u64 pitch = ((width + 15) & ~u64{15}) * 4;
     const u64 bytes = std::max(u64{4096}, pitch * ((height + 127) & ~u64{127}));
@@ -145,7 +149,7 @@ inline std::optional<NativeVideoImageLayout> CalculateNativeVideoImageLayout(
         return {};
     return NativeVideoImageLayout{stride * (count - 1) + bytes,
         static_cast<u32>(bytes), static_cast<u32>(stride),
-        static_cast<u32>(pitch), false, 0};
+        static_cast<u32>(pitch), false, 0, cpu_kind};
 }
 struct NativeVideoPoolRecord {
     u32 first_id{};
@@ -166,6 +170,8 @@ public:
     [[nodiscard]] bool Add(u32 first, u32 count, u32 backing, u64 backing_size,
                            u32 dimensions, NativeVideoImageLayout layout) {
         if (!first || !count || count > MaxImages || !backing ||
+            (layout.cpu_kind != 8 && layout.cpu_kind != 9 &&
+             layout.cpu_kind != 10) || layout.nv12 != (layout.cpu_kind == 10) ||
             !layout.image_bytes || !layout.image_stride ||
             layout.image_stride < layout.image_bytes ||
             ((layout.image_bytes | layout.image_stride) & 0xfffU) != 0 ||
@@ -209,7 +215,7 @@ public:
             if (!pool.layout.row_bytes || offset > std::numeric_limits<u32>::max())
                 return {};
             std::array<u32, 32> words{};
-            words[0] = pool.layout.nv12 ? 0xau : 0x9u; // NV12 / BGRA pitch-linear
+            words[0] = pool.layout.cpu_kind; // RGBA/BGRA/NV12 pitch-linear
             words[2] = static_cast<u32>(offset);      // Plane 0 offset (+0x8)
             words[4] = pool.layout.row_bytes;          // Plane 0 pitch  (+0x10)
             if (pool.layout.nv12) {
