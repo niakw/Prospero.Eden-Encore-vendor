@@ -5,6 +5,7 @@
 #pragma once
 #include "video_core/renderer_vulkan/nr_rdna2_weight_arena.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_qkv_layout.h"
+#include "video_core/renderer_vulkan/nr_rdna2_e4m3_requantize.h"
 #include "video_core/renderer_vulkan/nr_rdna2_weight_decode.h"
 #include <bit>
 #include <cmath>
@@ -39,21 +40,28 @@ struct FSwinLayerWeightRanges {
     const auto file=[&](const char* suffix) {
         return base+suffix;
     };
-    if(!staged.AppendModelMatrix(model,file(".mlp_expand.bin"),
-                                 4u*C,C,layer.expand))return false;
-    if(heads>1u&&!staged.AppendModelMatrix(model,file(".mlp_mid.bin"),
-                                          C,128u,layer.middle))return false;
+    const auto matrix=[&](const char* suffix,std::uint32_t rows,
+                          std::uint32_t columns,NeuralWeightRange& range){
+        std::vector<std::uint8_t> values;
+        if(!model.LoadModelMatrix(file(suffix),rows,columns,values))
+            return false;
+        RequantizeE4M3(values);
+        return staged.AppendBytes(file(suffix),values,range);
+    };
+    if(!matrix(".mlp_expand.bin",4u*C,C,layer.expand))return false;
+    if(heads>1u&&!matrix(".mlp_mid.bin",C,128u,layer.middle))return false;
     const auto contract_inputs=heads>1u?C:4u*C;
-    if(!staged.AppendModelMatrix(model,file(".mlp_contract.bin"),
-                                 C,contract_inputs,layer.contract))return false;
+    if(!matrix(".mlp_contract.bin",C,contract_inputs,layer.contract))
+        return false;
     // Model matrix order is [Q all C rows][K all C][V all C].
     // The portable shader expects [head][Q32][K32][V32] rows.
     std::vector<std::uint8_t> qkv_raw,qkv_heads;
-    if(!model.LoadModelMatrix(file(".qkv.bin"),3u*C,C,qkv_raw)||
-       !ReorderFSwinQkvRowMajor(qkv_raw,C,qkv_heads)||
+    if(!model.LoadModelMatrix(file(".qkv.bin"),3u*C,C,qkv_raw))
+        return false;
+    RequantizeE4M3(qkv_raw);
+    if(!ReorderFSwinQkvRowMajor(qkv_raw,C,qkv_heads)||
        !staged.AppendBytes(file(".qkv.bin"),qkv_heads,layer.qkv))return false;
-    if(!staged.AppendModelMatrix(model,file(".attn_out_proj.bin"),
-                                 C,C,layer.projection))return false;
+    if(!matrix(".attn_out_proj.bin",C,C,layer.projection))return false;
 
     const auto half_param=[&](const char* suffix,std::vector<float>& values){
         std::vector<std::uint8_t> bytes;
