@@ -22,6 +22,10 @@ public:
     [[nodiscard]] bool Initialize(
         const Eden::Graphics::NeuralRDNA2::FSwinGraph& plan);
     [[nodiscard]] bool UploadInput(std::span<const std::uint8_t> fp8_tokens);
+    [[nodiscard]] VkBuffer InputBuffer() const noexcept{return Info(0).buffer;}
+    [[nodiscard]] VkBuffer OutputBuffer() const noexcept{return Info(8).buffer;}
+    [[nodiscard]] VkDeviceSize InputSize() const noexcept{return Info(0).range;}
+    [[nodiscard]] VkDeviceSize OutputSize() const noexcept{return Info(8).range;}
     [[nodiscard]] FSwinGraphBuffers Views(
         VkDescriptorBufferInfo weight_buffer) const noexcept;
 private:

@@ -33,11 +33,15 @@ public:
     // Caller must ensure prior GPU uses of input have finished.
     [[nodiscard]] bool UploadInput(
         std::span<const std::uint8_t> e4m3_window_tokens);
+    // GPU-to-GPU copy from the immediately preceding FSwin layer.
+    // Both runtimes must share one scheduler, width, channels and layout.
+    [[nodiscard]] bool LinkInputFrom(const NrRdna2FSwinLayerRuntime& previous);
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
     [[nodiscard]] const Eden::Graphics::NeuralRDNA2::FSwinGraph&
         Plan() const noexcept{return plan;}
 private:
+    Scheduler& scheduler;
     NrRdna2FSwinGraph graph;
     NrRdna2GpuWeights gpu_weights;
     NrRdna2FSwinGpuTensors tensors;
@@ -45,5 +49,6 @@ private:
     Eden::Graphics::NeuralRDNA2::FSwinGraph plan{};
     bool ready{};
     bool input_loaded{};
+    bool output_recorded{};
 };
 } // namespace Vulkan
