@@ -41,14 +41,23 @@ void ThreadManager::RunWorker(VideoCore::RendererBase& renderer, Core::Frontend:
         unsigned dispatches = 0;
         CommandDataContainer next;
         while (!stop_token.stop_requested()) {
-            if (Eden::LoadingTick(renderer, false)) {
+            if (scheduler.HasPendingNativeChannels()) {
+                // CPU writes may satisfy a semaphore even without a new GPU
+                // submission; retry without blocking the command queue.
+                scheduler.ResumePendingNative(system.GPU());
+                if (!state.queue.TryPop(next)) {
+                    Eden::LoadingTick(renderer, true);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    continue;
+                }
+            } else if (Eden::LoadingTick(renderer, false)) {
                 if (!state.queue.TryPop(next)) {
                     Eden::LoadingTick(renderer, true);
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                     continue;
                 }
             } else {
-            state.queue.PopWait(next, stop_token);
+                state.queue.PopWait(next, stop_token);
             }
             if (stop_token.stop_requested()) {
                 break;

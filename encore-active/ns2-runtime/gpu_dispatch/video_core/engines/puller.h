@@ -9,6 +9,7 @@
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <span>
 #include "video_core/native_ampere_macro_state.h"
 #include <vector>
@@ -79,6 +80,13 @@ public:
     void CallPullerMethod(DmaPusher& dma_pusher, const MethodCall& method_call);
     void CallEngineMethod(DmaPusher& dma_pusher, const MethodCall& method_call);
     void CallEngineMultiMethod(DmaPusher& dma_pusher, u32 method, u32 subchannel, const u32* base_start, u32 amount, u32 methods_pending);
+
+    // Native NS2 GPFIFO only: a failed acquire parks the channel without
+    // consuming the remaining guest methods. Maxwell/NS1 never parks here.
+    [[nodiscard]] bool HasPendingNativeAcquire() const noexcept {
+        return pending_native_acquire.has_value();
+    }
+    [[nodiscard]] bool ResumeNativeAcquire(DmaPusher& dma_pusher);
 private:
     static constexpr std::size_t NUM_REGS = 0x800;
     struct Regs {
@@ -142,6 +150,12 @@ private:
     [[nodiscard]] bool ExecuteMethodOnEngine(DmaPusher& dma_pusher, u32 method);
 
     /// Mapping of command subchannels to their bound engine ids
+    struct PendingNativeAcquire {
+        GPUVAddr address{};
+        u32 value{};
+        u32 operation{};
+    };
+    std::optional<PendingNativeAcquire> pending_native_acquire;
     std::array<EngineID, 8> bound_engines{};
     // A DmaPusher owns this puller, so MME code/DRAM are isolated to its
     // channel. Allocate lazily only after authenticated native 3D bind.

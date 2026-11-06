@@ -39,7 +39,14 @@ DmaPusher::DmaPusher(Core::System& system_, MemoryManager& memory_manager_, Cont
 DmaPusher::~DmaPusher() = default;
 
 void DmaPusher::DispatchCalls() {
+#ifdef PS5_NATIVE
+    if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+            &channel_state)) {
+        dma_pushbuffer_subindex = 0; // Preserve exact NS1 submission behavior.
+    }
+#else
     dma_pushbuffer_subindex = 0;
+#endif
     dma_state.is_last_call = true;
     while (system.IsPoweredOn()) {
         if (!Step()) {
@@ -54,6 +61,13 @@ bool DmaPusher::Step() {
     if (!ib_enable || dma_pushbuffer.empty()) {
         return false;
     }
+#ifdef PS5_NATIVE
+    // The unresolved comparison stops this GPU channel without blocking the
+    // worker, which can process releases from other channels in the meantime.
+    if (!ResumeNativeAcquire()) {
+        return false;
+    }
+#endif
 
     CommandList& command_list = dma_pushbuffer.front();
 
@@ -63,11 +77,27 @@ bool DmaPusher::Step() {
     if (prefetch_size == 0 && command_list_size == 0) {
         dma_pushbuffer.pop();
         dma_pushbuffer_subindex = 0;
+#ifdef PS5_NATIVE
+        command_resume_offset = 0;
+#endif
         return true;
     }
 
     if (prefetch_size > 0) {
+#ifdef PS5_NATIVE
+        if (command_resume_offset > prefetch_size) {
+            throw std::runtime_error("Native GPFIFO prefetch resume cursor invalid");
+        }
+        const auto commands = std::span<const CommandHeader>{
+            command_list.prefetch_command_list.data(), prefetch_size};
+        ProcessCommands(commands.subspan(command_resume_offset));
+        if (HasPendingNativeAcquire()) {
+            return false;
+        }
+        command_resume_offset = 0;
+#else
         ProcessCommands(command_list.prefetch_command_list);
+#endif
         dma_pushbuffer.pop();
         return true;
     }
@@ -146,13 +176,37 @@ bool DmaPusher::Step() {
 #endif
         if (use_safe) {
             Tegra::Memory::GpuGuestMemory<Tegra::CommandHeader, Tegra::Memory::GuestMemoryFlags::SafeRead>headers(memory_manager, dma_state.dma_get, header.size, &command_headers);
+#ifdef PS5_NATIVE
+            if (command_resume_offset > headers.size()) {
+                throw std::runtime_error("Native GPFIFO entry shortened during acquire");
+            }
+            ProcessCommands(std::span<const CommandHeader>{
+                headers.data(), headers.size()}.subspan(command_resume_offset));
+#else
             ProcessCommands(headers);
+#endif
         } else {
             Tegra::Memory::GpuGuestMemory<Tegra::CommandHeader, Tegra::Memory::GuestMemoryFlags::UnsafeRead>headers(memory_manager, dma_state.dma_get, header.size, &command_headers);
+#ifdef PS5_NATIVE
+            if (command_resume_offset > headers.size()) {
+                throw std::runtime_error("Native GPFIFO entry shortened during acquire");
+            }
+            ProcessCommands(std::span<const CommandHeader>{
+                headers.data(), headers.size()}.subspan(command_resume_offset));
+#else
             ProcessCommands(headers);
+#endif
         }
     }
 
+#ifdef PS5_NATIVE
+    if (HasPendingNativeAcquire()) {
+        // Keep both the queue entry and its method state; completing the
+        // entry now would wrongly acknowledge unexecuted guest commands.
+        return false;
+    }
+    command_resume_offset = 0;
+#endif
     if (++dma_pushbuffer_subindex >= command_list_size) {
         dma_pushbuffer.pop();
         dma_pushbuffer_subindex = 0;
@@ -184,19 +238,40 @@ bool DmaPusher::Step() {
 }
 
 void DmaPusher::ProcessCommands(std::span<const CommandHeader> commands) {
+#ifdef PS5_NATIVE
+    const size_t offset_before = command_resume_offset;
+#endif
     for (size_t index = 0; index < commands.size();) {
         // Data word of methods command
         if (dma_state.method_count && dma_state.non_incrementing) {
             auto const& command_header = commands[index]; //must ref (MUltiMethod re)
-            dma_state.dma_word_offset = u32(index * sizeof(u32));
-            const u32 max_write = u32(std::min<std::size_t>(index + dma_state.method_count, commands.size()) - index);
+            dma_state.dma_word_offset = u32(
+#ifdef PS5_NATIVE
+                offset_before +
+#endif
+                index) * sizeof(u32);
+            u32 max_write = u32(std::min<std::size_t>(
+                index + dma_state.method_count, commands.size()) - index);
+#ifdef PS5_NATIVE
+            // No puller batching across a native SEM_EXECUTE: it may park
+            // the channel after its first word.
+            if (dma_state.method < non_puller_methods &&
+                Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                    &channel_state)) {
+                max_write = 1;
+            }
+#endif
             CallMultiMethod(&command_header.argument, max_write);
             dma_state.method_count -= max_write;
             dma_state.is_last_call = true;
             index += max_write;
         } else if (dma_state.method_count) {
             auto const command_header = commands[index]; //can copy
-            dma_state.dma_word_offset = u32(index * sizeof(u32));
+            dma_state.dma_word_offset = u32(
+#ifdef PS5_NATIVE
+                offset_before +
+#endif
+                index) * sizeof(u32);
             dma_state.is_last_call = dma_state.method_count <= 1;
             CallMethod(command_header.argument);
             dma_state.method += !dma_state.non_incrementing ? 1 : 0;
@@ -235,6 +310,14 @@ void DmaPusher::ProcessCommands(std::span<const CommandHeader> commands) {
             }
             index++;
         }
+#ifdef PS5_NATIVE
+        if (HasPendingNativeAcquire()) {
+            // All words through the semaphore were consumed, but nothing
+            // following it; begin exactly at this word after release.
+            command_resume_offset = offset_before + index;
+            return;
+        }
+#endif
     }
 }
 
