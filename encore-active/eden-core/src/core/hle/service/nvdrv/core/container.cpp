@@ -151,8 +151,14 @@ void Container::CloseSession(SessionId session_id) {
 }
 
 Session* Container::GetSession(SessionId session_id) {
+    // FD-derived IDs must not index past the deque or borrow closed sessions.
+    // This is a lookup guard, not a lifetime lease across concurrent Close.
     std::atomic_thread_fence(std::memory_order_acquire);
-    return &impl->sessions[session_id.id];
+    if (session_id.id >= impl->sessions.size()) {
+        return nullptr;
+    }
+    auto& session = impl->sessions[session_id.id];
+    return session.is_active && session.process ? &session : nullptr;
 }
 
 NvMap& Container::GetNvMapFile() {
