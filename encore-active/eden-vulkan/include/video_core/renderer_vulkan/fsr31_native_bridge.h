@@ -13,6 +13,8 @@ class Scheduler;
 class MemoryAllocator;
 class StagingBufferPool;
 class DescriptorPool;
+class BlitImageHelper;
+class Framebuffer;
 }
 namespace Eden::Graphics {
 struct Fsr31NativeFrame {
@@ -49,6 +51,12 @@ public:
     Fsr31NativeBridge(const Fsr31NativeBridge&) = delete;
     Fsr31NativeBridge& operator=(const Fsr31NativeBridge&) = delete;
     [[nodiscard]] std::optional<Fsr31NativeOutput> TryRecord(const Fsr31NativeFrame& frame);
+    // Records temporal dispatch and draws its RGBA16F output into a VERIFIED
+    // single-colour guest framebuffer on the same scheduler. Never call for
+    // generic presentation captures without guest depth/motion/projection.
+    [[nodiscard]] bool TryRecordToGuest(const Fsr31NativeFrame& frame,
+                                        const Vulkan::Framebuffer* destination,
+                                        Vulkan::BlitImageHelper& blit);
     [[nodiscard]] Temporal::Rejection LastRejection() const noexcept {
         return last_rejection;
     }
@@ -64,6 +72,7 @@ private:
     std::unique_ptr<Vulkan::Fsr3Upscaler> upscaler;
     Temporal::Rejection last_rejection{Temporal::Rejection::MissingFrame};
     bool needs_reset{true};
+    bool backend_disabled{}; // a failed Vulkan allocation must not be retried every frame
     std::uint32_t last_render_width{},last_render_height{},
                   last_output_width{},last_output_height{};
 };

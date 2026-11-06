@@ -440,9 +440,12 @@ void Fsr3Upscaler::Upscale(const Inputs& in) {
     // Constants, as fsr3upscalerDispatch computes them.
     Constants constants{};
     constants.render_size = {rw, rh};
-    constants.previous_render_size = first ? constants.render_size : previous_render_size;
+    // A scene/history reset is logically the first temporal frame, even if
+    // the underlying Vulkan allocations and the upscaler object are reused.
+    // Never send camera-jitter/size history from a discarded guest scene.
+    constants.previous_render_size = reset ? constants.render_size : previous_render_size;
     constants.upscale_size = {uw, uh};
-    constants.previous_upscale_size = first ? constants.upscale_size : previous_upscale_size;
+    constants.previous_upscale_size = reset ? constants.upscale_size : previous_upscale_size;
     constants.max_render_size = constants.render_size;
     constants.max_upscale_size = constants.upscale_size;
     // The generic bridge requires verified guest projection parameters.
@@ -451,7 +454,7 @@ void Fsr3Upscaler::Upscale(const Inputs& in) {
     constants.device_to_view_depth = in.device_to_view_depth;
     constants.tan_half_fov = in.tan_half_fov;
     constants.jitter = in.jitter;
-    constants.previous_jitter = first ? in.jitter : previous_jitter;
+    constants.previous_jitter = reset ? in.jitter : previous_jitter;
     constants.motion_vector_scale = {in.motion_vector_scale[0] / static_cast<f32>(rw),
                                      in.motion_vector_scale[1] / static_cast<f32>(rh)};
     constants.downscale_factor = {static_cast<f32>(rw) / static_cast<f32>(uw),

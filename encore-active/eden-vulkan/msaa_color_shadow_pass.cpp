@@ -46,7 +46,8 @@ MsaaColorClearShadowPass::TryPrepare(
         last_decision=Decision::NativeAuto;
         return std::nullopt;
     }
-    if (!target.clear_entire_target || guest_pass.uses_depth ||
+    if (!target.clear_entire_target || !target.has_verified_guest_clear_color ||
+        guest_pass.uses_depth ||
         guest_pass.render_target_count != 1 || target.layers != 1 ||
         guest_pass.multisample_guest_reads ||
         guest_pass.storage_or_alias_attachments) {
@@ -161,10 +162,22 @@ MsaaColorClearShadowPass::TryPrepare(
                 .width=target.extent.width,.height=target.extent.height,
                 .layers=1,
             });
-        } catch (const vk::Exception&) {
+        } catch (const vk::Exception& error) {
             Reset();
-            last_decision=Decision::UnsupportedFrameFormat;
-            return std::nullopt;
+            const VkResult result = error.GetResult();
+            if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY ||
+                result == VK_ERROR_OUT_OF_HOST_MEMORY) {
+                last_decision = Decision::UnsupportedBudget;
+                return std::nullopt;
+            }
+            if (result == VK_ERROR_FORMAT_NOT_SUPPORTED ||
+                result == VK_ERROR_FEATURE_NOT_PRESENT) {
+                last_decision = Decision::UnsupportedFrameFormat;
+                return std::nullopt;
+            }
+            // Device lost and all other unexpected errors are fatal to
+            // the native renderer: never disguise them as safe AA fallback.
+            throw;
         }
         last_guest_image=target.guest_image;
         last_guest_view=target.guest_view;
@@ -197,6 +210,6 @@ MsaaColorClearShadowPass::TryPrepare(
                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                             0,{}, {}, barrier);
     });
-    return Prepared{render_pass,*framebuffer,target.extent,samples};
+    return Prepared{render_pass,*framebuffer,target.extent,samples,target.guest_clear_color};
 }
 } // namespace Vulkan

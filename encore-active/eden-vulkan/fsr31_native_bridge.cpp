@@ -2,12 +2,18 @@
 // Maintained native PS5 Vulkan FSR 3.1 scheduler adapter.
 // There is deliberately NO automatic call from PresentManager here: the
 // colour-only screen image does not contain real guest motion/depth/jitter.
+#include <algorithm>
 #include <cmath>
+#include <new>
+#include "video_core/vulkan_common/vulkan_wrapper.h"
 #include <type_traits>
 #include "fsr31_vram_budget.h"
 #include "fsr31_native_resource_contract.h"
 #include "video_core/renderer_vulkan/fsr31_native_bridge.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "video_core/renderer_vulkan/blit_image.h"
+#include "video_core/renderer_vulkan/vk_texture_cache.h"
+#include "video_core/surface.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 namespace Eden::Graphics {
 namespace {
@@ -44,6 +50,11 @@ std::optional<Fsr31NativeOutput> Fsr31NativeBridge::TryRecord(
     last_rejection = continuity.Observe(frame.metadata);
     if (last_rejection != Temporal::Rejection::None) {
         needs_reset = true;
+        return std::nullopt;
+    }
+    if (backend_disabled) {
+        last_rejection = Temporal::Rejection::NativeBackendFailure;
+        ResetHistory();
         return std::nullopt;
     }
     if (frame.color==VK_NULL_HANDLE || frame.depth==VK_NULL_HANDLE ||
@@ -114,10 +125,23 @@ std::optional<Fsr31NativeOutput> Fsr31NativeBridge::TryRecord(
         return std::nullopt;
     }
     if (!upscaler) {
-        upscaler = std::make_unique<Vulkan::Fsr3Upscaler>(
-            device,scheduler,memory_allocator,staging_pool,descriptor_pool,
-            descriptor_queue);
-        needs_reset = true;
+        try {
+            upscaler = std::make_unique<Vulkan::Fsr3Upscaler>(
+                device,scheduler,memory_allocator,staging_pool,descriptor_pool,
+                descriptor_queue);
+            needs_reset = true;
+        } catch (const Vulkan::vk::Exception& failure) {
+            if (failure.GetResult() == VK_ERROR_DEVICE_LOST) throw;
+            backend_disabled = true;
+            last_rejection = Temporal::Rejection::NativeBackendFailure;
+            ResetHistory();
+            return std::nullopt;
+        } catch (const std::bad_alloc&) {
+            backend_disabled = true;
+            last_rejection = Temporal::Rejection::NativeBackendFailure;
+            ResetHistory();
+            return std::nullopt;
+        }
     }
     const auto& meta = frame.metadata;
     Vulkan::Fsr3Upscaler::Inputs native{
@@ -138,13 +162,100 @@ std::optional<Fsr31NativeOutput> Fsr31NativeBridge::TryRecord(
     scheduler.RequestOutsideRenderPassOperationContext();
     // Caller retains ownership of the original VkImageViews and must keep
     // them resident until this scheduler's GPU tick has completed.
-    upscaler->Upscale(native);
+    try {
+        upscaler->Upscale(native);
+    } catch (const Vulkan::vk::Exception& failure) {
+        if (failure.GetResult() == VK_ERROR_DEVICE_LOST) throw;
+        // Vulkan may already have queued earlier compute passes. Drain them
+        // before dropping the history resources they still reference.
+        scheduler.Finish();
+        upscaler.reset();
+        backend_disabled = true;
+        last_rejection = Temporal::Rejection::NativeBackendFailure;
+        ResetHistory();
+        return std::nullopt;
+    } catch (const std::bad_alloc&) {
+        scheduler.Finish();
+        upscaler.reset();
+        backend_disabled = true;
+        last_rejection = Temporal::Rejection::NativeBackendFailure;
+        ResetHistory();
+        return std::nullopt;
+    }
     last_render_width=input.render_width;
     last_render_height=input.render_height;
     last_output_width=input.output_width;
     last_output_height=input.output_height;
     needs_reset=false;
     return Fsr31NativeOutput{upscaler->OutputImage(),upscaler->OutputView()};
+}
+
+bool Fsr31NativeBridge::TryRecordToGuest(
+    const Fsr31NativeFrame& frame, const Vulkan::Framebuffer* destination,
+    Vulkan::BlitImageHelper& blit) {
+    using VideoCore::Surface::PixelFormat;
+    if (!destination) {
+        last_rejection = Temporal::Rejection::MissingResource;
+        ResetHistory();
+        return false;
+    }
+    // The present blit is only defined for the single-colour DLSS-like
+    // guest output. Never write into a depth/stencil or multi-RT pass.
+    const auto& pass = destination->RenderPassKeyBase();
+    const bool color_only =
+        pass.color_formats[0] != PixelFormat::Invalid &&
+        !VideoCore::Surface::IsPixelFormatInteger(pass.color_formats[0]) &&
+        pass.depth_format == PixelFormat::Invalid &&
+        std::all_of(pass.color_formats.begin() + 1, pass.color_formats.end(),
+                    [](PixelFormat format) { return format == PixelFormat::Invalid; });
+    const VkExtent2D extent = destination->RenderArea();
+    if (!color_only || extent.width != frame.metadata.output_width ||
+        extent.height != frame.metadata.output_height ||
+        pass.samples != VK_SAMPLE_COUNT_1_BIT) {
+        last_rejection = Temporal::Rejection::InvalidResolution;
+        ResetHistory();
+        return false;
+    }
+    const auto temporal_output = TryRecord(frame);
+    if (!temporal_output) {
+        return false;
+    }
+    // The compute output is in GENERAL after the FSR dispatch. The existing
+    // Vulkan blit helper transitions it to SHADER_READ_ONLY_OPTIMAL and writes
+    // into the guest target without changing any guest texture metadata.
+    const VideoCommon::Region2D full{
+        .start = {0, 0},
+        .end = {static_cast<s32>(extent.width), static_cast<s32>(extent.height)},
+    };
+    blit.BlitColor(destination, temporal_output->view, temporal_output->image,
+                   upscaler->PointSampler(), full, full,
+                   VideoCommon::Extent3D{extent.width, extent.height, 1});
+    // BlitImageHelper leaves the source in SHADER_READ_ONLY_OPTIMAL; restore
+    // GENERAL before the next FSR compute submission (otherwise history
+    // storage writes and layout tracking diverge on the second frame).
+    scheduler.RequestOutsideRenderPassOperationContext();
+    scheduler.Record([output = temporal_output->image](Vulkan::vk::CommandBuffer cmdbuf) {
+        const VkImageMemoryBarrier barrier{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .pNext = nullptr,
+            .srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = output,
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0, .levelCount = 1,
+                .baseArrayLayer = 0, .layerCount = 1,
+            },
+        };
+        cmdbuf.PipelineBarrier(
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, {}, {}, barrier);
+    });
+    return true;
 }
 
 } // namespace Eden::Graphics

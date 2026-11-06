@@ -26,12 +26,15 @@ public:
             VideoCore::Surface::PixelFormat::Invalid};
         unsigned layers{1};
         bool clear_entire_target{}; // partial LOAD/clear cannot use this path
+        bool has_verified_guest_clear_color{}; // VkAttachmentLoadOp=CLEAR is not implicit black
+        VkClearValue guest_clear_color{}; // actual game's typed VkClearValue
     };
     struct Prepared {
         VkRenderPass render_pass{VK_NULL_HANDLE};
         VkFramebuffer framebuffer{VK_NULL_HANDLE};
         VkExtent2D extent{};
         VkSampleCountFlagBits samples{VK_SAMPLE_COUNT_1_BIT};
+        VkClearValue first_pass_clear{}; // must be passed to vkCmdBeginRenderPass
         // Caller must record a native guest-compatible graphics pipeline
         // with this rasterizationSamples, and end its renderpass for resolve.
         // Nothing in this struct mutates any guest image metadata.
