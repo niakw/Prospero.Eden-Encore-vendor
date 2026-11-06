@@ -2981,6 +2981,9 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
     boost::container::small_vector<VkImageView, NUM_RT * 2 + 2> attachments;
     RenderPassKey renderpass_key{};
     s32 num_layers = 1;
+    color_attachment_images.fill(VK_NULL_HANDLE);
+    color_attachment_views.fill(VK_NULL_HANDLE);
+    color_attachment_ranges.fill(VkImageSubresourceRange{});
 
     is_rescaled = is_rescaled_;
     const auto& resolution = runtime.resolution;
@@ -2998,6 +3001,9 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
         height = (std::min)(height, is_rescaled ? resolution.ScaleUp(color_buffer->size.height)
                                               : color_buffer->size.height);
         attachments.push_back(color_buffer->RenderTarget());
+        color_attachment_images[index] = color_buffer->ImageHandle();
+        color_attachment_views[index] = color_buffer->RenderTarget();
+        color_attachment_ranges[index] = MakeSubresourceRange(color_buffer);
         renderpass_key.color_formats[index] = color_buffer->format;
         num_layers = (std::max)(num_layers, color_buffer->range.extent.layers);
         images[num_images] = color_buffer->ImageHandle();

@@ -242,6 +242,18 @@ public:
         return num_images;
     }
 
+    // Exact physical attachment handles, captured when the guest
+    // framebuffer is created. These do not alter image layout or samples.
+    [[nodiscard]] VkImage ColorAttachmentImage(u32 rt) const noexcept {
+        return rt < NUM_RT ? color_attachment_images[rt] : VK_NULL_HANDLE;
+    }
+    [[nodiscard]] VkImageView ColorAttachmentView(u32 rt) const noexcept {
+        return rt < NUM_RT ? color_attachment_views[rt] : VK_NULL_HANDLE;
+    }
+    [[nodiscard]] VkImageSubresourceRange ColorAttachmentRange(u32 rt) const noexcept {
+        return rt < NUM_RT ? color_attachment_ranges[rt] : VkImageSubresourceRange{};
+    }
+
     [[nodiscard]] const std::array<VkImage, 9>& Images() const noexcept {
         return images;
     }
@@ -289,6 +301,9 @@ private:
     u32 num_images = 0;
     std::array<VkImage, 9> images{};
     std::array<VkImageSubresourceRange, 9> image_ranges{};
+    std::array<VkImage, NUM_RT> color_attachment_images{};
+    std::array<VkImageView, NUM_RT> color_attachment_views{};
+    std::array<VkImageSubresourceRange, NUM_RT> color_attachment_ranges{};
     std::array<size_t, NUM_RT> rt_map{};
     bool has_depth{};
     bool has_stencil{};

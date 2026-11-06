@@ -795,6 +795,18 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
         texture_cache.CheckFeedbackLoop(std::span<const VideoCommon::ImageViewInOut>{views.data(),
                                                                                      views.size()});
     }
+    if (key.state.forced_color_resolve) {
+        // A forced native shadow may never be read or written by a guest
+        // shader image descriptor. Inspect all actual stage bindings, not
+        // shader hashes or per-title whitelists.
+        const VkImage guest_target = scheduler.NativeColorResolveGuestImage();
+        if (!guest_target) return false;
+        for (const auto& binding : views) {
+            if (binding.id &&
+                texture_cache.GetImageView(binding.id).ImageHandle() == guest_target)
+                return false;
+        }
+    }
     if (IsBuilt() && !pipeline) {
         ::Eden::Performance::RecordGraphicsDrawDrop(
             ::Eden::Performance::GraphicsDrawDrop::BuiltPipelineFailed);

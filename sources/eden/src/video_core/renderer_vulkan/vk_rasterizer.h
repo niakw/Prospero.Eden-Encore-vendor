@@ -20,6 +20,7 @@
 #include "video_core/renderer_vulkan/vk_descriptor_buffer.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
 #include "video_core/renderer_vulkan/vk_fence_manager.h"
+#include "video_core/renderer_vulkan/msaa_color_shadow_pass.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_query_cache.h"
 #include "video_core/renderer_vulkan/vk_render_pass_cache.h"
@@ -219,6 +220,17 @@ private:
     QueryCacheRuntime query_cache_runtime;
     QueryCache query_cache;
     PipelineCache pipeline_cache;
+    // Explicit full-colour-clear candidate; never synthesized from a
+    // guessed frame boundary or guest memory layout.
+    struct NativeMsaaClear {
+        MsaaColorClearShadowPass::Target target{};
+        VkFramebuffer original_guest_framebuffer{VK_NULL_HANDLE};
+        u64 command_serial{};
+        std::optional<MsaaColorClearShadowPass::Prepared> prepared;
+        bool started{};
+    };
+    std::optional<NativeMsaaClear> native_msaa_clear;
+    std::unique_ptr<MsaaColorClearShadowPass> native_msaa_shadow;
     AccelerateDMA accelerate_dma;
     FenceManager fence_manager;
 

@@ -55,6 +55,13 @@ public:
 
     /// Sends currently recorded work to the worker thread.
     void DispatchWork();
+    // Monotonic native command-stream epoch on the GPU owner thread.
+    // A clear-to-draw MSAA candidate is valid only while no other GPU
+    // command was recorded. Prevents silently losing transfer/compute writes.
+    [[nodiscard]] u64 RecordedCommandSerial() const noexcept {
+        return recorded_command_serial;
+    }
+
 
     /// Requests to begin a renderpass.
     void RequestRenderpass(const Framebuffer* framebuffer);
@@ -72,6 +79,10 @@ public:
     // close an unrelated guest render pass after texture cache invalidation.
     [[nodiscard]] bool FinishNativeColorResolveRenderpass(
         VkRenderPass render_pass, VkFramebuffer framebuffer);
+    [[nodiscard]] VkImage NativeColorResolveGuestImage() const noexcept {
+        return state.native_color_resolve && num_renderpass_images == 2
+                   ? renderpass_images[1] : VK_NULL_HANDLE;
+    }
     [[nodiscard]] bool HasNativeColorResolveRenderpass(
         VkRenderPass render_pass) const noexcept {
         return state.native_color_resolve && render_pass &&
@@ -142,6 +153,7 @@ public:
     template <typename T>
         requires std::is_invocable_v<T, vk::CommandBuffer, vk::CommandBuffer>
     void RecordWithUploadBuffer(T&& command) {
+        ++recorded_command_serial;
         if (chunk->Record(command)) {
             return;
         }
@@ -360,6 +372,7 @@ private:
     std::function<void()> on_submit;
 
     State state;
+    u64 recorded_command_serial{};
 
     u32 num_renderpass_images = 0;
     std::array<VkImage, 9> renderpass_images{};
