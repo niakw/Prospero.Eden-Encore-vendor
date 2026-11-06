@@ -9,6 +9,7 @@
 #include "common/common_types.h"
 #include "shader_recompiler/frontend/ampere/probe.h"
 #include "shader_recompiler/frontend/ampere/native_indirect_branch_plan.h"
+#include "shader_recompiler/frontend/ampere/native_stage_buffer.h"
 
 namespace Shader::Ampere {
 enum class LowerBridgeStatus : u8 {
@@ -35,5 +36,6 @@ struct LowerBridgeResult {
 [[nodiscard]] LowerBridgeResult LowerReviewedToMaxwell(
     std::span<const u8> native_code,
     std::span<const NativeIndirectBranchPlan> indirect_dispatch = {},
-    std::optional<u64> native_code_address = std::nullopt);
+    std::optional<u64> native_code_address = std::nullopt,
+    NativeStageBufferProgram stage_buffer_program = NativeStageBufferProgram::Legacy);
 } // namespace Shader::Ampere
