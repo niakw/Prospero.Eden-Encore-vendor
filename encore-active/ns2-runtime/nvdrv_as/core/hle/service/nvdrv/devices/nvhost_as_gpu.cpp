@@ -638,9 +638,14 @@ NvResult nvhost_as_gpu::Remap(std::span<IoctlRemapEntry> entries) {
                 return NvResult::BadValue;
             }
 
-            DAddr base = nvmap.PinHandle(entry.handle, false);
-            DAddr device_address{static_cast<DAddr>(
-                base + (static_cast<u64>(entry.handle_offset_big_pages) << vm.big_page_size_bits))};
+            const DAddr base = nvmap.PinHandle(entry.handle, false);
+            const u64 source = static_cast<u64>(entry.handle_offset_big_pages)
+                               << vm.big_page_size_bits;
+            if (!NativePinnedPhysicalSpan(base, source, size)) {
+                if (base) nvmap.UnpinHandle(entry.handle);
+                return NvResult::InsufficientMemory;
+            }
+            const DAddr device_address = base + source;
 
             gmmu->Map(virtual_address, device_address, size,
                       static_cast<Tegra::PTEKind>(entry.kind), use_big_pages);
@@ -709,7 +714,12 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
             return NvResult::BadValue;
         }
     }
-    DAddr device_address = DAddr(nvmap.PinHandle(params.handle, false) + params.buffer_offset);
+    const DAddr pinned = nvmap.PinHandle(params.handle, false);
+    if (!NativePinnedPhysicalSpan(pinned, params.buffer_offset, size)) {
+        if (pinned) nvmap.UnpinHandle(params.handle);
+        return NvResult::InsufficientMemory;
+    }
+    const DAddr device_address = pinned + params.buffer_offset;
 
     bool big_page{[&]() {
         if (Common::IsAligned(handle->align, vm.big_page_size)) {

@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <functional>
+#include <limits>
 
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -171,12 +172,17 @@ DAddr NvMap::PinHandle(NvMap::Handle::Id handle, bool low_area_pin) {
     }
 
     std::scoped_lock lock(handle_description->mutex);
-    const auto map_low_area = [&] {
+    const auto map_low_area = [&]() -> bool {
         if (handle_description->pin_virt_address == 0) {
-            u32 address = host1x.Allocator().Allocate(u32(handle_description->aligned_size));
-            host1x.gmmu_manager.Map(GPUVAddr(address), handle_description->d_address, handle_description->aligned_size);
+            if (handle_description->aligned_size > std::numeric_limits<u32>::max())
+                return false;
+            const u32 address = host1x.Allocator().Allocate(u32(handle_description->aligned_size));
+            if (!address) return false;
+            host1x.gmmu_manager.Map(GPUVAddr(address), handle_description->d_address,
+                                    handle_description->aligned_size);
             handle_description->pin_virt_address = address;
         }
+        return true;
     };
     if (!handle_description->pins) {
         // If we're in the unmap queue we can just remove ourselves and return since we're already
@@ -189,14 +195,16 @@ DAddr NvMap::PinHandle(NvMap::Handle::Id handle, bool low_area_pin) {
                 unmap_queue.erase(*handle_description->unmap_queue_entry);
                 handle_description->unmap_queue_entry.reset();
 
-                if (low_area_pin) {
-                    map_low_area();
-                    handle_description->pins++;
-                    return static_cast<DAddr>(handle_description->pin_virt_address);
+                if (!handle_description->d_address) return 0;
+                if (low_area_pin && !map_low_area()) {
+                    // The SMMU span is still valid: preserve reclaimability.
+                    unmap_queue.push_back(handle_description);
+                    handle_description->unmap_queue_entry = std::prev(unmap_queue.end());
+                    return 0;
                 }
-
                 handle_description->pins++;
-                return handle_description->d_address;
+                return low_area_pin ? static_cast<DAddr>(handle_description->pin_virt_address)
+                                    : handle_description->d_address;
             }
         }
 
@@ -247,15 +255,20 @@ DAddr NvMap::PinHandle(NvMap::Handle::Id handle, bool low_area_pin) {
         }
     }
 
-    if (low_area_pin) {
-        map_low_area();
+    if (!handle_description->d_address) return 0;
+    if (low_area_pin && !map_low_area()) {
+        // The primary SMMU mapping remains allocated; keep it available
+        // for the normal finite reclaim path instead of leaking residency.
+        if (!handle_description->pins) {
+            std::scoped_lock queueLock(unmap_queue_lock);
+            unmap_queue.push_back(handle_description);
+            handle_description->unmap_queue_entry = std::prev(unmap_queue.end());
+        }
+        return 0;
     }
-
     handle_description->pins++;
-    if (low_area_pin) {
-        return static_cast<DAddr>(handle_description->pin_virt_address);
-    }
-    return handle_description->d_address;
+    return low_area_pin ? static_cast<DAddr>(handle_description->pin_virt_address)
+                        : handle_description->d_address;
 }
 
 void NvMap::UnpinHandle(Handle::Id handle) {
