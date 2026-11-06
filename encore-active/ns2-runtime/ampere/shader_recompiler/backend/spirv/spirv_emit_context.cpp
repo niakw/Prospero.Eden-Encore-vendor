@@ -1826,8 +1826,18 @@ void EmitContext::DefineMesh(const IR::Program& program) {
     AddCapability(spv::Capability::MeshShadingEXT);
     mesh_info = program.mesh;
     mesh_threads = program.workgroup_size[0];
-    // The task's output region, which its mesh workgroups read as their input region.
-    const Id payload_type{TypeArray(U32[1], Const(mesh_info.payload_words))};
+    // Reject malformed shader dimensions before creating SPIR-V zero-length
+    // arrays or reaching MeshEpilogue's per-invocation loops.
+    if (mesh_threads == 0 || (stage == Stage::Task && mesh_info.payload_words < 2) ||
+        (stage == Stage::Mesh &&
+         (mesh_info.max_vertices == 0 || mesh_info.max_primitives == 0))) {
+        throw NotImplementedException("Invalid native Task/Mesh shader dimensions");
+    }
+    // A Mesh-only pipeline may not carry a Task payload. The SPIR-V backing
+    // array must still have non-zero length, while guest payload reads remain
+    // bounded against mesh_info.payload_words rather than this allocation.
+    const Id payload_type{
+        TypeArray(U32[1], Const((std::max)(mesh_info.payload_words, 1U)))};
     mesh_payload = DefineVariable(*this, payload_type, std::nullopt,
                                   spv::StorageClass::TaskPayloadWorkgroupEXT);
     Name(mesh_payload, "task_payload");
@@ -1839,11 +1849,22 @@ void EmitContext::DefineMesh(const IR::Program& program) {
     // line per attribute. The map region keeps one map byte per word.
     const u32 vertex_lines{static_cast<u32>(mesh_info.vertex_lines.size())};
     const u32 primitive_lines{static_cast<u32>(mesh_info.primitive_lines.size())};
-    mesh_primitive_base = Common::DivCeil(mesh_info.max_vertices, 32U) * vertex_lines * 32;
-    mesh_attribute_words = (std::max)(
-        mesh_primitive_base + Common::DivCeil(mesh_info.max_primitives, 32U) * primitive_lines * 32,
-        1U);
-    mesh_map_bytes = 4 + 3 * mesh_info.max_primitives;
+    // These sizes depend on guest-supplied mesh limits. Compute using u64,
+    // rejecting overflow instead of wrapping a GPU Workgroup array length
+    // or putting primitive lines on top of vertex output memory.
+    const u64 vertex_groups{(u64{mesh_info.max_vertices} + 31U) / 32U};
+    const u64 primitive_groups{(u64{mesh_info.max_primitives} + 31U) / 32U};
+    const u64 vertex_words{vertex_groups * vertex_lines * 32U};
+    const u64 primitive_words{primitive_groups * primitive_lines * 32U};
+    const u64 attribute_words{vertex_words + primitive_words};
+    const u64 map_bytes{4U + 3U * u64{mesh_info.max_primitives}};
+    if (vertex_words > UINT32_MAX || attribute_words > UINT32_MAX ||
+        map_bytes > UINT32_MAX) {
+        throw NotImplementedException("Native Mesh output region exceeds u32 indexing");
+    }
+    mesh_primitive_base = static_cast<u32>(vertex_words);
+    mesh_attribute_words = static_cast<u32>((std::max)(attribute_words, u64{1}));
+    mesh_map_bytes = static_cast<u32>(map_bytes);
     mesh_shared_u32 = TypePointer(spv::StorageClass::Workgroup, U32[1]);
     mesh_attributes = DefineVariable(*this, TypeArray(U32[1], Const(mesh_attribute_words)),
                                      std::nullopt, spv::StorageClass::Workgroup);
