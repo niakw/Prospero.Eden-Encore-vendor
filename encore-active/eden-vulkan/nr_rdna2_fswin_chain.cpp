@@ -2,6 +2,7 @@
 // Same-resolution FSwin chain; supports explicit 4x4-tile shifts between
 // adjacent blocks. Unknown layouts and resolution changes fail closed.
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_chain.h"
+#include "video_core/renderer_vulkan/nr_rdna2_fswin_raster_host.h"
 #include "video_core/renderer_vulkan/present/util.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/vulkan_common/vulkan_device.h"
@@ -141,6 +142,21 @@ bool NrRdna2FSwinChain::Initialize(
 bool NrRdna2FSwinChain::UploadInput(
     std::span<const std::uint8_t> tokens){
     return ready&&layers.front()->UploadInput(tokens);
+}
+bool NrRdna2FSwinChain::UploadRasterFeatures(
+    std::span<const std::uint8_t> features,
+    std::uint32_t width,std::uint32_t height){
+    if(!ready||layers.empty()||layouts.empty())return false;
+    const auto& layout=layouts.front();
+    if(!layout.windows_x||!layout.windows_y||
+       layout.shift_x||layout.shift_y)return false;
+    const Eden::Graphics::NeuralRDNA2::FSwinRasterLayout plan{
+        width,height,layout.windows_x,layout.windows_y,
+        layers.front()->Plan().dense[0].channels,0u};
+    std::vector<std::uint8_t> tokens;
+    if(!Eden::Graphics::NeuralRDNA2::PackFSwinFeatureRaster(
+           features,plan,tokens))return false;
+    return UploadInput(tokens);
 }
 bool NrRdna2FSwinChain::Record(){
     if(!ready)return false;

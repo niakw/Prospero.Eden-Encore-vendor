@@ -37,6 +37,12 @@ public:
     // Input is E4M3FN [window,64,C] and must be coherent with layer model.
     [[nodiscard]] bool UploadInput(
         std::span<const std::uint8_t> tokens);
+    // Accept an already E4M3FN-encoded 2D feature raster, then pack it
+    // losslessly into 8x8 windows for the first FSwin layer. Not RGB input.
+    // Requires an explicit, unshifted initial layout and host-side staging.
+    [[nodiscard]] bool UploadRasterFeatures(
+        std::span<const std::uint8_t> features,
+        std::uint32_t width,std::uint32_t height);
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
     [[nodiscard]] std::size_t LayerCount() const noexcept {
