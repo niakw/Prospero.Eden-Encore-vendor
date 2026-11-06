@@ -1,0 +1,65 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// CCVit1DFfnContract/CCVit1DProjection residual epilogue:
+// e4m3(half(half(fp32_gemm) + half(half_gain * e4m3_residual))).
+layout(local_size_x=128,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Source {float values[];} source;
+layout(set=0,binding=1,std430) readonly buffer Residual {uint words[];} residual;
+layout(set=0,binding=2,std430) readonly buffer Gains {uint words[];} gains;
+layout(set=0,binding=3,std430) writeonly buffer Output {uint words[];} output_tensor;
+layout(push_constant) uniform Params {
+    uint tokens;
+    uint channels;
+    uint input_offset_floats;
+    uint output_offset_bytes;
+    uint residual_offset_bytes;
+    uint gain_offset_halfwords;
+} pc;
+float round_half(float x) {
+    return unpackHalf2x16(packHalf2x16(vec2(x,0.0))).x;
+}
+uint pack_fp8(float value) {
+    uint sign=(floatBitsToUint(value)>>24u)&128u;
+    if(isnan(value))return sign|127u;
+    float v=min(abs(value),448.0);
+    if(v==0.0)return sign;
+    if(v<0.015625){
+        uint m=uint(roundEven(v*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int e=int(floor(log2(v)));
+    uint mant=uint(roundEven((v/exp2(float(e))-1.0)*8.0));
+    if(mant==8u){++e;mant=0u;}
+    uint eb=uint(e+7);
+    if(eb>15u||(eb==15u&&mant>6u))return sign|126u;
+    return sign|(eb<<3u)|mant;
+}
+
+float unpack_fp8(uint bits){
+    uint expbit=(bits>>3u)&15u,frac=bits&7u;
+    float sign=(bits&128u)!=0u?-1.0:1.0;
+    if(expbit==15u&&frac==7u)return uintBitsToFloat(0x7fc00000u);
+    if(expbit==0u)return sign*float(frac)*exp2(-9.0);
+    return sign*float(8u+frac)*exp2(float(int(expbit)-10));
+}
+void main(){
+    uint word=gl_GlobalInvocationID.x;
+    uint count=pc.tokens*pc.channels;
+    if(word>=count/4u)return;
+    uint packed=0u;
+    for(uint i=0u;i<4u;++i){
+        uint idx=word*4u+i;
+        uint residual_byte=pc.residual_offset_bytes+idx;
+        uint fp8_word=residual.words[residual_byte>>2u];
+        float r=unpack_fp8((fp8_word>>((residual_byte&3u)*8u))&255u);
+        uint channel=idx%pc.channels;
+        uint hindex=pc.gain_offset_halfwords+channel;
+        vec2 gain_pair=unpackHalf2x16(gains.words[hindex>>1u]);
+        float g=(hindex&1u)!=0u?gain_pair.y:gain_pair.x;
+        float gemm=source.values[pc.input_offset_floats+idx];
+        float gr=round_half(g*r);
+        float value=round_half(round_half(gemm)+gr);
+        packed|=pack_fp8(value)<<(8u*i);
+    }
+    output_tensor.words[(pc.output_offset_bytes>>2u)+word]=packed;
+}

@@ -1,0 +1,48 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// CCVit1DFfnExpand epilogue: MpCubicSilu f32 -> round f16 -> E4M3FN.
+// Portable RDNA2 Vulkan 1.1; GEMM accumulation is a separate dispatch.
+layout(local_size_x=128,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Source {float values[];} source;
+layout(set=0,binding=1,std430) writeonly buffer Output {uint words[];} output_tensor;
+layout(push_constant) uniform Params {
+    uint tokens;
+    uint channels;
+    uint input_offset_floats;
+    uint output_offset_bytes;
+} pc;
+float round_half(float x) {
+    return unpackHalf2x16(packHalf2x16(vec2(x,0.0))).x;
+}
+uint pack_fp8(float value) {
+    uint sign=(floatBitsToUint(value)>>24u)&128u;
+    if(isnan(value))return sign|127u;
+    float v=min(abs(value),448.0);
+    if(v==0.0)return sign;
+    if(v<0.015625){
+        uint m=uint(roundEven(v*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int e=int(floor(log2(v)));
+    uint mant=uint(roundEven((v/exp2(float(e))-1.0)*8.0));
+    if(mant==8u){++e;mant=0u;}
+    uint eb=uint(e+7);
+    if(eb>15u||(eb==15u&&mant>6u))return sign|126u;
+    return sign|(eb<<3u)|mant;
+}
+
+void main() {
+    uint word=gl_GlobalInvocationID.x;
+    uint count=pc.tokens*pc.channels;
+    if(word>=count/4u)return;
+    uint packed=0u;
+    for(uint i=0u;i<4u;++i){
+        uint idx=word*4u+i;
+        float x=source.values[pc.input_offset_floats+idx];
+        float t=clamp(x,-4.0,4.0);
+        float activated=x*(-0.055908203125*abs(t)*t+
+                            0.447265625*t+0.89453125);
+        packed|=pack_fp8(round_half(activated))<<(8u*i);
+    }
+    output_tensor.words[(pc.output_offset_bytes>>2u)+word]=packed;
+}
