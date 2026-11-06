@@ -58,6 +58,7 @@ private:
     void MapVideoGpuImage(HLERequestContext& ctx);
     void UnmapVideoGpuImage(HLERequestContext& ctx);
     void QueryVideoGpuImage(HLERequestContext& ctx);
+    void GetCpuVideoImageDescriptor(HLERequestContext& ctx);
     [[nodiscard]] std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
         FindRegisteredGpuAddressSpace(u32 fd);
     Kernel::KProcess* const m_process;

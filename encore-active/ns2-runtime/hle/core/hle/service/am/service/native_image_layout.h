@@ -197,6 +197,32 @@ public:
         }
         return {};
     }
+    // gsv TIPC 961: a 128-byte CPU-user decoder-image descriptor. The
+    // reported offsets and row pitch MUST describe the same guest backing
+    // chosen by 911, not a newly guessed surface layout. The words at 0x10
+    // and 0x20 are u64 pitches (upper halves remain zero here).
+    [[nodiscard]] std::optional<std::array<u32, 32>> CpuImageDescriptor(u32 image) const {
+        for (const auto& [_, pool] : m_pools) {
+            if (image < pool.first_id || image - pool.first_id >= pool.count)
+                continue;
+            const u64 offset = u64{image - pool.first_id} * pool.layout.image_stride;
+            if (!pool.layout.row_bytes || offset > std::numeric_limits<u32>::max())
+                return {};
+            std::array<u32, 32> words{};
+            words[0] = pool.layout.nv12 ? 0xau : 0x9u; // NV12 / BGRA pitch-linear
+            words[2] = static_cast<u32>(offset);      // Plane 0 offset (+0x8)
+            words[4] = pool.layout.row_bytes;          // Plane 0 pitch  (+0x10)
+            if (pool.layout.nv12) {
+                if (pool.layout.chroma_offset >
+                    std::numeric_limits<u32>::max() - offset)
+                    return {};
+                words[6] = static_cast<u32>(offset + pool.layout.chroma_offset);
+                words[8] = pool.layout.row_bytes;
+            }
+            return words;
+        }
+        return {};
+    }
     [[nodiscard]] std::optional<NativeVideoPoolRecord> Get(u32 first) const {
         const auto it = m_pools.find(first);
         return it == m_pools.end() ? std::nullopt :

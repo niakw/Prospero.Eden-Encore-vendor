@@ -746,6 +746,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {315, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "CreateNativeWindowAliasImagePool"},
         {911, &IGraphicsSupervisor::CreateVideoImagePool, "CreateVideoImagePool"},
         {912, &IGraphicsSupervisor::DestroyVideoImagePool, "DestroyVideoImagePool"},
+        {961, &IGraphicsSupervisor::GetCpuVideoImageDescriptor, "GetCpuUserImageDescriptor"},
         {426, &IGraphicsSupervisor::MapVideoGpuImage, "MapNativeGpuImage"},
         {427, &IGraphicsSupervisor::UnmapVideoGpuImage, "UnmapNativeGpuImage"},
         {428, &IGraphicsSupervisor::QueryVideoGpuImage, "QueryNativeGpuImage"},
@@ -1328,6 +1329,25 @@ void IGraphicsSupervisor::DestroyVideoImagePool(HLERequestContext& ctx) {
     }
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
+}
+
+// 961 returns a 128-byte CPU image descriptor for a currently owned
+// decoder-pool image. Never invent offsets or acknowledge a destroyed ID.
+void IGraphicsSupervisor::GetCpuVideoImageDescriptor(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    std::array<u32, 32> descriptor{};
+    if (packet[0] == 0x3c1 && packet[1] == 1) {
+        const std::scoped_lock lock{m_native_memory_mutex};
+        result = Kernel::ResultNotFound;
+        if (const auto owned = m_video_pools.CpuImageDescriptor(packet[2])) {
+            descriptor = *owned;
+            result = ResultSuccess;
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 34};
+    rb.Push(result.raw);
+    for (const u32 word : descriptor) rb.Push(word);
 }
 
 void IGraphicsSupervisor::QueryVideoGpuImage(HLERequestContext& ctx) {
