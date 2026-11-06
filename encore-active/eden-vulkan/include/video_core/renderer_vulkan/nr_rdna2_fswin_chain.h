@@ -87,6 +87,32 @@ public:
     [[nodiscard]] bool RequiresRasterOutput() const noexcept {
         return ready&&(output_view||downsample);
     }
+    [[nodiscard]] bool RequiresDownsampleOutput() const noexcept {
+        return ready&&downsample;
+    }
+    [[nodiscard]] std::uint32_t Channels() const noexcept {
+        return !ready||layers.empty()?0u:
+               layers.front()->Plan().dense[0].channels;
+    }
+    [[nodiscard]] Eden::Graphics::NeuralRDNA2::FSwinWindowLayout
+    InputWindowLayout() const noexcept {
+        return !ready||layouts.empty()?
+            Eden::Graphics::NeuralRDNA2::FSwinWindowLayout{}:
+            layouts.front();
+    }
+    [[nodiscard]] Eden::Graphics::NeuralRDNA2::FSwinWindowLayout
+    OutputWindowLayout() const noexcept {
+        return !ready||layouts.empty()?
+            Eden::Graphics::NeuralRDNA2::FSwinWindowLayout{}:
+            layouts.back();
+    }
+    [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept{
+        return &scheduler;
+    }
+    [[nodiscard]] VkDescriptorBufferInfo Input() const noexcept {
+        return !ready||layers.empty()?VkDescriptorBufferInfo{}:
+            layers.front()->Input();
+    }
     [[nodiscard]] std::size_t LayerCount() const noexcept {
         return layers.size();
     }
