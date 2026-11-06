@@ -2033,6 +2033,22 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 (u64{width} << 48));
             break;
         }
+        case 0x80d: { // CSMTEST: no modeled shading-mode state; never guess the result.
+            // When BOTH destinations are PT (the always-true sink predicate),
+            // the result is discarded regardless of the shading mode. This
+            // form is semantically inert, but any observable predicate write
+            // must remain unsupported until its GPU state is available.
+            constexpr u32 discarded_outputs_and_mode =
+                (7U << 17) | (7U << 20) | (7U << 23);
+            if (insn.Bits(16, 16) || insn.words[1] ||
+                insn.words[2] != discarded_outputs_and_mode)
+                return fail(index, "native CSMTEST requires unmodeled shading-mode predicate state");
+            break;
+        }
+        case 0x927: // ISBEWR stores into the task/mesh stage buffer, not a Maxwell attribute.
+            // Lowering a register write here would silently lose mesh geometry.
+            // Only the full IR/TaskPayload/SPIR-V/Vulkan stage path can admit it.
+            return fail(index, "native ISBEWR requires task/mesh stage-buffer pipeline");
         case 0x923: // ISBERD map read: geometry vertex index to attribute handle. Eden's ALD takes the
                     // index itself (Maxwell ISBERD in this mode is a copy), so this is a move.
             if (insn.Bits(32, 32) || insn.words[2] || insn.Bits(24, 8) == 255)
