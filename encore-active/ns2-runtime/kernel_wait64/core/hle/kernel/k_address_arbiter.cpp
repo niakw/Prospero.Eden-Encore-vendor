@@ -27,11 +27,17 @@ KAddressArbiter::~KAddressArbiter() = default;
 namespace {
 
 bool ReadFromUser(KernelCore& kernel, s32* out, KProcessAddress address) {
+    if (!GetCurrentMemory(kernel).IsValidVirtualAddressRange(address, sizeof(s32))) {
+        return false;
+    }
     *out = GetCurrentMemory(kernel).Read32(GetInteger(address));
     return true;
 }
 
 bool DecrementIfLessThan(KernelCore& kernel, s32* out, KProcessAddress address, s32 value) {
+    if (!GetCurrentMemory(kernel).IsValidVirtualAddressRange(address, sizeof(s32))) {
+        return false;
+    }
     auto& monitor = GetCurrentProcess(kernel).GetExclusiveMonitor();
     const auto current_core = kernel.CurrentPhysicalCoreIndex();
 
@@ -50,7 +56,7 @@ bool DecrementIfLessThan(KernelCore& kernel, s32* out, KProcessAddress address, 
         // Compare it to the desired one.
         if (current_value < value) {
             // If less than, we want to try to decrement.
-            const s32 decrement_value = current_value - 1;
+            const s32 decrement_value = static_cast<s32>(static_cast<u32>(current_value) - 1u);
 
             // Decrement and try to store.
             if (monitor.ExclusiveWrite32(current_core, GetInteger(address),
@@ -73,6 +79,9 @@ bool DecrementIfLessThan(KernelCore& kernel, s32* out, KProcessAddress address, 
 
 bool UpdateIfEqual(KernelCore& kernel, s32* out, KProcessAddress address, s32 value,
                    s32 new_value) {
+    if (!GetCurrentMemory(kernel).IsValidVirtualAddressRange(address, sizeof(s32))) {
+        return false;
+    }
     auto& monitor = GetCurrentProcess(kernel).GetExclusiveMonitor();
     const auto current_core = kernel.CurrentPhysicalCoreIndex();
 

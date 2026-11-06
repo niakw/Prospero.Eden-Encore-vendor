@@ -137,6 +137,7 @@ private:
     void ProcessFenceActionMethod(DmaPusher& dma_pusher);
     void ProcessSemaphoreAcquire(DmaPusher& dma_pusher);
     void ProcessSemaphoreRelease(DmaPusher& dma_pusher);
+    void ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control);
     void ProcessSemaphoreTriggerMethod(DmaPusher& dma_pusher);
     [[nodiscard]] bool ExecuteMethodOnEngine(DmaPusher& dma_pusher, u32 method);
 

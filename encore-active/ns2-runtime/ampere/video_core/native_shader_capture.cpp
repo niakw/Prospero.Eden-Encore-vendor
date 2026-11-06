@@ -153,15 +153,65 @@ Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
             // The same CBUF stage bank map is used for initial key capture,
             // linked pipeline translation and post-compile source replay.
             // Never use Vertex's bank for guest tessellation or geometry.
-            const u32 required_bank = Shader::Ampere::NativeGraphicsCbufBank(
-                static_cast<Shader::Stage>(stage));
+            if (!cbuf->engine) return {};
+            // Resolve Task/Mesh physical slots only from live NVC597 mode:
+            // Mesh is VertexB when solo and TessControl when Task is enabled.
+            const auto shader_stage = static_cast<Shader::Stage>(stage);
+            const auto& regs = cbuf->engine->regs;
+            const bool native_mesh = (regs.reg_array[0x114c / 4] & 1U) != 0;
+            const bool has_task = native_mesh &&
+                regs.IsShaderConfigEnabled(
+                    Tegra::Engines::Maxwell3D::Regs::ShaderType::TessellationInit);
+            const u32 required_bank =
+                shader_stage == Shader::Stage::Task || shader_stage == Shader::Stage::Mesh
+                    ? (native_mesh
+                           ? Shader::Ampere::NativeMeshSlotCbufBank(shader_stage, has_task)
+                           : ~u32{0})
+                    : Shader::Ampere::NativeGraphicsCbufBank(shader_stage);
             if (cbuf->memory != &memory || !cbuf->engine ||
                 required_bank == ~u32{0} || cbuf->stage_index != required_bank)
                 return {};
-            return Shader::Ampere::CaptureNativeGraphicsShaderChecked(
+            auto captured = Shader::Ampere::CaptureNativeGraphicsShaderChecked(
                 gpu_program_address, stage, ReadNs2GpuShader, &memory,
                 ReadNs2GraphicsCbuf, const_cast<Ns2GraphicsCbufContext*>(cbuf),
                 cache);
+            if (captured.Ready() &&
+                (shader_stage == Shader::Stage::Task ||
+                 shader_stage == Shader::Stage::Mesh)) {
+                const std::array<u32, 3> mesh_regs{
+                    regs.reg_array[0x1150 / 4],
+                    regs.reg_array[0x1154 / 4],
+                    regs.reg_array[0x1158 / 4],
+                };
+                captured.image.diagnostic_cache_key =
+                    Shader::Ampere::NativeMeshRegisterPipelineKey(
+                        captured.image.diagnostic_cache_key, mesh_regs);
+                if (shader_stage == Shader::Stage::Mesh) {
+                    const bool primitive_header_enabled =
+                        regs.IsShaderConfigEnabled(
+                            Tegra::Engines::Maxwell3D::Regs::ShaderType::Geometry);
+                    std::array<u8, sizeof(Shader::ProgramHeader)> primitive_header{};
+                    if (primitive_header_enabled) {
+                        const auto& geometry = regs.pipelines[
+                            static_cast<std::size_t>(
+                                Tegra::Engines::Maxwell3D::Regs::ShaderType::Geometry)];
+                        const u64 address = Shader::Ampere::NativeMeshPrimitiveHeaderAddress(
+                            geometry.reserved[0], geometry.reserved[1]);
+                        if (!Shader::Ampere::NativeGpuRange49(
+                                address, primitive_header.size()) ||
+                            !ReadNs2GpuShader(&memory, address,
+                                              primitive_header.data(), primitive_header.size()))
+                            return {};
+                    }
+                    captured.image.diagnostic_cache_key =
+                        Shader::Ampere::NativeMeshPrimitiveHeaderPipelineKey(
+                            captured.image.diagnostic_cache_key,
+                            primitive_header_enabled,
+                            primitive_header_enabled ? primitive_header.data() : nullptr,
+                            primitive_header_enabled ? primitive_header.size() : 0);
+                }
+            }
+            return captured;
         }
         return Shader::Ampere::CaptureNativeGraphicsShader(
             gpu_program_address, stage, ReadNs2GpuShader, &memory, cache);

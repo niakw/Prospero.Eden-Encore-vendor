@@ -445,6 +445,15 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
         }
     }
 #endif
+    // Authenticate the final graphics pipeline AFTER descriptor preflight may
+    // have reselected it. Never dispatch mesh work without the host feature.
+    mesh_draw = pipeline->IsMeshPipeline();
+    if (mesh_draw && !device.IsExtMeshShaderSupported()) {
+        ::Eden::Performance::RecordGraphicsDrawDrop(
+            ::Eden::Performance::GraphicsDrawDrop::ConfigureRejected);
+        LOG_ERROR(Render_Vulkan, "Task/Mesh draw rejected: VK_EXT_mesh_shader unavailable");
+        return;
+    }
 #ifdef PS5_NATIVE
     // Only reserve thread-local storage here. Cache descriptors and shader
     // bindings are still read and validated under the paired cache locks.
@@ -503,6 +512,12 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
                     ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
                 return;
             }
+            if (pipeline->IsMeshPipeline()) {
+                // Native NVN draw vertex count represents task workgroups.
+                // Do not reinterpret this as a legacy vertex-index draw.
+                cmdbuf.DrawMeshTasksEXT(draw_params.num_vertices, 1, 1);
+                return;
+            }
             if (draw_params.is_indexed) {
                 cmdbuf.DrawIndexed(draw_params.num_vertices, draw_params.num_instances,
                                    draw_params.first_index, draw_params.base_vertex,
@@ -534,6 +549,15 @@ void RasterizerVulkan::DrawIndirect() {
     const auto& params = maxwell3d->draw_manager.indirect_state;
     buffer_cache.SetDrawIndirect(&params);
     PrepareDraw(params.is_indexed, [this, &params] {
+        // A native mesh indirect command has a different buffer ABI.
+        // Reject it explicitly; invoking legacy DrawIndirect would use the
+        // wrong command format and could corrupt the render stream.
+        if (mesh_draw) {
+            ::Eden::Performance::RecordGraphicsDrawDrop(
+                ::Eden::Performance::GraphicsDrawDrop::ConfigureRejected);
+            LOG_ERROR(Render_Vulkan, "Task/Mesh indirect draw unsupported");
+            return;
+        }
         const auto indirect_buffer = buffer_cache.GetDrawIndirectBuffer();
         const auto& buffer = indirect_buffer.first;
         const auto& offset = indirect_buffer.second;
@@ -1032,6 +1056,9 @@ private:
 
 bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& launch) {
     auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+    // ChannelStateCache binds a KeplerCompute pointer; only native process
+    // tickets authorize dereference, and the channel may be unbound.
+    if (!kepler_compute) return false;
     const auto ticket = registry.CaptureComputeTicket(kepler_compute);
     if (!ticket) return false;
 
@@ -1063,7 +1090,7 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         auto qmd_context = std::make_unique<Shader::Ampere::NativeQmdComputeEnvironment>(
             launch, VideoCommon::ReadNs2GpuShader, gpu_memory,
             std::make_unique<NativeQmdTextureMetadata>(
-                *gpu_memory, kepler_compute.regs, launch.linked_tsc));
+                *gpu_memory, kepler_compute->regs, launch.linked_tsc));
         auto* const resource_owner = qmd_context.get();
         auto environment = Shader::Ampere::NativeMaxwellEnvironment::CreateComputeOwned(
             std::move(qmd_context), std::move(captured.image));
@@ -1116,7 +1143,7 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                             });
                     }))
                 return false;
-            const auto& regs = kepler_compute.regs;
+            const auto& regs = kepler_compute->regs;
             const Shader::Ampere::NativeQmdTextureTables tables{
                 .tic_base = regs.tic.Address(),
                 .tsc_base = regs.tsc.Address(),
@@ -1233,12 +1260,12 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                 // Keep ownership until ALL TIC/TSC checks and leases finish.
                 NativeTextureReadLockScope native_texture_read_scope{this};
                 same_cache_channel = texture_cache.NativeChannelMatches(
-                    kepler_compute, *gpu_memory);
+                    *kepler_compute, *gpu_memory);
                 // The engine epoch can stay valid while guest code rewrites
                 // TIC/TSC base/limit registers. Never authenticate bytes from
                 // an OLD table and bind them as the currently active one.
                 if (same_cache_channel) {
-                    const auto& live_regs = kepler_compute.regs;
+                    const auto& live_regs = kepler_compute->regs;
                     same_cache_channel = tables.SameRegisters(
                         live_regs.tic.Address(), live_regs.tic.limit,
                         live_regs.tsc.Address(), live_regs.tsc.limit,
@@ -1270,7 +1297,7 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                             !item.tic.IsBuffer())
                             return false;
                         const auto id = texture_cache.AcquireNativeImageView(
-                            kepler_compute, *gpu_memory, item.tic, written);
+                            *kepler_compute, *gpu_memory, item.tic, written);
                         if (id == VideoCommon::NULL_IMAGE_VIEW_ID)
                             return false;
                         const auto& view = texture_cache.GetImageView(id);
@@ -1329,7 +1356,7 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                             item.is_written != written)
                             return false;
                         const auto id = texture_cache.AcquireNativeImageView(
-                            kepler_compute, *gpu_memory, item.tic, written);
+                            *kepler_compute, *gpu_memory, item.tic, written);
                         const auto pinned = texture_cache.PinNativeImageView(id);
                         if (!pinned) return false;
                         auto& view = texture_cache.GetImageView(id);
@@ -1362,7 +1389,7 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                         if (!storage) {
                             if (!item.sampler) return false;
                             const auto sid = texture_cache.AcquireNativeSampler(
-                                kepler_compute, *gpu_memory, *item.sampler);
+                                *kepler_compute, *gpu_memory, *item.sampler);
                             native.sampler_pin = texture_cache.PinNativeSampler(sid);
                             if (!native.sampler_pin) return false;
                             native.sampler = texture_cache.GetSampler(sid).HandleFor(view, depth);
@@ -1403,10 +1430,10 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
                         // they each release config_mutex. Check the exact
                         // engine/GMMU AND current TIC/TSC registers again
                         // while the outer texture mutex is still held.
-                        const auto& live_regs = kepler_compute.regs;
+                        const auto& live_regs = kepler_compute->regs;
                         same_cache_channel = position == typed_descriptors->size() &&
                             texture_cache.NativeChannelMatches(
-                                kepler_compute, *gpu_memory) &&
+                                *kepler_compute, *gpu_memory) &&
                             tables.SameRegisters(
                                 live_regs.tic.Address(), live_regs.tic.limit,
                                 live_regs.tsc.Address(), live_regs.tsc.limit,
@@ -1562,9 +1589,9 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         if (current_after_staging && staged_image_tables && staged_image_records) {
             std::scoped_lock lock{texture_cache.mutex};
             NativeTextureReadLockScope native_texture_read_scope{this};
-            const auto& live_regs = kepler_compute.regs;
+            const auto& live_regs = kepler_compute->regs;
             current_after_staging = texture_cache.NativeChannelMatches(
-                    kepler_compute, *gpu_memory) &&
+                    *kepler_compute, *gpu_memory) &&
                 staged_image_tables->SameRegisters(
                     live_regs.tic.Address(), live_regs.tic.limit,
                     live_regs.tsc.Address(), live_regs.tsc.limit,

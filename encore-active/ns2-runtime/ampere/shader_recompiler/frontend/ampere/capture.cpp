@@ -28,8 +28,12 @@ NativeCaptureResult CaptureNativeShader(
     NativeCaptureResult result;
     // The graphics SPH is never borrowed for compute. Stage identities
     // and mapped read boundaries remain distinct across both paths.
+    // Task and Mesh append exactly two graphics stage IDs after VertexA
+    // in the reviewed Shader::Stage ABI. No open-ended stage admission.
+    constexpr u32 last_native_graphics_stage =
+        static_cast<u32>(Shader::Stage::VertexA) + 2U;
     if (compute ? stage != static_cast<u32>(Shader::Stage::Compute)
-                : stage > static_cast<u32>(Shader::Stage::VertexA) ||
+                : stage > last_native_graphics_stage ||
                   stage == static_cast<u32>(Shader::Stage::Compute))
         return result;
     const u64 header_bytes = compute ? 0 : NativeHeaderBytes;

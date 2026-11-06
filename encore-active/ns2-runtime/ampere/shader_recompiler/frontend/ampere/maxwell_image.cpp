@@ -101,13 +101,24 @@ MaxwellShaderImage BuildMaxwellShaderImage(
     // The LEPC PC is a source-GMMU value for a captured graphics stage,
     // not a Maxwell relocated PC. Compute has no 0x80 graphics SPH,
     // and unrecognized stages may never supply a guessed code VA.
+    // Task and Mesh are appended immediately after VertexA in the
+    // maintained Shader::Stage ABI; the extra modes are only reachable
+    // when an authenticated NVN mesh-control environment selected them.
+    constexpr u32 task_stage = static_cast<u32>(Shader::Stage::VertexA) + 1;
+    constexpr u32 mesh_stage = static_cast<u32>(Shader::Stage::VertexA) + 2;
+    const NativeStageBufferProgram stage_buffer_program =
+        shader_stage == task_stage ? NativeStageBufferProgram::Task :
+        shader_stage == mesh_stage ? NativeStageBufferProgram::Mesh :
+        NativeStageBufferProgram::Legacy;
     if (native_code_address &&
         shader_stage != static_cast<u32>(Shader::Stage::VertexA) &&
-        shader_stage > static_cast<u32>(Shader::Stage::Fragment))
+        shader_stage > static_cast<u32>(Shader::Stage::Fragment) &&
+        stage_buffer_program == NativeStageBufferProgram::Legacy)
         return image;
     if (maxwell_header.size() != MaxwellHeaderSize) return image;
     image.status = MaxwellImageStatus::LoweringFailed;
-    auto lowered = LowerReviewedToMaxwell(native_code, indirect_dispatch, native_code_address);
+    auto lowered = LowerReviewedToMaxwell(native_code, indirect_dispatch, native_code_address,
+                                           stage_buffer_program);
     image.lowering_status = lowered.status;
     image.failed_native_offset = lowered.failed_native_byte_offset;
     if (!lowered.Ready()) return image;

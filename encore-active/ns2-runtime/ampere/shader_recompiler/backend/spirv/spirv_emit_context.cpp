@@ -259,6 +259,10 @@ std::string_view StageName(Stage stage) {
         return "fs";
     case Stage::Compute:
         return "cs";
+    case Stage::Task:
+        return "ts";
+    case Stage::Mesh:
+        return "ms";
     }
     throw InvalidArgument("Invalid stage {}", stage);
 }
@@ -477,6 +481,7 @@ EmitContext::EmitContext(const Profile& profile_, const RuntimeInfo& runtime_inf
     DefineCommonTypes(program.info);
     DefineCommonConstants();
     DefineInterfaces(program);
+    DefineMesh(program);
     DefineLocalMemory(program);
     DefineSharedMemory(program);
     DefineSharedMemoryFunctions(program);
@@ -709,7 +714,11 @@ void EmitContext::DefineSharedMemoryFunctions(const IR::Program& program) {
 
 void EmitContext::DefineAttributeMemAccess(const Info& info) {
     const auto make_load{[&] {
-        const bool is_array{stage == Stage::Geometry};
+        // Indexed fetch uses an explicit vertex coordinate in TCS/TES and
+        // Geometry. Keep the function signature identical to the IR caller.
+        const bool is_array{stage == Stage::Geometry ||
+                            stage == Stage::TessellationControl ||
+                            stage == Stage::TessellationEval};
         const Id end_block{OpLabel()};
         const Id default_label{OpLabel()};
 
@@ -800,13 +809,19 @@ void EmitContext::DefineAttributeMemAccess(const Info& info) {
         return func;
     }};
     const auto make_store{[&] {
+        // Tessellation control outputs are arrays indexed by the caller's
+        // actual vertex, NOT by InvocationId. The IR already passes vertex
+        // to EmitSetAttributeIndexed; use it for both full and split outputs.
+        const bool is_array{stage == Stage::TessellationControl};
         const Id end_block{OpLabel()};
         const Id default_label{OpLabel()};
 
-        const Id func_type_store{TypeFunction(void_id, U32[1], F32[1])};
+        const Id func_type_store{is_array ? TypeFunction(void_id, U32[1], F32[1], U32[1])
+                                          : TypeFunction(void_id, U32[1], F32[1])};
         const Id func{OpFunction(void_id, spv::FunctionControlMask::MaskNone, func_type_store)};
         const Id offset{OpFunctionParameter(U32[1])};
         const Id store_value{OpFunctionParameter(F32[1])};
+        const Id vertex{is_array ? OpFunctionParameter(U32[1]) : Id{}};
         AddLabel();
         const Id base_index{OpShiftRightArithmetic(U32[1], offset, Const(2U))};
         const Id masked_index{OpBitwiseAnd(U32[1], base_index, Const(3U))};
@@ -842,7 +857,9 @@ void EmitContext::DefineAttributeMemAccess(const Info& info) {
         size_t label_index{0};
         if (info.stores.AnyComponent(IR::Attribute::PositionX)) {
             AddLabel(labels[label_index]);
-            const Id pointer{OpAccessChain(output_f32, output_position, masked_index)};
+            const Id pointer{is_array
+                                 ? OpAccessChain(output_f32, output_position, vertex, masked_index)
+                                 : OpAccessChain(output_f32, output_position, masked_index)};
             OpStore(pointer, store_value);
             OpReturn();
             ++label_index;
@@ -851,20 +868,58 @@ void EmitContext::DefineAttributeMemAccess(const Info& info) {
             if (!info.stores.Generic(index)) {
                 continue;
             }
-            if (output_generics[index][0].num_components != 4) {
-                throw NotImplementedException("Physical stores and transform feedbacks");
-            }
+            const auto& elements{output_generics[index]};
+            // Full float4 output keeps its native indexed access path.
+            // Transform feedback can split the same location into several
+            // scalars/vectors with distinct OpVariable IDs and Component
+            // decorations; indexing one four-component vector is invalid.
             AddLabel(labels[label_index]);
-            const Id generic_id{output_generics[index][0].id};
-            const Id pointer{OpAccessChain(output_f32, generic_id, masked_index)};
-            OpStore(pointer, store_value);
-            OpReturn();
+            if (elements[0].num_components == 4) {
+                const Id pointer{is_array
+                                     ? OpAccessChain(output_f32, elements[0].id, vertex, masked_index)
+                                     : OpAccessChain(output_f32, elements[0].id, masked_index)};
+                OpStore(pointer, store_value);
+                OpReturn();
+            } else {
+                // Select the actual decorated output variable for each
+                // generic component. Reject missing/overlapping partitions
+                // at shader compilation rather than dropping a guest store.
+                std::vector<Sirit::Literal> component_values;
+                std::vector<Id> component_labels;
+                for (u32 component = 0; component < 4; ++component) {
+                    const auto& output{elements[component]};
+                    if (!ValidId(output.id) || output.num_components == 0 ||
+                        component < output.first_element ||
+                        component - output.first_element >= output.num_components) {
+                        throw NotImplementedException("Invalid transform feedback component");
+                    }
+                    component_values.push_back(component);
+                    component_labels.push_back(OpLabel());
+                }
+                const Id merge_label{OpLabel()};
+                OpSelectionMerge(merge_label, spv::SelectionControlMask::MaskNone);
+                OpSwitch(masked_index, merge_label, component_values, component_labels);
+                for (u32 component = 0; component < 4; ++component) {
+                    AddLabel(component_labels[component]);
+                    const auto& output{elements[component]};
+                    const Id local_component{Const(component - output.first_element)};
+                    const Id pointer{is_array
+                                         ? OpAccessChain(output_f32, output.id, vertex, local_component)
+                                         : OpAccessChain(output_f32, output.id, local_component)};
+                    OpStore(pointer, store_value);
+                    OpReturn();
+                }
+                AddLabel(merge_label);
+                OpUnreachable();
+            }
             ++label_index;
         }
         if (info.stores.ClipDistances()) {
             if (profile.max_user_clip_distances >= 4) {
                 AddLabel(labels[label_index]);
-                const Id pointer{OpAccessChain(output_f32, clip_distances, masked_index)};
+                const Id pointer{is_array
+                                     ? OpAccessChain(output_f32, clip_distances, vertex, masked_index)
+                                     : OpAccessChain(output_f32, clip_distances, masked_index)};
                 OpStore(pointer, store_value);
                 OpReturn();
                 ++label_index;
@@ -872,7 +927,9 @@ void EmitContext::DefineAttributeMemAccess(const Info& info) {
             if (profile.max_user_clip_distances >= 8) {
                 AddLabel(labels[label_index]);
                 const Id fixed_index{OpIAdd(U32[1], masked_index, Const(4U))};
-                const Id pointer{OpAccessChain(output_f32, clip_distances, fixed_index)};
+                const Id pointer{is_array
+                                     ? OpAccessChain(output_f32, clip_distances, vertex, fixed_index)
+                                     : OpAccessChain(output_f32, clip_distances, fixed_index)};
                 OpStore(pointer, store_value);
                 OpReturn();
                 ++label_index;
@@ -1442,12 +1499,15 @@ void EmitContext::DefineTextureBuffers(const Info& info, u32& binding) {
     const spv::ImageFormat format{spv::ImageFormat::Unknown};
     image_buffer_type = TypeImage(F32[1], spv::Dim::Buffer, 0U, false, false, 1, format);
 
-    const Id type{TypePointer(spv::StorageClass::UniformConstant, image_buffer_type)};
+    const Id pointer_type{TypePointer(spv::StorageClass::UniformConstant, image_buffer_type)};
     texture_buffers.reserve(info.texture_buffer_descriptors.size());
     for (const TextureBufferDescriptor& desc : info.texture_buffer_descriptors) {
-        if (desc.count != 1) {
-            throw NotImplementedException("Array of texture buffers");
+        if (desc.count == 0) {
+            throw NotImplementedException("Empty texture buffer descriptor array");
         }
+        // Scalar descriptors retain the exact Maxwell type; arrays are
+        // real SPIR-V OpTypeArray variables, matching the Vulkan count.
+        const Id type{DescType(*this, image_buffer_type, pointer_type, desc.count)};
         const Id id{AddGlobalVariable(type, spv::StorageClass::UniformConstant)};
         Decorate(id, spv::Decoration::Binding, binding);
         Decorate(id, spv::Decoration::DescriptorSet, 0U);
@@ -1471,7 +1531,11 @@ void EmitContext::DefineImageBuffers(const Info& info, u32& binding) {
         const Id image_type{
             TypeImage(sampled_type, spv::Dim::Buffer, false, false, false, 2, format)};
         const Id pointer_type{TypePointer(spv::StorageClass::UniformConstant, image_type)};
-        const Id id{AddGlobalVariable(pointer_type, spv::StorageClass::UniformConstant)};
+        if (desc.count == 0) {
+            throw NotImplementedException("Empty image buffer descriptor array");
+        }
+        const Id desc_type{DescType(*this, image_type, pointer_type, desc.count)};
+        const Id id{AddGlobalVariable(desc_type, spv::StorageClass::UniformConstant)};
         Decorate(id, spv::Decoration::Binding, binding);
         Decorate(id, spv::Decoration::DescriptorSet, 0U);
         Name(id, NameOf(stage, desc, "imgbuf"));
@@ -1526,7 +1590,11 @@ void EmitContext::DefineImages(const Info& info, u32& binding, u32& scaling_inde
         const Id sampled_type{desc.is_integer ? U32[1] : F32[1]};
         const Id image_type{ImageType(*this, desc, sampled_type)};
         const Id pointer_type{TypePointer(spv::StorageClass::UniformConstant, image_type)};
-        const Id id{AddGlobalVariable(pointer_type, spv::StorageClass::UniformConstant)};
+        if (desc.count == 0) {
+            throw NotImplementedException("Empty image descriptor array");
+        }
+        const Id desc_type{DescType(*this, image_type, pointer_type, desc.count)};
+        const Id id{AddGlobalVariable(desc_type, spv::StorageClass::UniformConstant)};
         Decorate(id, spv::Decoration::Binding, binding);
         Decorate(id, spv::Decoration::DescriptorSet, 0U);
         Name(id, NameOf(stage, desc, "img"));
@@ -1702,6 +1770,16 @@ void EmitContext::DefineInputs(const IR::Program& program) {
         }
         const bool is_integer = input_type == AttributeType::SignedInt ||
                                 input_type == AttributeType::UnsignedInt;
+        if (runtime_info.per_primitive_generics.test(index)) {
+            // Written per primitive by a mesh program: constant over the primitive.
+            AddExtension("SPV_EXT_mesh_shader");
+            AddCapability(spv::Capability::MeshShadingEXT);
+            Decorate(id, spv::Decoration::PerPrimitiveEXT);
+            if (is_integer) {
+                Decorate(id, spv::Decoration::Flat);
+            }
+            continue;
+        }
         if (is_integer) {
             Decorate(id, spv::Decoration::Flat);
         } else {
@@ -1718,6 +1796,16 @@ void EmitContext::DefineInputs(const IR::Program& program) {
         }
     }
     if (stage == Stage::TessellationEval) {
+        // Tessellation level patch reads use built-in Input variables, not
+        // the TCS Output variables. All four outer and two inner slots are
+        // declared so that a dynamic IR patch selection cannot read an
+        // absent interface member.
+        input_tess_level_outer = DefineInput(
+            *this, TypeArray(F32[1], Const(4U)), false, spv::BuiltIn::TessLevelOuter);
+        Decorate(input_tess_level_outer, spv::Decoration::Patch);
+        input_tess_level_inner = DefineInput(
+            *this, TypeArray(F32[1], Const(2U)), false, spv::BuiltIn::TessLevelInner);
+        Decorate(input_tess_level_inner, spv::Decoration::Patch);
         for (size_t index = 0; index < info.uses_patches.size(); ++index) {
             if (!info.uses_patches[index]) {
                 continue;
@@ -1730,8 +1818,120 @@ void EmitContext::DefineInputs(const IR::Program& program) {
     }
 }
 
+void EmitContext::DefineMesh(const IR::Program& program) {
+    if (stage != Stage::Task && stage != Stage::Mesh) {
+        return;
+    }
+    AddExtension("SPV_EXT_mesh_shader");
+    AddCapability(spv::Capability::MeshShadingEXT);
+    mesh_info = program.mesh;
+    mesh_threads = program.workgroup_size[0];
+    // The task's output region, which its mesh workgroups read as their input region.
+    const Id payload_type{TypeArray(U32[1], Const(mesh_info.payload_words))};
+    mesh_payload = DefineVariable(*this, payload_type, std::nullopt,
+                                  spv::StorageClass::TaskPayloadWorkgroupEXT);
+    Name(mesh_payload, "task_payload");
+    mesh_payload_u32 = TypePointer(spv::StorageClass::TaskPayloadWorkgroupEXT, U32[1]);
+    if (stage == Stage::Task) {
+        return;
+    }
+    // Output attribute region: groups of 32 vertices, then groups of 32 primitives, one 32-word
+    // line per attribute. The map region keeps one map byte per word.
+    const u32 vertex_lines{static_cast<u32>(mesh_info.vertex_lines.size())};
+    const u32 primitive_lines{static_cast<u32>(mesh_info.primitive_lines.size())};
+    mesh_primitive_base = Common::DivCeil(mesh_info.max_vertices, 32U) * vertex_lines * 32;
+    mesh_attribute_words = (std::max)(
+        mesh_primitive_base + Common::DivCeil(mesh_info.max_primitives, 32U) * primitive_lines * 32,
+        1U);
+    mesh_map_bytes = 4 + 3 * mesh_info.max_primitives;
+    mesh_shared_u32 = TypePointer(spv::StorageClass::Workgroup, U32[1]);
+    mesh_attributes = DefineVariable(*this, TypeArray(U32[1], Const(mesh_attribute_words)),
+                                     std::nullopt, spv::StorageClass::Workgroup);
+    Name(mesh_attributes, "isbe_attributes");
+    mesh_map = DefineVariable(*this, TypeArray(U32[1], Const(mesh_map_bytes)), std::nullopt,
+                              spv::StorageClass::Workgroup);
+    Name(mesh_map, "isbe_map");
+    mesh_primitive_count =
+        DefineVariable(*this, U32[1], std::nullopt, spv::StorageClass::Workgroup);
+    Name(mesh_primitive_count, "isbe_primitive_count");
+
+    const Id vertex_count{Const(mesh_info.max_vertices)};
+    const Id primitive_count{Const(mesh_info.max_primitives)};
+    mesh_primitive_indices =
+        DefineVariable(*this, TypeArray(U32[3], primitive_count),
+                       spv::BuiltIn::PrimitiveTriangleIndicesEXT, spv::StorageClass::Output);
+    std::array<Id, IR::NUM_GENERICS> generics[2]{};
+    Id point_size{}, primitive_layer{}, primitive_viewport{}, primitive_id_output{};
+    const auto per_primitive_builtin = [&](Id& variable, spv::BuiltIn builtin) {
+        if (!Sirit::ValidId(variable)) {
+            variable = DefineVariable(*this, TypeArray(U32[1], primitive_count), builtin,
+                                      spv::StorageClass::Output);
+            Decorate(variable, spv::Decoration::PerPrimitiveEXT);
+        }
+        return MeshLineTarget{variable, ~0U, false};
+    };
+    const auto target = [&](u32 line, bool per_primitive) -> MeshLineTarget {
+        const IR::Attribute attribute{line};
+        if (IR::IsGeneric(attribute)) {
+            const u32 index{IR::GenericAttributeIndex(attribute)};
+            Id& variable{generics[per_primitive][index]};
+            if (!Sirit::ValidId(variable)) {
+                variable = DefineVariable(
+                    *this, TypeArray(F32[4], per_primitive ? primitive_count : vertex_count),
+                    std::nullopt, spv::StorageClass::Output);
+                Decorate(variable, spv::Decoration::Location, index);
+                if (per_primitive) {
+                    Decorate(variable, spv::Decoration::PerPrimitiveEXT);
+                }
+            }
+            return {variable, IR::GenericAttributeElement(attribute), true};
+        }
+        if (per_primitive) {
+            switch (attribute) {
+            case IR::Attribute::PrimitiveId:
+                return per_primitive_builtin(primitive_id_output, spv::BuiltIn::PrimitiveId);
+            case IR::Attribute::Layer:
+                return per_primitive_builtin(primitive_layer, spv::BuiltIn::Layer);
+            case IR::Attribute::ViewportIndex:
+                return per_primitive_builtin(primitive_viewport, spv::BuiltIn::ViewportIndex);
+            default:
+                return {};
+            }
+        }
+        switch (attribute) {
+        case IR::Attribute::PositionX:
+        case IR::Attribute::PositionY:
+        case IR::Attribute::PositionZ:
+        case IR::Attribute::PositionW:
+            if (!Sirit::ValidId(output_position)) {
+                output_position = DefineVariable(*this, TypeArray(F32[4], vertex_count),
+                                                 spv::BuiltIn::Position, spv::StorageClass::Output);
+            }
+            return {output_position,
+                    static_cast<u32>(attribute) - static_cast<u32>(IR::Attribute::PositionX), true};
+        case IR::Attribute::PointSize:
+            if (!Sirit::ValidId(point_size)) {
+                point_size = DefineVariable(*this, TypeArray(F32[1], vertex_count),
+                                            spv::BuiltIn::PointSize, spv::StorageClass::Output);
+            }
+            return {point_size, ~0U, true};
+        default:
+            return {}; // per-primitive values in vertex lines have no vertex output
+        }
+    };
+    for (const u32 line : mesh_info.vertex_lines) {
+        mesh_vertex_targets.push_back(target(line, false));
+    }
+    for (const u32 line : mesh_info.primitive_lines) {
+        mesh_primitive_targets.push_back(target(line, true));
+    }
+}
+
 void EmitContext::DefineOutputs(const IR::Program& program) {
     const Info& info{program.info};
+    if (stage == Stage::Task || stage == Stage::Mesh) {
+        return; // DefineMesh
+    }
     const std::optional<u32> invocations{program.invocations};
     if (runtime_info.convert_depth_mode || info.stores.AnyComponent(IR::Attribute::PositionX) ||
         stage == Stage::VertexB) {
