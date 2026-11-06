@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/hle/service/am/service/graphics_video_decoder_session.h"
+#include "core/hle/service/am/service/native_video_eos.h"
 
 #include <algorithm>
 #include <array>
@@ -356,32 +357,57 @@ void IGraphicsVideoDecoderSession::Pump() {
 
 void IGraphicsVideoDecoderSession::SubmitInput(HLERequestContext& ctx) {
     if (m_creator || !m_started || m_finalized || !m_decoder ||
-        !m_decoder->IsOpen() || ctx.BufferDescriptorA().empty()) {
+        !m_decoder->IsOpen()) {
         Acknowledge(ctx, Kernel::ResultInvalidState);
         return;
     }
     const auto* w = ctx.CommandBuffer();
+    // EOS-only packets may contain no compressed A buffer. The SDK still
+    // carries PTS and the end-of-stream byte in three normal data words.
     const std::size_t words = 2 + 3 * ctx.BufferDescriptorA().size();
-    if (words + 2 >= IPC::COMMAND_BUFFER_LENGTH || m_pending.size() >= MaxFrames ||
-        m_submitted == std::numeric_limits<u64>::max()) {
-        Acknowledge(ctx, Kernel::ResultOutOfResource);
+    if (w[0] != ctx.GetCommand() + 0x10 || w[1] < 3 ||
+        words + 2 >= IPC::COMMAND_BUFFER_LENGTH) {
+        Acknowledge(ctx, Kernel::ResultInvalidCombination);
         return;
     }
-    const auto compressed = ctx.ReadBufferA(0);
-    if (compressed.empty() || compressed.size() > MaxInputBytes) {
-        Acknowledge(ctx, Kernel::ResultInvalidSize);
+    if (m_submitted == std::numeric_limits<u64>::max()) {
+        Acknowledge(ctx, Kernel::ResultOutOfResource);
         return;
     }
     const u64 pts = u64{w[words]} | (u64{w[words + 1]} << 32);
     const bool eos = (w[words + 2] & 0xff) != 0;
+    if (pts > static_cast<u64>(std::numeric_limits<s64>::max())) {
+        Acknowledge(ctx, Kernel::ResultInvalidArgument);
+        return;
+    }
+    const std::span<const u8> compressed = ctx.BufferDescriptorA().empty()
+        ? std::span<const u8>{} : ctx.ReadBufferA(0);
+    if (compressed.size() > MaxInputBytes || (compressed.empty() && !eos)) {
+        Acknowledge(ctx, Kernel::ResultInvalidSize);
+        return;
+    }
+    // A full queue can still accept an empty EOS packet to mark its final
+    // pending frame; it cannot accept more compressed access units.
+    if (m_pending.size() >= MaxFrames && !compressed.empty()) {
+        Acknowledge(ctx, Kernel::ResultOutOfResource);
+        return;
+    }
     std::vector<Tegra::Host1x::Nx2Picture> decoded;
-    if (!m_decoder->Decode(compressed, pts, decoded) ||
+    if ((!compressed.empty() && !m_decoder->Decode(compressed, pts, decoded)) ||
         (eos && !m_decoder->Drain(decoded))) {
         Acknowledge(ctx, Kernel::ResultInvalidState);
         return;
     }
     if (decoded.size() > MaxFrames - m_pending.size()) {
         Acknowledge(ctx, Kernel::ResultOutOfResource);
+        return;
+    }
+    // An EOS packet can drain a delayed frame, or it can only mark the last
+    // genuine image already queued. With no image, report an explicit error:
+    // fabricating a completed GPU fence here would hang or corrupt clients.
+    if (eos && decoded.empty() &&
+        !VideoDecoderProtocol::MarkLastEos(m_pending, m_outputs)) {
+        Acknowledge(ctx, Kernel::ResultNotFound);
         return;
     }
     for (std::size_t i = 0; i < decoded.size(); ++i)
