@@ -94,10 +94,10 @@ inline constexpr u32 kNativeQmdIndirectCbufBanks = 8;
                          !profile.support_descriptor_aliasing))
                 return false; // No silent non-atomic 64-bit fallback on NS2.
             const auto byte_offset = inst.Arg(1);
-            if (byte_offset.IsImmediate() &&
-                (byte_offset.Type() != Shader::IR::Type::U32 ||
+            if (byte_offset.Type() != Shader::IR::Type::U32 ||
+                (byte_offset.IsImmediate() &&
                  (byte_offset.U32() & (wide ? 7U : 3U))))
-                return false; // No rounding an atomic to the PREVIOUS word.
+                return false; // No 64-bit offset or rounded-down atomic word.
             // Dynamic byte offsets still need actual renderer/GMMU bounds
             // proof at dispatch; this gate authenticates only their SSBO
             // binding and the non-emulated atomic operation.
@@ -315,7 +315,13 @@ private:
                 case Shader::IR::Opcode::GetCbufU32x2: {
                     const auto bank_value = inst.Arg(0);
                     const auto offset_value = inst.Arg(1);
-                    if (!bank_value.IsImmediate()) return false;
+                    // Malformed guest IR must not call Value::U32() on a
+                    // U64/void immediate, nor pass a U64 dynamic offset to
+                    // the native SPIR-V GetCbuf 32-bit access chain.
+                    if (!bank_value.IsImmediate() ||
+                        bank_value.Type() != Shader::IR::Type::U32 ||
+                        offset_value.Type() != Shader::IR::Type::U32)
+                        return false;
                     const u32 bank = bank_value.U32();
                     if (bank >= kNativeQmdIndirectCbufBanks ||
                         !(enabled_mask & (u32{1} << bank)))
@@ -376,6 +382,9 @@ private:
             case Shader::IR::Opcode::GetCbufU32x2: {
                 const auto index = inst.Arg(0);
                 const auto offset = inst.Arg(1);
+                if (index.Type() != Shader::IR::Type::U32 ||
+                    offset.Type() != Shader::IR::Type::U32)
+                    return false;
                 if (index.IsImmediate()) {
                     const u32 bank = index.U32();
                     if (bank >= kNativeQmdIndirectCbufBanks ||
