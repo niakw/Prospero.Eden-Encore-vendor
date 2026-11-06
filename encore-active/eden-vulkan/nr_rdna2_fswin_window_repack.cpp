@@ -51,8 +51,9 @@ bool NrRdna2FSwinWindowRepack::Record(
                                0,validated_set,{});
         cmd.PushConstants(native_layout,VK_SHADER_STAGE_COMPUTE_BIT,
                           0,sizeof(FSwinWindowRepack),&plan);
-        cmd.Dispatch(Eden::Graphics::NeuralRDNA2::FSwinWindowRepackGridX(plan),
-                     1,1);
+        cmd.Dispatch(
+            Eden::Graphics::NeuralRDNA2::FSwinWindowRepackGridX(plan),
+            plan.windows_x,plan.windows_y);
         cmd.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                             0,visible);

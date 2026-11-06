@@ -16,8 +16,13 @@ layout(push_constant) uniform Params {
     uint direction; // 0: raster->windows, 1: windows->raster
 } pc;
 void main(){
-    const uint index=gl_GlobalInvocationID.x;
     const uint words_per_token=pc.channels/4u;
+    // Channel-group x, window-x y, window-y z: avoids oversized
+    // one-dimensional dispatches for high-resolution rasters.
+    const uint window_id=gl_WorkGroupID.z*pc.windows_x+
+                         gl_WorkGroupID.y;
+    const uint index=window_id*64u*words_per_token+
+                     gl_WorkGroupID.x*64u+gl_LocalInvocationID.x;
     const uint count=pc.windows_x*pc.windows_y*64u*words_per_token;
     if(index>=count)return;
     const uint channel_word=index%words_per_token;

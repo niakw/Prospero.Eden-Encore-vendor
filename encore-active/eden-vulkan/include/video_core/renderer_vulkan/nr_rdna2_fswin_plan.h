@@ -9,7 +9,7 @@ namespace Eden::Graphics::NeuralRDNA2 {
     FSwinGraph& output) noexcept {
     if((channels!=32u&&channels!=64u&&
         channels!=128u&&channels!=256u)||
-        windows==0u||windows>256u)return false;
+        windows==0u||windows>65535u)return false;
     FSwinGraph plan{};
     const std::uint64_t C=channels;
     const std::uint64_t tokens=std::uint64_t(windows)*64u;

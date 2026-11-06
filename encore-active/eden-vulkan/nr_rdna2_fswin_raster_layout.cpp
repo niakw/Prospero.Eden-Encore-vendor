@@ -53,7 +53,8 @@ bool NrRdna2FSwinRasterLayout::Record(
         cmd.PushConstants(native_layout,VK_SHADER_STAGE_COMPUTE_BIT,
                           0,sizeof(FSwinRasterLayout),&request);
         cmd.Dispatch(
-            Eden::Graphics::NeuralRDNA2::FSwinRasterLayoutGridX(request),1,1);
+            Eden::Graphics::NeuralRDNA2::FSwinRasterLayoutGridX(request),
+            request.windows_x,request.windows_y);
         cmd.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,kVisible);
     });

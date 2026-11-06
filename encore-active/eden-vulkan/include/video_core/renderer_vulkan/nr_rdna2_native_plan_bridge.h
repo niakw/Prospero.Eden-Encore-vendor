@@ -158,7 +158,11 @@ struct NativeFSwinSegment {
     if(s.shift_x < -1||s.shift_x>1||
        s.shift_y < -1||s.shift_y>1)return false;
     const auto windows=std::uint64_t(s.grid_x)*s.grid_y;
-    return windows>0u&&windows<=256u&&s.grid_z==1u;
+    // Expansion uses 4*C channels; reject shapes whose hidden
+    // activation exceeds the existing 256-MiB/Vulkan storage limit.
+    const auto hidden_bytes=windows*64u*4u*s.channels;
+    return windows>0u&&windows<=65535u&&
+           hidden_bytes<=(256ull<<20)&&s.grid_z==1u;
 }
 // Extract ONLY contiguous compatible sections. Model-wide scheduling,
 // down/up transitions, split-Swin, ViT, pre/post, and skip edges are not

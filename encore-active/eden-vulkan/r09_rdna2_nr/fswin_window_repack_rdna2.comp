@@ -17,8 +17,13 @@ layout(push_constant) uniform Params {
     int dst_shift_y;
 } pc;
 void main(){
-    const uint lane=gl_GlobalInvocationID.x;
+    // One y/z workgroup coordinate per 8x8 window. X covers
+    // its C/4 groups of 64 adjacent FP8 words (Vulkan 1.1 compatible).
     const uint words_per_token=pc.channels/4u;
+    const uint window_id=gl_WorkGroupID.z*pc.windows_x+
+                         gl_WorkGroupID.y;
+    const uint lane=window_id*64u*words_per_token+
+                    gl_WorkGroupID.x*64u+gl_LocalInvocationID.x;
     const uint total=pc.windows_x*pc.windows_y*64u*words_per_token;
     if(lane>=total)return;
     const uint chword=lane%words_per_token;
