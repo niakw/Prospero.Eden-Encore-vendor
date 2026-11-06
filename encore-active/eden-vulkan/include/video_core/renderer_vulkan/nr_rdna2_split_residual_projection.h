@@ -25,6 +25,10 @@ public:
         VkDescriptorBufferInfo activations,VkDescriptorBufferInfo residual,
         VkDescriptorBufferInfo fp32_scratch,VkDescriptorBufferInfo output);
     [[nodiscard]] bool Record();
+    // Shared half-precision gain is consumed by the ProjPool second output.
+    [[nodiscard]] VkDescriptorBufferInfo GainDescriptor() const noexcept {
+        return ready?gain_info:VkDescriptorBufferInfo{};
+    }
 private:
     const Device& device;
     MemoryAllocator& allocator;

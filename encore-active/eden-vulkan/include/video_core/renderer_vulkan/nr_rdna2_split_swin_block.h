@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-// One complete, non-pooled Split-Swin 16-head GPU block from local NRMODEL1.
+// One native Split-Swin 16-head GPU block, optional pooled branch from local NRMODEL1.
 // Requires already-normalized row-major FP8 input and externally-owned
-// scratch/intermediate buffers. ProjPool is deliberately NOT silently skipped.
+// scratch/intermediate buffers. Pool stage is mandatory for ProjPool.
 #pragma once
 #include "rdna2_nr_split_block_policy.h"
 #include "video_core/renderer_vulkan/nr_rdna2_model_file.h"
@@ -16,6 +16,7 @@ struct NrRdna2SplitSwinBlockBuffers {
     VkDescriptorBufferInfo input{},ffwd{},ffwd_projected{};
     VkDescriptorBufferInfo context_heads{},context_tokens{},projected{};
     VkDescriptorBufferInfo query{},key{},value{},fp32_scratch{};
+    VkDescriptorBufferInfo pooled{}; // mandatory only for ProjPool
 };
 class NrRdna2SplitSwinBlock final {
 public:

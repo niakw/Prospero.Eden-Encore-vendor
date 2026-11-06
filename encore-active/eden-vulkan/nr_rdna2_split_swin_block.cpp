@@ -4,6 +4,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_split_residual_projection.h"
 #include "video_core/renderer_vulkan/nr_rdna2_split_window_link.h"
 #include "video_core/renderer_vulkan/nr_rdna2_split_context_repack.h"
+#include "video_core/renderer_vulkan/nr_rdna2_split_projection_pool.h"
 #include "video_core/renderer_vulkan/present/util.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_memory_allocator.h"
@@ -16,7 +17,8 @@ namespace Vulkan {
 namespace NR=Eden::Graphics::NeuralRDNA2;
 namespace {
 [[nodiscard]] bool ValidResources(
-    const NrRdna2SplitSwinBlockBuffers& b,VkDeviceSize limit){
+    const NrRdna2SplitSwinBlockBuffers& b,VkDeviceSize limit,
+    bool has_pooled_projection){
     const std::array<VkDescriptorBufferInfo,10> all{
         b.input,b.ffwd,b.ffwd_projected,b.context_heads,b.context_tokens,
         b.projected,b.query,b.key,b.value,b.fp32_scratch};
@@ -28,13 +30,21 @@ namespace {
         for(std::size_t j=0u;j<i;++j)
             if(a.buffer==all[j].buffer)return false;
     }
+    if(has_pooled_projection){
+        const auto& pooled=b.pooled;
+        if(!pooled.buffer||pooled.offset||!pooled.range||
+           pooled.range==VK_WHOLE_SIZE||pooled.range>limit)return false;
+        for(const auto& used:all)
+            if(used.buffer==pooled.buffer)return false;
+    }
     return true;
 }
 NR::SplitBlockCapacity Capacities(
     const NrRdna2SplitSwinBlockBuffers& b) {
     return {b.input.range,b.ffwd.range,b.ffwd_projected.range,
             b.context_heads.range,b.context_tokens.range,b.projected.range,
-            b.query.range,b.key.range,b.value.range,b.fp32_scratch.range};
+            b.query.range,b.key.range,b.value.range,b.fp32_scratch.range,
+            b.pooled.range};
 }
 }
 struct NrRdna2SplitSwinBlock::State {
@@ -43,13 +53,19 @@ struct NrRdna2SplitSwinBlock::State {
     NrRdna2SplitWindowLink attention;
     NrRdna2SplitContextRepack transpose;
     NrRdna2SplitResidualProjection proj;
+    NrRdna2SplitProjectionPool pool_stage;
+    vk::DescriptorPool pooled_set_pool;
+    vk::DescriptorSets pooled_sets;
+    NR::SplitProjectionPool pooled_shape{};
+    std::array<VkDescriptorBufferInfo,4> pooled_buffers{};
+    bool has_pool{};
     vk::DescriptorPool pool;
     vk::DescriptorSets sets;
     NR::SplitContextRepack transpose_shape{};
     VkDescriptorBufferInfo transpose_input{},transpose_output{};
     State(const Device& d,MemoryAllocator& a,Scheduler& s)
       :ffwd{d,a,s},ffwd_proj{d,a,s},attention{d,s},
-       transpose{d,s},proj{d,a,s}{}
+       transpose{d,s},proj{d,a,s},pool_stage{d,s}{}
 };
 NrRdna2SplitSwinBlock::NrRdna2SplitSwinBlock(
     const Device& d,MemoryAllocator& a,Scheduler& s)
@@ -60,11 +76,11 @@ bool NrRdna2SplitSwinBlock::InitializeWithModel(
     const NR::SplitBlockPlan& plan,
     const NrRdna2SplitSwinBlockBuffers& b){
     if(state||!model.IsOpen()||!ValidResources(
-           b,device.GetMaxStorageBufferRange())||
+           b,device.GetMaxStorageBufferRange(),
+           plan.has_pooled_projection)||
        !NR::CanSplitBlock(plan,Capacities(b)))return false;
-    // Fail-closed for the native ProjPool layer: its pooled output
-    // is a distinct required dependency, not a free side effect.
-    if(plan.has_pooled_projection)return false;
+    // A pooled projection must produce its second, independent tensor,
+    // including padded zero columns/rows and downstream tail tokens.
     const std::string prefix="unpacked-splitswin/block"+
                              std::to_string(block)+".layer";
     const auto layer=[&prefix](std::uint32_t index){
@@ -114,6 +130,46 @@ bool NrRdna2SplitSwinBlock::InitializeWithModel(
     if(!next->proj.InitializeWithModel(
            model,layer(3u),tokens,b.context_tokens,b.ffwd_projected,
            b.fp32_scratch,b.projected))return false;
+    if(plan.has_pooled_projection){
+        // The main projection's GEMM scratch is still live. The secondary
+        // output must be computed from its unquantized half residual, NOT
+        // by averaging the already-quantized FP8 primary output.
+        next->pooled_shape={
+            plan.pool_width,plan.pool_height,plan.pool_windows_x,
+            plan.pool_windows_y,0u,0u,0u,0u,plan.pool_output_tokens};
+        next->pooled_buffers={
+            b.fp32_scratch,b.ffwd_projected,
+            next->proj.GainDescriptor(),b.pooled};
+        if(!NR::CanSplitProjectionPool(
+              next->pooled_shape,{
+                next->pooled_buffers[0].range,
+                next->pooled_buffers[1].range,
+                next->pooled_buffers[2].range,
+                next->pooled_buffers[3].range}))return false;
+        auto p=CreateWrappedDescriptorPool(
+            device,4u,1u,{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER});
+        std::array<VkDescriptorSetLayout,1> pool_layouts{
+            next->pool_stage.DescriptorLayout()};
+        auto ds=CreateWrappedDescriptorSets(
+            p,vk::Span<VkDescriptorSetLayout>{
+                pool_layouts.data(),pool_layouts.size()});
+        if(ds.IsOutOfPoolMemory()||ds.size()!=1u)return false;
+        std::array<VkWriteDescriptorSet,4> writes{};
+        for(std::uint32_t i=0u;i<4u;++i){
+            writes[i]=VkWriteDescriptorSet{
+                .sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.pNext=nullptr,
+                .dstSet=ds[0],.dstBinding=i,.dstArrayElement=0u,
+                .descriptorCount=1u,
+                .descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pImageInfo=nullptr,.pBufferInfo=&next->pooled_buffers[i],
+                .pTexelBufferView=nullptr};
+        }
+        device.GetLogical().UpdateDescriptorSets(
+            vk::Span<VkWriteDescriptorSet>{writes.data(),writes.size()},{});
+        next->pooled_set_pool=std::move(p);
+        next->pooled_sets=std::move(ds);
+        next->has_pool=true;
+    }
     // No half-initialized block visible to the renderer.
     state=std::move(next);
     return true;
@@ -130,6 +186,18 @@ bool NrRdna2SplitSwinBlock::Record(){
     if(!state->transpose.Record(
           state->sets[0],state->transpose_input,
           state->transpose_output,state->transpose_shape))return false;
-    return state->proj.Record();
+    if(!state->proj.Record())return false;
+    if(!state->has_pool)return true;
+    if(state->pooled_sets.size()!=1u||!NR::CanSplitProjectionPool(
+          state->pooled_shape,{
+            state->pooled_buffers[0].range,
+            state->pooled_buffers[1].range,
+            state->pooled_buffers[2].range,
+            state->pooled_buffers[3].range}))return false;
+    return state->pool_stage.Record(
+        state->pooled_sets[0],
+        state->pooled_buffers[0],state->pooled_buffers[1],
+        state->pooled_buffers[2],state->pooled_buffers[3],
+        state->pooled_shape);
 }
 } // namespace Vulkan
