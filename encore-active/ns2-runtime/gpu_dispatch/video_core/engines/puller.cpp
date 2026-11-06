@@ -27,6 +27,8 @@
 #include <algorithm>
 #include <limits>
 #include <cstdio>
+#include <stdexcept>
+#include "native_ampere_semaphore.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "video_core/gpu.h"
 #include "video_core/memory_manager.h"
@@ -287,6 +289,38 @@ void Puller::ProcessSemaphoreRelease(DmaPusher& dma_pusher) {
     dma_pusher.rasterizer->Query(sequence_address, VideoCommon::QueryType::Payload, VideoCommon::QueryPropertiesFlags::IsAFence, payload, 0);
 }
 
+// 0xC797 Ampere host SEM_EXECUTE (0x1b) uses registers 0x17/0x18
+// for the address and 0x19 for payload. Never send the method argument
+// through the Maxwell/NS1 semaphore-release path as a fake payload.
+void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
+    const GPUVAddr address = NativeSemaphore::Address(
+        regs.reg_array[0x18], regs.reg_array[0x17]);
+    const u32 value = regs.reg_array[0x19];
+    const u32 operation = control & 7U;
+    if (!NativeSemaphore::IsAddressAdmissible(address)) {
+        throw std::runtime_error("Ampere SEM_EXECUTE: invalid GPU address");
+    }
+    if (operation == 1) { // RELEASE: schedule a genuine GPU fence write.
+        dma_pusher.rasterizer->Query(
+            address, VideoCommon::QueryType::Payload,
+            VideoCommon::QueryPropertiesFlags::IsAFence, value, 0);
+        return;
+    }
+    // A pending acquire requires suspending the GPFIFO channel. The
+    // existing Maxwell busy loop must NEVER run on Ampere's 0x1a method,
+    // which is instead SEM_PAYLOAD_HI. An unresolved compare must not
+    // advance subsequent guest commands as if a release had occurred.
+    dma_pusher.rasterizer->ReleaseFences();
+    const auto ready = NativeSemaphore::AcquireReady(
+        operation, dma_pusher.memory_manager.Read<u32>(address), value);
+    if (!ready || !*ready) {
+        LOG_ERROR(HW_GPU,
+                  "Ampere SEM_EXECUTE acquire unresolved or unsupported (op={})",
+                  operation);
+        throw std::runtime_error("Ampere SEM_EXECUTE: pending acquire unsupported");
+    }
+}
+
 void Puller::ProcessSemaphoreAcquire(DmaPusher& dma_pusher) {
     u32 word = dma_pusher.memory_manager.Read<u32>(regs.semaphore_address.SemaphoreAddress());
     const auto value = regs.semaphore_acquire;
@@ -361,11 +395,18 @@ void Puller::CallPullerMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
         break;
     }
     case BufferMethods::SemaphoreAcquire: {
-        ProcessSemaphoreAcquire(dma_pusher);
+        // Native 0x1a carries the high semaphore payload, not a Maxwell wait.
+        if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                 .IsNative(&dma_pusher.channel_state))
+            ProcessSemaphoreAcquire(dma_pusher);
         break;
     }
     case BufferMethods::SemaphoreRelease: {
-        ProcessSemaphoreRelease(dma_pusher);
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                .IsNative(&dma_pusher.channel_state))
+            ProcessNativeSemaphoreExecute(dma_pusher, method_call.argument);
+        else
+            ProcessSemaphoreRelease(dma_pusher);
         break;
     }
     case BufferMethods::Yield: {
