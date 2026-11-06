@@ -190,8 +190,25 @@ bool NrRdna2FSwinChain::UploadRasterFeatures(
            features,plan,tokens))return false;
     return layers.front()->UploadInput(tokens);
 }
+bool NrRdna2FSwinChain::BindRasterOutput(
+    VkDescriptorBufferInfo destination,std::uint32_t width,
+    std::uint32_t height){
+    if(!ready||!output_view||raster_output||
+       layers.empty()||layouts.empty())return false;
+    auto exporter=std::make_unique<NrRdna2FSwinOutputView>(
+        device,allocator,scheduler);
+    if(!exporter->Initialize(
+            layers.back()->Output(),destination,layouts.back(),
+            layers.back()->Plan().dense[0].channels,width,height))
+        return false;
+    raster_output=std::move(exporter);
+    return true;
+}
+
 bool NrRdna2FSwinChain::Record(){
-    if(!ready)return false;
+    // Never submit a partial _outview chain without its required
+    // boundary adapter. The descriptor is bound once, before recording.
+    if(!ready||(output_view&&!raster_output))return false;
     for(std::size_t i=0u;i<layers.size();++i){
         if(i>0u){
             if(FSwinNeedsWindowRepack(layouts[i-1u],layouts[i])){
@@ -205,6 +222,7 @@ bool NrRdna2FSwinChain::Record(){
         }
         if(!layers[i]->Record())return false;
     }
+    if(raster_output&&!raster_output->Record())return false;
     return true;
 }
 } // namespace Vulkan

@@ -6,6 +6,7 @@
 #pragma once
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_layer_runtime.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_window_repack.h"
+#include "video_core/renderer_vulkan/nr_rdna2_fswin_output_view.h"
 #include "video_core/renderer_vulkan/nr_rdna2_native_plan_bridge.h"
 #include "rdna2_nr_fswin_chain_layout_policy.h"
 #include <cstdint>
@@ -53,6 +54,12 @@ public:
     [[nodiscard]] bool UploadRasterFeatures(
         std::span<const std::uint8_t> features,
         std::uint32_t width,std::uint32_t height);
+    // A _outview chain requires an explicit output feature-raster buffer
+    // before Record(). This adapter also undoes the final 4x4-tile shift.
+    // The buffer must be writable STORAGE and remain alive across execution.
+    [[nodiscard]] bool BindRasterOutput(
+        VkDescriptorBufferInfo destination,std::uint32_t width,
+        std::uint32_t height);
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
     [[nodiscard]] bool RequiresRasterInput() const noexcept {
@@ -73,6 +80,7 @@ private:
     Scheduler& scheduler;
     std::vector<std::unique_ptr<NrRdna2FSwinLayerRuntime>> layers;
     NrRdna2FSwinWindowRepack window_repack;
+    std::unique_ptr<NrRdna2FSwinOutputView> raster_output;
     vk::DescriptorPool window_pool;
     vk::DescriptorSets window_allocations;
     std::vector<VkDescriptorSet> window_sets;
