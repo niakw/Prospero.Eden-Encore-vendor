@@ -38,6 +38,11 @@ public:
     [[nodiscard]] bool LinkInputFrom(const NrRdna2FSwinLayerRuntime& previous);
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
+    [[nodiscard]] VkDescriptorBufferInfo Output() const noexcept {
+        return VkDescriptorBufferInfo{
+            .buffer=tensors.OutputBuffer(),.offset=0,
+            .range=tensors.OutputSize()};
+    }
     [[nodiscard]] const Eden::Graphics::NeuralRDNA2::FSwinGraph&
         Plan() const noexcept{return plan;}
 private:
