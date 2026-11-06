@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 #include "video_core/renderer_vulkan/nr_rdna2_split_window_link.h"
+#include "video_core/renderer_vulkan/nr_rdna2_split_window_model_buffers.h"
 #include "video_core/renderer_vulkan/present/util.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <utility>
 
 namespace Vulkan {
@@ -74,6 +76,24 @@ bool NrRdna2SplitWindowLink::Initialize(
     plan=p;
     storage=sizes;
     initialized=true;
+    return true;
+}
+bool NrRdna2SplitWindowLink::InitializeWithModel(
+    const NR::SplitWindowLink& p,const NR::NeuralModelFile& model,
+    std::string_view prefix,MemoryAllocator& allocator,
+    NrRdna2SplitWindowBuffers buffers) {
+    if(initialized||model_buffers)return false;
+    // Original and Compact are both CCSplitSwin16H, not 4/8 logical heads:
+    // native plan 'heads' field counts dispatch groups, model stores 16 heads.
+    if(p.qkv.heads!=16u||p.attention.heads!=16u)return false;
+    auto owned=std::make_unique<NrRdna2SplitWindowModelBuffers>(
+        device,allocator);
+    if(!owned->Initialize(model,prefix))return false;
+    buffers.weights=owned->Weights();
+    buffers.scales=owned->Scales();
+    buffers.bias=owned->Bias();
+    if(!Initialize(p,buffers))return false;
+    model_buffers=std::move(owned);
     return true;
 }
 bool NrRdna2SplitWindowLink::Record(){

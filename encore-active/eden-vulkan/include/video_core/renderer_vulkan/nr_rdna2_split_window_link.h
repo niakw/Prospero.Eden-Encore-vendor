@@ -4,11 +4,16 @@
 #pragma once
 #include "video_core/renderer_vulkan/nr_rdna2_qkv_projection.h"
 #include "video_core/renderer_vulkan/nr_rdna2_window_attention.h"
+#include "video_core/renderer_vulkan/nr_rdna2_model_file.h"
+#include <memory>
+#include <string_view>
 #include "video_core/renderer_vulkan/nr_rdna2_split_window_link_policy.h"
 
 namespace Vulkan {
 class Device;
 class Scheduler;
+class MemoryAllocator;
+class NrRdna2SplitWindowModelBuffers;
 struct NrRdna2SplitWindowBuffers {
     VkDescriptorBufferInfo input{},weights{},scales{};
     VkDescriptorBufferInfo query{},key{},value{};
@@ -23,6 +28,12 @@ public:
     [[nodiscard]] bool Initialize(
         const Eden::Graphics::NeuralRDNA2::SplitWindowLink& plan,
         const NrRdna2SplitWindowBuffers& buffers);
+    // Bind model-owned immutable QKV weights, scales and attention bias.
+    [[nodiscard]] bool InitializeWithModel(
+        const Eden::Graphics::NeuralRDNA2::SplitWindowLink& plan,
+        const Eden::Graphics::NeuralRDNA2::NeuralModelFile& model,
+        std::string_view layer_prefix,MemoryAllocator& allocator,
+        NrRdna2SplitWindowBuffers buffers);
     [[nodiscard]] bool Record();
 private:
     const Device& device;
@@ -32,6 +43,7 @@ private:
     vk::DescriptorSets allocations;
     Eden::Graphics::NeuralRDNA2::SplitWindowLink plan{};
     Eden::Graphics::NeuralRDNA2::SplitWindowLinkStorage storage{};
+    std::unique_ptr<NrRdna2SplitWindowModelBuffers> model_buffers;
     bool initialized{};
 };
 } // namespace Vulkan
