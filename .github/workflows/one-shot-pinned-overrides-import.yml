@@ -1,0 +1,70 @@
+name: One-shot pinned Encore Overrides vendor import
+on:
+  push:
+    branches: [feat/overrides-ns2-r10-sync]
+    paths:
+      - '.github/workflows/one-shot-pinned-overrides-import.yml'
+permissions:
+  contents: write
+jobs:
+  pinned-import:
+    if: github.repository == 'niakw/Prospero.Eden-Encore-vendor' && github.ref == 'refs/heads/feat/overrides-ns2-r10-sync'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Download exact merged source, validate it and update only the owned snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$PWD"
+          upstream="$(mktemp -d)"
+          trap 'rm -rf "$upstream"' EXIT
+          git clone --quiet https://github.com/niakw/encore-overrides.git "$upstream"
+          git -C "$upstream" checkout --quiet --detach 95f21edf13bfbd2888602f2b419dd856d6d0fbfa
+          test "$(git -C "$upstream" rev-parse HEAD)" = 95f21edf13bfbd2888602f2b419dd856d6d0fbfa
+          ( cd "$upstream" &&
+            python3 tools/audit_graphics_recommendations.py &&
+            python3 -m unittest discover -s tools -p 'test_sync_switch2_games.py' -v )
+          SOURCE_ROOT="$upstream" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          src=Path(os.environ["SOURCE_ROOT"]).resolve()
+          target=Path("sources/encore-overrides")
+          tracked=subprocess.check_output(["git","-C",str(src),"ls-files","-z"]).decode().split("\0")
+          tracked=[p for p in tracked if p]
+          assert len(tracked)>=9000,len(tracked)
+          assert not any(Path(p).is_absolute() or ".." in Path(p).parts for p in tracked)
+          assert not any((src/p).is_symlink() for p in tracked)
+          ids=[p for p in tracked if p.startswith("games/") and p.endswith(".json")]
+          assert len(ids)==9460,len(ids)
+          if target.is_symlink():raise RuntimeError("Refusing symlink snapshot target")
+          shutil.rmtree(target)
+          for p in tracked:
+              to=target/p
+              to.parent.mkdir(parents=True,exist_ok=True)
+              shutil.copy2(src/p,to)
+          meta={"name":"encore-overrides","commit":"95f21edf13bfbd2888602f2b419dd856d6d0fbfa",
+                "url":"https://github.com/niakw/encore-overrides.git","tracked_files":len(tracked)}
+          (target/"VENDOR-ORIGIN.json").write_text(json.dumps(meta,indent=2)+"\n")
+          print("OVERRIDES_VENDOR_SNAPSHOT_OK",len(tracked),len(ids))
+          PY
+      - name: Publish snapshot only to the integration branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- sources/encore-overrides
+          if git diff --cached --quiet; then
+            echo "Pinned vendor source already up-to-date"
+            exit 0
+          fi
+          git commit -m "chore(vendor): pin Encore Overrides PR1 source 95f21ed"
+          git push origin HEAD:refs/heads/feat/overrides-ns2-r10-sync
