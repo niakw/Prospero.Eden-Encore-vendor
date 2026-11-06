@@ -4,6 +4,7 @@
 // scratch/intermediate buffers. ProjPool is deliberately NOT silently skipped.
 #pragma once
 #include "rdna2_nr_split_block_policy.h"
+#include "video_core/renderer_vulkan/nr_rdna2_model_file.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 #include <cstdint>
 #include <memory>
