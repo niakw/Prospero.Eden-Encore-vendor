@@ -121,7 +121,14 @@ struct Address {
                                    op <= Opcode::GlobalAtomicExchange32;
             const bool integer64 = op >= Opcode::GlobalAtomicIAdd64 &&
                                    op <= Opcode::GlobalAtomicExchange64;
-            if (!integer32 && !integer64) continue;
+            // The shared SPIR-V backend has real compare-and-swap loops
+            // for scalar F32 addition and packed F16x2 add/min/max. Other
+            // float-vector forms are not assumed equivalent without proof.
+            const bool float_cas = op == Opcode::GlobalAtomicAddF32 ||
+                op == Opcode::GlobalAtomicAddF16x2 ||
+                op == Opcode::GlobalAtomicMinF16x2 ||
+                op == Opcode::GlobalAtomicMaxF16x2;
+            if (!integer32 && !integer64 && !float_cas) continue;
             const u32 width = integer64 ? 8U : 4U;
             const auto address = Resolve(inst.Arg(0));
             const auto max_offset = address ?
@@ -167,6 +174,16 @@ struct Address {
                 new_op = static_cast<Opcode>(
                     static_cast<u32>(Opcode::StorageAtomicIAdd32) +
                     static_cast<u32>(op) - static_cast<u32>(Opcode::GlobalAtomicIAdd32));
+            } else if (float_cas) {
+                // These all use the genuine shared SPIR-V CAS helper;
+                // they never degrade to a non-atomic load/store.
+                switch (op) {
+                case Opcode::GlobalAtomicAddF32: new_op=Opcode::StorageAtomicAddF32; break;
+                case Opcode::GlobalAtomicAddF16x2: new_op=Opcode::StorageAtomicAddF16x2; break;
+                case Opcode::GlobalAtomicMinF16x2: new_op=Opcode::StorageAtomicMinF16x2; break;
+                case Opcode::GlobalAtomicMaxF16x2: new_op=Opcode::StorageAtomicMaxF16x2; break;
+                default: return false;
+                }
             } else {
                 // Unlike 32-bit atomics, the 64-bit enum is not guaranteed
                 // to have identical offsets. Map only real Vulkan atomics;
