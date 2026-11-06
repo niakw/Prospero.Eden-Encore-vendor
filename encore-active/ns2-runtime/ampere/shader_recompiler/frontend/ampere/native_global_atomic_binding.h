@@ -9,6 +9,7 @@
 #include <optional>
 #include <utility>
 
+#include "shader_recompiler/frontend/ampere/native_atomic_span.h"
 #include "shader_recompiler/frontend/ir/basic_block.h"
 #include "shader_recompiler/frontend/ir/program.h"
 #include "shader_recompiler/frontend/ir/value.h"
@@ -22,7 +23,7 @@ using Shader::IR::Value;
 struct Address {
     u32 bank{};
     u32 descriptor{};
-    u32 byte_offset{};
+    Value byte_offset{u32{0}};
 };
 
 [[nodiscard]] inline const Inst* Definition(const Value& value) {
@@ -31,15 +32,25 @@ struct Address {
 
 [[nodiscard]] inline std::optional<Address> Resolve(const Value& pointer) {
     Value base = pointer.Resolve();
-    u32 relative{};
+    Value relative{u32{0}};
     if (const auto* const add = Definition(base);
         add && add->GetOpcode() == Opcode::IAdd64) {
         const Value left = add->Arg(0).Resolve();
         const Value right = add->Arg(1).Resolve();
-        if (!right.IsImmediate() || right.Type() != Shader::IR::Type::U64 ||
-            right.U64() > std::numeric_limits<u32>::max())
-            return std::nullopt;
-        relative = static_cast<u32>(right.U64());
+        if (right.IsImmediate()) {
+            if (right.Type() != Shader::IR::Type::U64 ||
+                right.U64() > std::numeric_limits<u32>::max())
+                return std::nullopt;
+            relative = Value{static_cast<u32>(right.U64())};
+        } else {
+            // The IR conversion is an exact ZERO extension of a U32
+            // byte offset. Never truncate an arbitrary U64 pointer.
+            const auto* const convert = Definition(right);
+            if (!convert || convert->GetOpcode() != Opcode::ConvertU64U32)
+                return std::nullopt;
+            relative = convert->Arg(0).Resolve();
+            if (relative.Type() != Shader::IR::Type::U32) return std::nullopt;
+        }
         base = left;
     }
     const auto* const packed = Definition(base);
@@ -74,11 +85,14 @@ struct Address {
             if (!integer32 && !integer64) continue;
             const u32 width = integer64 ? 8U : 4U;
             const auto address = Resolve(inst.Arg(0));
-            if (!address || address->bank >= 8 ||
+            const auto max_offset = address ?
+                NativeQmdAtomicMaximumByteOffset(address->byte_offset, width) :
+                std::nullopt;
+            if (!address || !max_offset || address->bank >= 8 ||
                 !(info.constant_buffer_mask & (1U << address->bank)) ||
                 (address->descriptor & 15U) ||
-                (address->byte_offset & (width-1U)) ||
-                address->byte_offset > std::numeric_limits<u32>::max() - width)
+                (*max_offset & (width - 1U)) ||
+                *max_offset > std::numeric_limits<u32>::max() - width)
                 return false;
             bool declared = false;
             for (const auto& record : info.constant_buffer_descriptors) {
@@ -135,7 +149,7 @@ struct Address {
             // block owns the new instruction until later SPIR-V emission.
             const Value replacement{&*block->PrependNewInst(
                 Shader::IR::Block::InstructionList::s_iterator_to(inst), new_op,
-                {Value{*slot}, Value{address->byte_offset}, inst.Arg(1)})};
+                {Value{*slot}, address->byte_offset, inst.Arg(1)})};
             inst.ReplaceUsesWith(replacement);
             inst.Invalidate();
         }
