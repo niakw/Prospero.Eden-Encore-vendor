@@ -311,6 +311,20 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
     // which is instead SEM_PAYLOAD_HI. An unresolved compare must not
     // advance subsequent guest commands as if a release had occurred.
     dma_pusher.rasterizer->ReleaseFences();
+    // A native GPU semaphore may be written by an earlier Compute/3D
+    // dispatch but still live only in the Vulkan buffer cache. Read the
+    // actual GMMU-backed word, never a stale CPU copy. The release path
+    // above remains GPU-ordered and does not require a CPU alias.
+    const auto cpu_address =
+        dma_pusher.memory_manager.GpuToCpuAddress(address, sizeof(u32));
+    if (!cpu_address) {
+        throw std::runtime_error("Ampere SEM_EXECUTE: unmapped acquire address");
+    }
+    if (dma_pusher.rasterizer->MustFlushRegion(
+            *cpu_address, sizeof(u32), VideoCommon::CacheType::BufferCache)) {
+        dma_pusher.rasterizer->FlushRegion(
+            *cpu_address, sizeof(u32), VideoCommon::CacheType::BufferCache);
+    }
     const auto ready = NativeSemaphore::AcquireReady(
         operation, dma_pusher.memory_manager.Read<u32>(address), value);
     if (!ready || !*ready) {
