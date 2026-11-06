@@ -1,0 +1,109 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Eden R09 RDNA2: an unfused 64-token x 32-feature attention/context
+// primitive adapted from the MIT DLSSNR-AMD attn.comp equations.
+// Q/K/V are PREPROJECTED E4M3FN, with Q/K normalized and scaled upstream.
+// This does NOT implement the costly fused QKV projection or the DLSS graph.
+// No cooperative matrix, shaderFloat8, shaderInt8, or HIP required.
+layout(local_size_x=64, local_size_y=1, local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Queries { uint words[]; } q_data;
+layout(set=0,binding=1,std430) readonly buffer Keys { uint words[]; } k_data;
+layout(set=0,binding=2,std430) readonly buffer Values { uint words[]; } v_data;
+layout(set=0,binding=3,std430) readonly buffer Bias { float values[]; } bias;
+layout(set=0,binding=4,std430) writeonly buffer Result { uint words[]; } result;
+layout(push_constant) uniform Params {
+    uint q_base_bytes;
+    uint k_base_bytes;
+    uint v_base_bytes;
+    uint out_base_bytes;
+    uint bias_base_floats;
+    uint windows;
+    uint heads;
+} pc;
+
+shared float k_lds[64][32];
+shared float v_lds[64][32];
+
+float decode_fp8(uint raw) {
+    uint e=(raw>>3u)&15u, m=raw&7u;
+    float sign=(raw&128u)!=0u ? -1.0 : 1.0;
+    if(e==15u && m==7u) return uintBitsToFloat(0x7fc00000u);
+    if(e==0u) return sign*float(m)*exp2(-9.0);
+    return sign*float(8u+m)*exp2(float(int(e)-10));
+}
+uint encode_fp8(float v) {
+    uint sign=(floatBitsToUint(v)>>24u)&128u;
+    if(isnan(v)) return sign|127u;
+    float a=min(abs(v),448.0);
+    if(a<0.015625) {
+        uint mant=uint(roundEven(a*512.0));
+        return sign|(mant>=8u?8u:mant);
+    }
+    int ex=int(floor(log2(a)));
+    uint mant=uint(roundEven((a/exp2(float(ex))-1.0)*8.0));
+    if(mant==8u) {++ex;mant=0u;}
+    uint eb=uint(ex+7);
+    if(eb>15u || (eb==15u && mant>6u)) return sign|126u;
+    return sign|(eb<<3u)|mant;
+}
+uint byte_at(uint word, uint shift_bytes) {
+    return (word>>(shift_bytes*8u))&255u;
+}
+void main() {
+    const uint qi=gl_LocalInvocationID.x; // 0..63: one query row per lane
+    const uint h=gl_WorkGroupID.y, w=gl_WorkGroupID.z;
+    if(h>=pc.heads || w>=pc.windows) return; // host already bounds grid
+    const uint base=((w*pc.heads+h)*64u)*32u;
+    const uint row=qi*32u;
+    const uint kbyte=pc.k_base_bytes+base+row;
+    const uint vbyte=pc.v_base_bytes+base+row;
+    float query[32];
+    const uint qbyte=pc.q_base_bytes+base+row;
+    for(uint i=0u;i<8u;++i){
+        uint kp=k_data.words[(kbyte>>2u)+i];
+        uint vp=v_data.words[(vbyte>>2u)+i];
+        uint qp=q_data.words[(qbyte>>2u)+i];
+        for(uint j=0u;j<4u;++j){
+            uint c=i*4u+j;
+            k_lds[qi][c]=decode_fp8(byte_at(kp,j));
+            v_lds[qi][c]=decode_fp8(byte_at(vp,j));
+            query[c]=decode_fp8(byte_at(qp,j));
+        }
+    }
+    barrier(); // all 64 lanes initialize K/V shared memory
+
+    // Stable softmax, probability quantized to E4M3FN before context.
+    // The upstream fast_exp/half behavior is NOT claimed bit equivalent.
+    float logits[64];
+    float peak=-3.402823466e38;
+    for(uint key=0u;key<64u;++key){
+        float dotval=0.0;
+        for(uint c=0u;c<32u;++c)
+            dotval=fma(query[c],k_lds[key][c],dotval);
+        float logit=dotval+bias.values[
+            pc.bias_base_floats+(h*64u+qi)*64u+key];
+        logits[key]=logit;
+        peak=max(peak,logit);
+    }
+    float denominator=0.0;
+    for(uint key=0u;key<64u;++key){
+        float e=exp(logits[key]-peak);
+        logits[key]=e;
+        denominator+=e;
+    }
+    denominator=max(denominator,6.103515625e-05);
+    float ctx[32];
+    for(uint c=0u;c<32u;++c)ctx[c]=0.0;
+    for(uint key=0u;key<64u;++key){
+        float weight=decode_fp8(encode_fp8(logits[key]/denominator));
+        for(uint c=0u;c<32u;++c)
+            ctx[c]=fma(weight,v_lds[key][c],ctx[c]);
+    }
+    const uint dst=(pc.out_base_bytes+base+row)>>2u;
+    for(uint i=0u;i<8u;++i){
+        uint packed=0u;
+        for(uint j=0u;j<4u;++j)
+            packed|=encode_fp8(ctx[i*4u+j])<<(8u*j);
+        result.words[dst+i]=packed;
+    }
+}
