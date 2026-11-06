@@ -4,6 +4,7 @@
 #pragma once
 #include "rdna2_nr_vit_native_route_policy.h"
 #include "video_core/renderer_vulkan/nr_rdna2_vit_block.h"
+#include "video_core/renderer_vulkan/nr_rdna2_vit_boundary_repack.h"
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -21,7 +22,9 @@ public:
     [[nodiscard]] bool InitializeWithModel(
         const Eden::Graphics::NeuralRDNA2::NeuralModelFile&,
         const Eden::Graphics::NeuralRDNA2::NativeVitRoute&,
-        std::span<const NrRdna2VitBlockBuffers>);
+        std::span<const NrRdna2VitBlockBuffers>,
+        VkDescriptorBufferInfo source_split_tiles={},
+        VkDescriptorBufferInfo destination_decoder_tiles={});
     [[nodiscard]] bool Record();
     [[nodiscard]] VkDescriptorBufferInfo Result() const noexcept {
         return ready?result:VkDescriptorBufferInfo{};
@@ -34,7 +37,14 @@ private:
     MemoryAllocator& allocator;
     Scheduler& scheduler;
     std::vector<std::unique_ptr<NrRdna2VitBlock>> blocks;
+    NrRdna2VitBoundaryRepack boundary;
+    vk::DescriptorPool boundary_pool;
+    vk::DescriptorSets boundary_sets;
+    Eden::Graphics::NeuralRDNA2::VitBoundaryRepack incoming_shape{},outgoing_shape{};
+    Eden::Graphics::NeuralRDNA2::VitBoundaryStorage incoming_storage{},outgoing_storage{};
+    VkDescriptorBufferInfo incoming_source{},incoming_target{};
+    VkDescriptorBufferInfo outgoing_source{},outgoing_target{};
     VkDescriptorBufferInfo result{};
-    bool ready{};
+    bool ready{},has_incoming{},has_outgoing{};
 };
 } // namespace Vulkan
