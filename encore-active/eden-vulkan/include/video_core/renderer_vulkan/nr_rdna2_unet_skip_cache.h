@@ -32,8 +32,16 @@ public:
     // Call only after the corresponding producer's GPU work has been
     // enqueued on the SAME scheduler, before consumer _upsample work.
     // Buffer is retained by this cache until in-flight work finishes.
+    // Enqueue producer (FSwin + skip export + learned DS) exactly once.
+    // Returned upsample inputs are made available ONLY after successful
+    // recording, and still require in-order submission on this scheduler.
+    [[nodiscard]] bool RecordProducer(
+        std::uint32_t down_block,NrRdna2FSwinChain& producer);
     [[nodiscard]] VkDescriptorBufferInfo ForUpsample(
         std::uint32_t up_block) const noexcept;
+    [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept {
+        return scheduler;
+    }
     [[nodiscard]] bool Ready() const noexcept{return ready;}
 private:
     [[nodiscard]] VkDescriptorBufferInfo Describe(std::size_t i) const noexcept;
@@ -44,6 +52,7 @@ private:
     std::array<vk::Buffer,4> buffers{};
     std::array<VkDeviceSize,4> byte_sizes{};
     std::array<bool,4> bound{};
+    std::array<bool,4> recorded{};
     Scheduler* scheduler{};
     bool ready{};
 };

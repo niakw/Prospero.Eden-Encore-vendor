@@ -63,6 +63,12 @@ public:
     [[nodiscard]] bool BindRasterInput(
         VkDescriptorBufferInfo source,std::uint32_t width,
         std::uint32_t height);
+    // Full-res feature raster accepted also by a plain FSwin block
+    // immediately following an _upsample; shifted first-layer windows
+    // are repacked through a GPU-owned scratch buffer.
+    [[nodiscard]] bool AllowsGpuRasterInput() const noexcept {
+        return ready&&!layers.empty()&&!input_set&&!layers.front()->HasInput();
+    }
     // A _outview chain requires an explicit output feature-raster buffer
     // before Record(). This adapter also undoes the final 4x4-tile shift.
     // The buffer must be writable STORAGE and remain alive across execution.
@@ -143,6 +149,11 @@ private:
     vk::DescriptorPool input_pool;
     vk::DescriptorSets input_allocations;
     VkDescriptorSet input_set{VK_NULL_HANDLE};
+    vk::Buffer input_window_staging;
+    vk::DescriptorPool input_shift_pool;
+    vk::DescriptorSets input_shift_allocations;
+    VkDescriptorSet input_shift_set{VK_NULL_HANDLE};
+    Eden::Graphics::NeuralRDNA2::FSwinWindowRepack input_shift_plan{};
     Eden::Graphics::NeuralRDNA2::FSwinRasterLayout input_plan{};
     Eden::Graphics::NeuralRDNA2::FSwinRasterLayoutStorage input_storage{};
     vk::DescriptorPool window_pool;

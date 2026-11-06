@@ -71,11 +71,27 @@ bool NrRdna2UNetSkipCache::BindProducer(
     }
     return false;
 }
+bool NrRdna2UNetSkipCache::RecordProducer(
+    std::uint32_t down_block,NrRdna2FSwinChain& producer){
+    if(!ready||!producer.Ready()||
+       scheduler!=producer.SchedulerIdentity())return false;
+    for(std::size_t i=0;i<map.count;++i){
+        if(map.edges[i].down_block!=down_block)continue;
+        if(!bound[i]||recorded[i]||
+           producer.ResultSkipRaster().buffer!=*buffers[i]||
+           !producer.RequiresDownsampleOutput())
+            return false;
+        if(!producer.Record())return false;
+        recorded[i]=true;
+        return true;
+    }
+    return false;
+}
 VkDescriptorBufferInfo NrRdna2UNetSkipCache::ForUpsample(
     std::uint32_t up_block) const noexcept {
     if(!ready)return {};
     for(std::size_t i=0;i<map.count;++i)
-        if(bound[i]&&map.edges[i].up_block==up_block)
+        if(recorded[i]&&map.edges[i].up_block==up_block)
             return Describe(i);
     return {};
 }

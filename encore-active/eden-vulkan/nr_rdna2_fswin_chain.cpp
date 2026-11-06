@@ -200,38 +200,54 @@ bool NrRdna2FSwinChain::UploadRasterFeatures(
 bool NrRdna2FSwinChain::BindRasterInput(
     VkDescriptorBufferInfo source,std::uint32_t width,
     std::uint32_t height){
-    if(!ready||!input_view||input_set||layers.empty()||
-       layouts.empty()||layers.front()->HasInput())return false;
+    if(!AllowsGpuRasterInput()||layouts.empty())return false;
     const auto target=layers.front()->Input();
     const auto& layout=layouts.front();
     if(!source.buffer||!target.buffer||
-       source.buffer==target.buffer||target.offset||
+       source.buffer==target.buffer||source.offset||target.offset||
+       !source.range||!target.range||
+       source.range==VK_WHOLE_SIZE||target.range==VK_WHOLE_SIZE||
        !layout.windows_x||!layout.windows_y||
-       layout.shift_x||layout.shift_y||
        source.range>device.GetMaxStorageBufferRange()||
        target.range>device.GetMaxStorageBufferRange())return false;
+    const FSwinWindowLayout canonical{
+        layout.windows_x,layout.windows_y,0,0};
+    const bool shifted=FSwinNeedsWindowRepack(canonical,layout);
+    vk::Buffer scratch;
+    VkDescriptorBufferInfo packing_target=target;
+    if(shifted){
+        const VkBufferCreateInfo ci{
+            .sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext=nullptr,.flags=0,.size=target.range,
+            .usage=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .sharingMode=VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount=0,.pQueueFamilyIndices=nullptr,
+        };
+        scratch=allocator.CreateBuffer(ci,MemoryUsage::DeviceLocal);
+        if(!scratch)return false;
+        packing_target={
+            .buffer=*scratch,.offset=0,.range=target.range};
+    }
     const Eden::Graphics::NeuralRDNA2::FSwinRasterLayout plan{
         width,height,layout.windows_x,layout.windows_y,
         layers.front()->Plan().dense[0].channels,0u};
     const Eden::Graphics::NeuralRDNA2::FSwinRasterLayoutStorage storage{
-        source.range,target.range};
+        source.range,packing_target.range};
     if(!Eden::Graphics::NeuralRDNA2::CanFSwinRasterLayout(
            plan,storage))return false;
     auto new_pool=CreateWrappedDescriptorPool(
         device,2u,1u,{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER});
     VkDescriptorSetLayout descriptor_layout=raster_input.DescriptorLayout();
     auto new_sets=CreateWrappedDescriptorSets(
-        new_pool,vk::Span<VkDescriptorSetLayout>{
-            &descriptor_layout,1u});
+        new_pool,vk::Span<VkDescriptorSetLayout>{&descriptor_layout,1u});
     if(new_sets.IsOutOfPoolMemory()||new_sets.size()!=1u)return false;
     const std::array<VkDescriptorBufferInfo,2> infos{
-        source,target};
+        source,packing_target};
     std::array<VkWriteDescriptorSet,2> writes{};
     for(std::uint32_t i=0u;i<2u;++i){
         writes[i]=VkWriteDescriptorSet{
             .sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext=nullptr,
-            .dstSet=new_sets[0],
+            .pNext=nullptr,.dstSet=new_sets[0],
             .dstBinding=i,.dstArrayElement=0,
             .descriptorCount=1,
             .descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -241,6 +257,48 @@ bool NrRdna2FSwinChain::BindRasterInput(
     }
     device.GetLogical().UpdateDescriptorSets(
         vk::Span<VkWriteDescriptorSet>{writes.data(),writes.size()},{});
+    vk::DescriptorPool shift_pool;
+    vk::DescriptorSets shift_sets;
+    FSwinWindowRepack shifted_plan{};
+    if(shifted){
+        shifted_plan={
+            .windows_x=layout.windows_x,.windows_y=layout.windows_y,
+            .channels=layers.front()->Plan().dense[0].channels,
+            .src_shift_x=0,.src_shift_y=0,
+            .dst_shift_x=layout.shift_x,.dst_shift_y=layout.shift_y,
+        };
+        if(!CanFSwinWindowRepack(
+           shifted_plan,{packing_target.range,target.range}))return false;
+        shift_pool=CreateWrappedDescriptorPool(
+            device,2u,1u,{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER});
+        VkDescriptorSetLayout shifted_layout=window_repack.DescriptorLayout();
+        shift_sets=CreateWrappedDescriptorSets(
+            shift_pool,vk::Span<VkDescriptorSetLayout>{&shifted_layout,1u});
+        if(shift_sets.IsOutOfPoolMemory()||shift_sets.size()!=1u)
+            return false;
+        const std::array<VkDescriptorBufferInfo,2> shifted_infos{
+            packing_target,target};
+        std::array<VkWriteDescriptorSet,2> shift_writes{};
+        for(std::uint32_t i=0u;i<2u;++i){
+            shift_writes[i]=VkWriteDescriptorSet{
+                .sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .pNext=nullptr,.dstSet=shift_sets[0],
+                .dstBinding=i,.dstArrayElement=0,
+                .descriptorCount=1,
+                .descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pImageInfo=nullptr,.pBufferInfo=&shifted_infos[i],
+                .pTexelBufferView=nullptr,
+            };
+        }
+        device.GetLogical().UpdateDescriptorSets(
+            vk::Span<VkWriteDescriptorSet>{
+                shift_writes.data(),shift_writes.size()},{});
+    }
+    input_window_staging=std::move(scratch);
+    input_shift_pool=std::move(shift_pool);
+    input_shift_allocations=std::move(shift_sets);
+    input_shift_set=shifted?input_shift_allocations[0]:VK_NULL_HANDLE;
+    input_shift_plan=shifted_plan;
     input_pool=std::move(new_pool);
     input_allocations=std::move(new_sets);
     input_set=input_allocations[0];
@@ -313,8 +371,13 @@ bool NrRdna2FSwinChain::Record(){
     if(!ready||(output_view&&!raster_output)||
        (downsample&&!downsample_output))return false;
     if(input_set){
-        if(!raster_input.Record(input_set,input_plan,input_storage)||
-           !layers.front()->MarkGpuInputReady())return false;
+        if(!raster_input.Record(input_set,input_plan,input_storage))
+            return false;
+        if(input_shift_set&&!window_repack.Record(
+            input_shift_set,input_shift_plan,
+            {input_storage.output_bytes,layers.front()->Input().range}))
+            return false;
+        if(!layers.front()->MarkGpuInputReady())return false;
     }
     for(std::size_t i=0u;i<layers.size();++i){
         if(i>0u){

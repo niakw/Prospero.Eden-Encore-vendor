@@ -62,8 +62,12 @@ void main(){
     if(wx>=pc.windows_x||wy>=pc.windows_y||pixel>=64u)return;
     uint x=wx*8u+pixel%8u,y=wy*8u+pixel/8u;
     if(x>=pc.width||y>=pc.height)return;
-    const uint low_w=(pc.width+1u)/2u;
-    const uint low_pixel=(y/2u)*low_w+x/2u;
+    // The native downsample is FLOOR(W/2) x FLOOR(H/2).
+    // Clamp the final odd edge; ceil() would read a nonexistent row.
+    const uint low_w=max(1u,pc.width/2u);
+    const uint low_h=max(1u,pc.height/2u);
+    const uint low_pixel=min(y/2u,low_h-1u)*low_w+
+                         min(x/2u,low_w-1u);
     const uint high_pixel=y*pc.width+x;
     uint packed=0u;
     for(uint b=0u;b<4u;++b){
