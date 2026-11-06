@@ -198,6 +198,14 @@ void IGraphicsVideoDecoderSession::Finalize(HLERequestContext& ctx) {
     }
     m_started = false;
     m_ready->Set(false, false);
+    // Finalize is terminal even if the guest keeps this IPC session handle
+    // open. Stop the 4ms ready-event pulse now, rather than leaving it
+    // scheduled until destruction. The callback owns only shared ready-state.
+    m_ready->Detach();
+    if (m_ready_timer) {
+        system.CoreTiming().UnscheduleEvent(m_ready_timer);
+        m_ready_timer.reset();
+    }
     if (m_event) m_event->Clear(system.Kernel());
     m_pending.clear();
     m_decoder.reset();
