@@ -168,7 +168,8 @@ bool NrRdna2FSwinChain::InitializeNativeSegment(
         specs.push_back(FSwinLayerSpec{
             layer.weight_prefix,layer.channels,layer.windows,
             false,layer.layout,
-            layer.view==NativeFSwinView::InputView,
+            layer.view==NativeFSwinView::InputView||
+                layer.view==NativeFSwinView::Upsample,
             layer.view==NativeFSwinView::OutputView,
             layer.view==NativeFSwinView::Downsample});
     }

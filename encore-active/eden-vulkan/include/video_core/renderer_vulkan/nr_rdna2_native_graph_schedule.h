@@ -109,13 +109,7 @@ struct NativeNrSchedule {
             return view==(op==NativeNrOp::FswinInput?
                 NativeFSwinView::InputView:NativeFSwinView::OutputView);
         }
-        NativePlanStep normal=s;
-        normal.output_channels=normal.channels;
-        normal.input_channels=normal.channels;
-        normal.kernel="cc_tinlayout_fused_swin_canonical_fp8";
-        return s.inputs==2u&&s.input0>=0&&s.input1>=0&&
-            s.output_channels==s.channels&&
-            s.input_channels==2u*s.channels&&NativePlainFSwin(normal);
+        return NativeUpsampleFSwin(s);
     }
     if(IsNativeNrSplitOp(op)){
         if(s.channels!=512u||s.width>128u||s.height>128u||

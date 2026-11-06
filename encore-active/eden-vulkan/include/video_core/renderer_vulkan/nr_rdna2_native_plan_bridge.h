@@ -28,7 +28,7 @@ struct NativePlanStep {
     std::string type,kernel;
     std::int32_t shift_x{100},shift_y{100};
 };
-enum class NativeFSwinView : std::uint8_t { Plain, InputView, OutputView, Downsample };
+enum class NativeFSwinView : std::uint8_t { Plain, InputView, OutputView, Downsample, Upsample };
 struct NativeFSwinLayer {
     std::string weight_prefix;
     FSwinWindowLayout layout{};
@@ -200,6 +200,24 @@ struct NativeFSwinSegment {
     view=input?NativeFSwinView::InputView:NativeFSwinView::OutputView;
     return true;
 }
+// Each native _upsample block includes an FSwin body AFTER the learned
+// projection/skip prologue. Include it as the first layer of the ascending
+// segment; skipping it loses a complete learned model layer.
+[[nodiscard]] inline bool NativeUpsampleFSwin(
+    const NativePlanStep& row) {
+    if(!row.type.starts_with("CCTinlayoutFusedSwin")||
+       !row.kernel.starts_with("cc_tinlayout_fused_swin_")||
+       !row.kernel.ends_with("_upsample_fp8")||
+       row.channels>std::numeric_limits<std::uint32_t>::max()/2u||
+       row.inputs!=2u||row.input0<0||row.input1<0||
+       row.input_channels!=2u*row.channels||
+       row.output_channels!=row.channels)
+        return false;
+    NativePlanStep canonical=row;
+    canonical.input_channels=row.channels;
+    canonical.kernel="cc_tinlayout_fused_swin_canonical_fp8";
+    return NativePlainFSwin(canonical);
+}
 // Extract ONLY contiguous compatible sections. Model-wide scheduling,
 // down/up transitions, split-Swin, ViT, pre/post, and skip edges are not
 // represented by a chain segment and MUST NOT be silently skipped by a
@@ -218,11 +236,13 @@ ExtractNativeFSwinSegments(std::span<const NativePlanStep> rows){
         NativeFSwinView kind=NativeFSwinView::Plain;
         if(!NativePlainFSwin(s)&&!NativeViewFSwin(s,kind)){
             if(NativeDownsampleFSwin(s))kind=NativeFSwinView::Downsample;
+            else if(NativeUpsampleFSwin(s))kind=NativeFSwinView::Upsample;
             else{flush();continue;}
         }
         // An input-view may only start a chain segment, and an
         // output-view must terminate it. Never elide the boundary.
-        if(kind==NativeFSwinView::InputView)flush();
+        if(kind==NativeFSwinView::InputView||
+           kind==NativeFSwinView::Upsample)flush();
         const auto windows=s.grid_x*s.grid_y;
         if(!current.layers.empty()){
             const auto& prev=current.layers.back();
