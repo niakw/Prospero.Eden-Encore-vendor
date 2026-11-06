@@ -133,7 +133,9 @@ void IGraphicsVideoDecoderSession::Configure(HLERequestContext& ctx) {
     const auto end = name.find('\0');
     const std::string_view mime = name.substr(0, end);
     if (mime != "video/vp9" && mime != "video/vp8" && mime != "video/avc" &&
-        mime != "video/h264") {
+        mime != "video/h264" && mime != "video/av01" && mime != "video/av1" &&
+        mime != "video/hevc" && mime != "video/h265" &&
+        mime != "video/hev1" && mime != "video/hvc1") {
         Acknowledge(ctx, Kernel::ResultNotImplemented);
         return;
     }

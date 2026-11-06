@@ -6,6 +6,7 @@
 #include <cstring>
 #include <optional>
 #include <set>
+#include <memory>
 
 #include "common/logging.h"
 #include "common/settings.h"
@@ -42,6 +43,15 @@ std::optional<NvdecCommon::VideoCodec> CodecFromMime(std::string_view mime) {
     if (mime.find("avc") != std::string_view::npos || mime.find("264") != std::string_view::npos) {
         return NvdecCommon::VideoCodec::H264;
     }
+    return std::nullopt;
+}
+
+// HEVC and AV1 are available through the native FFmpeg codec API without
+// changing Eden's pinned NS1 NVDEC register enum or decoder selection.
+std::optional<AVCodecID> RawCodecFromMime(std::string_view mime) {
+    if (mime == "video/av01" || mime == "video/av1") return AV_CODEC_ID_AV1;
+    if (mime == "video/hevc" || mime == "video/h265" ||
+        mime == "video/hev1" || mime == "video/hvc1") return AV_CODEC_ID_HEVC;
     return std::nullopt;
 }
 
@@ -91,6 +101,9 @@ struct Nx2VideoDecoder::Impl {
     std::optional<FFmpeg::Decoder> decoder;
     std::optional<FFmpeg::HardwareContext> hardware;
     std::optional<FFmpeg::DecoderContext> context;
+    // AV1/HEVC use native FFmpeg contexts: the pinned NS1 FFmpeg wrapper
+    // deliberately only selects H264/VP8/VP9 and must remain untouched.
+    AVCodecContext* raw_context{};
     SwsContext* scaler{};
     bool open{};
     H264PacketConverter h264_packets;
@@ -103,15 +116,33 @@ struct Nx2VideoDecoder::Impl {
         sws_freeContext(scaler);
         context.reset();
         hardware.reset();
+        if (raw_context) avcodec_free_context(&raw_context);
     }
 
-    void Receive(std::vector<Nx2Picture>& pictures) {
-        while (auto frame = context->ReceiveFrame()) {
+    bool Receive(std::vector<Nx2Picture>& pictures) {
+        while (true) {
+            std::shared_ptr<FFmpeg::Frame> frame;
+            if (raw_context) {
+                frame = std::make_shared<FFmpeg::Frame>();
+                const int status = avcodec_receive_frame(raw_context, frame->GetFrame());
+                if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) break;
+                if (status < 0) {
+                    LOG_ERROR(HW_GPU, "nx2 video: native codec receive failed: {}", status);
+                    return false;
+                }
+            } else {
+                frame = context->ReceiveFrame();
+                if (!frame) break;
+            }
             const AVFrame* f = frame->GetFrame();
+            if (f->width <= 0 || f->height <= 0) {
+                LOG_ERROR(HW_GPU, "nx2 video: rejected invalid decoded frame dimensions");
+                return false;
+            }
             const s64 stamp = f->best_effort_timestamp != AV_NOPTS_VALUE ? f->best_effort_timestamp
                                                                          : f->pts;
             u64 pts{};
-            if (stamp != AV_NOPTS_VALUE) {
+            if (stamp != AV_NOPTS_VALUE && stamp >= 0) {
                 pts = static_cast<u64>(stamp);
                 if (const auto it = pending_pts.find(pts); it != pending_pts.end()) {
                     pending_pts.erase(it);
@@ -123,11 +154,32 @@ struct Nx2VideoDecoder::Impl {
             pictures.push_back({static_cast<u32>(f->width), static_cast<u32>(f->height), pts,
                                 std::move(frame)});
         }
+        return true;
     }
 };
 
 Nx2VideoDecoder::Nx2VideoDecoder(std::string_view mime) : impl{std::make_unique<Impl>()} {
     impl->name = std::string{mime};
+    if (const auto raw_id = RawCodecFromMime(mime)) {
+        const AVCodec* const raw_codec = avcodec_find_decoder(*raw_id);
+        if (!raw_codec) {
+            LOG_ERROR(HW_GPU, "nx2 video: host FFmpeg lacks decoder for {}", mime);
+            return;
+        }
+        impl->raw_context = avcodec_alloc_context3(raw_codec);
+        if (!impl->raw_context) {
+            LOG_ERROR(HW_GPU, "nx2 video: cannot allocate decoder context for {}", mime);
+            return;
+        }
+        if (avcodec_open2(impl->raw_context, raw_codec, nullptr) < 0) {
+            LOG_ERROR(HW_GPU, "nx2 video: cannot open decoder for {}", mime);
+            avcodec_free_context(&impl->raw_context);
+            return;
+        }
+        impl->open = true;
+        LOG_INFO(HW_GPU, "nx2 video: native FFmpeg decoder open for {}", mime);
+        return;
+    }
     const auto codec = CodecFromMime(mime);
     if (!codec) {
         LOG_ERROR(HW_GPU, "nx2 video: no decoder for codec \"{}\"", mime);
@@ -162,8 +214,13 @@ bool Nx2VideoDecoder::Decode(std::span<const u8> data, u64 pts, std::vector<Nx2P
     impl->packet.assign(data.size() + AV_INPUT_BUFFER_PADDING_SIZE, 0);
     std::memcpy(impl->packet.data(), data.data(), data.size());
 
-    // Convert MP4/avcC length-prefixed NALUs to Annex-B start codes for FFmpeg if needed.
-    if (impl->name.find("avc") != std::string::npos || impl->name.find("264") != std::string::npos) {
+    // MP4 avcC/hvcC may deliver 4-byte length-prefixed H264/HEVC NALUs.
+    // The maintained converter operates on generic length prefixes and
+    // leaves already Annex-B streams intact for both codec families.
+    const bool has_nalus = impl->name == "video/avc" || impl->name == "video/h264" ||
+                           impl->name == "video/hevc" || impl->name == "video/h265" ||
+                           impl->name == "video/hev1" || impl->name == "video/hvc1";
+    if (has_nalus) {
         impl->h264_packets.Convert(std::span<u8>{impl->packet.data(), data.size()});
     }
 
@@ -174,27 +231,49 @@ bool Nx2VideoDecoder::Decode(std::span<const u8> data, u64 pts, std::vector<Nx2P
         impl->pending_pts.erase(impl->pending_pts.begin());
     }
     impl->pending_pts.insert(pts);
-    if (!impl->context->SendPacket(packet)) {
+    bool sent{};
+    if (impl->raw_context) {
+        int status = avcodec_send_packet(impl->raw_context, packet.GetPacket());
+        if (status == AVERROR(EAGAIN)) {
+            // The FFmpeg send/receive contract requires draining ready frames
+            // before retrying a packet; never silently discard a compressed AU.
+            if (!impl->Receive(pictures)) return false;
+            status = avcodec_send_packet(impl->raw_context, packet.GetPacket());
+        }
+        sent = status >= 0;
+    } else {
+        sent = impl->context->SendPacket(packet);
+    }
+    if (!sent) {
         if (const auto it = impl->pending_pts.find(pts); it != impl->pending_pts.end())
             impl->pending_pts.erase(it);
         return false;
     }
-    impl->Receive(pictures);
-    return true;
+    return impl->Receive(pictures);
 }
 
 bool Nx2VideoDecoder::Drain(std::vector<Nx2Picture>& pictures) {
     if (!impl->open) return false;
-    const int status = avcodec_send_packet(impl->context->GetCodecContext(), nullptr);
+    AVCodecContext* const context = impl->raw_context ? impl->raw_context
+                                                      : impl->context->GetCodecContext();
+    int status = avcodec_send_packet(context, nullptr);
+    if (status == AVERROR(EAGAIN)) {
+        // A pending decoded frame must be drained before sending end-of-
+        // stream. Do not reset while frames are still queued internally.
+        if (!impl->Receive(pictures)) return false;
+        status = avcodec_send_packet(context, nullptr);
+    }
     if (status < 0 && status != AVERROR_EOF) return false;
-    impl->Receive(pictures);
+    const bool received = impl->Receive(pictures);
     Reset();
-    return true;
+    return received;
 }
 
 void Nx2VideoDecoder::Reset() {
     if (impl->open) {
-        avcodec_flush_buffers(impl->context->GetCodecContext());
+        AVCodecContext* const context = impl->raw_context ? impl->raw_context
+                                                          : impl->context->GetCodecContext();
+        avcodec_flush_buffers(context);
     }
     impl->pending_pts.clear();
     impl->h264_packets.Reset();
