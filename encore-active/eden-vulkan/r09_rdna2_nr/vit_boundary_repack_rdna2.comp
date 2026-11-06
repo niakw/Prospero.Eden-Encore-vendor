@@ -1,0 +1,61 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Correct native Split FinalHead [ceil(W/4)*ceil(H/4)*16][1024]
+// 4x4 tile-order -> ViT [tokens][1024] raster-order, or inverse.
+// All padded tokens explicitly written as zero. RDNA2 Vulkan 1.1,
+// no shaderInt8/float8/cooperative-matrix extension required.
+layout(local_size_x=256,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Input {
+    uint words[];
+} source;
+layout(set=0,binding=1,std430) writeonly buffer Output {
+    uint words[];
+} target;
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    uint channels;
+    uint vit_tokens;
+    uint direction;
+    uint source_base_bytes;
+    uint target_base_bytes;
+} pc;
+void main(){
+    const uint tid=gl_GlobalInvocationID.x;
+    const uint words_per_token=pc.channels/4u;
+    const uint tile_cols=(pc.width+3u)/4u;
+    const uint tile_rows=(pc.height+3u)/4u;
+    const uint tiled_tokens=tile_cols*tile_rows*16u;
+    const uint tokens=pc.direction==0u?pc.vit_tokens:tiled_tokens;
+    if(tid>=tokens*words_per_token)return;
+    const uint out_token=tid/words_per_token;
+    const uint channel_word=tid%words_per_token;
+    uint in_token=0u;
+    bool has_value=false;
+    if(pc.direction==0u){
+        // Source is 4x4 tiled, target is raster token-major.
+        if(out_token<pc.width*pc.height){
+            uint x=out_token%pc.width;
+            uint y=out_token/pc.width;
+            in_token=((y/4u)*tile_cols+x/4u)*16u+
+                     (y%4u)*4u+x%4u;
+            has_value=true;
+        }
+    }else{
+        // Source ViT raster-order, target is packed 4x4 tiles.
+        uint tile=out_token/16u;
+        uint local=out_token%16u;
+        uint x=(tile%tile_cols)*4u+local%4u;
+        uint y=(tile/tile_cols)*4u+local/4u;
+        if(x<pc.width&&y<pc.height){
+            in_token=y*pc.width+x;
+            has_value=true;
+        }
+    }
+    uint value=0u;
+    if(has_value){
+        value=source.words[(pc.source_base_bytes>>2u)+
+                           in_token*words_per_token+channel_word];
+    }
+    target.words[(pc.target_base_bytes>>2u)+tid]=value;
+}
