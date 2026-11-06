@@ -208,6 +208,21 @@ bool Fsr31NativeBridge::TryRecordToGuest(
         pass.depth_format == PixelFormat::Invalid &&
         std::all_of(pass.color_formats.begin() + 1, pass.color_formats.end(),
                     [](PixelFormat format) { return format == PixelFormat::Invalid; });
+    // The destination must be one complete, single-layer guest colour view.
+    // Reject layered/mipmapped targets before scheduling any temporal work.
+    const VkImageSubresourceRange range = destination->ColorAttachmentRange(0);
+    if (!color_only || destination->NumColorBuffers() != 1 ||
+        destination->NumImages() != 1 ||
+        !destination->ColorAttachmentImage(0) ||
+        !destination->ColorAttachmentView(0) ||
+        destination->ColorAttachmentImage(0) != destination->Images()[0] ||
+        range.aspectMask != VK_IMAGE_ASPECT_COLOR_BIT ||
+        range.baseMipLevel != 0 || range.levelCount != 1 ||
+        range.baseArrayLayer != 0 || range.layerCount != 1) {
+        last_rejection = Temporal::Rejection::InvalidResolution;
+        ResetHistory();
+        return false;
+    }
     const VkExtent2D extent = destination->RenderArea();
     const auto& destination_images = destination->Images();
     // Conservatively reject aliasing through ANY physical guest attachment,
