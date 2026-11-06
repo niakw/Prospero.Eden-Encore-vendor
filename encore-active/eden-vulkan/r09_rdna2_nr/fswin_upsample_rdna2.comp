@@ -1,0 +1,93 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// RDNA2 FSwin _upsample prologue: learned [C,2C] FP8 projection,
+// nearest 2x expansion, and per-channel U-Net skip blend.
+// Inputs must already be canonical row-major E4M3FN feature rasters.
+// The following FSwin body is dispatched separately.
+layout(local_size_x=64,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Low {uint words[];} low_tensor;
+layout(set=0,binding=1,std430) readonly buffer Skip {uint words[];} skip_tensor;
+layout(set=0,binding=2,std430) readonly buffer Weights {uint words[];} weights;
+layout(set=0,binding=3,std430) readonly buffer Gains {float values[];} gains;
+layout(set=0,binding=4,std430) writeonly buffer Output {uint words[];} output_tensor;
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    uint windows_x;
+    uint windows_y;
+    uint channels;
+    uint low_base_bytes;
+    uint skip_base_bytes;
+    uint weight_base_bytes;
+    uint gain_base_floats;
+    uint out_base_bytes;
+} pc;
+float fp8_to_float(uint raw){
+    uint e=(raw>>3u)&15u,m=raw&7u;
+    float sg=(raw&128u)!=0u?-1.0:1.0;
+    if(e==15u&&m==7u)return uintBitsToFloat(0x7fc00000u);
+    if(e==0u)return sg*float(m)*exp2(-9.0);
+    return sg*float(8u+m)*exp2(float(int(e)-10));
+}
+uint float_to_fp8(float v){
+    uint sign=(floatBitsToUint(v)>>24u)&128u;
+    if(isnan(v))return sign|127u;
+    float a=min(abs(v),448.0);
+    if(a<0.015625){
+        uint m=uint(roundEven(a*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int e=int(floor(log2(a)));
+    uint m=uint(roundEven((a/exp2(float(e))-1.0)*8.0));
+    if(m==8u){++e;m=0u;}
+    uint ex=uint(e+7);
+    if(ex>15u||(ex==15u&&m>6u))return sign|126u;
+    return sign|(ex<<3u)|m;
+}
+float half_round(float x){
+    return unpackHalf2x16(packHalf2x16(vec2(x,0.0))).x;
+}
+uint from_word(uint byte_offset,uint slot){
+    uint word=slot==0u?low_tensor.words[byte_offset>>2u]:
+              slot==1u?skip_tensor.words[byte_offset>>2u]:
+                       weights.words[byte_offset>>2u];
+    return (word>>(8u*(byte_offset&3u)))&255u;
+}
+void main(){
+    uint wx=gl_WorkGroupID.y,wy=gl_WorkGroupID.z;
+    uint wp=pc.channels/4u;
+    uint i=gl_WorkGroupID.x*64u+gl_LocalInvocationID.x;
+    uint pixel=i/wp;
+    uint word=i%wp;
+    if(wx>=pc.windows_x||wy>=pc.windows_y||pixel>=64u)return;
+    uint x=wx*8u+pixel%8u,y=wy*8u+pixel/8u;
+    if(x>=pc.width||y>=pc.height)return;
+    const uint low_w=(pc.width+1u)/2u;
+    const uint low_pixel=(y/2u)*low_w+x/2u;
+    const uint high_pixel=y*pc.width+x;
+    uint packed=0u;
+    for(uint b=0u;b<4u;++b){
+        uint feature=word*4u+b;
+        float acc=0.0;
+        for(uint k=0u;k<2u*pc.channels;++k){
+            uint a_byte=pc.low_base_bytes+
+                low_pixel*(2u*pc.channels)+k;
+            uint w_byte=pc.weight_base_bytes+
+                feature*(2u*pc.channels)+k;
+            acc=fma(fp8_to_float(from_word(a_byte,0u)),
+                    fp8_to_float(from_word(w_byte,2u)),acc);
+        }
+        // Materialize the projected E4M3FN tensor before the learned
+        // gain blend, as the standalone upstream prologue does.
+        float projection=fp8_to_float(float_to_fp8(half_round(acc)));
+        uint skip_byte=pc.skip_base_bytes+
+            high_pixel*pc.channels+feature;
+        float skip=fp8_to_float(from_word(skip_byte,1u));
+        float gain=gains.values[pc.gain_base_floats+feature];
+        packed|=float_to_fp8(half_round(
+            projection+half_round(skip*gain)))<<(8u*b);
+    }
+    uint output_byte=pc.out_base_bytes+
+        high_pixel*pc.channels+word*4u;
+    output_tensor.words[output_byte>>2u]=packed;
+}
