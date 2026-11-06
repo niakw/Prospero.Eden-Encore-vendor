@@ -182,7 +182,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             uses_extended_uniform_bank |= extended_uniform(instruction.Bits(32, 8));
             break;
         case 0xc0b: case 0xc0c: case 0xc10: case 0xc11: case 0xc12: case 0xc17: case 0xc19: case 0xc20: case 0xc24: case 0xd06:
-        case 0xc45: case 0xd08: case 0xc82: case 0xc02: case 0xd00: case 0xd09: case 0xe21: case 0xe23:
+        case 0xc45: case 0xd08: case 0xc82: case 0xc02: case 0xd00: case 0xd09: case 0xd01: case 0xe21: case 0xe23:
         case 0xe24: case 0xc23: case 0x2bd:
             uses_extended_uniform_bank |= extended_uniform(instruction.Bits(32, 8));
             break;
@@ -203,7 +203,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         default: break;
         }
-        uses_uniform_bank |= op == 0x4a4 || op == 0x2bf || op == 0xc07 || op == 0xc0a || op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
+        uses_uniform_bank |= op == 0x4a4 || op == 0x2bf || op == 0xc07 || op == 0xc0a || op == 0xf60 || op == 0xc13 || op == 0xc19 || op == 0xd06 || op == 0x2a5 || op == 0xd05 || op == 0xc09 || op == 0xf63 || op == 0xf66 || op == 0xd08 || (op == 0x83b && instruction.Bits(91, 1)) || op == 0x2be || op == 0x526 || op == 0x988 || (op == 0x984 && instruction.Bits(91, 1)) || op == 0xc11 || op == 0x883 || (op == 0x98e && instruction.Bits(91, 1)) || op == 0x291 || op == 0x896 || op == 0x892 || op == 0x89c || op == 0x3c4 || op == 0x2bd || op == 0xc10 || op == 0xc0b || op == 0xc0c || op == 0x986 || op == 0x981 || op == 0x9a8 || op == 0xc12 || op == 0xc17 || op == 0xe24 || op == 0xc24 || op == 0xd00 || op == 0xd09 || op == 0xd01 || op == 0x9c3 || op == 0xc45 || op == 0x2a4 || op == 0x8a4 || op == 0x891 || op == 0x890 || op == 0x290 || op == 0x28c || op == 0x88c || op == 0x287 || op == 0x887 || op == 0x958 || op == 0xab9 || op == 0xabb || op == 0x899 || op == 0xc20 || op == 0xe21 || op == 0xc23 || op == 0xe23 || op == 0xc02 || op == 0x292 || op == 0x299 ||
                              op == 0x886 || op == 0x3c2 || op == 0xc82 || op == 0x882 || op == 0xd24 || op == 0x499 || (op == 0x98e && instruction.Bits(91, 1)) || (op == 0x81c && instruction.Bits(67, 1));
     }
     const bool uses_async_copy = std::any_of(code.begin(), code.end(), [](const auto& instruction) {
@@ -1725,11 +1725,11 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             if (strong) emit(0xef98000000000000ULL | predicate | (u64{1} << 8));
             break;
         }
-        case 0x213: case 0xa13: case 0xc13: { // IABS.S32 preserves the two's-complement minimum value.
+        case 0x213: case 0x813: case 0xa13: case 0xc13: { // IABS.S32, including full 32-bit literal.
             if (insn.Bits(24, 8) || insn.words[2] != (opcode == 0xc13 ? 0x08000000U : 0U) ||
                 (opcode == 0x213 ? insn.words[1] > 255 :
                  opcode == 0xc13 ? uniform_register(insn.words[1]) == ~0U :
-                 (!valid_cbuf() || insn.Bits(62, 2))))
+                 opcode == 0xa13 ? (!valid_cbuf() || insn.Bits(62, 2)) : false))
                 return fail(index, "native integer absolute mode");
             const u32 source = opcode == 0xc13 ? uniform_register(insn.words[1]) : operand(1, false);
             emit(base(0x5ce0000000000000ULL) | 0x3a00 | (u64{source} << 20) |
@@ -1759,11 +1759,22 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                  (u64{insn.Bits(63, 1)} << 40));
             break;
         }
-        case 0x301: // BREV register.
-            if (insn.words[2] || insn.words[1] > 255) return fail(index, "native bit reverse mode");
-            emit(base(0x3828000000000000ULL) | (u64{insn.words[1]} << 8) |
+        case 0x301: case 0x901: case 0xb01: case 0xd01: { // BREV: register, immediate, CBUF or uniform input.
+            const bool constant = opcode == 0xb01;
+            const bool uniform = opcode == 0xd01;
+            // CBUF and uniform mode bits differ. The optional bit 91 on
+            // the ISA row is NOT proof it has the same meaning in both.
+            if (insn.words[2] != (uniform ? 0x08000000U : 0U) ||
+                (opcode == 0x301 && insn.words[1] > 255) ||
+                (uniform && insn.words[1] > 63) ||
+                (constant && (!valid_cbuf() || insn.Bits(54, 5) >= 18 ||
+                              insn.Bits(62, 2))))
+                return fail(index, "native bit reverse source mode");
+            const u32 source = operand(1, false);
+            emit(base(0x3828000000000000ULL) | (u64{source} << 8) |
                 (u64{1} << 39) | (u64{1} << 40));
             break;
+        }
         case 0x219: case 0xa19: case 0xc19: { // U32 shifts with a zero word outside the selected result.
             const u32 low = insn.Bits(24, 8), high = insn.Bits(64, 8);
             const u32 shift = opcode == 0xa19 ? materialize(2, 0, 251, false, false) :
@@ -1788,11 +1799,20 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 (u64{insn.Bits(73, 1)} << 48));
             break;
         }
-        case 0x309: case 0xd09: { // POPC, including a uniform source.
-            if (insn.words[2] != (opcode == 0xd09 ? 0x08000000U : 0U))
-                return fail(index, "native population count mode");
+        case 0x309: case 0x909: case 0xb09: case 0xd09: { // POPC GPR, literal, CBUF and uniform.
+            const bool constant = opcode == 0xb09;
+            const bool uniform = opcode == 0xd09;
+            if (insn.words[2] != (uniform ? 0x08000000U : 0U) ||
+                (opcode == 0x309 && (insn.words[1] & ~0xc00000ffU)) ||
+                (uniform && (insn.words[1] & ~0xc000003fU)) ||
+                (constant && (!valid_cbuf() || insn.Bits(54, 5) >= 18 ||
+                              insn.Bits(62, 1))))
+                return fail(index, "native population count source mode");
             const u32 source = operand(1, false);
-            emit(base(0x5c08000000000000ULL) | (u64{source} << 20) | (u64{insn.Bits(63, 1)} << 40));
+            // A 32-bit literal owns bit 63 as DATA, not POPC inversion.
+            const u32 invert = opcode == 0x909 ? 0 : insn.Bits(63, 1);
+            emit(base(0x5c08000000000000ULL) | (u64{source} << 20) |
+                 (u64{invert} << 40));
             break;
         }
         case 0x95c:
