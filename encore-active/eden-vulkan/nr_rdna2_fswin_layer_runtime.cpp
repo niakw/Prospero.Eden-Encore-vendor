@@ -107,6 +107,12 @@ bool NrRdna2FSwinLayerRuntime::LinkInputFromShifted(
     output_recorded=false;
     return true;
 }
+bool NrRdna2FSwinLayerRuntime::MarkGpuInputReady() noexcept {
+    if(!ready||!tensors.InputBuffer()||!tensors.InputSize())return false;
+    input_loaded=true;
+    output_recorded=false;
+    return true;
+}
 bool NrRdna2FSwinLayerRuntime::Record(){
     if(!ready||!input_loaded||
        !graph.Record(descriptors.Sets(),plan))return false;

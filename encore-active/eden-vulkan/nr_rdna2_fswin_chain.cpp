@@ -24,7 +24,8 @@ using Eden::Graphics::NeuralRDNA2::CanFSwinChainWindowLayouts;
 
 NrRdna2FSwinChain::NrRdna2FSwinChain(
     const Device& d,MemoryAllocator& a,Scheduler& s)
-    :device{d},allocator{a},scheduler{s},window_repack{d,s}{}
+    :device{d},allocator{a},scheduler{s},
+     window_repack{d,s},raster_input{d,s}{}
 NrRdna2FSwinChain::~NrRdna2FSwinChain()=default;
 
 bool NrRdna2FSwinChain::Initialize(
@@ -173,12 +174,13 @@ bool NrRdna2FSwinChain::InitializeNativeSegment(
 bool NrRdna2FSwinChain::UploadInput(
     std::span<const std::uint8_t> tokens){
     // View entry must be packed from an explicitly sized raster.
-    return ready&&!input_view&&layers.front()->UploadInput(tokens);
+    return ready&&!input_view&&!input_set&&
+           layers.front()->UploadInput(tokens);
 }
 bool NrRdna2FSwinChain::UploadRasterFeatures(
     std::span<const std::uint8_t> features,
     std::uint32_t width,std::uint32_t height){
-    if(!ready||layers.empty()||layouts.empty())return false;
+    if(!ready||layers.empty()||layouts.empty()||input_set)return false;
     const auto& layout=layouts.front();
     if(!layout.windows_x||!layout.windows_y||
        layout.shift_x||layout.shift_y)return false;
@@ -190,6 +192,58 @@ bool NrRdna2FSwinChain::UploadRasterFeatures(
            features,plan,tokens))return false;
     return layers.front()->UploadInput(tokens);
 }
+bool NrRdna2FSwinChain::BindRasterInput(
+    VkDescriptorBufferInfo source,std::uint32_t width,
+    std::uint32_t height){
+    if(!ready||!input_view||input_set||layers.empty()||
+       layouts.empty()||layers.front()->HasInput())return false;
+    const auto target=layers.front()->Input();
+    const auto& layout=layouts.front();
+    if(!source.buffer||!target.buffer||
+       source.buffer==target.buffer||target.offset||
+       !layout.windows_x||!layout.windows_y||
+       layout.shift_x||layout.shift_y||
+       source.range>device.GetMaxStorageBufferRange()||
+       target.range>device.GetMaxStorageBufferRange())return false;
+    const Eden::Graphics::NeuralRDNA2::FSwinRasterLayout plan{
+        width,height,layout.windows_x,layout.windows_y,
+        layers.front()->Plan().dense[0].channels,0u};
+    const Eden::Graphics::NeuralRDNA2::FSwinRasterLayoutStorage storage{
+        source.range,target.range};
+    if(!Eden::Graphics::NeuralRDNA2::CanFSwinRasterLayout(
+           plan,storage))return false;
+    auto new_pool=CreateWrappedDescriptorPool(
+        device,2u,1u,{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER});
+    VkDescriptorSetLayout descriptor_layout=raster_input.DescriptorLayout();
+    auto new_sets=CreateWrappedDescriptorSets(
+        new_pool,vk::Span<VkDescriptorSetLayout>{
+            &descriptor_layout,1u});
+    if(new_sets.IsOutOfPoolMemory()||new_sets.size()!=1u)return false;
+    const std::array<VkDescriptorBufferInfo,2> infos{
+        source,target};
+    std::array<VkWriteDescriptorSet,2> writes{};
+    for(std::uint32_t i=0u;i<2u;++i){
+        writes[i]=VkWriteDescriptorSet{
+            .sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext=nullptr,
+            .dstSet=new_sets[0],
+            .dstBinding=i,.dstArrayElement=0,
+            .descriptorCount=1,
+            .descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo=nullptr,.pBufferInfo=&infos[i],
+            .pTexelBufferView=nullptr,
+        };
+    }
+    device.GetLogical().UpdateDescriptorSets(
+        vk::Span<VkWriteDescriptorSet>{writes.data(),writes.size()},{});
+    input_pool=std::move(new_pool);
+    input_allocations=std::move(new_sets);
+    input_set=input_allocations[0];
+    input_plan=plan;
+    input_storage=storage;
+    return true;
+}
+
 bool NrRdna2FSwinChain::BindRasterOutput(
     VkDescriptorBufferInfo destination,std::uint32_t width,
     std::uint32_t height){
@@ -209,6 +263,10 @@ bool NrRdna2FSwinChain::Record(){
     // Never submit a partial _outview chain without its required
     // boundary adapter. The descriptor is bound once, before recording.
     if(!ready||(output_view&&!raster_output))return false;
+    if(input_set){
+        if(!raster_input.Record(input_set,input_plan,input_storage)||
+           !layers.front()->MarkGpuInputReady())return false;
+    }
     for(std::size_t i=0u;i<layers.size();++i){
         if(i>0u){
             if(FSwinNeedsWindowRepack(layouts[i-1u],layouts[i])){

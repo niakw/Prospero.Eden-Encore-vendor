@@ -43,6 +43,10 @@ public:
         const NrRdna2FSwinLayerRuntime& previous,
         NrRdna2FSwinWindowRepack& repacker,VkDescriptorSet validated_set,
         const Eden::Graphics::NeuralRDNA2::FSwinWindowRepack& layout);
+    // Called only after an ordered GPU compute pass populated Input().
+    // The preceding pass is responsible for its visibility barrier.
+    [[nodiscard]] bool MarkGpuInputReady() noexcept;
+    [[nodiscard]] bool HasInput() const noexcept{return input_loaded;}
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
     [[nodiscard]] VkDescriptorBufferInfo Input() const noexcept {
