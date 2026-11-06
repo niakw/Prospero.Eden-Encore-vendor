@@ -34,6 +34,37 @@ namespace Shader::Ampere {
            (active_tessellation == 0 || active_tessellation == tessellation);
 }
 
+// NVN SET_MESH_CONTROL selects an alternate *linked* graphics pipeline.
+// VertexB binds Mesh directly when there is no Task shader; when TessEval
+// is also bound, VertexB binds Task and TessEval binds Mesh. Geometry is a
+// pass-through output-header, not a third executable shader stage. Never
+// interpret TessControl as Task or allow unpaired native stages.
+[[nodiscard]] constexpr bool NativeMeshGraphicsStageMaskSupported(
+    u32 mask, bool mesh_control) noexcept {
+    if (!mesh_control) return NativeGraphicsStageMaskSupported(mask);
+    constexpr u32 vertex_b = 1U << 1;
+    constexpr u32 tess_control = 1U << 2;
+    constexpr u32 allowed = vertex_b | (1U << 3) | (1U << 4) | (1U << 5);
+    return (mask & vertex_b) != 0 && (mask & tess_control) == 0 &&
+           (mask & ~allowed) == 0;
+}
+[[nodiscard]] constexpr bool NativeMeshTaskPresent(u32 mask, bool mesh_control) noexcept {
+    return mesh_control && NativeMeshGraphicsStageMaskSupported(mask, true) &&
+           (mask & (1U << 3)) != 0;
+}
+static_assert(NativeMeshGraphicsStageMaskSupported(0x02, true));
+static_assert(NativeMeshGraphicsStageMaskSupported(0x22, true));
+static_assert(NativeMeshGraphicsStageMaskSupported(0x0a, true));
+static_assert(NativeMeshGraphicsStageMaskSupported(0x3a, true));
+static_assert(!NativeMeshGraphicsStageMaskSupported(0x03, true));
+static_assert(!NativeMeshGraphicsStageMaskSupported(0x06, true));
+static_assert(!NativeMeshGraphicsStageMaskSupported(0x0e, true));
+static_assert(!NativeMeshGraphicsStageMaskSupported(0x00, true));
+static_assert(!NativeMeshGraphicsStageMaskSupported(0x12, true));
+static_assert(NativeMeshTaskPresent(0x0a, true));
+static_assert(!NativeMeshTaskPresent(0x02, true));
+static_assert(!NativeMeshTaskPresent(0x0a, false));
+
 // Maxwell's graphics CBUF stage banks are VertexA/VertexB=0,
 // TessControl=1, TessEval=2, Geometry=3, Fragment=4. The shared IR
 // stage enum follows that order except VertexA, which is appended.
