@@ -224,14 +224,18 @@ DAddr NvMap::PinHandle(NvMap::Handle::Id handle, bool low_area_pin) {
             handle_description->in_heap = true;
         } else {
             size_t aligned_up = Common::AlignUp(map_size, BIG_PAGE_SIZE);
+            // A queued handle may be locked by another thread that is about
+            // to acquire unmap_queue_lock. Never block on that handle while
+            // holding the queue mutex: it would invert the lock order.
+            std::size_t busy_candidates{};
             while ((address = smmu.Allocate(aligned_up)) == 0) {
                 // Reclaim only real, unpinned entries. A depleted/stale queue
                 // must fail explicitly instead of looping forever or calling
                 // list::front() on an empty list. Do not test the NEW handle's
                 // d_address: it has not been mapped yet.
                 std::scoped_lock queueLock(unmap_queue_lock);
-                if (unmap_queue.empty()) {
-                    LOG_ERROR(Service_NVDRV, "No reclaimable NVMap mappings for SMMU allocation");
+                if (unmap_queue.empty() || busy_candidates >= unmap_queue.size()) {
+                    LOG_ERROR(Service_NVDRV, "No available NVMap mappings for SMMU allocation");
                     return 0;
                 }
                 auto freeHandleDesc = unmap_queue.front();
@@ -240,7 +244,15 @@ DAddr NvMap::PinHandle(NvMap::Handle::Id handle, bool low_area_pin) {
                     unmap_queue.pop_front();
                     continue;
                 }
-                std::scoped_lock freeLock(freeHandleDesc->mutex);
+                std::unique_lock freeLock(freeHandleDesc->mutex, std::try_to_lock);
+                if (!freeLock.owns_lock()) {
+                    // Rotate without invalidating the stored list iterator.
+                    unmap_queue.splice(unmap_queue.end(), unmap_queue,
+                                       unmap_queue.begin());
+                    ++busy_candidates;
+                    continue;
+                }
+                busy_candidates = 0;
                 if (!freeHandleDesc->d_address) {
                     freeHandleDesc->unmap_queue_entry.reset();
                     unmap_queue.pop_front();
@@ -278,14 +290,17 @@ void NvMap::UnpinHandle(Handle::Id handle) {
     }
 
     std::scoped_lock lock(handle_description->mutex);
-    if (--handle_description->pins < 0) {
+    if (handle_description->pins <= 0) {
         LOG_WARNING(Service_NVDRV, "Pin count imbalance detected!");
-    } else if (!handle_description->pins) {
+        return; // Do not make a later valid pin look unreferenced.
+    }
+    --handle_description->pins;
+    if (!handle_description->pins) {
         std::scoped_lock queueLock(unmap_queue_lock);
-
-        // Add to the unmap queue allowing this handle's memory to be freed if needed
-        unmap_queue.push_back(handle_description);
-        handle_description->unmap_queue_entry = std::prev(unmap_queue.end());
+        if (!handle_description->unmap_queue_entry) {
+            unmap_queue.push_back(handle_description);
+            handle_description->unmap_queue_entry = std::prev(unmap_queue.end());
+        }
     }
 }
 
@@ -312,12 +327,17 @@ std::optional<NvMap::FreeInfo> NvMap::FreeHandle(Handle::Id handle, bool interna
         std::scoped_lock lock(handle_description->mutex);
 
         if (internal_session) {
-            if (--handle_description->internal_dupes < 0)
+            if (handle_description->internal_dupes <= 0) {
                 LOG_WARNING(Service_NVDRV, "Internal duplicate count imbalance detected!");
+                return std::nullopt;
+            }
+            --handle_description->internal_dupes;
         } else {
-            if (--handle_description->dupes < 0) {
+            if (handle_description->dupes <= 0) {
                 LOG_WARNING(Service_NVDRV, "User duplicate count imbalance detected!");
-            } else if (handle_description->dupes == 0) {
+                return std::nullopt;
+            }
+            if (--handle_description->dupes == 0) {
                 // Force unmap the handle
                 if (handle_description->d_address) {
                     std::scoped_lock queueLock(unmap_queue_lock);
