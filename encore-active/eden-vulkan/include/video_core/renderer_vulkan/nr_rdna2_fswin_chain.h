@@ -75,6 +75,15 @@ public:
         const Eden::Graphics::NeuralRDNA2::NeuralModelFile& model,
         VkDescriptorBufferInfo destination,
         std::uint32_t input_width,std::uint32_t input_height);
+    // Preserve the pre-downsample C-channel features in an independent
+    // full-resolution raster for the U-Net skip path. This does NOT
+    // replace the 2C-channel downsample destination.
+    [[nodiscard]] bool BindSkipRasterOutput(
+        VkDescriptorBufferInfo destination,
+        std::uint32_t input_width,std::uint32_t input_height);
+    [[nodiscard]] VkDescriptorBufferInfo ResultSkipRaster() const noexcept{
+        return ready?skip_destination:VkDescriptorBufferInfo{};
+    }
     // Only usable after the corresponding command buffer has completed.
     [[nodiscard]] VkDescriptorBufferInfo ResultRaster() const noexcept{
         return ready?raster_destination:VkDescriptorBufferInfo{};
@@ -129,6 +138,7 @@ private:
     std::unique_ptr<NrRdna2FSwinOutputView> raster_output;
     std::unique_ptr<NrRdna2FSwinDownsampleOutput> downsample_output;
     VkDescriptorBufferInfo raster_destination{};
+    VkDescriptorBufferInfo skip_destination{};
     std::string downsample_prefix;
     vk::DescriptorPool input_pool;
     vk::DescriptorSets input_allocations;

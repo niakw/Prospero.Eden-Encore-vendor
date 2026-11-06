@@ -25,6 +25,7 @@ bool NrRdna2FSwinDownsampleOutput::Initialize(
     std::uint32_t width,std::uint32_t height,
     std::uint32_t channels,std::int32_t sx,std::int32_t sy){
     if(ready||!model.IsOpen()||prefix.empty()||
+       !width||!height||width>16384u||height>16384u||
        !src.buffer||!dst.buffer||src.buffer==dst.buffer||
        src.offset||dst.offset||src.range==0u||dst.range==0u||
        src.range==VK_WHOLE_SIZE||dst.range==VK_WHOLE_SIZE||

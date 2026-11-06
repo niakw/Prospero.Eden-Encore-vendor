@@ -269,7 +269,10 @@ bool NrRdna2FSwinChain::BindDownsampleOutput(
     const NeuralModelFile& model,VkDescriptorBufferInfo destination,
     std::uint32_t input_width,std::uint32_t input_height){
     if(!ready||!downsample||downsample_output||!model.IsOpen()||
-       layers.empty()||layouts.empty()||downsample_prefix.empty())
+       layers.empty()||layouts.empty()||downsample_prefix.empty()||
+       !destination.buffer||
+       (skip_destination.buffer&&
+        destination.buffer==skip_destination.buffer))
         return false;
     const auto& layout=layouts.back();
     auto endpoint=std::make_unique<NrRdna2FSwinDownsampleOutput>(
@@ -282,6 +285,26 @@ bool NrRdna2FSwinChain::BindDownsampleOutput(
         return false;
     downsample_output=std::move(endpoint);
     raster_destination=destination;
+    return true;
+}
+
+bool NrRdna2FSwinChain::BindSkipRasterOutput(
+    VkDescriptorBufferInfo destination,
+    std::uint32_t input_width,std::uint32_t input_height){
+    if(!ready||!downsample||raster_output||
+       layers.empty()||layouts.empty()||!destination.buffer||
+       (raster_destination.buffer&&
+        destination.buffer==raster_destination.buffer))
+        return false;
+    auto exporter=std::make_unique<NrRdna2FSwinOutputView>(
+        device,allocator,scheduler);
+    if(!exporter->Initialize(
+           layers.back()->Output(),destination,layouts.back(),
+           layers.back()->Plan().dense[0].channels,
+           input_width,input_height))
+        return false;
+    raster_output=std::move(exporter);
+    skip_destination=destination;
     return true;
 }
 
