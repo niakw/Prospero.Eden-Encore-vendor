@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Execute one native Split-Swin16H run (8 Original / 2 Compact blocks).
 // Strictly validates predecessor buffers and preserves all model allocations.
-// Input/output boundary 2D feature-view transfers are still external.
+// Native InputView/OutputView GPU raster transfers are recorded in order.
 #pragma once
 #include "rdna2_nr_split_native_routes_policy.h"
 #include "video_core/renderer_vulkan/nr_rdna2_split_swin_block.h"
+#include "video_core/renderer_vulkan/nr_rdna2_fswin_raster_layout.h"
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -23,7 +24,9 @@ public:
         const Eden::Graphics::NeuralRDNA2::NeuralModelFile&,
         const Eden::Graphics::NeuralRDNA2::NativeSplitRoutes&,
         std::uint32_t run_index,
-        std::span<const NrRdna2SplitSwinBlockBuffers> buffers);
+        std::span<const NrRdna2SplitSwinBlockBuffers> buffers,
+        VkDescriptorBufferInfo source_raster={},
+        VkDescriptorBufferInfo destination_raster={});
     [[nodiscard]] bool Record();
     [[nodiscard]] std::uint32_t BlockCount() const noexcept {
         return static_cast<std::uint32_t>(blocks.size());
@@ -42,6 +45,11 @@ private:
     MemoryAllocator& allocator;
     Scheduler& scheduler;
     std::vector<std::unique_ptr<NrRdna2SplitSwinBlock>> blocks;
+    NrRdna2FSwinRasterLayout raster_layout;
+    vk::DescriptorPool raster_pool;
+    vk::DescriptorSets raster_sets;
+    Eden::Graphics::NeuralRDNA2::FSwinRasterLayout input_shape{},output_shape{};
+    Eden::Graphics::NeuralRDNA2::FSwinRasterLayoutStorage input_sizes{},output_sizes{};
     VkDescriptorBufferInfo result{};
     bool ready{},input_view{},output_view{};
 };
