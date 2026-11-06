@@ -59,7 +59,7 @@ bool MaxwellShaderImage::ValidForCompiler() const {
         code.size() > std::numeric_limits<u32>::max() / sizeof(u64) ||
         !HasNativeAddressMap(code) || code.size() < 5) return false;
     const u64 count = code[code.size() - 2];
-    if (!count || count > 4096 || count + 3 > code.size()) return false;
+    if (!count || count > 65536 || count + 3 > code.size()) return false;
     const auto map_start = code.size() - static_cast<std::size_t>(count) - 2;
     if (map_start != static_cast<std::size_t>(instruction_end_address / sizeof(u64)) + 1 ||
         cached_highest_address != (code.size() - 1) * sizeof(u64) ||

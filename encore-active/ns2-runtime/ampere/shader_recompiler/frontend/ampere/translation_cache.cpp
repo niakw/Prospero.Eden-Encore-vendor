@@ -31,7 +31,7 @@ MaxwellShaderImage NativeTranslationCache::GetOrTranslate(
     std::span<const u8> header, std::span<const u8> native, u32 stage,
     std::optional<u64> native_code_address) {
     if (header.size() != 0x50 || native.empty() ||
-        native.size() > 4096 * 16 || native.size() % 16) {
+        native.size() > 65536 * 16 || native.size() % 16) {
         std::scoped_lock lock{mutex};
         ++stats.rejected;
         return {};

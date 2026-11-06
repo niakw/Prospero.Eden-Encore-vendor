@@ -347,7 +347,7 @@ template <typename ReadInstruction, typename ReadCbuf>
     std::vector<Instruction>& native, ProgramCaptureState& state,
     CaptureIndirectValueOrigin origin,
     ReadInstruction&& read_instruction, ReadCbuf&& read_cbuf) {
-    constexpr u32 MaximumCaptured = 4096;
+    constexpr u32 MaximumCaptured = ProgramCaptureState::MaximumInstructions;
     if (native.empty() || native.size() > MaximumCaptured) return std::nullopt;
     const auto branches = TrackCaptureIndirectBranches(native);
     u32 indirect_count{};
@@ -447,7 +447,8 @@ template <typename ReadInstruction, typename ReadCbuf>
 [[nodiscard]] inline std::optional<std::vector<NativeIndirectBranchPlan>>
 MakeNativeIndirectBranchPlans(const CaptureIndirectResult& capture,
                               std::span<const Instruction> native) {
-    if (native.empty() || native.size() > 4096 ||
+    if (native.empty() ||
+        native.size() > ProgramCaptureState::MaximumInstructions ||
         capture.tables.empty() || capture.tables.size() > 32 ||
         (capture.base != 0 && capture.base != 0x80U))
         return std::nullopt;

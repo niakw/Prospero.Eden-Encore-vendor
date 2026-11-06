@@ -14,7 +14,7 @@ namespace Shader::Ampere {
 namespace {
 constexpr u64 NativeHeaderBytes = 0x80;
 constexpr std::size_t MaxwellHeaderBytes = 0x50;
-constexpr u32 MaxCapturedInstructions = 4096;
+constexpr u32 MaxCapturedInstructions = ProgramCaptureState::MaximumInstructions;
 constexpr std::size_t NativeShaderReadPage = 4096;
 // Do not speculatively read a full guest allocation. A successful bounded
 // read ahead may be reused only inside the same 4 KiB GPU page.
@@ -60,10 +60,12 @@ NativeCaptureResult CaptureNativeShader(
     // No speculative read of entire sparse guest shader allocations. Each
     // 16-byte instruction is independently mapping-checked by the reader.
     std::vector<u8> source;
-    source.reserve(MaxCapturedInstructions * sizeof(Instruction));
+    // Admit all 65536 source instructions, but do not allocate a megabyte
+    // for the typical short shader before the first actual GPU read.
+    source.reserve(4096 * sizeof(Instruction));
     ProgramCaptureState capture;
     std::vector<Instruction> native;
-    native.reserve(MaxCapturedInstructions);
+    native.reserve(4096);
     bool saw_indirect = false;
     std::array<u8, NativeShaderReadPage> page{};
     u64 page_start{};
@@ -418,7 +420,8 @@ bool NativeCaptureResult::ComputeSourceMatches(
     if (status != NativeCaptureStatus::Ready || !read ||
         captured_compute_bytes.empty() ||
         captured_compute_bytes.size() != captured_native_bytes ||
-        captured_compute_bytes.size() > 4096 * sizeof(Instruction) ||
+        captured_compute_bytes.size() >
+            MaxCapturedInstructions * sizeof(Instruction) ||
         !NativeGpuRange49(code_address, captured_compute_bytes.size()))
         return false;
     std::array<u8, NativeShaderReadPage> scratch{};
