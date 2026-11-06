@@ -1,0 +1,45 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// RDNA2 FSwin layout bridge: 2D E4M3FN feature raster <-> 8x8 windows.
+// Windows comprise four 4x4 tiles in TL,TR,BL,BR order; no quantization.
+// Border outside the valid raster is zero-filled only when packing.
+// Does not encode display RGB, depth, motion vectors or model features.
+layout(local_size_x=64,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Input {uint words[];} source;
+layout(set=0,binding=1,std430) writeonly buffer Output {uint words[];} dest;
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    uint windows_x;
+    uint windows_y;
+    uint channels;
+    uint direction; // 0: raster->windows, 1: windows->raster
+} pc;
+void main(){
+    const uint words_per_token=pc.channels/4u;
+    // Channel-group x, window-x y, window-y z: avoids oversized
+    // one-dimensional dispatches for high-resolution rasters.
+    const uint window_id=gl_WorkGroupID.z*pc.windows_x+
+                         gl_WorkGroupID.y;
+    const uint index=window_id*64u*words_per_token+
+                     gl_WorkGroupID.x*64u+gl_LocalInvocationID.x;
+    const uint count=pc.windows_x*pc.windows_y*64u*words_per_token;
+    if(index>=count)return;
+    const uint channel_word=index%words_per_token;
+    const uint token_address=index/words_per_token;
+    const uint token=token_address%64u;
+    const uint window=token_address/64u;
+    const uint wx=window%pc.windows_x,wy=window/pc.windows_x;
+    const uint quadrant=token/16u,slot=token%16u;
+    const uint x=wx*8u+(quadrant%2u)*4u+slot%4u;
+    const uint y=wy*8u+(quadrant/2u)*4u+slot/4u;
+    const bool valid=x<pc.width&&y<pc.height;
+    const uint raster_word=(y*pc.width+x)*words_per_token+channel_word;
+    if(pc.direction==0u) {
+        uint encoded=0u;
+        if(valid)encoded=source.words[raster_word];
+        dest.words[index]=encoded;
+    } else if(pc.direction==1u && valid) {
+        dest.words[raster_word]=source.words[index];
+    }
+}

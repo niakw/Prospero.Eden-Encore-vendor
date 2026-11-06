@@ -308,6 +308,17 @@ namespace {
 GraphicsPipeline* prepared_pipeline = nullptr;
 // The pipeline of the last prepared draw, for the development fault probe.
 GraphicsPipeline* probe_pipeline = nullptr;
+u32 RequestedNativeMsaaSamples() {
+    // The launcher keeps 0-3 identical for all existing user presets;
+    // MSAA 2/4/8/16 are the new AA menu indices 4-7.
+    switch (Settings::values.anti_aliasing.GetValue()) {
+    case Settings::AntiAliasing::Msaa2: return 2;
+    case Settings::AntiAliasing::Msaa4: return 4;
+    case Settings::AntiAliasing::Msaa8: return 8;
+    case Settings::AntiAliasing::Msaa16: return 16;
+    default: return 0;
+    }
+}
 bool SyncProbeActive() {
     static unsigned poll = 0;
     static bool active = false;
@@ -344,7 +355,81 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     }
 #endif
     gpu_memory->FlushCaching();
-    GraphicsPipeline* pipeline{pipeline_cache.CurrentGraphicsPipeline()};
+    VkSampleCountFlagBits native_samples = VK_SAMPLE_COUNT_1_BIT;
+    // Only the very next GPU draw after a verified full guest colour clear
+    // may start a shadow; compute/transfer commands invalidate that proof.
+    if (native_msaa_clear) {
+        auto& candidate = *native_msaa_clear;
+        const u32 user_samples = RequestedNativeMsaaSamples();
+        const bool requested = user_samples == 2 || user_samples == 4 ||
+                               user_samples == 8 || user_samples == 16;
+        if (!requested) {
+            native_msaa_clear.reset();
+        } else if (candidate.started) {
+            if (candidate.prepared && native_msaa_shadow &&
+                scheduler.IsNativeColorResolveActive(candidate.prepared->render_pass,
+                                                     candidate.prepared->framebuffer) &&
+                static_cast<u32>(candidate.prepared->samples) == user_samples) {
+                native_samples = candidate.prepared->samples;
+            } else {
+                // Never restart a clear after an unrelated operation already
+                // ended and resolved this frame's transient shadow.
+                native_msaa_clear.reset();
+            }
+        } else if (candidate.command_serial == scheduler.RecordedCommandSerial() &&
+                   texture_cache_runtime.CanReportMemoryUsage()) {
+            const u64 total = texture_cache_runtime.GetDeviceLocalMemory();
+            const u64 used = texture_cache_runtime.GetDeviceMemoryUsage();
+            constexpr u64 reserve = 256ull << 20;
+            const u64 free = total > used && total - used > reserve ?
+                             (total - used - reserve) / 2 : 0;
+            const auto limits = device.GetPhysical().GetProperties().limits;
+            const Eden::Graphics::MsaaForce::Limits verified{
+                .vulkan=true,
+                .framebuffer_color_sample_bits=limits.framebufferColorSampleCounts,
+                .framebuffer_depth_sample_bits=limits.framebufferDepthSampleCounts,
+                .color_format_sample_bits=limits.framebufferColorSampleCounts,
+                .depth_format_sample_bits=0,
+                .max_framebuffer_width=limits.maxFramebufferWidth,
+                .max_framebuffer_height=limits.maxFramebufferHeight,
+                .free_transient_bytes=free,
+            };
+            const auto& target = candidate.target;
+            const Eden::Graphics::MsaaForce::GuestPass guest{
+                .width=target.extent.width, .height=target.extent.height,
+                .guest_samples=1, .color_bytes_per_pixel=16,
+                .depth_bytes_per_pixel=0, .render_target_count=1,
+                .uses_depth=false, .multisample_guest_reads=false,
+                .storage_or_alias_attachments=false,
+            };
+            if (!native_msaa_shadow) {
+                native_msaa_shadow = std::make_unique<MsaaColorClearShadowPass>(
+                    device, scheduler, memory_allocator, render_pass_cache);
+            }
+            candidate.prepared = native_msaa_shadow->TryPrepare(
+                target, static_cast<Eden::Graphics::MsaaForce::Requested>(user_samples),
+                guest, verified);
+            if (candidate.prepared) {
+                native_samples = candidate.prepared->samples;
+            } else {
+                native_msaa_clear.reset();
+            }
+        } else {
+            native_msaa_clear.reset();
+        }
+    }
+    const auto select_pipeline = [&]() -> GraphicsPipeline* {
+        if (native_samples != VK_SAMPLE_COUNT_1_BIT) {
+            if (GraphicsPipeline* forced =
+                    pipeline_cache.CurrentGraphicsPipelineForMsaa(native_samples)) {
+                return forced;
+            }
+            native_samples = VK_SAMPLE_COUNT_1_BIT;
+            native_msaa_clear.reset();
+        }
+        return pipeline_cache.CurrentGraphicsPipeline();
+    };
+    GraphicsPipeline* pipeline{select_pipeline()};
     if (!pipeline) {
         ::Eden::Performance::RecordGraphicsDrawDrop(
             ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
@@ -361,7 +446,7 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
                                                 pipeline->DescriptorEntryReservation())) {
         initial_descriptor_drain = true;
         gpu_memory->FlushCaching();
-        pipeline = pipeline_cache.CurrentGraphicsPipeline();
+        pipeline = select_pipeline();
         if (!pipeline) {
             ::Eden::Performance::RecordGraphicsDrawDrop(
                 ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
@@ -380,7 +465,7 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
                 [this] { scheduler.WaitWorker(); }, pipeline->DescriptorEntryReservation()))
             break;
         gpu_memory->FlushCaching();
-        pipeline = pipeline_cache.CurrentGraphicsPipeline();
+        pipeline = select_pipeline();
         if (!pipeline) {
             ::Eden::Performance::RecordGraphicsDrawDrop(
                 ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
@@ -396,7 +481,7 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
         // The frame fence can expose pending guest invalidations. Recheck
         // shader identity before using the pipeline under both cache locks.
         gpu_memory->FlushCaching();
-        pipeline = pipeline_cache.CurrentGraphicsPipeline();
+        pipeline = select_pipeline();
         if (!pipeline) {
             ::Eden::Performance::RecordGraphicsDrawDrop(
                 ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
@@ -408,7 +493,7 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
             guest_descriptor_queue.PreflightExactGuestDraw(
                 [this] { scheduler.WaitWorker(); }, pipeline->DescriptorEntryReservation())) {
             gpu_memory->FlushCaching();
-            pipeline = pipeline_cache.CurrentGraphicsPipeline();
+            pipeline = select_pipeline();
             if (!pipeline) {
                 ::Eden::Performance::RecordGraphicsDrawDrop(
                     ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
@@ -423,7 +508,7 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     if (descriptor_buffer_ring.PreflightCapacity(
             scheduler, pipeline->DescriptorRingPreflightSize())) {
         gpu_memory->FlushCaching();
-        pipeline = pipeline_cache.CurrentGraphicsPipeline();
+        pipeline = select_pipeline();
         if (!pipeline) {
             ::Eden::Performance::RecordGraphicsDrawDrop(
                 ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
@@ -436,7 +521,7 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
             guest_descriptor_queue.PreflightExactGuestDraw(
                 [this] { scheduler.WaitWorker(); }, pipeline->DescriptorEntryReservation())) {
             gpu_memory->FlushCaching();
-            pipeline = pipeline_cache.CurrentGraphicsPipeline();
+            pipeline = select_pipeline();
             if (!pipeline) {
                 ::Eden::Performance::RecordGraphicsDrawDrop(
                     ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
@@ -469,6 +554,38 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     pair_wait.Stop();
     ::Eden::Performance::CachePhaseTimer pair_held{
         ::Eden::Performance::CachePhase::PairHeld, cache_sample};
+    // The guest framebuffer might have been remapped since its clear.
+    // Confirm the exact original attachment with both cache locks held.
+    if (native_samples != VK_SAMPLE_COUNT_1_BIT && native_msaa_clear) {
+        auto& candidate = *native_msaa_clear;
+        texture_cache.UpdateRenderTargets(false);
+        const Framebuffer* const current = texture_cache.GetFramebuffer();
+        const bool same_guest_attachment =
+            current && current->Handle() == candidate.original_guest_framebuffer &&
+            current->Samples() == VK_SAMPLE_COUNT_1_BIT &&
+            current->NumImages() == 1 && current->NumColorBuffers() == 1 &&
+            current->ColorAttachmentImage(0) == candidate.target.guest_image &&
+            current->ColorAttachmentView(0) == candidate.target.guest_view &&
+            current->RenderArea().width == candidate.target.extent.width &&
+            current->RenderArea().height == candidate.target.extent.height;
+        if (!same_guest_attachment ||
+            (!candidate.started &&
+             (!candidate.prepared || !native_msaa_shadow ||
+              !native_msaa_shadow->BeginPrepared(
+                  *candidate.prepared, candidate.target,
+                  pipeline->NativeRenderPass(), native_samples, false)))) {
+            native_msaa_clear.reset();
+            native_samples = VK_SAMPLE_COUNT_1_BIT;
+            pipeline = pipeline_cache.CurrentGraphicsPipeline();
+            if (!pipeline) {
+                ::Eden::Performance::RecordGraphicsDrawDrop(
+                    ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
+                return;
+            }
+        } else if (!candidate.started) {
+            candidate.started = true;
+        }
+    }
     prepared_pipeline = pipeline;
     probe_pipeline = pipeline;
     SCOPE_EXIT {
@@ -478,7 +595,22 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     ::Eden::Performance::CachePhaseTimer configure_phase{
         ::Eden::Performance::CachePhase::PipelineConfigure, cache_sample};
     pipeline->SetEngine(maxwell3d, gpu_memory);
-    const bool pipeline_ok = pipeline->Configure(is_indexed);
+    bool pipeline_ok = pipeline->Configure(is_indexed);
+    if (!pipeline_ok && pipeline->UsesForcedMsaaShadow()) {
+        // The shader may read/store its destination or the texture cache
+        // may have ended the shadow pass while binding descriptors.
+        // Resolve and RETRY this draw via the unchanged guest 1x pipeline.
+        if (native_msaa_shadow) (void)native_msaa_shadow->EndPrepared();
+        native_msaa_clear.reset();
+        native_samples = VK_SAMPLE_COUNT_1_BIT;
+        pipeline = pipeline_cache.CurrentGraphicsPipeline();
+        if (pipeline) {
+            prepared_pipeline = pipeline;
+            probe_pipeline = pipeline;
+            pipeline->SetEngine(maxwell3d, gpu_memory);
+            pipeline_ok = pipeline->Configure(is_indexed);
+        }
+    }
     configure_phase.Stop();
     if (!pipeline_ok) {
         ::Eden::Performance::RecordGraphicsDrawDrop(
@@ -707,6 +839,10 @@ void RasterizerVulkan::Clear(u32 layer_count) {
     gpu_memory->FlushCaching();
 #endif
 
+    // A new guest clear invalidates the previous frame's shadow candidate,
+    // even if this clear proves ineligible. An already-active shadow will
+    // resolve on the ordinary guest renderpass transition below.
+    native_msaa_clear.reset();
     auto& regs = maxwell3d->regs;
     const bool use_color = regs.clear_surface.R || regs.clear_surface.G || regs.clear_surface.B ||
                            regs.clear_surface.A;
@@ -830,6 +966,42 @@ void RasterizerVulkan::Clear(u32 layer_count) {
         }
 
         if (color_full_channels) {
+            // A genuine full-attachment colour clear is the ONLY point from
+            // which forced native samples may start. Never alter the guest
+            // clear itself: the regular 1x image must remain usable if the
+            // shadow cannot be allocated or the shader later samples its RT.
+            const u32 requested = RequestedNativeMsaaSamples();
+            const auto range = framebuffer->ColorAttachmentRange(color_attachment);
+            const bool exact_single_colour =
+                requested != 0 && (requested == 2 || requested == 4 ||
+                                   requested == 8 || requested == 16) &&
+                can_defer_clear && !ds_used && layer_count == 1 &&
+                color_attachment == 0 && framebuffer->NumColorBuffers() == 1 &&
+                framebuffer->NumImages() == 1 &&
+                framebuffer->Samples() == VK_SAMPLE_COUNT_1_BIT &&
+                !framebuffer->HasAspectDepthBit() && !framebuffer->HasAspectStencilBit() &&
+                range.aspectMask == VK_IMAGE_ASPECT_COLOR_BIT &&
+                range.baseMipLevel == 0 && range.levelCount == 1 &&
+                range.baseArrayLayer == 0 && range.layerCount == 1 &&
+                framebuffer->ColorAttachmentImage(0) != VK_NULL_HANDLE &&
+                framebuffer->ColorAttachmentView(0) != VK_NULL_HANDLE;
+            if (exact_single_colour) {
+                NativeMsaaClear candidate{};
+                candidate.target.guest_image = framebuffer->ColorAttachmentImage(0);
+                candidate.target.guest_view = framebuffer->ColorAttachmentView(0);
+                candidate.target.extent = render_area;
+                candidate.target.guest_format = format;
+                candidate.target.vk_format =
+                    MaxwellToVK::SurfaceFormat(device, FormatType::Optimal, true, format).format;
+                candidate.target.layers = 1;
+                candidate.target.clear_entire_target = clear_covers_render_area;
+                candidate.target.has_verified_guest_clear_color = true;
+                candidate.target.guest_clear_color = clear_value;
+                candidate.original_guest_framebuffer = framebuffer->Handle();
+                if (candidate.target.vk_format != VK_FORMAT_UNDEFINED) {
+                    native_msaa_clear = candidate;
+                }
+            }
             if (can_defer_clear) {
                 scheduler.DeferColorClear(framebuffer, color_attachment, clear_value);
             } else {
@@ -853,6 +1025,9 @@ void RasterizerVulkan::Clear(u32 layer_count) {
     }
 
     if (!use_depth && !use_stencil) {
+        if (native_msaa_clear) {
+            native_msaa_clear->command_serial = scheduler.RecordedCommandSerial();
+        }
         return;
     }
     VkImageAspectFlags aspect_flags = 0;
@@ -3146,7 +3321,8 @@ void RasterizerVulkan::UpdateAlphaToCoverageEnable(Tegra::Engines::Maxwell3D::Re
     // must not translate an unrelated cold guest shader under texture lock.
     GraphicsPipeline* const pipeline = prepared_pipeline;
 #else
-    GraphicsPipeline* const pipeline = pipeline_cache.CurrentGraphicsPipeline();
+    GraphicsPipeline* const pipeline =
+        prepared_pipeline ? prepared_pipeline : pipeline_cache.CurrentGraphicsPipeline();
 #endif
     const bool enable = pipeline != nullptr && pipeline->SupportsAlphaToCoverage() &&
                         regs.anti_alias_alpha_control.alpha_to_coverage != 0;
@@ -3172,7 +3348,8 @@ void RasterizerVulkan::UpdateAlphaToOneEnable(Tegra::Engines::Maxwell3D::Regs& r
     // must not translate an unrelated cold guest shader under texture lock.
     GraphicsPipeline* const pipeline = prepared_pipeline;
 #else
-    GraphicsPipeline* const pipeline = pipeline_cache.CurrentGraphicsPipeline();
+    GraphicsPipeline* const pipeline =
+        prepared_pipeline ? prepared_pipeline : pipeline_cache.CurrentGraphicsPipeline();
 #endif
     const bool enable = pipeline != nullptr && pipeline->SupportsAlphaToOne() &&
                         regs.anti_alias_alpha_control.alpha_to_one != 0;

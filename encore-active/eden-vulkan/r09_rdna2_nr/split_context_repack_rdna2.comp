@@ -1,0 +1,27 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Transpose E4M3FN context [window][head16][token64][dim32] to
+// [window][token64][head16][dim32] for the row-major 512-channel GEMM.
+// Exact byte permutation: no arithmetic/precision change and no CPU readback.
+layout(local_size_x=256,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Input {uint words[];} source;
+layout(set=0,binding=1,std430) writeonly buffer Output {uint words[];} destination;
+layout(push_constant) uniform Params {
+    uint windows;
+    uint heads;
+    uint input_base_bytes;
+    uint output_base_bytes;
+} pc;
+void main(){
+    const uint dst=gl_GlobalInvocationID.x;
+    const uint words_per_window=64u*pc.heads*8u;
+    if(dst>=pc.windows*words_per_window)return;
+    const uint window=dst/words_per_window;
+    const uint within=dst%words_per_window;
+    const uint token=within/(pc.heads*8u);
+    const uint head=(within/8u)%pc.heads;
+    const uint lane=within%8u;
+    const uint src=((window*pc.heads+head)*64u+token)*8u+lane;
+    destination.words[(pc.output_base_bytes>>2u)+dst]=
+        source.words[(pc.input_base_bytes>>2u)+src];
+}

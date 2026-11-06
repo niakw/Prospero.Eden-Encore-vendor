@@ -1,0 +1,113 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Scalar RDNA2 adaptation of MIT DLSSNR-AMD ffwd3_t.comp triplet.
+// One workgroup handles one token/one of eight 64-channel groups.
+// W1: 64x512, W2: 256x64, W3: 64x256. Input/output 512 channels.
+// Row-major E4M3FN streams; not the upstream 16x16 tiled weight layout.
+// Quantize after each stage, with rounded-half cubic-SiLU-like activation.
+layout(local_size_x=16,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Input {uint words[];} activations;
+layout(set=0,binding=1,std430) readonly buffer W1 {uint words[];} w1;
+layout(set=0,binding=2,std430) readonly buffer W2 {uint words[];} w2;
+layout(set=0,binding=3,std430) readonly buffer W3 {uint words[];} w3;
+layout(set=0,binding=4,std430) writeonly buffer Output {uint words[];} output_tensor;
+layout(push_constant) uniform Params {
+    uint x_base_bytes;
+    uint w1_base_bytes;
+    uint w2_base_bytes;
+    uint w3_base_bytes;
+    uint out_base_bytes;
+    uint tokens;
+} pc;
+shared uint stage1[64];
+shared uint stage2[256];
+
+float from_fp8(uint v) {
+    uint e=(v>>3u)&15u,m=v&7u;
+    float sign=(v&128u)!=0u?-1.0:1.0;
+    if(e==15u&&m==7u)return uintBitsToFloat(0x7fc00000u);
+    if(e==0u)return sign*float(m)*exp2(-9.0);
+    return sign*float(8u+m)*exp2(float(int(e)-10));
+}
+uint to_fp8(float v){
+    uint sign=(floatBitsToUint(v)>>24u)&128u;
+    if(isnan(v))return sign|127u;
+    float a=min(abs(v),448.0);
+    if(a<0.015625) {
+        uint m=uint(roundEven(a*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int e=int(floor(log2(a)));
+    uint m=uint(roundEven((a/exp2(float(e))-1.0)*8.0));
+    if(m==8u){++e;m=0u;}
+    uint ex=uint(e+7);
+    if(ex>15u||(ex==15u&&m>6u))return sign|126u;
+    return sign|(ex<<3u)|m;
+}
+float hround(float v){
+    return unpackHalf2x16(packHalf2x16(vec2(v,0.0))).x;
+}
+float act_cubic(float x){
+    // Reproduce the intermediate half rounding points of nr_swin_act2.
+    x=hround(x);
+    float t=clamp(x,-4.0,4.0);
+    float u=hround(fma(-0.055908203125,abs(t),0.447265625));
+    float factor=hround(fma(t,u,0.89453125));
+    return hround(x*factor);
+}
+void main(){
+    uint lane=gl_LocalInvocationID.x;
+    uint token=gl_WorkGroupID.x;
+    uint group=gl_WorkGroupID.y;
+    if(token>=pc.tokens || group>=8u)return;
+    uint x=(pc.x_base_bytes>>2u)+token*128u;
+
+    for(uint j=0u;j<4u;++j) {
+        uint c=lane*4u+j;
+        uint row=(pc.w1_base_bytes>>2u)+(group*64u+c)*128u;
+        float acc=0.0;
+        for(uint kw=0u;kw<128u;++kw){
+            uint xv=activations.words[x+kw];
+            uint wv=w1.words[row+kw];
+            for(uint z=0u;z<4u;++z){
+                acc=fma(from_fp8((xv>>(z*8u))&255u),
+                        from_fp8((wv>>(z*8u))&255u),acc);
+            }
+        }
+        stage1[c]=to_fp8(hround(acc));
+    }
+    barrier();
+
+    for(uint j=0u;j<16u;++j){
+        uint c=lane*16u+j;
+        uint row=(pc.w2_base_bytes>>2u)+(group*256u+c)*16u;
+        float acc=0.0;
+        for(uint kw=0u;kw<16u;++kw){
+            uint wv=w2.words[row+kw];
+            for(uint z=0u;z<4u;++z){
+                uint k=kw*4u+z;
+                acc=fma(from_fp8(stage1[k]),
+                        from_fp8((wv>>(z*8u))&255u),acc);
+            }
+        }
+        stage2[c]=to_fp8(act_cubic(acc));
+    }
+    barrier();
+
+    uint packed=0u;
+    for(uint j=0u;j<4u;++j) {
+        uint c=lane*4u+j;
+        uint row=(pc.w3_base_bytes>>2u)+(group*64u+c)*64u;
+        float acc=0.0;
+        for(uint kw=0u;kw<64u;++kw){
+            uint wv=w3.words[row+kw];
+            for(uint z=0u;z<4u;++z){
+                uint k=kw*4u+z;
+                acc=fma(from_fp8(stage2[k]),
+                        from_fp8((wv>>(z*8u))&255u),acc);
+            }
+        }
+        packed|=to_fp8(hround(acc))<<(j*8u);
+    }
+    output_tensor.words[(pc.out_base_bytes>>2u)+token*128u+group*16u+lane]=packed;
+}

@@ -1,0 +1,102 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// RDNA2 global ViT cosine-attention *context* baseline (MIT DLSSNR-AMD).
+// Pre-normalized/pre-scaled Q/K, FP8 E4M3FN row-major [token][head][32].
+// Mirrors vit_attn.comp's denominator BEFORE probability FP8 quantization.
+// Native-FP8 exp and half reduction order are NOT bit-equivalent.
+// Expensive scalar correctness baseline; no full model/PS5 performance claim.
+layout(local_size_x=32, local_size_y=1, local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer QValues {uint words[];} q_values;
+layout(set=0,binding=1,std430) readonly buffer KValues {uint words[];} k_values;
+layout(set=0,binding=2,std430) readonly buffer VValues {uint words[];} v_values;
+layout(set=0,binding=3,std430) writeonly buffer Output {uint words[];} result;
+layout(push_constant) uniform Params {
+    uint q_base_bytes;
+    uint k_base_bytes;
+    uint v_base_bytes;
+    uint out_base_bytes;
+    uint tokens;
+} pc;
+
+float e4m3_to_f32(uint bytev) {
+    uint e=(bytev>>3u)&15u,m=bytev&7u;
+    float sign=(bytev&128u)!=0u?-1.0:1.0;
+    if(e==15u&&m==7u)return uintBitsToFloat(0x7fc00000u);
+    if(e==0u)return sign*float(m)*exp2(-9.0);
+    return sign*float(8u+m)*exp2(float(int(e)-10));
+}
+uint f32_to_e4m3(float value) {
+    uint sign=(floatBitsToUint(value)>>24u)&128u;
+    if(isnan(value))return sign|127u;
+    float a=min(abs(value),448.0);
+    if(a<0.015625){
+        uint m=uint(roundEven(a*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int ex=int(floor(log2(a)));
+    uint m=uint(roundEven((a/exp2(float(ex))-1.0)*8.0));
+    if(m==8u){++ex;m=0u;}
+    uint e=uint(ex+7);
+    if(e>15u||(e==15u&&m>6u))return sign|126u;
+    return sign|(e<<3u)|m;
+}
+float round_half(float v){
+    return unpackHalf2x16(packHalf2x16(vec2(v,0.0))).x;
+}
+float approx_vit_exp(float x) {
+    // swin_math.glsl nr_vit_exp, with explicit FP16 round points.
+    float y=round_half(fma(round_half(x),0.08953857421875,1.708984375));
+    y=clamp(y,1.439453125,1.9775390625);
+    uint halfbits=packHalf2x16(vec2(y,0.0))&0xffffu;
+    return unpackHalf2x16((halfbits&0x03ffu)<<4u).x;
+}
+void main(){
+    const uint query=gl_WorkGroupID.x*32u+gl_LocalInvocationID.x;
+    const uint head=gl_WorkGroupID.y;
+    if(query>=pc.tokens||head>=32u)return;
+    const uint row=(query*32u+head)*8u;
+    float query_features[32];
+    for(uint i=0u;i<8u;++i){
+        uint packed=q_values.words[(pc.q_base_bytes>>2u)+row+i];
+        for(uint j=0u;j<4u;++j)
+            query_features[i*4u+j]=e4m3_to_f32((packed>>(j*8u))&255u);
+    }
+    float context[32];
+    for(uint c=0u;c<32u;++c)context[c]=0.0;
+    float denominator=0.0;
+    for(uint key=0u;key<pc.tokens;++key) {
+        uint keyrow=(key*32u+head)*8u;
+        float score=0.0;
+        for(uint i=0u;i<8u;++i){
+            uint packed=k_values.words[(pc.k_base_bytes>>2u)+keyrow+i];
+            for(uint j=0u;j<4u;++j){
+                uint c=i*4u+j;
+                score=fma(query_features[c],
+                          e4m3_to_f32((packed>>(j*8u))&255u),score);
+            }
+        }
+        // The ViT upstream kernel sums half exponentials for the denominator,
+        // but stores E4M3 quantized probabilities into the P*V numerator.
+        float e=approx_vit_exp(score);
+        denominator+=e; // FP32 reduction, differs from upstream FP16 tree
+        float prob=e4m3_to_f32(f32_to_e4m3(e));
+        for(uint i=0u;i<8u;++i) {
+            uint packed=v_values.words[(pc.v_base_bytes>>2u)+keyrow+i];
+            for(uint j=0u;j<4u;++j) {
+                uint c=i*4u+j;
+                context[c]=fma(prob,
+                    e4m3_to_f32((packed>>(j*8u))&255u),context[c]);
+            }
+        }
+    }
+    float reciprocal=round_half(1.0/max(denominator,6.198883056640625e-05));
+    for(uint i=0u;i<8u;++i) {
+        uint packed=0u;
+        for(uint j=0u;j<4u;++j){
+            uint c=i*4u+j;
+            float value=round_half(round_half(context[c])*reciprocal);
+            packed|=f32_to_e4m3(value)<<(8u*j);
+        }
+        result.words[(pc.out_base_bytes>>2u)+row+i]=packed;
+    }
+}

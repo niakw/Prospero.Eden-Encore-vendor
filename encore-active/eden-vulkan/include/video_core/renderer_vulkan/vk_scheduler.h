@@ -68,9 +68,44 @@ public:
 
     /// Sends currently recorded work to the worker thread.
     void DispatchWork();
+    // Monotonic native command-stream epoch on the GPU owner thread.
+    // A clear-to-draw MSAA candidate is valid only while no other GPU
+    // command was recorded. Prevents silently losing transfer/compute writes.
+    [[nodiscard]] u64 RecordedCommandSerial() const noexcept {
+        return recorded_command_serial;
+    }
+
 
     /// Requests to begin a renderpass.
     void RequestRenderpass(const Framebuffer* framebuffer);
+
+    // MSAA shadow pass: render to a separate multisampled colour image and
+    // resolve to the original 1x guest image when the pass ends. The caller
+    // MUST bind a graphics pipeline created with the matching sample count
+    // and render-pass attachment topology; this method never changes guest
+    // pipeline state and is NOT a general-purpose sample-count override.
+    [[nodiscard]] bool RequestNativeColorResolveRenderpass(
+        VkRenderPass render_pass, VkFramebuffer framebuffer, VkExtent2D extent,
+        VkImage multisample_image, VkImage guest_resolve_image,
+        VkClearValue guest_clear_color);
+    // End only the native pass that owns the specified framebuffer. Never
+    // close an unrelated guest render pass after texture cache invalidation.
+    [[nodiscard]] bool FinishNativeColorResolveRenderpass(
+        VkRenderPass render_pass, VkFramebuffer framebuffer);
+    [[nodiscard]] VkImage NativeColorResolveGuestImage() const noexcept {
+        return state.native_color_resolve && num_renderpass_images == 2
+                   ? renderpass_images[1] : VK_NULL_HANDLE;
+    }
+    [[nodiscard]] bool HasNativeColorResolveRenderpass(
+        VkRenderPass render_pass) const noexcept {
+        return state.native_color_resolve && render_pass &&
+               state.renderpass == render_pass;
+    }
+    [[nodiscard]] bool IsNativeColorResolveActive(
+        VkRenderPass render_pass, VkFramebuffer framebuffer) const noexcept {
+        return render_pass && framebuffer && state.renderpass == render_pass &&
+               state.framebuffer == framebuffer;
+    }
 
     /// Defers a full-attachment color clear so it becomes the next render pass.
     bool DeferColorClear(const Framebuffer* framebuffer, u32 rt_slot, const VkClearValue& value);
@@ -139,6 +174,7 @@ public:
         // renderpass and already-queued commands are left intact.
         try {
 #endif
+        ++recorded_command_serial;
         if (chunk->Record(command)) {
             return;
         }
@@ -316,6 +352,7 @@ private:
         VkRenderPass renderpass{};
         VkFramebuffer framebuffer{};
         VkExtent2D render_area = {0, 0};
+        bool native_color_resolve{};
         GraphicsPipeline* graphics_pipeline = nullptr;
         // GPU owner only: the optimized variant can become ready without
         // changing the logical pipeline pointer.
@@ -373,6 +410,7 @@ private:
     std::function<void()> on_submit;
 
     State state;
+    u64 recorded_command_serial{};
 
     u32 num_renderpass_images = 0;
     std::array<VkImage, 9> renderpass_images{};

@@ -1,0 +1,40 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Token index layout adapted from mochizuki0323/DLSSNR-AMD (MIT, 2026).
+// Full MIT notice: r09_rdna2_nr/UPSTREAM_MIT_LICENSE.txt.
+// RDNA2 portable byte-moving kernel, no shaderInt8, FP8, HIP or WMMA.
+layout(local_size_x=64, local_size_y=1, local_size_z=1) in;
+// One uvec4 = 16 raw E4M3FN bytes; no FP8 arithmetic is performed.
+layout(set=0,binding=0,std430) buffer Arena { uvec4 blocks[]; } arena;
+layout(push_constant) uniform Push {
+    uint src_base_bytes;
+    uint dst_base_bytes;
+    uint width;
+    uint height;
+    uint channels;
+    uint inverse;
+} pc;
+
+uint token_offset(uint token, uint channel) {
+    // The original network's canonical 16-token / 16-channel arena tiles.
+    // Offsets are guaranteed 16-byte aligned by the host.
+    return ((token / 16u) * (pc.channels / 16u) + channel / 16u) * 256u +
+           (token % 16u) * 16u;
+}
+
+void main() {
+    const uint runs_per_token = pc.channels / 16u;
+    const uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.width * pc.height * runs_per_token) return;
+    const uint raster = i / runs_per_token;
+    const uint channel = (i % runs_per_token) * 16u;
+    const uint x = raster % pc.width;
+    const uint y = raster / pc.width;
+    const uint tile = ((y / 4u) * (pc.width / 4u) + x / 4u) * 16u +
+                      (y % 4u) * 4u + x % 4u;
+    const uint from_token = pc.inverse == 0u ? tile : raster;
+    const uint to_token = pc.inverse == 0u ? raster : tile;
+    const uint src_word = (pc.src_base_bytes + token_offset(from_token,channel)) / 16u;
+    const uint dst_word = (pc.dst_base_bytes + token_offset(to_token,channel)) / 16u;
+    arena.blocks[dst_word] = arena.blocks[src_word];
+}

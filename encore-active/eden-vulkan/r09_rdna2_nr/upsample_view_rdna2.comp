@@ -1,0 +1,49 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// RDNA2 byte-only port of the upsample_view token reinterpretation in
+// mochizuki0323/DLSSNR-AMD (MIT); notice in UPSTREAM_MIT_LICENSE.txt.
+// Shared from its upstream mathematical mapping; no WMMA/HIP/FP8 extension.
+layout(local_size_x=64, local_size_y=1, local_size_z=1) in;
+layout(set=0,binding=0,std430) buffer TensorArena { uvec4 blocks[]; } arena;
+layout(push_constant) uniform Push {
+    uint src_base_bytes;
+    uint dst_base_bytes;
+    uint tokens;
+    uint channels;
+    uint width;
+    uint height;
+    uint resized_width;
+    uint resized_height;
+} pc;
+
+uint token_address(uint token, uint channel) {
+    return ((token/16u)*(pc.channels/16u) + channel/16u)*256u +
+           (token%16u)*16u;
+}
+
+void main() {
+    const uint run_count=pc.channels/16u;
+    const uint i=gl_GlobalInvocationID.x;
+    if (i >= pc.tokens*run_count) return;
+    const uint token=i/run_count;
+    const uint ch=(i%run_count)*16u;
+    const uint tw=pc.resized_width/4u;
+    const uint x=(token/16u%tw)*4u+token%4u;
+    const uint y=(token/16u/tw)*4u+(token%16u)/4u;
+    const uint pos=(ch/16u)*pc.resized_width*pc.resized_height+
+                   y*pc.resized_width+x;
+    const uint original_tokens=pc.width*pc.height;
+    const uint source_channel=(pos/original_tokens)*16u;
+    const uint pixel=pos%original_tokens;
+    const uint source_x=pixel%pc.width;
+    const uint source_y=pixel/pc.width;
+    const uint original_token=((source_y/4u)*(pc.width/4u)+source_x/4u)*16u+
+                             (source_y%4u)*4u+source_x%4u;
+
+    uvec4 value=uvec4(0u);
+    if (y<pc.resized_height && source_channel<pc.channels) {
+        value=arena.blocks[(pc.src_base_bytes+
+                           token_address(original_token,source_channel))/16u];
+    }
+    arena.blocks[(pc.dst_base_bytes+token_address(token,ch))/16u]=value;
+}

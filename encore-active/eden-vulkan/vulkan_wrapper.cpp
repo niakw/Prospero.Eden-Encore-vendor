@@ -327,7 +327,8 @@ bool Load(VkInstance instance, InstanceDispatch& dld) noexcept {
 
     return X(vkCreateDevice) && X(vkDestroyDevice) && X(vkDestroyDevice) &&
            X(vkEnumerateDeviceExtensionProperties) && X(vkEnumeratePhysicalDevices) &&
-           X(vkGetDeviceProcAddr) && X(vkGetPhysicalDeviceFormatProperties) &&
+           X(vkGetDeviceProcAddr) && X(vkGetPhysicalDeviceImageFormatProperties) &&
+           X(vkGetPhysicalDeviceFormatProperties) &&
            X(vkGetPhysicalDeviceMemoryProperties) && X(vkGetPhysicalDeviceMemoryProperties2) &&
            X(vkGetPhysicalDeviceProperties) && X(vkGetPhysicalDeviceQueueFamilyProperties);
 #undef X
@@ -963,6 +964,14 @@ VkPhysicalDeviceFeatures PhysicalDevice::GetFeatures() const noexcept {
 
 void PhysicalDevice::GetFeatures2(VkPhysicalDeviceFeatures2& features) const noexcept {
     dld->vkGetPhysicalDeviceFeatures2(physical_device, &features);
+}
+
+bool PhysicalDevice::GetImageFormatProperties(
+    VkFormat format, VkImageType type, VkImageTiling tiling,
+    VkImageUsageFlags usage, VkImageCreateFlags flags,
+    VkImageFormatProperties& properties) const noexcept {
+    return dld->vkGetPhysicalDeviceImageFormatProperties(
+        physical_device, format, type, tiling, usage, flags, &properties) == VK_SUCCESS;
 }
 
 VkFormatProperties PhysicalDevice::GetFormatProperties(VkFormat format) const noexcept {

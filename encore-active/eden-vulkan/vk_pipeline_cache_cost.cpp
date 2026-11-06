@@ -835,6 +835,8 @@ bool EdenAttributelessStaticKey(const FixedPipelineState& state) {
 } // Anonymous namespace
 
 GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
+    return CurrentGraphicsPipelineForMsaa(VK_SAMPLE_COUNT_1_BIT);
+}
 
 #ifdef PS5_NATIVE
     // A real 0xC797 GPU bind, never title/firmware heuristics, chooses the
@@ -930,12 +932,40 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
     }
     if (!stages_valid) {
 #else
+GraphicsPipeline* PipelineCache::CurrentGraphicsPipelineForMsaa(
+    VkSampleCountFlagBits requested_samples) {
     if (!RefreshStages(graphics_key.unique_hashes)) {
 #endif
         current_pipeline = nullptr;
         return nullptr;
     }
     graphics_key.state.Refresh(*maxwell3d, dynamic_features);
+    if (requested_samples != VK_SAMPLE_COUNT_1_BIT) {
+        using Tegra::Texture::MsaaMode;
+        MsaaMode mode{};
+        switch (requested_samples) {
+        case VK_SAMPLE_COUNT_2_BIT: mode = MsaaMode::Msaa2x1; break;
+        case VK_SAMPLE_COUNT_4_BIT: mode = MsaaMode::Msaa2x2; break;
+        case VK_SAMPLE_COUNT_8_BIT: mode = MsaaMode::Msaa4x2; break;
+        case VK_SAMPLE_COUNT_16_BIT: mode = MsaaMode::Msaa4x4; break;
+        default:
+            current_pipeline = nullptr;
+            return nullptr;
+        }
+        // Only the colour-only shadow variant exists. Ordinary guest MSAA,
+        // MRTs and depth/stencil stay on the unmodified guest path.
+        const auto& state = graphics_key.state;
+        if (state.msaa_mode.Value() != MsaaMode::Msaa1x1 ||
+            state.depth_enabled != 0 || state.color_formats[0] == 0 ||
+            std::ranges::any_of(state.color_formats.begin() + 1,
+                                state.color_formats.end(),
+                                [](u8 fmt) { return fmt != 0; })) {
+            current_pipeline = nullptr;
+            return nullptr;
+        }
+        graphics_key.state.msaa_mode.Assign(mode);
+        graphics_key.state.forced_color_resolve.Assign(1);
+    }
     const bool static_vertex_input = graphics_key.state.dynamic_vertex_input != 0 &&
                                      ::Eden::DevVulkan::static_vertex_input &&
                                      EdenAttributeless({graphics_key.unique_hashes[0], graphics_key.unique_hashes[1]});

@@ -216,7 +216,15 @@ RenderPassKey MakeRenderPassKey(const FixedPipelineState& state, const Device& d
         return format != PixelFormat::Invalid;
     });
     key.resolve_color =
-        key.samples != VK_SAMPLE_COUNT_1_BIT && has_color && device.IsTiler();
+        key.samples != VK_SAMPLE_COUNT_1_BIT && has_color &&
+        (device.IsTiler() || state.forced_color_resolve != 0);
+    if (state.forced_color_resolve) {
+        // Exact same renderpass key as MsaaColorClearShadowPass. The pipeline
+        // uses its own multisample colour attachment and resolves into the
+        // unchanged guest image, with no depth/MRT attached.
+        key.color_clear_mask = 1;
+        key.color_discard_mask = 1;
+    }
     return key;
 }
 
@@ -348,6 +356,12 @@ GraphicsPipeline::GraphicsPipeline(
             shader_notify->MarkShaderComplete();
         }
     };
+    // A forced shadow pipeline must have a known compatible renderpass
+    // BEFORE it is ever used by the GPU owner. Populate this synchronously
+    // so ConfigureDraw never races the async pipeline-builder worker.
+    if (key.state.forced_color_resolve) {
+        native_render_pass = render_pass_cache.Get(MakeRenderPassKey(key.state, device));
+    }
     for (size_t stage = 0; stage < NUM_STAGES; ++stage) {
         const Shader::Info* const info{infos[stage]};
         if (!info) {
@@ -853,6 +867,18 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
         texture_cache.CheckFeedbackLoop(std::span<const VideoCommon::ImageViewInOut>{views.data(),
                                                                                      views.size()});
     }
+    if (key.state.forced_color_resolve) {
+        // A forced native shadow may never be read or written by a guest
+        // shader image descriptor. Inspect all actual stage bindings, not
+        // shader hashes or per-title whitelists.
+        const VkImage guest_target = scheduler.NativeColorResolveGuestImage();
+        if (!guest_target) return false;
+        for (const auto& binding : views) {
+            if (binding.id &&
+                texture_cache.GetImageView(binding.id).ImageHandle() == guest_target)
+                return false;
+        }
+    }
     // The first-use VkPipeline may fail while a separately rebuilt optimized
     // variant succeeds. Keep that recovered handle eligible for guest draws.
     if (IsBuilt() && !pipeline && !optimized_ready.load(std::memory_order_acquire)) {
@@ -908,7 +934,16 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
         }
     }
 
-    scheduler.RequestRenderpass(texture_cache.GetFramebuffer());
+    if (key.state.forced_color_resolve) {
+        // A forced pipeline without a matching native shadow renderpass is
+        // NOT valid with the guest's 1x framebuffer. Fail closed rather than
+        // recording an invalid Vulkan draw.
+        if (!scheduler.HasNativeColorResolveRenderpass(native_render_pass)) {
+            return false;
+        }
+    } else {
+        scheduler.RequestRenderpass(texture_cache.GetFramebuffer());
+    }
     // Match the builder's release publication before using its pipeline handle.
     // A ready fast path skips the queued wait, so relaxed is insufficient here.
     if (!is_built.load(std::memory_order_acquire)) {

@@ -89,6 +89,13 @@ public:
         const std::array<const Shader::Info*, NUM_STAGES>& infos);
 
     bool HasDynamicVertexInput() const noexcept { return key.state.dynamic_vertex_input; }
+    // Only queried once Configure() has completed/published the pipeline.
+    [[nodiscard]] VkRenderPass NativeRenderPass() const noexcept {
+        return native_render_pass;
+    }
+    [[nodiscard]] bool UsesForcedMsaaShadow() const noexcept {
+        return key.state.forced_color_resolve != 0;
+    }
 #ifdef PS5_NATIVE
     [[nodiscard]] bool CanUseDescriptorBuffer() const noexcept {
         return uses_descriptor_buffer && descriptor_set_layout;
@@ -269,6 +276,7 @@ private:
     vk::PipelineLayout pipeline_layout;
     vk::DescriptorUpdateTemplate descriptor_update_template;
     vk::Pipeline pipeline;
+    VkRenderPass native_render_pass{VK_NULL_HANDLE};
     struct OptimizeState {
         std::mutex mutex;
         std::condition_variable done;

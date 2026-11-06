@@ -1,0 +1,39 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// FP32 projection output -> E4M3FN byte tensor, Vulkan 1.1 / RDNA2.
+// Four independently rounded FP32 values produce one packed uint word.
+// No cooperative matrix, Float8 storage, host round-trip or HIP runtime.
+layout(local_size_x=64, local_size_y=1, local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Source {float values[];} input_tensor;
+layout(set=0,binding=1,std430) writeonly buffer Target {uint words[];} output_tensor;
+layout(push_constant) uniform Params {
+    uint elements;
+    uint input_offset_floats;
+    uint output_offset_bytes;
+    uint flags;
+} pc;
+uint to_e4m3fn(float v){
+    uint sign=(floatBitsToUint(v)>>24u)&128u;
+    if(isnan(v))return sign|127u;
+    float a=min(abs(v),448.0);
+    if(a<0.015625) {
+        uint m=uint(roundEven(a*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int e=int(floor(log2(a)));
+    uint m=uint(roundEven((a/exp2(float(e))-1.0)*8.0));
+    if(m==8u){++e;m=0u;}
+    uint exponent=uint(e+7);
+    if(exponent>15u||(exponent==15u&&m>6u))return sign|126u;
+    return sign|(exponent<<3u)|m;
+}
+void main(){
+    const uint word=gl_GlobalInvocationID.x;
+    if(pc.flags!=0u||word>=pc.elements/4u)return;
+    uint packed=0u;
+    const uint start=pc.input_offset_floats+word*4u;
+    for(uint i=0u;i<4u;++i){
+        packed|=to_e4m3fn(input_tensor.values[start+i])<<(i*8u);
+    }
+    output_tensor.words[pc.output_offset_bytes/4u+word]=packed;
+}

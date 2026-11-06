@@ -1,0 +1,46 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Port of the MIT DLSSNR-AMD noise_field/image_noise shader to Vulkan 1.1.
+// The upstream PCG/Box-Muller sequence is unchanged; float->FP16 rounding
+// uses core GLSL packHalf2x16 instead of float16_t storage extensions.
+// No weights, FP8 or cooperative matrix instructions are used.
+layout(local_size_x=8, local_size_y=8, local_size_z=1) in;
+layout(set=0,binding=0,std430) writeonly buffer NoiseOut {
+    uint packed_halves[];
+} result_noise;
+layout(push_constant) uniform Dispatch {
+    uint base_words;
+    uint width;
+    uint height;
+    uint seed;
+    float gain;
+} pc;
+
+uint nr_pcg(uint v) {
+    v=(v>>((v>>28u)+4u))^v;
+    v*=0x108EF2D9u;
+    return v;
+}
+float nr_u(uint stream) {
+    uint t=nr_pcg(stream);
+    return float(((t>>30u)^(t>>8u))+1u)*5.9604644775390625e-08;
+}
+void main() {
+    uint x=gl_GlobalInvocationID.x;
+    uint y=gl_GlobalInvocationID.y;
+    if (x>=pc.width || y>=pc.height) return;
+    uint base=(x*0x8DA6B343u)^(pc.seed*0x9E3779B9u)^
+              (y*0xD8163841u)^0x243F6A88u;
+    uint t=nr_pcg(base), h=(t>>22u)^t;
+    float a=nr_u(h*0x2C9277B5u+0xAC564B05u);
+    float b=nr_u(h*0xFA6DC5F9u+0x4712A88Eu);
+    float c=nr_u(h*0xCAA5B80Du+0x21DD796Bu);
+    float d=nr_u(h*0x83232C31u+0x3463E0ACu);
+    float r0=sqrt(-2.0*log(a)), r1=sqrt(-2.0*log(c));
+    float t0=b*6.28318530718, t1=d*6.28318530718;
+    uint i=pc.base_words+(y*pc.width+x)*2u;
+    result_noise.packed_halves[i]=packHalf2x16(vec2(
+        pc.gain*r0*cos(t0), pc.gain*r0*sin(t0)));
+    result_noise.packed_halves[i+1u]=packHalf2x16(vec2(
+        pc.gain*r1*cos(t1), 0.0));
+}

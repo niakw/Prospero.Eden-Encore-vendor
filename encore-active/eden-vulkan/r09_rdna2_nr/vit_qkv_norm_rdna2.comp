@@ -1,0 +1,85 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// RDNA2 portable QKV post-GEMM normalization for 32-head global ViT.
+// Input: FP32 row-major [token][Q(1024),K(1024),V(1024)].
+// Output: three packed E4M3FN row-major [token][head=32][dim=32].
+// Round each GEMM result to FP16 before the Q/K norm (upstream input is
+// a half-precision projection); use 32 learned FP32 head temperatures. Scalar
+// reference; half-rounding/reduction order is not claimed bit-identical.
+layout(local_size_x=8,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer InputF32 {float values[];} input_f32;
+layout(set=0,binding=1,std430) readonly buffer Temperatures {float values[];} temperatures;
+layout(set=0,binding=2,std430) writeonly buffer Query {uint words[];} query_out;
+layout(set=0,binding=3,std430) writeonly buffer Key {uint words[];} key_out;
+layout(set=0,binding=4,std430) writeonly buffer Value {uint words[];} value_out;
+layout(push_constant) uniform Params {
+    uint tokens;
+    uint src_base_floats;
+    uint scale_base_floats;
+    uint q_base_bytes;
+    uint k_base_bytes;
+    uint v_base_bytes;
+} pc;
+shared float qs[32];
+shared float ks[32];
+shared float norms[2];
+float round_half(float value){
+    return unpackHalf2x16(packHalf2x16(vec2(value,0.0))).x;
+}
+uint f32_to_e4m3(float value){
+    uint sign=(floatBitsToUint(value)>>24u)&128u;
+    if(isnan(value))return sign|127u;
+    float a=min(abs(value),448.0);
+    if(a==0.0)return sign;
+    if(a<0.015625){
+        uint m=uint(roundEven(a*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int e=int(floor(log2(a)));
+    uint m=uint(roundEven((a/exp2(float(e))-1.0)*8.0));
+    if(m==8u){++e;m=0u;}
+    uint eb=uint(e+7);
+    if(eb>15u||(eb==15u&&m>6u))return sign|126u;
+    return sign|(eb<<3u)|m;
+}
+void main(){
+    uint lane=gl_LocalInvocationID.x;
+    uint token=gl_WorkGroupID.x;
+    uint head=gl_WorkGroupID.y;
+    if(token>=pc.tokens||head>=32u)return;
+    uint input_base=pc.src_base_floats+token*3072u+head*32u;
+    float q[4],k[4],v[4];
+    for(uint i=0u;i<4u;++i){
+        uint channel=lane*4u+i;
+        q[i]=round_half(input_f32.values[input_base+channel]);
+        k[i]=round_half(input_f32.values[input_base+1024u+channel]);
+        v[i]=round_half(input_f32.values[input_base+2048u+channel]);
+        qs[channel]=q[i];
+        ks[channel]=k[i];
+    }
+    barrier();
+    if(lane==0u){
+        float nq=0.0,nk=0.0;
+        for(uint c=0u;c<32u;++c){
+            nq=fma(qs[c],qs[c],nq);
+            nk=fma(ks[c],ks[c],nk);
+        }
+        norms[0]=inversesqrt(max(nq,1e-30));
+        norms[1]=inversesqrt(max(nk,1e-30));
+    }
+    barrier();
+    float temperature=temperatures.values[pc.scale_base_floats+head];
+    float qfactor=sqrt(32.0)*temperature*norms[0];
+    float kfactor=norms[1];
+    uint qw=0u,kw=0u,vw=0u;
+    for(uint i=0u;i<4u;++i){
+        // All three outputs stay E4M3FN; V is not cosine-normalized.
+        qw|=f32_to_e4m3(round_half(q[i]*qfactor))<<(8u*i);
+        kw|=f32_to_e4m3(round_half(k[i]*kfactor))<<(8u*i);
+        vw|=f32_to_e4m3(round_half(v[i]))<<(8u*i);
+    }
+    uint word=(token*32u+head)*8u+lane;
+    query_out.words[(pc.q_base_bytes>>2u)+word]=qw;
+    key_out.words[(pc.k_base_bytes>>2u)+word]=kw;
+    value_out.words[(pc.v_base_bytes>>2u)+word]=vw;
+}

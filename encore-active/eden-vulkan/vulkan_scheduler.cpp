@@ -301,6 +301,7 @@ void Scheduler::BeginRenderPassImpl(const Framebuffer* framebuffer, VkRenderPass
     const VkFramebuffer framebuffer_handle = framebuffer->Handle();
     const VkExtent2D render_area = framebuffer->RenderArea();
     state.renderpass = renderpass;
+    state.native_color_resolve = false;
     state.framebuffer = framebuffer_handle;
     state.render_area = render_area;
 
@@ -435,6 +436,71 @@ void Scheduler::RequestRenderpass(const Framebuffer* framebuffer) {
     // Ends any active pass and realizes a deferred clear
     EndRenderPass();
     BeginRenderPassImpl(framebuffer, renderpass, nullptr, 0);
+}
+
+bool Scheduler::RequestNativeColorResolveRenderpass(
+    VkRenderPass render_pass, VkFramebuffer framebuffer, VkExtent2D extent,
+    VkImage multisample_image, VkImage guest_resolve_image,
+    VkClearValue guest_clear_color) {
+    if (!render_pass || !framebuffer || !multisample_image || !guest_resolve_image ||
+        multisample_image == guest_resolve_image ||
+        extent.width == 0 || extent.height == 0 || !query_cache) {
+        return false;
+    }
+    // A second eligible draw in the same native pass must not re-clear
+    // the MSAA attachment and erase the previous draw. Keep its samples
+    // intact until the final resolve at EndRenderPass.
+    if (state.renderpass == render_pass && state.framebuffer == framebuffer &&
+        state.render_area.width == extent.width &&
+        state.render_area.height == extent.height) {
+        return true;
+    }
+    // Any deferred guest clear must execute in the guest's original pass
+    // BEFORE a shadow pass begins; no guest clear is silently consumed.
+    EndRenderPass();
+    state.renderpass = render_pass;
+    state.native_color_resolve = true;
+    state.framebuffer = framebuffer;
+    state.render_area = extent;
+    const std::array<VkClearValue, 2> clears{guest_clear_color, {}};
+    Record([render_pass, framebuffer, extent, clears](vk::CommandBuffer cmdbuf) {
+        const VkRenderPassBeginInfo begin{
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .pNext = nullptr,
+            .renderPass = render_pass,
+            .framebuffer = framebuffer,
+            .renderArea = {{0, 0}, extent},
+            .clearValueCount = static_cast<u32>(clears.size()),
+            .pClearValues = clears.data(),
+        };
+        cmdbuf.BeginRenderPass(begin, VK_SUBPASS_CONTENTS_INLINE);
+    });
+    // Make the existing EndRenderPass() emit correct GENERAL->GENERAL
+    // visibility barriers for BOTH the transient shadow and the resolved
+    // guest image, including any shader read after the pass ends.
+    constexpr VkImageSubresourceRange color{
+        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+        .baseMipLevel = 0, .levelCount = 1,
+        .baseArrayLayer = 0, .layerCount = 1,
+    };
+    num_renderpass_images = 2;
+    renderpass_images = {};
+    renderpass_image_ranges = {};
+    renderpass_images[0] = multisample_image;
+    renderpass_images[1] = guest_resolve_image;
+    renderpass_image_ranges[0] = color;
+    renderpass_image_ranges[1] = color;
+    return true;
+}
+
+bool Scheduler::FinishNativeColorResolveRenderpass(
+    VkRenderPass render_pass, VkFramebuffer framebuffer) {
+    if (!render_pass || !framebuffer || state.renderpass != render_pass ||
+        state.framebuffer != framebuffer) {
+        return false;
+    }
+    EndRenderPass();
+    return true;
 }
 
 void Scheduler::RequestOutsideRenderPassOperationContext() {
@@ -729,6 +795,7 @@ void Scheduler::EndRenderPass()
         });
 
         state.renderpass = VkRenderPass{};
+        state.native_color_resolve = false;
         num_renderpass_images = 0;
     }
 
