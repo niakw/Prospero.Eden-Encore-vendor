@@ -25,8 +25,8 @@ bool NrRdna2FSwinLevelLink::Prepare(
        raster.buffer==to.Input().buffer||
        raster.buffer==from.Output().buffer)return false;
     if(!from.BindDownsampleOutput(model,raster,width,height))return false;
-    if(!to.BindRasterInput(raster,(width+1u)/2u,
-                         (height+1u)/2u))return false;
+    if(!to.BindRasterInput(raster,width/2u,
+                         height/2u))return false;
     source=&from;
     target=&to;
     ready=true;

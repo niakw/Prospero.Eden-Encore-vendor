@@ -86,7 +86,9 @@ void main(){
     if(pixel>=16u||wx>=pc.windows_x||wy>=pc.windows_y)return;
     uint out_x=wx*4u+(pixel%4u);
     uint out_y=wy*4u+(pixel/4u);
-    uint out_w=(pc.width+1u)/2u,out_h=(pc.height+1u)/2u;
+    // Native tensor pyramid discards the odd final border at DS.
+    // Matching floor dimensions avoids incorrect strides at 135x240.
+    uint out_w=pc.width/2u,out_h=pc.height/2u;
     if(out_x>=out_w||out_y>=out_h)return;
     uint result=0u;
     for(uint byte=0u;byte<4u;++byte){
