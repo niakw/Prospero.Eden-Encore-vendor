@@ -34,21 +34,11 @@ bool NrRdna2VitQkvAttentionLink::Initialize(
     std::uint32_t tokens,const NrRdna2VitQkvAttentionBuffers& b){
     if(ready||!DistinctBuffers(b,device.GetMaxStorageBufferRange()))
         return false;
-    const NR::Projection proposed_gemm{
-        tokens,3072u,1024u,1024u,1024u,0u,0u};
-    const NR::Storage proposed_storage{
-        b.input.range,b.weights.range,b.fp32.range,b.fp32.range};
-    const NR::VitQkvNorm proposed_norm{tokens,0u,0u,0u,0u,0u};
-    const NR::VitQkvNormStorage proposed_norm_storage{
-        b.fp32.range,b.temperatures.range,b.query.range,b.key.range,
-        b.value.range};
-    const NR::VitAttention proposed_attention{0u,0u,0u,0u,tokens};
-    const NR::VitAttentionStorage proposed_attention_storage{
+    const NR::VitQkvBuffersCapacity capacity{
+        b.input.range,b.weights.range,b.fp32.range,b.temperatures.range,
         b.query.range,b.key.range,b.value.range,b.context.range};
-    if(!NR::CanDispatch(proposed_gemm,proposed_storage)||
-       !NR::CanVitQkvNorm(proposed_norm,proposed_norm_storage)||
-       !NR::CanVitAttention(proposed_attention,proposed_attention_storage))
-        return false;
+    NR::VitQkvBatches prepared{};
+    if(!NR::BuildVitQkvBatches(tokens,capacity,prepared))return false;
     // GEMM, normalize and attention each own their descriptor layout.
     // Every producer buffer is the identical consumer descriptor.
     auto new_pool=CreateWrappedDescriptorPool(
@@ -80,12 +70,7 @@ bool NrRdna2VitQkvAttentionLink::Initialize(
         vk::Span<VkWriteDescriptorSet>{writes.data(),writes.size()},{});
     pool=std::move(new_pool);
     sets=std::move(allocated);
-    gemm_shape=proposed_gemm;
-    gemm_storage=proposed_storage;
-    norm_shape=proposed_norm;
-    norm_storage=proposed_norm_storage;
-    attention_shape=proposed_attention;
-    attention_storage=proposed_attention_storage;
+    batch_plan=prepared;
     ready=true;
     return true;
 }
@@ -105,12 +90,18 @@ bool NrRdna2VitQkvAttentionLink::InitializeWithModel(
 }
 bool NrRdna2VitQkvAttentionLink::Record(){
     if(!ready||sets.size()!=3u||
-       !NR::CanDispatch(gemm_shape,gemm_storage)||
-       !NR::CanVitQkvNorm(norm_shape,norm_storage)||
-       !NR::CanVitAttention(attention_shape,attention_storage))
-        return false;
-    if(!gemm.Record(sets[0],gemm_shape,gemm_storage))return false;
-    if(!normalize.Record(sets[1],norm_shape,norm_storage))return false;
-    return attention.Record(sets[2],attention_shape,attention_storage);
+       !NR::ValidVitQkvBatches(batch_plan))return false;
+    // Each GEMM write is visible to QKV normalization, and each FP8 QKV
+    // output is visible before the next pair or the global attention.
+    // No CPU readback; transient FP32 allocation is reused for all slices.
+    for(std::uint32_t i=0u;i<batch_plan.count;++i){
+        const auto& slice=batch_plan.slices[i];
+        if(!gemm.Record(sets[0],slice.gemm,slice.gemm_storage))
+            return false;
+        if(!normalize.Record(sets[1],slice.normalize,
+                             slice.normalize_storage))return false;
+    }
+    return attention.Record(sets[2],batch_plan.attention,
+                            batch_plan.attention_storage);
 }
-}
+} // namespace Vulkan

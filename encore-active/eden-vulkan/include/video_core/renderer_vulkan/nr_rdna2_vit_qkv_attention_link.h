@@ -6,6 +6,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_vit_qkv_norm.h"
 #include "video_core/renderer_vulkan/nr_rdna2_vit_attention.h"
 #include "video_core/renderer_vulkan/nr_rdna2_model_file.h"
+#include "rdna2_nr_vit_qkv_batches_policy.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 #include <memory>
 #include <string_view>
@@ -39,12 +40,8 @@ private:
     NrRdna2VitAttention attention;
     vk::DescriptorPool pool;
     vk::DescriptorSets sets;
-    Eden::Graphics::NeuralRDNA2::Projection gemm_shape{};
-    Eden::Graphics::NeuralRDNA2::Storage gemm_storage{};
-    Eden::Graphics::NeuralRDNA2::VitQkvNorm norm_shape{};
-    Eden::Graphics::NeuralRDNA2::VitQkvNormStorage norm_storage{};
-    Eden::Graphics::NeuralRDNA2::VitAttention attention_shape{};
-    Eden::Graphics::NeuralRDNA2::VitAttentionStorage attention_storage{};
+    // Immutable, fully preflighted sequential GPU work for the model edge.
+    Eden::Graphics::NeuralRDNA2::VitQkvBatches batch_plan{};
     // Lifetime of the two model buffers exceeds all recorded GPU work.
     std::unique_ptr<NrRdna2VitModelBuffers> model_buffers;
     bool ready{};
