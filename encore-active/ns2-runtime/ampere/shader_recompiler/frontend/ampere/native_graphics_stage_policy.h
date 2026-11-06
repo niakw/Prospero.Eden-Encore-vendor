@@ -35,52 +35,68 @@ namespace Shader::Ampere {
 }
 
 // NVN SET_MESH_CONTROL selects an alternate *linked* graphics pipeline.
-// VertexB binds Mesh directly when there is no Task shader; when TessEval
-// is also bound, VertexB binds Task and TessEval binds Mesh. Geometry is a
-// pass-through output-header, not a third executable shader stage. Never
-// interpret TessControl as Task or allow unpaired native stages.
+// VertexB binds Mesh directly when there is no Task shader; when the
+// TessControl slot is enabled, VertexB binds Task and TessControl binds Mesh.
+// The TessEval slot is never an executable mesh stage. The Geometry slot
+// can supply a pass-through primitive-output header (not a shader stage).
+// This follows the NVC597 SET_MESH_CONTROL/SET_MESH_SHADER ABI; keep it
+// distinct from the classic TessControl+TessEval pair.
 [[nodiscard]] constexpr bool NativeMeshGraphicsStageMaskSupported(
     u32 mask, bool mesh_control) noexcept {
     if (!mesh_control) return NativeGraphicsStageMaskSupported(mask);
     constexpr u32 vertex_b = 1U << 1;
     constexpr u32 tess_control = 1U << 2;
-    constexpr u32 allowed = vertex_b | (1U << 3) | (1U << 4) | (1U << 5);
-    return (mask & vertex_b) != 0 && (mask & tess_control) == 0 &&
+    constexpr u32 tess_eval = 1U << 3;
+    constexpr u32 allowed = vertex_b | tess_control | (1U << 4) | (1U << 5);
+    return (mask & vertex_b) != 0 && (mask & tess_eval) == 0 &&
            (mask & ~allowed) == 0;
 }
 [[nodiscard]] constexpr bool NativeMeshTaskPresent(u32 mask, bool mesh_control) noexcept {
     return mesh_control && NativeMeshGraphicsStageMaskSupported(mask, true) &&
-           (mask & (1U << 3)) != 0;
+           (mask & (1U << 2)) != 0;
 }
 static_assert(NativeMeshGraphicsStageMaskSupported(0x02, true));
 static_assert(NativeMeshGraphicsStageMaskSupported(0x22, true));
-static_assert(NativeMeshGraphicsStageMaskSupported(0x0a, true));
-static_assert(NativeMeshGraphicsStageMaskSupported(0x3a, true));
+static_assert(NativeMeshGraphicsStageMaskSupported(0x06, true));
+static_assert(NativeMeshGraphicsStageMaskSupported(0x36, true));
 static_assert(!NativeMeshGraphicsStageMaskSupported(0x03, true));
-static_assert(!NativeMeshGraphicsStageMaskSupported(0x06, true));
+static_assert(!NativeMeshGraphicsStageMaskSupported(0x0a, true));
 static_assert(!NativeMeshGraphicsStageMaskSupported(0x0e, true));
 static_assert(!NativeMeshGraphicsStageMaskSupported(0x00, true));
 // Solo Mesh in VertexB may use Geometry as its non-executable
 // primitive output header, exactly as Task+Mesh may use that header.
 static_assert(NativeMeshGraphicsStageMaskSupported(0x12, true));
 static_assert(!NativeMeshGraphicsStageMaskSupported(0x10, true));
-static_assert(NativeMeshTaskPresent(0x0a, true));
+static_assert(NativeMeshTaskPresent(0x06, true));
 static_assert(!NativeMeshTaskPresent(0x02, true));
-static_assert(!NativeMeshTaskPresent(0x0a, false));
+static_assert(!NativeMeshTaskPresent(0x06, false));
 
 // Maxwell's graphics CBUF stage banks are VertexA/VertexB=0,
 // TessControl=1, TessEval=2, Geometry=3, Fragment=4. The shared IR
 // stage enum follows that order except VertexA, which is appended.
 [[nodiscard]] constexpr u32 NativeGraphicsCbufBank(Shader::Stage stage) noexcept {
     // The appended NVN Task stage owns the VertexB CBUF bank.
-    // An NVN Mesh stage is currently admissible only in the TessEval
-    // slot with a matching linked Task stage; solo Mesh-in-VertexB must
-    // wait for a verified slot owner rather than guessing its CBUF bank.
+    // Mesh has two different possible physical CBUF banks: VertexB
+    // (solo Mesh) or TessControl (Task+Mesh). Stage alone cannot choose.
+    // Reject that ambiguous query; use NativeMeshSlotCbufBank below.
     const u32 stage_id = static_cast<u32>(stage);
     const u32 vertex_a = static_cast<u32>(Shader::Stage::VertexA);
     return stage == Shader::Stage::VertexA || stage_id == vertex_a + 1U ? 0U :
-           stage_id == vertex_a + 2U ? 2U :
+           stage_id == vertex_a + 2U ? ~u32{0} :
            stage <= Shader::Stage::Fragment ? stage_id : ~u32{0};
+}
+
+// Resolve physical NVN CBUF banks only after the linked mesh pipeline
+// establishes whether a Task program occupies the VertexB slot.
+[[nodiscard]] constexpr u32 NativeMeshSlotCbufBank(
+    Shader::Stage stage, bool has_task) noexcept {
+    const u32 vertex_a = static_cast<u32>(Shader::Stage::VertexA);
+    const u32 stage_id = static_cast<u32>(stage);
+    if (stage_id == vertex_a + 1U)
+        return has_task ? 0U : ~u32{0}; // Task -> VertexB, only if linked
+    if (stage_id == vertex_a + 2U)
+        return has_task ? 1U : 0U; // Mesh -> TessControl or VertexB
+    return ~u32{0};
 }
 
 static_assert(NativeGraphicsStageMaskSupported(0x02)); // VertexB only
@@ -110,7 +126,15 @@ static_assert(NativeGraphicsCbufBank(Shader::Stage::Compute) == ~u32{0});
 static_assert(NativeGraphicsCbufBank(
     static_cast<Shader::Stage>(static_cast<u32>(Shader::Stage::VertexA) + 1U)) == 0U);
 static_assert(NativeGraphicsCbufBank(
-    static_cast<Shader::Stage>(static_cast<u32>(Shader::Stage::VertexA) + 2U)) == 2U);
+    static_cast<Shader::Stage>(static_cast<u32>(Shader::Stage::VertexA) + 2U)) == ~u32{0});
+static_assert(NativeMeshSlotCbufBank(
+    static_cast<Shader::Stage>(static_cast<u32>(Shader::Stage::VertexA) + 1U), true) == 0U);
+static_assert(NativeMeshSlotCbufBank(
+    static_cast<Shader::Stage>(static_cast<u32>(Shader::Stage::VertexA) + 1U), false) == ~u32{0});
+static_assert(NativeMeshSlotCbufBank(
+    static_cast<Shader::Stage>(static_cast<u32>(Shader::Stage::VertexA) + 2U), true) == 1U);
+static_assert(NativeMeshSlotCbufBank(
+    static_cast<Shader::Stage>(static_cast<u32>(Shader::Stage::VertexA) + 2U), false) == 0U);
 static_assert(IsStandaloneNativeGraphicsStage(Shader::Stage::VertexB));
 static_assert(IsStandaloneNativeGraphicsStage(Shader::Stage::Fragment));
 static_assert(!IsStandaloneNativeGraphicsStage(Shader::Stage::VertexA));
