@@ -103,7 +103,9 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                                      std::span<const u32> verified_traps = {},
                                      bool allow_register_spills = false,
                                      std::span<const NativeIndirectBranchPlan> indirect_dispatch = {},
-                                     std::optional<u64> native_code_address = std::nullopt) {
+                                     std::optional<u64> native_code_address = std::nullopt,
+                                     NativeStageBufferProgram stage_buffer_program =
+                                         NativeStageBufferProgram::Legacy) {
     LoweredProgram result;
     struct Relocation { u32 output_index; s64 target; bool call = false; u32 output_target = ~0U; };
     std::vector<Relocation> relocations;
@@ -2046,20 +2048,40 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 return fail(index, "native CSMTEST requires unmodeled shading-mode predicate state");
             break;
         }
-        case 0x927: { // ISBEWR stores into the Task/Mesh stage buffer, not a Maxwell attribute.
-            // Validate the real operands here, but do not turn them into a no-op or a
-            // general Maxwell store: both would silently discard guest geometry.
-            const auto access = DecodeNativeStageBufferAccess(insn);
-            if (!access)
-                return fail(index, "native ISBEWR invalid stage-buffer encoding");
-            return fail(index, "native ISBEWR requires task/mesh stage-buffer pipeline");
-        }
-        case 0x923: // ISBERD map read: geometry vertex index to attribute handle. Eden's ALD takes the
-                    // index itself (Maxwell ISBERD in this mode is a copy), so this is a move.
+        case 0x927:
+        case 0x923: { // Native Task/Mesh: preserve stage-buffer semantics as a pseudo instruction.
+            // The current production callers use Legacy and continue to reject ISBEWR;
+            // only a caller with authenticated NVN mesh-control state may opt in.
+            const bool task_mesh = stage_buffer_program != NativeStageBufferProgram::Legacy;
+            const bool write = insn.Bits(0, 12) == 0x927;
+            if (task_mesh) {
+                const auto access = DecodeNativeStageBufferAccess(insn);
+                if (!access)
+                    return fail(index, "native Task/Mesh stage-buffer encoding");
+                // Maxwell 0xefc0 is reserved for ISBE_nx2 in the maintained translator.
+                // Preserve full 24-bit byte offset, register sources, guard predicate,
+                // ATTR vs primitive-map, width, SKEW and output destination.
+                emit(0xefc0000000000000ULL | predicate |
+                     (u64{access->value_register}) |
+                     (u64{access->address_register} << 8) |
+                     (u64{access->byte_offset} << 20) |
+                     (u64{access->width_32} << 44) |
+                     (u64{access->attribute} << 45) |
+                     (u64{access->skew} << 46) |
+                     (u64{access->output} << 47) |
+                     (u64{access->write} << 48));
+                break;
+            }
+            if (write)
+                return fail(index, "native ISBEWR requires task/mesh stage-buffer pipeline");
+            // Legacy geometry vertex index -> attribute handle: this exact
+            // ISBERD mode is a copy; never accept a task input as a MOV.
             if (insn.Bits(32, 32) || insn.words[2] || insn.Bits(24, 8) == 255)
                 return fail(index, "native stage buffer read mode");
-            emit(base(0x5c98000000000000ULL) | (u64{15} << 39) | (u64{insn.Bits(24, 8)} << 20));
+            emit(base(0x5c98000000000000ULL) | (u64{15} << 39) |
+                 (u64{insn.Bits(24, 8)} << 20));
             break;
+        }
         case 0x34e: { // LEPC: materialize the authenticated native shader PC, not Maxwell's PC.
             const bool static_exit = index == 0 && StaticAtExitTarget(code).has_value();
             // LEPC's two 32-bit MOVs must carry the same guest execution
