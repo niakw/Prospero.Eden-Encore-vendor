@@ -28,6 +28,11 @@ constexpr IsaRow VerifiedSured{"SURED.ADD/verified",
     {0xff00ffffU, 0xe7ffffffU, 0x0010e000U, 0xfffffe00U}};
 /* Generic Lichii nx2 encodings absent from the generated NAK table.
  * The lowerer remains the independent semantic and resource admission gate. */
+// CSMTEST is admitted to operand decoding only. The lowerer may discard it
+// exclusively when both predicate destinations are PT (no observable write).
+// Other forms remain unsupported until shading-mode state is authenticated.
+constexpr IsaRow ReviewedCsmtest{"CSMTEST/predicate-only",
+    {0x0000ffffU, 0U, 0x07fe0000U, 0xfffffe00U}};
 constexpr IsaRow ReviewedF2IP{"F2IP.U8/ported", {0xffffffffU, 0x000000ffU, 0x0000c4ffU, 0xfffffe00U}};
 constexpr IsaRow ReviewedSustByte{"SUST.BYTE/ported", {0xffffffffU, 0xffffffffU, 0x0010a900U, 0xfffffe00U}};
 constexpr IsaRow ReviewedTmmlUniform{"TMML.ULOD/ported", {0xffffffffU, 0xffffffffU, 0x0c000fffU, 0xfffffe00U}};
@@ -40,6 +45,7 @@ const IsaRow* FindOpcodeRow(u32 op12) {
     case 0x357: return &StaticAtExit;
     case 0x957: return &ClearAtExit;
     case 0x59f: return &VerifiedSured;
+    case 0x80d: return &ReviewedCsmtest;
     case 0x243: return &ReviewedF2IP;
     case 0xb9d: return &ReviewedSustByte;
     case 0xf69: return &ReviewedTmmlUniform;
