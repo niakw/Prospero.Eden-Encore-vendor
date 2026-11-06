@@ -5,6 +5,7 @@
 // a separate QMD decoder; never reinterpret them as a VertexB shader.
 // Maintained Eden stage.h uses the global size_t from the C header.
 #include <stddef.h>
+#include <array>
 #include "shader_recompiler/stage.h"
 
 namespace Shader::Ampere {
@@ -70,6 +71,33 @@ static_assert(!NativeMeshGraphicsStageMaskSupported(0x10, true));
 static_assert(NativeMeshTaskPresent(0x06, true));
 static_assert(!NativeMeshTaskPresent(0x02, true));
 static_assert(!NativeMeshTaskPresent(0x06, false));
+
+// Mesh thread counts, topology and payload size change emitted SPIR-V even
+// when the GPU shader header and 128-bit program words do not. Include the
+// exact NVC597 SET_MESH_SHADER_A/B and SET_MESH_INIT_SHADER values in the
+// pipeline's native diagnostic key, then recheck on source replay. This is
+// used only after an authenticated native mesh-control selection.
+[[nodiscard]] constexpr u64 NativeMeshRegisterPipelineKey(
+    u64 original, std::array<u32, 3> registers) noexcept {
+    if (!original) return 0;
+    u64 hash = u64{0xcbf29ce484222325};
+    for (u32 shift = 0; shift < 64; shift += 8) {
+        hash = (hash ^ ((original >> shift) & 0xffU)) * u64{0x100000001b3};
+    }
+    for (const u32 word : registers) {
+        for (u32 shift = 0; shift < 32; shift += 8) {
+            hash = (hash ^ ((word >> shift) & 0xffU)) * u64{0x100000001b3};
+        }
+    }
+    return hash == 0 ? 1 : hash;
+}
+static_assert(NativeMeshRegisterPipelineKey(0, {0, 0, 0}) == 0);
+static_assert(NativeMeshRegisterPipelineKey(77, {0, 0, 0}) !=
+              NativeMeshRegisterPipelineKey(77, {1, 0, 0}));
+static_assert(NativeMeshRegisterPipelineKey(77, {1, 0, 0}) !=
+              NativeMeshRegisterPipelineKey(77, {1, 2, 0}));
+static_assert(NativeMeshRegisterPipelineKey(77, {1, 2, 0}) !=
+              NativeMeshRegisterPipelineKey(77, {1, 2, 3}));
 
 // Maxwell's graphics CBUF stage banks are VertexA/VertexB=0,
 // TessControl=1, TessEval=2, Geometry=3, Fragment=4. The shared IR

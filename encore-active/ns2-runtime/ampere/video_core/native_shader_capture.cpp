@@ -171,10 +171,23 @@ Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
             if (cbuf->memory != &memory || !cbuf->engine ||
                 required_bank == ~u32{0} || cbuf->stage_index != required_bank)
                 return {};
-            return Shader::Ampere::CaptureNativeGraphicsShaderChecked(
+            auto captured = Shader::Ampere::CaptureNativeGraphicsShaderChecked(
                 gpu_program_address, stage, ReadNs2GpuShader, &memory,
                 ReadNs2GraphicsCbuf, const_cast<Ns2GraphicsCbufContext*>(cbuf),
                 cache);
+            if (captured.Ready() &&
+                (shader_stage == Shader::Stage::Task ||
+                 shader_stage == Shader::Stage::Mesh)) {
+                const std::array<u32, 3> mesh_regs{
+                    regs.reg_array[0x1150 / 4],
+                    regs.reg_array[0x1154 / 4],
+                    regs.reg_array[0x1158 / 4],
+                };
+                captured.image.diagnostic_cache_key =
+                    Shader::Ampere::NativeMeshRegisterPipelineKey(
+                        captured.image.diagnostic_cache_key, mesh_regs);
+            }
+            return captured;
         }
         return Shader::Ampere::CaptureNativeGraphicsShader(
             gpu_program_address, stage, ReadNs2GpuShader, &memory, cache);
