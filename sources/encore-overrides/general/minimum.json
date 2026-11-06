@@ -14,7 +14,8 @@
     "upscaling_filter": "bilinear",
     "fsr_sharpness": 50,
     "anti_aliasing": "none",
-    "refresh_rate_hz": 60
+    "refresh_rate_hz": 60,
+    "texture_anisotropy": "default"
   },
   "technical_basis": {
     "pixel_workload_vs_1x": 1.0,

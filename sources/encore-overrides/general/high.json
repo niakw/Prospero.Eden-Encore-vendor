@@ -14,7 +14,8 @@
     "upscaling_filter": "bicubic",
     "fsr_sharpness": 50,
     "anti_aliasing": "fxaa",
-    "refresh_rate_hz": 60
+    "refresh_rate_hz": 60,
+    "texture_anisotropy": "8x"
   },
   "technical_basis": {
     "pixel_workload_vs_1x": 2.25,

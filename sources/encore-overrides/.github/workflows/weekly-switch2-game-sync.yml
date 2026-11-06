@@ -1,0 +1,88 @@
+name: Weekly Switch 2 game sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Optional maximum number of new Switch 2 games (empty = all)"
+        required: false
+        type: string
+  schedule:
+    # Separate from Switch 1 sync; independent upstream and commit lock.
+    - cron: "3 6 * * 1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-switch2-game-sync
+  cancel-in-progress: false
+
+jobs:
+  ns2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Check NS2 generator against offline fixtures
+        run: python3 -m unittest discover -s tools -p 'test_sync_switch2_games.py' -v
+
+      - name: Discover new Switch 2 games from community title list
+        env:
+          MANUAL_LIMIT: ${{ inputs.limit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${MANUAL_LIMIT:-}" ]]; then
+            python3 tools/sync_switch2_games.py --write --limit "${MANUAL_LIMIT}"
+          else
+            python3 tools/sync_switch2_games.py --write
+          fi
+
+      - name: Validate all generated profiles and namespaces
+        run: |
+          set -euo pipefail
+          python3 tools/audit_graphics_recommendations.py
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('.')
+          manifest=json.loads((root/'manifest.json').read_text())
+          entries=manifest['entries']
+          assert len(entries)==len({item['title_id'] for item in entries})
+          ns2=[item for item in entries if item['title_id'].startswith('040')]
+          for item in ns2:
+              tid=item['title_id']
+              assert len(tid)==16 and tid.endswith('000')
+              data=json.loads((root/item['path']).read_text())
+              assert data['title_id']==tid
+              assert data['source_console']=='Nintendo Switch 2'
+              assert set(data['profiles'])=={'minimum','recommended','high','ultra'}
+              assert data['technical_data']['source_game']['target_fps'] is None
+          edition_path=root/'metadata/ns2_editions.json'
+          if edition_path.exists():
+              editions=json.loads(edition_path.read_text())
+              assert editions['auto_apply'] is False
+              assert all(e['title_id'].startswith('010') for e in editions['editions'])
+          print('NS2_NAMESPACE_AND_PROFILES_OK',len(ns2))
+          PY
+
+      - name: Commit only new profiles and NS2 metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- games manifest.json metadata/ns2_editions.json &&
+             [[ -z "$(git ls-files --others --exclude-standard games metadata)" ]]; then
+            echo "No new NS2 games or edition metadata."
+            exit 0
+          fi
+          git config user.name "encore-overrides-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add games manifest.json metadata/ns2_editions.json
+          git commit -m "chore: sync verified Switch 2 game catalog" || exit 0
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

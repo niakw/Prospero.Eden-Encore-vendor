@@ -164,3 +164,25 @@ SOURCES.md
 ```
 
 No keys, firmware, games, dumps, copyrighted game assets or save data are stored here.
+
+
+## PS5 native graphics: anisotropic texture sampling (R10)
+
+Optional \`settings.texture_anisotropy\` is the sampler's **anisotropic
+filtering**, not texture replacement or spatial upscaling.
+Allowed choices: \`automatic\`, \`default\`, \`2x\`, \`4x\`, \`8x\`, \`16x\`.
+It improves sharpness of oblique ground/walls at medium and far distances;
+the GPU may impose a lower maximum. It does not change the game's source
+texture resolution and cannot create HD texture packs.
+
+Profiles for standard PS5:
+- Minimum: \`default\` (respect original game sampler)
+- Recommended: \`4x\` (cost-quality balance)
+- High: \`8x\`
+- Ultra: \`16x\` (GPU bandwidth permitting)
+
+The FC 27 title override keeps \`default / 2x / 4x / 8x\` to preserve
+headroom for its expensive guest rendering. Other 8,992 title records
+inherit the four general profiles. A per-game custom choice can override
+any tier. Older clients ignore the optional new key; clients using the
+new schema must validate it strictly instead of silently accepting typos.
