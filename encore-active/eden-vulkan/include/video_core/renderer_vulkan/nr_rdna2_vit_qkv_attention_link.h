@@ -5,6 +5,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_projection.h"
 #include "video_core/renderer_vulkan/nr_rdna2_vit_qkv_norm.h"
 #include "video_core/renderer_vulkan/nr_rdna2_vit_attention.h"
+#include "video_core/renderer_vulkan/nr_rdna2_model_file.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 #include <memory>
 #include <string_view>
