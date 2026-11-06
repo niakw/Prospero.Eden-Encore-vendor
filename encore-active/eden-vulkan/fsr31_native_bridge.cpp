@@ -209,10 +209,27 @@ bool Fsr31NativeBridge::TryRecordToGuest(
         std::all_of(pass.color_formats.begin() + 1, pass.color_formats.end(),
                     [](PixelFormat format) { return format == PixelFormat::Invalid; });
     const VkExtent2D extent = destination->RenderArea();
-    if (!color_only || extent.width != frame.metadata.output_width ||
-        extent.height != frame.metadata.output_height ||
-        pass.samples != VK_SAMPLE_COUNT_1_BIT) {
-        last_rejection = Temporal::Rejection::InvalidResolution;
+    const auto& destination_images = destination->Images();
+    // Conservatively reject aliasing through ANY physical guest attachment,
+    // not only the first displayed colour view. The guest texture cache owns
+    // layouts, backing storage and synchronization for these images.
+    for (std::uint32_t i = 0; i < destination->NumImages(); ++i) {
+        const Temporal::Rejection result = Temporal::ValidateNativeDestination(
+            frame.metadata,
+            Temporal::NativeDestination{
+                .image=HandleIdentity(destination_images[i]),
+                .width=extent.width, .height=extent.height,
+                .samples=static_cast<std::uint32_t>(pass.samples),
+                .single_color_no_depth=color_only,
+            });
+        if (result != Temporal::Rejection::None) {
+            last_rejection = result;
+            ResetHistory();
+            return false;
+        }
+    }
+    if (!destination->NumImages()) {
+        last_rejection = Temporal::Rejection::MissingResource;
         ResetHistory();
         return false;
     }
