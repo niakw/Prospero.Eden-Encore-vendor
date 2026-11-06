@@ -36,9 +36,13 @@ bool NrRdna2FSwinChain::Initialize(
     const auto windows=specs.front().windows;
     std::vector<FSwinWindowLayout> proposed_layouts;
     proposed_layouts.reserve(specs.size());
-    for(const auto& spec:specs){
+    for(std::size_t i=0u;i<specs.size();++i){
+        const auto& spec=specs[i];
         if(spec.prefix.empty()||spec.channels!=channels||
-           spec.windows!=windows)return false;
+           spec.windows!=windows||
+           (spec.input_view&&i!=0u)||
+           (spec.output_view&&i+1u!=specs.size())||
+           (spec.input_view&&spec.output_view))return false;
         proposed_layouts.emplace_back(spec.layout);
     }
     if(!CanFSwinChainWindowLayouts(
@@ -136,6 +140,8 @@ bool NrRdna2FSwinChain::Initialize(
     window_plans=std::move(proposed_window_plans);
     layouts=std::move(proposed_layouts);
     layers=std::move(prepared);
+    input_view=specs.front().input_view;
+    output_view=specs.back().output_view;
     ready=true;
     return true;
 }
@@ -156,7 +162,9 @@ bool NrRdna2FSwinChain::InitializeNativeSegment(
     for(const auto& layer:source){
         specs.push_back(FSwinLayerSpec{
             layer.weight_prefix,layer.channels,layer.windows,
-            false,layer.layout});
+            false,layer.layout,
+            layer.view==NativeFSwinView::InputView,
+            layer.view==NativeFSwinView::OutputView});
     }
     return Initialize(model,std::span<const FSwinLayerSpec>{
         specs.data(),specs.size()});
@@ -164,7 +172,8 @@ bool NrRdna2FSwinChain::InitializeNativeSegment(
 
 bool NrRdna2FSwinChain::UploadInput(
     std::span<const std::uint8_t> tokens){
-    return ready&&layers.front()->UploadInput(tokens);
+    // View entry must be packed from an explicitly sized raster.
+    return ready&&!input_view&&layers.front()->UploadInput(tokens);
 }
 bool NrRdna2FSwinChain::UploadRasterFeatures(
     std::span<const std::uint8_t> features,
@@ -179,7 +188,7 @@ bool NrRdna2FSwinChain::UploadRasterFeatures(
     std::vector<std::uint8_t> tokens;
     if(!Eden::Graphics::NeuralRDNA2::PackFSwinFeatureRaster(
            features,plan,tokens))return false;
-    return UploadInput(tokens);
+    return layers.front()->UploadInput(tokens);
 }
 bool NrRdna2FSwinChain::Record(){
     if(!ready)return false;

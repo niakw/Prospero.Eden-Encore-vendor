@@ -6,6 +6,7 @@
 #pragma once
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_layer_runtime.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_window_repack.h"
+#include "video_core/renderer_vulkan/nr_rdna2_native_plan_bridge.h"
 #include "rdna2_nr_fswin_chain_layout_policy.h"
 #include <cstdint>
 #include <memory>
@@ -24,6 +25,8 @@ struct FSwinLayerSpec {
     bool residual_last{};
     // Explicit window raster/shift; legacy all-zero layout means unshifted.
     Eden::Graphics::NeuralRDNA2::FSwinWindowLayout layout{};
+    bool input_view{};
+    bool output_view{};
 };
 class NrRdna2FSwinChain final {
 public:
@@ -52,6 +55,12 @@ public:
         std::uint32_t width,std::uint32_t height);
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
+    [[nodiscard]] bool RequiresRasterInput() const noexcept {
+        return ready&&input_view;
+    }
+    [[nodiscard]] bool RequiresRasterOutput() const noexcept {
+        return ready&&output_view;
+    }
     [[nodiscard]] std::size_t LayerCount() const noexcept {
         return layers.size();
     }
@@ -70,5 +79,7 @@ private:
     std::vector<Eden::Graphics::NeuralRDNA2::FSwinWindowRepack> window_plans;
     std::vector<Eden::Graphics::NeuralRDNA2::FSwinWindowLayout> layouts;
     bool ready{};
+    bool input_view{};
+    bool output_view{};
 };
 } // namespace Vulkan

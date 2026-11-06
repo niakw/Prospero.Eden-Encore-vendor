@@ -35,6 +35,7 @@ struct NativePlanCoverage {
     std::uint32_t vit{},split_swin{};
     std::uint32_t fswin_plain{},fswin_ready{},fswin_blocked{};
     std::uint32_t fswin_input_view{},fswin_output_view{};
+    std::uint32_t fswin_input_view_ready{},fswin_output_view_ready{};
     std::uint32_t fswin_down{},fswin_up{},fswin_unknown{};
     std::uint32_t other{};
     std::uint32_t compatible_segments{};
@@ -46,11 +47,14 @@ struct NativePlanCoverage {
         return pre_image+post_image+decoder+vit+split_swin+
                fswin_plain+FSwinSpecial()+other;
     }
+    [[nodiscard]] constexpr std::uint32_t CanonicalFSwinReady() const noexcept {
+        return fswin_ready+fswin_input_view_ready+fswin_output_view_ready;
+    }
     [[nodiscard]] constexpr std::uint32_t Uncovered() const noexcept {
         // Only standard FSwin inside the current safe shape/budget
         // is eligible for a chain. Other families require an actual
         // global scheduler, even if their isolated shaders exist.
-        return total-fswin_ready;
+        return total-CanonicalFSwinReady();
     }
 };
 [[nodiscard]] inline NativePlanCoverage AuditNativePlan(
@@ -64,8 +68,22 @@ struct NativePlanCoverage {
             if(NativePlainFSwin(row))++c.fswin_ready;
             else ++c.fswin_blocked;
             continue;
-        case NativeFSwinKind::InputView:++c.fswin_input_view;continue;
-        case NativeFSwinKind::OutputView:++c.fswin_output_view;continue;
+        case NativeFSwinKind::InputView:{
+            ++c.fswin_input_view;
+            NativeFSwinView view{};
+            if(NativeViewFSwin(row,view)&&
+               view==NativeFSwinView::InputView)
+                ++c.fswin_input_view_ready;
+            continue;
+        }
+        case NativeFSwinKind::OutputView:{
+            ++c.fswin_output_view;
+            NativeFSwinView view{};
+            if(NativeViewFSwin(row,view)&&
+               view==NativeFSwinView::OutputView)
+                ++c.fswin_output_view_ready;
+            continue;
+        }
         case NativeFSwinKind::Downsample:++c.fswin_down;continue;
         case NativeFSwinKind::Upsample:++c.fswin_up;continue;
         case NativeFSwinKind::Unknown:++c.fswin_unknown;continue;

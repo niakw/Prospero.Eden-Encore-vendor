@@ -28,10 +28,13 @@ struct NativePlanStep {
     std::string type,kernel;
     std::int32_t shift_x{100},shift_y{100};
 };
+enum class NativeFSwinView : std::uint8_t { Plain, InputView, OutputView };
 struct NativeFSwinLayer {
     std::string weight_prefix;
     FSwinWindowLayout layout{};
     std::uint32_t block{},layer{},channels{},windows{};
+    // Boundary only: internal E4M3FN arithmetic is identical to Plain.
+    NativeFSwinView view{NativeFSwinView::Plain};
 };
 struct NativeFSwinSegment {
     std::vector<NativeFSwinLayer> layers;
@@ -164,6 +167,23 @@ struct NativeFSwinSegment {
     return windows>0u&&windows<=65535u&&
            hidden_bytes<=(256ull<<20)&&s.grid_z==1u;
 }
+// NVIDIA's _inpview/_outview use the same FSwin arithmetic as a plain
+// layer but expose a view raster at the level boundary. We select a
+// canonical internal window representation and REQUIRE an explicit
+// view<->window adapter at the exposed ends.
+[[nodiscard]] inline bool NativeViewFSwin(
+    const NativePlanStep& row,NativeFSwinView& view) {
+    const bool input=row.kernel.ends_with("_inpview_fp8");
+    const bool output=row.kernel.ends_with("_outview_fp8");
+    if(!input&&!output)return false;
+    if(!row.kernel.starts_with("cc_tinlayout_fused_swin_"))
+        return false;
+    NativePlanStep canonical=row;
+    canonical.kernel="cc_tinlayout_fused_swin_canonical_fp8";
+    if(!NativePlainFSwin(canonical))return false;
+    view=input?NativeFSwinView::InputView:NativeFSwinView::OutputView;
+    return true;
+}
 // Extract ONLY contiguous compatible sections. Model-wide scheduling,
 // down/up transitions, split-Swin, ViT, pre/post, and skip edges are not
 // represented by a chain segment and MUST NOT be silently skipped by a
@@ -179,7 +199,13 @@ ExtractNativeFSwinSegments(std::span<const NativePlanStep> rows){
         }
     };
     for(const auto& s:rows){
-        if(!NativePlainFSwin(s)){flush();continue;}
+        NativeFSwinView kind=NativeFSwinView::Plain;
+        if(!NativePlainFSwin(s)&&!NativeViewFSwin(s,kind)){
+            flush();continue;
+        }
+        // An input-view may only start a chain segment, and an
+        // output-view must terminate it. Never elide the boundary.
+        if(kind==NativeFSwinView::InputView)flush();
         const auto windows=s.grid_x*s.grid_y;
         if(!current.layers.empty()){
             const auto& prev=current.layers.back();
@@ -197,8 +223,10 @@ ExtractNativeFSwinSegments(std::span<const NativePlanStep> rows){
         layer.layer=s.layer;
         layer.channels=s.channels;
         layer.windows=windows;
+        layer.view=kind;
         current.layers.push_back(std::move(layer));
-        if(current.layers.size()==160u)flush();
+        if(current.layers.size()==160u||
+           kind==NativeFSwinView::OutputView)flush();
     }
     flush();
     return segments;
