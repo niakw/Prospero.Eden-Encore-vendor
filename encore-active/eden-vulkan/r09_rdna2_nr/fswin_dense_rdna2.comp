@@ -1,0 +1,106 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// RDNA2 scalar adaptation of the four DENSE parts of MIT fswin_t.comp.
+// Stages: expand+CubicSiLU, grouped middle, contract+residual,
+// post-attention projection+residual. Separate dispatches, not fused FSwin.
+// E4M3FN inputs and row-major weights. Context uses [window,head,token,32].
+layout(local_size_x=64,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer InputTensor {uint words[];} input_tensor;
+layout(set=0,binding=1,std430) readonly buffer WeightTensor {uint words[];} weight_tensor;
+layout(set=0,binding=2,std430) readonly buffer ResidualTensor {uint words[];} residual_tensor;
+layout(set=0,binding=3,std430) readonly buffer ResidualScale {float factors[];} residual_scale;
+layout(set=0,binding=4,std430) writeonly buffer OutputTensor {uint words[];} output_tensor;
+layout(push_constant) uniform Params {
+    uint x_base_bytes;
+    uint w_base_bytes;
+    uint residual_base_bytes;
+    uint scale_base_floats;
+    uint out_base_bytes;
+    uint windows;
+    uint channels; // 32,64,128,256
+    uint stage; // 0 expand; 1 grouped middle; 2 contract; 3 post attention
+} pc;
+float from_e4m3(uint raw){
+    uint exponent=(raw>>3u)&15u, mantissa=raw&7u;
+    float sign=(raw&128u)!=0u?-1.0:1.0;
+    if(exponent==15u&&mantissa==7u)return uintBitsToFloat(0x7fc00000u);
+    if(exponent==0u)return sign*float(mantissa)*exp2(-9.0);
+    return sign*float(8u+mantissa)*exp2(float(int(exponent)-10));
+}
+uint to_e4m3(float value){
+    uint sign=(floatBitsToUint(value)>>24u)&128u;
+    if(isnan(value))return sign|127u;
+    float a=min(abs(value),448.0);
+    if(a<0.015625){
+        uint m=uint(roundEven(a*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int e=int(floor(log2(a)));
+    uint m=uint(roundEven((a/exp2(float(e))-1.0)*8.0));
+    if(m==8u){++e;m=0u;}
+    uint ex=uint(e+7);
+    if(ex>15u||(ex==15u&&m>6u))return sign|126u;
+    return sign|(ex<<3u)|m;
+}
+float half_round(float x){
+    return unpackHalf2x16(packHalf2x16(vec2(x,0.0))).x;
+}
+float cubic_silu(float x) {
+    float h=half_round(x);
+    float t=clamp(h,-4.0,4.0);
+    float u=half_round(fma(-0.055908203125,abs(t),0.447265625));
+    return half_round(h*half_round(fma(t,u,0.89453125)));
+}
+uint load_input_word(uint window,uint token,uint k,uint output_channel) {
+    const uint C=pc.channels;
+    if(pc.stage==1u) {
+        // Each head processes an independent group of 128 hidden channels.
+        uint group=output_channel/32u;
+        uint offset=pc.x_base_bytes+(window*64u+token)*(4u*C)+group*128u+k;
+        return input_tensor.words[offset>>2u];
+    }
+    if(pc.stage==3u) {
+        // QKV/context stage exports [window][head][token][32].
+        uint head=k/32u;
+        uint offset=pc.x_base_bytes+((window*(C/32u)+head)*64u+token)*32u+k%32u;
+        return input_tensor.words[offset>>2u];
+    }
+    uint offset=pc.x_base_bytes+(window*64u+token)*C+k;
+    return input_tensor.words[offset>>2u];
+}
+void main(){
+    uint window=gl_WorkGroupID.z;
+    uint token=gl_WorkGroupID.y;
+    uint first_channel=(gl_WorkGroupID.x*64u+gl_LocalInvocationID.x)*4u;
+    uint output_channels=pc.stage==0u?4u*pc.channels:pc.channels;
+    if(window>=pc.windows||token>=64u||first_channel>=output_channels||
+       pc.stage>3u)return;
+    uint packed=0u;
+    uint kernel_inputs=pc.stage==1u?128u:pc.channels;
+    for(uint out_byte=0u;out_byte<4u;++out_byte){
+        uint feature=first_channel+out_byte;
+        if(feature>=output_channels)break;
+        uint row=feature*kernel_inputs;
+        float acc=0.0;
+        for(uint k=0u;k<kernel_inputs;k+=4u){
+            uint xv=load_input_word(window,token,k,feature);
+            uint wv=weight_tensor.words[(pc.w_base_bytes+row+k)>>2u];
+            for(uint j=0u;j<4u;++j)
+                acc=fma(from_e4m3((xv>>(8u*j))&255u),
+                        from_e4m3((wv>>(8u*j))&255u),acc);
+        }
+        float value=acc;
+        if(pc.stage==0u)value=cubic_silu(value);
+        else if(pc.stage==2u||pc.stage==3u){
+            uint rbyte=pc.residual_base_bytes+
+                (window*64u+token)*pc.channels+feature;
+            uint rword=residual_tensor.words[rbyte>>2u];
+            uint bytev=(rword>>(8u*(rbyte&3u)))&255u;
+            float scale=residual_scale.factors[pc.scale_base_floats+feature];
+            value=half_round(value+half_round(from_e4m3(bytev)*scale));
+        }else value=half_round(value);
+        packed|=to_e4m3(value)<<(8u*out_byte);
+    }
+    uint dst=pc.out_base_bytes+(window*64u+token)*output_channels+first_channel;
+    output_tensor.words[dst>>2u]=packed;
+}
