@@ -366,13 +366,15 @@ bool NrRdna2FrameSession::Record(){
     std::array<NrRdna2FSwinChain*,4> up_levels{};
     for(std::size_t i=0u;i<4u;++i)
         up_levels[i]=q.up_chains[i].get();
-    if(!q.sequence.Record(
+    serial_before=scheduler.RecordedCommandSerial();
+    const bool accepted=q.sequence.Record(
          q.model,q.plan,q.graph,q.routes,q.vit_route,
          q.pre,q.down,q.first,q.bottleneck,q.skips,q.up,
          q.routes.runs[1u].terminal_block,up_levels,q.up_outputs,
          q.post,q.post_mixed,q.post_swin,q.post_raw,q.post_features,
-         &q.features,&q.compose,nullptr,&q.present,&q.source,nullptr))
-        return false;
+         &q.features,&q.compose,nullptr,&q.present,&q.source,nullptr);
+    serial_after=scheduler.RecordedCommandSerial();
+    if(!accepted)return false;
     recorded=q.sequence.ResultPresentView()==output_view;
     return recorded;
 }
