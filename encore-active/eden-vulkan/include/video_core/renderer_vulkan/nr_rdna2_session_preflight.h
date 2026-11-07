@@ -3,6 +3,7 @@
 #pragma once
 #include "video_core/renderer_vulkan/nr_rdna2_model_file.h"
 #include "video_core/renderer_vulkan/nr_rdna2_model_manifest.h"
+#include "video_core/renderer_vulkan/nr_rdna2_fswin_upsample_weight_loader.h"
 #include "video_core/renderer_vulkan/nr_rdna2_unet_skip_map.h"
 #include "rdna2_nr_split_native_routes_policy.h"
 #include "rdna2_nr_vit_native_route_policy.h"
@@ -99,6 +100,35 @@ struct R09SessionCPUPlan {
     for(std::size_t i=0u;i<4u;++i)
         if(!seen_down[i]||!seen_up[i])return false;
     output=std::move(checked);
+    return true;
+}
+// A model index with 599 names is not sufficient to admit the live Vulkan
+// session: its four learned U-Net upsample transitions must also be valid.
+// Do this without creating ANY Vulkan owners. The same strict loader is
+// used by NrRdna2CoreFeatureSequence immediately before Record(), so the
+// early gate cannot silently accept an invented or partial gain vector.
+[[nodiscard]] inline bool ValidateR09LearnedUpsampleInputs(
+    const R09SessionCPUPlan& checked) {
+    if(!checked.model.IsOpen()||checked.graph.count!=4u)return false;
+    std::array<bool,4u> seen{};
+    for(const auto& edge:checked.graph.edges) {
+        const auto channels=edge.channels;
+        const std::size_t depth=channels==32u?0u:
+            channels==64u?1u:channels==128u?2u:
+            channels==256u?3u:4u;
+        if(depth>=seen.size()||seen[depth]||!edge.up_block)
+            return false;
+        seen[depth]=true;
+        const auto prefix=std::string("unpacked/block")+
+            std::to_string(edge.up_block)+".layer0.layer";
+        NeuralWeightArena arena;
+        FSwinUpsampleWeightRanges ranges{};
+        if(!PrepareFSwinUpsampleWeights(
+                checked.model,prefix,channels,arena,ranges)||
+           ranges.channels!=channels)
+            return false;
+    }
+    for(const bool exists:seen)if(!exists)return false;
     return true;
 }
 } // namespace Eden::Graphics::NeuralRDNA2
