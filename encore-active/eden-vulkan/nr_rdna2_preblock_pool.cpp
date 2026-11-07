@@ -78,7 +78,8 @@ bool NrRdna2PreblockPool::Record(){
     record_attempted=true;
     const VkPipeline native=*pipeline;
     const VkPipelineLayout native_layout=*layout;
-    const auto set=sets[0],pc=shape;
+    const VkDescriptorSet set=sets[0];
+    const auto pc=shape;
     const auto gx=(shape.width/2u+7u)/8u;
     const auto gy=(shape.height/2u+7u)/8u;
     scheduler.RequestOutsideRenderPassOperationContext();
