@@ -8,6 +8,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_model_file.h"
 #include "video_core/renderer_vulkan/nr_rdna2_model_manifest.h"
 #include "video_core/renderer_vulkan/nr_rdna2_session_preflight.h"
+#include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_memory_allocator.h"
 #include <algorithm>
