@@ -1,0 +1,22 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// R09 native-raster first-frame output -> presentable RGBA32F image.
+// The recovered native plan raster axes are transposed relative to
+// the emulator's physical screen: input [H,W] => image [W,H].
+layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
+layout(std430,set=0,binding=0) readonly buffer NativeRgba {
+    vec4 pixels[];
+} source;
+layout(set=0,binding=1,rgba32f) uniform writeonly image2D target;
+layout(push_constant) uniform Params {
+    uint raster_width;
+    uint raster_height;
+    uint reserved0;
+    uint reserved1;
+} pc;
+void main(){
+    uvec2 dst=gl_GlobalInvocationID.xy;
+    if(dst.x>=pc.raster_height||dst.y>=pc.raster_width)return;
+    uint native_index=dst.x*pc.raster_width+dst.y;
+    imageStore(target,ivec2(dst),source.pixels[native_index]);
+}
