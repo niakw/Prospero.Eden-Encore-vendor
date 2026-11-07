@@ -89,6 +89,14 @@ bool NrRdna2UNetSkipCache::RecordProducer(
     }
     return false;
 }
+VkDescriptorBufferInfo NrRdna2UNetSkipCache::PreparedForUpsample(
+    std::uint32_t up_block) const noexcept {
+    if(!ready||!scheduler)return {};
+    for(std::size_t i=0;i<map.count;++i)
+        if(bound[i]&&map.edges[i].up_block==up_block)
+            return Describe(i);
+    return {};
+}
 VkDescriptorBufferInfo NrRdna2UNetSkipCache::ForUpsample(
     std::uint32_t up_block) const noexcept {
     if(!ready)return {};
