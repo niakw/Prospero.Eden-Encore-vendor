@@ -22,6 +22,19 @@ layout(push_constant) uniform Params {
 bool finite3(vec3 x) {
     return !any(isnan(x)) && !any(isinf(x));
 }
+// Native first-frame history/display output is committed at FP16
+// precision with truncation toward zero, not a full-FP32 display value.
+// The remaining 12 learned feature lanes are not display RGB.
+float truncateHalf(float v) {
+    uint bits=floatBitsToUint(clamp(v,0.0,1.0));
+    uint exponent=(bits>>23u)&255u;
+    uint mantissa=bits&0x7fffffu;
+    int h=int(exponent)-112;
+    uint raw=0u;
+    if(h>0)raw=(uint(h)<<10u)|(mantissa>>13u);
+    else if(h>=-10)raw=(mantissa|0x800000u)>>uint(14-h);
+    return unpackHalf2x16(raw).x;
+}
 void main() {
     uvec2 p=gl_GlobalInvocationID.xy;
     if(p.x>=pc.width||p.y>=pc.height)return;
@@ -37,7 +50,10 @@ void main() {
     float r2=unpackHalf2x16(features.packed[word+1u]).x;
     vec3 delta=vec3(r01,r2);
     vec3 neural=finite3(delta)?clamp(base+delta*0.25,0.0,1.0):base;
-    vec3 rgb=clamp(mix(base,neural,pc.intensity),0.0,1.0);
+    vec3 published=clamp(mix(base,neural,pc.intensity),0.0,1.0);
+    vec3 rgb=vec3(truncateHalf(published.r),
+                  truncateHalf(published.g),
+                  truncateHalf(published.b));
     float alpha=(isnan(input_pixel.a)||isinf(input_pixel.a))?
         1.0:clamp(input_pixel.a,0.0,1.0);
     output_color.pixels[idx]=vec4(rgb,alpha);
