@@ -37,6 +37,11 @@ public:
     // recording, and still require in-order submission on this scheduler.
     [[nodiscard]] bool RecordProducer(
         std::uint32_t down_block,NrRdna2FSwinChain& producer);
+    // Storage may be bound before producer dispatches; preparation may
+    // allocate descriptors/weights, but MUST NOT read these pixels yet.
+    [[nodiscard]] VkDescriptorBufferInfo PreparedForUpsample(
+        std::uint32_t up_block) const noexcept;
+    // Consumer may only record after successful producer enqueue.
     [[nodiscard]] VkDescriptorBufferInfo ForUpsample(
         std::uint32_t up_block) const noexcept;
     [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept {
