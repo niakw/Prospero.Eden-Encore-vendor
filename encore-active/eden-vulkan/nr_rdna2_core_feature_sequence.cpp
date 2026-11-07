@@ -51,6 +51,7 @@ bool NrRdna2CoreFeatureSequence::Record(
     NrRdna2NoHistoryPresent* present,
     NrRdna2TextureProxy* game_texture,
     NrRdna2TemporalCompose* temporal) {
+    phase=Phase::Admission;
     if(attempted||!model.IsOpen()||plan.empty()||
        !pre.Ready()||!down.Ready()||!first.Ready()||
        !core.Ready()||!cache.Ready()||
@@ -181,6 +182,7 @@ bool NrRdna2CoreFeatureSequence::Record(
     // recording preblock/downs. A missing postblock tensor must not leave
     // partially enqueued GPU commands on the shared scheduler.
     const auto prepared_skip=pre.PreparedFullSkip();
+    phase=Phase::PreparePost;
     if(post.Ready()||post.SchedulerIdentity()!=&scheduler||
        !Good(prepared_skip)||!Good(up_outputs[3])||
        up_outputs[3].buffer==prepared_skip.buffer||
@@ -191,6 +193,7 @@ bool NrRdna2CoreFeatureSequence::Record(
     // Prepare ALL four learned ascent stages before touching the GPU
     // scheduler. The C512 descriptor is the already prepared terminal
     // Split-Swin outview, and must remain the SAME after recording.
+    phase=Phase::PrepareUps;
     const auto expected_low=core.PreparedResult();
     if(!Good(expected_low)||
        !up.Prepare(model,plan,graph,cache,split_result_block,
@@ -199,43 +202,56 @@ bool NrRdna2CoreFeatureSequence::Record(
     // Bind the C512 boundary and all live model owners before the first
     // dispatch. It only consumes the prepared buffer identity here; the
     // bottleneck Record still refuses a down producer not yet enqueued.
+    phase=Phase::BindCore;
     if(!low_link.Bind(graph,routes,vit,down,first,core))return false;
     // No partially submitted sequence may be replayed after failure.
     attempted=true;
+    phase=Phase::Texture;
     if((hdr&&!hdr->Record())||
-       (game_texture&&!game_texture->Record())||
-       (proxy&&!proxy->Record())||
-       !pre.RecordWithDownSequence(down)||
-       !low_link.Record())return false;
+       (game_texture&&!game_texture->Record()))return false;
+    phase=Phase::Proxy;
+    if(proxy&&!proxy->Record())return false;
+    phase=Phase::PreDown;
+    if(!pre.RecordWithDownSequence(down))return false;
+    phase=Phase::Bottleneck;
+    if(!low_link.Record())return false;
     const auto low=low_link.Result();
     if(!Good(low)||low.buffer!=expected_low.buffer||
        low.offset!=expected_low.offset||low.range!=expected_low.range||
-       !up.Ready()||!up.Record())return false;
+       !up.Ready())return false;
+    phase=Phase::Ups;
+    if(!up.Record())return false;
     const auto final_c32=up.FinalC32Raster();
     const auto full_skip=pre.ResultFullSkip();
     if(!Good(final_c32)||!Good(full_skip)||
        final_c32.buffer!=up_outputs[3].buffer||
        full_skip.buffer!=prepared_skip.buffer||
-       !post.Ready()||!post.Record())return false;
+       !post.Ready())return false;
+    phase=Phase::Post;
+    if(!post.Record())return false;
     features=post.ResultFeatures();
     if(!Good(features)||features.buffer!=post_features.buffer||
        features.range!=post_features.range)return false;
     if(compose) {
+        phase=Phase::Compose;
         if(!compose->Record())return false;
         first_image=compose->Result();
         if(!Good(first_image))return false;
     }
     if(temporal) {
+        phase=Phase::Temporal;
         if(!temporal->Record())return false;
         first_image=temporal->Result();
         next_history=temporal->NextHistory();
         if(!Good(first_image)||!Good(next_history))return false;
     }
     if(present) {
+        phase=Phase::Present;
         if(!present->Record())return false;
         present_view=present->ResultView();
         if(present_view==VK_NULL_HANDLE)return false;
     }
+    phase=Phase::Completed;
     recorded=true;
     return true;
 }
