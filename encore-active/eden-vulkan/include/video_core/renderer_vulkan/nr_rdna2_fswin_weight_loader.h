@@ -69,9 +69,22 @@ struct FSwinLayerWeightRanges {
                NeuralDecodeF16(bytes,values);
     };
     std::vector<float> raw,converted;
-    if(!half_param(".residual_scale.bin",raw)||
-       !NeuralResidualScale(raw,C,residual_last,converted)||
-       !staged.AppendFP32(file(".residual_scale.bin"),
+    if(!half_param(".residual_scale.bin",raw))return false;
+    // The wide first-decoder block has a special, independently recovered
+    // [C residual scales][16 leading transition gains] scalar region.
+    // It is NOT the [8 pad][C scales][8 pad] layout of plain layers.
+    const bool wide_up=(C>=64u)&&
+        (model.Find(file(".upsample_gain.bin"))!=nullptr);
+    if(wide_up){
+        std::vector<std::uint8_t> fragment;
+        std::vector<float> decoded;
+        if(!model.LoadRaw(file(".upsample_gain.bin"),fragment)||
+           !NeuralDecodeF16(fragment,decoded)||
+           decoded.size()!=C-16u||
+           !NeuralWideUpsampleResidual(raw,C,converted))return false;
+    }else if(!NeuralResidualScale(raw,C,residual_last,converted))
+        return false;
+    if(!staged.AppendFP32(file(".residual_scale.bin"),
                           converted,layer.residual_scale))return false;
     if(!half_param(".attn_residual_scale.bin",raw)||
        raw.size()<C)return false;
