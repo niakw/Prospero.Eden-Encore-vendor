@@ -77,6 +77,30 @@ struct SplitFFWDWeights {
        (((n>>3u)&1u)<<3u)|(((n>>4u)&1u)<<9u)|
        (((n>>5u)&1u)<<10u));
 }
+// Exact inverse of the canonical-to-MMA fragment permutation above.
+// User-owned NRMODEL1 exposes some Split FFWD layers ONLY as original
+// 524288-byte inventory records, not the two canonical .ffwd_{a,b} files.
+[[nodiscard]] inline bool SplitFFFragmentToCanonical(
+    std::span<const std::uint8_t> fragment,
+    std::vector<std::uint8_t>& canonical) {
+    canonical.clear();
+    if(fragment.size()!=kSplitFFMatrix)return false;
+    std::vector<std::uint8_t> recovered(kSplitFFMatrix);
+    for(std::size_t kg=0u;kg<16u;++kg)
+      for(std::size_t ng=0u;ng<32u;++ng)
+        for(std::size_t half=0u;half<2u;++half)
+          for(std::size_t lane=0u;lane<32u;++lane)
+            for(std::size_t byte=0u;byte<8u;++byte){
+                const auto n=ng*16u+half*8u+lane/4u;
+                const auto k=kg*32u+8u*(byte/2u)+
+                             2u*(lane%4u)+(byte%2u);
+                const auto src=(kg*32u+ng)*512u+
+                                lane*16u+half*8u+byte;
+                recovered[n*512u+k]=fragment[src];
+            }
+    canonical=std::move(recovered);
+    return true;
+}
 [[nodiscard]] inline bool DecodeSplitFFWDWeights(
     std::span<const std::uint8_t> canonical_a,
     std::span<const std::uint8_t> canonical_b,
@@ -121,8 +145,36 @@ struct SplitFFWDWeights {
     if(!ValidNeuralWeightName(base+".ffwd_a.bin")||
        !ValidNeuralWeightName(base+".ffwd_b.bin"))return false;
     std::vector<std::uint8_t> a,b;
-    if(!model.LoadModelMatrix(base+".ffwd_a.bin",512u,512u,a)||
-       !model.LoadModelMatrix(base+".ffwd_b.bin",512u,512u,b))return false;
+    const bool has_a=model.Find(base+".ffwd_a.bin")!=nullptr;
+    const bool has_b=model.Find(base+".ffwd_b.bin")!=nullptr;
+    if(has_a!=has_b)return false; // reject partially canonical packs
+    if(has_a){
+        if(!model.LoadModelMatrix(base+".ffwd_a.bin",512u,512u,a)||
+           !model.LoadModelMatrix(base+".ffwd_b.bin",512u,512u,b))
+            return false;
+    }else{
+        // The authentic 599-tensor pack stores Split layer 0 as a single
+        // original 512x512+512x512 raw MMA fragment. The two canonical
+        // files are NOT present in this format. Never invent weights.
+        constexpr std::string_view prefix_name="unpacked-splitswin/block";
+        constexpr std::string_view suffix=".layer0.layer";
+        if(!prefix.starts_with(prefix_name)||!prefix.ends_with(suffix))
+            return false;
+        const auto block=prefix.substr(prefix_name.size(),
+            prefix.size()-prefix_name.size()-suffix.size());
+        if(block.empty()||block.size()>3u)return false;
+        for(char c:block)if(c<'0'||c>'9')return false;
+        const std::string inventory="inventory/weights/block"+
+            std::string(block)+".layer0.layer.bin";
+        std::vector<std::uint8_t> raw;
+        if(!model.LoadRaw(inventory,raw)||
+           raw.size()!=2u*kSplitFFMatrix)return false;
+        if(!SplitFFFragmentToCanonical(
+               {raw.data(),kSplitFFMatrix},a)||
+           !SplitFFFragmentToCanonical(
+               {raw.data()+kSplitFFMatrix,kSplitFFMatrix},b))
+            return false;
+    }
     return DecodeSplitFFWDWeights(a,b,output);
 }
 } // namespace Eden::Graphics::NeuralRDNA2
