@@ -42,7 +42,8 @@ bool NrRdna2CoreFeatureSequence::Record(
     VkDescriptorBufferInfo post_mixed,
     VkDescriptorBufferInfo post_swin,
     VkDescriptorBufferInfo post_raw,
-    VkDescriptorBufferInfo post_features) {
+    VkDescriptorBufferInfo post_features,
+    NrRdna2ProxyFeatureStage* proxy) {
     if(attempted||!model.IsOpen()||plan.empty()||
        !pre.Ready()||!down.Ready()||!first.Ready()||
        !core.Ready()||!cache.Ready()||
@@ -56,9 +57,24 @@ bool NrRdna2CoreFeatureSequence::Record(
     for(const auto* chain:up_chains)
         if(!chain||!chain->Ready()||
            chain->SchedulerIdentity()!=&scheduler)return false;
+    // Optional first-frame input: normalized proxy -> FP16 16 lanes.
+    // Refuse equal-size but transposed geometry, or an unrelated buffer.
+    if(proxy) {
+        const auto source=pre.PreparedInputFeatures();
+        const auto shape=pre.FullRasterGeometry();
+        const auto produced=proxy->Result();
+        const auto raster=proxy->Geometry();
+        if(!proxy->Ready()||proxy->SchedulerIdentity()!=&scheduler||
+           !Good(source)||!Good(produced)||
+           source.buffer!=produced.buffer||
+           source.range!=produced.range||
+           shape[0]!=raster.full_width||
+           shape[1]!=raster.full_height)return false;
+    }
     // No partially submitted sequence may be replayed after failure.
     attempted=true;
-    if(!pre.RecordWithDownSequence(down)||
+    if((proxy&&!proxy->Record())||
+       !pre.RecordWithDownSequence(down)||
        !low_link.Bind(graph,routes,vit,down,first,core)||
        !low_link.Record())return false;
     const auto low=low_link.Result();
