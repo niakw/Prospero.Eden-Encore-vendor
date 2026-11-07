@@ -8,6 +8,8 @@
 #include "video_core/renderer_vulkan/nr_rdna2_image_feature_stage.h"
 #include "video_core/renderer_vulkan/nr_rdna2_preblock_pool.h"
 #include "rdna2_nr_preblock_boundary_policy.h"
+#include <array>
+#include <cstdint>
 #include <string_view>
 namespace Vulkan {
 class Scheduler;
@@ -47,6 +49,14 @@ public:
     [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept{
         return &scheduler;
     }
+    // Precomputed FP16 input identity and canonical raster geometry.
+    // These are prepared storage descriptions, never completed GPU values.
+    [[nodiscard]] VkDescriptorBufferInfo PreparedInputFeatures() const noexcept {
+        return ready?prepared_input:VkDescriptorBufferInfo{};
+    }
+    [[nodiscard]] std::array<std::uint32_t,2> FullRasterGeometry() const noexcept {
+        return ready?full_geometry:std::array<std::uint32_t,2>{};
+    }
     // Descriptor for binding dependent stages BEFORE GPU submission.
     // This is only prepared storage, NOT completed GPU output.
     [[nodiscard]] VkDescriptorBufferInfo PreparedHalfC32() const noexcept {
@@ -65,6 +75,8 @@ private:
     NrRdna2ImageFeatureStage lift;
     NrRdna2FSwinChain body;
     NrRdna2PreblockPool pool;
+    VkDescriptorBufferInfo prepared_input{};
+    std::array<std::uint32_t,2> full_geometry{};
     bool attempted{},ready{},record_attempted{},recorded{},has_pool{};
 };
 } // namespace Vulkan
