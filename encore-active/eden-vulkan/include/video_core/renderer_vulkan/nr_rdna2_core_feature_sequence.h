@@ -10,6 +10,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_nohistory_compose.h"
 #include "video_core/renderer_vulkan/nr_rdna2_hdr_proxy.h"
 #include "video_core/renderer_vulkan/nr_rdna2_nohistory_present.h"
+#include "video_core/renderer_vulkan/nr_rdna2_texture_proxy.h"
 #include <array>
 #include <cstdint>
 #include <string_view>
@@ -47,7 +48,8 @@ public:
         NrRdna2ProxyFeatureStage* optional_proxy=nullptr,
         NrRdna2NoHistoryCompose* optional_first_image=nullptr,
         NrRdna2HDRProxy* optional_hdr_input=nullptr,
-        NrRdna2NoHistoryPresent* optional_present_image=nullptr);
+        NrRdna2NoHistoryPresent* optional_present_image=nullptr,
+        NrRdna2TextureProxy* optional_game_texture=nullptr);
     [[nodiscard]] bool Recorded() const noexcept {return recorded;}
     // FP16 x16 FEATURES only; NOT a color image or swapchain output.
     // Prepared sampled RGBA32F image view, usable by the same Vulkan
