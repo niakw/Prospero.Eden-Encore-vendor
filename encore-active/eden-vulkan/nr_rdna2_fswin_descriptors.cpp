@@ -144,4 +144,45 @@ bool NrRdna2FSwinDescriptors::Initialize(
     assigned=ready;
     return true;
 }
+bool NrRdna2FSwinDescriptors::BindRawC32(
+    const NrRdna2FSwinGraph& kernels,const FSwinGraph& plan,
+    const FSwinGraphBuffers& b,VkDescriptorBufferInfo raw){
+    if(!pool||raw_pool||!ValidFSwinBuffers(
+           plan,b,device.GetMaxStorageBufferRange())||
+       plan.dense[0].channels!=32u||!raw.buffer||raw.offset||
+       !raw.range||raw.range==VK_WHOLE_SIZE||
+       raw.range>device.GetMaxStorageBufferRange()||
+       plan.dense_storage[3].output_bytes>raw.range/2u)
+        return false;
+    const std::array<VkDescriptorBufferInfo,9> existing{
+        b.input,b.expanded,b.middle,b.contracted,b.query,b.key,b.value,
+        b.context,b.output};
+    for(const auto& view:existing)
+        if(view.buffer==raw.buffer)return false;
+    if(raw.buffer==b.weights.buffer)return false;
+    auto new_pool=CreateWrappedDescriptorPool(
+        device,5u,1u,{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER});
+    VkDescriptorSetLayout layout=kernels.DenseDescriptorLayout();
+    auto new_sets=CreateWrappedDescriptorSets(
+        new_pool,vk::Span<VkDescriptorSetLayout>{&layout,1u});
+    if(new_sets.IsOutOfPoolMemory()||new_sets.size()!=1u)return false;
+    const std::array<VkDescriptorBufferInfo,5> infos{
+        b.context,b.weights,b.contracted,b.weights,raw};
+    std::array<VkWriteDescriptorSet,5> writes{};
+    for(std::uint32_t i=0u;i<5u;++i){
+        writes[i]=VkWriteDescriptorSet{
+            .sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext=nullptr,.dstSet=new_sets[0],.dstBinding=i,
+            .dstArrayElement=0u,.descriptorCount=1u,
+            .descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo=nullptr,.pBufferInfo=&infos[i],
+            .pTexelBufferView=nullptr};
+    }
+    device.GetLogical().UpdateDescriptorSets(
+        vk::Span<VkWriteDescriptorSet>{writes.data(),writes.size()},{});
+    raw_pool=std::move(new_pool);
+    raw_allocations=std::move(new_sets);
+    raw_assigned=raw_allocations[0];
+    return true;
+}
 } // namespace Vulkan

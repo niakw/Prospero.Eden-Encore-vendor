@@ -113,9 +113,23 @@ bool NrRdna2FSwinLayerRuntime::MarkGpuInputReady() noexcept {
     output_recorded=false;
     return true;
 }
+bool NrRdna2FSwinLayerRuntime::BindRawC32Output(
+    VkDescriptorBufferInfo destination){
+    if(!ready||raw_c32_bound||input_loaded||output_recorded||
+       plan.dense[0].channels!=32u||
+       !descriptors.BindRawC32(
+           graph,plan,tensors.Views(gpu_weights.Descriptor()),
+           destination))
+        return false;
+    raw_c32_bound=true;
+    return true;
+}
 bool NrRdna2FSwinLayerRuntime::Record(){
     if(!ready||!input_loaded||
        !graph.Record(descriptors.Sets(),plan))return false;
+    if(raw_c32_bound &&
+       !graph.RecordRawC32(descriptors.RawC32Set(),plan))
+        return false;
     output_recorded=true;
     return true;
 }

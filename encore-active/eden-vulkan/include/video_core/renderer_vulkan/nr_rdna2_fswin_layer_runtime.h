@@ -47,6 +47,8 @@ public:
     // The preceding pass is responsible for its visibility barrier.
     [[nodiscard]] bool MarkGpuInputReady() noexcept;
     [[nodiscard]] bool HasInput() const noexcept{return input_loaded;}
+    // Optional terminal RAW FP16 C32 window output; caller owns storage.
+    [[nodiscard]] bool BindRawC32Output(VkDescriptorBufferInfo destination);
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
     [[nodiscard]] VkDescriptorBufferInfo Input() const noexcept {
@@ -71,5 +73,6 @@ private:
     bool ready{};
     bool input_loaded{};
     bool output_recorded{};
+    bool raw_c32_bound{};
 };
 } // namespace Vulkan

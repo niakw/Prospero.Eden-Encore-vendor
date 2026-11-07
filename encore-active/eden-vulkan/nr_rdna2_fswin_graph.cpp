@@ -33,4 +33,15 @@ bool NrRdna2FSwinGraph::Record(
                      plan.dense_storage[3]))return false;
     return true;
 }
+bool NrRdna2FSwinGraph::RecordRawC32(
+    VkDescriptorSet validated_set,const FSwinGraph& plan){
+    if(!validated_set||!CanFSwinGraph(plan)||
+       plan.dense[0].channels!=32u||
+       plan.dense_storage[3].output_bytes>(256ull<<20)/2u)
+        return false;
+    auto raw_storage=plan.dense_storage[3];
+    raw_storage.output_bytes*=2u;
+    return dense.RecordRawC32(
+        validated_set,plan.dense[3],raw_storage);
+}
 } // namespace Vulkan

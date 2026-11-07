@@ -30,6 +30,14 @@ public:
         const NrRdna2FSwinGraph& kernels,
         const Eden::Graphics::NeuralRDNA2::FSwinGraph& plan,
         const FSwinGraphBuffers& buffers);
+    [[nodiscard]] bool BindRawC32(
+        const NrRdna2FSwinGraph& kernels,
+        const Eden::Graphics::NeuralRDNA2::FSwinGraph& plan,
+        const FSwinGraphBuffers& buffers,
+        VkDescriptorBufferInfo raw_fp16_windows);
+    [[nodiscard]] VkDescriptorSet RawC32Set() const noexcept {
+        return raw_assigned;
+    }
     [[nodiscard]] const FSwinGraphDescriptorSets& Sets() const noexcept {
         return assigned;
     }
@@ -38,5 +46,8 @@ private:
     vk::DescriptorPool pool;
     vk::DescriptorSets allocations;
     FSwinGraphDescriptorSets assigned{};
+    vk::DescriptorPool raw_pool;
+    vk::DescriptorSets raw_allocations;
+    VkDescriptorSet raw_assigned{VK_NULL_HANDLE};
 };
 } // namespace Vulkan

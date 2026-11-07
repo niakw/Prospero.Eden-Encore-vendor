@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 // RDNA2 scalar adaptation of the four DENSE parts of MIT fswin_t.comp.
 // Stages: expand+CubicSiLU, grouped middle, contract+residual,
-// post-attention projection+residual. Separate dispatches, not fused FSwin.
+// post-attention projection+residual, and optional C32 RAW FP16 stage 4.
+// Stage 4 recomputes final pre-quantization values; other paths unchanged.
 // E4M3FN inputs and row-major weights. Context uses [window,head,token,32].
 layout(local_size_x=64,local_size_y=1,local_size_z=1) in;
 layout(set=0,binding=0,std430) readonly buffer InputTensor {uint words[];} input_tensor;
@@ -59,7 +60,7 @@ uint load_input_word(uint window,uint token,uint k,uint output_channel) {
         uint offset=pc.x_base_bytes+(window*64u+token)*(4u*C)+group*128u+k;
         return input_tensor.words[offset>>2u];
     }
-    if(pc.stage==3u) {
+    if(pc.stage==3u||pc.stage==4u) {
         // QKV/context stage exports [window][head][token][32].
         uint head=k/32u;
         uint offset=pc.x_base_bytes+((window*(C/32u)+head)*64u+token)*32u+k%32u;
@@ -76,8 +77,9 @@ void main(){
     uint first_channel=(gl_WorkGroupID.x*64u+gl_LocalInvocationID.x)*4u;
     uint output_channels=pc.stage==0u?4u*pc.channels:pc.channels;
     if(window>=pc.windows||token>=64u||first_channel>=output_channels||
-       pc.stage>3u)return;
+       pc.stage>4u||(pc.stage==4u&&pc.channels!=32u))return;
     uint packed=0u;
+    float raw_values[4];
     uint kernel_inputs=(pc.stage==1u ||
         (pc.stage==2u&&pc.channels==32u))?128u:pc.channels;
     for(uint out_byte=0u;out_byte<4u;++out_byte){
@@ -94,7 +96,7 @@ void main(){
         }
         float value=acc;
         if(pc.stage==0u)value=cubic_silu(value);
-        else if(pc.stage==2u||pc.stage==3u){
+        else if(pc.stage==2u||pc.stage==3u||pc.stage==4u){
             uint rbyte=pc.residual_base_bytes+
                 (window*64u+token)*pc.channels+feature;
             uint rword=residual_tensor.words[rbyte>>2u];
@@ -102,8 +104,21 @@ void main(){
             float scale=residual_scale.factors[pc.scale_base_floats+feature];
             value=half_round(value+half_round(from_e4m3(bytev)*scale));
         }else value=half_round(value);
-        packed|=to_e4m3(value)<<(8u*out_byte);
+        raw_values[out_byte]=value;
+        if(pc.stage!=4u)packed|=to_e4m3(value)<<(8u*out_byte);
     }
-    uint dst=pc.out_base_bytes+(window*64u+token)*output_channels+first_channel;
-    output_tensor.words[dst>>2u]=packed;
+    if(pc.stage==4u){
+        // Stage 4 recomputes final dense-3 values from the SAME
+        // context/residual/weights, before E4M3FN quantization.
+        // Raw output is FP16 C32 in window-token order.
+        uint dst=pc.out_base_bytes+(window*64u+token)*64u+first_channel*2u;
+        output_tensor.words[dst>>2u]=
+            packHalf2x16(vec2(raw_values[0],raw_values[1]));
+        output_tensor.words[(dst>>2u)+1u]=
+            packHalf2x16(vec2(raw_values[2],raw_values[3]));
+    }else{
+        uint dst=pc.out_base_bytes+
+            (window*64u+token)*output_channels+first_channel;
+        output_tensor.words[dst>>2u]=packed;
+    }
 }

@@ -62,4 +62,35 @@ bool NrRdna2FSwinDense::Record(
     });
     return true;
 }
+bool NrRdna2FSwinDense::RecordRawC32(
+    VkDescriptorSet validated_set,const FSwinDense& final_dense,
+    const FSwinDenseStorage& raw_storage){
+    if(!validated_set||final_dense.stage!=3u||
+       final_dense.channels!=32u||
+       !Eden::Graphics::NeuralRDNA2::CanFSwinDense(
+           final_dense,raw_storage)||
+       std::uint64_t(final_dense.windows)*64u*64u>
+           raw_storage.output_bytes)return false;
+    auto request=final_dense;
+    request.stage=4u; // shader-only raw FP16 epilogue
+    const VkPipeline native_pipeline=*pipeline;
+    const VkPipelineLayout native_layout=*layout;
+    scheduler.RequestOutsideRenderPassOperationContext();
+    const auto grid=Eden::Graphics::NeuralRDNA2::FSwinDenseGridX(final_dense);
+    scheduler.Record([validated_set,native_pipeline,native_layout,
+                      request,grid](vk::CommandBuffer cmd){
+        cmd.BindPipeline(VK_PIPELINE_BIND_POINT_COMPUTE,native_pipeline);
+        cmd.BindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE,native_layout,
+                               0,validated_set,{});
+        cmd.PushConstants(native_layout,VK_SHADER_STAGE_COMPUTE_BIT,
+                          0,sizeof(FSwinDense),&request);
+        cmd.Dispatch(grid,64,request.windows);
+        cmd.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,kVisible);
+    });
+    return true;
+}
 } // namespace Vulkan
+
+// The raw output pass shares the ordinary shader ABI and validated dense-3
+// weights, but writes two FP16 bytes per channel rather than one FP8 byte.

@@ -14,6 +14,12 @@ public:
         VkDescriptorSet validated_set,
         const Eden::Graphics::NeuralRDNA2::FSwinDense& request,
         const Eden::Graphics::NeuralRDNA2::FSwinDenseStorage& storage);
+    // Optional stage 4: duplicate final C32 projection into raw FP16 tokens
+    // before FP8 quantization. The set binds independent output storage.
+    [[nodiscard]] bool RecordRawC32(
+        VkDescriptorSet validated_set,
+        const Eden::Graphics::NeuralRDNA2::FSwinDense& final_dense,
+        const Eden::Graphics::NeuralRDNA2::FSwinDenseStorage& raw_storage);
     [[nodiscard]] VkDescriptorSetLayout DescriptorLayout() const noexcept {
         return *descriptor_layout;
     }

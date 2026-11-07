@@ -20,6 +20,9 @@ class NrRdna2FSwinGraph final {
 public:
     NrRdna2FSwinGraph(const Device& device,Scheduler& scheduler);
     ~NrRdna2FSwinGraph();
+    [[nodiscard]] bool RecordRawC32(
+        VkDescriptorSet validated_set,
+        const Eden::Graphics::NeuralRDNA2::FSwinGraph& plan);
     [[nodiscard]] VkDescriptorSetLayout DenseDescriptorLayout() const noexcept {
         return dense.DescriptorLayout();
     }
