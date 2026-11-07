@@ -37,7 +37,7 @@ bool NrRdna2UNetBottleneckLink::Bind(
            graph,routes,vit,low.range,source.range,output.range))
         return false;
     producer=&down;
-    source=low;
+    this->source=low;
     core=&bottleneck;
     result=output;
     ready=true;
