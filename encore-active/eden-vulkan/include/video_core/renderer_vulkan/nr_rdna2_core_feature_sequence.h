@@ -8,6 +8,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_postblock_run.h"
 #include "video_core/renderer_vulkan/nr_rdna2_proxy_feature_stage.h"
 #include "video_core/renderer_vulkan/nr_rdna2_nohistory_compose.h"
+#include "video_core/renderer_vulkan/nr_rdna2_temporal_compose.h"
 #include "video_core/renderer_vulkan/nr_rdna2_hdr_proxy.h"
 #include "video_core/renderer_vulkan/nr_rdna2_nohistory_present.h"
 #include "video_core/renderer_vulkan/nr_rdna2_texture_proxy.h"
@@ -49,7 +50,8 @@ public:
         NrRdna2NoHistoryCompose* optional_first_image=nullptr,
         NrRdna2HDRProxy* optional_hdr_input=nullptr,
         NrRdna2NoHistoryPresent* optional_present_image=nullptr,
-        NrRdna2TextureProxy* optional_game_texture=nullptr);
+        NrRdna2TextureProxy* optional_game_texture=nullptr,
+        NrRdna2TemporalCompose* optional_temporal_image=nullptr);
     [[nodiscard]] bool Recorded() const noexcept {return recorded;}
     // FP16 x16 FEATURES only; NOT a color image or swapchain output.
     // Prepared sampled RGBA32F image view, usable by the same Vulkan
@@ -57,6 +59,11 @@ public:
     // Caller owns the image and transitions it to GENERAL before dispatch.
     [[nodiscard]] VkImageView ResultPresentView() const noexcept {
         return recorded?present_view:VK_NULL_HANDLE;
+    }
+    // Next history is published only if the actual temporal compositor
+    // recorded it on the same GPU scheduler. Caller owns swap/parity/fences.
+    [[nodiscard]] VkDescriptorBufferInfo ResultNextHistory() const noexcept {
+        return recorded?next_history:VkDescriptorBufferInfo{};
     }
     // Normalized RGBA32F first-frame raster, NOT HDR or PS5 presentable image.
     [[nodiscard]] VkDescriptorBufferInfo ResultFirstImage() const noexcept {
@@ -68,7 +75,7 @@ public:
 private:
     Scheduler& scheduler;
     NrRdna2UNetBottleneckLink low_link;
-    VkDescriptorBufferInfo features{},first_image{};
+    VkDescriptorBufferInfo features{},first_image{},next_history{};
     VkImageView present_view{VK_NULL_HANDLE};
     bool attempted{},recorded{};
 };

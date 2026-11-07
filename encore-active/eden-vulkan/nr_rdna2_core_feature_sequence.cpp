@@ -49,7 +49,8 @@ bool NrRdna2CoreFeatureSequence::Record(
     NrRdna2NoHistoryCompose* compose,
     NrRdna2HDRProxy* hdr,
     NrRdna2NoHistoryPresent* present,
-    NrRdna2TextureProxy* game_texture) {
+    NrRdna2TextureProxy* game_texture,
+    NrRdna2TemporalCompose* temporal) {
     if(attempted||!model.IsOpen()||plan.empty()||
        !pre.Ready()||!down.Ready()||!first.Ready()||
        !core.Ready()||!cache.Ready()||
@@ -107,6 +108,23 @@ bool NrRdna2CoreFeatureSequence::Record(
            shape.width!=native[0]||shape.height!=native[1])
             return false;
     }
+    if(compose&&temporal)return false;
+    if(temporal) {
+        if(!proxy||!temporal->Ready()||
+           temporal->SchedulerIdentity()!=&scheduler)return false;
+        const auto head=temporal->FeaturesInput();
+        const auto base=temporal->ProxyInput();
+        const auto target=temporal->PreparedOutput();
+        const auto ext=temporal->Geometry();
+        const auto source=proxy->Input();
+        const auto pre_shape=pre.FullRasterGeometry();
+        if(!Good(head)||!Good(base)||!Good(target)||
+           head.buffer!=post_features.buffer||
+           head.range!=post_features.range||
+           base.buffer!=source.buffer||base.range!=source.range||
+           ext.width!=pre_shape[0]||ext.height!=pre_shape[1])
+            return false;
+    }
     if(compose) {
         // First image always shares the normalized no-history proxy.
         // Never pass an arbitrary image to the RGB residual compositor.
@@ -126,17 +144,21 @@ bool NrRdna2CoreFeatureSequence::Record(
             return false;
     }
     if(present) {
-        if(!compose||!present->Ready()||
+        if((!compose&&!temporal)||!present->Ready()||
            present->SchedulerIdentity()!=&scheduler)return false;
-        const auto prepared=compose->PreparedOutput();
+        const auto prepared=compose?compose->PreparedOutput():
+                                      temporal->PreparedOutput();
         const auto source=present->Input();
         const auto screen=present->Geometry();
-        const auto image=compose->Geometry();
+        const auto cw=compose?compose->Geometry().width:
+                               temporal->Geometry().width;
+        const auto ch=compose?compose->Geometry().height:
+                               temporal->Geometry().height;
         if(!Good(prepared)||!Good(source)||
            source.buffer!=prepared.buffer||
            source.range!=prepared.range||
-           screen.raster_width!=image.width||
-           screen.raster_height!=image.height)return false;
+           screen.raster_width!=cw||
+           screen.raster_height!=ch)return false;
     }
     // Validate the genuine learned gains BEFORE any Vulkan command is
     // enqueued. The upstream wide-C extractor produces C-16 gains; without
@@ -202,6 +224,12 @@ bool NrRdna2CoreFeatureSequence::Record(
         if(!compose->Record())return false;
         first_image=compose->Result();
         if(!Good(first_image))return false;
+    }
+    if(temporal) {
+        if(!temporal->Record())return false;
+        first_image=temporal->Result();
+        next_history=temporal->NextHistory();
+        if(!Good(first_image)||!Good(next_history))return false;
     }
     if(present) {
         if(!present->Record())return false;
