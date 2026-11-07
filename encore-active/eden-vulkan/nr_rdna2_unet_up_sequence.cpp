@@ -81,7 +81,7 @@ bool NrRdna2UNetUpSequence::Prepare(
             bool prior_outview=false;
             for(const auto& row:rows)
                 if(row.block==edge->up_input_block&&
-                   row.channels==(512u>>(i-1u))&&
+                   row.channels==(256u>>(i-1u))&&
                    row.kernel.ends_with("_outview_fp8")&&
                    row.block>edges[i-1u]->up_block)
                     prior_outview=true;
