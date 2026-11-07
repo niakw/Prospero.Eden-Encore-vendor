@@ -71,6 +71,50 @@ namespace Eden::Graphics::NeuralRDNA2 {
     output=std::move(out);
     return true;
 }
+// Recover decoder skip gains from the actual two contiguous scalar regions.
+// The independent fused upsample layout places C residual scales first,
+// followed by C transition scales (no padding for C>=64). The upstream
+// unpacker split those 2*C FP16 elements at C+16 instead of C.
+// This function copies only real decoded model values; never synthesizes 16.
+// For C32 the model's gain file is already complete.
+[[nodiscard]] inline bool NeuralRecoverUpsampleGains(
+    std::span<const float> gain_fragment,
+    std::span<const float> residual_region,
+    std::uint32_t channels,
+    std::vector<float>& output) {
+    output.clear();
+    if(channels!=32u&&channels!=64u&&
+       channels!=128u&&channels!=256u)return false;
+    std::vector<float> merged;
+    if(gain_fragment.size()==channels) {
+        merged.assign(gain_fragment.begin(),gain_fragment.end());
+    }else if(channels>=64u&&
+             gain_fragment.size()==channels-16u&&
+             residual_region.size()==channels+16u) {
+        // [residual C][gain first 16] | [gain remaining C-16]
+        merged.insert(merged.end(),residual_region.begin()+channels,
+                      residual_region.end());
+        merged.insert(merged.end(),gain_fragment.begin(),gain_fragment.end());
+    }else return false;
+    if(merged.size()!=channels)return false;
+    for(float value:merged)if(!std::isfinite(value))return false;
+    output=std::move(merged);
+    return true;
+}
+// Wide FSwin upsample records use [residual C][gain first 16] without
+// the eight-zero padding found in non-upsampling FSwin records.
+// Use this explicit layout only for verified upsample regions.
+[[nodiscard]] inline bool NeuralWideUpsampleResidual(
+    std::span<const float> region,std::uint32_t channels,
+    std::vector<float>& output) {
+    output.clear();
+    if((channels!=64u&&channels!=128u&&channels!=256u)||
+       region.size()!=channels+16u)return false;
+    std::vector<float> result(region.begin(),region.begin()+channels);
+    for(float value:result)if(!std::isfinite(value))return false;
+    output=std::move(result);
+    return true;
+}
 // The C32 original region can be [8 zero][C values][8 zero];
 // some wider upsample layers are [C values][16 extras] without padding.
 // The caller selects prefer_last only when the recovered plan requires it.
