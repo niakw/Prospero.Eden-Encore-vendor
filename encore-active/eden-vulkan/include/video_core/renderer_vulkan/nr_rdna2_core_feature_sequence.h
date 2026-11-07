@@ -8,6 +8,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_postblock_run.h"
 #include "video_core/renderer_vulkan/nr_rdna2_proxy_feature_stage.h"
 #include "video_core/renderer_vulkan/nr_rdna2_nohistory_compose.h"
+#include "video_core/renderer_vulkan/nr_rdna2_hdr_proxy.h"
 #include <array>
 #include <cstdint>
 #include <string_view>
@@ -43,7 +44,8 @@ public:
         VkDescriptorBufferInfo post_raw_fp16,
         VkDescriptorBufferInfo post_fp16_features,
         NrRdna2ProxyFeatureStage* optional_proxy=nullptr,
-        NrRdna2NoHistoryCompose* optional_first_image=nullptr);
+        NrRdna2NoHistoryCompose* optional_first_image=nullptr,
+        NrRdna2HDRProxy* optional_hdr_input=nullptr);
     [[nodiscard]] bool Recorded() const noexcept {return recorded;}
     // FP16 x16 FEATURES only; NOT a color image or swapchain output.
     // Normalized RGBA32F first-frame raster, NOT HDR or PS5 presentable image.
