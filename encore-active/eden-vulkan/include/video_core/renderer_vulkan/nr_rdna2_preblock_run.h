@@ -11,6 +11,7 @@
 #include <string_view>
 namespace Vulkan {
 class Scheduler;
+class NrRdna2UNetDownSequence;
 class NrRdna2PreblockRun final {
 public:
     NrRdna2PreblockRun(const Device&,MemoryAllocator&,Scheduler&);
@@ -38,9 +39,18 @@ public:
         VkDescriptorBufferInfo raw_fullres_fp16_c32,
         VkDescriptorBufferInfo pooled_halfres_fp8_c32);
     [[nodiscard]] bool Record();
+    // Enqueue this preblock and its prepared U-Net C32->C512 descend
+    // exactly once, in dependency order on a shared Vulkan scheduler.
+    // Refuses an unrelated input buffer (even when byte sizes match).
+    [[nodiscard]] bool RecordWithDownSequence(NrRdna2UNetDownSequence&);
     [[nodiscard]] bool Ready() const noexcept{return ready;}
     [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept{
         return &scheduler;
+    }
+    // Descriptor for binding dependent stages BEFORE GPU submission.
+    // This is only prepared storage, NOT completed GPU output.
+    [[nodiscard]] VkDescriptorBufferInfo PreparedHalfC32() const noexcept {
+        return ready&&has_pool?pool.Result():VkDescriptorBufferInfo{};
     }
     // The half-res first U-Net level only after successful Record.
     [[nodiscard]] VkDescriptorBufferInfo ResultHalfC32() const noexcept {

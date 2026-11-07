@@ -78,6 +78,7 @@ bool NrRdna2UNetDownSequence::Prepare(
         down_blocks[i]=edges[i]->down_block;
     stages=levels;
     skips=&cache;
+    first_input=input;
     low=downs[3];
     ready=true;
     return true;

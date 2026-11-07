@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "video_core/renderer_vulkan/nr_rdna2_preblock_run.h"
 #include "video_core/renderer_vulkan/nr_rdna2_unet_skip_map.h"
+#include "video_core/renderer_vulkan/nr_rdna2_unet_down_sequence.h"
 #include <array>
 #include <cstdint>
 #include <string>
@@ -107,5 +108,20 @@ bool NrRdna2PreblockRun::Record(){
        (has_pool&&!pool.Record()))return false;
     recorded=true;
     return true;
+}
+bool NrRdna2PreblockRun::RecordWithDownSequence(
+    NrRdna2UNetDownSequence& down){
+    const auto pooled=PreparedHalfC32();
+    const auto input=down.PreparedInput();
+    if(!ready||!has_pool||record_attempted||!down.Ready()||
+       down.SchedulerIdentity()!=&scheduler||
+       !pooled.buffer||!input.buffer||
+       pooled.buffer!=input.buffer||
+       pooled.offset!=input.offset||
+       pooled.range!=input.range)
+        return false;
+    // Record may partially enqueue on a failure; both owners are
+    // single-use. Never replay on the same Vulkan scheduler.
+    return Record()&&down.Record();
 }
 } // namespace Vulkan

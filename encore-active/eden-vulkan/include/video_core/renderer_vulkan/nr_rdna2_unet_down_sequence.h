@@ -32,6 +32,11 @@ public:
     // Enqueue exactly once on one Vulkan scheduler: four FSwin sections,
     // four skip exports and four learned downsample epilogues.
     [[nodiscard]] bool Record();
+    // Prepared input may be read for dependency identity checks before
+    // any GPU submission. It is not evidence that a producer finished.
+    [[nodiscard]] VkDescriptorBufferInfo PreparedInput() const noexcept {
+        return ready?first_input:VkDescriptorBufferInfo{};
+    }
     [[nodiscard]] bool Ready() const noexcept{return ready;}
     [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept {
         return &scheduler;
@@ -45,6 +50,7 @@ private:
     std::array<NrRdna2FSwinChain*,4> stages{};
     std::array<std::uint32_t,4> down_blocks{};
     NrRdna2UNetSkipCache* skips{};
+    VkDescriptorBufferInfo first_input{};
     VkDescriptorBufferInfo low{};
     bool prepare_attempted{},ready{},record_attempted{},recorded{};
 };
