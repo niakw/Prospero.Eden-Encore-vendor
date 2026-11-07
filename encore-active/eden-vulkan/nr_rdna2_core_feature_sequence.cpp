@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 #include "video_core/renderer_vulkan/nr_rdna2_core_feature_sequence.h"
+#include "video_core/renderer_vulkan/nr_rdna2_fswin_upsample_weight_loader.h"
 #include <array>
 #include <cstdint>
+#include <string>
 namespace Vulkan {
 namespace NR=Eden::Graphics::NeuralRDNA2;
 namespace {
@@ -89,6 +91,23 @@ bool NrRdna2CoreFeatureSequence::Record(
            base.buffer!=source.buffer||base.range!=source.range||
            ext.width!=pre_shape[0]||ext.height!=pre_shape[1])
             return false;
+    }
+    // Validate the genuine learned gains BEFORE any Vulkan command is
+    // enqueued. The upstream wide-C extractor produces C-16 gains; without
+    // proven reconstruction, reject all incomplete model regions outright.
+    // This preflight is intentionally model-dependent, not an optional
+    // warning or an invented fallback for the three wide U-Net levels.
+    if(graph.count!=4u)return false;
+    for(const auto& edge:graph.edges) {
+        if(edge.channels!=32u&&edge.channels!=64u&&
+           edge.channels!=128u&&edge.channels!=256u)return false;
+        const auto prefix=std::string("unpacked/block")+
+            std::to_string(edge.up_block)+".layer0.layer";
+        NR::NeuralWeightArena validated;
+        NR::FSwinUpsampleWeightRanges ranges{};
+        if(!NR::PrepareFSwinUpsampleWeights(
+              model,prefix,edge.channels,validated,ranges)||
+           ranges.channels!=edge.channels)return false;
     }
     // No partially submitted sequence may be replayed after failure.
     attempted=true;
