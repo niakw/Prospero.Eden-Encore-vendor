@@ -1,0 +1,57 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// True 2x2 FP16 preblock output pooling before E4M3 publication.
+// This MUST consume unquantized FP16 C32 (not block-0's E4M3 skip).
+// Pairwise sum/half rounding: h(h(h(a+b)+h(c+d))*0.25).
+layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer RawFullC32 {uint words[];} raw_full;
+layout(set=0,binding=1,std430) writeonly buffer PooledHalfC32 {uint words[];} pooled;
+layout(push_constant) uniform Params {uint width;uint height;} pc;
+float half_value(uint word,uint channel){
+    vec2 h=unpackHalf2x16(word);
+    return (channel&1u)==0u?h.x:h.y;
+}
+float half_round(float value){
+    return unpackHalf2x16(packHalf2x16(vec2(value,0.0))).x;
+}
+uint encode_e4m3(float value){
+    uint sign=(floatBitsToUint(value)>>24u)&128u;
+    if(isnan(value))return sign|127u;
+    float a=min(abs(value),448.0);
+    if(a<0.015625){
+        uint m=uint(roundEven(a*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int e=int(floor(log2(a)));
+    uint m=uint(roundEven((a/exp2(float(e))-1.0)*8.0));
+    if(m==8u){++e;m=0u;}
+    uint ex=uint(e+7);
+    if(ex>15u||(ex==15u&&m>6u))return sign|126u;
+    return sign|(ex<<3u)|m;
+}
+void main(){
+    uint x=gl_GlobalInvocationID.x,y=gl_GlobalInvocationID.y;
+    uint out_w=pc.width/2u,out_h=pc.height/2u;
+    if(x>=out_w||y>=out_h)return;
+    uint p0=(y*2u)*pc.width+(x*2u);
+    uint p1=p0+1u;
+    uint p2=p0+pc.width;
+    uint p3=p2+1u;
+    uint output_pixel=y*out_w+x;
+    for(uint group=0u;group<8u;++group){
+        uint packed=0u;
+        for(uint lane=0u;lane<4u;++lane){
+            uint channel=group*4u+lane;
+            uint wi=channel/2u;
+            float a=half_value(raw_full.words[p0*16u+wi],channel);
+            float b=half_value(raw_full.words[p1*16u+wi],channel);
+            float c=half_value(raw_full.words[p2*16u+wi],channel);
+            float d=half_value(raw_full.words[p3*16u+wi],channel);
+            float top=half_round(a+b);
+            float bottom=half_round(c+d);
+            float average=half_round(half_round(top+bottom)*0.25);
+            packed|=encode_e4m3(average)<<(8u*lane);
+        }
+        pooled.words[output_pixel*8u+group]=packed;
+    }
+}
