@@ -1,7 +1,7 @@
 #version 450
 // SPDX-License-Identifier: MIT
-// RDNA2 shared decoder epilogue: FP32 GEMM scratch to FP16 projection.
-// Exactly one 32-bit output word per two independently half-rounded values.
+// Learned decoder: convert one raster-major FP32 GEMM batch into the
+// 4x4 tile-major FP16 projection consumed by nearest-2x/skip.
 layout(local_size_x=128,local_size_y=1,local_size_z=1) in;
 layout(set=0,binding=0,std430) readonly buffer DecoderFp32 {float values[];} source;
 layout(set=0,binding=1,std430) buffer DecoderFp16 {uint words[];} destination;
@@ -9,12 +9,21 @@ layout(push_constant) uniform Params {
     uint elements;
     uint input_offset_floats;
     uint output_offset_halfwords;
+    uint width;
+    uint height;
 } pc;
 void main(){
-    uint pair=gl_GlobalInvocationID.x;
+    const uint pair=gl_GlobalInvocationID.x;
     if(pair>=pc.elements/2u)return;
-    uint i=pc.input_offset_floats+2u*pair;
-    uint o=pc.output_offset_halfwords/2u+pair;
-    destination.words[o]=packHalf2x16(vec2(source.values[i],
-                                          source.values[i+1u]));
+    // Every invocation writes 2 adjacent FP16 channels of ONE live token.
+    // For sequential GEMM batches, the scratch starts at zero and the
+    // output_offset_halfwords advances by N=512 per completed raster token.
+    const uint pixel=pc.output_offset_halfwords/512u+pair/256u;
+    const uint ch_pair=pair%256u;
+    const uint x=pixel%pc.width,y=pixel/pc.width;
+    const uint cols=(pc.width+3u)/4u;
+    const uint t=((y/4u)*cols+x/4u)*16u+(y%4u)*4u+x%4u;
+    const uint i=pc.input_offset_floats+pair*2u;
+    destination.words[t*256u+ch_pair]=packHalf2x16(
+        vec2(source.values[i],source.values[i+1u]));
 }

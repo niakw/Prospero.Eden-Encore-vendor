@@ -6,6 +6,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_split_decoder_skip_repack.h"
 #include "video_core/renderer_vulkan/nr_rdna2_decoder_fp32_to_fp16.h"
 #include "video_core/renderer_vulkan/nr_rdna2_decoder_upsample.h"
+#include "video_core/renderer_vulkan/nr_rdna2_decoder_tile_to_linear.h"
 #include "video_core/renderer_vulkan/nr_rdna2_projection.h"
 #include "video_core/renderer_vulkan/nr_rdna2_gpu_weights.h"
 #include <cstdint>
@@ -24,6 +25,7 @@ public:
         const Eden::Graphics::NeuralRDNA2::NeuralModelFile&,
         std::uint32_t decoder_block,std::uint32_t width,std::uint32_t height,
         VkDescriptorBufferInfo tiled_vit_input,
+        VkDescriptorBufferInfo linear_gemm_input,
         VkDescriptorBufferInfo fp32_scratch,
         VkDescriptorBufferInfo fp16_projection,
         VkDescriptorBufferInfo source_split_skip_windows,
@@ -38,13 +40,14 @@ private:
     MemoryAllocator& allocator;
     Scheduler& scheduler;
     NrRdna2Projection gemm;
+    NrRdna2DecoderTileToLinear tile_to_linear;
     NrRdna2DecoderFp32ToFp16 fp16;
     NrRdna2DecoderUpsample upsample;
     std::unique_ptr<NrRdna2SplitDecoderSkipRepack> skip_repack;
     vk::DescriptorPool descriptor_pool;
     vk::DescriptorSets descriptor_sets;
     std::unique_ptr<NrRdna2GpuWeights> weights,gain;
-    VkDescriptorBufferInfo source{},scratch{},projected{},skip{},output{};
+    VkDescriptorBufferInfo source{},linear{},scratch{},projected{},skip{},output{};
     Eden::Graphics::NeuralRDNA2::DecoderProjectionBatches projection_plan{};
     Eden::Graphics::NeuralRDNA2::DecoderUpsample upsample_plan{};
     Eden::Graphics::NeuralRDNA2::DecoderStorage upsample_storage{};

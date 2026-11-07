@@ -15,8 +15,8 @@ namespace {
     const Device& device,VkDescriptorBufferInfo a,
     VkDescriptorBufferInfo b,VkDescriptorBufferInfo c,
     VkDescriptorBufferInfo d,VkDescriptorBufferInfo e,
-    VkDescriptorBufferInfo f){
-    const std::array<VkDescriptorBufferInfo,6> items{a,b,c,d,e,f};
+    VkDescriptorBufferInfo f,VkDescriptorBufferInfo g){
+    const std::array<VkDescriptorBufferInfo,7> items{a,b,c,d,e,f,g};
     for(std::size_t i=0;i<items.size();++i){
         const auto& item=items[i];
         if(!item.buffer||item.offset||!item.range||
@@ -32,18 +32,23 @@ namespace {
 NrRdna2NativeDecoderLink::NrRdna2NativeDecoderLink(
     const Device& d,MemoryAllocator& a,Scheduler& s)
     :device{d},allocator{a},scheduler{s},
-     gemm{d,s},fp16{d,s},upsample{d,s}{}
+     gemm{d,s},tile_to_linear{d,s},fp16{d,s},upsample{d,s}{}
 NrRdna2NativeDecoderLink::~NrRdna2NativeDecoderLink()=default;
 bool NrRdna2NativeDecoderLink::InitializeWithModel(
     const NR::NeuralModelFile& model,
     std::uint32_t decoder_block,std::uint32_t width,std::uint32_t height,
-    VkDescriptorBufferInfo input,VkDescriptorBufferInfo transient,
+    VkDescriptorBufferInfo input,VkDescriptorBufferInfo linear_input,
+    VkDescriptorBufferInfo transient,
     VkDescriptorBufferInfo fp16_projected,VkDescriptorBufferInfo raw_skip,
     VkDescriptorBufferInfo tiled_skip,VkDescriptorBufferInfo target){
     if(ready||weights||gain||skip_repack||!model.IsOpen()||
-       !DistinctBuffers(device,input,transient,fp16_projected,
-                        raw_skip,tiled_skip,target))
+       !DistinctBuffers(device,input,linear_input,transient,
+                        fp16_projected,raw_skip,tiled_skip,target))
         return false;
+    // Without this layout bridge, scalar GEMM silently multiplies
+    // unrelated raster positions from the ViT's padded tile sequence.
+    if(!tile_to_linear.Initialize(
+           {width,height},input,linear_input))return false;
     NR::NativeDecoderModelWeights local;
     if(!NR::PrepareNativeDecoderModelWeights(
         model,decoder_block,local))return false;
@@ -56,7 +61,7 @@ bool NrRdna2NativeDecoderLink::InitializeWithModel(
     NR::DecoderProjectionBatches prepared{};
     if(!NR::BuildDecoderProjectionBatches(
         width,height,{
-            input.range,owned_weights->Size(),
+            linear_input.range,owned_weights->Size(),
             transient.range,fp16_projected.range},prepared)||
        !NR::ValidDecoderProjectionBatches(prepared))return false;
     // Native decoder input is the ViT's tiled C1024 tensor. The exact
@@ -87,7 +92,7 @@ bool NrRdna2NativeDecoderLink::InitializeWithModel(
             layouts.data(),layouts.size()});
     if(sets.IsOutOfPoolMemory()||sets.size()!=3u)return false;
     const std::array<VkDescriptorBufferInfo,9> infos{
-        input,owned_weights->Descriptor(),transient,
+        linear_input,owned_weights->Descriptor(),transient,
         transient,fp16_projected,
         fp16_projected,tiled_skip,target,owned_gain->Descriptor()};
     std::array<VkWriteDescriptorSet,9> writes{};
@@ -114,7 +119,8 @@ bool NrRdna2NativeDecoderLink::InitializeWithModel(
     projection_plan=prepared;
     upsample_plan=request;
     upsample_storage=storage;
-    source=input;scratch=transient;projected=fp16_projected;
+    source=input;linear=linear_input;scratch=transient;
+    projected=fp16_projected;
     skip=tiled_skip;output=target;
     ready=true;
     return true;
@@ -124,7 +130,7 @@ bool NrRdna2NativeDecoderLink::Record(){
        !NR::ValidDecoderProjectionBatches(projection_plan)||
        !NR::CanDecoderUpsample(upsample_plan,upsample_storage))
         return false;
-    if(!skip_repack->Record())return false;
+    if(!skip_repack->Record()||!tile_to_linear.Record())return false;
     for(std::uint32_t i=0;i<projection_plan.count;++i){
         const auto& batch=projection_plan.slices[i];
         if(!gemm.Record(

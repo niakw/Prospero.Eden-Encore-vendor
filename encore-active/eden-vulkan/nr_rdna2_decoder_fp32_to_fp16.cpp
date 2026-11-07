@@ -7,7 +7,7 @@
 namespace Vulkan {
 namespace NR=Eden::Graphics::NeuralRDNA2;
 namespace {
-static_assert(sizeof(NR::DecoderFp32ToFp16)==3u*sizeof(u32));
+static_assert(sizeof(NR::DecoderFp32ToFp16)==5u*sizeof(u32));
 constexpr VkMemoryBarrier kVisible{
     .sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER,.pNext=nullptr,
     .srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT,

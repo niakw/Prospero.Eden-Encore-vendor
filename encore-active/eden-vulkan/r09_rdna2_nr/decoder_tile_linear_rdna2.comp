@@ -1,0 +1,21 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Native ViT -> learned decoder: unpack the [4x4 tile][C1024] E4M3FN
+// tensor into raster-major [pixel][C1024] for scalar RDNA2 GEMM.
+layout(local_size_x=128,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Tiled {uint words[];} tiled;
+layout(set=0,binding=1,std430) writeonly buffer Linear {uint words[];} linear;
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+} pc;
+void main() {
+    uint i=gl_GlobalInvocationID.x;
+    uint total=pc.width*pc.height*256u; // C1024 packed into uints
+    if(i>=total)return;
+    uint pixel=i/256u,channel_word=i%256u;
+    uint x=pixel%pc.width,y=pixel/pc.width;
+    uint cols=(pc.width+3u)/4u;
+    uint tile=((y/4u)*cols+x/4u)*16u+(y%4u)*4u+x%4u;
+    linear.words[i]=tiled.words[tile*256u+channel_word];
+}
