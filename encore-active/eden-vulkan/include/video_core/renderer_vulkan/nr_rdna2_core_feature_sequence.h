@@ -6,6 +6,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_unet_bottleneck_link.h"
 #include "video_core/renderer_vulkan/nr_rdna2_unet_up_sequence.h"
 #include "video_core/renderer_vulkan/nr_rdna2_postblock_run.h"
+#include "video_core/renderer_vulkan/nr_rdna2_proxy_feature_stage.h"
 #include <array>
 #include <cstdint>
 #include <string_view>
@@ -39,7 +40,8 @@ public:
         VkDescriptorBufferInfo post_mixed,
         VkDescriptorBufferInfo post_swin,
         VkDescriptorBufferInfo post_raw_fp16,
-        VkDescriptorBufferInfo post_fp16_features);
+        VkDescriptorBufferInfo post_fp16_features,
+        NrRdna2ProxyFeatureStage* optional_proxy=nullptr);
     [[nodiscard]] bool Recorded() const noexcept {return recorded;}
     // FP16 x16 FEATURES only; NOT a color image or swapchain output.
     [[nodiscard]] VkDescriptorBufferInfo ResultFeatures() const noexcept {
