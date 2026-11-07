@@ -3,7 +3,7 @@
 // tokens -> canonical unshifted windows -> packed 2D FP8 feature raster.
 // Does NOT convert these features into RGB.
 #pragma once
-#include "rdna2_nr_fswin_output_view_policy.h"
+#include "nr_rdna2_fswin_output_view_policy.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_raster_layout.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_window_repack.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
