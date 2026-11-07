@@ -34,6 +34,10 @@ public:
     [[nodiscard]] bool Ready() const noexcept{return ready;}
     // Last reached whole-graph recording boundary; no proprietary data.
     [[nodiscard]] std::string_view LastRecordPhaseName() const noexcept;
+    // CPU preparation boundary reached, including a failed Initialize.
+    [[nodiscard]] std::string_view LastInitializePhaseName() const noexcept {
+        return init_phase;
+    }
     // Count scheduler callbacks queued by this Record attempt, NOT GPU
     // dispatches completed, graph instructions run, or pixels produced.
     [[nodiscard]] std::uint64_t EnqueuedSchedulerCallbacks() const noexcept {
@@ -50,6 +54,7 @@ private:
     Scheduler& scheduler;
     std::unique_ptr<State> state;
     VkImageView output_view{VK_NULL_HANDLE};
+    std::string_view init_phase{"unstarted"};
     std::uint64_t serial_before{},serial_after{};
     bool attempted{},ready{},record_attempted{},recorded{};
 };
