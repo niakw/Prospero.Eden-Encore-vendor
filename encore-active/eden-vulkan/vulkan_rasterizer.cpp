@@ -2556,6 +2556,15 @@ std::optional<FramebufferTextureInfo> RasterizerVulkan::AccelerateDisplay(
     if (info.image == VK_NULL_HANDLE || info.image_view == VK_NULL_HANDLE) {
         return {};
     }
+    // Use the very same optimal sampled-view VkFormat conversion as
+    // ImageView::ImageView in vk_texture_cache.cpp. The guest scanout
+    // framebuffer format is not an authority for an accelerated view.
+    // R09 must never reinterpret a genuine SRGB/HDR image as guest UNORM.
+    info.sampled_format = MaxwellToVK::SurfaceFormat(
+        device, FormatType::Optimal, true, image_view->format).format;
+    if (info.sampled_format == VK_FORMAT_UNDEFINED) {
+        return {};
+    }
 #endif
     query_cache.NotifySegment(false);
 
