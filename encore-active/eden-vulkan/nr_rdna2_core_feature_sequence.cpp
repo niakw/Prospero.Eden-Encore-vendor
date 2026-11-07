@@ -43,7 +43,8 @@ bool NrRdna2CoreFeatureSequence::Record(
     VkDescriptorBufferInfo post_swin,
     VkDescriptorBufferInfo post_raw,
     VkDescriptorBufferInfo post_features,
-    NrRdna2ProxyFeatureStage* proxy) {
+    NrRdna2ProxyFeatureStage* proxy,
+    NrRdna2NoHistoryCompose* compose) {
     if(attempted||!model.IsOpen()||plan.empty()||
        !pre.Ready()||!down.Ready()||!first.Ready()||
        !core.Ready()||!cache.Ready()||
@@ -71,6 +72,24 @@ bool NrRdna2CoreFeatureSequence::Record(
            shape[0]!=raster.full_width||
            shape[1]!=raster.full_height)return false;
     }
+    if(compose) {
+        // First image always shares the normalized no-history proxy.
+        // Never pass an arbitrary image to the RGB residual compositor.
+        if(!proxy||!compose->Ready()||
+           compose->SchedulerIdentity()!=&scheduler)return false;
+        const auto head=compose->FeaturesInput();
+        const auto base=compose->ProxyInput();
+        const auto target=compose->PreparedOutput();
+        const auto ext=compose->Geometry();
+        const auto source=proxy->Input();
+        const auto pre_shape=pre.FullRasterGeometry();
+        if(!Good(head)||!Good(base)||!Good(target)||
+           head.buffer!=post_features.buffer||
+           head.range!=post_features.range||
+           base.buffer!=source.buffer||base.range!=source.range||
+           ext.width!=pre_shape[0]||ext.height!=pre_shape[1])
+            return false;
+    }
     // No partially submitted sequence may be replayed after failure.
     attempted=true;
     if((proxy&&!proxy->Record())||
@@ -93,6 +112,11 @@ bool NrRdna2CoreFeatureSequence::Record(
     features=post.ResultFeatures();
     if(!Good(features)||features.buffer!=post_features.buffer||
        features.range!=post_features.range)return false;
+    if(compose) {
+        if(!compose->Record())return false;
+        first_image=compose->Result();
+        if(!Good(first_image))return false;
+    }
     recorded=true;
     return true;
 }
