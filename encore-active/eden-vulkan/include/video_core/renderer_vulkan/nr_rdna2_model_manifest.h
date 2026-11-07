@@ -872,21 +872,37 @@ inline constexpr std::array<std::string_view,255>
         "unpacked/block8.layer0.layer.residual_scale.bin",
         "unpacked/block8.layer0.layer.scalars_b.bin",
 };
+// The shipped 599/255-name MIT extractor does not include temporal
+// blend_scale. An independently verified extract MAY append this exact
+// one-scalar tensor. It must never be invented or silently required for
+// first-frame inference. No other extra tensors are allowed.
+inline constexpr std::string_view R09OriginalTemporalScale =
+    "unpacked-postblock/block70.layer0.layer.blend_scale.bin";
+inline constexpr std::string_view R09CompactTemporalScale =
+    "unpacked-postblock/block30.layer0.layer.blend_scale.bin";
 template<std::size_t N>
 [[nodiscard]] inline bool R09ManifestMatches(
     std::span<const NeuralModelEntry> entries,
-    const std::array<std::string_view,N>& manifest) noexcept {
-    if(entries.size()!=N)return false;
+    const std::array<std::string_view,N>& manifest,
+    std::string_view optional_temporal_scale) noexcept {
+    if(entries.size()!=N&&entries.size()!=N+1u)return false;
     std::array<bool,N> visited{};
+    bool has_temporal=false;
     for(const auto& entry:entries) {
         if(entry.name.empty()||entry.size==0u)return false;
         const auto key=std::string_view{entry.name};
+        if(key==optional_temporal_scale) {
+            if(has_temporal||entry.size!=2u)return false;
+            has_temporal=true;
+            continue;
+        }
         const auto it=std::lower_bound(manifest.begin(),manifest.end(),key);
         if(it==manifest.end()||*it!=key)return false;
         const auto pos=static_cast<std::size_t>(it-manifest.begin());
         if(visited[pos])return false;
         visited[pos]=true;
     }
+    if(entries.size()!=N+std::size_t(has_temporal))return false;
     return std::all_of(visited.begin(),visited.end(),
                        [](bool found){return found;});
 }
@@ -895,9 +911,11 @@ template<std::size_t N>
     R09ModelVariant variant) noexcept {
     switch(variant) {
     case R09ModelVariant::Original:
-        return R09ManifestMatches(entries,R09OriginalManifest);
+        return R09ManifestMatches(
+            entries,R09OriginalManifest,R09OriginalTemporalScale);
     case R09ModelVariant::Compact:
-        return R09ManifestMatches(entries,R09CompactManifest);
+        return R09ManifestMatches(
+            entries,R09CompactManifest,R09CompactTemporalScale);
     }
     return false;
 }
