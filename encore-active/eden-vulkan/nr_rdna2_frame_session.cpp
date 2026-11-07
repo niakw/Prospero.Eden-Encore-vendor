@@ -7,6 +7,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_native_decoder_link.h"
 #include "video_core/renderer_vulkan/nr_rdna2_model_file.h"
 #include "video_core/renderer_vulkan/nr_rdna2_model_manifest.h"
+#include "video_core/renderer_vulkan/nr_rdna2_session_preflight.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_memory_allocator.h"
 #include <algorithm>
@@ -173,94 +174,37 @@ bool NrRdna2FrameSession::Initialize(
        !std::isfinite(paper_white)||paper_white<0.05f||
        !std::isfinite(intensity)||intensity<0.0f||intensity>1.0f)
         return false;
-    // Only CPU-only, file-backed native-model checks belong before
-    // constructing State. State owns real Vulkan shader modules, pipelines,
-    // descriptor owners and buffers: constructing it for a wrong or missing
-    // model was itself unsafe and expensive even with no dispatch.
-    NR::NeuralModelFile checked_model{};
-    if(!checked_model.Open(std::string(model_path)))return false;
-    std::string checked_plan{native_plan};
-    std::vector<NR::NativePlanStep> rows;
-    if(NR::ParseNativePlan(checked_plan,rows)!=NR::NativePlanError::Ok||
-       rows.size()<4u||(rows.size()!=152u&&rows.size()!=76u))
-        return false;
-    const auto variant=rows.size()==152u?
-        NR::R09ModelVariant::Original:NR::R09ModelVariant::Compact;
-    if(!NR::ValidateR09ModelManifest(checked_model.Entries(),variant))
-        return false;
-    NR::NativeUNetSkipMap checked_graph{};
-    NR::NativeSplitRoutes checked_routes{};
-    NR::NativeVitRoute checked_vit_route{};
-    if(NR::BuildNativeUNetSkipMap(rows,checked_graph)!=
-           NR::NativeUNetSkipError::Ok||
-       NR::BuildNativeSplitRoutes(rows,checked_routes)!=
-           NR::SplitNativeRoutesError::Ok||
-       NR::BuildNativeVitRoute(rows,checked_vit_route)!=
-           NR::NativeVitRouteError::Ok)
-        return false;
-    const auto width=rows.front().height;
-    const auto height=rows.front().width;
-    if(!width||!height||width!=guest_extent.height||
-       height!=guest_extent.width||
-       width!=target_extent.height||
-       height!=target_extent.width||
-       rows.back().block!=(rows.size()==152u?70u:30u)||
-       !checked_vit_route.tokens)
-        return false;
-    const auto n=std::uint64_t(width)*height;
-    if(n>16384ull*16384u||n*64u>(256ull<<20))return false;
+    // Model bytes, exact manifest, the full CPU graph, native segments,
+    // raster dimensions and format all fail BEFORE Vulkan owner creation.
     const bool ldr=guest_format==VK_FORMAT_R8G8B8A8_UNORM||
                    guest_format==VK_FORMAT_B8G8R8A8_UNORM||
                    guest_format==VK_FORMAT_A8B8G8R8_UNORM_PACK32;
     const bool hdr=guest_format==VK_FORMAT_R16G16B16A16_SFLOAT||
                    guest_format==VK_FORMAT_R32G32B32A32_SFLOAT;
-    if(!ldr&&!hdr)return false;
-    // All model inventory, graph, view geometry and pixel-format gates
-    // have succeeded without creating any Vulkan object. Only now do
-    // the scheduler-bound owners become eligible for construction.
+    if((!ldr&&!hdr)||
+       target_format!=VK_FORMAT_R32G32B32A32_SFLOAT)return false;
+    NR::R09SessionCPUPlan checked{};
+    if(!NR::PreflightR09Session(
+           model_path,native_plan,guest_extent.width,guest_extent.height,
+           target_extent.width,target_extent.height,checked))return false;
+    const auto width=checked.raster_width,height=checked.raster_height;
+    const auto n=std::uint64_t(width)*height;
     auto candidate=std::make_unique<State>(device,allocator,scheduler);
     auto& q=*candidate;
-    q.model=std::move(checked_model);
-    q.plan=std::move(checked_plan);
-    q.graph=std::move(checked_graph);
-    q.routes=std::move(checked_routes);
-    q.vit_route=std::move(checked_vit_route);
-    // Full plan has 8 native FSwin segments: four descending
-    // (C32->C256), four ascending (C256->C32).
-    const auto segments=NR::ExtractNativeFSwinSegments(rows);
-    if(segments.size()!=8u)return false;
-    std::array<std::size_t,4> down_idx{},up_idx{};
-    std::array<bool,4> seen_down{},seen_up{};
-    for(std::size_t i=0u;i<segments.size();++i){
-        const auto& seg=segments[i];
-        if(seg.layers.empty())return false;
-        const auto first=seg.layers.front(),last=seg.layers.back();
-        if(last.view==NR::NativeFSwinView::Downsample){
-            if(first.channels<32u||first.channels>256u||
-               (first.channels&(first.channels-1u)))return false;
-            const std::size_t pos=
-                first.channels==32u?0u:first.channels==64u?1u:
-                first.channels==128u?2u:3u;
-            if(seen_down[pos])return false;
-            seen_down[pos]=true;down_idx[pos]=i;
-        }else if(first.view==NR::NativeFSwinView::Upsample){
-            const std::size_t pos=
-                first.channels==256u?0u:first.channels==128u?1u:
-                first.channels==64u?2u:3u;
-            if(seen_up[pos]||first.channels!=(256u>>pos))return false;
-            seen_up[pos]=true;up_idx[pos]=i;
-        }else return false;
-    }
+    q.model=std::move(checked.model);
+    q.plan=std::move(checked.text);
+    q.graph=std::move(checked.graph);
+    q.routes=std::move(checked.routes);
+    q.vit_route=std::move(checked.vit_route);
     for(std::size_t i=0u;i<4u;++i){
-        if(!seen_down[i]||!seen_up[i])return false;
         q.down_chains[i]=std::make_unique<NrRdna2FSwinChain>(
             device,allocator,scheduler);
         q.up_chains[i]=std::make_unique<NrRdna2FSwinChain>(
             device,allocator,scheduler);
         if(!q.down_chains[i]->InitializeNativeSegment(
-               q.model,q.plan,down_idx[i])||
+               q.model,q.plan,checked.down_segments[i])||
            !q.up_chains[i]->InitializeNativeSegment(
-               q.model,q.plan,up_idx[i]))return false;
+               q.model,q.plan,checked.up_segments[i]))return false;
     }
     // Distinct GPU storage for all independent stage views. No aliases,
     // no readback, and no proprietary model data included in the binary.
