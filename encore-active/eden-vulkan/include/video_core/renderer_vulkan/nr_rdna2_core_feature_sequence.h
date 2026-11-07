@@ -18,6 +18,15 @@
 namespace Vulkan {
 class NrRdna2CoreFeatureSequence final {
 public:
+    // Last boundary attempted. Useful when the 152-row private model refuses
+    // a first-frame GPU recording; this never exposes model contents.
+    enum class Phase : std::uint8_t {
+        Unstarted, Admission, PreparePost, PrepareUps, BindCore,
+        Texture, Proxy, PreDown, Bottleneck, Ups, Post,
+        Compose, Temporal, Present, Completed
+    };
+    [[nodiscard]] Phase LastPhase() const noexcept { return phase; }
+
     explicit NrRdna2CoreFeatureSequence(Scheduler& scheduler_);
     NrRdna2CoreFeatureSequence(const NrRdna2CoreFeatureSequence&)=delete;
     NrRdna2CoreFeatureSequence& operator=(const NrRdna2CoreFeatureSequence&)=delete;
@@ -77,6 +86,7 @@ private:
     NrRdna2UNetBottleneckLink low_link;
     VkDescriptorBufferInfo features{},first_image{},next_history{};
     VkImageView present_view{VK_NULL_HANDLE};
+    Phase phase{Phase::Unstarted};
     bool attempted{},recorded{};
 };
 } // namespace Vulkan
