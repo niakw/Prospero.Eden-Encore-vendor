@@ -1,0 +1,40 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// First frame: real sampled game VkImage -> native-plan transposed
+// normalized RGBA32F buffer. No history / motion and no invented guides.
+layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
+layout(set=0,binding=0) uniform sampler2D source_texture;
+layout(std430,set=0,binding=1) writeonly buffer NativeProxy {
+    vec4 pixels[];
+} proxy_output;
+layout(push_constant) uniform Params {
+    uint raster_width;
+    uint raster_height;
+    float paper_white;
+    uint color_mode;
+} pc;
+float sane(float v) {
+    return (isnan(v)||isinf(v))?0.0:max(v,0.0);
+}
+float srgb(float v) {
+    return v<=0.0031308?12.92*v:1.055*pow(v,1.0/2.4)-0.055;
+}
+float hdrProxy(float value) {
+    float x=sane(value)/max(pc.paper_white,0.05);
+    float shoulder=x>0.75 ?
+        0.75+0.25*(1.0-exp(-5.770780*(x-0.75))) : x;
+    return clamp(srgb(clamp(shoulder,0.0,1.0)),0.0,1.0);
+}
+void main() {
+    uvec2 native=gl_GlobalInvocationID.xy;
+    if(native.x>=pc.raster_width||native.y>=pc.raster_height)return;
+    // Source image is physical screen (H,W) while native neural raster
+    // is the transposed model plan (W,H).
+    vec4 scene=texelFetch(source_texture,ivec2(native.y,native.x),0);
+    vec3 value=pc.color_mode==1u ?
+        vec3(hdrProxy(scene.r),hdrProxy(scene.g),hdrProxy(scene.b)) :
+        clamp(vec3(sane(scene.r),sane(scene.g),sane(scene.b)),0.0,1.0);
+    float alpha=(isnan(scene.a)||isinf(scene.a)) ?
+        1.0:clamp(scene.a,0.0,1.0);
+    proxy_output.pixels[native.y*pc.raster_width+native.x]=vec4(value,alpha);
+}
