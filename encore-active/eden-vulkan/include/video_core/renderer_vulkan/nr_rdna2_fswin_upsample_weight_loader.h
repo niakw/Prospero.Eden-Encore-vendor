@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Import FSwin _upsample projection and a COMPLETE learned gain vector.
-// The recovered C>=64 upsample_gain files may be 16 FP16 entries short.
-// Do not pad with zeros or guess their position in residual_scale.
+// C>=64: the upstream unpacker put the first 16 transition gains at
+// the end of residual_scale, followed by C-16 gains in upsample_gain.
+// Recover only when the exact two-region byte layout is present.
 #pragma once
 #include "video_core/renderer_vulkan/nr_rdna2_model_file.h"
 #include "video_core/renderer_vulkan/nr_rdna2_weight_arena.h"
@@ -30,12 +31,22 @@ struct FSwinUpsampleWeightRanges {
     const std::string gain_name=base+".upsample_gain.bin";
     if(!ValidNeuralWeightName(proj_name)||
        !ValidNeuralWeightName(gain_name))return false;
-    std::vector<std::uint8_t> projection,raw_gain;
-    std::vector<float> gains;
+    std::vector<std::uint8_t> projection,raw_gain,raw_residual;
+    std::vector<float> gain_fragment,residual_region,gains;
     if(!model.LoadModelMatrix(proj_name,channels,2u*channels,projection)||
        !model.LoadRaw(gain_name,raw_gain)||
-       !NeuralDecodeF16(raw_gain,gains)||
-       gains.size()!=channels)return false;
+       !NeuralDecodeF16(raw_gain,gain_fragment))
+        return false;
+    if(channels>=64u&&gain_fragment.size()==channels-16u){
+        const auto residual_name=base+".residual_scale.bin";
+        if(!ValidNeuralWeightName(residual_name)||
+           !model.LoadRaw(residual_name,raw_residual)||
+           !NeuralDecodeF16(raw_residual,residual_region))
+            return false;
+    }
+    if(!NeuralRecoverUpsampleGains(
+           gain_fragment,residual_region,channels,gains))
+        return false;
     RequantizeE4M3(projection);
     NeuralWeightArena prepared;
     FSwinUpsampleWeightRanges staged{};
