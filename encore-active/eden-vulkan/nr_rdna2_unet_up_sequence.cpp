@@ -87,9 +87,9 @@ bool NrRdna2UNetUpSequence::Prepare(
                     prior_outview=true;
             if(!prior_outview)return false;
         }
-        // A cached skip is released only once the down-path producer
-        // was successfully enqueued. It need not have completed on GPU.
-        if(!cache.ForUpsample(edge->up_block).buffer)return false;
+        // Prepare GPU resources against a precisely bound skip; do not
+        // expose its pixels to Record until its producer was enqueued.
+        if(!cache.PreparedForUpsample(edge->up_block).buffer)return false;
     }
     // Bind terminal rasters before any up stage so a missing outview
     // cannot cause a partial command sequence.
@@ -111,6 +111,7 @@ bool NrRdna2UNetUpSequence::Prepare(
                *chains[i]))return false;
     }
     skips=&cache;
+    for(std::size_t i=0;i<4u;++i)up_blocks[i]=edges[i]->up_block;
     last=rasters[3];
     ready=true;
     return true;
@@ -118,6 +119,11 @@ bool NrRdna2UNetUpSequence::Prepare(
 bool NrRdna2UNetUpSequence::Record(){
     if(!ready||record_attempted||!skips||
        skips->SchedulerIdentity()!=&scheduler)return false;
+    // This is the real GPU dependency barrier. Preparation is allowed
+    // before descent, but recording is not: require all four skips to
+    // have already been enqueued by the matching down scheduler.
+    for(auto block:up_blocks)
+        if(!skips->ForUpsample(block).buffer)return false;
     record_attempted=true;
     for(const auto& link:links)
         if(!link||!link->Ready()||!link->Record())return false;
