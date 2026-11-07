@@ -48,7 +48,8 @@ bool NrRdna2CoreFeatureSequence::Record(
     NrRdna2ProxyFeatureStage* proxy,
     NrRdna2NoHistoryCompose* compose,
     NrRdna2HDRProxy* hdr,
-    NrRdna2NoHistoryPresent* present) {
+    NrRdna2NoHistoryPresent* present,
+    NrRdna2TextureProxy* game_texture) {
     if(attempted||!model.IsOpen()||plan.empty()||
        !pre.Ready()||!down.Ready()||!first.Ready()||
        !core.Ready()||!cache.Ready()||
@@ -75,6 +76,21 @@ bool NrRdna2CoreFeatureSequence::Record(
            source.range!=produced.range||
            shape[0]!=raster.full_width||
            shape[1]!=raster.full_height)return false;
+    }
+    if(game_texture) {
+        // The real sampled game VkImage is the only normalized proxy
+        // producer for this frame. It must share the feature input buffer.
+        if(hdr||!proxy||!game_texture->Ready()||
+           game_texture->SchedulerIdentity()!=&scheduler)return false;
+        const auto published=game_texture->Result();
+        const auto consumed=proxy->Input();
+        const auto shape=game_texture->Geometry();
+        const auto native=pre.FullRasterGeometry();
+        if(!Good(published)||!Good(consumed)||
+           published.buffer!=consumed.buffer||
+           published.range!=consumed.range||
+           shape.raster_width!=native[0]||
+           shape.raster_height!=native[1])return false;
     }
     if(hdr) {
         // The HDR proxy must publish exactly the RGBA32F buffer consumed
@@ -161,6 +177,7 @@ bool NrRdna2CoreFeatureSequence::Record(
     // No partially submitted sequence may be replayed after failure.
     attempted=true;
     if((hdr&&!hdr->Record())||
+       (game_texture&&!game_texture->Record())||
        (proxy&&!proxy->Record())||
        !pre.RecordWithDownSequence(down)||
        !low_link.Bind(graph,routes,vit,down,first,core)||
