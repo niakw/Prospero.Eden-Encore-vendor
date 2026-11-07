@@ -39,7 +39,7 @@ bool NrRdna2UNetUpsampleLink::Prepare(
        edge->up_input_width!=edge->skip_width/2u||
        edge->up_input_height!=edge->skip_height/2u)
         return false;
-    const auto skip=skips.ForUpsample(up_block);
+    const auto skip=skips.PreparedForUpsample(up_block);
     if(!skip.buffer||skip.buffer==low.buffer||
        skip.buffer==output.buffer||low.buffer==output.buffer)
         return false;
