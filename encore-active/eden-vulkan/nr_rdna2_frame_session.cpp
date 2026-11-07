@@ -6,6 +6,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_neural_bottleneck.h"
 #include "video_core/renderer_vulkan/nr_rdna2_native_decoder_link.h"
 #include "video_core/renderer_vulkan/nr_rdna2_model_file.h"
+#include "video_core/renderer_vulkan/nr_rdna2_model_manifest.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_memory_allocator.h"
 #include <algorithm>
@@ -179,7 +180,14 @@ bool NrRdna2FrameSession::Initialize(
     q.plan=std::string(native_plan);
     std::vector<NR::NativePlanStep> rows;
     if(NR::ParseNativePlan(q.plan,rows)!=NR::NativePlanError::Ok||
-       rows.size()<4u||(rows.size()!=152u&&rows.size()!=76u)||
+       rows.size()<4u||(rows.size()!=152u&&rows.size()!=76u))
+        return false;
+    // A syntactically valid NRMODEL1 is not necessarily the native
+    // Original/Compact pack. Reject even ONE missing/extra/empty tensor
+    // before allocating expensive Vulkan buffers or recording commands.
+    const auto variant=rows.size()==152u?
+        NR::R09ModelVariant::Original:NR::R09ModelVariant::Compact;
+    if(!NR::ValidateR09ModelManifest(q.model.Entries(),variant)||
        NR::BuildNativeUNetSkipMap(rows,q.graph)!=
            NR::NativeUNetSkipError::Ok||
        NR::BuildNativeSplitRoutes(rows,q.routes)!=
