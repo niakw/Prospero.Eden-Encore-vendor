@@ -44,7 +44,17 @@ bool NrRdna2TextureProxy::Initialize(
        out.range==VK_WHOLE_SIZE||
        out.range>device.GetMaxStorageBufferRange()||
        !NR::CanNRTextureProxy(
-           request,format,{extent.width,extent.height},out.range))
+           request,{extent.width,extent.height},out.range))
+        return false;
+    // Explicit VkImage format policy: sampling sRGB would decode colour,
+    // and accepting a random texture as HDR would corrupt the proxy.
+    const bool ldr=request.color_mode==0u &&
+        (format==VK_FORMAT_R8G8B8A8_UNORM||
+         format==VK_FORMAT_B8G8R8A8_UNORM);
+    const bool hdr=request.color_mode==1u &&
+        (format==VK_FORMAT_R16G16B16A16_SFLOAT||
+         format==VK_FORMAT_R32G32B32A32_SFLOAT);
+    if(!ldr&&!hdr)
         return false;
     const auto properties=device.GetPhysical().GetFormatProperties(format);
     if(!(properties.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT))
