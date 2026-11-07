@@ -1,53 +1,48 @@
-name: Encore vendor Security & Quality (CodeQL)
+name: Encore vendor Security & Quality (host checks)
+# The repository already enables GitHub DEFAULT CodeQL setup.
+# Do NOT run a second advanced CodeQL upload; GitHub rejects such SARIF.
+# This workflow adds independent conservative source and header checks.
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/security-quality.yml'
-      - '.github/codeql/active-scope.yml'
+      - '.github/scripts/check-active-security.py'
+      - '.github/dependabot.yml'
       - 'encore-active/**'
   pull_request:
     paths:
       - '.github/workflows/security-quality.yml'
-      - '.github/codeql/active-scope.yml'
+      - '.github/scripts/check-active-security.py'
+      - '.github/dependabot.yml'
       - 'encore-active/**'
   workflow_dispatch:
   schedule:
     - cron: '21 3 * * 3'
 permissions:
-  actions: read
   contents: read
-  security-events: write
-# Do not cancel the only full vendor security pass on every vendor push.
 concurrency:
-  group: vendor-security-${{ github.ref }}-${{ github.event_name }}
+  group: vendor-security-host-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: false
 jobs:
-  codeql:
-    name: Active vendor CodeQL (${{ matrix.language }})
+  maintained-source-security:
     runs-on: ubuntu-24.04
-    timeout-minutes: 100
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - language: actions
-            build-mode: none
-          - language: python
-            build-mode: none
-          - language: c-cpp
-            build-mode: none
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
-      - name: Initialize audited CodeQL v4
-        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # pinned v4
-        with:
-          languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
-          config-file: ./.github/codeql/active-scope.yml
-      - name: Run active-source security/quality queries
-        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # pinned v4
-        with:
-          category: /language:${{ matrix.language }}/setup:vendor-active
+      - name: Check user-supplied neural model safety and active owners
+        run: python3 -B .github/scripts/check-active-security.py
+      - name: Compile bounded model parser and exact model manifest (host)
+        run: |
+          printf '%s\n' \
+            '#include "video_core/renderer_vulkan/nr_rdna2_model_file.h"' \
+            '#include "video_core/renderer_vulkan/nr_rdna2_model_manifest.h"' \
+            'int main(){ using namespace Eden::Graphics::NeuralRDNA2;' \
+            '  return R09OriginalManifest.size()==599u &&' \
+            '         R09CompactManifest.size()==255u ? 0 : 1; }' \
+            | c++ -x c++ -std=c++20 -Wall -Wextra -Werror -O0 \
+              -Iencore-active/eden-vulkan/include -Iencore-active/eden-vulkan/include/video_core/renderer_vulkan \
+              -o /tmp/eden-vendor-security-headers -
+          /tmp/eden-vendor-security-headers
