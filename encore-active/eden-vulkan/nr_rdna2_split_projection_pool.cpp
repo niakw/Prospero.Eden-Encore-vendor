@@ -52,7 +52,8 @@ bool NrRdna2SplitProjectionPool::Record(
     if(!NR::CanSplitProjectionPool(request,{
         scratch.range,residual.range,gains.range,output.range}))
         return false;
-    const auto native=*pipeline,pipe_layout=*layout;
+    const VkPipeline native = *pipeline;
+    const VkPipelineLayout pipe_layout = *layout;
     const auto tokens=NR::SplitPoolOutputTokens(request);
     scheduler.RequestOutsideRenderPassOperationContext();
     scheduler.Record([set,request,native,pipe_layout,tokens](
