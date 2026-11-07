@@ -18,6 +18,15 @@ public:
         VkDescriptorBufferInfo normalized_proxy,
         VkDescriptorBufferInfo half_feature_output);
     [[nodiscard]] bool Record();
+    [[nodiscard]] bool Ready() const noexcept{return ready;}
+    [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept {
+        return &scheduler;
+    }
+    [[nodiscard]] Eden::Graphics::NeuralRDNA2::NeuralProxyFeatures
+    Geometry() const noexcept {return params;}
+    [[nodiscard]] VkDescriptorBufferInfo Input() const noexcept {
+        return ready?source:VkDescriptorBufferInfo{};
+    }
     [[nodiscard]] VkDescriptorBufferInfo Result() const noexcept {
         return ready?result:VkDescriptorBufferInfo{};
     }
@@ -30,7 +39,7 @@ private:
     vk::Pipeline pipeline;
     vk::DescriptorPool pool;
     vk::DescriptorSets sets;
-    VkDescriptorBufferInfo result{};
+    VkDescriptorBufferInfo source{},result{};
     Eden::Graphics::NeuralRDNA2::NeuralProxyFeatures params{};
     Eden::Graphics::NeuralRDNA2::NeuralProxyStorage capacity{};
     bool ready{};

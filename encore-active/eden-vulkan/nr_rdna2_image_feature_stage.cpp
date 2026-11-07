@@ -86,6 +86,7 @@ bool NrRdna2ImageFeatureStage::InitializeWithModel(
     sets=std::move(assigned);
     shape=requested;
     capacity={input.range,weights->Size(),target.range};
+    source=input;
     output=target;
     ready=true;
     return true;

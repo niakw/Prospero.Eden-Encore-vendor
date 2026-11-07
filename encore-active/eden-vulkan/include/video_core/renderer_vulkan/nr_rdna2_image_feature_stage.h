@@ -24,6 +24,15 @@ public:
         const Eden::Graphics::NeuralRDNA2::ImageFeatureShape&,
         VkDescriptorBufferInfo input,VkDescriptorBufferInfo output);
     [[nodiscard]] bool Record();
+    [[nodiscard]] bool Ready() const noexcept {return ready;}
+    [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept {
+        return &scheduler;
+    }
+    [[nodiscard]] VkDescriptorBufferInfo Input() const noexcept {
+        return ready?source:VkDescriptorBufferInfo{};
+    }
+    [[nodiscard]] Eden::Graphics::NeuralRDNA2::ImageFeatureShape
+    Geometry() const noexcept {return shape;}
     [[nodiscard]] VkDescriptorBufferInfo Result() const noexcept {
         return ready?output:VkDescriptorBufferInfo{};
     }
@@ -40,7 +49,7 @@ private:
     std::unique_ptr<NrRdna2GpuWeights> weights;
     Eden::Graphics::NeuralRDNA2::ImageFeatureShape shape{};
     Eden::Graphics::NeuralRDNA2::ImageFeatureCapacity capacity{};
-    VkDescriptorBufferInfo output{};
+    VkDescriptorBufferInfo source{},output{};
     bool ready{};
 };
 } // namespace Vulkan

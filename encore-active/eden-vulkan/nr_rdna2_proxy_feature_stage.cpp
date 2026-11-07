@@ -72,6 +72,7 @@ bool NrRdna2ProxyFeatureStage::Initialize(
     sets=std::move(assigned);
     params=shape;
     capacity={input.range,output.range};
+    source=input;
     result=output;
     ready=true;
     return true;
