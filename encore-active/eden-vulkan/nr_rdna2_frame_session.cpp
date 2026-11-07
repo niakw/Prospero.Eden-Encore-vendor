@@ -337,6 +337,28 @@ bool NrRdna2FrameSession::Initialize(
     ready=true;
     return true;
 }
+std::string_view NrRdna2FrameSession::LastRecordPhaseName() const noexcept {
+    using Phase=NrRdna2CoreFeatureSequence::Phase;
+    if(!state)return "uninitialized";
+    switch(state->sequence.LastPhase()){
+    case Phase::Unstarted: return "unstarted";
+    case Phase::Admission: return "admission";
+    case Phase::PreparePost: return "prepare_post";
+    case Phase::PrepareUps: return "prepare_ups";
+    case Phase::BindCore: return "bind_core";
+    case Phase::Texture: return "texture";
+    case Phase::Proxy: return "proxy";
+    case Phase::PreDown: return "pre_down";
+    case Phase::Bottleneck: return "bottleneck_split_vit";
+    case Phase::Ups: return "up";
+    case Phase::Post: return "post";
+    case Phase::Compose: return "compose";
+    case Phase::Temporal: return "temporal";
+    case Phase::Present: return "present";
+    case Phase::Completed: return "completed";
+    }
+    return "unknown";
+}
 bool NrRdna2FrameSession::Record(){
     if(!ready||record_attempted||!state)return false;
     record_attempted=true;
