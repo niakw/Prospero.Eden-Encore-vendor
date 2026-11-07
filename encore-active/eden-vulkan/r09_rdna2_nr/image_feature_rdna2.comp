@@ -3,7 +3,8 @@
 // Learned image-boundary *feature* adapters. NOT a RGB/depth image decoder.
 // Stage 0: prepared FP16[16] -> FP8[32] with FP16[32,16] input_lift.
 // Stage 1: FP8[32] -> FP16[16] with FP16[16,32] out_project.
-// Each token is precisely 32 bytes on both sides, no format aliasing.
+// Stage 2: RAW FP16[32] -> FP16[16] with the SAME learned projector.
+// Stage 2 consumes 64 bytes per input pixel (32 FP16), never an FP8 skip.
 layout(local_size_x=64,local_size_y=1,local_size_z=1) in;
 layout(set=0,binding=0,std430) readonly buffer FeatureInput {uint words[];} features;
 layout(set=0,binding=1,std430) readonly buffer ModelMatrix {uint words[];} weights;
@@ -41,7 +42,7 @@ float read_half(uint word,uint channel) {
 }
 void main(){
     uint x=gl_GlobalInvocationID.x,y=gl_WorkGroupID.y;
-    if(x>=pc.width||y>=pc.height)return;
+    if(x>=pc.width||y>=pc.height||pc.direction>2u)return;
     uint pixel=y*pc.width+x;
     if(pc.direction==0u) {
         for(uint group=0u;group<8u;++group){
@@ -67,8 +68,17 @@ void main(){
                 uint out_channel=group*2u+j;
                 float value=0.0;
                 for(uint in_channel=0u;in_channel<32u;++in_channel){
-                    uint data=features.words[pixel*8u+in_channel/4u];
-                    float a=decode_fp8((data>>((in_channel%4u)*8u))&255u);
+                    float a;
+                    if(pc.direction==2u){
+                        // Pre-quantization FP16 C32 raster from FSwin stage 4.
+                        a=read_half(
+                            features.words[pixel*16u+in_channel/2u],
+                            in_channel);
+                    }else{
+                        uint data=features.words[pixel*8u+in_channel/4u];
+                        a=decode_fp8(
+                            (data>>((in_channel%4u)*8u))&255u);
+                    }
                     uint wi=(out_channel*32u+in_channel)/2u;
                     float w=read_half(weights.words[wi],in_channel);
                     value=fma(a,w,value);

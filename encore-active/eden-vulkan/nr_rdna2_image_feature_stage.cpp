@@ -44,8 +44,12 @@ bool NrRdna2ImageFeatureStage::InitializeWithModel(
     NR::ImageFeatureDirection direction,std::uint32_t post_block,
     const NR::ImageFeatureShape& requested,
     VkDescriptorBufferInfo input,VkDescriptorBufferInfo target){
-    if(ready||weights||requested.direction!=
-         static_cast<std::uint32_t>(direction)||
+    const bool is_raw_projection=
+        requested.direction==2u&&
+        direction==NR::ImageFeatureDirection::Project;
+    if(ready||weights||
+       (requested.direction!=static_cast<std::uint32_t>(direction)&&
+        !is_raw_projection)||
        !model.IsOpen()||!input.buffer||!target.buffer||
        input.buffer==target.buffer||input.offset||target.offset||
        !input.range||!target.range||

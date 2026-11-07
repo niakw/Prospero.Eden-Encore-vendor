@@ -26,6 +26,18 @@ public:
         VkDescriptorBufferInfo mixed_full_c32,
         VkDescriptorBufferInfo swin_full_c32,
         VkDescriptorBufferInfo projected_fp16_16);
+    // Optional numerically faithful final projection: the last Swin
+    // dense-3 value is published as RAW FP16 C32 in parallel with FP8.
+    // The [16,32] learned projector reads that RAW input, not FP8.
+    [[nodiscard]] bool PrepareWithRawProjection(
+        const Eden::Graphics::NeuralRDNA2::NeuralModelFile& model,
+        std::string_view native_plan,
+        VkDescriptorBufferInfo low_c32,
+        VkDescriptorBufferInfo preblock_skip_c32,
+        VkDescriptorBufferInfo mixed_full_c32,
+        VkDescriptorBufferInfo swin_full_c32,
+        VkDescriptorBufferInfo raw_swin_fp16_c32,
+        VkDescriptorBufferInfo projected_fp16_16);
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
     [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept {
@@ -35,6 +47,15 @@ public:
         return recorded?projection.Result():VkDescriptorBufferInfo{};
     }
 private:
+    [[nodiscard]] bool PrepareImpl(
+        const Eden::Graphics::NeuralRDNA2::NeuralModelFile& model,
+        std::string_view native_plan,
+        VkDescriptorBufferInfo low_c32,
+        VkDescriptorBufferInfo preblock_skip_c32,
+        VkDescriptorBufferInfo mixed_full_c32,
+        VkDescriptorBufferInfo swin_full_c32,
+        VkDescriptorBufferInfo raw_swin_fp16_c32,
+        VkDescriptorBufferInfo projected_fp16_16);
     Scheduler& scheduler;
     NrRdna2PostblockMix mix;
     NrRdna2FSwinChain body;
