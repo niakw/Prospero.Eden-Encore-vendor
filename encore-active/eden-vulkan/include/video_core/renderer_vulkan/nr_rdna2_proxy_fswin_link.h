@@ -21,7 +21,12 @@ public:
     [[nodiscard]] bool Bind(NrRdna2ProxyFeatureStage& proxy,
                             NrRdna2ImageFeatureStage& lift,
                             NrRdna2FSwinChain& first_fswin);
-    // Exactly once; no silent replay after partially recorded passes.
+    // Record only proxy and the learned lift. Another ordered owner, e.g.
+    // FSwinLevelLink or UNetSkipCache, must then record this FSwin producer
+    // exactly once. Never call Record() after RecordEntryOnly().
+    [[nodiscard]] bool RecordEntryOnly();
+    // Exactly once: prefix AND this FSwin chain. Not for U-Net producer
+    // chains which are recorded by a downstream level/skip scheduler.
     [[nodiscard]] bool Record();
     // This is an E4M3FN window tensor, NOT a ready-to-present image.
     // Valid to consume on the same ordered scheduler after Record().

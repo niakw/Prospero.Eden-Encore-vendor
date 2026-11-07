@@ -50,13 +50,19 @@ bool NrRdna2ProxyFSwinLink::Bind(
     bound=true;
     return true;
 }
-bool NrRdna2ProxyFSwinLink::Record(){
+bool NrRdna2ProxyFSwinLink::RecordEntryOnly(){
     if(!bound||recorded||!fswin||!fswin->Ready())return false;
     recorded=true;
+    // Downstream level/skip owner is responsible for the single FSwin
+    // Record(). This prevents double GPU dispatch of the same model block.
+    return entry.Record();
+}
+bool NrRdna2ProxyFSwinLink::Record(){
+    if(!bound||recorded||!fswin||!fswin->Ready())return false;
     // Fail before recording the prefix if a terminal output is required.
     if(fswin->RequiresRasterOutput()&&!fswin->ResultRaster().buffer)
         return false;
-    if(!entry.Record())return false;
+    if(!RecordEntryOnly())return false;
     successful=fswin->Record();
     return successful;
 }
