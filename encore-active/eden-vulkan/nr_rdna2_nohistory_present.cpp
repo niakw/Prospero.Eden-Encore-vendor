@@ -47,7 +47,9 @@ bool NrRdna2NoHistoryPresent::Initialize(
            requested,input.range,{extent.width,extent.height}))
         return false;
     const auto props=device.GetPhysical().GetFormatProperties(format);
-    if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT))
+    if((props.optimalTilingFeatures&
+        (VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT))!=
+       (VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT))
         return false;
     auto proposed_pool=CreateWrappedDescriptorPool(
         device,2u,1u,
@@ -72,9 +74,9 @@ bool NrRdna2NoHistoryPresent::Initialize(
         .dstArrayElement=0u,.descriptorCount=1u,
         .descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
         .pImageInfo=&image,.pBufferInfo=nullptr,.pTexelBufferView=nullptr};
-    const std::array<VkWriteDescriptorSet,2> writes{buffers,images};
+    std::array<VkWriteDescriptorSet,2> writes{buffers,images};
     device.GetLogical().UpdateDescriptorSets(
-        vk::Span<const VkWriteDescriptorSet>{writes.data(),writes.size()},{});
+        vk::Span<VkWriteDescriptorSet>{writes.data(),writes.size()},{});
     pool=std::move(proposed_pool);
     sets=std::move(allocated);
     shape=requested;
