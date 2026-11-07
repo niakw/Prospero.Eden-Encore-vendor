@@ -46,7 +46,8 @@ bool NrRdna2CoreFeatureSequence::Record(
     VkDescriptorBufferInfo post_raw,
     VkDescriptorBufferInfo post_features,
     NrRdna2ProxyFeatureStage* proxy,
-    NrRdna2NoHistoryCompose* compose) {
+    NrRdna2NoHistoryCompose* compose,
+    NrRdna2HDRProxy* hdr) {
     if(attempted||!model.IsOpen()||plan.empty()||
        !pre.Ready()||!down.Ready()||!first.Ready()||
        !core.Ready()||!cache.Ready()||
@@ -73,6 +74,21 @@ bool NrRdna2CoreFeatureSequence::Record(
            source.range!=produced.range||
            shape[0]!=raster.full_width||
            shape[1]!=raster.full_height)return false;
+    }
+    if(hdr) {
+        // The HDR proxy must publish exactly the RGBA32F buffer consumed
+        // by the no-history feature builder, on the same ordered scheduler.
+        if(!proxy||!hdr->Ready()||
+           hdr->SchedulerIdentity()!=&scheduler)return false;
+        const auto published=hdr->ProxyOutput();
+        const auto consumed=proxy->Input();
+        const auto shape=hdr->Geometry();
+        const auto native=pre.FullRasterGeometry();
+        if(!Good(published)||!Good(consumed)||
+           published.buffer!=consumed.buffer||
+           published.range!=consumed.range||
+           shape.width!=native[0]||shape.height!=native[1])
+            return false;
     }
     if(compose) {
         // First image always shares the normalized no-history proxy.
@@ -111,7 +127,8 @@ bool NrRdna2CoreFeatureSequence::Record(
     }
     // No partially submitted sequence may be replayed after failure.
     attempted=true;
-    if((proxy&&!proxy->Record())||
+    if((hdr&&!hdr->Record())||
+       (proxy&&!proxy->Record())||
        !pre.RecordWithDownSequence(down)||
        !low_link.Bind(graph,routes,vit,down,first,core)||
        !low_link.Record())return false;
