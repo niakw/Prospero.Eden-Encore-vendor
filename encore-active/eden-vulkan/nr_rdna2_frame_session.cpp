@@ -186,7 +186,8 @@ bool NrRdna2FrameSession::Initialize(
     NR::R09SessionCPUPlan checked{};
     if(!NR::PreflightR09Session(
            model_path,native_plan,guest_extent.width,guest_extent.height,
-           target_extent.width,target_extent.height,checked))return false;
+           target_extent.width,target_extent.height,checked)||
+       !NR::ValidateR09LearnedUpsampleInputs(checked))return false;
     const auto width=checked.raster_width,height=checked.raster_height;
     const auto n=std::uint64_t(width)*height;
     auto candidate=std::make_unique<State>(device,allocator,scheduler);
