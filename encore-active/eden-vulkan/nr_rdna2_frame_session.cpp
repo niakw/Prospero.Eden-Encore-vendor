@@ -173,26 +173,29 @@ bool NrRdna2FrameSession::Initialize(
        !std::isfinite(paper_white)||paper_white<0.05f||
        !std::isfinite(intensity)||intensity<0.0f||intensity>1.0f)
         return false;
-    auto candidate=std::make_unique<State>(
-        device,allocator,scheduler);
-    auto& q=*candidate;
-    if(!q.model.Open(std::string(model_path)))return false;
-    q.plan=std::string(native_plan);
+    // Only CPU-only, file-backed native-model checks belong before
+    // constructing State. State owns real Vulkan shader modules, pipelines,
+    // descriptor owners and buffers: constructing it for a wrong or missing
+    // model was itself unsafe and expensive even with no dispatch.
+    NR::NeuralModelFile checked_model{};
+    if(!checked_model.Open(std::string(model_path)))return false;
+    std::string checked_plan{native_plan};
     std::vector<NR::NativePlanStep> rows;
-    if(NR::ParseNativePlan(q.plan,rows)!=NR::NativePlanError::Ok||
+    if(NR::ParseNativePlan(checked_plan,rows)!=NR::NativePlanError::Ok||
        rows.size()<4u||(rows.size()!=152u&&rows.size()!=76u))
         return false;
-    // A syntactically valid NRMODEL1 is not necessarily the native
-    // Original/Compact pack. Reject even ONE missing/extra/empty tensor
-    // before allocating expensive Vulkan buffers or recording commands.
     const auto variant=rows.size()==152u?
         NR::R09ModelVariant::Original:NR::R09ModelVariant::Compact;
-    if(!NR::ValidateR09ModelManifest(q.model.Entries(),variant)||
-       NR::BuildNativeUNetSkipMap(rows,q.graph)!=
+    if(!NR::ValidateR09ModelManifest(checked_model.Entries(),variant))
+        return false;
+    NR::NativeUNetSkipMap checked_graph{};
+    NR::NativeSplitRoutes checked_routes{};
+    NR::NativeVitRoute checked_vit_route{};
+    if(NR::BuildNativeUNetSkipMap(rows,checked_graph)!=
            NR::NativeUNetSkipError::Ok||
-       NR::BuildNativeSplitRoutes(rows,q.routes)!=
+       NR::BuildNativeSplitRoutes(rows,checked_routes)!=
            NR::SplitNativeRoutesError::Ok||
-       NR::BuildNativeVitRoute(rows,q.vit_route)!=
+       NR::BuildNativeVitRoute(rows,checked_vit_route)!=
            NR::NativeVitRouteError::Ok)
         return false;
     const auto width=rows.front().height;
@@ -202,19 +205,26 @@ bool NrRdna2FrameSession::Initialize(
        width!=target_extent.height||
        height!=target_extent.width||
        rows.back().block!=(rows.size()==152u?70u:30u)||
-       !q.vit_route.tokens)
+       !checked_vit_route.tokens)
         return false;
     const auto n=std::uint64_t(width)*height;
     if(n>16384ull*16384u||n*64u>(256ull<<20))return false;
-    // Match the actual framebuffer's packed RGBA8888 format as well as
-    // the two byte-component UNORM formats. TextureProxy already admits
-    // all three; refusing packed RGBA here disabled common real games.
     const bool ldr=guest_format==VK_FORMAT_R8G8B8A8_UNORM||
                    guest_format==VK_FORMAT_B8G8R8A8_UNORM||
                    guest_format==VK_FORMAT_A8B8G8R8_UNORM_PACK32;
     const bool hdr=guest_format==VK_FORMAT_R16G16B16A16_SFLOAT||
                    guest_format==VK_FORMAT_R32G32B32A32_SFLOAT;
     if(!ldr&&!hdr)return false;
+    // All model inventory, graph, view geometry and pixel-format gates
+    // have succeeded without creating any Vulkan object. Only now do
+    // the scheduler-bound owners become eligible for construction.
+    auto candidate=std::make_unique<State>(device,allocator,scheduler);
+    auto& q=*candidate;
+    q.model=std::move(checked_model);
+    q.plan=std::move(checked_plan);
+    q.graph=std::move(checked_graph);
+    q.routes=std::move(checked_routes);
+    q.vit_route=std::move(checked_vit_route);
     // Full plan has 8 native FSwin segments: four descending
     // (C32->C256), four ascending (C256->C32).
     const auto segments=NR::ExtractNativeFSwinSegments(rows);
