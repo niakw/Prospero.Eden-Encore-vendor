@@ -75,6 +75,15 @@ public:
     [[nodiscard]] bool BindRasterOutput(
         VkDescriptorBufferInfo destination,std::uint32_t width,
         std::uint32_t height);
+    // Optional unquantized preblock output (FP16 C32, 64 bytes per pixel).
+    // It is extracted by a separate dense-3 pass BEFORE E4M3 rounding,
+    // then unpacked into the full-resolution raster. Never pass FP8 here.
+    [[nodiscard]] bool BindRawRasterOutput(
+        VkDescriptorBufferInfo destination,std::uint32_t width,
+        std::uint32_t height);
+    [[nodiscard]] VkDescriptorBufferInfo ResultRawRaster() const noexcept{
+        return ready?raw_raster_destination:VkDescriptorBufferInfo{};
+    }
     // Terminal _ds: bind the learned 2x2 pooled [2C,C] output to a
     // caller-owned half-resolution FP8 raster (not an RGB framebuffer).
     [[nodiscard]] bool BindDownsampleOutput(
@@ -142,6 +151,9 @@ private:
     NrRdna2FSwinWindowRepack window_repack;
     NrRdna2FSwinRasterLayout raster_input;
     std::unique_ptr<NrRdna2FSwinOutputView> raster_output;
+    std::unique_ptr<NrRdna2FSwinOutputView> raw_raster_output;
+    vk::Buffer raw_window_staging;
+    VkDescriptorBufferInfo raw_raster_destination{};
     std::unique_ptr<NrRdna2FSwinDownsampleOutput> downsample_output;
     VkDescriptorBufferInfo raster_destination{};
     VkDescriptorBufferInfo skip_destination{};

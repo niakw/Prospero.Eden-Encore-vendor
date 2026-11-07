@@ -324,6 +324,50 @@ bool NrRdna2FSwinChain::BindRasterOutput(
     return true;
 }
 
+bool NrRdna2FSwinChain::BindRawRasterOutput(
+    VkDescriptorBufferInfo destination,std::uint32_t width,
+    std::uint32_t height){
+    if(!ready||!output_view||raw_raster_output||
+       layers.empty()||layouts.empty()||
+       layers.back()->Plan().dense[0].channels!=32u||
+       !destination.buffer||destination.offset||
+       !destination.range||destination.range==VK_WHOLE_SIZE||
+       (raster_destination.buffer&&
+        destination.buffer==raster_destination.buffer))
+        return false;
+    const auto raw_bytes=
+        layers.back()->Plan().dense_storage[3].output_bytes*2u;
+    if(!raw_bytes||raw_bytes>(256ull<<20)||
+       raw_bytes>device.GetMaxStorageBufferRange()||
+       destination.range>device.GetMaxStorageBufferRange())
+        return false;
+    const VkBufferCreateInfo ci{
+        .sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .pNext=nullptr,.flags=0,.size=raw_bytes,
+        .usage=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|
+               VK_BUFFER_USAGE_TRANSFER_SRC_BIT|
+               VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .sharingMode=VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount=0,.pQueueFamilyIndices=nullptr,
+    };
+    auto scratch=allocator.CreateBuffer(ci,MemoryUsage::DeviceLocal);
+    if(!scratch)return false;
+    const VkDescriptorBufferInfo raw_windows{
+        .buffer=*scratch,.offset=0,.range=raw_bytes};
+    auto exporter=std::make_unique<NrRdna2FSwinOutputView>(
+        device,allocator,scheduler);
+    // Treat each FP16 byte as a raster component: exactly 64 bytes
+    // per pixel for 32 FP16 channels. Repacking is byte-preserving.
+    if(!exporter->Initialize(raw_windows,destination,layouts.back(),
+                             64u,width,height)||
+       !layers.back()->BindRawC32Output(raw_windows))
+        return false;
+    raw_window_staging=std::move(scratch);
+    raw_raster_output=std::move(exporter);
+    raw_raster_destination=destination;
+    return true;
+}
+
 bool NrRdna2FSwinChain::BindDownsampleOutput(
     const NeuralModelFile& model,VkDescriptorBufferInfo destination,
     std::uint32_t input_width,std::uint32_t input_height){
@@ -394,6 +438,7 @@ bool NrRdna2FSwinChain::Record(){
         if(!layers[i]->Record())return false;
     }
     if(raster_output&&!raster_output->Record())return false;
+    if(raw_raster_output&&!raw_raster_output->Record())return false;
     if(downsample_output&&!downsample_output->Record())return false;
     return true;
 }

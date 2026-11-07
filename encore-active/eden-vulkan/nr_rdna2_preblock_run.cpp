@@ -9,7 +9,7 @@ namespace Vulkan {
 namespace NR=Eden::Graphics::NeuralRDNA2;
 NrRdna2PreblockRun::NrRdna2PreblockRun(
     const Device& d,MemoryAllocator& a,Scheduler& s)
-    :scheduler{s},lift{d,a,s},body{d,a,s}{}
+    :scheduler{s},lift{d,a,s},body{d,a,s},pool{d,s}{}
 bool NrRdna2PreblockRun::Prepare(
     const NR::NeuralModelFile& model,std::string_view plan,
     VkDescriptorBufferInfo prepared,VkDescriptorBufferInfo lifted,
@@ -30,7 +30,7 @@ bool NrRdna2PreblockRun::Prepare(
     NR::NativeUNetSkipMap graph{};
     if(NR::ParseNativePlan(plan,rows)!=NR::NativePlanError::Ok||
        NR::BuildNativeUNetSkipMap(rows,graph)!=NR::NativeUNetSkipError::Ok||
-       rows.empty())return false;
+       rows.size()<2u)return false;
     const auto& pre=rows.front();
     // The native plan is transposed relative to a GPU feature raster:
     // logical 1920x1080 => physical width 1080, height 1920.
@@ -58,12 +58,53 @@ bool NrRdna2PreblockRun::Prepare(
     ready=true;
     return true;
 }
+bool NrRdna2PreblockRun::PrepareWithPool(
+    const NR::NeuralModelFile& model,std::string_view plan,
+    VkDescriptorBufferInfo prepared,VkDescriptorBufferInfo lifted,
+    VkDescriptorBufferInfo full_skip,VkDescriptorBufferInfo raw_full,
+    VkDescriptorBufferInfo pooled_half){
+    if(!Prepare(model,plan,prepared,lifted,full_skip))return false;
+    const std::array<VkDescriptorBufferInfo,5> buffers{
+        prepared,lifted,full_skip,raw_full,pooled_half};
+    for(std::size_t i=0u;i<buffers.size();++i){
+        const auto& v=buffers[i];
+        if(!v.buffer||v.offset||!v.range||v.range==VK_WHOLE_SIZE){
+            ready=false;
+            return false;
+        }
+        for(std::size_t j=0u;j<i;++j)
+            if(v.buffer==buffers[j].buffer){
+                ready=false;
+                return false;
+            }
+    }
+    std::vector<NR::NativePlanStep> rows;
+    if(NR::ParseNativePlan(plan,rows)!=NR::NativePlanError::Ok||
+       rows.size()<2u){
+        ready=false;
+        return false;
+    }
+    const NR::PreblockPoolShape shape{
+        rows.front().height,rows.front().width};
+    if(!NR::CanPreblockPool(shape,{raw_full.range,pooled_half.range})||
+       !body.BindRawRasterOutput(raw_full,shape.width,shape.height)||
+       !pool.Initialize(shape,raw_full,pooled_half)||
+       pool.SchedulerIdentity()!=&scheduler){
+        ready=false;
+        return false;
+    }
+    has_pool=true;
+    return true;
+}
 bool NrRdna2PreblockRun::Record(){
     if(!ready||record_attempted||!lift.Ready()||!body.Ready()||
        lift.SchedulerIdentity()!=&scheduler||
-       body.SchedulerIdentity()!=&scheduler)return false;
+       body.SchedulerIdentity()!=&scheduler||
+       (has_pool&&(!pool.Ready()||
+                   pool.SchedulerIdentity()!=&scheduler)))return false;
     record_attempted=true;
-    if(!lift.Record()||!body.Record())return false;
+    if(!lift.Record()||!body.Record()||
+       (has_pool&&!pool.Record()))return false;
     recorded=true;
     return true;
 }

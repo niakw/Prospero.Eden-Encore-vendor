@@ -6,6 +6,7 @@
 #pragma once
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_chain.h"
 #include "video_core/renderer_vulkan/nr_rdna2_image_feature_stage.h"
+#include "video_core/renderer_vulkan/nr_rdna2_preblock_pool.h"
 #include "rdna2_nr_preblock_boundary_policy.h"
 #include <string_view>
 namespace Vulkan {
@@ -25,10 +26,25 @@ public:
         VkDescriptorBufferInfo prepared_fp16_16,
         VkDescriptorBufferInfo lifted_fp8_c32,
         VkDescriptorBufferInfo fullres_skip_fp8_c32);
+    // Complete feature-level preblock through the genuine pre-FP8
+    // raw C32 values and native 2x2 FP16 -> FP8 pooling. Does not
+    // synthesize image/HDR guides or complete the remaining U-Net.
+    [[nodiscard]] bool PrepareWithPool(
+        const Eden::Graphics::NeuralRDNA2::NeuralModelFile& model,
+        std::string_view native_plan,
+        VkDescriptorBufferInfo prepared_fp16_16,
+        VkDescriptorBufferInfo lifted_fp8_c32,
+        VkDescriptorBufferInfo fullres_skip_fp8_c32,
+        VkDescriptorBufferInfo raw_fullres_fp16_c32,
+        VkDescriptorBufferInfo pooled_halfres_fp8_c32);
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
     [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept{
         return &scheduler;
+    }
+    // The half-res first U-Net level only after successful Record.
+    [[nodiscard]] VkDescriptorBufferInfo ResultHalfC32() const noexcept {
+        return recorded&&has_pool?pool.Result():VkDescriptorBufferInfo{};
     }
     // The full-res preblock skip (not the half-res U-Net input).
     [[nodiscard]] VkDescriptorBufferInfo ResultFullSkip() const noexcept{
@@ -38,6 +54,7 @@ private:
     Scheduler& scheduler;
     NrRdna2ImageFeatureStage lift;
     NrRdna2FSwinChain body;
-    bool attempted{},ready{},record_attempted{},recorded{};
+    NrRdna2PreblockPool pool;
+    bool attempted{},ready{},record_attempted{},recorded{},has_pool{};
 };
 } // namespace Vulkan
