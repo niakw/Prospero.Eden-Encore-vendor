@@ -41,6 +41,11 @@ public:
     [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept {
         return &scheduler;
     }
+    // Prepared C512 output identity before any down dispatch. Consumers
+    // may bind resources but MUST NOT read pixels until recorded.
+    [[nodiscard]] VkDescriptorBufferInfo PreparedLowRaster() const noexcept {
+        return ready?low:VkDescriptorBufferInfo{};
+    }
     [[nodiscard]] VkDescriptorBufferInfo LowRaster() const noexcept {
         return recorded?low:VkDescriptorBufferInfo{};
     }

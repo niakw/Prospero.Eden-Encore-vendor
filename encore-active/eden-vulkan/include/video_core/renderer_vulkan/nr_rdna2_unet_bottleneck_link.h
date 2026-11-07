@@ -28,6 +28,8 @@ public:
 private:
     Scheduler& scheduler;
     NrRdna2NeuralBottleneck* core{};
+    NrRdna2UNetDownSequence* producer{};
+    VkDescriptorBufferInfo source{};
     VkDescriptorBufferInfo result{};
     bool bind_attempted{},ready{},record_attempted{},recorded{};
 };

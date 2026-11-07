@@ -24,8 +24,9 @@ bool NrRdna2UNetBottleneckLink::Bind(
        down.SchedulerIdentity()!=&scheduler||
        first.SchedulerIdentity()!=&scheduler||
        bottleneck.SchedulerIdentity()!=&scheduler)return false;
-    // This buffer exists only after the down producer was enqueued.
-    const auto low=down.LowRaster();
+    // Bind a prepared output before any GPU command is enqueued. The
+    // required recorded producer check moves to Record() below.
+    const auto low=down.PreparedLowRaster();
     const auto source=first.SourceRaster();
     const auto core_source=bottleneck.PreparedInputRaster();
     const auto output=bottleneck.PreparedResult();
@@ -35,13 +36,17 @@ bool NrRdna2UNetBottleneckLink::Bind(
        !NR::CanNativeUNetBottleneckLink(
            graph,routes,vit,low.range,source.range,output.range))
         return false;
+    producer=&down;
+    source=low;
     core=&bottleneck;
     result=output;
     ready=true;
     return true;
 }
 bool NrRdna2UNetBottleneckLink::Record(){
-    if(!ready||record_attempted||!core)return false;
+    if(!ready||record_attempted||!core||!producer||
+       producer->SchedulerIdentity()!=&scheduler||
+       !SameView(producer->LowRaster(),source))return false;
     record_attempted=true;
     if(!core->Record()||!SameView(core->Result(),result))return false;
     recorded=true;

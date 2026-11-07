@@ -174,13 +174,16 @@ bool NrRdna2CoreFeatureSequence::Record(
        !up.Prepare(model,plan,graph,cache,split_result_block,
                    expected_low,up_chains,up_outputs))
         return false;
+    // Bind the C512 boundary and all live model owners before the first
+    // dispatch. It only consumes the prepared buffer identity here; the
+    // bottleneck Record still refuses a down producer not yet enqueued.
+    if(!low_link.Bind(graph,routes,vit,down,first,core))return false;
     // No partially submitted sequence may be replayed after failure.
     attempted=true;
     if((hdr&&!hdr->Record())||
        (game_texture&&!game_texture->Record())||
        (proxy&&!proxy->Record())||
        !pre.RecordWithDownSequence(down)||
-       !low_link.Bind(graph,routes,vit,down,first,core)||
        !low_link.Record())return false;
     const auto low=low_link.Result();
     if(!Good(low)||low.buffer!=expected_low.buffer||
