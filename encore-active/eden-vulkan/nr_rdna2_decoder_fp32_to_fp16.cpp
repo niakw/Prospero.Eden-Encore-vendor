@@ -43,7 +43,8 @@ bool NrRdna2DecoderFp32ToFp16::Record(
        source.buffer==destination.buffer||
        !NR::CanDecoderFp32ToFp16(request,{
            source.range,destination.range}))return false;
-    const auto native=*pipeline,layout_native=*layout;
+    const VkPipeline native=*pipeline;
+    const VkPipelineLayout layout_native=*layout;
     const u32 groups=(request.elements+255u)/256u;
     scheduler.RequestOutsideRenderPassOperationContext();
     scheduler.Record([descriptor,request,native,layout_native,groups](
