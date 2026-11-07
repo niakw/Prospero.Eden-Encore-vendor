@@ -1,0 +1,41 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// R09 input: linear HDR RGBA32F -> paper-white relative sRGB display proxy.
+// No game image acquisition, motion/depth or PS5 present in this shader.
+layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
+layout(std430,set=0,binding=0) readonly buffer HDRInput {
+    vec4 pixels[];
+} hdr;
+layout(std430,set=0,binding=1) writeonly buffer DisplayProxy {
+    vec4 pixels[];
+} proxy;
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    float paper_white;
+    uint reserved;
+} pc;
+float sane(float v) {
+    return (isnan(v)||isinf(v))?0.0:max(v,0.0);
+}
+float srgb(float v) {
+    return v<=0.0031308 ? 12.92*v :
+        1.055*pow(v,1.0/2.4)-0.055;
+}
+float encodeHDR(float v) {
+    float n=sane(v)/max(pc.paper_white,0.05);
+    float shoulder=n>0.75 ?
+        0.75+0.25*(1.0-exp(-5.770780*(n-0.75))) : n;
+    return clamp(srgb(clamp(shoulder,0.0,1.0)),0.0,1.0);
+}
+void main() {
+    uvec2 p=gl_GlobalInvocationID.xy;
+    if(p.x>=pc.width||p.y>=pc.height)return;
+    uint idx=p.y*pc.width+p.x;
+    vec4 pixel=hdr.pixels[idx];
+    float alpha=(isnan(pixel.a)||isinf(pixel.a))?
+        1.0:clamp(pixel.a,0.0,1.0);
+    proxy.pixels[idx]=vec4(
+        encodeHDR(pixel.r),encodeHDR(pixel.g),encodeHDR(pixel.b),
+        alpha);
+}
