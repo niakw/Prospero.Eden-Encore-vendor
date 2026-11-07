@@ -79,9 +79,19 @@ struct FSwinLayerWeightRanges {
         std::vector<std::uint8_t> fragment;
         std::vector<float> decoded;
         if(!model.LoadRaw(file(".upsample_gain.bin"),fragment)||
-           !NeuralDecodeF16(fragment,decoded)||
-           decoded.size()!=C-16u||
-           !NeuralWideUpsampleResidual(raw,C,converted))return false;
+           !NeuralDecodeF16(fragment,decoded))return false;
+        if(decoded.size()==C-16u){
+            if(!NeuralWideUpsampleResidual(raw,C,converted))
+                return false;
+        }else if(decoded.size()==C){
+            // Already reconstructed by an independent, complete model pack.
+            // C+16 still denotes [C residual][16 transition] if present.
+            if(raw.size()==C+16u){
+                if(!NeuralWideUpsampleResidual(raw,C,converted))
+                    return false;
+            }else if(!NeuralResidualScale(raw,C,residual_last,converted))
+                return false;
+        }else return false;
     }else if(!NeuralResidualScale(raw,C,residual_last,converted))
         return false;
     if(!staged.AppendFP32(file(".residual_scale.bin"),
