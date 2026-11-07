@@ -136,6 +136,14 @@ bool NrRdna2CoreFeatureSequence::Record(
            model,plan,up_outputs[3],prepared_skip,post_mixed,
            post_swin,post_raw,post_features))
         return false;
+    // Prepare ALL four learned ascent stages before touching the GPU
+    // scheduler. The C512 descriptor is the already prepared terminal
+    // Split-Swin outview, and must remain the SAME after recording.
+    const auto expected_low=core.PreparedResult();
+    if(!Good(expected_low)||
+       !up.Prepare(model,plan,graph,cache,split_result_block,
+                   expected_low,up_chains,up_outputs))
+        return false;
     // No partially submitted sequence may be replayed after failure.
     attempted=true;
     if((hdr&&!hdr->Record())||
@@ -144,10 +152,9 @@ bool NrRdna2CoreFeatureSequence::Record(
        !low_link.Bind(graph,routes,vit,down,first,core)||
        !low_link.Record())return false;
     const auto low=low_link.Result();
-    if(!Good(low)||
-       !up.Prepare(model,plan,graph,cache,split_result_block,
-                   low,up_chains,up_outputs)||
-       !up.Record())return false;
+    if(!Good(low)||low.buffer!=expected_low.buffer||
+       low.offset!=expected_low.offset||low.range!=expected_low.range||
+       !up.Ready()||!up.Record())return false;
     const auto final_c32=up.FinalC32Raster();
     const auto full_skip=pre.ResultFullSkip();
     if(!Good(final_c32)||!Good(full_skip)||
