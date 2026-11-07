@@ -56,6 +56,8 @@ bool NrRdna2PreblockRun::Prepare(
         return false;
     if(lift.SchedulerIdentity()!=&scheduler||
        body.SchedulerIdentity()!=&scheduler)return false;
+    prepared_input=prepared;
+    full_geometry={width,height};
     ready=true;
     return true;
 }
