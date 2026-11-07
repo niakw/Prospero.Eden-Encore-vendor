@@ -1,0 +1,83 @@
+// SPDX-License-Identifier: MIT
+#include "video_core/renderer_vulkan/nr_rdna2_core_feature_sequence.h"
+#include <array>
+#include <cstdint>
+namespace Vulkan {
+namespace NR=Eden::Graphics::NeuralRDNA2;
+namespace {
+[[nodiscard]] bool Good(VkDescriptorBufferInfo d) noexcept {
+    return d.buffer!=VK_NULL_HANDLE && d.offset==0u &&
+           d.range!=0u && d.range!=VK_WHOLE_SIZE;
+}
+[[nodiscard]] bool ValidTargets(
+    std::array<VkDescriptorBufferInfo,4> up,
+    std::array<VkDescriptorBufferInfo,4> post) noexcept {
+    std::array<VkDescriptorBufferInfo,8> all{};
+    for(std::size_t i=0u;i<4u;++i) {
+        all[i]=up[i];
+        all[i+4u]=post[i];
+    }
+    for(std::size_t i=0u;i<all.size();++i) {
+        if(!Good(all[i]))return false;
+        for(std::size_t j=0u;j<i;++j)
+            if(all[i].buffer==all[j].buffer)return false;
+    }
+    return true;
+}
+}
+NrRdna2CoreFeatureSequence::NrRdna2CoreFeatureSequence(Scheduler& s)
+    :scheduler{s},low_link{s}{}
+bool NrRdna2CoreFeatureSequence::Record(
+    const NR::NeuralModelFile& model,std::string_view plan,
+    const NR::NativeUNetSkipMap& graph,
+    const NR::NativeSplitRoutes& routes,
+    const NR::NativeVitRoute& vit,
+    NrRdna2PreblockRun& pre,NrRdna2UNetDownSequence& down,
+    NrRdna2SplitSwinRun& first,NrRdna2NeuralBottleneck& core,
+    NrRdna2UNetSkipCache& cache,NrRdna2UNetUpSequence& up,
+    std::uint32_t split_result_block,
+    std::array<NrRdna2FSwinChain*,4> up_chains,
+    std::array<VkDescriptorBufferInfo,4> up_outputs,
+    NrRdna2PostblockRun& post,
+    VkDescriptorBufferInfo post_mixed,
+    VkDescriptorBufferInfo post_swin,
+    VkDescriptorBufferInfo post_raw,
+    VkDescriptorBufferInfo post_features) {
+    if(attempted||!model.IsOpen()||plan.empty()||
+       !pre.Ready()||!down.Ready()||!first.Ready()||
+       !core.Ready()||!cache.Ready()||
+       pre.SchedulerIdentity()!=&scheduler||
+       down.SchedulerIdentity()!=&scheduler||
+       first.SchedulerIdentity()!=&scheduler||
+       core.SchedulerIdentity()!=&scheduler||
+       !ValidTargets(up_outputs,{post_mixed,post_swin,
+                                  post_raw,post_features}))
+        return false;
+    for(const auto* chain:up_chains)
+        if(!chain||!chain->Ready()||
+           chain->SchedulerIdentity()!=&scheduler)return false;
+    // No partially submitted sequence may be replayed after failure.
+    attempted=true;
+    if(!pre.RecordWithDownSequence(down)||
+       !low_link.Bind(graph,routes,vit,down,first,core)||
+       !low_link.Record())return false;
+    const auto low=low_link.Result();
+    if(!Good(low)||
+       !up.Prepare(model,plan,graph,cache,split_result_block,
+                   low,up_chains,up_outputs)||
+       !up.Record())return false;
+    const auto final_c32=up.FinalC32Raster();
+    const auto full_skip=pre.ResultFullSkip();
+    if(!Good(final_c32)||!Good(full_skip)||
+       final_c32.buffer!=up_outputs[3].buffer||
+       !post.PrepareWithRawProjection(
+           model,plan,final_c32,full_skip,post_mixed,
+           post_swin,post_raw,post_features)||
+       !post.Record())return false;
+    features=post.ResultFeatures();
+    if(!Good(features)||features.buffer!=post_features.buffer||
+       features.range!=post_features.range)return false;
+    recorded=true;
+    return true;
+}
+} // namespace Vulkan
