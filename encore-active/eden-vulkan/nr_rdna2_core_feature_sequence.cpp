@@ -125,6 +125,17 @@ bool NrRdna2CoreFeatureSequence::Record(
               model,prefix,edge.channels,validated,ranges)||
            ranges.channels!=edge.channels)return false;
     }
+    // Prepare the learned final projection and its RAW FP16 input BEFORE
+    // recording preblock/downs. A missing postblock tensor must not leave
+    // partially enqueued GPU commands on the shared scheduler.
+    const auto prepared_skip=pre.PreparedFullSkip();
+    if(post.Ready()||post.SchedulerIdentity()!=&scheduler||
+       !Good(prepared_skip)||!Good(up_outputs[3])||
+       up_outputs[3].buffer==prepared_skip.buffer||
+       !post.PrepareWithRawProjection(
+           model,plan,up_outputs[3],prepared_skip,post_mixed,
+           post_swin,post_raw,post_features))
+        return false;
     // No partially submitted sequence may be replayed after failure.
     attempted=true;
     if((hdr&&!hdr->Record())||
@@ -141,10 +152,8 @@ bool NrRdna2CoreFeatureSequence::Record(
     const auto full_skip=pre.ResultFullSkip();
     if(!Good(final_c32)||!Good(full_skip)||
        final_c32.buffer!=up_outputs[3].buffer||
-       !post.PrepareWithRawProjection(
-           model,plan,final_c32,full_skip,post_mixed,
-           post_swin,post_raw,post_features)||
-       !post.Record())return false;
+       full_skip.buffer!=prepared_skip.buffer||
+       !post.Ready()||!post.Record())return false;
     features=post.ResultFeatures();
     if(!Good(features)||features.buffer!=post_features.buffer||
        features.range!=post_features.range)return false;
