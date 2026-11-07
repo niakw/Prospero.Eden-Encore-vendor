@@ -41,6 +41,7 @@ private:
     Scheduler& scheduler;
     std::array<std::unique_ptr<NrRdna2UNetUpsampleLink>,4> links{};
     NrRdna2UNetSkipCache* skips{};
+    std::array<std::uint32_t,4> up_blocks{};
     VkDescriptorBufferInfo last{};
     bool prepare_attempted{},ready{},record_attempted{},recorded{};
 };
