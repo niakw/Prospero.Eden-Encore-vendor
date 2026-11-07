@@ -38,8 +38,25 @@ struct R09SessionCPUPlan {
        (rows.size()!=152u&&rows.size()!=76u))return false;
     const auto model=rows.size()==152u?
         R09ModelVariant::Original:R09ModelVariant::Compact;
-    if(!ValidateR09ModelManifest(checked.model.Entries(),model)||
-       BuildNativeUNetSkipMap(rows,checked.graph)!=
+    if(!ValidateR09ModelManifest(checked.model.Entries(),model))
+        return false;
+    // These two learned matrices are mandatory for every first-frame
+    // session. Confirm their REAL FP16 byte sizes from the model's index
+    // before allocating any Vulkan stage or multi-gigabyte intermediates.
+    // A synthetic index-only pack containing all 599/255 names but
+    // two-byte placeholders must never enter GPU initialization.
+    constexpr std::string_view input_lift=
+        "unpacked-preblock/block0.layer0.layer.input_lift.bin";
+    const auto output_project=model==R09ModelVariant::Original?
+        "unpacked-postblock/block70.layer0.layer.out_project.bin":
+        "unpacked-postblock/block30.layer0.layer.out_project.bin";
+    const auto* input_tensor=checked.model.Find(input_lift);
+    const auto* output_tensor=checked.model.Find(output_project);
+    if(!input_tensor||!output_tensor||
+       input_tensor->size!=32ull*16ull*2ull||
+       output_tensor->size!=16ull*32ull*2ull)
+        return false;
+    if(BuildNativeUNetSkipMap(rows,checked.graph)!=
            NativeUNetSkipError::Ok||
        BuildNativeSplitRoutes(rows,checked.routes)!=
            SplitNativeRoutesError::Ok||
