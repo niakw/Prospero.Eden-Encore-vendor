@@ -28,6 +28,11 @@ public:
     [[nodiscard]] VkDescriptorBufferInfo FeaturesInput() const noexcept {
         return ready?features:VkDescriptorBufferInfo{};
     }
+    [[nodiscard]] Eden::Graphics::NeuralRDNA2::NRNoHistoryComposeShape
+    Geometry() const noexcept {return shape;}
+    [[nodiscard]] VkDescriptorBufferInfo PreparedOutput() const noexcept {
+        return ready?result:VkDescriptorBufferInfo{};
+    }
     [[nodiscard]] VkDescriptorBufferInfo Result() const noexcept {
         return recorded?result:VkDescriptorBufferInfo{};
     }
