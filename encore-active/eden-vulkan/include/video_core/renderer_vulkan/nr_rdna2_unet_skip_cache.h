@@ -52,6 +52,7 @@ private:
     std::array<vk::Buffer,4> buffers{};
     std::array<VkDeviceSize,4> byte_sizes{};
     std::array<bool,4> bound{};
+    std::array<bool,4> attempted{};
     std::array<bool,4> recorded{};
     Scheduler* scheduler{};
     bool ready{};

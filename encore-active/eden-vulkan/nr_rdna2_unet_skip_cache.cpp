@@ -77,10 +77,12 @@ bool NrRdna2UNetSkipCache::RecordProducer(
        scheduler!=producer.SchedulerIdentity())return false;
     for(std::size_t i=0;i<map.count;++i){
         if(map.edges[i].down_block!=down_block)continue;
-        if(!bound[i]||recorded[i]||
+        if(!bound[i]||attempted[i]||recorded[i]||
            producer.ResultSkipRaster().buffer!=*buffers[i]||
            !producer.RequiresDownsampleOutput())
             return false;
+        // Guard partial command-buffer submission against silent replay.
+        attempted[i]=true;
         if(!producer.Record())return false;
         recorded[i]=true;
         return true;

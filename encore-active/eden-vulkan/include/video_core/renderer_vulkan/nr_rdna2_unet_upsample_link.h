@@ -43,6 +43,7 @@ private:
     Scheduler& scheduler;
     NrRdna2FSwinChain* next{};
     bool ready{};
+    bool attempted{};
     bool recorded{};
 };
 } // namespace Vulkan

@@ -52,9 +52,10 @@ bool NrRdna2UNetUpsampleLink::Prepare(
     return true;
 }
 bool NrRdna2UNetUpsampleLink::Record(){
-    if(!ready||recorded||!next)return false;
+    if(!ready||recorded||attempted||!next)return false;
     // The shader and raster-to-windows adapters insert compute barriers.
     // Never reverse this ordering.
+    attempted=true;
     if(!stage.Record()||!next->Record())return false;
     recorded=true;
     return true;
