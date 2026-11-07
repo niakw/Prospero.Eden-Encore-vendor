@@ -7,8 +7,9 @@
 // Every padded output token is written as zero on each invocation.
 layout(local_size_x=64, local_size_y=1, local_size_z=1) in;
 layout(set=0,binding=0,std430) readonly buffer Projected {uint words[];} projection;
-layout(set=0,binding=1,std430) buffer Activations {uint words[];} activations;
-layout(set=0,binding=2,std430) readonly buffer Gains {uint words[];} gains;
+layout(set=0,binding=1,std430) readonly buffer Skip {uint words[];} skip_features;
+layout(set=0,binding=2,std430) buffer Output {uint words[];} output_features;
+layout(set=0,binding=3,std430) readonly buffer Gains {uint words[];} gains;
 layout(push_constant) uniform Params {
     uint src_base_bytes;
     uint skip_base_bytes;
@@ -69,12 +70,12 @@ void main() {
     uint c=gl_WorkGroupID.y*4u;
     uint dst_index=(pc.dst_base_bytes+at(t,c))/4u;
     if(x>=pc.output_width||y>=pc.output_height){
-        activations.words[dst_index]=0u;
+        output_features.words[dst_index]=0u;
         return;
     }
     uint it=token(x/2u,y/2u,pc.input_width);
     uint skip_index=(pc.skip_base_bytes+at(t,c))/4u;
-    uint packed_skip=activations.words[skip_index];
+    uint packed_skip=skip_features.words[skip_index];
     uint output_word=0u;
     for(uint j=0u;j<4u;++j) {
         uint channel=c+j;
@@ -87,5 +88,5 @@ void main() {
         float value=as_half(p+residual);
         output_word|=quant_e4m3fn(value)<<(j*8u);
     }
-    activations.words[dst_index]=output_word;
+    output_features.words[dst_index]=output_word;
 }

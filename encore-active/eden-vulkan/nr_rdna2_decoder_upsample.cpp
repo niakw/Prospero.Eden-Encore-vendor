@@ -21,6 +21,7 @@ NrRdna2DecoderUpsample::NrRdna2DecoderUpsample(
     descriptor_layout=CreateWrappedDescriptorSetLayout(
         device,{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},VK_SHADER_STAGE_COMPUTE_BIT);
     constexpr VkPushConstantRange range{
         .stageFlags=VK_SHADER_STAGE_COMPUTE_BIT,
