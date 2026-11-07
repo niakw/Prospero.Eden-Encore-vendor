@@ -4,6 +4,7 @@
 // output image layouts, submission/fence lifetime and presentation.
 #pragma once
 #include "video_core/vulkan_common/vulkan_wrapper.h"
+#include <cstdint>
 #include <memory>
 #include <string_view>
 namespace Vulkan {
@@ -33,6 +34,12 @@ public:
     [[nodiscard]] bool Ready() const noexcept{return ready;}
     // Last reached whole-graph recording boundary; no proprietary data.
     [[nodiscard]] std::string_view LastRecordPhaseName() const noexcept;
+    // Count scheduler callbacks queued by this Record attempt, NOT GPU
+    // dispatches completed, graph instructions run, or pixels produced.
+    [[nodiscard]] std::uint64_t EnqueuedSchedulerCallbacks() const noexcept {
+        return record_attempted && serial_after >= serial_before
+                   ? serial_after - serial_before : 0u;
+    }
     [[nodiscard]] VkImageView ResultView() const noexcept {
         return recorded?output_view:VK_NULL_HANDLE;
     }
@@ -43,6 +50,7 @@ private:
     Scheduler& scheduler;
     std::unique_ptr<State> state;
     VkImageView output_view{VK_NULL_HANDLE};
+    std::uint64_t serial_before{},serial_after{};
     bool attempted{},ready{},record_attempted{},recorded{};
 };
 } // namespace Vulkan
