@@ -47,7 +47,8 @@ bool NrRdna2CoreFeatureSequence::Record(
     VkDescriptorBufferInfo post_features,
     NrRdna2ProxyFeatureStage* proxy,
     NrRdna2NoHistoryCompose* compose,
-    NrRdna2HDRProxy* hdr) {
+    NrRdna2HDRProxy* hdr,
+    NrRdna2NoHistoryPresent* present) {
     if(attempted||!model.IsOpen()||plan.empty()||
        !pre.Ready()||!down.Ready()||!first.Ready()||
        !core.Ready()||!cache.Ready()||
@@ -107,6 +108,19 @@ bool NrRdna2CoreFeatureSequence::Record(
            base.buffer!=source.buffer||base.range!=source.range||
            ext.width!=pre_shape[0]||ext.height!=pre_shape[1])
             return false;
+    }
+    if(present) {
+        if(!compose||!present->Ready()||
+           present->SchedulerIdentity()!=&scheduler)return false;
+        const auto prepared=compose->PreparedOutput();
+        const auto source=present->Input();
+        const auto screen=present->Geometry();
+        const auto image=compose->Geometry();
+        if(!Good(prepared)||!Good(source)||
+           source.buffer!=prepared.buffer||
+           source.range!=prepared.range||
+           screen.raster_width!=image.width||
+           screen.raster_height!=image.height)return false;
     }
     // Validate the genuine learned gains BEFORE any Vulkan command is
     // enqueued. The upstream wide-C extractor produces C-16 gains; without
@@ -168,6 +182,11 @@ bool NrRdna2CoreFeatureSequence::Record(
         if(!compose->Record())return false;
         first_image=compose->Result();
         if(!Good(first_image))return false;
+    }
+    if(present) {
+        if(!present->Record())return false;
+        present_view=present->ResultView();
+        if(present_view==VK_NULL_HANDLE)return false;
     }
     recorded=true;
     return true;
