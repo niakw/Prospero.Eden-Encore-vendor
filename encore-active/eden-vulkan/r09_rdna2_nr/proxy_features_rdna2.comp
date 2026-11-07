@@ -1,0 +1,75 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Standalone first-frame FP16[16] proxy feature encoder, not HDR -> RGB.
+// Formula derived from MIT maanHimself/OpenDLSS-NR/shaders/preprocess.comp.
+// No temporal history, no guessed depth or per-game motion vectors.
+layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Proxy {
+    vec4 pixels[];
+} source;
+layout(set=0,binding=1,std430) writeonly buffer Features {
+    uint words[];
+} output_lanes;
+layout(push_constant) uniform Params {
+    uint full_width,full_height,valid_width,valid_height;
+    uint source_width,source_height,seed;
+    float auto_mask,local_tone,local_structure,skin_structure,style;
+} pc;
+float round_half(float a){
+    return unpackHalf2x16(packHalf2x16(vec2(a,0.0))).x;
+}
+float hash_uniform(uint value) {
+    uint mixed=value;
+    mixed=(mixed>>((mixed>>28u)+4u))^mixed;
+    mixed*=0x108ef2d9u;
+    uint integer=((mixed>>30u)^(mixed>>8u))+1u;
+    return float(integer)*uintBitsToFloat(0x33800000u);
+}
+vec3 noise3(uint x,uint y,uint seed){
+    uint base=(x*0x8da6b343u)^(seed*0x9e3779b9u)^
+              (y*0xd8163841u)^0x243f6a88u;
+    base=(base>>((base>>28u)+4u))^base;
+    base*=0x108ef2d9u;
+    base=(base>>22u)^base;
+    float u0=hash_uniform(base*0x2c9277b5u+0xac564b05u);
+    float u1=hash_uniform(base*0xfa6dc5f9u+0x4712a88eu);
+    float u2=hash_uniform(base*0xcaa5b80du+0x21dd796bu);
+    float u3=hash_uniform(base*0x83232c31u+0x3463e0acu);
+    float r0=sqrt(log2(u0)*uintBitsToFloat(0x3f317218u)*-2.0);
+    float r1=sqrt(log2(u2)*uintBitsToFloat(0x3f317218u)*-2.0);
+    float a0=u1*uintBitsToFloat(0x40c90fdbu);
+    float a1=u3*uintBitsToFloat(0x40c90fdbu);
+    return vec3(round_half(r0*cos(a0)),
+                round_half(r0*sin(a0)),round_half(r1*cos(a1)));
+}
+float safe_proxy(float v){
+    return isnan(v)||isinf(v)?0.0:clamp(v,0.0,1.0);
+}
+void main(){
+    uvec2 id=gl_GlobalInvocationID.xy;
+    if(id.x>=pc.full_width||id.y>=pc.full_height)return;
+    uint sx=id.x<pc.valid_width?id.x:2u*pc.valid_width-id.x-2u;
+    uint sy=id.y<pc.valid_height?id.y:2u*pc.valid_height-id.y-2u;
+    uint source_x=((2u*sx+1u)*pc.source_width)/(2u*pc.valid_width);
+    uint source_y=((2u*sy+1u)*pc.source_height)/(2u*pc.valid_height);
+    vec4 rgba=source.pixels[source_y*pc.source_width+source_x];
+    float cr=round_half(round_half(round_half(safe_proxy(rgba.r))-0.5)*0.125);
+    float cg=round_half(round_half(round_half(safe_proxy(rgba.g))-0.5)*0.125);
+    float cb=round_half(round_half(round_half(safe_proxy(rgba.b))-0.5)*0.125);
+    vec3 noise=noise3(id.x,id.y,pc.seed);
+    // No-history semantics: lanes 7..9 are the *current* proxy.
+    float lanes[16]=float[16](
+        noise.x,noise.y,noise.z,1.0,
+        cr,cg,cb,cr,cg,cb,
+        pc.style/128.0,round_half(pc.local_tone),
+        round_half(pc.auto_mask>0.0?1.0:pc.local_structure),
+        round_half(pc.auto_mask>0.0?
+            (pc.skin_structure<0.0?pc.local_structure:pc.skin_structure):-1.0),
+        round_half(pc.auto_mask>0.0?pc.local_structure:-1.0),0.0
+    );
+    uint start=(id.y*pc.full_width+id.x)*8u;
+    for(uint i=0u;i<8u;++i){
+        output_lanes.words[start+i]=packHalf2x16(
+            vec2(lanes[i*2u],lanes[i*2u+1u]));
+    }
+}
