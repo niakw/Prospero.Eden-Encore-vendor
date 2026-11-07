@@ -33,6 +33,9 @@ public:
     // four skip exports and four learned downsample epilogues.
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
+    [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept {
+        return &scheduler;
+    }
     [[nodiscard]] VkDescriptorBufferInfo LowRaster() const noexcept {
         return recorded?low:VkDescriptorBufferInfo{};
     }

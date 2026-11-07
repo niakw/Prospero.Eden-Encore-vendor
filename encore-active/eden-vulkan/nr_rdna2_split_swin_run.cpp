@@ -143,6 +143,7 @@ bool NrRdna2SplitSwinRun::InitializeWithModel(
     input_sizes=in_sizes;
     output_sizes=out_sizes;
     first_input=buffers.front().input;
+    input_raster=has_input?source_raster:VkDescriptorBufferInfo{};
     primary_result=buffers.back().projected;
     result=has_output?destination_raster:proposed;
     input_view=has_input;
@@ -152,18 +153,21 @@ bool NrRdna2SplitSwinRun::InitializeWithModel(
     return true;
 }
 bool NrRdna2SplitSwinRun::Record(){
-    if(!ready||blocks.empty()||raster_sets.size()!=2u)return false;
+    if(!ready||record_attempted||blocks.empty()||raster_sets.size()!=2u)
+        return false;
+    // No replay after an attempt that may have queued GPU work.
+    record_attempted=true;
     if((input_view&&!NR::CanFSwinRasterLayout(
-           input_shape,input_sizes))||
+        input_shape,input_sizes))||
        (output_view&&!NR::CanFSwinRasterLayout(
-           output_shape,output_sizes)))return false;
-    // InputView (raster C512->padded 8x8 windows) is recorded BEFORE
-    // FFWD3; OutputView (windows->raster) AFTER the last projection.
+        output_shape,output_sizes)))return false;
     if(input_view&&!raster_layout.Record(
            raster_sets[0],input_shape,input_sizes))return false;
     for(const auto& block:blocks)
         if(!block||!block->Record())return false;
-    return !output_view||raster_layout.Record(
-        raster_sets[1],output_shape,output_sizes);
+    if(output_view&&!raster_layout.Record(
+        raster_sets[1],output_shape,output_sizes))return false;
+    recorded=true;
+    return true;
 }
 } // namespace Vulkan

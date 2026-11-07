@@ -41,6 +41,10 @@ public:
     [[nodiscard]] VkDescriptorBufferInfo Input() const noexcept {
         return ready?first_input:VkDescriptorBufferInfo{};
     }
+    // The raw C512 input-view raster (not the padded window buffer).
+    [[nodiscard]] VkDescriptorBufferInfo SourceRaster() const noexcept {
+        return ready&&input_view?input_raster:VkDescriptorBufferInfo{};
+    }
     // First Split run: ProjPool primary C512 branch is retained as the
     // decoder's learned skip while FinalHead C1024 enters ViT.
     [[nodiscard]] VkDescriptorBufferInfo PrimaryResult() const noexcept {
@@ -62,7 +66,7 @@ private:
     vk::DescriptorSets raster_sets;
     Eden::Graphics::NeuralRDNA2::FSwinRasterLayout input_shape{},output_shape{};
     Eden::Graphics::NeuralRDNA2::FSwinRasterLayoutStorage input_sizes{},output_sizes{};
-    VkDescriptorBufferInfo first_input{},primary_result{},result{};
-    bool ready{},input_view{},output_view{};
+    VkDescriptorBufferInfo first_input{},input_raster{},primary_result{},result{};
+    bool ready{},input_view{},output_view{},record_attempted{},recorded{};
 };
 } // namespace Vulkan

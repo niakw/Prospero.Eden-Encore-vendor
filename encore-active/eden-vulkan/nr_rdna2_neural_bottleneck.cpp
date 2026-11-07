@@ -43,15 +43,17 @@ bool NrRdna2NeuralBottleneck::Bind(
     return true;
 }
 bool NrRdna2NeuralBottleneck::Record(){
-    if(!ready||recorded||!first||!vit||!decoder||!second||
+    if(!ready||record_attempted||!first||!vit||!decoder||!second||
        !first->Ready()||!vit->Ready()||
        !decoder->Ready()||!second->Ready())
         return false;
     // An exception or command failure must not silently re-record a
     // partially enqueued neural graph. The embedding renderer owns
     // the fence/resource lifetime and must recreate this graph.
+    record_attempted=true;
+    if(!first->Record()||!vit->Record()||
+       !decoder->Record()||!second->Record())return false;
     recorded=true;
-    return first->Record()&&vit->Record()&&
-           decoder->Record()&&second->Record();
+    return true;
 }
 } // namespace Vulkan

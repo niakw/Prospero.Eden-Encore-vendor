@@ -26,6 +26,16 @@ public:
         NrRdna2NativeDecoderLink& decoder,
         NrRdna2SplitSwinRun& second);
     [[nodiscard]] bool Record();
+    [[nodiscard]] bool Ready() const noexcept{return ready;}
+    [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept {
+        return &scheduler;
+    }
+    [[nodiscard]] VkDescriptorBufferInfo PreparedInputRaster() const noexcept {
+        return ready&&first?first->SourceRaster():VkDescriptorBufferInfo{};
+    }
+    [[nodiscard]] VkDescriptorBufferInfo PreparedResult() const noexcept {
+        return ready&&second?second->Result():VkDescriptorBufferInfo{};
+    }
     [[nodiscard]] VkDescriptorBufferInfo Result() const noexcept {
         return recorded&&second?second->Result():VkDescriptorBufferInfo{};
     }
@@ -35,6 +45,6 @@ private:
     NrRdna2VitRun* vit{};
     NrRdna2NativeDecoderLink* decoder{};
     NrRdna2SplitSwinRun* second{};
-    bool ready{},recorded{};
+    bool ready{},record_attempted{},recorded{};
 };
 } // namespace Vulkan
