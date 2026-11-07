@@ -34,6 +34,18 @@ public:
     [[nodiscard]] VkDescriptorBufferInfo Result() const noexcept {
         return ready?result:VkDescriptorBufferInfo{};
     }
+    [[nodiscard]] bool Ready() const noexcept {return ready;}
+    [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept {
+        return &scheduler;
+    }
+    [[nodiscard]] VkDescriptorBufferInfo Input() const noexcept {
+        return ready?first_input:VkDescriptorBufferInfo{};
+    }
+    // First Split run: ProjPool primary C512 branch is retained as the
+    // decoder's learned skip while FinalHead C1024 enters ViT.
+    [[nodiscard]] VkDescriptorBufferInfo PrimaryResult() const noexcept {
+        return ready?primary_result:VkDescriptorBufferInfo{};
+    }
     [[nodiscard]] bool RequiresInputView() const noexcept {
         return ready&&input_view;
     }
@@ -50,7 +62,7 @@ private:
     vk::DescriptorSets raster_sets;
     Eden::Graphics::NeuralRDNA2::FSwinRasterLayout input_shape{},output_shape{};
     Eden::Graphics::NeuralRDNA2::FSwinRasterLayoutStorage input_sizes{},output_sizes{};
-    VkDescriptorBufferInfo result{};
+    VkDescriptorBufferInfo first_input{},primary_result{},result{};
     bool ready{},input_view{},output_view{};
 };
 } // namespace Vulkan

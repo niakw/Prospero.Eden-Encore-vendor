@@ -32,6 +32,16 @@ public:
         VkDescriptorBufferInfo tiled_split_skip,
         VkDescriptorBufferInfo tiled_output);
     [[nodiscard]] bool Record();
+    [[nodiscard]] bool Ready() const noexcept{return ready;}
+    [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept {
+        return &scheduler;
+    }
+    [[nodiscard]] VkDescriptorBufferInfo Input() const noexcept {
+        return ready?source:VkDescriptorBufferInfo{};
+    }
+    [[nodiscard]] VkDescriptorBufferInfo RawSplitSkip() const noexcept {
+        return ready?source_skip_windows:VkDescriptorBufferInfo{};
+    }
     [[nodiscard]] VkDescriptorBufferInfo Result() const noexcept {
         return ready?output:VkDescriptorBufferInfo{};
     }
@@ -48,6 +58,7 @@ private:
     vk::DescriptorSets descriptor_sets;
     std::unique_ptr<NrRdna2GpuWeights> weights,gain;
     VkDescriptorBufferInfo source{},linear{},scratch{},projected{},skip{},output{};
+    VkDescriptorBufferInfo source_skip_windows{};
     Eden::Graphics::NeuralRDNA2::DecoderProjectionBatches projection_plan{};
     Eden::Graphics::NeuralRDNA2::DecoderUpsample upsample_plan{};
     Eden::Graphics::NeuralRDNA2::DecoderStorage upsample_storage{};

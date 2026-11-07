@@ -142,6 +142,8 @@ bool NrRdna2SplitSwinRun::InitializeWithModel(
     output_shape=out_shape;
     input_sizes=in_sizes;
     output_sizes=out_sizes;
+    first_input=buffers.front().input;
+    primary_result=buffers.back().projected;
     result=has_output?destination_raster:proposed;
     input_view=has_input;
     output_view=has_output;

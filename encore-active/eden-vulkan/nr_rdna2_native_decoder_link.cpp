@@ -121,7 +121,7 @@ bool NrRdna2NativeDecoderLink::InitializeWithModel(
     upsample_storage=storage;
     source=input;linear=linear_input;scratch=transient;
     projected=fp16_projected;
-    skip=tiled_skip;output=target;
+    skip=tiled_skip;source_skip_windows=raw_skip;output=target;
     ready=true;
     return true;
 }

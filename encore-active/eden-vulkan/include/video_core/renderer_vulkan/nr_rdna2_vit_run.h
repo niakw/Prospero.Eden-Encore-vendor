@@ -29,6 +29,16 @@ public:
     [[nodiscard]] VkDescriptorBufferInfo Result() const noexcept {
         return ready?result:VkDescriptorBufferInfo{};
     }
+    [[nodiscard]] bool Ready() const noexcept{return ready;}
+    [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept {
+        return &scheduler;
+    }
+    [[nodiscard]] VkDescriptorBufferInfo SourceSplitTiles() const noexcept {
+        return ready&&has_incoming?incoming_source:VkDescriptorBufferInfo{};
+    }
+    [[nodiscard]] VkDescriptorBufferInfo DecoderTiles() const noexcept {
+        return ready&&has_outgoing?outgoing_target:VkDescriptorBufferInfo{};
+    }
     [[nodiscard]] std::uint32_t BlockCount() const noexcept{
         return static_cast<std::uint32_t>(blocks.size());
     }
