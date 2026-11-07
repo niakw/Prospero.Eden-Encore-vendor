@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace Eden::Graphics::NeuralRDNA2 {
