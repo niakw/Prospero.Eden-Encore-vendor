@@ -31,6 +31,8 @@ public:
     // destroy until the embedding scheduler has retired that timeline.
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
+    // Last reached whole-graph recording boundary; no proprietary data.
+    [[nodiscard]] std::string_view LastRecordPhaseName() const noexcept;
     [[nodiscard]] VkImageView ResultView() const noexcept {
         return recorded?output_view:VK_NULL_HANDLE;
     }
