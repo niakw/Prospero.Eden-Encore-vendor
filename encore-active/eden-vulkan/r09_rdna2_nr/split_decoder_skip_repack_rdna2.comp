@@ -1,0 +1,34 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Native Split-Swin 8x8-window -> decoder 4x4 token tile with
+// 16x16-channel packing. All padded tile words are zeroed every frame.
+layout(local_size_x=128,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer SplitSkip {uint words[];} source;
+layout(set=0,binding=1,std430) buffer DecoderSkip {uint words[];} destination;
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    uint windows_x;
+    uint windows_y;
+    uint channels;
+} pc;
+void main(){
+    uint cw=gl_GlobalInvocationID.x; // one packed 4-channel word
+    uint t=gl_WorkGroupID.y;         // 4x4 tile-major padded token
+    uint columns=(pc.width+3u)/4u;
+    uint tile=t/16u,slot=t%16u;
+    uint x=(tile%columns)*4u+slot%4u;
+    uint y=(tile/columns)*4u+slot/4u;
+    // Decoder uses at(token,c): 16-token x 16-channel subtiles.
+    uint target=((t/16u)*32u+cw/4u)*64u+
+                (t%16u)*4u+cw%4u;
+    if(x>=pc.width||y>=pc.height){
+        destination.words[target]=0u;
+        return;
+    }
+    uint window=(y/8u)*pc.windows_x+x/8u;
+    uint quadrant=((y%8u)/4u)*2u+(x%8u)/4u;
+    uint split_token=window*64u+quadrant*16u+
+                     (y%4u)*4u+x%4u;
+    destination.words[target]=source.words[split_token*128u+cw];
+}

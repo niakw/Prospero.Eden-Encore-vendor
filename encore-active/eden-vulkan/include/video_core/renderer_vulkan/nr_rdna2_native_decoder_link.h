@@ -3,6 +3,7 @@
 // -> FP8 output. All activation buffers are independent VkBuffers.
 #pragma once
 #include "video_core/renderer_vulkan/nr_rdna2_decoder_model_loader.h"
+#include "video_core/renderer_vulkan/nr_rdna2_split_decoder_skip_repack.h"
 #include "video_core/renderer_vulkan/nr_rdna2_decoder_fp32_to_fp16.h"
 #include "video_core/renderer_vulkan/nr_rdna2_decoder_upsample.h"
 #include "video_core/renderer_vulkan/nr_rdna2_projection.h"
@@ -25,6 +26,7 @@ public:
         VkDescriptorBufferInfo tiled_vit_input,
         VkDescriptorBufferInfo fp32_scratch,
         VkDescriptorBufferInfo fp16_projection,
+        VkDescriptorBufferInfo source_split_skip_windows,
         VkDescriptorBufferInfo tiled_split_skip,
         VkDescriptorBufferInfo tiled_output);
     [[nodiscard]] bool Record();
@@ -34,9 +36,11 @@ public:
 private:
     const Device& device;
     MemoryAllocator& allocator;
+    Scheduler& scheduler;
     NrRdna2Projection gemm;
     NrRdna2DecoderFp32ToFp16 fp16;
     NrRdna2DecoderUpsample upsample;
+    std::unique_ptr<NrRdna2SplitDecoderSkipRepack> skip_repack;
     vk::DescriptorPool descriptor_pool;
     vk::DescriptorSets descriptor_sets;
     std::unique_ptr<NrRdna2GpuWeights> weights,gain;

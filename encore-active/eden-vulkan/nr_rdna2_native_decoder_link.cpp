@@ -14,8 +14,9 @@ namespace {
 [[nodiscard]] bool DistinctBuffers(
     const Device& device,VkDescriptorBufferInfo a,
     VkDescriptorBufferInfo b,VkDescriptorBufferInfo c,
-    VkDescriptorBufferInfo d,VkDescriptorBufferInfo e){
-    const std::array<VkDescriptorBufferInfo,5> items{a,b,c,d,e};
+    VkDescriptorBufferInfo d,VkDescriptorBufferInfo e,
+    VkDescriptorBufferInfo f){
+    const std::array<VkDescriptorBufferInfo,6> items{a,b,c,d,e,f};
     for(std::size_t i=0;i<items.size();++i){
         const auto& item=items[i];
         if(!item.buffer||item.offset||!item.range||
@@ -30,17 +31,18 @@ namespace {
 }
 NrRdna2NativeDecoderLink::NrRdna2NativeDecoderLink(
     const Device& d,MemoryAllocator& a,Scheduler& s)
-    :device{d},allocator{a},gemm{d,s},fp16{d,s},upsample{d,s}{}
+    :device{d},allocator{a},scheduler{s},
+     gemm{d,s},fp16{d,s},upsample{d,s}{}
 NrRdna2NativeDecoderLink::~NrRdna2NativeDecoderLink()=default;
 bool NrRdna2NativeDecoderLink::InitializeWithModel(
     const NR::NeuralModelFile& model,
     std::uint32_t decoder_block,std::uint32_t width,std::uint32_t height,
     VkDescriptorBufferInfo input,VkDescriptorBufferInfo transient,
-    VkDescriptorBufferInfo fp16_projected,VkDescriptorBufferInfo residual,
-    VkDescriptorBufferInfo target){
-    if(ready||weights||gain||!model.IsOpen()||
+    VkDescriptorBufferInfo fp16_projected,VkDescriptorBufferInfo raw_skip,
+    VkDescriptorBufferInfo tiled_skip,VkDescriptorBufferInfo target){
+    if(ready||weights||gain||skip_repack||!model.IsOpen()||
        !DistinctBuffers(device,input,transient,fp16_projected,
-                        residual,target))
+                        raw_skip,tiled_skip,target))
         return false;
     NR::NativeDecoderModelWeights local;
     if(!NR::PrepareNativeDecoderModelWeights(
@@ -60,10 +62,19 @@ bool NrRdna2NativeDecoderLink::InitializeWithModel(
     // Native decoder input is the ViT's tiled C1024 tensor. The exact
     // source need only be 1980 valid tokens (33x60) although the
     // zero-padded tile envelope contains 2160 positions.
+    // The ProjPool primary skip is [window][64][512] row-major; the
+    // decoder expects packed 4x4 token tiles with 16x16 channel blocks.
+    // No CPU transfer; zero padded tokens before every decoder launch.
+    const NR::SplitDecoderSkipRepack skip_shape{
+        width,height,(width+7u)/8u,(height+7u)/8u,512u};
+    auto prepared_skip=std::make_unique<NrRdna2SplitDecoderSkipRepack>(
+        device,scheduler);
+    if(!prepared_skip->Initialize(skip_shape,raw_skip,tiled_skip))
+        return false;
     const NR::DecoderUpsample request{
         0u,0u,0u,0u,width,width,height};
     const NR::DecoderStorage storage{
-        fp16_projected.range,residual.range,target.range,
+        fp16_projected.range,tiled_skip.range,target.range,
         owned_gain->Size()};
     if(!NR::CanDecoderUpsample(request,storage))return false;
     auto pool=CreateWrappedDescriptorPool(
@@ -78,7 +89,7 @@ bool NrRdna2NativeDecoderLink::InitializeWithModel(
     const std::array<VkDescriptorBufferInfo,9> infos{
         input,owned_weights->Descriptor(),transient,
         transient,fp16_projected,
-        fp16_projected,residual,target,owned_gain->Descriptor()};
+        fp16_projected,tiled_skip,target,owned_gain->Descriptor()};
     std::array<VkWriteDescriptorSet,9> writes{};
     for(std::uint32_t i=0;i<9u;++i){
         const auto which=i<3u?0u:i<5u?1u:2u;
@@ -99,19 +110,21 @@ bool NrRdna2NativeDecoderLink::InitializeWithModel(
     descriptor_sets=std::move(sets);
     weights=std::move(owned_weights);
     gain=std::move(owned_gain);
+    skip_repack=std::move(prepared_skip);
     projection_plan=prepared;
     upsample_plan=request;
     upsample_storage=storage;
     source=input;scratch=transient;projected=fp16_projected;
-    skip=residual;output=target;
+    skip=tiled_skip;output=target;
     ready=true;
     return true;
 }
 bool NrRdna2NativeDecoderLink::Record(){
-    if(!ready||descriptor_sets.size()!=3u||
+    if(!ready||descriptor_sets.size()!=3u||!skip_repack||
        !NR::ValidDecoderProjectionBatches(projection_plan)||
        !NR::CanDecoderUpsample(upsample_plan,upsample_storage))
         return false;
+    if(!skip_repack->Record())return false;
     for(std::uint32_t i=0;i<projection_plan.count;++i){
         const auto& batch=projection_plan.slices[i];
         if(!gemm.Record(
