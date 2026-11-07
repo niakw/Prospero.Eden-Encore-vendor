@@ -2565,6 +2565,9 @@ std::optional<FramebufferTextureInfo> RasterizerVulkan::AccelerateDisplay(
     if (info.sampled_format == VK_FORMAT_UNDEFINED) {
         return {};
     }
+    // The neural texture proxy uses sampler2D, never sampler2DMS.
+    // Preserve the actual image sample count for its admission gate.
+    info.sample_count = image_view->Samples();
 #endif
     query_cache.NotifySegment(false);
 
