@@ -1,0 +1,81 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Learned image-boundary *feature* adapters. NOT a RGB/depth image decoder.
+// Stage 0: prepared FP16[16] -> FP8[32] with FP16[32,16] input_lift.
+// Stage 1: FP8[32] -> FP16[16] with FP16[16,32] out_project.
+// Each token is precisely 32 bytes on both sides, no format aliasing.
+layout(local_size_x=64,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer FeatureInput {uint words[];} features;
+layout(set=0,binding=1,std430) readonly buffer ModelMatrix {uint words[];} weights;
+layout(set=0,binding=2,std430) writeonly buffer FeatureOutput {uint words[];} result;
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    uint direction;
+} pc;
+float decode_fp8(uint raw) {
+    uint e=(raw>>3u)&15u,m=raw&7u;
+    float sign=(raw&128u)!=0u?-1.0:1.0;
+    if(e==15u&&m==7u)return uintBitsToFloat(0x7fc00000u);
+    if(e==0u)return sign*float(m)*exp2(-9.0);
+    return sign*float(8u+m)*exp2(float(int(e)-10));
+}
+uint quant_fp8(float value) {
+    uint sign=(floatBitsToUint(value)>>24u)&128u;
+    if(isnan(value))return sign|127u;
+    float a=min(abs(value),448.0);
+    if(a<0.015625) {
+        uint m=uint(roundEven(a*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int e=int(floor(log2(a)));
+    uint m=uint(roundEven((a/exp2(float(e))-1.0)*8.0));
+    if(m==8u){++e;m=0u;}
+    uint exponent=uint(e+7);
+    if(exponent>15u||(exponent==15u&&m>6u))return sign|126u;
+    return sign|(exponent<<3u)|m;
+}
+float read_half(uint word,uint channel) {
+    vec2 halves=unpackHalf2x16(word);
+    return (channel&1u)==0u?halves.x:halves.y;
+}
+void main(){
+    uint x=gl_GlobalInvocationID.x,y=gl_WorkGroupID.y;
+    if(x>=pc.width||y>=pc.height)return;
+    uint pixel=y*pc.width+x;
+    if(pc.direction==0u) {
+        for(uint group=0u;group<8u;++group){
+            uint encoded=0u;
+            for(uint j=0u;j<4u;++j){
+                uint out_channel=group*4u+j;
+                float value=0.0;
+                for(uint in_channel=0u;in_channel<16u;++in_channel){
+                    float a=read_half(features.words[pixel*8u+in_channel/2u],
+                                      in_channel);
+                    uint weight_word=(out_channel*16u+in_channel)/2u;
+                    float w=read_half(weights.words[weight_word],in_channel);
+                    value=fma(a,w,value);
+                }
+                encoded|=quant_fp8(value)<<(j*8u);
+            }
+            result.words[pixel*8u+group]=encoded;
+        }
+    }else{
+        for(uint group=0u;group<8u;++group){
+            vec2 values=vec2(0.0);
+            for(uint j=0u;j<2u;++j){
+                uint out_channel=group*2u+j;
+                float value=0.0;
+                for(uint in_channel=0u;in_channel<32u;++in_channel){
+                    uint data=features.words[pixel*8u+in_channel/4u];
+                    float a=decode_fp8((data>>((in_channel%4u)*8u))&255u);
+                    uint wi=(out_channel*32u+in_channel)/2u;
+                    float w=read_half(weights.words[wi],in_channel);
+                    value=fma(a,w,value);
+                }
+                values[j]=value;
+            }
+            result.words[pixel*8u+group]=packHalf2x16(values);
+        }
+    }
+}
