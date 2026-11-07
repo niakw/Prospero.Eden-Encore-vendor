@@ -168,6 +168,7 @@ bool NrRdna2FrameSession::Initialize(
     VkExtent2D target_extent,float paper_white,float intensity){
     if(attempted)return false;
     attempted=true;
+    init_phase="arguments";
     if(model_path.empty()||native_plan.empty()||
        guest_view==VK_NULL_HANDLE||guest_sampler==VK_NULL_HANDLE||
        target_view==VK_NULL_HANDLE||
@@ -183,6 +184,7 @@ bool NrRdna2FrameSession::Initialize(
                    guest_format==VK_FORMAT_R32G32B32A32_SFLOAT;
     if((!ldr&&!hdr)||
        target_format!=VK_FORMAT_R32G32B32A32_SFLOAT)return false;
+    init_phase="cpu_model_plan_preflight";
     NR::R09SessionCPUPlan checked{};
     if(!NR::PreflightR09Session(
            model_path,native_plan,guest_extent.width,guest_extent.height,
@@ -190,6 +192,7 @@ bool NrRdna2FrameSession::Initialize(
        !NR::ValidateR09LearnedUpsampleInputs(checked))return false;
     const auto width=checked.raster_width,height=checked.raster_height;
     const auto n=std::uint64_t(width)*height;
+    init_phase="vulkan_state_allocate";
     auto candidate=std::make_unique<State>(device,allocator,scheduler);
     auto& q=*candidate;
     q.model=std::move(checked.model);
@@ -197,6 +200,7 @@ bool NrRdna2FrameSession::Initialize(
     q.graph=std::move(checked.graph);
     q.routes=std::move(checked.routes);
     q.vit_route=std::move(checked.vit_route);
+    init_phase="fswin_native_segments";
     for(std::size_t i=0u;i<4u;++i){
         q.down_chains[i]=std::make_unique<NrRdna2FSwinChain>(
             device,allocator,scheduler);
@@ -209,6 +213,7 @@ bool NrRdna2FrameSession::Initialize(
     }
     // Distinct GPU storage for all independent stage views. No aliases,
     // no readback, and no proprietary model data included in the binary.
+    init_phase="preblock_and_texture";
     const auto proxy=q.Make(n*16u),feature16=q.Make(n*32u),
                lifted=q.Make(n*32u),full_skip=q.Make(n*32u),
                raw_pre=q.Make(n*64u),
@@ -225,6 +230,7 @@ bool NrRdna2FrameSession::Initialize(
        !q.pre.PrepareWithPool(
            q.model,q.plan,feature16,lifted,full_skip,raw_pre,
            first_half))return false;
+    init_phase="unet_down_buffers";
     std::array<NrRdna2SkipRasterDimensions,4> skip_dims{};
     std::array<const NR::NativeUNetSkipEdge*,4> down_edges{},up_edges{};
     for(std::size_t i=0u;i<4u;++i){
@@ -258,6 +264,7 @@ bool NrRdna2FrameSession::Initialize(
 
     // Split-Swin run0 receives exactly C512 down output and publishes
     // a padded 1024-channel FinalHead; its other output is decoder skip.
+    init_phase="first_split_swin";
     std::vector<NrRdna2SplitSwinBlockBuffers> split0_buffers;
     if(!q.MakeFirstSplitBuffers(0u,{},split0_buffers)||
        !q.first.InitializeWithModel(
@@ -265,6 +272,7 @@ bool NrRdna2FrameSession::Initialize(
          std::span<const NrRdna2SplitSwinBlockBuffers>{
              split0_buffers.data(),split0_buffers.size()},
          down_output[3],{}))return false;
+    init_phase="vit_blocks";
     std::vector<NrRdna2VitBlockBuffers> vit_buffers;
     if(!q.MakeVitBuffers(vit_buffers))return false;
     const auto decoder_tiles=q.Make(
@@ -278,6 +286,7 @@ bool NrRdna2FrameSession::Initialize(
         return false;
     // Decoder consumes padded ViT C1024, applies a learned
     // C1024->C512 projection and a native Split skip.
+    init_phase="native_decoder";
     const std::uint64_t valid=
         std::uint64_t(q.vit_route.raster_width)*
         q.vit_route.raster_height;
@@ -296,6 +305,7 @@ bool NrRdna2FrameSession::Initialize(
            decoder_tiles,linear,fp32,half,
            q.first.PrimaryResult(),skip_tiled,decoder_output))
         return false;
+    init_phase="second_split_swin";
     std::vector<NrRdna2SplitSwinBlockBuffers> split1_buffers;
     if(!q.MakeFirstSplitBuffers(1u,decoder_output,split1_buffers))
         return false;
@@ -308,6 +318,7 @@ bool NrRdna2FrameSession::Initialize(
        !q.bottleneck.Bind(
            q.routes,q.vit_route,q.first,q.vit,q.decoder,q.second))
         return false;
+    init_phase="unet_up_buffers";
     // Four learned upsample edges, with every FSwin chain already
     // initialized before the global orchestrator's transactional preflight.
     for(std::size_t i=0u;i<4u;++i){
@@ -318,6 +329,7 @@ bool NrRdna2FrameSession::Initialize(
             edge.skip_width*edge.channels);
         if(!q.up_outputs[i].buffer)return false;
     }
+    init_phase="postblock_and_output_image";
     q.post_mixed=q.Make(n*32u);
     q.post_swin=q.Make(n*32u);
     q.post_raw=q.Make(n*64u);
@@ -335,6 +347,7 @@ bool NrRdna2FrameSession::Initialize(
     state=std::move(candidate);
     output_view=target_view;
     ready=true;
+    init_phase="completed";
     return true;
 }
 std::string_view NrRdna2FrameSession::LastRecordPhaseName() const noexcept {
