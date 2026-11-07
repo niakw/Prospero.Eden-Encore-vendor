@@ -198,8 +198,12 @@ bool NrRdna2FrameSession::Initialize(
         return false;
     const auto n=std::uint64_t(width)*height;
     if(n>16384ull*16384u||n*64u>(256ull<<20))return false;
+    // Match the actual framebuffer's packed RGBA8888 format as well as
+    // the two byte-component UNORM formats. TextureProxy already admits
+    // all three; refusing packed RGBA here disabled common real games.
     const bool ldr=guest_format==VK_FORMAT_R8G8B8A8_UNORM||
-                   guest_format==VK_FORMAT_B8G8R8A8_UNORM;
+                   guest_format==VK_FORMAT_B8G8R8A8_UNORM||
+                   guest_format==VK_FORMAT_A8B8G8R8_UNORM_PACK32;
     const bool hdr=guest_format==VK_FORMAT_R16G16B16A16_SFLOAT||
                    guest_format==VK_FORMAT_R32G32B32A32_SFLOAT;
     if(!ldr&&!hdr)return false;
