@@ -43,8 +43,10 @@ bool NrRdna2DecoderUpsample::Record(
        !Eden::Graphics::NeuralRDNA2::CanDecoderUpsample(request,storage))return false;
     const VkPipeline native_pipeline=*pipeline;
     const VkPipelineLayout native_layout=*layout;
+    // Launch over the padded 4x4 token grid so border tokens are cleared.
+    // The host policy bounds the entire read/write domain before recording.
     const u32 group_x=static_cast<u32>(
-        (std::uint64_t(request.output_width)*request.output_height+63u)/64u);
+        (Eden::Graphics::NeuralRDNA2::DecoderOutputTileTokens(request)+63u)/64u);
     scheduler.RequestOutsideRenderPassOperationContext();
     scheduler.Record([validated_set,native_pipeline,native_layout,
                       group_x,request](vk::CommandBuffer cmd){
