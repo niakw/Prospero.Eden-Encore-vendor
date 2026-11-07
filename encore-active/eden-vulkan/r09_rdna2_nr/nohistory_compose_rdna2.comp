@@ -1,0 +1,44 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// R09 first-frame image head: RGB residual from the native postblock.
+// Input is a VERIFIED normalized display proxy, not raw HDR or a swapchain.
+// No previous-frame history, motion reprojection or fake temporal blending.
+layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
+layout(std430,set=0,binding=0) readonly buffer NormalizedProxy {
+    vec4 pixels[];
+} proxy;
+layout(std430,set=0,binding=1) readonly buffer FinalFeatures {
+    uint packed[];
+} features;
+layout(std430,set=0,binding=2) writeonly buffer ColorOutput {
+    vec4 pixels[];
+} output_color;
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    float intensity;
+    uint reserved;
+} pc;
+bool finite3(vec3 x) {
+    return !any(isnan(x)) && !any(isinf(x));
+}
+void main() {
+    uvec2 p=gl_GlobalInvocationID.xy;
+    if(p.x>=pc.width||p.y>=pc.height)return;
+    uint idx=p.y*pc.width+p.x;
+    vec4 input_pixel=proxy.pixels[idx];
+    vec3 base=finite3(input_pixel.rgb)?
+        clamp(input_pixel.rgb,vec3(0.0),vec3(1.0)):vec3(0.0);
+    // The learned out_project has 16 FP16 result lanes per pixel.
+    // Its first three lanes are the RGB residual, not alpha or HDR.
+    // All other lanes remain available to the model, not to this shader.
+    uint word=idx*8u;
+    vec2 r01=unpackHalf2x16(features.packed[word]);
+    float r2=unpackHalf2x16(features.packed[word+1u]).x;
+    vec3 delta=vec3(r01,r2);
+    vec3 neural=finite3(delta)?clamp(base+delta*0.25,0.0,1.0):base;
+    vec3 rgb=clamp(mix(base,neural,pc.intensity),0.0,1.0);
+    float alpha=(isnan(input_pixel.a)||isinf(input_pixel.a))?
+        1.0:clamp(input_pixel.a,0.0,1.0);
+    output_color.pixels[idx]=vec4(rgb,alpha);
+}
