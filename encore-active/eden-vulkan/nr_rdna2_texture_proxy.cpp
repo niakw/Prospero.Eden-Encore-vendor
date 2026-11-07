@@ -50,7 +50,8 @@ bool NrRdna2TextureProxy::Initialize(
     // and accepting a random texture as HDR would corrupt the proxy.
     const bool ldr=request.color_mode==0u &&
         (format==VK_FORMAT_R8G8B8A8_UNORM||
-         format==VK_FORMAT_B8G8R8A8_UNORM);
+         format==VK_FORMAT_B8G8R8A8_UNORM||
+         format==VK_FORMAT_A8B8G8R8_UNORM_PACK32);
     const bool hdr=request.color_mode==1u &&
         (format==VK_FORMAT_R16G16B16A16_SFLOAT||
          format==VK_FORMAT_R32G32B32A32_SFLOAT);
