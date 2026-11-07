@@ -365,7 +365,6 @@ bool NrRdna2FrameSession::Initialize(
            {width,height,0u,0u},
            image,target_view,target_format,target_extent))
         return false;
-    q.up_outputs=q.up_outputs;
     state=std::move(candidate);
     output_view=target_view;
     ready=true;
