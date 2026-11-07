@@ -24,11 +24,14 @@ static inline Settings::AntiAliasing GetAntiAliasingForAppletCapture() {
 struct PresentFilters {
     Settings::ScalingFilter (*get_scaling_filter)();
     Settings::AntiAliasing (*get_anti_aliasing)();
+    // Display/capture uses the selected game's R09; launcher/applets never do.
+    bool allow_game_neural_rendering = false;
 };
 
 constexpr PresentFilters PresentFiltersForDisplay{
     .get_scaling_filter = &GetScalingFilter,
     .get_anti_aliasing = &GetAntiAliasing,
+    .allow_game_neural_rendering = true,
 };
 
 constexpr PresentFilters PresentFiltersForAppletCapture{
