@@ -32,6 +32,9 @@ public:
     // destroy until the embedding scheduler has retired that timeline.
     [[nodiscard]] bool Record();
     [[nodiscard]] bool Ready() const noexcept{return ready;}
+    [[nodiscard]] const Scheduler* SchedulerIdentity() const noexcept {
+        return &scheduler;
+    }
     // Last reached whole-graph recording boundary; no proprietary data.
     [[nodiscard]] std::string_view LastRecordPhaseName() const noexcept;
     // CPU preparation boundary reached, including a failed Initialize.
