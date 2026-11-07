@@ -1,0 +1,62 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Native postblock 69->70 (29->30): main C32 2x upsample + preblock
+// C32 skip with independent local FP16[32] gains. No RGB presentation.
+layout(local_size_x=64,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer LowC32 {uint words[];} low_c32;
+layout(set=0,binding=1,std430) readonly buffer SkipC32 {uint words[];} skip_c32;
+layout(set=0,binding=2,std430) readonly buffer PostGains {uint words[];} gains;
+layout(set=0,binding=3,std430) writeonly buffer FullC32 {uint words[];} full_c32;
+layout(push_constant) uniform Params {uint width;uint height;} pc;
+float decode_fp8(uint raw){
+    uint e=(raw>>3u)&15u,m=raw&7u;
+    float sign=(raw&128u)!=0u?-1.0:1.0;
+    if(e==15u&&m==7u)return uintBitsToFloat(0x7fc00000u);
+    if(e==0u)return sign*float(m)*exp2(-9.0);
+    return sign*float(8u+m)*exp2(float(int(e)-10));
+}
+uint quant_fp8(float value){
+    uint sign=(floatBitsToUint(value)>>24u)&128u;
+    if(isnan(value))return sign|127u;
+    float a=min(abs(value),448.0);
+    if(a<0.015625){
+        uint m=uint(roundEven(a*512.0));
+        return sign|(m>=8u?8u:m);
+    }
+    int e=int(floor(log2(a)));
+    uint m=uint(roundEven((a/exp2(float(e))-1.0)*8.0));
+    if(m==8u){++e;m=0u;}
+    uint exponent=uint(e+7);
+    if(exponent>15u||(exponent==15u&&m>6u))return sign|126u;
+    return sign|(exponent<<3u)|m;
+}
+float half_at(uint word,uint lane){
+    vec2 halves=unpackHalf2x16(word);
+    return (lane&1u)==0u?halves.x:halves.y;
+}
+float round_half(float value){
+    return unpackHalf2x16(packHalf2x16(vec2(value,0.0))).x;
+}
+void main(){
+    uint x=gl_GlobalInvocationID.x,y=gl_WorkGroupID.y;
+    if(x>=pc.width||y>=pc.height)return;
+    uint low_pixel=(y/2u)*(pc.width/2u)+(x/2u);
+    uint pixel=y*pc.width+x;
+    for(uint group=0u;group<8u;++group){
+        uint encoded=0u;
+        uint lw=low_c32.words[low_pixel*8u+group];
+        uint sw=skip_c32.words[pixel*8u+group];
+        for(uint k=0u;k<4u;++k){
+            uint c=group*4u+k;
+            float main=decode_fp8((lw>>(k*8u))&255u);
+            float skip=decode_fp8((sw>>(k*8u))&255u);
+            float gm=half_at(gains.words[c/2u],c);
+            float gs=half_at(gains.words[16u+c/2u],c);
+            float a=round_half(main*gm);
+            float b=round_half(skip*gs);
+            float value=round_half(a+b);
+            encoded|=quant_fp8(value)<<(k*8u);
+        }
+        full_c32.words[pixel*8u+group]=encoded;
+    }
+}
