@@ -76,7 +76,8 @@ bool NrRdna2PreblockPool::Record(){
     if(!ready||record_attempted||sets.size()!=1u||
        !NR::CanPreblockPool(shape,storage))return false;
     record_attempted=true;
-    const auto native=*pipeline,native_layout=*layout;
+    const VkPipeline native=*pipeline;
+    const VkPipelineLayout native_layout=*layout;
     const auto set=sets[0],pc=shape;
     const auto gx=(shape.width/2u+7u)/8u;
     const auto gy=(shape.height/2u+7u)/8u;
