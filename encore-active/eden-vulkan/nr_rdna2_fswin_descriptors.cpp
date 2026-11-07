@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_descriptors.h"
+#include "video_core/renderer_vulkan/nr_rdna2_fswin_qkv_alias_policy.h"
 #include "video_core/renderer_vulkan/present/util.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include <array>
@@ -16,16 +17,35 @@ bool ValidFSwinBuffers(
     const std::array<VkDescriptorBufferInfo,10> all{
         b.input,b.expanded,b.middle,b.contracted,b.query,b.key,
         b.value,b.context,b.output,b.weights};
+    // Exact, disjoint subranges only: partial aliasing or an overlapping
+    // Q/K/V view must never reach a Vulkan descriptor update.
+    const bool reused=b.query.buffer==b.expanded.buffer||
+                      b.key.buffer==b.expanded.buffer||
+                      b.value.buffer==b.expanded.buffer;
+    if(reused &&
+       (b.query.buffer!=b.expanded.buffer||
+        b.key.buffer!=b.expanded.buffer||
+        b.value.buffer!=b.expanded.buffer||
+        !Eden::Graphics::NeuralRDNA2::CanFSwinQkvReuseExpanded(
+            {b.query.range,b.key.range,b.value.range,b.expanded.range})||
+        b.query.offset!=0u||
+        b.key.offset!=b.query.range||
+        b.value.offset!=b.query.range+b.key.range))
+        return false;
     for(std::size_t i=0;i<all.size();++i){
         if(i==2u&&c32)continue;
-        if(!all[i].buffer||all[i].offset!=0u||
+        const bool qkv=i>=4u&&i<=6u;
+        if(!all[i].buffer||(all[i].offset!=0u&&!(reused&&qkv))||
            !all[i].range||all[i].range==VK_WHOLE_SIZE||
            all[i].range>max_range)return false;
-        // Writable intermediates and the immutable model buffer may
-        // not alias (storage ownership is the caller's responsibility).
+        // Expanded is dead at QKV time, but Q, K and V are read
+        // concurrently by attention: only their exact disjoint views
+        // may share storage. Every other buffer pair remains isolated.
         for(std::size_t j=0;j<i;++j){
             if(j==2u&&c32)continue;
-            if(all[j].buffer==all[i].buffer)return false;
+            if(all[j].buffer==all[i].buffer &&
+               !(reused&&qkv&&(j==1u||(j>=4u&&j<=6u))))
+                return false;
         }
     }
     const auto fits=[](const VkDescriptorBufferInfo& info,
