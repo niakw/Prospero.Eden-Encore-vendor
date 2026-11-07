@@ -66,6 +66,11 @@ public:
     [[nodiscard]] VkDescriptorBufferInfo ResultHalfC32() const noexcept {
         return recorded&&has_pool?pool.Result():VkDescriptorBufferInfo{};
     }
+    // Prepared full-resolution skip storage, safe to bind before GPU work.
+    // Its pixels have not been computed until successful Record.
+    [[nodiscard]] VkDescriptorBufferInfo PreparedFullSkip() const noexcept{
+        return ready?body.ResultRaster():VkDescriptorBufferInfo{};
+    }
     // The full-res preblock skip (not the half-res U-Net input).
     [[nodiscard]] VkDescriptorBufferInfo ResultFullSkip() const noexcept{
         return recorded?body.ResultRaster():VkDescriptorBufferInfo{};
