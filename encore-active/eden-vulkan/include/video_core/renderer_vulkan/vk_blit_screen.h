@@ -42,6 +42,10 @@ struct Frame;
 struct FramebufferTextureInfo {
     VkImage image{};
     VkImageView image_view{};
+    // The sampled native image's exact view format and sample count are
+    // needed for strict neural LDR/HDR and MSAA source admission.
+    VkFormat sampled_format{VK_FORMAT_UNDEFINED};
+    VkSampleCountFlagBits sample_count{VK_SAMPLE_COUNT_1_BIT};
     u32 width{};
     u32 height{};
     u32 scaled_width{};
