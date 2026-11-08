@@ -221,18 +221,8 @@ void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
 
 std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
 IGpuSession::ResolveOpenedAddressSpace(u32 id) {
-    if (!id || id > static_cast<u32>(std::numeric_limits<std::int32_t>::max()) ||
-        m_module->VerifyFD(static_cast<Nvidia::DeviceFD>(id)) != Nvidia::NvResult::Success)
-        return {};
-    const auto it = m_opened_gpu_as.find(id);
-    if (it == m_opened_gpu_as.end()) return {};
-    const auto as = it->second.lock();
-    // Module::GetDevice<T> is a static cast. For a potentially recycled FD,
-    // query ONLY the nvdevice base and compare the exact object identity.
-    const auto live = m_module->GetDevice<Nvidia::Devices::nvdevice>(
-        static_cast<Nvidia::DeviceFD>(id));
-    return as && live && as.get() == live.get() &&
-                   as->OwnsNativeProcess(m_process) ? as : nullptr;
+    // The worker's independent KSession uses the same shared FD identity.
+    return m_shared->FindOwnedAddressSpace(id);
 }
 
 Result IGpuSession::RegisterAddressSpace(u32 id) {
@@ -301,7 +291,7 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
                         const u32 candidate = static_cast<u32>(fd);
                         try {
                             const auto [it, inserted] =
-                                m_opened_gpu_as.try_emplace(candidate, as);
+                                m_shared->opened_gpu_as.try_emplace(candidate, as);
                             if (!inserted) {
                                 result = Kernel::ResultInvalidState;
                             } else {
@@ -310,7 +300,7 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
                                     id = candidate;
                                     result = ResultSuccess;
                                 } else {
-                                    m_opened_gpu_as.erase(it);
+                                    m_shared->opened_gpu_as.erase(it);
                                     result = Translate(status);
                                 }
                             }

@@ -43,9 +43,8 @@ private:
     std::shared_ptr<GpuWorkerSharedState> m_shared;
     Kernel::KProcess* const m_process;
     Kernel::KClientSession* m_worker{};
-    // Capture the actual device identity at Open("/dev/nvhost-as-gpu").
-    // Do not reinterpret a recycled numeric FD as nvhost_as_gpu later.
-    std::map<u32, std::weak_ptr<Nvidia::Devices::nvhost_as_gpu>> m_opened_gpu_as;
+    // Device identities live in GpuWorkerSharedState so moved worker
+    // handles retain the same validated NVDRV object after this session dies.
 
 };
 } // namespace Service::AM

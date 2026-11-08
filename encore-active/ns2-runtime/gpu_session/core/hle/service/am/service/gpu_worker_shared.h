@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <map>
 #include <mutex>
 #include <optional>
 
@@ -15,7 +16,7 @@
 #include "core/hle/service/kernel_helpers.h"
 
 namespace Kernel { class KEvent; class KProcess; }
-namespace Service::Nvidia { class Module; }
+namespace Service::Nvidia { class Module; namespace Devices { class nvhost_as_gpu; } }
 namespace Service::AM {
 
 struct GpuWorkerSharedState {
@@ -30,6 +31,13 @@ struct GpuWorkerSharedState {
     std::mutex mutex;
     GpuSessionProtocol::DeviceSlots devices;
     GpuSessionProtocol::AddressSpaceSlots address_spaces;
+    // Preserve the original nvhost-as-gpu OBJECT identity across all moved
+    // GPU worker KSessions. A numeric NVDRV FD alone can be recycled and
+    // GetDevice<nvhost_as_gpu> is a static_cast, not a type check.
+    std::map<u32, std::weak_ptr<Nvidia::Devices::nvhost_as_gpu>> opened_gpu_as;
+    // Caller holds mutex except during final shared-state destruction.
+    [[nodiscard]] std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
+    FindOwnedAddressSpace(u32 id) const;
     KernelHelpers::ServiceContext event_context;
     std::array<Kernel::KEvent*, GpuSessionProtocol::MaxNotificationEvents> events{};
     std::shared_ptr<Nvidia::Module> module;

@@ -140,8 +140,11 @@ IGpuWorker::~IGpuWorker() {
         if (mapping.sparse && dense != m_dense_regions.end() &&
             dense->second.gmmu_released)
             continue;
-        const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
-            static_cast<Nvidia::DeviceFD>(mapping.address_space));
+        std::shared_ptr<Nvidia::Devices::nvhost_as_gpu> as;
+        {
+            const std::scoped_lock lock{m_shared->mutex};
+            as = m_shared->FindOwnedAddressSpace(mapping.address_space);
+        }
         if (as && (mapping.sparse
                        ? as->ReleaseNativeSparse4K(mapping.address, mapping.size)
                        : as->UnmapNative4K(mapping.address, mapping.size)) !=
@@ -276,8 +279,7 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size) {
         entry.handle = handle->id;
         entry.destination_pages = address / Kernel::PageSize;
         entry.pages = size / Kernel::PageSize;
-        const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
-            static_cast<Nvidia::DeviceFD>(address_space));
+        const auto as = m_shared->FindOwnedAddressSpace(address_space);
         committed = as && as->RemapNativeSparse(std::span{&entry, size_t{1}}) ==
                                Nvidia::NvResult::Success;
     }
@@ -396,7 +398,7 @@ void IGpuWorker::NormalMapGpuMemory4K(HLERequestContext& ctx) {
                 result = TranslateMappingStatus(preflight);
                 if (preflight == GW::LedgerStatus::Success) {
                     result = Kernel::ResultInvalidState;
-                    const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
+                    const auto as = m_shared->FindOwnedAddressSpace(
                         static_cast<Nvidia::DeviceFD>(request->address_space));
                     if (as && as->MapNative4K(request->memory, request->address,
                                                 request->memory_offset, request->size,
@@ -437,7 +439,7 @@ void IGpuWorker::NormalModifyGpuMemory4K(HLERequestContext& ctx) {
             result = TranslateMappingStatus(preflight);
             if (preflight == GW::LedgerStatus::Success) {
                 result = Kernel::ResultInvalidState;
-                const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
+                const auto as = m_shared->FindOwnedAddressSpace(
                     static_cast<Nvidia::DeviceFD>(request->address_space));
                 if (as && as->ModifyNativeKind(request->address, request->size,
                                                 request->backend_kind) ==
@@ -470,7 +472,7 @@ void IGpuWorker::NormalUnmapGpuMemory4K(HLERequestContext& ctx) {
             result = TranslateMappingStatus(preflight);
             if (preflight == GW::LedgerStatus::Success) {
                 result = Kernel::ResultInvalidState;
-                const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
+                const auto as = m_shared->FindOwnedAddressSpace(
                     static_cast<Nvidia::DeviceFD>(request->address_space));
                 if (as && as->UnmapNative4K(request->address, request->size) ==
                                   Nvidia::NvResult::Success) {
@@ -511,7 +513,7 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
                 result = TranslateMappingStatus(preflight);
                 if (preflight == GW::LedgerStatus::Success) {
                     result = Kernel::ResultInvalidState;
-                    const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
+                    const auto as = m_shared->FindOwnedAddressSpace(
                         static_cast<Nvidia::DeviceFD>(request->address_space));
                     if (as && as->ReserveNativeSparse4K(request->begin, size) ==
                                   Nvidia::NvResult::Success) {
@@ -576,7 +578,7 @@ void IGpuWorker::DestroySparseRegion(HLERequestContext& ctx) {
             result = TranslateMappingStatus(preflight);
             if (preflight == GW::LedgerStatus::Success) {
                 result = Kernel::ResultInvalidState;
-                const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
+                const auto as = m_shared->FindOwnedAddressSpace(
                     static_cast<Nvidia::DeviceFD>(request->address_space));
                 if (as) {
                     auto dense = m_dense_regions.find(
@@ -686,7 +688,7 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
                     }
                     if (result.IsSuccess()) {
                         result = Kernel::ResultInvalidState;
-                        const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(
+                        const auto as = m_shared->FindOwnedAddressSpace(
                             static_cast<Nvidia::DeviceFD>(request->address_space));
                         if (as && as->RemapNativeSparse(staged) == Nvidia::NvResult::Success) {
                             processed = request->count;
