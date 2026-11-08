@@ -284,8 +284,17 @@ void IGraphicsVideoDecoderSession::RegisterBuffer(HLERequestContext& ctx) {
         Acknowledge(ctx, Kernel::ResultOutOfResource);
         return;
     }
-    m_registered.insert(image);
-    m_available.push_back({image, std::nullopt});
+    // Both owning containers can allocate. Do not publish a reserved
+    // completion fence for a surface that failed to enter the queue.
+    try {
+        m_registered.insert(image);
+        m_available.push_back({image, std::nullopt});
+    } catch (const std::bad_alloc&) {
+        m_registered.erase(image);
+        --m_reserved_value;
+        Acknowledge(ctx, Kernel::ResultOutOfResource);
+        return;
+    }
     IPC::ResponseBuilder rb{ctx, 6};
     rb.Push(ResultSuccess);
     for (const u32 word : *fence) rb.Push(word);
@@ -314,9 +323,18 @@ void IGraphicsVideoDecoderSession::ReleaseBuffer(HLERequestContext& ctx) {
         Acknowledge(ctx, Kernel::ResultOutOfResource);
         return;
     }
+    // Allocate the return-to-decoder queue entry BEFORE surrendering the
+    // guest's ownership. On OOM it keeps its image and release fence, and
+    // the just-reserved completion value is rolled back.
+    try {
+        m_available.push_back({image, release_id == NoSyncpoint
+            ? std::nullopt : std::optional<ReleaseFence>{{release_id, release_value}}});
+    } catch (const std::bad_alloc&) {
+        --m_reserved_value;
+        Acknowledge(ctx, Kernel::ResultOutOfResource);
+        return;
+    }
     m_guest_owned.erase(image);
-    m_available.push_back({image, release_id == NoSyncpoint
-        ? std::nullopt : std::optional<ReleaseFence>{{release_id, release_value}}});
     IPC::ResponseBuilder rb{ctx, 6};
     rb.Push(ResultSuccess);
     for (const u32 word : *fence) rb.Push(word);
