@@ -116,6 +116,11 @@ public:
     ~PipelineCache();
 
     [[nodiscard]] GraphicsPipeline* CurrentGraphicsPipeline();
+    // Shared 1x/2x/4x/8x/16x selector. The default NS1 path calls this
+    // with VK_SAMPLE_COUNT_1_BIT; PS5-native retains authenticated GMMU
+    // shader capture and the strict forced-MSAA admission path.
+    [[nodiscard]] GraphicsPipeline* CurrentGraphicsPipelineForMsaa(
+        VkSampleCountFlagBits requested_samples);
 
     [[nodiscard]] ComputePipeline* CurrentComputePipeline();
 

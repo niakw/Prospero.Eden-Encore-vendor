@@ -838,6 +838,8 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
     return CurrentGraphicsPipelineForMsaa(VK_SAMPLE_COUNT_1_BIT);
 }
 
+GraphicsPipeline* PipelineCache::CurrentGraphicsPipelineForMsaa(
+    VkSampleCountFlagBits requested_samples) {
 #ifdef PS5_NATIVE
     // A real 0xC797 GPU bind, never title/firmware heuristics, chooses the
     // native 128-bit shader reader. RefreshStages interprets 64-bit Maxwell
@@ -932,8 +934,6 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
     }
     if (!stages_valid) {
 #else
-GraphicsPipeline* PipelineCache::CurrentGraphicsPipelineForMsaa(
-    VkSampleCountFlagBits requested_samples) {
     if (!RefreshStages(graphics_key.unique_hashes)) {
 #endif
         current_pipeline = nullptr;
