@@ -14,6 +14,7 @@
 #include <span>
 #include "common/swap.h"
 #include <mutex>
+#include <new>
 #include "core/core.h"
 #include "core/hle/kernel/svc_results.h"
 #include "core/hle/kernel/k_process.h"
@@ -280,15 +281,30 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
                         m_module->Close(fd);
                         result = Kernel::ResultInvalidState;
                     } else {
-                        const auto status = m_shared->address_spaces.Add(static_cast<u32>(fd));
-                        if (status == GP::Status::Success) {
-                            id = static_cast<u32>(fd);
-                            m_opened_gpu_as[id] = as;
-                            result = ResultSuccess;
-                        } else {
-                            result = Translate(status);
-                            m_module->Close(fd);
+                        // The identity map may allocate, while AddressSpaceSlots
+                        // is a fixed-size, non-allocating registry. Reserve the
+                        // fallible map node FIRST: an OOM must not leave a live
+                        // NVDRV FD in the process registry without an owner.
+                        const u32 candidate = static_cast<u32>(fd);
+                        try {
+                            const auto [it, inserted] =
+                                m_opened_gpu_as.try_emplace(candidate, as);
+                            if (!inserted) {
+                                result = Kernel::ResultInvalidState;
+                            } else {
+                                const auto status = m_shared->address_spaces.Add(candidate);
+                                if (status == GP::Status::Success) {
+                                    id = candidate;
+                                    result = ResultSuccess;
+                                } else {
+                                    m_opened_gpu_as.erase(it);
+                                    result = Translate(status);
+                                }
+                            }
+                        } catch (const std::bad_alloc&) {
+                            result = Kernel::ResultOutOfResource;
                         }
+                        if (result.IsError()) m_module->Close(fd);
                     }
                 } else {
                     m_module->Close(fd);
