@@ -274,6 +274,8 @@ NvResult nvhost_as_gpu::RemapNativeSparse(std::span<const NativeSparseRemapEntry
     if (!vm.initialised || !gmmu) return NvResult::InvalidState;
 
     NativeSparseMappingTable updated;
+    std::vector<NativeSparseRange> ranges;
+    std::vector<NativeMemoryKind> kinds;
     std::set<u32> retained;
     std::set<u32> needed;
     // Prepare the entire replacement table and descriptor sets before any
@@ -281,8 +283,6 @@ NvResult nvhost_as_gpu::RemapNativeSparse(std::span<const NativeSparseRemapEntry
     // with a partially prepared sparse transaction.
     try {
         updated = native_sparse_mappings;
-        std::vector<NativeSparseRange> ranges;
-        std::vector<NativeMemoryKind> kinds;
         ranges.reserve(entries.size());
         kinds.reserve(entries.size());
         for (const auto& entry : entries) {
