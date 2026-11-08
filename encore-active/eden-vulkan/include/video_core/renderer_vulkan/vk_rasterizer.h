@@ -7,6 +7,9 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
+#include <memory>
+#include <optional>
 
 #include <boost/container/static_vector.hpp>
 
@@ -20,6 +23,7 @@
 #include "video_core/renderer_vulkan/vk_descriptor_buffer.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
 #include "video_core/renderer_vulkan/vk_fence_manager.h"
+#include "video_core/renderer_vulkan/msaa_color_shadow_pass.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_query_cache.h"
 #include "video_core/renderer_vulkan/vk_render_pass_cache.h"
@@ -218,6 +222,21 @@ private:
     DescriptorBufferRing descriptor_buffer_ring;
     BlitImageHelper blit_image;
     RenderPassCache render_pass_cache;
+
+    // Native-only verified full-target guest clear. The shadow pass is
+    // optional; no renderer should fabricate a guest render-target clear
+    // when this owner has not been armed by a real 1x colour attachment.
+    // Keep the pass after RenderPassCache: C++ reverse destruction order
+    // releases it before its referenced render-pass cache.
+    struct NativeMsaaClear {
+        MsaaColorClearShadowPass::Target target{};
+        VkFramebuffer original_guest_framebuffer{VK_NULL_HANDLE};
+        std::optional<MsaaColorClearShadowPass::Prepared> prepared{};
+        std::uint64_t command_serial{};
+        bool started{};
+    };
+    std::optional<NativeMsaaClear> native_msaa_clear{};
+    std::unique_ptr<MsaaColorClearShadowPass> native_msaa_shadow{};
 
     TextureCacheRuntime texture_cache_runtime;
     TextureCache texture_cache;
