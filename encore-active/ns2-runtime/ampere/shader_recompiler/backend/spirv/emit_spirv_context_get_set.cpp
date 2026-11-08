@@ -188,6 +188,13 @@ Id GetCbuf(EmitContext& ctx, Id result_type, Id UniformDefinitions::*member_ptr,
             "Native QMD3 CBUF bank {} outside eight-bank ABI", binding.U32());
     }
     const Id cbuf{ctx.cbufs[binding.U32()].*member_ptr};
+    // A numerically valid QMD bank may still have no reflected descriptor.
+    // Do not emit an OpAccessChain through an undeclared SPIR-V uniform;
+    // reject malformed native IR before Vulkan pipeline publication.
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive() && !ValidId(cbuf)) {
+        throw NotImplementedException(
+            "Native QMD3 CBUF bank {} has no declared uniform", binding.U32());
+    }
     if (!Shader::Ampere::NativeSpirvCbufBoundsActive()) {
         // Byte-for-byte equivalent to the original Maxwell SPIR-V path.
         // It remains active for Switch 1 even when NS2 source overlays are
