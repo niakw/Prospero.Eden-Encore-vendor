@@ -454,6 +454,9 @@ void IGpuWorker::NormalModifyGpuMemory4K(HLERequestContext& ctx) {
                 result = Kernel::ResultInvalidState;
                 const auto as = m_shared->FindOwnedAddressSpace(
                     static_cast<Nvidia::DeviceFD>(request->address_space));
+                // Preserve guest PTE interpretation while earlier 3D/Compute
+                // submissions may still reference this virtual range.
+                if (as) system.GPU().WaitForIdle();
                 if (as && as->ModifyNativeKind(request->address, request->size,
                                                 request->backend_kind) ==
                                   Nvidia::NvResult::Success) {
@@ -487,6 +490,9 @@ void IGpuWorker::NormalUnmapGpuMemory4K(HLERequestContext& ctx) {
                 result = Kernel::ResultInvalidState;
                 const auto as = m_shared->FindOwnedAddressSpace(
                     static_cast<Nvidia::DeviceFD>(request->address_space));
+                // The native 213 owner drops its NVMap pin as it unmaps
+                // GMMU. Drain submitted GPU readers/writers before unpin.
+                if (as) system.GPU().WaitForIdle();
                 if (as && as->UnmapNative4K(request->address, request->size) ==
                                   Nvidia::NvResult::Success) {
                     m_mappings.RecordUnmapped(*request);
@@ -713,6 +719,11 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
                         result = Kernel::ResultInvalidState;
                         const auto as = m_shared->FindOwnedAddressSpace(
                             static_cast<Nvidia::DeviceFD>(request->address_space));
+                        // Native 216 may replace and unpin old NVMap pages.
+                        // Only a fully admitted batch reaches this point;
+                        // complete all GPU reads/writes of its old PTEs
+                        // before replacing those physical addresses.
+                        if (as) system.GPU().WaitForIdle();
                         const auto remapped = as
                             ? as->RemapNativeSparse(staged)
                             : Nvidia::NvResult::InvalidState;
