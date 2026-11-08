@@ -402,6 +402,16 @@ void Puller::ProcessSemaphoreAcquire(DmaPusher& dma_pusher) {
 void Puller::CallPullerMethod(DmaPusher& dma_pusher, const MethodCall& method_call) {
     regs.reg_array[method_call.method] = method_call.argument;
     const auto method = static_cast<BufferMethods>(method_call.method);
+    // A native GPFIFO must not finish a command it only logged as
+    // unimplemented. NS1 retains the historical Maxwell puller policy.
+    const auto reject_unsupported_native = [&] {
+#ifdef PS5_NATIVE
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            throw std::runtime_error("Native GPFIFO puller method unsupported");
+        }
+#endif
+    };
 
     switch (method) {
     case BufferMethods::BindObject: {
@@ -430,10 +440,12 @@ void Puller::CallPullerMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
     }
     case BufferMethods::NonStallInterrupt: {
         LOG_ERROR(HW_GPU, "Special puller engine method NonStallInterrupt not implemented");
+        reject_unsupported_native();
         break;
     }
     case BufferMethods::MemOpA: {
         LOG_ERROR(HW_GPU, "Memory Operation A");
+        reject_unsupported_native();
         break;
     }
     case BufferMethods::MemOpB: {
@@ -444,6 +456,7 @@ void Puller::CallPullerMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
     case BufferMethods::MemOpC:
     case BufferMethods::MemOpD: {
         LOG_ERROR(HW_GPU, "Memory Operation C,D");
+        reject_unsupported_native();
         break;
     }
     case BufferMethods::SemaphoreAcquire: {
@@ -464,10 +477,12 @@ void Puller::CallPullerMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
     case BufferMethods::Yield: {
         // TODO(Kmather73): Research and implement this method.
         LOG_ERROR(HW_GPU, "Special puller engine method Yield not implemented");
+        reject_unsupported_native();
         break;
     }
     default:
         LOG_ERROR(HW_GPU, "Special puller engine method {:X} not implemented", method);
+        reject_unsupported_native();
         break;
     }
 }
