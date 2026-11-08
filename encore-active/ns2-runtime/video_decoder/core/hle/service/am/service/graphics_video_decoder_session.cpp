@@ -346,9 +346,17 @@ void IGraphicsVideoDecoderSession::Pump() {
     auto& syncpoints = system.Host1x().GetSyncpointManager();
     while (!m_available.empty() && !m_pending.empty() &&
            m_outputs.size() < MaxOutputs) {
-        const auto& next = m_available.front();
-        if (next.release && !syncpoints.IsReadyGuest(next.release->id, next.release->value))
-            return; // Never overwrite an output image still read by its consumer.
+        // A blocked release fence protects its own image, not every other
+        // registered surface. Select the oldest READY image to avoid
+        // head-of-line starvation while retaining each guest-owned fence.
+        const auto ready = std::find_if(m_available.begin(), m_available.end(),
+            [&](const AvailableImage& image) {
+                return !image.release ||
+                    syncpoints.IsReadyGuest(image.release->id, image.release->value);
+            });
+        if (ready == m_available.end())
+            return; // No image may be overwritten before its release fence.
+        const auto& next = *ready;
         const auto target = m_owner->LookupVideoSurface(next.id);
         if (!target) return;
         const auto& frame = m_pending.front();
@@ -397,7 +405,7 @@ void IGraphicsVideoDecoderSession::Pump() {
         if (!m_owner->WriteVideoSurface(next.id, *target, pixels)) return;
         m_outputs.push_back({next.id, width, height, frame.picture.pts, frame.eos});
         m_guest_owned.insert(next.id);
-        m_available.pop_front();
+        m_available.erase(ready);
         m_pending.pop_front();
         syncpoints.IncrementGuest(m_syncpoint); // Only after real guest buffer was written.
     }
