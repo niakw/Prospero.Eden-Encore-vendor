@@ -309,6 +309,10 @@ GraphicsPipeline* prepared_pipeline = nullptr;
 // The pipeline of the last prepared draw, for the development fault probe.
 GraphicsPipeline* probe_pipeline = nullptr;
 u32 RequestedNativeMsaaSamples() {
+#ifdef PS5_NATIVE
+    // The PS5 graphics-enum overlay extends the reviewed upstream AA ABI.
+    // Desktop Eden does not have Msaa2/4/8/16 in Settings::AntiAliasing.
+    // Never refer to those console-only enum values on the Linux host.
     // The launcher keeps 0-3 identical for all existing user presets;
     // MSAA 2/4/8/16 are the new AA menu indices 4-7.
     switch (Settings::values.anti_aliasing.GetValue()) {
@@ -318,6 +322,10 @@ u32 RequestedNativeMsaaSamples() {
     case Settings::AntiAliasing::Msaa16: return 16;
     default: return 0;
     }
+#else
+    // Never enable the PS5-specific shadow path from a desktop profile.
+    return 0;
+#endif
 }
 bool SyncProbeActive() {
     static unsigned poll = 0;
