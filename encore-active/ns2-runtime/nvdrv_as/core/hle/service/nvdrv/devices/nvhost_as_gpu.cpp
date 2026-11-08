@@ -273,54 +273,64 @@ NvResult nvhost_as_gpu::RemapNativeSparse(std::span<const NativeSparseRemapEntry
     const std::scoped_lock lock{mutex};
     if (!vm.initialised || !gmmu) return NvResult::InvalidState;
 
-    NativeSparseMappingTable updated = native_sparse_mappings;
-    std::vector<NativeSparseRange> ranges;
-    std::vector<NativeMemoryKind> kinds;
-    ranges.reserve(entries.size());
-    kinds.reserve(entries.size());
-    for (const auto& entry : entries) {
-        const auto range = DecodeNativeSparseRemap(entry);
-        if (!range || (u32{entry.flags} & 0x7000U) != 0x1000U)
-            return NvResult::BadParameter;
-
-        const auto region = native_sparse_regions.upper_bound(range->address);
-        if (region == native_sparse_regions.begin()) return NvResult::BadParameter;
-        const auto owner = std::prev(region);
-        if (range->address < owner->first ||
-            range->address - owner->first >= owner->second ||
-            range->size > owner->second - (range->address - owner->first))
-            return NvResult::BadParameter;
-
-        NativeMemoryKind kind{};
-        if (range->handle) {
-            const auto handle = nvmap.GetHandle(range->handle);
-            const auto* session = handle ? container.GetSession(handle->session_id) : nullptr;
-            if (!handle || !handle->allocated || !session ||
-                session->process != m_native_process ||
-                range->source_offset > handle->orig_size ||
-                range->size > handle->orig_size - range->source_offset)
+    NativeSparseMappingTable updated;
+    std::set<u32> retained;
+    std::set<u32> needed;
+    // Prepare the entire replacement table and descriptor sets before any
+    // NVMap pin or guest GMMU change. An OOM cannot escape the GPU worker
+    // with a partially prepared sparse transaction.
+    try {
+        updated = native_sparse_mappings;
+        std::vector<NativeSparseRange> ranges;
+        std::vector<NativeMemoryKind> kinds;
+        ranges.reserve(entries.size());
+        kinds.reserve(entries.size());
+        for (const auto& entry : entries) {
+            const auto range = DecodeNativeSparseRemap(entry);
+            if (!range || (u32{entry.flags} & 0x7000U) != 0x1000U)
                 return NvResult::BadParameter;
-            if (u16{entry.kind} > 255 || u16{entry.fallback_kind} > 255)
-                return NvResult::NotSupported;
-            const auto selected = SelectNativeMemoryKind(
-                static_cast<u8>(u16{entry.kind}),
-                static_cast<u8>(u16{entry.fallback_kind}));
-            if (!selected) return NvResult::NotSupported;
-            kind = *selected;
+    
+            const auto region = native_sparse_regions.upper_bound(range->address);
+            if (region == native_sparse_regions.begin()) return NvResult::BadParameter;
+            const auto owner = std::prev(region);
+            if (range->address < owner->first ||
+                range->address - owner->first >= owner->second ||
+                range->size > owner->second - (range->address - owner->first))
+                return NvResult::BadParameter;
+    
+            NativeMemoryKind kind{};
+            if (range->handle) {
+                const auto handle = nvmap.GetHandle(range->handle);
+                const auto* session = handle ? container.GetSession(handle->session_id) : nullptr;
+                if (!handle || !handle->allocated || !session ||
+                    session->process != m_native_process ||
+                    range->source_offset > handle->orig_size ||
+                    range->size > handle->orig_size - range->source_offset)
+                    return NvResult::BadParameter;
+                if (u16{entry.kind} > 255 || u16{entry.fallback_kind} > 255)
+                    return NvResult::NotSupported;
+                const auto selected = SelectNativeMemoryKind(
+                    static_cast<u8>(u16{entry.kind}),
+                    static_cast<u8>(u16{entry.fallback_kind}));
+                if (!selected) return NvResult::NotSupported;
+                kind = *selected;
+            }
+            updated.Replace(*range);
+            ranges.push_back(*range);
+            kinds.push_back(kind);
         }
-        updated.Replace(*range);
-        ranges.push_back(*range);
-        kinds.push_back(kind);
+        if (updated.Ranges().size() > 65536) return NvResult::InsufficientMemory;
+        retained = updated.ReferencedHandles();
+        if (retained.size() > 4096) return NvResult::InsufficientMemory;
+    
+        // A handle overwritten later in this batch still needs a pin until
+        // all intermediate GMMU updates are applied in order.
+        needed = retained;
+        for (const auto& range : ranges) if (range.handle) needed.insert(range.handle);
+        if (needed.size() > 4096) return NvResult::InsufficientMemory;
+    } catch (const std::bad_alloc&) {
+        return NvResult::InsufficientMemory;
     }
-    if (updated.Ranges().size() > 65536) return NvResult::InsufficientMemory;
-    const std::set<u32> retained = updated.ReferencedHandles();
-    if (retained.size() > 4096) return NvResult::InsufficientMemory;
-
-    // A handle overwritten later in this batch still needs a pin until
-    // all intermediate GMMU updates are applied in order.
-    auto needed = retained;
-    for (const auto& range : ranges) if (range.handle) needed.insert(range.handle);
-    if (needed.size() > 4096) return NvResult::InsufficientMemory;
     std::map<u32, DAddr> newly_pinned;
     // Allocate the map node BEFORE asking NVMap to pin physical memory.
     // Otherwise std::map::emplace can OOM after a successful PinHandle,
