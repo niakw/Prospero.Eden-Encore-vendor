@@ -1573,12 +1573,30 @@ void IGraphicsSupervisor::MapVideoGpuImage(HLERequestContext& ctx) {
                         }
                     }
                 } else {
+                    // Reserve the CPU ownership node BEFORE MapNativeImage
+                    // commits a real GMMU mapping and NVMap pin. Emplacing
+                    // afterwards can throw bad_alloc, orphaning a live VA
+                    // that no supervisor entry knows how to retire.
                     result = Kernel::ResultOutOfResource;
-                    if (as->MapNativeImage(image->backing, image->offset,
-                                           image->size, address) == Nvidia::NvResult::Success) {
-                        m_video_mappings.emplace(key,
-                            VideoImageMapping{as, address, image->size, 1});
-                        result = ResultSuccess;
+                    auto staged = m_video_mappings.end();
+                    try {
+                        staged = m_video_mappings.try_emplace(
+                            key, VideoImageMapping{as, 0, image->size, 1}).first;
+                    } catch (const std::bad_alloc&) {
+                        // No GMMU operation or NVMap pin has occurred.
+                    }
+                    if (staged != m_video_mappings.end()) {
+                        const auto mapped = as->MapNativeImage(
+                            image->backing, image->offset, image->size, address);
+                        if (mapped == Nvidia::NvResult::Success) {
+                            staged->second.address = address;
+                            result = ResultSuccess;
+                        } else {
+                            // The driver owns its internal failure rollback.
+                            // Never retain an unbound entry with address 0.
+                            m_video_mappings.erase(staged);
+                            address = 0;
+                        }
                     }
                 }
                 if (result.IsSuccess()) descriptor[5] &= 0xffffffff00000000ULL;
