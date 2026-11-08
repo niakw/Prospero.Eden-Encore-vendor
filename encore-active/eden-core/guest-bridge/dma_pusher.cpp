@@ -266,6 +266,16 @@ void DmaPusher::CallMethod(u32 argument) {
             // dereference a missing subchannel or replay it as a valid method.
             LOG_ERROR(HW_GPU, "GPFIFO method {:#x} on unbound subchannel {}",
                       dma_state.method, dma_state.subchannel);
+#ifdef PS5_NATIVE
+            // Ignoring an unbound engine on an authenticated native queue
+            // would let GPFIFO publish completion for commands never run.
+            // An invalid SET_OBJECT already unbinds this channel: retire its
+            // queue instead of manufacturing a successful guest fence.
+            if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                    &channel_state)) {
+                throw std::runtime_error("Native GPFIFO method on unbound subchannel");
+            }
+#endif
             return;
         }
         if (!subchannel->execution_mask[dma_state.method]) {
@@ -288,6 +298,16 @@ void DmaPusher::CallMultiMethod(const u32* base_start, u32 num_methods) {
             // dereference a missing subchannel or replay it as a valid method.
             LOG_ERROR(HW_GPU, "GPFIFO method {:#x} on unbound subchannel {}",
                       dma_state.method, dma_state.subchannel);
+#ifdef PS5_NATIVE
+            // Ignoring an unbound engine on an authenticated native queue
+            // would let GPFIFO publish completion for commands never run.
+            // An invalid SET_OBJECT already unbinds this channel: retire its
+            // queue instead of manufacturing a successful guest fence.
+            if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                    &channel_state)) {
+                throw std::runtime_error("Native GPFIFO method on unbound subchannel");
+            }
+#endif
             return;
         }
         subchannel->ConsumeSink(system);
