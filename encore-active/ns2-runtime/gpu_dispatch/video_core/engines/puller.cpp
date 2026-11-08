@@ -1096,8 +1096,11 @@ void Puller::CallEngineMultiMethod(DmaPusher& dma_pusher, u32 method, u32 subcha
             return;
         }
         if ((amount && !base_start) || amount > 4096) {
-            UNIMPLEMENTED_MSG("Ampere compute multiword payload invalid");
-            return;
+            // The GPFIFO worker must never acknowledge a malformed native
+            // multiword command as executed. ASSERT_MSG/UNIMPLEMENTED_MSG
+            // may be compiled out in release builds, and returning here
+            // would advance the guest completion fence without a dispatch.
+            throw std::runtime_error("Native Ampere Compute multiword payload invalid");
         }
         CallNativeCompute(dma_pusher, method,
                           std::span<const u32>{base_start, amount},
