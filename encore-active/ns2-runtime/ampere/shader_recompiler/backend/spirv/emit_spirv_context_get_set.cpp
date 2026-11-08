@@ -179,6 +179,14 @@ Id GetCbuf(EmitContext& ctx, Id result_type, Id UniformDefinitions::*member_ptr,
         return ctx.OpFunctionCall(result_type, indirect_func, ctx.Def(binding), buffer_offset);
     }
 
+    // Compile the authentic QMD3 bank ABI, not the larger NS1 synthetic
+    // uniform table. Resource-plan validation happens AFTER SPIR-V emission;
+    // an untrusted immediate bank must not index cbufs out of bounds or
+    // compile a shader that the eight-bank QMD cannot bind.
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive() && binding.U32() >= 8) {
+        throw NotImplementedException(
+            "Native QMD3 CBUF bank {} outside eight-bank ABI", binding.U32());
+    }
     const Id cbuf{ctx.cbufs[binding.U32()].*member_ptr};
     if (!Shader::Ampere::NativeSpirvCbufBoundsActive()) {
         // Byte-for-byte equivalent to the original Maxwell SPIR-V path.
