@@ -1164,6 +1164,17 @@ Result IGraphicsSupervisor::BindNativeMemoryBacking(
         cursor = next;
     }
 
+    // A first NVDRV session can allocate host session/SMMU state. Acquire
+    // that owner before locking any guest pages: if it fails there is
+    // nothing to unlock, no bound child and no orphaned NVMap backing.
+    if (!m_native_memory_session) {
+        try {
+            m_native_memory_session =
+                m_native_module->GetContainer().OpenSession(m_process).id;
+        } catch (const std::bad_alloc&) {
+            return Kernel::ResultOutOfResource;
+        }
+    }
     bool is_io{};
     const Result locked = table.LockForMapDeviceAddressSpace(
         &is_io, address, size, Kernel::KMemoryPermission::None, true, true);
@@ -1172,8 +1183,6 @@ Result IGraphicsSupervisor::BindNativeMemoryBacking(
         table.UnlockForDeviceAddressSpace(address, size);
         return Kernel::ResultNotImplemented;
     }
-    if (!m_native_memory_session)
-        m_native_memory_session = m_native_module->GetContainer().OpenSession(m_process).id;
     const auto alloc = handle->Alloc(
         {}, Kernel::PageSize, 0, address,
         Nvidia::NvCore::SessionId{*m_native_memory_session});
@@ -1220,22 +1229,36 @@ void IGraphicsSupervisor::BindNativeGpuMemory(HLERequestContext& ctx) {
                     offset <= std::numeric_limits<u64>::max() - parent->address &&
                     parent->address + offset == request->address) {
                     result = Kernel::ResultOutOfResource;
-                    if (parent->Duplicate(true) == Nvidia::NvResult::Success) {
-                        // Pin the real parent through NVDRV before committing
-                        // the child. This is not a fabricated GMMU mapping.
-                        const auto pinned = nvmap.PinHandle(request->parent, false);
-                        if (pinned != 0) {
-                            result = BindNativeMemoryBacking(request->child,
-                                                             request->address,
-                                                             request->size, 2, 0);
-                            if (result.IsSuccess()) {
-                                m_native_parents.emplace(request->child, request->parent);
-                            } else {
-                                nvmap.UnpinHandle(request->parent);
+                    // Reserve the parent/child ledger node BEFORE Duplicate,
+                    // PinHandle, guest page-lock and child NVMap Alloc. A
+                    // post-bind std::map::emplace OOM previously left a
+                    // bound child with no parent pin owner or rollback path.
+                    auto staged_parent = m_native_parents.end();
+                    try {
+                        const auto [it, inserted] = m_native_parents.try_emplace(
+                            request->child, request->parent);
+                        if (inserted) staged_parent = it;
+                    } catch (const std::bad_alloc&) {
+                        // No guest or NVDRV state has been changed.
+                    }
+                    if (staged_parent != m_native_parents.end()) {
+                        const bool duplicated =
+                            parent->Duplicate(true) == Nvidia::NvResult::Success;
+                        if (duplicated) {
+                            const auto pinned = nvmap.PinHandle(request->parent, false);
+                            if (pinned) {
+                                result = BindNativeMemoryBacking(
+                                    request->child, request->address,
+                                    request->size, 2, 0);
+                                if (result.IsError())
+                                    nvmap.UnpinHandle(request->parent);
                             }
                         }
-                        if (result.IsError())
-                            nvmap.FreeHandle(request->parent, true);
+                        if (result.IsError()) {
+                            if (duplicated)
+                                nvmap.FreeHandle(request->parent, true);
+                            m_native_parents.erase(staged_parent);
+                        }
                     }
                 }
             }
