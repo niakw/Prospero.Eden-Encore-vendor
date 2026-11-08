@@ -332,6 +332,13 @@ public:
                address - entry.address < entry.size &&
                size <= entry.size - (address - entry.address);
     }
+    // A 216 packet carries no page shift. Determine it exclusively from the
+    // already admitted sparse reservation, including alignment and bounds.
+    [[nodiscard]] std::optional<U8> SparsePageShift(U32 as, U64 address, U64 size) const {
+        if (ContainsSparse(as, address, size, 12)) return U8{12};
+        if (ContainsSparse(as, address, size, 16)) return U8{16};
+        return std::nullopt;
+    }
     [[nodiscard]] std::size_t Count() const { return mappings.size(); }
     [[nodiscard]] const auto& Mappings() const { return mappings; }
 private:

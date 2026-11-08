@@ -679,18 +679,24 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
                         GpuSparseMapRequest element{};
                         std::memcpy(&element, input.data() + i * sizeof(element),
                                     sizeof(element));
-                        const auto entry = DecodeGpuSparseMap(element);
+                        // No flags member exists in GpuSparseMapRequest.
+                        // Resolve the page shift from the original 214 owner
+                        // before constructing the NVDRV sparse entry.
+                        const auto page_shift = m_mappings.SparsePageShift(
+                            request->address_space, u64{element.address}, u64{element.size});
+                        if (!page_shift) {
+                            result = Kernel::ResultInvalidCurrentMemory;
+                            break;
+                        }
+                        const auto entry = DecodeGpuSparseMap(element, *page_shift);
                         if (!entry) {
                             result = Kernel::ResultNotImplemented;
                             break;
                         }
                         const auto range = Nvidia::Devices::DecodeNativeSparseRemap(*entry);
-                        const u32 page_flags = u32{element.flags} & 0x7000U;
-                        const u8 entry_page_shift = page_flags == 0x1000U ? 12 :
-                                                    page_flags == 0x2000U ? 16 : 0;
                         if (!range || !m_mappings.ContainsSparse(
                                           request->address_space,
-                                          range->address, range->size, entry_page_shift)) {
+                                          range->address, range->size, *page_shift)) {
                             result = Kernel::ResultInvalidCurrentMemory;
                             break;
                         }

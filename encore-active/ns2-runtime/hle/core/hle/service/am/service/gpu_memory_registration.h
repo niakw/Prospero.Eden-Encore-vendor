@@ -25,21 +25,26 @@ struct GpuSparseMapRequest {
 static_assert(sizeof(GpuSparseMapRequest) == 40);
 
 inline std::optional<Nvidia::Devices::NativeSparseRemapEntry> DecodeGpuSparseMap(
-    const GpuSparseMapRequest& request) {
-    if (!request.size || (u64{request.address} | u64{request.size} |
-        u64{request.source_offset}) & 0xfff || request.cache > 1 || request.read_only ||
+    const GpuSparseMapRequest& request, u8 page_shift = 12) {
+    // TIPC 216 has no page-size field. Its owner is the preceding TIPC 214
+    // reservation: use that authenticated granularity, never invented flags
+    // from the guest's forty-byte remap structure.
+    if ((page_shift != 12 && page_shift != 16) ||
+        !request.size || ((u64{request.address} | u64{request.size} |
+        u64{request.source_offset}) & ((u64{1} << page_shift) - 1)) ||
+        request.cache > 1 || request.read_only ||
         request.comptag_mode || request.reserved0 || request.reserved1 || request.reserved2) {
         return std::nullopt;
     }
     Nvidia::Devices::NativeSparseRemapEntry entry{};
     // SDK 46d68c..46d6a4 converts ioctl bit7 to byte16 and cacheable bit2 to byte17.
-    entry.flags = 0x1000 | (request.cache ? 4 : 0);
+    entry.flags = (page_shift == 16 ? 0x2000U : 0x1000U) | (request.cache ? 4U : 0U);
     entry.kind = request.kind;
     entry.fallback_kind = request.fallback_kind;
     entry.handle = request.memory;
-    entry.source_pages = u64{request.source_offset} >> 12;
-    entry.destination_pages = u64{request.address} >> 12;
-    entry.pages = u64{request.size} >> 12;
+    entry.source_pages = u64{request.source_offset} >> page_shift;
+    entry.destination_pages = u64{request.address} >> page_shift;
+    entry.pages = u64{request.size} >> page_shift;
     if (!Nvidia::Devices::DecodeNativeSparseRemap(entry)) return std::nullopt;
     return entry;
 }
