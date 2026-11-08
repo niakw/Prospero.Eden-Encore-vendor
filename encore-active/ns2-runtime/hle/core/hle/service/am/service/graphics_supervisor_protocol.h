@@ -8,6 +8,7 @@
 #include <optional>
 #include <span>
 #include <map>
+#include <new>
 #include <vector>
 #include <limits>
 #include <utility>
@@ -334,8 +335,16 @@ public:
             return {NativeMemoryStatus::InvalidSize, 0};
         if (m_records.size() >= MaxEntries || m_next == 0)
             return {NativeMemoryStatus::OutOfResource, 0};
-        const u32 id = m_next++;
-        m_records.emplace(id, NativeMemoryRecord{size, 0, false});
+        const u32 id = m_next;
+        // The ledger is bounded but a host map allocation can still OOM.
+        // Do not consume an ID or escape the IPC service on failed insert.
+        try {
+            if (!m_records.emplace(id, NativeMemoryRecord{size, 0, false}).second)
+                return {NativeMemoryStatus::OutOfResource, 0};
+        } catch (const std::bad_alloc&) {
+            return {NativeMemoryStatus::OutOfResource, 0};
+        }
+        ++m_next;
         return {NativeMemoryStatus::Success, id};
     }
     // Production NVMap IDs come from the global handle table (multiples of 4),
@@ -346,7 +355,14 @@ public:
             return NativeMemoryStatus::InvalidSize;
         if (m_records.contains(nvmap_id)) return NativeMemoryStatus::AlreadyBound;
         if (m_records.size() >= MaxEntries) return NativeMemoryStatus::OutOfResource;
-        m_records.emplace(nvmap_id, NativeMemoryRecord{size, 0, false});
+        // The caller has already created a real NVMap handle. Report OOM
+        // instead of unwinding so it can release the unadopted handle.
+        try {
+            if (!m_records.emplace(nvmap_id, NativeMemoryRecord{size, 0, false}).second)
+                return NativeMemoryStatus::AlreadyBound;
+        } catch (const std::bad_alloc&) {
+            return NativeMemoryStatus::OutOfResource;
+        }
         return NativeMemoryStatus::Success;
     }
     [[nodiscard]] std::vector<u32> OwnedIds() const {
