@@ -227,6 +227,34 @@ public:
                     }
                 }
             }
+            // A dependent QMD needs a process-scoped scheduler state.
+            // Reserve that state BEFORE a native dispatch or a completion
+            // semaphore becomes irreversible. Allocating it after publishing
+            // the parent would lose the dependency signal on map OOM/quota,
+            // leaving the guest queue stranded despite a completed parent.
+            Address dependent_address{};
+            bool dependent_newly_inserted{};
+            if (has_dependent) {
+                dependent_address = Address{qmd[15]} << 8;
+                if (states.size() >= 4096 && !states.contains(dependent_address)) {
+                    std::erase_if(states, [](const auto& entry) {
+                        return entry.second.completed && entry.second.deferred == 0;
+                    });
+                    if (states.size() >= 4096) return "QMD cache limit";
+                }
+                try {
+                    dependent_newly_inserted =
+                        states.try_emplace(dependent_address).second;
+                } catch (const std::bad_alloc&) {
+                    return "QMD dependent allocation failed";
+                }
+                // unordered_map may rehash: references to State remain
+                // valid, but no iterator from before insertion is reused.
+            }
+            const auto discard_uncommitted_dependent = [&] {
+                if (dependent_newly_inserted)
+                    states.erase(dependent_address);
+            };
             // Never forge completion of a native shader which did not
             // execute. Upstream currently releases despite a rejected shader
             // to advance guest queues; that masks incorrect rendering and
@@ -242,11 +270,15 @@ public:
                     dispatched = dispatch(qmd);
                 } catch (...) {
                     state.poisoned = true;
+                    discard_uncommitted_dependent();
                     return "QMD dispatch exception";
                 }
             }
             safe_trace("run", request.address, dispatched ? 1 : 0);
-            if (!dispatched) return "native shader dispatch required";
+            if (!dispatched) {
+                discard_uncommitted_dependent();
+                return "native shader dispatch required";
+            }
             state.dispatched = true;
             for (std::size_t slot = 0; slot < ReleaseSlots.size(); ++slot) {
                 const Word base = ReleaseSlots[slot];
@@ -270,7 +302,9 @@ public:
             }
             state.completed = true;
             if (has_dependent) {
-                pending[count++] = {Address{qmd[15]} << 8,
+                // The destination state was reserved before GPU submission,
+                // so this queued PCAS cannot allocate a new state afterwards.
+                pending[count++] = {dependent_address,
                                     dependent_action == 4 ? 7U : dependent_action == 3 ? 3U : 2U, 1};
             }
         }
