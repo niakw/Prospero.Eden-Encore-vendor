@@ -7,6 +7,7 @@
 #include <optional>
 #include <set>
 #include <memory>
+#include <limits>
 
 #include "common/logging.h"
 #include "common/settings.h"
@@ -282,13 +283,29 @@ void Nx2VideoDecoder::Reset() {
 bool Nx2VideoDecoder::Render(const Nx2Picture& picture, Nx2PictureFormat format, u32 width,
                              u32 height, u64 pitch, u64 chroma_offset, std::span<u8> out) {
     const AVFrame* f = picture.frame->GetFrame();
-    const u64 needed = format == Nx2PictureFormat::Nv12
-                           ? chroma_offset + pitch * ((u64{height} + 1) / 2)
-                           : pitch * height;
-    const u64 min_pitch = format == Nx2PictureFormat::Nv12 ? ((u64{width} + 1) / 2) * 2 : 0;
-    if (width == 0 || height == 0 || pitch < min_pitch || out.size() < needed) {
+    // sws_scale writes at least width*4 bytes to EACH RGB row, not
+    // merely pitch*height bytes overall. A guest with pitch < width*4
+    // could overrun the final row even when the total image size fit.
+    // NV12 has a separate chroma plane; prove all u64 products and the
+    // plane offset BEFORE touching either buffer or narrowing the stride
+    // to FFmpeg's signed int.
+    const u64 min_pitch = format == Nx2PictureFormat::Nv12
+        ? ((u64{width} + 1) / 2) * 2 : u64{width} * 4;
+    constexpr u64 max = std::numeric_limits<u64>::max();
+    if (!width || !height || pitch < min_pitch ||
+        pitch > static_cast<u64>(std::numeric_limits<int>::max()) ||
+        pitch > max / height)
         return false;
+    const u64 luma_bytes = pitch * height;
+    u64 needed = luma_bytes;
+    if (format == Nx2PictureFormat::Nv12) {
+        const u64 chroma_rows = (u64{height} + 1) / 2;
+        if (chroma_offset < luma_bytes ||
+            pitch > (max - chroma_offset) / chroma_rows)
+            return false;
+        needed = chroma_offset + pitch * chroma_rows;
     }
+    if (out.size() < needed) return false;
     const AVPixelFormat target = format == Nx2PictureFormat::Nv12    ? AV_PIX_FMT_NV12
                                  : format == Nx2PictureFormat::Rgba8 ? AV_PIX_FMT_RGBA
                                                                      : AV_PIX_FMT_BGRA;
@@ -297,6 +314,10 @@ bool Nx2VideoDecoder::Render(const Nx2Picture& picture, Nx2PictureFormat format,
     // the movies green.
     if (target == AV_PIX_FMT_NV12 && f->format == AV_PIX_FMT_NV12 &&
         static_cast<u32>(f->width) == width && static_cast<u32>(f->height) == height) {
+        if (!f->data[0] || !f->data[1] ||
+            f->linesize[0] < static_cast<int>(width) ||
+            f->linesize[1] < static_cast<int>(min_pitch))
+            return false;
         for (u32 y = 0; y < height; ++y) {
             std::memcpy(out.data() + y * pitch, f->data[0] + y * f->linesize[0], width);
         }
@@ -309,6 +330,11 @@ bool Nx2VideoDecoder::Render(const Nx2Picture& picture, Nx2PictureFormat format,
     if (target == AV_PIX_FMT_NV12 && f->format == AV_PIX_FMT_YUV420P &&
         f->color_range != AVCOL_RANGE_JPEG && static_cast<u32>(f->width) == width &&
         static_cast<u32>(f->height) == height) {
+        const int chroma_width = static_cast<int>(min_pitch / 2);
+        if (!f->data[0] || !f->data[1] || !f->data[2] ||
+            f->linesize[0] < static_cast<int>(width) ||
+            f->linesize[1] < chroma_width || f->linesize[2] < chroma_width)
+            return false;
         for (u32 y = 0; y < height; ++y) {
             std::memcpy(out.data() + y * pitch, f->data[0] + y * f->linesize[0], width);
         }
