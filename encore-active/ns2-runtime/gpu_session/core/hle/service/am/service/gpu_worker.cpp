@@ -406,10 +406,17 @@ void IGpuWorker::NormalMapGpuMemory4K(HLERequestContext& ctx) {
                     result = Kernel::ResultInvalidState;
                     const auto as = m_shared->FindOwnedAddressSpace(
                         static_cast<Nvidia::DeviceFD>(request->address_space));
-                    if (as && as->MapNative4K(request->memory, request->address,
-                                                request->memory_offset, request->size,
-                                                request->backend_kind) ==
-                                      Nvidia::NvResult::Success) {
+                    const auto mapped = as
+                        ? as->MapNative4K(request->memory, request->address,
+                                          request->memory_offset, request->size,
+                                          request->backend_kind)
+                        : Nvidia::NvResult::InvalidState;
+                    // A failed VA allocation is not an invalid guest state.
+                    // Let the title back off/reclaim RAM instead of treating
+                    // a transient host allocator OOM as a bad GPU command.
+                    if (mapped == Nvidia::NvResult::InsufficientMemory)
+                        result = Kernel::ResultOutOfResource;
+                    if (mapped == Nvidia::NvResult::Success) {
                         const auto committed = m_mappings.CommitPrepared(staged_ledger);
                         if (committed == GW::LedgerStatus::Success) {
                             selected = request->selected_kind;
@@ -521,8 +528,12 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
                     result = Kernel::ResultInvalidState;
                     const auto as = m_shared->FindOwnedAddressSpace(
                         static_cast<Nvidia::DeviceFD>(request->address_space));
-                    if (as && as->ReserveNativeSparse4K(request->begin, size) ==
-                                  Nvidia::NvResult::Success) {
+                    const auto reserved = as
+                        ? as->ReserveNativeSparse4K(request->begin, size)
+                        : Nvidia::NvResult::InvalidState;
+                    if (reserved == Nvidia::NvResult::InsufficientMemory)
+                        result = Kernel::ResultOutOfResource;
+                    if (reserved == Nvidia::NvResult::Success) {
                         const auto committed = m_mappings.CommitPrepared(staged_ledger);
                         if (committed == GW::LedgerStatus::Success) {
                             // Mode 0 requests physical GPU-only render storage.
@@ -702,7 +713,12 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
                         result = Kernel::ResultInvalidState;
                         const auto as = m_shared->FindOwnedAddressSpace(
                             static_cast<Nvidia::DeviceFD>(request->address_space));
-                        if (as && as->RemapNativeSparse(staged) == Nvidia::NvResult::Success) {
+                        const auto remapped = as
+                            ? as->RemapNativeSparse(staged)
+                            : Nvidia::NvResult::InvalidState;
+                        if (remapped == Nvidia::NvResult::InsufficientMemory)
+                            result = Kernel::ResultOutOfResource;
+                        if (remapped == Nvidia::NvResult::Success) {
                             processed = request->count;
                             physical_entries = std::count_if(staged.begin(), staged.end(),
                                 [](const auto& entry) { return entry.handle != 0; });
