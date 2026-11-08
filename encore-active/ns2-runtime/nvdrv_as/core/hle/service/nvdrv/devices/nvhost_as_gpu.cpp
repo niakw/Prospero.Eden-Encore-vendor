@@ -541,17 +541,31 @@ NvResult nvhost_as_gpu::AllocAsEx(IoctlAllocAsEx& params) {
     const auto layout = PlanNativeGpuVaLayout(start, split, end, big_page_size);
     if (!layout) return NvResult::BadValue;
 
+    const u64 max_big_page_bits = Common::Log2Ceil(end);
+    const u32 big_page_bits = static_cast<u32>(std::countr_zero(big_page_size));
+    // FlatAllocator initializes dynamic address blocks and the GMMU owns
+    // dynamically allocated page tables. Build all three before publishing
+    // new VM parameters or handing a live GMMU to the GPU. A partial host
+    // OOM must leave the FD uninitialized and retryable, not advertise a
+    // half-created native GPU address space to its TIPC worker.
+    try {
+        vm.small_page_allocator.emplace(layout->small_begin, layout->small_end);
+        vm.big_page_allocator.emplace(layout->big_begin, layout->big_end);
+        gmmu = std::make_unique<Tegra::MemoryManager>(
+            system, max_big_page_bits, split, big_page_bits, VM::PAGE_SIZE_BITS);
+    } catch (const std::bad_alloc&) {
+        gmmu.reset();
+        vm.big_page_allocator.reset();
+        vm.small_page_allocator.reset();
+        return NvResult::InsufficientMemory;
+    }
+    // No more fallible allocator construction remains between publishing the
+    // selected VA layout and binding the real GMMU to the host GPU.
     vm.big_page_size = big_page_size;
-    vm.big_page_size_bits = static_cast<u32>(std::countr_zero(big_page_size));
+    vm.big_page_size_bits = big_page_bits;
     vm.va_range_start = start;
     vm.va_range_split = split;
     vm.va_range_end = end;
-    const u64 max_big_page_bits = Common::Log2Ceil(end);
-
-    vm.small_page_allocator.emplace(layout->small_begin, layout->small_end);
-    vm.big_page_allocator.emplace(layout->big_begin, layout->big_end);
-
-    gmmu = std::make_unique<Tegra::MemoryManager>(system, max_big_page_bits, vm.va_range_split, vm.big_page_size_bits, VM::PAGE_SIZE_BITS);
     system.GPU().InitAddressSpace(*gmmu);
     vm.initialised = true;
 
