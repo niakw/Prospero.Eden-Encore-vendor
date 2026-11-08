@@ -69,14 +69,21 @@ static Result CreateMetadataSession(Core::System& system, HLERequestContext& ctx
     Kernel::KScopedResourceReservation reservation{
         kernel, Kernel::GetCurrentProcessPointer(kernel), Kernel::LimitableResource::SessionCountMax};
     R_UNLESS(reservation.Succeeded(), Kernel::ResultLimitReached);
+    auto& server = ctx.GetManager()->GetServerManager();
+    // A host request manager can allocate. Reserve it before committing
+    // the kernel session so OOM cannot orphan a live session/guest handle.
+    std::shared_ptr<SessionRequestManager> manager;
+    try {
+        manager = std::make_shared<SessionRequestManager>(kernel, server);
+        manager->SetSessionHandler(std::move(handler));
+    } catch (const std::bad_alloc&) {
+        return Kernel::ResultOutOfResource;
+    }
     auto* session = Kernel::KSession::Create(kernel);
     R_UNLESS(session != nullptr, Kernel::ResultOutOfResource);
     session->Initialize(kernel, nullptr, 0);
     reservation.Commit();
     Kernel::KSession::Register(kernel, session);
-    auto& server = ctx.GetManager()->GetServerManager();
-    auto manager = std::make_shared<SessionRequestManager>(kernel, server);
-    manager->SetSessionHandler(std::move(handler));
     R_TRY(server.RegisterSession(&session->GetServerSession(), std::move(manager)));
     *out_client = &session->GetClientSession();
     R_SUCCEED();
@@ -1366,9 +1373,13 @@ void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
         result = Kernel::ResultInvalidState;
         if (m_process && m_bootstrap.GpuContextReady()) {
             auto owner = std::static_pointer_cast<IGraphicsSupervisor>(shared_from_this());
-            auto handler = std::make_shared<IGraphicsVideoDecoderSession>(system,
-                                                                          std::move(owner), true);
-            result = CreateMetadataSession(system, ctx, std::move(handler), &client);
+            try {
+                auto handler = std::make_shared<IGraphicsVideoDecoderSession>(
+                    system, std::move(owner), true);
+                result = CreateMetadataSession(system, ctx, std::move(handler), &client);
+            } catch (const std::bad_alloc&) {
+                result = Kernel::ResultOutOfResource;
+            }
         }
     }
     if (result.IsError()) {
@@ -1384,9 +1395,14 @@ void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
 void IGraphicsSupervisor::OpenVideoDecoderChildSession(HLERequestContext& ctx) {
     Kernel::KClientSession* client{};
     auto owner = std::static_pointer_cast<IGraphicsSupervisor>(shared_from_this());
-    auto child = std::make_shared<IGraphicsVideoDecoderSession>(system,
-                                                                std::move(owner), false);
-    const Result result = CreateMetadataSession(system, ctx, std::move(child), &client);
+    Result result = Kernel::ResultOutOfResource;
+    try {
+        auto child = std::make_shared<IGraphicsVideoDecoderSession>(
+            system, std::move(owner), false);
+        result = CreateMetadataSession(system, ctx, std::move(child), &client);
+    } catch (const std::bad_alloc&) {
+        result = Kernel::ResultOutOfResource;
+    }
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);

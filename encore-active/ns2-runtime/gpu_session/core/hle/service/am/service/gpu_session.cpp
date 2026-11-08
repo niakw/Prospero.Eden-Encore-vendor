@@ -110,14 +110,21 @@ static Result CreateWorkerKernelSession(Core::System& system, HLERequestContext&
         kernel, Kernel::GetCurrentProcessPointer(kernel),
         Kernel::LimitableResource::SessionCountMax};
     R_UNLESS(reservation.Succeeded(), Kernel::ResultLimitReached);
+    auto& server = ctx.GetManager()->GetServerManager();
+    // A host request manager can allocate. Reserve it before committing
+    // the kernel session so OOM cannot orphan a live session/guest handle.
+    std::shared_ptr<SessionRequestManager> manager;
+    try {
+        manager = std::make_shared<SessionRequestManager>(kernel, server);
+        manager->SetSessionHandler(std::move(handler));
+    } catch (const std::bad_alloc&) {
+        return Kernel::ResultOutOfResource;
+    }
     auto* session = Kernel::KSession::Create(kernel);
     R_UNLESS(session != nullptr, Kernel::ResultOutOfResource);
     session->Initialize(kernel, nullptr, 0);
     reservation.Commit();
     Kernel::KSession::Register(kernel, session);
-    auto& server = ctx.GetManager()->GetServerManager();
-    auto manager = std::make_shared<SessionRequestManager>(kernel, server);
-    manager->SetSessionHandler(std::move(handler));
     R_TRY(server.RegisterSession(&session->GetServerSession(), std::move(manager)));
     *out_client = &session->GetClientSession();
     R_SUCCEED();
@@ -135,8 +142,14 @@ void IGpuSession::RequestWorker(HLERequestContext& ctx) {
             if (m_worker) {
                 result = ResultSuccess;
             } else {
-                auto handler = std::make_shared<IGpuWorker>(system, m_module, m_process, m_shared);
-                result = CreateWorkerKernelSession(system, ctx, std::move(handler), &m_worker);
+                try {
+                    auto handler = std::make_shared<IGpuWorker>(
+                        system, m_module, m_process, m_shared);
+                    result = CreateWorkerKernelSession(
+                        system, ctx, std::move(handler), &m_worker);
+                } catch (const std::bad_alloc&) {
+                    result = Kernel::ResultOutOfResource;
+                }
             }
             if (result.IsSuccess()) m_shared->events[*index]->Signal(kernel);
         }
