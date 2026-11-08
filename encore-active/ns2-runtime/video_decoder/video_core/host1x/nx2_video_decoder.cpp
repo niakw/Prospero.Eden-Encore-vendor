@@ -330,15 +330,15 @@ bool Nx2VideoDecoder::Render(const Nx2Picture& picture, Nx2PictureFormat format,
     if (target == AV_PIX_FMT_NV12 && f->format == AV_PIX_FMT_YUV420P &&
         f->color_range != AVCOL_RANGE_JPEG && static_cast<u32>(f->width) == width &&
         static_cast<u32>(f->height) == height) {
-        const int chroma_width = static_cast<int>(min_pitch / 2);
+        const u32 chroma_width = static_cast<u32>(min_pitch / 2);
         if (!f->data[0] || !f->data[1] || !f->data[2] ||
             f->linesize[0] < static_cast<int>(width) ||
-            f->linesize[1] < chroma_width || f->linesize[2] < chroma_width)
+            f->linesize[1] < static_cast<int>(chroma_width) ||
+            f->linesize[2] < static_cast<int>(chroma_width))
             return false;
         for (u32 y = 0; y < height; ++y) {
             std::memcpy(out.data() + y * pitch, f->data[0] + y * f->linesize[0], width);
         }
-        const u32 chroma_width = static_cast<u32>(min_pitch / 2);
         for (u32 y = 0; y < (height + 1) / 2; ++y) {
             const u8* u = f->data[1] + y * f->linesize[1];
             const u8* v = f->data[2] + y * f->linesize[2];
