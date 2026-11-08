@@ -773,6 +773,19 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
         nvmap.FreeHandle(handle->id, false);
         return locked;
     }
+    // This process-page lock can identify device/IO mappings that are not
+    // ordinary guest RAM. The supervisor's native backing owner rejects
+    // those exact mappings; TIPC 101 must apply the same policy instead of
+    // advertising them as GPU-accessible NVMap-backed system memory.
+    if (is_io) {
+        const Result undone = page_table.UnlockForDeviceAddressSpace(begin, size);
+        if (undone.IsError()) {
+            LOG_ERROR(Service_AM, "NS2 GPU IO registration rollback unlock failed: {:#x}",
+                      undone.raw);
+        }
+        nvmap.FreeHandle(handle->id, false);
+        return undone.IsError() ? undone : Kernel::ResultNotImplemented;
+    }
 
     const auto allocated = handle->Alloc({}, Kernel::PageSize, 0, begin,
                                          Nvidia::NvCore::SessionId{*m_nv_session});
