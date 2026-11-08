@@ -374,9 +374,19 @@ void IGraphicsVideoDecoderSession::Pump() {
             });
         if (ready == m_available.end())
             return; // No image may be overwritten before its release fence.
+        const u32 image_id = ready->id;
+        const auto target = m_owner->LookupVideoSurface(image_id);
+        if (!target) {
+            // Pool 912 can retire an image while the decoder still has its
+            // registered ID in the ready queue. Unregister that dead image
+            // instead of permanently blocking every other ready surface.
+            // No frame was written, so neither advance a completion fence
+            // nor consume the queued decoded picture.
+            m_available.erase(ready);
+            m_registered.erase(image_id);
+            continue;
+        }
         const auto& next = *ready;
-        const auto target = m_owner->LookupVideoSurface(next.id);
-        if (!target) return;
         const auto& frame = m_pending.front();
         const u32 width = std::min(frame.picture.width, target->width);
         const u32 height = std::min(frame.picture.height, target->height);
