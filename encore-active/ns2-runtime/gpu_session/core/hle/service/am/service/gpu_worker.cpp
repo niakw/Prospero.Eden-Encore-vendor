@@ -201,7 +201,9 @@ IGpuWorker::~IGpuWorker() {
     m_process->Close(kernel);
 }
 
-Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size) {
+Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size,
+                                    u8 page_shift) {
+    R_UNLESS(page_shift == 12 || page_shift == 16, Kernel::ResultInvalidCombination);
     // Called only after the exact native sparse VA has been reserved.
     // Keep a bounded physical budget and leave room for the guest/application.
     auto& memory = kernel.MemoryManager();
@@ -281,10 +283,10 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size) {
     bool committed = false;
     if (status == Nvidia::NvResult::Success) {
         Nvidia::Devices::NativeSparseRemapEntry entry{};
-        entry.flags = 0x1000;
+        entry.flags = page_shift == 16 ? 0x2000U : 0x1000U;
         entry.handle = handle->id;
-        entry.destination_pages = address / Kernel::PageSize;
-        entry.pages = size / Kernel::PageSize;
+        entry.destination_pages = address >> page_shift;
+        entry.pages = size >> page_shift;
         const auto as = m_shared->FindOwnedAddressSpace(address_space);
         committed = as && as->RemapNativeSparse(std::span{&entry, size_t{1}}) ==
                                Nvidia::NvResult::Success;
@@ -516,7 +518,8 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
     bool dense_backed = false;
     if (request) {
         result = Kernel::ResultNotImplemented;
-        if (IsValidGpuSparseRegionRange(*request) && request->page_shift == 12 &&
+        if (IsValidGpuSparseRegionRange(*request) &&
+            (request->page_shift == 12 || request->page_shift == 16) &&
             request->allocation_mode <= 1 && request->sync <= 1 &&
             request->notification < GW::MaxNotifications) {
             const std::scoped_lock lock{m_mutex, m_shared->mutex};
@@ -528,14 +531,15 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
                 GW::MappingLedger::Pending staged_ledger;
                 const auto preflight = m_mappings.PrepareSparse(
                     request->address_space, request->device, request->begin, size,
-                    staged_ledger);
+                    staged_ledger, request->page_shift);
                 result = TranslateMappingStatus(preflight);
                 if (preflight == GW::LedgerStatus::Success) {
                     result = Kernel::ResultInvalidState;
                     const auto as = m_shared->FindOwnedAddressSpace(
                         static_cast<Nvidia::DeviceFD>(request->address_space));
                     const auto reserved = as
-                        ? as->ReserveNativeSparse4K(request->begin, size)
+                        ? as->ReserveNativeSparse4K(request->begin, size,
+                                                  request->page_shift)
                         : Nvidia::NvResult::InvalidState;
                     if (reserved == Nvidia::NvResult::InsufficientMemory)
                         result = Kernel::ResultOutOfResource;
@@ -547,7 +551,8 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
                             // until the guest submits physical 216 mappings.
                             if (request->allocation_mode == 0) {
                                 result = BackGpuOnlyRegion(
-                                    request->address_space, request->begin, size);
+                                    request->address_space, request->begin, size,
+                                    request->page_shift);
                                 dense_backed = result.IsSuccess();
                                 if (!dense_backed) {
                                     // Preserve the VA ledger if the backend rollback fails;
@@ -680,9 +685,12 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
                             break;
                         }
                         const auto range = Nvidia::Devices::DecodeNativeSparseRemap(*entry);
+                        const u32 page_flags = u32{element.flags} & 0x7000U;
+                        const u8 entry_page_shift = page_flags == 0x1000U ? 12 :
+                                                    page_flags == 0x2000U ? 16 : 0;
                         if (!range || !m_mappings.ContainsSparse(
                                           request->address_space,
-                                          range->address, range->size)) {
+                                          range->address, range->size, entry_page_shift)) {
                             result = Kernel::ResultInvalidCurrentMemory;
                             break;
                         }

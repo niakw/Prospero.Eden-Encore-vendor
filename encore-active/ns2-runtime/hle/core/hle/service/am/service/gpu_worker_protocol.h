@@ -155,6 +155,7 @@ struct Mapping {
     U8 selected_kind{};
     U8 backend_kind{};
     bool sparse{};
+    U8 sparse_page_shift{12}; // Preserves guest 4K vs 64K remap granularity.
 };
 
 enum class LedgerStatus {
@@ -189,13 +190,13 @@ public:
         return LedgerStatus::Success;
     }
     LedgerStatus PrepareSparse(U32 as, U32 device, U64 address,
-                               U64 size, Pending& pending) const {
+                               U64 size, Pending& pending, U8 page_shift = 12) const {
         if (!pending.empty()) return LedgerStatus::Invalid;
-        const auto status = CanReserveSparse(as, device, address, size);
+        const auto status = CanReserveSparse(as, device, address, size, page_shift);
         if (status != LedgerStatus::Success) return status;
         try {
             pending.emplace(std::make_pair(as, address),
-                            Mapping{as, 0, device, address, size, 0, 0, true});
+                            Mapping{as, 0, device, address, size, 0, 0, true, page_shift});
         } catch (const std::bad_alloc&) {
             return LedgerStatus::OutOfResource;
         }
@@ -206,7 +207,7 @@ public:
         const auto& staged = pending.begin()->second;
         const auto status = staged.sparse
             ? CanReserveSparse(staged.address_space, staged.device,
-                               staged.address, staged.size)
+                               staged.address, staged.size, staged.sparse_page_shift)
             : CanMap(Map4K{staged.address_space, staged.memory,
                            staged.device, 0, staged.address,
                            staged.size, 0, staged.selected_kind,
@@ -277,19 +278,23 @@ public:
             return LedgerStatus::NotFound;
         return LedgerStatus::Success;
     }
-    LedgerStatus CanReserveSparse(U32 as, U32 device, U64 address, U64 size) const {
-        if (!as || !device || device >= MaxDevices || !Aligned(address) ||
-            !size || !Aligned(size) || address > std::numeric_limits<U64>::max() - size ||
+    LedgerStatus CanReserveSparse(U32 as, U32 device, U64 address, U64 size,
+                                  U8 page_shift = 12) const {
+        if ((page_shift != 12 && page_shift != 16) || !as || !device ||
+            device >= MaxDevices || !size ||
+            ((address | size) & ((U64{1} << page_shift) - 1)) ||
+            address > std::numeric_limits<U64>::max() - size ||
             (size >> 12) > std::numeric_limits<U32>::max())
             return LedgerStatus::Invalid;
         return CanMap(Map4K{as, 1, device, 0, address, size, 0});
     }
-    LedgerStatus RecordSparse(U32 as, U32 device, U64 address, U64 size) {
-        const auto status = CanReserveSparse(as, device, address, size);
+    LedgerStatus RecordSparse(U32 as, U32 device, U64 address, U64 size,
+                              U8 page_shift = 12) {
+        const auto status = CanReserveSparse(as, device, address, size, page_shift);
         if (status != LedgerStatus::Success) return status;
         try {
             mappings.emplace(std::make_pair(as, address),
-                             Mapping{as, 0, device, address, size, 0, 0, true});
+                             Mapping{as, 0, device, address, size, 0, 0, true, page_shift});
         } catch (const std::bad_alloc&) {
             return LedgerStatus::OutOfResource;
         }
@@ -310,8 +315,10 @@ public:
     }
     // The batch may replace mappings only inside an existing sparse region,
     // and never within a normal 211 mapping or across two regions.
-    [[nodiscard]] bool ContainsSparse(U32 as, U64 address, U64 size) const {
-        if (!as || !size || !Aligned(address) || !Aligned(size) ||
+    [[nodiscard]] bool ContainsSparse(U32 as, U64 address, U64 size,
+                                      U8 page_shift = 12) const {
+        if ((page_shift != 12 && page_shift != 16) ||
+            !as || !size || !Aligned(address) || !Aligned(size) ||
             address > std::numeric_limits<U64>::max() - size)
             return false;
         auto it = mappings.upper_bound({as, address});
@@ -319,6 +326,8 @@ public:
         --it;
         const auto& entry = it->second;
         return entry.sparse && entry.address_space == as &&
+               entry.sparse_page_shift == page_shift &&
+               ((address | size) & ((U64{1} << page_shift) - 1)) == 0 &&
                address >= entry.address &&
                address - entry.address < entry.size &&
                size <= entry.size - (address - entry.address);

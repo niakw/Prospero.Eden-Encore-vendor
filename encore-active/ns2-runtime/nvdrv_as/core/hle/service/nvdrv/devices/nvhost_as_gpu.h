@@ -71,7 +71,7 @@ public:
     NvResult MapNativeImage(u32 handle_id, u64 source, u64 size, u64& address);
     [[nodiscard]] bool OwnsNativeProcess(Kernel::KProcess* process);
     NvResult UnmapNative4K(u64 address, u64 size);
-    NvResult ReserveNativeSparse4K(u64 address, u64 size);
+    NvResult ReserveNativeSparse4K(u64 address, u64 size, u8 page_shift = 12);
     NvResult ReleaseNativeSparse4K(u64 address, u64 size);
     NvResult RemapNativeSparse(std::span<const NativeSparseRemapEntry> entries);
     NvResult ModifyNativeKind(u64 address, u64 size, u8 kind);
@@ -205,7 +205,11 @@ private:
     //!< mapping type, this is needed as what was originally a single buffer may
     //!< have been split into multiple GPU side buffers with the remap flag.
     // Sparse reservations have no NvMap pins until remap support is verified.
-    std::map<u64, u64> native_sparse_regions;
+    struct NativeSparseRegion {
+        u64 size{};
+        u8 page_shift{12};
+    };
+    std::map<u64, NativeSparseRegion> native_sparse_regions;
     NativeSparseMappingTable native_sparse_mappings;
     std::map<u32, DAddr> native_sparse_pins;
     std::map<u64, Mapping> mapping_map;

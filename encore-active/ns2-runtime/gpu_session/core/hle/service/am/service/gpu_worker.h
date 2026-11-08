@@ -70,7 +70,8 @@ private:
     u64 m_dense_bytes{};
     u64 m_alias_slot_hint{}; // Avoid retrying the same occupied alias range.
     // Admission limits live in gpu_memory_registration.h and have host fixtures.
-    Result BackGpuOnlyRegion(u32 address_space, u64 address, u64 size);
+    Result BackGpuOnlyRegion(u32 address_space, u64 address, u64 size,
+                             u8 page_shift);
     bool RetireGpuOnlyRegion(u32 address_space, u64 address);
     std::shared_ptr<Nvidia::Module> m_module;
     Kernel::KProcess* const m_process;

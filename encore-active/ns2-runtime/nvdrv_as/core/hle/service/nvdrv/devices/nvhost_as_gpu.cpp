@@ -259,9 +259,11 @@ NvResult nvhost_as_gpu::MapNativeImage(u32 handle_id, u64 source, u64 size, u64&
     return NvResult::Success;
 }
 
-NvResult nvhost_as_gpu::ReserveNativeSparse4K(u64 address, u64 size) {
+NvResult nvhost_as_gpu::ReserveNativeSparse4K(u64 address, u64 size, u8 page_shift) {
     constexpr u64 page = VM::YUZU_PAGESIZE;
-    if (!m_native_process || !size || ((address | size) & (page - 1)) ||
+    if ((page_shift != 12 && page_shift != 16) ||
+        !m_native_process || !size ||
+        ((address | size) & ((u64{1} << page_shift) - 1)) ||
         (size >> VM::PAGE_SIZE_BITS) > std::numeric_limits<u32>::max())
         return NvResult::BadParameter;
     const std::scoped_lock lock{mutex};
@@ -293,7 +295,7 @@ NvResult nvhost_as_gpu::ReserveNativeSparse4K(u64 address, u64 size) {
         vm.small_page_allocator->AllocateFixed(base, pages);
         va_reserved = true;
         allocation_map.emplace(address, Allocation{{}, size, VM::YUZU_PAGESIZE, true, false});
-        native_sparse_regions.emplace(address, size);
+        native_sparse_regions.emplace(address, NativeSparseRegion{size, page_shift});
     } catch (const std::bad_alloc&) {
         native_sparse_regions.erase(address);
         allocation_map.erase(address);
@@ -328,15 +330,19 @@ NvResult nvhost_as_gpu::RemapNativeSparse(std::span<const NativeSparseRemapEntry
         kinds.reserve(entries.size());
         for (const auto& entry : entries) {
             const auto range = DecodeNativeSparseRemap(entry);
-            if (!range || (u32{entry.flags} & 0x7000U) != 0x1000U)
+            const u32 page_flags = u32{entry.flags} & 0x7000U;
+            const u8 page_shift = page_flags == 0x1000U ? 12 :
+                                  page_flags == 0x2000U ? 16 : 0;
+            if (!range || !page_shift)
                 return NvResult::BadParameter;
     
             const auto region = native_sparse_regions.upper_bound(range->address);
             if (region == native_sparse_regions.begin()) return NvResult::BadParameter;
             const auto owner = std::prev(region);
-            if (range->address < owner->first ||
-                range->address - owner->first >= owner->second ||
-                range->size > owner->second - (range->address - owner->first))
+            if (owner->second.page_shift != page_shift ||
+                range->address < owner->first ||
+                range->address - owner->first >= owner->second.size ||
+                range->size > owner->second.size - (range->address - owner->first))
                 return NvResult::BadParameter;
     
             NativeMemoryKind kind{};
@@ -442,7 +448,7 @@ NvResult nvhost_as_gpu::ReleaseNativeSparse4K(u64 address, u64 size) {
     const auto owned = native_sparse_regions.find(address);
     const auto allocation = allocation_map.find(address);
     if (!vm.initialised || !gmmu || !vm.small_page_allocator ||
-        owned == native_sparse_regions.end() || owned->second != size ||
+        owned == native_sparse_regions.end() || owned->second.size != size ||
         allocation == allocation_map.end() || !allocation->second.sparse ||
         allocation->second.big_pages || allocation->second.page_size != page ||
         allocation->second.size != size || !allocation->second.mappings.empty())
