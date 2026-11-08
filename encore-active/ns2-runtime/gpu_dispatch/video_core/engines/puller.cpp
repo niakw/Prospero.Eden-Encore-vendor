@@ -465,9 +465,16 @@ void Puller::CallPullerMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
 void Puller::CallNative3D(DmaPusher& pusher, u32 method,
                           std::span<const u32> values, bool last) {
     if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
-            &pusher.channel_state) || !native_3d || native_3d_failed) {
-        UNIMPLEMENTED_MSG("Native 3D channel or macro state unavailable");
+            &pusher.channel_state)) {
+        // Never reinterpret an ordinary Switch 1 Maxwell command as Ampere.
+        UNIMPLEMENTED_MSG("Native 3D operation on a non-native GPU channel");
         return;
+    }
+    if (!native_3d || native_3d_failed) {
+        // A retired Ampere macro channel cannot acknowledge a later GPFIFO
+        // packet as executed. The maintained GPU worker catches this fault
+        // and stops before publishing its guest queue completion fence.
+        throw std::runtime_error("Native Ampere 3D macro channel unavailable");
     }
     auto& engine=pusher.channel_state.payload->maxwell_3d;
     const auto fail=[&](const char* why) {
@@ -475,6 +482,9 @@ void Puller::CallNative3D(DmaPusher& pusher, u32 method,
         native_3d_failed=true;
         native_macro_method=0;
         native_parameters.clear();
+        // Logging a rejection and returning would let DMA advance through
+        // commands that never executed, then signal a counterfeit fence.
+        throw std::runtime_error(why);
     };
     if (!native_macro_method) {
         if (method==MAXWELL3D_REG_INDEX(load_mme.instruction_ptr)) {
@@ -579,7 +589,9 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
                                std::span<const u32> values, bool last,
                                u32 subchannel) {
     if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
-            &pusher.channel_state) || native_compute_failed) return;
+            &pusher.channel_state)) return; // Preserve NS1 Maxwell routing.
+    if (native_compute_failed)
+        throw std::runtime_error("Native Ampere Compute macro channel unavailable");
     if (!native_compute)
         native_compute = std::make_unique<Tegra::NativeAmpereMacroState>();
     const auto fail = [&](const char* reason) {
@@ -587,6 +599,10 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
         native_compute_macro_method = 0;
         native_compute_parameters.clear();
         LOG_ERROR(HW_GPU, "Native Ampere Compute MME rejected: {}", reason);
+        // Once a real Compute QMD/PCAS method may have been partially
+        // applied, retire the GPU worker rather than acknowledging success
+        // and silently ignoring all future methods on this guest channel.
+        throw std::runtime_error(reason);
     };
     if (!native_compute_macro_method && method >= 0x45 && method <= 0x48) {
         if (method == 0x45) {
