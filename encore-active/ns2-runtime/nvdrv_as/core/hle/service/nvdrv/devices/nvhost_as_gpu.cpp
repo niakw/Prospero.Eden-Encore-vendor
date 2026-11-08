@@ -173,10 +173,13 @@ NvResult nvhost_as_gpu::MapNative4K(u32 handle_id, u64 address, u64 source, u64 
     }
     const u32 first_page = static_cast<u32>(address >> VM::PAGE_SIZE_BITS);
     const u32 page_count = static_cast<u32>(size >> VM::PAGE_SIZE_BITS);
-    vm.small_page_allocator->AllocateFixed(first_page, page_count);
-    // The map nodes and mapping vector may allocate AFTER a successful
-    // NVMap pin. Roll back both the pin and VA reservation on host OOM.
+    // The fixed-page allocator itself can allocate vector blocks. Keep it
+    // inside the SAME rollback scope as the NVMap pin and the owner maps;
+    // otherwise an OOM before the try would leak the just-acquired pin.
+    bool va_reserved = false;
     try {
+        vm.small_page_allocator->AllocateFixed(first_page, page_count);
+        va_reserved = true;
         allocation_map.emplace(address, Allocation{{}, size, VM::YUZU_PAGESIZE, false, false});
         allocation_map.at(address).mappings.push_back(address);
         mapping_map.emplace(address, Mapping(handle_id, pinned + source, address, size,
@@ -184,7 +187,7 @@ NvResult nvhost_as_gpu::MapNative4K(u32 handle_id, u64 address, u64 source, u64 
     } catch (const std::bad_alloc&) {
         mapping_map.erase(address);
         allocation_map.erase(address);
-        vm.small_page_allocator->Free(first_page, page_count);
+        if (va_reserved) vm.small_page_allocator->Free(first_page, page_count);
         nvmap.UnpinHandle(handle_id);
         return NvResult::InsufficientMemory;
     }
@@ -213,7 +216,14 @@ NvResult nvhost_as_gpu::MapNativeImage(u32 handle_id, u64 source, u64 size, u64&
     // A single allocation owns its VA and mapping. Do not use MapBufferEx:
     // its legacy failure path can leak a pin or overlap a reserved region.
     const u32 pages = static_cast<u32>(size >> VM::PAGE_SIZE_BITS);
-    const u32 allocated = vm.small_page_allocator->Allocate(pages);
+    // Allocate() can throw while splitting the underlying FlatAllocator
+    // vector, not only return zero on exhaustion. No pin exists yet.
+    u32 allocated{};
+    try {
+        allocated = vm.small_page_allocator->Allocate(pages);
+    } catch (const std::bad_alloc&) {
+        return NvResult::InsufficientMemory;
+    }
     if (!allocated) return NvResult::InsufficientMemory;
     const u64 gpu_address = static_cast<u64>(allocated) << VM::PAGE_SIZE_BITS;
     if (gpu_address < vm.va_range_start || gpu_address >= vm.va_range_split ||
@@ -275,16 +285,19 @@ NvResult nvhost_as_gpu::ReserveNativeSparse4K(u64 address, u64 size) {
         return NvResult::BadParameter;
     const u32 base = static_cast<u32>(address >> VM::PAGE_SIZE_BITS);
     const u32 pages = static_cast<u32>(size >> VM::PAGE_SIZE_BITS);
-    vm.small_page_allocator->AllocateFixed(base, pages);
-    // Reserve BOTH ownership records before publishing sparse PTEs. A
-    // failed std::map allocation cannot strand a VA reservation.
+    // AllocateFixed can allocate and throw before any map node is inserted.
+    // Only free a reservation that was actually returned successfully;
+    // the FlatAllocator vector insert has the strong exception guarantee.
+    bool va_reserved = false;
     try {
+        vm.small_page_allocator->AllocateFixed(base, pages);
+        va_reserved = true;
         allocation_map.emplace(address, Allocation{{}, size, VM::YUZU_PAGESIZE, true, false});
         native_sparse_regions.emplace(address, size);
     } catch (const std::bad_alloc&) {
         native_sparse_regions.erase(address);
         allocation_map.erase(address);
-        vm.small_page_allocator->Free(base, pages);
+        if (va_reserved) vm.small_page_allocator->Free(base, pages);
         return NvResult::InsufficientMemory;
     }
     gmmu->MapSparse(address, size, false);
