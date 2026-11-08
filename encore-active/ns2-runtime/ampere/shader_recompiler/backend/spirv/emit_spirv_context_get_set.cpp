@@ -569,18 +569,23 @@ void EmitSetAttributeIndexed(EmitContext& ctx, Id offset, Id value, Id vertex) {
 }
 
 Id EmitGetPatch(EmitContext& ctx, IR::Patch patch) {
-    if (IR::IsGeneric(patch)) {
-        const u32 index{IR::GenericPatchIndex(patch)};
-        const Id element{ctx.Const(IR::GenericPatchElement(patch))};
-        const Id type{ctx.stage == Stage::TessellationControl ? ctx.output_f32 : ctx.input_f32};
-        const Id pointer{ctx.OpAccessChain(type, ctx.patches.at(index), element)};
-        return ctx.OpLoad(ctx.F32[1], pointer);
-    }
-
+    // Generic and built-in patch inputs exist only in tessellation stages.
+    // A non-tessellation program must not emit an undeclared Input/Output
+    // access chain (or silently select the TES Input storage class).
     const bool control{ctx.stage == Stage::TessellationControl};
     const bool evaluation{ctx.stage == Stage::TessellationEval};
     if (!control && !evaluation) {
         throw NotImplementedException("Tessellation patch read outside tessellation stage");
+    }
+    if (IR::IsGeneric(patch)) {
+        const u32 index{IR::GenericPatchIndex(patch)};
+        if (index >= ctx.patches.size() || !ValidId(ctx.patches.at(index))) {
+            throw NotImplementedException("Undeclared generic tessellation patch {}", patch);
+        }
+        const Id element{ctx.Const(IR::GenericPatchElement(patch))};
+        const Id type{control ? ctx.output_f32 : ctx.input_f32};
+        const Id pointer{ctx.OpAccessChain(type, ctx.patches.at(index), element)};
+        return ctx.OpLoad(ctx.F32[1], pointer);
     }
     Id variable{};
     Id element{};
@@ -615,9 +620,17 @@ Id EmitGetPatch(EmitContext& ctx, IR::Patch patch) {
 }
 
 void EmitSetPatch(EmitContext& ctx, IR::Patch patch, Id value) {
+    // Only a tessellation-control shader owns patch outputs. TES patch
+    // variables are read-only inputs and may not be written by an IR error.
+    if (ctx.stage != Stage::TessellationControl) {
+        throw NotImplementedException("Tessellation patch write outside control stage");
+    }
     const Id pointer{[&] {
         if (IR::IsGeneric(patch)) {
             const u32 index{IR::GenericPatchIndex(patch)};
+            if (index >= ctx.patches.size() || !ValidId(ctx.patches.at(index))) {
+                throw NotImplementedException("Undeclared generic tessellation patch {}", patch);
+            }
             const Id element{ctx.Const(IR::GenericPatchElement(patch))};
             return ctx.OpAccessChain(ctx.output_f32, ctx.patches.at(index), element);
         }
