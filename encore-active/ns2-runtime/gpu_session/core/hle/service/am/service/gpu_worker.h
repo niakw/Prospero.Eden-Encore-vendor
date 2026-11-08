@@ -40,6 +40,15 @@ private:
     std::shared_ptr<GpuWorkerSharedState> m_shared;
     std::optional<std::size_t> m_nv_session;
     std::vector<u32> m_memory;
+    // FreeHandle can succeed before the guest page-table device unlock does.
+    // Keep the exact span and a weak NVMap lifetime so a subsequent guest
+    // release (or worker teardown) can finish without double-freeing a handle.
+    struct PendingDeviceUnlock {
+        u64 address{};
+        u64 size{};
+        std::weak_ptr<void> nvmap_lifetime;
+    };
+    std::map<u32, PendingDeviceUnlock> m_pending_device_unlocks;
     GpuWorkerProtocol::MappingLedger m_mappings;
     // Physical GPU-only backing is owned by the worker, not by guest handles.
     // It must outlive every GMMU mapping and every in-flight GPU write.

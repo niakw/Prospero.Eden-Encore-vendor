@@ -10,6 +10,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <new>
 #include <optional>
 #include <utility>
 
@@ -164,6 +165,20 @@ IGpuWorker::~IGpuWorker() {
     }
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
     for (const u32 id : m_memory) {
+        if (const auto pending = m_pending_device_unlocks.find(id);
+            pending != m_pending_device_unlocks.end()) {
+            // No second FreeHandle after a destructive release. A surviving
+            // NVMap reference must not lose its still-locked guest backing.
+            if (!pending->second.nvmap_lifetime.expired()) {
+                LOG_ERROR(Service_AM, "NS2 GPU memory still externally owned at worker teardown: {}", id);
+                continue;
+            }
+            const auto result = m_process->GetPageTable().UnlockForDeviceAddressSpace(
+                pending->second.address, pending->second.size);
+            if (result.IsError())
+                LOG_ERROR(Service_AM, "NS2 deferred GPU memory unlock failed: {:#x}", result.raw);
+            continue;
+        }
         if (const auto info = nvmap.FreeHandle(id, false); info && info->can_unlock) {
             const auto result = m_process->GetPageTable().UnlockForDeviceAddressSpace(
                 info->address, info->size);
@@ -779,6 +794,21 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
              m_shared->events[notification], Kernel::ResultInvalidCombination);
     const auto it = std::find(m_memory.begin(), m_memory.end(), id);
     R_UNLESS(it != m_memory.end(), Kernel::ResultNotFound);
+
+    // FreeHandle is destructive, whereas unlocking the guest page table can
+    // fail independently. Retry only the outstanding unlock for a handle
+    // already freed; never call FreeHandle a second time on a stale ID.
+    auto pending = m_pending_device_unlocks.find(id);
+    if (pending != m_pending_device_unlocks.end()) {
+        R_UNLESS(pending->second.nvmap_lifetime.expired(), Kernel::ResultBusy);
+        R_TRY(m_process->GetPageTable().UnlockForDeviceAddressSpace(
+            pending->second.address, pending->second.size));
+        m_pending_device_unlocks.erase(pending);
+        m_memory.erase(it);
+        m_shared->events[notification]->Signal(kernel);
+        return ResultSuccess;
+    }
+
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
     auto handle = nvmap.GetHandle(id);
     R_UNLESS(handle, Kernel::ResultInvalidState);
@@ -789,16 +819,34 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
         R_UNLESS(handle->dupes == 1 && handle->internal_dupes == 0 &&
                  handle->pins == 0, Kernel::ResultBusy);
     }
-    // NvMap::FreeHandle reports can_unlock=false while ANY external
-    // shared_ptr keeps the handle alive. Release our preflight reference
-    // first, otherwise every valid destroy falsely fails and leaks the
-    // guest page-table device lock.
+    // Stage the recovery node BEFORE freeing NVMap, while no guest address
+    // space mutation has happened. Allocation failure preserves ownership.
+    try {
+        const auto [entry, inserted] = m_pending_device_unlocks.try_emplace(
+            id, PendingDeviceUnlock{0, 0, std::weak_ptr<void>{handle}});
+        if (!inserted) return Kernel::ResultInvalidState;
+        pending = entry;
+    } catch (const std::bad_alloc&) {
+        return Kernel::ResultOutOfResource;
+    }
+    // Release our last strong reference so FreeHandle may report unlockable.
     handle.reset();
     const auto info = nvmap.FreeHandle(id, false);
-    R_UNLESS(info && info->can_unlock, Kernel::ResultInvalidState);
-    m_memory.erase(it);
+    if (!info) {
+        m_pending_device_unlocks.erase(pending);
+        return Kernel::ResultInvalidState;
+    }
+    pending->second.address = info->address;
+    pending->second.size = info->size;
+    // If an external cache still owns the NVMap object, do not unlock its
+    // process pages. A retry will recheck the weak lifetime without freeing
+    // the already-destroyed handle again.
+    R_UNLESS(info->can_unlock && pending->second.nvmap_lifetime.expired(),
+             Kernel::ResultBusy);
     R_TRY(m_process->GetPageTable().UnlockForDeviceAddressSpace(
-        info->address, info->size));
+        pending->second.address, pending->second.size));
+    m_pending_device_unlocks.erase(pending);
+    m_memory.erase(it);
     m_shared->events[notification]->Signal(kernel);
     return ResultSuccess;
 }
