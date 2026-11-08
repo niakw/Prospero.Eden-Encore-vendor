@@ -335,7 +335,12 @@ void IGpuSession::GetAddressSpacePartition(HLERequestContext& ctx) {
     const auto request = GP::DecodeAddressSpacePartition(command, ctx.GetCommand());
     if (request) {
         result = Kernel::ResultNotFound;
-        if (m_shared->address_spaces.Owns(request->address_space)) {
+        // A guest may have closed the NVDRV descriptor while the TIPC
+        // session kept its numeric ID. Validate the exact opened device
+        // identity before either returning a success partition or invoking
+        // an IOCTL that might otherwise target a recycled foreign FD.
+        const bool owned = m_shared->address_spaces.Owns(request->address_space);
+        if (owned && ResolveOpenedAddressSpace(request->address_space)) {
             result = ResultSuccess;
             if (user) {
                 std::array<u8, 64> input{};
@@ -361,6 +366,8 @@ void IGpuSession::GetAddressSpacePartition(HLERequestContext& ctx) {
                     }
                 }
             }
+        } else if (owned) {
+            result = Kernel::ResultInvalidState;
         }
     }
     IPC::ResponseBuilder rb{ctx, user ? 20U : 6U};
