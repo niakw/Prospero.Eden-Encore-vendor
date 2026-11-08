@@ -225,6 +225,15 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
                                       EngineTypes::Nv01Timer);
         }
         UNIMPLEMENTED_MSG("Unimplemented engine {:04X}", engine_id);
+#ifdef PS5_NATIVE
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            // SET_OBJECT itself is a GPU command. A bad native class must
+            // retire its GPFIFO even when no later method dereferences the
+            // now-unbound subchannel. Do not publish a false completion fence.
+            throw std::runtime_error("Native GPFIFO SET_OBJECT class unsupported");
+        }
+#endif
         break;
     }
 }
