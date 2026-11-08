@@ -214,21 +214,39 @@ bool NrRdna2FrameSession::Initialize(
     }
     // Distinct GPU storage for all independent stage views. No aliases,
     // no readback, and no proprietary model data included in the binary.
-    init_phase="preblock_and_texture";
-    const auto proxy=q.Make(n*16u),feature16=q.Make(n*32u),
-               lifted=q.Make(n*32u),full_skip=q.Make(n*32u),
-               raw_pre=q.Make(n*64u),
-               first_half=q.Make(n*32u/4u);
-    if(!proxy.buffer||!feature16.buffer||!lifted.buffer||
-       !full_skip.buffer||!raw_pre.buffer||!first_half.buffer)return false;
+    // Preserve the first exact failing owner. A single combined phase used
+    // to conflate an allocation/range rejection with a sampled-image
+    // descriptor or learned preblock admission failure. No weights, hashes,
+    // guest pixels or proprietary tensor names are emitted.
+    init_phase="preblock_proxy_buffer";
+    const auto proxy=q.Make(n*16u);
+    if(!proxy.buffer)return false;
+    init_phase="preblock_features_buffer";
+    const auto feature16=q.Make(n*32u);
+    if(!feature16.buffer)return false;
+    init_phase="preblock_lifted_buffer";
+    const auto lifted=q.Make(n*32u);
+    if(!lifted.buffer)return false;
+    init_phase="preblock_full_skip_buffer";
+    const auto full_skip=q.Make(n*32u);
+    if(!full_skip.buffer)return false;
+    init_phase="preblock_raw_fp16_buffer";
+    const auto raw_pre=q.Make(n*64u);
+    if(!raw_pre.buffer)return false;
+    init_phase="preblock_half_fp8_buffer";
+    const auto first_half=q.Make(n*32u/4u);
+    if(!first_half.buffer)return false;
     const NR::NRTextureProxyShape source_shape{
         width,height,paper_white,hdr?1u:0u};
+    init_phase="texture_proxy_descriptor";
     if(!q.source.Initialize(source_shape,guest_view,guest_sampler,
-            guest_format,guest_extent,proxy)||
-       !q.features.Initialize({
+            guest_format,guest_extent,proxy))return false;
+    init_phase="proxy_feature_descriptor";
+    if(!q.features.Initialize({
            width,height,width,height,width,height,0u,
-           0.0f,0.0f,0.0f,0.0f,0.0f},proxy,feature16)||
-       !q.pre.PrepareWithPool(
+           0.0f,0.0f,0.0f,0.0f,0.0f},proxy,feature16))return false;
+    init_phase="learned_preblock_prepare";
+    if(!q.pre.PrepareWithPool(
            q.model,q.plan,feature16,lifted,full_skip,raw_pre,
            first_half))return false;
     init_phase="unet_down_buffers";
