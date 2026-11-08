@@ -46,6 +46,11 @@ public:
     // Refuses an unrelated input buffer (even when byte sizes match).
     [[nodiscard]] bool RecordWithDownSequence(NrRdna2UNetDownSequence&);
     [[nodiscard]] bool Ready() const noexcept{return ready;}
+    // Literal-only diagnostic of the first rejected preparation boundary.
+    // No private model bytes, image pixels or tensor identifiers.
+    [[nodiscard]] std::string_view LastPreparePhaseName() const noexcept {
+        return prepare_phase;
+    }
     [[nodiscard]] Scheduler* SchedulerIdentity() const noexcept{
         return &scheduler;
     }
@@ -81,6 +86,7 @@ private:
     NrRdna2FSwinChain body;
     NrRdna2PreblockPool pool;
     VkDescriptorBufferInfo prepared_input{};
+    std::string_view prepare_phase{"unstarted"};
     std::array<std::uint32_t,2> full_geometry{};
     bool attempted{},ready{},record_attempted{},recorded{},has_pool{};
 };
