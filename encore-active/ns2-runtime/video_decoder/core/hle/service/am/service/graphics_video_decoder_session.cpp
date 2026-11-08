@@ -402,9 +402,25 @@ void IGraphicsVideoDecoderSession::Pump() {
                                            BlockHeightLog2, 0);
             pixels.swap(tiled);
         }
-        if (!m_owner->WriteVideoSurface(next.id, *target, pixels)) return;
-        m_outputs.push_back({next.id, width, height, frame.picture.pts, frame.eos});
-        m_guest_owned.insert(next.id);
+        // Stage fallible host bookkeeping BEFORE writing to guest memory.
+        // If deque/set allocation fails after the write, the old code could
+        // publish pixels without an output record or its completion fence.
+        try {
+            m_outputs.push_back({next.id, width, height, frame.picture.pts, frame.eos});
+            try {
+                m_guest_owned.insert(next.id);
+            } catch (const std::bad_alloc&) {
+                m_outputs.pop_back();
+                return;
+            }
+        } catch (const std::bad_alloc&) {
+            return;
+        }
+        if (!m_owner->WriteVideoSurface(next.id, *target, pixels)) {
+            m_guest_owned.erase(next.id);
+            m_outputs.pop_back();
+            return;
+        }
         m_available.erase(ready);
         m_pending.pop_front();
         syncpoints.IncrementGuest(m_syncpoint); // Only after real guest buffer was written.
