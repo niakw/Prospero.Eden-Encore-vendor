@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <utility>
+#include <cstdint>
 #include <limits>
 #include "core/hle/service/am/service/gpu_worker_shared.h"
 #include "core/hle/service/nvdrv/core/container.h"
@@ -19,8 +20,8 @@ GpuWorkerSharedState::GpuWorkerSharedState(Core::System& system,
 }
 
 std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
-GpuWorkerSharedState::FindOwnedAddressSpace(u32 id) const {
-    if (!id || id > static_cast<u32>(std::numeric_limits<std::int32_t>::max()) ||
+GpuWorkerSharedState::FindOwnedAddressSpace(std::uint32_t id) const {
+    if (!id || id > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) ||
         !address_spaces.Owns(id) ||
         module->VerifyFD(static_cast<Nvidia::DeviceFD>(id)) != Nvidia::NvResult::Success)
         return {};

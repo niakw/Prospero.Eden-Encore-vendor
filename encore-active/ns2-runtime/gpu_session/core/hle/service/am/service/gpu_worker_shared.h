@@ -7,6 +7,7 @@
 // a kernel client session, even after IGpuSession itself is destroyed.
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <map>
 #include <mutex>
@@ -34,10 +35,10 @@ struct GpuWorkerSharedState {
     // Preserve the original nvhost-as-gpu OBJECT identity across all moved
     // GPU worker KSessions. A numeric NVDRV FD alone can be recycled and
     // GetDevice<nvhost_as_gpu> is a static_cast, not a type check.
-    std::map<u32, std::weak_ptr<Nvidia::Devices::nvhost_as_gpu>> opened_gpu_as;
+    std::map<std::uint32_t, std::weak_ptr<Nvidia::Devices::nvhost_as_gpu>> opened_gpu_as;
     // Caller holds mutex except during final shared-state destruction.
     [[nodiscard]] std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
-    FindOwnedAddressSpace(u32 id) const;
+    FindOwnedAddressSpace(std::uint32_t id) const;
     KernelHelpers::ServiceContext event_context;
     std::array<Kernel::KEvent*, GpuSessionProtocol::MaxNotificationEvents> events{};
     std::shared_ptr<Nvidia::Module> module;
