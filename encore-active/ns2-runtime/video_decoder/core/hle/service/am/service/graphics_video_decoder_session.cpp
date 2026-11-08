@@ -155,7 +155,15 @@ void IGraphicsVideoDecoderSession::Configure(HLERequestContext& ctx) {
         Acknowledge(ctx, Kernel::ResultNotImplemented);
         return;
     }
-    auto decoder = std::make_unique<Tegra::Host1x::Nx2VideoDecoder>(mime);
+    std::unique_ptr<Tegra::Host1x::Nx2VideoDecoder> decoder;
+    try {
+        decoder = std::make_unique<Tegra::Host1x::Nx2VideoDecoder>(mime);
+    } catch (const std::bad_alloc&) {
+        // Codec construction must not unwind through a guest IPC request.
+        // No decoder or guest resource has been published at this point.
+        Acknowledge(ctx, Kernel::ResultOutOfResource);
+        return;
+    }
     if (!decoder->IsOpen()) {
         Acknowledge(ctx, Kernel::ResultNotImplemented);
         return;
@@ -521,9 +529,16 @@ void IGraphicsVideoDecoderSession::SubmitInput(HLERequestContext& ctx) {
         return;
     }
     std::vector<Tegra::Host1x::Nx2Picture> decoded;
-    if ((!compressed.empty() && !m_decoder->Decode(compressed, pts, decoded)) ||
-        (eos && !m_decoder->Drain(decoded))) {
-        Acknowledge(ctx, Kernel::ResultInvalidState);
+    try {
+        if ((!compressed.empty() && !m_decoder->Decode(compressed, pts, decoded)) ||
+            (eos && !m_decoder->Drain(decoded))) {
+            Acknowledge(ctx, Kernel::ResultInvalidState);
+            return;
+        }
+    } catch (const std::bad_alloc&) {
+        // FFmpeg output collection may allocate before returning any frame.
+        // No partial packet, guest fence or output record may be published.
+        Acknowledge(ctx, Kernel::ResultOutOfResource);
         return;
     }
     if (decoded.size() > MaxFrames - m_pending.size()) {
