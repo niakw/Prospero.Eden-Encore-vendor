@@ -157,13 +157,20 @@ Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
             // Resolve Task/Mesh physical slots only from live NVC597 mode:
             // Mesh is VertexB when solo and TessControl when Task is enabled.
             const auto shader_stage = static_cast<Shader::Stage>(stage);
+            // Task and Mesh are native Ampere stage IDs appended after
+            // VertexA. The shared Maxwell Shader::Stage enum intentionally
+            // does not declare these two names: match their authenticated
+            // numeric IDs, as NativeMeshSlotCbufBank already does.
+            const u32 vertex_a = static_cast<u32>(Shader::Stage::VertexA);
+            const bool task_stage = stage == vertex_a + 1U;
+            const bool mesh_stage = stage == vertex_a + 2U;
             const auto& regs = cbuf->engine->regs;
             const bool native_mesh = (regs.reg_array[0x114c / 4] & 1U) != 0;
             const bool has_task = native_mesh &&
                 regs.IsShaderConfigEnabled(
                     Tegra::Engines::Maxwell3D::Regs::ShaderType::TessellationInit);
             const u32 required_bank =
-                shader_stage == Shader::Stage::Task || shader_stage == Shader::Stage::Mesh
+                task_stage || mesh_stage
                     ? (native_mesh
                            ? Shader::Ampere::NativeMeshSlotCbufBank(shader_stage, has_task)
                            : ~u32{0})
@@ -175,9 +182,7 @@ Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
                 gpu_program_address, stage, ReadNs2GpuShader, &memory,
                 ReadNs2GraphicsCbuf, const_cast<Ns2GraphicsCbufContext*>(cbuf),
                 cache);
-            if (captured.Ready() &&
-                (shader_stage == Shader::Stage::Task ||
-                 shader_stage == Shader::Stage::Mesh)) {
+            if (captured.Ready() && (task_stage || mesh_stage)) {
                 const std::array<u32, 3> mesh_regs{
                     regs.reg_array[0x1150 / 4],
                     regs.reg_array[0x1154 / 4],
@@ -186,7 +191,7 @@ Shader::Ampere::NativeCaptureResult CaptureNs2GraphicsShaderFromGpu(
                 captured.image.diagnostic_cache_key =
                     Shader::Ampere::NativeMeshRegisterPipelineKey(
                         captured.image.diagnostic_cache_key, mesh_regs);
-                if (shader_stage == Shader::Stage::Mesh) {
+                if (mesh_stage) {
                     const bool primitive_header_enabled =
                         regs.IsShaderConfigEnabled(
                             Tegra::Engines::Maxwell3D::Regs::ShaderType::Geometry);
