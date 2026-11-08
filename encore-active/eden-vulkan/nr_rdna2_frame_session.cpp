@@ -248,7 +248,10 @@ bool NrRdna2FrameSession::Initialize(
     init_phase="learned_preblock_prepare";
     if(!q.pre.PrepareWithPool(
            q.model,q.plan,feature16,lifted,full_skip,raw_pre,
-           first_half))return false;
+           first_half)){
+        init_phase=q.pre.LastPreparePhaseName();
+        return false;
+    }
     init_phase="unet_down_buffers";
     std::array<NrRdna2SkipRasterDimensions,4> skip_dims{};
     std::array<const NR::NativeUNetSkipEdge*,4> down_edges{},up_edges{};
