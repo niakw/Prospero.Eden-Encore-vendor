@@ -743,7 +743,11 @@ void Puller::ProcessNativeComputeInlineQmd(DmaPusher& pusher, u32 subchannel) {
         ticket->process != compute->process ||
         ticket->generation != compute->generation ||
         ticket->channel_generation != compute->channel_generation ||
-        !pusher.rasterizer) return;
+        !pusher.rasterizer) {
+        // An inline QMD cannot be acknowledged after its process/engine
+        // epoch was revoked. The GPFIFO worker must retire this submission.
+        throw std::runtime_error("Native inline QMD has no live GPU owner");
+    }
 
     auto& regs = pusher.channel_state.payload->kepler_compute.regs.reg_array;
     const u64 qmd_units = (u64{regs[0xc6]} << 32) | regs[0xc7];
@@ -752,14 +756,14 @@ void Puller::ProcessNativeComputeInlineQmd(DmaPusher& pusher, u32 subchannel) {
     // describe the upper nine address bits without truncation.
     if (qmd_units >= (u64{1} << 41)) {
         LOG_ERROR(HW_GPU, "Native inline QMD destination exceeds 49-bit GPU VA");
-        return;
+        throw std::runtime_error("Native inline QMD GPU address invalid");
     }
     const GPUVAddr address = qmd_units << 8;
     Tegra::NativeQmdScheduler::Descriptor descriptor{};
     std::copy_n(regs.begin() + 0xc8, descriptor.size(), descriptor.begin());
     if (!pusher.memory_manager.IsFullyMappedRange(address, sizeof(descriptor))) {
         LOG_ERROR(HW_GPU, "Native inline QMD destination is unmapped");
-        return;
+        throw std::runtime_error("Native inline QMD destination unmapped");
     }
     pusher.rasterizer->AccelerateInlineToMemory(
         address, sizeof(descriptor),
@@ -791,7 +795,9 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
         ticket->process != compute->process ||
         ticket->generation != compute->generation ||
         ticket->channel_generation != compute->channel_generation ||
-        !pusher.rasterizer) return;
+        !pusher.rasterizer) {
+        throw std::runtime_error("Native Compute report semaphore owner revoked");
+    }
 
     const auto& regs = pusher.channel_state.payload->kepler_compute.regs.reg_array;
     const GPUVAddr address =
@@ -807,7 +813,10 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
         !memory->IsFullyMappedRange(address, write_bytes)) {
         LOG_ERROR(HW_GPU, "Native Compute report semaphore rejected: operation={} address={:#x}",
                   operation, address);
-        return;
+        // Refusing a release but advancing GPFIFO would allow dependent
+        // guests to observe a completed queue with no matching semaphore.
+        throw std::runtime_error("Native Compute report semaphore invalid");
+
     }
     if (reduction_enabled) {
         const u32 reduction = (control >> 9) & 7U;
@@ -865,7 +874,9 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
         ticket->process != compute_ticket->process ||
         ticket->generation != compute_ticket->generation ||
         ticket->channel_generation != compute_ticket->channel_generation ||
-        !session || !pusher.rasterizer) return;
+        !session || !pusher.rasterizer) {
+        throw std::runtime_error("Native QMD3 has no authenticated GPU process or engine");
+    }
     auto read = [&](u64 addr, Tegra::NativeQmdScheduler::Descriptor& data) {
         // Avoid passing an overflowing or non-49-bit GPU range to the
         // page-table walker, including dependent guest-supplied QMD VAs.
