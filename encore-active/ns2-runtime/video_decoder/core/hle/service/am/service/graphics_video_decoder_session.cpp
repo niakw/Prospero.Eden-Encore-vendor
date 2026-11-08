@@ -502,8 +502,19 @@ void IGraphicsVideoDecoderSession::SubmitInput(HLERequestContext& ctx) {
         Acknowledge(ctx, Kernel::ResultNotFound);
         return;
     }
-    for (std::size_t i = 0; i < decoded.size(); ++i)
-        m_pending.push_back({std::move(decoded[i]), eos && i + 1 == decoded.size()});
+    // Publish the decoded packet atomically into the bounded output queue.
+    // An allocation failure after the first frame must not leave half of the
+    // packet visible to GetOutputInfo while SubmitInput reports no success.
+    const std::size_t previous_pending = m_pending.size();
+    try {
+        for (std::size_t i = 0; i < decoded.size(); ++i)
+            m_pending.push_back({std::move(decoded[i]), eos && i + 1 == decoded.size()});
+    } catch (const std::bad_alloc&) {
+        while (m_pending.size() > previous_pending)
+            m_pending.pop_back();
+        Acknowledge(ctx, Kernel::ResultOutOfResource);
+        return;
+    }
     Pump();
     m_ready->SetRoom(m_pending.size() < MaxFrames);
     m_ready->Notify();
