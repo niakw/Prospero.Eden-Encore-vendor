@@ -548,6 +548,11 @@ Id EmitGetAttributeU32(EmitContext& ctx, IR::Attribute attr, Id) {
 void EmitSetAttribute(EmitContext& ctx, IR::Attribute attr, Id value, [[maybe_unused]] Id vertex) {
     const std::optional<OutAttr> output{OutputAttrPointer(ctx, attr)};
     if (!output) {
+        // A native Ampere shader must not be accepted after silently
+        // dropping an output that the host device or stage cannot provide.
+        // Keep Maxwell/NS1's historical optional-output policy unchanged.
+        if (Shader::Ampere::NativeSpirvCbufBoundsActive())
+            throw NotImplementedException("Native shader output attribute {} unavailable", attr);
         return;
     }
     if (Sirit::ValidId(output->type)) {
@@ -757,6 +762,11 @@ Id EmitInvocationInfo(EmitContext& ctx) {
     case Stage::Geometry:
         return ctx.OpShiftLeftLogical(ctx.U32[1], ctx.Const(InputTopologyVertices::vertices(ctx.runtime_info.input_topology)), ctx.Const(16u));
     default:
+        // The legacy fallback is not a real Ampere invocation topology.
+        // A native shader using this special register needs its true stage
+        // metadata; compiling a constant would publish wrong SPIR-V.
+        if (Shader::Ampere::NativeSpirvCbufBoundsActive())
+            throw NotImplementedException("Native invocation info outside supported stage");
         LOG_WARNING(Shader, "(STUBBED) called");
         return ctx.Const(0x00ff0000u);
     }
@@ -771,11 +781,15 @@ Id EmitIsHelperInvocation(EmitContext& ctx) {
 }
 
 Id EmitSR_WScaleFactorXY(EmitContext& ctx) {
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive())
+        throw NotImplementedException("Native WarpScaleFactorXY requires real GPU state");
     LOG_WARNING(Shader, "(STUBBED) called");
     return ctx.Const(0x00ff0000u);
 }
 
 Id EmitSR_WScaleFactorZ(EmitContext& ctx) {
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive())
+        throw NotImplementedException("Native WarpScaleFactorZ requires real GPU state");
     LOG_WARNING(Shader, "(STUBBED) called");
     return ctx.Const(0x00ff0000u);
 }
