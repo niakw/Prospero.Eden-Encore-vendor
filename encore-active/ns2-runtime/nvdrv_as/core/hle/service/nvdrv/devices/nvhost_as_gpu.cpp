@@ -11,6 +11,7 @@
 #include "common/alignment.h"
 #include "common/assert.h"
 #include <limits>
+#include <new>
 #include <set>
 #include <vector>
 #include "core/hle/kernel/k_process.h"
@@ -321,14 +322,27 @@ NvResult nvhost_as_gpu::RemapNativeSparse(std::span<const NativeSparseRemapEntry
     for (const auto& range : ranges) if (range.handle) needed.insert(range.handle);
     if (needed.size() > 4096) return NvResult::InsufficientMemory;
     std::map<u32, DAddr> newly_pinned;
+    // Allocate the map node BEFORE asking NVMap to pin physical memory.
+    // Otherwise std::map::emplace can OOM after a successful PinHandle,
+    // orphaning a physical pin with no owner or rollback handle.
     for (const u32 handle : needed) {
         if (native_sparse_pins.contains(handle)) continue;
-        const DAddr pinned = nvmap.PinHandle(handle, false);
-        if (!pinned) {
-            for (const auto& [id, address] : newly_pinned) nvmap.UnpinHandle(id);
+        std::map<u32, DAddr>::iterator pending;
+        try {
+            pending = newly_pinned.try_emplace(handle, DAddr{}).first;
+        } catch (const std::bad_alloc&) {
+            for (const auto& [id, address] : newly_pinned)
+                if (address) nvmap.UnpinHandle(id);
             return NvResult::InsufficientMemory;
         }
-        newly_pinned.emplace(handle, pinned);
+        const DAddr pinned = nvmap.PinHandle(handle, false);
+        if (!pinned) {
+            newly_pinned.erase(pending);
+            for (const auto& [id, address] : newly_pinned)
+                nvmap.UnpinHandle(id);
+            return NvResult::InsufficientMemory;
+        }
+        pending->second = pinned;
     }
 
     // Preflight every pinned source span before changing ANY GMMU page.
