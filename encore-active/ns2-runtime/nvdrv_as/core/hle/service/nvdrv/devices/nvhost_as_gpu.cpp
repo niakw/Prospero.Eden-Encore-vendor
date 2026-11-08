@@ -414,9 +414,18 @@ NvResult nvhost_as_gpu::ReleaseNativeSparse4K(u64 address, u64 size) {
         return NvResult::BadParameter;
     // Purge all physical mappings covered by this reservation; preserve
     // handles still referenced by other independent native sparse regions.
-    auto updated = native_sparse_mappings;
-    updated.Replace(NativeSparseRange{address, size, 0, 0});
-    const auto retained = updated.ReferencedHandles();
+    NativeSparseMappingTable updated;
+    std::set<u32> retained;
+    // Prepare ALL owning data before changing the guest GMMU or pin ledger.
+    // Copy/Replace/ReferencedHandles can allocate; a host OOM must leave the
+    // reservation, mappings and pins intact and return a guest-visible error.
+    try {
+        updated = native_sparse_mappings;
+        updated.Replace(NativeSparseRange{address, size, 0, 0});
+        retained = updated.ReferencedHandles();
+    } catch (const std::bad_alloc&) {
+        return NvResult::InsufficientMemory;
+    }
     gmmu->Unmap(address, size);
     native_sparse_mappings = std::move(updated);
     for (auto it = native_sparse_pins.begin(); it != native_sparse_pins.end();) {
