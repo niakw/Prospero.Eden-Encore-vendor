@@ -1004,6 +1004,12 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                          static_cast<int>(error.size()), error.data());
 #endif
         LOG_ERROR(HW_GPU, "Native QMD3 rejected: {}", error);
+        // Returning normally would allow the GPFIFO worker to signal its
+        // completed-queue fence even when the nonempty QMD's shader was
+        // refused BEFORE vkCmdDispatch. Preserve the detailed diagnostic
+        // above, then retire the native worker through its existing fatal
+        // error path. No synthetic guest completion or NS1 fallback.
+        throw std::runtime_error("Native QMD3 dispatch was not executed");
     }
 }
 
