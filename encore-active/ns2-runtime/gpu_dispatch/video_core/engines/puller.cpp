@@ -244,6 +244,15 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
 void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {
     switch (regs.fence_action.op) {
     case Puller::FenceOperation::Acquire:
+#ifdef PS5_NATIVE
+        // No native syncpoint wait is scheduled here. Releasing rasterizer
+        // fences is not equivalent to an ACQUIRE, and returning would
+        // acknowledge guest GPU work that is still blocked.
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            throw std::runtime_error("Native GPFIFO FENCE_ACTION acquire unsupported");
+        }
+#endif
         // UNIMPLEMENTED_MSG("Channel Scheduling pending.");
         // WaitFence(regs.fence_action.syncpoint_id, regs.fence_value);
         dma_pusher.rasterizer->ReleaseFences();
@@ -252,6 +261,12 @@ void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {
         dma_pusher.rasterizer->SignalSyncPoint(regs.fence_action.syncpoint_id);
         break;
     default:
+#ifdef PS5_NATIVE
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            throw std::runtime_error("Native GPFIFO FENCE_ACTION operation unsupported");
+        }
+#endif
         UNIMPLEMENTED_MSG("Unimplemented operation {}", regs.fence_action.op.Value());
         break;
     }
