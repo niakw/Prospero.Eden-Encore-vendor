@@ -616,9 +616,14 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
                     m_shared->events[request->notification]) {
                     std::vector<Nvidia::Devices::NativeSparseRemapEntry> staged;
                     std::vector<u8> selected;
+                    result = ResultSuccess;
+                    // No guest GMMU change until both output and remap
+                    // staging buffers have survived all host allocations.
+                    // An untrusted batch must not unwind through the TIPC
+                    // dispatcher if vector growth runs out of memory.
+                    try {
                     staged.reserve(request->count);
                     selected.reserve(request->count);
-                    result = ResultSuccess;
                     for (std::size_t i = 0; i < request->count; ++i) {
                         GpuSparseMapRequest element{};
                         std::memcpy(&element, input.data() + i * sizeof(element),
@@ -660,6 +665,9 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
                         }
                         staged.push_back(*entry);
                         selected.push_back(effective);
+                    }
+                    } catch (const std::bad_alloc&) {
+                        result = Kernel::ResultOutOfResource;
                     }
                     if (result.IsSuccess()) {
                         result = Kernel::ResultInvalidState;
