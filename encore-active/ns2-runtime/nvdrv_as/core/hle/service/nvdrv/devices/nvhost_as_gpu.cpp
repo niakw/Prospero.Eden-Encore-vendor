@@ -260,7 +260,6 @@ NvResult nvhost_as_gpu::MapNativeImage(u32 handle_id, u64 source, u64 size, u64&
 }
 
 NvResult nvhost_as_gpu::ReserveNativeSparse4K(u64 address, u64 size, u8 page_shift) {
-    constexpr u64 page = VM::YUZU_PAGESIZE;
     if ((page_shift != 12 && page_shift != 16) ||
         !m_native_process || !size ||
         ((address | size) & ((u64{1} << page_shift) - 1)) ||
