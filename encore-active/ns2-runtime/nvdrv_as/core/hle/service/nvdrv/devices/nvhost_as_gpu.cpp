@@ -171,12 +171,23 @@ NvResult nvhost_as_gpu::MapNative4K(u32 handle_id, u64 address, u64 source, u64 
         if (pinned) nvmap.UnpinHandle(handle_id);
         return NvResult::InsufficientMemory;
     }
-    vm.small_page_allocator->AllocateFixed(static_cast<u32>(address >> VM::PAGE_SIZE_BITS),
-                                           static_cast<u32>(size >> VM::PAGE_SIZE_BITS));
-    allocation_map.emplace(address, Allocation{{}, size, VM::YUZU_PAGESIZE, false, false});
-    allocation_map.at(address).mappings.push_back(address);
-    mapping_map.emplace(address, Mapping(handle_id, pinned + source, address, size,
-                                         true, false, false));
+    const u32 first_page = static_cast<u32>(address >> VM::PAGE_SIZE_BITS);
+    const u32 page_count = static_cast<u32>(size >> VM::PAGE_SIZE_BITS);
+    vm.small_page_allocator->AllocateFixed(first_page, page_count);
+    // The map nodes and mapping vector may allocate AFTER a successful
+    // NVMap pin. Roll back both the pin and VA reservation on host OOM.
+    try {
+        allocation_map.emplace(address, Allocation{{}, size, VM::YUZU_PAGESIZE, false, false});
+        allocation_map.at(address).mappings.push_back(address);
+        mapping_map.emplace(address, Mapping(handle_id, pinned + source, address, size,
+                                             true, false, false));
+    } catch (const std::bad_alloc&) {
+        mapping_map.erase(address);
+        allocation_map.erase(address);
+        vm.small_page_allocator->Free(first_page, page_count);
+        nvmap.UnpinHandle(handle_id);
+        return NvResult::InsufficientMemory;
+    }
     gmmu->Map(address, pinned + source, size, static_cast<Tegra::PTEKind>(kind), false);
     return NvResult::Success;
 }
@@ -221,10 +232,18 @@ NvResult nvhost_as_gpu::MapNativeImage(u32 handle_id, u64 source, u64 size, u64&
     // The VA allocator already reserved the pages. Mark the GMMU mapping
     // fixed so FreeMappingLocked will unpin and unmap, while UnmapNative4K
     // releases the single owning allocation exactly once.
-    allocation_map.emplace(gpu_address,
-                           Allocation{{gpu_address}, size, VM::YUZU_PAGESIZE, false, false});
-    mapping_map.emplace(gpu_address, Mapping(handle_id, pinned + source,
-                                            gpu_address, size, true, false, false));
+    try {
+        allocation_map.emplace(gpu_address,
+                               Allocation{{gpu_address}, size, VM::YUZU_PAGESIZE, false, false});
+        mapping_map.emplace(gpu_address, Mapping(handle_id, pinned + source,
+                                                gpu_address, size, true, false, false));
+    } catch (const std::bad_alloc&) {
+        mapping_map.erase(gpu_address);
+        allocation_map.erase(gpu_address);
+        nvmap.UnpinHandle(handle_id);
+        vm.small_page_allocator->Free(allocated, pages);
+        return NvResult::InsufficientMemory;
+    }
     gmmu->Map(gpu_address, pinned + source, size, Tegra::PTEKind{}, false);
     address = gpu_address;
     return NvResult::Success;
@@ -257,8 +276,17 @@ NvResult nvhost_as_gpu::ReserveNativeSparse4K(u64 address, u64 size) {
     const u32 base = static_cast<u32>(address >> VM::PAGE_SIZE_BITS);
     const u32 pages = static_cast<u32>(size >> VM::PAGE_SIZE_BITS);
     vm.small_page_allocator->AllocateFixed(base, pages);
-    allocation_map.emplace(address, Allocation{{}, size, VM::YUZU_PAGESIZE, true, false});
-    native_sparse_regions.emplace(address, size);
+    // Reserve BOTH ownership records before publishing sparse PTEs. A
+    // failed std::map allocation cannot strand a VA reservation.
+    try {
+        allocation_map.emplace(address, Allocation{{}, size, VM::YUZU_PAGESIZE, true, false});
+        native_sparse_regions.emplace(address, size);
+    } catch (const std::bad_alloc&) {
+        native_sparse_regions.erase(address);
+        allocation_map.erase(address);
+        vm.small_page_allocator->Free(base, pages);
+        return NvResult::InsufficientMemory;
+    }
     gmmu->MapSparse(address, size, false);
     return NvResult::Success;
 }
