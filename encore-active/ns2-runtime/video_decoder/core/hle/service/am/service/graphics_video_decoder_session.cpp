@@ -309,6 +309,15 @@ void IGraphicsVideoDecoderSession::ReleaseBuffer(HLERequestContext& ctx) {
         Acknowledge(ctx, Kernel::ResultInvalidHandle);
         return;
     }
+    // Pump publishes guest-owned pixels before GetOutputInfo delivers their
+    // metadata. An early ReleaseBuffer must not put the same image back in
+    // the decoder's write queue while an undelivered output still names it.
+    // This is the same ownership rule enforced by UnregisterBuffer.
+    if (std::any_of(m_outputs.begin(), m_outputs.end(),
+                    [image](const Output& output) { return output.image == image; })) {
+        Acknowledge(ctx, Kernel::ResultBusy);
+        return;
+    }
     const u32 release_id = ~w[4];
     const u32 release_value = w[6];
     if ((release_id >= MaxSyncpoints &&
