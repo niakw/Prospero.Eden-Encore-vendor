@@ -347,12 +347,29 @@ void IGraphicsVideoDecoderSession::UnregisterBuffer(HLERequestContext& ctx) {
         Acknowledge(ctx, Kernel::ResultInvalidHandle);
         return;
     }
-    if (std::any_of(m_available.begin(), m_available.end(),
-                    [=](const AvailableImage& a) { return a.id == image; }) ||
-        std::any_of(m_outputs.begin(), m_outputs.end(),
+    // An image with an undelivered output still belongs to the guest's
+    // decoder queue, even after Stop; never silently discard that output.
+    if (std::any_of(m_outputs.begin(), m_outputs.end(),
                     [=](const Output& a) { return a.image == image; })) {
         Acknowledge(ctx, Kernel::ResultBusy);
         return;
+    }
+    const auto available = std::find_if(
+        m_available.begin(), m_available.end(),
+        [=](const AvailableImage& a) { return a.id == image; });
+    if (available != m_available.end()) {
+        // Stop clears pending decode work and relinquishes decoder ownership.
+        // Without this case, an image registered before Start or retained
+        // after Stop could NEVER be unregistered. Do not bypass a guest
+        // release fence or remove an image from a running decoder.
+        if (m_started ||
+            (available->release &&
+             !system.Host1x().GetSyncpointManager().IsReadyGuest(
+                 available->release->id, available->release->value))) {
+            Acknowledge(ctx, Kernel::ResultBusy);
+            return;
+        }
+        m_available.erase(available);
     }
     m_registered.erase(image);
     m_guest_owned.erase(image);
