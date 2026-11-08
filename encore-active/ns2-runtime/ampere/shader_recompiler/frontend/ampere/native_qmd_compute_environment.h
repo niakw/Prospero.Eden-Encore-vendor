@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
@@ -997,16 +998,22 @@ struct NativeQmdTextureTables {
     [[nodiscard]] std::optional<std::vector<NativeQmdImageTableRecord>>
     Capture(const NativeQmdResourcePlan& plan, Read&& read) const {
         if (plan.image_handles.size() > 256) return std::nullopt;
-        std::vector<NativeQmdImageTableRecord> captured;
-        captured.reserve(plan.image_handles.size());
-        if (!ForEachCapturedRecord(
-                plan, std::forward<Read>(read),
-                [&](const NativeQmdImageTableRecord& record) {
-                    captured.push_back(record);
-                    return true;
-                }))
+        try {
+            std::vector<NativeQmdImageTableRecord> captured;
+            captured.reserve(plan.image_handles.size());
+            if (!ForEachCapturedRecord(
+                    plan, std::forward<Read>(read),
+                    [&](const NativeQmdImageTableRecord& record) {
+                        captured.push_back(record);
+                        return true;
+                    }))
+                return std::nullopt;
+            return captured;
+        } catch (const std::bad_alloc&) {
+            // Untrusted guest descriptors must not unwind GPU compilation
+            // on host OOM; no Vulkan image or sampler has been published.
             return std::nullopt;
-        return captured;
+        }
     }
 
     // A channel ticket only guards channel ownership. TIC/TSC are guest
@@ -1046,6 +1053,7 @@ struct NativeQmdTextureTables {
             records.size() > 256 ||
             plan.requires_tic_tsc != !records.empty())
             return std::nullopt;
+        try {
         std::vector<NativeQmdTypedTextureRecord> typed;
         typed.reserve(records.size());
         for (std::size_t index = 0; index < records.size(); ++index) {
@@ -1093,6 +1101,11 @@ struct NativeQmdTextureTables {
             typed.emplace_back(std::move(entry));
         }
         return typed;
+        } catch (const std::bad_alloc&) {
+            // A decoded TIC/TSC record is only a pre-publication snapshot.
+            // On OOM, refuse the plan without creating any Vulkan resource.
+            return std::nullopt;
+        }
     }
 
     // The first native admission boundary: validate actual typed TIC/TSC
