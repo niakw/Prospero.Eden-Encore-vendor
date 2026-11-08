@@ -192,6 +192,12 @@ IGpuWorker::~IGpuWorker() {
     }
     if (m_nv_session)
         m_module->GetContainer().CloseSession(Nvidia::NvCore::SessionId{*m_nv_session});
+    // GpuWorkerSharedState owns the opened GPU address-space FDs and its
+    // final destructor unregisters this exact process epoch. Release our
+    // reference NOW, while our KProcess Open is still held. Waiting for the
+    // automatic shared_ptr member destructor (after this body) could use an
+    // already-destroyed process when this is the last worker/session owner.
+    m_shared.reset();
     m_process->Close(kernel);
 }
 
