@@ -590,7 +590,13 @@ void IGpuWorker::DestroySparseRegion(HLERequestContext& ctx) {
                     auto dense = m_dense_regions.find(
                         {request->address_space, request->address});
                     const bool physical = dense != m_dense_regions.end();
-                    if (physical && !dense->second.gmmu_released)
+                    // A mode-1 sparse VA can have real NVMap-backed pages
+                    // installed later by TIPC 216 even though it has no
+                    // dense 214 owner. Releasing it unmaps GMMU and unpins
+                    // those physical pages. Drain in-flight GPU work first
+                    // for BOTH modes; only a previously completed dense
+                    // release may skip the second drain on retry.
+                    if (!physical || !dense->second.gmmu_released)
                         system.GPU().WaitForIdle();
                     // The native GMMU release is destructive. If NVMap or
                     // CPU-alias retirement fails, retry only the latter.

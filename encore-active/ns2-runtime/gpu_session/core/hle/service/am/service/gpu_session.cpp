@@ -172,9 +172,17 @@ void IGpuSession::AcquireWorker(HLERequestContext& ctx) {
             result = ResultSuccess;
         }
     }
-    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
-    rb.Push(result.raw);
-    ctx.AddMoveObject(client);
+    // A failed AcquireWorker has no guest-owned client handle to move.
+    // Keep the error response free of a null transfer descriptor; the
+    // successful path retains exactly one independently opened handle.
+    if (result.IsSuccess()) {
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+        rb.Push(result.raw);
+        ctx.AddMoveObject(client);
+    } else {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+    }
 }
 
 void IGpuSession::GetNotificationRange(HLERequestContext& ctx) {
