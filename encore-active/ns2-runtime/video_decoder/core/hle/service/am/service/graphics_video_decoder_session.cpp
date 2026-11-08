@@ -552,7 +552,13 @@ void IGraphicsVideoDecoderSession::SubmitInput(HLERequestContext& ctx) {
 }
 
 void IGraphicsVideoDecoderSession::GetOutputInfo(HLERequestContext& ctx) {
-    if (m_creator || !m_started || m_finalized) {
+    // Stop(207) preserves genuine, already-rendered outputs: a caller must
+    // be able to drain them after stopping before UnregisterBuffer can
+    // release the pool. Refusing every query while stopped deadlocked the
+    // image lifecycle (output stuck + unregister returns Busy). No new
+    // decoding is permitted after Stop, and an empty stopped queue retains
+    // the original InvalidState contract.
+    if (m_creator || m_finalized || (!m_started && m_outputs.empty())) {
         Acknowledge(ctx, Kernel::ResultInvalidState);
         return;
     }
