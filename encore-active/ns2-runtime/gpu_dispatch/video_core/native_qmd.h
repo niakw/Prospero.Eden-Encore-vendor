@@ -134,6 +134,13 @@ public:
                     const auto dependencies = NativeQmdDependencyAdd(
                         std::int32_t((qmd[4] >> 14) & 0xffff), state.deferred);
                     if (!dependencies) return "QMD dependency overflow";
+                    // An early cross-channel decrement may exceed the new
+                    // QMD's declared dependencies. Reject before consuming
+                    // deferred deltas or marking this descriptor loaded:
+                    // otherwise a subsequent action 3/12 could dispatch
+                    // using a counter already made negative by a rejected
+                    // command.
+                    if (*dependencies < 0) return "QMD dependency underflow";
                     state.dependencies = *dependencies;
                     safe_trace("base", request.address, std::int32_t((qmd[4] >> 14) & 0xffff));
                     safe_trace("load", request.address, state.dependencies);
@@ -156,6 +163,11 @@ public:
                 }
                 const auto dependencies = NativeQmdDependencyAdd(state.dependencies, delta);
                 if (!dependencies) return "QMD dependency overflow";
+                // Failed decrements are not accepted commands. Keep the
+                // previous nonnegative count and wait for the actual number
+                // of release signals instead of letting a later increment
+                // revive an invalid transaction prematurely.
+                if (*dependencies < 0) return "QMD dependency underflow";
                 state.dependencies = *dependencies;
                 safe_trace("count", request.address, state.dependencies);
             } else {
