@@ -29,6 +29,17 @@ for directory in roots:
             if not terms: continue
             counts.update(x.casefold() for x in terms)
             matches.append((path.relative_to(root).as_posix(),i,stripped[:170]))
+# Visible GitHub Actions labels must be neutral; real ABI/source comments
+# remain part of the technical provenance scan above.
+labels = 0
+for workflow in sorted((root/".github/workflows").glob("*.yml")):
+    for line in workflow.read_text(encoding="utf-8").splitlines():
+        candidate = re.match(r"^\s*(?:-\s*)?name:\s*(.*?)\s*$", line)
+        if candidate:
+            labels += 1
+            assert not vendor_names.search(candidate.group(1)), (workflow, line)
+assert labels >= 3
+print(f"ENCORE_VENDOR_VISIBLE_WORKFLOW_LABELS_PASS labels={labels}")
 # The paths are intentionally source/owner evidence, not a blocker that could
 # be bypassed by renaming technically required API symbols.
 print("ENCORE_VENDOR_MAINTAINED_COMMENT_AUDIT",

@@ -8,12 +8,14 @@ on:
     paths:
       - '.github/workflows/security-quality.yml'
       - '.github/scripts/check-active-security.py'
+      - '.github/scripts/audit-maintained-comment-terms.py'
       - '.github/dependabot.yml'
       - 'encore-active/**'
   pull_request:
     paths:
       - '.github/workflows/security-quality.yml'
       - '.github/scripts/check-active-security.py'
+      - '.github/scripts/audit-maintained-comment-terms.py'
       - '.github/dependabot.yml'
       - 'encore-active/**'
   workflow_dispatch:
