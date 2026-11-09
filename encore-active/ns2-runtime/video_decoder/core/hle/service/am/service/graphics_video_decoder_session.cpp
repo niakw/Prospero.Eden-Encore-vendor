@@ -255,9 +255,18 @@ void IGraphicsVideoDecoderSession::GetEvent(HLERequestContext& ctx) {
     }
     m_ready->Set(m_started, m_pending.size() < MaxFrames);
     m_ready->Notify();
+    // Outgoing COPY descriptors can allocate independently of the event.
+    // Stage the readable event BEFORE emitting a successful TIPC handle
+    // header; a failed allocation must never advertise an absent handle.
+    try {
+        ctx.AddCopyObject(&m_event->GetReadableEvent());
+    } catch (const std::bad_alloc&) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultOutOfResource.raw);
+        return;
+    }
     IPC::ResponseBuilder rb{ctx, 2, 1, 0};
     rb.Push(ResultSuccess);
-    rb.PushCopyObjects(ctx, m_event->GetReadableEvent());
 }
 
 bool IGraphicsVideoDecoderSession::EnsureSyncpoint() {
