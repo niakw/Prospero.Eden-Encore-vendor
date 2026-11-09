@@ -243,11 +243,19 @@ void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
         }
     }
     // GPU session cmd 12 returns a COPY handle, not a moved handle.
-    // The SDK owns its event wait independently of the service object.
+    // Stage the outgoing object before writing a success descriptor.
+    // Its host vector can allocate; an OOM must return an ordinary error
+    // with zero COPY handles rather than leaving a success reply behind.
+    if (result.IsSuccess()) {
+        try {
+            ctx.AddCopyObject(readable);
+        } catch (const std::bad_alloc&) {
+            result = Kernel::ResultOutOfResource;
+        }
+    }
     if (result.IsSuccess()) {
         IPC::ResponseBuilder rb{ctx, 2, 1, 0};
         rb.Push(result.raw);
-        rb.PushCopyObjects(ctx, *readable);
     } else {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
