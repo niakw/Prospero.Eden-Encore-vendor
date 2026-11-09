@@ -239,10 +239,28 @@ private:
     spv::ImageOperandsMask mask{};
 };
 
+// For a statically selected descriptor, rejecting a foreign index is
+// mandatory: OpAccessChain on an out-of-range OpTypeArray element is
+// undefined and can sample or write another guest resource. Dynamic
+// indices retain the normal native descriptor path pending a separate
+// runtime-bounds proof; never silently clamp an invalid guest index.
+[[nodiscard]] Id CheckedTextureArrayIndex(EmitContext& ctx,
+                                          const IR::Value& index, u32 count) {
+    if (!count || index.IsEmpty() || index.Type() != IR::Type::U32)
+        throw LogicError("Invalid texture descriptor index type");
+    if (index.IsImmediate()) {
+        const u32 selected = index.U32();
+        if (selected >= count)
+            throw LogicError("Texture descriptor array index out of range");
+        return ctx.Const(selected);
+    }
+    return ctx.Def(index);
+}
+
 Id Texture(EmitContext& ctx, IR::TextureInstInfo info, [[maybe_unused]] const IR::Value& index) {
     const TextureDefinition& def{ctx.textures.at(info.descriptor_index)};
     if (def.count > 1) {
-        auto const idx = index.IsImmediate() ? ctx.Const(index.U32()) : ctx.Def(index);
+        auto const idx = CheckedTextureArrayIndex(ctx, index, def.count);
         const bool non_uniform{MarkNonUniform(ctx, idx, index, NonUniformKind::SampledImage)};
         const Id pointer{ctx.OpAccessChain(def.pointer_type, def.id, idx)};
         const Id object{ctx.OpLoad(def.sampled_type, pointer)};
@@ -260,7 +278,7 @@ Id TextureImage(EmitContext& ctx, IR::TextureInstInfo info, const IR::Value& ind
     if (info.type == TextureType::Buffer) {
         const TextureBufferDefinition& def{ctx.texture_buffers.at(info.descriptor_index)};
         if (def.count > 1) {
-            const Id idx{index.IsImmediate() ? ctx.Const(index.U32()) : ctx.Def(index)};
+            const Id idx{CheckedTextureArrayIndex(ctx, index, def.count)};
             const bool non_uniform{
                 MarkNonUniform(ctx, idx, index, NonUniformKind::UniformTexelBuffer)};
             // OpAccessChain result type is the POINTER to the selected
@@ -279,7 +297,7 @@ Id TextureImage(EmitContext& ctx, IR::TextureInstInfo info, const IR::Value& ind
     } else {
         const TextureDefinition& def{ctx.textures.at(info.descriptor_index)};
         if (def.count > 1) {
-            auto const idx = index.IsImmediate() ? ctx.Const(index.U32()) : ctx.Def(index);
+            auto const idx = CheckedTextureArrayIndex(ctx, index, def.count);
             const bool non_uniform{MarkNonUniform(ctx, idx, index, NonUniformKind::SampledImage)};
             const Id ptr = ctx.OpAccessChain(def.pointer_type, def.id, idx);
             const Id object = ctx.OpLoad(def.sampled_type, ptr);
@@ -299,7 +317,7 @@ std::pair<Id, bool> Image(EmitContext& ctx, const IR::Value& index, IR::TextureI
     if (info.type == TextureType::Buffer) {
         const ImageBufferDefinition def{ctx.image_buffers.at(info.descriptor_index)};
         if (def.count > 1) {
-            const Id idx{index.IsImmediate() ? ctx.Const(index.U32()) : ctx.Def(index)};
+            const Id idx{CheckedTextureArrayIndex(ctx, index, def.count)};
             const bool non_uniform{
                 MarkNonUniform(ctx, idx, index, NonUniformKind::StorageTexelBuffer)};
             const Id ptr{ctx.OpAccessChain(def.pointer_type, def.id, idx)};
@@ -314,7 +332,7 @@ std::pair<Id, bool> Image(EmitContext& ctx, const IR::Value& index, IR::TextureI
     } else {
         const ImageDefinition def{ctx.images.at(info.descriptor_index)};
         if (def.count > 1) {
-            const Id idx{index.IsImmediate() ? ctx.Const(index.U32()) : ctx.Def(index)};
+            const Id idx{CheckedTextureArrayIndex(ctx, index, def.count)};
             const bool non_uniform{MarkNonUniform(ctx, idx, index, NonUniformKind::StorageImage)};
             const Id ptr{ctx.OpAccessChain(def.pointer_type, def.id, idx)};
             const Id image{ctx.OpLoad(def.image_type, ptr)};
