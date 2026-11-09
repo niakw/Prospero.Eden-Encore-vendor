@@ -27,10 +27,16 @@ void Scheduler::Push(GPU& gpu, s32 channel, CommandList&& entries) {
         if (it == channels.end() || !it->second || !it->second->payload)
             throw std::runtime_error("Native GPFIFO: missing channel owner");
         const auto channel_state = it->second;
-        gpu.BindChannel(channel_state->bind_id);
         auto& pusher = channel_state->payload->dma_pusher;
-        pusher.Push(std::move(entries));
-        pusher.DispatchCalls();
+        // GPU::BindChannel mutates a single shared GPU execution context.
+        // Concurrent native channel submissions and semaphore replay must
+        // not interleave a bind with another owner's DispatchCalls.
+        {
+            const std::scoped_lock gpu_lock(gpu_submit_guard);
+            gpu.BindChannel(channel_state->bind_id);
+            pusher.Push(std::move(entries));
+            pusher.DispatchCalls();
+        }
         // A second GPU-worker path may retry parked semaphores while this
         // submission publishes its pending channel. Guard the actual list.
         const std::scoped_lock pending_lock(pending_guard);
@@ -46,6 +52,9 @@ void Scheduler::Push(GPU& gpu, s32 channel, CommandList&& entries) {
 }
 
 void Scheduler::ResumePendingNative(GPU& gpu) {
+    // Lock GPU execution BEFORE the pending list, matching Push's order:
+    // dispatch from a parked channel cannot race another channel's bind.
+    const std::scoped_lock gpu_lock(gpu_submit_guard);
     // No stale-generation retire may mutate the pending vector while a
     // worker is retrying or dispatching a parked native GPFIFO channel.
     const std::scoped_lock pending_lock(pending_guard);

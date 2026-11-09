@@ -38,6 +38,9 @@ private:
     ::Common::unordered_map<s32, std::shared_ptr<ChannelState>> channels;
     std::vector<std::shared_ptr<ChannelState>> pending_native_channels;
     std::shared_mutex scheduling_guard;
+    // Serializes mutable GPU channel binding across submissions and replay;
+    // scheduling_guard only protects the channel epoch map itself.
+    std::mutex gpu_submit_guard;
     mutable std::mutex pending_guard;
 };
 
