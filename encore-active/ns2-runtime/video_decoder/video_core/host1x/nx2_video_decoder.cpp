@@ -56,6 +56,14 @@ std::optional<AVCodecID> RawCodecFromMime(std::string_view mime) {
     return std::nullopt;
 }
 
+// FFmpeg::Packet stores its byte count in signed s32 and AVFrame timestamps
+// are signed s64. Never narrow guest-controlled packet sizes or PTS into
+// these host types; this also bounds the padded allocation before addition.
+[[nodiscard]] constexpr bool IsSafeNativeVideoPacketInput(std::size_t bytes, u64 pts) noexcept {
+    return bytes <= static_cast<std::size_t>(std::numeric_limits<s32>::max()) &&
+           pts <= static_cast<u64>(std::numeric_limits<s64>::max());
+}
+
 } // namespace
 
 bool IsH264Stream(std::span<const u8> data) {
@@ -211,7 +219,8 @@ const std::string& Nx2VideoDecoder::Name() const {
 }
 
 bool Nx2VideoDecoder::Decode(std::span<const u8> data, u64 pts, std::vector<Nx2Picture>& pictures) {
-    if (!impl->open || data.empty()) return false;
+    if (!impl->open || data.empty() ||
+        !IsSafeNativeVideoPacketInput(data.size(), pts)) return false;
     impl->packet.assign(data.size() + AV_INPUT_BUFFER_PADDING_SIZE, 0);
     std::memcpy(impl->packet.data(), data.data(), data.size());
 
