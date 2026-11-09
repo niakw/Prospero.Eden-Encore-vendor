@@ -649,10 +649,17 @@ void IGpuWorker::DestroySparseRegion(HLERequestContext& ctx) {
                         system.GPU().WaitForIdle();
                     // The native GMMU release is destructive. If NVMap or
                     // CPU-alias retirement fails, retry only the latter.
-                    const bool released = (physical && dense->second.gmmu_released) ||
-                        as->ReleaseNativeSparse4K(request->address, request->size) ==
-                            Nvidia::NvResult::Success;
-                    if (released) {
+                    // Native sparse release stages the retained pin table before
+                    // unmapping GMMU. Its allocation can fail without changing
+                    // ownership; expose a retryable resource error, not an
+                    // invalid guest GPU state.
+                    const auto release_result =
+                        (physical && dense->second.gmmu_released)
+                            ? Nvidia::NvResult::Success
+                            : as->ReleaseNativeSparse4K(request->address, request->size);
+                    if (release_result == Nvidia::NvResult::InsufficientMemory)
+                        result = Kernel::ResultOutOfResource;
+                    if (release_result == Nvidia::NvResult::Success) {
                         if (physical) dense->second.gmmu_released = true;
                         const bool retired = !physical || RetireGpuOnlyRegion(
                             request->address_space, request->address);
