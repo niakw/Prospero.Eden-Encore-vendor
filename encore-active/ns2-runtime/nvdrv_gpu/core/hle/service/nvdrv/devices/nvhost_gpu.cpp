@@ -418,6 +418,17 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
         }
     }
 
+    // Native FENCE_ACTION ACQUIRE is not yet scheduled by the Ampere
+    // puller. If this input fence is unresolved, submitting its legacy
+    // wait packet would kill the GPU worker after an apparently successful
+    // ioctl, and possibly strand an already-reserved completion syncpoint.
+    // Reject BEFORE InitChannel, bind or fence reservation. A satisfied
+    // wait needs no command; NS1 retains its existing wait path.
+    if (native && flags.fence_wait.Value() &&
+        !syncpoint_manager.IsFenceSignalled(params.fence)) {
+        return NvResult::NotImplemented;
+    }
+
     // P2.7: every native GPFIFO entry must refer to a fully mapped GMMU
     // command span BEFORE InitChannel, owner binding or fence reservation.
     // A valid guest ioctl pointer only proves that the *list of headers*
