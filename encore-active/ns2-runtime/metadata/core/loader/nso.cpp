@@ -198,6 +198,11 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
 
     // Apply patches if necessary
     if (patched || full_image) {
+        // Untrusted or empty NSO layouts must not form an out-of-range
+        // pointer, nor pass a null data pointer to the header memcpy even
+        // when the apparent patchable payload has length zero.
+        if (module_start >= codeset.memory.size())
+            return std::nullopt;
         std::span<u8> patchable_section(codeset.memory.data() + module_start, codeset.memory.size() - module_start);
         std::vector<u8> pi_header(sizeof(NSOHeader) + patchable_section.size());
         std::memcpy(pi_header.data(), &nso_header, sizeof(NSOHeader));
