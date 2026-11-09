@@ -392,6 +392,14 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
         throw std::runtime_error("Ampere SEM_EXECUTE: invalid/unmapped GPU address");
     }
     if (operation == 1) { // RELEASE: schedule a genuine GPU fence write.
+        // QueryCacheBase::CounterReport needs a CPU backing address to
+        // enqueue the deferred Vulkan fence write. A resident GMMU span
+        // alone is insufficient: without an alias that owner silently
+        // drops the report. Fail the native channel instead of pretending
+        // a guest semaphore RELEASE was submitted.
+        if (!dma_pusher.memory_manager.GpuToCpuAddress(address, sizeof(u32))) {
+            throw std::runtime_error("Ampere SEM_EXECUTE: release has no CPU backing");
+        }
         dma_pusher.rasterizer->Query(
             address, VideoCommon::QueryType::Payload,
             VideoCommon::QueryPropertiesFlags::IsAFence, value, 0);
