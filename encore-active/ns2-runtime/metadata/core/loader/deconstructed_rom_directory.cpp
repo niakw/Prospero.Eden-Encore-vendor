@@ -168,6 +168,11 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
 
         dir = file->GetContainingDirectory();
     }
+    // A standalone NSO may have no containing directory. Do not dereference
+    // a missing ExeFS or fabricate a KProcess handoff.
+    if (!dir) {
+        return {ResultStatus::ErrorNullFile, {}};
+    }
 
     // Read meta to determine title ID
     FileSys::VirtualFile npdm = dir->GetFile("main.npdm");
@@ -184,6 +189,11 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
         const FileSys::PatchManager patch_manager(
             metadata.GetTitleID(), system.GetFileSystemController(), system.GetContentProvider());
         dir = patch_manager.PatchExeFS(dir);
+        // A malformed/failed update may invalidate its layered ExeFS.
+        // The base path remains unchanged when no update was requested.
+        if (!dir) {
+            return {ResultStatus::ErrorMissingNPDM, {}};
+        }
     }
 
     // Reread in case PatchExeFS affected the main.npdm
