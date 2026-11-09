@@ -182,6 +182,16 @@ void DefineGenericOutput(EmitContext& ctx, size_t index, std::optional<u32> invo
         if (num_components == 0 || num_components > remainder) {
             throw NotImplementedException("Invalid transform-feedback component partition");
         }
+        // Xfb Offset is a byte offset into each vertex's interleaved
+        // stride. Validate the complete component range before emitting
+        // decorations that would write past this guest stream record.
+        if (xfb_varying &&
+            ((xfb_varying->offset & 3U) != 0 ||
+             (xfb_varying->stride & 3U) != 0 ||
+             xfb_varying->offset > xfb_varying->stride ||
+             num_components > (xfb_varying->stride - xfb_varying->offset) / 4U)) {
+            throw NotImplementedException("Invalid transform-feedback byte stride/offset");
+        }
 
         const Id id{DefineOutput(ctx, ctx.F32[num_components], invocations)};
         ctx.Decorate(id, spv::Decoration::Location, static_cast<u32>(index));
