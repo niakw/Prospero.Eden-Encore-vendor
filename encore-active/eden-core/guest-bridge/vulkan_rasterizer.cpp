@@ -1635,12 +1635,13 @@ bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& l
         // checks, but perform the side effect only after final authentication.
         {
             std::scoped_lock lock{buffer_cache.mutex};
-            if (!resources->ValidateGpuBufferMappings(
-                    [this](u64 address, u32 bytes) {
-                        return Shader::Ampere::NativeQmdContiguousGpuSpan(
-                            address, bytes, [this](u64 page) {
-                                return gpu_memory->GpuToCpuAddress(page);
-                            });
+            // A VA can stay mapped while a guest remaps its physical pages.
+            // Recheck the exact pre-staging backing here, under the commit
+            // lock, not merely contiguous coverage. Matches also validates
+            // the full 49-bit span, so no second mapping walk is needed.
+            if (!staged_buffer_mappings.Matches(
+                    *resources, [this](u64 address) {
+                        return gpu_memory->GpuToCpuAddress(address);
                     }))
                 return false;
             // Validate every writable VkBuffer BEFORE marking any guest
