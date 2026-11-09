@@ -273,8 +273,21 @@ void CheckSingletonTextureIndex(const IR::Value& index, u32 count) {
     return ctx.Def(index);
 }
 
+// SPIR-V descriptor lookups must fail through the shader compiler's
+// controlled LogicError path, not an uncaught std::out_of_range from at().
+// In-range reflected definitions are returned unchanged; a missing binding
+// is never substituted with an unrelated guest texture.
+template <typename Definitions>
+[[nodiscard]] decltype(auto) CheckedImageDescriptor(const Definitions& definitions,
+                                                    u32 index) {
+    if (index >= definitions.size()) {
+        throw LogicError("Missing reflected image/texture descriptor");
+    }
+    return definitions[index];
+}
+
 Id Texture(EmitContext& ctx, IR::TextureInstInfo info, [[maybe_unused]] const IR::Value& index) {
-    const TextureDefinition& def{ctx.textures.at(info.descriptor_index)};
+    const TextureDefinition& def{CheckedImageDescriptor(ctx.textures, info.descriptor_index)};
     if (def.count > 1) {
         auto const idx = CheckedTextureArrayIndex(ctx, index, def.count);
         const bool non_uniform{MarkNonUniform(ctx, idx, index, NonUniformKind::SampledImage)};
@@ -293,7 +306,7 @@ Id Texture(EmitContext& ctx, IR::TextureInstInfo info, [[maybe_unused]] const IR
 
 Id TextureImage(EmitContext& ctx, IR::TextureInstInfo info, const IR::Value& index) {
     if (info.type == TextureType::Buffer) {
-        const TextureBufferDefinition& def{ctx.texture_buffers.at(info.descriptor_index)};
+        const TextureBufferDefinition& def{CheckedImageDescriptor(ctx.texture_buffers, info.descriptor_index)};
         if (def.count > 1) {
             const Id idx{CheckedTextureArrayIndex(ctx, index, def.count)};
             const bool non_uniform{
@@ -313,7 +326,7 @@ Id TextureImage(EmitContext& ctx, IR::TextureInstInfo info, const IR::Value& ind
         CheckSingletonTextureIndex(index, def.count);
         return ctx.OpLoad(ctx.image_buffer_type, def.id);
     } else {
-        const TextureDefinition& def{ctx.textures.at(info.descriptor_index)};
+        const TextureDefinition& def{CheckedImageDescriptor(ctx.textures, info.descriptor_index)};
         if (def.count > 1) {
             auto const idx = CheckedTextureArrayIndex(ctx, index, def.count);
             const bool non_uniform{MarkNonUniform(ctx, idx, index, NonUniformKind::SampledImage)};
@@ -334,7 +347,7 @@ Id TextureImage(EmitContext& ctx, IR::TextureInstInfo info, const IR::Value& ind
 
 std::pair<Id, bool> Image(EmitContext& ctx, const IR::Value& index, IR::TextureInstInfo info) {
     if (info.type == TextureType::Buffer) {
-        const ImageBufferDefinition def{ctx.image_buffers.at(info.descriptor_index)};
+        const ImageBufferDefinition def{CheckedImageDescriptor(ctx.image_buffers, info.descriptor_index)};
         if (def.count > 1) {
             const Id idx{CheckedTextureArrayIndex(ctx, index, def.count)};
             const bool non_uniform{
@@ -350,7 +363,7 @@ std::pair<Id, bool> Image(EmitContext& ctx, const IR::Value& index, IR::TextureI
         CheckSingletonTextureIndex(index, def.count);
         return {ctx.OpLoad(def.image_type, def.id), def.is_integer};
     } else {
-        const ImageDefinition def{ctx.images.at(info.descriptor_index)};
+        const ImageDefinition def{CheckedImageDescriptor(ctx.images, info.descriptor_index)};
         if (def.count > 1) {
             const Id idx{CheckedTextureArrayIndex(ctx, index, def.count)};
             const bool non_uniform{MarkNonUniform(ctx, idx, index, NonUniformKind::StorageImage)};
@@ -371,14 +384,14 @@ bool IsTextureMsaa(EmitContext& ctx, const IR::TextureInstInfo& info) {
     if (info.type == TextureType::Buffer) {
         return false;
     }
-    return ctx.textures.at(info.descriptor_index).is_multisample;
+    return CheckedImageDescriptor(ctx.textures, info.descriptor_index).is_multisample;
 }
 
 bool IsTextureInteger(EmitContext& ctx, const IR::TextureInstInfo& info) {
     if (info.type == TextureType::Buffer) {
         return false;
     }
-    return ctx.textures.at(info.descriptor_index).is_integer;
+    return CheckedImageDescriptor(ctx.textures, info.descriptor_index).is_integer;
 }
 
 Id Decorate(EmitContext& ctx, IR::Inst* inst, Id sample) {
