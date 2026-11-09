@@ -292,10 +292,18 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size,
     }
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
     std::shared_ptr<Nvidia::NvCore::NvMap::Handle> handle;
-    auto status = nvmap.CreateHandle(size, handle);
-    if (status == Nvidia::NvResult::Success) {
-        status = handle->Alloc({}, Kernel::PageSize, 0, GetInteger(alias),
-                               Nvidia::NvCore::SessionId{*m_nv_session});
+    Nvidia::NvResult status = Nvidia::NvResult::InvalidState;
+    bool nvmap_oom = false;
+    try {
+        status = nvmap.CreateHandle(size, handle);
+        if (status == Nvidia::NvResult::Success) {
+            status = handle->Alloc({}, Kernel::PageSize, 0, GetInteger(alias),
+                                   Nvidia::NvCore::SessionId{*m_nv_session});
+        }
+    } catch (const std::bad_alloc&) {
+        // A mapped CPU alias already exists: take the normal failure
+        // rollback below rather than unwinding and freeing mapped pages.
+        nvmap_oom = true;
     }
     bool committed = false;
     if (status == Nvidia::NvResult::Success) {
@@ -322,7 +330,7 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size,
         } else {
             pages->Close(kernel);
         }
-        return Kernel::ResultInvalidState;
+        return nvmap_oom ? Kernel::ResultOutOfResource : Kernel::ResultInvalidState;
     }
     // Do not retain the preflight shared_ptr: FreeHandle needs to be able
     // to release the NVMap object after GMMU unpins on 215.
@@ -842,8 +850,12 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
     }
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
     std::shared_ptr<Nvidia::NvCore::NvMap::Handle> handle;
-    R_UNLESS(nvmap.CreateHandle(size, handle) == Nvidia::NvResult::Success,
-             Kernel::ResultOutOfResource);
+    try {
+        R_UNLESS(nvmap.CreateHandle(size, handle) == Nvidia::NvResult::Success,
+                 Kernel::ResultOutOfResource);
+    } catch (const std::bad_alloc&) {
+        return Kernel::ResultOutOfResource;
+    }
 
     bool is_io{};
     const Result locked = page_table.LockForMapDeviceAddressSpace(
@@ -866,8 +878,15 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
         return undone.IsError() ? undone : Kernel::ResultNotImplemented;
     }
 
-    const auto allocated = handle->Alloc({}, Kernel::PageSize, 0, begin,
-                                         Nvidia::NvCore::SessionId{*m_nv_session});
+    // NVMap allocation may fail after the guest page-table lock. Route
+    // host OOM through the same unlock + FreeHandle transaction rollback.
+    Nvidia::NvResult allocated = Nvidia::NvResult::InvalidState;
+    try {
+        allocated = handle->Alloc({}, Kernel::PageSize, 0, begin,
+                                  Nvidia::NvCore::SessionId{*m_nv_session});
+    } catch (const std::bad_alloc&) {
+        // Unsuccessful allocation is handled by the rollback below.
+    }
     if (allocated != Nvidia::NvResult::Success) {
         const auto undone = page_table.UnlockForDeviceAddressSpace(begin, size);
         if (undone.IsError())
