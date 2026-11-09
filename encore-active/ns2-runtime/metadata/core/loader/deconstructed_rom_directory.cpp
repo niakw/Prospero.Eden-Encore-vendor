@@ -390,20 +390,33 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
         LOG_DEBUG(Loader, "loaded module {} @ {:#x}", module, load_addr);
     }
 
-    if (metadata.IsSwitch2()) {
-        // The real KProcess is initialized and all NSO modules now exist in
-        // guest memory. Only THIS process is eligible for SVC instrumentation.
-        Eden::NS2::SvcTrace::Register(process.GetProcessId());
-        LOG_INFO(Loader, "NS2 KProcess ExeFS handoff pid={} entry={:#x} modules={}",
-                 process.GetProcessId(), base_address, modules.size());
-    }
+    // RomFSFactory invokes ReadRomFS in its constructor, so the temporary
+    // loaded state is needed during registration. Never commit the NS2 trace
+    // while that registration can still fail or allocate.
     is_loaded = true;
     if (standalone) {
         title_id = metadata.GetTitleID();
-        system.GetFileSystemController().RegisterProcess(
-            process.GetProcessId(), {},
-            std::make_shared<FileSys::RomFSFactory>(*this, system.GetContentProvider(),
-                                                    system.GetFileSystemController()));
+        try {
+            const auto registered = system.GetFileSystemController().RegisterProcess(
+                process.GetProcessId(), {},
+                std::make_shared<FileSys::RomFSFactory>(*this, system.GetContentProvider(),
+                                                        system.GetFileSystemController()));
+            if (metadata.IsSwitch2() && registered.IsError()) {
+                is_loaded = false;
+                return {ResultStatus::ErrorLoadingNSO, {}};
+            }
+        } catch (const std::bad_alloc&) {
+            if (!metadata.IsSwitch2()) throw; // Preserve the legacy NS1 path.
+            is_loaded = false;
+            return {ResultStatus::ErrorLoadingNSO, {}};
+        }
+    }
+    if (metadata.IsSwitch2()) {
+        // Handoff is now fully committed: no incomplete standalone RomFS
+        // registration can install an active process/SVC trace.
+        Eden::NS2::SvcTrace::Register(process.GetProcessId());
+        LOG_INFO(Loader, "NS2 KProcess ExeFS handoff pid={} entry={:#x} modules={}",
+                 process.GetProcessId(), base_address, modules.size());
     }
     return {ResultStatus::Success,
             LoadParameters{metadata.GetMainThreadPriority(), metadata.GetMainThreadStackSize()}};
