@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <cstring>
+#include <new>
 #include "common/logging.h"
 #include "common/random.h"
 #include "common/settings.h"
