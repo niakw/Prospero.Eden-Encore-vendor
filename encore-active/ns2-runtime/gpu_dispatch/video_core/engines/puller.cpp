@@ -319,7 +319,13 @@ void Puller::ProcessSemaphoreRelease(DmaPusher& dma_pusher) {
 // A GPU semaphore may still be resident only in Vulkan's buffer cache.
 // Both first acquire and scheduler retries must observe the same coherent
 // guest word. Do not demand a CPU alias for the GPU-only RELEASE path.
-static u32 ReadCoherentNativeSemaphore(DmaPusher& dma_pusher, GPUVAddr address) {
+struct CoherentNativeSemaphoreValue {
+    u32 value{};
+    u64 cpu_address{};
+};
+
+static CoherentNativeSemaphoreValue ReadCoherentNativeSemaphore(
+    DmaPusher& dma_pusher, GPUVAddr address) {
     const auto cpu_address =
         dma_pusher.memory_manager.GpuToCpuAddress(address, sizeof(u32));
     if (!cpu_address) {
@@ -330,7 +336,15 @@ static u32 ReadCoherentNativeSemaphore(DmaPusher& dma_pusher, GPUVAddr address) 
         dma_pusher.rasterizer->FlushRegion(
             *cpu_address, sizeof(u32), VideoCommon::CacheType::BufferCache);
     }
-    return dma_pusher.memory_manager.Read<u32>(address);
+    const u32 observed = dma_pusher.memory_manager.Read<u32>(address);
+    // A guest can change the GMMU backing while a CPU-side flush/read is
+    // underway. Never accept a value fetched from an unstable physical page.
+    const auto after = dma_pusher.memory_manager.GpuToCpuAddress(
+        address, sizeof(u32));
+    if (!after || *after != *cpu_address) {
+        throw std::runtime_error("Ampere SEM_EXECUTE: acquire page remapped during read");
+    }
+    return {observed, *cpu_address};
 }
 
 // Called only by the native GPFIFO scheduler when a parked submission is
@@ -339,11 +353,19 @@ bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {
     if (!pending_native_acquire) {
         return true;
     }
-    dma_pusher.rasterizer->ReleaseFences();
     const auto& pending = *pending_native_acquire;
+    const auto cpu_before = dma_pusher.memory_manager.GpuToCpuAddress(
+        pending.address, sizeof(u32));
+    if (!cpu_before || *cpu_before != pending.cpu_address) {
+        throw std::runtime_error("Ampere SEM_EXECUTE: parked acquire backing remapped");
+    }
+    dma_pusher.rasterizer->ReleaseFences();
+    const auto observed = ReadCoherentNativeSemaphore(dma_pusher, pending.address);
+    if (observed.cpu_address != pending.cpu_address) {
+        throw std::runtime_error("Ampere SEM_EXECUTE: parked acquire backing changed");
+    }
     const auto ready = NativeSemaphore::AcquireReady(
-        pending.operation, ReadCoherentNativeSemaphore(dma_pusher, pending.address),
-        pending.value);
+        pending.operation, observed.value, pending.value);
     if (!ready) {
         throw std::runtime_error("Ampere SEM_EXECUTE: invalid parked operation");
     }
@@ -386,15 +408,17 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
     // which is instead SEM_PAYLOAD_HI. An unresolved compare must not
     // advance subsequent guest commands as if a release had occurred.
     dma_pusher.rasterizer->ReleaseFences();
+    const auto observed = ReadCoherentNativeSemaphore(dma_pusher, address);
     const auto ready = NativeSemaphore::AcquireReady(
-        operation, ReadCoherentNativeSemaphore(dma_pusher, address), value);
+        operation, observed.value, value);
     if (!ready) {
         throw std::runtime_error("Ampere SEM_EXECUTE: unknown acquire operation");
     }
     if (!*ready) {
         // Do not advance past an unfulfilled GPU wait. DMA retains the
         // current command cursor and the scheduler can run other channels.
-        pending_native_acquire = PendingNativeAcquire{address, value, operation};
+        pending_native_acquire = PendingNativeAcquire{
+            address, value, operation, observed.cpu_address};
     }
 }
 

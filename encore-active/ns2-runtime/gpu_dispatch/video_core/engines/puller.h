@@ -154,6 +154,9 @@ private:
         GPUVAddr address{};
         u32 value{};
         u32 operation{};
+        // A parked guest wait may only resume against the SAME backing page.
+        // GMMU VA reuse cannot silently satisfy an old channel's semaphore.
+        u64 cpu_address{};
     };
     std::optional<PendingNativeAcquire> pending_native_acquire;
     std::array<EngineID, 8> bound_engines{};
