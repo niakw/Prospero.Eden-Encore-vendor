@@ -1,0 +1,28 @@
+name: PS5 internal dependency security checks (maintenance only)
+on:
+  push:
+    branches: [maintenance/internalize-ps5-deps-20261110]
+    paths: ['.github/workflows/maintenance-ps5-dependency-security.yml']
+permissions:
+  contents: read
+jobs:
+  source-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            .github
+            encore-active
+      - name: Audit maintained vendor source and user model boundary (host)
+        run: python3 -B .github/scripts/check-active-security.py
+      - name: Reject unpinned actions, writable tokens and privileged triggers
+        run: python3 -B .github/scripts/check-workflow-security.py
+      - name: Check for unexpected nested Git submodules
+        run: |
+          test ! -e .gitmodules
+          test -z "$(git ls-files --stage | grep '^160000 ' || true)"
