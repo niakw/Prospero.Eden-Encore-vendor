@@ -375,6 +375,12 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
             VideoCommon::QueryPropertiesFlags::IsAFence, value, 0);
         return;
     }
+    // Invalid native controls must not flush unrelated GPU work before
+    // rejection. Only 0 and 2..5 are acquire comparisons (1 is release).
+    // Reject 6/7 before ReleaseFences or any coherent guest read.
+    if (operation > 5U) {
+        throw std::runtime_error("Ampere SEM_EXECUTE: unknown acquire operation");
+    }
     // A pending acquire requires suspending the GPFIFO channel. The
     // existing Maxwell busy loop must NEVER run on Ampere's 0x1a method,
     // which is instead SEM_PAYLOAD_HI. An unresolved compare must not
