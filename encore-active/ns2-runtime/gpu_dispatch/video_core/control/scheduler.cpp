@@ -17,34 +17,38 @@
 namespace Tegra::Control {
 
 void Scheduler::Push(GPU& gpu, s32 channel, CommandList&& entries) {
-    std::shared_ptr<ChannelState> channel_state;
     {
-        std::unique_lock lk(scheduling_guard);
-        auto it = channels.find(channel);
-        // A recycled or unknown channel ID must never be dereferenced or
-        // enqueue GPU work on a former process epoch. Reject before binding
-        // or acknowledging any submitted guest commands.
+        // Hold a SHARED channel epoch lease through submission. Channel
+        // re-registration must not retire the old owner while a GPU worker
+        // is still dispatching its commands. Independent readers retain
+        // concurrency; only replacement needs the exclusive lease.
+        std::shared_lock epoch_lock(scheduling_guard);
+        const auto it = channels.find(channel);
         if (it == channels.end() || !it->second || !it->second->payload)
             throw std::runtime_error("Native GPFIFO: missing channel owner");
-        channel_state = it->second;
+        const auto channel_state = it->second;
         gpu.BindChannel(channel_state->bind_id);
+        auto& pusher = channel_state->payload->dma_pusher;
+        pusher.Push(std::move(entries));
+        pusher.DispatchCalls();
+        // A second GPU-worker path may retry parked semaphores while this
+        // submission publishes its pending channel. Guard the actual list.
+        const std::scoped_lock pending_lock(pending_guard);
+        if (pusher.HasPendingNativeAcquire() &&
+            std::find(pending_native_channels.begin(), pending_native_channels.end(),
+                      channel_state) == pending_native_channels.end()) {
+            pending_native_channels.push_back(channel_state);
+        }
     }
-    // Process commands outside the lock to reduce contention.
-    // Multiple channels can prepare their commands in parallel.
-    auto& pusher = channel_state->payload->dma_pusher;
-    pusher.Push(std::move(entries));
-    pusher.DispatchCalls();
-    if (pusher.HasPendingNativeAcquire() &&
-        std::find(pending_native_channels.begin(), pending_native_channels.end(),
-                  channel_state) == pending_native_channels.end()) {
-        pending_native_channels.push_back(channel_state);
-    }
-    if (!pending_native_channels.empty()) {
+    // Do not hold the scheduling lease while replaying other channels.
+    if (HasPendingNativeChannels())
         ResumePendingNative(gpu);
-    }
 }
 
 void Scheduler::ResumePendingNative(GPU& gpu) {
+    // No stale-generation retire may mutate the pending vector while a
+    // worker is retrying or dispatching a parked native GPFIFO channel.
+    const std::scoped_lock pending_lock(pending_guard);
     // Another channel may release an earlier channel in this same pass.
     // Never wait inside a DMA submission: the PS5 GPU worker remains free
     // to process other guest queues, and the idle worker also retries.
@@ -73,7 +77,8 @@ void Scheduler::DeclareChannel(std::shared_ptr<ChannelState> new_channel) {
     if (!new_channel || !new_channel->payload)
         throw std::runtime_error("Native GPFIFO: invalid channel owner");
     const s32 channel = new_channel->bind_id;
-    std::unique_lock lk(scheduling_guard);
+    std::unique_lock epoch_lock(scheduling_guard);
+    const std::scoped_lock pending_lock(pending_guard);
     const auto existing = channels.find(channel);
     if (existing != channels.end()) {
         if (existing->second == new_channel)

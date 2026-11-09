@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <vector>
 #include "common/container/unordered_map.h"
 
@@ -28,6 +29,7 @@ public:
     void DeclareChannel(std::shared_ptr<ChannelState> new_channel);
 
     [[nodiscard]] bool HasPendingNativeChannels() const noexcept {
+        const std::scoped_lock lock(pending_guard);
         return !pending_native_channels.empty();
     }
     void ResumePendingNative(GPU& gpu);
@@ -35,7 +37,8 @@ public:
 private:
     ::Common::unordered_map<s32, std::shared_ptr<ChannelState>> channels;
     std::vector<std::shared_ptr<ChannelState>> pending_native_channels;
-    std::mutex scheduling_guard;
+    std::shared_mutex scheduling_guard;
+    mutable std::mutex pending_guard;
 };
 
 } // namespace Control
