@@ -78,3 +78,28 @@ not a security alert resolution.
 4. Verify CodeQL C/C++ coverage and re-scan at a single exact vendor SHA.
 5. Reconcile every finding with a verified fixed/dismissed state and explicit
    rationale. **Until then, alert count closed: not verified.**
+
+
+## Live OSV inventory (qualified host result, 9 November 2026)
+
+Read-only scan on vendor commit `8402e3bdd1d541986c3ebf04e7012b12fd9fe3cc`:
+https://github.com/niakw/Prospero.Eden-Encore-vendor/actions/runs/42630123903
+
+- Six selected upstream Python requirements manifests were inspected.
+- **31 exact package/version pins** were queried against the OSV API.
+- **Nine affected package/version combinations** returned one or more advisories.
+- **112 distinct OSV advisory identifiers** were returned; this is **not** a
+  count of unique vulnerabilities or GitHub Dependabot alerts, because OSV may
+  expose multiple identifiers/aliases for the same issue.
+- Two `aiohttp==3.13.*` constraints were explicitly **excluded from exact-version
+  lookup** and reported as nonexact, not falsely declared safe.
+- No pinned manifest or runtime source was changed. The scan alone resolves
+  **zero verified GitHub alerts** and cannot establish reachability in PS5.
+
+Affected exact package/version pairs reported by OSV: `gitpython==3.1.41`,
+`torch==2.0.1`, `filelock==3.12.4`, `setuptools==80.9.0`,
+`mkdocs-material==9.5.49`, `mkdocs-material==9.6.11`, `pytest==7.4.2`,
+`tqdm==4.66.1`, `wheel==0.45.1`.
+
+The audit runs independently of the P1/P2 host gates and does not install,
+update or execute these upstream Python dependencies.
