@@ -502,7 +502,16 @@ void IGraphicsVideoDecoderSession::Pump() {
         } catch (const std::bad_alloc&) {
             return;
         }
-        if (!m_owner->WriteVideoSurface(next.id, *target, pixels)) {
+        // WriteVideoSurface can also allocate (NVMap/guest write and GPU
+        // invalidation). A late OOM must not leave the staged output or
+        // image ownership visible without a published completion fence.
+        try {
+            if (!m_owner->WriteVideoSurface(next.id, *target, pixels)) {
+                m_guest_owned.erase(next.id);
+                m_outputs.pop_back();
+                return;
+            }
+        } catch (const std::bad_alloc&) {
             m_guest_owned.erase(next.id);
             m_outputs.pop_back();
             return;
