@@ -1048,6 +1048,15 @@ void EmitContext::DefineGlobalMemoryFunctions(const IR::Program& program) {
                 continue;
             }
             const auto& ssbo{info.storage_buffers_descriptors[index]};
+            // A global descriptor reads an aligned two-word address followed
+            // by a size word eight bytes later. Never emit an access chain
+            // outside the 64 KiB guest CBUF or floor an unaligned offset.
+            if (Shader::Ampere::NativeSpirvCbufBoundsActive() &&
+                ((ssbo.cbuf_offset & 7U) != 0U ||
+                 ssbo.cbuf_offset > 65536U - 16U)) {
+                throw NotImplementedException(
+                    "Native global memory SSBO CBUF offset outside buffer");
+            }
             // Global pointers are reconstructed from a live CBUF's address
             // and size words. A missing or out-of-range CBUF cannot become a
             // valid SPIR-V pointer. Check before touching its array slot.
