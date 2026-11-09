@@ -450,6 +450,11 @@ void Puller::CallPullerMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
         dma_pusher.rasterizer->WaitForIdle();
         break;
     case BufferMethods::SemaphoreOperation: {
+        // The legacy Maxwell trigger only releases fences and returns after
+        // an unmet acquire; it does not park the native GPFIFO. Ampere native
+        // semaphore operations use the verified SEM_EXECUTE (0x1b) route.
+        // Never acknowledge an unreviewed 0x7 command as completed.
+        reject_unsupported_native();
         ProcessSemaphoreTriggerMethod(dma_pusher);
         break;
     }
