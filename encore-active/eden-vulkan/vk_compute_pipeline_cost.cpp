@@ -717,7 +717,14 @@ bool ComputePipeline::ConfigureNative(
         build_condvar.wait(lock, [this] {
             return is_built.load(std::memory_order_acquire);
         });
-        if (!pipeline) return false;
+        // A successful native QMD3 dispatch must have both the Vulkan
+        // pipeline layout and every required descriptor-set layout. The
+        // recorded lambda would otherwise silently skip descriptor binding
+        // while the renderer could still mark guest SSBOs as GPU-written.
+        // Empty shaders are allowed to omit a descriptor-set layout.
+        if (!pipeline || !pipeline_layout ||
+            (num_descriptor_entries && !descriptor_set_layout))
+            return false;
     }
 
     struct BoundBuffer {
