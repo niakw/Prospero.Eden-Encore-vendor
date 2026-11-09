@@ -24,3 +24,18 @@ The `encore-active/` inventory and older R3xx commentary describe stages of sour
 ## Documentation ownership
 
 User-facing README, installation, settings, accessibility, support and troubleshooting translations belong to the **engine** repository. This vendor repository only needs English technical and contribution documentation; do not replicate 29 consumer manuals inside a dependency snapshot.
+
+## Completed active-source scan — verified GitHub Actions result
+
+The [vendor owned-comment and workflow display audit #42618761816](https://github.com/niakw/Prospero.Eden-Encore-vendor/actions/runs/42618761816) completed **successfully** on 9 November 2026. It used a sparse checkout; no console binary, model, dependency archive or executable was modified.
+
+| Measured scope | Result |
+| --- | ---: |
+| Maintained/active source text files scanned | **775** |
+| Brand occurrences in owned comment-like lines | **100** |
+| Brand occurrences in retained upstream-derived areas | **24** |
+| Vendor workflow display titles/steps containing commercial names | **0** |
+
+The 100 matches break down as **NVIDIA 44**, **AMD 26**, **Nintendo 24**, **Microsoft 4** and **PlayStation 2**. This is a *review inventory, not a list of 100 cosmetic violations*. Reviewed examples include `Service::Nvidia::Devices` namespace end comments, GPU device/driver workarounds, vendor hardware memory layout notes, citations to original GPU documentation, filesystem-format definitions, PS5 platform descriptions, model-layout provenance and license/source notices. Many need to retain their precise technical attribution to remain accurate, and some are technically meaningful comments in maintained upstream-derived code.
+
+**Disposition:** GitHub Actions branding is clean; descriptive branding not required for technical meaning has already been neutralized in the author-owned scripts and engine comments. Do **not** blanket-replace legal credits, authoritative source references, GPU architecture names, namespace identifiers, compatibility facts or driver-specific observations. This audit does not certify absence of all proprietary words in arbitrary historical vendor snapshots under `sources/` or `objects/`, which must preserve their original bytes.
