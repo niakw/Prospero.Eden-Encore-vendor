@@ -907,6 +907,13 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
         throw std::runtime_error("Native Compute report semaphore invalid");
 
     }
+    // QueryCacheBase::CounterReport silently skips reports without a CPU
+    // backing alias. Reductions also require a coherent guest word at GPU
+    // retirement. Both must fail before scheduling an irreversible fence:
+    // otherwise dependent channels can wait on a semaphore never written.
+    if (!memory->GpuToCpuAddress(address, write_bytes)) {
+        throw std::runtime_error("Native Compute report semaphore missing CPU backing");
+    }
     if (reduction_enabled) {
         const u32 reduction = (control >> 9) & 7U;
         pusher.rasterizer->SignalFence(
