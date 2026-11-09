@@ -159,6 +159,12 @@ Id DefineOutput(EmitContext& ctx, Id type, std::optional<u32> invocations,
 
 void DefineGenericOutput(EmitContext& ctx, size_t index, std::optional<u32> invocations) {
     static constexpr std::string_view swizzle{"xyzw"};
+    // Reflected stream metadata must fit the actual fixed backing table.
+    // A corrupt count may otherwise index past xfb_varyings even before
+    // any SPIR-V instruction is emitted.
+    if (ctx.runtime_info.xfb_count > ctx.runtime_info.xfb_varyings.size()) {
+        throw NotImplementedException("Transform-feedback varying count exceeds backing");
+    }
     const size_t base_attr_index{static_cast<size_t>(IR::Attribute::Generic0X) + index * 4};
     u32 element{0};
     while (element < 4) {
@@ -170,6 +176,12 @@ void DefineGenericOutput(EmitContext& ctx, size_t index, std::optional<u32> invo
             xfb_varying = xfb_varying->components > 0 ? xfb_varying : nullptr;
         }
         const u32 num_components{xfb_varying ? xfb_varying->components : remainder};
+        // Invalid partitions used to index F32[] and fill output_generics
+        // beyond four components. Reject before declaring an output or
+        // decorating any stream variable; never silently truncate writes.
+        if (num_components == 0 || num_components > remainder) {
+            throw NotImplementedException("Invalid transform-feedback component partition");
+        }
 
         const Id id{DefineOutput(ctx, ctx.F32[num_components], invocations)};
         ctx.Decorate(id, spv::Decoration::Location, static_cast<u32>(index));
