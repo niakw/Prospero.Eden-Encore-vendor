@@ -86,7 +86,12 @@ AppLoader_DeconstructedRomDirectory::AppLoader_DeconstructedRomDirectory(FileSys
     : AppLoader(std::move(file_))
     , override_update(override_update_)
 {
+    // A caller can supply an orphaned or absent NSO. Metadata probing in
+    // this constructor must not dereference it before Load can return the
+    // existing ErrorNullFile admission result.
+    if (!file) return;
     const auto file_dir = file->GetContainingDirectory();
+    if (!file_dir) return;
 
     // Title ID
     const auto npdm = file_dir->GetFile("main.npdm");
@@ -137,7 +142,7 @@ AppLoader_DeconstructedRomDirectory::AppLoader_DeconstructedRomDirectory(FileSys
 
 AppLoader_DeconstructedRomDirectory::AppLoader_DeconstructedRomDirectory(
     FileSys::VirtualDir directory, bool override_update_)
-    : AppLoader(directory->GetFile("main"))
+    : AppLoader(directory ? directory->GetFile("main") : FileSys::VirtualFile{})
     , dir(std::move(directory))
     , override_update(override_update_)
     , standalone(false)

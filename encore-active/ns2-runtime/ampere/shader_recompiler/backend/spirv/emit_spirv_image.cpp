@@ -247,7 +247,12 @@ private:
 // A one-element descriptor is not an index-free descriptor. A constant
 // foreign guest index must be rejected even when an OpTypeArray is optimized
 // away. Dynamic indices still require separate shader-side bounds control.
-void CheckSingletonTextureIndex(const IR::Value& index) {
+void CheckSingletonTextureIndex(const IR::Value& index, u32 count) {
+    // A missing descriptor has no valid singleton to load. The array
+    // branch rejects count==0 already; keep the zero-element case equally
+    // fail-closed for sampled, texel and storage images.
+    if (count != 1)
+        throw LogicError("Invalid singleton texture descriptor count");
     if (index.IsEmpty()) return;
     if (index.Type() != IR::Type::U32)
         throw LogicError("Invalid singleton texture descriptor index type");
@@ -281,7 +286,7 @@ Id Texture(EmitContext& ctx, IR::TextureInstInfo info, [[maybe_unused]] const IR
         }
         return object;
     } else {
-        CheckSingletonTextureIndex(index);
+        CheckSingletonTextureIndex(index, def.count);
         return ctx.OpLoad(def.sampled_type, def.id);
     }
 }
@@ -305,7 +310,7 @@ Id TextureImage(EmitContext& ctx, IR::TextureInstInfo info, const IR::Value& ind
             }
             return object;
         }
-        CheckSingletonTextureIndex(index);
+        CheckSingletonTextureIndex(index, def.count);
         return ctx.OpLoad(ctx.image_buffer_type, def.id);
     } else {
         const TextureDefinition& def{ctx.textures.at(info.descriptor_index)};
@@ -322,7 +327,7 @@ Id TextureImage(EmitContext& ctx, IR::TextureInstInfo info, const IR::Value& ind
             }
             return image;
         }
-        CheckSingletonTextureIndex(index);
+        CheckSingletonTextureIndex(index, def.count);
         return ctx.OpImage(def.image_type, ctx.OpLoad(def.sampled_type, def.id));
     }
 }
@@ -342,7 +347,7 @@ std::pair<Id, bool> Image(EmitContext& ctx, const IR::Value& index, IR::TextureI
             }
             return {image, def.is_integer};
         }
-        CheckSingletonTextureIndex(index);
+        CheckSingletonTextureIndex(index, def.count);
         return {ctx.OpLoad(def.image_type, def.id), def.is_integer};
     } else {
         const ImageDefinition def{ctx.images.at(info.descriptor_index)};
@@ -357,7 +362,7 @@ std::pair<Id, bool> Image(EmitContext& ctx, const IR::Value& index, IR::TextureI
             }
             return {image, def.is_integer};
         }
-        CheckSingletonTextureIndex(index);
+        CheckSingletonTextureIndex(index, def.count);
         return {ctx.OpLoad(def.image_type, def.id), def.is_integer};
     }
 }
