@@ -445,9 +445,16 @@ void IGpuSession::GetAddressSpacePartition(HLERequestContext& ctx) {
                 } else {
                     std::array<Nvidia::Devices::nvhost_as_gpu::VaRegion, 2> regions{};
                     std::memcpy(regions.data(), output.data() + 16, sizeof(regions));
+                    // Both NVDRV regions must describe finite, non-empty
+                    // spans. The first descriptor is the published lower
+                    // bound: validating only the second permitted malformed
+                    // first-page counts to produce a successful guest reply.
+                    const auto first_end = GP::AddressSpaceRegionEnd(
+                        regions[0].offset, regions[0].pages, regions[0].page_size);
                     const auto end = GP::AddressSpaceRegionEnd(
                         regions[1].offset, regions[1].pages, regions[1].page_size);
-                    if (!end || regions[0].offset > *end) {
+                    if (!first_end || !end || regions[0].offset > regions[1].offset ||
+                        *first_end > *end) {
                         result = Kernel::ResultInvalidState;
                     } else {
                         values[0] = 1;
