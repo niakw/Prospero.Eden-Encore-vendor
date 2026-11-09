@@ -35,6 +35,18 @@ bool Process::Initialize(Loader::AppLoader& loader, Loader::ResultStatus& out_lo
     SCOPE_EXIT {
         process->Close(m_system.Kernel());
     };
+#ifdef EDEN_NS2_PROCESS_RUN_GUARD
+    // The NS2 loader may register its SVC trace before Initialize has
+    // published the KProcess. Roll it back on every rejected handoff,
+    // including missing NPDM parameters or a later allocation failure.
+    // This guard runs before the KProcess reference is closed.
+    bool process_committed = false;
+    SCOPE_EXIT {
+        if (!process_committed) {
+            Eden::NS2::SvcTrace::Unregister(process->GetProcessId());
+        }
+    };
+#endif
 
     // Insert process modules into memory.
     const auto [load_result, load_parameters] = loader.Load(*process, m_system);
@@ -65,6 +77,9 @@ bool Process::Initialize(Loader::AppLoader& loader, Loader::ResultStatus& out_lo
     // Take ownership of the process object.
     m_process = process;
     m_process->Open(m_system.Kernel());
+#ifdef EDEN_NS2_PROCESS_RUN_GUARD
+    process_committed = true;
+#endif
 
     // We succeeded.
     return true;
@@ -76,6 +91,13 @@ void Process::Finalize() {
 
     // Close the process.
     if (m_process) {
+#ifdef EDEN_NS2_PROCESS_RUN_GUARD
+        // Do not retain a stale NS2 trace after process teardown.
+        if (Eden::NS2::SvcTrace::active_pid.load(std::memory_order_acquire) ==
+            m_process->GetProcessId()) {
+            Eden::NS2::SvcTrace::Unregister(m_process->GetProcessId());
+        }
+#endif
         m_process->Close(m_system.Kernel());
         // TODO: remove this, kernel already tracks this
         m_system.Kernel().RemoveProcess(m_process);
