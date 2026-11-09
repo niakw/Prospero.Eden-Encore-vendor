@@ -211,6 +211,13 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     if (result2 != ResultStatus::Success) {
         return {result2, {}};
     }
+    // A valid NPDM with only auxiliary ExeFS modules is not a bootable
+    // native NS2 process. Reject the absent executable before KProcess
+    // sizing, mapping or SVC registration; legacy NS1 remains unchanged.
+    if (metadata.IsSwitch2() && !dir->GetFile("main")) {
+        LOG_ERROR(Loader, "NS2 ExeFS rejected: missing main NSO");
+        return {ResultStatus::ErrorLoadingNSO, {}};
+    }
 #ifdef EDEN_NS2_GUEST_COUNTER
     // This is the real KProcess loader, unlike ProgramMetadata::Load used
     // by title scanners. Set before its first guest NSO/JIT execution.
