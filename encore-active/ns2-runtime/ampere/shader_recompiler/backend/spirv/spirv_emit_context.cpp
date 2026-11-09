@@ -1294,6 +1294,13 @@ void EmitContext::DefineConstantBuffers(const Info& info, u32& binding) {
         return;
     }
     IR::Type types{info.used_constant_buffer_types | info.used_indirect_cbuf_types};
+    if (info.uses_global_memory && Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+        // The native global address router reads both u32 size and u32x2
+        // address views from its live CBUF regardless of guest ALU types.
+        // Without both SPIR-V pointer types, OpAccessChain has type ID 0.
+        // Keep the original Maxwell/NS1 descriptor selection unchanged.
+        types |= IR::Type::U32 | IR::Type::U32x2;
+    }
     if (True(types & IR::Type::U8)) {
         if (profile.support_int8 && profile.support_uniform_and_storage_buffer_8bit) {
             DefineConstBuffers(*this, info, &UniformDefinitions::U8, binding, U8, 'u', sizeof(u8));
@@ -1464,6 +1471,13 @@ void EmitContext::DefineStorageBuffers(const Info& info, u32& binding) {
     IR::Type used_types{profile.support_descriptor_aliasing ? info.used_storage_buffer_types
                                                             : IR::Type::U32};
     used_types |= IR::Type::U32;
+    if (info.uses_global_memory && Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+        // DefineGlobalMemoryFunctions emits scalar, x2 and x4
+        // load/store accessors even when the program only executes a
+        // scalar CAS. Those helpers require all three typed SSBO views.
+        // Otherwise Sirit sees an invalid result type before spirv-val.
+        used_types |= IR::Type::U32x2 | IR::Type::U32x4;
+    }
     if (profile.support_int8 && profile.support_storage_buffer_8bit &&
         True(used_types & IR::Type::U8)) {
         DefineSsbos(*this, storage_types.U8, &StorageDefinitions::U8, info, binding, U8,
