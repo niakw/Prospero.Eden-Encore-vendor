@@ -272,8 +272,20 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
     if (GP::IsCreateAddressSpace(command)) {
         result = Kernel::ResultOutOfResource;
         if (m_shared->address_spaces.HasCapacity()) {
-            if (!m_shared->nv_session)
-                m_shared->nv_session = m_module->GetContainer().OpenSession(m_process).id;
+            if (!m_shared->nv_session) {
+                // NvCore::Container::OpenSession can allocate a new session
+                // slot. Do not unwind through the HLE IPC dispatcher on host
+                // OOM; no GPU FD or guest-visible address-space ID exists yet.
+                try {
+                    m_shared->nv_session =
+                        m_module->GetContainer().OpenSession(m_process).id;
+                } catch (const std::bad_alloc&) {
+                    IPC::ResponseBuilder rb{ctx, 3};
+                    rb.Push(Kernel::ResultOutOfResource.raw);
+                    rb.Push<u32>(0);
+                    return;
+                }
+            }
             const auto fd = m_module->Open("/dev/nvhost-as-gpu",
                                            Nvidia::NvCore::SessionId{*m_shared->nv_session});
             if (fd != Nvidia::INVALID_NVDRV_FD && fd > 0) {
