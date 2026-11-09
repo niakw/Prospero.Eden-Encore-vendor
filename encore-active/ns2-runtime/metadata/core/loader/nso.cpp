@@ -81,6 +81,16 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
     if (nso_header.segments.empty())
         return std::nullopt;
 
+    // Both NS1 and NS2 use this fixed guest argument allocation. A hostile
+    // program_args value must not overrun it or truncate the actual_size
+    // header when LoadModule copies the arguments into codeset.memory.
+    // Reject before BOTH the layout-only and materialized NSO passes.
+    if (should_pass_arguments &&
+        Settings::values.program_args.GetValue().size() >
+            NSO_ARGUMENT_DATA_ALLOCATION_SIZE - sizeof(NSOArgumentHeader)) {
+        return std::nullopt;
+    }
+
     // N3t: native NSO entry gate, selected ONLY by experimental NS2 ExeFS.
     // Validate before even computing the first-pass guest image layout.
     static_assert(sizeof(NSOHeader) == Eden::NS2::ExeFS::NsoHeaderBytes);
