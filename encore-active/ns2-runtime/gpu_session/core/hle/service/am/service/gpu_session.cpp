@@ -182,16 +182,23 @@ void IGpuSession::AcquireWorker(HLERequestContext& ctx) {
         if (m_worker) {
             client = m_worker;
             client->Open(kernel);
-            result = ResultSuccess;
+            // AddMoveObject can allocate its outgoing descriptor list.
+            // Stage the move BEFORE the success reply; roll back the
+            // independently opened KClientSession reference on OOM.
+            try {
+                ctx.AddMoveObject(client);
+                result = ResultSuccess;
+            } catch (const std::bad_alloc&) {
+                client->Close(kernel);
+                result = Kernel::ResultOutOfResource;
+            }
         }
     }
-    // A failed AcquireWorker has no guest-owned client handle to move.
-    // Keep the error response free of a null transfer descriptor; the
-    // successful path retains exactly one independently opened handle.
+    // The moved client belongs to the IPC response only after its
+    // descriptor was successfully staged; error replies transfer nothing.
     if (result.IsSuccess()) {
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(result.raw);
-        ctx.AddMoveObject(client);
     } else {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
