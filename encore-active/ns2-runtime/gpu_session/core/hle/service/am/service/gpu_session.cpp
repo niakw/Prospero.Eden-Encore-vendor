@@ -218,8 +218,16 @@ void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
     Kernel::KReadableEvent* readable{};
     if (index) {
         auto*& event = m_shared->events[*index];
-        if (!event)
-            event = m_shared->event_context.CreateEvent("GpuNotification");
+        if (!event) {
+            // Creating a kernel notification may allocate host event state.
+            // OOM must return a normal TIPC resource error with no COPY
+            // handle and no published half-created event.
+            try {
+                event = m_shared->event_context.CreateEvent("GpuNotification");
+            } catch (const std::bad_alloc&) {
+                event = nullptr;
+            }
+        }
         if (event) {
             readable = &event->GetReadableEvent();
             result = ResultSuccess;
@@ -403,8 +411,21 @@ void IGpuSession::GetAddressSpacePartition(HLERequestContext& ctx) {
                 std::memcpy(input.data() + 8, &buffer_size, sizeof(buffer_size));
                 Nvidia::Ioctl ioctl{};
                 ioctl.raw = 0xc0404108;
-                if (m_module->Ioctl1(static_cast<Nvidia::DeviceFD>(request->address_space),
-                                     ioctl, input, output) != Nvidia::NvResult::Success) {
+                // The partition query is an allocating NVDRV ioctl on
+                // some driver paths. Never unwind through IPC or return an
+                // apparently valid VA partition on host OOM.
+                Nvidia::NvResult ioctl_result = Nvidia::NvResult::InvalidState;
+                bool ioctl_oom = false;
+                try {
+                    ioctl_result = m_module->Ioctl1(
+                        static_cast<Nvidia::DeviceFD>(request->address_space),
+                        ioctl, input, output);
+                } catch (const std::bad_alloc&) {
+                    ioctl_oom = true;
+                }
+                if (ioctl_oom) {
+                    result = Kernel::ResultOutOfResource;
+                } else if (ioctl_result != Nvidia::NvResult::Success) {
                     result = Kernel::ResultInvalidState;
                 } else {
                     std::array<Nvidia::Devices::nvhost_as_gpu::VaRegion, 2> regions{};
