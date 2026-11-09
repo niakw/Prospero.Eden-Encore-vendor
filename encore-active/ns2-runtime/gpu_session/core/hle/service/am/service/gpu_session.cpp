@@ -463,7 +463,7 @@ void IGpuSession::GetAddressSpacePartition(HLERequestContext& ctx) {
                     const auto end = GP::AddressSpaceRegionEnd(
                         regions[1].offset, regions[1].pages, regions[1].page_size);
                     if (!first_end || !end || regions[0].offset > regions[1].offset ||
-                        *first_end > *end) {
+                        *first_end >= regions[1].offset || *first_end > *end) {
                         result = Kernel::ResultInvalidState;
                     } else {
                         values[0] = 1;
