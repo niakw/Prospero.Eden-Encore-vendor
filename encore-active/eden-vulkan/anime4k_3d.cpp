@@ -61,7 +61,7 @@ Anime4K3D::Anime4K3D(
     if (disabled) return;
 
     // All kernels were compiled on the build host from the exact MIT
-    // convolution weights. No shader compiler or NVIDIA runtime on PS5.
+    // convolution weights. No external proprietary model runtime on PS5.
     // Stage graphs are pinned to the actual upstream CNN weights. These
     // paths are NOT presets for a single shader. The restorative variant
     // must preserve the original source through its final residual pass.

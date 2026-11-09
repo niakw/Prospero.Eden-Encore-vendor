@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Portable upsample-view layout adapter from MIT source, not NVIDIA code or weights.
+// Portable upsample-view layout adapter from MIT source, not proprietary model code or weights.
 #include <array>
 #include "video_core/renderer_vulkan/nr_rdna2_upsample_view.h"
 #include "video_core/renderer_vulkan/present/util.h"

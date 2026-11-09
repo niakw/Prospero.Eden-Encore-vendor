@@ -4,7 +4,7 @@
 
 // A pure state transition layer extracted from upstream GraphicsSupervisor
 // commands 4, 11, 101, 401, 402, 497. This is NOT the full kernel-owned
-// session or NVIDIA driver; success here permits (not creates) a session.
+// session or external guest driver; success here permits (not creates) a session.
 #include <cstdint>
 #include <span>
 #include "core/hle/service/am/service/graphics_supervisor_protocol.h"

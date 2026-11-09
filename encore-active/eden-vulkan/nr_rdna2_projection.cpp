@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Eden Encore R09 RDNA2 portable neural projection primitive, not DLSS.
-// No cooperative matrix FP8 or HIP. No NVIDIA code/weights.
+// No cooperative matrix FP8 or HIP. No proprietary model code or learned weights.
 #include <array>
 #include <cstdint>
 #include "video_core/renderer_vulkan/nr_rdna2_projection.h"

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // DLSSNR-AMD model data adapters: FP16 -> FP32 scales/bias and
-// NVIDIA 64x64 attention-bias fragment deswizzle. No model weights included.
+// Model-specific 64x64 attention-bias fragment deswizzle. No model weights included.
 #pragma once
 #include <algorithm>
 #include <bit>
@@ -47,7 +47,7 @@ namespace Eden::Graphics::NeuralRDNA2 {
     output=std::move(result);
     return true;
 }
-// Bias source is [heads][4096] in NVIDIA MMA C-fragment order.
+// Bias source is [heads][4096] in the source model's MMA C-fragment order.
 // Destination is [heads][query=64][key=64], exactly as the RDNA2
 // window_attention_rdna2.comp shader indexes its bias storage buffer.
 [[nodiscard]] inline bool NeuralDeswizzleBias64(

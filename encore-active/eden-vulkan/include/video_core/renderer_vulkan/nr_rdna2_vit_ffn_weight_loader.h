@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Canonical CCVit1D FP8 FFN/Projection weights from a user NRMODEL1.
-// Unpacked with the MIT unpack_vit.py, not bundled NVIDIA weights.
+// Unpacked with the MIT unpack_vit.py, no bundled proprietary learned weights.
 #pragma once
 #include "video_core/renderer_vulkan/nr_rdna2_model_file.h"
 #include "video_core/renderer_vulkan/nr_rdna2_weight_decode.h"

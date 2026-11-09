@@ -15,7 +15,7 @@ class Device;
 class Scheduler;
 
 // Truly neural SPATIAL x2 upscaler. Not temporal FSR3, not frame-generation,
-// no proprietary NVIDIA DLSS model, no downloaded ROM texture replacement.
+// no proprietary external model and no downloaded ROM texture replacement.
 // Four pinned Anime4K v4 3D CNN stages in Vulkan compute, source/MIT in vendor.
 class Anime4K3D final {
 public:

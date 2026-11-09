@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Eden Encore: RDNA2-compatible, model-agnostic 1x1 neural projection.
-// Not a complete DLSS Neural Rendering engine; no NVIDIA weights or DLL.
+// Not a complete DLSS Neural Rendering engine; no proprietary model weights or DLL.
 #pragma once
 
 #include "rdna2_nr_projection_policy.h"
