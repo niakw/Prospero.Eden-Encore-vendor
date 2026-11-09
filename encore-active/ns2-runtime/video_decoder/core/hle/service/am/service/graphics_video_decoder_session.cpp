@@ -229,9 +229,10 @@ void IGraphicsVideoDecoderSession::GetEvent(HLERequestContext& ctx) {
         return;
     }
     if (!m_event) {
-        m_event = m_context.CreateEvent("NS2VideoInputReady");
-        if (m_event) {
-            auto* event = m_event;
+        try {
+            m_event = m_context.CreateEvent("NS2VideoInputReady");
+            if (m_event) {
+                auto* event = m_event;
             m_ready->Attach([event, &kernel = system.Kernel()] {
                 event->Signal(kernel);
             });
@@ -245,7 +246,21 @@ void IGraphicsVideoDecoderSession::GetEvent(HLERequestContext& ctx) {
                     return std::nullopt;
                 });
             constexpr auto Interval = std::chrono::milliseconds{4};
-            system.CoreTiming().ScheduleLoopingEvent(Interval, Interval, m_ready_timer);
+                system.CoreTiming().ScheduleLoopingEvent(Interval, Interval, m_ready_timer);
+            }
+        } catch (const std::bad_alloc&) {
+            // Neither an event callback nor an orphaned timer may survive
+            // a partially created input-ready handle. A later request can
+            // retry from the same clean state.
+            m_ready->Detach();
+            if (m_ready_timer) {
+                system.CoreTiming().UnscheduleEvent(m_ready_timer);
+                m_ready_timer.reset();
+            }
+            if (m_event) {
+                m_context.CloseEvent(m_event);
+                m_event = nullptr;
+            }
         }
     }
     if (!m_event) {
