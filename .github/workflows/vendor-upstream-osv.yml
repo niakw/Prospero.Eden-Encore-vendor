@@ -1,0 +1,37 @@
+name: Encore vendor upstream Python advisory inventory
+# Separate informational OSV query: no package installs or changes to source pins.
+# P1/P2 functional owners and PS5 builds are outside this workflow.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vendor-upstream-osv.yml'
+      - '.github/scripts/audit-osv-vendor-requirements.py'
+  workflow_dispatch:
+  schedule:
+    - cron: '43 4 * * 1'
+permissions:
+  contents: read
+concurrency:
+  group: vendor-upstream-osv-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+jobs:
+  read-only-advisory-inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout only targeted manifests and audit script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            .github/scripts
+            sources/eden-cpm/nlohmann_json/v3.12.0/docs/mkdocs
+            sources/eden-cpm/opus/a3f0ec02b3/dnn/torch/osce
+            sources/harfbuzz/.ci
+            sources/opengl-mesa-26-2/bin/ci/test
+            sources/opengl-opengnm/docs
+            sources/ps5-mesa/bin/ci/test
+      - name: Compare pinned package versions with public OSV advisories
+        run: python3 -B .github/scripts/audit-osv-vendor-requirements.py
