@@ -286,8 +286,16 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
                     return;
                 }
             }
-            const auto fd = m_module->Open("/dev/nvhost-as-gpu",
-                                           Nvidia::NvCore::SessionId{*m_shared->nv_session});
+            // Module::Open constructs a guest FD through an allocating map.
+            // Do not unwind through TIPC when that allocation fails: no
+            // address-space slot or guest-visible FD has been published.
+            Nvidia::DeviceFD fd = Nvidia::INVALID_NVDRV_FD;
+            try {
+                fd = m_module->Open("/dev/nvhost-as-gpu",
+                                    Nvidia::NvCore::SessionId{*m_shared->nv_session});
+            } catch (const std::bad_alloc&) {
+                // result is already ResultOutOfResource.
+            }
             if (fd != Nvidia::INVALID_NVDRV_FD && fd > 0) {
                 // Initialise an actual NVDRV address-space FD. Native 4K
                 // shader/queue mappings are not provided by this path.
@@ -308,7 +316,20 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
                 std::memcpy(input.data() + 32, &range_split, sizeof(range_split));
                 Nvidia::Ioctl ioctl{};
                 ioctl.raw = 0x40284109;
-                if (m_module->Ioctl1(fd, ioctl, input, output) == Nvidia::NvResult::Success) {
+                // Allocation inside the GMMU address-space initialization is
+                // fallible. Close the just-opened descriptor on OOM; no
+                // partially initialized VA object may escape through IPC.
+                Nvidia::NvResult ioctl_result = Nvidia::NvResult::InvalidState;
+                try {
+                    ioctl_result = m_module->Ioctl1(fd, ioctl, input, output);
+                } catch (const std::bad_alloc&) {
+                    m_module->Close(fd);
+                    IPC::ResponseBuilder rb{ctx, 3};
+                    rb.Push(Kernel::ResultOutOfResource.raw);
+                    rb.Push<u32>(0);
+                    return;
+                }
+                if (ioctl_result == Nvidia::NvResult::Success) {
                     // This FD comes from the explicit nvhost-as-gpu open above.
                     // Capture its concrete identity once; every later lookup
                     // compares a safe nvdevice base, never a foreign static cast.
