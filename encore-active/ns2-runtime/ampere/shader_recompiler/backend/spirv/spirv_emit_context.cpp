@@ -1032,10 +1032,33 @@ void EmitContext::DefineGlobalMemoryFunctions(const IR::Program& program) {
         AddLabel();
         const size_t num_buffers{info.storage_buffers_descriptors.size()};
         for (size_t index = 0; index < num_buffers; ++index) {
+            // The IR accepts up to 32 storage descriptors but the historical
+            // NVN global-memory routing mask owns only 16 entries. Indexing
+            // that bitset beyond its extent is undefined behavior. Reject
+            // unrepresentable native QMD routing instead of silently ignoring
+            // a guest SSBO, while leaving the pinned Maxwell path unchanged.
+            if (index >= info.nvn_buffer_used.size()) {
+                if (Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+                    throw NotImplementedException(
+                        "Native global memory SSBO selector exceeds routing mask");
+                }
+                continue;
+            }
             if (!info.nvn_buffer_used[index]) {
                 continue;
             }
             const auto& ssbo{info.storage_buffers_descriptors[index]};
+            // Global pointers are reconstructed from a live CBUF's address
+            // and size words. A missing or out-of-range CBUF cannot become a
+            // valid SPIR-V pointer. Check before touching its array slot.
+            if (ssbo.cbuf_index >= cbufs.size()) {
+                throw NotImplementedException("Global memory SSBO CBUF index out of range");
+            }
+            if (Shader::Ampere::NativeSpirvCbufBoundsActive() &&
+                (!Sirit::ValidId(cbufs[ssbo.cbuf_index].U32) ||
+                 !Sirit::ValidId(cbufs[ssbo.cbuf_index].U32x2))) {
+                throw NotImplementedException("Native global memory SSBO CBUF not bound");
+            }
             const Id ssbo_addr_cbuf_offset{Const(ssbo.cbuf_offset / 8)};
             const Id ssbo_size_cbuf_offset{Const(ssbo.cbuf_offset / 4 + 2)};
             const Id ssbo_addr_pointer{OpAccessChain(
