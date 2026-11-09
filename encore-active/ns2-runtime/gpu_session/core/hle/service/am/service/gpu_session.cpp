@@ -12,6 +12,7 @@
 #include <cstring>
 #include <limits>
 #include <span>
+#include "common/scope_exit.h"
 #include "common/swap.h"
 #include <mutex>
 #include <new>
@@ -125,7 +126,19 @@ static Result CreateWorkerKernelSession(Core::System& system, HLERequestContext&
     session->Initialize(kernel, nullptr, 0);
     reservation.Commit();
     Kernel::KSession::Register(kernel, session);
+    // Initialize() owns both client/server endpoints. RegisterSession() can
+    // throw bad_alloc while creating its host Session, before taking the
+    // server endpoint. Close both endpoints on failure to release the
+    // committed kernel session quota; never publish a guest handle.
+    bool transferred_to_server = false;
+    SCOPE_EXIT {
+        if (!transferred_to_server) {
+            session->GetClientSession().Close(kernel);
+            session->GetServerSession().Close(kernel);
+        }
+    };
     R_TRY(server.RegisterSession(&session->GetServerSession(), std::move(manager)));
+    transferred_to_server = true;
     *out_client = &session->GetClientSession();
     R_SUCCEED();
 }
