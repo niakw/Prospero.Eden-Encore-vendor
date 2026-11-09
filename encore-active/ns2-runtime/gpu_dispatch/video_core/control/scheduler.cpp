@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <stdexcept>
 
 #include "common/assert.h"
 #include "core/core.h"
@@ -20,7 +21,11 @@ void Scheduler::Push(GPU& gpu, s32 channel, CommandList&& entries) {
     {
         std::unique_lock lk(scheduling_guard);
         auto it = channels.find(channel);
-        ASSERT(it != channels.end());
+        // A recycled or unknown channel ID must never be dereferenced or
+        // enqueue GPU work on a former process epoch. Reject before binding
+        // or acknowledging any submitted guest commands.
+        if (it == channels.end() || !it->second || !it->second->payload)
+            throw std::runtime_error("Native GPFIFO: missing channel owner");
         channel_state = it->second;
         gpu.BindChannel(channel_state->bind_id);
     }
@@ -65,9 +70,23 @@ void Scheduler::ResumePendingNative(GPU& gpu) {
 }
 
 void Scheduler::DeclareChannel(std::shared_ptr<ChannelState> new_channel) {
-    s32 channel = new_channel->bind_id;
+    if (!new_channel || !new_channel->payload)
+        throw std::runtime_error("Native GPFIFO: invalid channel owner");
+    const s32 channel = new_channel->bind_id;
     std::unique_lock lk(scheduling_guard);
-    channels.emplace(channel, new_channel);
+    const auto existing = channels.find(channel);
+    if (existing != channels.end()) {
+        if (existing->second == new_channel)
+            return; // Same live owner: never discard its pending wait.
+        // A driver can reuse the bind ID after process/channel teardown.
+        // The old generation must not resume a parked semaphore against
+        // the new owner's GPU binding, or publish an obsolete guest fence.
+        const auto retired = existing->second;
+        std::erase(pending_native_channels, retired);
+        existing->second = std::move(new_channel);
+    } else {
+        channels.emplace(channel, std::move(new_channel));
+    }
 }
 
 } // namespace Tegra::Control
