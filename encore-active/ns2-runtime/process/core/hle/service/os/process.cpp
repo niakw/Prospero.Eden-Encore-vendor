@@ -23,6 +23,12 @@ bool Process::Initialize(Loader::AppLoader& loader, Loader::ResultStatus& out_lo
 
     // Create the process.
     auto* const process = Kernel::KProcess::Create(m_system.Kernel());
+    // The slab allocator can fail before an ExeFS/NSO handoff exists.
+    // Never register or dereference a null kernel process on that path.
+    if (!process) {
+        out_load_result = Loader::ResultStatus::ErrorNotInitialized;
+        return false;
+    }
     Kernel::KProcess::Register(m_system.Kernel(), process);
 
     // On exit, ensure we free the additional reference to the process.
@@ -36,6 +42,13 @@ bool Process::Initialize(Loader::AppLoader& loader, Loader::ResultStatus& out_lo
 
     // Ensure loading was successful.
     if (load_result != Loader::ResultStatus::Success) {
+        return false;
+    }
+    // Success without loader parameters is malformed: touching the optional
+    // would be undefined behavior and may publish a partially initialized
+    // KProcess into the scheduler. The scope guard closes it on failure.
+    if (!load_parameters) {
+        out_load_result = Loader::ResultStatus::ErrorUnableToParseKernelMetadata;
         return false;
     }
 
