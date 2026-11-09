@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Host-only security/quality checks for maintained Eden Encore vendor files.
 GitHub's DEFAULT CodeQL setup is authoritative: do not upload advanced SARIF.
-No console binary, no proprietary NVIDIA weights, no network at test time.
+No console binary, no proprietary learned weights, no network at test time.
 """
 from pathlib import Path
 import re
@@ -32,7 +32,7 @@ for path in [
         "Missing conservative neural scheduler/graph guard",path)
 assert "R09OriginalManifest" in manifest and "R09CompactManifest" in manifest
 assert "R09OriginalTemporalScale" in manifest and "R09CompactTemporalScale" in manifest
-# Exact repository boundaries: proprietary NVIDIA DLLs/models are never
+# Exact repository boundaries: proprietary model DLLs/weights are never
 # included, and active sources must not sneak in large binary weights.
 for directory in ("encore-active", ".github"):
     for p in (root/directory).rglob("*"):

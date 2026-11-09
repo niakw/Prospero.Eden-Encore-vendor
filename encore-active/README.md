@@ -1,5 +1,7 @@
 # Encore Active : vrais overrides de sources
 
+> **Note / 9 November 2026:** maintained, selected source overrides for the shared NS1/NS2 engine. Historical inventories below are owner/source migration records; a file being listed is **not** proof of execution on PS5. Native console build and hardware qualification belong to the engine P5 milestone. Third-party legal attribution, GPU/SDK vocabulary and ABI identifiers are preserved. [Vendor audit](../docs/VENDOR_PRESENTATION_AUDIT_2026-11-09.md).
+
 `vendor/sources/eden` = original conservé ; `vendor/encore-active` = versions maintenues.
 
 | Chemin | Usage |
