@@ -21,11 +21,12 @@ MANIFESTS = (
     "sources/opengl-opengnm/docs/requirements.txt",
     "sources/ps5-mesa/bin/ci/test/requirements.txt",
 )
-PIN = re.compile(r"^\s*([a-zA-Z0-9][\w.-]*)\s*==\s*([a-zA-Z0-9][\w.+!-]*)")
+PIN = re.compile(r"^\s*([a-zA-Z0-9][\w.-]*)\s*==\s*([^\s;\\#]+)")
 
 
 def package_pins():
     pins = defaultdict(list)
+    nonexact = []
     for filename in MANIFESTS:
         path = ROOT / filename
         if not path.is_file():
@@ -35,10 +36,13 @@ def package_pins():
             if match:
                 name = match.group(1).lower().replace("_", "-").replace(".", "-")
                 version = match.group(2)
-                pins[(name, version)].append(filename)
+                if "*" in version or not re.fullmatch(r"[a-zA-Z0-9][\w.+!-]*", version):
+                    nonexact.append((name, version, filename))
+                else:
+                    pins[(name, version)].append(filename)
     if not pins:
         raise RuntimeError("No pinned Python packages found")
-    return pins
+    return pins, nonexact
 
 
 def query_osv(pins):
@@ -82,7 +86,7 @@ def query_osv(pins):
 
 
 def main():
-    pins = package_pins()
+    pins, nonexact = package_pins()
     vulnerabilities = query_osv(pins)
     affected = [(name, version, sorted(ids), sorted(pins[(name, version)]))
                 for (name, version), ids in vulnerabilities.items() if ids]
@@ -91,8 +95,11 @@ def main():
     print(
         f"VENDOR_OSV_INVENTORY_COMPLETE manifests={len(MANIFESTS)}"
         f" pinned_packages={len(pins)} affected_versions={len(affected)}"
-        f" unique_advisories={total_ids} runtime_reachability=unverified"
+        f" advisory_ids={total_ids} nonexact_constraints={len(nonexact)}"
+        " runtime_reachability=unverified"
     )
+    for name, version, filename in nonexact:
+        print(f"VENDOR_OSV_NONEXACT {name}=={version} manifest={filename}")
     for name, version, ids, paths in affected:
         print(f"VENDOR_OSV_MATCH {name}=={version} advisories={','.join(ids)}")
         for path in paths:
