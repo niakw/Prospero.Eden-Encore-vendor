@@ -227,11 +227,14 @@ bool Nx2VideoDecoder::Decode(std::span<const u8> data, u64 pts, std::vector<Nx2P
 
     FFmpeg::Packet packet{std::span<const u8>{impl->packet.data(), data.size()}};
     packet.GetPacket()->pts = static_cast<s64>(pts);
-    // Hidden VP9 frames never come out: keep the set from growing over a long movie.
-    if (impl->pending_pts.size() >= 64) {
-        impl->pending_pts.erase(impl->pending_pts.begin());
-    }
-    impl->pending_pts.insert(pts);
+    // Preallocate the timestamp before submitting to FFmpeg, but do not
+    // publish it into the decoder's pending set until SendPacket succeeds.
+    // On EAGAIN, Receive drains only PREVIOUSLY accepted packets; otherwise
+    // a lost-PTS frame could consume the timestamp of an unsent packet.
+    // merge() transfers the allocated node without a post-submit allocation,
+    // preserving the IPC transaction on host OOM and duplicate PTS values.
+    std::multiset<u64> staged_pts;
+    staged_pts.insert(pts);
     bool sent{};
     if (impl->raw_context) {
         int status = avcodec_send_packet(impl->raw_context, packet.GetPacket());
@@ -245,11 +248,12 @@ bool Nx2VideoDecoder::Decode(std::span<const u8> data, u64 pts, std::vector<Nx2P
     } else {
         sent = impl->context->SendPacket(packet);
     }
-    if (!sent) {
-        if (const auto it = impl->pending_pts.find(pts); it != impl->pending_pts.end())
-            impl->pending_pts.erase(it);
-        return false;
-    }
+    if (!sent) return false;
+    impl->pending_pts.merge(staged_pts);
+    // Hidden VP9 frames can remain unresolved indefinitely; keep a bounded
+    // accepted-packet ledger without discarding old PTS for FAILED sends.
+    if (impl->pending_pts.size() > 64)
+        impl->pending_pts.erase(impl->pending_pts.begin());
     return impl->Receive(pictures);
 }
 
