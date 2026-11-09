@@ -206,6 +206,13 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
 
         pi_header = pm->PatchNSO(pi_header, name);
 
+        // IPS/IPSwitch mods can resize a patched NSO. The guest CodeSet was
+        // allocated from the authenticated original segment layout, so a
+        // longer result would overrun patchable_section and a shorter one
+        // would leave a partially patched executable. Reject either before
+        // copying a single byte of the guest image.
+        if (pi_header.size() != sizeof(NSOHeader) + patchable_section.size())
+            return std::nullopt;
         std::copy(pi_header.begin() + sizeof(NSOHeader), pi_header.end(), patchable_section.data());
     }
 
