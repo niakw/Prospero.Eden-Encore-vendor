@@ -222,7 +222,8 @@ void IGpuSession::GetNotificationRange(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(result.raw);
     rb.Push<u32>(0);
-    rb.Push<u32>(GP::MaxNotificationEvents - 1);
+    // An invalid request must not advertise a valid guest event index.
+    rb.Push<u32>(result.IsSuccess() ? GP::MaxNotificationEvents - 1 : 0);
 }
 
 void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
