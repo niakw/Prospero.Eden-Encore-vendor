@@ -137,7 +137,16 @@ static Result CreateWorkerKernelSession(Core::System& system, HLERequestContext&
             session->GetServerSession().Close(kernel);
         }
     };
-    R_TRY(server.RegisterSession(&session->GetServerSession(), std::move(manager)));
+    // RegisterSession can allocate its host request queue after the kernel
+    // KSession was committed. Convert host OOM into an IPC result while the
+    // scope guard still owns both endpoints and their session quota.
+    Result registered = Kernel::ResultOutOfResource;
+    try {
+        registered = server.RegisterSession(&session->GetServerSession(), std::move(manager));
+    } catch (const std::bad_alloc&) {
+        return Kernel::ResultOutOfResource;
+    }
+    R_TRY(registered);
     transferred_to_server = true;
     *out_client = &session->GetClientSession();
     R_SUCCEED();
