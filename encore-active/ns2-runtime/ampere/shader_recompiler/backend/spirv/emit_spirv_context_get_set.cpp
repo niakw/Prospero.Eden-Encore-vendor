@@ -660,14 +660,21 @@ void EmitSetPatch(EmitContext& ctx, IR::Patch patch, Id value) {
         case IR::Patch::TessellationLodTop:
         case IR::Patch::TessellationLodBottom: {
             const u32 index{static_cast<u32>(patch) - u32(IR::Patch::TessellationLodLeft)};
+            if (!ValidId(ctx.output_tess_level_outer)) {
+                throw NotImplementedException("Undeclared tessellation outer patch output {}", patch);
+            }
             const Id index_id{ctx.Const(index)};
             return ctx.OpAccessChain(ctx.output_f32, ctx.output_tess_level_outer, index_id);
         }
         case IR::Patch::TessellationLodInteriorU:
-            return ctx.OpAccessChain(ctx.output_f32, ctx.output_tess_level_inner,
-                                     ctx.u32_zero_value);
-        case IR::Patch::TessellationLodInteriorV:
-            return ctx.OpAccessChain(ctx.output_f32, ctx.output_tess_level_inner, ctx.Const(1u));
+        case IR::Patch::TessellationLodInteriorV: {
+            if (!ValidId(ctx.output_tess_level_inner)) {
+                throw NotImplementedException("Undeclared tessellation inner patch output {}", patch);
+            }
+            const Id index_id{patch == IR::Patch::TessellationLodInteriorU
+                                  ? ctx.u32_zero_value : ctx.Const(1u)};
+            return ctx.OpAccessChain(ctx.output_f32, ctx.output_tess_level_inner, index_id);
+        }
         default:
             throw NotImplementedException("Patch {}", patch);
         }

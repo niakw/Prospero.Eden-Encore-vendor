@@ -271,8 +271,25 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size,
         return Kernel::ResultOutOfResource;
     }
 
-    if (!m_nv_session)
-        m_nv_session = m_module->GetContainer().OpenSession(m_process).id;
+    // Native sparse pages already have a CPU alias at this point. An OOM
+    // opening the NVDRV session must unmap and close those pages before
+    // returning, without exposing a partially backed guest GPU range.
+    if (!m_nv_session) {
+        try {
+            m_nv_session = m_module->GetContainer().OpenSession(m_process).id;
+        } catch (const std::bad_alloc&) {
+            const auto undone = table.UnmapPageGroup(alias, *pages, Kernel::KMemoryState::IoMemory);
+            if (undone.IsError()) {
+                LOG_ERROR(Service_AM, "NS2 GPU-only session rollback CPU alias failed: {:#x}",
+                          undone.raw);
+                // Preserve physical backing when the guest alias could not be removed.
+                (void)pages.release();
+                return undone;
+            }
+            pages->Close(kernel);
+            return Kernel::ResultOutOfResource;
+        }
+    }
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
     std::shared_ptr<Nvidia::NvCore::NvMap::Handle> handle;
     auto status = nvmap.CreateHandle(size, handle);
@@ -814,8 +831,15 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
     } catch (const std::bad_alloc&) {
         return Kernel::ResultOutOfResource;
     }
-    if (!m_nv_session)
-        m_nv_session = m_module->GetContainer().OpenSession(m_process).id;
+    // A session allocation failure happens before any NVMap handle or
+    // guest page lock is published for this worker memory registration.
+    if (!m_nv_session) {
+        try {
+            m_nv_session = m_module->GetContainer().OpenSession(m_process).id;
+        } catch (const std::bad_alloc&) {
+            return Kernel::ResultOutOfResource;
+        }
+    }
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
     std::shared_ptr<Nvidia::NvCore::NvMap::Handle> handle;
     R_UNLESS(nvmap.CreateHandle(size, handle) == Nvidia::NvResult::Success,
