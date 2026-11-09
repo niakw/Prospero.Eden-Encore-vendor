@@ -301,8 +301,10 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size,
                                    Nvidia::NvCore::SessionId{*m_nv_session});
         }
     } catch (const std::bad_alloc&) {
-        // A mapped CPU alias already exists: take the normal failure
-        // rollback below rather than unwinding and freeing mapped pages.
+        // CreateHandle may already have returned Success before Alloc
+        // throws. Invalidate that status, otherwise RemapNativeSparse can
+        // install an NVMap handle whose physical backing never existed.
+        status = Nvidia::NvResult::InvalidState;
         nvmap_oom = true;
     }
     bool committed = false;
