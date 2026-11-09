@@ -1972,6 +1972,15 @@ void EmitContext::DefineMesh(const IR::Program& program) {
 
 void EmitContext::DefineOutputs(const IR::Program& program) {
     const Info& info{program.info};
+    // SPIR-V TransformFeedback/Xfb is only legal on the final
+    // vertex-producing graphics stages. Never advertise Xfb on Compute,
+    // Fragment, Task, Mesh or TessellationControl programs; otherwise a
+    // native shader can pass source checks but fail Vulkan module validation.
+    if (runtime_info.xfb_count != 0 &&
+        stage != Stage::VertexA && stage != Stage::VertexB &&
+        stage != Stage::TessellationEval && stage != Stage::Geometry) {
+        throw NotImplementedException("Transform feedback on unsupported shader stage");
+    }
     if (stage == Stage::Task || stage == Stage::Mesh) {
         return; // DefineMesh
     }
