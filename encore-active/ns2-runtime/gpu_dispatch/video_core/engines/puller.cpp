@@ -362,8 +362,12 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
         regs.reg_array[0x18], regs.reg_array[0x17]);
     const u32 value = regs.reg_array[0x19];
     const u32 operation = control & 7U;
-    if (!NativeSemaphore::IsAddressAdmissible(address)) {
-        throw std::runtime_error("Ampere SEM_EXECUTE: invalid GPU address");
+    // A valid 49-bit number is not necessarily a mapped GMMU word. Do not
+    // queue a RELEASE or acknowledge a pending ACQUIRE against a freed VA.
+    // GPU-only pages are allowed: this checks GMMU residency, not a CPU alias.
+    if (!NativeSemaphore::IsAddressAdmissible(address) ||
+        !dma_pusher.memory_manager.IsFullyMappedRange(address, sizeof(u32))) {
+        throw std::runtime_error("Ampere SEM_EXECUTE: invalid/unmapped GPU address");
     }
     if (operation == 1) { // RELEASE: schedule a genuine GPU fence write.
         dma_pusher.rasterizer->Query(
