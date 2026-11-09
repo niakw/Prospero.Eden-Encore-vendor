@@ -1,17 +1,12 @@
-name: Encore vendor active source — CodeQL
-# Only FIRST-PARTY maintained PS5/renderer paths; immutable upstream
-# source snapshots under sources/ and objects/ are out of scope.
+name: Encore vendor maintained source — CodeQL
+# Candidate scope for *all* maintained override source directories.
+# This file does NOT configure CodeQL merely by existing: Default Setup must
+# explicitly reference it through an effective GitHub security configuration.
+# Immutable upstream source snapshots under sources/ still require dependency
+# and compiled-runtime reachability triage; excluding them is not proof of safety.
 paths:
   - .github
-  - encore-active/eden-vulkan
-  - encore-active/eden-core
-  - encore-active/eden-gpu
-  - encore-active/eden-shader
-  - encore-active/eden-backports
-  - encore-active/ns2-runtime
-  - encore-active/eden-surface-lifecycle
-  - encore-active/eden-sync
-  - encore-active/eden-threading
+  - encore-active
 paths-ignore:
   - 'encore-active/**/fixtures/**'
   - 'encore-active/**/tests/data/**'
