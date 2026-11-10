@@ -1,0 +1,41 @@
+name: NS2 R2 bounded upload batch - host source gate
+
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_verified_upload_batch.h'
+      - 'encore-active/eden-vulkan/tests/test_ns2_verified_upload_batch.cpp'
+      - '.github/workflows/ns2-r2-upload-batch-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ns2-r2-upload-host-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-maintained-header:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout research source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile and execute the exact vendor header with sanitizers
+        shell: bash
+        run: |
+          set -euo pipefail
+          header_dir=encore-active/eden-vulkan/include/video_core/renderer_vulkan
+          test_file=encore-active/eden-vulkan/tests/test_ns2_verified_upload_batch.cpp
+          for compiler in clang++ g++; do
+            for opt in 0 1 2; do
+              out="${RUNNER_TEMP}/ns2-r2-${compiler//+/p}-O${opt}"
+              "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror -pedantic \
+                -fsanitize=address,undefined -fno-sanitize-recover=all \
+                -fno-omit-frame-pointer -I"${header_dir}" "${test_file}" -o "${out}"
+              "${out}"
+            done
+          done
