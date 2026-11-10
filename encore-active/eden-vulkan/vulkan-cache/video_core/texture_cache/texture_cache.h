@@ -1598,10 +1598,13 @@ bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
         // clear. Do this only after both cached slices and the owner agree.
         runtime.FlushDeferredClear();
         PrepareImage(src_slice->id, false, false);
-        PrepareImage(dst_slice->id, true, false);
+        // Refresh the destination before the last native channel recheck.
+        // Do not mark a rejected/revoked copy as a guest GPU write.
+        PrepareImage(dst_slice->id, false, false);
         if (!registry.IsGraphicsCurrent(maxwell3d, *ticket)) {
             return false;
         }
+        MarkModification(slot_images[dst_slice->id]);
         const ImageCopy slice_copy{
             .src_subresource = {.base_level = 0, .base_layer = 0, .num_layers = 1},
             .dst_subresource = {.base_level = 0, .base_layer = 0, .num_layers = 1},
