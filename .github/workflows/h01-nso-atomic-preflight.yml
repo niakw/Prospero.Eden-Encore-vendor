@@ -1,0 +1,21 @@
+name: H01 atomic patched ExeFS owner preflight
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'encore-active/ns2-runtime/metadata/core/loader/deconstructed_rom_directory.cpp'
+      - 'tools/ns2/check_h01_nso_preflight_global_mode_host.py'
+      - '.github/workflows/h01-nso-atomic-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-owner:
+    name: H01 all 13 NSO headers before global NS2 mode
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tools/ns2/check_h01_nso_preflight_global_mode_host.py
