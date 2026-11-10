@@ -1211,6 +1211,9 @@ Result KProcess::LoadFromMetadata(KernelCore& kernel, const FileSys::ProgramMeta
     const auto physical_memory_size = kernel.MemoryManager().GetSize(pool);
     auto* res_limit =
         Kernel::CreateResourceLimitForProcess(kernel.System(), physical_memory_size);
+    // A failed resource-limit allocation must never enter the scope guard:
+    // there is no owned object to Close and no process page-table to publish.
+    R_UNLESS(res_limit != nullptr, ResultOutOfResource);
 
     // Ensure we maintain a clean state on exit.
     SCOPE_EXIT {
