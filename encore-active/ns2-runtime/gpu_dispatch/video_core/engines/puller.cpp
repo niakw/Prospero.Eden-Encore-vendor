@@ -924,9 +924,15 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
                 try {
                     auto& current =
                         Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
-                    if (!current.IsCurrent(channel, ticket) ||
-                        !Tegra::NativeComputeSemaphoreSpanValid(address, sizeof(u32)) ||
-                        !memory->IsFullyMappedRange(address, sizeof(u32))) return;
+                    if (!current.IsCurrent(channel, ticket)) return;
+                    // A still-live channel cannot retire a queued reduction
+                    // after its guest backing vanishes. Latch a fatal worker
+                    // error rather than silently claiming GPU completion.
+                    if (!Tegra::NativeComputeSemaphoreSpanValid(address, sizeof(u32)) ||
+                        !memory->IsFullyMappedRange(address, sizeof(u32))) {
+                        throw std::runtime_error(
+                            "Native Compute reduction backing revoked after GPU submission");
+                    }
                     const u32 old_value = memory->Read<u32>(address);
                     memory->Write<u32>(
                         address, Tegra::NativeComputeSemaphoreReduction(
