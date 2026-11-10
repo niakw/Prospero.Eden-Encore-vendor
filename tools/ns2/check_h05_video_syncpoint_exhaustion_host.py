@@ -3,7 +3,7 @@
 
 The shared SyncpointManager reserves IDs 1..191 and uses zero as its failure
 sentinel. A rejected zero ID must not be published as a guest completion
-fence, even if AllocateSyncpoint returned zero under pool exhaustion.
+fence, without reserving sentinel zero or invoking the legacy asserting allocator.
 Clang/GCC at O0/O2 with UBSan. No real TIPC/Vulkan/PS5 is claimed.
 """
 from pathlib import Path
@@ -25,6 +25,8 @@ start="bool IGraphicsVideoDecoderSession::EnsureSyncpoint() {"
 end="\nvoid IGraphicsVideoDecoderSession::RegisterBuffer("
 assert text.count(start)==text.count(end)==1
 real=start+text.split(start,1)[1].split(end,1)[0]
+assert "TryAllocateSyncpoint(false)" in real
+assert "SyncpointManager::TryAllocateSyncpoint(bool client_managed)" in source
 assert "if (id == 0 || id >= MaxSyncpoints) return false;" in real
 assert real.index("if (id == 0 || id >= MaxSyncpoints)") < real.index("m_syncpoint = id;")
 assert real.index("m_syncpoint = id;") < real.index("m_reserved_value =")
@@ -41,7 +43,7 @@ using u32=std::uint32_t;
 struct Pool {
     u32 next{5};
     unsigned allocated{};
-    u32 AllocateSyncpoint(bool managed) {
+    u32 TryAllocateSyncpoint(bool managed) {
         assert(!managed);++allocated;return next;
     }
 };
