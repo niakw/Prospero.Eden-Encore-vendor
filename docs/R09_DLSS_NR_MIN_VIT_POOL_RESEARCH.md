@@ -141,3 +141,38 @@ packed words. At tokens=2560 this bounds a single packed tensor to
 earlier policy-level Q/K/V shrink and fails closed on unreviewed
 shader drift. Static source/syntax checks alone cannot guarantee runtime
 Vulkan descriptors, barriers, device memory or PS5 frame quality.
+
+## P0 performance blocker: quadratic global ViT attention shader
+
+The real native vit_attention_rdna2.comp kernel has 32 head lanes and
+iterates over **every key token for every query**. At each query/key/head
+pair the shader performs 32 score FMAs and 32 value-context FMAs.
+Eight learned ViT blocks at the current 2560-token 1080p geometry imply:
+
+- 107,374,182,400 written FMA operations per neural frame;
+- approximately 214.75 GFLOPs/frame for attention arithmetic alone,
+  counting 2 FLOPs per FMA;
+- about **12.885 TFLOPs/s to sustain 60 neural frames per second**,
+  excluding the rest of DLSS-NR, the game renderer, quantization,
+  texture operations, memory stalls and all other overhead.
+
+Sony's published peak FP32 compute for a base PS5 is **10.3 TFLOPs**:
+https://blog.playstation.com/2020/11/09/ps5-the-ultimate-faq/
+
+This is a *theoretical arithmetic throughput lower bound for the
+operations written in the current naive scalar shader*, not a measured
+GPU runtime, achievable FLOP rate or proof of exact PS5 FPS. It does
+show that **simply reducing ViT buffer requests by 91.9% cannot by
+itself make the current 1080p eight-block attention implementation
+reach 60 fully-neural frames/s**. The compiler and GPU can optimize
+details, but any path retaining this much arithmetic has a serious
+throughput barrier. A source-linked CI calculation monitors this count.
+
+For comparison the unqualified 960-token 720p structural candidate
+would require ~30.20 GFLOPs/frame for eight blocks' attention math,
+a ~7.11x reduction from attention's quadratic token count. It does NOT
+make the current fixed-size learned graph valid at 720p, and no FPS
+gain is claimed. A validated variable-resolution graph OR a proven
+faster attention kernel/approximated inference cadence is needed
+before claiming 60 Hz. Do not silently change the learned attention
+math or FP8 rounding without a genuine model image-quality A/B.

@@ -70,6 +70,44 @@ def check(qkv: str,att: str) -> None:
         if (last_word+1)*4!=tokens*1024:
             raise ValueError("One-plane packed extent mismatch")
 
+def attention_compute_budget(att: str) -> None:
+    """Count GPU-shader arithmetic instructions, NOT observed hardware FLOPS."""
+    src=canonical(att)
+    require(src,"for(uintkey=0u;key<pc.tokens;++key){")
+    require(src,"score=fma(query_features[c],e4m3_to_f32((packed>>(j*8u))&255u),score);")
+    require(src,"context[c]=fma(prob,e4m3_to_f32((packed>>(j*8u))&255u),context[c]);")
+    if src.count("score=fma(")!=1 or src.count("context[c]=fma(")!=1:
+        raise ValueError("Attention arithmetic kernel changed")
+    if src.count("for(uinti=0u;i<8u;++i)")<3 or src.count(
+            "for(uintj=0u;j<4u;++j)")<3:
+        raise ValueError("Native attention channel loops changed")
+    # Every query and key uses 32 heads; every pair: 32 score FMAs
+    # and 32 value-context FMAs, across 8 sequential model blocks.
+    heads=32
+    dimensions=32
+    blocks=8
+    fma_per_pair=2*dimensions
+    for tokens in (960,2560):
+        fma_per_frame=blocks*heads*tokens*tokens*fma_per_pair
+        flops_per_frame=2*fma_per_frame
+        assert fma_per_pair==64
+        assert fma_per_frame>0
+        print(
+            f"R09_MIN_ATTENTION_SHADER_MATH tokens={tokens} "
+            f"blocks={blocks} fma_per_frame={fma_per_frame} "
+            f"flops_per_frame={flops_per_frame} "
+            f"ideal_60Hz_TFLOPS={flops_per_frame*60/1e12:.6f}")
+        if tokens==2560:
+            # PS5 base theoretical GPU peak is ~10.3 TFLOPS (Sony);
+            # the actual shader's arithmetic workload at 60Hz exceeds
+            # this figure even BEFORE NN GEMM, texture and game rendering.
+            # Not a runtime benchmark; no automatic gameplay FPS bound.
+            assert flops_per_frame==214748364800
+            assert flops_per_frame*60>10_300_000_000_000
+        else:
+            assert flops_per_frame==30198988800
+    print("R09_MIN_ATTENTION_SCALAR_QUADRATIC_BOTTLENECK_CONFIRMED")
+
 def blob_sha(contents: bytes) -> str:
     return sha1(b"blob "+str(len(contents)).encode()+b"\0"+contents).hexdigest()
 
@@ -118,6 +156,7 @@ def main() -> None:
     data={name:(HERE/name).read_bytes() for name in PIN}
     raw={name:data[name].decode("utf-8") for name in PIN}
     check(raw[QKV],raw[ATT])
+    attention_compute_budget(raw[ATT])
     n=negatives(raw[QKV],raw[ATT])
     for name,expected in PIN.items():
         observed=blob_sha(data[name])
