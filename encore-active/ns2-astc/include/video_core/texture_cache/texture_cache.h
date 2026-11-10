@@ -713,46 +713,67 @@ SamplerId TextureCache<P>::AcquireNativeSampler(
 template <class P>
 std::optional<typename TextureCache<P>::NativePinnedImageView>
 TextureCache<P>::PinNativeImageView(ImageViewId id) {
-    // Call only under texture_cache.mutex. AcquireNativeImageView has already
-    // checked the live channel under config_mutex. Moving a cache image out
-    // of its slot during an eviction transfers its pin into the retirement
-    // queue, which waits for all external GPU owners before destroying it.
-    if (id == NULL_IMAGE_VIEW_ID || id == ImageViewId{})
+    // Only the Vulkan image/sampler types own native GPU fence pins.
+    // TextureCache is also explicitly instantiated for OpenGL on PS5;
+    // its types do not expose this ownership contract. Fail closed.
+    if constexpr (!(requires(Image& image, ImageView& view) {
+        image.PinNativeGpu();
+        view.PinNativeGpu();
+    })) {
         return std::nullopt;
-    auto& view = slot_image_views[id];
-    if (view.IsBuffer() || view.image_id == NULL_IMAGE_ID ||
-        view.image_id == ImageId{})
-        return std::nullopt;
-    auto& image = slot_images[view.image_id];
-    // TIC bytes can remain identical when the GPU remaps the physical
-    // backing. Refuse the stale image even if its old Vulkan view is pinned.
-    // A subsequent acquisition rebuilds the shared cache's remapped slot.
-    const auto mapped_base = gpu_memory
-                                 ? gpu_memory->GpuToCpuAddress(image.gpu_addr)
-                                 : std::nullopt;
-    if (True(image.flags & ImageFlagBits::Remapped) || !mapped_base ||
-        *mapped_base != image.cpu_addr) {
-        image.flags |= ImageFlagBits::Remapped;
-        return std::nullopt;
+    } else {
+        // Call only under texture_cache.mutex. AcquireNativeImageView has already
+        // checked the live channel under config_mutex. Moving a cache image out
+        // of its slot during an eviction transfers its pin into the retirement
+        // queue, which waits for all external GPU owners before destroying it.
+        if (id == NULL_IMAGE_VIEW_ID || id == ImageViewId{})
+            return std::nullopt;
+        auto& view = slot_image_views[id];
+        if (view.IsBuffer() || view.image_id == NULL_IMAGE_ID ||
+            view.image_id == ImageId{})
+            return std::nullopt;
+        auto& image = slot_images[view.image_id];
+        // TIC bytes can remain identical when the GPU remaps the physical
+        // backing. Refuse the stale image even if its old Vulkan view is pinned.
+        // A subsequent acquisition rebuilds the shared cache's remapped slot.
+        const auto mapped_base = gpu_memory
+                                     ? gpu_memory->GpuToCpuAddress(image.gpu_addr)
+                                     : std::nullopt;
+        if (True(image.flags & ImageFlagBits::Remapped) || !mapped_base ||
+            *mapped_base != image.cpu_addr) {
+            image.flags |= ImageFlagBits::Remapped;
+            return std::nullopt;
+        }
+        auto image_pin = image.PinNativeGpu();
+        auto view_pin = view.PinNativeGpu();
+        if (!image_pin || !view_pin)
+            return std::nullopt;
+        return NativePinnedImageView{
+            .id = id,
+            .backing_image = std::move(image_pin),
+            .image_view = std::move(view_pin)};
     }
-    auto image_pin = image.PinNativeGpu();
-    auto view_pin = view.PinNativeGpu();
-    if (!image_pin || !view_pin)
-        return std::nullopt;
-    return NativePinnedImageView{
-        .id = id,
-        .backing_image = std::move(image_pin),
-        .image_view = std::move(view_pin)};
+
 }
 
 template <class P>
 std::shared_ptr<u8> TextureCache<P>::PinNativeSampler(SamplerId id) {
-    // Unlike images, the shared sampler slot is not separately evicted.
-    // Still hold an explicit owner until the last native GPU fence releases
-    // its descriptors; the rasterizer Finish drains cache destruction.
-    if (id == NULL_SAMPLER_ID || id == SamplerId{})
+    // Only the Vulkan image/sampler types own native GPU fence pins.
+    // TextureCache is also explicitly instantiated for OpenGL on PS5;
+    // its types do not expose this ownership contract. Fail closed.
+    if constexpr (!(requires(Sampler& sampler) {
+        sampler.PinNativeGpu();
+    })) {
         return {};
-    return slot_samplers[id].PinNativeGpu();
+    } else {
+        // Unlike images, the shared sampler slot is not separately evicted.
+        // Still hold an explicit owner until the last native GPU fence releases
+        // its descriptors; the rasterizer Finish drains cache destruction.
+        if (id == NULL_SAMPLER_ID || id == SamplerId{})
+            return {};
+        return slot_samplers[id].PinNativeGpu();
+    }
+
 }
 #endif
 
