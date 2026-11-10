@@ -19,6 +19,12 @@ start="u32 SyncpointManager::TryAllocateSyncpoint(bool client_managed) {"
 end="\nvoid SyncpointManager::FreeSyncpoint("
 assert source.count(start)==source.count(end)==1
 real=start+source.split(start,1)[1].split(end,1)[0]
+admission_start="bool SyncpointManager::IsSyncpointAllocated(u32 id) const {"
+admission_end="\nbool SyncpointManager::HasSyncpointExpired("
+assert source.count(admission_start)==source.count(admission_end)==1
+admission=admission_start+source.split(admission_start,1)[1].split(admission_end,1)[0]
+assert "std::scoped_lock lock{reservation_lock}" in admission
+assert "mutable std::mutex reservation_lock;" in HEADER.read_text()
 assert 'for (u32 id{1}; id < syncpoints.size(); ++id)' in real
 assert real.index("std::lock_guard lock(reservation_lock)") < real.index("for (u32 id{1}")
 assert 'return ReserveSyncpoint(id, client_managed)' in real
@@ -49,7 +55,7 @@ namespace Service::Nvidia::NvCore {
 struct SyncpointManager {
     struct Info{bool reserved{},client_managed{};};
     std::array<Info,192> syncpoints{};
-    std::mutex reservation_lock;
+    mutable std::mutex reservation_lock;
     u32 ReserveSyncpoint(u32 id,bool client_managed){
         assert(id>0 && id<syncpoints.size() && !syncpoints[id].reserved);
         syncpoints[id].reserved=true;
@@ -57,8 +63,10 @@ struct SyncpointManager {
         return id;
     }
     u32 TryAllocateSyncpoint(bool client_managed);
+    bool IsSyncpointAllocated(u32 id) const;
 };
 __REAL_OWNER__
+__REAL_ADMISSION__
 }
 int main(){
     using Service::Nvidia::NvCore::SyncpointManager;
@@ -78,10 +86,16 @@ int main(){
         ++total;
     }
     assert(total==191);
+    for(u32 id=1;id<192;++id)assert(pool.IsSyncpointAllocated(id));
+    assert(!pool.IsSyncpointAllocated(0) && !pool.IsSyncpointAllocated(192));
     assert(!pool.syncpoints[0].reserved && obtained[0]==0);
     assert(pool.TryAllocateSyncpoint(true)==0);
     assert(!pool.syncpoints[0].reserved);
-    pool.syncpoints[77].reserved=false;
+    {
+        std::scoped_lock lock{pool.reservation_lock};
+        pool.syncpoints[77].reserved=false;
+    }
+    assert(!pool.IsSyncpointAllocated(77));
     assert(pool.TryAllocateSyncpoint(true)==77);
     assert(pool.syncpoints[77].client_managed);
     assert(pool.TryAllocateSyncpoint(true)==0);
@@ -90,7 +104,7 @@ int main(){
               " exhausted=0 recycled=77 legacy_allocator=unchanged"
               " no_guest_fence_without_allocation=1");
 }
-""".replace("__REAL_OWNER__",real)
+""".replace("__REAL_OWNER__",real).replace("__REAL_ADMISSION__",admission)
 compilers=list(dict.fromkeys(x for x in
     (shutil.which("clang++"),shutil.which("g++")) if x))
 assert compilers

@@ -77,7 +77,10 @@ void SyncpointManager::FreeSyncpoint(u32 id) {
 }
 
 bool SyncpointManager::IsSyncpointAllocated(u32 id) const {
-    return (id < SyncpointCount) && syncpoints[id].reserved;
+    if (id == 0 || id >= SyncpointCount) return false;
+    // The native decoder queries while NVDRV may free the slot.
+    std::scoped_lock lock{reservation_lock};
+    return syncpoints[id].reserved;
 }
 
 bool SyncpointManager::HasSyncpointExpired(u32 id, u32 threshold) const {

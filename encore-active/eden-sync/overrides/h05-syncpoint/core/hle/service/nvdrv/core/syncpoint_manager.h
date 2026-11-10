@@ -130,7 +130,8 @@ private:
 
     static constexpr std::size_t SyncpointCount{192};
     std::array<SyncpointInfo, SyncpointCount> syncpoints{};
-    std::mutex reservation_lock;
+    // Native guest release checks race channel teardown unless synchronized.
+    mutable std::mutex reservation_lock;
 
     Tegra::Host1x::Host1x& host1x;
 };
