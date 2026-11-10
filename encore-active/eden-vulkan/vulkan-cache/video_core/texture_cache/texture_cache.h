@@ -1562,7 +1562,8 @@ bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                     image.info.size.width != surface.width ||
                     image.info.size.height != surface.height ||
                     image.info.size.depth != surface.depth ||
-                    True(image.flags & (ImageFlagBits::Remapped | ImageFlagBits::Sparse)) ||
+                    True(image.flags & (ImageFlagBits::Remapped | ImageFlagBits::Sparse |
+                                        ImageFlagBits::Rescaled | ImageFlagBits::IsDecoding)) ||
                     address < image.gpu_addr) {
                     return false;
                 }
