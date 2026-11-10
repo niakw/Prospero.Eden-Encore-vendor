@@ -14,8 +14,8 @@ ROOT=Path(__file__).resolve().parents[1]
 STAGE=ROOT/"encore-active/eden-vulkan"
 ROLES=("input","hidden","ffwd","attention_context","output","scratch",
        "query","key","value")
-ROLE_PLANES=(1,4,1,1,1,4,4,4,4)
-REQUIRED_SLOTS=(1,1,4,1,1,4,4,4,4)
+ROLE_PLANES=(1,4,1,1,1,4,1,1,1)
+REQUIRED_SLOTS=(1,1,4,1,1,4,1,1,1)
 BLOCK_SLOTS=(0,2,3,4,1,5,6,7,8)
 REVERSE_SLOTS=(1,2,3,4,0,5,6,7,8)
 
@@ -64,26 +64,28 @@ def check_source(block: str, policy: str, session: str) -> None:
 def prove_lower_bound() -> None:
     # Each block contains a complete nine-vertex conflict graph (K9) under
     # the actual CanOwnVitBuffers double loop. Its chromatic lower bound is
-    # 9, and sum of live role minimum sizes is exactly 24 planes.
+    # 9, and sum of preserved-schedule role sizes is exactly 15 planes.
     assert len(ROLES)==9 and len(ROLE_PLANES)==9
-    assert sum(ROLE_PLANES)==24
+    assert sum(ROLE_PLANES)==15
     assert all(x>0 for x in ROLE_PLANES)
-    # Each slot has at least the logical role capacity it serves and all
-    # nine roles have distinct slots within the SAME block.
+    # Q/K/V use their genuine one-plane packed tensor capacities; current
+    # four-plane scratch allocation and batching cadence are preserved.
+    # Changing dispatch slicing or kernel formats could lower the byte
+    # count further, so this is NOT a globally minimal capacity proof.
     for allocation in (BLOCK_SLOTS,REVERSE_SLOTS):
         assert len(set(allocation))==9
         assert all(REQUIRED_SLOTS[allocation[i]]>=ROLE_PLANES[i]
                    for i in range(9))
     assert BLOCK_SLOTS[4]==REVERSE_SLOTS[0]
     assert REVERSE_SLOTS[4]==BLOCK_SLOTS[0]
-    assert sum(REQUIRED_SLOTS)==24
+    assert sum(REQUIRED_SLOTS)==15
     for tokens in (64,960,2560,4096):
         plane=tokens*1024
-        candidate=24*plane
+        candidate=15*plane
         baseline=185*plane
-        assert candidate<baseline and baseline-candidate==161*plane
+        assert candidate<baseline and baseline-candidate==170*plane
         assert candidate>=sum(ROLE_PLANES)*plane
-    print("R09_MIN_VIT_CONSTRAINED_MINIMUM_9_BUFFERS_24_PLANES_PROVED")
+    print("R09_MIN_VIT_CONSTRAINED_9_BUFFERS_15_PLANES_QKV_PACKING_PROVED")
     print("R09_MIN_VIT_NOT_GLOBAL_MODEL_OPTIMALITY_OR_GPU_PROOF")
 
 def negatives(block: str,policy: str,session: str) -> None:

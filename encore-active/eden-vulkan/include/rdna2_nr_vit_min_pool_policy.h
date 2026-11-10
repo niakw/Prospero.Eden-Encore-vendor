@@ -10,7 +10,7 @@ inline constexpr std::size_t kVitMinBlocks=8u;
 inline constexpr std::size_t kVitMinRoles=9u;
 inline constexpr std::size_t kVitMinSlots=9u;
 inline constexpr std::array<std::uint32_t,kVitMinSlots> kVitMinSlotPlanes{
-    1u,1u,4u,1u,1u,4u,4u,4u,4u
+    1u,1u,4u,1u,1u,4u,1u,1u,1u
 };
 struct VitMinPoolLayout {
     bool valid{};
@@ -24,7 +24,7 @@ struct VitMinPoolLayout {
     if(!p.valid||p.tokens==0u||p.tokens>4096u||
        p.plane_bytes!=std::uint64_t(p.tokens)*1024u||
        p.original_bytes!=p.plane_bytes*185u||
-       p.candidate_bytes!=p.plane_bytes*24u||
+       p.candidate_bytes!=p.plane_bytes*15u||
        p.candidate_bytes>=p.original_bytes)return false;
     std::uint64_t total{};
     for(std::size_t i=0;i<kVitMinSlots;++i){
@@ -53,7 +53,7 @@ struct VitMinPoolLayout {
     p.tokens=tokens;
     p.plane_bytes=std::uint64_t(tokens)*1024u;
     p.original_bytes=p.plane_bytes*185u;
-    p.candidate_bytes=p.plane_bytes*24u;
+    p.candidate_bytes=p.plane_bytes*15u;
     for(std::size_t i=0;i<kVitMinSlots;++i)
         p.slot_bytes[i]=p.plane_bytes*kVitMinSlotPlanes[i];
     for(std::size_t i=0;i<kVitMinBlocks;++i)

@@ -30,8 +30,18 @@ int main() {
         assert(blocks.size()==8u);
         const std::uint64_t plane=std::uint64_t(tokens)*1024u;
         const std::uint64_t expected_calls=experimental?9u:65u;
-        const std::uint64_t expected_bytes=plane*(experimental?24u:185u);
+        const std::uint64_t expected_bytes=plane*(experimental?15u:185u);
         assert(state.next_id==expected_calls);
+        if(experimental) {
+            // Q/K/V packed E4M3FN are exactly tokens * 1024 bytes.
+            for(const auto& b:blocks) {
+                assert(b.query.range==plane);
+                assert(b.key.range==plane);
+                assert(b.value.range==plane);
+                assert(b.hidden.range==plane*4u);
+                assert(b.scratch.range==plane*4u);
+            }
+        }
         assert(state.requested.size()==expected_calls);
         assert(std::accumulate(state.requested.begin(),state.requested.end(),
                                std::uint64_t{0u})==expected_bytes);

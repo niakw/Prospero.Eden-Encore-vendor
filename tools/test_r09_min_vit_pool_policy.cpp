@@ -11,11 +11,11 @@ int main() {
     static_assert(ValidateVitMinPoolLayout(original));
     static_assert(ValidateVitMinPoolLayout(reduced));
     static_assert(original.original_bytes==4625ull*MiB/10ull);
-    static_assert(original.candidate_bytes==60ull*MiB);
+    static_assert(original.candidate_bytes==375ull*MiB/10ull);
     static_assert(original.original_bytes-original.candidate_bytes==
-                  4025ull*MiB/10ull);
+                  425ull*MiB);
     static_assert(reduced.original_bytes==1734375ull*MiB/10000ull);
-    static_assert(reduced.candidate_bytes==225ull*MiB/10ull);
+    static_assert(reduced.candidate_bytes==140625ull*MiB/10000ull);
     static_assert(!MakeVitMinPoolLayout(0u).valid);
     static_assert(!MakeVitMinPoolLayout(4097u).valid);
     for(const auto tokens : {1u,64u,960u,2560u,4096u}) {

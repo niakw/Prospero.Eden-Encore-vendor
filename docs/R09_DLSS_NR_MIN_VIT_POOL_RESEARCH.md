@@ -20,8 +20,8 @@ Requested ViT buffer bytes, theoretical:
 
 | Raster | Existing allocations | Candidate |
 | --- | ---: | ---: |
-| 1920x1080 (2560 tokens) | 462.5 MiB, 65 buffers | 60 MiB, 9 buffers |
-| 1280x720 (960 tokens) | 173.4375 MiB, 65 buffers | 22.5 MiB, 9 buffers |
+| 1920x1080 (2560 tokens) | 462.5 MiB, 65 buffers | 37.5 MiB, 9 buffers |
+| 1280x720 (960 tokens) | 173.4375 MiB, 65 buffers | 14.0625 MiB, 9 buffers |
 
 These figures are logical requests, not VRAM residency, freed GPU memory,
 measured frame time, or whole R09 graph allocations. The real model still
@@ -79,13 +79,28 @@ The exact native NrRdna2VitBlock::CanOwnVitBuffers validation requires
 all nine logical roles to have pairwise-distinct VkBuffer handles within
 a block. Therefore a compliant pool cannot use fewer than nine
 physical handles per in-flight block. Original requested per-role
-capacities also impose the per-block sum of 24 token-planes, and our
-candidate reaches both bounds with nine buffers / 24 planes. This is a
-conditional lower-bound proof for the CURRENT strict buffer-identity ABI,
-not a proof that all neural operations are globally optimal.
+capacities conservatively become 15 token-planes when the real packed
+Q/K/V outputs are sized to one plane each while retaining the current
+FFN scratch size and batch cadence. The candidate reaches 9 buffers
+and 15 planes without changing learned dispatch counts. This proves nine handles are minimal under CURRENT buffer identity checks;
+it does NOT prove a global minimum of 15 planes under alternative batching.
 
 The independent source guard at tools/check_r09_min_vit_optimality_host.py
 reads the real ViT block, allocator and policy directly and rejects six
 deliberate unsafe source mutations. If the native source contract changes,
 this proof must be re-audited. No GPU throughput, trained-model image or
 PS5 memory residency is established by the static proof.
+
+## Safe Q/K/V capacity trim without changing learned dispatch cadence
+
+The QKV output buffers had been provisioned at four token-planes each,
+while the real E4M3FN Q/K/V normalization producer and attention consumer
+require only 1024 bytes per token, exactly one plane. The new policy
+allocates one plane for each of Q, K and V. Other roles and GEMM scratch
+retain their prior capacities and batch schedule.
+
+At 1080p, ViT buffer allocations are now projected as 37.5 MiB across
+nine buffers, versus 462.5 MiB before pooling (425 MiB / ~91.9% less).
+The 720p structural candidate requests 14.0625 MiB but remains unqualified
+for the fixed native R09 graph. Neither VRAM residency nor FPS improvement
+has been demonstrated. The earlier 60 MiB candidate was conservative.
