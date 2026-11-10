@@ -128,3 +128,16 @@ is host-compiled in the extracted native method, runs failure injection,
 and is validated for correct per-role scratch sizes. A real PS5 benchmark
 and complete model image/fence proof remain mandatory. No new option is
 implicitly enabled on production builds.
+
+## Real QKV shader producer/consumer capacity guard
+
+The source-linked host guard checks the two actual native GLSL files
+vit_qkv_norm_rdna2.comp and vit_attention_rdna2.comp against their
+reviewed Git blob SHA-1 and eight deliberate unsafe address mutations.
+The producer writes each Q/K/V word to (token*32+head)*8+lane, with
+eight lanes per workgroup, and the consumer reads each head's eight
+packed words. At tokens=2560 this bounds a single packed tensor to
+2560*1024=2,621,440 bytes, **one token-plane**. This supports the
+earlier policy-level Q/K/V shrink and fails closed on unreviewed
+shader drift. Static source/syntax checks alone cannot guarantee runtime
+Vulkan descriptors, barriers, device memory or PS5 frame quality.

@@ -8,6 +8,9 @@ on:
       - 'encore-active/eden-vulkan/nr_rdna2_frame_session.cpp'
       - 'encore-active/eden-vulkan/include/rdna2_nr_vit_min_pool_policy.h'
       - 'tools/test_r09_min_vit_pool_policy.cpp'
+      - 'tools/check_r09_min_vit_shader_footprint.py'
+      - 'encore-active/eden-vulkan/r09_rdna2_nr/vit_qkv_norm_rdna2.comp'
+      - 'encore-active/eden-vulkan/r09_rdna2_nr/vit_attention_rdna2.comp'
       - 'tools/extract_r09_min_vit_allocator.py'
       - 'tools/test_r09_min_vit_allocator_extracted.cpp'
       - 'tools/check_r09_min_vit_optimality_host.py'
@@ -100,6 +103,12 @@ jobs:
             done
           done
           echo R09_MIN_NATIVE_METHOD_EXTRACTED_CPP_ALL_PROFILES_PASS
+
+      - name: Verify exact producer/consumer GPU packed FP8 address bounds
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B tools/check_r09_min_vit_shader_footprint.py
 
       - name: Prove source-constrained minimum memory and reject six unsafe mutations
         shell: bash
