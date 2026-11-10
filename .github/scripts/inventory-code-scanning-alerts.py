@@ -83,9 +83,62 @@ def main():
             out.write("\nFor all alert IDs, see machine-readable CODE_SCANNING_ALERT log lines.\n")
 
 
+
+def optional_dependabot_inventory():
+    """Try the distinct Dependabot API; lack of permission is not zero alerts."""
+    if not token:
+        print("DEPENDABOT_INVENTORY_UNAVAILABLE: missing GITHUB_TOKEN")
+        return
+    alerts = []
+    for page in range(1, 101):
+        url = f"https://api.github.com/repos/{repo}/dependabot/alerts?state=open&per_page=100&page={page}"
+        req = urllib.request.Request(url, headers={
+            "Authorization": "Bearer " + token,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "vendor-dependabot-read-only-inventory",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                batch = json.load(response)
+        except urllib.error.HTTPError as exc:
+            print(f"DEPENDABOT_INVENTORY_UNAVAILABLE HTTP_{exc.code}: "
+                  "requires dedicated Dependabot-alerts read access; zero is NOT inferred")
+            return
+        if not isinstance(batch, list):
+            print("DEPENDABOT_INVENTORY_UNAVAILABLE: unexpected REST response")
+            return
+        alerts.extend(batch)
+        if len(batch) < 100:
+            break
+    else:
+        print("DEPENDABOT_INVENTORY_UNAVAILABLE: pagination limit reached")
+        return
+    print(f"DEPENDABOT_OPEN_COUNT {len(alerts)}")
+    for alert in alerts:
+        package = (alert.get("dependency") or {}).get("package") or {}
+        advisory = alert.get("security_advisory") or {}
+        record = {
+            "id": alert.get("number"),
+            "url": alert.get("html_url"),
+            "manifest": alert.get("manifest_path"),
+            "package": package.get("name"),
+            "ecosystem": package.get("ecosystem"),
+            "severity": advisory.get("severity"),
+            "ghsa": advisory.get("ghsa_id"),
+            "state": alert.get("state"),
+        }
+        print("DEPENDABOT_ALERT " + json.dumps(record, sort_keys=True))
+    if summary:
+        with open(summary, "a", encoding="utf-8") as out:
+            out.write(f"\n## Open Dependabot alerts (read-only)\n\n"
+                      f"**{len(alerts)} open** at query time. "
+                      "This does not prove runtime reachability or remediate alerts.\n")
+
 if __name__ == "__main__":
     try:
         main()
+        optional_dependabot_inventory()
     except (RuntimeError, OSError, ValueError, urllib.error.URLError) as exc:
         print(f"CODE_SCANNING_INVENTORY_UNAVAILABLE: {type(exc).__name__}: {exc}", file=sys.stderr)
         sys.exit(2)
