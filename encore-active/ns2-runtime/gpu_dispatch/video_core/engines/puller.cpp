@@ -999,13 +999,16 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
         constexpr u64 native_limit = u64{1} << 49;
         if (!addr || (addr & 3U) || addr >= native_limit ||
             sizeof(u32) > native_limit - addr ||
-            !pusher.memory_manager.IsFullyMappedRange(addr, sizeof(u32)) ||
-            !pusher.memory_manager.GetPointer(addr))
+            !pusher.memory_manager.IsFullyMappedRange(addr, sizeof(u32)))
             return false;
+        // A GMMU VA may be unmapped and reused for a different backing while
+        // this dispatch is in flight. Pin its identity, not just VA residency.
+        const auto* const backing = pusher.memory_manager.GetPointer(addr);
+        if (!backing) return false;
         const auto* channel = &pusher.channel_state;
         auto* memory = &pusher.memory_manager;
         pusher.rasterizer->SignalFence(
-            [channel, memory, ticket = *ticket, addr, payload, flags] {
+            [channel, memory, ticket = *ticket, addr, payload, flags, backing] {
                 // A QMD3 dispatch can already be accepted when this
                 // completion callback runs. If guest memory disappears or
                 // fails during Read/Write, latch the fatal worker error;
@@ -1020,7 +1023,7 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                     // Report the fatal epoch failure through the existing
                     // GPU-worker latch instead of fabricating the semaphore.
                     if (!memory->IsFullyMappedRange(addr, sizeof(u32)) ||
-                        !memory->GetPointer(addr)) {
+                        memory->GetPointer(addr) != backing) {
                         throw std::runtime_error(
                             "Native QMD3 release backing revoked after GPU submission");
                     }
