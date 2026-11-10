@@ -29,6 +29,10 @@ int main() {
                   425ull*MiB/10ull);
     static_assert(MakeVitMinPoolLayout(2560u,12u).candidate_bytes==
                   575ull*MiB/10ull);
+    static_assert(MakeVitMinPoolLayout(960u,8u).candidate_bytes==178125ull*MiB/10000ull);
+    static_assert(MakeVitMinPoolLayout(960u,16u).candidate_bytes==253125ull*MiB/10000ull);
+    static_assert(!MakeVitMinPoolLayout(2560u,8u).valid);
+    static_assert(!MakeVitMinPoolLayout(2560u,16u).valid);
     for(const auto tokens : {1u,64u,960u,2560u,4096u}) {
         auto p=MakeVitMinPoolLayout(tokens);
         assert(ValidateVitMinPoolLayout(p));
@@ -47,6 +51,13 @@ int main() {
             malformed=profile;
             malformed.slot_bytes[5u]-=1u;
             assert(!ValidateVitMinPoolLayout(malformed));
+        }
+        for(const std::uint32_t scratch:{8u,16u}){
+            const auto p720=MakeVitMinPoolLayout(tokens,scratch);
+            if(tokens==960u){
+                assert(p720.valid && ValidateVitMinPoolLayout(p720));
+                assert(p720.candidate_bytes==p720.plane_bytes*(11u+scratch));
+            }else assert(!p720.valid);
         }
         for(std::size_t i=0;i<kVitMinBlocks;++i) {
             assert(p.block_slots[i][0]!=p.block_slots[i][4]);
