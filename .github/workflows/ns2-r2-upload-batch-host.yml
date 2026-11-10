@@ -1,4 +1,5 @@
 name: NS2 R2 bounded upload batch - host source gate
+# One small host-only C++ regression job. No native PS5 build.
 
 on:
   pull_request:
