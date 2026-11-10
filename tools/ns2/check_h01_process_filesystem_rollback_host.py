@@ -11,8 +11,13 @@ def part(s,start,end):
 init=part(p,"bool Process::Initialize(","\nvoid Process::Finalize() {")
 final=part(p,"void Process::Finalize() {","\nbool Process::Run() {")
 run=part(p,"bool Process::Run() {","\nvoid Process::Terminate() {")
-assert "UnregisterProcessIfPresent(" in run
-assert run.index("UnregisterProcessIfPresent(") < run.index("SvcTrace::Unregister(")
+# Late KProcess::Run failure must call the real Finalize owner. The
+# filesystem unregister and SVC trace retirement now live in Finalize, not
+# directly in Run; check the connected call chain and the cleanup ordering.
+assert "this->Finalize();" in run
+assert run.index("this->Finalize();") < run.index("m_process_started = true;")
+assert "UnregisterProcessIfPresent(" in final
+assert final.index("UnregisterProcessIfPresent(") < final.index("SvcTrace::Unregister(")
 erase=part(f,"void FileSystemController::UnregisterProcessIfPresent(","\nResult FileSystemController::OpenProcess(")
 assert "UnregisterProcessIfPresent(pid)" in init
 assert "SvcTrace::active_pid.load" in init
@@ -151,7 +156,12 @@ int main(){
    if(case_id==7){
      k.fail_run=true;
      assert(!proc.Run());
+     assert(!proc.m_process && proc.m_process_started);
      assert(!fs.Has(81)&&Eden::NS2::SvcTrace::active_pid.load()==0);
+     // Failure is terminal until a fresh Initialize; neither retry nor
+     // a later redundant Finalize may resurrect/re-close retired owners.
+     assert(!proc.Run());
+     assert(k.removed==1 && k.terminated==1 && k.closes==2);
    }
    proc.Finalize();
    if(case_id==5||case_id==7)assert(!fs.Has(81));
