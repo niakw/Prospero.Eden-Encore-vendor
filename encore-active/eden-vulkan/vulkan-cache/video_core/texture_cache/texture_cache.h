@@ -6,7 +6,10 @@
 
 #pragma once
 
+#include <algorithm>
+#include <iterator>
 #include <limits>
+#include <span>
 #ifdef PS5_NATIVE
 #include <exception>
 #include <new>
