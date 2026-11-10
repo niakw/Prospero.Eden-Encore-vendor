@@ -53,6 +53,41 @@ if(PS5_NATIVE)
     endif()
     target_include_directories(core BEFORE PUBLIC "${_encore_sync_root}")
 
+    # H05 maintained native-only NVDRV pool source/header. The third-party
+    # sources/eden snapshot remains byte-identical to its pinned upstream.
+    # Only the native decoder calls TryAllocateSyncpoint; NS1 retains the
+    # original AllocateSyncpoint, and one header is shared by every consumer.
+    set(_encore_h05_header_root
+        "${CMAKE_CURRENT_LIST_DIR}/../eden-sync/overrides/h05-syncpoint")
+    set(_encore_h05_source
+        "${_encore_sync_root}/core/hle/service/nvdrv/core/syncpoint_manager.cpp")
+    if(NOT EXISTS "${_encore_h05_header_root}/core/hle/service/nvdrv/core/syncpoint_manager.h"
+       OR NOT EXISTS "${_encore_h05_source}")
+        message(FATAL_ERROR "Missing maintained native H05 syncpoint owner")
+    endif()
+    target_include_directories(core BEFORE PUBLIC "${_encore_h05_header_root}")
+    foreach(_encore_h05_consumer IN ITEMS video_core audio_core hid_core network
+                                         input_common frontend_common shader_recompiler dynarmic)
+        if(TARGET ${_encore_h05_consumer})
+            target_include_directories(${_encore_h05_consumer} BEFORE PRIVATE
+                "${_encore_h05_header_root}")
+        endif()
+    endforeach()
+    get_target_property(_encore_h05_sources core SOURCES)
+    list(FIND _encore_h05_sources "hle/service/nvdrv/core/syncpoint_manager.cpp"
+         _encore_h05_pinned)
+    if(_encore_h05_pinned EQUAL -1)
+        message(FATAL_ERROR "Pinned native NVDRV syncpoint source moved")
+    endif()
+    list(REMOVE_ITEM _encore_h05_sources "hle/service/nvdrv/core/syncpoint_manager.cpp")
+    list(APPEND _encore_h05_sources "${_encore_h05_source}")
+    set_property(TARGET core PROPERTY SOURCES "${_encore_h05_sources}")
+    unset(_encore_h05_sources)
+    unset(_encore_h05_pinned)
+    unset(_encore_h05_consumer)
+    unset(_encore_h05_source)
+    unset(_encore_h05_header_root)
+
     foreach(name IN ITEMS k_condition_variable.cpp k_address_arbiter.cpp)
         encore_replace_core_source(
             "hle/kernel/${name}" "core/hle/kernel/${name}")

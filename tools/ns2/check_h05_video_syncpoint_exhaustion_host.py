@@ -14,8 +14,8 @@ import tempfile
 
 ROOT=Path(__file__).resolve().parents[2]
 OWNER=ROOT/"encore-active/ns2-runtime/video_decoder/core/hle/service/am/service/graphics_video_decoder_session.cpp"
-MANAGER=ROOT/"sources/eden/src/core/hle/service/nvdrv/core/syncpoint_manager.cpp"
-HEADER=ROOT/"sources/eden/src/core/hle/service/nvdrv/core/syncpoint_manager.h"
+MANAGER=ROOT/"encore-active/eden-sync/src/core/hle/service/nvdrv/core/syncpoint_manager.cpp"
+HEADER=ROOT/"encore-active/eden-sync/overrides/h05-syncpoint/core/hle/service/nvdrv/core/syncpoint_manager.h"
 text=OWNER.read_text()
 source=MANAGER.read_text()
 assert "return 0;" in source.split("SyncpointManager::FindFreeSyncpoint()",1)[1].split(

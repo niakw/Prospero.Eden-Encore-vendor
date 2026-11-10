@@ -52,10 +52,6 @@ public:
      */
     u32 AllocateSyncpoint(bool client_managed);
 
-    // NS2 decoder: fail closed instead of reserving syncpoint zero when all
-    // usable IDs are exhausted. Legacy callers keep AllocateSyncpoint.
-    [[nodiscard]] u32 TryAllocateSyncpoint(bool client_managed);
-
     /**
      * @url
      * https://github.com/Jetson-TX1-AndroidTV/android_kernel_jetson_tx1_hdmi_primary/blob/8f74a72394efb871cb3f886a3de2998cd7ff2990/drivers/gpu/host1x/syncpt.c#L259

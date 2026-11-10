@@ -56,19 +56,6 @@ u32 SyncpointManager::AllocateSyncpoint(bool client_managed) {
     return ReserveSyncpoint(FindFreeSyncpoint(), client_managed);
 }
 
-// NS2 decoder-only path: scan and reserve under the SAME mutex. Checking
-// free IDs outside this lock would race other GPU/NVDEC allocations; the
-// legacy allocator asserts and may reserve ID 0 when the pool is full.
-u32 SyncpointManager::TryAllocateSyncpoint(bool client_managed) {
-    std::lock_guard lock(reservation_lock);
-    for (u32 id{1}; id < syncpoints.size(); ++id) {
-        if (!syncpoints[id].reserved) {
-            return ReserveSyncpoint(id, client_managed);
-        }
-    }
-    return 0; // Explicit exhaustion; never reserve the sentinel.
-}
-
 void SyncpointManager::FreeSyncpoint(u32 id) {
     std::lock_guard lock(reservation_lock);
     auto& syncpoint = syncpoints.at(id);
