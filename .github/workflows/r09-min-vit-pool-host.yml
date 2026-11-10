@@ -151,7 +151,11 @@ jobs:
           .build-r09-min/attention-vulkan-compare \
             .build-r09-min/vit_attention_original.spv \
             .build-r09-min/vit_attention_tiled_min.spv
-          echo R09_MIN_VIT_ATTENTION_VULKAN_REAL_SHADER_AB_TEST_PASS
+          sudo apt-get install -y -qq --no-install-recommends vulkan-validationlayers
+          R09_MIN_VALIDATE_SYNC=1 .build-r09-min/attention-vulkan-compare \
+            .build-r09-min/vit_attention_original.spv \
+            .build-r09-min/vit_attention_tiled_min.spv
+          echo R09_MIN_VIT_ATTENTION_VULKAN_GPU_AND_KHRONOS_PASS
 
       - name: Prove source-constrained minimum memory and reject six unsafe mutations
         shell: bash

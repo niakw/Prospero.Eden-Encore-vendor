@@ -5,7 +5,9 @@
 // This is host Lavapipe image-readback equivalence, NOT a PS5 FPS proof.
 #include <vulkan/vulkan.h>
 #include <array>
+#include <atomic>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -18,6 +20,17 @@ struct Allocated {
     VkBuffer buffer{};
     VkDeviceMemory memory{};
 };
+VKAPI_ATTR VkBool32 VKAPI_CALL OnValidation(
+    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    VkDebugUtilsMessageTypeFlagsEXT,
+    const VkDebugUtilsMessengerCallbackDataEXT* details,void* userdata){
+    if(severity&VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT){
+        static_cast<std::atomic<unsigned>*>(userdata)->fetch_add(1u);
+        std::cerr<<"R09_MIN_ATTENTION_KHRONOS_ERROR "
+                 <<(details&&details->pMessage?details->pMessage:"unknown")<<"\n";
+    }
+    return VK_FALSE;
+}
 void Verify(VkResult status,const char* msg){
     if(status!=VK_SUCCESS)
         throw std::runtime_error(std::string(msg)+" Vulkan="+std::to_string(status));
@@ -25,6 +38,9 @@ void Verify(VkResult status,const char* msg){
 class Compare {
     static constexpr std::uint32_t kBuffers=5u;
     static constexpr std::uint32_t kBindings=4u;
+    VkDebugUtilsMessengerEXT messenger{};
+    std::atomic<unsigned> validation_errors{0u};
+    bool validation{};
     VkInstance instance{};
     VkPhysicalDevice physical{};
     VkDevice device{};
@@ -65,7 +81,16 @@ public:
             }
             vkDestroyDevice(device,nullptr);
         }
-        if(instance)vkDestroyInstance(instance,nullptr);
+        if(instance){
+            if(messenger){
+                const auto destroy=
+                    reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+                        vkGetInstanceProcAddr(instance,
+                                             "vkDestroyDebugUtilsMessengerEXT"));
+                if(destroy)destroy(instance,messenger,nullptr);
+            }
+            vkDestroyInstance(instance,nullptr);
+        }
     }
     std::uint32_t FindMemory(std::uint32_t permitted)const{
         for(std::uint32_t i=0u;i<memory.memoryTypeCount;++i) {
@@ -87,7 +112,39 @@ public:
         VkInstanceCreateInfo create{};
         create.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         create.pApplicationInfo=&info;
+        validation=std::getenv("R09_MIN_VALIDATE_SYNC")!=nullptr;
+        const char* layer="VK_LAYER_KHRONOS_validation";
+        const std::array<const char*,2u> extensions{
+            VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+            VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME};
+        VkValidationFeatureEnableEXT feature=
+            VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
+        VkValidationFeaturesEXT features{};
+        features.sType=VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+        features.enabledValidationFeatureCount=1u;
+        features.pEnabledValidationFeatures=&feature;
+        VkDebugUtilsMessengerCreateInfoEXT debug{};
+        debug.sType=VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        debug.messageSeverity=VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        debug.messageType=VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT|
+                          VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT;
+        debug.pfnUserCallback=OnValidation;
+        debug.pUserData=&validation_errors;
+        if(validation){
+            features.pNext=&debug;
+            create.pNext=&features;
+            create.enabledLayerCount=1u;
+            create.ppEnabledLayerNames=&layer;
+            create.enabledExtensionCount=std::uint32_t(extensions.size());
+            create.ppEnabledExtensionNames=extensions.data();
+        }
         Verify(vkCreateInstance(&create,nullptr,&instance),"instance");
+        if(validation){
+            auto make=reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+                vkGetInstanceProcAddr(instance,"vkCreateDebugUtilsMessengerEXT"));
+            if(!make)throw std::runtime_error("Khronos debug utils absent");
+            Verify(make(instance,&debug,nullptr,&messenger),"debug messenger");
+        }
         std::uint32_t n{};
         Verify(vkEnumeratePhysicalDevices(instance,&n,nullptr),"device count");
         if(n==0u)throw std::runtime_error("No Vulkan ICD");
@@ -320,6 +377,13 @@ public:
     void Run(const char* original,const char* tiled){
         Setup();BuildPipelines(original,tiled);
         Populate();Compute();CheckOutputs();
+        if(validation){
+            if(validation_errors.load()!=0u)
+                throw std::runtime_error(
+                    "Khronos reported attention Vulkan validation errors");
+            std::cout<<"R09_MIN_VIT_ATTENTION_KHRONOS_ZERO_ERRORS"
+                     <<" tokens="<<tokens<<" fixture="<<seed<<"\n";
+        }
     }
 };
 } // namespace

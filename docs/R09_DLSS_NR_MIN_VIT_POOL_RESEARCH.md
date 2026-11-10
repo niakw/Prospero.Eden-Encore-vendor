@@ -213,3 +213,12 @@ inside the tiled shader's workgroup barriers. This test never loads
 private neural weights or executes the full ViT model; passing proves
 only the isolated attention pair's output equivalence on Lavapipe, not
 PS5 timing, fidelity to the proprietary full model, or VRAM savings.
+
+## Khronos GPU-side validation for tiled attention A/B
+
+The same ten public-input Vulkan shader A/B fixtures additionally run
+with VK_LAYER_KHRONOS_validation, synchronization validation and a
+debug-utils ERROR callback enabled. Any validation error fails the
+host witness; both variants must return identical packed output words
+in both modes. This validates the host software ICD, not PS5 RDNA2
+driver behaviour or the full learned model.
