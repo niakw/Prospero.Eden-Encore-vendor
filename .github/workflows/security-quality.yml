@@ -48,6 +48,8 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             .github
+            README.md
+            docs/PS5_INTERNAL_DEPENDENCY_ORIGINS_2026-11-10.md
             encore-active
             sources/ps5-mihawkgen
             sources/ps5-fsr3-optical-flow
