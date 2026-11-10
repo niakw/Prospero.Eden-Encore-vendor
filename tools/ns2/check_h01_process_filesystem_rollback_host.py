@@ -134,7 +134,7 @@ __RUN__
 }
 int main(){
  using Loader::ResultStatus;using Loader::AppLoader;using Loader::LoadParameters;
- for(int case_id=0;case_id<8;++case_id){
+ for(int case_id=0;case_id<9;++case_id){
   Kernel::KernelCore k;
   Service::FileSystem::FileSystemController fs;
   fs.Register(99);
@@ -153,9 +153,12 @@ int main(){
   try{committed=proc.Initialize(loader,result);}
   catch(const std::bad_alloc&){threw=true;}
   assert(fs.Has(99));
-  assert(committed==(case_id==5||case_id==6||case_id==7));
+  assert(committed==(case_id>=5));
   if(committed){
    assert(fs.Has(81));
+   // A newer process may replace the global trace without closing the
+   // original process: its RomFS must still be retired independently.
+   if(case_id==8)Eden::NS2::SvcTrace::active_pid.store(99);
    if(case_id==7){
      k.fail_run=true;
      assert(!proc.Run());
@@ -167,8 +170,8 @@ int main(){
      assert(k.removed==1 && k.terminated==1 && k.closes==2);
    }
    proc.Finalize();
-   if(case_id==5||case_id==7)assert(!fs.Has(81));
-   else assert(fs.Has(81));
+   assert(!fs.Has(81));
+   if(case_id==8)assert(Eden::NS2::SvcTrace::active_pid.load()==99);
    assert(k.removed==1&&k.terminated==1);
   }else{
    if(case_id!=0)assert(!fs.Has(81));
@@ -186,7 +189,8 @@ int main(){
  std::puts("H01_REAL_FS_PROCESS_ROLLBACK_PASS"
     " malformed=retired absent_npdm=retired"
     " append_oom=retired loader_exception=retired run_failure=retired"
-    " normal_close=retired foreign_pid=preserved ns1=unchanged"
+    " normal_close=retired foreign_pid=preserved"
+    " replaced_trace_preserved=1 romfs_always_retired=1 ns1=unchanged"
     " real_guest_pages=not_exercised");
 }
 """.replace("__FS__",erase).replace("__INIT__",init).replace("__FINAL__",final).replace("__RUN__",run)
