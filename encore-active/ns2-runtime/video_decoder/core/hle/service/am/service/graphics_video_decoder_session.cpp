@@ -355,12 +355,27 @@ void IGraphicsVideoDecoderSession::ReleaseBuffer(HLERequestContext& ctx) {
     }
     const u32 release_id = ~w[4];
     const u32 release_value = w[6];
-    if ((release_id >= MaxSyncpoints &&
-         !(release_id == NoSyncpoint && release_value == 0)) ||
-        (release_id == m_syncpoint &&
-         !system.Host1x().GetSyncpointManager().IsReadyGuest(release_id, release_value))) {
-        Acknowledge(ctx, Kernel::ResultInvalidHandle);
-        return;
+    const bool no_release_fence = release_id == NoSyncpoint && release_value == 0;
+    if (!no_release_fence) {
+        // An absent release fence is the sole valid unallocated sentinel.
+        // ID zero and a retired/foreign syncpoint must never enter Pump's
+        // guest-fence wait: they can unblock an unrelated recycled GPU pool.
+        if (release_id == 0 || release_id >= MaxSyncpoints) {
+            Acknowledge(ctx, Kernel::ResultInvalidHandle);
+            return;
+        }
+        std::shared_ptr<Nvidia::Module> module;
+        {
+            const std::scoped_lock lock{m_owner->m_native_memory_mutex};
+            module = m_owner->m_native_module;
+        }
+        if (!module ||
+            !module->GetContainer().GetSyncpointManager().IsSyncpointAllocated(release_id) ||
+            (release_id == m_syncpoint &&
+             !system.Host1x().GetSyncpointManager().IsReadyGuest(release_id, release_value))) {
+            Acknowledge(ctx, Kernel::ResultInvalidHandle);
+            return;
+        }
     }
     const auto fence = ReserveFence();
     if (!fence) {
