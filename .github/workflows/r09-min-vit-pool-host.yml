@@ -13,6 +13,8 @@ on:
       - 'encore-active/eden-vulkan/r09_rdna2_nr/vit_attention_rdna2.comp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/vit_attention_tiled_min_rdna2.comp'
       - 'tools/r09_min_vk_tiled_attention_compare.cpp'
+      - 'tools/r09_min_vk_720_boundary_smoke.cpp'
+      - 'encore-active/eden-vulkan/r09_rdna2_nr/vit_boundary_repack_rdna2.comp'
       - 'tools/extract_r09_min_vit_allocator.py'
       - 'tools/test_r09_min_vit_allocator_extracted.cpp'
       - 'tools/check_r09_min_vit_optimality_host.py'
@@ -156,6 +158,25 @@ jobs:
             .build-r09-min/vit_attention_original.spv \
             .build-r09-min/vit_attention_tiled_min.spv
           echo R09_MIN_VIT_ATTENTION_VULKAN_GPU_AND_KHRONOS_PASS
+
+      - name: Execute real 720p ViT boundary forward-and-back GPU test
+        shell: bash
+        run: |
+          set -euo pipefail
+          glslangValidator -V --target-env vulkan1.1 -S comp \
+            encore-active/eden-vulkan/r09_rdna2_nr/vit_boundary_repack_rdna2.comp \
+            -o .build-r09-min/vit_boundary_720_real.spv
+          spirv-val --target-env vulkan1.1 \
+            .build-r09-min/vit_boundary_720_real.spv
+          g++ -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+            tools/r09_min_vk_720_boundary_smoke.cpp -lvulkan \
+            -o .build-r09-min/vit-boundary-gpu
+          icd=$(find /usr/share/vulkan/icd.d -maxdepth 1 \
+            -type f -name 'lvp_icd*.json' -print -quit)
+          test -n "$icd" && test -f "$icd"
+          VK_ICD_FILENAMES="$icd" .build-r09-min/vit-boundary-gpu \
+            .build-r09-min/vit_boundary_720_real.spv
+          echo R09_MIN_720P_REAL_GPU_BOUNDARY_BIDIRECTIONAL_PASS
 
       - name: Prove source-constrained minimum memory and reject six unsafe mutations
         shell: bash

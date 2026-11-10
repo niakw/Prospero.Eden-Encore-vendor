@@ -235,3 +235,21 @@ The default 65-buffer allocator and vendor main remain unchanged.
 The 16-plane option allows one FFN-Expand and one QKV batch under
 the native CPU policies, but this is not PS5 GPU frame timing or a
 verified full-model 720p execution.
+
+
+## Authentic 720p ViT boundary shader run on software Vulkan
+
+The vendor CI compiles the unchanged original
+vit_boundary_repack_rdna2.comp with glslang SPIR-V/Vulkan 1.1 and runs
+it through **two actual compute dispatches** on Lavapipe at W=22,H=40
+with a 960-token, 1024-byte/token FP8 tensor. First dispatch converts
+tiled FinalHead input into ViT raster order, zeroing 80 padding tokens.
+Second dispatch returns the ViT result to 4x4 tiled order, again
+zeroing 80 unused tile positions. The CPU oracle compares **every one
+of 245,760 32-bit words in both output buffers**, requiring exact bit
+equality; Vulkan completion is fence-waited and compute barriers cover
+the input/output dependencies.
+
+This is a substantive GPU *boundary conversion* test at the target
+720p bottleneck. It is still host llvmpipe, not PS5; no proprietary
+learned weights, full DLSS-NR inference or renderer output upscaling.
