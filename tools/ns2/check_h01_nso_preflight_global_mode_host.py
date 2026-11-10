@@ -99,6 +99,7 @@ enum class ResultStatus {Success,ErrorLoadingNSO};
 struct Metadata {
     bool native{true};
     bool IsSwitch2()const{return native;}
+    bool UsesExtendedAcid()const{return false;}
 };
 struct PreflightHarness {
     FileSys::VirtualDir dir=std::make_shared<FileSys::VfsDir>();
@@ -108,7 +109,7 @@ struct PreflightHarness {
         const bool is_39bit=true;
         (void)is_39bit;
         __REAL_OWNER__
-        return {ResultStatus::Success,{}};
+    return {ResultStatus::Success,{}};
     }
 };
 }
