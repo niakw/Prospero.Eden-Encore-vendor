@@ -16,7 +16,9 @@ ROOT=Path(__file__).resolve().parents[2]
 src=ROOT/"encore-active/ns2-runtime/ampere/shader_recompiler/backend/spirv/emit_spirv_image.cpp"
 s=src.read_text()
 begin="void CheckSingletonTextureIndex("
-end="[[nodiscard]] Id CheckedTextureArrayIndex("
+# Test only the singleton owner. The following native range-proof
+# helper has its own host and full real-SPIR-V validators.
+end="[[nodiscard]] std::optional<u32> NativeBoundedImageIndexMaximum("
 assert s.count(begin)==s.count(end)==1
 code=begin+s.split(begin,1)[1].split(end,1)[0]
 assert "Dynamic singleton texture descriptor index unsupported" in code
