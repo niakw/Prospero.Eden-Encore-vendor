@@ -72,3 +72,20 @@ destroyed. Both paths must return failure, never a full eight-block result.
 The native Initialize function creates the State as a unique_ptr and
 publishes it only on success. No Vulkan allocators or live PS5 fences are
 involved in this host fixture.
+
+## Lower bound under the current real ViT buffer-owner contract
+
+The exact native NrRdna2VitBlock::CanOwnVitBuffers validation requires
+all nine logical roles to have pairwise-distinct VkBuffer handles within
+a block. Therefore a compliant pool cannot use fewer than nine
+physical handles per in-flight block. Original requested per-role
+capacities also impose the per-block sum of 24 token-planes, and our
+candidate reaches both bounds with nine buffers / 24 planes. This is a
+conditional lower-bound proof for the CURRENT strict buffer-identity ABI,
+not a proof that all neural operations are globally optimal.
+
+The independent source guard at tools/check_r09_min_vit_optimality_host.py
+reads the real ViT block, allocator and policy directly and rejects six
+deliberate unsafe source mutations. If the native source contract changes,
+this proof must be re-audited. No GPU throughput, trained-model image or
+PS5 memory residency is established by the static proof.

@@ -10,6 +10,7 @@ on:
       - 'tools/test_r09_min_vit_pool_policy.cpp'
       - 'tools/extract_r09_min_vit_allocator.py'
       - 'tools/test_r09_min_vit_allocator_extracted.cpp'
+      - 'tools/check_r09_min_vit_optimality_host.py'
   workflow_dispatch:
 
 permissions:
@@ -92,3 +93,10 @@ jobs:
             done
           done
           echo R09_MIN_NATIVE_METHOD_EXTRACTED_CPP_BOTH_MODES_PASS
+
+      - name: Prove source-constrained minimum memory and reject six unsafe mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B tools/check_r09_min_vit_optimality_host.py
+          echo R09_MIN_VIT_OPTIMALITY_LOWER_BOUND_ONLY_NO_GPU_CLAIM
