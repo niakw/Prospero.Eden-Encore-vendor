@@ -2,6 +2,7 @@
 #include "rdna2_nr_vit_min_pool_policy.h"
 #include <cassert>
 #include <cstdint>
+#include <initializer_list>
 using namespace Eden::Graphics::NeuralRDNA2;
 int main() {
     constexpr std::uint64_t MiB=1024ull*1024ull;
