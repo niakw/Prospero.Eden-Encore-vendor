@@ -140,4 +140,45 @@ private:
     U64 queue_generation_{};
 };
 
+// Enforce core fail-closed semantics whenever the maintained header is
+// actually compiled. These constexpr checks are not a replacement for
+// real Vulkan scheduler/source-owner tests or PS5 device validation.
+[[nodiscard]] constexpr bool VerifiedBatchCompileContract() {
+    VerifiedUploadBatch batch;
+    if (!batch.Empty()) return false;
+    const VerifiedCopy copy{
+        .source_buffer = 11, .destination_buffer = 22,
+        .source_allocation = 111, .destination_allocation = 222,
+        .source_backing_bytes = 256, .destination_backing_bytes = 256,
+        .source_offset = 16, .destination_offset = 32,
+        .bytes = 64, .channel_generation = 1, .queue_generation = 1,
+        .allow_reorder = true,
+    };
+    if (!batch.Append(copy) || batch.Size() != 1 || batch.GroupCount() != 1) return false;
+    if (batch.CanAppend(copy)) return false; // Overlapping destination write.
+    VerifiedCopy overflow = copy;
+    overflow.source_offset = 250;
+    overflow.bytes = 32;
+    if (batch.CanAppend(overflow)) return false; // Backing range violation.
+    VerifiedCopy raw = copy;
+    raw.source_allocation = copy.destination_allocation;
+    raw.source_buffer = 33;
+    raw.destination_allocation = 333;
+    raw.destination_buffer = 44;
+    raw.destination_offset = 128;
+    if (batch.CanAppend(raw)) return false;
+    VerifiedCopy different_epoch = copy;
+    different_epoch.source_allocation = 333;
+    different_epoch.destination_allocation = 444;
+    different_epoch.source_buffer = 33;
+    different_epoch.destination_buffer = 44;
+    different_epoch.destination_offset = 128;
+    different_epoch.channel_generation = 2;
+    if (batch.CanAppend(different_epoch)) return false;
+    batch.Clear();
+    return batch.Empty() && batch.GroupCount() == 0 &&
+           batch.Append(different_epoch) && batch.Size() == 1;
+}
+static_assert(VerifiedBatchCompileContract());
+
 } // namespace Vulkan::NS2Research
