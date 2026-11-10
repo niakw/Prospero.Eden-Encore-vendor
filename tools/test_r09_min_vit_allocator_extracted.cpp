@@ -32,6 +32,12 @@ int main() {
         HostFrameState state{};
         state.vit_route={8u,tokens};
         std::vector<NrRdna2VitBlockBuffers> blocks{};
+        if(experimental&&tokens!=960u&&
+           (scratch_planes==8u||scratch_planes==16u)){
+            assert(!state.MakeVitBuffers(blocks));
+            assert(blocks.empty()&&state.next_id==0u);
+            continue;
+        }
         assert(state.MakeVitBuffers(blocks));
         assert(blocks.size()==8u);
         const std::uint64_t plane=std::uint64_t(tokens)*1024u;
@@ -83,6 +89,12 @@ int main() {
             bad.vit_route={8u,tokens};
             bad.fail_on=fail;
             std::vector<NrRdna2VitBlockBuffers> blocks{};
+            if(experimental&&tokens!=960u&&
+               (scratch_planes==8u||scratch_planes==16u)){
+                assert(!bad.MakeVitBuffers(blocks));
+                assert(blocks.empty()&&bad.next_id==0u);
+                continue;
+            }
             assert(!bad.MakeVitBuffers(blocks));
             assert(blocks.size()<8u);
             assert(bad.next_id>=fail);
