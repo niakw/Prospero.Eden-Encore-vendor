@@ -112,7 +112,7 @@ A separate [read-only Code Scanning inventory workflow](../.github/workflows/ven
 
 **Triage:** prioritize maintained files in `encore-active/`, then `.github/`/`tools/` infrastructure. Investigate third-party `sources/` and `objects/` findings separately against the actual engine build selection and reachability. Ownership paths alone do not justify dismissal; an upstream security issue needs a reviewed source upgrade plus its tree/provenance changes and regression tests. Preserve NS1 and the green P1/P2 host exit while doing this.
 
-The grouped [Dependabot PR #26](https://github.com/niakw/Prospero.Eden-Encore-vendor/pull/26) was rejected without merge after [source-layout CI failure](https://github.com/niakw/Prospero.Eden-Encore-vendor/actions/runs/42735747880). Its incompatible/unqualified changes remain under [issue #22](https://github.com/niakw/Prospero.Eden-Encore-vendor/issues/22), not a resolved security alert.
+The grouped [Dependabot PR #26](https://github.com/niakw/Prospero.Eden-Encore-vendor/pull/26) was rejected without merge after [source-layout CI failure](https://github.com/niakw/Prospero.Eden-Encore-vendor/actions/runs/42735747880). Its incompatible/unqualified changes remain **unresolved** in [the nine-manifest backlog](VENDOR_DEPENDABOT_MANIFEST_INVENTORY_2026-11-10.md); [issue #22](https://github.com/niakw/Prospero.Eden-Encore-vendor/issues/22) was closed administratively, **not** as a resolved security alert.
 
 ## Reconciled Code Scanning subset (inventory #42843595702)
 

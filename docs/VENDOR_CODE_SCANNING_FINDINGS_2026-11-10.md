@@ -52,4 +52,4 @@ The classification below is a **file path** classification, not proof that a vul
 3. For unreachable third-party files, collect objective build/package exclusion evidence **before** considering a narrowly justified GitHub dismissal; do not bulk-dismiss on path prefix alone.
 4. Re-run the [Code Scanning inventory](../.github/workflows/vendor-code-scanning-inventory.yml) after default CodeQL completes. Reconcile the same ID, latest state and SHA. **Verified closed findings during this audit: zero.**
 
-The separate [Dependency issue #22](https://github.com/niakw/Prospero.Eden-Encore-vendor/issues/22) tracks incompatibilities and Dependabot upgrades and must not be treated as resolved by closing grouped [PR #26](https://github.com/niakw/Prospero.Eden-Encore-vendor/pull/26).
+[Dependency issue #22](https://github.com/niakw/Prospero.Eden-Encore-vendor/issues/22) was **closed administratively**, not resolved: version compatibility and alert remediation are still open in [the manifest-level inventory](VENDOR_DEPENDABOT_MANIFEST_INVENTORY_2026-11-10.md), and grouped [PR #26](https://github.com/niakw/Prospero.Eden-Encore-vendor/pull/26) was rejected unmerged.
