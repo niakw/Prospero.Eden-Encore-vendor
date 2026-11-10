@@ -144,6 +144,12 @@ bool Process::Run() {
             // KProcess may already have allocated/rolled back resources; never
             // start it twice without Finalize and a fresh loader handoff.
             m_process_started = true;
+            // This NS2 run was already registered by the loader but was
+            // never scheduled successfully. Retire its RomFS owner BEFORE
+            // clearing the trace; Finalize cannot identify the NS2 process
+            // once the trace is gone. No NS1 behavior changes.
+            m_system.GetFileSystemController().UnregisterProcessIfPresent(
+                m_process->GetProcessId());
             Eden::NS2::SvcTrace::Unregister(m_process->GetProcessId());
             return false;
         }

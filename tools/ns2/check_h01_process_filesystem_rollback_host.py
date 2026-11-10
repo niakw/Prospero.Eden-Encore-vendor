@@ -10,6 +10,9 @@ def part(s,start,end):
     return start+s.split(start,1)[1].split(end,1)[0]
 init=part(p,"bool Process::Initialize(","\nvoid Process::Finalize() {")
 final=part(p,"void Process::Finalize() {","\nbool Process::Run() {")
+run=part(p,"bool Process::Run() {","\nvoid Process::Terminate() {")
+assert "UnregisterProcessIfPresent(" in run
+assert run.index("UnregisterProcessIfPresent(") < run.index("SvcTrace::Unregister(")
 erase=part(f,"void FileSystemController::UnregisterProcessIfPresent(","\nResult FileSystemController::OpenProcess(")
 assert "UnregisterProcessIfPresent(pid)" in init
 assert "SvcTrace::active_pid.load" in init
@@ -37,7 +40,7 @@ using u64=std::uint64_t;using ProcessId=u64;
 namespace Kernel {
 struct KProcess;
 struct KernelCore{
-  bool fail_create{},fail_append{};
+  bool fail_create{},fail_append{},fail_run{};
   int closes{},opens{},appends{},terminated{},removed{};
   KProcess* last{};
   void AppendNewProcess(KProcess* p);
@@ -54,6 +57,8 @@ struct KProcess{
  void Close(KernelCore& k){++k.closes;}
  void Open(KernelCore& k){++k.opens;}
  void Terminate(KernelCore& k){++k.terminated;}
+ struct RunResult{unsigned raw{};};
+ RunResult Run(KernelCore& k,int,std::size_t){return {k.fail_run?1u:0u};}
 };
 void KernelCore::AppendNewProcess(KProcess*){
  if(fail_append)throw std::bad_alloc{};++appends;
@@ -109,14 +114,18 @@ struct Process{
  void Terminate(){if(m_process)m_process->Terminate(m_system.Kernel());}
  bool Initialize(Loader::AppLoader&,Loader::ResultStatus&);
  void Finalize();
+ bool Run();
 };
 #define EDEN_NS2_PROCESS_RUN_GUARD 1
+#define R_FAILED(result) ((result).raw!=0)
+#define LOG_ERROR(...) ((void)0)
 __INIT__
 __FINAL__
+__RUN__
 }
 int main(){
  using Loader::ResultStatus;using Loader::AppLoader;using Loader::LoadParameters;
- for(int case_id=0;case_id<7;++case_id){
+ for(int case_id=0;case_id<8;++case_id){
   Kernel::KernelCore k;
   Service::FileSystem::FileSystemController fs;
   fs.Register(99);
@@ -135,12 +144,17 @@ int main(){
   try{committed=proc.Initialize(loader,result);}
   catch(const std::bad_alloc&){threw=true;}
   assert(fs.Has(99));
-  assert(committed==(case_id==5||case_id==6));
+  assert(committed==(case_id==5||case_id==6||case_id==7));
   if(committed){
    assert(fs.Has(81));
+   if(case_id==7){
+     k.fail_run=true;
+     assert(!proc.Run());
+     assert(!fs.Has(81)&&Eden::NS2::SvcTrace::active_pid.load()==0);
+   }
    proc.Finalize();
-   if(case_id==5)assert(!fs.Has(81)); // NS2 normal teardown
-   else assert(fs.Has(81));          // NS1 cleanup semantics unchanged
+   if(case_id==5||case_id==7)assert(!fs.Has(81));
+   else assert(fs.Has(81));
    assert(k.removed==1&&k.terminated==1);
   }else{
    if(case_id!=0)assert(!fs.Has(81));
@@ -148,7 +162,7 @@ int main(){
    if(case_id==3||case_id==4)assert(threw);
    assert(Eden::NS2::SvcTrace::active_pid.load()==0);
   }
-  assert(k.closes==(case_id==0?0:1));
+  assert(k.closes==(case_id==0?0:(committed?2:1)));
   delete k.last;
   Eden::NS2::SvcTrace::active_pid.store(0);
  }
@@ -157,11 +171,11 @@ int main(){
  assert(fs.Has(99));
  std::puts("H01_REAL_FS_PROCESS_ROLLBACK_PASS"
     " malformed=retired absent_npdm=retired"
-    " append_oom=retired loader_exception=retired"
+    " append_oom=retired loader_exception=retired run_failure=retired"
     " normal_close=retired foreign_pid=preserved ns1=unchanged"
     " real_guest_pages=not_exercised");
 }
-""".replace("__FS__",erase).replace("__INIT__",init).replace("__FINAL__",final)
+""".replace("__FS__",erase).replace("__INIT__",init).replace("__FINAL__",final).replace("__RUN__",run)
 with tempfile.TemporaryDirectory(prefix="h01-fs-owner-") as d:
  file=Path(d)/"owner.cpp";file.write_text(cpp)
  for cc in dict.fromkeys(x for x in (shutil.which("clang++"),shutil.which("g++")) if x):
