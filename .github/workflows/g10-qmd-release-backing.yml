@@ -5,11 +5,13 @@ on:
     paths:
       - 'encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp'
       - 'tools/ns2/check_g10_qmd_release_backing_host.py'
+      - 'tools/ns2/check_g10_qmd_release_callback_host.py'
       - '.github/workflows/g10-qmd-release-backing.yml'
   pull_request:
     paths:
       - 'encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp'
       - 'tools/ns2/check_g10_qmd_release_backing_host.py'
+      - 'tools/ns2/check_g10_qmd_release_callback_host.py'
       - '.github/workflows/g10-qmd-release-backing.yml'
   workflow_dispatch:
 permissions:
@@ -24,3 +26,4 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -B tools/ns2/check_g10_qmd_release_backing_host.py
+      - run: python3 -B tools/ns2/check_g10_qmd_release_callback_host.py
