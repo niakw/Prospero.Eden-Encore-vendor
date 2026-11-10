@@ -44,14 +44,13 @@ bool Process::Initialize(Loader::AppLoader& loader, Loader::ResultStatus& out_lo
     bool process_committed = false;
     SCOPE_EXIT {
         if (!process_committed) {
-            // Loader::Load registers the NS2 RomFS before KProcess handoff.
-            // A later NPDM rejection/AppendNewProcess failure must not
-            // leave a reachable stale filesystem record for this PID.
-            // Only the real NS2 trace can authorize this cleanup.
+            // The loader may register RomFS before it installs the SVC
+            // trace. A malformed NPDM/NSO or allocation failure in that
+            // interval must still release the process-owned filesystem
+            // record. UnregisterProcessIfPresent is idempotent for a PID
+            // with no registration (including non-NS2 failed loads).
             const auto pid = process->GetProcessId();
-            if (Eden::NS2::SvcTrace::active_pid.load(std::memory_order_acquire) == pid) {
-                m_system.GetFileSystemController().UnregisterProcessIfPresent(pid);
-            }
+            m_system.GetFileSystemController().UnregisterProcessIfPresent(pid);
             Eden::NS2::SvcTrace::Unregister(pid);
         }
     };
