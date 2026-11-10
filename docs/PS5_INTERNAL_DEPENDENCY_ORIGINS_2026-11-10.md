@@ -37,3 +37,7 @@ installation and documentation) must use the `sources/` paths. Validation:
 
 A parent engine release or full PS5 build must never be launched merely because
 this repository's host-only source-integrity checks are green.
+
+## Attribution and current build provenance
+
+[Official Encore full upstream credits](https://github.com/niakw/ProsperoEden-Encore#credits) and [THIRD_PARTY_NOTICES](https://github.com/niakw/ProsperoEden-Encore/blob/main/THIRD_PARTY_NOTICES.md) are authoritative for author/maintainer acknowledgement and licences. The [first P5 build](https://github.com/niakw/ProsperoEden-Encore/actions/runs/42846319389) is based on the previously qualified vendor pin `0b0265079139622b759167c9d10a9a31aba1ea88`, **not** the latest documentation-only vendor main. Do not change the three source tree pins or their model hash without an independently reviewed migration and requalification.
