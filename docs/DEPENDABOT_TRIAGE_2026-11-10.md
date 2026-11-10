@@ -23,3 +23,29 @@
 ## Submodule-boundary integration
 
 The separate `maintenance/internalize-ps5-deps-20261110` branch is responsible for replacing external MihawkGen/FSR3/libwebp Gitlinks with internally pinned, attributed sources. This documentation-dependency triage does not merge or rewrite that source migration, and does not move the main repository's vendor gitlink.
+
+## Fully pinned CPM snapshots after the documentation-only security fixes
+
+The original Eden CPM package pins and upstream archive SHA-512 values are
+**unchanged**. The two checked-in **post-security-overlay** source snapshots
+have modified documentation dependency locks only, so their whole-tree
+content hashes must be updated to reflect the exact files Git now ships:
+
+| Package | Original source snapshot SHA-256 | Reviewed post-overlay SHA-256 | Files | Reviewed size |
+| --- | --- | --- | ---: | ---: |
+| Boost 1.90.0 | `20519b3bdcaaa64ca0eb3d252b9018af513343ffc994431a0128cae2c1c0a9e8` | `02027393412e03a79a37eb7620fdb382f7e8374dddafa78606eed8e80534fd83` | 59798 | 550701340 |
+| nlohmann_json v3.12.0 | `e827f18c1d00b705d7231aafd64d8ccd1bc7f7a4e2dd0cf174e19c0d053d6268` | `46ec167af23320dcdf32da1a9df0f3f4e5ca6cdbeee5901e6e5898257f6c6a82` | 1164 | 15958749 |
+
+**Provenance:** the 9 Boost documentation `package.json`/`package-lock.json`
+files from Dependabot #15, plus the reviewed Redis lockfile
+`es-object-atoms 1.1.2` correction, and nlohmann_json
+`docs/mkdocs/requirements.txt` from #21. Original upstream source pin
+remains recorded in `VENDOR-CPM-LOCK.json`; this does *not* assert the
+post-overlay tree equals the unmodified upstream archive. Any later change to
+the full source snapshot still fails `tools/vendor-eden-cpm.py --check`.
+
+The byte counts and hashes above are taken from the real PS5-source
+checkout's complete deterministic CPM tree digest (GitHub Actions
+`validate` job on Encore migration commit `acecd3c`), **not guessed**.
+No C++ emulator owner, compiler, shader, model or runtime behaviour was
+modified by these documentation/CI lockfile updates.

@@ -2,10 +2,10 @@
   "cpmfile_sha256": "4afc25aa5f6501b61dde2e55b876eccba1353b8d6de9f037ddeddfeec6ff8839",
   "entries": {
     "boost": {
-      "bytes": 550707202,
+      "bytes": 550701340,
       "cpm_key": "boost",
       "files": 59798,
-      "sha256": "20519b3bdcaaa64ca0eb3d252b9018af513343ffc994431a0128cae2c1c0a9e8",
+      "sha256": "02027393412e03a79a37eb7620fdb382f7e8374dddafa78606eed8e80534fd83",
       "source_repo": "boostorg/boost",
       "upstream_sha512": "6ae6e94664fe7f2fb01976b59b276ac5df8085c7503fa829d810fbfe495960cfec44fa2c36e2cb23480bc19c956ed199d4952b02639a00a6c07625d4e7130c2d",
       "version": "boost-1.90.0"
@@ -83,10 +83,10 @@
       "version": "v1.4.1-ryujinx"
     },
     "nlohmann_json": {
-      "bytes": 15958750,
+      "bytes": 15958749,
       "cpm_key": "nlohmann",
       "files": 1164,
-      "sha256": "e827f18c1d00b705d7231aafd64d8ccd1bc7f7a4e2dd0cf174e19c0d053d6268",
+      "sha256": "46ec167af23320dcdf32da1a9df0f3f4e5ca6cdbeee5901e6e5898257f6c6a82",
       "source_repo": "nlohmann/json",
       "upstream_sha512": "6cc1e86261f8fac21cc17a33da3b6b3c3cd5c116755651642af3c9e99bb3538fd42c1bd50397a77c8fb6821bc62d90e6b91bcdde77a78f58f2416c62fc53b97d",
       "version": "v3.12.0"
