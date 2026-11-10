@@ -993,7 +993,8 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
         constexpr u64 native_limit = u64{1} << 49;
         if (!addr || (addr & 3U) || addr >= native_limit ||
             sizeof(u32) > native_limit - addr ||
-            !pusher.memory_manager.IsFullyMappedRange(addr, sizeof(u32)))
+            !pusher.memory_manager.IsFullyMappedRange(addr, sizeof(u32)) ||
+            !pusher.memory_manager.GetPointer(addr))
             return false;
         const auto* channel = &pusher.channel_state;
         auto* memory = &pusher.memory_manager;
@@ -1007,7 +1008,8 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                     const auto& current =
                         Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
                     if (!current.IsCurrent(channel, ticket) ||
-                        !memory->IsFullyMappedRange(addr, sizeof(u32))) return;
+                        !memory->IsFullyMappedRange(addr, sizeof(u32)) ||
+                        !memory->GetPointer(addr)) return;
                     u32 value = payload;
                     if (flags & (1u << 26)) value = memory->Read<u32>(addr) + payload;
                     else if (flags & (1u << 19))
@@ -1037,15 +1039,16 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                     *launch, [&pusher](u64 address, std::size_t bytes) {
                         return pusher.memory_manager.IsFullyMappedRange(address, bytes);
                     });
-                // GPU work must not be submitted when one of its enabled
-                // completion semaphores points at an invalid/unmapped GMMU
-                // span. Otherwise the shader can run but never release its
-                // dependent queue, and a later retry can publish a false
-                // completion for work already submitted.
+                // A QMD3 release uses MemoryManager::Write<u32>, which
+                // resolves a CPU-backed pointer even if the 49-bit GMMU
+                // span itself is resident. A GPU-only target cannot satisfy
+                // that callback: refuse it BEFORE vkCmdDispatch, not after
+                // an irreversible shader submission and blocked guest queue.
                 const bool release_targets_mapped =
                     Tegra::NativeQmdReleaseTargetsMapped(
                         descriptor, [&pusher](u64 address, std::size_t bytes) {
-                            return pusher.memory_manager.IsFullyMappedRange(address, bytes);
+                            return pusher.memory_manager.IsFullyMappedRange(address, bytes) &&
+                                   pusher.memory_manager.GetPointer(address) != nullptr;
                         });
                 // The shader bridge can be switched off during host
                 // preflight; still compile the same shared source with
