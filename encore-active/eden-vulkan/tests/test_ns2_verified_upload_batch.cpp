@@ -12,6 +12,8 @@ int main() {
     auto ck=[&](bool ok){ ++checks; if(!ok)throw std::runtime_error("verified batch test #"+std::to_string(checks)); };
     const VerifiedCopy base{.source_buffer=11,.destination_buffer=22,
         .source_allocation=111,.destination_allocation=222,
+        .source_memory=1001,.destination_memory=2002,
+        .source_memory_offset=0,.destination_memory_offset=0,
         .source_backing_bytes=4096,.destination_backing_bytes=4096,
         .source_offset=0,.destination_offset=0,.bytes=64,
         .channel_generation=7,.queue_generation=3,.allow_reorder=true};
@@ -40,6 +42,34 @@ int main() {
     ck(batch.GroupCount()==2&&batch.Groups()[1].first==2);
     waw.destination_offset=127;
     ck(!batch.CanAppend(waw)); // alias across different VkBuffer source
+    // Two different VMA allocation IDs can still alias the same bound
+    // VkDeviceMemory interval. Reject RAW/WAW and in-copy overlaps.
+    auto alias_read=next;
+    alias_read.source_allocation=444;alias_read.source_buffer=55;
+    alias_read.source_memory=2002;
+    alias_read.destination_allocation=555;alias_read.destination_buffer=66;
+    alias_read.destination_memory=3003;
+    ck(!batch.CanAppend(alias_read)); // reads prior destination by memory alias
+    auto alias_write=next;
+    alias_write.source_allocation=444;alias_write.source_buffer=55;
+    alias_write.source_memory=3003;
+    alias_write.destination_allocation=555;alias_write.destination_buffer=66;
+    alias_write.destination_memory=2002;
+    alias_write.destination_offset=64;
+    ck(!batch.CanAppend(alias_write)); // WAW across different VMA allocations
+    alias_write.destination_memory_offset=4096;
+    ck(batch.CanAppend(alias_write)); // same VkDeviceMemory, disjoint offsets
+    auto self_alias=next;
+    self_alias.source_allocation=444;self_alias.destination_allocation=555;
+    self_alias.source_buffer=55;self_alias.destination_buffer=66;
+    self_alias.source_memory=2002;self_alias.destination_memory=2002;
+    self_alias.source_offset=0;self_alias.destination_offset=0;
+    ck(!batch.CanAppend(self_alias)); // same-copy backing alias
+    auto bad_binding=next;
+    bad_binding.source_memory_offset=std::numeric_limits<U64>::max()-16;
+    ck(!batch.CanAppend(bad_binding)); // binding+capacity would wrap
+    bad_binding=next;bad_binding.destination_memory=0;
+    ck(!batch.CanAppend(bad_binding)); // missing backing identity
     auto change=next;change.channel_generation=8;
     ck(!batch.CanAppend(change));
     change=next;change.queue_generation=4;
