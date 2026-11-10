@@ -293,7 +293,11 @@ bool IGraphicsVideoDecoderSession::EnsureSyncpoint() {
     }
     if (!module) return false;
     const u32 id = module->GetContainer().GetSyncpointManager().AllocateSyncpoint(false);
-    if (id >= MaxSyncpoints) return false;
+    // The shared NVDRV pool returns zero on exhaustion (and never allocates
+    // a valid guest syncpoint at index zero). Do not publish a fence ID=0:
+    // guest waiters would otherwise treat a missing decoder completion as
+    // a real, potentially unrelated GPU syncpoint.
+    if (id == 0 || id >= MaxSyncpoints) return false;
     m_syncpoint = id;
     m_reserved_value = system.Host1x().GetSyncpointManager().GetGuestSyncpointValue(id);
     return true;
