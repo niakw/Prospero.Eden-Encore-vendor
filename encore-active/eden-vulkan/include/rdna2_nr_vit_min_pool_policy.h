@@ -10,8 +10,10 @@ inline constexpr std::size_t kVitMinBlocks=8u;
 inline constexpr std::size_t kVitMinRoles=9u;
 inline constexpr std::size_t kVitMinSlots=9u;
 [[nodiscard]] constexpr bool IsSupportedVitMinScratchPlanes(
-    std::uint32_t n) noexcept {
-    return n==4u||n==5u||n==6u||n==12u;
+    std::uint32_t tokens,std::uint32_t n) noexcept {
+    // 8/16 scratch planes are Pareto choices ONLY for 960-token 720p.
+    return n==4u||n==5u||n==6u||n==12u||
+           (tokens==960u&&(n==8u||n==16u));
 }
 inline constexpr std::array<std::uint32_t,kVitMinSlots> kVitMinSlotPlanes{
     1u,1u,4u,1u,1u,4u,1u,1u,1u
@@ -26,7 +28,7 @@ struct VitMinPoolLayout {
 [[nodiscard]] constexpr bool ValidateVitMinPoolLayout(
     const VitMinPoolLayout& p) noexcept {
     if(!p.valid||p.tokens==0u||p.tokens>4096u||
-       !IsSupportedVitMinScratchPlanes(p.scratch_planes)||
+       !IsSupportedVitMinScratchPlanes(p.tokens,p.scratch_planes)||
        p.plane_bytes!=std::uint64_t(p.tokens)*1024u||
        p.original_bytes!=p.plane_bytes*185u||
        p.candidate_bytes!=p.plane_bytes*(11u+p.scratch_planes)||
@@ -54,7 +56,7 @@ struct VitMinPoolLayout {
 [[nodiscard]] constexpr VitMinPoolLayout MakeVitMinPoolLayout(
     std::uint32_t tokens,std::uint32_t scratch_planes=4u) noexcept {
     if(tokens==0u||tokens>4096u||
-       !IsSupportedVitMinScratchPlanes(scratch_planes))return {};
+       !IsSupportedVitMinScratchPlanes(tokens,scratch_planes))return {};
     VitMinPoolLayout p{};
     p.tokens=tokens;
     p.scratch_planes=scratch_planes;
