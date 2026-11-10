@@ -67,23 +67,25 @@ public:
 };
 }
 struct MemoryManager {
-    bool mapped{true},cpu_backed{true};
-    u32 word{3};
+    bool mapped{true},cpu_backed{true},remapped{false};
+    u32 word{3},reused_word{100};
     unsigned reads{},writes{};
     bool IsFullyMappedRange(u64 address,std::size_t size) const {
         return mapped&&address==0x1000&&size==4;
     }
     u8* GetPointer(u64 address){
         return cpu_backed&&IsFullyMappedRange(address,4)
-            ?reinterpret_cast<u8*>(&word):nullptr;
+            ?reinterpret_cast<u8*>(remapped?&reused_word:&word):nullptr;
     }
     template<class T> T Read(u64 address){
         assert(IsFullyMappedRange(address,sizeof(T))&&cpu_backed);
-        ++reads;return static_cast<T>(word);
+        ++reads;return static_cast<T>(remapped?reused_word:word);
     }
     template<class T> void Write(u64 address,T value){
         assert(IsFullyMappedRange(address,sizeof(T))&&cpu_backed);
-        ++writes;word=value;
+        ++writes;
+        if(remapped)reused_word=value;
+        else word=value;
     }
 };
 struct Rasterizer {
@@ -147,12 +149,23 @@ int main() {
     assert(Eden::failures==2 && pusher.memory_manager.word==30);
     pusher.memory_manager.cpu_backed=true;
 
+    // The same guest GPU VA can now map a different physical allocation.
+    // An unchanged channel ticket and IsFullyMappedRange must not permit
+    // a delayed completion to write into the replacement image's semaphore.
+    assert(release(0x1000,99,0));
+    pusher.memory_manager.remapped=true;
+    renderer.RetireOne();
+    assert(Eden::failures==3 && pusher.memory_manager.writes==3);
+    assert(pusher.memory_manager.word==30 &&
+           pusher.memory_manager.reused_word==100);
+    pusher.memory_manager.remapped=false;
+
     // Title/channel teardown revokes epoch ownership. Old completion is
     // deliberately suppressed rather than written to a new guest process.
     assert(release(0x1000,44,0));
     Registry::Instance().current=false;
     renderer.RetireOne();
-    assert(Eden::failures==2 && pusher.memory_manager.word==30);
+    assert(Eden::failures==3 && pusher.memory_manager.word==30);
     Registry::Instance().current=true;
     assert(!release(0x1001,47,0));
     assert(!release(0,47,0));
@@ -161,6 +174,7 @@ int main() {
               " unbacked_preflight=refused"
               " unmapped_late=GPU_failure_latched"
               " cpu_backing_lost_late=GPU_failure_latched"
+              " va_remap_late=GPU_failure_latched"
               " revoked_epoch=no_write"
               " native_vkCmdDispatch=not_exercised");
 }
