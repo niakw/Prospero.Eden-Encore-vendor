@@ -8,6 +8,7 @@
 #ifdef EDEN_NS2_PROCESS_RUN_GUARD
 #include "common/logging.h"
 #include "core/loader/ns2_svc_trace.h"
+#include "core/hle/service/filesystem/filesystem.h"
 #endif
 
 #include "core/hle/kernel/k_process.h"
@@ -43,7 +44,15 @@ bool Process::Initialize(Loader::AppLoader& loader, Loader::ResultStatus& out_lo
     bool process_committed = false;
     SCOPE_EXIT {
         if (!process_committed) {
-            Eden::NS2::SvcTrace::Unregister(process->GetProcessId());
+            // Loader::Load registers the NS2 RomFS before KProcess handoff.
+            // A later NPDM rejection/AppendNewProcess failure must not
+            // leave a reachable stale filesystem record for this PID.
+            // Only the real NS2 trace can authorize this cleanup.
+            const auto pid = process->GetProcessId();
+            if (Eden::NS2::SvcTrace::active_pid.load(std::memory_order_acquire) == pid) {
+                m_system.GetFileSystemController().UnregisterProcessIfPresent(pid);
+            }
+            Eden::NS2::SvcTrace::Unregister(pid);
         }
     };
 #endif
@@ -95,6 +104,10 @@ void Process::Finalize() {
         // Do not retain a stale NS2 trace after process teardown.
         if (Eden::NS2::SvcTrace::active_pid.load(std::memory_order_acquire) ==
             m_process->GetProcessId()) {
+            // Normal NS2 teardown must also retire its process-owned
+            // filesystem registration before the kernel PID is recyclable.
+            m_system.GetFileSystemController().UnregisterProcessIfPresent(
+                m_process->GetProcessId());
             Eden::NS2::SvcTrace::Unregister(m_process->GetProcessId());
         }
 #endif

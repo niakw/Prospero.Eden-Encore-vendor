@@ -1,0 +1,24 @@
+name: H01 NS2 process filesystem rollback real owner
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'encore-active/ns2-runtime/process/core/hle/service/os/process.cpp'
+      - 'encore-active/eden-core/src/core/hle/service/filesystem/filesystem.cpp'
+      - 'encore-active/eden-core/overrides/h01-filesystem/core/hle/service/filesystem/filesystem.h'
+      - 'encore-active/eden-threading/native-hle-overrides.cmake'
+      - 'tools/ns2/check_h01_process_filesystem_rollback_host.py'
+      - '.github/workflows/h01-process-fs-rollback.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-owner:
+    name: H01 KProcess and RomFS rollback
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tools/ns2/check_h01_process_filesystem_rollback_host.py

@@ -348,6 +348,14 @@ Result FileSystemController::RegisterProcess(
     return ResultSuccess;
 }
 
+void FileSystemController::UnregisterProcessIfPresent(ProcessId process_id) {
+    // A KProcess may reject AFTER its ExeFS loader already registered a
+    // RomFS factory. Remove only that process's entry, never Reset() the
+    // filesystem controller (which would discard other live NS1/NS2 titles).
+    std::scoped_lock lk{registration_lock};
+    registrations.erase(process_id);
+}
+
 Result FileSystemController::OpenProcess(
     ProgramId* out_program_id, std::shared_ptr<SaveDataController>* out_save_data_controller,
     std::shared_ptr<RomFsController>* out_romfs_controller, ProcessId process_id) {

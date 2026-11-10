@@ -57,6 +57,18 @@ if(PS5_NATIVE)
     # sources/eden snapshot remains byte-identical to its pinned upstream.
     # Only the native decoder calls TryAllocateSyncpoint; NS1 retains the
     # original AllocateSyncpoint, and one header is shared by every consumer.
+    # H01 NS2 process rollback needs a maintained filesystem-controller
+    # ABI declaring UnregisterProcessIfPresent. Scope the override to its
+    # exact header path and the native core; all NS1 upstream files stay
+    # byte-for-byte untouched.
+    set(_encore_h01_fs_header_root
+        "${CMAKE_CURRENT_LIST_DIR}/../eden-core/overrides/h01-filesystem")
+    if(NOT EXISTS "${_encore_h01_fs_header_root}/core/hle/service/filesystem/filesystem.h")
+        message(FATAL_ERROR "Missing native H01 filesystem rollback header")
+    endif()
+    target_include_directories(core BEFORE PUBLIC "${_encore_h01_fs_header_root}")
+    unset(_encore_h01_fs_header_root)
+
     set(_encore_h05_header_root
         "${CMAKE_CURRENT_LIST_DIR}/../eden-sync/overrides/h05-syncpoint")
     set(_encore_h05_source
