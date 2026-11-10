@@ -53,6 +53,7 @@ fixture=r"""
 using u32=std::uint32_t;
 namespace Service::Nvidia::NvCore {
 struct SyncpointManager {
+    static constexpr std::size_t SyncpointCount = 192;
     struct Info{bool reserved{},client_managed{};};
     std::array<Info,192> syncpoints{};
     mutable std::mutex reservation_lock;
