@@ -1511,6 +1511,7 @@ bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
     const auto copy_native_volume_slice = [&]() -> bool {
         using Fermi2D = Tegra::Engines::Fermi2D;
         if (!maxwell3d || !channel_state ||
+            &channel_state->maxwell3d != maxwell3d ||
             copy.operation != Fermi2D::Operation::SrcCopy ||
             copy.filter != Fermi2D::Filter::Point) {
             return false;
@@ -1525,6 +1526,13 @@ bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                    surface.linear == Fermi2D::MemoryLayout::BlockLinear &&
                    surface.layer == 0 && surface.width != 0 && surface.height != 0;
         };
+        // Avoid narrowing guest dimensions to signed Fermi2D coordinates.
+        if (src.width > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+            dst.width > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+            src.height > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+            dst.height > static_cast<u32>(std::numeric_limits<s32>::max())) {
+            return false;
+        }
         const bool whole_slice =
             copy.src_x0 == 0 && copy.src_y0 == 0 &&
             copy.dst_x0 == 0 && copy.dst_y0 == 0 &&
@@ -1534,9 +1542,7 @@ bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
             copy.dst_y1 == static_cast<s32>(dst.height);
         if (!is_volume(src) || !is_volume(dst) || !whole_slice ||
             src.format != dst.format || src.width != dst.width ||
-            src.height != dst.height ||
-            src.width > static_cast<u32>(std::numeric_limits<s32>::max()) ||
-            src.height > static_cast<u32>(std::numeric_limits<s32>::max())) {
+            src.height != dst.height) {
             return false;
         }
         const auto format =
