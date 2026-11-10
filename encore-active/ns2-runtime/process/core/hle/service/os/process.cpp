@@ -140,16 +140,16 @@ bool Process::Run() {
         if (R_FAILED(result)) {
             LOG_ERROR(Service_LDR, "NS2 KProcess::Run rejected pid={} result={:#x}",
                       m_process->GetProcessId(), result.raw);
-            // KProcess may already have allocated/rolled back resources; never
-            // start it twice without Finalize and a fresh loader handoff.
+            // A late failure leaves no runnable NS2 process. Merely
+            // clearing its trace would strand the published KProcess and
+            // its guest code pages in the kernel process list. KProcess::Run
+            // has already unwound its transient stack/thread reservations;
+            // Finalize now closes the process, retires RomFS and removes the
+            // kernel registration on the same failure path.
+            this->Finalize();
+            // Do not let a second Run() on the empty failed instance report
+            // legacy success. A fresh Initialize() clears this terminal bit.
             m_process_started = true;
-            // This NS2 run was already registered by the loader but was
-            // never scheduled successfully. Retire its RomFS owner BEFORE
-            // clearing the trace; Finalize cannot identify the NS2 process
-            // once the trace is gone. No NS1 behavior changes.
-            m_system.GetFileSystemController().UnregisterProcessIfPresent(
-                m_process->GetProcessId());
-            Eden::NS2::SvcTrace::Unregister(m_process->GetProcessId());
             return false;
         }
         m_process_started = true;
