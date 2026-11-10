@@ -4,6 +4,6 @@
 #   uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r train/requirements.txt
 #
 # Python 3.12.14. .venv/ is ignored by git.
-torch==2.14.1
+torch==2.15.0
 numpy==2.5.3
-pillow==12.3.0
+pillow==13.0.0
