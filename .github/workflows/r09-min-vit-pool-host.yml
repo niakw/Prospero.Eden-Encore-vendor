@@ -8,6 +8,8 @@ on:
       - 'encore-active/eden-vulkan/nr_rdna2_frame_session.cpp'
       - 'encore-active/eden-vulkan/include/rdna2_nr_vit_min_pool_policy.h'
       - 'tools/test_r09_min_vit_pool_policy.cpp'
+      - 'tools/extract_r09_min_vit_allocator.py'
+      - 'tools/test_r09_min_vit_allocator_extracted.cpp'
   workflow_dispatch:
 
 permissions:
@@ -68,3 +70,25 @@ jobs:
             done
           done
           echo R09_MIN_VENDOR_LAYOUT_ONLY_NO_PS5_BUILD_NO_RUNTIME_ENABLEMENT
+
+      - name: Compile the exact guarded native MakeVitBuffers body with allocation stubs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/extract_r09_min_vit_allocator.py \
+            encore-active/eden-vulkan/nr_rdna2_frame_session.cpp \
+            .build-r09-min/r09_min_vit_allocator_extracted.h
+          for cxx in g++ clang++; do
+            for enabled in 0 1; do
+              "$cxx" -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+                -fsanitize=undefined -fno-sanitize-recover=all \
+                -DEDEN_R09_MIN_VIT_POOL_EXPERIMENTAL="$enabled" \
+                -I.build-r09-min \
+                -Iencore-active/eden-vulkan/include \
+                tools/test_r09_min_vit_allocator_extracted.cpp \
+                -o ".build-r09-min/native-${cxx}-${enabled}"
+              UBSAN_OPTIONS=halt_on_error=1 \
+                ".build-r09-min/native-${cxx}-${enabled}"
+            done
+          done
+          echo R09_MIN_NATIVE_METHOD_EXTRACTED_CPP_BOTH_MODES_PASS

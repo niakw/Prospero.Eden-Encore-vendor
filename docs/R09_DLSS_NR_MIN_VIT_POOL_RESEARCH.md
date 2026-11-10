@@ -45,3 +45,16 @@ Integration gates:
 - Verify full C++ integration on an isolated engine development build.
 - Test actual model weights, guest frame output, Vulkan fence retirement,
   rollback, VRAM, image quality, and frame pacing on PS5 before enablement.
+
+
+## Exact allocator-method host compilation
+
+The vendor CI additionally extracts MakeVitBuffers verbatim from the
+checked-in nr_rdna2_frame_session.cpp, compiles its real guarded body
+against fake descriptor/allocator types with BOTH macro settings,
+and executes positive and negative tests under GCC/Clang UBSan. It checks
+65 vs 9 calls, the exact byte totals, intra-block role uniqueness,
+cross-block input/output identity, a failed allocation before publication,
+and invalid zero-token rejection. This is more meaningful than testing
+only the pure policy header, but it is still NOT a full native vendor
+translation-unit compile or a real Vulkan memory-allocation test.
