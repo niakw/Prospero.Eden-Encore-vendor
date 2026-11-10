@@ -79,8 +79,6 @@ void SwizzleImpl(std::span<u8> output, std::span<const u8> input, u32 width, u32
                              ((z & block_depth_mask) << (GOB_SIZE_SHIFT + block_height));
         for (u32 line = 0; line < height; ++line) {
             const u32 y = line + origin_y;
-            const u32 swizzled_y = pdep<SWIZZLE_Y_BITS>(y);
-
             const u32 block_y = y >> GOB_SIZE_Y_SHIFT;
             const u32 offset_y = (block_y >> block_height) * block_size +
                                  ((block_y & block_height_mask) << GOB_SIZE_SHIFT);
@@ -101,6 +99,7 @@ void SwizzleImpl(std::span<u8> output, std::span<const u8> input, u32 width, u32
                     std::memcpy(dst, src, 16);
                 }
             } else {
+                const u32 swizzled_y = pdep<SWIZZLE_Y_BITS>(y);
                 u32 swizzled_x = pdep<SWIZZLE_X_BITS>(origin_x * BYTES_PER_PIXEL);
                 for (u32 column = 0; column < width;
                      ++column, incrpdep<SWIZZLE_X_BITS, BYTES_PER_PIXEL>(swizzled_x)) {
@@ -155,8 +154,6 @@ void SwizzleSubrectImpl(std::span<u8> output, std::span<const u8> input, u32 wid
         const u32 lines_in_y = (std::min)(unprocessed_lines, extent_y);
         for (u32 line = 0; line < lines_in_y; ++line) {
             const u32 y = line + origin_y;
-            const u32 swizzled_y = pdep<SWIZZLE_Y_BITS>(y);
-
             const u32 block_y = y >> GOB_SIZE_Y_SHIFT;
             const u32 offset_y = (block_y >> block_height) * block_size +
                                  ((block_y & block_height_mask) << GOB_SIZE_SHIFT);
@@ -175,6 +172,7 @@ void SwizzleSubrectImpl(std::span<u8> output, std::span<const u8> input, u32 wid
                     std::memcpy(dst, src, 16);
                 }
             } else {
+                const u32 swizzled_y = pdep<SWIZZLE_Y_BITS>(y);
                 u32 swizzled_x = pdep<SWIZZLE_X_BITS>(origin_x * BYTES_PER_PIXEL);
                 for (u32 column = 0; column < extent_x;
                      ++column, incrpdep<SWIZZLE_X_BITS, BYTES_PER_PIXEL>(swizzled_x)) {
