@@ -61,6 +61,8 @@ jobs:
           EOF
           printf '#pragma once\n' > "${root}/video_core/gpu.h"
           printf '#pragma once\n' > "${root}/video_core/textures/texture.h"
+      # Both pinned decoders already expose an unused 'height' argument in
+      # GetGOBOffset. Ignore that inherited warning, retain all other -Werror.
       - name: Compile old and maintained complete source files against the same public API
         shell: bash
         run: |
@@ -77,7 +79,7 @@ jobs:
                   source_file=encore-active/eden-core/src/video_core/textures/decoders.cpp
                 fi
                 executable="${RUNNER_TEMP}/r3-${compiler//+/p}-O${opt}-${flavor}"
-                "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror \
+                "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror -Wno-unused-parameter \
                   -fsanitize=address,undefined -fno-sanitize-recover=all \
                   -fno-omit-frame-pointer -I"${shims}" -Isources/eden/src \
                   "${test_file}" "${source_file}" -o "${executable}"
