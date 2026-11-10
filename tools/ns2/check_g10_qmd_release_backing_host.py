@@ -28,10 +28,11 @@ assert owner.index("GetPointer(address) != nullptr") < owner.index("});")
 assert method.index(begin) < method.index("DispatchNativeCompute(*launch)")
 release=method.split("auto release = [&](u64 addr, u32 payload, u32 flags) {",1)[1].split(
     "\n    std::string_view error;",1)[0]
-assert "!pusher.memory_manager.GetPointer(addr)" in release
-assert release.index("!pusher.memory_manager.GetPointer(addr)") < release.index(
+assert "const auto* const backing = pusher.memory_manager.GetPointer(addr);" in release
+assert "if (!backing) return false;" in release
+assert release.index("if (!backing) return false;") < release.index(
     "pusher.rasterizer->SignalFence(")
-assert "!memory->GetPointer(addr)" in release
+assert "memory->GetPointer(addr) != backing" in release
 
 fixture=r"""
 #include <array>
