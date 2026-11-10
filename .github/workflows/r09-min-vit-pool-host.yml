@@ -1,0 +1,70 @@
+name: R09 Min ViT pool — isolated vendor host proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/r09-min-vit-pool-host.yml'
+      - 'encore-active/eden-vulkan/nr_rdna2_frame_session.cpp'
+      - 'encore-active/eden-vulkan/include/rdna2_nr_vit_min_pool_policy.h'
+      - 'tools/test_r09_min_vit_pool_policy.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r09-min-vendor-${ github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Checkout exact PR SHA without submodules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          persist-credentials: false
+      - name: Verify default allocator is unchanged when macro is absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('encore-active/eden-vulkan/nr_rdna2_frame_session.cpp').read_text()
+          gate='#if defined(EDEN_R09_MIN_VIT_POOL_EXPERIMENTAL) && EDEN_R09_MIN_VIT_POOL_EXPERIMENTAL'
+          assert s.count(gate)==2
+          assert s.count('[[nodiscard]] bool MakeVitBuffers(')==1
+          body=s.split('[[nodiscard]] bool MakeVitBuffers(',1)[1]
+          assert body.count(gate)==1
+          fallback=body.split('#else',1)[1].split('#endif',1)[0]
+          for x in ('b.input=i?result.back().output:Make(plane);',
+                    'b.hidden=Make(plane*4u);',
+                    'b.output=Make(plane);',
+                    'b.value=Make(plane*4u);'):
+              assert x in fallback, x
+          assert 'MakeVitMinPoolLayout(vit_route.tokens)' in body
+          print('R09_MIN_VENDOR_DEFAULT_ALLOCATOR_PRESERVED')
+          PY
+      - name: GCC Clang C++20 UBSan positive and negative checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .build-r09-min
+          for cxx in g++ clang++; do
+            for enabled in 0 1; do
+              "$cxx" -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+                -fsanitize=undefined -fno-sanitize-recover=all \
+                -DEDEN_R09_MIN_VIT_POOL_EXPERIMENTAL="$enabled" \
+                -Iencore-active/eden-vulkan/include \
+                tools/test_r09_min_vit_pool_policy.cpp \
+                -o ".build-r09-min/pool-${cxx}-${enabled}"
+              UBSAN_OPTIONS=halt_on_error=1 ".build-r09-min/pool-${cxx}-${enabled}"
+              echo "R09_MIN_VENDOR_HOST_PASS ${cxx} macro=${enabled}"
+            done
+          done
+          echo R09_MIN_VENDOR_LAYOUT_ONLY_NO_PS5_BUILD_NO_RUNTIME_ENABLEMENT
