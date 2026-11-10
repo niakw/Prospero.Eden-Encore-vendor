@@ -1,0 +1,21 @@
+name: G01 actual SPIR-V nonuniform descriptor capabilities
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'encore-active/ns2-runtime/ampere/shader_recompiler/backend/spirv/emit_spirv_image.cpp'
+      - 'tools/ns2/check_g01_nonuniform_capability_owner_host.py'
+      - '.github/workflows/g01-nonuniform-capability.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-owner:
+    name: G01 nonuniform descriptor capability admission Clang/GCC
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tools/ns2/check_g01_nonuniform_capability_owner_host.py
