@@ -12,6 +12,10 @@ on:
       - '.github/scripts/audit-maintained-comment-terms.py'
       - '.github/dependabot.yml'
       - 'encore-active/**'
+      - 'sources/ps5-mihawkgen/**'
+      - 'sources/ps5-fsr3-optical-flow/**'
+      - 'sources/libwebp/**'
+      - 'tools/check-source-tree-layout.py'
   pull_request:
     paths:
       - '.github/workflows/**'
@@ -20,6 +24,10 @@ on:
       - '.github/scripts/audit-maintained-comment-terms.py'
       - '.github/dependabot.yml'
       - 'encore-active/**'
+      - 'sources/ps5-mihawkgen/**'
+      - 'sources/ps5-fsr3-optical-flow/**'
+      - 'sources/libwebp/**'
+      - 'tools/check-source-tree-layout.py'
   workflow_dispatch:
   schedule:
     - cron: '21 3 * * 3'
@@ -41,8 +49,14 @@ jobs:
           sparse-checkout: |
             .github
             encore-active
+            sources/ps5-mihawkgen
+            sources/ps5-fsr3-optical-flow
+            sources/libwebp
+            tools/check-source-tree-layout.py
       - name: Check user-supplied neural model safety and active owners
         run: python3 -B .github/scripts/check-active-security.py
+      - name: Verify strict upstream sources / Encore override boundary
+        run: python3 -B tools/check-source-tree-layout.py
       - name: Audit pinned workflow actions and read-only token scopes
         run: python3 -B .github/scripts/check-workflow-security.py
       - name: Audit maintained-source comment wording (host)
