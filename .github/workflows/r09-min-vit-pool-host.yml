@@ -85,7 +85,7 @@ jobs:
             encore-active/eden-vulkan/nr_rdna2_frame_session.cpp \
             .build-r09-min/r09_min_vit_allocator_extracted.h
           for cxx in g++ clang++; do
-            for profile in default 4 5 6 12; do
+            for profile in default 4 5 6 8 12 16; do
               args=()
               if [[ "$profile" == default ]]; then
                 args+=(-DEDEN_R09_MIN_VIT_POOL_EXPERIMENTAL=0)
