@@ -411,9 +411,45 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
         if (!dma_pusher.memory_manager.GpuToCpuAddress(address, sizeof(u32))) {
             throw std::runtime_error("Ampere SEM_EXECUTE: release has no CPU backing");
         }
+#ifdef PS5_NATIVE
+        // QueryCacheBase retains a raw CPU pointer until fence retirement.
+        // That pointer can belong to a NEW process after an NVMap/GMMU
+        // rebinding. Native Ampere releases must instead authenticate both
+        // the captured channel epoch and the original CPU backing AFTER
+        // Vulkan retirement, as the maintained QMD3 completion owner does.
+        auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+        const auto ticket = registry.CaptureTicket(&dma_pusher.channel_state);
+        const auto* const backing = dma_pusher.memory_manager.GetPointer(address);
+        if (!ticket || !ticket->process || !ticket->generation ||
+            !ticket->channel_generation || !backing) {
+            throw std::runtime_error("Ampere SEM_EXECUTE: release owner unavailable");
+        }
+        const auto* const channel = &dma_pusher.channel_state;
+        auto* const memory = &dma_pusher.memory_manager;
+        dma_pusher.rasterizer->SignalFence(
+            [channel, memory, ticket = *ticket, address, value, backing] {
+                try {
+                    auto& current =
+                        Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+                    // Retired channels are not permitted to publish a
+                    // completion into the replacement process's guest RAM.
+                    if (!current.IsCurrent(channel, ticket)) return;
+                    if (!memory->IsFullyMappedRange(address, sizeof(u32)) ||
+                        memory->GetPointer(address) != backing) {
+                        throw std::runtime_error(
+                            "Ampere SEM_EXECUTE: release backing changed after GPU submit");
+                    }
+                    memory->Write<u32>(address, value);
+                } catch (...) {
+                    Eden::RecordGpuFailure(std::current_exception());
+                }
+            });
+#else
+        // Desktop/NS1 legacy QueryCache semantics remain unchanged.
         dma_pusher.rasterizer->Query(
             address, VideoCommon::QueryType::Payload,
             VideoCommon::QueryPropertiesFlags::IsAFence, value, 0);
+#endif
         return;
     }
     // Invalid native controls must not flush unrelated GPU work before
