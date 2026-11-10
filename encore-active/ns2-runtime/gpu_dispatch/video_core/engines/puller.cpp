@@ -354,6 +354,17 @@ bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {
         return true;
     }
     const auto& pending = *pending_native_acquire;
+#ifdef PS5_NATIVE
+    auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+    const auto ticket = registry.CaptureTicket(&dma_pusher.channel_state);
+    if (!ticket || !pending.process ||
+        ticket->process != pending.process ||
+        ticket->generation != pending.process_generation ||
+        ticket->channel_generation != pending.channel_generation ||
+        !registry.IsCurrent(&dma_pusher.channel_state, *ticket)) {
+        throw std::runtime_error("Ampere SEM_EXECUTE: parked acquire channel epoch retired");
+    }
+#endif
     const auto cpu_before = dma_pusher.memory_manager.GpuToCpuAddress(
         pending.address, sizeof(u32));
     if (!cpu_before || *cpu_before != pending.cpu_address) {
@@ -425,8 +436,21 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
     if (!*ready) {
         // Do not advance past an unfulfilled GPU wait. DMA retains the
         // current command cursor and the scheduler can run other channels.
+#ifdef PS5_NATIVE
+        const auto ticket =
+            Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                .CaptureTicket(&dma_pusher.channel_state);
+        if (!ticket || !ticket->process || !ticket->generation ||
+            !ticket->channel_generation) {
+            throw std::runtime_error("Ampere SEM_EXECUTE: pending acquire has no channel epoch");
+        }
+        pending_native_acquire = PendingNativeAcquire{
+            address, value, operation, observed.cpu_address,
+            ticket->process, ticket->generation, ticket->channel_generation};
+#else
         pending_native_acquire = PendingNativeAcquire{
             address, value, operation, observed.cpu_address};
+#endif
     }
 }
 

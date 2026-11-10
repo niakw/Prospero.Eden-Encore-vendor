@@ -157,6 +157,11 @@ private:
         // A parked guest wait may only resume against the SAME backing page.
         // GMMU VA reuse cannot silently satisfy an old channel's semaphore.
         u64 cpu_address{};
+        // Never replay a parked GPFIFO acquire after channel unbind/rebind
+        // or process generation reuse, even if the VA/CPU alias still match.
+        const void* process{};
+        u64 process_generation{};
+        u64 channel_generation{};
     };
     std::optional<PendingNativeAcquire> pending_native_acquire;
     std::array<EngineID, 8> bound_engines{};
