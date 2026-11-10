@@ -85,3 +85,11 @@ GitHub's default CodeQL setup runs independently.
 records the R342–R349 decisions and older source-capture workflows.
 It is **not** an authoritative command or directory reference.
 Current dependency paths and override classifications are those above.
+
+## Security and dependency follow-up — 10 November 2026
+
+The engine's **17/17 P1/P2 host contracts** and six mandatory CI checks passed on engine `7154be1e727437e264609b805d80a2d1a17d82e2` with pinned vendor `0b0265079139622b759167c9d10a9a31aba1ea88`. This does **not** demonstrate native PS5 execution. New vendor-only security documentation or inventory runs are **not** automatically adopted into that validated engine SHA.
+
+[Dependabot PR #26](https://github.com/niakw/Prospero.Eden-Encore-vendor/pull/26) was **closed without merge** after a failed source-layout CI and unqualified Python dependency pairings. [Issue #22](https://github.com/niakw/Prospero.Eden-Encore-vendor/issues/22) remains open for compatibility qualification. Never bypass immutable upstream source-tree integrity just to merge an automated dependency batch.
+
+The [read-only Code Scanning inventory](.github/workflows/vendor-code-scanning-inventory.yml) lists current finding IDs, paths and rule groups in its run logs and summary, with read-only `security-events` permission. Its source-path classification is **not** proof of release reachability, a CodeQL fix or an alert dismissal. See [security triage](docs/VENDOR_SECURITY_ALERT_TRIAGE_2026-11-09.md) and [dependency triage](docs/DEPENDABOT_TRIAGE_2026-11-10.md).

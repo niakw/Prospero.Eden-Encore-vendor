@@ -49,3 +49,16 @@ checkout's complete deterministic CPM tree digest (GitHub Actions
 `validate` job on Encore migration commit `acecd3c`), **not guessed**.
 No C++ emulator owner, compiler, shader, model or runtime behaviour was
 modified by these documentation/CI lockfile updates.
+
+## Grouped PR #26: rejected (10 November 2026)
+
+**Disposition:** [PR #26](https://github.com/niakw/Prospero.Eden-Encore-vendor/pull/26) was closed without merge, with a detailed CI explanation. Its [Security & Quality run #42735747880](https://github.com/niakw/Prospero.Eden-Encore-vendor/actions/runs/42735747880) failed `Verify strict upstream sources / Encore override boundary`: checked-in `sources/ps5-mihawkgen` changes pinned original Git tree `e3b42f5b89775469bec04795b93f048b74aff207` to unapproved `7a88e18be693d90077ac678182acc8758d924b13`.
+
+The six changed upstream requirements files bundle distinct unqualified upgrades:
+
+- Opus OSCE: `torch 2.0.1 → 2.15.0` with retained `torchaudio 2.0.2`, plus `gitpython 3.1.41 → 3.2.1`, `tqdm 4.66.1 → 4.70.1`.
+- Two Mesa test stacks: `pytest 7.4.2 → 9.2.0` with retained `pytest-asyncio 0.21.0`, and `filelock 3.12.4 → 4.2.1`.
+- Two Mesa interactive tools: `urwid 3.0.3 → 4.0.7`.
+- MihawkGen Python 3.12 trainer: `torch 2.14.1 → 2.15.0` and `pillow 12.3.0 → 13.0.0`.
+
+Keep [issue #22](https://github.com/niakw/Prospero.Eden-Encore-vendor/issues/22) **open**. Qualify compatible version pairs in isolated environments with `python -m pip check` and meaningful trainer/Mesa/Opus smoke tests. Approval additionally requires explicit source-pin/provenance migration, original model digest retention and relevant host CI. Closing PR #26 does not fix GitHub Dependabot advisories or PS5 runtime issues.

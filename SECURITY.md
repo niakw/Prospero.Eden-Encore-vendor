@@ -29,3 +29,7 @@ No historical import workflow may overwrite `main`. Security fixes must be
 reviewed in `main`, with the engine's `vendor` gitlink updated to the exact
 new SHA and qualified by relevant host checks. Secret leakage requires
 credential revocation/rotation, not merely deleting the exposed file.
+
+## Code Scanning triage and data access
+
+[Vendor Code Scanning alert inventory](.github/workflows/vendor-code-scanning-inventory.yml) is an independent, **read-only** workflow for exact open finding IDs, rules, severities, paths and GitHub URLs. `security-events: read` is required; an API permission failure must never be presented as zero alerts. Group findings by maintained `encore-active/` or infrastructure owners, upstream `sources/` snapshots, then inspect the actual engine build graph before asserting PS5 runtime reachability. Prefer tested owner fixes or versioned upstream source migrations; do not bulk-dismiss findings or silently patch immutable third-party snapshots.

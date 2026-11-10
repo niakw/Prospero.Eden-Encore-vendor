@@ -11,3 +11,7 @@ This is the pinned source and dependency repository for [Eden Encore](https://gi
 - No proprietary model binaries, console keys, firmware, private saves or credentials may be added.
 
 Please submit a focused report to the [engine issue tracker](https://github.com/niakw/ProsperoEden-Encore/issues) before a wide dependency-version or source-architecture change.
+
+## Security dependency updates
+
+A grouped Dependabot PR that alters a pinned upstream `sources/` tree and fails `tools/check-source-tree-layout.py` must not be merged by weakening its hash checks. Isolate Python dependency pair upgrades (Torch/Torchaudio, pytest/pytest-asyncio), reproduce `python -m pip check` and tool-path tests in clean host-only environments, and revise exact provenance only for a deliberately approved upstream source migration. A closed PR is not equivalent to an addressed vulnerability.
