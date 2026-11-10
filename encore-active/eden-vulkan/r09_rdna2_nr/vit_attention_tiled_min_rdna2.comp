@@ -63,10 +63,10 @@ void main(){
     const uint query=gl_WorkGroupID.x*32u+gl_LocalInvocationID.x;
     const uint head=gl_WorkGroupID.y;
     if(head>=32u)return; // Uniform workgroup decision.
-    const bool active=query<pc.tokens;
+    const bool valid_query=query<pc.tokens;
     const uint row=(query*32u+head)*8u;
     float query_features[32];
-    if(active){
+    if(valid_query){
     for(uint i=0u;i<8u;++i){
         uint packed=q_values.words[(pc.q_base_bytes>>2u)+row+i];
         for(uint j=0u;j<4u;++j)
@@ -90,7 +90,7 @@ void main(){
             }
         }
         barrier(); // All lanes see Q/K/V tile before arithmetic.
-        if(active){
+        if(valid_query){
             for(uint local_key=0u;
                 local_key<min(32u,pc.tokens-tile_base);++local_key){
         uint keyrow=local_key*8u;
@@ -121,7 +121,7 @@ void main(){
         }
         barrier(); // No lane can overwrite tile during a neighbor's read.
     }
-    if(active){
+    if(valid_query){
     float reciprocal=round_half(1.0/max(denominator,6.198883056640625e-05));
     for(uint i=0u;i<8u;++i) {
         uint packed=0u;
