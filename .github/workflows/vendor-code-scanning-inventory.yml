@@ -1,0 +1,30 @@
+name: Vendor Code Scanning alert inventory (read-only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vendor-code-scanning-inventory.yml'
+      - '.github/scripts/inventory-code-scanning-alerts.py'
+  schedule:
+    - cron: '52 4 * * 3'
+
+permissions:
+  contents: read
+  security-events: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts/inventory-code-scanning-alerts.py
+      - name: Enumerate actual open Code Scanning alert IDs and owners
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -B .github/scripts/inventory-code-scanning-alerts.py
