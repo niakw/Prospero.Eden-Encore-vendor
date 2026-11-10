@@ -176,3 +176,26 @@ gain is claimed. A validated variable-resolution graph OR a proven
 faster attention kernel/approximated inference cadence is needed
 before claiming 60 Hz. Do not silently change the learned attention
 math or FP8 rounding without a genuine model image-quality A/B.
+
+## Isolated native tiling prototype (not wired to the renderer)
+
+The research-only vit_attention_tiled_min_rdna2.comp shader is a
+derivative of the maintained MIT native scalar ViT attention baseline.
+It retains the exact E4M3FN decoding/rounding/approximate exp operations,
+the current 32-query-per-workgroup layout, and ascending per-query key
+evaluation. In each 32-key tile, one lane loads a given K/V row
+(eight packed words each) and the other 31 query lanes reuse those
+packed values from **2 KiB of workgroup shared memory**. There are
+two uniform workgroup barriers per tile and no cross-workgroup reuse.
+
+This can theoretically eliminate 31 of the 32 redundant SSBO loads of
+a key/value row within one query group, but it retains ALL quadratic
+score and value accumulation arithmetic and changes local-memory/
+synchronization cost. The actual PS5 advantage is UNMEASURED.
+The shader is **NOT wired to the renderer, not automatically selected,
+not used by an authentic model and not a replacement for full neural
+inference**. Vulkan 1.1 glslang + spirv-val and ABI checks are the first
+qualification step. An exact GPU A/B against the original shader,
+including negative/out-of-range cases, must pass before integration.
+Even if tiling helps bandwidth, the 60 Hz theoretical FP32 arithmetic
+throughput obstruction remains.

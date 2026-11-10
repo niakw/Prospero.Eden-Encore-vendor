@@ -11,6 +11,7 @@ on:
       - 'tools/check_r09_min_vit_shader_footprint.py'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/vit_qkv_norm_rdna2.comp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/vit_attention_rdna2.comp'
+      - 'encore-active/eden-vulkan/r09_rdna2_nr/vit_attention_tiled_min_rdna2.comp'
       - 'tools/extract_r09_min_vit_allocator.py'
       - 'tools/test_r09_min_vit_allocator_extracted.cpp'
       - 'tools/check_r09_min_vit_optimality_host.py'
@@ -109,6 +110,27 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B tools/check_r09_min_vit_shader_footprint.py
+
+      - name: Compile and SPIR-V validate isolated 32-key shared-memory attention
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends glslang-tools spirv-tools
+          mkdir -p .build-r09-min
+          glslangValidator -V --target-env vulkan1.1 -S comp \
+            encore-active/eden-vulkan/r09_rdna2_nr/vit_attention_tiled_min_rdna2.comp \
+            -o .build-r09-min/vit_attention_tiled_min.spv
+          spirv-val --target-env vulkan1.1 \
+            .build-r09-min/vit_attention_tiled_min.spv
+          spirv-dis .build-r09-min/vit_attention_tiled_min.spv \
+            > .build-r09-min/vit_attention_tiled_min.spvasm
+          grep -Eq 'OpExecutionMode .* LocalSize 32 1 1' \
+            .build-r09-min/vit_attention_tiled_min.spvasm
+          grep -Fq OpControlBarrier .build-r09-min/vit_attention_tiled_min.spvasm
+          ! grep -Eq 'OpCapability (CooperativeMatrix|RayTracingKHR)' \
+            .build-r09-min/vit_attention_tiled_min.spvasm
+          echo R09_MIN_VIT_TILED_ATTENTION_SPIRV_ONLY_PASS_NO_MODEL_GPU_TEST
 
       - name: Prove source-constrained minimum memory and reject six unsafe mutations
         shell: bash
