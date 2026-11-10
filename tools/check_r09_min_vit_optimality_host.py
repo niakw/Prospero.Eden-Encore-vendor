@@ -47,8 +47,9 @@ def check_source(block: str, policy: str, session: str) -> None:
     assert s.count(marker)==2, "Feature flag or include drifted"
     assert "#else" in s and "#endif" in s
     # The nine roles are passed individually to the real Vulkan producers.
-    for role in ROLES:
-        assert "b."+role+"=pool[ids[" in s,"Native role binding missing: "+role
+    for index,role in enumerate(ROLES):
+        expected="b."+role+"=pool[ids["+str(index)+"u]];"
+        assert expected in s,"Native role->slot binding drifted: "+role
     assert "MakeVitMinPoolLayout(vit_route.tokens)" in s
     # Read every original-role allocation scale, not guessed from a budget.
     legacy=s.split("[[nodiscard]]boolMakeVitBuffers(",1)[1].split("#else",1)[1].split("#endif",1)[0]
