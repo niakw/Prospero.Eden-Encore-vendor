@@ -105,7 +105,9 @@ int main(){
     mem.mapped[2]=false;
     const unsigned before=mem.pointer_reads;
     assert(!Checked(qmd,pusher));
-    assert(mem.pointer_reads==before); // GMMU refusal precedes CPU access
+    // The first two admitted targets still require pointer checks; the
+    // unmapped THIRD target must be refused before its own pointer lookup.
+    assert(mem.pointer_reads==before+2);
     mem.mapped[2]=true;
     qmd[52]=0;
     assert(!Checked(qmd,pusher));
