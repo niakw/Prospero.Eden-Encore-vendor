@@ -21,6 +21,13 @@ struct VerifiedCopy {
     U64 destination_buffer{};
     U64 source_allocation{};
     U64 destination_allocation{};
+    // Actual VkDeviceMemory identity and VMA binding offset. Distinct VMA
+    // allocations may share one underlying VkDeviceMemory object; testing
+    // allocation IDs alone misses overlapping aliases.
+    U64 source_memory{};
+    U64 destination_memory{};
+    U64 source_memory_offset{};
+    U64 destination_memory_offset{};
     U64 source_backing_bytes{};
     U64 destination_backing_bytes{};
     U64 source_offset{};
@@ -77,9 +84,21 @@ public:
             // Two writes to one allocation may batch only with proven
             // non-overlapping destination ranges. All sizes were checked
             // with subtraction before reaching this comparison.
-            if (next.destination_allocation == pending.destination_allocation &&
-                Overlap(next.destination_offset, next.bytes,
-                        pending.destination_offset, pending.bytes)) {
+            if ((next.destination_allocation == pending.destination_allocation &&
+                 Overlap(next.destination_offset, next.bytes,
+                         pending.destination_offset, pending.bytes)) ||
+                MemoryOverlap(next.source_memory, next.source_memory_offset,
+                              next.source_offset, next.bytes,
+                              pending.destination_memory, pending.destination_memory_offset,
+                              pending.destination_offset, pending.bytes) ||
+                MemoryOverlap(next.destination_memory, next.destination_memory_offset,
+                              next.destination_offset, next.bytes,
+                              pending.source_memory, pending.source_memory_offset,
+                              pending.source_offset, pending.bytes) ||
+                MemoryOverlap(next.destination_memory, next.destination_memory_offset,
+                              next.destination_offset, next.bytes,
+                              pending.destination_memory, pending.destination_memory_offset,
+                              pending.destination_offset, pending.bytes)) {
                 return false;
             }
         }
@@ -117,13 +136,20 @@ private:
         if (!c.allow_reorder || !c.source_buffer || !c.destination_buffer ||
             !c.source_allocation || !c.destination_allocation ||
             c.source_allocation == c.destination_allocation ||
+            !c.source_memory || !c.destination_memory ||
             !c.channel_generation || !c.queue_generation || !c.bytes ||
             c.source_offset > c.source_backing_bytes ||
-            c.destination_offset > c.destination_backing_bytes) {
+            c.destination_offset > c.destination_backing_bytes ||
+            c.source_memory_offset > std::numeric_limits<U64>::max() - c.source_backing_bytes ||
+            c.destination_memory_offset > std::numeric_limits<U64>::max() - c.destination_backing_bytes) {
             return false;
         }
         return c.bytes <= c.source_backing_bytes - c.source_offset &&
-               c.bytes <= c.destination_backing_bytes - c.destination_offset;
+               c.bytes <= c.destination_backing_bytes - c.destination_offset &&
+               !MemoryOverlap(c.source_memory, c.source_memory_offset,
+                              c.source_offset, c.bytes,
+                              c.destination_memory, c.destination_memory_offset,
+                              c.destination_offset, c.bytes);
     }
     [[nodiscard]] static constexpr bool Overlap(U64 start, U64 length,
                                                 U64 other, U64 other_length) noexcept {
@@ -131,6 +157,17 @@ private:
         // the actual finite backing. Subtraction avoids unsigned wrap.
         return start <= other ? other - start < length
                               : start - other < other_length;
+    }
+    [[nodiscard]] static constexpr bool MemoryOverlap(
+        U64 left_memory, U64 left_base, U64 left_offset, U64 left_length,
+        U64 right_memory, U64 right_base, U64 right_offset, U64 right_length) noexcept {
+        if (left_memory != right_memory) {
+            return false;
+        }
+        // Both resources passed Valid(): base + capacity and per-copy offsets
+        // fit u64; binding-adjusted starts cannot wrap.
+        return Overlap(left_base + left_offset, left_length,
+                       right_base + right_offset, right_length);
     }
     std::array<VerifiedCopy, MaxCopies> copies_{};
     std::array<UploadGroup, MaxCopies> groups_storage_{};
@@ -149,6 +186,8 @@ private:
     const VerifiedCopy copy{
         .source_buffer = 11, .destination_buffer = 22,
         .source_allocation = 111, .destination_allocation = 222,
+        .source_memory = 1001, .destination_memory = 2002,
+        .source_memory_offset = 0, .destination_memory_offset = 0,
         .source_backing_bytes = 256, .destination_backing_bytes = 256,
         .source_offset = 16, .destination_offset = 32,
         .bytes = 64, .channel_generation = 1, .queue_generation = 1,
