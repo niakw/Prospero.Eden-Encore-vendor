@@ -22,6 +22,12 @@ int main() {
 #else
     constexpr bool experimental=false;
 #endif
+#if defined(EDEN_R09_MIN_VIT_POOL_SCRATCH_PLANES)
+    constexpr std::uint32_t scratch_planes=
+        EDEN_R09_MIN_VIT_POOL_SCRATCH_PLANES;
+#else
+    constexpr std::uint32_t scratch_planes=4u;
+#endif
     for(const auto tokens : {960u,2560u}) {
         HostFrameState state{};
         state.vit_route={8u,tokens};
@@ -30,7 +36,7 @@ int main() {
         assert(blocks.size()==8u);
         const std::uint64_t plane=std::uint64_t(tokens)*1024u;
         const std::uint64_t expected_calls=experimental?9u:65u;
-        const std::uint64_t expected_bytes=plane*(experimental?15u:185u);
+        const std::uint64_t expected_bytes=plane*(experimental?(11u+scratch_planes):185u);
         assert(state.next_id==expected_calls);
         if(experimental) {
             // Q/K/V packed E4M3FN are exactly tokens * 1024 bytes.
@@ -39,7 +45,7 @@ int main() {
                 assert(b.key.range==plane);
                 assert(b.value.range==plane);
                 assert(b.hidden.range==plane*4u);
-                assert(b.scratch.range==plane*4u);
+                assert(b.scratch.range==plane*scratch_planes);
             }
         }
         assert(state.requested.size()==expected_calls);
@@ -63,7 +69,8 @@ int main() {
         }
         std::cout<<"R09_MIN_REAL_ALLOCATOR_METHOD_HOST_PASS "
                  <<(experimental?"opt-in-9":"default-65")
-                 <<" tokens="<<tokens<<" buffers="<<state.next_id<<"\n";
+                 <<" tokens="<<tokens<<" buffers="<<state.next_id
+                 <<" scratch_planes="<<scratch_planes<<"\n";
     }
     // Inject failure at EVERY allocation index. The experimental path
     // must stop before publishing any logical blocks; the default path

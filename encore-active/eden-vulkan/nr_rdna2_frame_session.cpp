@@ -141,7 +141,13 @@ struct NrRdna2FrameSession::State {
         // never shared between frame sessions. Do NOT ship enabled until
         // the real learned ViT and PS5 fence/lifetime validation is complete.
         result.clear();
-        const auto layout=NR::MakeVitMinPoolLayout(vit_route.tokens);
+        auto layout=NR::MakeVitMinPoolLayout(vit_route.tokens);
+#if defined(EDEN_R09_MIN_VIT_POOL_SCRATCH_PLANES)
+        // Only available in an explicitly experimental build. Refuse
+        // unsupported choices instead of falling back silently.
+        layout=NR::MakeVitMinPoolLayout(
+            vit_route.tokens,EDEN_R09_MIN_VIT_POOL_SCRATCH_PLANES);
+#endif
         if(!layout.valid || vit_route.count!=NR::kVitMinBlocks)
             return false;
         std::array<VkDescriptorBufferInfo,NR::kVitMinSlots> pool{};

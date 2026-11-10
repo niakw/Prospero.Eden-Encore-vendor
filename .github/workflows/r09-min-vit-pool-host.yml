@@ -80,19 +80,26 @@ jobs:
             encore-active/eden-vulkan/nr_rdna2_frame_session.cpp \
             .build-r09-min/r09_min_vit_allocator_extracted.h
           for cxx in g++ clang++; do
-            for enabled in 0 1; do
+            for profile in default 4 5 6 12; do
+              args=()
+              if [[ "$profile" == default ]]; then
+                args+=(-DEDEN_R09_MIN_VIT_POOL_EXPERIMENTAL=0)
+              else
+                args+=(-DEDEN_R09_MIN_VIT_POOL_EXPERIMENTAL=1
+                       "-DEDEN_R09_MIN_VIT_POOL_SCRATCH_PLANES=$profile")
+              fi
               "$cxx" -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
                 -fsanitize=undefined -fno-sanitize-recover=all \
-                -DEDEN_R09_MIN_VIT_POOL_EXPERIMENTAL="$enabled" \
-                -I.build-r09-min \
+                "${args[@]}" -I.build-r09-min \
                 -Iencore-active/eden-vulkan/include \
                 tools/test_r09_min_vit_allocator_extracted.cpp \
-                -o ".build-r09-min/native-${cxx}-${enabled}"
+                -o ".build-r09-min/native-${cxx}-${profile}"
               UBSAN_OPTIONS=halt_on_error=1 \
-                ".build-r09-min/native-${cxx}-${enabled}"
+                ".build-r09-min/native-${cxx}-${profile}"
+              echo "R09_MIN_NATIVE_ALLOCATOR_PROFILE_PASS $cxx $profile"
             done
           done
-          echo R09_MIN_NATIVE_METHOD_EXTRACTED_CPP_BOTH_MODES_PASS
+          echo R09_MIN_NATIVE_METHOD_EXTRACTED_CPP_ALL_PROFILES_PASS
 
       - name: Prove source-constrained minimum memory and reject six unsafe mutations
         shell: bash

@@ -104,3 +104,27 @@ nine buffers, versus 462.5 MiB before pooling (425 MiB / ~91.9% less).
 The 720p structural candidate requests 14.0625 MiB but remains unqualified
 for the fixed native R09 graph. Neither VRAM residency nor FPS improvement
 has been demonstrated. The earlier 60 MiB candidate was conservative.
+
+## Selectable experimental scratch Pareto profiles (1080p)
+
+An explicit experimental build can now select one of four source-policy
+Pareto scratch sizes with -DEDEN_R09_MIN_VIT_POOL_SCRATCH_PLANES=4, 5, 6
+or 12, but **only** if the entire nine-buffer experimental allocator is
+also enabled with -DEDEN_R09_MIN_VIT_POOL_EXPERIMENTAL=1. An absent
+scratch macro selects four planes; default/shipping builds continue using
+the original 65-buffer path regardless of any scratch flag.
+
+| Scratch planes | Requested ViT MiB at 1080p | FFN Expand batches | QKV batches |
+| ---: | ---: | ---: | ---: |
+| 4 | 37.5 | 4 | 4 |
+| 5 | 40 | 4 | 3 |
+| 6 | 42.5 | 3 | 2 |
+| 12 | 57.5 | 3 | 1 |
+
+These are verified source-policy candidates, not observed GPU FPS.
+Non-Pareto values including 8 are deliberately rejected at the native
+allocator policy boundary to prevent memory waste at 1080p. Every profile
+is host-compiled in the extracted native method, runs failure injection,
+and is validated for correct per-role scratch sizes. A real PS5 benchmark
+and complete model image/fence proof remain mandatory. No new option is
+implicitly enabled on production builds.
