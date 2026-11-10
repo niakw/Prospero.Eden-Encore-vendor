@@ -1,3 +1,6 @@
+#include <bit>
+#include "jit-startup-retry.h"
+#include "jit_memory_policy.h"
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -23,19 +26,27 @@ DynarmicCallbacks32::DynarmicCallbacks32(ArmDynarmic32& parent, Kernel::KProcess
 {}
 
 u8 DynarmicCallbacks32::MemoryRead8(u32 vaddr) {
-    CheckMemoryAccess(vaddr, 1, Kernel::DebugWatchpointType::Read);
+    if (!CheckMemoryAccess(vaddr, 1, Kernel::DebugWatchpointType::Read)) {
+        return 0;
+    }
     return m_memory.Read8(vaddr);
 }
 u16 DynarmicCallbacks32::MemoryRead16(u32 vaddr) {
-    CheckMemoryAccess(vaddr, 2, Kernel::DebugWatchpointType::Read);
+    if (!CheckMemoryAccess(vaddr, 2, Kernel::DebugWatchpointType::Read)) {
+        return 0;
+    }
     return m_memory.Read16(vaddr);
 }
 u32 DynarmicCallbacks32::MemoryRead32(u32 vaddr) {
-    CheckMemoryAccess(vaddr, 4, Kernel::DebugWatchpointType::Read);
+    if (!CheckMemoryAccess(vaddr, 4, Kernel::DebugWatchpointType::Read)) {
+        return 0;
+    }
     return m_memory.Read32(vaddr);
 }
 u64 DynarmicCallbacks32::MemoryRead64(u32 vaddr) {
-    CheckMemoryAccess(vaddr, 8, Kernel::DebugWatchpointType::Read);
+    if (!CheckMemoryAccess(vaddr, 8, Kernel::DebugWatchpointType::Read)) {
+        return 0;
+    }
     return m_memory.Read64(vaddr);
 }
 
@@ -190,14 +201,18 @@ void ArmDynarmic32::MakeJit(Common::PageTable* page_table) {
             std::optional<uintptr_t>{uintptr_t(page_table->fastmem_arena)} :
             std::nullopt;
 
+        #if defined(EDEN_INLINE_EXCLUSIVES) && EDEN_INLINE_EXCLUSIVES
+        config.fastmem_exclusive_access = true;
+        #else
         config.fastmem_exclusive_access = config.fastmem_pointer  != std::nullopt;
+        #endif
         config.recompile_on_exclusive_fastmem_failure = true;
 
         if (reinterpret_cast<u64>(m_system.DeviceMemory().buffer.BackingBasePointer() +
             Kernel::Board::Nintendo::Nx::KSystemControl::Init::GetIntendedMemorySize()) < (1ULL << 39)) {
             // Systems like FreeBSD allocate memory really low by default, and since we pack our page table entries,
             // we have to manually sign extend when our actual pointer is negative.
-            config.page_table_sign_extension = Common::PageTable::SIGN_BIT;
+            config.page_table_sign_extension = std::countl_zero(Common::PageTable::ATTRIBUTE_MASK);
         }
     }
 
@@ -213,7 +228,7 @@ void ArmDynarmic32::MakeJit(Common::PageTable* page_table) {
 #if defined(ARCHITECTURE_arm64) || defined(__sun__) || defined(__NetBSD__) || defined(__DragonFly__) || defined(__OpenBSD__)
     config.code_cache_size = std::uint32_t(128_MiB);
 #else
-    config.code_cache_size = std::uint32_t(512_MiB);
+    config.code_cache_size = std::uint32_t(::Eden::JitMemory::A32CacheBytes(m_core_index, m_core_index == 0 ? 512_MiB : m_core_index < 3 ? 64_MiB : 16_MiB));
 #endif
 
     // Allow memory fault handling to work
@@ -312,7 +327,9 @@ void ArmDynarmic32::MakeJit(Common::PageTable* page_table) {
         config.fastmem_pointer = std::nullopt;
         config.fastmem_exclusive_access = false;
     }
-    m_jit.emplace(config);
+    ::Eden::JitStartup::ConstructWithCapacityFallback(
+        config.code_cache_size, ::Eden::JitMemory::A32BaselineBytes(m_core_index), 32, m_core_index,
+        [&]() { m_jit.emplace(config); });
 }
 
 static std::pair<u32, u32> FpscrToFpsrFpcr(u32 fpscr) {
@@ -436,6 +453,15 @@ void ArmDynarmic32::ClearInstructionCache() {
 }
 
 void ArmDynarmic32::InvalidateCacheRange(u64 addr, std::size_t size) {
+    if (size == 0) {
+        return;
+    }
+    m_cb->last_code_addr = u64(-1);
+    // Do not alias a 64-bit invalidation to unrelated 32-bit guest code.
+    if (addr > static_cast<u64>(~u32{0})) {
+        m_jit->ClearCache();
+        return;
+    }
     m_jit->InvalidateCacheRange(static_cast<u32>(addr), size);
 }
 
