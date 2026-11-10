@@ -61,7 +61,8 @@ struct KProcess{
  RunResult Run(KernelCore& k,int,std::size_t){return {k.fail_run?1u:0u};}
 };
 void KernelCore::AppendNewProcess(KProcess*){
- if(fail_append)throw std::bad_alloc{};++appends;
+ if(fail_append)throw std::bad_alloc{};
+ ++appends;
 }
 }
 namespace Service::FileSystem{
