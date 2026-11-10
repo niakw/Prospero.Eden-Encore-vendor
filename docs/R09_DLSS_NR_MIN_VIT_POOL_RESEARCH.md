@@ -58,3 +58,17 @@ cross-block input/output identity, a failed allocation before publication,
 and invalid zero-token rejection. This is more meaningful than testing
 only the pure policy header, but it is still NOT a full native vendor
 translation-unit compile or a real Vulkan memory-allocation test.
+
+
+## Exhaustive host failure injection
+
+The extracted native MakeVitBuffers method is also tested with a failed
+allocation at **every** requested buffer index, for the 960-token and
+2560-token candidate shapes, on both GCC and Clang. The opt-in nine-buffer
+path must fail immediately and publish zero logical ViT blocks; the
+legacy 65-buffer path is intentionally not modified and may hold a
+previously completed prefix until the parent FrameSession::State is
+destroyed. Both paths must return failure, never a full eight-block result.
+The native Initialize function creates the State as a unique_ptr and
+publishes it only on success. No Vulkan allocators or live PS5 fences are
+involved in this host fixture.

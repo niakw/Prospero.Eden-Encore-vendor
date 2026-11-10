@@ -55,14 +55,47 @@ int main() {
                  <<(experimental?"opt-in-9":"default-65")
                  <<" tokens="<<tokens<<" buffers="<<state.next_id<<"\n";
     }
-    {
-        // First-block fake allocation failure: no published partial block.
-        HostFrameState bad{};
-        bad.vit_route={8u,2560u};
-        bad.fail_on=3u;
-        std::vector<NrRdna2VitBlockBuffers> blocks{};
-        assert(!bad.MakeVitBuffers(blocks));
-        assert(blocks.empty());
+    // Inject failure at EVERY allocation index. The experimental path
+    // must stop before publishing any logical blocks; the default path
+    // is preserved, even though it may retain a valid completed prefix
+    // until its owning State is destroyed by Initialize's early return.
+    for(const auto tokens : {960u,2560u}) {
+        const std::uint64_t allocations=experimental?9u:65u;
+        for(std::uint64_t fail=1u;fail<=allocations;++fail) {
+            HostFrameState bad{};
+            bad.vit_route={8u,tokens};
+            bad.fail_on=fail;
+            std::vector<NrRdna2VitBlockBuffers> blocks{};
+            assert(!bad.MakeVitBuffers(blocks));
+            assert(blocks.size()<8u);
+            assert(bad.next_id>=fail);
+            if(experimental) {
+                assert(bad.next_id==fail);
+                assert(bad.requested.size()==fail-1u);
+                assert(blocks.empty());
+            } else {
+                // Existing allocator may finish a partially failed block's
+                // other allocations; never treat that prefix as success.
+                for(std::size_t i=0;i<blocks.size();++i) {
+                    for(const auto handle:Handles(blocks[i]))
+                        assert(handle!=0u);
+                    if(i)assert(blocks[i].input.buffer==
+                                blocks[i-1u].output.buffer);
+                }
+            }
+        }
+        std::cout<<"R09_MIN_REAL_ALLOCATOR_EXHAUSTIVE_FAILURE_PASS "
+                 <<(experimental?"opt-in-9":"default-65")
+                 <<" tokens="<<tokens
+                 <<" injected_failures="<<allocations<<"\n";
+    }
+    if(experimental) {
+        HostFrameState wrong_blocks{};
+        wrong_blocks.vit_route={7u,2560u};
+        std::vector<NrRdna2VitBlockBuffers> published{};
+        assert(!wrong_blocks.MakeVitBuffers(published));
+        assert(wrong_blocks.next_id==0u);
+        assert(published.empty());
     }
     {
         HostFrameState invalid{};
