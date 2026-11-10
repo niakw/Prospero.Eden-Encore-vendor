@@ -4,6 +4,28 @@
 
 This is the **actual content of our pinned dependencies**, included directly in this Git repository to make auditing, reproducibility and disaster recovery possible even if any upstream repository disappears. All licences, notices and source files that the upstream archives or Git snapshots contain are preserved. See `tools/deps.json` for the exact URLs and pinned commits/checksums. `vendor/sources/` contains full readable upstream source trees at their locked revisions; `vendor/objects/` contains byte-for-byte original source archives, Git packs and binary SDK packages split into **40 MiB or smaller Git-trackable chunks**, with a SHA-256 for every chunk and a SHA-256 over the whole reconstructed object. No Git LFS subscription or separate upstream clone is necessary to possess the complete inputs.
 
+## Canonical source / override layout (10 November 2026)
+
+**Strict rule:** `sources/` holds unmodified, upstream-pinned dependency source
+snapshots; `encore-active/` contains ONLY Encore-maintained overrides, ports,
+backports and runtime adaptations. Never store a third-party upstream checkout
+under `encore-active/` simply because it is consumed by PS5 CMake.
+Maintained changes to upstream files belong in independently reviewed overlays
+under `encore-active/`, not edited into `sources/`.
+
+| Upstream source (read-only) | Provenance / release | Exact Git tree |
+| --- | --- | --- |
+| `sources/ps5-mihawkgen/` | [mihawk-99/PS5_MihawkGen](https://github.com/mihawk-99/PS5_MihawkGen) @ `c57232a9f16bcb6df5fe07c9bb631518f2b1cc0e` | `e3b42f5b89775469bec04795b93f048b74aff207` |
+| `sources/ps5-fsr3-optical-flow/` | [Swordpdf/ps5-framegen](https://github.com/Swordpdf/ps5-framegen) @ `64362101757cdd6f7df9eeb984cb53f03f1fbfca` | `85e34d638cd9e8b211e08fb19d1a57a588bb8d76` |
+| `sources/libwebp/` | [webmproject/libwebp](https://github.com/webmproject/libwebp) @ `4fa21912338357f89e4fd51cf2368325b59e9bd9`, release 1.6.0 | `3a7830b9713d9187cf1211862d4571ff58b0d507` |
+
+The engine's sole external Git submodule remains `vendor`. These three upstream
+projects are ordinary committed source files under this vendor repo, **not**
+separate Git submodules, not active overrides, and not console validation.
+The source layout and model bytes are independently guarded by
+`tools/check-source-tree-layout.py`. Details and licenses:
+[PS5 internal dependency origins](docs/PS5_INTERNAL_DEPENDENCY_ORIGINS_2026-11-10.md).
+
 ## What is included
 
 | Name in `tools/deps.json` | Here | Type |
