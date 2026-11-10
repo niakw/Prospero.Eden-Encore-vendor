@@ -46,8 +46,15 @@ void DecorateNonUniform(EmitContext& ctx, Id object) {
 
 [[nodiscard]] bool MarkNonUniform(EmitContext& ctx, Id idx, const IR::Value& index,
                                   NonUniformKind kind) {
-    if (index.IsImmediate() || !IsNonUniformSupported(ctx.profile, kind)) {
+    if (index.IsImmediate()) {
         return false;
+    }
+    // A variable guest resource index can differ between invocations.
+    // Never emit an undecorated OpAccessChain when the selected Vulkan
+    // device lacks this descriptor class's non-uniform indexing feature:
+    // the driver could then sample another guest texture silently.
+    if (!IsNonUniformSupported(ctx.profile, kind)) {
+        throw LogicError("Native dynamic image descriptor requires non-uniform indexing support");
     }
     DecorateNonUniform(ctx, idx);
     switch (kind) {
