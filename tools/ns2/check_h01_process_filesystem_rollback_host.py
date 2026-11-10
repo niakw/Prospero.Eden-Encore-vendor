@@ -20,7 +20,10 @@ assert "UnregisterProcessIfPresent(" in final
 assert final.index("UnregisterProcessIfPresent(") < final.index("SvcTrace::Unregister(")
 erase=part(f,"void FileSystemController::UnregisterProcessIfPresent(","\nResult FileSystemController::OpenProcess(")
 assert "UnregisterProcessIfPresent(pid)" in init
-assert "SvcTrace::active_pid.load" in init
+# Failed Initialize retires the SVC registration by PID directly, even if
+# the trace was never installed. The active-PID comparison belongs to Finalize.
+assert "Eden::NS2::SvcTrace::Unregister(pid);" in init
+assert "SvcTrace::active_pid.load" in final
 assert "UnregisterProcessIfPresent(" in final
 assert "registrations.erase(process_id)" in erase
 assert "UnregisterProcessIfPresent" in (
