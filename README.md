@@ -93,3 +93,5 @@ The engine's **17/17 P1/P2 host contracts** and six mandatory CI checks passed o
 [Dependabot PR #26](https://github.com/niakw/Prospero.Eden-Encore-vendor/pull/26) was **closed without merge** after a failed source-layout CI and unqualified Python dependency pairings. [Issue #22](https://github.com/niakw/Prospero.Eden-Encore-vendor/issues/22) remains open for compatibility qualification. Never bypass immutable upstream source-tree integrity just to merge an automated dependency batch.
 
 The [read-only Code Scanning inventory](.github/workflows/vendor-code-scanning-inventory.yml) lists current finding IDs, paths and rule groups in its run logs and summary, with read-only `security-events` permission. Its source-path classification is **not** proof of release reachability, a CodeQL fix or an alert dismissal. See [security triage](docs/VENDOR_SECURITY_ALERT_TRIAGE_2026-11-09.md) and [dependency triage](docs/DEPENDABOT_TRIAGE_2026-11-10.md).
+
+**Qualified Code Scanning findings:** [28 exact open alerts, owner and rule inventory (10 November)](docs/VENDOR_CODE_SCANNING_FINDINGS_2026-11-10.md); this is separate from the 201 Security and Quality UI figure.
