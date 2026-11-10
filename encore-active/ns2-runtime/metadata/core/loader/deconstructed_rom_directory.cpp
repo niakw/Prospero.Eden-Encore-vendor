@@ -220,9 +220,10 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
         return {ResultStatus::ErrorLoadingNSO, {}};
     }
 #ifdef EDEN_NS2_GUEST_COUNTER
-    // This is the real KProcess loader, unlike ProgramMetadata::Load used
-    // by title scanners. Set before its first guest NSO/JIT execution.
-    Eden::GuestCounter::SelectProgram(metadata.IsSwitch2(), Common::g_cpu_caps.tsc_frequency);
+    // NS1 retains its original selection point. A malformed NS2 ExeFS
+    // must not install global guest-counter state before NSO0 admission.
+    if (!metadata.IsSwitch2())
+        Eden::GuestCounter::SelectProgram(false, Common::g_cpu_caps.tsc_frequency);
 #endif
     metadata.Print();
 
@@ -230,7 +231,8 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     const bool is_39bit =
         metadata.GetAddressSpaceType() == FileSys::ProgramAddressSpaceType::Is39Bit;
     const bool is_application = metadata.GetPoolPartition() == FileSys::PoolPartition::Application;
-    Settings::SetNceEnabled(is_39bit && !metadata.UsesExtendedAcid());
+    if (!metadata.IsSwitch2())
+        Settings::SetNceEnabled(is_39bit && !metadata.UsesExtendedAcid());
 
     const std::array static_modules = {"rtld",    "main",    "subsdk0", "subsdk1", "subsdk2",
                                        "subsdk3", "subsdk4", "subsdk5", "subsdk6", "subsdk7",
@@ -253,6 +255,16 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
         }
     }
 
+    // Commit NS2-global CPU/NCE mode only after every module in the
+    // patched ExeFS passes the real bounds preflight. A malformed second
+    // or later module must never change the next title's execution mode.
+    // Switch 1 retains the original selection points above.
+#ifdef EDEN_NS2_GUEST_COUNTER
+    if (metadata.IsSwitch2())
+        Eden::GuestCounter::SelectProgram(true, Common::g_cpu_caps.tsc_frequency);
+#endif
+    if (metadata.IsSwitch2())
+        Settings::SetNceEnabled(is_39bit && !metadata.UsesExtendedAcid());
 
     std::size_t code_size{};
 
