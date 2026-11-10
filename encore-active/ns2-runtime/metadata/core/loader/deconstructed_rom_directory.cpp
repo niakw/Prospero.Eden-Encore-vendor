@@ -220,8 +220,9 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
         return {ResultStatus::ErrorLoadingNSO, {}};
     }
 #ifdef EDEN_NS2_GUEST_COUNTER
-    // NS1 retains its original selection point. A malformed NS2 ExeFS
-    // must not install global guest-counter state before NSO0 admission.
+    // This is the real KProcess loader, unlike ProgramMetadata::Load used
+    // by title scanners. NS1 keeps its original selection point; malformed
+    // NS2 ExeFS must not install global mode before NSO0 admission.
     if (!metadata.IsSwitch2())
         Eden::GuestCounter::SelectProgram(false, Common::g_cpu_caps.tsc_frequency);
 #endif
