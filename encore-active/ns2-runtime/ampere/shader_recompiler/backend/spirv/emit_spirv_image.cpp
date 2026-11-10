@@ -11,6 +11,10 @@
 #include "shader_recompiler/backend/spirv/emit_spirv_instructions.h"
 #include "shader_recompiler/backend/spirv/spirv_emit_context.h"
 #include "shader_recompiler/frontend/ir/modifiers.h"
+#include "shader_recompiler/frontend/ampere/native_indirect_cbuf.h"
+#include <algorithm>
+#include <limits>
+#include <optional>
 
 namespace Shader::Backend::SPIRV {
 namespace {
@@ -274,6 +278,73 @@ void CheckSingletonTextureIndex(const IR::Value& index, u32 count) {
         throw LogicError("Singleton texture descriptor index out of range");
 }
 
+// Native Ampere descriptor arrays must never index outside their reflected
+// Vulkan binding. The ordinary Maxwell/NS1 emitter keeps its exact behavior.
+// No SPIR-V runtime bounds trap exists for a dynamic image OpAccessChain:
+// admit only the actual IR expressions with a provable inclusive U32 maximum.
+// This is conservative: unsupported unknown register/SSBO indexes are
+// rejected before publication, not wrapped to texture zero.
+[[nodiscard]] std::optional<u32> NativeBoundedImageIndexMaximum(
+    const IR::Value& raw, unsigned depth = 0) {
+    if (depth >= 8) return std::nullopt;
+    const auto value = raw.Resolve();
+    if (value.IsEmpty() || value.Type() != IR::Type::U32) return std::nullopt;
+    if (value.IsImmediate()) return value.U32();
+    const auto* const inst = value.TryInstRecursive();
+    if (!inst) return std::nullopt;
+    const auto opcode = inst->GetOpcode();
+    const auto a = inst->Arg(0).Resolve();
+    const auto b = inst->Arg(1).Resolve();
+    if (opcode == IR::Opcode::BitwiseAnd32 ||
+        opcode == IR::Opcode::UMin32) {
+        // (arbitrary U32 & literal_mask) <= mask;
+        // min(arbitrary U32,literal_ceiling) <= ceiling.
+        if (a.IsImmediate() && a.Type() == IR::Type::U32)
+            return a.U32();
+        if (b.IsImmediate() && b.Type() == IR::Type::U32)
+            return b.U32();
+        return std::nullopt;
+    }
+    if (opcode == IR::Opcode::BitFieldUExtract) {
+        const auto bit_offset = inst->Arg(1).Resolve();
+        const auto bit_count = inst->Arg(2).Resolve();
+        if (!bit_offset.IsImmediate() || !bit_count.IsImmediate() ||
+            bit_offset.Type() != IR::Type::U32 ||
+            bit_count.Type() != IR::Type::U32)
+            return std::nullopt;
+        const u32 first = bit_offset.U32();
+        const u32 bits = bit_count.U32();
+        if (first >= 32 || !bits || bits > 32 - first)
+            return std::nullopt;
+        return bits == 32 ? std::numeric_limits<u32>::max()
+                          : (u32{1} << bits) - 1;
+    }
+    if (opcode == IR::Opcode::ShiftRightLogical32) {
+        if (!b.IsImmediate() || b.Type() != IR::Type::U32 || b.U32() >= 32)
+            return std::nullopt;
+        // An unknown U32 shifted right by N is at most 0xffffffff >> N.
+        const auto prior = NativeBoundedImageIndexMaximum(a, depth + 1);
+        const u32 bound = prior.value_or(std::numeric_limits<u32>::max());
+        return bound >> b.U32();
+    }
+    if (opcode == IR::Opcode::SelectU32) {
+        const auto yes = NativeBoundedImageIndexMaximum(inst->Arg(1), depth + 1);
+        const auto no = NativeBoundedImageIndexMaximum(inst->Arg(2), depth + 1);
+        if (!yes || !no) return std::nullopt;
+        return std::max(*yes, *no);
+    }
+    if (opcode == IR::Opcode::IAdd32) {
+        // An add is bounded only if BOTH operands are proven and no 32-bit
+        // overflow can wrap a guest index into a fabricated valid binding.
+        const auto lhs = NativeBoundedImageIndexMaximum(a, depth + 1);
+        const auto rhs = NativeBoundedImageIndexMaximum(b, depth + 1);
+        if (!lhs || !rhs || *rhs > std::numeric_limits<u32>::max() - *lhs)
+            return std::nullopt;
+        return *lhs + *rhs;
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] Id CheckedTextureArrayIndex(EmitContext& ctx,
                                           const IR::Value& index, u32 count) {
     if (!count || index.IsEmpty() || index.Type() != IR::Type::U32)
@@ -283,6 +354,14 @@ void CheckSingletonTextureIndex(const IR::Value& index, u32 count) {
         if (selected >= count)
             throw LogicError("Texture descriptor array index out of range");
         return ctx.Const(selected);
+    }
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+        // Only a proven range may reach native QMD3 Vulkan. The scope is
+        // thread-local and managed by the real native compiler; no Maxwell
+        // image lookup is modified.
+        const auto maximum = NativeBoundedImageIndexMaximum(index);
+        if (!maximum || *maximum >= count)
+            throw LogicError("Native dynamic image descriptor index unbounded");
     }
     return ctx.Def(index);
 }
