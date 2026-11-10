@@ -199,3 +199,17 @@ qualification step. An exact GPU A/B against the original shader,
 including negative/out-of-range cases, must pass before integration.
 Even if tiling helps bandwidth, the 60 Hz theoretical FP32 arithmetic
 throughput obstruction remains.
+
+## Exact Vulkan A/B for native and tiled attention shaders (host only)
+
+The dedicated host test tools/r09_min_vk_tiled_attention_compare.cpp
+compiles and dispatches the actual native attention shader and the
+research-only tiled version on the same Vulkan 1.1 software device.
+Both receive the same deterministic public packed-E4M3FN Q/K/V tensors.
+It compares their completed GPU readbacks **word for word**, not simply
+successful shader compilation, for 1/31/32/37/64 tokens and two patterns
+(10 cases). Nonmultiples of 32 specifically exercise inactive lanes
+inside the tiled shader's workgroup barriers. This test never loads
+private neural weights or executes the full ViT model; passing proves
+only the isolated attention pair's output equivalence on Lavapipe, not
+PS5 timing, fidelity to the proprietary full model, or VRAM savings.
