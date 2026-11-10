@@ -38,14 +38,21 @@ These three **original upstream** projects are ordinary tracked source trees in 
 
 ## Other source inputs
 
-The vendor also stores original upstream snapshots under
+The vendor also stores pinned upstream source snapshots under
 `sources/eden/`, `sources/eden-cpm/`, `sources/ffmpeg/`,
 `sources/ps5-mesa/`, `sources/opengl-mesa-26-2/`,
-`sources/harfbuzz/`, `sources/encore-overrides/` and other source roots.
-Maintained PS5/Eden patches are recorded separately under
+`sources/harfbuzz/` and other source roots.
+
+**The similarly named `sources/encore-overrides/` is a frozen source
+snapshot of the separate [Encore Overrides configuration database](https://github.com/niakw/encore-overrides),
+at commit `95f21edf13bfbd2888602f2b419dd856d6d0fbfa` per
+[`VENDOR-ORIGIN.json`](sources/encore-overrides/VENDOR-ORIGIN.json).
+It is not the directory for current maintained overrides**, and its
+presence under `sources/` does not authorize copying project-owned
+runtime patches there. Maintained PS5/Eden patches are recorded only in
 `encore-active/eden-core/`, `encore-active/eden-vulkan/`,
-`encore-active/eden-backports/` and the other project-owned
-active directories.
+`encore-active/eden-backports/` and the other project-owned active
+directories.
 
 **These source trees are not all regulated by the three graphical Git-tree
 pins above.** Each existing dependency family retains its own pinned
