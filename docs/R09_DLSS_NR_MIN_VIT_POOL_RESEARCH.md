@@ -222,3 +222,16 @@ debug-utils ERROR callback enabled. Any validation error fails the
 host witness; both variants must return identical packed output words
 in both modes. This validates the host software ICD, not PS5 RDNA2
 driver behaviour or the full learned model.
+
+
+## 720p-only performance profiles
+
+The structural 720p graph uses 960 padded ViT tokens. Its non-dominated
+scratch profiles are 4, 6, 8, 12 and 16 planes, unlike the 1080p set.
+The experimental pool now accepts scratch=8 (17.8125 MiB of requested
+ViT buffers) and scratch=16 (25.3125 MiB) ONLY at 960 tokens.
+If attempted at 2560 tokens they are rejected before allocations.
+The default 65-buffer allocator and vendor main remain unchanged.
+The 16-plane option allows one FFN-Expand and one QKV batch under
+the native CPU policies, but this is not PS5 GPU frame timing or a
+verified full-model 720p execution.
