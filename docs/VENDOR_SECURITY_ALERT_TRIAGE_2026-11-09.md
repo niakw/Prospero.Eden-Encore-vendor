@@ -117,3 +117,16 @@ The grouped [Dependabot PR #26](https://github.com/niakw/Prospero.Eden-Encore-ve
 ## Reconciled Code Scanning subset (inventory #42843595702)
 
 The GitHub API inventory returned **28 open Code Scanning findings**: **1 critical, 12 high, 15 medium**, all in `sources/` and **0 in `encore-active/`** for the scanned snapshot. 23 were in the Boost source snapshot, 2 HarfBuzz test scripts, 2 Mesa NIR test runners, and 1 VulkanMemoryAllocator documentation script. Full IDs, severities, affected paths and next steps: [qualified Code Scanning inventory](VENDOR_CODE_SCANNING_FINDINGS_2026-11-10.md). **No findings have been proved fixed/closed.** These 28 are only the verified Code Scanning subset, not the full 201 Security and Quality UI figure.
+
+## Authenticated Dependabot inventory access — confirmed blocker
+
+[Inventory run #42844544589](https://github.com/niakw/Prospero.Eden-Encore-vendor/actions/runs/42844544589) reconfirmed 28 Code Scanning findings; the API request for `/repos/niakw/Prospero.Eden-Encore-vendor/dependabot/alerts` returned **HTTP 403** with the workflow's available token. GitHub Code Scanning's `security-events: read` does **not** supply this separate Dependabot-alerts access. **There is no verified Dependabot alert count** from this audit, so do not subtract 28 from the user-reported 201 or claim remaining items resolved.
+
+An authorized maintainer with a separately configured GitHub token granted **Dependabot alerts: read** can independently retrieve the actual open list with:
+
+```bash
+gh api --paginate 'repos/niakw/Prospero.Eden-Encore-vendor/dependabot/alerts?state=open&per_page=100' \
+  --jq '.[] | {number, state, html_url, manifest_path, package: .dependency.package.name, severity: .security_advisory.severity, ghsa: .security_advisory.ghsa_id}'
+```
+
+Do not paste tokens into tickets, logs or documentation. Once verified alert IDs exist, classify them by exact manifest/version and PS5 build reachability, qualify compatible dependency upgrades in host isolation, then confirm GitHub's changed alert states. **At present no Dependabot alerts are claimed fixed.**

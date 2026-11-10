@@ -62,3 +62,5 @@ The six changed upstream requirements files bundle distinct unqualified upgrades
 - MihawkGen Python 3.12 trainer: `torch 2.14.1 → 2.15.0` and `pillow 12.3.0 → 13.0.0`.
 
 Keep [issue #22](https://github.com/niakw/Prospero.Eden-Encore-vendor/issues/22) **open**. Qualify compatible version pairs in isolated environments with `python -m pip check` and meaningful trainer/Mesa/Opus smoke tests. Approval additionally requires explicit source-pin/provenance migration, original model digest retention and relevant host CI. Closing PR #26 does not fix GitHub Dependabot advisories or PS5 runtime issues.
+
+**Alert API access check:** [read-only run #42844544589](https://github.com/niakw/Prospero.Eden-Encore-vendor/actions/runs/42844544589) returned `HTTP 403` from the GitHub Dependabot alerts endpoint. The exact open Dependabot alert IDs, package severities and total count require a token with the separate **Dependabot alerts: read** permission. This does not invalidate the independently verified 28 Code Scanning alerts, and **no Dependabot alerts have been reported closed** by this audit.
