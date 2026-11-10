@@ -11,6 +11,7 @@
 #include <exception>
 #include <new>
 #include <stdexcept>
+#include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #endif
 #include <optional>
 #include <bit>
@@ -1524,6 +1525,123 @@ template <class P>
 bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                                 const Tegra::Engines::Fermi2D::Surface& src,
                                 const Tegra::Engines::Fermi2D::Config& copy) {
+#ifdef PS5_NATIVE
+    // Research-only native NS2 path. Existing Switch 1 channels always take
+    // the unchanged generic blit path below. A graphics-engine ticket also
+    // authenticates the native process/channel generation before staging.
+    const auto copy_native_volume_slice = [&]() -> bool {
+        using Fermi2D = Tegra::Engines::Fermi2D;
+        if (!maxwell3d || !channel_state ||
+            &channel_state->maxwell3d != maxwell3d ||
+            copy.operation != Fermi2D::Operation::SrcCopy ||
+            copy.filter != Fermi2D::Filter::Point) {
+            return false;
+        }
+        auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+        const auto ticket = registry.CaptureGraphicsTicket(maxwell3d);
+        if (!ticket) {
+            return false;
+        }
+        const auto is_volume = [](const Fermi2D::Surface& surface) {
+            return surface.depth > 1 &&
+                   surface.linear == Fermi2D::MemoryLayout::BlockLinear &&
+                   surface.layer == 0 && surface.width != 0 && surface.height != 0;
+        };
+        // Avoid narrowing guest dimensions to signed Fermi2D coordinates.
+        if (src.width > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+            dst.width > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+            src.height > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+            dst.height > static_cast<u32>(std::numeric_limits<s32>::max())) {
+            return false;
+        }
+        const bool whole_slice =
+            copy.src_x0 == 0 && copy.src_y0 == 0 &&
+            copy.dst_x0 == 0 && copy.dst_y0 == 0 &&
+            copy.src_x1 == static_cast<s32>(src.width) &&
+            copy.src_y1 == static_cast<s32>(src.height) &&
+            copy.dst_x1 == static_cast<s32>(dst.width) &&
+            copy.dst_y1 == static_cast<s32>(dst.height);
+        if (!is_volume(src) || !is_volume(dst) || !whole_slice ||
+            src.format != dst.format || src.width != dst.width ||
+            src.height != dst.height) {
+            return false;
+        }
+        const auto format =
+            VideoCore::Surface::PixelFormatFromRenderTargetFormat(src.format);
+        struct Slice {
+            ImageId id;
+            s32 depth;
+        };
+        const auto find_slice = [&](const Fermi2D::Surface& surface) -> std::optional<Slice> {
+            std::optional<Slice> found;
+            const GPUVAddr address = surface.Address();
+            ForEachImageInRegionGPU(channel_state->gpu_memory.GetID(), address, 1,
+                                    [&](ImageId id, Image& image) {
+                if (image.info.type != ImageType::e3D ||
+                    image.info.format != format ||
+                    image.info.num_samples != 1 ||
+                    image.info.size.width != surface.width ||
+                    image.info.size.height != surface.height ||
+                    image.info.size.depth != surface.depth ||
+                    True(image.flags & (ImageFlagBits::Remapped | ImageFlagBits::Sparse |
+                                        ImageFlagBits::Rescaled | ImageFlagBits::IsDecoding)) ||
+                    address < image.gpu_addr) {
+                    return false;
+                }
+                const u64 relative = address - image.gpu_addr;
+                if (relative >= image.guest_size_bytes ||
+                    relative > std::numeric_limits<u32>::max() ||
+                    image.slice_offsets.size() != image.slice_subresources.size()) {
+                    return false;
+                }
+                const auto it = std::ranges::find(image.slice_offsets, static_cast<u32>(relative));
+                if (it == image.slice_offsets.end()) {
+                    return false;
+                }
+                const auto index =
+                    static_cast<size_t>(std::distance(image.slice_offsets.begin(), it));
+                const SubresourceBase base = image.slice_subresources[index];
+                if (base.level != 0 || base.layer < 0 ||
+                    static_cast<u32>(base.layer) >= image.info.size.depth) {
+                    return false;
+                }
+                found = Slice{id, base.layer};
+                return true;
+            });
+            return found;
+        };
+        const auto src_slice = find_slice(src);
+        const auto dst_slice = find_slice(dst);
+        if (!src_slice || !dst_slice || src_slice->id == dst_slice->id ||
+            !registry.IsGraphicsCurrent(maxwell3d, *ticket)) {
+            return false;
+        }
+        // A refused copy must not realize an unrelated pending framebuffer
+        // clear. Do this only after both cached slices and the owner agree.
+        runtime.FlushDeferredClear();
+        PrepareImage(src_slice->id, false, false);
+        // Refresh the destination before the last native channel recheck.
+        // Do not mark a rejected/revoked copy as a guest GPU write.
+        PrepareImage(dst_slice->id, false, false);
+        if (!registry.IsGraphicsCurrent(maxwell3d, *ticket)) {
+            return false;
+        }
+        MarkModification(slot_images[dst_slice->id]);
+        const ImageCopy slice_copy{
+            .src_subresource = {.base_level = 0, .base_layer = 0, .num_layers = 1},
+            .dst_subresource = {.base_level = 0, .base_layer = 0, .num_layers = 1},
+            .src_offset = {0, 0, src_slice->depth},
+            .dst_offset = {0, 0, dst_slice->depth},
+            .extent = {src.width, src.height, 1},
+        };
+        runtime.CopyImage(slot_images[dst_slice->id], slot_images[src_slice->id],
+                          std::span{&slice_copy, 1});
+        return true;
+    };
+    if (copy_native_volume_slice()) {
+        return true;
+    }
+#endif
     const auto result = GetBlitImages(dst, src, copy);
     if (!result) {
         return false;
