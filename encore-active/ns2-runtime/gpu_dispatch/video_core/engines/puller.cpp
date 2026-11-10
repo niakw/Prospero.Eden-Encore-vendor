@@ -1007,9 +1007,17 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                 try {
                     const auto& current =
                         Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
-                    if (!current.IsCurrent(channel, ticket) ||
-                        !memory->IsFullyMappedRange(addr, sizeof(u32)) ||
-                        !memory->GetPointer(addr)) return;
+                    if (!current.IsCurrent(channel, ticket)) return;
+                    // Losing the guest completion backing AFTER a real
+                    // vkCmdDispatch is not a successful GPU retirement.
+                    // A silent return would strand dependent GPFIFO queues.
+                    // Report the fatal epoch failure through the existing
+                    // GPU-worker latch instead of fabricating the semaphore.
+                    if (!memory->IsFullyMappedRange(addr, sizeof(u32)) ||
+                        !memory->GetPointer(addr)) {
+                        throw std::runtime_error(
+                            "Native QMD3 release backing revoked after GPU submission");
+                    }
                     u32 value = payload;
                     if (flags & (1u << 26)) value = memory->Read<u32>(addr) + payload;
                     else if (flags & (1u << 19))
