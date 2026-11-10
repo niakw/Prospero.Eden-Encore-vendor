@@ -256,7 +256,14 @@ void CheckSingletonTextureIndex(const IR::Value& index, u32 count) {
     if (index.IsEmpty()) return;
     if (index.Type() != IR::Type::U32)
         throw LogicError("Invalid singleton texture descriptor index type");
-    if (index.IsImmediate() && index.U32() != 0)
+    // A singleton has only element zero. For a runtime-variable index
+    // the current emitter would ignore it and always bind element zero,
+    // fabricating a valid texture for an invalid guest index. Reject this
+    // unsupported form instead; dynamic arrays with count>1 still emit
+    // their real OpAccessChain and are validated independently on Vulkan.
+    if (!index.IsImmediate())
+        throw LogicError("Dynamic singleton texture descriptor index unsupported");
+    if (index.U32() != 0)
         throw LogicError("Singleton texture descriptor index out of range");
 }
 
