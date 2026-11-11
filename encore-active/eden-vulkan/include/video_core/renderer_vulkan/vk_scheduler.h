@@ -205,7 +205,7 @@ public:
             });
     }
 
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
     // An owner-thread observation of the *recording* context. This is NOT
     // a queue-generation identity, channel epoch, or GPU-lifetime lease.
     struct R2RecordingSnapshot {
@@ -434,7 +434,7 @@ private:
 
     State state;
     u64 recorded_command_serial{};
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
     // Producer-thread command chunk rollover identity (NOT a GPU queue fence).
     u64 r2_dispatched_chunks{};
 #endif

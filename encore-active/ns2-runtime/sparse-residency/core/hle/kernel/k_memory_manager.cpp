@@ -20,7 +20,7 @@
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/svc_results.h"
 
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_SPARSE_GUEST_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
 // Engine maintains ownership of the full 12GiB guest VA and its sparse 2MiB
 // native physical pages. Kernel management metadata and optimized page fills
 // may write DRAM directly, bypassing process PTE MapMemoryRegion.
@@ -31,7 +31,7 @@ extern "C" bool EdenNs2CommitGuestBacking(const void* backing_base,
 
 namespace Kernel {
 
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_SPARSE_GUEST_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
 namespace {
 void CommitKernelDirectGuestRange(Core::System& system,
                                   KPhysicalAddress address,
@@ -488,7 +488,7 @@ size_t KMemoryManager::Impl::Initialize(KPhysicalAddress address, size_t size,
 
 void KMemoryManager::Impl::InitializeOptimizedMemory(KernelCore& kernel) {
     auto optimize_pa = KPageTable::GetHeapPhysicalAddress(kernel, m_management_region);
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_SPARSE_GUEST_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
     // Metadata is initialized before any user process page table exists.
     // Back its complete range before taking a raw DeviceMemory pointer.
     CommitKernelDirectGuestRange(kernel.System(), optimize_pa,
@@ -539,7 +539,7 @@ void KMemoryManager::Impl::TrackOptimizedAllocation(KernelCore& kernel, KPhysica
 
 bool KMemoryManager::Impl::ProcessOptimizedAllocation(KernelCore& kernel, KPhysicalAddress block,
                                                       size_t num_pages, u8 fill_pattern) {
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_SPARSE_GUEST_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
     // The optimized fast fill uses raw DeviceMemory pointers, not
     // HostMemory::ClearBackingRegion or a process PTE. Commit the range
     // before ANY pointer is dereferenced, including at 12GiB DRAM end.

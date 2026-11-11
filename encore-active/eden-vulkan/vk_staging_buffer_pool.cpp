@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <utility>
 #include <vector>
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
 #include <limits>
 #include <stdexcept>
 #endif
@@ -105,7 +105,7 @@ StagingBufferPool::StagingBufferPool(const Device& device_, MemoryAllocator& mem
 StagingBufferPool::~StagingBufferPool() = default;
 
 StagingBufferRef StagingBufferPool::Request(size_t size, MemoryUsage usage, bool deferred) {
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
     // Both the stream ring and fallback pool must stamp every new reservation.
     // The pool's existing CurrentTick/IsFree retirement policy is unchanged.
     if (request_generation_counter == (std::numeric_limits<u64>::max)()) {
@@ -201,7 +201,7 @@ StagingBufferRef StagingBufferPool::Request(size_t size, MemoryUsage usage, bool
 #endif
 }
 
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
 bool StagingBufferPool::IsCurrentRequest(const StagingBufferRef& ref, u64 live_tick) const noexcept {
     if (!ref.request_generation || !ref.request_submission_tick ||
         ref.request_submission_tick != live_tick ||
@@ -249,7 +249,7 @@ void StagingBufferPool::TickFrame() {
 }
 
 StagingBufferRef StagingBufferPool::GetStreamBuffer(size_t size) {
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
     // The last slot may leave free_iterator == stream_buffer_size.
     // Region(free_iterator)+1 then exceeds the 16-entry sync array, while
     // iterator+size has already reached the end and will wrap below.
@@ -285,7 +285,7 @@ StagingBufferRef StagingBufferPool::GetStreamBuffer(size_t size) {
             return GetStagingBuffer(size, MemoryUsage::Upload);
         }
     }
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
     // A failed wrap-around reservation leaves iterator=0 and
     // free_iterator=size. On the next Request the original free_iterator+1
     // probe skips region 0 and could hand out still-active mapped bytes.

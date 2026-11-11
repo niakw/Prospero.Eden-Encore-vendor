@@ -15,7 +15,7 @@
 
 #include "video_core/buffer_cache/buffer_cache_base.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
 #include "video_core/renderer_vulkan/ns2_staging_upload_bounds.h"
 #include <stdexcept>
 #endif
@@ -439,7 +439,7 @@ u32 BufferCacheRuntime::GetStorageBufferAlignment() const {
     return static_cast<u32>(device.GetStorageBufferAlignment());
 }
 
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
 BufferCacheRuntime::~BufferCacheRuntime() noexcept {
     if (!deleted_gpu_buffers.Outstanding()) return;
     try {
@@ -485,7 +485,7 @@ void BufferCacheRuntime::RetainDeletedBuffer(Buffer& deleted) {
 #endif
 
 void BufferCacheRuntime::TickFrame(Common::SlotVector<Buffer>& slot_buffers) noexcept {
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
     // Reclaim even with no resident buffers or with the final guest channel
     // already gone; this is *real* completion, not elapsed host frames.
     if (deleted_gpu_buffers.Outstanding())
@@ -558,7 +558,7 @@ bool BufferCacheRuntime::CanReorderUpload(const Buffer& buffer,
     return can_use_upload_cmdbuf;
 }
 
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
 void BufferCacheRuntime::CopyStagingUpload(const Buffer& destination,
                                             const StagingBufferRef& staging,
                                             std::span<const VideoCommon::BufferCopy> copies,

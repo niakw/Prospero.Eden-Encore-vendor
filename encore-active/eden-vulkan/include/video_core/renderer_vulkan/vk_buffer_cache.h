@@ -17,7 +17,7 @@
 #include "video_core/renderer_vulkan/vk_compute_pass.h"
 #include "video_core/renderer_vulkan/vk_multi_range_buffer.h"
 #include "video_core/renderer_vulkan/vk_staging_buffer_pool.h"
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
 #include "video_core/renderer_vulkan/ns2_gpu_retirement_hold.h"
 #endif
 #include "video_core/renderer_vulkan/vk_update_descriptor.h"
@@ -138,7 +138,7 @@ public:
                                 ComputePassDescriptorQueue& compute_pass_descriptor_queue,
                                 DescriptorPool& descriptor_pool);
 
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
     ~BufferCacheRuntime() noexcept;
     // Transfers the deleted Vulkan Buffer owner into GPU-tick retirement;
     // normal path never destroys it on a fixed frame age.
@@ -179,7 +179,7 @@ public:
                     std::span<const VideoCommon::BufferCopy> copies, bool barrier,
                     bool can_reorder_upload = false);
 
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
     // Strong destination and staging owners are still available at this API
     // boundary. Range-check only; scheduling remains the existing FIFO path.
     void CopyStagingUpload(const Buffer& destination, const StagingBufferRef& staging,
@@ -310,7 +310,7 @@ private:
     boost::container::small_vector<MultiRangeSource, 16> multi_range_sources;
     VkDeviceSize multi_range_total{};
 
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
     // Strong owner type deliberately uses unique_ptr to provide noexcept
     // movement even when Buffer's internal implementation changes.
     NS2Research::GpuRetirementHold<std::unique_ptr<Buffer>, 256> deleted_gpu_buffers;

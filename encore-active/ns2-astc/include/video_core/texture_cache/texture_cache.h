@@ -11,7 +11,7 @@
 #include <limits>
 #include <span>
 #include <type_traits>
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_R4_VOLUME)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VOLUME_COPY)
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #endif
 #include <optional>
@@ -1046,7 +1046,7 @@ template <class P>
 bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                                 const Tegra::Engines::Fermi2D::Surface& src,
                                 const Tegra::Engines::Fermi2D::Config& copy) {
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_R4_VOLUME)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VOLUME_COPY)
     // Vulkan-only candidate, isolated from shared NS1 and OpenGL template instantiations.
     if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
     // Research-only native NS2 path. Existing Switch 1 channels always take

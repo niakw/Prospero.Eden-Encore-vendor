@@ -646,7 +646,7 @@ int main() {
 def extract_methods() -> tuple[str, str, str, str, str, str, str, str, str, str]:
     scheduler = SCHED.read_text()
     start = scheduler.index(
-        "#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)\n"
+        "#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)\n"
         "    // An owner-thread observation"
     )
     end = scheduler.index("\n#endif", start) + len("\n#endif")
@@ -692,13 +692,13 @@ def extract_methods() -> tuple[str, str, str, str, str, str, str, str, str, str]
     assert dispatch.count("work_queue.push(std::move(chunk))") == 1
     runtime = RUNTIME.read_text()
     start = runtime.index(
-        "#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)\n"
+        "#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)\n"
         "void BufferCacheRuntime::CopyStagingUpload("
     )
     end = runtime.index("void BufferCacheRuntime::CopyBuffer(", start)
     typed_copy = runtime[start:end]
     lifetime_start=runtime.index(
-        "#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)\n"
+        "#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)\n"
         "BufferCacheRuntime::~BufferCacheRuntime() noexcept"
     )
     lifetime_end=runtime.index(
@@ -784,7 +784,7 @@ def run() -> None:
                 exe = Path(d) / f"r2-{compiler.replace('+','p')}-O{opt}"
                 cmd = [compiler, "-std=c++20", "-Wall", "-Wextra",
                        "-Werror", "-pedantic", f"-O{opt}",
-                       "-DPS5_NATIVE=1", "-DEDEN_RESEARCH_NS2_STAGE_BACKING=1",
+                       "-DPS5_NATIVE=1", "-DEDEN_NS2_STAGE_BACKING=1",
                        "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                        "-fno-omit-frame-pointer",
                        "-I", str(BOUNDS.parent), str(source), "-o", str(exe)]

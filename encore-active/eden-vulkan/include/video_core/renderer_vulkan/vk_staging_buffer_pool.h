@@ -33,7 +33,7 @@ struct StagingBufferRef {
     // This is not by itself proof of an active GPU lifetime lease.
     vk::MemoryLocation backing_location{};
     VkDeviceSize backing_capacity{};
-#if defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(EDEN_NS2_STAGE_BACKING)
     // Unique on each Request(), even when the underlying allocation is
     // recycled. This is a provenance token, NOT a GPU retirement lease.
     u64 request_generation{};
@@ -51,7 +51,7 @@ public:
     ~StagingBufferPool();
 
     StagingBufferRef Request(size_t size, MemoryUsage usage, bool deferred = false);
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
     // Authoritative pool-owned reservation identity, not an unverified token
     // copied inside StagingBufferRef. This check does not replace GPU fences.
     [[nodiscard]] bool IsCurrentRequest(const StagingBufferRef& ref, u64 live_tick) const noexcept;
@@ -148,7 +148,7 @@ private:
     size_t current_delete_level = 0;
     u64 buffer_index = 0;
     u64 unique_ids{};
-#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)
     struct ActiveStagingRequest {
         VkBuffer buffer{};
         VkDeviceMemory memory{};
