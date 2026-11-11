@@ -3,6 +3,7 @@
 // This is deliberately separate from renderer presentation and never runs
 // automatically when a game enables another upscaler.
 #include "video_core/renderer_vulkan/nr_rdna2_frame_readback.h"
+#include "video_core/renderer_vulkan/nr_rdna2_readback_dimensions.h"
 #include "video_core/renderer_vulkan/nr_rdna2_frame_session.h"
 #include "video_core/renderer_vulkan/present/util.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -20,12 +21,14 @@ bool ExecuteR09FrameAndReadback(
     VkExtent2D target_extent,
     NrRdna2FrameGpuReadback& evidence) {
     evidence = {};
-    constexpr std::uint32_t width = 1920u, height = 1080u;
-    constexpr std::uint64_t byte_count =
-        std::uint64_t(width) * height * 4u * sizeof(float);
-    if (!frame.Ready() || frame.SchedulerIdentity() != &scheduler ||
+    const std::uint64_t byte_count=R09ReadbackPolicy::Rgba32fBytes(
+        target_extent.width,target_extent.height);
+    const VkExtent2D initialized=frame.ResultExtent();
+    if (!byte_count || !frame.Ready() ||
+        frame.SchedulerIdentity() != &scheduler ||
         target_image == VK_NULL_HANDLE || target_view == VK_NULL_HANDLE ||
-        target_extent.width != width || target_extent.height != height) {
+        target_extent.width != initialized.width ||
+        target_extent.height != initialized.height) {
         return false;
     }
     // Stage allocation happens BEFORE Record, so a failure does not strand
@@ -51,12 +54,12 @@ bool ExecuteR09FrameAndReadback(
     }
     scheduler.RequestOutsideRenderPassOperationContext();
     const VkBuffer mapped_buffer = *staging;
-    scheduler.Record([target_image, mapped_buffer, byte_count](
+    scheduler.Record([target_image, mapped_buffer, byte_count, target_extent](
                          vk::CommandBuffer cmd) {
         // The real target is GENERAL after NrRdna2NoHistoryPresent::Record.
         // This helper orders producer writes, image copy and layout restore.
         DownloadColorImage(cmd, target_image, mapped_buffer,
-                           VkExtent3D{1920u, 1080u, 1u});
+                           VkExtent3D{target_extent.width, target_extent.height, 1u});
         const VkBufferMemoryBarrier to_host{
             .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
             .pNext = nullptr,
