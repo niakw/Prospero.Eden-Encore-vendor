@@ -1,0 +1,23 @@
+name: R457 PS5 AudioOut readiness host checks
+on:
+  pull_request:
+    paths:
+      - 'sources/eden/src/core/memory.h'
+      - 'encore-active/eden-core/src/core/memory_native_a32.cpp'
+      - 'sources/eden/src/audio_core/device/device_session.cpp'
+      - 'tools/ns1/check_r457_audio_unready_host.py'
+      - '.github/workflows/r457-audio-readiness-host.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  r457-audio-host:
+    name: NS1 null guest-memory readiness (host-only)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout pinned source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 Node.js 24
+        with:
+          persist-credentials: false
+      - name: Compile and run isolated C++20 oracle, check real code contract
+        run: python3 -B tools/ns1/check_r457_audio_unready_host.py
