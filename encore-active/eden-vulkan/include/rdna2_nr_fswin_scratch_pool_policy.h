@@ -42,7 +42,7 @@ struct FswinSharedScratchPlan {
     }
     const auto layer_count=std::uint64_t(p.layers);
     const auto io=p.private_input_bytes+p.private_output_bytes;
-    if(io>512ull<<20u||scratch>512ull<<20u-io)return false;
+    if(io>512ull<<20u||scratch>(512ull<<20u)-io)return false;
     const auto baseline=layer_count*(io+scratch);
     const auto candidate=layer_count*io+scratch;
     if(p.baseline_bytes!=baseline||
