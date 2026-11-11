@@ -37,7 +37,7 @@ Xbyak::Address ConstantPool::GetConstant(BlockOfCode& code, const Xbyak::Address
         *reinterpret_cast<ConstantT*>(code.writableAddress(&target_constant)) = constant;
         it = constant_info.emplace(constant, slot).first;
     }
-    return frame[code.rip + &pool[it->second]];
+    return frame[code.rip + static_cast<void*>(&pool[it->second])];
 }
 
 }  // namespace Dynarmic::Backend::X64
