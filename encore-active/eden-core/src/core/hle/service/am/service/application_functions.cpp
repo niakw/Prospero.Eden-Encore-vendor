@@ -366,16 +366,19 @@ Result IApplicationFunctions::GetPseudoDeviceId(Out<Common::UUID> out_pseudo_dev
     // This should be hashed with the device specific hash
     // for now this will do
     const auto res = FileSys::PatchManager::GetMetadataFromBaseOrUpdate(system, m_applet->program_id);
-    u8 hash[EVP_MAX_MD_SIZE];
+    u8 hash[EVP_MAX_MD_SIZE]{};
     unsigned int hash_len = 0;
-    auto const seed = res.first != nullptr ? res.first->raw.seed_for_pseudo_device_id : u64_le{0};
-    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-    auto const algorithm = EVP_sha1();
-    EVP_DigestInit_ex(ctx, algorithm, nullptr);
-    EVP_DigestUpdate(ctx, &seed, sizeof(seed));
-    EVP_DigestFinal_ex(ctx, hash, &hash_len);
+    const auto seed = res.first != nullptr ? res.first->raw.seed_for_pseudo_device_id : u64_le{0};
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    R_UNLESS(ctx != nullptr, ResultUnknown);
+    const bool ok = EVP_DigestInit_ex(ctx, EVP_sha1(), nullptr) == 1 &&
+                    EVP_DigestUpdate(ctx, &seed, sizeof(seed)) == 1 &&
+                    EVP_DigestFinal_ex(ctx, hash, &hash_len) == 1;
     EVP_MD_CTX_free(ctx);
-    *out_pseudo_device_id = Common::UUID::MakeRFC4122V5(std::span<u8, 20>{hash, std::size(hash)});
+    // SHA-1 must be exactly 20 bytes. Passing EVP_MAX_MD_SIZE (64) to
+    // std::span<u8, 20> violates the fixed-extent constructor contract.
+    R_UNLESS(ok && hash_len == 20, ResultUnknown);
+    *out_pseudo_device_id = Common::UUID::MakeRFC4122V5(std::span<u8, 20>{hash, 20});
     R_SUCCEED();
 }
 
