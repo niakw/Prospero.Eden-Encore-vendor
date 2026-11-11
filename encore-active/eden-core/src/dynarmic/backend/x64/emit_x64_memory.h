@@ -383,6 +383,9 @@ const void* EmitReadMemoryMov(BlockOfCode& code, int value_idx, const Xbyak::Reg
             code.xadd(qword[addr], Xbyak::Reg64(value_idx));
             break;
         case 128:
+            // XMM0 is consumed as a temporary by the SSE2 fallback below.
+            // It cannot simultaneously own the 128-bit exclusive result.
+            ASSERT(Xbyak::Xmm(value_idx) != xmm0);
             code.lock();
             code.cmpxchg16b(xword[addr]);
             if (code.HasHostFeature(HostFeature::SSE41)) {
