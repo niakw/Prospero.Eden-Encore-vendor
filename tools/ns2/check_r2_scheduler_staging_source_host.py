@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile exact R2 scheduler, staging Request, and typed-copy source bodies.
+"""Compile exact R2 scheduler, staging reuse/retirement and typed-copy bodies.
 
 Exact source-derived methods in bounded host doubles (plus real helper header).
 NOT a full native Vulkan include graph, GPU submission or PS5 validation.
@@ -25,6 +25,7 @@ SOURCE_BLOBS = {
     BOUNDS: "8905d42732b2d5848aa49b5800340e031cd214c9",
 }
 TEMPLATE = r"""
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstddef>
@@ -35,6 +36,7 @@ TEMPLATE = r"""
 #include <string>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <span>
 #include <utility>
@@ -42,6 +44,8 @@ TEMPLATE = r"""
 #include "ns2_staging_upload_bounds.h"
 // The extracted method normally lives in namespace Vulkan.
 namespace NS2Research = Vulkan::NS2Research;
+#define ASSERT(condition) do { if (!(condition)) throw std::runtime_error("mock ASSERT"); } while (false)
+namespace Common { inline unsigned Log2Ceil(std::size_t v) { unsigned p=0; if (v <= 1) return 0; --v; while (v != 0) { v >>= 1; ++p; } return p; } }
 using u64 = std::uint64_t;
 using u8 = std::uint8_t;
 using VkRenderPass = std::uintptr_t;
@@ -60,6 +64,9 @@ struct StagingBufferRef {
     std::span<u8> mapped_span{};
     MockMemoryLocation backing_location{};
     u64 backing_capacity{};
+    MemoryUsage usage{MemoryUsage::Upload};
+    unsigned log2_level{};
+    u64 index{};
     int kind{};
 };
 struct MockCommandChunk {
@@ -73,6 +80,10 @@ struct MockEventCV {
 class Scheduler {
 public:
     [[nodiscard]] u64 CurrentTick() const noexcept { return tick; }
+    [[nodiscard]] bool IsFree(u64 submitted_tick) const noexcept {
+        return submitted_tick != 0 && submitted_tick <= completed_gpu_tick;
+    }
+    u64 completed_gpu_tick{};
 @@SCHEDULER_METHODS@@
     u64 tick{5};
     u64 recorded_command_serial{30};
@@ -92,6 +103,26 @@ public:
     Scheduler scheduler{};
     std::size_t region_size{64};
     u64 request_generation_counter{};
+    struct StagingBuffer {
+        u64 index{};
+        u64 tick{};
+        bool deferred{};
+        StagingBufferRef Ref() const noexcept {
+            return {.usage=MemoryUsage::Upload,.log2_level=5,.index=index,.kind=2};
+        }
+    };
+    struct StagingBuffers {
+        std::vector<StagingBuffer> entries{};
+        std::size_t delete_index{}, iterate_index{};
+    };
+    using StagingBuffersCache = std::array<StagingBuffers, 65>;
+    StagingBuffersCache upload_cache{}, download_cache{};
+    StagingBuffersCache& GetCache(MemoryUsage usage) {
+        return usage == MemoryUsage::Upload ? upload_cache : download_cache;
+    }
+    std::optional<StagingBufferRef> TryGetReservedBuffer(std::size_t, MemoryUsage, bool);
+    void FreeDeferred(StagingBufferRef&);
+    void ReleaseLevel(StagingBuffersCache&, std::size_t);
     StagingBufferRef GetStreamBuffer(std::size_t) { return {.kind=1}; }
     StagingBufferRef GetStagingBuffer(std::size_t, MemoryUsage, bool) {
         return {.kind=2};
@@ -99,6 +130,9 @@ public:
     StagingBufferRef Request(std::size_t, MemoryUsage, bool deferred = false);
 };
 @@STAGING_REQUEST@@
+@@STAGING_REUSE@@
+@@STAGING_DEFERRED_FREE@@
+@@STAGING_RETIRED_DELETE@@
 @@DISPATCH_WORK@@
 struct Buffer {
     struct NativeBackingSnapshot {
@@ -194,6 +228,45 @@ int main() {
     catch (const std::overflow_error&) { rejected = true; }
     check(rejected);
     check(pool.request_generation_counter == (std::numeric_limits<u64>::max)());
+
+    // Source-derived GPU retirement checks: an object in a pending tick
+    // cannot be reused or erased, and deferred staging cannot be reused until
+    // FreeDeferred stamps its submission tick and GPU completion reaches it.
+    StagingBufferPool retiring;
+    retiring.scheduler.tick = 10;
+    retiring.scheduler.completed_gpu_tick = 8;
+    auto& cache = retiring.GetCache(MemoryUsage::Upload);
+    auto& slot = cache[5];
+    slot.entries.push_back({.index=42,.tick=9,.deferred=false});
+    check(!retiring.TryGetReservedBuffer(32,MemoryUsage::Upload,false).has_value());
+    retiring.scheduler.completed_gpu_tick = 9;
+    auto reused = retiring.TryGetReservedBuffer(32,MemoryUsage::Upload,false);
+    check(reused.has_value() && reused->index == 42);
+    check(slot.entries[0].tick == 10 && !slot.entries[0].deferred);
+    check(!retiring.TryGetReservedBuffer(32,MemoryUsage::Upload,false).has_value());
+    slot.entries.push_back({.index=43,.tick=~u64{},.deferred=true});
+    check(!retiring.TryGetReservedBuffer(32,MemoryUsage::Upload,false).has_value());
+    StagingBufferRef deferred{};
+    deferred.usage = MemoryUsage::Upload;
+    deferred.log2_level = 5;
+    deferred.index = 43;
+    retiring.FreeDeferred(deferred);
+    check(!slot.entries[1].deferred && slot.entries[1].tick == 10);
+    check(!retiring.TryGetReservedBuffer(32,MemoryUsage::Upload,false).has_value());
+    // Validate the real ReleaseLevel source, with an already-retired object
+    // in another slot and a pending one that must survive this scan.
+    StagingBufferPool deleting;
+    deleting.scheduler.completed_gpu_tick = 9;
+    auto& level = deleting.GetCache(MemoryUsage::Upload)[5];
+    level.entries.push_back({.index=55,.tick=8,.deferred=false});
+    level.entries.push_back({.index=56,.tick=10,.deferred=false});
+    deleting.ReleaseLevel(deleting.GetCache(MemoryUsage::Upload),5);
+    check(level.entries.size()==1 && level.entries[0].index == 56);
+    deleting.ReleaseLevel(deleting.GetCache(MemoryUsage::Upload),5);
+    check(level.entries.size()==1 && level.entries[0].index == 56);
+    deleting.scheduler.completed_gpu_tick=10;
+    deleting.ReleaseLevel(deleting.GetCache(MemoryUsage::Upload),5);
+    check(level.entries.empty());
 
     // Execute the real CopyStagingUpload() body, not an independently
     // rewritten test version. CopyBuffer() is a recording-only host double.
@@ -293,7 +366,7 @@ int main() {
 }
 """
 
-def extract_methods() -> tuple[str, str, str, str]:
+def extract_methods() -> tuple[str, str, str, str, str, str, str]:
     scheduler = SCHED.read_text()
     start = scheduler.index(
         "#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)\n"
@@ -310,6 +383,17 @@ def extract_methods() -> tuple[str, str, str, str]:
     request = stage[start:end]
     assert request.count("++request_generation_counter") == 1
     assert request.count("scheduler.CurrentTick()") == 1
+    free_start = stage.index("void StagingBufferPool::FreeDeferred(")
+    free_end = stage.index("void StagingBufferPool::TickFrame()",free_start)
+    free_deferred = stage[free_start:free_end]
+    reuse_start = stage.index("std::optional<StagingBufferRef> StagingBufferPool::TryGetReservedBuffer(")
+    reuse_end = stage.index("StagingBufferRef StagingBufferPool::CreateStagingBuffer(",reuse_start)
+    reuse = stage[reuse_start:reuse_end]
+    reclaim_start = stage.index("void StagingBufferPool::ReleaseLevel(")
+    reclaim = stage[reclaim_start:stage.index("} // namespace Vulkan",reclaim_start)]
+    assert reuse.count("scheduler.IsFree(entry.tick)") == 1
+    assert free_deferred.count("it->tick = scheduler.CurrentTick()") == 1
+    assert reclaim.count("scheduler.IsFree(entry.tick)") == 1
     native = SCHED_IMPL.read_text()
     start = native.index("void Scheduler::DispatchWork() {")
     end = native.index("void Scheduler::BeginRenderPassImpl(", start)
@@ -325,7 +409,7 @@ def extract_methods() -> tuple[str, str, str, str]:
     typed_copy = runtime[start:end]
     assert typed_copy.count("NS2Research::StagingRegionCoalescer<64> fused") == 1
     assert typed_copy.count("CopyBuffer(dst.handle, staging.buffer") == 3
-    return scheduler_methods, request, dispatch, typed_copy
+    return scheduler_methods, request, dispatch, typed_copy, reuse, free_deferred, reclaim
 
 def run() -> None:
     for path, sha in SOURCE_BLOBS.items():
@@ -350,9 +434,12 @@ def run() -> None:
     assert runtime.count("if (copies.size() < 2)") == 1
     print("R2_TYPED_UPLOAD_STILL_ORDERED: callers=2 explicit_barriers=2 cross_call_batching=OFF in_call_region_fusion=ON")
 
-    scheduler, request, dispatch, typed_copy = extract_methods()
+    scheduler, request, dispatch, typed_copy, reuse, free_deferred, reclaim = extract_methods()
     content = (TEMPLATE.replace("@@SCHEDULER_METHODS@@", scheduler)
                        .replace("@@STAGING_REQUEST@@", request)
+                       .replace("@@STAGING_REUSE@@", reuse)
+                       .replace("@@STAGING_DEFERRED_FREE@@", free_deferred)
+                       .replace("@@STAGING_RETIRED_DELETE@@", reclaim)
                        .replace("@@DISPATCH_WORK@@", dispatch)
                        .replace("@@RUNTIME_METHOD@@", typed_copy))
     with tempfile.TemporaryDirectory(prefix="ns2-r2-source-owners-") as d:
@@ -378,7 +465,7 @@ def run() -> None:
                         f"R2 source-owner runtime failed {compiler} O{opt}:\n" +
                         tested.stdout[-2000:] + tested.stderr[-5000:])
                 print(f"{compiler} -O{opt}: {tested.stdout.strip()}")
-    print("PASS: 4 exact-method sanitizer binaries (scheduler, staging, typed-copy); no PS5 build")
+    print("PASS: 4 exact-method sanitizer binaries (scheduler, staging reuse/retire, typed-copy); no PS5 build")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
