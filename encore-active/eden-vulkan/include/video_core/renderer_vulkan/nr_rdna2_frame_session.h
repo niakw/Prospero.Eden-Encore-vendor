@@ -47,6 +47,9 @@ public:
         return record_attempted && serial_after >= serial_before
                    ? serial_after - serial_before : 0u;
     }
+    [[nodiscard]] VkExtent2D ResultExtent() const noexcept {
+        return ready ? output_raster : VkExtent2D{};
+    }
     [[nodiscard]] VkImageView ResultView() const noexcept {
         return recorded?output_view:VK_NULL_HANDLE;
     }
@@ -57,6 +60,7 @@ private:
     Scheduler& scheduler;
     std::unique_ptr<State> state;
     VkImageView output_view{VK_NULL_HANDLE};
+    VkExtent2D output_raster{};
     std::string_view init_phase{"unstarted"};
     std::uint64_t serial_before{},serial_after{};
     bool attempted{},ready{},record_attempted{},recorded{};
