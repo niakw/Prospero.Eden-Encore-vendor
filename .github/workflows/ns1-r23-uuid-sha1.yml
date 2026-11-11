@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - "encore-active/eden-core/src/core/hle/service/am/service/application_functions.cpp"
+      - "encore-active/ns2-runtime/am/core/hle/service/am/service/application_functions.cpp"
       - "encore-active/eden-core/src/common/uuid.cpp"
       - "encore-active/eden-core/include/common/uuid.h"
       - "tests/ns1_r23_126_uuid_sha1.py"
