@@ -32,6 +32,20 @@ public:
         size_t image_index, VkImage source_image, VkImageView source_view,
         VkExtent2D input_extent, const Common::Rectangle<f32>& crop);
 
+    // Research-only, non-owning dual-handle result for feeding the NEXT
+    // spatial Vulkan filter on the same queue. The next filter requires the
+    // actual VkImage AND VkImageView; view-only handoff is insufficient.
+    // Lifetime belongs exclusively to Anime4K3D until its slot GPU tick
+    // has retired; do not destroy either object from the consumer.
+    struct OutputFrame {
+        VkImage image{};
+        VkImageView view{};
+        VkExtent2D extent{};
+    };
+    [[nodiscard]] std::optional<OutputFrame> DrawFrame(
+        size_t image_index, VkImage source_image, VkImageView source_view,
+        VkExtent2D input_extent, const Common::Rectangle<f32>& crop);
+
 private:
     struct Frame {
         // Scratch 0/1 reused by convolutions; Soft also needs scratch 2
