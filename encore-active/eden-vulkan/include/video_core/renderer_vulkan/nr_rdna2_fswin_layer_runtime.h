@@ -31,6 +31,13 @@ public:
         const Eden::Graphics::NeuralRDNA2::NeuralModelFile& model,
         std::string_view layer_prefix,std::uint32_t channels,
         std::uint32_t windows,bool residual_last);
+#if defined(PS5_NATIVE)
+    [[nodiscard]] bool InitializeWithScratch(
+        const Eden::Graphics::NeuralRDNA2::NeuralModelFile& model,
+        std::string_view layer_prefix,std::uint32_t channels,
+        std::uint32_t windows,bool residual_last,
+        const std::array<VkDescriptorBufferInfo,4>& scratch);
+#endif
     // Caller must ensure prior GPU uses of input have finished.
     [[nodiscard]] bool UploadInput(
         std::span<const std::uint8_t> e4m3_window_tokens);

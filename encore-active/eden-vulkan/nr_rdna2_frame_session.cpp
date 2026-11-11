@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 // One-shot model-driven assembly of every known R09 first-frame stage.
 // This is deliberately NOT an on/off UI or a PS5 swapchain hook.
+#if defined(PS5_NATIVE)
+#include "rdna2_nr_vit_min_pool_policy.h"
+#endif
 #include "video_core/renderer_vulkan/nr_rdna2_frame_session.h"
 #include "video_core/renderer_vulkan/nr_rdna2_core_feature_sequence.h"
 #include "video_core/renderer_vulkan/nr_rdna2_neural_bottleneck.h"
@@ -133,6 +136,40 @@ struct NrRdna2FrameSession::State {
     }
     [[nodiscard]] bool MakeVitBuffers(
         std::vector<NrRdna2VitBlockBuffers>& result){
+#if defined(PS5_NATIVE)
+        // Native PS5 pool. Buffers are State-owned per frame session; never
+        // share Vulkan allocations across concurrent sessions or GPU epochs.
+        result.clear();
+        auto layout=NR::MakeVitMinPoolLayout(vit_route.tokens);
+#if defined(EDEN_R09_MIN_VIT_POOL_SCRATCH_PLANES)
+        // Optional supported pool scratch-plane specialization. Refuse
+        // unsupported choices instead of falling back silently.
+        layout=NR::MakeVitMinPoolLayout(
+            vit_route.tokens,EDEN_R09_MIN_VIT_POOL_SCRATCH_PLANES);
+#endif
+        if(!layout.valid || vit_route.count!=NR::kVitMinBlocks)
+            return false;
+        std::array<VkDescriptorBufferInfo,NR::kVitMinSlots> pool{};
+        for(std::size_t i=0u;i<pool.size();++i){
+            pool[i]=Make(layout.slot_bytes[i]);
+            if(!pool[i].buffer)return false; // State owner rolls back.
+        }
+        result.reserve(layout.block_slots.size());
+        for(const auto& ids:layout.block_slots){
+            NrRdna2VitBlockBuffers b{};
+            b.input=pool[ids[0u]];
+            b.hidden=pool[ids[1u]];
+            b.ffwd=pool[ids[2u]];
+            b.attention_context=pool[ids[3u]];
+            b.output=pool[ids[4u]];
+            b.scratch=pool[ids[5u]];
+            b.query=pool[ids[6u]];
+            b.key=pool[ids[7u]];
+            b.value=pool[ids[8u]];
+            result.emplace_back(b);
+        }
+        return result.size()==NR::kVitMinBlocks;
+#else
         result.clear();
         result.reserve(vit_route.count);
         const auto tokens=std::uint64_t(vit_route.tokens);
@@ -155,6 +192,8 @@ struct NrRdna2FrameSession::State {
             result.emplace_back(b);
         }
         return true;
+    
+#endif
     }
 };
 NrRdna2FrameSession::NrRdna2FrameSession(

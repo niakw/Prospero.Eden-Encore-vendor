@@ -4,10 +4,14 @@
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_chain.h"
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_raster_host.h"
 #include "video_core/renderer_vulkan/nr_rdna2_native_plan_bridge.h"
+#if defined(PS5_NATIVE)
+#include "rdna2_nr_fswin_scratch_pool_policy.h"
+#endif
 #include "video_core/renderer_vulkan/present/util.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_memory_allocator.h"
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -53,15 +57,68 @@ bool NrRdna2FSwinChain::Initialize(
             proposed_layouts.data(),proposed_layouts.size()},windows))
         return false;
 
+#if defined(PS5_NATIVE)
+    // Only the four temporary FSwin roles are shared between SEQUENTIAL
+    // layers of THIS chain. The Upload inputs, DeviceLocal outputs,
+    // per-layer learned weights and all other chains remain independent.
+    namespace NR=Eden::Graphics::NeuralRDNA2;
+    const auto shared_plan=NR::MakeFswinSharedScratchPlan(
+        channels,windows,static_cast<std::uint32_t>(specs.size()));
+    NR::FSwinGraph actual{};
+    if(!shared_plan.valid||
+       !NR::MakeFSwinGraphPlan(channels,windows,actual)||
+       shared_plan.private_input_bytes!=
+         std::max(actual.dense_storage[0].input_bytes,
+                  actual.dense_storage[2].residual_bytes)||
+       shared_plan.private_output_bytes!=
+         actual.dense_storage[3].output_bytes||
+       shared_plan.capacity[0]!=actual.dense_storage[0].output_bytes||
+       shared_plan.capacity[1]!=
+         (channels==32u?0u:actual.dense_storage[1].output_bytes)||
+       shared_plan.capacity[2]!=std::max({
+         actual.dense_storage[2].output_bytes,
+         actual.dense_storage[3].residual_bytes,
+         actual.qkv_storage.activation_bytes})||
+       shared_plan.capacity[3]!=std::max(
+         actual.attention_storage.out_bytes,
+         actual.dense_storage[3].input_bytes))return false;
+    std::array<vk::Buffer,4> scratch_owner{};
+    std::array<VkDescriptorBufferInfo,4> scratch_views{};
+    for(std::size_t i=0u;i<scratch_owner.size();++i){
+        const auto bytes=shared_plan.capacity[i];
+        if(!bytes)continue; // C32 has no middle stage.
+        if(bytes>device.GetMaxStorageBufferRange()||
+           bytes>(256ull<<20u)||(bytes&3u))return false;
+        const VkBufferCreateInfo ci{
+            .sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext=nullptr,.flags=0u,.size=bytes,
+            .usage=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|
+                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT|
+                   VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            .sharingMode=VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount=0u,.pQueueFamilyIndices=nullptr,
+        };
+        scratch_owner[i]=allocator.CreateBuffer(ci,MemoryUsage::DeviceLocal);
+        if(!scratch_owner[i])return false;
+        scratch_views[i]=VkDescriptorBufferInfo{
+            .buffer=*scratch_owner[i],.offset=0u,.range=bytes};
+    }
+#endif
     // Prepare all independent weight buffers, tensors and FSwin passes.
     std::vector<std::unique_ptr<NrRdna2FSwinLayerRuntime>> prepared;
     prepared.reserve(specs.size());
     for(const auto& spec:specs){
         auto runtime=std::make_unique<NrRdna2FSwinLayerRuntime>(
             device,allocator,scheduler);
+#if defined(PS5_NATIVE)
+        if(!runtime->InitializeWithScratch(
+                model,spec.prefix,spec.channels,spec.windows,
+                spec.residual_last,scratch_views))return false;
+#else
         if(!runtime->Initialize(model,spec.prefix,spec.channels,
                                 spec.windows,spec.residual_last))
             return false;
+#endif
         prepared.emplace_back(std::move(runtime));
     }
 
@@ -142,6 +199,11 @@ bool NrRdna2FSwinChain::Initialize(
     window_sets=std::move(proposed_window_sets);
     window_plans=std::move(proposed_window_plans);
     layouts=std::move(proposed_layouts);
+#if defined(PS5_NATIVE)
+    // Transfer ownership while all borrower layers are still alive.
+    // Header member order destroys layers first, shared scratch last.
+    chain_shared_scratch=std::move(scratch_owner);
+#endif
     layers=std::move(prepared);
     input_view=specs.front().input_view;
     output_view=specs.back().output_view;

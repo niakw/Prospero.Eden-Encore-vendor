@@ -21,6 +21,13 @@ public:
     NrRdna2FSwinGpuTensors& operator=(const NrRdna2FSwinGpuTensors&)=delete;
     [[nodiscard]] bool Initialize(
         const Eden::Graphics::NeuralRDNA2::FSwinGraph& plan);
+#if defined(PS5_NATIVE)
+    // Research-only overload. Scratch handles are BORROWED from the parent
+    // chain; layer still owns its distinct mapped input and GPU output.
+    [[nodiscard]] bool InitializeWithScratch(
+        const Eden::Graphics::NeuralRDNA2::FSwinGraph& plan,
+        const std::array<VkDescriptorBufferInfo,4>& shared_scratch);
+#endif
     [[nodiscard]] bool UploadInput(std::span<const std::uint8_t> fp8_tokens);
     [[nodiscard]] VkBuffer InputBuffer() const noexcept{return Info(0).buffer;}
     [[nodiscard]] VkBuffer OutputBuffer() const noexcept{return Info(8).buffer;}
@@ -34,6 +41,10 @@ private:
     MemoryAllocator& allocator;
     std::array<vk::Buffer,9> buffers{};
     std::array<VkDeviceSize,9> sizes{};
+#if defined(PS5_NATIVE)
+    std::array<VkDescriptorBufferInfo,4> shared_scratch{};
+    bool shared_scratch_active{};
+#endif
     bool ready{};
 };
 } // namespace Vulkan

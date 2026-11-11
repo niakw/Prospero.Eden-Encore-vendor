@@ -11,6 +11,7 @@
 #include "video_core/renderer_vulkan/nr_rdna2_fswin_raster_layout.h"
 #include "video_core/renderer_vulkan/nr_rdna2_native_plan_bridge.h"
 #include "rdna2_nr_fswin_chain_layout_policy.h"
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -147,6 +148,11 @@ private:
     const Device& device;
     MemoryAllocator& allocator;
     Scheduler& scheduler;
+#if defined(PS5_NATIVE)
+    // Declared BEFORE layers: destroyed LAST. No borrowed buffer may
+    // outlive its parent chain, including in a partially prepared state.
+    std::array<vk::Buffer,4> chain_shared_scratch{};
+#endif
     std::vector<std::unique_ptr<NrRdna2FSwinLayerRuntime>> layers;
     NrRdna2FSwinWindowRepack window_repack;
     NrRdna2FSwinRasterLayout raster_input;
