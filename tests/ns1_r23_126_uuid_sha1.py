@@ -28,6 +28,13 @@ sha=hashlib.sha1(b"blob "+str(len(recovered)).encode()+bytes([0])+recovered).hex
 assert sha=="6f80d50d4c732004bef6ff387dbbc68e0778d1e3",sha
 assert "R_UNLESS(ok && hash_len == 20, ResultUnknown);" in new
 assert "R_UNLESS(ctx != nullptr, ResultUnknown);" in new
+selected=root/"encore-active/ns2-runtime/am/core/hle/service/am/service/application_functions.cpp"
+selected_bytes=selected.read_bytes()
+selected_blob=hashlib.sha1(b"blob "+str(len(selected_bytes)).encode()+bytes([0])+selected_bytes).hexdigest()
+assert selected_blob=="3b7807a27ce8d4f4d2066413566d6cfc8d958baa",selected_blob
+assert 'std::span<u8, 16>{hash, 16}' in selected.read_text()
+assert 'std::span<u8, 20>{hash, std::size(hash)}' not in selected.read_text()
+
 for rel, blob in [
  ("src/common/uuid.cpp","4b992c5df89897107226bbfa591ed29b332d968b"),
  ("include/common/uuid.h","465b5be58d7c8a948a2b5acba640ce47bd4bd73b"),
