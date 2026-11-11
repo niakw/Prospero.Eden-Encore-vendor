@@ -54,7 +54,7 @@ int main() {
                 3'000'000'000ULL,4'000'000'000ULL}) {
    WallClock w{true,freq};
    auto oracle=[&](std::int64_t n) {
-     if(n<=0) return 0ULL;
+     if(n<=0) return u64{0};
      return static_cast<u64>((static_cast<unsigned __int128>(n)*freq)/1000000000ULL);
    };
    u64 prior=0;
@@ -69,7 +69,8 @@ int main() {
  }
  WallClock fallback{false,0};
  assert(fallback.NsToTicks(nanoseconds{456})==456);
- assert(WallClock{true,3'000'000'000ULL}.NsToTicks(nanoseconds{1000000000})==3'000'000'000ULL);
+ WallClock fast{true,3'000'000'000ULL};
+ assert(fast.NsToTicks(nanoseconds{1000000000})==3'000'000'000ULL);
 }
 """;
 with tempfile.TemporaryDirectory(prefix="r23-clock-") as temp:
