@@ -333,6 +333,10 @@ int main() {
     aba.iterator = 0;
     aba.free_iterator = 0;
     aba.used_iterator = 0;
+    // Hostile allocator witness deliberately corrupts the old ring tick.
+    // Without this, the existing pool correctly chooses fallback staging,
+    // and we would not exercise the new independent physical owner guard.
+    aba.sync_ticks.fill(0);
     bool denied_overwrite = false;
     try { (void)aba.Request(32, MemoryUsage::Upload); }
     catch (const std::out_of_range&) { denied_overwrite = true; }
