@@ -38,6 +38,30 @@ bool NrRdna2FSwinLayerRuntime::Initialize(
     ready=true;
     return true;
 }
+#if defined(EDEN_R09_MIN_FSWIN_SCRATCH_POOL_EXPERIMENTAL) && EDEN_R09_MIN_FSWIN_SCRATCH_POOL_EXPERIMENTAL
+bool NrRdna2FSwinLayerRuntime::InitializeWithScratch(
+    const NeuralModelFile& model,std::string_view layer_prefix,
+    std::uint32_t channels,std::uint32_t windows,bool residual_last,
+    const std::array<VkDescriptorBufferInfo,4>& scratch){
+    if(ready)return false;
+    FSwinGraph proposed{};
+    if(!MakeFSwinGraphPlan(channels,windows,proposed))return false;
+    NeuralWeightArena staging{};
+    FSwinLayerWeightRanges ranges{};
+    if(!PrepareFSwinLayerWeights(model,layer_prefix,channels,
+                                 residual_last,staging,ranges))return false;
+    if(!BindFSwinGraphWeights(ranges,staging.Bytes().size(),
+                              proposed))return false;
+    if(!gpu_weights.Initialize(staging.Bytes()))return false;
+    if(!tensors.InitializeWithScratch(proposed,scratch))return false;
+    if(!descriptors.Initialize(graph,proposed,
+        tensors.Views(gpu_weights.Descriptor())))return false;
+    plan=proposed;
+    ready=true;
+    return true;
+}
+#endif
+
 bool NrRdna2FSwinLayerRuntime::UploadInput(
     std::span<const std::uint8_t> e4m3_window_tokens){
     if(!ready||!tensors.UploadInput(e4m3_window_tokens))return false;
