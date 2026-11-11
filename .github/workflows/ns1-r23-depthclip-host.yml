@@ -1,0 +1,22 @@
+name: NS1 R23 Vulkan EDS3 depth clamp selected source and truth table
+on:
+  push:
+    branches:
+      - research/ns1-r23-eds3-depthclip-20261112
+  pull_request:
+    paths:
+      - "encore-active/eden-vulkan/**"
+      - "tests/ns1_r23_2_depth_clip.py"
+      - ".github/workflows/ns1-r23-depthclip-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  depthclip-source-and-abi:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_2_depth_clip.py
