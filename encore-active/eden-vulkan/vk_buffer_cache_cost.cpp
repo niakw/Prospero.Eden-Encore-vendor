@@ -537,6 +537,13 @@ void BufferCacheRuntime::CopyStagingUpload(const Buffer& destination,
     const bool same_recording = scheduler.R2RecordingStillCurrent(record);
     const bool same_request_tick = NS2Research::IsCurrentStagingRequest(
         staging.request_generation, staging.request_submission_tick, record.submission_tick);
+    const bool may_reorder = can_reorder_upload && same_recording && same_request_tick;
+    // The common inline-upload case contains one region. Preserve its exact
+    // old fast path without initializing the 64-slot region accumulator.
+    if (copies.size() < 2) {
+        CopyBuffer(dst.handle, staging.buffer, copies, barrier, may_reorder);
+        return;
+    }
     // One existing vkCmdCopyBuffer may already contain many regions. Merge
     // only physically verified adjacent source AND destination spans within
     // this same call, preserving the original command's barriers/order.
@@ -549,7 +556,6 @@ void BufferCacheRuntime::CopyStagingUpload(const Buffer& destination,
             break;
         }
     }
-    const bool may_reorder = can_reorder_upload && same_recording && same_request_tick;
     if (fully_captured && fused.Size() < copies.size()) {
         boost::container::small_vector<VideoCommon::BufferCopy, 8> compact;
         compact.reserve(fused.Size());
