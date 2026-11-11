@@ -16,8 +16,11 @@ s=SOURCE.read_text()
 h=HEADER.read_text()
 start="u64 WallClock::NsToTicks(std::chrono::nanoseconds ns) const {"
 end="\n#elif defined(HAS_NCE)"
-assert s.count(start)==1 and s.count(end)>=1
-method=start+s.split(start,1)[1].split(end,1)[0]
+# The file has three architecture-specific WallClock methods. Extract only
+# the PS5 x64 implementation, not the NCE/fallback copies.
+x64=s.split(end,1)[0]
+assert x64.count(start)==1 and s.count(end)>=1
+method=start+x64.split(start,1)[1]
 original="    return invariant ? MultiplyHigh(ns.count(), rdtsc_ns_factor) : ns.count();"
 assert "unsigned __int128" in method and "product / NsRatio::den" in method
 old_init="    , rdtsc_ns_factor{invariant_ ? GetFixedPoint64Factor(rdtsc_frequency_, NsRatio::den) : 1}\n"
