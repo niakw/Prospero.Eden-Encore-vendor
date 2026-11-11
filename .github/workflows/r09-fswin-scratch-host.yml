@@ -24,6 +24,7 @@ on:
       - 'tools/r09_fswin_native_dense_pool_compare.cpp'
       - 'tools/r09_fswin_native_attention_pool_compare.cpp'
       - 'tools/r09_fswin_native_full_c32_pool_compare.cpp'
+      - 'tools/r09_fswin_native_full_c64plus_pool_compare.cpp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/fswin_qkv_rdna2.comp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/window_attention_rdna2.comp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/fswin_dense_rdna2.comp'
@@ -234,7 +235,33 @@ jobs:
               .build-r09-fswin/fswin_dense_native.spv
           done
           echo R09_FSWIN_FULL_C32_FIVE_NATIVE_PASSES_GPU_AB_AND_KHRONOS_PASS
-          echo R09_FSWIN_PUBLIC_TEST_WEIGHTS_NO_ORIGINAL_MODEL_OR_PS5
+          echo R09_FSWIN_C32_FULL_NATIVE_GPU_AND_KHRONOS_PASS
+
+      - name: Exercise native middle Dense and all scratch roles for C64/C128/C256
+        shell: bash
+        run: |
+          set -euo pipefail
+          icd="$(find /usr/share/vulkan/icd.d -maxdepth 1 \
+            -type f -name 'lvp_icd*.json' -print -quit)"
+          test -n "$icd" && test -f "$icd"
+          export VK_ICD_FILENAMES="$icd"
+          for channels in 64 128 256; do
+            g++ -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+              -DR09_FSWIN_TEST_CHANNELS="$channels" \
+              tools/r09_fswin_native_full_c64plus_pool_compare.cpp \
+              -lvulkan -o ".build-r09-fswin/full-native-c${channels}"
+            # Khronos-on variant runs both PRIVATE and POOLED A/B,
+            # so no second redundant software GPU execution is needed.
+            R09_FSWIN_VALIDATE_SYNC=1 \
+              ".build-r09-fswin/full-native-c${channels}" \
+                .build-r09-fswin/fswin_qkv_native.spv \
+                .build-r09-fswin/window_attention_native.spv \
+                .build-r09-fswin/fswin_dense_native.spv
+            echo "R09_FSWIN_FULL_NATIVE_C${channels}_GPU_AB_AND_KHRONOS_PASS"
+          done
+          echo R09_FSWIN_FULL_NATIVE_C64_C128_C256_PUBLIC_FIXTURE_PASS
+          echo R09_FSWIN_NO_TRAINED_MODEL_NO_PS5_PERFORMANCE_PROOF
+
 
 
   authentic-native-syntax:
