@@ -120,8 +120,8 @@ template<>
         code.and_(page, tmp);
     }
     if (ctx.conf.page_table_sign_extension) {
-        code.shl(page, *ctx.conf.page_table_sign_extension);
-        code.sar(page, *ctx.conf.page_table_sign_extension);
+        code.shl(page, 63 - int(*ctx.conf.page_table_sign_extension));
+        code.sar(page, 63 - int(*ctx.conf.page_table_sign_extension));
     }
     }
 
