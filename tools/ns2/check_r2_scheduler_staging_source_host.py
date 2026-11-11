@@ -40,6 +40,8 @@ TEMPLATE = r"""
 #include <utility>
 #include <vector>
 #include "ns2_staging_upload_bounds.h"
+// The extracted method normally lives in namespace Vulkan.
+namespace NS2Research = Vulkan::NS2Research;
 using u64 = std::uint64_t;
 using u8 = std::uint8_t;
 using VkRenderPass = std::uintptr_t;
