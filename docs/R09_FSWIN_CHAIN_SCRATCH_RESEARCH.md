@@ -86,3 +86,19 @@ The opt-in scratch-pooling branch now covers **all four native FSwin channel pro
 Every case compares **independent per-layer scratch buffers** against **one set of shared scratch per chain**, retaining physically separate GPU Input/Output for every layer, real Vulkan transfers/compute barriers and asynchronous fence completion. Each A/B captures Q/K/V snapshots and final per-layer outputs; all results are nonzero and vary significantly. Host tests use **public identity-style FP8 weights**, not authenticated learned tensors. The GPU is Lavapipe on GitHub Actions, not PS5 RDNA2; the test layers have **one 64-token window** each, not the actual large 720p multiwindow graph. The eight-chain 44/16-layer stress is a separate **synthetic-shader** witness; do not mistake it for real model inference.
 
 **Completed in this audit phase:** native scratch ownership and destruction order, no default-build activation, compiler syntax macro 0/1, Vulkan synthetic 44/16 chain, and numerically identical, Khronos-clean native C32/C64/C128/C256 **per-layer test-weight** graphics shaders. **Still open:** real learned-weight 720p multiwindow shifts, true U-Net down/up/skip adapters and all 44 Original FSwin layers in a single full 152-operation GPU graph, PS5 VRAM/frame time/quality and the 720p post-neural FSR handoff. Remain draft, unmerged, and runtime OFF.
+
+## True 720p FSwin multiwindow Vulkan A/B — all four shape levels
+
+All four 720p native FSwin spatial shapes have passed a **real GPU test-weight Vulkan A/B**, comparing per-layer private versus per-chain shared scratch on the unmodified FSwin Dense/QKV/window-attention shaders. Evidence: [vendor CI #42946191616](https://github.com/niakw/Prospero.Eden-Encore-vendor/actions/runs/42946191616), **3/3 jobs green** (policy/native methods, exact full C++ TU syntax with experiment OFF/ON, real multiwindow GPU readback and Khronos synchronization validation). The 720p test cases each execute **two sequential layers**, enough to exercise true scratch reuse, but **not all 44 Original learned FSwin layers**.
+
+| 720p FSwin channel shape | Windows per layer | Real native passes | Exact A/B GPU readback bytes | Khronos positive errors |
+| --- | ---: | ---: | ---: | ---: |
+| C32 | 3,600 | 5 (no middle Dense) | 58,982,400 / 58,982,400 | 0 |
+| C64 | 920 | 6 | 30,146,560 / 30,146,560 | 0 |
+| C128 | 240 | 6 | 15,728,640 / 15,728,640 | 0 |
+| C256 | 60 | 6 | 7,864,320 / 7,864,320 | 0 |
+| **Total** | | | **112,721,920 / 112,721,920** | **0** |
+
+Each run uses public deterministic FP8 weights and input, GPU command recording and copies between private per-layer Input/Output VkBuffers, separate baseline vs pooled Vulkan scratch handles, snapshot readback, at least two windows with nontrivial outputs, and Khronos sync validation enabled for both paths. The correctly synchronized paths have zero reported validation errors. The stress harness additionally tests four/six native stages at one window and distinct synthetic 44/16-layer chains. **Important:** exact GPU A/B equality proves the scratch assignment does not change this fixture's outputs, **NOT** that the unpooled shader matches actual proprietary trained-model numerical reference, and not that all 152 Original operations work end to end.
+
+**Next critical blockers:** authorized original model weights and full learned FSwin 44-layer session including downsample, upsample, skip and shifted-window adapters; genuine 152-operation 720p model GPU inference with image output; correct post-NR EASU+RCAS upscaling and presentation; measured PS5 peak GPU memory, frametime and quality A/B with a safe fallback. The expected 627.1875 MiB/Original-slot allocation reduction remains **source-derived nominal logical bytes**, not physical PS5 memory residency; this isolated vendor branch remains **draft, unmerged, default-OFF, unpinned by Encore**.
