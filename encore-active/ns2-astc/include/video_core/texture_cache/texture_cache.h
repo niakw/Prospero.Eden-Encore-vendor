@@ -1148,6 +1148,41 @@ bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
             !registry.IsGraphicsCurrent(maxwell3d, *ticket)) {
             return false;
         }
+        // An image cache ID and a distinct GPU virtual address do not prove
+        // distinct physical guest backing. Reject sparse, stale, discontinuous
+        // and physically overlapping allocations, preserving generic fallback.
+        struct PhysicalSpan {
+            u64 address;
+            u64 bytes;
+        };
+        const auto capture_physical = [&](ImageId id) -> std::optional<PhysicalSpan> {
+            const Image& image = slot_images[id];
+            const u64 bytes = image.guest_size_bytes;
+            constexpr u64 max_research_span = 256ULL * 1024 * 1024;
+            if (!image.gpu_addr || !bytes || bytes > max_research_span ||
+                image.gpu_addr > std::numeric_limits<u64>::max() - (bytes - 1) ||
+                !gpu_memory->IsContinuousRange(image.gpu_addr, bytes)) {
+                return std::nullopt;
+            }
+            const auto start = gpu_memory->GpuToCpuAddress(image.gpu_addr);
+            const auto end = gpu_memory->GpuToCpuAddress(image.gpu_addr + bytes - 1);
+            if (!start || !end || *start != image.cpu_addr ||
+                *start > std::numeric_limits<u64>::max() - (bytes - 1) ||
+                *end != *start + bytes - 1) {
+                return std::nullopt;
+            }
+            return PhysicalSpan{*start, bytes};
+        };
+        const auto overlaps = [](PhysicalSpan lhs, PhysicalSpan rhs) {
+            return lhs.address <= rhs.address
+                ? rhs.address - lhs.address < lhs.bytes
+                : lhs.address - rhs.address < rhs.bytes;
+        };
+        const auto src_physical = capture_physical(src_slice->id);
+        const auto dst_physical = capture_physical(dst_slice->id);
+        if (!src_physical || !dst_physical || overlaps(*src_physical, *dst_physical)) {
+            return false;
+        }
         // Distinct cache IDs can still cover intersecting guest GPU ranges.
         // The guarded path does not implement an overlapping image transfer.
         const Image& src_image = slot_images[src_slice->id];
@@ -1175,6 +1210,16 @@ bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
             src_after->depth != src_slice->depth ||
             dst_after->depth != dst_slice->depth ||
             !registry.IsGraphicsCurrent(maxwell3d, *ticket)) {
+            return false;
+        }
+        const auto src_physical_after = capture_physical(src_slice->id);
+        const auto dst_physical_after = capture_physical(dst_slice->id);
+        if (!src_physical_after || !dst_physical_after ||
+            src_physical_after->address != src_physical->address ||
+            dst_physical_after->address != dst_physical->address ||
+            src_physical_after->bytes != src_physical->bytes ||
+            dst_physical_after->bytes != dst_physical->bytes ||
+            overlaps(*src_physical_after, *dst_physical_after)) {
             return false;
         }
         MarkModification(slot_images[dst_slice->id]);
