@@ -71,7 +71,7 @@ int main() {
  assert(p.Parse("{master}FFFFFFFF").size()==1);
  auto valid=p.Parse("["+std::string(100,'Z')+"]12345678");
  assert(valid.size()==2);
- assert(valid[1].definition.readable_name[63]=='\\0');
+ assert(valid[1].definition.readable_name[63]=='\0');
  assert(p.Parse(std::string(4, char(255))).empty());
  std::mt19937 random{12345};
  for(int trial=0;trial<15000;trial++) {
