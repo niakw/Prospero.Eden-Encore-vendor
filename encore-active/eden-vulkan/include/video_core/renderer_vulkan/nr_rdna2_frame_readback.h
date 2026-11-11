@@ -27,7 +27,8 @@ struct NrRdna2FrameGpuReadback {
 // GENERAL-layout target image and the view previously passed to Initialize.
 // Source image upload/creation is the embedding host's responsibility.
 // This performs real GPU submission, waits for its completion and reads back
-// 1920x1080 RGBA32F; it does NOT fabricate per-plan-op evidence or an oracle.
+// a native 1920x1080 or research 1280x720 RGBA32F image; it does NOT
+// fabricate per-plan-op evidence or an oracle.
 // The owning frame and image must outlive this synchronous call.
 [[nodiscard]] bool ExecuteR09FrameAndReadback(
     NrRdna2FrameSession& frame,

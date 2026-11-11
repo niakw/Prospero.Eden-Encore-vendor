@@ -368,6 +368,7 @@ bool NrRdna2FrameSession::Initialize(
         return false;
     state=std::move(candidate);
     output_view=target_view;
+    output_raster=target_extent;
     ready=true;
     init_phase="completed";
     return true;
