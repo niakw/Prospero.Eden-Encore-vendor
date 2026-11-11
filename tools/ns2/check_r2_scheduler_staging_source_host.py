@@ -12,9 +12,13 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 SCHED = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_scheduler.h"
 STAGE = ROOT / "encore-active/eden-vulkan/vk_staging_buffer_pool.cpp"
+CORE = ROOT / "encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h"
+RUNTIME = ROOT / "encore-active/eden-vulkan/vk_buffer_cache_cost.cpp"
 SOURCE_BLOBS = {
     SCHED: "06ed61044892311993f4aa2f6b96a58f6ed22417",
     STAGE: "992d44db45352aa511cbddd0514ecb09a7806727",
+    CORE: "4ae68723eb2bb2881ca53b7b5c1c1a60c7780d27",
+    RUNTIME: "5fab7c94f3d31df23a457537525c4b35e3540e07",
 }
 TEMPLATE = r"""
 #include <cassert>
@@ -126,6 +130,19 @@ def run() -> None:
         got = subprocess.check_output(
             ["git", "hash-object", str(path)], text=True).strip()
         assert got == sha, ("Unreviewed real R2 owner byte change", str(path), got)
+
+    # The two real R2 typed call sites require an explicit copy barrier.
+    # PS5's preexisting upload-CB branch requires !barrier, so this gate
+    # MUST remain a provenance/epoch check, not silently enable batching.
+    core = CORE.read_text()
+    runtime = RUNTIME.read_text()
+    assert core.count(
+        "runtime.CopyStagingUpload(buffer, upload_staging, copies, true, can_reorder);"
+    ) == 2, "R2 upload owner/barrier call graph drift"
+    assert runtime.count(
+        "src_buffer == staging_pool.StreamBuf() && can_reorder_upload && !barrier"
+    ) == 1, "PS5 ordered barrier/reorder guard drift"
+    print("R2_TYPED_UPLOAD_STILL_ORDERED: callers=2 explicit_barriers=2 batching=OFF")
 
     scheduler, request = extract_methods()
     content = (TEMPLATE.replace("@@SCHEDULER_METHODS@@", scheduler)
