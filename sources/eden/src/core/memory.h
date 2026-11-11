@@ -374,6 +374,13 @@ public:
     const u8* GetSpan(const VAddr src_addr, const std::size_t size) const;
     u8* GetSpan(const VAddr src_addr, const std::size_t size);
 
+#ifdef PS5_NATIVE
+    // A process may accept its initial AudioOut buffers before the native
+    // page table is attached. This is intentionally a read-only readiness
+    // probe, not a pointer escape or a replacement for guest-memory mapping.
+    [[nodiscard]] bool ReadyForAudioRead() const noexcept;
+#endif
+
     /**
      * Writes a range of bytes into the current process' address space at the specified
      * virtual address.
