@@ -439,7 +439,56 @@ u32 BufferCacheRuntime::GetStorageBufferAlignment() const {
     return static_cast<u32>(device.GetStorageBufferAlignment());
 }
 
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+BufferCacheRuntime::~BufferCacheRuntime() noexcept {
+    if (!deleted_gpu_buffers.Outstanding()) return;
+    try {
+        // Synchronize and retire before the runtime (and its retained owners)
+        // are destroyed. A device-lost exception must never free live VkBuffers.
+        scheduler.Finish();
+        deleted_gpu_buffers.RetireCompleted(
+            scheduler.GetMasterSemaphore().KnownGpuTick());
+        if (deleted_gpu_buffers.Outstanding())
+            deleted_gpu_buffers.AbandonUnsafeOwners();
+    } catch (...) {
+        deleted_gpu_buffers.AbandonUnsafeOwners();
+    }
+}
+
+void BufferCacheRuntime::RetainDeletedBuffer(Buffer& deleted) {
+    // Allocate a stable heap owner before moving from SlotVector. If the
+    // allocation fails, the original slot remains unchanged.
+    auto owner = std::make_unique<Buffer>(std::move(deleted));
+    try {
+        const u64 submit_tick = scheduler.CurrentTick();
+        deleted_gpu_buffers.RetireCompleted(
+            scheduler.GetMasterSemaphore().KnownGpuTick());
+        if (deleted_gpu_buffers.TryRetain(std::move(owner), submit_tick))
+            return;
+        // Bounded at 256 pending deletions: an explicit GPU-finish fallback
+        // is slower, but guarantees safe release without a frame-age guess.
+        scheduler.Finish();
+        deleted_gpu_buffers.RetireCompleted(
+            scheduler.GetMasterSemaphore().KnownGpuTick());
+        // This owner was not admitted and the pre-submit epoch has completed.
+        owner.reset();
+    } catch (...) {
+        // Submission failure / device loss: never destroy a possibly live
+        // Vulkan owner. The application error path handles the exception.
+        (void)owner.release();
+        throw;
+    }
+}
+#endif
+
 void BufferCacheRuntime::TickFrame(Common::SlotVector<Buffer>& slot_buffers) noexcept {
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // Reclaim even with no resident buffers or with the final guest channel
+    // already gone; this is *real* completion, not elapsed host frames.
+    if (deleted_gpu_buffers.Outstanding())
+        deleted_gpu_buffers.RetireCompleted(
+            scheduler.GetMasterSemaphore().KnownGpuTick());
+#endif
 #ifdef PS5_NATIVE
     // No tracked buffers: avoid even the GPU-completion semaphore snapshot.
     if (slot_buffers.begin() == slot_buffers.end()) {

@@ -17,6 +17,9 @@
 #include "video_core/renderer_vulkan/vk_compute_pass.h"
 #include "video_core/renderer_vulkan/vk_multi_range_buffer.h"
 #include "video_core/renderer_vulkan/vk_staging_buffer_pool.h"
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#include "video_core/renderer_vulkan/ns2_gpu_retirement_hold.h"
+#endif
 #include "video_core/renderer_vulkan/vk_update_descriptor.h"
 #include "video_core/surface.h"
 #include "video_core/vulkan_common/vulkan_memory_allocator.h"
@@ -134,6 +137,13 @@ public:
                                 GuestDescriptorQueue& guest_descriptor_queue,
                                 ComputePassDescriptorQueue& compute_pass_descriptor_queue,
                                 DescriptorPool& descriptor_pool);
+
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    ~BufferCacheRuntime() noexcept;
+    // Transfers the deleted Vulkan Buffer owner into GPU-tick retirement;
+    // normal path never destroys it on a fixed frame age.
+    void RetainDeletedBuffer(Buffer& deleted);
+#endif
 
     void TickFrame(Common::SlotVector<Buffer>& slot_buffers) noexcept;
 
@@ -299,6 +309,12 @@ private:
     MultiRangeBufferCache multi_range_buffers;
     boost::container::small_vector<MultiRangeSource, 16> multi_range_sources;
     VkDeviceSize multi_range_total{};
+
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // Strong owner type deliberately uses unique_ptr to provide noexcept
+    // movement even when Buffer's internal implementation changes.
+    NS2Research::GpuRetirementHold<std::unique_ptr<Buffer>, 256> deleted_gpu_buffers;
+#endif
 
     bool limit_dynamic_storage_buffers = false;
     u32 max_dynamic_storage_buffers = (std::numeric_limits<u32>::max)();

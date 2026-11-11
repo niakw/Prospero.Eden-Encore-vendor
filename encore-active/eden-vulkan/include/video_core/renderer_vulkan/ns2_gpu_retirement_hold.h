@@ -49,6 +49,15 @@ public:
         }
         return released;
     }
+    // Device-lost / failed-submit shutdown: do not release a GPU allocation
+    // that may still be referenced. Deliberately leak the actual owners.
+    // Only valid for pointer-like owners supporting release().
+    void AbandonUnsafeOwners() noexcept
+        requires requires (Owner& value) { value.release(); }
+    {
+        for (auto& entry : entries_) (void)entry.owner.release();
+        entries_.clear();
+    }
     [[nodiscard]] std::size_t Outstanding() const noexcept { return entries_.size(); }
 private:
     std::deque<Entry> entries_;

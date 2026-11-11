@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <utility>
+#include <memory>
 using Vulkan::NS2Research::GpuRetirementHold;
 struct Owner {
     int* destruction_count{};
@@ -62,5 +63,14 @@ int main() {
         ck(held.RetireCompleted(10) == 2 && held.Outstanding() == 0);
     }
     ck(destroyed == 5);
+    {
+        // Runtime's device-loss fallback deliberately abandons owners.
+        GpuRetirementHold<std::unique_ptr<int>, 2> held;
+        auto owner = std::make_unique<int>(73);
+        ck(held.TryRetain(std::move(owner), 17));
+        ck(held.Outstanding() == 1 && owner == nullptr);
+        held.AbandonUnsafeOwners();
+        ck(held.Outstanding() == 0);
+    }
     std::cout << "PASS: " << checks << " strong-owner GPU retirement host checks\n";
 }

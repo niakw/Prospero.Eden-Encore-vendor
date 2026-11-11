@@ -2130,9 +2130,22 @@ void BufferCache<P>::DeleteBuffer(BufferId buffer_id, bool do_not_mark) {
     Unregister(buffer_id);
 
 #ifdef YUZU_LEGACY
-    if (!do_not_mark || !immediately_free)
+    if (!do_not_mark || !immediately_free) {
 #endif
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+        // R2 only: do not reclaim a deleted Vulkan owner by frame age.
+        // The runtime owns the moved Buffer until real GPU completion.
+        if constexpr (!P::IS_OPENGL) {
+            runtime.RetainDeletedBuffer(slot_buffers[buffer_id]);
+        } else {
+            delayed_destruction_ring.Push(std::move(slot_buffers[buffer_id]));
+        }
+#else
         delayed_destruction_ring.Push(std::move(slot_buffers[buffer_id]));
+#endif
+#ifdef YUZU_LEGACY
+    }
+#endif
 
     slot_buffers.erase(buffer_id);
 
