@@ -22,8 +22,9 @@ constexpr unsigned L=4u;
 constexpr VkDeviceSize IO=64u*32u;
 constexpr VkDeviceSize QKV=3u*IO;
 constexpr VkDeviceSize EXP=4u*IO;
-constexpr VkDeviceSize WEIGHTS=3u*32u*32u;
-constexpr VkDeviceSize SCALES=4u;
+constexpr VkDeviceSize QKV_WEIGHTS=3u*32u*32u;
+constexpr VkDeviceSize WEIGHTS=QKV_WEIGHTS+32u*32u;
+constexpr VkDeviceSize SCALES=32u*4u;
 constexpr VkDeviceSize BIAS=64u*64u*4u;
 constexpr VkDeviceSize ALL=QKV+IO;
 struct QkvPush {
@@ -34,7 +35,12 @@ struct AttentionPush {
     std::uint32_t q_base{},k_base{},v_base{},out_base{},bias_base{},
                   windows{1u},heads{1u};
 };
-static_assert(sizeof(QkvPush)==36u&&sizeof(AttentionPush)==28u);
+struct DensePush{
+    std::uint32_t x_base{},w_base{},residual_base{},scale_base{},
+                  out_base{},windows{1u},channels{32u},stage{3u};
+};
+static_assert(sizeof(QkvPush)==36u&&sizeof(AttentionPush)==28u&&
+              sizeof(DensePush)==32u);
 void Must(VkResult code,const char* why){
     if(code!=VK_SUCCESS)throw std::runtime_error(
         std::string(why)+" Vulkan error="+std::to_string(code));
@@ -72,7 +78,7 @@ struct Host {
     unsigned family{};
     std::vector<Buffer> buffers{};
     VkDescriptorPool descriptor_pool{};
-    Pipeline qkv{},attention{};
+    Pipeline qkv{},attention{},dense{};
     VkCommandPool pool{};
     VkCommandBuffer commands{};
     VkFence fence{};
@@ -83,7 +89,7 @@ struct Host {
             if(fence)vkDestroyFence(device,fence,nullptr);
             if(pool)vkDestroyCommandPool(device,pool,nullptr);
             if(descriptor_pool)vkDestroyDescriptorPool(device,descriptor_pool,nullptr);
-            for(auto* p:{&qkv,&attention}){
+            for(auto* p:{&qkv,&attention,&dense}){
                 if(p->pipeline)vkDestroyPipeline(device,p->pipeline,nullptr);
                 if(p->layout)vkDestroyPipelineLayout(device,p->layout,nullptr);
                 if(p->shader)vkDestroyShaderModule(device,p->shader,nullptr);
@@ -251,9 +257,12 @@ struct Host {
         for(unsigned part=0u;part<3u;++part)
             for(unsigned i=0u;i<32u;++i)
                 weights[part*32u*32u+i*32u+i]=0x38u;
+        for(unsigned i=0u;i<32u;++i)
+            weights[QKV_WEIGHTS+i*32u+i]=0x38u;
         upload(Weights(),weights.data(),WEIGHTS);
-        const float scale=1.0f;
-        upload(Scales(),&scale,SCALES);
+        std::array<float,32u> scales{};
+        scales.fill(0.25f);scales[0]=1.0f;
+        upload(Scales(),scales.data(),SCALES);
         std::array<float,64u*64u> bias{};
         for(unsigned query=0u;query<64u;++query)
             for(unsigned key=0u;key<64u;++key)
@@ -326,22 +335,25 @@ struct Host {
              "compute pipeline");
     }
     void InitDescriptors(const std::string& qkv_spv,
-                         const std::string& attention_spv){
+                         const std::string& attention_spv,
+                         const std::string& dense_spv){
         VkDescriptorPoolSize ps{};
         ps.type=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        ps.descriptorCount=L*(6u+5u);
+        ps.descriptorCount=L*(6u+5u+5u);
         VkDescriptorPoolCreateInfo ci{};
         ci.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        ci.maxSets=2u*L;
+        ci.maxSets=3u*L;
         ci.poolSizeCount=1u;
         ci.pPoolSizes=&ps;
         Must(vkCreateDescriptorPool(device,&ci,nullptr,&descriptor_pool),
              "descriptor pool");
         MakePipeline(qkv,qkv_spv,6u,sizeof(QkvPush));
         MakePipeline(attention,attention_spv,5u,sizeof(AttentionPush));
-        std::vector<VkDescriptorBufferInfo> qinfo(L*6u),ainfo(L*5u);
+        MakePipeline(dense,dense_spv,5u,sizeof(DensePush));
+        std::vector<VkDescriptorBufferInfo> qinfo(L*6u),ainfo(L*5u),
+                                            dinfo(L*5u);
         std::vector<VkWriteDescriptorSet> writes;
-        writes.reserve(L*(6u+5u));
+        writes.reserve(L*(6u+5u+5u));
         const auto append=[&](VkDescriptorSet set,unsigned binding,
                               VkDescriptorBufferInfo* ptr){
             VkWriteDescriptorSet w{};
@@ -379,6 +391,17 @@ struct Host {
             for(unsigned b=0u;b<ab.size();++b){
                 ainfo[i*5u+b]=ab[b];
                 append(attention.sets[i],b,&ainfo[i*5u+b]);
+            }
+            const std::array<VkDescriptorBufferInfo,5u> db{{
+                {buffers[ctx].buffer,0u,IO},
+                {buffers[Weights()].buffer,0u,WEIGHTS},
+                {buffers[In(i)].buffer,0u,IO},
+                {buffers[Scales()].buffer,0u,SCALES},
+                {buffers[Out(i)].buffer,0u,IO},
+            }};
+            for(unsigned b=0u;b<db.size();++b){
+                dinfo[i*5u+b]=db[b];
+                append(dense.sets[i],b,&dinfo[i*5u+b]);
             }
         }
         vkUpdateDescriptorSets(
@@ -448,20 +471,38 @@ struct Host {
                 VK_SHADER_STAGE_COMPUTE_BIT,0u,sizeof(ap),&ap);
             // Exactly as NrRdna2WindowAttention::Record: 1,heads,windows
             vkCmdDispatch(commands,1u,1u,1u);
-            VkMemoryBarrier ctx_visible{};
-            ctx_visible.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-            ctx_visible.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;
-            ctx_visible.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;
+            VkMemoryBarrier context_visible{};
+            context_visible.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+            context_visible.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;
+            context_visible.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;
+            vkCmdPipelineBarrier(commands,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                0u,1u,&context_visible,0u,nullptr,0u,nullptr);
+            const auto& dset=dense.sets[layer];
+            vkCmdBindPipeline(commands,VK_PIPELINE_BIND_POINT_COMPUTE,
+                              dense.pipeline);
+            vkCmdBindDescriptorSets(commands,VK_PIPELINE_BIND_POINT_COMPUTE,
+                dense.layout,0u,1u,&dset,0u,nullptr);
+            DensePush dp{};
+            dp.w_base=QKV_WEIGHTS;
+            vkCmdPushConstants(commands,dense.layout,
+                VK_SHADER_STAGE_COMPUTE_BIT,0u,sizeof(dp),&dp);
+            // Actual production C32 stage-3 final projection dispatch.
+            vkCmdDispatch(commands,1u,64u,1u);
+            VkMemoryBarrier projected_visible{};
+            projected_visible.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+            projected_visible.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;
+            projected_visible.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;
             vkCmdPipelineBarrier(commands,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                 VK_PIPELINE_STAGE_TRANSFER_BIT,
-                0u,1u,&ctx_visible,0u,nullptr,0u,nullptr);
-            VkBufferCopy context_copy{};context_copy.size=IO;
-            vkCmdCopyBuffer(commands,buffers[Context(layer)].buffer,
-                buffers[Out(layer)].buffer,1u,&context_copy);
+                0u,1u,&projected_visible,0u,nullptr,0u,nullptr);
             if(layer+1u<L){
-                vkCmdCopyBuffer(commands,buffers[Context(layer)].buffer,
-                    buffers[In(layer+1u)].buffer,1u,&context_copy);
+                VkBufferCopy projected_copy{};
+                projected_copy.size=IO;
+                vkCmdCopyBuffer(commands,buffers[Out(layer)].buffer,
+                    buffers[In(layer+1u)].buffer,1u,&projected_copy);
             }
             // Full per-layer retirement before any shared scratch is
             // overwritten by the next QKV/attention pass.
@@ -519,20 +560,21 @@ struct Host {
     }
 };
 std::vector<std::uint8_t> Run(const std::string& qkv,
-                              const std::string& att,bool pooled){
-    Host h{pooled};h.Init();h.InitDescriptors(qkv,att);h.Record();
+                              const std::string& att,
+                              const std::string& dense_spv,bool pooled){
+    Host h{pooled};h.Init();h.InitDescriptors(qkv,att,dense_spv);h.Record();
     return h.Read();
 }
 }
 int main(int argc,char** argv){
-    if(argc!=3){
+    if(argc!=4){
         std::cerr<<"usage: r09_fswin_native_attention_pool_compare "
-                    "<fswin_qkv.spv> <window_attention.spv>\n";
+                    "<fswin_qkv.spv> <window_attention.spv> <fswin_dense.spv>\n";
         return 2;
     }
     try{
-        const auto separate=Run(argv[1],argv[2],false);
-        const auto pooled=Run(argv[1],argv[2],true);
+        const auto separate=Run(argv[1],argv[2],argv[3],false);
+        const auto pooled=Run(argv[1],argv[2],argv[3],true);
         if(separate!=pooled)
             throw std::runtime_error(
                 "Authentic FSwin QKV/attention GPU outputs differ under pool");
@@ -544,14 +586,14 @@ int main(int argc,char** argv){
         if(nonzero<separate.size()/2u||varying<separate.size()/8u)
             throw std::runtime_error(
                 "Authentic QKV/attention test degenerate");
-        std::cout<<"R09_FSWIN_REAL_QKV_ATTENTION_GPU_POOL_AB_PASS "
+        std::cout<<"R09_FSWIN_REAL_QKV_ATTENTION_DENSE3_GPU_POOL_AB_PASS "
                  <<"layers="<<L<<" channels=32 windows=1"
                  <<" bytes_compared="<<separate.size()
                  <<" nonzero="<<nonzero<<" varying="<<varying
                  <<" private_qkv_context=4x4 pooled_qkv_context=1x2"
                  <<" trained_weights=NO PS5=NO\n";
         if(std::getenv("R09_FSWIN_VALIDATE_SYNC"))
-            std::cout<<"R09_FSWIN_REAL_QKV_ATTENTION_KHRONOS_ZERO_ERRORS "
+            std::cout<<"R09_FSWIN_REAL_QKV_ATTENTION_DENSE3_KHRONOS_ZERO_ERRORS "
                      <<"private_and_pooled=YES\n";
         return 0;
     }catch(const std::exception& error){
