@@ -13929,6 +13929,8 @@ radv_bind_graphics_shaders(struct radv_cmd_buffer *cmd_buffer)
  * kept: the submission after the split starts with the same preamble. State
  * that re-emission does not restore (streamout, conditional rendering, active
  * queries, an inherited render pass) defers the split until it ends. */
+void radv_split_cmd_stream_if_due(struct radv_cmd_buffer *cmd_buffer);
+
 void
 radv_split_cmd_stream_if_due(struct radv_cmd_buffer *cmd_buffer)
 {
