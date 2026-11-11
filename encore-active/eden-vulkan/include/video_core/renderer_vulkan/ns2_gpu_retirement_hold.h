@@ -6,13 +6,20 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <type_traits>
 #include <utility>
 
 namespace Vulkan::NS2Research {
 template <class Owner, std::size_t Capacity = 256>
 class GpuRetirementHold final {
     static_assert(Capacity > 0);
+    // An allocation may fail before entry construction. Never allow a
+    // throwing owner move to drop a VkBuffer on an admission exception.
+    static_assert(std::is_nothrow_move_constructible_v<Owner>);
+    static_assert(std::is_nothrow_destructible_v<Owner>);
     struct Entry {
+        Entry(Owner&& value, std::uint64_t tick) noexcept
+            : owner(std::move(value)), submission_tick(tick) {}
         Owner owner;
         std::uint64_t submission_tick{};
     };
@@ -27,7 +34,7 @@ public:
         if (!submission_tick || entries_.size() >= Capacity ||
             (!entries_.empty() && submission_tick < entries_.back().submission_tick))
             return false;
-        entries_.emplace_back(Entry{std::move(owner), submission_tick});
+        entries_.emplace_back(std::move(owner), submission_tick);
         return true;
     }
     // This argument must come from KnownGpuTick()/equivalent real completion,
