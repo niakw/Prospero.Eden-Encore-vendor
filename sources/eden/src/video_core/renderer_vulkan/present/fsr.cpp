@@ -210,4 +210,24 @@ VkImageView FSR::Draw(const Device& device, Scheduler& scheduler, size_t image_i
     return *images.image_views[Rcas];
 }
 
+std::optional<FSR::OutputFrame> FSR::DrawFrame(
+    const Device& device, Scheduler& scheduler, size_t image_index,
+    VkImage source_image, VkImageView source_view,
+    VkExtent2D input_extent, const Common::Rectangle<f32>& crop) {
+    if(image_index>=m_dynamic_images.size() || !source_image||
+       !source_view||!input_extent.width||!input_extent.height||
+       !m_extent.width||!m_extent.height)
+        return std::nullopt;
+    // Never duplicate the EASU/RCAS graph; its existing Draw()
+    // handles all native descriptors, image barriers and GPU commands.
+    const VkImageView view=Draw(device,scheduler,image_index,
+                               source_image,source_view,input_extent,crop);
+    auto& slot=m_dynamic_images[image_index];
+    if(!slot.images[Rcas]||!slot.image_views[Rcas] ||
+       !*slot.images[Rcas]||!*slot.image_views[Rcas] ||
+       view!=*slot.image_views[Rcas])
+        return std::nullopt;
+    return OutputFrame{*slot.images[Rcas],view,m_extent};
+}
+
 } // namespace Vulkan
