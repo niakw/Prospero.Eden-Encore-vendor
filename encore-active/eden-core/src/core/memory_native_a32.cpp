@@ -935,6 +935,15 @@ void Memory::SetCurrentPageTable(Kernel::KProcess& process) {
     impl->SetCurrentPageTable(process);
 }
 
+#ifdef PS5_NATIVE
+bool Memory::ReadyForAudioRead() const noexcept {
+    // The R457 console crash reached Impl::GetSpan with a null Impl this.
+    // Guard both constructor/move state and a not-yet-attached process table.
+    // AudioOut must not probe a memory implementation that is not ready.
+    return impl && impl->current_page_table != nullptr;
+}
+#endif
+
 void Memory::MapMemoryRegion(Common::PageTable& page_table, Common::ProcessAddress base, u64 size,
                              Common::PhysicalAddress target, Common::MemoryPermission perms,
                              bool separate_heap) {
