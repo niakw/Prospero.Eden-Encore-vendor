@@ -583,13 +583,18 @@ void BufferCacheRuntime::CopyStagingUpload(const Buffer& destination,
                 bounds, {copy.src_offset, copy.dst_offset, copy.size}))
             throw std::out_of_range("R2: copy outside verified staging/destination spans");
     }
-    // A stale/unstamped reservation must never enter the legacy reordered
-    // upload queue. It is still copied through the normal ordered path.
-    // These checks are necessary, NOT sufficient for R2 command batching.
+    // A reservation from another recording tick (or without a generation)
+    // may refer to memory already recycled by the staging ring/pool. Merely
+    // disabling upload reordering would still allow copying stale bytes.
+    // Reject it BEFORE scheduling any Vulkan copy command.
+    if (!NS2Research::IsCurrentStagingRequest(
+            staging.request_generation, staging.request_submission_tick,
+            record.submission_tick))
+        throw std::out_of_range("R2: stale staging reservation epoch");
+    // A recording-context change can still select the ordered path.
+    // Neither check authorizes cross-command batching or new barriers.
     const bool same_recording = scheduler.R2RecordingStillCurrent(record);
-    const bool same_request_tick = NS2Research::IsCurrentStagingRequest(
-        staging.request_generation, staging.request_submission_tick, record.submission_tick);
-    const bool may_reorder = can_reorder_upload && same_recording && same_request_tick;
+    const bool may_reorder = can_reorder_upload && same_recording;
     // The common inline-upload case contains one region. Preserve its exact
     // old fast path without initializing the 64-slot region accumulator.
     if (copies.size() < 2) {

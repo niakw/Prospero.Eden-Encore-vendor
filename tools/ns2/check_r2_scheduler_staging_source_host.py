@@ -25,7 +25,7 @@ SOURCE_BLOBS = {
     CORE: "7b78936cfefda4ee6f5749ae5a0a6ab78d389a72",
     VK_BUFFER_H: "88485385b530d678c2c4b4f161053569c723e270",
     RETIREMENT_H: "33e077863e503a956cabf2b99edb73f8967b89a8",
-    RUNTIME: "b4533ccdcba08960a09511c90e0611a966cd833b",
+    RUNTIME: "d1791a455ad7e717b6ffe6b6ef0215b29fa03b21",
     BOUNDS: "8905d42732b2d5848aa49b5800340e031cd214c9",
 }
 TEMPLATE = r"""
@@ -88,7 +88,10 @@ public:
         u64 known_tick{};
         [[nodiscard]] u64 KnownGpuTick() const noexcept { return known_tick; }
     } gpu_completion{};
-    GpuCompletion& GetMasterSemaphore() noexcept { return gpu_completion; }
+    GpuCompletion* shared_completion{};
+    GpuCompletion& GetMasterSemaphore() noexcept {
+        return shared_completion ? *shared_completion : gpu_completion;
+    }
     int finishes{};
     bool stale_after_finish{};
     void Finish() {
@@ -133,6 +136,9 @@ public:
         std::size_t delete_index{}, iterate_index{};
     };
     using StagingBuffersCache = std::array<StagingBuffers, 65>;
+    static constexpr std::size_t NUM_SYNCS = 16;
+    std::array<u64, NUM_SYNCS> sync_ticks{};
+    [[nodiscard]] bool AreRegionsActive(std::size_t begin, std::size_t end) const;
     StagingBuffersCache upload_cache{}, download_cache{};
     StagingBuffersCache& GetCache(MemoryUsage usage) {
         return usage == MemoryUsage::Upload ? upload_cache : download_cache;
@@ -150,6 +156,7 @@ public:
 @@STAGING_REUSE@@
 @@STAGING_DEFERRED_FREE@@
 @@STAGING_RETIRED_DELETE@@
+@@STAGING_REGION_LIFETIME@@
 @@DISPATCH_WORK@@
 struct Buffer {
     static inline Buffer* last_moved_to{};
@@ -381,13 +388,18 @@ int main() {
     catch (const std::out_of_range&) { refused = true; }
     check(refused && runtime.copy_calls == recorded);
     upload.backing_location.memory = 1001;
+    const auto before_invalid_epoch = runtime.copy_calls;
     upload.request_submission_tick = 4;
-    runtime.CopyStagingUpload(dst, upload, adjacent, true, true);
-    check(runtime.actual_barrier && !runtime.actual_reorder);
+    bool stale_epoch_refused = false;
+    try { runtime.CopyStagingUpload(dst, upload, adjacent, true, true); }
+    catch (const std::out_of_range&) { stale_epoch_refused = true; }
+    check(stale_epoch_refused && runtime.copy_calls == before_invalid_epoch);
     upload.request_submission_tick = 5;
     upload.request_generation = 0;
-    runtime.CopyStagingUpload(dst, upload, adjacent, true, true);
-    check(runtime.actual_barrier && !runtime.actual_reorder);
+    stale_epoch_refused = false;
+    try { runtime.CopyStagingUpload(dst, upload, adjacent, true, true); }
+    catch (const std::out_of_range&) { stale_epoch_refused = true; }
+    check(stale_epoch_refused && runtime.copy_calls == before_invalid_epoch);
     upload.request_generation = 7;
     std::array<VideoCommon::BufferCopy, 1> zero{{{128, 0, 0}}};
     runtime.CopyStagingUpload(dst, upload, zero, true, true);
@@ -404,6 +416,33 @@ int main() {
         // Source-derived destructor must submit and wait before collection.
     }
     check(destroyed_owners==1);
+    {
+        // One source-derived staging ring predicate and one real retained
+        // destination owner, both observing the SAME completed timeline.
+        int joint_destroyed = 0;
+        BufferCacheRuntime destination;
+        StagingBufferPool stage;
+        stage.scheduler.shared_completion = &destination.scheduler.gpu_completion;
+        destination.scheduler.tick = 51;
+        stage.sync_ticks[3] = 51;
+        Buffer owner;
+        owner.owner_deletions = &joint_destroyed;
+        destination.RetainDeletedBuffer(owner);
+        check(stage.AreRegionsActive(3,4));
+        check(destination.deleted_gpu_buffers.RetireCompleted(50) == 0);
+        check(joint_destroyed == 0);
+        destination.scheduler.gpu_completion.known_tick = 50;
+        check(stage.AreRegionsActive(3,4) && joint_destroyed == 0);
+        destination.scheduler.gpu_completion.known_tick = 51;
+        check(!stage.AreRegionsActive(3,4));
+        check(destination.deleted_gpu_buffers.RetireCompleted(51) == 1);
+        check(joint_destroyed == 1);
+        // A later pending region blocks independently of the retired owner.
+        stage.sync_ticks[5] = 52;
+        check(stage.AreRegionsActive(5,6));
+        destination.scheduler.gpu_completion.known_tick = 52;
+        check(!stage.AreRegionsActive(5,6));
+    }
     {
         BufferCacheRuntime deleting;
         deleting.scheduler.tick=33;
@@ -452,7 +491,7 @@ int main() {
 }
 """
 
-def extract_methods() -> tuple[str, str, str, str, str, str, str, str]:
+def extract_methods() -> tuple[str, str, str, str, str, str, str, str, str]:
     scheduler = SCHED.read_text()
     start = scheduler.index(
         "#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)\n"
@@ -480,6 +519,12 @@ def extract_methods() -> tuple[str, str, str, str, str, str, str, str]:
     assert reuse.count("scheduler.IsFree(entry.tick)") == 1
     assert free_deferred.count("it->tick = scheduler.CurrentTick()") == 1
     assert reclaim.count("scheduler.IsFree(entry.tick)") == 1
+    active_region_start = stage.index("bool StagingBufferPool::AreRegionsActive(")
+    active_region_end = stage.index("StagingBufferRef StagingBufferPool::GetStagingBuffer(",
+                                     active_region_start)
+    active_region = stage[active_region_start:active_region_end]
+    assert active_region.count("KnownGpuTick()") == 1
+    assert active_region.count("gpu_tick < sync_tick") == 1
     native = SCHED_IMPL.read_text()
     start = native.index("void Scheduler::DispatchWork() {")
     end = native.index("void Scheduler::BeginRenderPassImpl(", start)
@@ -504,10 +549,11 @@ def extract_methods() -> tuple[str, str, str, str, str, str, str, str]:
     assert lifetime.count("deleted_gpu_buffers.AbandonUnsafeOwners()") == 2
     assert lifetime.count("scheduler.Finish()") == 2
     assert "if (completed_tick < submit_tick)" in lifetime
+    assert typed_copy.count("R2: stale staging reservation epoch") == 1
     assert "throw std::runtime_error(\"R2: GPU completion did not reach deletion tick\")" in lifetime
     assert typed_copy.count("NS2Research::StagingRegionCoalescer<64> fused") == 1
     assert typed_copy.count("CopyBuffer(dst.handle, staging.buffer") == 3
-    return scheduler_methods, request, dispatch, typed_copy, reuse, free_deferred, reclaim, lifetime
+    return scheduler_methods, request, dispatch, typed_copy, reuse, free_deferred, reclaim, active_region, lifetime
 
 def run() -> None:
     for path, sha in SOURCE_BLOBS.items():
@@ -548,12 +594,13 @@ def run() -> None:
     assert runtime.count("if (copies.size() < 2)") == 1
     print("R2_TYPED_UPLOAD_STILL_ORDERED: callers=2 explicit_barriers=2 cross_call_batching=OFF in_call_region_fusion=ON")
 
-    scheduler, request, dispatch, typed_copy, reuse, free_deferred, reclaim, lifetime = extract_methods()
+    scheduler, request, dispatch, typed_copy, reuse, free_deferred, reclaim, active_region, lifetime = extract_methods()
     content = (TEMPLATE.replace("@@SCHEDULER_METHODS@@", scheduler)
                        .replace("@@STAGING_REQUEST@@", request)
                        .replace("@@STAGING_REUSE@@", reuse)
                        .replace("@@STAGING_DEFERRED_FREE@@", free_deferred)
                        .replace("@@STAGING_RETIRED_DELETE@@", reclaim)
+                       .replace("@@STAGING_REGION_LIFETIME@@", active_region)
                        .replace("@@DISPATCH_WORK@@", dispatch)
                        .replace("@@RUNTIME_METHOD@@", typed_copy)
                        .replace("@@RUNTIME_LIFETIME@@", lifetime))
