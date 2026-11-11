@@ -200,12 +200,14 @@ jobs:
           export VK_ICD_FILENAMES="$icd"
           .build-r09-fswin/native-attention-pool-ab \
             .build-r09-fswin/fswin_qkv_native.spv \
-            .build-r09-fswin/window_attention_native.spv
+            .build-r09-fswin/window_attention_native.spv \
+            .build-r09-fswin/fswin_dense_native.spv
           R09_FSWIN_VALIDATE_SYNC=1 \
             .build-r09-fswin/native-attention-pool-ab \
               .build-r09-fswin/fswin_qkv_native.spv \
-              .build-r09-fswin/window_attention_native.spv
-          echo R09_FSWIN_REAL_QKV_AND_ATTENTION_GPU_AB_KHRONOS_PASS
+              .build-r09-fswin/window_attention_native.spv \
+              .build-r09-fswin/fswin_dense_native.spv
+          echo R09_FSWIN_REAL_QKV_ATTENTION_DENSE3_GPU_AB_KHRONOS_PASS
           echo R09_FSWIN_PUBLIC_FIXTURES_ONLY_NO_FULL_NEURAL_MODEL_OR_PS5
 
   authentic-native-syntax:
