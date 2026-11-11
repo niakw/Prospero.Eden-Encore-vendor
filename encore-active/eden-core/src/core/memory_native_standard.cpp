@@ -1,5 +1,6 @@
 #include "performance.h"
 #include <limits>
+#include <new>
 #include "gpu_dirty_region_split.h"
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -40,6 +41,14 @@
 #include "video_core/host1x/gpu_device_memory_manager.h"
 #include "video_core/host1x/host1x.h"
 #include "video_core/rasterizer_download_area.h"
+
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_SPARSE_GUEST_BACKING)
+// PS5-only experiment. The engine owns the 12 GiB reserved guest VA;
+// admission must succeed before a guest page table publishes that PA.
+extern "C" bool EdenNs2CommitGuestBacking(const void* backing_base,
+                                          std::size_t offset,
+                                          std::size_t bytes) noexcept;
+#endif
 
 namespace Core::Memory {
 
@@ -92,6 +101,16 @@ struct Memory::Impl {
         ASSERT_MSG((base & YUZU_PAGEMASK) == 0, "non-page aligned base: {:016X}", GetInteger(base));
         ASSERT_MSG(target >= DramMemoryMap::Base, "Out of bounds target: {:016X}",
                    GetInteger(target));
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_SPARSE_GUEST_BACKING)
+        // The guest PTE contains a direct pointer into HostMemory. Commit
+        // the exact backing chunks BEFORE publishing it, including the
+        // case where the kernel maps memory on behalf of a GPU process.
+        if (!EdenNs2CommitGuestBacking(
+                system.DeviceMemory().buffer.BackingBasePointer(),
+                GetInteger(target) - DramMemoryMap::Base, size)) {
+            throw std::bad_alloc{};
+        }
+#endif
         MapPages(page_table, base / YUZU_PAGESIZE, size / YUZU_PAGESIZE, target,
                  Common::PageType::Memory);
 
