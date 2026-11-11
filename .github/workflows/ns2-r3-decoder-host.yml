@@ -1,0 +1,93 @@
+name: NS2 R3 complete decoder public API - host compare
+
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-core/src/video_core/textures/decoders.cpp'
+      - 'encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp'
+      - '.github/workflows/ns2-r3-decoder-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ns2-r3-decoder-host-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-source-decoder-api:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact source and real public decoder header
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/workflows/ns2-r3-decoder-host.yml
+            encore-active/eden-core/src/video_core/textures/decoders.cpp
+            encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp
+            sources/eden/src/video_core/textures/decoders.cpp
+            sources/eden/src/video_core/textures/decoders.h
+            sources/eden/src/common/alignment.h
+            sources/eden/src/common/bit_util.h
+            sources/eden/src/common/div_ceil.h
+      - name: Authenticate pinned old and maintained C++ source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object encore-active/eden-core/src/video_core/textures/decoders.cpp)" = 'cc8bb22035f306e45389b6a7efbceeddb45dd6d0'
+          test "$(git hash-object sources/eden/src/video_core/textures/decoders.cpp)" = '25b0860b0f7a9b31f49b63647c64d8d5493fab71'
+          test "$(git hash-object sources/eden/src/video_core/textures/decoders.h)" = '1e14a3875356ed4a2e6c949694618d12be7d77e0'
+      - name: Create minimal shims only for unused GPU and assertion dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${RUNNER_TEMP}/r3-shims"
+          mkdir -p "${root}/common" "${root}/video_core/textures"
+          cat > "${root}/common/common_types.h" <<'EOF'
+          #pragma once
+          #include <cstdint>
+          using u8 = std::uint8_t;
+          using u32 = std::uint32_t;
+          using u64 = std::uint64_t;
+          EOF
+          cat > "${root}/common/assert.h" <<'EOF'
+          #pragma once
+          #include <cstdlib>
+          #define ASSERT_MSG(condition, ...) do { if (!(condition)) std::abort(); } while (false)
+          EOF
+          printf '#pragma once\n' > "${root}/video_core/gpu.h"
+          printf '#pragma once\n' > "${root}/video_core/textures/texture.h"
+      # Both pinned decoders already expose an unused 'height' argument in
+      # GetGOBOffset. Ignore that inherited warning, retain all other -Werror.
+      - name: Compile old and maintained complete source files against the same public API
+        shell: bash
+        run: |
+          set -euo pipefail
+          shims="${RUNNER_TEMP}/r3-shims"
+          test_file=encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp
+          for compiler in clang++ g++; do
+            for opt in 1 2; do
+              outputs=()
+              for flavor in old maintained; do
+                if [[ "${flavor}" == old ]]; then
+                  source_file=sources/eden/src/video_core/textures/decoders.cpp
+                else
+                  source_file=encore-active/eden-core/src/video_core/textures/decoders.cpp
+                fi
+                executable="${RUNNER_TEMP}/r3-${compiler//+/p}-O${opt}-${flavor}"
+                "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror -Wno-unused-parameter \
+                  -fsanitize=address,undefined -fno-sanitize-recover=all \
+                  -fno-omit-frame-pointer -I"${shims}" -Isources/eden/src \
+                  "${test_file}" "${source_file}" -o "${executable}"
+                result=$("${executable}")
+                echo "${compiler} O${opt} ${flavor}: ${result}"
+                outputs+=("${result}")
+              done
+              test "${outputs[0]}" = "${outputs[1]}"
+            done
+          done
+          echo 'PASS: 4 exact-source old-versus-maintained public API equivalence comparisons'

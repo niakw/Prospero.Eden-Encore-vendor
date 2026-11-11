@@ -292,6 +292,12 @@ void Scheduler::DispatchWork() {
             work_queue.push(std::move(chunk));
         }
         if (wake_worker) event_cv.notify_all();
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+        // The FIFO chunk moved to the worker. A recording ticket captured
+        // before rollover must never be reused even when no new Record()
+        // incremented the command serial (e.g. WaitWorker/PreflightDraw).
+        ++r2_dispatched_chunks;
+#endif
         AcquireNewChunk();
     }
 }

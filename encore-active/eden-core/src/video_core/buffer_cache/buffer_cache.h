@@ -8,6 +8,9 @@
 #pragma once
 
 #include <algorithm>
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#include <exception>
+#endif
 #include <memory>
 #include <numeric>
 
@@ -52,7 +55,23 @@ BufferCache<P>::BufferCache(Tegra::MaxwellDeviceMemoryManager& device_memory_, R
 }
 
 template <class P>
-BufferCache<P>::~BufferCache() = default;
+BufferCache<P>::~BufferCache() {
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    if constexpr (!P::IS_OPENGL) {
+        // The deleted-buffer retirement queue only owns explicitly deleted
+        // buffers. Resident slot buffers (and the older frame-age ring) are
+        // still members destroyed immediately after this destructor body.
+        // Drain the real GPU before those Vulkan allocations are released.
+        // A failed GPU submit/device loss must never continue destructing
+        // potentially in-flight VkBuffers: fail closed at process shutdown.
+        try {
+            runtime.Finish();
+        } catch (...) {
+            std::terminate();
+        }
+    }
+#endif
+}
 
 template <class P>
 void BufferCache<P>::RunGarbageCollector() {
@@ -1958,7 +1977,15 @@ void BufferCache<P>::MappedUploadMemory([[maybe_unused]] Buffer& buffer,
             copy.src_offset += upload_staging.offset;
         }
         const bool can_reorder = runtime.CanReorderUpload(buffer, copies);
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+        if constexpr (!P::IS_OPENGL) {
+            runtime.CopyStagingUpload(buffer, upload_staging, copies, true, can_reorder);
+        } else {
+            runtime.CopyBuffer(buffer, upload_staging.buffer, copies, true, can_reorder);
+        }
+#else
         runtime.CopyBuffer(buffer, upload_staging.buffer, copies, true, can_reorder);
+#endif
     }
 }
 
@@ -2000,7 +2027,15 @@ void BufferCache<P>::InlineMemoryImplementation(DAddr dest_address, size_t copy_
         u8* const src_pointer = upload_staging.mapped_span.data();
         std::memcpy(src_pointer, inlined_buffer.data(), copy_size);
         const bool can_reorder = runtime.CanReorderUpload(buffer, copies);
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+        if constexpr (!P::IS_OPENGL) {
+            runtime.CopyStagingUpload(buffer, upload_staging, copies, true, can_reorder);
+        } else {
+            runtime.CopyBuffer(buffer, upload_staging.buffer, copies, true, can_reorder);
+        }
+#else
         runtime.CopyBuffer(buffer, upload_staging.buffer, copies, true, can_reorder);
+#endif
     } else {
         buffer.ImmediateUpload(buffer.Offset(dest_address), inlined_buffer.first(copy_size));
     }
@@ -2114,9 +2149,22 @@ void BufferCache<P>::DeleteBuffer(BufferId buffer_id, bool do_not_mark) {
     Unregister(buffer_id);
 
 #ifdef YUZU_LEGACY
-    if (!do_not_mark || !immediately_free)
+    if (!do_not_mark || !immediately_free) {
 #endif
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+        // R2 only: do not reclaim a deleted Vulkan owner by frame age.
+        // The runtime owns the moved Buffer until real GPU completion.
+        if constexpr (!P::IS_OPENGL) {
+            runtime.RetainDeletedBuffer(slot_buffers[buffer_id]);
+        } else {
+            delayed_destruction_ring.Push(std::move(slot_buffers[buffer_id]));
+        }
+#else
         delayed_destruction_ring.Push(std::move(slot_buffers[buffer_id]));
+#endif
+#ifdef YUZU_LEGACY
+    }
+#endif
 
     slot_buffers.erase(buffer_id);
 
