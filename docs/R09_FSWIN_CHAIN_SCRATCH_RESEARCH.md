@@ -71,3 +71,18 @@ All experimental code remains disabled for normal builds. The engine submodule p
 Across **4 QKV snapshots and 4 final layer outputs** the GPU readback is **32,768/32,768 bytes identical** baseline versus pooled, with **32,768 nonzero bytes and 32,256 differing from byte zero** (nontrivial). The A/B runs both with normal Vulkan and with Khronos sync validation; **zero Khronos errors** on correct shared and private paths. The previous original QKV/attention-only and QKV/attention/Dense3 A/B tests remain independent coverage, alongside the 44/16-layer synthetic eight-segment GPU test. These witnesses are host-only and use **public test weights**, not the proprietary Original model.
 
 **C32 native FSwin five-pass local chain is now validated as a test-weight GPU A/B.** Still unproved: C64/128/256 middle-Dense paths, shifted windows, downsample/upsample/skip and true 44-layer learned graph execution, complete 152-operation Original at 720p, authorized Original weights and independent reference output, memory lifetime with actual PS5 game frames, reliable frame-time budget and post-NR FSR integration. This is not an Original 720p GPU neural denoising frame, not a measured PS5 VRAM reduction, and not a runtime qualification. Keep the experimental feature OFF and both research PRs unmerged.
+
+## Native FSwin complete-channel A/B — C32 C64 C128 C256
+
+The opt-in scratch-pooling branch now covers **all four native FSwin channel profiles** with the maintained production shader sources compiled to Vulkan 1.1 SPIR-V and public, deterministic FP8 test tensors. [CI #42943222734](https://github.com/niakw/Prospero.Eden-Encore-vendor/actions/runs/42943222734) first proved four consecutive C32 layers through five genuine shaders (Dense stages 0,2, QKV, attention, Dense3) with one window, byte-identical snapshots and zero Khronos sync errors. [CI #42944500429](https://github.com/niakw/Prospero.Eden-Encore-vendor/actions/runs/42944500429) then added the C64/C128/C256 **Dense stage 1** and ran all six genuine shader passes (Dense 0/1/2, QKV, attention, Dense3), with one window and a four-role chain pool.
+
+| Native channel shape | Sequential layers | Exact GPU A/B readback | Khronos sync errors |
+| --- | ---: | ---: | ---: |
+| C32 | 4 | 32,768 / 32,768 identical bytes | 0 |
+| C64 | 4 | 65,536 / 65,536 identical bytes | 0 |
+| C128 | 2 | 65,536 / 65,536 identical bytes | 0 |
+| C256 | 2 | 131,072 / 131,072 identical bytes | 0 |
+
+Every case compares **independent per-layer scratch buffers** against **one set of shared scratch per chain**, retaining physically separate GPU Input/Output for every layer, real Vulkan transfers/compute barriers and asynchronous fence completion. Each A/B captures Q/K/V snapshots and final per-layer outputs; all results are nonzero and vary significantly. Host tests use **public identity-style FP8 weights**, not authenticated learned tensors. The GPU is Lavapipe on GitHub Actions, not PS5 RDNA2; the test layers have **one 64-token window** each, not the actual large 720p multiwindow graph. The eight-chain 44/16-layer stress is a separate **synthetic-shader** witness; do not mistake it for real model inference.
+
+**Completed in this audit phase:** native scratch ownership and destruction order, no default-build activation, compiler syntax macro 0/1, Vulkan synthetic 44/16 chain, and numerically identical, Khronos-clean native C32/C64/C128/C256 **per-layer test-weight** graphics shaders. **Still open:** real learned-weight 720p multiwindow shifts, true U-Net down/up/skip adapters and all 44 Original FSwin layers in a single full 152-operation GPU graph, PS5 VRAM/frame time/quality and the 720p post-neural FSR handoff. Remain draft, unmerged, and runtime OFF.
