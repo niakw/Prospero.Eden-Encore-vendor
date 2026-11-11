@@ -1,0 +1,24 @@
+name: NS1 R23 Opus 24-instance source host qualification
+on:
+  push:
+    branches:
+      - research/ns1-r23-opus-24-instances-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/audio_core/opus/**"
+      - "encore-active/eden-core/src/core/hle/service/audio/errors.h"
+      - "tests/ns1_r23_opus_24_host.py"
+      - ".github/workflows/ns1-r23-opus-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  opus-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile actual selected quota methods with ASan/UBSan and 32 concurrent reservations
+        run: python3 -B tests/ns1_r23_opus_24_host.py
