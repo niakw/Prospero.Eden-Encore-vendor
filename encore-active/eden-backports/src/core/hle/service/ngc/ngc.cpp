@@ -206,9 +206,10 @@ public:
     }
 
     Result WriteSaveSlot(s32 offset, SaveDataHandle handle, InBuffer<BufferAttr_HipcAutoSelect> out_data) {
-        LOG_WARNING(Service_NGC, "stubbed");
-        // to implement
-        R_SUCCEED();
+        LOG_WARNING(Service_NGC, "SaveSlot write not implemented");
+        // Returning success without persisting guest data silently corrupts
+        // save-game semantics. Fail explicitly until a real implementation.
+        R_THROW(IPC::ResultNotSupported);
     }
 };
 
