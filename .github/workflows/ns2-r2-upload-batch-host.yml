@@ -4,6 +4,8 @@ name: NS2 R2 bounded upload batch - host source gate
 on:
   pull_request:
     paths:
+      - 'encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h'
+      - 'encore-active/eden-vulkan/tests/test_ns2_cache_shutdown_order.cpp'
       - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_verified_upload_batch.h'
       - 'encore-active/eden-vulkan/tests/test_ns2_verified_upload_batch.cpp'
       - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_gpu_retirement_hold.h'
@@ -62,6 +64,34 @@ jobs:
                 -fsanitize=address,undefined -fno-sanitize-recover=all \
                 -I encore-active/eden-vulkan/include/video_core/renderer_vulkan \
                 "encore-active/eden-vulkan/tests/test_ns2_gpu_retirement_hold.cpp" -o "${output}"
+              "${output}"
+            done
+          done
+
+      - name: Verify source-derived real cache shutdown ordering
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path("encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h").read_text()
+          anchor = "BufferCache<P>::~BufferCache() {"
+          start = text.index("template <class P>\n" + anchor)
+          end = text.index("template <class P>\nvoid BufferCache<P>::RunGarbageCollector()", start)
+          body = text[start:end]
+          assert body.count("runtime.Finish();") == 1
+          assert body.count("std::terminate();") == 1
+          path = Path("/tmp/ns2-r2-cache-shutdown.cpp")
+          path.write_text(
+              Path("encore-active/eden-vulkan/tests/test_ns2_cache_shutdown_order.cpp").read_text().replace("@@REAL_CACHE_DESTRUCTOR@@", body))
+          PY
+          for compiler in clang++ g++; do
+            for opt in 0 2; do
+              output="${RUNNER_TEMP}/ns2-r2-cache-owner-${compiler//+/p}-O${opt}"
+              "${compiler}" -std=c++20 -DPS5_NATIVE=1 -DEDEN_RESEARCH_NS2_STAGE_BACKING=1 \
+                -Wall -Wextra -Werror -pedantic -O"${opt}" \
+                -fsanitize=address,undefined -fno-sanitize-recover=all \
+                /tmp/ns2-r2-cache-shutdown.cpp -o "${output}"
               "${output}"
             done
           done

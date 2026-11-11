@@ -8,6 +8,9 @@
 #pragma once
 
 #include <algorithm>
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#include <exception>
+#endif
 #include <memory>
 #include <numeric>
 
@@ -52,7 +55,23 @@ BufferCache<P>::BufferCache(Tegra::MaxwellDeviceMemoryManager& device_memory_, R
 }
 
 template <class P>
-BufferCache<P>::~BufferCache() = default;
+BufferCache<P>::~BufferCache() {
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    if constexpr (!P::IS_OPENGL) {
+        // The deleted-buffer retirement queue only owns explicitly deleted
+        // buffers. Resident slot buffers (and the older frame-age ring) are
+        // still members destroyed immediately after this destructor body.
+        // Drain the real GPU before those Vulkan allocations are released.
+        // A failed GPU submit/device loss must never continue destructing
+        // potentially in-flight VkBuffers: fail closed at process shutdown.
+        try {
+            runtime.Finish();
+        } catch (...) {
+            std::terminate();
+        }
+    }
+#endif
+}
 
 template <class P>
 void BufferCache<P>::RunGarbageCollector() {
