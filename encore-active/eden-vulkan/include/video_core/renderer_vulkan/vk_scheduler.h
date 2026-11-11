@@ -205,6 +205,27 @@ public:
             });
     }
 
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // An owner-thread observation of the *recording* context. This is NOT
+    // a queue-generation identity, channel epoch, or GPU-lifetime lease.
+    struct R2RecordingSnapshot {
+        u64 submission_tick{};
+        u64 command_serial{};
+        VkRenderPass active_renderpass{};
+        const Framebuffer* deferred_clear_owner{};
+    };
+    [[nodiscard]] R2RecordingSnapshot SnapshotR2Recording() const noexcept {
+        return {CurrentTick(), recorded_command_serial, state.renderpass,
+                deferred_clear.framebuffer};
+    }
+    [[nodiscard]] bool R2RecordingStillCurrent(const R2RecordingSnapshot& snapshot) const noexcept {
+        return snapshot.submission_tick == CurrentTick() &&
+               snapshot.command_serial == recorded_command_serial &&
+               snapshot.active_renderpass == state.renderpass &&
+               snapshot.deferred_clear_owner == deferred_clear.framebuffer;
+    }
+#endif
+
     /// Returns the current command buffer tick.
     [[nodiscard]] u64 CurrentTick() const noexcept {
         return master_semaphore->CurrentTick();

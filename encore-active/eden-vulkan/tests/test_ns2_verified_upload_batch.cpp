@@ -35,6 +35,14 @@ int main() {
     ck(!VerifyStagingUploadCopy(alias,{128,128,32}));
     ck(VerifyStagingUploadCopy(alias,{128,256,32}));
     ck(VerifyStagingUploadCopy(alias,{128,0,32}));
+    ck(IsCurrentStagingRequest(1, 9, 9));
+    ck(IsCurrentStagingRequest(999, 9, 9));
+    ck(!IsCurrentStagingRequest(0, 9, 9));
+    ck(!IsCurrentStagingRequest(1, 0, 0));
+    ck(!IsCurrentStagingRequest(1, 9, 10));
+    ck(!IsCurrentStagingRequest(1, 10, 9));
+    ck(!IsCurrentStagingRequest(1, 0, 9));
+    ck(!IsCurrentStagingRequest(0, 9, 0));
     VerifiedUploadBatch batch;
     ck(batch.Empty()&&batch.Size()==0&&batch.GroupCount()==0);
     ck(batch.CanAppend(base));ck(batch.Append(base));

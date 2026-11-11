@@ -31,6 +31,18 @@ struct StagingUploadCopy {
     const auto dst = b.destination_binding_offset + c.destination_offset;
     return src <= dst ? dst - src >= c.bytes : src - dst >= c.bytes;
 }
+// A reservation belongs to one scheduler submission tick. Equality is
+// necessary for prospective batching, but never sufficient for GPU lifetime.
+[[nodiscard]] constexpr bool IsCurrentStagingRequest(std::uint64_t request_generation,
+                                                      std::uint64_t request_tick,
+                                                      std::uint64_t live_tick) noexcept {
+    return request_generation != 0 && request_tick != 0 &&
+           request_tick == live_tick;
+}
+static_assert(IsCurrentStagingRequest(1, 4, 4));
+static_assert(!IsCurrentStagingRequest(0, 4, 4));
+static_assert(!IsCurrentStagingRequest(1, 4, 5));
+
 static_assert(VerifyStagingUploadCopy({32, 64, 256, 0, 128, 512, false}, {32, 0, 64}));
 static_assert(!VerifyStagingUploadCopy({32, 64, 256, 0, 128, 512, false}, {31, 0, 1}));
 static_assert(!VerifyStagingUploadCopy({32, 64, 256, 0, 128, 512, false}, {32, 0, 65}));

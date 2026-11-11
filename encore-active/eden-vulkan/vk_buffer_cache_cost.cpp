@@ -511,6 +511,7 @@ void BufferCacheRuntime::CopyStagingUpload(const Buffer& destination,
                                             const StagingBufferRef& staging,
                                             std::span<const VideoCommon::BufferCopy> copies,
                                             bool barrier, bool can_reorder_upload) {
+    const auto record = scheduler.SnapshotR2Recording();
     const auto dst = destination.GetNativeBackingSnapshot();
     const auto& src = staging.backing_location;
     if (dst.handle == VK_NULL_HANDLE || staging.buffer == VK_NULL_HANDLE ||
@@ -530,9 +531,14 @@ void BufferCacheRuntime::CopyStagingUpload(const Buffer& destination,
                 bounds, {copy.src_offset, copy.dst_offset, copy.size}))
             throw std::out_of_range("R2: copy outside verified staging/destination spans");
     }
-    // No upload batching activated. Preserve all existing scheduler ordering,
-    // barrier behavior and copy lifetimes until a real retirement lease exists.
-    CopyBuffer(dst.handle, staging.buffer, copies, barrier, can_reorder_upload);
+    // A stale/unstamped reservation must never enter the legacy reordered
+    // upload queue. It is still copied through the normal ordered path.
+    // These checks are necessary, NOT sufficient for R2 command batching.
+    const bool same_recording = scheduler.R2RecordingStillCurrent(record);
+    const bool same_request_tick = NS2Research::IsCurrentStagingRequest(
+        staging.request_generation, staging.request_submission_tick, record.submission_tick);
+    CopyBuffer(dst.handle, staging.buffer, copies, barrier,
+               can_reorder_upload && same_recording && same_request_tick);
 }
 #endif
 

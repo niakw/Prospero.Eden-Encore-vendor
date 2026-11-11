@@ -33,6 +33,12 @@ struct StagingBufferRef {
     // This is not by itself proof of an active GPU lifetime lease.
     vk::MemoryLocation backing_location{};
     VkDeviceSize backing_capacity{};
+#if defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // Unique on each Request(), even when the underlying allocation is
+    // recycled. This is a provenance token, NOT a GPU retirement lease.
+    u64 request_generation{};
+    u64 request_submission_tick{};
+#endif
 #endif
 };
 
@@ -137,6 +143,9 @@ private:
     size_t current_delete_level = 0;
     u64 buffer_index = 0;
     u64 unique_ids{};
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    u64 request_generation_counter{};
+#endif
 };
 
 } // namespace Vulkan

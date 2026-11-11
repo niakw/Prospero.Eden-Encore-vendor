@@ -7,6 +7,10 @@
 #include <algorithm>
 #include <utility>
 #include <vector>
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#include <limits>
+#include <stdexcept>
+#endif
 
 #include <fmt/ranges.h>
 
@@ -101,10 +105,24 @@ StagingBufferPool::StagingBufferPool(const Device& device_, MemoryAllocator& mem
 StagingBufferPool::~StagingBufferPool() = default;
 
 StagingBufferRef StagingBufferPool::Request(size_t size, MemoryUsage usage, bool deferred) {
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // Both the stream ring and fallback pool must stamp every new reservation.
+    // The pool's existing CurrentTick/IsFree retirement policy is unchanged.
+    if (request_generation_counter == (std::numeric_limits<u64>::max)()) {
+        throw std::overflow_error("R2 staging request generation exhausted");
+    }
+    auto ref = !deferred && usage == MemoryUsage::Upload && size <= region_size
+                   ? GetStreamBuffer(size)
+                   : GetStagingBuffer(size, usage, deferred);
+    ref.request_generation = ++request_generation_counter;
+    ref.request_submission_tick = scheduler.CurrentTick();
+    return ref;
+#else
     if (!deferred && usage == MemoryUsage::Upload && size <= region_size) {
         return GetStreamBuffer(size);
     }
     return GetStagingBuffer(size, usage, deferred);
+#endif
 }
 
 void StagingBufferPool::FreeDeferred(StagingBufferRef& ref) {
