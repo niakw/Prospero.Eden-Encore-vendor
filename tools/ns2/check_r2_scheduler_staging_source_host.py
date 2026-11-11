@@ -122,7 +122,10 @@ public:
         (void)destination;
         (void)source;
         ++copy_calls;
-        actual_copies.assign(copies.begin(), copies.end());
+        actual_copies.clear();
+        // Match the real CopyBuffer(): zero-sized Vulkan regions are ignored.
+        for (const auto& copy : copies)
+            if (copy.size != 0) actual_copies.push_back(copy);
         actual_barrier = barrier;
         actual_reorder = can_reorder_upload;
     }
