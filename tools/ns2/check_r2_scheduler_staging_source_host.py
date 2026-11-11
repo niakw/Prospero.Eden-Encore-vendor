@@ -304,7 +304,7 @@ def extract_methods() -> tuple[str, str, str, str]:
     end = runtime.index("void BufferCacheRuntime::CopyBuffer(", start)
     typed_copy = runtime[start:end]
     assert typed_copy.count("NS2Research::StagingRegionCoalescer<64> fused") == 1
-    assert typed_copy.count("CopyBuffer(dst.handle, staging.buffer") == 2
+    assert typed_copy.count("CopyBuffer(dst.handle, staging.buffer") == 3
     return scheduler_methods, request, dispatch, typed_copy
 
 def run() -> None:

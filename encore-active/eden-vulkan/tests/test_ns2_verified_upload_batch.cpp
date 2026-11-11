@@ -3,6 +3,8 @@
 // Vulkan submission/physical allocation authentication is NOT tested here.
 #include "ns2_verified_upload_batch.h"
 #include "ns2_staging_upload_bounds.h"
+#include <array>
+#include <cstring>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -74,6 +76,34 @@ int main() {
     ck(same_memory.Size() == 2); // combined spans would overlap physically
     ck(same_memory.Copies()[0].bytes == 8 && same_memory.Copies()[1].bytes == 16);
     ck(!same_memory.Append(shared, {48, 80, 8})); // capacity exhausted
+    // Byte-equivalence oracle: compare each source-region list against the
+    // coalesced ranges on two distinct memory buffers. It catches accidental
+    // gap copies and destination corruption but does not emulate Vulkan GPU.
+    std::array<std::uint8_t, 512> source_bytes{};
+    for (std::size_t i=0; i<source_bytes.size(); ++i)
+        source_bytes[i]=static_cast<std::uint8_t>((i*37+13)%256);
+    const StagingUploadBounds separate_memory{0,512,512,0,512,1024,false};
+    for (std::uint64_t seed=0; seed<64; ++seed) {
+        std::array<std::uint8_t,512> before{}, after{};
+        StagingRegionCoalescer<64> compacted;
+        std::uint64_t from=0, to=0;
+        std::size_t input_count=0;
+        for (std::uint64_t i=0; i<32; ++i) {
+            if ((i+seed)%4==0) { from+=2;to+=4; }
+            const std::uint64_t count=1+(i*3+seed)%7;
+            if (!UploadRangeFits(from,count,source_bytes.size()) ||
+                !UploadRangeFits(to,count,before.size())) break;
+            if (!compacted.Append(separate_memory,{from,to,count}))
+                throw std::runtime_error("region fusion rejected valid test input");
+            std::memcpy(before.data()+to,source_bytes.data()+from,count);
+            from+=count;to+=count;++input_count;
+        }
+        for (const auto& region:compacted.Copies())
+            std::memcpy(after.data()+region.destination_offset,
+                        source_bytes.data()+region.source_offset,region.bytes);
+        ck(before==after);
+        ck(compacted.Size()<input_count);
+    }
     VerifiedUploadBatch batch;
     ck(batch.Empty()&&batch.Size()==0&&batch.GroupCount()==0);
     ck(batch.CanAppend(base));ck(batch.Append(base));
