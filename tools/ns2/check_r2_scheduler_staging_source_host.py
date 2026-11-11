@@ -90,9 +90,10 @@ public:
     } gpu_completion{};
     GpuCompletion& GetMasterSemaphore() noexcept { return gpu_completion; }
     int finishes{};
+    bool stale_after_finish{};
     void Finish() {
         ++finishes;
-        gpu_completion.known_tick = tick;
+        gpu_completion.known_tick = stale_after_finish ? tick - 1 : tick;
         ++tick;
     }
     [[nodiscard]] u64 CurrentTick() const noexcept { return tick; }
@@ -151,6 +152,7 @@ public:
 @@STAGING_RETIRED_DELETE@@
 @@DISPATCH_WORK@@
 struct Buffer {
+    static inline Buffer* last_moved_to{};
     struct NativeBackingSnapshot {
         VkBuffer handle{};
         u64 memory{}, binding_offset{}, capacity{};
@@ -161,7 +163,9 @@ struct Buffer {
     Buffer(const Buffer&)=default;
     Buffer(Buffer&& other) noexcept
         : backing(other.backing),
-          owner_deletions(std::exchange(other.owner_deletions,nullptr)) {}
+          owner_deletions(std::exchange(other.owner_deletions,nullptr)) {
+        last_moved_to = this; // test-only allocation recovery after simulated loss
+    }
     ~Buffer() { if (owner_deletions) ++*owner_deletions; }
     [[nodiscard]] NativeBackingSnapshot GetNativeBackingSnapshot() const noexcept {
         return backing;
@@ -412,8 +416,39 @@ int main() {
         check(deleting.deleted_gpu_buffers.Outstanding()==0);
         check(destroyed_owners==258);
     }
+    // Even when Finish() returns without throwing, an insufficient GPU
+    // timeline must fail closed. Recover the deliberately abandoned test
+    // owner manually so ASan/LSan still validates this exception path.
+    int stale_destroyed=0;
+    {
+        BufferCacheRuntime deleting;
+        deleting.scheduler.tick=45;
+        for(int i=0;i<256;++i) {
+            Buffer owner;
+            owner.owner_deletions=&stale_destroyed;
+            deleting.RetainDeletedBuffer(owner);
+        }
+        check(deleting.deleted_gpu_buffers.Outstanding()==256);
+        deleting.scheduler.stale_after_finish=true;
+        Buffer extra;
+        extra.owner_deletions=&stale_destroyed;
+        bool denied=false;
+        try { deleting.RetainDeletedBuffer(extra); }
+        catch(const std::runtime_error& ex) {
+            denied=std::string(ex.what()).find("GPU completion did not reach")!=std::string::npos;
+        }
+        check(denied);
+        check(stale_destroyed==0 && deleting.deleted_gpu_buffers.Outstanding()==256);
+        Buffer* abandoned = Buffer::last_moved_to;
+        check(abandoned != nullptr);
+        deleting.scheduler.stale_after_finish=false;
+        deleting.scheduler.gpu_completion.known_tick=45;
+        check(deleting.deleted_gpu_buffers.RetireCompleted(45)==256);
+        delete abandoned; // simulated device recovery only; NOT production
+        check(stale_destroyed==257);
+    }
     std::cout << "PASS: " << checks
-              << " exact scheduler/staging source-owner epoch cases\n";
+              << " exact scheduler/staging/retirement source-owner epoch cases\n";
 }
 """
 
