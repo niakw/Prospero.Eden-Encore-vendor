@@ -17,6 +17,9 @@
 #include "video_core/renderer_vulkan/vk_compute_pass.h"
 #include "video_core/renderer_vulkan/vk_multi_range_buffer.h"
 #include "video_core/renderer_vulkan/vk_staging_buffer_pool.h"
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#include "video_core/renderer_vulkan/ns2_gpu_retirement_hold.h"
+#endif
 #include "video_core/renderer_vulkan/vk_update_descriptor.h"
 #include "video_core/surface.h"
 #include "video_core/vulkan_common/vulkan_memory_allocator.h"
@@ -54,6 +57,28 @@ public:
     [[nodiscard]] vk::MemoryLocation Location() const noexcept {
         return buffer.Location();
     }
+
+#ifdef PS5_NATIVE
+    // Passive source-owner snapshot for future NS2 in-order upload staging.
+    // This is not a GPU lifetime lease: consumers must separately prove
+    // this Buffer remains alive through the scheduler's retire tick.
+    struct NativeBackingSnapshot {
+        VkBuffer handle{};
+        VkDeviceMemory memory{};
+        VkDeviceSize binding_offset{};
+        VkDeviceSize capacity{};
+    };
+
+    [[nodiscard]] NativeBackingSnapshot GetNativeBackingSnapshot() const noexcept {
+        const auto location = buffer.Location();
+        return {
+            .handle = *buffer,
+            .memory = location.memory,
+            .binding_offset = location.offset,
+            .capacity = static_cast<VkDeviceSize>(SizeBytes()),
+        };
+    }
+#endif
 
     [[nodiscard]] bool IsRegionUsed(u64 offset, u64 size) const noexcept {
         return tracker.IsUsed(offset, size);
@@ -113,6 +138,13 @@ public:
                                 ComputePassDescriptorQueue& compute_pass_descriptor_queue,
                                 DescriptorPool& descriptor_pool);
 
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    ~BufferCacheRuntime() noexcept;
+    // Transfers the deleted Vulkan Buffer owner into GPU-tick retirement;
+    // normal path never destroys it on a fixed frame age.
+    void RetainDeletedBuffer(Buffer& deleted);
+#endif
+
     void TickFrame(Common::SlotVector<Buffer>& slot_buffers) noexcept;
 
     u64 CurrentTick();
@@ -146,6 +178,14 @@ public:
     void CopyBuffer(VkBuffer dst_buffer, VkBuffer src_buffer,
                     std::span<const VideoCommon::BufferCopy> copies, bool barrier,
                     bool can_reorder_upload = false);
+
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // Strong destination and staging owners are still available at this API
+    // boundary. Range-check only; scheduling remains the existing FIFO path.
+    void CopyStagingUpload(const Buffer& destination, const StagingBufferRef& staging,
+                           std::span<const VideoCommon::BufferCopy> copies, bool barrier,
+                           bool can_reorder_upload);
+#endif
 
     void PostCopyBarrier();
 
@@ -269,6 +309,12 @@ private:
     MultiRangeBufferCache multi_range_buffers;
     boost::container::small_vector<MultiRangeSource, 16> multi_range_sources;
     VkDeviceSize multi_range_total{};
+
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // Strong owner type deliberately uses unique_ptr to provide noexcept
+    // movement even when Buffer's internal implementation changes.
+    NS2Research::GpuRetirementHold<std::unique_ptr<Buffer>, 256> deleted_gpu_buffers;
+#endif
 
     bool limit_dynamic_storage_buffers = false;
     u32 max_dynamic_storage_buffers = (std::numeric_limits<u32>::max)();

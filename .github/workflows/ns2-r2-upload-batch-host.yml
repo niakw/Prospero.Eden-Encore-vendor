@@ -1,0 +1,97 @@
+name: NS2 R2 bounded upload batch - host source gate
+# One small host-only C++ regression job. No native PS5 build.
+
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h'
+      - 'encore-active/eden-vulkan/tests/test_ns2_cache_shutdown_order.cpp'
+      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_verified_upload_batch.h'
+      - 'encore-active/eden-vulkan/tests/test_ns2_verified_upload_batch.cpp'
+      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_gpu_retirement_hold.h'
+      - 'encore-active/eden-vulkan/tests/test_ns2_gpu_retirement_hold.cpp'
+      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_staging_upload_bounds.h'
+      - 'encore-active/eden-vulkan/vk_buffer_cache_cost.cpp'
+      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_scheduler.h'
+      - 'encore-active/eden-vulkan/vulkan_scheduler.cpp'
+      - 'encore-active/eden-vulkan/vk_staging_buffer_pool.cpp'
+      - 'tools/ns2/check_r2_scheduler_staging_source_host.py'
+      - '.github/workflows/ns2-r2-upload-batch-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ns2-r2-upload-host-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-maintained-header:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout research source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile and execute the exact vendor header with sanitizers
+        shell: bash
+        run: |
+          set -euo pipefail
+          header_dir=encore-active/eden-vulkan/include/video_core/renderer_vulkan
+          test_file=encore-active/eden-vulkan/tests/test_ns2_verified_upload_batch.cpp
+          for compiler in clang++ g++; do
+            for opt in 0 1 2; do
+              out="${RUNNER_TEMP}/ns2-r2-${compiler//+/p}-O${opt}"
+              "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror -pedantic \
+                -fsanitize=address,undefined -fno-sanitize-recover=all \
+                -fno-omit-frame-pointer -I"${header_dir}" "${test_file}" -o "${out}"
+              "${out}"
+            done
+          done
+      - name: Compile exact R2 scheduler and staging Request method bodies
+        shell: bash
+        run: python3 -B tools/ns2/check_r2_scheduler_staging_source_host.py
+      - name: Qualify strongly retained owner retirement against completed GPU tick
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in clang++ g++; do
+            for opt in 0 2; do
+              output="${RUNNER_TEMP}/ns2-r2-retire-${compiler//+/p}-O${opt}"
+              "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror -pedantic \
+                -fsanitize=address,undefined -fno-sanitize-recover=all \
+                -I encore-active/eden-vulkan/include/video_core/renderer_vulkan \
+                "encore-active/eden-vulkan/tests/test_ns2_gpu_retirement_hold.cpp" -o "${output}"
+              "${output}"
+            done
+          done
+
+      - name: Verify source-derived real cache shutdown ordering
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path("encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h").read_text()
+          anchor = "BufferCache<P>::~BufferCache() {"
+          start = text.index("template <class P>\n" + anchor)
+          end = text.index("template <class P>\nvoid BufferCache<P>::RunGarbageCollector()", start)
+          body = text[start:end]
+          assert body.count("runtime.Finish();") == 1
+          assert body.count("std::terminate();") == 1
+          path = Path("/tmp/ns2-r2-cache-shutdown.cpp")
+          path.write_text(
+              Path("encore-active/eden-vulkan/tests/test_ns2_cache_shutdown_order.cpp").read_text().replace("@@REAL_CACHE_DESTRUCTOR@@", body))
+          PY
+          for compiler in clang++ g++; do
+            for opt in 0 2; do
+              output="${RUNNER_TEMP}/ns2-r2-cache-owner-${compiler//+/p}-O${opt}"
+              "${compiler}" -std=c++20 -DPS5_NATIVE=1 -DEDEN_RESEARCH_NS2_STAGE_BACKING=1 \
+                -Wall -Wextra -Werror -pedantic -O"${opt}" \
+                -fsanitize=address,undefined -fno-sanitize-recover=all \
+                /tmp/ns2-r2-cache-shutdown.cpp -o "${output}"
+              "${output}"
+            done
+          done

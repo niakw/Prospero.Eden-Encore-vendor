@@ -6,7 +6,14 @@
 
 #pragma once
 
+#include <algorithm>
+#include <iterator>
 #include <limits>
+#include <span>
+#include <type_traits>
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_R4_VOLUME)
+#include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
+#endif
 #include <optional>
 #include <bit>
 #include "common/container/unordered_map.h"
@@ -28,6 +35,8 @@
 #endif
 #include "video_core/texture_cache/util.h"
 #include "video_core/textures/decoders.h"
+
+namespace Vulkan { class TextureCacheRuntime; }
 
 namespace VideoCommon {
 
@@ -1037,6 +1046,199 @@ template <class P>
 bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                                 const Tegra::Engines::Fermi2D::Surface& src,
                                 const Tegra::Engines::Fermi2D::Config& copy) {
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_R4_VOLUME)
+    // Vulkan-only candidate, isolated from shared NS1 and OpenGL template instantiations.
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+    // Research-only native NS2 path. Existing Switch 1 channels always take
+    // the unchanged generic blit path below. A graphics-engine ticket also
+    // authenticates the native process/channel generation before staging.
+    const auto copy_native_volume_slice = [&]() -> bool {
+        using Fermi2D = Tegra::Engines::Fermi2D;
+        if (!maxwell3d || !channel_state ||
+            &channel_state->maxwell3d != maxwell3d ||
+            copy.operation != Fermi2D::Operation::SrcCopy ||
+            copy.filter != Fermi2D::Filter::Point) {
+            return false;
+        }
+        auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+        const auto ticket = registry.CaptureGraphicsTicket(maxwell3d);
+        if (!ticket) {
+            return false;
+        }
+        const auto is_volume = [](const Fermi2D::Surface& surface) {
+            return surface.depth > 1 &&
+                   surface.linear == Fermi2D::MemoryLayout::BlockLinear &&
+                   surface.layer == 0 && surface.width != 0 && surface.height != 0;
+        };
+        // Avoid narrowing guest dimensions to signed Fermi2D coordinates.
+        if (src.width > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+            dst.width > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+            src.height > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+            dst.height > static_cast<u32>(std::numeric_limits<s32>::max())) {
+            return false;
+        }
+        const bool whole_slice =
+            copy.src_x0 == 0 && copy.src_y0 == 0 &&
+            copy.dst_x0 == 0 && copy.dst_y0 == 0 &&
+            copy.src_x1 == static_cast<s32>(src.width) &&
+            copy.src_y1 == static_cast<s32>(src.height) &&
+            copy.dst_x1 == static_cast<s32>(dst.width) &&
+            copy.dst_y1 == static_cast<s32>(dst.height);
+        if (!is_volume(src) || !is_volume(dst) || !whole_slice ||
+            src.format != dst.format || src.width != dst.width ||
+            src.height != dst.height) {
+            return false;
+        }
+        const auto format =
+            VideoCore::Surface::PixelFormatFromRenderTargetFormat(src.format);
+        struct Slice {
+            ImageId id;
+            s32 depth;
+        };
+        const auto find_slice = [&](const Fermi2D::Surface& surface) -> std::optional<Slice> {
+            std::optional<Slice> found;
+            bool ambiguous = false;
+            const GPUVAddr address = surface.Address();
+            ForEachImageInRegionGPU(channel_state->gpu_memory.GetID(), address, 1,
+                                    [&](ImageId id, Image& image) {
+                if (image.info.type != ImageType::e3D ||
+                    image.info.format != format ||
+                    image.info.num_samples != 1 ||
+                    image.info.size.width != surface.width ||
+                    image.info.size.height != surface.height ||
+                    image.info.size.depth != surface.depth ||
+                    // An aliased/overlapping cache entry needs normal synchronization.
+                    !image.aliased_images.empty() || !image.overlapping_images.empty() ||
+                    True(image.flags & (ImageFlagBits::Remapped | ImageFlagBits::Sparse |
+                                        ImageFlagBits::Rescaled | ImageFlagBits::IsDecoding)) ||
+                    address < image.gpu_addr) {
+                    return false;
+                }
+                const u64 relative = address - image.gpu_addr;
+                if (relative >= image.guest_size_bytes ||
+                    relative > std::numeric_limits<u32>::max() ||
+                    image.slice_offsets.size() != image.slice_subresources.size()) {
+                    return false;
+                }
+                const auto it = std::ranges::find(image.slice_offsets, static_cast<u32>(relative));
+                if (it == image.slice_offsets.end()) {
+                    return false;
+                }
+                const auto index =
+                    static_cast<size_t>(std::distance(image.slice_offsets.begin(), it));
+                const SubresourceBase base = image.slice_subresources[index];
+                if (base.level != 0 || base.layer < 0 ||
+                    static_cast<u32>(base.layer) >= image.info.size.depth) {
+                    return false;
+                }
+                // A page may contain more than one otherwise suitable cached
+                // image. Never select whichever entry the hash table visits first.
+                if (found) {
+                    ambiguous = true;
+                    return false;
+                }
+                found = Slice{id, base.layer};
+                return false;
+            });
+            return ambiguous ? std::nullopt : found;
+        };
+        const auto src_slice = find_slice(src);
+        const auto dst_slice = find_slice(dst);
+        if (!src_slice || !dst_slice || src_slice->id == dst_slice->id ||
+            !registry.IsGraphicsCurrent(maxwell3d, *ticket)) {
+            return false;
+        }
+        // An image cache ID and a distinct GPU virtual address do not prove
+        // distinct physical guest backing. Reject sparse, stale, discontinuous
+        // and physically overlapping allocations, preserving generic fallback.
+        struct PhysicalSpan {
+            u64 address;
+            u64 bytes;
+        };
+        const auto capture_physical = [&](ImageId id) -> std::optional<PhysicalSpan> {
+            const Image& image = slot_images[id];
+            const u64 bytes = image.guest_size_bytes;
+            constexpr u64 max_research_span = 256ULL * 1024 * 1024;
+            if (!image.gpu_addr || !bytes || bytes > max_research_span ||
+                image.gpu_addr > std::numeric_limits<u64>::max() - (bytes - 1) ||
+                !gpu_memory->IsContinuousRange(image.gpu_addr, bytes)) {
+                return std::nullopt;
+            }
+            const auto start = gpu_memory->GpuToCpuAddress(image.gpu_addr);
+            const auto end = gpu_memory->GpuToCpuAddress(image.gpu_addr + bytes - 1);
+            if (!start || !end || *start != image.cpu_addr ||
+                *start > std::numeric_limits<u64>::max() - (bytes - 1) ||
+                *end != *start + bytes - 1) {
+                return std::nullopt;
+            }
+            return PhysicalSpan{*start, bytes};
+        };
+        const auto overlaps = [](PhysicalSpan lhs, PhysicalSpan rhs) {
+            return lhs.address <= rhs.address
+                ? rhs.address - lhs.address < lhs.bytes
+                : lhs.address - rhs.address < rhs.bytes;
+        };
+        const auto src_physical = capture_physical(src_slice->id);
+        const auto dst_physical = capture_physical(dst_slice->id);
+        if (!src_physical || !dst_physical || overlaps(*src_physical, *dst_physical)) {
+            return false;
+        }
+        // Distinct cache IDs can still cover intersecting guest GPU ranges.
+        // The guarded path does not implement an overlapping image transfer.
+        const Image& src_image = slot_images[src_slice->id];
+        const Image& dst_image = slot_images[dst_slice->id];
+        const bool ranges_overlap = src_image.gpu_addr <= dst_image.gpu_addr
+            ? dst_image.gpu_addr - src_image.gpu_addr < src_image.guest_size_bytes
+            : src_image.gpu_addr - dst_image.gpu_addr < dst_image.guest_size_bytes;
+        if (ranges_overlap) {
+            return false;
+        }
+        // A refused copy must not realize an unrelated pending framebuffer
+        // clear. Do this only after both cached slices and the owner agree.
+        runtime.FlushDeferredClear();
+        PrepareImage(src_slice->id, false, false);
+        // Refresh the destination before the last native channel recheck.
+        // Do not mark a rejected/revoked copy as a guest GPU write.
+        PrepareImage(dst_slice->id, false, false);
+        // RefreshContents/SynchronizeAliases can invalidate or replace cached
+        // images. Re-resolve both sides after those operations, before recording
+        // any Vulkan copy or marking a guest-visible write.
+        const auto src_after = find_slice(src);
+        const auto dst_after = find_slice(dst);
+        if (!src_after || !dst_after ||
+            src_after->id != src_slice->id || dst_after->id != dst_slice->id ||
+            src_after->depth != src_slice->depth ||
+            dst_after->depth != dst_slice->depth ||
+            !registry.IsGraphicsCurrent(maxwell3d, *ticket)) {
+            return false;
+        }
+        const auto src_physical_after = capture_physical(src_slice->id);
+        const auto dst_physical_after = capture_physical(dst_slice->id);
+        if (!src_physical_after || !dst_physical_after ||
+            src_physical_after->address != src_physical->address ||
+            dst_physical_after->address != dst_physical->address ||
+            src_physical_after->bytes != src_physical->bytes ||
+            dst_physical_after->bytes != dst_physical->bytes ||
+            overlaps(*src_physical_after, *dst_physical_after)) {
+            return false;
+        }
+        MarkModification(slot_images[dst_slice->id]);
+        const ImageCopy slice_copy{
+            .src_subresource = {.base_level = 0, .base_layer = 0, .num_layers = 1},
+            .dst_subresource = {.base_level = 0, .base_layer = 0, .num_layers = 1},
+            .src_offset = {0, 0, src_slice->depth},
+            .dst_offset = {0, 0, dst_slice->depth},
+            .extent = {src.width, src.height, 1},
+        };
+        runtime.CopyImage(slot_images[dst_slice->id], slot_images[src_slice->id],
+                          std::span{&slice_copy, 1});
+        return true;
+    };
+    if (copy_native_volume_slice()) {
+        return true;
+    }
+    }
+#endif
     const auto result = GetBlitImages(dst, src, copy);
     if (!result) {
         return false;
@@ -2770,11 +2972,23 @@ void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
                    num_removed_overlaps);
     }
     for (const ImageViewId image_view_id : image_view_ids) {
+#ifdef PS5_NATIVE
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            // Both GC and immediate eviction must retain the underlying
+            // Vulkan image view through actual GPU completion.
+            runtime.RetireGpuImageView(std::move(slot_image_views[image_view_id]));
+        } else
+#endif
         if (!immediate_delete) {
             sentenced_image_view.Push(std::move(slot_image_views[image_view_id]));
         }
         slot_image_views.erase(image_view_id);
     }
+#ifdef PS5_NATIVE
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        runtime.RetireGpuImage(std::move(slot_images[image_id]));
+    } else
+#endif
     if (!immediate_delete) {
         sentenced_images.Push(std::move(slot_images[image_id]));
     }

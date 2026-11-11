@@ -15,6 +15,10 @@
 
 #include "video_core/buffer_cache/buffer_cache_base.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#include "video_core/renderer_vulkan/ns2_staging_upload_bounds.h"
+#include <stdexcept>
+#endif
 
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -435,7 +439,59 @@ u32 BufferCacheRuntime::GetStorageBufferAlignment() const {
     return static_cast<u32>(device.GetStorageBufferAlignment());
 }
 
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+BufferCacheRuntime::~BufferCacheRuntime() noexcept {
+    if (!deleted_gpu_buffers.Outstanding()) return;
+    try {
+        // Synchronize and retire before the runtime (and its retained owners)
+        // are destroyed. A device-lost exception must never free live VkBuffers.
+        scheduler.Finish();
+        deleted_gpu_buffers.RetireCompleted(
+            scheduler.GetMasterSemaphore().KnownGpuTick());
+        if (deleted_gpu_buffers.Outstanding())
+            deleted_gpu_buffers.AbandonUnsafeOwners();
+    } catch (...) {
+        deleted_gpu_buffers.AbandonUnsafeOwners();
+    }
+}
+
+void BufferCacheRuntime::RetainDeletedBuffer(Buffer& deleted) {
+    // Allocate a stable heap owner before moving from SlotVector. If the
+    // allocation fails, the original slot remains unchanged.
+    auto owner = std::make_unique<Buffer>(std::move(deleted));
+    try {
+        const u64 submit_tick = scheduler.CurrentTick();
+        deleted_gpu_buffers.RetireCompleted(
+            scheduler.GetMasterSemaphore().KnownGpuTick());
+        if (deleted_gpu_buffers.TryRetain(std::move(owner), submit_tick))
+            return;
+        // Bounded at 256 pending deletions: an explicit GPU-finish fallback
+        // is slower, but guarantees safe release without a frame-age guess.
+        scheduler.Finish();
+        const u64 completed_tick = scheduler.GetMasterSemaphore().KnownGpuTick();
+        deleted_gpu_buffers.RetireCompleted(completed_tick);
+        // A broken/lost timeline must NEVER silently release an unadmitted
+        // destination buffer, even when Finish() did not throw.
+        if (completed_tick < submit_tick)
+            throw std::runtime_error("R2: GPU completion did not reach deletion tick");
+        owner.reset();
+    } catch (...) {
+        // Submission failure / device loss: never destroy a possibly live
+        // Vulkan owner. The application error path handles the exception.
+        (void)owner.release();
+        throw;
+    }
+}
+#endif
+
 void BufferCacheRuntime::TickFrame(Common::SlotVector<Buffer>& slot_buffers) noexcept {
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // Reclaim even with no resident buffers or with the final guest channel
+    // already gone; this is *real* completion, not elapsed host frames.
+    if (deleted_gpu_buffers.Outstanding())
+        deleted_gpu_buffers.RetireCompleted(
+            scheduler.GetMasterSemaphore().KnownGpuTick());
+#endif
 #ifdef PS5_NATIVE
     // No tracked buffers: avoid even the GPU-completion semaphore snapshot.
     if (slot_buffers.begin() == slot_buffers.end()) {
@@ -501,6 +557,79 @@ bool BufferCacheRuntime::CanReorderUpload(const Buffer& buffer,
         });
     return can_use_upload_cmdbuf;
 }
+
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+void BufferCacheRuntime::CopyStagingUpload(const Buffer& destination,
+                                            const StagingBufferRef& staging,
+                                            std::span<const VideoCommon::BufferCopy> copies,
+                                            bool barrier, bool can_reorder_upload) {
+    const auto record = scheduler.SnapshotR2Recording();
+    const auto dst = destination.GetNativeBackingSnapshot();
+    const auto& src = staging.backing_location;
+    if (dst.handle == VK_NULL_HANDLE || staging.buffer == VK_NULL_HANDLE ||
+        dst.memory == VK_NULL_HANDLE || src.memory == VK_NULL_HANDLE)
+        throw std::out_of_range("R2: missing physical owner");
+    const NS2Research::StagingUploadBounds bounds{
+        .staging_offset = staging.offset,
+        .mapped_bytes = static_cast<std::uint64_t>(staging.mapped_span.size_bytes()),
+        .staging_capacity = staging.backing_capacity,
+        .staging_binding_offset = src.offset,
+        .destination_capacity = dst.capacity,
+        .destination_binding_offset = dst.binding_offset,
+        .same_memory = src.memory == dst.memory,
+    };
+    for (const auto& copy : copies) {
+        if (!NS2Research::VerifyStagingUploadCopy(
+                bounds, {copy.src_offset, copy.dst_offset, copy.size}))
+            throw std::out_of_range("R2: copy outside verified staging/destination spans");
+    }
+    // A reservation from another recording tick (or without a generation)
+    // may refer to memory already recycled by the staging ring/pool. Merely
+    // disabling upload reordering would still allow copying stale bytes.
+    // Reject it BEFORE scheduling any Vulkan copy command.
+    if (!NS2Research::IsCurrentStagingRequest(
+            staging.request_generation, staging.request_submission_tick,
+            record.submission_tick) ||
+        !staging_pool.IsCurrentRequest(staging, record.submission_tick))
+        throw std::out_of_range("R2: stale staging reservation epoch");
+    // A recording-context change can still select the ordered path.
+    // Neither check authorizes cross-command batching or new barriers.
+    const bool same_recording = scheduler.R2RecordingStillCurrent(record);
+    const bool may_reorder = can_reorder_upload && same_recording;
+    // The common inline-upload case contains one region. Preserve its exact
+    // old fast path without initializing the 64-slot region accumulator.
+    if (copies.size() < 2) {
+        CopyBuffer(dst.handle, staging.buffer, copies, barrier, may_reorder);
+        return;
+    }
+    // One existing vkCmdCopyBuffer may already contain many regions. Merge
+    // only physically verified adjacent source AND destination spans within
+    // this same call, preserving the original command's barriers/order.
+    // If the bounded builder fills up, the exact original list is used.
+    NS2Research::StagingRegionCoalescer<64> fused;
+    bool fully_captured = true;
+    for (const auto& copy : copies) {
+        if (!fused.Append(bounds, {copy.src_offset, copy.dst_offset, copy.size})) {
+            fully_captured = false;
+            break;
+        }
+    }
+    if (fully_captured && fused.Size() < copies.size()) {
+        boost::container::small_vector<VideoCommon::BufferCopy, 8> compact;
+        compact.reserve(fused.Size());
+        for (const auto& copy : fused.Copies()) {
+            compact.push_back({.src_offset = copy.source_offset,
+                               .dst_offset = copy.destination_offset,
+                               .size = copy.bytes});
+        }
+        CopyBuffer(dst.handle, staging.buffer,
+                   std::span<const VideoCommon::BufferCopy>{compact.data(), compact.size()},
+                   barrier, may_reorder);
+    } else {
+        CopyBuffer(dst.handle, staging.buffer, copies, barrier, may_reorder);
+    }
+}
+#endif
 
 void BufferCacheRuntime::CopyBuffer(VkBuffer dst_buffer, VkBuffer src_buffer,
                                     std::span<const VideoCommon::BufferCopy> copies, bool barrier,
