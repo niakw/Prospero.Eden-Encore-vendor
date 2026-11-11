@@ -1,0 +1,22 @@
+name: NS1 R23 FW23.5 qlaunch NS 13 commands and event parity
+on:
+  push:
+    branches:
+      - research/ns1-r23-fw235-ns-commands-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-backports/src/core/hle/service/ns/application_manager_interface.*"
+      - "tests/ns1_r23_fw235_ns.py"
+      - ".github/workflows/ns1-r23-fw235-ns.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-ns-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_fw235_ns.py
