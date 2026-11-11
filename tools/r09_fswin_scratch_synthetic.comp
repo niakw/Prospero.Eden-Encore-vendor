@@ -1,0 +1,27 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Isolated PUBLIC-INPUT FSwin scratch aliasing synchronization witness.
+// NOT an R09 model shader and not linked into Encore/PS5.
+layout(local_size_x=64,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0,std430) readonly buffer Input {
+    uint words[];
+} in_tokens;
+layout(set=0,binding=1,std430) buffer Scratch {
+    uint words[];
+} shared_scratch;
+layout(set=0,binding=2,std430) writeonly buffer Output {
+    uint words[];
+} out_tokens;
+layout(push_constant) uniform Params {
+    uint stage;
+    uint layer;
+} pc;
+void main(){
+    const uint i=gl_GlobalInvocationID.x;
+    if(i>=256u)return;
+    if(pc.stage==0u){
+        shared_scratch.words[i]=in_tokens.words[i]+pc.layer*7u+11u;
+    }else if(pc.stage==1u){
+        out_tokens.words[i]=shared_scratch.words[i]*3u+pc.layer*5u;
+    }
+}
