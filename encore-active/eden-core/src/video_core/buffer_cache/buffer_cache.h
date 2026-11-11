@@ -1958,7 +1958,15 @@ void BufferCache<P>::MappedUploadMemory([[maybe_unused]] Buffer& buffer,
             copy.src_offset += upload_staging.offset;
         }
         const bool can_reorder = runtime.CanReorderUpload(buffer, copies);
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+        if constexpr (!P::IS_OPENGL) {
+            runtime.CopyStagingUpload(buffer, upload_staging, copies, true, can_reorder);
+        } else {
+            runtime.CopyBuffer(buffer, upload_staging.buffer, copies, true, can_reorder);
+        }
+#else
         runtime.CopyBuffer(buffer, upload_staging.buffer, copies, true, can_reorder);
+#endif
     }
 }
 
@@ -2000,7 +2008,15 @@ void BufferCache<P>::InlineMemoryImplementation(DAddr dest_address, size_t copy_
         u8* const src_pointer = upload_staging.mapped_span.data();
         std::memcpy(src_pointer, inlined_buffer.data(), copy_size);
         const bool can_reorder = runtime.CanReorderUpload(buffer, copies);
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+        if constexpr (!P::IS_OPENGL) {
+            runtime.CopyStagingUpload(buffer, upload_staging, copies, true, can_reorder);
+        } else {
+            runtime.CopyBuffer(buffer, upload_staging.buffer, copies, true, can_reorder);
+        }
+#else
         runtime.CopyBuffer(buffer, upload_staging.buffer, copies, true, can_reorder);
+#endif
     } else {
         buffer.ImmediateUpload(buffer.Offset(dest_address), inlined_buffer.first(copy_size));
     }

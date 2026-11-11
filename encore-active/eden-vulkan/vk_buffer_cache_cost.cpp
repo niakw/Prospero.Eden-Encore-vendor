@@ -15,6 +15,10 @@
 
 #include "video_core/buffer_cache/buffer_cache_base.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+#include "video_core/renderer_vulkan/ns2_staging_upload_bounds.h"
+#include <stdexcept>
+#endif
 
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -501,6 +505,36 @@ bool BufferCacheRuntime::CanReorderUpload(const Buffer& buffer,
         });
     return can_use_upload_cmdbuf;
 }
+
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+void BufferCacheRuntime::CopyStagingUpload(const Buffer& destination,
+                                            const StagingBufferRef& staging,
+                                            std::span<const VideoCommon::BufferCopy> copies,
+                                            bool barrier, bool can_reorder_upload) {
+    const auto dst = destination.GetNativeBackingSnapshot();
+    const auto& src = staging.backing_location;
+    if (dst.handle == VK_NULL_HANDLE || staging.buffer == VK_NULL_HANDLE ||
+        dst.memory == VK_NULL_HANDLE || src.memory == VK_NULL_HANDLE)
+        throw std::out_of_range("R2: missing physical owner");
+    const NS2Research::StagingUploadBounds bounds{
+        .staging_offset = staging.offset,
+        .mapped_bytes = static_cast<std::uint64_t>(staging.mapped_span.size_bytes()),
+        .staging_capacity = staging.backing_capacity,
+        .staging_binding_offset = src.offset,
+        .destination_capacity = dst.capacity,
+        .destination_binding_offset = dst.binding_offset,
+        .same_memory = src.memory == dst.memory,
+    };
+    for (const auto& copy : copies) {
+        if (!NS2Research::VerifyStagingUploadCopy(
+                bounds, {copy.src_offset, copy.dst_offset, copy.size}))
+            throw std::out_of_range("R2: copy outside verified staging/destination spans");
+    }
+    // No upload batching activated. Preserve all existing scheduler ordering,
+    // barrier behavior and copy lifetimes until a real retirement lease exists.
+    CopyBuffer(dst.handle, staging.buffer, copies, barrier, can_reorder_upload);
+}
+#endif
 
 void BufferCacheRuntime::CopyBuffer(VkBuffer dst_buffer, VkBuffer src_buffer,
                                     std::span<const VideoCommon::BufferCopy> copies, bool barrier,

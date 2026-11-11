@@ -169,6 +169,14 @@ public:
                     std::span<const VideoCommon::BufferCopy> copies, bool barrier,
                     bool can_reorder_upload = false);
 
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // Strong destination and staging owners are still available at this API
+    // boundary. Range-check only; scheduling remains the existing FIFO path.
+    void CopyStagingUpload(const Buffer& destination, const StagingBufferRef& staging,
+                           std::span<const VideoCommon::BufferCopy> copies, bool barrier,
+                           bool can_reorder_upload);
+#endif
+
     void PostCopyBarrier();
 
     void ClearBuffer(VkBuffer dest_buffer, u32 offset, size_t size, u32 value);

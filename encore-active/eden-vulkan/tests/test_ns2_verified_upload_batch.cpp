@@ -2,6 +2,7 @@
 // Host-only contract test for the exact maintained NS2Research header.
 // Vulkan submission/physical allocation authentication is NOT tested here.
 #include "ns2_verified_upload_batch.h"
+#include "ns2_staging_upload_bounds.h"
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -17,6 +18,23 @@ int main() {
         .source_backing_bytes=4096,.destination_backing_bytes=4096,
         .source_offset=0,.destination_offset=0,.bytes=64,
         .channel_generation=7,.queue_generation=3,.allow_reorder=true};
+    const StagingUploadBounds sb{
+        .staging_offset=128, .mapped_bytes=256, .staging_capacity=1024,
+        .staging_binding_offset=4096, .destination_capacity=512,
+        .destination_binding_offset=8192, .same_memory=false};
+    ck(VerifyStagingUploadCopy(sb,{128,0,256}));
+    ck(VerifyStagingUploadCopy(sb,{255,500,12}));
+    ck(!VerifyStagingUploadCopy(sb,{127,0,1}));
+    ck(!VerifyStagingUploadCopy(sb,{128,0,257}));
+    ck(!VerifyStagingUploadCopy(sb,{128,511,2}));
+    ck(!VerifyStagingUploadCopy(sb,{1000,0,64}));
+    auto overflow_binding=sb;
+    overflow_binding.staging_binding_offset=std::numeric_limits<std::uint64_t>::max();
+    ck(!VerifyStagingUploadCopy(overflow_binding,{128,0,1}));
+    auto alias=sb;alias.same_memory=true;alias.destination_binding_offset=4096;
+    ck(!VerifyStagingUploadCopy(alias,{128,128,32}));
+    ck(VerifyStagingUploadCopy(alias,{128,256,32}));
+    ck(VerifyStagingUploadCopy(alias,{128,0,32}));
     VerifiedUploadBatch batch;
     ck(batch.Empty()&&batch.Size()==0&&batch.GroupCount()==0);
     ck(batch.CanAppend(base));ck(batch.Append(base));
