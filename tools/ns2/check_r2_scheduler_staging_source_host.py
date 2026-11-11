@@ -272,8 +272,9 @@ int main() {
 
     StagingBufferPool pool;
     auto a = pool.Request(32, MemoryUsage::Upload);
-    check(a.kind == 1 && a.request_generation == 1 && a.request_submission_tick == 5);
-    auto b = pool.Request(65, MemoryUsage::Upload);
+    check(a.buffer == 17 && a.mapped_span.size_bytes() == 32 &&
+          a.request_generation == 1 && a.request_submission_tick == 5);
+    auto b = pool.Request(257, MemoryUsage::Upload);
     check(b.kind == 2 && b.request_generation == 2 && b.request_submission_tick == 5);
     auto c = pool.Request(16, MemoryUsage::Download);
     check(c.kind == 2 && c.request_generation == 3);
