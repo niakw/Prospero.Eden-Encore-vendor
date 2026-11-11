@@ -46,6 +46,7 @@ TEMPLATE = r"""
 #include <utility>
 #include <vector>
 #include "ns2_staging_upload_bounds.h"
+#include "ns2_gpu_retirement_hold.h"
 // The extracted method normally lives in namespace Vulkan.
 namespace NS2Research = Vulkan::NS2Research;
 #define ASSERT(condition) do { if (!(condition)) throw std::runtime_error("mock ASSERT"); } while (false)
@@ -83,6 +84,17 @@ struct MockEventCV {
 };
 class Scheduler {
 public:
+    struct GpuCompletion {
+        u64 known_tick{};
+        [[nodiscard]] u64 KnownGpuTick() const noexcept { return known_tick; }
+    } gpu_completion{};
+    GpuCompletion& GetMasterSemaphore() noexcept { return gpu_completion; }
+    int finishes{};
+    void Finish() {
+        ++finishes;
+        gpu_completion.known_tick = tick;
+        ++tick;
+    }
     [[nodiscard]] u64 CurrentTick() const noexcept { return tick; }
     [[nodiscard]] bool IsFree(u64 submitted_tick) const noexcept {
         return submitted_tick != 0 && submitted_tick <= completed_gpu_tick;
@@ -144,6 +156,13 @@ struct Buffer {
         u64 memory{}, binding_offset{}, capacity{};
     };
     NativeBackingSnapshot backing{22, 2002, 0, 512};
+    int* owner_deletions{};
+    Buffer()=default;
+    Buffer(const Buffer&)=default;
+    Buffer(Buffer&& other) noexcept
+        : backing(other.backing),
+          owner_deletions(std::exchange(other.owner_deletions,nullptr)) {}
+    ~Buffer() { if (owner_deletions) ++*owner_deletions; }
     [[nodiscard]] NativeBackingSnapshot GetNativeBackingSnapshot() const noexcept {
         return backing;
     }
@@ -151,6 +170,9 @@ struct Buffer {
 class BufferCacheRuntime {
 public:
     Scheduler scheduler{};
+    NS2Research::GpuRetirementHold<std::unique_ptr<Buffer>,256> deleted_gpu_buffers;
+    ~BufferCacheRuntime() noexcept;
+    void RetainDeletedBuffer(Buffer&);
     std::vector<VideoCommon::BufferCopy> actual_copies{};
     std::size_t copy_calls{};
     bool actual_barrier{}, actual_reorder{};
@@ -171,6 +193,7 @@ public:
                            std::span<const VideoCommon::BufferCopy> copies, bool barrier,
                            bool can_reorder_upload);
 };
+@@RUNTIME_LIFETIME@@
 @@RUNTIME_METHOD@@
 int main() {
     int checks = 0;
@@ -365,12 +388,36 @@ int main() {
     std::array<VideoCommon::BufferCopy, 1> zero{{{128, 0, 0}}};
     runtime.CopyStagingUpload(dst, upload, zero, true, true);
     check(runtime.actual_copies.empty() && runtime.actual_barrier);
+    int destroyed_owners=0;
+    {
+        BufferCacheRuntime deleting;
+        deleting.scheduler.tick=11;
+        Buffer doomed;
+        doomed.owner_deletions=&destroyed_owners;
+        deleting.RetainDeletedBuffer(doomed);
+        check(deleting.deleted_gpu_buffers.Outstanding()==1 && destroyed_owners==0);
+        check(deleting.deleted_gpu_buffers.RetireCompleted(10)==0 && destroyed_owners==0);
+        // Source-derived destructor must submit and wait before collection.
+    }
+    check(destroyed_owners==1);
+    {
+        BufferCacheRuntime deleting;
+        deleting.scheduler.tick=33;
+        for (int i=0;i<257;++i) {
+            Buffer doomed;
+            doomed.owner_deletions=&destroyed_owners;
+            deleting.RetainDeletedBuffer(doomed);
+        }
+        check(deleting.scheduler.finishes==1);
+        check(deleting.deleted_gpu_buffers.Outstanding()==0);
+        check(destroyed_owners==258);
+    }
     std::cout << "PASS: " << checks
               << " exact scheduler/staging source-owner epoch cases\n";
 }
 """
 
-def extract_methods() -> tuple[str, str, str, str, str, str, str]:
+def extract_methods() -> tuple[str, str, str, str, str, str, str, str]:
     scheduler = SCHED.read_text()
     start = scheduler.index(
         "#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)\n"
@@ -411,9 +458,19 @@ def extract_methods() -> tuple[str, str, str, str, str, str, str]:
     )
     end = runtime.index("void BufferCacheRuntime::CopyBuffer(", start)
     typed_copy = runtime[start:end]
+    lifetime_start=runtime.index(
+        "#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)\n"
+        "BufferCacheRuntime::~BufferCacheRuntime() noexcept"
+    )
+    lifetime_end=runtime.index(
+        "\n#endif\n\nvoid BufferCacheRuntime::TickFrame",lifetime_start
+    ) + len("\n#endif")
+    lifetime=runtime[lifetime_start:lifetime_end]
+    assert lifetime.count("deleted_gpu_buffers.AbandonUnsafeOwners()") == 2
+    assert lifetime.count("scheduler.Finish()") == 2
     assert typed_copy.count("NS2Research::StagingRegionCoalescer<64> fused") == 1
     assert typed_copy.count("CopyBuffer(dst.handle, staging.buffer") == 3
-    return scheduler_methods, request, dispatch, typed_copy, reuse, free_deferred, reclaim
+    return scheduler_methods, request, dispatch, typed_copy, reuse, free_deferred, reclaim, lifetime
 
 def run() -> None:
     for path, sha in SOURCE_BLOBS.items():
@@ -454,14 +511,15 @@ def run() -> None:
     assert runtime.count("if (copies.size() < 2)") == 1
     print("R2_TYPED_UPLOAD_STILL_ORDERED: callers=2 explicit_barriers=2 cross_call_batching=OFF in_call_region_fusion=ON")
 
-    scheduler, request, dispatch, typed_copy, reuse, free_deferred, reclaim = extract_methods()
+    scheduler, request, dispatch, typed_copy, reuse, free_deferred, reclaim, lifetime = extract_methods()
     content = (TEMPLATE.replace("@@SCHEDULER_METHODS@@", scheduler)
                        .replace("@@STAGING_REQUEST@@", request)
                        .replace("@@STAGING_REUSE@@", reuse)
                        .replace("@@STAGING_DEFERRED_FREE@@", free_deferred)
                        .replace("@@STAGING_RETIRED_DELETE@@", reclaim)
                        .replace("@@DISPATCH_WORK@@", dispatch)
-                       .replace("@@RUNTIME_METHOD@@", typed_copy))
+                       .replace("@@RUNTIME_METHOD@@", typed_copy)
+                       .replace("@@RUNTIME_LIFETIME@@", lifetime))
     with tempfile.TemporaryDirectory(prefix="ns2-r2-source-owners-") as d:
         source = Path(d) / "source.cpp"
         source.write_text(content)

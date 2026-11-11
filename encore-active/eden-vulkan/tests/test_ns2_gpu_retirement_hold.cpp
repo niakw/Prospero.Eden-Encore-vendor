@@ -67,10 +67,14 @@ int main() {
         // Runtime's device-loss fallback deliberately abandons owners.
         GpuRetirementHold<std::unique_ptr<int>, 2> held;
         auto owner = std::make_unique<int>(73);
+        int* escaped = owner.get();
         ck(held.TryRetain(std::move(owner), 17));
         ck(held.Outstanding() == 1 && owner == nullptr);
         held.AbandonUnsafeOwners();
         ck(held.Outstanding() == 0);
+        // A simulated device loss does not own a real GPU. Clean the
+        // deliberately abandoned fixture allocation to satisfy ASan/LSan.
+        delete escaped;
     }
     std::cout << "PASS: " << checks << " strong-owner GPU retirement host checks\n";
 }
