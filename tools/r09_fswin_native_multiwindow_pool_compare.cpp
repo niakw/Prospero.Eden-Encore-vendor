@@ -27,7 +27,7 @@ constexpr unsigned C=R09_FSWIN_TEST_CHANNELS;
 #endif
 constexpr unsigned W=R09_FSWIN_TEST_WINDOWS;
 static_assert(C==64u||C==128u||C==256u);
-static_assert(W>=2u&&W<=240u);
+static_assert(W>=2u&&W<=920u);
 constexpr unsigned HEADS=C/32u;
 constexpr unsigned L=W>=60u?2u:(C>=128u?2u:4u);
 constexpr VkDeviceSize IO=VkDeviceSize(W)*64u*C;
@@ -266,7 +266,7 @@ struct Host {
             std::memcpy(dst,src,static_cast<std::size_t>(bytes));
             vkUnmapMemory(device,buffers[id].memory);
         };
-        std::array<std::uint8_t,IO> input{};
+        std::vector<std::uint8_t> input(static_cast<std::size_t>(IO));
         constexpr std::array<std::uint8_t,8u> values{
             0x18u,0x20u,0x28u,0x30u,0x38u,0x40u,0x48u,0x50u};
         for(unsigned token=0u;token<64u*W;++token)
