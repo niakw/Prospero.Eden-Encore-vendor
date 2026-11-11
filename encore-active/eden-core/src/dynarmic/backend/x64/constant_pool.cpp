@@ -26,15 +26,18 @@ ConstantPool::ConstantPool(BlockOfCode& code, size_t size)
 
 Xbyak::Address ConstantPool::GetConstant(BlockOfCode& code, const Xbyak::AddressFrame& frame, u64 lower, u64 upper) {
     const auto constant = ConstantT(lower, upper);
+    // Track the slot index rather than a duplicate pointer. Retain the
+    // PS5 W^X writable alias: never write constants directly into RX pages.
+    const auto next_slot = constant_info.size();
     auto it = constant_info.find(constant);
     if (it == constant_info.end()) {
-        ASSERT(insertion_point < pool.size());
-        ConstantT& target_constant = pool[insertion_point];
+        ASSERT(next_slot < pool.size());
+        const auto slot = static_cast<u32>(next_slot);
+        ConstantT& target_constant = pool[slot];
         *reinterpret_cast<ConstantT*>(code.writableAddress(&target_constant)) = constant;
-        it = constant_info.insert({constant, &target_constant}).first;
-        ++insertion_point;
+        it = constant_info.emplace(constant, slot).first;
     }
-    return frame[code.rip + it->second];
+    return frame[code.rip + &pool[it->second]];
 }
 
 }  // namespace Dynarmic::Backend::X64
