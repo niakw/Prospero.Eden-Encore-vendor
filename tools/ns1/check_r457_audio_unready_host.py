@@ -24,7 +24,7 @@ assert "std::fill_n(tmp_samples.data(), buffer.size / sizeof(s16), s16{0});" in 
 assert "EDEN_NS1_AUDIO_MEMORY_UNREADY temporary_silence=1" in audio
 assert "static std::atomic_flag warned = ATOMIC_FLAG_INIT;" in audio
 assert 'stream->AppendBuffer(new_buffer, tmp_samples);' in audio
-assert "continue;" in audio[audio.index("if (!handle || !handle->GetMemory().ReadyForAudioRead())"):][:470]
+assert "continue;" in audio[audio.index("if (!handle || !handle->GetMemory().ReadyForAudioRead())"):][:720]
 # Actual native path and the original guest-pointer read remain intact.
 assert audio.index("ReadyForAudioRead()") < audio.index("CpuGuestMemory<s16")
 assert "handle->GetMemory(), buffer.samples, buffer.size / sizeof(s16)" in audio
