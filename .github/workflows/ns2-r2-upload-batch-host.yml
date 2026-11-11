@@ -6,6 +6,8 @@ on:
     paths:
       - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_verified_upload_batch.h'
       - 'encore-active/eden-vulkan/tests/test_ns2_verified_upload_batch.cpp'
+      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_staging_upload_bounds.h'
+      - 'encore-active/eden-vulkan/vk_buffer_cache_cost.cpp'
       - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_scheduler.h'
       - 'encore-active/eden-vulkan/vulkan_scheduler.cpp'
       - 'encore-active/eden-vulkan/vk_staging_buffer_pool.cpp'

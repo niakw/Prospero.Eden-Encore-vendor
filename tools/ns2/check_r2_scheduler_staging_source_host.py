@@ -20,7 +20,7 @@ SOURCE_BLOBS = {
     SCHED_IMPL: "db83d90460d93c8c50212753e51c54924f4f2e61",
     STAGE: "992d44db45352aa511cbddd0514ecb09a7806727",
     CORE: "4ae68723eb2bb2881ca53b7b5c1c1a60c7780d27",
-    RUNTIME: "5fab7c94f3d31df23a457537525c4b35e3540e07",
+    RUNTIME: "0b6e1e567cecf387c058f9f3301f876a1ecf31ca",
 }
 TEMPLATE = r"""
 #include <cassert>
@@ -188,7 +188,10 @@ def run() -> None:
     assert runtime.count(
         "src_buffer == staging_pool.StreamBuf() && can_reorder_upload && !barrier"
     ) == 1, "PS5 ordered barrier/reorder guard drift"
-    print("R2_TYPED_UPLOAD_STILL_ORDERED: callers=2 explicit_barriers=2 batching=OFF")
+    assert runtime.count("NS2Research::StagingRegionCoalescer<64> fused;") == 1
+    assert runtime.count("fully_captured && fused.Size() < copies.size()") == 1
+    assert runtime.count("barrier, may_reorder") == 2
+    print("R2_TYPED_UPLOAD_STILL_ORDERED: callers=2 explicit_barriers=2 cross_call_batching=OFF in_call_region_fusion=ON")
 
     scheduler, request, dispatch = extract_methods()
     content = (TEMPLATE.replace("@@SCHEDULER_METHODS@@", scheduler)

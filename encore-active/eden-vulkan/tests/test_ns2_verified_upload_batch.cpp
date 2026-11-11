@@ -43,6 +43,37 @@ int main() {
     ck(!IsCurrentStagingRequest(1, 10, 9));
     ck(!IsCurrentStagingRequest(1, 0, 9));
     ck(!IsCurrentStagingRequest(0, 9, 0));
+    // R2 actually executes this bounded in-call region fusion under opt-in.
+    StagingRegionCoalescer<3> fused;
+    ck(fused.Size() == 0);
+    ck(fused.Append(sb, {128, 0, 16}));
+    ck(fused.Append(sb, {144, 16, 16}));
+    ck(fused.Size() == 1 && fused.Copies()[0].bytes == 32);
+    ck(fused.Append(sb, {192, 128, 16}));
+    ck(fused.Size() == 2 && fused.Copies()[1].source_offset == 192);
+    ck(fused.Append(sb, {208, 144, 16}));
+    ck(fused.Size() == 2 && fused.Copies()[1].bytes == 32);
+    ck(fused.Append(sb, {240, 256, 0}));
+    ck(fused.Size() == 2); // existing Vulkan path drops zero-size regions
+    ck(!fused.Append(sb, {127, 0, 1}));
+    ck(fused.Size() == 2); // invalid copy cannot mutate earlier regions
+    ck(fused.Append(sb, {248, 256, 8}));
+    ck(fused.Size() == 3);
+    ck(!fused.Append(sb, {255, 300, 1})); // bounded capacity
+    ck(fused.Size() == 3);
+    StagingRegionCoalescer<3> nonadjacent;
+    ck(nonadjacent.Append(sb, {128, 0, 8}));
+    ck(nonadjacent.Append(sb, {136, 32, 8})); // source contiguous, dest not
+    ck(nonadjacent.Size() == 2);
+    ck(nonadjacent.Append(sb, {160, 40, 8})); // dest contiguous, src not
+    ck(nonadjacent.Size() == 3);
+    StagingRegionCoalescer<2> same_memory;
+    const StagingUploadBounds shared{0, 64, 128, 0, 128, 0, true};
+    ck(same_memory.Append(shared, {0, 16, 8}));
+    ck(same_memory.Append(shared, {8, 24, 16}));
+    ck(same_memory.Size() == 2); // combined spans would overlap physically
+    ck(same_memory.Copies()[0].bytes == 8 && same_memory.Copies()[1].bytes == 16);
+    ck(!same_memory.Append(shared, {48, 80, 8})); // capacity exhausted
     VerifiedUploadBatch batch;
     ck(batch.Empty()&&batch.Size()==0&&batch.GroupCount()==0);
     ck(batch.CanAppend(base));ck(batch.Append(base));

@@ -537,8 +537,33 @@ void BufferCacheRuntime::CopyStagingUpload(const Buffer& destination,
     const bool same_recording = scheduler.R2RecordingStillCurrent(record);
     const bool same_request_tick = NS2Research::IsCurrentStagingRequest(
         staging.request_generation, staging.request_submission_tick, record.submission_tick);
-    CopyBuffer(dst.handle, staging.buffer, copies, barrier,
-               can_reorder_upload && same_recording && same_request_tick);
+    // One existing vkCmdCopyBuffer may already contain many regions. Merge
+    // only physically verified adjacent source AND destination spans within
+    // this same call, preserving the original command's barriers/order.
+    // If the bounded builder fills up, the exact original list is used.
+    NS2Research::StagingRegionCoalescer<64> fused;
+    bool fully_captured = true;
+    for (const auto& copy : copies) {
+        if (!fused.Append(bounds, {copy.src_offset, copy.dst_offset, copy.size})) {
+            fully_captured = false;
+            break;
+        }
+    }
+    const bool may_reorder = can_reorder_upload && same_recording && same_request_tick;
+    if (fully_captured && fused.Size() < copies.size()) {
+        boost::container::small_vector<VideoCommon::BufferCopy, 8> compact;
+        compact.reserve(fused.Size());
+        for (const auto& copy : fused.Copies()) {
+            compact.push_back({.src_offset = copy.source_offset,
+                               .dst_offset = copy.destination_offset,
+                               .size = copy.bytes});
+        }
+        CopyBuffer(dst.handle, staging.buffer,
+                   std::span<const VideoCommon::BufferCopy>{compact.data(), compact.size()},
+                   barrier, may_reorder);
+    } else {
+        CopyBuffer(dst.handle, staging.buffer, copies, barrier, may_reorder);
+    }
 }
 #endif
 
