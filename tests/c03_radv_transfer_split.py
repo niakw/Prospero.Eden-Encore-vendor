@@ -33,6 +33,7 @@ PROTO = ("/* C03: shared command-stream split, implemented in radv_cmd_buffer.c.
 TRANSFER = "   radv_split_cmd_stream_if_due(cmd_buffer); /* Encore C03: transfer-only streams */\n"
 BARRIER = "   radv_split_cmd_stream_if_due(cmd_buffer); /* Encore C03: split barrier-only streams */\n"
 SIGNATURE = "void\nradv_split_cmd_stream_if_due(struct radv_cmd_buffer *cmd_buffer)\n"
+FORWARD = "void radv_split_cmd_stream_if_due(struct radv_cmd_buffer *cmd_buffer);" + chr(10) * 2
 
 
 def blob(text: str) -> str:
@@ -61,6 +62,7 @@ def verify_driver() -> None:
     rel = "src/amd/vulkan/radv_cmd_buffer.c"
     live = (ACTIVE / rel).read_text()
     assert live.count(SIGNATURE) == 1
+    assert live.count(FORWARD) == 1
     assert live.count(BARRIER) == 1
     assert live.count("radv_split_cmd_stream_if_due(cmd_buffer);") == 4
     header = "radv_CmdPipelineBarrier2(VkCommandBuffer commandBuffer, const VkDependencyInfo *pDependencyInfo)\n"
@@ -69,7 +71,7 @@ def verify_driver() -> None:
     command = live.index("VK_FROM_HANDLE(radv_cmd_buffer, cmd_buffer, commandBuffer);", body)
     call = live.index(BARRIER, command)
     assert call - command < 150
-    recovered = live.replace(SIGNATURE, "static " + SIGNATURE, 1).replace(BARRIER, "", 1)
+    recovered = live.replace(FORWARD, "", 1).replace(SIGNATURE, "static " + SIGNATURE, 1).replace(BARRIER, "", 1)
     assert blob(recovered) == PREIMAGES[rel], "maintained RADV code drifted beyond C03"
     print("C03_DRIVER_SOURCE_PASS barrier_sites=1 existing_dispatch_sites=3")
 
