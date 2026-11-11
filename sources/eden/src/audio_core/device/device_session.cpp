@@ -4,6 +4,10 @@
 // SPDX-FileCopyrightText: Copyright 2022 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
+#include <atomic>
+#include <cstdio>
+
 #include "audio_core/audio_core.h"
 #include "audio_core/audio_manager.h"
 #include "audio_core/device/audio_buffer.h"
@@ -102,6 +106,23 @@ void DeviceSession::AppendBuffers(std::span<const AudioBuffer> buffers) {
         if (type == Sink::StreamType::In) {
             stream->AppendBuffer(new_buffer, tmp_samples);
         } else {
+#ifdef PS5_NATIVE
+            // R457 FC27 crashes at Impl::GetSpan(+0x10) on a null Impl during
+            // AudioOut::Start. Preserve the guest audio stream timing while
+            // the process's memory map is absent; do NOT read guest pointers.
+            // This fallback applies only to the unavailable-memory phase,
+            // not to valid but unmapped buffers (existing path below).
+            if (!handle || !handle->GetMemory().ReadyForAudioRead()) {
+                std::fill_n(tmp_samples.data(), buffer.size / sizeof(s16), s16{0});
+                stream->AppendBuffer(new_buffer, tmp_samples);
+                static std::atomic_flag warned = ATOMIC_FLAG_INIT;
+                if (!warned.test_and_set(std::memory_order_relaxed))
+                    std::fprintf(stderr,
+                                 "EDEN_NS1_AUDIO_MEMORY_UNREADY temporary_silence=1; "
+                                 "check process memory lifetime and page table\\n");
+                continue;
+            }
+#endif
             Core::Memory::CpuGuestMemory<s16, Core::Memory::GuestMemoryFlags::UnsafeRead> samples(
                 handle->GetMemory(), buffer.samples, buffer.size / sizeof(s16));
             stream->AppendBuffer(new_buffer, samples);
