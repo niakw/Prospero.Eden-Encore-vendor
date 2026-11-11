@@ -14,14 +14,18 @@ SCHED = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_
 SCHED_IMPL = ROOT / "encore-active/eden-vulkan/vulkan_scheduler.cpp"
 STAGE = ROOT / "encore-active/eden-vulkan/vk_staging_buffer_pool.cpp"
 CORE = ROOT / "encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h"
+VK_BUFFER_H = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_buffer_cache.h"
+RETIREMENT_H = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_gpu_retirement_hold.h"
 RUNTIME = ROOT / "encore-active/eden-vulkan/vk_buffer_cache_cost.cpp"
 BOUNDS = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_staging_upload_bounds.h"
 SOURCE_BLOBS = {
     SCHED: "d2d7e8b6cef6ea6ba912d5c7ad41b646527f6f0d",
     SCHED_IMPL: "db83d90460d93c8c50212753e51c54924f4f2e61",
     STAGE: "992d44db45352aa511cbddd0514ecb09a7806727",
-    CORE: "4ae68723eb2bb2881ca53b7b5c1c1a60c7780d27",
-    RUNTIME: "9616b4ccb280006dec132eb10b8a1e16d10b0ac4",
+    CORE: "7b78936cfefda4ee6f5749ae5a0a6ab78d389a72",
+    VK_BUFFER_H: "88485385b530d678c2c4b4f161053569c723e270",
+    RETIREMENT_H: "33e077863e503a956cabf2b99edb73f8967b89a8",
+    RUNTIME: "265b9aada3b74bd94892f4bb46f4c0dd547f8b2b",
     BOUNDS: "8905d42732b2d5848aa49b5800340e031cd214c9",
 }
 TEMPLATE = r"""
@@ -416,6 +420,22 @@ def run() -> None:
         got = subprocess.check_output(
             ["git", "hash-object", str(path)], text=True).strip()
         assert got == sha, ("Unreviewed real R2 owner byte change", str(path), got)
+
+    # Assert real gated buffer deletion and GPU retirement path integrity.
+    assert CORE.read_text().count(
+        "runtime.RetainDeletedBuffer(slot_buffers[buffer_id]);") == 1
+    assert VK_BUFFER_H.read_text().count(
+        "GpuRetirementHold<std::unique_ptr<Buffer>, 256> deleted_gpu_buffers") == 1
+    runtime_lifetime = RUNTIME.read_text()
+    assert runtime_lifetime.count(
+        "void BufferCacheRuntime::RetainDeletedBuffer(Buffer& deleted)") == 1
+    assert runtime_lifetime.count(
+        "BufferCacheRuntime::~BufferCacheRuntime() noexcept") == 1
+    assert runtime_lifetime.count("deleted_gpu_buffers.AbandonUnsafeOwners()") == 2
+    assert runtime_lifetime.count(
+        "scheduler.GetMasterSemaphore().KnownGpuTick()") >= 4
+    assert "if (deleted_gpu_buffers.Outstanding())" in runtime_lifetime
+    print("R2_GPU_OWNER_LIFETIME: exact gated deletion, retirement and shutdown sources pinned")
 
     # The two real R2 typed call sites require an explicit copy barrier.
     # PS5's preexisting upload-CB branch requires !barrier, so this gate
