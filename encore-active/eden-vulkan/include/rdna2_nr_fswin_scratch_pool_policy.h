@@ -1,20 +1,17 @@
 // SPDX-License-Identifier: MIT
-// R09 research-only FSwin chain-local scratch-sharing admission policy.
-// This file does NOT allocate/bind Vulkan resources or enable the feature.
-// A complete learned model, validated fences and a real GPU A/B are mandatory.
-// Native default remains one owner for every individual FSwin layer.
+// Strict HOST-side size contract for an isolated R09 FSwin scratch pool.
+// Self-contained: vendor graph policies are injected by Encore at compile.
+// Only share expanded, middle, contracted and context between sequential
+// layers in ONE chain. Per-layer Upload input and DeviceLocal output remain
+// private. No Vulkan memory is allocated by this header. Runtime OFF.
 #pragma once
-#include "rdna2_nr_fswin_graph_policy.h"
-#include "rdna2_nr_fswin_qkv_alias_policy.h"
-#include <algorithm>
 #include <array>
 #include <cstdint>
-#include <limits>
 
 namespace Eden::Graphics::NeuralRDNA2 {
 inline constexpr std::uint32_t kFswinScratchSlots=4u;
-// Array mapping: expanded (index 1), middle (2 if C>=64),
-// contracted (3), attention context (7). Q/K/V already view expanded.
+// Slot 0=expanded, 1=middle (absent C32), 2=contracted, 3=context.
+// Existing packed Q/K/V are disjoint slices inside slot 0 (expanded).
 struct FswinSharedScratchPlan {
     std::uint32_t channels{},windows{},layers{},scratch_handles{};
     std::array<std::uint64_t,kFswinScratchSlots> capacity{};
@@ -33,6 +30,13 @@ struct FswinSharedScratchPlan {
        p.private_input_bytes==0u||p.private_output_bytes==0u||
        p.runtime_qualified)return false;
     constexpr std::uint64_t per_buffer=256ull<<20u;
+    constexpr std::uint64_t per_layer=512ull<<20u;
+    const auto tokens=std::uint64_t(p.windows)*64u;
+    const auto one=tokens*p.channels;
+    if(p.private_input_bytes!=one||p.private_output_bytes!=one||
+       p.capacity[0]!=4u*one||
+       p.capacity[1]!=(p.channels==32u?0u:one)||
+       p.capacity[2]!=one||p.capacity[3]!=one)return false;
     std::uint64_t scratch{};
     for(std::uint32_t i=0u;i<kFswinScratchSlots;++i) {
         const auto size=p.capacity[i];
@@ -42,56 +46,40 @@ struct FswinSharedScratchPlan {
     }
     const auto layer_count=std::uint64_t(p.layers);
     const auto io=p.private_input_bytes+p.private_output_bytes;
-    if(io>512ull<<20u||scratch>(512ull<<20u)-io)return false;
+    if(io>per_layer||scratch>per_layer-io)return false;
     const auto baseline=layer_count*(io+scratch);
     const auto candidate=layer_count*io+scratch;
-    if(p.baseline_bytes!=baseline||
-       p.candidate_bytes!=candidate||
-       p.saved_bytes!=baseline-candidate||
-       p.baseline_handles!=p.layers*(p.channels==32u?5u:6u)||
-       p.candidate_handles!=p.layers*2u+p.scratch_handles||
-       candidate>baseline)return false;
-    return true;
+    return p.baseline_bytes==baseline&&
+           p.candidate_bytes==candidate&&
+           p.saved_bytes==baseline-candidate&&
+           p.baseline_handles==p.layers*(p.channels==32u?5u:6u)&&
+           p.candidate_handles==p.layers*2u+p.scratch_handles&&
+           candidate<=baseline;
 }
-[[nodiscard]] inline FswinSharedScratchPlan MakeFswinSharedScratchPlan(
-    const FSwinGraph& graph,std::uint32_t layers) noexcept {
-    FswinSharedScratchPlan result{};
-    if(!CanFSwinGraph(graph)||!layers||layers>160u)return result;
-    const bool c32=graph.dense[0].channels==32u;
-    const std::uint64_t input=std::max(
-        graph.dense_storage[0].input_bytes,
-        graph.dense_storage[2].residual_bytes);
-    const std::uint64_t output=graph.dense_storage[3].output_bytes;
-    const std::array<std::uint64_t,kFswinScratchSlots> scratch{
-        graph.dense_storage[0].output_bytes,
-        c32?0u:graph.dense_storage[1].output_bytes,
-        std::max({graph.dense_storage[2].output_bytes,
-                  graph.dense_storage[3].residual_bytes,
-                  graph.qkv_storage.activation_bytes}),
-        std::max(graph.attention_storage.out_bytes,
-                 graph.dense_storage[3].input_bytes),
-    };
-    const std::array<std::uint64_t,3u> qkv{
-        std::max(graph.qkv_storage.q_bytes,graph.attention_storage.q_bytes),
-        std::max(graph.qkv_storage.k_bytes,graph.attention_storage.k_bytes),
-        std::max(graph.qkv_storage.v_bytes,graph.attention_storage.v_bytes)};
-    if(!CanFSwinQkvReuseExpanded(
-           {qkv[0],qkv[1],qkv[2],scratch[0]}))return {};
-    const auto scratch_sum=scratch[0]+scratch[1]+scratch[2]+scratch[3];
-    result.channels=graph.dense[0].channels;
-    result.windows=graph.dense[0].windows;
-    result.layers=layers;
-    result.scratch_handles=c32?3u:4u;
-    result.capacity=scratch;
-    result.private_input_bytes=input;
-    result.private_output_bytes=output;
-    result.baseline_bytes=std::uint64_t(layers)*(input+output+scratch_sum);
-    result.candidate_bytes=std::uint64_t(layers)*(input+output)+scratch_sum;
-    result.saved_bytes=result.baseline_bytes-result.candidate_bytes;
-    result.baseline_handles=layers*(c32?5u:6u);
-    result.candidate_handles=layers*2u+result.scratch_handles;
-    result.valid=true;
-    return ValidateFswinSharedScratchPlan(result)?result:
+[[nodiscard]] constexpr FswinSharedScratchPlan MakeFswinSharedScratchPlan(
+    std::uint32_t channels,std::uint32_t windows,
+    std::uint32_t layers) noexcept {
+    if(!layers||layers>160u||!windows||windows>65535u||
+       (channels!=32u&&channels!=64u&&
+        channels!=128u&&channels!=256u))return {};
+    const auto one=std::uint64_t(windows)*64u*channels;
+    FswinSharedScratchPlan p{};
+    p.channels=channels;
+    p.windows=windows;
+    p.layers=layers;
+    p.scratch_handles=channels==32u?3u:4u;
+    p.capacity={4u*one,channels==32u?0u:one,one,one};
+    p.private_input_bytes=one;
+    p.private_output_bytes=one;
+    const auto scratch=p.capacity[0]+p.capacity[1]+
+                       p.capacity[2]+p.capacity[3];
+    p.baseline_bytes=std::uint64_t(layers)*(2u*one+scratch);
+    p.candidate_bytes=std::uint64_t(layers)*2u*one+scratch;
+    p.saved_bytes=p.baseline_bytes-p.candidate_bytes;
+    p.baseline_handles=layers*(channels==32u?5u:6u);
+    p.candidate_handles=layers*2u+p.scratch_handles;
+    p.valid=true;
+    return ValidateFswinSharedScratchPlan(p)?p:
                                                  FswinSharedScratchPlan{};
 }
 } // namespace Eden::Graphics::NeuralRDNA2
