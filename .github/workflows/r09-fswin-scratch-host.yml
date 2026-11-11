@@ -22,6 +22,9 @@ on:
       - 'tools/r09_fswin_scratch_vulkan_smoke.cpp'
       - 'tools/r09_fswin_chain_pool_vulkan_graph_smoke.cpp'
       - 'tools/r09_fswin_native_dense_pool_compare.cpp'
+      - 'tools/r09_fswin_native_attention_pool_compare.cpp'
+      - 'encore-active/eden-vulkan/r09_rdna2_nr/fswin_qkv_rdna2.comp'
+      - 'encore-active/eden-vulkan/r09_rdna2_nr/window_attention_rdna2.comp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/fswin_dense_rdna2.comp'
   workflow_dispatch:
 
@@ -172,7 +175,38 @@ jobs:
             .build-r09-fswin/native-dense-pool-ab \
               .build-r09-fswin/fswin_dense_native.spv
           echo R09_FSWIN_AUTHENTIC_DENSE_STAGE0_2_GPU_AB_AND_KHRONOS_PASS
-          echo R09_FSWIN_REAL_WEIGHTED_FULL_MODEL_AND_PS5_NOT_QUALIFIED
+          echo R09_FSWIN_NATIVE_DENSE_0_2_GPU_AND_KHRONOS_PASS
+
+      - name: Compare genuine QKV + window attention shaders using pooled/private VkBuffers
+        shell: bash
+        run: |
+          set -euo pipefail
+          glslangValidator -V --target-env vulkan1.1 -S comp \
+            encore-active/eden-vulkan/r09_rdna2_nr/fswin_qkv_rdna2.comp \
+            -o .build-r09-fswin/fswin_qkv_native.spv
+          spirv-val --target-env vulkan1.1 \
+            .build-r09-fswin/fswin_qkv_native.spv
+          glslangValidator -V --target-env vulkan1.1 -S comp \
+            encore-active/eden-vulkan/r09_rdna2_nr/window_attention_rdna2.comp \
+            -o .build-r09-fswin/window_attention_native.spv
+          spirv-val --target-env vulkan1.1 \
+            .build-r09-fswin/window_attention_native.spv
+          g++ -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+            tools/r09_fswin_native_attention_pool_compare.cpp -lvulkan \
+            -o .build-r09-fswin/native-attention-pool-ab
+          icd="$(find /usr/share/vulkan/icd.d -maxdepth 1 \
+            -type f -name 'lvp_icd*.json' -print -quit)"
+          test -n "$icd" && test -f "$icd"
+          export VK_ICD_FILENAMES="$icd"
+          .build-r09-fswin/native-attention-pool-ab \
+            .build-r09-fswin/fswin_qkv_native.spv \
+            .build-r09-fswin/window_attention_native.spv
+          R09_FSWIN_VALIDATE_SYNC=1 \
+            .build-r09-fswin/native-attention-pool-ab \
+              .build-r09-fswin/fswin_qkv_native.spv \
+              .build-r09-fswin/window_attention_native.spv
+          echo R09_FSWIN_REAL_QKV_AND_ATTENTION_GPU_AB_KHRONOS_PASS
+          echo R09_FSWIN_PUBLIC_FIXTURES_ONLY_NO_FULL_NEURAL_MODEL_OR_PS5
 
   authentic-native-syntax:
     name: Three REAL FSwin C++ TUs (macro OFF/ON, no PS5 build)
