@@ -143,4 +143,22 @@ VkImageView SGSR::Draw(const Device& device, Scheduler& scheduler, size_t image_
     return *images.image_view;
 }
 
+std::optional<SGSR::OutputFrame> SGSR::DrawFrame(
+    const Device& device, Scheduler& scheduler, size_t image_index,
+    VkImage source_image, VkImageView source_view,
+    VkExtent2D input_extent, const Common::Rectangle<f32>& crop) {
+    if(image_index>=m_dynamic_images.size() || !source_image||
+       !source_view||!input_extent.width||!input_extent.height||
+       !m_extent.width||!m_extent.height)
+        return std::nullopt;
+    // Single real native SGSR shader pipeline remains authoritative.
+    const VkImageView view=Draw(device,scheduler,image_index,
+                               source_image,source_view,input_extent,crop);
+    auto& slot=m_dynamic_images[image_index];
+    if(!slot.image||!slot.image_view||!*slot.image||
+       !*slot.image_view||view!=*slot.image_view)
+        return std::nullopt;
+    return OutputFrame{*slot.image,view,m_extent};
+}
+
 } // namespace Vulkan
