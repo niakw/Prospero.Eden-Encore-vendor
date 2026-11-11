@@ -18,6 +18,8 @@ on:
       - 'tools/extract_r09_fswin_shared_tensor.py'
       - 'tools/test_r09_fswin_scratch_pool_policy.cpp'
       - 'tools/test_r09_fswin_shared_tensor_extracted.cpp'
+      - 'tools/r09_fswin_scratch_synthetic.comp'
+      - 'tools/r09_fswin_scratch_vulkan_smoke.cpp'
   workflow_dispatch:
 
 permissions:
@@ -83,7 +85,41 @@ jobs:
             echo "R09_FSWIN_SCRATCH_NATIVE_CPP_CI_PASS cxx=${cxx}"
           done
           echo R09_FSWIN_SCRATCH_EXTRACTED_NATIVE_PASS_NOT_FULL_VENDOR_COMPILE
-          echo R09_FSWIN_SCRATCH_GPU_SYNC_NOT_QUALIFIED_RUNTIME_DISABLED
+          echo R09_FSWIN_SCRATCH_NATIVE_GPU_PATH_STILL_UNQUALIFIED
+
+      - name: Execute real host Vulkan 1.1 shared-scratch readback and negative sync oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            glslang-tools spirv-tools libvulkan-dev \
+            mesa-vulkan-drivers vulkan-validationlayers
+          glslangValidator -V --target-env vulkan1.1 -S comp \
+            tools/r09_fswin_scratch_synthetic.comp \
+            -o .build-r09-fswin/scratch_synthetic.spv
+          spirv-val --target-env vulkan1.1 \
+            .build-r09-fswin/scratch_synthetic.spv
+          g++ -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+            tools/r09_fswin_scratch_vulkan_smoke.cpp -lvulkan \
+            -o .build-r09-fswin/fswin-vulkan-smoke
+          icd="$(find /usr/share/vulkan/icd.d -maxdepth 1 \
+            -type f -name 'lvp_icd*.json' -print -quit)"
+          test -n "$icd" && test -f "$icd"
+          export VK_ICD_FILENAMES="$icd"
+          .build-r09-fswin/fswin-vulkan-smoke \
+            .build-r09-fswin/scratch_synthetic.spv
+          R09_FSWIN_VALIDATE_SYNC=1 \
+            .build-r09-fswin/fswin-vulkan-smoke \
+              .build-r09-fswin/scratch_synthetic.spv
+          # Intentionally unsafe, validation-only. Never inspect/read the
+          # resulting undefined GPU output from a missing dependency.
+          R09_FSWIN_VALIDATE_SYNC=1 \
+            .build-r09-fswin/fswin-vulkan-smoke \
+              .build-r09-fswin/scratch_synthetic.spv \
+              --negative-missing-barrier
+          echo R09_FSWIN_REAL_VULKAN_SHARED_SCRATCH_AND_KHRONOS_POS_NEG_PASS
+          echo R09_FSWIN_SYNTHETIC_ONLY_NO_MODEL_NO_PS5
 
   authentic-native-syntax:
     name: Three REAL FSwin C++ TUs (macro OFF/ON, no PS5 build)
