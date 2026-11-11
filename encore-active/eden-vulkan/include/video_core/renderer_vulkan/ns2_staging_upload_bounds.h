@@ -34,6 +34,44 @@ struct StagingUploadCopy {
     const auto dst = b.destination_binding_offset + c.destination_offset;
     return src <= dst ? dst - src >= c.bytes : src - dst >= c.bytes;
 }
+// Every region refers to the same source and destination VkBuffer pair.
+// Vulkan additionally requires disjoint source/destination UNION and no
+// overlapping destination writes across the full command. A region that
+// violates either contract cannot be coalesced; the caller preserves the
+// original CopyBuffer argument list without changing its legacy behavior.
+[[nodiscard]] constexpr bool StagingRangeOverlap(std::uint64_t a, std::uint64_t a_size,
+                                                  std::uint64_t b, std::uint64_t b_size) noexcept {
+    if (a_size == 0 || b_size == 0) return false;
+    return a <= b ? b - a < a_size : a - b < b_size;
+}
+[[nodiscard]] constexpr bool StagingRegionsIndependent(const StagingUploadBounds& bounds,
+                                                       const StagingUploadCopy& earlier,
+                                                       const StagingUploadCopy& later) noexcept {
+    if (!VerifyStagingUploadCopy(bounds, earlier) ||
+        !VerifyStagingUploadCopy(bounds, later)) return false;
+    if (!earlier.bytes || !later.bytes) return true;
+    // WAW is hazardous even when the two buffers reside in different memory.
+    if (StagingRangeOverlap(earlier.destination_offset, earlier.bytes,
+                            later.destination_offset, later.bytes)) return false;
+    if (!bounds.same_memory) return true;
+    // The backing-offset arithmetic is proven non-overflowing above.
+    const auto earlier_src = bounds.staging_binding_offset + earlier.source_offset;
+    const auto later_src = bounds.staging_binding_offset + later.source_offset;
+    const auto earlier_dst = bounds.destination_binding_offset + earlier.destination_offset;
+    const auto later_dst = bounds.destination_binding_offset + later.destination_offset;
+    // Both RAW and WAR are forbidden by the union-wide copy memory rules.
+    return !StagingRangeOverlap(earlier_src, earlier.bytes, later_dst, later.bytes) &&
+           !StagingRangeOverlap(earlier_dst, earlier.bytes, later_src, later.bytes);
+}
+static_assert(StagingRegionsIndependent({0,128,128,0,128,256,false},
+                                       {0,0,16}, {16,16,16}));
+static_assert(!StagingRegionsIndependent({0,128,128,0,128,256,false},
+                                        {0,0,16}, {32,8,16}));
+static_assert(!StagingRegionsIndependent({0,128,128,0,128,0,true},
+                                        {0,64,16}, {64,96,16}));
+static_assert(StagingRegionsIndependent({0,128,128,0,128,0,true},
+                                       {0,64,16}, {16,80,16}));
+
 // Bounded fusion of adjacent regions INSIDE ONE ALREADY-ORDERED typed
 // staging upload. No cross-command batching, barrier removal, queue reorder,
 // or GPU ownership extension is implied. On capacity exhaustion the caller
@@ -51,6 +89,12 @@ public:
         if (!VerifyStagingUploadCopy(bounds, next)) return false;
         // Zero-sized copies are already dropped by the original CopyBuffer.
         if (next.bytes == 0) return true;
+        // Check against every previously admitted region (including regions
+        // already fused). Reject WAW and same-memory RAW/WAR across the union.
+        // A rejected append cannot mutate any previously admitted region.
+        for (std::size_t i = 0; i < count_; ++i) {
+            if (!StagingRegionsIndependent(bounds, regions_[i], next)) return false;
+        }
         constexpr auto max = std::numeric_limits<std::uint64_t>::max();
         if (count_ != 0) {
             StagingUploadCopy& last = regions_[count_ - 1];

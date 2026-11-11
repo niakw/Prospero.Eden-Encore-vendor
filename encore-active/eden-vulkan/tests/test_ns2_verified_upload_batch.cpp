@@ -72,10 +72,41 @@ int main() {
     StagingRegionCoalescer<2> same_memory;
     const StagingUploadBounds shared{0, 64, 128, 0, 128, 0, true};
     ck(same_memory.Append(shared, {0, 16, 8}));
-    ck(same_memory.Append(shared, {8, 24, 16}));
-    ck(same_memory.Size() == 2); // combined spans would overlap physically
-    ck(same_memory.Copies()[0].bytes == 8 && same_memory.Copies()[1].bytes == 16);
-    ck(!same_memory.Append(shared, {48, 80, 8})); // capacity exhausted
+    ck(!same_memory.Append(shared, {8, 24, 16})); // union RAW: second source reads first dest
+    ck(same_memory.Size() == 1 && same_memory.Copies()[0].bytes == 8);
+    ck(same_memory.Append(shared, {48, 80, 8})); // safe, nonadjacent
+    ck(same_memory.Size() == 2);
+    ck(!same_memory.Append(shared, {64, 96, 8})); // capacity exhausted
+    ck(same_memory.Size() == 2);
+    StagingRegionCoalescer<4> shared_valid;
+    const StagingUploadBounds same_owner_disjoint{0,128,128,0,128,0,true};
+    ck(shared_valid.Append(same_owner_disjoint, {0,64,16}));
+    ck(shared_valid.Append(same_owner_disjoint, {16,80,16}));
+    ck(shared_valid.Size() == 1 && shared_valid.Copies()[0].bytes == 32);
+    ck(!shared_valid.Append(same_owner_disjoint, {64,96,8})); // later read aliases earlier write
+    ck(shared_valid.Size() == 1 && shared_valid.Copies()[0].bytes == 32);
+    ck(!shared_valid.Append(same_owner_disjoint, {32,8,8})); // later write aliases earlier read
+    ck(shared_valid.Size() == 1);
+    StagingRegionCoalescer<4> distinct_memory_waw;
+    ck(distinct_memory_waw.Append(sb, {128,0,8}));
+    ck(!distinct_memory_waw.Append(sb, {160,4,8})); // WAW, even with separate memory
+    ck(distinct_memory_waw.Size() == 1 && distinct_memory_waw.Copies()[0].bytes == 8);
+    ck(distinct_memory_waw.Append(sb, {168,24,8}));
+    ck(!distinct_memory_waw.Append(sb, {176,0,8})); // non-adjacent earlier destination overlap
+    ck(distinct_memory_waw.Size() == 2);
+    // Physical VMA binding offsets, not VkBuffer offsets, determine aliases.
+    const StagingUploadBounds bound_alias{0,128,128,32,128,16,true};
+    StagingRegionCoalescer<4> offset_alias;
+    ck(offset_alias.Append(bound_alias, {0,32,8}));
+    ck(!offset_alias.Append(bound_alias, {16,48,8})); // src 48..56 reads prior dst 48..56
+    ck(offset_alias.Size() == 1);
+    // No state changes on rejected cross-region alias, including three-way
+    // nonadjacent conflicts against previously accepted copies.
+    StagingRegionCoalescer<4> third_region;
+    ck(third_region.Append(sb, {128,0,8}));
+    ck(third_region.Append(sb, {152,24,8}));
+    ck(!third_region.Append(sb, {176,0,8}));
+    ck(third_region.Size()==2);
     // Byte-equivalence oracle: compare each source-region list against the
     // coalesced ranges on two distinct memory buffers. It catches accidental
     // gap copies and destination corruption but does not emulate Vulkan GPU.

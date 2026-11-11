@@ -22,7 +22,7 @@ SOURCE_BLOBS = {
     STAGE: "992d44db45352aa511cbddd0514ecb09a7806727",
     CORE: "4ae68723eb2bb2881ca53b7b5c1c1a60c7780d27",
     RUNTIME: "9616b4ccb280006dec132eb10b8a1e16d10b0ac4",
-    BOUNDS: "65456cc3836c48ed569eb5d8aee1028dac1c6ca1",
+    BOUNDS: "8905d42732b2d5848aa49b5800340e031cd214c9",
 }
 TEMPLATE = r"""
 #include <array>
@@ -232,6 +232,23 @@ int main() {
     }};
     runtime.CopyStagingUpload(same_owner, upload, aliased, true, true);
     check(runtime.actual_copies.size() == 2); // combined aliases GPU memory
+    // A command whose destination intervals overlap must not be fused,
+    // including with two different VkDeviceMemory objects.
+    std::array<VideoCommon::BufferCopy, 2> waw{{
+        {128, 0, 8}, {160, 4, 8},
+    }};
+    runtime.CopyStagingUpload(dst, upload, waw, true, true);
+    check(runtime.actual_copies.size() == 2);
+    check(runtime.actual_copies[1].dst_offset == 4);
+    // No fusion when an earlier write aliases a later source under the same
+    // VkDeviceMemory, even though each region is individually valid.
+    std::array<VideoCommon::BufferCopy, 2> union_hazard{{
+        {128, 0, 16}, {144, 128, 16},
+    }};
+    runtime.CopyStagingUpload(same_owner, upload, union_hazard, true, true);
+    check(runtime.actual_copies.size() == 2);
+    check(runtime.actual_copies[1].src_offset == 144);
+
 
     // 65 isolated regions exceed the 64-element bounded helper. The real
     // call must pass the entire untouched original list to CopyBuffer().
