@@ -1,0 +1,3 @@
+NS2 production source-integration cleanup requested and authorized on 2026-11-11.
+vendor main includes f8f5d8ee3a94a4202886a40badb5c0203d05da30; superseded PRs #36 #37 #38 #43 closed; preserve combined #45.
+Only exact named source branches may be deleted after verifying merged ancestry and closed PR state.
