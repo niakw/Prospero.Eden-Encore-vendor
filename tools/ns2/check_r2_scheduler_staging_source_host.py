@@ -22,7 +22,7 @@ BOUNDS = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns
 SOURCE_BLOBS = {
     SCHED: "d2d7e8b6cef6ea6ba912d5c7ad41b646527f6f0d",
     SCHED_IMPL: "db83d90460d93c8c50212753e51c54924f4f2e61",
-    STAGE: "471ee43455245eed1fa94a2d78d0201353d81706",
+    STAGE: "6e7eaa98bbee2998d9c503bdabf2f6ac91b1b719",
     STAGE_H: "09152820218895c71bbbdf145a30db6d95559e7f",
     CORE: "b2ab2c539ae161fc4a9680d31258f6ea823e2517",
     VK_BUFFER_H: "88485385b530d678c2c4b4f161053569c723e270",
@@ -341,6 +341,11 @@ int main() {
     try { (void)aba.Request(32, MemoryUsage::Upload); }
     catch (const std::out_of_range&) { denied_overwrite = true; }
     check(denied_overwrite && aba.IsCurrentRequest(original, 5));
+    // A rejected ledger admission must never advance stream ring state.
+    // Previously a denied reuse left a cursor/tick partially committed.
+    check(aba.iterator == 0 && aba.used_iterator == 0 &&
+          aba.free_iterator == 0 && aba.sync_ticks[0] == 0);
+    check(aba.request_generation_counter == neighbour.request_generation);
     aba.scheduler.completed_gpu_tick = 5;
     aba.iterator = aba.free_iterator = aba.used_iterator = 0;
     const auto replacement = aba.Request(32, MemoryUsage::Upload);

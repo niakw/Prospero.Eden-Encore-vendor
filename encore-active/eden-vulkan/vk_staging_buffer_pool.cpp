@@ -116,6 +116,14 @@ StagingBufferRef StagingBufferPool::Request(size_t size, MemoryUsage usage, bool
         active_staging_requests.clear();
         active_staging_tick = request_tick;
     }
+    // The stream allocator may advance its cursor/sync ticks before the
+    // physical ledger refuses the reservation. Keep that admission
+    // transactional: a rejected Request must not consume ring bookkeeping.
+    const size_t iterator_before = iterator;
+    const size_t used_before = used_iterator;
+    const size_t free_before = free_iterator;
+    const auto sync_before = sync_ticks;
+    try {
     auto ref = !deferred && usage == MemoryUsage::Upload && size <= region_size
                    ? GetStreamBuffer(size)
                    : GetStagingBuffer(size, usage, deferred);
@@ -146,11 +154,17 @@ StagingBufferRef StagingBufferPool::Request(size_t size, MemoryUsage usage, bool
                 throw std::out_of_range("R2: same-tick staging physical reuse");
             }
         }
-        std::erase_if(active_staging_requests, overlaps);
         constexpr size_t max_requests_per_tick = 16384;
-        if (active_staging_requests.size() >= max_requests_per_tick) {
+        const auto replaced = std::count_if(active_staging_requests.begin(),
+                                            active_staging_requests.end(), overlaps);
+        if (active_staging_requests.size() - replaced >= max_requests_per_tick) {
             throw std::out_of_range("R2: staging reservation ledger full");
         }
+        // Reserve BEFORE revoking any old authorization so allocation failure
+        // leaves the ledger unchanged. The following erase and push cannot
+        // allocate or throw for the trivial POD reservation type.
+        active_staging_requests.reserve(active_staging_requests.size() + 1);
+        std::erase_if(active_staging_requests, overlaps);
         active_staging_requests.push_back({
             .buffer = ref.buffer,
             .memory = backing.memory,
@@ -163,6 +177,13 @@ StagingBufferRef StagingBufferPool::Request(size_t size, MemoryUsage usage, bool
     ref.request_generation = ++request_generation_counter;
     ref.request_submission_tick = request_tick;
     return ref;
+    } catch (...) {
+        iterator = iterator_before;
+        used_iterator = used_before;
+        free_iterator = free_before;
+        sync_ticks = sync_before;
+        throw;
+    }
 #else
     if (!deferred && usage == MemoryUsage::Upload && size <= region_size) {
         return GetStreamBuffer(size);
