@@ -1097,6 +1097,7 @@ bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
         };
         const auto find_slice = [&](const Fermi2D::Surface& surface) -> std::optional<Slice> {
             std::optional<Slice> found;
+            bool ambiguous = false;
             const GPUVAddr address = surface.Address();
             ForEachImageInRegionGPU(channel_state->gpu_memory.GetID(), address, 1,
                                     [&](ImageId id, Image& image) {
@@ -1106,6 +1107,8 @@ bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                     image.info.size.width != surface.width ||
                     image.info.size.height != surface.height ||
                     image.info.size.depth != surface.depth ||
+                    // An aliased/overlapping cache entry needs normal synchronization.
+                    !image.aliased_images.empty() || !image.overlapping_images.empty() ||
                     True(image.flags & (ImageFlagBits::Remapped | ImageFlagBits::Sparse |
                                         ImageFlagBits::Rescaled | ImageFlagBits::IsDecoding)) ||
                     address < image.gpu_addr) {
@@ -1128,15 +1131,31 @@ bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                     static_cast<u32>(base.layer) >= image.info.size.depth) {
                     return false;
                 }
+                // A page may contain more than one otherwise suitable cached
+                // image. Never select whichever entry the hash table visits first.
+                if (found) {
+                    ambiguous = true;
+                    return false;
+                }
                 found = Slice{id, base.layer};
-                return true;
+                return false;
             });
-            return found;
+            return ambiguous ? std::nullopt : found;
         };
         const auto src_slice = find_slice(src);
         const auto dst_slice = find_slice(dst);
         if (!src_slice || !dst_slice || src_slice->id == dst_slice->id ||
             !registry.IsGraphicsCurrent(maxwell3d, *ticket)) {
+            return false;
+        }
+        // Distinct cache IDs can still cover intersecting guest GPU ranges.
+        // The guarded path does not implement an overlapping image transfer.
+        const Image& src_image = slot_images[src_slice->id];
+        const Image& dst_image = slot_images[dst_slice->id];
+        const bool ranges_overlap = src_image.gpu_addr <= dst_image.gpu_addr
+            ? dst_image.gpu_addr - src_image.gpu_addr < src_image.guest_size_bytes
+            : src_image.gpu_addr - dst_image.gpu_addr < dst_image.guest_size_bytes;
+        if (ranges_overlap) {
             return false;
         }
         // A refused copy must not realize an unrelated pending framebuffer
@@ -1146,7 +1165,16 @@ bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
         // Refresh the destination before the last native channel recheck.
         // Do not mark a rejected/revoked copy as a guest GPU write.
         PrepareImage(dst_slice->id, false, false);
-        if (!registry.IsGraphicsCurrent(maxwell3d, *ticket)) {
+        // RefreshContents/SynchronizeAliases can invalidate or replace cached
+        // images. Re-resolve both sides after those operations, before recording
+        // any Vulkan copy or marking a guest-visible write.
+        const auto src_after = find_slice(src);
+        const auto dst_after = find_slice(dst);
+        if (!src_after || !dst_after ||
+            src_after->id != src_slice->id || dst_after->id != dst_slice->id ||
+            src_after->depth != src_slice->depth ||
+            dst_after->depth != dst_slice->depth ||
+            !registry.IsGraphicsCurrent(maxwell3d, *ticket)) {
             return false;
         }
         MarkModification(slot_images[dst_slice->id]);
