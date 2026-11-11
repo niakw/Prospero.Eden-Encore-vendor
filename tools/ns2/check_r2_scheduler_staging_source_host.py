@@ -67,17 +67,19 @@ struct MockMemoryLocation { u64 memory{}, offset{}; };
 struct Framebuffer {};
 enum class MemoryUsage { Upload, Download };
 struct StagingBufferRef {
-    u64 request_generation{};
-    u64 request_submission_tick{};
+    // Preserve the exact maintained StagingBufferRef field order for source
+    // C++20 designated initialization rather than weakening compiler checks.
     VkBuffer buffer{};
     u64 device_address{};
     u64 offset{};
     std::span<u8> mapped_span{};
-    MockMemoryLocation backing_location{};
-    u64 backing_capacity{};
     MemoryUsage usage{MemoryUsage::Upload};
     unsigned log2_level{};
     u64 index{};
+    MockMemoryLocation backing_location{};
+    u64 backing_capacity{};
+    u64 request_generation{};
+    u64 request_submission_tick{};
     int kind{};
 };
 struct MockCommandChunk {
@@ -169,7 +171,7 @@ public:
     void FreeDeferred(StagingBufferRef&);
     void ReleaseLevel(StagingBuffersCache&, std::size_t);
     StagingBufferRef GetStreamBuffer(std::size_t);
-    StagingBufferRef GetStagingBuffer(std::size_t, MemoryUsage, bool) {
+    StagingBufferRef GetStagingBuffer(std::size_t, MemoryUsage, bool = false) {
         return {.kind=2};
     }
     StagingBufferRef Request(std::size_t, MemoryUsage, bool deferred = false);
@@ -352,10 +354,10 @@ int main() {
     // rewritten test version. CopyBuffer() is a recording-only host double.
     std::array<u8, 512> memory{};
     StagingBufferRef upload{
-        .request_generation = 7, .request_submission_tick = 5,
         .buffer = 11, .offset = 128,
         .mapped_span = std::span<u8>{memory.data(), 256},
         .backing_location = {1001, 0}, .backing_capacity = 512,
+        .request_generation = 7, .request_submission_tick = 5,
     };
     Buffer dst;
     BufferCacheRuntime runtime;
