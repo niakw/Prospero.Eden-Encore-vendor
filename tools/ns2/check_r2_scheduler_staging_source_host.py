@@ -92,6 +92,9 @@ public:
     GpuCompletion& GetMasterSemaphore() noexcept {
         return shared_completion ? *shared_completion : gpu_completion;
     }
+    const GpuCompletion& GetMasterSemaphore() const noexcept {
+        return shared_completion ? *shared_completion : gpu_completion;
+    }
     int finishes{};
     bool stale_after_finish{};
     void Finish() {
