@@ -21,7 +21,7 @@ BOUNDS = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns
 SOURCE_BLOBS = {
     SCHED: "d2d7e8b6cef6ea6ba912d5c7ad41b646527f6f0d",
     SCHED_IMPL: "db83d90460d93c8c50212753e51c54924f4f2e61",
-    STAGE: "992d44db45352aa511cbddd0514ecb09a7806727",
+    STAGE: "377672c9ace6af6be5e76eb4d44a004717baaa0c",
     CORE: "b2ab2c539ae161fc4a9680d31258f6ea823e2517",
     VK_BUFFER_H: "88485385b530d678c2c4b4f161053569c723e270",
     RETIREMENT_H: "33e077863e503a956cabf2b99edb73f8967b89a8",
@@ -50,7 +50,11 @@ TEMPLATE = r"""
 // The extracted method normally lives in namespace Vulkan.
 namespace NS2Research = Vulkan::NS2Research;
 #define ASSERT(condition) do { if (!(condition)) throw std::runtime_error("mock ASSERT"); } while (false)
-namespace Common { inline unsigned Log2Ceil(std::size_t v) { unsigned p=0; if (v <= 1) return 0; --v; while (v != 0) { v >>= 1; ++p; } return p; } }
+namespace Common {
+inline unsigned Log2Ceil(std::size_t v) { unsigned p=0; if (v <= 1) return 0; --v; while (v != 0) { v >>= 1; ++p; } return p; }
+inline std::size_t AlignUp(std::size_t v, std::size_t a) { return ((v+a-1)/a)*a; }
+}
+constexpr u64 MAX_ALIGNMENT = 256;
 using u64 = std::uint64_t;
 using u8 = std::uint8_t;
 using VkRenderPass = std::uintptr_t;
@@ -65,6 +69,7 @@ struct StagingBufferRef {
     u64 request_generation{};
     u64 request_submission_tick{};
     VkBuffer buffer{};
+    u64 device_address{};
     u64 offset{};
     std::span<u8> mapped_span{};
     MockMemoryLocation backing_location{};
@@ -124,7 +129,7 @@ public:
 class StagingBufferPool {
 public:
     Scheduler scheduler{};
-    std::size_t region_size{64};
+    std::size_t region_size{256};
     u64 request_generation_counter{};
     struct StagingBuffer {
         u64 index{};
@@ -142,6 +147,19 @@ public:
     static constexpr std::size_t NUM_SYNCS = 16;
     std::array<u64, NUM_SYNCS> sync_ticks{};
     [[nodiscard]] bool AreRegionsActive(std::size_t begin, std::size_t end) const;
+    struct MockStreamBuffer {
+        VkBuffer handle{17};
+        VkBuffer operator*() const noexcept { return handle; }
+        MockMemoryLocation Location() const noexcept { return {4321,0}; }
+    } stream_buffer{};
+    u64 stream_buffer_address{0};
+    std::array<u8,4096> stream_storage{};
+    std::span<u8> stream_pointer{stream_storage};
+    std::size_t stream_buffer_size{4096};
+    std::size_t iterator{}, used_iterator{}, free_iterator{};
+    [[nodiscard]] std::size_t Region(std::size_t offset) const noexcept {
+        return offset / region_size;
+    }
     StagingBuffersCache upload_cache{}, download_cache{};
     StagingBuffersCache& GetCache(MemoryUsage usage) {
         return usage == MemoryUsage::Upload ? upload_cache : download_cache;
@@ -149,7 +167,7 @@ public:
     std::optional<StagingBufferRef> TryGetReservedBuffer(std::size_t, MemoryUsage, bool);
     void FreeDeferred(StagingBufferRef&);
     void ReleaseLevel(StagingBuffersCache&, std::size_t);
-    StagingBufferRef GetStreamBuffer(std::size_t) { return {.kind=1}; }
+    StagingBufferRef GetStreamBuffer(std::size_t);
     StagingBufferRef GetStagingBuffer(std::size_t, MemoryUsage, bool) {
         return {.kind=2};
     }
@@ -159,6 +177,7 @@ public:
 @@STAGING_REUSE@@
 @@STAGING_DEFERRED_FREE@@
 @@STAGING_RETIRED_DELETE@@
+@@STAGING_STREAM@@
 @@STAGING_REGION_LIFETIME@@
 @@DISPATCH_WORK@@
 struct Buffer {
@@ -308,6 +327,24 @@ int main() {
     deleting.scheduler.completed_gpu_tick=10;
     deleting.ReleaseLevel(deleting.GetCache(MemoryUsage::Upload),5);
     check(level.entries.empty());
+    // Reproduce a first failed stream wrap into still-busy region zero.
+    // The follow-up Request must not overwrite the rejected mapped region,
+    // even though the historical free_iterator+1 probe skips it.
+    StagingBufferPool wrap;
+    wrap.scheduler.tick = 12;
+    wrap.scheduler.gpu_completion.known_tick = 10;
+    wrap.sync_ticks[0] = 11;
+    wrap.iterator = wrap.stream_buffer_size - 32;
+    wrap.used_iterator = wrap.iterator;
+    wrap.free_iterator = wrap.iterator;
+    const auto first = wrap.Request(32,MemoryUsage::Upload);
+    check(first.kind == 2 && wrap.iterator == 0 && wrap.free_iterator == 32);
+    const auto second = wrap.Request(32,MemoryUsage::Upload);
+    check(second.kind == 2 && wrap.iterator == 0);
+    wrap.scheduler.gpu_completion.known_tick = 11;
+    const auto resumed = wrap.Request(32,MemoryUsage::Upload);
+    check(resumed.buffer == 17 && resumed.offset == 0);
+    check(resumed.mapped_span.size_bytes() == 32);
 
     // Execute the real CopyStagingUpload() body, not an independently
     // rewritten test version. CopyBuffer() is a recording-only host double.
@@ -494,7 +531,7 @@ int main() {
 }
 """
 
-def extract_methods() -> tuple[str, str, str, str, str, str, str, str, str]:
+def extract_methods() -> tuple[str, str, str, str, str, str, str, str, str, str]:
     scheduler = SCHED.read_text()
     start = scheduler.index(
         "#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)\n"
@@ -522,6 +559,11 @@ def extract_methods() -> tuple[str, str, str, str, str, str, str, str, str]:
     assert reuse.count("scheduler.IsFree(entry.tick)") == 1
     assert free_deferred.count("it->tick = scheduler.CurrentTick()") == 1
     assert reclaim.count("scheduler.IsFree(entry.tick)") == 1
+    stream_start = stage.index("StagingBufferRef StagingBufferPool::GetStreamBuffer(")
+    stream_end = stage.index("bool StagingBufferPool::AreRegionsActive(", stream_start)
+    stream = stage[stream_start:stream_end]
+    assert stream.count("if (iterator == 0 && free_iterator > 0 &&") == 1
+    assert stream.count("AreRegionsActive(0, (std::min)(Region(size) + 1, NUM_SYNCS))") == 1
     active_region_start = stage.index("bool StagingBufferPool::AreRegionsActive(")
     active_region_end = stage.index("StagingBufferRef StagingBufferPool::GetStagingBuffer(",
                                      active_region_start)
@@ -556,7 +598,7 @@ def extract_methods() -> tuple[str, str, str, str, str, str, str, str, str]:
     assert "throw std::runtime_error(\"R2: GPU completion did not reach deletion tick\")" in lifetime
     assert typed_copy.count("NS2Research::StagingRegionCoalescer<64> fused") == 1
     assert typed_copy.count("CopyBuffer(dst.handle, staging.buffer") == 3
-    return scheduler_methods, request, dispatch, typed_copy, reuse, free_deferred, reclaim, active_region, lifetime
+    return scheduler_methods, request, dispatch, typed_copy, reuse, free_deferred, reclaim, stream, active_region, lifetime
 
 def run() -> None:
     for path, sha in SOURCE_BLOBS.items():
@@ -602,12 +644,13 @@ def run() -> None:
     assert runtime.count("if (copies.size() < 2)") == 1
     print("R2_TYPED_UPLOAD_STILL_ORDERED: callers=2 explicit_barriers=2 cross_call_batching=OFF in_call_region_fusion=ON")
 
-    scheduler, request, dispatch, typed_copy, reuse, free_deferred, reclaim, active_region, lifetime = extract_methods()
+    scheduler, request, dispatch, typed_copy, reuse, free_deferred, reclaim, stream, active_region, lifetime = extract_methods()
     content = (TEMPLATE.replace("@@SCHEDULER_METHODS@@", scheduler)
                        .replace("@@STAGING_REQUEST@@", request)
                        .replace("@@STAGING_REUSE@@", reuse)
                        .replace("@@STAGING_DEFERRED_FREE@@", free_deferred)
                        .replace("@@STAGING_RETIRED_DELETE@@", reclaim)
+                       .replace("@@STAGING_STREAM@@", stream)
                        .replace("@@STAGING_REGION_LIFETIME@@", active_region)
                        .replace("@@DISPATCH_WORK@@", dispatch)
                        .replace("@@RUNTIME_METHOD@@", typed_copy)

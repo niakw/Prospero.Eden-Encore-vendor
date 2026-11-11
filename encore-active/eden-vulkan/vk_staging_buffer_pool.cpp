@@ -169,6 +169,17 @@ StagingBufferRef StagingBufferPool::GetStreamBuffer(size_t size) {
             return GetStagingBuffer(size, MemoryUsage::Upload);
         }
     }
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // A failed wrap-around reservation leaves iterator=0 and
+    // free_iterator=size. On the next Request the original free_iterator+1
+    // probe skips region 0 and could hand out still-active mapped bytes.
+    // Recheck the exact region about to be returned, not just the previous
+    // free_iterator frontier. Do not regress the normal fast path.
+    if (iterator == 0 && free_iterator > 0 &&
+        AreRegionsActive(0, (std::min)(Region(size) + 1, NUM_SYNCS))) {
+        return GetStagingBuffer(size, MemoryUsage::Upload);
+    }
+#endif
     const size_t offset = iterator;
     iterator = Common::AlignUp(iterator + size, MAX_ALIGNMENT);
     return StagingBufferRef{
