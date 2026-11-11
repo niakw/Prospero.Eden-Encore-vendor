@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstring>
 
+#include "common/assert.h"
 #include "common/hex_util.h"
 #include "common/logging.h"
 #include "common/settings.h"
@@ -156,17 +157,42 @@ std::string GetUpdateVersionStringFromSlot(const ContentProvider* provider, u64 
     NACP nacp{nacp_file};
     return nacp.GetVersionString();
 }
+YUZU_NO_INLINE std::optional<u64> GetParentApplicationId(const ContentProvider* provider, u64 title_id) {
+    return provider == nullptr ? std::nullopt : provider->GetParentApplicationId(title_id);
+}
 } // Anonymous namespace
 
 PatchManager::PatchManager(u64 title_id_,
                            const Service::FileSystem::FileSystemController& fs_controller_,
                            const ContentProvider& content_provider_)
-    : title_id{title_id_}, fs_controller{fs_controller_}, content_provider{content_provider_} {}
+    : title_id{title_id_}, parent_title_id{GetParentApplicationId(std::addressof(content_provider_), title_id_)}, fs_controller{fs_controller_}, content_provider{content_provider_} {}
 
 PatchManager::~PatchManager() = default;
 
 u64 PatchManager::GetTitleID() const {
     return title_id;
+}
+
+VirtualDir PatchManager::GetModificationLoadRoot(bool sdmc) const {
+    const auto get_root = [&](u64 id) {
+        return sdmc ? fs_controller.GetSDMCModificationLoadRoot(id) : fs_controller.GetModificationLoadRoot(id);
+    };
+    auto root = get_root(title_id);
+    if (!parent_title_id) {
+        return root;
+    }
+    std::vector<VirtualDir> roots{std::move(root), get_root(*parent_title_id)};
+    std::erase(roots, nullptr);
+    return LayeredVfsDirectory::MakeLayeredDirectory(std::move(roots));
+}
+
+std::vector<std::string> PatchManager::GetDisabledAddons() const {
+    auto disabled = Settings::values.disabled_addons[title_id];
+    if (parent_title_id) {
+        const auto& shared = Settings::values.disabled_addons[*parent_title_id];
+        disabled.insert(disabled.end(), shared.begin(), shared.end());
+    }
+    return disabled;
 }
 
 VirtualDir PatchManager::PatchExeFS(VirtualDir exefs) const {
@@ -175,7 +201,7 @@ VirtualDir PatchManager::PatchExeFS(VirtualDir exefs) const {
     if (exefs == nullptr)
         return exefs;
 
-    const auto& disabled = Settings::values.disabled_addons[title_id];
+    const auto disabled = GetDisabledAddons();
 
     bool update_disabled = true;
     std::optional<u32> enabled_version;
@@ -303,8 +329,8 @@ VirtualDir PatchManager::PatchExeFS(VirtualDir exefs) const {
     }
 
     // LayeredExeFS
-    const auto load_dir = fs_controller.GetModificationLoadRoot(title_id);
-    const auto sdmc_load_dir = fs_controller.GetSDMCModificationLoadRoot(title_id);
+    const auto load_dir = GetModificationLoadRoot();
+    const auto sdmc_load_dir = GetModificationLoadRoot(true);
 
     std::vector<VirtualDir> patch_dirs;
     if (sdmc_load_dir) patch_dirs.push_back(sdmc_load_dir);
@@ -347,7 +373,7 @@ VirtualDir PatchManager::PatchExeFS(VirtualDir exefs) const {
 }
 
 std::vector<VirtualFile> PatchManager::CollectPatches(const std::vector<VirtualDir>& patch_dirs, const std::string& build_id) const {
-    const auto& disabled = Settings::values.disabled_addons[title_id];
+    const auto disabled = GetDisabledAddons();
     const auto nso_build_id = fmt::format("{:0<64}", build_id);
 
     std::vector<VirtualFile> out;
@@ -406,7 +432,7 @@ std::vector<u8> PatchManager::PatchNSO(const std::vector<u8>& nso, const std::st
 
     LOG_INFO(Loader, "Patching NSO for name={}, build_id={}", name, build_id);
 
-    const auto load_dir = fs_controller.GetModificationLoadRoot(title_id);
+    const auto load_dir = GetModificationLoadRoot();
     if (load_dir == nullptr) {
         return nso;
     }
@@ -448,7 +474,7 @@ bool PatchManager::HasNSOPatch(const BuildID& build_id_, std::string_view name) 
 
     LOG_INFO(Loader, "Querying NSO patch existence for build_id={}, name={}", build_id, name);
 
-    const auto load_dir = fs_controller.GetModificationLoadRoot(title_id);
+    const auto load_dir = GetModificationLoadRoot();
     if (load_dir == nullptr) {
         return false;
     }
@@ -461,12 +487,12 @@ bool PatchManager::HasNSOPatch(const BuildID& build_id_, std::string_view name) 
 }
 
 std::vector<Core::Memory::CheatEntry> PatchManager::CreateCheatList(const BuildID& build_id_) const {
-    const auto load_dir = fs_controller.GetModificationLoadRoot(title_id);
+    const auto load_dir = GetModificationLoadRoot();
     if (load_dir == nullptr) {
         return {};
     }
 
-    const auto& disabled = Settings::values.disabled_addons[title_id];
+    const auto& disabled = GetDisabledAddons();
     auto patch_dirs = load_dir->GetSubdirectories();
     std::sort(patch_dirs.begin(), patch_dirs.end(), [](auto const& l, auto const& r) { return l->GetName() < r->GetName(); });
 
@@ -500,17 +526,16 @@ std::vector<Core::Memory::CheatEntry> PatchManager::CreateCheatList(const BuildI
     return out;
 }
 
-static void ApplyLayeredFS(VirtualFile& romfs, u64 title_id, ContentRecordType type,
-                           const Service::FileSystem::FileSystemController& fs_controller) {
-    const auto load_dir = fs_controller.GetModificationLoadRoot(title_id);
-    const auto sdmc_load_dir = fs_controller.GetSDMCModificationLoadRoot(title_id);
+void PatchManager::ApplyLayeredFS(VirtualFile& romfs, ContentRecordType type) const {
+    const auto load_dir = GetModificationLoadRoot();
+    const auto sdmc_load_dir = GetModificationLoadRoot(true);
     if ((type != ContentRecordType::Program && type != ContentRecordType::Data &&
          type != ContentRecordType::HtmlDocument) ||
         (load_dir == nullptr && sdmc_load_dir == nullptr)) {
         return;
     }
 
-    const auto& disabled = Settings::values.disabled_addons[title_id];
+    const auto& disabled = GetDisabledAddons();
     std::vector<VirtualDir> patch_dirs;
     if (load_dir != nullptr) patch_dirs = load_dir->GetSubdirectories();
     if (sdmc_load_dir != nullptr && std::find(disabled.cbegin(), disabled.cend(), "SDMC") == disabled.cend()) {
@@ -590,7 +615,7 @@ VirtualFile PatchManager::PatchRomFS(const NCA* base_nca, VirtualFile base_romfs
 
     // Game Updates
     const auto update_tid = GetUpdateTitleID(title_id);
-    const auto& disabled = Settings::values.disabled_addons[title_id];
+    const auto disabled = GetDisabledAddons();
 
     bool update_disabled = true;
     std::optional<u32> enabled_version;
@@ -697,7 +722,7 @@ VirtualFile PatchManager::PatchRomFS(const NCA* base_nca, VirtualFile base_romfs
 
     // LayeredFS
     if (apply_layeredfs) {
-        ApplyLayeredFS(romfs, title_id, type, fs_controller);
+        ApplyLayeredFS(romfs, type);
     }
 
     return romfs;
@@ -709,7 +734,7 @@ std::vector<Patch> PatchManager::GetPatches(VirtualFile update_raw) const {
     }
 
     std::vector<Patch> out;
-    const auto& disabled = Settings::values.disabled_addons[title_id];
+    const auto& disabled = GetDisabledAddons();
 
     // Game Updates
     const auto update_tid = GetUpdateTitleID(title_id);
@@ -887,7 +912,7 @@ std::vector<Patch> PatchManager::GetPatches(VirtualFile update_raw) const {
     }
 
     // General Mods (LayeredFS and IPS)
-    const auto mod_dir = fs_controller.GetModificationLoadRoot(title_id);
+    const auto mod_dir = GetModificationLoadRoot();
     if (mod_dir != nullptr) {
         for (auto const& f : mod_dir->GetFiles())
             if (auto const name = f->GetName(); name.starts_with("cheat_")) {
@@ -955,7 +980,7 @@ std::vector<Patch> PatchManager::GetPatches(VirtualFile update_raw) const {
     }
 
     // SDMC mod directory (RomFS LayeredFS)
-    const auto sdmc_mod_dir = fs_controller.GetSDMCModificationLoadRoot(title_id);
+    const auto sdmc_mod_dir = GetModificationLoadRoot(true);
     if (sdmc_mod_dir != nullptr) {
         std::string types;
         if (IsDirValidAndNonEmpty(FindSubdirectoryCaseless(sdmc_mod_dir, "exefs")))
@@ -1071,15 +1096,22 @@ std::vector<Patch> PatchManager::GetPatches(VirtualFile update_raw) const {
 std::optional<u32> PatchManager::GetGameVersion() const {
     const auto update_tid = GetUpdateTitleID(title_id);
     if (content_provider.HasEntry(update_tid, ContentRecordType::Program)) {
-        return content_provider.GetEntryVersion(update_tid);
+        const auto version = content_provider.GetEntryVersion(update_tid);
+        return version || !parent_title_id ? version : content_provider.GetEntryVersion(GetUpdateTitleID(*parent_title_id));
     }
 
-    return content_provider.GetEntryVersion(title_id);
+    const auto version = content_provider.GetEntryVersion(title_id);
+    return version || !parent_title_id ? version : content_provider.GetEntryVersion(*parent_title_id);
 }
 
 PatchManager::Metadata PatchManager::GetControlMetadata() const {
     const auto base_control_nca = content_provider.GetEntry(title_id, ContentRecordType::Control);
     if (base_control_nca == nullptr) {
+        if (parent_title_id) {
+            const auto control_id = content_provider.HasEntry(*parent_title_id, ContentRecordType::Control) ? *parent_title_id : GetUpdateTitleID(*parent_title_id);
+            const PatchManager parent{control_id, fs_controller, content_provider};
+            return parent.GetControlMetadata();
+        }
         return {};
     }
 
