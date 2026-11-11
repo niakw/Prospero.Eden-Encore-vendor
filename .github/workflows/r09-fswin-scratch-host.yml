@@ -23,6 +23,7 @@ on:
       - 'tools/r09_fswin_chain_pool_vulkan_graph_smoke.cpp'
       - 'tools/r09_fswin_native_dense_pool_compare.cpp'
       - 'tools/r09_fswin_native_attention_pool_compare.cpp'
+      - 'tools/r09_fswin_native_full_c32_pool_compare.cpp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/fswin_qkv_rdna2.comp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/window_attention_rdna2.comp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/fswin_dense_rdna2.comp'
@@ -208,7 +209,33 @@ jobs:
               .build-r09-fswin/window_attention_native.spv \
               .build-r09-fswin/fswin_dense_native.spv
           echo R09_FSWIN_REAL_QKV_ATTENTION_DENSE3_GPU_AB_KHRONOS_PASS
-          echo R09_FSWIN_PUBLIC_FIXTURES_ONLY_NO_FULL_NEURAL_MODEL_OR_PS5
+          echo R09_FSWIN_QKV_ATTENTION_DENSE3_NATIVE_AB_COMPLETE
+
+      - name: Run full five-pass C32 authentic FSwin shader A/B with all three pooled scratch roles
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+            tools/r09_fswin_native_full_c32_pool_compare.cpp -lvulkan \
+            -o .build-r09-fswin/native-full-c32-pool-ab
+          icd="$(find /usr/share/vulkan/icd.d -maxdepth 1 \
+            -type f -name 'lvp_icd*.json' -print -quit)"
+          test -n "$icd" && test -f "$icd"
+          export VK_ICD_FILENAMES="$icd"
+          for sync in 0 1; do
+            if test "$sync" = "1"; then
+              export R09_FSWIN_VALIDATE_SYNC=1
+            else
+              unset R09_FSWIN_VALIDATE_SYNC || true
+            fi
+            .build-r09-fswin/native-full-c32-pool-ab \
+              .build-r09-fswin/fswin_qkv_native.spv \
+              .build-r09-fswin/window_attention_native.spv \
+              .build-r09-fswin/fswin_dense_native.spv
+          done
+          echo R09_FSWIN_FULL_C32_FIVE_NATIVE_PASSES_GPU_AB_AND_KHRONOS_PASS
+          echo R09_FSWIN_PUBLIC_TEST_WEIGHTS_NO_ORIGINAL_MODEL_OR_PS5
+
 
   authentic-native-syntax:
     name: Three REAL FSwin C++ TUs (macro OFF/ON, no PS5 build)
