@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #pragma once
+#include <optional>
 
 #include "common/math_util.h"
 #include "video_core/vulkan_common/vulkan_memory_allocator.h"
@@ -21,6 +22,18 @@ public:
     VkImageView Draw(const Device& device, Scheduler& scheduler, size_t image_index, VkImage source_image,
                      VkImageView source_image_view, VkExtent2D input_image_extent,
                      const Common::Rectangle<f32>& crop_rect);
+    // Additive research API: the existing real Draw() records the same
+    // shaders. Return matching NON-OWNING image/view/extent for another
+    // spatial filter on the same Vulkan scheduler/slot. No ownership transfer.
+    struct OutputFrame {
+        VkImage image{};
+        VkImageView view{};
+        VkExtent2D extent{};
+    };
+    [[nodiscard]] std::optional<OutputFrame> DrawFrame(
+        const Device& device, Scheduler& scheduler, size_t image_index,
+        VkImage source_image, VkImageView source_image_view,
+        VkExtent2D input_image_extent, const Common::Rectangle<f32>& crop_rect);
 
 private:
     void CreateImages(const Device& device);
