@@ -249,7 +249,6 @@ WallClock::WallClock(bool invariant_, u64 rdtsc_frequency_) noexcept
     , ns_rdtsc_factor{invariant_ ? GetFixedPoint64Factor(NsRatio::den, rdtsc_frequency_) : 0}
     , us_rdtsc_factor{invariant_ ? GetFixedPoint64Factor(UsRatio::den, rdtsc_frequency_) : 0}
     , ms_rdtsc_factor{invariant_ ? GetFixedPoint64Factor(MsRatio::den, rdtsc_frequency_) : 0}
-    , rdtsc_ns_factor{invariant_ ? GetFixedPoint64Factor(rdtsc_frequency_, NsRatio::den) : 1}
     , cntpct_rdtsc_factor{invariant_ ? GetFixedPoint64Factor(CNTFRQ, rdtsc_frequency_) : 0}
     , gputick_rdtsc_factor{invariant_ ? GetFixedPoint64Factor(GPUTickFreq, rdtsc_frequency_) : 0}
     , invariant{invariant_}
@@ -315,7 +314,19 @@ bool WallClock::IsNative() const {
 }
 
 u64 WallClock::NsToTicks(std::chrono::nanoseconds ns) const {
-    return invariant ? MultiplyHigh(ns.count(), rdtsc_ns_factor) : ns.count();
+    if (!invariant) {
+        return static_cast<u64>(ns.count());
+    }
+    // A nanosecond-to-RDTSC ratio greater than one does not fit in
+    // 0.64 fixed-point: at 2/3/4 GHz the old factor wraps to zero.
+    // The product fits in 128 bits for any signed nanosecond duration
+    // and any measured 64-bit host frequency.
+    if (ns.count() <= 0) {
+        return 0;
+    }
+    const auto product = static_cast<unsigned __int128>(ns.count()) *
+                         static_cast<unsigned __int128>(rdtsc_frequency);
+    return static_cast<u64>(product / NsRatio::den);
 }
 #elif defined(HAS_NCE)
 namespace {
