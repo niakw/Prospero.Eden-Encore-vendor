@@ -168,7 +168,10 @@ jobs:
           VK_ICD_FILENAMES="$icd" \
             .build-r09-fswin/native-dense-pool-ab \
               .build-r09-fswin/fswin_dense_native.spv
-          echo R09_FSWIN_AUTHENTIC_DENSE_STAGE0_2_GPU_AB_PASS
+          VK_ICD_FILENAMES="$icd" R09_FSWIN_VALIDATE_SYNC=1 \
+            .build-r09-fswin/native-dense-pool-ab \
+              .build-r09-fswin/fswin_dense_native.spv
+          echo R09_FSWIN_AUTHENTIC_DENSE_STAGE0_2_GPU_AB_AND_KHRONOS_PASS
           echo R09_FSWIN_REAL_WEIGHTED_FULL_MODEL_AND_PS5_NOT_QUALIFIED
 
   authentic-native-syntax:
