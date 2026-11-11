@@ -146,11 +146,24 @@ void StagingBufferPool::TickFrame() {
 }
 
 StagingBufferRef StagingBufferPool::GetStreamBuffer(size_t size) {
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // The last slot may leave free_iterator == stream_buffer_size.
+    // Region(free_iterator)+1 then exceeds the 16-entry sync array, while
+    // iterator+size has already reached the end and will wrap below.
+    // Clamp the forward-only scan and never pass inverted iterators to
+    // std::any_of. The subsequent wrap always checks region zero separately.
+    const size_t active_begin = (std::min)(Region(free_iterator) + 1, NUM_SYNCS);
+    const size_t active_end = (std::min)(Region(iterator + size) + 1, NUM_SYNCS);
+    if (active_begin < active_end && AreRegionsActive(active_begin, active_end)) {
+        return GetStagingBuffer(size, MemoryUsage::Upload);
+    }
+#else
     if (AreRegionsActive(Region(free_iterator) + 1,
                          (std::min)(Region(iterator + size) + 1, NUM_SYNCS))) {
         // Avoid waiting for the previous usages to be free
         return GetStagingBuffer(size, MemoryUsage::Upload);
     }
+#endif
     const u64 current_tick = scheduler.CurrentTick();
     std::fill(sync_ticks.begin() + Region(used_iterator), sync_ticks.begin() + Region(iterator),
               current_tick);

@@ -21,7 +21,7 @@ BOUNDS = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns
 SOURCE_BLOBS = {
     SCHED: "d2d7e8b6cef6ea6ba912d5c7ad41b646527f6f0d",
     SCHED_IMPL: "db83d90460d93c8c50212753e51c54924f4f2e61",
-    STAGE: "377672c9ace6af6be5e76eb4d44a004717baaa0c",
+    STAGE: "e714cd51160331f2f372b3dbda4b2fc5822e9a8e",
     CORE: "b2ab2c539ae161fc4a9680d31258f6ea823e2517",
     VK_BUFFER_H: "88485385b530d678c2c4b4f161053569c723e270",
     RETIREMENT_H: "33e077863e503a956cabf2b99edb73f8967b89a8",
@@ -349,6 +349,24 @@ int main() {
     const auto resumed = wrap.Request(32,MemoryUsage::Upload);
     check(resumed.buffer == 17 && resumed.offset == 0);
     check(resumed.mapped_span.size_bytes() == 32);
+    // An exactly exhausted ring used to compute begin()+17 on a
+    // 16-entry array, and std::any_of could receive an inverted range.
+    // Use the real GetStreamBuffer body under ASan/UBSan to verify both
+    // the full boundary and a second denied request before GPU completion.
+    StagingBufferPool full;
+    full.scheduler.tick=18;
+    full.scheduler.gpu_completion.known_tick=16;
+    full.sync_ticks[0]=17;
+    full.iterator=full.stream_buffer_size;
+    full.free_iterator=full.stream_buffer_size;
+    full.used_iterator=full.stream_buffer_size;
+    const auto boundary=full.Request(32, MemoryUsage::Upload);
+    check(boundary.kind==2 && full.iterator==0 && full.free_iterator==32);
+    const auto boundary_retry=full.Request(32, MemoryUsage::Upload);
+    check(boundary_retry.kind==2 && full.iterator==0);
+    full.scheduler.gpu_completion.known_tick=17;
+    const auto boundary_resume=full.Request(32, MemoryUsage::Upload);
+    check(boundary_resume.buffer==17 && boundary_resume.offset==0);
 
     // Execute the real CopyStagingUpload() body, not an independently
     // rewritten test version. CopyBuffer() is a recording-only host double.
@@ -566,6 +584,8 @@ def extract_methods() -> tuple[str, str, str, str, str, str, str, str, str, str]
     stream_start = stage.index("StagingBufferRef StagingBufferPool::GetStreamBuffer(")
     stream_end = stage.index("bool StagingBufferPool::AreRegionsActive(", stream_start)
     stream = stage[stream_start:stream_end]
+    assert stream.count("const size_t active_begin = (std::min)(Region(free_iterator) + 1, NUM_SYNCS)") == 1
+    assert stream.count("active_begin < active_end && AreRegionsActive(active_begin, active_end)") == 1
     assert stream.count("if (iterator == 0 && free_iterator > 0 &&") == 1
     assert stream.count("AreRegionsActive(0, (std::min)(Region(size) + 1, NUM_SYNCS))") == 1
     active_region_start = stage.index("bool StagingBufferPool::AreRegionsActive(")
