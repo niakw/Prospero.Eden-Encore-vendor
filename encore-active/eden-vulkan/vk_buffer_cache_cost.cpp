@@ -468,9 +468,12 @@ void BufferCacheRuntime::RetainDeletedBuffer(Buffer& deleted) {
         // Bounded at 256 pending deletions: an explicit GPU-finish fallback
         // is slower, but guarantees safe release without a frame-age guess.
         scheduler.Finish();
-        deleted_gpu_buffers.RetireCompleted(
-            scheduler.GetMasterSemaphore().KnownGpuTick());
-        // This owner was not admitted and the pre-submit epoch has completed.
+        const u64 completed_tick = scheduler.GetMasterSemaphore().KnownGpuTick();
+        deleted_gpu_buffers.RetireCompleted(completed_tick);
+        // A broken/lost timeline must NEVER silently release an unadmitted
+        // destination buffer, even when Finish() did not throw.
+        if (completed_tick < submit_tick)
+            throw std::runtime_error("R2: GPU completion did not reach deletion tick");
         owner.reset();
     } catch (...) {
         // Submission failure / device loss: never destroy a possibly live

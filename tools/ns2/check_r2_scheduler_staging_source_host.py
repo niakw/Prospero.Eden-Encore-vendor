@@ -25,7 +25,7 @@ SOURCE_BLOBS = {
     CORE: "7b78936cfefda4ee6f5749ae5a0a6ab78d389a72",
     VK_BUFFER_H: "88485385b530d678c2c4b4f161053569c723e270",
     RETIREMENT_H: "33e077863e503a956cabf2b99edb73f8967b89a8",
-    RUNTIME: "265b9aada3b74bd94892f4bb46f4c0dd547f8b2b",
+    RUNTIME: "b4533ccdcba08960a09511c90e0611a966cd833b",
     BOUNDS: "8905d42732b2d5848aa49b5800340e031cd214c9",
 }
 TEMPLATE = r"""
@@ -468,6 +468,8 @@ def extract_methods() -> tuple[str, str, str, str, str, str, str, str]:
     lifetime=runtime[lifetime_start:lifetime_end]
     assert lifetime.count("deleted_gpu_buffers.AbandonUnsafeOwners()") == 2
     assert lifetime.count("scheduler.Finish()") == 2
+    assert "if (completed_tick < submit_tick)" in lifetime
+    assert "throw std::runtime_error(\"R2: GPU completion did not reach deletion tick\")" in lifetime
     assert typed_copy.count("NS2Research::StagingRegionCoalescer<64> fused") == 1
     assert typed_copy.count("CopyBuffer(dst.handle, staging.buffer") == 3
     return scheduler_methods, request, dispatch, typed_copy, reuse, free_deferred, reclaim, lifetime
