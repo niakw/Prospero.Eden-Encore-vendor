@@ -16,7 +16,7 @@ def gitsha(value):
  return hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
 assert '::Common::unordered_map<ConstantT, u32, ConstantHash> constant_info;' in head
 assert 'writableAddress(&target_constant)' in s
-assert 'frame[code.rip + &pool[it->second]]' in s
+assert 'frame[code.rip + static_cast<void*>(&pool[it->second])]' in s
 assert 'code.int3();' in s
 assert 'ASSERT(next_slot < pool.size())' in s
 old="""    auto it = constant_info.find(constant);
@@ -29,7 +29,7 @@ old="""    auto it = constant_info.find(constant);
     }
     return frame[code.rip + it->second];"""
 start="    // Track the slot index rather than a duplicate pointer."
-end="    return frame[code.rip + &pool[it->second]];"
+end="    return frame[code.rip + static_cast<void*>(&pool[it->second])];"
 new=start+s.split(start,1)[1].split(end,1)[0]+end
 pre=s.replace(new,old,1)
 assert gitsha(pre)=="c51408a77701705c8bbc341c074df1e582495104",gitsha(pre)
@@ -58,7 +58,9 @@ namespace Xbyak {
 namespace Dynarmic::Backend::X64 {
 struct BlockOfCode {
  int aliases=0;
- uintptr_t rip=0;
+ struct Rip {
+  uintptr_t operator+(void* value) const {return reinterpret_cast<uintptr_t>(value);}
+ } rip;
  void* writableAddress(void* p){++aliases; return p;}
 };
 class ConstantPool {
