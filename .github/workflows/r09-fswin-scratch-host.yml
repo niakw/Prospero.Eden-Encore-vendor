@@ -25,6 +25,7 @@ on:
       - 'tools/r09_fswin_native_attention_pool_compare.cpp'
       - 'tools/r09_fswin_native_full_c32_pool_compare.cpp'
       - 'tools/r09_fswin_native_full_c64plus_pool_compare.cpp'
+      - 'tools/r09_fswin_native_multiwindow_pool_compare.cpp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/fswin_qkv_rdna2.comp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/window_attention_rdna2.comp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/fswin_dense_rdna2.comp'
@@ -315,3 +316,66 @@ jobs:
             python3 -B tools/graphics/check-rdna2-neural-vulkan-tus.py
           test "$(git rev-parse HEAD:vendor)" = "22b69d6053db41b74edac2633c012f925b84f69e"
           echo R09_FSWIN_AUTHENTIC_CPP_SYNTAX_PASS_NO_PS5_BUILD_NO_PIN_CHANGE
+
+  authentic-multiwindow-vulkan:
+    name: Authentic 6-pass FSwin multiwindow GPU / Khronos (host only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - name: Checkout isolated vendor experiment only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Build unmodified native shaders once
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            glslang-tools spirv-tools libvulkan-dev mesa-vulkan-drivers \
+            vulkan-validationlayers
+          mkdir -p .build-r09-multiwindow
+          for shader in fswin_dense_rdna2 fswin_qkv_rdna2 window_attention_rdna2; do
+            glslangValidator -V --target-env vulkan1.1 -S comp \
+              "encore-active/eden-vulkan/r09_rdna2_nr/${shader}.comp" \
+              -o ".build-r09-multiwindow/${shader}.spv"
+            spirv-val --target-env vulkan1.1 \
+              ".build-r09-multiwindow/${shader}.spv"
+          done
+      - name: Real multiwindow A/B, exact second-window readback and sync validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          icd="$(find /usr/share/vulkan/icd.d -maxdepth 1 \
+            -type f -name 'lvp_icd*.json' -print -quit)"
+          test -n "$icd" && test -f "$icd"
+          export VK_ICD_FILENAMES="$icd"
+          export R09_FSWIN_VALIDATE_SYNC=1
+          for channels in 64 128 256; do
+            g++ -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+              -DR09_FSWIN_TEST_CHANNELS="$channels" \
+              -DR09_FSWIN_TEST_WINDOWS=2 \
+              tools/r09_fswin_native_multiwindow_pool_compare.cpp -lvulkan \
+              -o ".build-r09-multiwindow/c${channels}-w2"
+            ".build-r09-multiwindow/c${channels}-w2" \
+              .build-r09-multiwindow/fswin_qkv_rdna2.spv \
+              .build-r09-multiwindow/window_attention_rdna2.spv \
+              .build-r09-multiwindow/fswin_dense_rdna2.spv
+            echo "R09_FSWIN_C${channels}_TWO_WINDOWS_NATIVE_GPU_AB_PASS"
+          done
+          # The 720p last FSwin level uses 60 independent windows at C256.
+          # This covers its REAL dispatch geometry, but not the full
+          # preceding 920/240/3600-window graph or trained model.
+          g++ -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+            -DR09_FSWIN_TEST_CHANNELS=256 \
+            -DR09_FSWIN_TEST_WINDOWS=60 \
+            tools/r09_fswin_native_multiwindow_pool_compare.cpp -lvulkan \
+            -o .build-r09-multiwindow/c256-w60
+          timeout 360s .build-r09-multiwindow/c256-w60 \
+            .build-r09-multiwindow/fswin_qkv_rdna2.spv \
+            .build-r09-multiwindow/window_attention_rdna2.spv \
+            .build-r09-multiwindow/fswin_dense_rdna2.spv
+          echo R09_FSWIN_C256_720P_LEVEL_60_WINDOWS_AB_PASS
+          echo R09_FSWIN_REAL_WEIGHTED_152_ROW_GRAPH_AND_PS5_UNQUALIFIED
