@@ -269,4 +269,26 @@ std::optional<VkImageView> Anime4K3D::Draw(
     });
     return *frame.views[3];
 }
+std::optional<Anime4K3D::OutputFrame> Anime4K3D::DrawFrame(
+    size_t image_index, VkImage source_image, VkImageView source_view,
+    VkExtent2D extent, const Common::Rectangle<f32>& crop) {
+    // Preserve the existing real neural x2 graph/guards. Draw() records
+    // all native compute stages and refuses incompatible source extents,
+    // crops, image slots and GPU budgets before returning a view.
+    const auto view=Draw(image_index,source_image,source_view,extent,crop);
+    if(!view || image_index>=frames.size())
+        return std::nullopt;
+    const auto& owner=frames[image_index];
+    if(!owner.images[3] || !owner.views[3] ||
+       *owner.views[3]!=*view || !*owner.images[3] ||
+       !output_extent.width || !output_extent.height ||
+       extent.width*2u!=output_extent.width ||
+       extent.height*2u!=output_extent.height)
+        return std::nullopt;
+    // VkImage and VkImageView are borrowed, not transferred. The
+    // caller MUST keep this Anime4K3D instance and frame slot live until
+    // the dependent spatial filter's scheduler tick has retired.
+    return OutputFrame{*owner.images[3],*view,output_extent};
+}
+
 } // namespace Vulkan
