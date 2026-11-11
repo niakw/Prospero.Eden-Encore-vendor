@@ -226,10 +226,19 @@ public:
     }
 
     Result Peek(size_t* out_size, std::span<u8> data) override {
-        auto const n = (std::min)(data.size(), *out_size);
-        const int ret = SSL_peek(ssl, data.data(), int(n));
-        *out_size = n;
-        return HandleReturn("SSL_write_ex", out_size, ret);
+        // SSL_peek uses int length and returns the number of bytes actually
+        // observed. Reporting the requested size would copy stale IPC bytes.
+        const size_t wanted = (std::min)(data.size(), *out_size);
+        const int n = static_cast<int>((std::min)(wanted, size_t{0x7fffffff}));
+        *out_size = 0;
+        if (n == 0) {
+            R_SUCCEED();
+        }
+        const int ret = SSL_peek(ssl, data.data(), n);
+        if (ret > 0) {
+            *out_size = static_cast<size_t>(ret);
+        }
+        return HandleReturn("SSL_peek", out_size, ret);
     }
 
     Result Write(size_t* out_size, std::span<const u8> data) override {
