@@ -54,7 +54,7 @@ namespace Common {
 inline unsigned Log2Ceil(std::size_t v) { unsigned p=0; if (v <= 1) return 0; --v; while (v != 0) { v >>= 1; ++p; } return p; }
 inline std::size_t AlignUp(std::size_t v, std::size_t a) { return ((v+a-1)/a)*a; }
 }
-constexpr u64 MAX_ALIGNMENT = 256;
+constexpr std::uint64_t MAX_ALIGNMENT = 256;
 using u64 = std::uint64_t;
 using u8 = std::uint8_t;
 using VkRenderPass = std::uintptr_t;
