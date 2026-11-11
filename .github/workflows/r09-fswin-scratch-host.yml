@@ -20,6 +20,7 @@ on:
       - 'tools/test_r09_fswin_shared_tensor_extracted.cpp'
       - 'tools/r09_fswin_scratch_synthetic.comp'
       - 'tools/r09_fswin_scratch_vulkan_smoke.cpp'
+      - 'tools/r09_fswin_chain_pool_vulkan_graph_smoke.cpp'
   workflow_dispatch:
 
 permissions:
@@ -120,6 +121,32 @@ jobs:
               --negative-missing-barrier
           echo R09_FSWIN_REAL_VULKAN_SHARED_SCRATCH_AND_KHRONOS_POS_NEG_PASS
           echo R09_FSWIN_SYNTHETIC_ONLY_NO_MODEL_NO_PS5
+
+      - name: Exercise eight independent scratch pools across 44 and 16 synthetic Vulkan layers
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Reuse already installed Vulkan, Mesa, glslang, SPIR-V validation.
+          g++ -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+            tools/r09_fswin_chain_pool_vulkan_graph_smoke.cpp -lvulkan \
+            -o .build-r09-fswin/graph-vulkan-smoke
+          icd="$(find /usr/share/vulkan/icd.d -maxdepth 1 \
+            -type f -name 'lvp_icd*.json' -print -quit)"
+          test -n "$icd" && test -f "$icd"
+          export VK_ICD_FILENAMES="$icd"
+          for model in Original Compact; do
+            .build-r09-fswin/graph-vulkan-smoke \
+              .build-r09-fswin/scratch_synthetic.spv "$model"
+            R09_FSWIN_VALIDATE_SYNC=1 \
+              .build-r09-fswin/graph-vulkan-smoke \
+                .build-r09-fswin/scratch_synthetic.spv "$model"
+          done
+          R09_FSWIN_VALIDATE_SYNC=1 \
+            .build-r09-fswin/graph-vulkan-smoke \
+              .build-r09-fswin/scratch_synthetic.spv Original \
+              --negative-missing-barrier
+          echo R09_FSWIN_EIGHT_SEGMENT_44_AND_16_LAYER_GPU_HOST_PASS
+          echo R09_FSWIN_REAL_LEARNED_SHADERS_AND_PS5_NOT_QUALIFIED
 
   authentic-native-syntax:
     name: Three REAL FSwin C++ TUs (macro OFF/ON, no PS5 build)
