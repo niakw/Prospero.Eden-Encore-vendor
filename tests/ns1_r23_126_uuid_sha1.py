@@ -57,7 +57,7 @@ using u8=std::uint8_t;
 using u64_le=std::uint64_t;
 struct Nacp { struct {u64_le seed_for_pseudo_device_id{0};} raw; };
 struct Metadata {std::shared_ptr<Nacp> first;};
-constexpr int ResultUnknown=1;
+[[maybe_unused]] constexpr int ResultUnknown=1;
 #define R_UNLESS(c,e) if(!(c)) return false
 namespace Common {
 struct UUID {
