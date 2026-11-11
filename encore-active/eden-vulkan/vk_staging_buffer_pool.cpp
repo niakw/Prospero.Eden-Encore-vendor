@@ -112,9 +112,18 @@ StagingBufferRef StagingBufferPool::Request(size_t size, MemoryUsage usage, bool
         throw std::overflow_error("R2 staging request generation exhausted");
     }
     const u64 request_tick = scheduler.CurrentTick();
+    if (!request_tick || (active_staging_tick && request_tick < active_staging_tick)) {
+        throw std::out_of_range("R2: invalid staging submission tick");
+    }
     if (active_staging_tick != request_tick) {
-        active_staging_requests.clear();
+        // Do not discard an earlier tick's in-flight physical lease just
+        // because the recording thread advanced to the next submission.
+        // A ring/pool reuse across ticks is still unauthorized until the
+        // real scheduler reports that older GPU tick completed.
         active_staging_tick = request_tick;
+        std::erase_if(active_staging_requests, [&](const ActiveStagingRequest& old) {
+            return scheduler.IsFree(old.submission_tick);
+        });
     }
     // The stream allocator may advance its cursor/sync ticks before the
     // physical ledger refuses the reservation. Keep that admission

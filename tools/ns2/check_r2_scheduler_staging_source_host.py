@@ -22,7 +22,7 @@ BOUNDS = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns
 SOURCE_BLOBS = {
     SCHED: "d2d7e8b6cef6ea6ba912d5c7ad41b646527f6f0d",
     SCHED_IMPL: "db83d90460d93c8c50212753e51c54924f4f2e61",
-    STAGE: "6e7eaa98bbee2998d9c503bdabf2f6ac91b1b719",
+    STAGE: "87cf07f4522f7225610785f1908337f5eabdeb32",
     STAGE_H: "09152820218895c71bbbdf145a30db6d95559e7f",
     CORE: "b2ab2c539ae161fc4a9680d31258f6ea823e2517",
     VK_BUFFER_H: "88485385b530d678c2c4b4f161053569c723e270",
@@ -361,6 +361,34 @@ int main() {
     ++aba.scheduler.tick;
     check(!aba.IsCurrentRequest(replacement, 6));
 
+    // A distinct submission tick MUST NOT discard a still in-flight prior
+    // physical reservation. Corrupt the historical ring completion map to
+    // force a reuse attempt; the new pool ledger is the independent guard.
+    StagingBufferPool cross_tick;
+    const auto pending_tick5 = cross_tick.Request(32, MemoryUsage::Upload);
+    cross_tick.scheduler.tick = 6;
+    cross_tick.iterator = cross_tick.used_iterator = cross_tick.free_iterator = 0;
+    cross_tick.sync_ticks.fill(0);
+    bool cross_tick_denied = false;
+    try { (void)cross_tick.Request(32, MemoryUsage::Upload); }
+    catch (const std::out_of_range&) { cross_tick_denied = true; }
+    check(cross_tick_denied && cross_tick.active_staging_tick == 6);
+    check(cross_tick.active_staging_requests.size() == 1);
+    check(cross_tick.iterator == 0 && cross_tick.free_iterator == 0 &&
+          cross_tick.sync_ticks[0] == 0);
+    check(!cross_tick.IsCurrentRequest(pending_tick5, 6));
+    cross_tick.scheduler.completed_gpu_tick = 5;
+    const auto safe_tick6 = cross_tick.Request(32, MemoryUsage::Upload);
+    check(safe_tick6.request_submission_tick == 6 &&
+          safe_tick6.request_generation > pending_tick5.request_generation);
+    check(cross_tick.IsCurrentRequest(safe_tick6, 6));
+    check(cross_tick.active_staging_requests.size() == 1);
+    cross_tick.scheduler.tick = 5;
+    bool backwards_tick_denied = false;
+    try { (void)cross_tick.Request(32, MemoryUsage::Upload); }
+    catch (const std::out_of_range&) { backwards_tick_denied = true; }
+    check(backwards_tick_denied && cross_tick.IsCurrentRequest(safe_tick6, 6));
+
     // Source-derived GPU retirement checks: an object in a pending tick
     // cannot be reused or erased, and deferred staging cannot be reused until
     // FreeDeferred stamps its submission tick and GPU completion reaches it.
@@ -683,6 +711,9 @@ def extract_methods() -> tuple[str, str, str, str, str, str, str, str, str, str]
     assert typed_copy.count("R2: stale staging reservation epoch") == 1
     assert typed_copy.count("staging_pool.IsCurrentRequest(") == 1
     assert request.count("active_staging_requests.push_back(") == 1
+    assert "active_staging_requests.clear();" not in request
+    assert request.count("scheduler.IsFree(old.submission_tick)") == 1
+    assert request.count("invalid staging submission tick") == 1
     assert request.count("bool StagingBufferPool::IsCurrentRequest(") == 1
     assert STAGE_H.read_text().count("std::vector<ActiveStagingRequest> active_staging_requests") == 1
     assert "throw std::runtime_error(\"R2: GPU completion did not reach deletion tick\")" in lifetime
