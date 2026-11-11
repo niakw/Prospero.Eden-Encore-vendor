@@ -84,3 +84,55 @@ jobs:
           done
           echo R09_FSWIN_SCRATCH_EXTRACTED_NATIVE_PASS_NOT_FULL_VENDOR_COMPILE
           echo R09_FSWIN_SCRATCH_GPU_SYNC_NOT_QUALIFIED_RUNTIME_DISABLED
+
+  authentic-native-syntax:
+    name: Three REAL FSwin C++ TUs (macro OFF/ON, no PS5 build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact FSwin candidate vendor PR SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: candidate
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          persist-credentials: false
+      - name: Checkout reviewed Encore source and all PINNED deps
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: niakw/ProsperoEden-Encore
+          ref: 0ad39a21b1de67f9ff055d6fd6f1f7c97dde12d5
+          path: encore
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
+      - name: Temporarily stage exact scratch candidate without touching the engine pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          pinned=22b69d6053db41b74edac2633c012f925b84f69e
+          candidate="$(git -C candidate rev-parse HEAD)"
+          test "$(git -C encore rev-parse HEAD:vendor)" = "$pinned"
+          test "$(git -C encore/vendor rev-parse HEAD)" = "$pinned"
+          git -C encore/vendor -c credential.helper= fetch --quiet --depth=1 origin "$candidate"
+          git -C encore/vendor checkout --quiet --detach "$candidate"
+          test "$(git -C encore/vendor rev-parse HEAD)" = "$candidate"
+          test "$(git -C encore rev-parse HEAD:vendor)" = "$pinned"
+          test -f encore/vendor/encore-active/eden-vulkan/include/rdna2_nr_fswin_scratch_pool_policy.h
+          echo "R09_FSWIN_AUTHENTIC_TU_PAIR encore=$(git -C encore rev-parse HEAD) vendor_candidate=$candidate pinned_submodule=$pinned"
+      - name: Install host Vulkan, SPIR-V and FFmpeg headers
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            clang glslang-tools spirv-tools libvulkan-dev \
+            libavcodec-dev libavutil-dev libswscale-dev
+      - name: Syntax-check exact three native FSwin source owners twice
+        shell: bash
+        working-directory: encore
+        run: |
+          set -euo pipefail
+          R09_FSWIN_NATIVE_TU_DUAL=1 \
+            python3 -B tools/graphics/check-rdna2-neural-vulkan-tus.py
+          test "$(git rev-parse HEAD:vendor)" = "22b69d6053db41b74edac2633c012f925b84f69e"
+          echo R09_FSWIN_AUTHENTIC_CPP_SYNTAX_PASS_NO_PS5_BUILD_NO_PIN_CHANGE
