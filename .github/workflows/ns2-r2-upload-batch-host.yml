@@ -7,6 +7,7 @@ on:
       - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_verified_upload_batch.h'
       - 'encore-active/eden-vulkan/tests/test_ns2_verified_upload_batch.cpp'
       - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_scheduler.h'
+      - 'encore-active/eden-vulkan/vulkan_scheduler.cpp'
       - 'encore-active/eden-vulkan/vk_staging_buffer_pool.cpp'
       - 'tools/ns2/check_r2_scheduler_staging_source_host.py'
       - '.github/workflows/ns2-r2-upload-batch-host.yml'

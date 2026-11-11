@@ -211,16 +211,18 @@ public:
     struct R2RecordingSnapshot {
         u64 submission_tick{};
         u64 command_serial{};
+        u64 dispatched_chunk_generation{};
         VkRenderPass active_renderpass{};
         const Framebuffer* deferred_clear_owner{};
     };
     [[nodiscard]] R2RecordingSnapshot SnapshotR2Recording() const noexcept {
-        return {CurrentTick(), recorded_command_serial, state.renderpass,
-                deferred_clear.framebuffer};
+        return {CurrentTick(), recorded_command_serial, r2_dispatched_chunks,
+                state.renderpass, deferred_clear.framebuffer};
     }
     [[nodiscard]] bool R2RecordingStillCurrent(const R2RecordingSnapshot& snapshot) const noexcept {
         return snapshot.submission_tick == CurrentTick() &&
                snapshot.command_serial == recorded_command_serial &&
+               snapshot.dispatched_chunk_generation == r2_dispatched_chunks &&
                snapshot.active_renderpass == state.renderpass &&
                snapshot.deferred_clear_owner == deferred_clear.framebuffer;
     }
@@ -432,6 +434,10 @@ private:
 
     State state;
     u64 recorded_command_serial{};
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // Producer-thread command chunk rollover identity (NOT a GPU queue fence).
+    u64 r2_dispatched_chunks{};
+#endif
 
     u32 num_renderpass_images = 0;
     std::array<VkImage, 9> renderpass_images{};

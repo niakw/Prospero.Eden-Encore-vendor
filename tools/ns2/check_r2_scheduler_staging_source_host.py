@@ -11,11 +11,13 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHED = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_scheduler.h"
+SCHED_IMPL = ROOT / "encore-active/eden-vulkan/vulkan_scheduler.cpp"
 STAGE = ROOT / "encore-active/eden-vulkan/vk_staging_buffer_pool.cpp"
 CORE = ROOT / "encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h"
 RUNTIME = ROOT / "encore-active/eden-vulkan/vk_buffer_cache_cost.cpp"
 SOURCE_BLOBS = {
-    SCHED: "06ed61044892311993f4aa2f6b96a58f6ed22417",
+    SCHED: "d2d7e8b6cef6ea6ba912d5c7ad41b646527f6f0d",
+    SCHED_IMPL: "db83d90460d93c8c50212753e51c54924f4f2e61",
     STAGE: "992d44db45352aa511cbddd0514ecb09a7806727",
     CORE: "4ae68723eb2bb2881ca53b7b5c1c1a60c7780d27",
     RUNTIME: "5fab7c94f3d31df23a457537525c4b35e3540e07",
@@ -27,6 +29,11 @@ TEMPLATE = r"""
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <string>
+#include <memory>
+#include <mutex>
+#include <queue>
+#include <utility>
 using u64 = std::uint64_t;
 using VkRenderPass = std::uintptr_t;
 struct Framebuffer {};
@@ -36,18 +43,34 @@ struct StagingBufferRef {
     u64 request_submission_tick{};
     int kind{};
 };
-class MockScheduler {
+struct MockCommandChunk {
+    bool empty{};
+    bool Empty() const noexcept { return empty; }
+};
+struct MockEventCV {
+    int notifications{};
+    void notify_all() { ++notifications; }
+};
+class Scheduler {
 public:
     [[nodiscard]] u64 CurrentTick() const noexcept { return tick; }
 @@SCHEDULER_METHODS@@
     u64 tick{5};
     u64 recorded_command_serial{30};
+    u64 r2_dispatched_chunks{};
+    std::unique_ptr<MockCommandChunk> chunk = std::make_unique<MockCommandChunk>();
+    std::queue<std::unique_ptr<MockCommandChunk>> work_queue;
+    bool worker_in_flight{};
+    std::mutex queue_mutex;
+    MockEventCV event_cv;
+    void AcquireNewChunk() { chunk = std::make_unique<MockCommandChunk>(); }
+    void DispatchWork();
     struct State { VkRenderPass renderpass{}; } state{};
     struct DeferredClear { const Framebuffer* framebuffer{}; } deferred_clear{};
 };
 class StagingBufferPool {
 public:
-    MockScheduler scheduler{};
+    Scheduler scheduler{};
     std::size_t region_size{64};
     u64 request_generation_counter{};
     StagingBufferRef GetStreamBuffer(std::size_t) { return {.kind=1}; }
@@ -57,13 +80,14 @@ public:
     StagingBufferRef Request(std::size_t, MemoryUsage, bool deferred = false);
 };
 @@STAGING_REQUEST@@
+@@DISPATCH_WORK@@
 int main() {
     int checks = 0;
     auto check = [&](bool ok) {
         ++checks;
         if (!ok) throw std::runtime_error("R2 real-owner test " + std::to_string(checks));
     };
-    MockScheduler scheduler;
+    Scheduler scheduler;
     auto rec = scheduler.SnapshotR2Recording();
     check(scheduler.R2RecordingStillCurrent(rec));
     ++scheduler.recorded_command_serial;
@@ -81,6 +105,22 @@ int main() {
     check(!scheduler.R2RecordingStillCurrent(rec));
     scheduler.deferred_clear.framebuffer = nullptr;
     check(scheduler.R2RecordingStillCurrent(rec));
+    const auto before_empty_dispatch = scheduler.SnapshotR2Recording();
+    scheduler.chunk->empty = true;
+    scheduler.DispatchWork();
+    check(scheduler.R2RecordingStillCurrent(before_empty_dispatch));
+    check(scheduler.r2_dispatched_chunks == 0 && scheduler.work_queue.empty());
+    scheduler.chunk->empty = false;
+    scheduler.DispatchWork();
+    check(!scheduler.R2RecordingStillCurrent(before_empty_dispatch));
+    check(scheduler.r2_dispatched_chunks == 1 && scheduler.work_queue.size() == 1);
+    check(scheduler.event_cv.notifications == 1);
+    const auto before_inflight_dispatch = scheduler.SnapshotR2Recording();
+    scheduler.worker_in_flight = true;
+    scheduler.DispatchWork();
+    check(!scheduler.R2RecordingStillCurrent(before_inflight_dispatch));
+    check(scheduler.r2_dispatched_chunks == 2 && scheduler.work_queue.size() == 2);
+    check(scheduler.event_cv.notifications == 1);
 
     StagingBufferPool pool;
     auto a = pool.Request(32, MemoryUsage::Upload);
@@ -106,7 +146,7 @@ int main() {
 }
 """
 
-def extract_methods() -> tuple[str, str]:
+def extract_methods() -> tuple[str, str, str]:
     scheduler = SCHED.read_text()
     start = scheduler.index(
         "#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)\n"
@@ -123,7 +163,13 @@ def extract_methods() -> tuple[str, str]:
     request = stage[start:end]
     assert request.count("++request_generation_counter") == 1
     assert request.count("scheduler.CurrentTick()") == 1
-    return scheduler_methods, request
+    native = SCHED_IMPL.read_text()
+    start = native.index("void Scheduler::DispatchWork() {")
+    end = native.index("void Scheduler::BeginRenderPassImpl(", start)
+    dispatch = native[start:end]
+    assert dispatch.count("++r2_dispatched_chunks") == 1
+    assert dispatch.count("work_queue.push(std::move(chunk))") == 1
+    return scheduler_methods, request, dispatch
 
 def run() -> None:
     for path, sha in SOURCE_BLOBS.items():
@@ -144,9 +190,10 @@ def run() -> None:
     ) == 1, "PS5 ordered barrier/reorder guard drift"
     print("R2_TYPED_UPLOAD_STILL_ORDERED: callers=2 explicit_barriers=2 batching=OFF")
 
-    scheduler, request = extract_methods()
+    scheduler, request, dispatch = extract_methods()
     content = (TEMPLATE.replace("@@SCHEDULER_METHODS@@", scheduler)
-                       .replace("@@STAGING_REQUEST@@", request))
+                       .replace("@@STAGING_REQUEST@@", request)
+                       .replace("@@DISPATCH_WORK@@", dispatch))
     with tempfile.TemporaryDirectory(prefix="ns2-r2-source-owners-") as d:
         source = Path(d) / "source.cpp"
         source.write_text(content)
