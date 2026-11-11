@@ -26,6 +26,7 @@ on:
       - 'tools/r09_fswin_native_full_c32_pool_compare.cpp'
       - 'tools/r09_fswin_native_full_c64plus_pool_compare.cpp'
       - 'tools/r09_fswin_native_multiwindow_pool_compare.cpp'
+      - 'tools/r09_fswin_native_multiwindow_c32_pool_compare.cpp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/fswin_qkv_rdna2.comp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/window_attention_rdna2.comp'
       - 'encore-active/eden-vulkan/r09_rdna2_nr/fswin_dense_rdna2.comp'
@@ -378,4 +379,36 @@ jobs:
             .build-r09-multiwindow/window_attention_rdna2.spv \
             .build-r09-multiwindow/fswin_dense_rdna2.spv
           echo R09_FSWIN_C256_720P_LEVEL_60_WINDOWS_AB_PASS
+
+          # Run each of the remaining true 720p FSwin window counts
+          # with the original shader kernels, including full attention.
+          # Use only two layers to prove safe scratch reuse at shape
+          # without presenting this as all 44 trained neural layers.
+          for pair in 64:920 128:240; do
+            channels="${pair%%:*}"
+            windows="${pair##*:}"
+            g++ -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+              -DR09_FSWIN_TEST_CHANNELS="$channels" \
+              -DR09_FSWIN_TEST_WINDOWS="$windows" \
+              tools/r09_fswin_native_multiwindow_pool_compare.cpp -lvulkan \
+              -o ".build-r09-multiwindow/c${channels}-w${windows}"
+            timeout 300s ".build-r09-multiwindow/c${channels}-w${windows}" \
+              .build-r09-multiwindow/fswin_qkv_rdna2.spv \
+              .build-r09-multiwindow/window_attention_rdna2.spv \
+              .build-r09-multiwindow/fswin_dense_rdna2.spv
+            echo "R09_FSWIN_C${channels}_720P_${windows}_WINDOWS_AB_PASS"
+          done
+
+          # 720p shallow FSwin stage is 3600 windows at C32.
+          # Avoid 7+ MiB stack frames; its fixture is heap-backed.
+          g++ -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+            -DR09_FSWIN_TEST_WINDOWS=3600 \
+            tools/r09_fswin_native_multiwindow_c32_pool_compare.cpp -lvulkan \
+            -o .build-r09-multiwindow/c32-w3600
+          timeout 420s .build-r09-multiwindow/c32-w3600 \
+            .build-r09-multiwindow/fswin_qkv_rdna2.spv \
+            .build-r09-multiwindow/window_attention_rdna2.spv \
+            .build-r09-multiwindow/fswin_dense_rdna2.spv
+          echo R09_FSWIN_C32_720P_3600_WINDOWS_AB_PASS
+          echo R09_FSWIN_ALL_FOUR_REAL_720P_WINDOW_SHAPES_HOST_AB_PASS
           echo R09_FSWIN_REAL_WEIGHTED_152_ROW_GRAPH_AND_PS5_UNQUALIFIED
