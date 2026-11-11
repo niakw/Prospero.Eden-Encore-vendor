@@ -589,7 +589,8 @@ void BufferCacheRuntime::CopyStagingUpload(const Buffer& destination,
     // Reject it BEFORE scheduling any Vulkan copy command.
     if (!NS2Research::IsCurrentStagingRequest(
             staging.request_generation, staging.request_submission_tick,
-            record.submission_tick))
+            record.submission_tick) ||
+        !staging_pool.IsCurrentRequest(staging, record.submission_tick))
         throw std::out_of_range("R2: stale staging reservation epoch");
     // A recording-context change can still select the ordered path.
     // Neither check authorizes cross-command batching or new barriers.

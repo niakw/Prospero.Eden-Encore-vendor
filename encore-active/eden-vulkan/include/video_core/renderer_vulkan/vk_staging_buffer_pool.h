@@ -51,6 +51,11 @@ public:
     ~StagingBufferPool();
 
     StagingBufferRef Request(size_t size, MemoryUsage usage, bool deferred = false);
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    // Authoritative pool-owned reservation identity, not an unverified token
+    // copied inside StagingBufferRef. This check does not replace GPU fences.
+    [[nodiscard]] bool IsCurrentRequest(const StagingBufferRef& ref, u64 live_tick) const noexcept;
+#endif
     void FreeDeferred(StagingBufferRef& ref);
 
     [[nodiscard]] VkBuffer StreamBuf() const noexcept {
@@ -144,6 +149,18 @@ private:
     u64 buffer_index = 0;
     u64 unique_ids{};
 #if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+    struct ActiveStagingRequest {
+        VkBuffer buffer{};
+        VkDeviceMemory memory{};
+        VkDeviceSize physical_begin{};
+        VkDeviceSize bytes{};
+        u64 generation{};
+        u64 submission_tick{};
+    };
+    // Cleared only on recording tick rollover. Multiple independent same-tick
+    // reservations remain valid; physical reuse revokes the previous token.
+    std::vector<ActiveStagingRequest> active_staging_requests;
+    u64 active_staging_tick{};
     u64 request_generation_counter{};
 #endif
 };

@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCHED = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_scheduler.h"
 SCHED_IMPL = ROOT / "encore-active/eden-vulkan/vulkan_scheduler.cpp"
 STAGE = ROOT / "encore-active/eden-vulkan/vk_staging_buffer_pool.cpp"
+STAGE_H = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_staging_buffer_pool.h"
 CORE = ROOT / "encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h"
 VK_BUFFER_H = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_buffer_cache.h"
 RETIREMENT_H = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_gpu_retirement_hold.h"
@@ -21,11 +22,12 @@ BOUNDS = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns
 SOURCE_BLOBS = {
     SCHED: "d2d7e8b6cef6ea6ba912d5c7ad41b646527f6f0d",
     SCHED_IMPL: "db83d90460d93c8c50212753e51c54924f4f2e61",
-    STAGE: "e714cd51160331f2f372b3dbda4b2fc5822e9a8e",
+    STAGE: "471ee43455245eed1fa94a2d78d0201353d81706",
+    STAGE_H: "09152820218895c71bbbdf145a30db6d95559e7f",
     CORE: "b2ab2c539ae161fc4a9680d31258f6ea823e2517",
     VK_BUFFER_H: "88485385b530d678c2c4b4f161053569c723e270",
     RETIREMENT_H: "33e077863e503a956cabf2b99edb73f8967b89a8",
-    RUNTIME: "d1791a455ad7e717b6ffe6b6ef0215b29fa03b21",
+    RUNTIME: "fd3837717e8d3e3887c958bbd51c0bf91cd35a2f",
     BOUNDS: "8905d42732b2d5848aa49b5800340e031cd214c9",
 }
 TEMPLATE = r"""
@@ -59,6 +61,7 @@ using u64 = std::uint64_t;
 using u8 = std::uint8_t;
 using VkRenderPass = std::uintptr_t;
 using VkBuffer = u64;
+using VkDeviceMemory = u64;
 using VkDeviceSize = u64;
 constexpr VkBuffer VK_NULL_HANDLE = 0;
 namespace boost::container { template <class T, std::size_t N> using small_vector = std::vector<T>; }
@@ -134,6 +137,16 @@ public:
     Scheduler scheduler{};
     std::size_t region_size{256};
     u64 request_generation_counter{};
+    struct ActiveStagingRequest {
+        VkBuffer buffer{};
+        VkDeviceMemory memory{};
+        VkDeviceSize physical_begin{};
+        VkDeviceSize bytes{};
+        u64 generation{};
+        u64 submission_tick{};
+    };
+    std::vector<ActiveStagingRequest> active_staging_requests{};
+    u64 active_staging_tick{};
     struct StagingBuffer {
         u64 index{};
         u64 tick{};
@@ -171,10 +184,21 @@ public:
     void FreeDeferred(StagingBufferRef&);
     void ReleaseLevel(StagingBuffersCache&, std::size_t);
     StagingBufferRef GetStreamBuffer(std::size_t);
-    StagingBufferRef GetStagingBuffer(std::size_t, MemoryUsage, bool = false) {
-        return {.kind=2};
+    std::array<u8, 4096> fallback_storage{};
+    u64 fallback_handle{100}, fallback_memory{6000};
+    StagingBufferRef GetStagingBuffer(std::size_t size, MemoryUsage usage, bool = false) {
+        if (size > fallback_storage.size()) throw std::out_of_range("mock staging allocation");
+        return {
+            .buffer = ++fallback_handle,
+            .mapped_span = std::span<u8>{fallback_storage.data(), size},
+            .usage = usage,
+            .backing_location = {++fallback_memory, 0},
+            .backing_capacity = fallback_storage.size(),
+            .kind = 2,
+        };
     }
     StagingBufferRef Request(std::size_t, MemoryUsage, bool deferred = false);
+    [[nodiscard]] bool IsCurrentRequest(const StagingBufferRef&, u64 tick) const noexcept;
 };
 @@STAGING_REQUEST@@
 @@STAGING_REUSE@@
@@ -206,6 +230,7 @@ struct Buffer {
 class BufferCacheRuntime {
 public:
     Scheduler scheduler{};
+    StagingBufferPool staging_pool{};
     NS2Research::GpuRetirementHold<std::unique_ptr<Buffer>,256> deleted_gpu_buffers;
     ~BufferCacheRuntime() noexcept;
     void RetainDeletedBuffer(Buffer&);
@@ -293,6 +318,40 @@ int main() {
     check(rejected);
     check(pool.request_generation_counter == (std::numeric_limits<u64>::max)());
 
+    // Two different uploads under the SAME recording tick are both valid.
+    // Force a ring offset to recycle before GPU retirement: owner ledger
+    // must fail CLOSED, then revoke the former token once completion is real.
+    StagingBufferPool aba;
+    const auto original = aba.Request(32, MemoryUsage::Upload);
+    const auto neighbour = aba.Request(32, MemoryUsage::Upload);
+    check(aba.IsCurrentRequest(original, 5) &&
+          aba.IsCurrentRequest(neighbour, 5) &&
+          original.offset != neighbour.offset);
+    StagingBufferRef forged = original;
+    forged.request_generation = neighbour.request_generation;
+    check(!aba.IsCurrentRequest(forged, 5));
+    aba.iterator = 0;
+    aba.free_iterator = 0;
+    aba.used_iterator = 0;
+    bool denied_overwrite = false;
+    try { (void)aba.Request(32, MemoryUsage::Upload); }
+    catch (const std::out_of_range&) { denied_overwrite = true; }
+    check(denied_overwrite && aba.IsCurrentRequest(original, 5));
+    aba.scheduler.completed_gpu_tick = 5;
+    aba.iterator = aba.free_iterator = aba.used_iterator = 0;
+    const auto replacement = aba.Request(32, MemoryUsage::Upload);
+    check(replacement.request_generation > neighbour.request_generation);
+    check(!aba.IsCurrentRequest(original, 5));
+    check(aba.IsCurrentRequest(replacement, 5));
+    check(aba.IsCurrentRequest(neighbour, 5));
+    // Owner validation is tied to the actual buffer + physical span, not
+    // just tick/generation, and invalidates on submission rollover.
+    forged = replacement;
+    ++forged.backing_location.offset;
+    check(!aba.IsCurrentRequest(forged, 5));
+    ++aba.scheduler.tick;
+    check(!aba.IsCurrentRequest(replacement, 6));
+
     // Source-derived GPU retirement checks: an object in a pending tick
     // cannot be reused or erased, and deferred staging cannot be reused until
     // FreeDeferred stamps its submission tick and GPU completion reaches it.
@@ -370,15 +429,12 @@ int main() {
 
     // Execute the real CopyStagingUpload() body, not an independently
     // rewritten test version. CopyBuffer() is a recording-only host double.
-    std::array<u8, 512> memory{};
-    StagingBufferRef upload{
-        .buffer = 11, .offset = 128,
-        .mapped_span = std::span<u8>{memory.data(), 256},
-        .backing_location = {1001, 0}, .backing_capacity = 512,
-        .request_generation = 7, .request_submission_tick = 5,
-    };
     Buffer dst;
     BufferCacheRuntime runtime;
+    runtime.staging_pool.iterator = 128;
+    StagingBufferRef upload = runtime.staging_pool.Request(256, MemoryUsage::Upload);
+    const u64 current_upload_generation = upload.request_generation;
+    check(upload.offset == 128 && runtime.staging_pool.IsCurrentRequest(upload, 5));
     std::array<VideoCommon::BufferCopy, 2> adjacent{{
         {128, 0, 16}, {144, 16, 16},
     }};
@@ -425,11 +481,8 @@ int main() {
 
     // 65 isolated regions exceed the 64-element bounded helper. The real
     // call must pass the entire untouched original list to CopyBuffer().
-    std::array<u8, 2048> large_data{};
-    StagingBufferRef large_upload = upload;
-    large_upload.offset = 0;
-    large_upload.mapped_span = large_data;
-    large_upload.backing_capacity = 2048;
+    StagingBufferRef large_upload = runtime.staging_pool.Request(2048, MemoryUsage::Upload);
+    check(runtime.staging_pool.IsCurrentRequest(large_upload, 5));
     Buffer large_destination = dst;
     large_destination.backing.capacity = 4096;
     std::vector<VideoCommon::BufferCopy> many;
@@ -449,7 +502,7 @@ int main() {
     try { runtime.CopyStagingUpload(dst, upload, adjacent, true, true); }
     catch (const std::out_of_range&) { refused = true; }
     check(refused && runtime.copy_calls == recorded);
-    upload.backing_location.memory = 1001;
+    upload.backing_location.memory = runtime.staging_pool.stream_buffer.Location().memory;
     const auto before_invalid_epoch = runtime.copy_calls;
     upload.request_submission_tick = 4;
     bool stale_epoch_refused = false;
@@ -462,7 +515,7 @@ int main() {
     try { runtime.CopyStagingUpload(dst, upload, adjacent, true, true); }
     catch (const std::out_of_range&) { stale_epoch_refused = true; }
     check(stale_epoch_refused && runtime.copy_calls == before_invalid_epoch);
-    upload.request_generation = 7;
+    upload.request_generation = current_upload_generation;
     std::array<VideoCommon::BufferCopy, 1> zero{{{128, 0, 0}}};
     runtime.CopyStagingUpload(dst, upload, zero, true, true);
     check(runtime.actual_copies.empty() && runtime.actual_barrier);
@@ -619,6 +672,10 @@ def extract_methods() -> tuple[str, str, str, str, str, str, str, str, str, str]
     assert lifetime.count("scheduler.Finish()") == 2
     assert "if (completed_tick < submit_tick)" in lifetime
     assert typed_copy.count("R2: stale staging reservation epoch") == 1
+    assert typed_copy.count("staging_pool.IsCurrentRequest(") == 1
+    assert request.count("active_staging_requests.push_back(") == 1
+    assert request.count("bool StagingBufferPool::IsCurrentRequest(") == 1
+    assert STAGE_H.read_text().count("std::vector<ActiveStagingRequest> active_staging_requests") == 1
     assert "throw std::runtime_error(\"R2: GPU completion did not reach deletion tick\")" in lifetime
     assert typed_copy.count("NS2Research::StagingRegionCoalescer<64> fused") == 1
     assert typed_copy.count("CopyBuffer(dst.handle, staging.buffer") == 3

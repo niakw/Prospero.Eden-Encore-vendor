@@ -111,11 +111,57 @@ StagingBufferRef StagingBufferPool::Request(size_t size, MemoryUsage usage, bool
     if (request_generation_counter == (std::numeric_limits<u64>::max)()) {
         throw std::overflow_error("R2 staging request generation exhausted");
     }
+    const u64 request_tick = scheduler.CurrentTick();
+    if (active_staging_tick != request_tick) {
+        active_staging_requests.clear();
+        active_staging_tick = request_tick;
+    }
     auto ref = !deferred && usage == MemoryUsage::Upload && size <= region_size
                    ? GetStreamBuffer(size)
                    : GetStagingBuffer(size, usage, deferred);
+    // Only uploads can later reach CopyStagingUpload. The ledger is owned by
+    // this actual pool; copies of the raw StagingBufferRef cannot authorize
+    // themselves or a previously recycled ring slot.
+    if (usage == MemoryUsage::Upload) {
+        const VkDeviceSize bytes = ref.mapped_span.size_bytes();
+        constexpr VkDeviceSize max_value = (std::numeric_limits<VkDeviceSize>::max)();
+        const auto& backing = ref.backing_location;
+        if (ref.buffer == VK_NULL_HANDLE || backing.memory == VK_NULL_HANDLE ||
+            ref.offset > ref.backing_capacity ||
+            bytes > ref.backing_capacity - ref.offset ||
+            backing.offset > max_value - ref.offset ||
+            bytes > max_value - (backing.offset + ref.offset)) {
+            throw std::out_of_range("R2: invalid staging physical reservation");
+        }
+        const VkDeviceSize begin = backing.offset + ref.offset;
+        const auto overlaps = [backing, begin, bytes](const ActiveStagingRequest& older) {
+            return older.memory == backing.memory && bytes && older.bytes &&
+                   begin < older.physical_begin + older.bytes &&
+                   older.physical_begin < begin + bytes;
+        };
+        // A new allocation may not overwrite the same physical bytes while
+        // an older same-tick copy could still be executing on the GPU.
+        for (const auto& older : active_staging_requests) {
+            if (overlaps(older) && !scheduler.IsFree(older.submission_tick)) {
+                throw std::out_of_range("R2: same-tick staging physical reuse");
+            }
+        }
+        std::erase_if(active_staging_requests, overlaps);
+        constexpr size_t max_requests_per_tick = 16384;
+        if (active_staging_requests.size() >= max_requests_per_tick) {
+            throw std::out_of_range("R2: staging reservation ledger full");
+        }
+        active_staging_requests.push_back({
+            .buffer = ref.buffer,
+            .memory = backing.memory,
+            .physical_begin = begin,
+            .bytes = bytes,
+            .generation = request_generation_counter + 1,
+            .submission_tick = request_tick,
+        });
+    }
     ref.request_generation = ++request_generation_counter;
-    ref.request_submission_tick = scheduler.CurrentTick();
+    ref.request_submission_tick = request_tick;
     return ref;
 #else
     if (!deferred && usage == MemoryUsage::Upload && size <= region_size) {
@@ -124,6 +170,33 @@ StagingBufferRef StagingBufferPool::Request(size_t size, MemoryUsage usage, bool
     return GetStagingBuffer(size, usage, deferred);
 #endif
 }
+
+#if defined(PS5_NATIVE) && defined(EDEN_RESEARCH_NS2_STAGE_BACKING)
+bool StagingBufferPool::IsCurrentRequest(const StagingBufferRef& ref, u64 live_tick) const noexcept {
+    if (!ref.request_generation || !ref.request_submission_tick ||
+        ref.request_submission_tick != live_tick ||
+        active_staging_tick != live_tick || ref.buffer == VK_NULL_HANDLE ||
+        ref.backing_location.memory == VK_NULL_HANDLE ||
+        ref.offset > ref.backing_capacity ||
+        ref.mapped_span.size_bytes() > ref.backing_capacity - ref.offset) {
+        return false;
+    }
+    constexpr VkDeviceSize max_value = (std::numeric_limits<VkDeviceSize>::max)();
+    if (ref.backing_location.offset > max_value - ref.offset ||
+        ref.mapped_span.size_bytes() > max_value - (ref.backing_location.offset + ref.offset)) {
+        return false;
+    }
+    const VkDeviceSize begin = ref.backing_location.offset + ref.offset;
+    return std::ranges::any_of(active_staging_requests, [&](const ActiveStagingRequest& active) {
+        return active.buffer == ref.buffer &&
+               active.memory == ref.backing_location.memory &&
+               active.physical_begin == begin &&
+               active.bytes == ref.mapped_span.size_bytes() &&
+               active.generation == ref.request_generation &&
+               active.submission_tick == live_tick;
+    });
+}
+#endif
 
 void StagingBufferPool::FreeDeferred(StagingBufferRef& ref) {
     auto& entries = GetCache(ref.usage)[ref.log2_level].entries;
