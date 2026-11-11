@@ -119,7 +119,7 @@ void DeviceSession::AppendBuffers(std::span<const AudioBuffer> buffers) {
                 if (!warned.test_and_set(std::memory_order_relaxed))
                     std::fprintf(stderr,
                                  "EDEN_NS1_AUDIO_MEMORY_UNREADY temporary_silence=1; "
-                                 "check process memory lifetime and page table\\n");
+                                 "check process memory lifetime and page table\n");
                 continue;
             }
 #endif
