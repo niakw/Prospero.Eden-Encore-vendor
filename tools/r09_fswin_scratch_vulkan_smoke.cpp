@@ -327,23 +327,31 @@ struct Host {
             vkCmdPushConstants(cmd,pipeline_layout,
                 VK_SHADER_STAGE_COMPUTE_BIT,0u,sizeof(write),&write);
             vkCmdDispatch(cmd,kN/64u,1u,1u);
-            // Negative fixture deliberately omits scratch write->read
-            // visibility for second-layer borrowed storage.
-            if(!(negative&&layer==1u)){
-                VkMemoryBarrier visible{};
-                visible.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-                visible.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;
-                visible.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|
-                                     VK_ACCESS_SHADER_WRITE_BIT;
-                vkCmdPipelineBarrier(cmd,
-                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0u,
-                    1u,&visible,0u,nullptr,0u,nullptr);
-            }
+            // Always retain the valid in-layer write->read dependency.
+            // Sync-validation cannot reliably infer a true write/read
+            // hazard from a missing stage-only shader barrier here.
+            VkMemoryBarrier visible{};
+            visible.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+            visible.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;
+            visible.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|
+                                 VK_ACCESS_SHADER_WRITE_BIT;
+            vkCmdPipelineBarrier(cmd,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0u,
+                1u,&visible,0u,nullptr,0u,nullptr);
             const Push finish{1u,layer};
             vkCmdPushConstants(cmd,pipeline_layout,
                 VK_SHADER_STAGE_COMPUTE_BIT,0u,sizeof(finish),&finish);
             vkCmdDispatch(cmd,kN/64u,1u,1u);
+            if(negative&&layer==0u){
+                // An explicit scratch TRANSFER WRITE immediately after
+                // the first layer's compute READ has NO compute->transfer
+                // barrier. It intentionally races with in-flight GPU work.
+                // Khronos must report SYNC-HAZARD-WRITE-AFTER-READ.
+                // Never read back undefined output in this test mode.
+                vkCmdFillBuffer(cmd,buffers[Scratch].buffer,
+                                0u,kBytes,0xdeadbeefu);
+            }
             VkMemoryBarrier retire{};
             retire.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER;
             retire.srcAccessMask=VK_ACCESS_SHADER_READ_BIT|
@@ -452,8 +460,8 @@ int main(int argc,char** argv){
         if(negative){
             if(host.validation_errors.load()==0u)
                 throw std::runtime_error(
-                    "Khronos did not detect missing scratch barrier");
-            std::cout<<"R09_FSWIN_KHRONOS_NEGATIVE_MISSING_BARRIER_DETECTED\n";
+                    "Khronos did not detect compute-read vs transfer-write scratch hazard");
+            std::cout<<"R09_FSWIN_KHRONOS_NEGATIVE_SCRATCH_TRANSFER_HAZARD_DETECTED\n";
             return 0;
         }
         host.Verify();
