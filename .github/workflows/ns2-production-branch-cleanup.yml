@@ -1,0 +1,54 @@
+name: NS2 production branch cleanup (one-shot)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/audits/NS2_SOURCE_CLEANUP_TRIGGER_2026-11-11.txt'
+permissions:
+  contents: write
+  pull-requests: read
+jobs:
+  remove-reviewed-branches:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify production ancestry, closed PRs, then delete only named refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Preserve combined R2/R3/R4 research PRs #56 and vendor #45.
+          git merge-base --is-ancestor f8f5d8ee3a94a4202886a40badb5c0203d05da30 HEAD
+          for pr in 36 37 38 43; do
+            state="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq '.state')"
+            test "$state" = closed || { echo "PR $pr not closed ($state)"; exit 1; }
+          done
+          ref="research/ns2-r2-verified-upload-batching-20261110"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$ref" --jq '.ref' >/dev/null 2>&1; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$ref" >/dev/null
+            echo "Deleted $ref"
+          fi
+          ref="research/ns2-r3-gob16-maintained-20261110"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$ref" --jq '.ref' >/dev/null 2>&1; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$ref" >/dev/null
+            echo "Deleted $ref"
+          fi
+          ref="research/ns2-r4-volume-slice-currentbase-20261110"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$ref" --jq '.ref' >/dev/null 2>&1; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$ref" >/dev/null
+            echo "Deleted $ref"
+          fi
+          ref="research/r457-ns2-sparse-guest-physical-20261111"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$ref" --jq '.ref' >/dev/null 2>&1; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$ref" >/dev/null
+            echo "Deleted $ref"
+          fi
+          ref="integration/ns2-main-reviewed-20261111"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$ref" --jq '.ref' >/dev/null 2>&1; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$ref" >/dev/null
+            echo "Deleted $ref"
+          fi
