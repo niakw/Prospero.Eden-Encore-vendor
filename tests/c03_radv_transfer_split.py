@@ -51,7 +51,7 @@ def verify_meta(rel: str, sites: tuple[str, ...]) -> None:
         body = live.index("VK_FROM_HANDLE(radv_cmd_buffer, cmd_buffer, commandBuffer);", start)
         call = live.index(TRANSFER, body)
         assert call - body < 150, (rel, site, "split not immediately after command buffer binding")
-    recovered = live.replace("\\n" + PROTO, "").replace(TRANSFER, "")
+    recovered = live.replace(chr(10) + PROTO, "").replace(TRANSFER, "")
     assert recovered == old, (rel, "unapproved full-unit drift")
     assert blob(recovered) == PREIMAGES[rel]
     print("C03_META_SOURCE_PASS", rel, "split_sites=" + str(len(sites)))
