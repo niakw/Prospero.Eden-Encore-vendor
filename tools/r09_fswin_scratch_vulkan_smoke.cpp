@@ -205,7 +205,7 @@ struct Host {
     void InitPipeline(const std::string& path){
         std::ifstream in(path,std::ios::binary|std::ios::ate);
         if(!in)throw std::runtime_error("Missing shader "+path);
-        const auto bytes=in.tellg();
+        const std::streamoff bytes=in.tellg();
         if(bytes<=0||bytes%4!=0)throw std::runtime_error("Invalid SPIRV");
         std::vector<std::uint32_t> code(
             static_cast<std::size_t>(bytes)/4u);
