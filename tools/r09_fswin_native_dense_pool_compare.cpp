@@ -6,7 +6,9 @@
 // No PS5 build, no full six-pass FSwin graph or complete DLSS-NR inference.
 #include <vulkan/vulkan.h>
 #include <array>
+#include <atomic>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -35,8 +37,24 @@ struct FSwinDenseParams{
                   channels{},stage{};
 };
 static_assert(sizeof(FSwinDenseParams)==8u*sizeof(std::uint32_t));
+VKAPI_ATTR VkBool32 VKAPI_CALL OnSyncError(
+    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    VkDebugUtilsMessageTypeFlagsEXT,
+    const VkDebugUtilsMessengerCallbackDataEXT* detail,
+    void* context){
+    if(severity&VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+        static_cast<std::atomic<unsigned>*>(context)->fetch_add(1u);
+        std::cerr<<"R09_FSWIN_NATIVE_DENSE_KHRONOS_ERROR: "
+                 <<(detail&&detail->pMessage?detail->pMessage:"unknown")
+                 <<"\\n";
+    }
+    return VK_FALSE;
+}
 struct Host{
     VkInstance instance{};
+    VkDebugUtilsMessengerEXT validation_messenger{};
+    std::atomic<unsigned> validation_errors{0u};
+    bool validate_sync{};
     VkPhysicalDevice physical{};
     VkPhysicalDeviceMemoryProperties memory_types{};
     VkDevice device{};
@@ -72,7 +90,17 @@ struct Host{
             }
             vkDestroyDevice(device,nullptr);
         }
-        if(instance)vkDestroyInstance(instance,nullptr);
+        if(instance){
+            if(validation_messenger){
+                const auto destroy=
+                    reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+                        vkGetInstanceProcAddr(
+                            instance,"vkDestroyDebugUtilsMessengerEXT"));
+                if(destroy)
+                    destroy(instance,validation_messenger,nullptr);
+            }
+            vkDestroyInstance(instance,nullptr);
+        }
     }
     std::size_t In(std::uint32_t layer)const{return 2u*layer;}
     std::size_t Out(std::uint32_t layer)const{return 2u*layer+1u;}
@@ -90,6 +118,7 @@ struct Host{
         throw std::runtime_error("Vulkan HOST coherent memory unavailable");
     }
     void Initialize(){
+        validate_sync=std::getenv("R09_FSWIN_VALIDATE_SYNC")!=nullptr;
         VkApplicationInfo application{};
         application.sType=VK_STRUCTURE_TYPE_APPLICATION_INFO;
         application.apiVersion=VK_API_VERSION_1_1;
@@ -97,7 +126,46 @@ struct Host{
         VkInstanceCreateInfo ici{};
         ici.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         ici.pApplicationInfo=&application;
+        const char* layer="VK_LAYER_KHRONOS_validation";
+        const std::array<const char*,2u> extensions{
+            VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+            VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME};
+        VkValidationFeatureEnableEXT enabled=
+            VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
+        VkValidationFeaturesEXT features{};
+        features.sType=VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+        features.enabledValidationFeatureCount=1u;
+        features.pEnabledValidationFeatures=&enabled;
+        VkDebugUtilsMessengerCreateInfoEXT debug_info{};
+        debug_info.sType=
+            VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        debug_info.messageSeverity=
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        debug_info.messageType=
+            VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT|
+            VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT;
+        debug_info.pfnUserCallback=OnSyncError;
+        debug_info.pUserData=&validation_errors;
+        if(validate_sync){
+            features.pNext=&debug_info;
+            ici.pNext=&features;
+            ici.enabledLayerCount=1u;
+            ici.ppEnabledLayerNames=&layer;
+            ici.enabledExtensionCount=
+                static_cast<std::uint32_t>(extensions.size());
+            ici.ppEnabledExtensionNames=extensions.data();
+        }
         Must(vkCreateInstance(&ici,nullptr,&instance),"instance");
+        if(validate_sync){
+            const auto create=
+                reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+                    vkGetInstanceProcAddr(
+                        instance,"vkCreateDebugUtilsMessengerEXT"));
+            if(!create)
+                throw std::runtime_error("Missing Khronos debug messenger");
+            Must(create(instance,&debug_info,nullptr,
+                        &validation_messenger),"debug messenger");
+        }
         std::uint32_t count{};
         Must(vkEnumeratePhysicalDevices(instance,&count,nullptr),
              "physical count");
@@ -406,7 +474,11 @@ Execute(const std::string& shader,bool pooled){
     host.Initialize();
     host.InitializePipeline(shader);
     host.Run();
-    return host.ReadOutputs();
+    const auto bytes=host.ReadOutputs();
+    if(host.validate_sync&&host.validation_errors.load()!=0u)
+        throw std::runtime_error(
+            "Unexpected Khronos synchronization errors in authentic dense");
+    return bytes;
 }
 }
 int main(int argc,char** argv){
@@ -429,6 +501,9 @@ int main(int argc,char** argv){
         if(nonzero<kIo||nonconstant<kIo/4u)
             throw std::runtime_error(
                 "GPU result degenerate; A/B comparison not meaningful");
+        if(std::getenv("R09_FSWIN_VALIDATE_SYNC"))
+            std::cout<<"R09_FSWIN_REAL_NATIVE_DENSE_KHRONOS_ZERO_ERRORS "
+                     <<"baseline_and_pooled=YES\\n";
         std::cout<<"R09_FSWIN_REAL_NATIVE_DENSE_GPU_POOL_AB_PASS "
                  <<"layers="<<kLayers<<" channels="<<kChannels
                  <<" windows=1 stages=0,2 shared_expanded=1"
