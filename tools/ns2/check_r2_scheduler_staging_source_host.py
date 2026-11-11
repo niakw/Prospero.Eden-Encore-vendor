@@ -59,6 +59,7 @@ using u64 = std::uint64_t;
 using u8 = std::uint8_t;
 using VkRenderPass = std::uintptr_t;
 using VkBuffer = u64;
+using VkDeviceSize = u64;
 constexpr VkBuffer VK_NULL_HANDLE = 0;
 namespace boost::container { template <class T, std::size_t N> using small_vector = std::vector<T>; }
 namespace VideoCommon { struct BufferCopy { u64 src_offset{}, dst_offset{}, size{}; }; }
