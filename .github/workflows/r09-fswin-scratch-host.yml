@@ -21,6 +21,8 @@ on:
       - 'tools/r09_fswin_scratch_synthetic.comp'
       - 'tools/r09_fswin_scratch_vulkan_smoke.cpp'
       - 'tools/r09_fswin_chain_pool_vulkan_graph_smoke.cpp'
+      - 'tools/r09_fswin_native_dense_pool_compare.cpp'
+      - 'encore-active/eden-vulkan/r09_rdna2_nr/fswin_dense_rdna2.comp'
   workflow_dispatch:
 
 permissions:
@@ -146,7 +148,28 @@ jobs:
               .build-r09-fswin/scratch_synthetic.spv Original \
               --negative-missing-barrier
           echo R09_FSWIN_EIGHT_SEGMENT_44_AND_16_LAYER_GPU_HOST_PASS
-          echo R09_FSWIN_REAL_LEARNED_SHADERS_AND_PS5_NOT_QUALIFIED
+          echo R09_FSWIN_EIGHT_CHAIN_SYNTHETIC_GPU_QUALIFIED
+
+      - name: Compare genuine RDNA2 FSwin Dense shader stages with private versus pooled scratch
+        shell: bash
+        run: |
+          set -euo pipefail
+          glslangValidator -V --target-env vulkan1.1 -S comp \
+            encore-active/eden-vulkan/r09_rdna2_nr/fswin_dense_rdna2.comp \
+            -o .build-r09-fswin/fswin_dense_native.spv
+          spirv-val --target-env vulkan1.1 \
+            .build-r09-fswin/fswin_dense_native.spv
+          g++ -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+            tools/r09_fswin_native_dense_pool_compare.cpp -lvulkan \
+            -o .build-r09-fswin/native-dense-pool-ab
+          icd="$(find /usr/share/vulkan/icd.d -maxdepth 1 \
+            -type f -name 'lvp_icd*.json' -print -quit)"
+          test -n "$icd" && test -f "$icd"
+          VK_ICD_FILENAMES="$icd" \
+            .build-r09-fswin/native-dense-pool-ab \
+              .build-r09-fswin/fswin_dense_native.spv
+          echo R09_FSWIN_AUTHENTIC_DENSE_STAGE0_2_GPU_AB_PASS
+          echo R09_FSWIN_REAL_WEIGHTED_FULL_MODEL_AND_PS5_NOT_QUALIFIED
 
   authentic-native-syntax:
     name: Three REAL FSwin C++ TUs (macro OFF/ON, no PS5 build)
