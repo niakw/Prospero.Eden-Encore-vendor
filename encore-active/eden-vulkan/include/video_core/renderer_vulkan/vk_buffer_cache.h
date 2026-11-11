@@ -55,6 +55,28 @@ public:
         return buffer.Location();
     }
 
+#ifdef PS5_NATIVE
+    // Passive source-owner snapshot for future NS2 in-order upload staging.
+    // This is not a GPU lifetime lease: consumers must separately prove
+    // this Buffer remains alive through the scheduler's retire tick.
+    struct NativeBackingSnapshot {
+        VkBuffer handle{};
+        VkDeviceMemory memory{};
+        VkDeviceSize binding_offset{};
+        VkDeviceSize capacity{};
+    };
+
+    [[nodiscard]] NativeBackingSnapshot GetNativeBackingSnapshot() const noexcept {
+        const auto location = buffer.Location();
+        return {
+            .handle = *buffer,
+            .memory = location.memory,
+            .binding_offset = location.offset,
+            .capacity = static_cast<VkDeviceSize>(SizeBytes()),
+        };
+    }
+#endif
+
     [[nodiscard]] bool IsRegionUsed(u64 offset, u64 size) const noexcept {
         return tracker.IsUsed(offset, size);
     }
