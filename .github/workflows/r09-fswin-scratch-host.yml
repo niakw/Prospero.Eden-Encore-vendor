@@ -1,0 +1,86 @@
+name: R09 FSwin chain scratch — isolated vendor host proof
+
+# This PR intentionally contains a native experimental path, but it is
+# NOT defined in a shipping CMake target and never builds a PS5 artifact.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/r09-fswin-scratch-host.yml'
+      - 'encore-active/eden-vulkan/include/rdna2_nr_fswin_scratch_pool_policy.h'
+      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/nr_rdna2_fswin_chain.h'
+      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/nr_rdna2_fswin_layer_runtime.h'
+      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/nr_rdna2_fswin_gpu_tensors.h'
+      - 'encore-active/eden-vulkan/nr_rdna2_fswin_chain.cpp'
+      - 'encore-active/eden-vulkan/nr_rdna2_fswin_layer_runtime.cpp'
+      - 'encore-active/eden-vulkan/nr_rdna2_fswin_gpu_tensors.cpp'
+      - 'tools/check_r09_fswin_scratch_native_owners.py'
+      - 'tools/extract_r09_fswin_shared_tensor.py'
+      - 'tools/test_r09_fswin_scratch_pool_policy.cpp'
+      - 'tools/test_r09_fswin_shared_tensor_extracted.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r09-fswin-scratch-${{ github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  experimental-host:
+    name: FSwin native borrowed-tensor method and layout (NO PS5 build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout isolated PR SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          persist-credentials: false
+      - name: Verify source ownership, barriers, and failure mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B tools/check_r09_fswin_scratch_native_owners.py
+      - name: Compile self-contained layout policy under GCC and Clang UBSan
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .build-r09-fswin
+          for cxx in g++ clang++; do
+            for enabled in 0 1; do
+              "$cxx" -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+                -fsanitize=undefined -fno-sanitize-recover=all \
+                -DEDEN_R09_MIN_FSWIN_SCRATCH_POOL_EXPERIMENTAL="$enabled" \
+                -Iencore-active/eden-vulkan/include \
+                tools/test_r09_fswin_scratch_pool_policy.cpp \
+                -o ".build-r09-fswin/policy-${cxx}-${enabled}"
+              UBSAN_OPTIONS=halt_on_error=1 \
+                ".build-r09-fswin/policy-${cxx}-${enabled}"
+              echo "R09_FSWIN_SCRATCH_POLICY_CI_PASS cxx=${cxx} opt_in=${enabled}"
+            done
+          done
+      - name: Compile REAL native tensor allocator and descriptor methods
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B tools/extract_r09_fswin_shared_tensor.py \
+            encore-active/eden-vulkan/nr_rdna2_fswin_gpu_tensors.cpp \
+            .build-r09-fswin/r09_fswin_shared_tensor_extracted.h
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O1 -Wall -Wextra -Werror -UNDEBUG \
+              -fsanitize=undefined -fno-sanitize-recover=all \
+              -DEDEN_R09_MIN_FSWIN_SCRATCH_POOL_EXPERIMENTAL=1 \
+              -I.build-r09-fswin \
+              -Iencore-active/eden-vulkan/include \
+              tools/test_r09_fswin_shared_tensor_extracted.cpp \
+              -o ".build-r09-fswin/native-${cxx}"
+            UBSAN_OPTIONS=halt_on_error=1 \
+              ".build-r09-fswin/native-${cxx}"
+            echo "R09_FSWIN_SCRATCH_NATIVE_CPP_CI_PASS cxx=${cxx}"
+          done
+          echo R09_FSWIN_SCRATCH_EXTRACTED_NATIVE_PASS_NOT_FULL_VENDOR_COMPILE
+          echo R09_FSWIN_SCRATCH_GPU_SYNC_NOT_QUALIFIED_RUNTIME_DISABLED
