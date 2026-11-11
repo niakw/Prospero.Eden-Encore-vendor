@@ -1,0 +1,24 @@
+name: NS1 R23 clock 1–4 GHz exact source + sanitizer proof
+on:
+  push:
+    branches:
+      - research/ns1-r23-rdtsc-ticks-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/common/cpu_features.cpp"
+      - "encore-active/eden-core/include/common/cpu_features.h"
+      - "tests/r23_114_rdtsc_ns_conversion.py"
+      - ".github/workflows/ns1-r23-rdtsc-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-compiled-x64-method:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify original source blobs and execute 19MHz / 1–4GHz x64 method
+        run: python3 -B tests/r23_114_rdtsc_ns_conversion.py
