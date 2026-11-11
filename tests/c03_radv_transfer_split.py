@@ -37,7 +37,7 @@ SIGNATURE = "void\nradv_split_cmd_stream_if_due(struct radv_cmd_buffer *cmd_buff
 
 def blob(text: str) -> str:
     data = text.encode()
-    return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\\0" + data).hexdigest()
+    return hashlib.sha1(b"blob " + str(len(data)).encode() + bytes([0]) + data).hexdigest()
 
 
 def verify_meta(rel: str, sites: tuple[str, ...]) -> None:
@@ -51,7 +51,7 @@ def verify_meta(rel: str, sites: tuple[str, ...]) -> None:
         body = live.index("VK_FROM_HANDLE(radv_cmd_buffer, cmd_buffer, commandBuffer);", start)
         call = live.index(TRANSFER, body)
         assert call - body < 150, (rel, site, "split not immediately after command buffer binding")
-    recovered = live.replace(PROTO, "").replace(TRANSFER, "")
+    recovered = live.replace("\\n" + PROTO, "").replace(TRANSFER, "")
     assert recovered == old, (rel, "unapproved full-unit drift")
     assert blob(recovered) == PREIMAGES[rel]
     print("C03_META_SOURCE_PASS", rel, "split_sites=" + str(len(sites)))
