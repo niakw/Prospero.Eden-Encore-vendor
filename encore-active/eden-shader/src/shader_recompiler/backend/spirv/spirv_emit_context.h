@@ -164,6 +164,12 @@ struct GenericElementInfo {
 
 class EmitContext final : public Sirit::Module {
 public:
+    // NS2 Task/Mesh output metadata shares this exact SPIR-V emitter ABI.
+    struct MeshLineTarget {
+        Id variable{};
+        u32 element{~0U};
+        bool is_float{};
+    };
     explicit EmitContext(const Profile& profile, const RuntimeInfo& runtime_info,
                          IR::Program& program, Bindings& binding);
     ~EmitContext();
@@ -349,10 +355,30 @@ public:
     Id input_position{};
     std::array<InputGenericInfo, 32> input_generics{};
 
+    // Native Task/Mesh workgroup payload, map and output sources.
+    MeshInfo mesh_info{};
+    u32 mesh_threads{};
+    u32 mesh_primitive_base{};
+    u32 mesh_attribute_words{};
+    u32 mesh_map_bytes{};
+    Id mesh_payload{};
+    Id mesh_payload_u32{};
+    Id mesh_shared_u32{};
+    Id mesh_attributes{};
+    Id mesh_map{};
+    Id mesh_primitive_count{};
+    Id mesh_primitive_indices{};
+    std::vector<MeshLineTarget> mesh_vertex_targets;
+    std::vector<MeshLineTarget> mesh_primitive_targets;
+    std::array<Id, 4> mesh_tasks_marker{};
+    std::array<Id, 2> mesh_outputs_marker{};
+
     Id output_point_size{};
     Id output_position{};
     std::array<std::array<GenericElementInfo, 4>, 32> output_generics{};
 
+    Id input_tess_level_outer{};
+    Id input_tess_level_inner{};
     Id output_tess_level_outer{};
     Id output_tess_level_inner{};
     std::array<Id, 30> patches{};
@@ -401,6 +427,7 @@ private:
     void DefineRescalingInputUniformConstant();
     void DefineRenderArea(const Info& info);
 
+    void DefineMesh(const IR::Program& program);
     void DefineInputs(const IR::Program& program);
     void DefineOutputs(const IR::Program& program);
 };

@@ -7,6 +7,10 @@
 #pragma once
 
 #include <span>
+#ifdef PS5_NATIVE
+#include <memory>
+#include <vector>
+#endif
 
 #include "video_core/texture_cache/texture_cache_base.h"
 
@@ -51,6 +55,19 @@ public:
                                  ComputePassDescriptorQueue& compute_pass_descriptor_queue);
 
     void Finish();
+#ifdef PS5_NATIVE
+    ~TextureCacheRuntime();
+    // Retire shared Vulkan cache ownership only after actual GPU completion.
+    // Image views must retire before their backing images.
+    void RetireGpuImage(Image&& image);
+    void RetireGpuImageView(ImageView&& view);
+#endif
+#ifdef EDEN_NS2_SPARSE_CACHE_PROBE
+    // N73: native cache-side Vulkan sparse admission/bind/retire probe.
+    // Never replaces the dense guest texture or samples an unbound image.
+    [[nodiscard]] bool ProbeSparseImage(const VideoCommon::ImageInfo& info);
+#endif
+
 
     StagingBufferRef UploadStagingBuffer(size_t size, bool deferred = false);
 
@@ -100,6 +117,12 @@ public:
     void AccelerateImageUpload(Image&, const StagingBufferRef&,
                                std::span<const VideoCommon::SwizzleParameters>,
                                u32 z_start, u32 z_count);
+
+#ifdef EDEN_NS2_ASTC_LAYER_DECODE
+    void AccelerateImageUploadLayers(Image&, const StagingBufferRef&,
+                                     std::span<const VideoCommon::SwizzleParameters>,
+                                     std::span<const u32> layers);
+#endif
 
     void InsertUploadMemoryBarrier() {}
 
@@ -202,6 +225,19 @@ public:
     };
     ::Common::unordered_map<VkImage, TirColorScratch> tir_color_scratch;
     std::vector<std::pair<u64, ResolveShadow>> pending_resolve_shadows;
+#ifdef PS5_NATIVE
+    template <typename T>
+    struct GpuRetireEntry {
+        u64 tick;
+        u64 frame;
+        std::unique_ptr<T> resource;
+    };
+    // Preserve the old eight-frame framebuffer/view ordering in addition
+    // to waiting for the actual GPU timeline; neither condition alone suffices.
+    u64 gpu_retire_frame{};
+    std::vector<GpuRetireEntry<ImageView>> pending_retired_views;
+    std::vector<GpuRetireEntry<Image>> pending_retired_images;
+#endif
 };
 
 class Framebuffer {
@@ -256,8 +292,9 @@ public:
         return num_images;
     }
 
-    // Exact physical attachment handles, captured when the guest
-    // framebuffer is created. These do not alter image layout or samples.
+    // The maintained Vulkan framebuffer owner records exact guest attachment
+    // handles during CreateFramebuffer. Expose the same bounded, immutable
+    // attachment identity here even when the NS2 ASTC overlay is selected.
     [[nodiscard]] VkImage ColorAttachmentImage(u32 rt) const noexcept {
         return rt < NUM_RT ? color_attachment_images[rt] : VK_NULL_HANDLE;
     }
@@ -363,6 +400,19 @@ public:
 
     Image(Image&&) = default;
     Image& operator=(Image&&) = default;
+#ifdef PS5_NATIVE
+    // A reference is held by the REAL GPU descriptor owner until its fence.
+    // The runtime's retirement queue cannot destroy this Vulkan resource
+    // while a native QMD dispatch still pins it.
+    [[nodiscard]] std::shared_ptr<u8> PinNativeGpu() {
+        if (!native_gpu_pin) native_gpu_pin = std::make_shared<u8>(0);
+        return native_gpu_pin;
+    }
+    [[nodiscard]] bool CanRetireNativeGpu() const noexcept {
+        return !native_gpu_pin || native_gpu_pin.use_count() == 1;
+    }
+#endif
+
 
     void UploadMemory(VkBuffer buffer, VkDeviceSize offset,
                       std::span<const VideoCommon::BufferImageCopy> copies);
@@ -399,6 +449,10 @@ public:
     }
 
     VkImageView StorageImageView(s32 level) noexcept;
+#ifdef EDEN_NS2_ASTC_LAYER_DECODE
+    VkImageView StorageImageLayerView(s32 level, u32 layer);
+    [[nodiscard]] bool IsInitializedForLayerUpload() const noexcept { return initialized; }
+#endif
 
     bool IsRescaled() const noexcept;
 
@@ -415,6 +469,9 @@ private:
 
     bool NeedsScaleHelper() const;
 
+#ifdef PS5_NATIVE
+    std::shared_ptr<u8> native_gpu_pin;
+#endif
     Scheduler* scheduler{};
     TextureCacheRuntime* runtime{};
 
@@ -432,6 +489,9 @@ private:
     vk::Image Image::*current_image{};
 
     std::vector<vk::ImageView> storage_image_views;
+#ifdef EDEN_NS2_ASTC_LAYER_DECODE
+    std::vector<vk::ImageView> storage_layer_views;
+#endif
     VkImageAspectFlags aspect_mask = 0;
     bool initialized = false;
 
@@ -457,6 +517,19 @@ public:
 
     ImageView(ImageView&&) = default;
     ImageView& operator=(ImageView&&) = default;
+#ifdef PS5_NATIVE
+    // A reference is held by the REAL GPU descriptor owner until its fence.
+    // The runtime's retirement queue cannot destroy this Vulkan resource
+    // while a native QMD dispatch still pins it.
+    [[nodiscard]] std::shared_ptr<u8> PinNativeGpu() {
+        if (!native_gpu_pin) native_gpu_pin = std::make_shared<u8>(0);
+        return native_gpu_pin;
+    }
+    [[nodiscard]] bool CanRetireNativeGpu() const noexcept {
+        return !native_gpu_pin || native_gpu_pin.use_count() == 1;
+    }
+#endif
+
 
     [[nodiscard]] VkImageView DepthView();
 
@@ -522,6 +595,9 @@ private:
     [[nodiscard]] vk::ImageView MakeView(VkFormat vk_format, VkImageAspectFlags aspect_mask,
                                          std::optional<Shader::TextureType> texture_type = std::nullopt);
 
+#ifdef PS5_NATIVE
+    std::shared_ptr<u8> native_gpu_pin;
+#endif
     const Device* device = nullptr;
     const SlotVector<Image>* slot_images = nullptr;
 
@@ -571,6 +647,20 @@ class Sampler {
 public:
     explicit Sampler(TextureCacheRuntime&, const Tegra::Texture::TSCEntry&);
 
+
+#ifdef PS5_NATIVE
+    // A reference is held by the REAL GPU descriptor owner until its fence.
+    // The runtime's retirement queue cannot destroy this Vulkan resource
+    // while a native QMD dispatch still pins it.
+    [[nodiscard]] std::shared_ptr<u8> PinNativeGpu() {
+        if (!native_gpu_pin) native_gpu_pin = std::make_shared<u8>(0);
+        return native_gpu_pin;
+    }
+    [[nodiscard]] bool CanRetireNativeGpu() const noexcept {
+        return !native_gpu_pin || native_gpu_pin.use_count() == 1;
+    }
+#endif
+
     [[nodiscard]] VkSampler Handle() const noexcept {
         return *variants.front().sampler;
     }
@@ -605,6 +695,9 @@ private:
     [[nodiscard]] VkSampler Find(const VariantKey& key) const noexcept;
     VkSampler Emplace(VariantKey key);
 
+#ifdef PS5_NATIVE
+    std::shared_ptr<u8> native_gpu_pin;
+#endif
     CustomBorderColorBudget custom_border_color_budget;
     std::vector<Variant> variants;
 
