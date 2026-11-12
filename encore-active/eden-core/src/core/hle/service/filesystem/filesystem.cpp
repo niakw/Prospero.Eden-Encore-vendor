@@ -739,6 +739,19 @@ void FileSystemController::CreateFactories(FileSys::VfsFilesystem& vfs, bool ove
     const auto sdmc_load_dir_path = sdmc_dir_path / "atmosphere/contents";
     const auto rw_mode = FileSys::OpenMode::ReadWrite;
 
+    // Switch temporary save storage starts empty for an application, but
+    // multiple bundled programs share the same storage lifetime. Preparing
+    // it in every SaveDataFactory ctor deletes a sibling program's live data.
+    // CreateFactories is initialized once for the application controller;
+    // overwrite explicitly starts a new generation and resets bis_factory.
+    if (bis_factory == nullptr) {
+        const auto save_directory =
+            vfs.OpenDirectory(Common::FS::GetEdenPathString(EdenPath::SaveDir), rw_mode);
+        if (save_directory != nullptr) {
+            save_directory->DeleteSubdirectoryRecursive("temp");
+        }
+    }
+
     auto nand_directory =
         vfs.OpenDirectory(Common::FS::GetEdenPathString(EdenPath::NANDDir), rw_mode);
     auto sd_directory = vfs.OpenDirectory(Common::FS::PathToUTF8String(sdmc_dir_path), rw_mode);
