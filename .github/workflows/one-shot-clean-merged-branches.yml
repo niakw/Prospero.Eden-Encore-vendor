@@ -1,0 +1,44 @@
+name: One-shot merged branch cleanup (SHA and merged-PR guarded)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-clean-merged-branches.yml'
+permissions:
+  contents: write
+  pull-requests: read
+jobs:
+  clean:
+    if: contains(github.event.head_commit.message, '[branch-clean]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Delete only exact merged PR branches; fail if any SHA has changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess
+          repo = os.environ['GH_REPO']
+          expected = [["fix/ns1-ns2-gpu-channel-init-order-20261112","afcf0f115ec94702ba14e21cc3644dea5aa85b80",91],["fix/ns2-r457-kernel-slab-physical-precommit-20261112","eeb565713315b1f61e0efa2cb4210b041f024a1b",92],["fix/r23-shader-source-exact-test-pin-20261112","6c76ac6d038f15d90701da44cfe40409b1758e77",93],["fix/ns2-slab-pagebuffer-direct-commit-20261112","1dbafe010cb7eb7cb0161c9e6f220f0581e82357",94],["fix/ns1-ns2-null-loader-shutdown-20261112","f6be0cae60ad4b30d89d76b2e98dc8acad3da45d",95]]
+          if repo != "niakw/Prospero.Eden-Encore-vendor":
+              raise SystemExit(f"Unexpected repository: {repo}")
+          def gh(*args):
+              return subprocess.check_output(['gh','api',*args], text=True)
+          for branch, sha, number in expected:
+              if branch == 'main' or not branch.startswith('fix/'):
+                  raise SystemExit(f"Unsafe branch: {branch}")
+              pr = json.loads(gh(f'repos/{repo}/pulls/{number}'))
+              if not pr['merged_at'] or pr['head']['ref'] != branch:
+                  raise SystemExit(f'PR #{number} does not certify {branch} as merged')
+              ref = json.loads(gh(f'repos/{repo}/git/ref/heads/{branch}'))
+              actual = ref['object']['sha']
+              if actual != sha:
+                  raise SystemExit(f'{branch} moved: expected {sha}, observed {actual}; refused deletion')
+              subprocess.run(['gh','api','--method','DELETE',f'repos/{repo}/git/refs/heads/{branch}'], check=True)
+              print(f'BRANCH_DELETED {branch} sha={sha} merged_pr={number}', flush=True)
+          print('EXACT_MERGED_BRANCH_CLEANUP_OK',len(expected))
+          PY
