@@ -763,24 +763,29 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
 
     // Remaps a subregion of an existing mapping to a different PA
     if ((params.flags & MappingFlags::Remap) != MappingFlags::None) {
-        if (auto const it = mapping_map.find(params.offset); it != mapping_map.end()) {
+        // These two ioctl fields are SIGNED; reject negative input before
+        // conversion, address arithmetic or locating an existing mapping.
+        if (params.offset < 0 || params.buffer_offset < 0) {
+            return NvResult::BadValue;
+        }
+        const u64 gpu_base = static_cast<u64>(params.offset);
+        const u64 buffer_offset = static_cast<u64>(params.buffer_offset);
+        if (auto const it = mapping_map.find(gpu_base); it != mapping_map.end()) {
             auto const mapping = it->second;
             // A remap into an existing buffer must fit its original offset
             // and size. Reject wrapped GPU VAs before any page-table change.
             constexpr u64 gpu_limit = u64{1} << 49;
             if (!NativeGpuAllocation::ContainsSubrange(
-                    mapping.size, params.buffer_offset, params.mapping_size) ||
-                params.offset >= gpu_limit ||
-                params.buffer_offset >= gpu_limit - params.offset ||
-                params.mapping_size > gpu_limit - params.offset - params.buffer_offset ||
-                mapping.ptr < 0 ||
-                static_cast<u64>(mapping.ptr) >
-                    std::numeric_limits<VAddr>::max() - params.buffer_offset) {
+                    mapping.size, buffer_offset, params.mapping_size) ||
+                gpu_base >= gpu_limit ||
+                buffer_offset >= gpu_limit - gpu_base ||
+                params.mapping_size > gpu_limit - gpu_base - buffer_offset ||
+                mapping.ptr > std::numeric_limits<VAddr>::max() - buffer_offset) {
                 LOG_WARNING(Service_NVDRV, "Cannot remap a partially mapped GPU address space region: {:#x}", params.offset);
                 return NvResult::BadValue;
             }
-            u64 gpu_address = u64(params.offset + params.buffer_offset);
-            VAddr device_address{mapping.ptr + params.buffer_offset};
+            const u64 gpu_address = gpu_base + buffer_offset;
+            const VAddr device_address{mapping.ptr + buffer_offset};
             gmmu->Map(gpu_address, device_address, params.mapping_size, Tegra::PTEKind(params.kind), mapping.big_page);
             return NvResult::Success;
         } else {
