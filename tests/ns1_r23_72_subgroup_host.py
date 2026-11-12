@@ -29,8 +29,7 @@ for path,expected in files.items():
  elif path.endswith("vk_pipeline_cache_cost.cpp"):
   text=d.decode()
   assert "single_lane_geometry_subgroups" in text and "HasBrokenPattern" in text,(path,"subgroup/AMD pipeline not combined")
- else:
-  if path.endswith("vulkan_common/vulkan_device.h"):
+ elif path.endswith("vulkan_common/vulkan_device.h"):
   header=d.decode()
   assert "GetMaxSubgroupSize() const" in header and "IsExtDepthClipEnableSupported()" in header,(path,"missing subgroup or EDS3 API")
  else:
