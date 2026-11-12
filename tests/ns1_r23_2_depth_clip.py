@@ -26,6 +26,9 @@ for name,expected in files.items():
         text=v.decode()
         assert "dynamic_features.has_depth_clip_enable = device.IsExtDepthClipEnableSupported();" in text,(name,"lost EDS3 policy")
         assert "single_lane_geometry_subgroups" in text and "Shader::Optimization::HasBrokenPattern" in text,(name,"lost shader integration")
+    elif name=="fixed_pipeline_state.cpp":
+        text=v.decode()
+        assert "MaxwellDepthClampClip" in text and "regs.tir_mode == Maxwell::TIRMode::RasterNTargetM" in text,(name,"lost EDS3/TIR")
     else:
         assert actual==expected,(name,actual)
 source=(root/"fixed_pipeline_state.cpp").read_text()

@@ -1,0 +1,23 @@
+name: NS1 R23 TIR mixed samples four-owner source contract
+on:
+  push:
+    branches:
+      - research/ns1-r23-tir-mixed-msaa-20261112
+  pull_request:
+    paths:
+      - "encore-active/eden-vulkan/**"
+      - "encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h"
+      - "tests/ns1_r23_18_tir_host.py"
+      - ".github/workflows/ns1-r23-tir-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mixed-msaa-source-owners:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_18_tir_host.py
