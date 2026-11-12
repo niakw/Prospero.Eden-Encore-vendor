@@ -624,7 +624,9 @@ void PatchMeshInstructions(std::vector<u32>& code, const EmitContext& ctx) {
             ++replacements;
             continue;
         }
-        patched.insert(patched.end(), code.begin() + pos, code.begin() + pos + count);
+        const auto first = code.cbegin() + static_cast<std::vector<u32>::difference_type>(pos);
+        const auto last = first + static_cast<std::vector<u32>::difference_type>(count);
+        patched.insert(patched.end(), first, last);
         pos += count;
     }
     if (replacements != 1) {
