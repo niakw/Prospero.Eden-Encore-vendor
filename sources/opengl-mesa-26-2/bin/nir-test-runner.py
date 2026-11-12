@@ -82,7 +82,7 @@ if __name__ == '__main__':
 
     output = subprocess.run(test_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, env=env)
 
-    expected_pattern = re.compile(r'BEGIN EXPECTED\(([\d\w\W/.-_]+)\)')
+    expected_pattern = re.compile(r'BEGIN EXPECTED\(([^)\r\n]+)\)')
 
     expectations = collections.defaultdict(list)
 
