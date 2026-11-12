@@ -118,6 +118,21 @@ def handle_static(match):
         , match.group(5)
         )
 
+def split_typedefs_linear(line):
+    """Format adjacent typedefs in linear time without nested regex repetition."""
+    # Process at most one source line; semicolon boundaries make the
+    # whitespace/typedef grammar unambiguous.
+    body = line.rstrip('\r\n')
+    indent = body[:len(body) - len(body.lstrip(' \t'))]
+    statements = body.strip().split(';')
+    if len(statements) < 3 or statements[-1].strip():
+        return line
+    declarations = [part.strip() for part in statements[:-1]]
+    if not all(part.startswith(('typedef ', 'typedef\t')) for part in declarations):
+        return line
+    ending = line[len(body):]
+    return indent + (';\n' + indent).join(declarations) + ';' + (ending or '\n')
+
 def handle_typedefs(match):
     if str.count(match.group(2), ';') == 1:
         return match.group(0)
@@ -172,7 +187,7 @@ class pretty:
 
         self.re_simple_list = re.compile(r'(\w+)[ \t]*<([\w, -]+)>')
         self.re_static_const = re.compile(r'(\s*)((BOOST_STATIC_CONSTANT\(\s*\w+,\s*|enum\s*\w*\s*{\s*)value\s*=)(.*?)([}|\)];)$')
-        self.re_typedefs = re.compile(r'([ \t]*)((?:[ \t]*typedef[ \t]+[^;\r\n]*;)+)[ \t]*$')
+        # Adjacent typedefs use split_typedefs_linear (no backtracking regex).
         self.re_fix_angle_brackets = re.compile( r'(>(\s*>)+)(,|\n$)' )
         self.re_closing_curly_brace = re.compile(r'^(}|struct\s+\w+);\s*$')
         self.re_namespace_scope_templ = re.compile(r'^template\s*<\s*$')
@@ -246,7 +261,7 @@ class pretty:
         line = self.re_inline_templ_args.sub( handle_inline_args, line )
         line = self.re_simple_list.sub( handle_simple_list, line)
         line = self.re_static_const.sub( handle_static, line )
-        line = self.re_typedefs.sub( handle_typedefs, line )        
+        line = split_typedefs_linear(line)
         line = self.re_fix_angle_brackets.sub( fix_angle_brackets, line )
 
         # write the output
