@@ -1,0 +1,26 @@
+name: R23 historical FW235 and HID95 exact host tests
+on:
+  push:
+    branches: [integration/residual-hid-fw23-tests-20261112]
+  pull_request:
+    paths:
+      - 'tests/ns1_r23_fw235_ns.py'
+      - 'tests/ns1_r23_95_hid_reconnect.py'
+      - 'encore-active/eden-backports/src/core/hle/service/ns/application_manager_interface.*'
+      - 'encore-active/eden-core/src/hid_core/frontend/emulated_controller.cpp'
+      - 'encore-active/eden-core/include/hid_core/frontend/emulated_controller.h'
+      - '.github/workflows/qualify-retired-r23-host.yml'
+permissions:
+  contents: read
+jobs:
+  exact-research-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: FW23.5 command 3250-3262 and event contracts
+        run: python3 -B tests/ns1_r23_fw235_ns.py
+      - name: HID reconnect host C++ ASan UBSan
+        run: python3 -B tests/ns1_r23_95_hid_reconnect.py
