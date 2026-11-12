@@ -1271,11 +1271,18 @@ class CppReferenceExtension {
             typeof cmd === 'string' && path.isAbsolute(cmd) &&
             path.basename(cmd) === (IS_WIN ? 'mrdocs.exe' : 'mrdocs') &&
             path.basename(path.dirname(cmd)) === 'bin'
+        // Do not pass the playbook's command string to spawn, even after
+        // checking it: every executed tool name must be a trusted literal.
+        // MrDocs is discovered earlier, checked and added to PATH.
         let executable
-        if (cmd === 'git' || cmd === 'tar' || cmd === '7z') {
-            executable = cmd
+        if (cmd === 'git') {
+            executable = 'git'
+        } else if (cmd === 'tar') {
+            executable = 'tar'
+        } else if (cmd === '7z') {
+            executable = '7z'
         } else if (isMrDocs) {
-            executable = cmd
+            executable = IS_WIN ? 'mrdocs.exe' : 'mrdocs'
         } else {
             throw new Error('Unsupported documentation tool')
         }
