@@ -9,7 +9,7 @@ def gitsha(path):
  raw=path.read_bytes()
  return hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
 assert gitsha(header)=="afe153f18075d00b8e822a1d992dcd8f5cad9a8c"
-assert gitsha(source)=="fae69ab91b7d0ccd8fcb6d5a7a70f9083d278454"
+assert gitsha(source)=="85c523e435ee8803ef3d2087567aa1a4b5d09369"
 h=header.read_text()
 s=source.read_text()
 assert "template <typename Pred, typename Resolve = std::identity>" in h
