@@ -24,6 +24,7 @@ for path in owners:
     )[0]
     assert "scheduler.DeclareChannel" not in create, path
     assert (initialize.index("to_init.Init(system, program_id);") <
+            initialize.index("renderer->ReadRasterizer()->InitializeChannel(to_init);") <
             initialize.index("channels.find(to_init.bind_id)") <
             initialize.index("scheduler.DeclareChannel(it->second);")), path
     assert "it->second.get() == &to_init" in initialize, path

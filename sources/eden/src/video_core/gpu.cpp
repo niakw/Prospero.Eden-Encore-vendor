@@ -86,13 +86,14 @@ struct GPU::Impl {
 
     void InitChannel(Control::ChannelState& to_init, u64 program_id) {
         to_init.Init(system, program_id);
-        // ChannelState::Payload is constructed by Init(), not AllocateChannel().
-        // The strict scheduler must only see initialized channel owners.
+        to_init.BindRasterizer(renderer->ReadRasterizer());
+        renderer->ReadRasterizer()->InitializeChannel(to_init);
+        // Never publish an owner until its payload AND rasterizer state are ready.
+        // The strict scheduler rejects empty payloads; GPU work must not race
+        // the rasterizer's native per-channel initialization either.
         const auto it = channels.find(to_init.bind_id);
         ASSERT(it != channels.end() && it->second.get() == &to_init);
         scheduler.DeclareChannel(it->second);
-        to_init.BindRasterizer(renderer->ReadRasterizer());
-        renderer->ReadRasterizer()->InitializeChannel(to_init);
     }
 
     void InitAddressSpace(Tegra::MemoryManager& memory_manager) {
