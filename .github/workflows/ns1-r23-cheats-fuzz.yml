@@ -1,0 +1,22 @@
+name: NS1 R23 bounded cheats source-extracted parser fuzz (host)
+on:
+  push:
+    branches:
+      - research/ns1-r23-cheat-parser-bounds-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/core/memory/cheat_engine.cpp"
+      - "tests/ns1_r23_46_cheat_parser_fuzz.py"
+      - ".github/workflows/ns1-r23-cheats-fuzz.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-cheat-parser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_46_cheat_parser_fuzz.py
