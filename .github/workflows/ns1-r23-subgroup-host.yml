@@ -1,0 +1,24 @@
+name: NS1 R23 subgroup capabilities and geometry shader fallback host
+on:
+  push:
+    branches:
+      - research/ns1-r23-subgroup-geometry-fallback-20261112
+  pull_request:
+    paths:
+      - "encore-active/eden-shader/src/shader_recompiler/**"
+      - "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
+      - "encore-active/eden-vulkan/include/video_core/vulkan_common/vulkan_device.h"
+      - "tests/ns1_r23_72_subgroup_host.py"
+      - ".github/workflows/ns1-r23-subgroup-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-subgroup-owners:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_72_subgroup_host.py
