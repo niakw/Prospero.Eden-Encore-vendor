@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdio>
 
+#include "audio_in_silence.h"
 #include "audio_core/audio_core.h"
 #include "audio_core/audio_manager.h"
 #include "audio_core/device/audio_buffer.h"
@@ -95,6 +96,13 @@ void DeviceSession::ClearBuffers() {
 
 void DeviceSession::AppendBuffers(std::span<const AudioBuffer> buffers) {
     for (const auto& buffer : buffers) {
+        // Guest AudioIn sizes must describe complete PCM16 frames. The
+        // original code divided by channel_count before validating it and
+        // allocated tmp_samples even when the silent sink did not need it.
+        if (type == Sink::StreamType::In &&
+            !Eden::IsValidAudioInBufferShape(buffer.size, channel_count)) {
+            continue;
+        }
         Sink::SinkBuffer new_buffer{
             .frames = buffer.size / (channel_count * sizeof(s16)),
             .frames_played = 0,
@@ -102,10 +110,12 @@ void DeviceSession::AppendBuffers(std::span<const AudioBuffer> buffers) {
             .consumed = false,
         };
 
-        tmp_samples.resize_destructive(buffer.size / sizeof(s16));
         if (type == Sink::StreamType::In) {
-            stream->AppendBuffer(new_buffer, tmp_samples);
+            // Silent AudioIn owns no guest samples until ReleaseBuffer.
+            // Never allocate a guest-sized temporary buffer just to discard it.
+            stream->AppendBuffer(new_buffer, std::span<s16>{});
         } else {
+            tmp_samples.resize_destructive(buffer.size / sizeof(s16));
 #ifdef PS5_NATIVE
             // R457 FC27 crashes at Impl::GetSpan(+0x10) on a null Impl during
             // AudioOut::Start. Preserve the guest audio stream timing while
@@ -132,8 +142,27 @@ void DeviceSession::AppendBuffers(std::span<const AudioBuffer> buffers) {
 
 void DeviceSession::ReleaseBuffer(const AudioBuffer& buffer) const {
     if (type == Sink::StreamType::In) {
+        // The upstream copy assumes that samples.size() * sizeof(s16) is
+        // identical to the requested byte count. Odd lengths otherwise
+        // overread the vector; reject malformed, oversized or stale buffers.
+        if (!stream || !handle ||
+            !Eden::IsValidAudioInBufferShape(buffer.size, channel_count) ||
+            buffer.size == 0) {
+            return;
+        }
+        auto& memory = handle->GetMemory();
+        if (!memory.ReadyForAudioRead()) {
+            return;
+        }
+        if (!memory.IsValidVirtualAddressRange(Common::ProcessAddress{buffer.samples},
+                                                buffer.size)) {
+            return;
+        }
         auto samples{stream->ReleaseBuffer(buffer.size / sizeof(s16))};
-        handle->GetMemory().WriteBlockUnsafe(buffer.samples, samples.data(), buffer.size);
+        if (samples.size() != buffer.size / sizeof(s16)) {
+            return;
+        }
+        memory.WriteBlockUnsafe(buffer.samples, samples.data(), buffer.size);
     }
 }
 
