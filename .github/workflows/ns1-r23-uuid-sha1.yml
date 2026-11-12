@@ -1,0 +1,25 @@
+name: NS1 R23 SHA1 pseudo-device UUID safety (host)
+on:
+  push:
+    branches:
+      - research/ns1-r23-ldn-pseudodevice-uuid-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/core/hle/service/am/service/application_functions.cpp"
+      - "encore-active/ns2-runtime/am/core/hle/service/am/service/application_functions.cpp"
+      - "encore-active/eden-core/src/common/uuid.cpp"
+      - "encore-active/eden-core/include/common/uuid.h"
+      - "tests/ns1_r23_126_uuid_sha1.py"
+      - ".github/workflows/ns1-r23-uuid-sha1.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  uuid-sha1-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_126_uuid_sha1.py

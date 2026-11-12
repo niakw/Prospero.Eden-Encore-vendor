@@ -1,0 +1,24 @@
+name: NS1 C01 maintained RomFS teardown source stress (host only)
+on:
+  push:
+    branches:
+      - research/ns1-c01-romfs-lifetime-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/core/file_sys/fsmitm_romfsbuild.cpp"
+      - "tests/c01_romfs_builder_stress.py"
+      - ".github/workflows/ns1-c01-romfs-source.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  extracted-source-sanitizers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact source and original pinned tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile and stress maintained C01 destructor under ASan and UBSan
+        run: python3 -B tests/c01_romfs_builder_stress.py
