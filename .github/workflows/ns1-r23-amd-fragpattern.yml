@@ -1,0 +1,23 @@
+name: NS1 R23 non-NVIDIA fragment shuffle pattern regression
+on:
+  push:
+    branches:
+      - research/ns1-r23-amd-fragpattern-20261112
+  pull_request:
+    paths:
+      - "encore-active/eden-shader/src/shader_recompiler/ir_opt/**"
+      - "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
+      - "tests/ns1_r23_80_fragpattern.py"
+      - ".github/workflows/ns1-r23-amd-fragpattern.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  non-nvidia-fragment-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_80_fragpattern.py
