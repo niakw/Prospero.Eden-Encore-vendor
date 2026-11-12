@@ -296,12 +296,61 @@ void CheatEngine::SetMainMemoryParameters(VAddr main_region_begin, u64 main_regi
 }
 
 void CheatEngine::Reload(std::vector<CheatEntry> reload_cheats) {
+    std::scoped_lock lock{cheats_mutex};
+    // Master code is always active if present. Preserve its bytecode unchanged.
+    if (!reload_cheats.empty() && reload_cheats.front().cheat_id == 0 &&
+        reload_cheats.front().definition.num_opcodes != 0) {
+        reload_cheats.front().enabled = true;
+    }
     cheats = std::move(reload_cheats);
-    is_pending_reload.exchange(true);
+    is_pending_reload.store(true, std::memory_order_release);
+}
+
+std::vector<RuntimeCheatInfo> CheatEngine::GetCheats() const {
+    std::scoped_lock lock{cheats_mutex};
+    std::vector<RuntimeCheatInfo> result;
+    result.reserve(cheats.size());
+    for (const auto& entry : cheats) {
+        if (entry.definition.num_opcodes == 0) {
+            continue;
+        }
+        const auto& name = entry.definition.readable_name;
+        const auto finish = std::find(name.begin(), name.end(), '\0');
+        result.push_back(RuntimeCheatInfo{
+            .id = entry.cheat_id,
+            .name = std::string(name.begin(), finish),
+            .enabled = entry.enabled,
+            .is_master = entry.cheat_id == 0,
+        });
+    }
+    return result;
+}
+
+bool CheatEngine::SetCheatEnabled(u32 cheat_id, bool enabled) {
+    if (cheat_id == 0 && !enabled) {
+        return false;
+    }
+    std::scoped_lock lock{cheats_mutex};
+    const auto found = std::find_if(cheats.begin(), cheats.end(),
+                                    [cheat_id](const CheatEntry& entry) {
+                                        return entry.cheat_id == cheat_id &&
+                                               entry.definition.num_opcodes != 0;
+                                    });
+    if (found == cheats.end()) {
+        return false;
+    }
+    if (found->enabled != enabled) {
+        found->enabled = enabled;
+        is_pending_reload.store(true, std::memory_order_release);
+    }
+    return true;
 }
 
 void CheatEngine::FrameCallback(std::chrono::nanoseconds ns_late) {
-    if (is_pending_reload.exchange(false)) {
+    // Reload is synchronized with concurrent frontend toggles and disk updates.
+    // Do not hold cheats_mutex while executing guest memory writes.
+    if (is_pending_reload.exchange(false, std::memory_order_acquire)) {
+        std::scoped_lock lock{cheats_mutex};
         vm.LoadProgram(cheats);
     }
 
