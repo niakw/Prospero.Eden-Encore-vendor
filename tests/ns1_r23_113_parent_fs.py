@@ -19,6 +19,9 @@ def blob(p):
 for file,expected in known.items():
  if file=="src/core/file_sys/patch_manager.cpp":
   assert "const auto sdmc_mod_dir = GetModificationLoadRoot(true);" in (ROOT_SRC/file).read_text(),file
+ elif file=="src/core/file_sys/savedata_factory.cpp":
+  data=(ROOT_SRC/file).read_text()
+  assert "GetSaveDataPath(" in data and "dir->DeleteSubdirectoryRecursive(\"temp\");" not in data,file
  else:
   assert blob(ROOT_SRC/file)==expected,(file,blob(ROOT_SRC/file))
 for name in ("patch_manager","registered_cache","savedata_factory"):

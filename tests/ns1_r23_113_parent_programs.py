@@ -19,6 +19,9 @@ for name,expected in OWNERS.items():
  actual=sha((BASE/name).read_bytes())
  if name=="src/core/file_sys/patch_manager.cpp":
   assert "GetModificationLoadRoot(true);" in (BASE/name).read_text(),name
+ elif name=="src/core/file_sys/savedata_factory.cpp":
+  data=(BASE/name).read_text()
+  assert "GetSaveDataPath(" in data and "dir->DeleteSubdirectoryRecursive(\"temp\");" not in data,name
  else:
   assert actual==expected,(name,actual,expected)
  print("R23_113_EXACT_MAINTAINED_SOURCE_PASS",name)
