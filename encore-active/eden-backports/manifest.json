@@ -161,8 +161,8 @@
       "upstream": "dc9e0214fab5197a3ef369cd5e5a864f294b93dd5a020887fbdac3339ee0243c"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.cpp": {
-      "active": "14a61732f3a2a8092d2abf452e6929b8eb4e61c0cfc64d1dbe2d23e62cbd7740",
-      "bytes": 28654,
+      "active": "17446c9eb530d62dded19cd174c876be4730a4f845e3fa891d40f45dfd606a60",
+      "bytes": 28814,
       "upstream": "2017a14e3450768f421448326f809d439414cc385f927511382b940c64e44e84"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.h": {
@@ -201,8 +201,8 @@
       "upstream": "efc30e676bb88648c855d32b6260f8589643206210979d3264ee2cb64968f663"
     },
     "src/core/hle/service/ngc/ngc.cpp": {
-      "active": "b9cf8214632e08bff84017434bebe544b33b9405fea59259037df7775fb9a557",
-      "bytes": 5938,
+      "active": "afae15d9fc27afccce5f830aae5e7f040ef70d5135a719e210bdadf35af54bc8",
+      "bytes": 10435,
       "upstream": "8ac6febc0e5258adeb3870971a88c2067ea3312e624b059a17f50e0c0b265dc2"
     },
     "src/core/hle/service/nifm/nifm.cpp": {
@@ -211,13 +211,13 @@
       "upstream": "bef2eaecc5c5a07b217277b691999845b66c3ad8e006ec101881d3218db76a22"
     },
     "src/core/hle/service/ns/application_manager_interface.cpp": {
-      "active": "ee52174d4d317d7a2f931ffd4192b1eb49321fc7e266c808e99e5739da694e97",
-      "bytes": 44323,
+      "active": "763fc78e61b64ef26649a375225dcc395ab971c0b654f8b2e94b3bb0edcd4ff5",
+      "bytes": 48191,
       "upstream": "86874e0f8769c04c1c66b4b8b0d00549aa328a6ed58a6898f343e67431861fba"
     },
     "src/core/hle/service/ns/application_manager_interface.h": {
-      "active": "63db35276eed6a82a2f6bc0ad05dd75e2d481fb947c8ab839587853d45e29a33",
-      "bytes": 5373,
+      "active": "9e58227eb0aa757c801a9b5fbd46cf6679fe97d2a615aa87e0d6993865eda400",
+      "bytes": 6279,
       "upstream": "5de679e586e0324bf48db8bd3f5775b71fd3b0232b3afb1cd84931cc1c813eb7"
     },
     "src/core/hle/service/ns/i_async_result.cpp": {
