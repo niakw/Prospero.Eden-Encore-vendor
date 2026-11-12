@@ -115,7 +115,7 @@ inline std::vector<CaptureIndirectBranch> TrackCaptureIndirectBranches(std::span
         if (branch.Bits(0, 12) != 0x949)
             continue;
         if (branch.Bits(12, 4) != 7 || (branch.words[2] & ~0x3ffffU) != 0x03800000U ||
-            s64{branch_index} * sizeof(Instruction) + sizeof(Instruction) + CaptureRelativeOffset48(branch) != 0)
+            s64{branch_index} * s64{sizeof(Instruction)} + s64{sizeof(Instruction)} + CaptureRelativeOffset48(branch) != 0)
             continue;
         const u32 branch_source = branch.Bits(24, 8);
         std::optional<u32> load_index;
