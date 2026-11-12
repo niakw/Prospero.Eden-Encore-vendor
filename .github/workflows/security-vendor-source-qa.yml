@@ -1,13 +1,16 @@
 name: Security vendor Python JS and dependency source QA
 on:
   push:
-    branches: [security/codeql-dependabot-triage-20261112]
+    branches: [main, security/codeql-dependabot-triage-20261112]
   pull_request:
     paths:
       - 'sources/**'
       - '.github/workflows/security-vendor-source-qa.yml'
 permissions:
   contents: read
+concurrency:
+  group: vendor-source-security-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
 jobs:
   syntax-and-regressions:
     runs-on: ubuntu-24.04
@@ -54,5 +57,37 @@ jobs:
           assert "execSync(" not in docs and "execFileSync(" in docs
           print("SECURITY_SHELL_INJECTION_PASS")
           PY
+      - name: Reject vulnerable npm and pip dependency pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('sources/eden-cpm/boost/boost-1.90.0/libs')
+          for library in ('msm', 'url', 'openmethod'):
+              path=root/library/'doc/package-lock.json'
+              lock=json.loads(path.read_text())
+              assert lock['lockfileVersion'] >= 3, path
+              for name, package in lock['packages'].items():
+                  if name.endswith('/isomorphic-git'):
+                      assert tuple(map(int, package['version'].split('.')[:3])) >= (1,38,6), (path,name,package['version'])
+                      assert package['integrity'].startswith('sha512-'), (path,name)
+                  if name.endswith('/js-yaml'):
+                      assert tuple(map(int, package['version'].split('.')[:3])) >= (4,3,2), (path,name,package['version'])
+                      assert package['integrity'].startswith('sha512-'), (path,name)
+          for mesa in ('ps5-mesa', 'opengl-mesa-26-2'):
+              txt=Path(f'sources/{mesa}/bin/ci/test/requirements.txt').read_text()
+              assert 'pytest==9.0.3' in txt and 'filelock==4.2.1' in txt, mesa
+          print('SECURITY_DOCUMENTATION_DEPENDENCY_PINS_PASS')
+          PY
+      - name: Verify npm lock graph without executing lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for directory in openmethod url; do
+              (cd "sources/eden-cpm/boost/boost-1.90.0/libs/$directory/doc" &&
+                  npm ci --ignore-scripts --dry-run --no-audit --no-fund --loglevel=error)
+          done
       - name: Verify no whitespace damage
         run: git diff --check
