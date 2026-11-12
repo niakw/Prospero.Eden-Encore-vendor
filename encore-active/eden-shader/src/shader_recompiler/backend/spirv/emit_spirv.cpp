@@ -4,7 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2021 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <array>
+#include <algorithm>
 #include <span>
 #include <tuple>
 #include <type_traits>
@@ -15,7 +15,6 @@
 #include "shader_recompiler/backend/spirv/emit_spirv.h"
 #include "shader_recompiler/backend/spirv/emit_spirv_instructions.h"
 #include "shader_recompiler/backend/spirv/spirv_emit_context.h"
-#include "shader_recompiler/exception.h"
 #include "shader_recompiler/frontend/ir/basic_block.h"
 #include "shader_recompiler/frontend/ir/program.h"
 
@@ -249,20 +248,6 @@ void DefineEntryPoint(const IR::Program& program, EmitContext& ctx, Id main) {
     case Stage::VertexB:
         execution_model = spv::ExecutionModel::Vertex;
         break;
-    case Stage::Task:
-        execution_model = spv::ExecutionModel::TaskEXT;
-        ctx.AddExecutionMode(main, spv::ExecutionMode::LocalSize, program.workgroup_size[0], 1U,
-                             1U);
-        break;
-    case Stage::Mesh:
-        execution_model = spv::ExecutionModel::MeshEXT;
-        ctx.AddExecutionMode(main, spv::ExecutionMode::LocalSize, program.workgroup_size[0], 1U,
-                             1U);
-        ctx.AddExecutionMode(main, spv::ExecutionMode::OutputVertices, program.mesh.max_vertices);
-        ctx.AddExecutionMode(main, spv::ExecutionMode::OutputPrimitivesEXT,
-                             program.mesh.max_primitives);
-        ctx.AddExecutionMode(main, spv::ExecutionMode::OutputTrianglesEXT);
-        break;
     case Stage::TessellationControl:
         execution_model = spv::ExecutionModel::TessellationControl;
         ctx.AddCapability(spv::Capability::Tessellation);
@@ -455,10 +440,13 @@ void SetupCapabilities(const Profile& profile, const Info& info, EmitContext& ct
         ctx.AddCapability(spv::Capability::DrawParameters);
     }
     if ((info.uses_subgroup_vote || info.uses_subgroup_invocation_id ||
-         info.uses_subgroup_shuffles) &&
+         info.uses_subgroup_shuffles || info.uses_subgroup_mask) &&
         profile.support_vote && profile.SupportsSubgroupStage(ctx.stage)) {
         ctx.AddCapability(spv::Capability::GroupNonUniformBallot);
         ctx.AddCapability(spv::Capability::GroupNonUniformShuffle);
+        if (info.uses_subgroup_shuffles && profile.support_shuffle_relative) {
+            ctx.AddCapability(spv::Capability::GroupNonUniformShuffleRelative);
+        }
         if (!profile.warp_size_potentially_larger_than_guest) {
             // vote ops are only used when not taking the long path
             ctx.AddCapability(spv::Capability::GroupNonUniformVote);
@@ -538,48 +526,26 @@ void PatchPhiNodes(IR::Program& program, EmitContext& ctx) {
             });
         }
 
-// Replaces the OpStore markers of the mesh instructions Sirit cannot emit: OpStore(vertices,
-// primitives) becomes OpSetMeshOutputsEXT, and OpStore(x, y), OpStore(z, payload), OpReturn
-// becomes the OpEmitMeshTasksEXT terminator.
-void PatchMeshInstructions(std::vector<u32>& code, const EmitContext& ctx) {
-    const bool set_outputs{Sirit::ValidId(ctx.mesh_outputs_marker[0])};
-    const bool emit_tasks{Sirit::ValidId(ctx.mesh_tasks_marker[0])};
-    if (!set_outputs && !emit_tasks) {
+void RewriteOpcodes(std::vector<u32>& code, std::span<const std::pair<u32, spv::Op>> rewrites) {
+    if (rewrites.empty()) {
         return;
     }
-    const auto store_at = [&](size_t offset, Id pointer, Id object) {
-        return offset + 2 < code.size() &&
-               code[offset] == ((3U << 16) | static_cast<u32>(spv::Op::OpStore)) &&
-               code[offset + 1] == pointer.value && code[offset + 2] == object.value;
-    };
-    const auto& tasks{ctx.mesh_tasks_marker};
     size_t offset = 5;
-    bool patched{};
-    while (offset < code.size()) {
+    while (offset + 2 < code.size()) {
         const u32 word_count{code[offset] >> 16};
+        const auto opcode{static_cast<spv::Op>(code[offset] & 0xFFFFu)};
         if (word_count == 0) {
-            break;
+            return;
         }
-        if (set_outputs &&
-            store_at(offset, ctx.mesh_outputs_marker[0], ctx.mesh_outputs_marker[1])) {
-            code[offset] = (3U << 16) | static_cast<u32>(spv::Op::OpSetMeshOutputsEXT);
-            patched = true;
-        } else if (emit_tasks && store_at(offset, tasks[0], tasks[1]) &&
-                   store_at(offset + 3, tasks[2], tasks[3]) && offset + 6 < code.size() &&
-                   code[offset + 6] == ((1U << 16) | static_cast<u32>(spv::Op::OpReturn))) {
-            const std::array<u32, 5> emit{(5U << 16) | static_cast<u32>(spv::Op::OpEmitMeshTasksEXT),
-                                          tasks[0].value, tasks[1].value, tasks[2].value,
-                                          tasks[3].value};
-            code.erase(code.begin() + offset, code.begin() + offset + 7);
-            code.insert(code.begin() + offset, emit.begin(), emit.end());
-            patched = true;
-            offset += emit.size();
-            continue;
+        if (opcode == spv::Op::OpGroupNonUniformShuffleXor ||
+            opcode == spv::Op::OpGroupNonUniformQuadBroadcast) {
+            const auto it{std::ranges::find(rewrites, code[offset + 2],
+                                            &std::pair<u32, spv::Op>::first)};
+            if (it != rewrites.end()) {
+                code[offset] = (code[offset] & 0xFFFF0000u) | static_cast<u32>(it->second);
+            }
         }
         offset += word_count;
-    }
-    if (!patched) {
-        throw LogicError("Mesh instruction markers not found");
     }
 }
 } // Anonymous namespace
@@ -597,7 +563,7 @@ std::vector<u32> EmitSPIRV(const Profile& profile, const RuntimeInfo& runtime_in
     SetupTransformFeedbackCapabilities(ctx, main);
     PatchPhiNodes(program, ctx);
     std::vector<u32> code{ctx.Assemble()};
-    PatchMeshInstructions(code, ctx);
+    RewriteOpcodes(code, ctx.opcode_rewrites);
     return code;
 }
 
