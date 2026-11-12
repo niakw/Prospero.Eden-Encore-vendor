@@ -1,0 +1,21 @@
+name: NS2 R457 kernel slab direct-backing admission (host source)
+on:
+  pull_request:
+    paths:
+      - 'encore-active/ns2-runtime/sparse-residency/core/hle/kernel/init/init_slab_setup.cpp'
+      - 'tests/ns2_r457_kernel_slab_precommit_host.py'
+      - '.github/workflows/r457-ns2-kernel-slab-precommit-host.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  slab-precommit-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify both direct slab writers commit physical backing
+        run: python3 -B tests/ns2_r457_kernel_slab_precommit_host.py
