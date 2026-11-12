@@ -552,15 +552,13 @@ private:
                 // Reject an invalid reported count before indexing them;
                 // retaining the queued image is safer than releasing its
                 // NVMap backing while GPU work might still be outstanding.
-                // num_fences is signed; reject negative counts before widening.
-                // Otherwise u32 loop comparison would reinterpret -1 as a huge
-                // count and read past the four fixed fence entries.
-                if (fence.num_fences < 0 ||
-                    static_cast<u32>(fence.num_fences) > fence.fences.size()) continue;
+                // The producer count is u32. Bound it against the four
+                // fixed fence entries before using it as an index.
+                if (fence.num_fences > fence.fences.size()) continue;
                 bool done=true;
-                for (u32 i=0;i<static_cast<u32>(fence.num_fences);++i) {
+                for (u32 i=0;i<fence.num_fences;++i) {
                     const auto& point=fence.fences[i];
-                    if (point.id==~u32{0}) continue;
+                    if (point.id == -1) continue;
                     auto& syncpoints=module->GetContainer().GetSyncpointManager();
                     if (!syncpoints.IsSyncpointAllocated(point.id) ||
                         !syncpoints.HasSyncpointExpired(point.id,point.value)) {
