@@ -129,7 +129,14 @@ void FixedPipelineState::Refresh(Tegra::Engines::Maxwell3D& maxwell3d, DynamicFe
     topology.Assign(can_collapse_topology_class
                         ? TOPOLOGY_CLASS_REPRESENTATIVE_LUT[static_cast<size_t>(topology_)]
                         : topology_);
-    msaa_mode.Assign(regs.anti_alias_samples_mode);
+    // TIR raster samples can differ from the target sample count; preserve
+    // the PR77 depth clamp/clip contract while using the PR79 raster mode.
+    if (regs.tir_mode == Maxwell::TIRMode::RasterNTargetM &&
+        regs.anti_alias_raster != Maxwell::AntiAliasRaster::Mode1x1) {
+        msaa_mode.Assign(static_cast<Tegra::Texture::MsaaMode>(regs.anti_alias_raster));
+    } else {
+        msaa_mode.Assign(regs.anti_alias_samples_mode);
+    }
     attachment0_dual_source_blend.Assign(ComputeAttachment0DualSourceBlend(regs) ? 1 : 0);
 
     raw2 = 0;
