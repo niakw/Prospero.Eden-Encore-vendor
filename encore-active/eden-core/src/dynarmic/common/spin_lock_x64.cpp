@@ -15,9 +15,9 @@
 #include "dynarmic/common/spin_lock.h"
 
 #ifdef DYNARMIC_ENABLE_NO_EXECUTE_SUPPORT
-static const auto default_cg_mode = Xbyak::DontSetProtectRWE;
+[[maybe_unused]] static const auto default_cg_mode = Xbyak::DontSetProtectRWE;
 #else
-static const auto default_cg_mode = nullptr; //Allow RWE
+[[maybe_unused]] static const auto default_cg_mode = nullptr; //Allow RWE
 #endif
 
 namespace Dynarmic {
