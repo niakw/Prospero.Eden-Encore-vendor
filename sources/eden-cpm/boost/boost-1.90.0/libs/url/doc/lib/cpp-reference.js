@@ -1257,12 +1257,18 @@ class CppReferenceExtension {
                     cmdv[0] = cmd0
                 }
             }
-            cmdv = cmdv.map(CppReferenceExtension.winShellEscape)
-            argv = argv.map(CppReferenceExtension.winShellEscape)
-            Object.assign(spawnOpts, {shell: true, windowsHide: true})
+            // Never concatenate user/configured arguments into a command
+            // shell. .bat/.cmd require cmd.exe and are intentionally rejected.
+            if (/\\.(?:bat|cmd)$/i.test(cmdv[0])) {
+                throw new Error('Shell batch execution is not supported in this documentation helper')
+            }
+            Object.assign(spawnOpts, {windowsHide: true})
         } else if (local) {
             cmdv[0] = `./${cmdv[0]}`
         }
+        // The command and each argument remain separate OS-level argv values,
+        // even if an Antora playbook sets opts.shell.
+        spawnOpts.shell = false
         return new Promise((resolve, reject) => {
             const stdout = []
             const stderr = []
