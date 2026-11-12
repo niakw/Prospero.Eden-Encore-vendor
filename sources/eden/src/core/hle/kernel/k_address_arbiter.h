@@ -42,16 +42,18 @@ public:
     }
 
     Result WaitForAddress(uint64_t addr, Svc::ArbitrationType type, s64 value, s64 timeout) {
-        switch (type) {
-        case Svc::ArbitrationType::WaitIfLessThan:
+        // Decode raw ABI values so the HOS WaitIfEqual64 tag 3 can be
+        // handled without an out-of-range enum case (-Wswitch).
+        switch (static_cast<u32>(type)) {
+        case static_cast<u32>(Svc::ArbitrationType::WaitIfLessThan):
             R_RETURN(WaitIfLessThan(addr, static_cast<s32>(value), false, timeout));
-        case Svc::ArbitrationType::DecrementAndWaitIfLessThan:
+        case static_cast<u32>(Svc::ArbitrationType::DecrementAndWaitIfLessThan):
             R_RETURN(WaitIfLessThan(addr, static_cast<s32>(value), true, timeout));
-        case Svc::ArbitrationType::WaitIfEqual:
+        case static_cast<u32>(Svc::ArbitrationType::WaitIfEqual):
             R_RETURN(WaitIfEqual(addr, static_cast<s32>(value), timeout, false));
-        // HOS AArch64 ABI tag 3 is WaitIfEqual64. The svc_types.h owner
-        // is an immutable verified backport, so decode this ABI value here.
-        case static_cast<Svc::ArbitrationType>(3):
+        // HOS AArch64 ABI tag 3 is WaitIfEqual64. Preserve the full
+        // signed 64-bit guest value instead of truncating it to s32.
+        case 3U:
             R_RETURN(WaitIfEqual(addr, value, timeout, true));
         default:
             UNREACHABLE();
