@@ -10,7 +10,7 @@ files={
   "encore-active/eden-shader/src/shader_recompiler/CMakeLists.txt": "cc9ce95d9269d2dbd13dd6bbbf44c1afa0d87fb1",
   "encore-active/eden-shader/src/shader_recompiler/backend/spirv/emit_spirv.cpp": "a903480c782f577bede2480c58037619ecb5371a",
   "encore-active/eden-shader/src/shader_recompiler/backend/spirv/emit_spirv_warp.cpp": "8d835099614b9b185d36e2c76a2519ade6faa6f1",
-  "encore-active/eden-shader/src/shader_recompiler/backend/spirv/spirv_emit_context.h": "7e43b58a4ad9da0f8efc800e3963a1a3978813ca",
+  "encore-active/eden-shader/src/shader_recompiler/backend/spirv/spirv_emit_context.h": "002eff294162f6f44276d39017c9174dd37c2da2",
   "encore-active/eden-shader/src/shader_recompiler/frontend/maxwell/translate_program.cpp": "dd49db913a31d95a803aa6967f1b06bdba61777f",
   "encore-active/eden-shader/src/shader_recompiler/host_translate_info.h": "af549e742edca3ce3e790ea5343136094a42b197",
   "encore-active/eden-shader/src/shader_recompiler/ir_opt/constant_propagation_pass.cpp": "6285fef16f2f500b36b1aa45d987f8774eb8131d",
@@ -29,6 +29,13 @@ for path,expected in files.items():
  elif path.endswith("vk_pipeline_cache_cost.cpp"):
   text=d.decode()
   assert "single_lane_geometry_subgroups" in text and "HasBrokenPattern" in text,(path,"subgroup/AMD pipeline not combined")
+ elif path.endswith("spirv_emit_context.h"):
+  assert actual=="002eff294162f6f44276d39017c9174dd37c2da2"
+  source=d.decode()
+  for symbol in ("MeshInfo mesh_info", "DefineMesh(const IR::Program& program)",
+                 "input_tess_level_outer", "input_tess_level_inner",
+                 "mesh_payload", "mesh_primitive_targets", "mesh_tasks_marker"):
+   assert symbol in source,(path,"missing native mesh/tessellation ABI",symbol)
  elif path.endswith("vulkan_common/vulkan_device.h"):
   header=d.decode()
   assert "GetMaxSubgroupSize() const" in header and "IsExtDepthClipEnableSupported()" in header,(path,"missing subgroup or EDS3 API")

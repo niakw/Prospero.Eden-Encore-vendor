@@ -10,7 +10,7 @@ r=Path(__file__).resolve().parents[1]
 files={
 "encore-active/eden-vulkan/fixed_pipeline_state.cpp":"71f35e18d4c3cdbfb6d23e065dc98e1d525ad2e4",
 "encore-active/eden-vulkan/vk_texture_cache_cost.cpp":"033bcfa3dbd2d4cd98565bd080eb8479dff874ad",
-"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_texture_cache.h":"e4087758b02fc93642b01b342d8ef41065ba6471",
+"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_texture_cache.h":"1b725abab76168d9787d9b062d7406df733cf49d",
 "encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h":"da6ab6dcea2a1c02fcb2e862d111dc410b025d66",
 }
 for name,expected in files.items():
@@ -27,6 +27,13 @@ fixed=(r/"encore-active/eden-vulkan/fixed_pipeline_state.cpp").read_text()
 cost=(r/"encore-active/eden-vulkan/vk_texture_cache_cost.cpp").read_text()
 h=(r/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_texture_cache.h").read_text()
 cache=(r/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h").read_text()
+# Both native header owners must match, retaining TIR and GPU retirement.
+unified=(r/"encore-active/ns2-astc/include/video_core/renderer_vulkan/vk_texture_cache.h").read_text()
+assert h==unified
+for symbol in ("GetOrCreateTirColorScratch", "tir_color_scratch",
+               "RetireGpuImageView", "RetireGpuImage(", "pending_retired_views",
+               "AccelerateImageUploadLayers", "StorageImageLayerView"):
+ assert symbol in unified,("lost shared TIR/ASTC ABI",symbol)
 assert "regs.tir_mode == Maxwell::TIRMode::RasterNTargetM" in fixed
 assert "GetOrCreateTirColorScratch" in cost and "GetOrCreateTirColorScratch" in h
 assert "CreateMixedSamplesFramebuffer" in cost and "CreateMixedSamplesFramebuffer" in h
