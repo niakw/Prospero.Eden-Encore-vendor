@@ -1,0 +1,23 @@
+name: NS1/NS2 null-loader kernel teardown contract
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-core/src/core/core_native.cpp'
+      - 'encore-active/eden-core/src/core/core_standard.cpp'
+      - 'encore-active/ns2-runtime/process/core/core.cpp'
+      - 'tests/ns1_ns2_missing_loader_cleanup_host.py'
+      - '.github/workflows/ns1-ns2-loader-teardown.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  loader-teardown:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact reviewed vendor
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate error paths and retention safety
+        run: python3 -B tests/ns1_ns2_missing_loader_cleanup_host.py
