@@ -1,0 +1,24 @@
+name: NS2 VI2 signed fence bounds host test
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp'
+      - 'tests/ns2_vi2_signed_fence_count_host.py'
+      - '.github/workflows/ns2-vi2-fence-sign-host.yml'
+  pull_request:
+    paths:
+      - 'encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp'
+      - 'tests/ns2_vi2_signed_fence_count_host.py'
+      - '.github/workflows/ns2-vi2-fence-sign-host.yml'
+permissions:
+  contents: read
+jobs:
+  vi2-signed-fences:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns2_vi2_signed_fence_count_host.py
