@@ -773,7 +773,9 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
                 params.offset >= gpu_limit ||
                 params.buffer_offset >= gpu_limit - params.offset ||
                 params.mapping_size > gpu_limit - params.offset - params.buffer_offset ||
-                mapping.ptr > std::numeric_limits<VAddr>::max() - params.buffer_offset) {
+                mapping.ptr < 0 ||
+                static_cast<u64>(mapping.ptr) >
+                    std::numeric_limits<VAddr>::max() - params.buffer_offset) {
                 LOG_WARNING(Service_NVDRV, "Cannot remap a partially mapped GPU address space region: {:#x}", params.offset);
                 return NvResult::BadValue;
             }
