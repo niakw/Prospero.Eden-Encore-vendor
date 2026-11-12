@@ -8,7 +8,7 @@ import tempfile
 root=Path(__file__).resolve().parents[1]
 files={
   "encore-active/eden-shader/src/shader_recompiler/CMakeLists.txt": "cc9ce95d9269d2dbd13dd6bbbf44c1afa0d87fb1",
-  "encore-active/eden-shader/src/shader_recompiler/backend/spirv/emit_spirv.cpp": "a903480c782f577bede2480c58037619ecb5371a",
+  "encore-active/eden-shader/src/shader_recompiler/backend/spirv/emit_spirv.cpp": "fd303bf04a3010916a190344cfb96bb46e64691b",
   "encore-active/eden-shader/src/shader_recompiler/backend/spirv/emit_spirv_warp.cpp": "8d835099614b9b185d36e2c76a2519ade6faa6f1",
   "encore-active/eden-shader/src/shader_recompiler/backend/spirv/spirv_emit_context.h": "002eff294162f6f44276d39017c9174dd37c2da2",
   "encore-active/eden-shader/src/shader_recompiler/frontend/maxwell/translate_program.cpp": "dd49db913a31d95a803aa6967f1b06bdba61777f",
@@ -20,6 +20,10 @@ files={
   "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp": "2e67b2a0d8dcba21ca28711c666dd352da624042",
   "encore-active/eden-vulkan/include/video_core/vulkan_common/vulkan_device.h": "6c17ea15d036f2c4fb8e51f655e8a0cc33e4b1b8"
 }
+# The SPIR-V native owner was integrated after R23 #72 into the same
+# shipping TU; its checked source SHA has advanced. Retain the actual
+# RewriteOpcodes extraction and UBSan host oracle below; don't skip the file.
+# No runtime shader source is changed by this test-only repin.
 for path,expected in files.items():
  d=(root/path).read_bytes()
  actual=hashlib.sha1(b"blob "+str(len(d)).encode()+bytes([0])+d).hexdigest()
@@ -53,8 +57,11 @@ assert "GetMaxSubgroupSize() const" in (vk/"include/video_core/vulkan_common/vul
 emit=(shader/"backend/spirv/emit_spirv.cpp").read_text()
 start="void RewriteOpcodes(std::vector<u32>& code, std::span<const std::pair<u32, spv::Op>> rewrites) {"
 end="\n} // Anonymous namespace"
-assert emit.count(start)==1 and emit.count(end)==1
-method=start+emit.split(start,1)[1].split(end,1)[0]
+# RewriteOpcodes now precedes another native Task/Mesh helper. Use
+# the immediate function closing brace, not the anonymous-namespace end.
+boundary="\n}\n// Sirit 1.0.5 does not expose the SPV_EXT_mesh_shader"
+assert emit.count(start)==1 and emit.count(boundary)==1
+method=start+emit.split(start,1)[1].split(boundary,1)[0]+"\n}"
 test=r"""
 #include <algorithm>
 #include <array>
