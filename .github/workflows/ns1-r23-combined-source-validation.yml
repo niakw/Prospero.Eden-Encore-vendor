@@ -1,0 +1,46 @@
+name: NS1 R23 staged vendor source tests
+on:
+  push:
+    branches: [integration/ns1-r23-e1-20261112]
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Exercise pinned source and host contracts
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os, subprocess, sys
+          cases = sorted(p for p in Path("tests").glob("*.py")
+                         if p.name.startswith(("ns1_r23_", "r23_", "c01_", "c02_", "c03_", "c04_")))
+          shard=int(os.environ["SHARD"])
+          mine=[p for i,p in enumerate(cases) if i % 4 == shard]
+          failed=[]
+          for test in mine:
+              try:
+                  r=subprocess.run([sys.executable,"-B",str(test)],
+                                   capture_output=True,text=True,timeout=120)
+              except subprocess.TimeoutExpired:
+                  failed.append((test.name,"TIMEOUT"))
+                  continue
+              if r.returncode:
+                  failed.append((test.name,(r.stdout + r.stderr)[-1800:]))
+              else:
+                  print(f"PASS {test.name}",flush=True)
+          for name,detail in failed:
+              print(f"FAIL {name}: {detail}",flush=True)
+          print(f"R23_VENDOR_TESTS checked={len(mine)} failed={len(failed)}",flush=True)
+          sys.exit(bool(failed))
+          PY
