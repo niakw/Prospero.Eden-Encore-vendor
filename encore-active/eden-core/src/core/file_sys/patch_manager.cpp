@@ -982,7 +982,7 @@ std::vector<Patch> PatchManager::GetPatches(VirtualFile update_raw) const {
     }
 
     // SDMC mod directory (RomFS LayeredFS)
-    const auto sdmc_mod_dir = fs_controller.GetSDMCModificationLoadRoot(title_id);
+    const auto sdmc_mod_dir = GetModificationLoadRoot(true);
     if (sdmc_mod_dir != nullptr) {
         std::string types;
         if (IsDirValidAndNonEmpty(FindSubdirectoryCaseless(sdmc_mod_dir, "exefs")))
