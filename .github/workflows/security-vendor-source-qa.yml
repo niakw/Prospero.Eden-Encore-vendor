@@ -53,6 +53,12 @@ jobs:
           from pathlib import Path
           ref = Path("sources/eden-cpm/boost/boost-1.90.0/libs/url/doc/lib/cpp-reference.js").read_text()
           assert "spawnOpts.shell = false" in ref and "shell: true" not in ref
+          assert "spawn(executable" not in ref and "spawn(cmd" not in ref
+          for literal in ("spawn('git', argv, spawnOpts)",
+                          "spawn('tar', argv, spawnOpts)",
+                          "spawn('7z', argv, spawnOpts)"):
+              assert literal in ref, literal
+          assert "spawn(IS_WIN ? 'mrdocs.exe' : 'mrdocs', argv, spawnOpts)" in ref
           docs = Path("sources/eden-cpm/boost/boost-1.90.0/libs/url/doc/generate-files.mjs").read_text()
           assert "execSync(" not in docs and "execFileSync(" in docs
           print("SECURITY_SHELL_INJECTION_PASS")
