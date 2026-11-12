@@ -155,11 +155,14 @@
             }
             parent = parent.find('> li:last > ul');
         }
+        // Treat TOC text and IDs as data, never as HTML markup.
+        var item = $('<li>');
         if (id) {
-            parent.append('<li><a href="#' + id + '">' + text + '</a></li>');
+            item.append($('<a>').attr('href', '#' + encodeURIComponent(id)).text(text));
         } else {
-            parent.append('<li>' + text + '</li>');
+            item.text(text);
         }
+        parent.append(item);
     };
 
     $.fn.toc.defaults = {exclude: 'h1, h5, h6'}

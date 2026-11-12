@@ -1,0 +1,58 @@
+name: Security vendor Python JS and dependency source QA
+on:
+  push:
+    branches: [security/codeql-dependabot-triage-20261112]
+  pull_request:
+    paths:
+      - 'sources/**'
+      - '.github/workflows/security-vendor-source-qa.yml'
+permissions:
+  contents: read
+jobs:
+  syntax-and-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Python safety and syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            sources/ps5-mesa/bin/nir-test-runner.py \
+            sources/opengl-mesa-26-2/bin/nir-test-runner.py \
+            sources/harfbuzz/test/shape/hb_test_tools.py \
+            sources/eden-cpm/boost/boost-1.90.0/libs/mpl/preprocessed/pp.py
+          # The archived Boost Quickbook/litre scripts are Python-2 syntax.
+          # Never pretend Python-3 compilation qualifies their legacy CLI.
+          grep -Fq "re.compile" sources/eden-cpm/boost/boost-1.90.0/tools/quickbook/test/python/run_tests.py
+          grep -Fq "tempfile.mkstemp" sources/eden-cpm/boost/boost-1.90.0/tools/litre/cplusplus.py
+          python3 - <<'PY'
+          from pathlib import Path
+          deps = Path("sources/ps5-mihawkgen/train/requirements.txt").read_text()
+          assert "pillow==13.0.0" in deps and "pillow==12.3.0" not in deps
+          opus = Path("sources/eden-cpm/opus/a3f0ec02b3/dnn/torch/osce/requirements.txt").read_text()
+          assert "gitpython==3.2.1" in opus and "torch==2.15.0" in opus
+          assert "torchaudio==2.11.0" in opus
+          print("SECURITY_PIP_REQUIREMENTS_PASS")
+          PY
+      - name: JS syntax and shell construction
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check sources/eden-cpm/boost/boost-1.90.0/libs/url/doc/generate-files.mjs
+          node --check sources/eden-cpm/boost/boost-1.90.0/libs/url/doc/lib/cpp-reference.js
+          node --check sources/eden-cpm/boost/boost-1.90.0/libs/numeric/ublas/doc/js/jquery.toc-gw.js
+          node --check sources/eden-cpm/vulkanmemoryallocator/v3.3.0/docs/html/dynsections.js
+          python3 - <<'PY'
+          from pathlib import Path
+          ref = Path("sources/eden-cpm/boost/boost-1.90.0/libs/url/doc/lib/cpp-reference.js").read_text()
+          assert "spawnOpts.shell = false" in ref and "shell: true" not in ref
+          docs = Path("sources/eden-cpm/boost/boost-1.90.0/libs/url/doc/generate-files.mjs").read_text()
+          assert "execSync(" not in docs and "execFileSync(" in docs
+          print("SECURITY_SHELL_INJECTION_PASS")
+          PY
+      - name: Verify no whitespace damage
+        run: git diff --check

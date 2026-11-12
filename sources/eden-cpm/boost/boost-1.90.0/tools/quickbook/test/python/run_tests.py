@@ -147,7 +147,7 @@ def load_dependencies(filename):
     return dependencies
 
 def load_locations(filename):
-    line_matcher = re.compile("^([+-g]) (.*)$")
+    line_matcher = re.compile("^([+g-]) (.*)$")
     dependencies = {}
     f = open(filename, 'r')
     glob = None

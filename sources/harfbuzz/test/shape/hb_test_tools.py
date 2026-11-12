@@ -69,7 +69,7 @@ class ColorFormatter:
 
 class DiffColorizer:
 
-	diff_regex = re.compile ('([a-za-z0-9_]*)([^a-za-z0-9_]?)')
+	diff_regex = re.compile ('([a-z0-9_]*)([^a-z0-9_]?)')
 
 	def __init__ (self, formatter, colors=diff_colors, symbols=diff_symbols):
 		self.formatter = formatter

@@ -189,9 +189,15 @@ let codefold = {
       // replace minus with plus symbol
       $(line).find('span[class=fold]').css('background-image',codefold.plusImg[relPath]);
       // append ellipsis
-      $(line).append(' '+start+'<a href="javascript:codefold.toggle(\''+id+'\')">&#8230;</a>'+end);
-      // insert constructed line into closed div
-      $('#foldclosed'+id).html(line);
+      $(line).append(document.createTextNode(' ' + (start || '')));
+      $('<a>').attr('href', '#').text('…').on('click', function(event) {
+        event.preventDefault();
+        codefold.toggle(id);
+      }).appendTo(line);
+      $(line).append(document.createTextNode(end || ''));
+      // Keep cloned line nodes; never parse interpolated HTML.
+      const target = document.getElementById('foldclosed' + id);
+      if (target) $(target).empty().append(line);
     });
   },
 };

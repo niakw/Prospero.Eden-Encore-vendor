@@ -720,13 +720,16 @@ use-project /boost : $(BOOST_ROOT) ;
 
     def _source_file_path(self, source_file, source_suffix):
         if source_file is None:
-            cpp = tempfile.mktemp(suffix=source_suffix)
+            fd, cpp = tempfile.mkstemp(suffix=source_suffix)
+            os.close(fd)
         else:
             cpp = os.path.join(tempfile.gettempdir(), source_file)
         return cpp
     
     def _output_file_path(self, source_file, extension):
-        return tempfile.mktemp(suffix=extension)
+        fd, output = tempfile.mkstemp(suffix=extension)
+        os.close(fd)
+        return output
 
     def _unlink(self, file):
         file = expand_vars(file)

@@ -66,7 +66,7 @@ def handle_inline_args(match):
     if len(match.group(0)) < max_len:
         return match.group(0)
 
-    if match.group(9) == None:
+    if match.group(5) == None:
         return '%s%s<\n%s>\n'\
             % (
                   match.group(1)
@@ -82,18 +82,18 @@ def handle_inline_args(match):
               match.group(1)
             , match.group(3)
             , block_format(
-                 (nearest_ident_pos(match.group(1))+ident,max_len-len(match.group(9)))
+                 (nearest_ident_pos(match.group(1))+ident,max_len-len(match.group(5)))
                 , match.group(4)
                 )
             , str.replace(match.group(1),',',' ')
-            , match.group(9)
+            , match.group(5)
           )
 
 def handle_simple_list(match):
     if match.group(1) == 'template':
         return match.group(0)
 
-    single_arg = re.compile('^\s*(\w|\d)+\s*$').match(match.group(2))
+    single_arg = re.compile(r'^[ \t]*\w+[ \t]*$').match(match.group(2))
     return if_else(single_arg,'%s<%s>','%s< %s >') %\
         (
           match.group(1)
@@ -161,18 +161,18 @@ class pretty:
         self.re_assign = re.compile(r'(\S+[^<|^!|^>])\s*(=+)\s*(\S+)')
         self.re_marked_empty_comment = re.compile(r'^\s*//\s*$')
         self.re_typedef = re.compile(r'^\s+typedef\s+.*?;$')
-        self.re_nsl = re.compile(r'^(\s+typedef\s+.*?;|\s*(private|public):\s*|\s*{\s*|\s*(\w|\d|,)+\s*)$')
+        self.re_nsl = re.compile(r'^([ \t]+typedef[ \t]+[^;\r\n]*;|[ \t]*(private|public):[ \t]*|[ \t]*\{[ \t]*|[ \t]*[\w,]+[ \t]*)$')
         self.re_templ_decl = re.compile(r'^(\s*template\s*<\s*.*?|\s*(private|public):\s*)$')
         self.re_type_const = re.compile(r'(const)\s+((unsigned|signed)?(bool|char|short|int|long))')
         #self.re_templ_args = re.compile(r'^(\s*)(, | {2})((.*::.*?,?)+)\s*$')
-        self.re_templ_args = re.compile(r'^(\s*)(, | {2})((\s*(\w+)(\s+|::)\w+\s*.*?,?)+)\s*$')
+        self.re_templ_args = re.compile(r'^([ \t]*)(, | {2})([^;\r\n]*\w+(?:[ \t]+|::)\w+[^;\r\n]*)[ \t]*$')
         self.re_inline_templ_args = re.compile(
-            r'^(\s+(,|:\s+)?|struct\s+)(\w+)\s*<((\s*(typename\s+)?\w+\s*(=\s*.*|<(\s*\w+\s*,?)+>\s*)?,?)+)\s*>\s+((struct|class).*?)?$'
+            r'^([ \t]+(,|:[ \t]+)?|struct[ \t]+)(\w+)[ \t]*<([^<>\r\n]*)>[ \t]*((?:struct|class)[^\r\n]*)?$'
             )
 
-        self.re_simple_list = re.compile(r'(\w+)\s*<((\w|,| |-)+)>')
+        self.re_simple_list = re.compile(r'(\w+)[ \t]*<([\w, -]+)>')
         self.re_static_const = re.compile(r'(\s*)((BOOST_STATIC_CONSTANT\(\s*\w+,\s*|enum\s*\w*\s*{\s*)value\s*=)(.*?)([}|\)];)$')
-        self.re_typedefs = re.compile(r'(\s*)((\s*typedef\s*.*?;)+)\s*$')
+        self.re_typedefs = re.compile(r'([ \t]*)((?:[ \t]*typedef[ \t]+[^;\r\n]*;)+)[ \t]*$')
         self.re_fix_angle_brackets = re.compile( r'(>(\s*>)+)(,|\n$)' )
         self.re_closing_curly_brace = re.compile(r'^(}|struct\s+\w+);\s*$')
         self.re_namespace_scope_templ = re.compile(r'^template\s*<\s*$')
@@ -229,6 +229,13 @@ class pretty:
             # skip empty line after typedef
             if self.re_nsl.match(self.prev_line):
                 return
+
+        # Vendored documentation formatter: skip pathological long lines rather
+        # than applying regular expressions to attacker-controlled template data.
+        if len(line) > 2048:
+            self.output.write(line)
+            self.prev_line = line
+            return
 
         # formatting
         line = self.re_comma.sub( r'\1, ', line )
