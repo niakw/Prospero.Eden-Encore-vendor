@@ -65,7 +65,7 @@ const IsaRow* FindOpcodeRow(u32 op12) {
 int FirstUnreviewedBit(const Instruction& instruction, const IsaRow& row) {
     for (u32 i = 0; i != 4; ++i) {
         const u32 unknown = instruction.words[i] & ~row.known[i];
-        if (unknown) return static_cast<int>(i * 32 + std::countr_zero(unknown));
+        if (unknown) return static_cast<int>(i * 32U + static_cast<u32>(std::countr_zero(unknown)));
     }
     return -1;
 }
