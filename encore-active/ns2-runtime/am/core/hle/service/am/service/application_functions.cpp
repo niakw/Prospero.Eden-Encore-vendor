@@ -379,7 +379,9 @@ Result IApplicationFunctions::GetPseudoDeviceId(Out<Common::UUID> out_pseudo_dev
     // SHA-1 must be exactly 20 bytes. Passing EVP_MAX_MD_SIZE (64) to
     // std::span<u8, 20> violates the fixed-extent constructor contract.
     R_UNLESS(ok && hash_len == 20, ResultUnknown);
-    *out_pseudo_device_id = Common::UUID::MakeRFC4122V5(std::span<u8, 20>{hash, 20});
+    // The maintained UUID ABI consumes the first 16 octets of the verified
+    // 20-byte SHA-1 digest when constructing the RFC 4122 v5 UUID.
+    *out_pseudo_device_id = Common::UUID::MakeRFC4122V5(std::span<u8, 16>{hash, 16});
     R_SUCCEED();
 }
 
