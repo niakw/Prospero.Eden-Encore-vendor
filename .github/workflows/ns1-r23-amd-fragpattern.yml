@@ -1,4 +1,4 @@
-name: NS1 R23 AMD RADV fragment shuffle pattern regression
+name: NS1 R23 fragment shuffle shader regression
 on:
   push:
     branches:
