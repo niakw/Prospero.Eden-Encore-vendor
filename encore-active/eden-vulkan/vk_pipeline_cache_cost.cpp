@@ -37,6 +37,7 @@
 #include "core/core.h"
 #include "shader_recompiler/backend/spirv/emit_spirv.h"
 #include "shader_recompiler/environment.h"
+#include "shader_recompiler/ir_opt/passes.h"
 #include "shader_recompiler/frontend/maxwell/control_flow.h"
 #include "shader_recompiler/frontend/maxwell/translate_program.h"
 #include "shader_recompiler/runtime_info.h"
@@ -1735,6 +1736,17 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
             auto& program_va{programs[0]};
             auto program_vb{([&] { auto cost = Eden::Performance::VulkanTimer(21); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderIr, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return TranslateProgram(pools.inst, pools.block, env, cfg, host_info); }())};
             programs[index] = MergeDualVertexPrograms(program_va, program_vb, env);
+        }
+
+        // Avoid compiling a known-broken fragment shuffle sourced from
+        // PositionXY on non-NVIDIA drivers (notably RADV/RDNA2). Recognize
+        // the IR pattern, not a broad title or vendor blacklist.
+        if (device.GetDriverID() != VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
+            Shader::Optimization::HasBrokenPattern(programs[index])) {
+            LOG_WARNING(Render_Vulkan,
+                        "0x{:016x}: skipping fragment shuffle with known driver issue",
+                        key.unique_hashes[index]);
+            return nullptr;
         }
 
         if (Settings::values.dump_guest_shaders) {
