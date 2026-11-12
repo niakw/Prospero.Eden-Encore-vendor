@@ -334,6 +334,10 @@ struct System::Impl {
 
         if (!app_loader) {
             LOG_CRITICAL(Core, "Failed to obtain loader for {}!", filepath);
+            // The kernel was initialized before loader admission. Leaving it
+            // alive retains lists into device memory already being destroyed,
+            // and can crash during failed-launch teardown or next title.
+            ShutdownMainProcess();
             return SystemResultStatus::ErrorGetLoader;
         }
 
