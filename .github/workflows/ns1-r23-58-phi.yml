@@ -1,0 +1,23 @@
+name: NS1 R23 conditional Phi bindless source and diamond host test
+on:
+  push:
+    branches:
+      - research/ns1-r23-conditional-phi-bindless-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-shader/include/shader_recompiler/frontend/ir/breadth_first_search.h"
+      - "encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp"
+      - "tests/ns1_r23_58_conditional_phi.py"
+      - ".github/workflows/ns1-r23-58-phi.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  coherent-bindless-graph:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_58_conditional_phi.py
