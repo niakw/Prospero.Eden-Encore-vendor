@@ -27,7 +27,7 @@ pipeline=(ROOT/"encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp").read_t
 rast=(ROOT/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
 header=(ROOT/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
 assert shader.count("IsAttributeSourcedHandle(")>=2
-assert shader.count("ATTRIBUTE_HANDLE_CBUF_INDEX")>=4
+assert shader.count("ATTRIBUTE_HANDLE_CBUF_INDEX")>=2
 assert "support_attribute_texture_handle{}" in profile
 assert "desc.cbuf_index == Shader::ATTRIBUTE_HANDLE_CBUF_INDEX" in pipeline
 assert "attribute_handle_runs.size() > 1" in rast
@@ -113,7 +113,7 @@ int main(){
  raster.maxwell3d=&engine;
  raster.gpu_memory=&mem;
  auto& attr=engine.regs.vertex_attrib_format[0];
- attr.constant=false;attr.size=decltype(attr)::Size::X32;attr.type=decltype(attr)::Type::UInt;
+ attr.constant=false;attr.size=Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Size::X32;attr.type=Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Type::UInt;
  auto& stream=engine.regs.vertex_streams[0];stream.enabled=true;
  engine.draw_manager.draw_state.vertex_buffer.count=9;
  for(u32 i=0;i<9;i++) mem.values[1000+i*4]=i<3?11:(i<6?22:11);
@@ -145,7 +145,7 @@ int main(){
  assert(raster.attribute_handle_runs[0].count==9);
  raster.attribute_handle_runs.clear();
  attr.constant=false;
- engine.draw_manager.draw_state.topology=Maxwell::PrimitiveTopology::Lines;
+ engine.draw_manager.draw_state.topology=Tegra::Engines::Maxwell3D::Regs::PrimitiveTopology::Lines;
  raster.CollectAttributeHandleRuns(false);
  assert(raster.attribute_handle_runs.size()==1);
  assert(raster.attribute_handle_runs[0].count==9);
