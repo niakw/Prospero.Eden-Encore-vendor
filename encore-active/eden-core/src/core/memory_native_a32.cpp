@@ -946,6 +946,14 @@ Memory::Memory(Core::System& system_) : system{system_} {
 
 Memory::~Memory() = default;
 
+#ifdef PS5_NATIVE
+bool Memory::ReadyForAudioRead() const noexcept {
+    // Guard the same selected page-table owner as native GetSpan.
+    // AudioOut will enqueue silence until the owning process has mapped memory.
+    return impl && impl->current_page_table != nullptr;
+}
+#endif
+
 void Memory::Reset() {
     impl = std::make_unique<Impl>(system);
 }
