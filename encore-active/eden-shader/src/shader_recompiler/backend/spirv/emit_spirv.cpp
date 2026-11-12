@@ -310,6 +310,31 @@ void DefineEntryPoint(const IR::Program& program, EmitContext& ctx, Id main) {
             }
         }
         break;
+    case Stage::Task:
+    case Stage::Mesh: {
+        const auto& size = program.workgroup_size;
+        if (size[0] == 0 || size[1] == 0 || size[2] == 0) {
+            throw NotImplementedException("Invalid native Task/Mesh shader dimensions");
+        }
+        execution_model = program.stage == Stage::Task ? spv::ExecutionModel::TaskEXT
+                                                        : spv::ExecutionModel::MeshEXT;
+        ctx.AddExecutionMode(main, spv::ExecutionMode::LocalSize, size[0], size[1], size[2]);
+        if (program.stage == Stage::Mesh) {
+            // The native stage-buffer emitter currently writes triangle indices
+            // (u32x3). Reject other guest topologies rather than advertise
+            // incompatible SPIR-V mesh outputs.
+            if (program.mesh.topology != 4U) {
+                throw NotImplementedException("Unsupported native Mesh topology {}",
+                                              program.mesh.topology);
+            }
+            ctx.AddExecutionMode(main, spv::ExecutionMode::OutputTrianglesEXT);
+            ctx.AddExecutionMode(main, spv::ExecutionMode::OutputVertices,
+                                 program.mesh.max_vertices);
+            ctx.AddExecutionMode(main, spv::ExecutionMode::OutputPrimitivesEXT,
+                                 program.mesh.max_primitives);
+        }
+        break;
+    }
     case Stage::Fragment:
         execution_model = spv::ExecutionModel::Fragment;
         if (ctx.profile.lower_left_origin_mode) {
@@ -548,6 +573,65 @@ void RewriteOpcodes(std::vector<u32>& code, std::span<const std::pair<u32, spv::
         offset += word_count;
     }
 }
+// Sirit 1.0.5 does not expose the SPV_EXT_mesh_shader terminal/output
+// instructions. The native mesh emitter reserves exact OpStore sentinels;
+// replace only those verified sentinels after assembly. Do not leave invalid
+// OpStores in the output or silently accept multiple/absent terminal markers.
+void PatchMeshInstructions(std::vector<u32>& code, const EmitContext& ctx) {
+    if (ctx.stage != Stage::Task && ctx.stage != Stage::Mesh) {
+        return;
+    }
+    const u32 store = (3U << 16) | static_cast<u32>(spv::Op::OpStore);
+    const u32 ret = (1U << 16) | static_cast<u32>(spv::Op::OpReturn);
+    std::vector<u32> patched;
+    patched.reserve(code.size() + 2);
+    patched.insert(patched.end(), code.begin(), code.begin() + 5);
+    u32 replacements = 0;
+    for (size_t pos = 5; pos < code.size();) {
+        const size_t count = code[pos] >> 16;
+        if (count == 0 || count > code.size() - pos) {
+            throw LogicError("Malformed native Task/Mesh SPIR-V instruction");
+        }
+        if (ctx.stage == Stage::Task && pos + 6 < code.size() &&
+            code[pos] == store &&
+            code[pos + 1] == ctx.mesh_tasks_marker[0].value &&
+            code[pos + 2] == ctx.mesh_tasks_marker[1].value &&
+            code[pos + 3] == store &&
+            code[pos + 4] == ctx.mesh_tasks_marker[1].value &&
+            code[pos + 5] == ctx.mesh_tasks_marker[3].value) {
+            // OpEmitMeshTasksEXT is a terminator; Sirit's synthetic OpReturn
+            // must not remain in the same basic block after emission.
+            if (code[pos + 6] != ret) {
+                throw LogicError("Native Task emitter has no terminal return");
+            }
+            patched.insert(patched.end(), {
+                (5U << 16) | static_cast<u32>(spv::Op::OpEmitMeshTasksEXT),
+                ctx.mesh_tasks_marker[0].value, ctx.mesh_tasks_marker[1].value,
+                ctx.mesh_tasks_marker[2].value, ctx.mesh_tasks_marker[3].value
+            });
+            pos += 7;
+            ++replacements;
+            continue;
+        }
+        if (ctx.stage == Stage::Mesh && code[pos] == store &&
+            code[pos + 1] == ctx.mesh_outputs_marker[0].value &&
+            code[pos + 2] == ctx.mesh_outputs_marker[1].value) {
+            patched.insert(patched.end(), {
+                (3U << 16) | static_cast<u32>(spv::Op::OpSetMeshOutputsEXT),
+                ctx.mesh_outputs_marker[0].value, ctx.mesh_outputs_marker[1].value
+            });
+            pos += 3;
+            ++replacements;
+            continue;
+        }
+        patched.insert(patched.end(), code.begin() + pos, code.begin() + pos + count);
+        pos += count;
+    }
+    if (replacements != 1) {
+        throw LogicError("Missing or repeated native Task/Mesh SPIR-V marker");
+    }
+    code.swap(patched);
+}
 } // Anonymous namespace
 
 std::vector<u32> EmitSPIRV(const Profile& profile, const RuntimeInfo& runtime_info, IR::Program& program, Bindings& bindings) {
@@ -564,6 +648,7 @@ std::vector<u32> EmitSPIRV(const Profile& profile, const RuntimeInfo& runtime_in
     PatchPhiNodes(program, ctx);
     std::vector<u32> code{ctx.Assemble()};
     RewriteOpcodes(code, ctx.opcode_rewrites);
+    PatchMeshInstructions(code, ctx);
     return code;
 }
 
