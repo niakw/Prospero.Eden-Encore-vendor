@@ -57,8 +57,11 @@ assert "GetMaxSubgroupSize() const" in (vk/"include/video_core/vulkan_common/vul
 emit=(shader/"backend/spirv/emit_spirv.cpp").read_text()
 start="void RewriteOpcodes(std::vector<u32>& code, std::span<const std::pair<u32, spv::Op>> rewrites) {"
 end="\n} // Anonymous namespace"
-assert emit.count(start)==1 and emit.count(end)==1
-method=start+emit.split(start,1)[1].split(end,1)[0]
+# RewriteOpcodes now precedes another native Task/Mesh helper. Use
+# the immediate function closing brace, not the anonymous-namespace end.
+boundary="\n}\n// Sirit 1.0.5 does not expose the SPV_EXT_mesh_shader"
+assert emit.count(start)==1 and emit.count(boundary)==1
+method=start+emit.split(start,1)[1].split(boundary,1)[0]+"\n}"
 test=r"""
 #include <algorithm>
 #include <array>
