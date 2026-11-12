@@ -1,0 +1,25 @@
+name: NS1 R23 IStorage pacing without service microsleep (host)
+on:
+  push:
+    branches:
+      - research/ns1-r23-nvdec-storage-pacing-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/core/hle/service/filesystem/fsp/fs_i_storage.cpp"
+      - "encore-active/eden-core/include/core/hle/service/filesystem/fsp/fs_i_storage.h"
+      - "encore-active/eden-core/src/core/hle/service/service.cpp"
+      - "encore-active/eden-core/include/core/hle/service/service.h"
+      - "tests/ns1_r23_54_storage_pacing.py"
+      - ".github/workflows/ns1-r23-storage-paced.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  no-global-microsleep:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_54_storage_pacing.py
