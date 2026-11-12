@@ -149,6 +149,13 @@ public:
         return configure_func(this, is_indexed);
     }
 
+    [[nodiscard]] bool UsesAttributeHandle() const noexcept {
+        return uses_attribute_handle;
+    }
+    void SetAttributeHandle(u32 handle) noexcept {
+        attribute_handle = handle;
+    }
+
     [[nodiscard]] GraphicsPipeline* Next(const GraphicsPipelineCacheKey& current_key) noexcept {
         if (key == current_key) {
             return this;
@@ -264,6 +271,8 @@ private:
     u32 num_descriptor_entries{};
     size_t num_image_elements{};
     u32 num_textures{};
+    u32 attribute_handle{};
+    bool uses_attribute_handle{};
     // Immutable shader layout: no UBO/SSBO/TBO means no host buffer work.
     std::array<bool, NUM_STAGES> stage_has_host_buffer_bindings{};
     std::array<bool, NUM_STAGES> stage_has_image_bindings{};

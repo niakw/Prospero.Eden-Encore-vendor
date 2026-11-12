@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include <boost/container/static_vector.hpp>
 
@@ -167,6 +168,18 @@ private:
 
     template <typename Func>
     void PrepareDraw(bool is_indexed, Func&&);
+
+    struct AttributeHandleRun {
+        u32 first{};
+        u32 count{};
+        u32 handle{};
+    };
+    // Each contiguous draw run owns a single texture handle supplied by a
+    // vertex attribute; never reuse a prior guest draw's handle.
+    void CollectAttributeHandleRuns(bool is_indexed);
+    std::vector<AttributeHandleRun> attribute_handle_runs;
+    GraphicsPipeline* attribute_handle_pipeline{};
+    bool split_attribute_handles{};
 
     void FlushWork();
 

@@ -1,0 +1,24 @@
+name: NS1 R23 vertex attribute bindless textures eight maintained owners
+on:
+  push:
+    branches:
+      - research/ns1-r23-attribute-texhandle-20261112
+  pull_request:
+    paths:
+      - "encore-active/eden-shader/src/shader_recompiler/**"
+      - "encore-active/eden-vulkan/**"
+      - "tests/ns1_r23_35_attribute_handle.py"
+      - ".github/workflows/ns1-r23-attribute-handle.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  attribute-handle-draw:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run source-extracted real split-draw code under ASan+UBSan
+        run: python3 -B tests/ns1_r23_35_attribute_handle.py
