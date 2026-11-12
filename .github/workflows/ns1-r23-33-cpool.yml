@@ -1,0 +1,23 @@
+name: NS1 R23 ConstantPool indexed W-X-safe host test
+on:
+  push:
+    branches:
+      - research/ns1-r23-jit-constant-pool-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/dynarmic/backend/x64/constant_pool.cpp"
+      - "encore-active/eden-core/include/dynarmic/backend/x64/constant_pool.h"
+      - "tests/ns1_r23_33_cpool_host.py"
+      - ".github/workflows/ns1-r23-33-cpool.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  no-duplicate-writable-alias:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_33_cpool_host.py

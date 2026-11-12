@@ -1,0 +1,22 @@
+name: NS1 R23 hardware composer visibility with safe fence order
+on:
+  push:
+    branches:
+      - research/ns1-r23-hwc-visible-buffer-20261112
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/core/hle/service/nvnflinger/hardware_composer.cpp"
+      - "tests/ns1_r23_64_hwc_visibility.py"
+      - ".github/workflows/ns1-r23-64-hwc-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  safe-hwc-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_64_hwc_visibility.py

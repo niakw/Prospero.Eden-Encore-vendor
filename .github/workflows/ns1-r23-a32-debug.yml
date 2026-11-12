@@ -1,0 +1,22 @@
+name: NS1 R23 A32 optimized debugger halts source guard
+on:
+  push:
+    branches:
+      - research/ns1-r23-a32-debug-halt-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/dynarmic/ir/opt_passes.cpp"
+      - "tests/ns1_r23_10_a32_debug.py"
+      - ".github/workflows/ns1-r23-a32-debug.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  a32-debug-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_10_a32_debug.py

@@ -39,7 +39,6 @@ ServiceFrameworkBase::ServiceFrameworkBase(Core::System& system_, const char* se
     : SessionRequestHandler(system_.Kernel(), service_name_)
     , system{system_}
     , service_name{service_name_}
-    , is_i_storage{std::string_view{service_name_} == "IStorage"}
     , handler_invoker{handler_invoker_}
     , max_sessions{max_sessions_}
 {}
@@ -84,9 +83,7 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(HLERequestContext& ctx,
 }
 
 void ServiceFrameworkBase::InvokeRequest(HLERequestContext& ctx) {
-    const auto command = ctx.GetCommand();
-    auto it = handlers.find(command);
-    const bool is_cmd_read = command == 0;
+    auto it = handlers.find(ctx.GetCommand());
     FunctionInfoBase const* info = it == handlers.end() ? nullptr : &it->second;
     if (info == nullptr || info->handler_callback == nullptr)
         return ReportUnimplementedFunction(ctx, info);
@@ -94,12 +91,7 @@ void ServiceFrameworkBase::InvokeRequest(HLERequestContext& ctx) {
     LOG_TRACE(Service, "{}", MakeFunctionString(info->name, GetServiceName(), ctx.CommandBuffer()));
     handler_invoker(this, info->handler_callback, ctx);
 
-    if (is_i_storage && is_cmd_read) {
-        const auto* const process = ctx.GetThread().GetOwnerProcess();
-        if (process != nullptr && system.IsNVDECActiveForProcess(process->GetId())) {
-            std::this_thread::sleep_for(std::chrono::microseconds{600});
-        }
-    }
+
 }
 
 void ServiceFrameworkBase::InvokeRequestTipc(HLERequestContext& ctx) {
