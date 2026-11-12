@@ -1490,7 +1490,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             const u32 handle = uniform_register(insn.Bits(40, 6));
             const u32 coordinates = insn.Bits(24, 8), derivatives = insn.Bits(32, 8);
             const u32 dimension = insn.Bits(61, 3), second_dest = insn.Bits(64, 8);
-            const u32 mask = insn.Bits(72, 4), channels = static_cast<u32>(std::popcount(mask));
+            const u32 mask = insn.Bits(72, 4), channels = static_cast<u32>(static_cast<u32>(std::popcount(mask)));
             const u32 register_limit = reserved_register;
             if ((dimension != 1 && dimension != 5) || insn.Bits(46, 15) ||
                 (insn.words[2] & ~0x04000fffU) != 0x081e0000U || mask == 0 ||
@@ -1522,7 +1522,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             const u32 binding = insn.Bits(54, 5), offset = insn.Bits(40, 14);
             const u32 coordinates = insn.Bits(24, 8), derivatives = insn.Bits(32, 8);
             const u32 dimension = insn.Bits(61, 3), mask = insn.Bits(72, 4);
-            const u32 channels = std::popcount(mask), second_dest = insn.Bits(64, 8);
+            const u32 channels = static_cast<u32>(std::popcount(mask)), second_dest = insn.Bits(64, 8);
             if ((insn.words[2] & ~(0xfffU | (1U << 26))) != 0x001e0000 || insn.Bits(59, 2) ||
                 (dimension != 1 && dimension != 5) || binding >= 18 || offset > 0x1fff ||
                 !mask || dest >= 248 || (channels > 1 && (dest & 1)) ||
@@ -2334,7 +2334,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 return fail(index, "native global store displacement range");
             for (u32 word = 0; word < words; ++word)
                 emit(0xeed8000000000000ULL | predicate | (data == 255 ? 255U : data + word) |
-                     (u64{address} << 8) | (u64{static_cast<u32>(displacement + word * 4) & 0xffffffU} << 20) |
+                     (u64{address} << 8) | (u64{(static_cast<u32>(displacement) + word * 4U) & 0xffffffU} << 20) |
                      (u64{extended} << 45) | (u64{4} << 48));
             }
             break;
@@ -2491,7 +2491,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 (!bindless && (insn.Bits(40, 14) > 0x1fff || binding >= 18 ||
                                (result.required_texture_buffer != ~0U && result.required_texture_buffer != binding))))
                 return fail(index, "native texture LOD query mode");
-            const u32 components = static_cast<u32>(std::popcount(mask));
+            const u32 components = static_cast<u32>(static_cast<u32>(std::popcount(mask)));
             const bool split = second_dest != 255;
             if ((dest != 255 && dest + (!split ? components : std::min(components, 2U)) > reserved_register) ||
                 (split && (components <= 2 || second_dest + components - 2 > reserved_register)) ||
@@ -2535,7 +2535,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         case 0xb63: { // TLD4.SCR.2D, selected gathered values packed across two outputs.
             const u32 binding = insn.Bits(54, 5), offset = insn.Bits(40, 14);
             const u32 second = insn.Bits(64, 8), mask = insn.Bits(72, 4);
-            const u32 count = static_cast<u32>(std::popcount(mask));
+            const u32 count = static_cast<u32>(static_cast<u32>(std::popcount(mask)));
             if (insn.Bits(61, 3) == 5 && !insn.Bits(59, 1) && insn.Bits(60, 1) && mask && !insn.Bits(76, 5) &&
                 insn.Bits(81, 3) == 7 && !insn.Bits(89, 1) && !insn.Bits(91, 1) &&
                 binding < 18 && offset <= 0x1fff &&
@@ -2630,7 +2630,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 emit(0xdd00000000000000ULL | predicate | 250 | (u64{250} << 8) |
                      (u64{253} << 20) | (u64{array ? 3U : volume ? 4U : dimension == 0 ? 0U : 2U} << 28) |
                      (u64{mask} << 31) | (u64{7} << 51) | (u64{insn.Bits(90, 1)} << 49));
-                const u32 count = std::popcount(mask);
+                const u32 count = static_cast<u32>(std::popcount(mask));
                 for (u32 component = 0; component < count; ++component)
                     copy(component < 2 ? static_cast<u32>(dest) + component : second_dest + component - 2,
                          250 + component);
@@ -2664,13 +2664,13 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             if (enable != 15) for (u32 component = 0; component < 4; ++component) {
                 emit(0xeed0000000000000ULL | (u64{enable} << 16) | (240 + component) |
                      (u64{global_address} << 8) |
-                     (u64{static_cast<u32>(global_offset + component * 4) & 0xffffffU} << 20) |
+                     (u64{(static_cast<u32>(global_offset) + component * 4U) & 0xffffffU} << 20) |
                      (u64{1} << 45) | (u64{4} << 48));
             }
             for (u32 component = 0; component < 4; ++component) {
                 emit(0xef58000000000000ULL | predicate | (240 + component) |
                      (u64{shared_address} << 8) |
-                     (u64{static_cast<u32>(shared_offset + component * 4) & 0xffffffU} << 20) |
+                     (u64{(static_cast<u32>(shared_offset) + component * 4U) & 0xffffffU} << 20) |
                      (u64{4} << 48));
             }
             emit(0xef98000000000000ULL | predicate);
@@ -2704,7 +2704,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             }
             const bool scalar = insn.Bits(60, 1);
             const u32 mask = insn.Bits(72, 4), lod = insn.Bits(87, 3);
-            const u32 second = insn.Bits(64, 8), count = std::popcount(mask);
+            const u32 second = insn.Bits(64, 8), count = static_cast<u32>(std::popcount(mask));
             const u32 limit = reserved_register;
             if ((insn.words[1] & ~0xffU) != (scalar ? 0x78000000U : 0x68000000U) ||
                 (insn.words[2] & ~(0x07800fffU)) != 0x001e0000 ||
@@ -2733,7 +2733,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         case 0xf60: { // Scalar 2D sample with a uniform bindless descriptor handle.
             const u32 a = insn.Bits(24, 8), b = insn.Bits(32, 8);
             const u32 handle = uniform_register(insn.Bits(40, 6));
-            const u32 mask = insn.Bits(72, 4), count = std::popcount(mask), second = insn.Bits(64, 8);
+            const u32 mask = insn.Bits(72, 4), count = static_cast<u32>(std::popcount(mask)), second = insn.Bits(64, 8);
             const u32 sample_lod = insn.Bits(87, 3); // explicit zero-LOD form
             if ((insn.words[1] & ~0x3fffU) != 0x30000000 || sample_lod > 1 ||
                 (insn.words[2] & ~(0x04000000U | 0x00800000U | 0xfffU)) != 0x081e0000 || !mask ||
@@ -2757,7 +2757,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         case 0xf63: { // TLD4.SCR with a packed texture handle in a uniform register.
             const u32 source_a = insn.Bits(24, 8), source_b = insn.Bits(32, 8);
             const u32 uniform_handle = insn.Bits(40, 6), second_dest = insn.Bits(64, 8);
-            const u32 mask = insn.Bits(72, 4), count = std::popcount(mask);
+            const u32 mask = insn.Bits(72, 4), count = static_cast<u32>(std::popcount(mask));
             const bool split = second_dest != 255;
             if (!insn.Bits(91, 1) || insn.Bits(46, 14) != 0 || !insn.Bits(60, 1) ||
                 insn.Bits(61, 3) != 1 || mask == 0 || insn.Bits(76, 5) != 0 || insn.Bits(81, 3) != 7 ||
@@ -2801,7 +2801,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 mask == 0 || source_a == 255 || source_a + in_a > reserved_register || source_b == 255 ||
                 source_b + (count - in_a) > reserved_register)
                 return fail(index, "native bindless texel fetch mode");
-            const u32 components = static_cast<u32>(std::popcount(mask));
+            const u32 components = static_cast<u32>(static_cast<u32>(std::popcount(mask)));
             const bool split = second_dest != 255;
             if ((dest != 255 && dest + (!split ? components : std::min(components, 2U)) > reserved_register) ||
                 (split && (components <= 2 || second_dest + components - 2 > reserved_register)) ||
@@ -2914,7 +2914,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             if (dimension == 5 && lod == 3 && !depth_compare && !split && insn.Bits(60, 1)) {
                 // Scalar 2D array with explicit LOD: {layer, x} and {y, lod}. TEXS has no
                 // ARRAY_2D.LL form, so emit TEX ARRAY_2D.LL with {layer, x, y} and {lod}.
-                const u32 components = static_cast<u32>(std::popcount(mask));
+                const u32 components = static_cast<u32>(static_cast<u32>(std::popcount(mask)));
                 if (components == 0 || components > 2 || insn.Bits(76, 2) || insn.Bits(79, 1) ||
                     insn.Bits(81, 3) != 7 || insn.Bits(59, 1) || insn.Bits(40, 14) > 0x1fff ||
                     insn.Bits(54, 5) >= 18 || source_a >= 249 || source_b >= 249 || dest + components > 255)
@@ -2935,7 +2935,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 break;
             }
             if (dimension == 1 && lod == 3 && insn.Bits(76, 2) == 1) {
-                const u32 count = static_cast<u32>(std::popcount(mask));
+                const u32 count = static_cast<u32>(static_cast<u32>(std::popcount(mask)));
                 if (!insn.Bits(60, 1) || depth_compare || !count ||
                     insn.Bits(81, 3) != 7 || insn.Bits(59, 1) ||
                     insn.Bits(40, 14) > 0x1fff || insn.Bits(54, 5) >= 18 ||
@@ -2971,9 +2971,9 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                     insn.Bits(59, 1) || insn.Bits(40, 14) > 0x1fff || insn.Bits(54, 5) >= 18 ||
                     (source_a & (scalar ? 1 : 3)) || (scalar && (source_b & 1)) ||
                     source_a >= (scalar ? 248U : 245U) || source_b >= 248 ||
-                    dest >= 248 || (std::popcount(mask) > 1 && (dest & 1)) ||
-                    (std::popcount(mask) > 2 && (!split || second_dest >= 248)) ||
-                    (std::popcount(mask) > 3 && (second_dest & 1)))
+                    dest >= 248 || (static_cast<u32>(std::popcount(mask)) > 1 && (dest & 1)) ||
+                    (static_cast<u32>(std::popcount(mask)) > 2 && (!split || second_dest >= 248)) ||
+                    (static_cast<u32>(std::popcount(mask)) > 3 && (second_dest & 1)))
                     return fail(index, "native scalar cube array sample mode");
                 const u32 binding = insn.Bits(54, 5);
                 if (result.required_texture_buffer != ~0U && result.required_texture_buffer != binding)
@@ -2990,7 +2990,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                      (u64{scalar ? 255U : source_b} << 20) | (u64{7} << 28) | (u64{mask} << 31) |
                      (u64{insn.Bits(40, 14)} << 36) | (u64{insn.Bits(90, 1)} << 49) |
                      (u64{7} << 51) | (u64{lod} << 55));
-                for (u32 component = 0; component < static_cast<u32>(std::popcount(mask)); ++component)
+                for (u32 component = 0; component < static_cast<u32>(static_cast<u32>(std::popcount(mask))); ++component)
                     copy(component < 2 ? static_cast<u32>(dest) + component : second_dest + component - 2,
                          250 + component);
                 break;
@@ -3012,7 +3012,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             }
             const bool aoffi = insn.Bits(76, 1);
             if (dimension == 1 && (lod == 2 || (lod <= 1 && (mask == 5 || mask == 6 || aoffi)))) {
-                const u32 count = std::popcount(mask), binding = insn.Bits(54, 5);
+                const u32 count = static_cast<u32>(std::popcount(mask)), binding = insn.Bits(54, 5);
                 if (half || depth_compare || !mask || !insn.Bits(60, 1) || insn.Bits(77, 1) || (aoffi && lod > 1) ||
                     insn.Bits(81, 3) != 7 || insn.Bits(59, 1) || insn.Bits(40, 14) > 0x1fff ||
                     binding >= 18 || ((lod == 2 || aoffi) && (source_a & 1)) || source_a >= 248 || source_b >= 248 ||
@@ -3094,7 +3094,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             if ((dimension == 3 && (lod == 0 || lod == 1 || lod == 3)) || (dimension == 2 && (lod <= 1 || (lod == 2 && !LowerGroupDisabled("cube3d_lod"))))) {
                 // 3D bias (lod 2) takes the bias value from the register after Z, like cube explicit LOD.
                 const bool lod_register = (dimension == 3 && lod == 3) || (dimension == 2 && lod == 2);
-                const u32 components = static_cast<u32>(std::popcount(mask));
+                const u32 components = static_cast<u32>(static_cast<u32>(std::popcount(mask)));
                 if (!insn.Bits(60, 1) || depth_compare || components == 0 ||
                     insn.Bits(76, 2) || insn.Bits(81, 3) != 7 ||
                     insn.Bits(59, 1) || insn.Bits(40, 14) > 0x1fff || insn.Bits(54, 5) >= 18 ||
@@ -3170,7 +3170,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                      (u64{mask} << 31) | (u64{insn.Bits(40, 14)} << 36) |
                      (u64{insn.Bits(90, 1)} << 49) | (u64{depth_compare} << 50) | (u64{7} << 51) |
                      (u64{offsets} << 54) | (u64{lod} << 55));
-                const u32 components = static_cast<u32>(std::popcount(mask));
+                const u32 components = static_cast<u32>(static_cast<u32>(std::popcount(mask)));
                 if (insn.Bits(79, 1)) {
                     // FP16 results: (c0, c1) packed into the first destination, (c2, c3) into
                     // the second (F2F writes the half in the low 16 bits; ISCADD merges).
@@ -3231,7 +3231,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 emit(0xde80000000000000ULL | predicate | 250 | (u64{250} << 8) |
                      (u64{253} << 20) | (u64{2} << 28) | (u64{mask} << 31) |
                      (u64{lod} << 37) | (u64{7} << 51) | (u64{insn.Bits(90, 1)} << 49));
-                const u32 count = std::popcount(mask);
+                const u32 count = static_cast<u32>(std::popcount(mask));
                 for (u32 component = 0; component < count; ++component)
                     copy(component < 2 ? static_cast<u32>(dest) + component : second_dest + component - 2,
                          250 + component);
@@ -4231,10 +4231,10 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                     (back.words[2] & ~0x3ffffU) == 0x03800000 &&
                     scope_start >= 0 && back_target >= scope_start && back_target % 16 == 0 && back_target < s64{index} * 16 &&
                     join >= index + 2 && join < static_cast<s64>(code.size()) &&
-                    code[join].words[0] == ((barrier_tokens.back() << 16) | 0x7941U) &&
-                    code[join].words[1] == 0 && code[join].words[2] == 0x03800000;
+                    code[static_cast<std::size_t>(join)].words[0] == ((barrier_tokens.back() << 16) | 0x7941U) &&
+                    code[static_cast<std::size_t>(join)].words[1] == 0 && code[static_cast<std::size_t>(join)].words[2] == 0x03800000;
                 for (s64 cursor = index + 2; cleanup && cursor < join;) {
-                    const auto& move = code[cursor];
+                    const auto& move = code[static_cast<std::size_t>(cursor)];
                     if ((move.words[0] & ~0x00ff0000U) == 0x7202 &&
                         move.words[1] <= 255 && move.words[2] == 0xf00) {
                         ++cursor;
@@ -4506,8 +4506,8 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 if ((branches_to(index + 1, native_predicate, join) || split_exit) &&
                     join >= barrier_targets.back() && join % 16 == 0 &&
                     static_cast<u64>(join / 16) < code.size() &&
-                    code[join / 16].words[0] == ((barrier_tokens[barrier_tokens.size() - 2] << 16) | 0x7941) &&
-                    code[join / 16].words[1] == 0 && code[join / 16].words[2] == 0x03800000) {
+                    code[static_cast<std::size_t>(join / 16)].words[0] == ((barrier_tokens[barrier_tokens.size() - 2] << 16) | 0x7941) &&
+                    code[static_cast<std::size_t>(join / 16)].words[1] == 0 && code[static_cast<std::size_t>(join / 16)].words[2] == 0x03800000) {
                     // The parent SYNC discards this canceled inner PBK token.
                     break;
                 }
@@ -4640,14 +4640,14 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             const s64 target = s64{branch_index + 1} * 16 + static_cast<s32>(branch.words[1]);
             const s64 join = barrier_targets.front() - 16;
             const s64 inner_end = *std::max_element(barrier_targets.begin() + 1, barrier_targets.end());
-            if (target < inner_end || target > join || target % 16 || join < 0 || join % 16 ||
+            if (inner_end < 0 || target < inner_end || target > join || target % 16 || join < 0 || join % 16 ||
                 static_cast<u64>(join / 16) >= code.size() ||
-                code[join / 16].words[0] != ((barrier_tokens.front() << 16) | 0x7941) ||
-                code[join / 16].words[1] || code[join / 16].words[2] != 0x03800000 ||
+                code[static_cast<std::size_t>(join / 16)].words[0] != ((barrier_tokens.front() << 16) | 0x7941) ||
+                code[static_cast<std::size_t>(join / 16)].words[1] || code[static_cast<std::size_t>(join / 16)].words[2] != 0x03800000 ||
                 (barrier_tokens.size() == 2 && target != join && !split_exit))
                 return false;
             for (s64 at = (split_exit ? target : inner_end) / 16; target != join && at < join / 16; ++at) {
-                const auto& exit = code[at];
+                const auto& exit = code[static_cast<std::size_t>(at)];
                 const u32 op = exit.Bits(0, 12);
                 if (op == 0x947) {
                     const u64 raw = exit.words[1] | (u64{exit.words[2] & 0x3ffff} << 32);
