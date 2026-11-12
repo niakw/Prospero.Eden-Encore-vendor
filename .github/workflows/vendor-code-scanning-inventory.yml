@@ -7,6 +7,9 @@ on:
     paths:
       - '.github/workflows/vendor-code-scanning-inventory.yml'
       - '.github/scripts/inventory-code-scanning-alerts.py'
+      - 'sources/eden-cpm/boost/boost-1.90.0/libs/**'
+      - 'sources/ps5-mesa/bin/ci/test/requirements.txt'
+      - 'sources/opengl-mesa-26-2/bin/ci/test/requirements.txt'
   schedule:
     - cron: '52 4 * * 3'
 
