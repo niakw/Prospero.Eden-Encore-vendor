@@ -1,0 +1,23 @@
+name: R23 current AM overlay and bindless conditional phi tests
+on:
+  push:
+    branches: [integration/residual-am-phi-tests-20261112]
+  pull_request:
+    paths:
+      - 'tests/ns1_r23_97_overlay_z.py'
+      - 'tests/ns1_r23_58_bindless_phi.py'
+      - 'encore-active/eden-core/src/core/hle/service/am/window_system.cpp'
+      - 'encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp'
+      - '.github/workflows/qualify-am-phi-current.yml'
+permissions:
+  contents: read
+jobs:
+  source-and-fixture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_97_overlay_z.py
+      - run: python3 -B tests/ns1_r23_58_bindless_phi.py
