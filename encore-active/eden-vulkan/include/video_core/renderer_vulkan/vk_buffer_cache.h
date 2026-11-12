@@ -264,9 +264,16 @@ public:
 
     void BindTextureBuffer(Buffer& buffer, u32 offset, u32 size,
                            VideoCore::Surface::PixelFormat format) {
-        guest_descriptor_queue.AddTexelBuffer(buffer.View(offset, size, format),
-                                              buffer.DeviceAddress(), offset, size,
-                                              TexelBufferFormat(format));
+        // In descriptor-buffer mode there is no VkBufferView: creating one
+        // before checking a missing address can attempt SurfaceFormat(255).
+        // Match Eden upstream 3e6a5566 while keeping legacy views intact.
+        if (guest_descriptor_queue.UsesDescriptorBuffer()) {
+            const VkDeviceAddress address = buffer.DeviceAddress();
+            const VkFormat vk_format = address == 0 ? VK_FORMAT_UNDEFINED : TexelBufferFormat(format);
+            guest_descriptor_queue.AddTexelBuffer(VK_NULL_HANDLE, address, offset, size, vk_format);
+        } else {
+            guest_descriptor_queue.AddTexelBuffer(buffer.View(offset, size, format));
+        }
     }
 
     bool ShouldLimitDynamicStorageBuffers() const {
