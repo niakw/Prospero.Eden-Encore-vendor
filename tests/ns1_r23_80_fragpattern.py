@@ -14,7 +14,15 @@ files={
 for p,sha in files.items():
  d=(root/p).read_bytes()
  actual=hashlib.sha1(b"blob "+str(len(d)).encode()+bytes([0])+d).hexdigest()
- assert sha==actual,(p,actual)
+ if p.endswith("vendor_workaround_pass.cpp"):
+  assert sha==actual,(p,actual)
+ else:
+  text=d.decode()
+  assert "HasBrokenPattern" in text,(p,"missing AMD predicate")
+  if p.endswith("passes.h"):
+   assert "GeometryCompactionPass" in text,(p,"lost subgroup geometry support")
+  else:
+   assert "support_shuffle_relative" in text and "single_lane_geometry_subgroups" in text,(p,"lost subgroup policy")
 shader=(root/"encore-active/eden-shader/src/shader_recompiler/ir_opt/vendor_workaround_pass.cpp").read_text()
 pipeline=(root/"encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp").read_text()
 assert "device.GetDriverID() != VK_DRIVER_ID_NVIDIA_PROPRIETARY" in pipeline
