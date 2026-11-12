@@ -70,7 +70,6 @@ struct GPU::Impl {
     std::shared_ptr<Control::ChannelState> CreateChannel(s32 channel_id) {
         auto channel_state = std::make_shared<Tegra::Control::ChannelState>(channel_id);
         channels.emplace(channel_id, channel_state);
-        scheduler.DeclareChannel(channel_state);
         return channel_state;
     }
 
@@ -92,6 +91,12 @@ struct GPU::Impl {
         to_init.Init(system, program_id);
         to_init.BindRasterizer(renderer->ReadRasterizer());
         renderer->ReadRasterizer()->InitializeChannel(to_init);
+        // Never publish an owner until its payload AND rasterizer state are ready.
+        // The strict scheduler rejects empty payloads; GPU work must not race
+        // the rasterizer's native per-channel initialization either.
+        const auto it = channels.find(to_init.bind_id);
+        ASSERT(it != channels.end() && it->second.get() == &to_init);
+        scheduler.DeclareChannel(it->second);
     }
 
     void InitAddressSpace(Tegra::MemoryManager& memory_manager) {
