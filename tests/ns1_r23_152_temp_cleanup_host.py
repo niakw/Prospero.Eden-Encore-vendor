@@ -63,6 +63,7 @@ struct VFS {
   assert(name=="save"); return saved;
  }
 };
+using Common::FS::EdenPath;
 struct Controller {
  std::unique_ptr<int> bis_factory;
  void Init(VFS& vfs) {
