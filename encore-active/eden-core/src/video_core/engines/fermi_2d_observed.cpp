@@ -1,17 +1,3 @@
-#include <atomic>
-
-namespace {
-unsigned EdenGpuBoundedSample(std::atomic<unsigned>& samples) noexcept {
-    unsigned current = samples.load(std::memory_order_relaxed);
-    while (current < 8u) {
-        if (samples.compare_exchange_weak(current, current + 1u,
-                                          std::memory_order_relaxed))
-            return current;
-    }
-    return 8u;
-}
-}
-
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
