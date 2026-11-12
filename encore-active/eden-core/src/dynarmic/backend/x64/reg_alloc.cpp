@@ -84,7 +84,7 @@ void HostLocInfo::ReleaseAll() noexcept {
     is_scratch = false;
 }
 
-void HostLocInfo::AddValue(HostLoc loc, IR::Inst* inst) noexcept {
+void HostLocInfo::AddValue([[maybe_unused]] HostLoc loc, IR::Inst* inst) noexcept {
     if (is_set_last_use) {
         is_set_last_use = false;
         values.clear();
@@ -478,7 +478,7 @@ std::optional<HostLoc> RegAlloc::ValueLocation(const IR::Inst* value) const noex
     return found;
 }
 
-void RegAlloc::DefineValueImpl(BlockOfCode& code, IR::Inst* def_inst, HostLoc host_loc) noexcept {
+void RegAlloc::DefineValueImpl([[maybe_unused]] BlockOfCode& code, IR::Inst* def_inst, HostLoc host_loc) noexcept {
     ASSERT(!ValueLocation(def_inst) && "def_inst has already been defined");
     LocInfo(host_loc).AddValue(host_loc, def_inst);
     ASSERT(*ValueLocation(def_inst) == host_loc);
@@ -541,7 +541,7 @@ void RegAlloc::SpillRegister(BlockOfCode& code, HostLoc loc) noexcept {
     Move(code, new_loc, loc);
 }
 
-HostLoc RegAlloc::FindFreeSpill(bool is_xmm) const noexcept {
+HostLoc RegAlloc::FindFreeSpill([[maybe_unused]] bool is_xmm) const noexcept {
     // TODO(lizzie): Ok, Windows hates XMM spills, this means less perf for windows
     // but it's fine anyways. We can find other ways to cheat it later - but which?!?!
     // we should NOT save xmm each block entering... MAYBE xbyak has a bug on start/end?
