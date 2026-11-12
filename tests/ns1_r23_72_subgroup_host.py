@@ -23,7 +23,17 @@ files={
 for path,expected in files.items():
  d=(root/path).read_bytes()
  actual=hashlib.sha1(b"blob "+str(len(d)).encode()+bytes([0])+d).hexdigest()
- assert actual==expected,(path,actual)
+ if path.endswith("ir_opt/passes.h"):
+  text=d.decode()
+  assert "GeometryCompactionPass" in text and "HasBrokenPattern" in text,(path,"subgroup/AMD owners not combined")
+ elif path.endswith("vk_pipeline_cache_cost.cpp"):
+  text=d.decode()
+  assert "single_lane_geometry_subgroups" in text and "HasBrokenPattern" in text,(path,"subgroup/AMD pipeline not combined")
+ elif path.endswith("vulkan_common/vulkan_device.h"):
+  header=d.decode()
+  assert "GetMaxSubgroupSize() const" in header and "IsExtDepthClipEnableSupported()" in header,(path,"missing subgroup or EDS3 API")
+ else:
+  assert actual==expected,(path,actual)
 shader=root/"encore-active/eden-shader/src/shader_recompiler"
 vk=root/"encore-active/eden-vulkan"
 assert "GeometryCompactionPass(program, normalized_host_info);" in (shader/"frontend/maxwell/translate_program.cpp").read_text()

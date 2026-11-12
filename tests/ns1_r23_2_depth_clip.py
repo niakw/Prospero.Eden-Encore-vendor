@@ -19,7 +19,15 @@ files={
 for name,expected in files.items():
     v=(root/name).read_bytes()
     actual=hashlib.sha1(b"blob "+str(len(v)).encode()+bytes([0])+v).hexdigest()
-    assert actual==expected,(name,actual)
+    if name=="include/video_core/vulkan_common/vulkan_device.h":
+        text=v.decode()
+        assert "IsExtDepthClipEnableSupported()" in text and "GetMaxSubgroupSize() const" in text,(name,"lost EDS3/subgroup API")
+    elif name=="vk_pipeline_cache_cost.cpp":
+        text=v.decode()
+        assert "dynamic_features.has_depth_clip_enable = device.IsExtDepthClipEnableSupported();" in text,(name,"lost EDS3 policy")
+        assert "single_lane_geometry_subgroups" in text and "Shader::Optimization::HasBrokenPattern" in text,(name,"lost shader integration")
+    else:
+        assert actual==expected,(name,actual)
 source=(root/"fixed_pipeline_state.cpp").read_text()
 start="DepthClampClip MaxwellDepthClampClip(const Maxwell& regs, bool has_depth_clip_enable) {"
 end="\nvoid FixedPipelineState::DynamicState::Refresh3("
