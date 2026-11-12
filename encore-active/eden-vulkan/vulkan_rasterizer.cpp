@@ -603,6 +603,17 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     ::Eden::Performance::CachePhaseTimer configure_phase{
         ::Eden::Performance::CachePhase::PipelineConfigure, cache_sample};
     pipeline->SetEngine(maxwell3d, gpu_memory);
+    // Mesh draw workgroups are not indexed vertices. Only standard vertex
+    // draw calls may be split into handle-homogeneous runs.
+    attribute_handle_pipeline = nullptr;
+    attribute_handle_runs.clear();
+    if (split_attribute_handles && !mesh_draw && pipeline->UsesAttributeHandle()) {
+        CollectAttributeHandleRuns(is_indexed);
+        if (!attribute_handle_runs.empty()) {
+            attribute_handle_pipeline = pipeline;
+            pipeline->SetAttributeHandle(attribute_handle_runs.front().handle);
+        }
+    }
     bool pipeline_ok = pipeline->Configure(is_indexed);
     if (!pipeline_ok && pipeline->UsesForcedMsaaShadow()) {
         // The shader may read/store its destination or the texture cache
@@ -640,33 +651,129 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     draw_phase.Stop();
 }
 
+void RasterizerVulkan::CollectAttributeHandleRuns(bool is_indexed) {
+    using VertexAttribute = Maxwell::VertexAttribute;
+    const auto& regs = maxwell3d->regs;
+    const auto& state = maxwell3d->draw_manager.draw_state;
+    const u32 total = is_indexed ? state.index_buffer.count : state.vertex_buffer.count;
+    if (total == 0) return;
+
+    const VertexAttribute* source{};
+    for (const auto& attr : regs.vertex_attrib_format) {
+        if (attr.constant || attr.size == VertexAttribute::Size::Invalid) continue;
+        if (attr.type == VertexAttribute::Type::UInt ||
+            attr.type == VertexAttribute::Type::SInt) {
+            source = &attr;
+            break;
+        }
+    }
+    if (!source) {
+        attribute_handle_runs.push_back({0, total, 0});
+        return;
+    }
+    const auto& stream = regs.vertex_streams[source->buffer.Value()];
+    if (!stream.IsEnabled()) {
+        attribute_handle_runs.push_back({0, total, 0});
+        return;
+    }
+
+    const u32 primitive_size =
+        state.topology == Maxwell::PrimitiveTopology::Triangles ? 3 : total;
+    const GPUVAddr base_address = stream.Address() + source->offset;
+    const auto read_handle = [&](u32 position) {
+        u32 vertex{};
+        if (is_indexed) {
+            const auto& indices = state.index_buffer;
+            const size_t index_width = indices.FormatSizeInBytes();
+            if (index_width == 0 || index_width > sizeof(u32)) return u32{};
+            const GPUVAddr address = indices.IndexStart() +
+                                     static_cast<GPUVAddr>(position) * index_width;
+            u32 index{};
+            gpu_memory->ReadBlockUnsafe(address, &index, index_width);
+            vertex = static_cast<u32>(state.base_index + index);
+        } else {
+            vertex = state.vertex_buffer.first + position;
+        }
+        return gpu_memory->Read<u32>(base_address +
+                                     static_cast<GPUVAddr>(vertex) * stream.stride);
+    };
+    // Prevent a malicious/invalid guest draw from allocating one GPU command
+    // per primitive without bound. The original non-split path is preserved.
+    constexpr u32 max_runs = 4096;
+    for (u32 first = 0; first + primitive_size <= total &&
+                       attribute_handle_runs.size() < max_runs;
+         first += primitive_size) {
+        const u32 handle = read_handle(first);
+        if (!attribute_handle_runs.empty() &&
+            attribute_handle_runs.back().handle == handle) {
+            attribute_handle_runs.back().count += primitive_size;
+        } else {
+            attribute_handle_runs.push_back({first, primitive_size, handle});
+        }
+    }
+    if (attribute_handle_runs.empty()) {
+        attribute_handle_runs.push_back({0, total, read_handle(0)});
+    } else {
+        const u32 covered = attribute_handle_runs.back().first +
+                            attribute_handle_runs.back().count;
+        if (covered < total) {
+            // No partial draw is allowed. Fallback conservatively to the
+            // first handle if the guest exceeds the run budget.
+            attribute_handle_runs.clear();
+            attribute_handle_runs.push_back({0, total, read_handle(0)});
+        }
+    }
+}
+
 void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
+    split_attribute_handles = true;
+    SCOPE_EXIT {
+        split_attribute_handles = false;
+        attribute_handle_pipeline = nullptr;
+        attribute_handle_runs.clear();
+    };
     PrepareDraw(is_indexed, [this, is_indexed, instance_count] {
         const auto& draw_state = maxwell3d->draw_manager.draw_state;
         const u32 num_instances{instance_count};
         const DrawParams draw_params{MakeDrawParams(draw_state, num_instances, is_indexed)};
 
-        scheduler.Record([draw_params, pipeline = prepared_pipeline](vk::CommandBuffer cmdbuf) {
-            if (!pipeline || !pipeline->CanExecuteRecordedDraw()) {
-                ::Eden::Performance::RecordGraphicsDrawDrop(
-                    ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
-                return;
+        const auto record_draw = [this, pipeline = prepared_pipeline](DrawParams params) {
+            scheduler.Record([params, pipeline](vk::CommandBuffer cmdbuf) {
+                if (!pipeline || !pipeline->CanExecuteRecordedDraw()) {
+                    ::Eden::Performance::RecordGraphicsDrawDrop(
+                        ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
+                    return;
+                }
+                if (pipeline->IsMeshPipeline()) {
+                    cmdbuf.DrawMeshTasksEXT(params.num_vertices, 1, 1);
+                    return;
+                }
+                if (params.is_indexed) {
+                    cmdbuf.DrawIndexed(params.num_vertices, params.num_instances,
+                                       params.first_index, params.base_vertex,
+                                       params.base_instance);
+                } else {
+                    cmdbuf.Draw(params.num_vertices, params.num_instances,
+                                params.base_vertex, params.base_instance);
+                }
+            });
+        };
+        if (attribute_handle_pipeline && attribute_handle_runs.size() > 1) {
+            for (size_t i = 0; i < attribute_handle_runs.size(); ++i) {
+                const auto& run = attribute_handle_runs[i];
+                if (i != 0) {
+                    attribute_handle_pipeline->SetAttributeHandle(run.handle);
+                    if (!attribute_handle_pipeline->Configure(is_indexed)) continue;
+                }
+                DrawParams params = draw_params;
+                params.num_vertices = run.count;
+                if (is_indexed) params.first_index += run.first;
+                else params.base_vertex += run.first;
+                record_draw(params);
             }
-            if (pipeline->IsMeshPipeline()) {
-                // Native NVN draw vertex count represents task workgroups.
-                // Do not reinterpret this as a legacy vertex-index draw.
-                cmdbuf.DrawMeshTasksEXT(draw_params.num_vertices, 1, 1);
-                return;
-            }
-            if (draw_params.is_indexed) {
-                cmdbuf.DrawIndexed(draw_params.num_vertices, draw_params.num_instances,
-                                   draw_params.first_index, draw_params.base_vertex,
-                                   draw_params.base_instance);
-            } else {
-                cmdbuf.Draw(draw_params.num_vertices, draw_params.num_instances,
-                            draw_params.base_vertex, draw_params.base_instance);
-            }
-        });
+        } else {
+            record_draw(draw_params);
+        }
 
         // Log draw call
         if (GPU::Logging::IsActive() &&

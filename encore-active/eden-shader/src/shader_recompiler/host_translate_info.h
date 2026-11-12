@@ -40,6 +40,7 @@ struct HostTranslateInfo {
     bool support_conditional_barrier{}; ///< True when the device supports barriers in conditional
                                         ///< control flow
     bool single_lane_geometry_subgroups{};
+    bool support_attribute_texture_handle{}; ///< Vertex-attribute bindless handle support
 
     void ApplyDescriptorLimitPolicy() noexcept {
         if (min_ssbo_alignment == 0) {

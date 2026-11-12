@@ -682,6 +682,7 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
         .support_viewport_mask = device.IsNvViewportArray2Supported(),
         .single_lane_geometry_subgroups =
             !profile.SupportsSubgroupStage(Shader::Stage::Geometry),
+        .support_attribute_texture_handle = true,
     };
     host_info.ApplyDescriptorLimitPolicy();
 

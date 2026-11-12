@@ -10,10 +10,10 @@ root=Path(__file__).resolve().parents[1]/"encore-active/eden-vulkan"
 files={
 "fixed_pipeline_state.cpp":"fe9189f92163455127adf5f74a4a181f320a01f4",
 "include/video_core/renderer_vulkan/fixed_pipeline_state.h":"21d47b3ab5472e514e28b8ab28233f6d60b8aa59",
-"vulkan_rasterizer.cpp":"4dd37805a18c326d6bece0f39747f88bfd47abc1",
+"vulkan_rasterizer.cpp":"2530e3754435175810cbf24cb20446e177d1f19f",
 "vulkan_device.cpp":"50578df547b769bd45cf4964ffa3f793c1749273",
 "include/video_core/vulkan_common/vulkan_device.h":"92fde878aefc4a48a6e84264c1b914faecc3c477",
-"vk_graphics_pipeline_cost.cpp":"a1a4f29e40134b0ff0eb5a041cb51883e770df6a",
+"vk_graphics_pipeline_cost.cpp":"d7563d41b74d780f4512899e2fda1b2f362f5523",
 "vk_pipeline_cache_cost.cpp":"9d963a5f5c48b9b7f673f72a18552408a9a38807",
 }
 for name,expected in files.items():
