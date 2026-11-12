@@ -14,11 +14,11 @@ This migration does not establish native PS5 device compatibility.
 
 | Source path inside vendor | Original upstream repository | Exact upstream commit | Exact vendor Git tree |
 | --- | --- | --- | --- |
-| `sources/ps5-mihawkgen/` | https://github.com/mihawk-99/PS5_MihawkGen | `c57232a9f16bcb6df5fe07c9bb631518f2b1cc0e` | `e3b42f5b89775469bec04795b93f048b74aff207` |
+| `sources/ps5-mihawkgen/` | https://github.com/mihawk-99/PS5_MihawkGen | `c57232a9f16bcb6df5fe07c9bb631518f2b1cc0e` | `aad67f4bd28c040db7aa0d78cfd3d0de85cfba7a` (training-only Pillow security delta; original `e3b42f5b89775469bec04795b93f048b74aff207`) |
 | `sources/ps5-fsr3-optical-flow/` | https://github.com/Swordpdf/ps5-framegen | `64362101757cdd6f7df9eeb984cb53f03f1fbfca` | `85e34d638cd9e8b211e08fb19d1a57a588bb8d76` |
 | `sources/libwebp/` | https://github.com/webmproject/libwebp | `4fa21912338357f89e4fd51cf2368325b59e9bd9` (v1.6.0) | `3a7830b9713d9187cf1211862d4571ff58b0d507` |
 
-MihawkGen retains its GPL/MIT, distillation and other upstream notices,
+A targeted vendor security change updates only `sources/ps5-mihawkgen/train/requirements.txt` from `pillow==12.3.0` to `pillow==13.0.0`. The original upstream Git tree and upstream commit remain recorded above. The new vendor tree SHA is checked along with an exact one-file comparison against the untouched upstream baseline; no compiled renderer code, licensed assets, model weights, or GPU kernels are rewritten.\n\nMihawkGen retains its GPL/MIT, distillation and other upstream notices,
 including `sources/ps5-mihawkgen/THIRD_PARTY_NOTICES.txt` and its
 `framegen/models/network.fgw` with SHA-256
 `31ecc7d69af1e9defd62b9abad71bc3430cd8a0a4d2f4eafcabaafa48c34bf6b`.
