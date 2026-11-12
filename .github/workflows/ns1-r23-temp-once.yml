@@ -1,0 +1,24 @@
+name: NS1 R23 temporary save lifetime source host
+on:
+  push:
+    branches:
+      - research/ns1-r23-temp-lifetime-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/core/file_sys/savedata_factory.cpp"
+      - "encore-active/eden-core/src/core/hle/service/filesystem/filesystem.cpp"
+      - "tests/ns1_r23_152_temp_cleanup_host.py"
+      - ".github/workflows/ns1-r23-temp-once.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  owned-source-lifetime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify two real maintained sources and execute two-program lifecycle ASan/UBSan
+        run: python3 -B tests/ns1_r23_152_temp_cleanup_host.py
