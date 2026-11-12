@@ -1311,7 +1311,13 @@ class CppReferenceExtension {
         return new Promise((resolve, reject) => {
             const stdout = []
             const stderr = []
-            const ps = spawn(executable, argv, spawnOpts)
+            // Keep each process creation site bound to a literal executable.
+            // Even a variable assigned from an allowlist is unnecessarily
+            // hard for static analyzers to establish as an untainted sink.
+            const ps = cmd === 'git' ? spawn('git', argv, spawnOpts)
+                : cmd === 'tar' ? spawn('tar', argv, spawnOpts)
+                : cmd === '7z' ? spawn('7z', argv, spawnOpts)
+                : spawn(IS_WIN ? 'mrdocs.exe' : 'mrdocs', argv, spawnOpts)
             ps.on('close', (code) => {
                 if (code === 0) {
                     if (stderr.length) {
