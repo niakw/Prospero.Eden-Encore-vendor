@@ -1,0 +1,24 @@
+name: C00 + R457 native AudioIn AudioOut source gate
+on:
+  push:
+    branches: [integration/c00-r457-unified-audio-20261112]
+    paths:
+      - 'encore-active/eden-core/src/audio_core/device/device_session.cpp'
+      - 'tools/ns1/check_c00_r457_unified_audio.py'
+      - '.github/workflows/c00-r457-unified-audio-host.yml'
+  pull_request:
+    paths:
+      - 'encore-active/eden-core/src/audio_core/device/device_session.cpp'
+      - 'tools/ns1/check_c00_r457_unified_audio.py'
+      - '.github/workflows/c00-r457-unified-audio-host.yml'
+permissions:
+  contents: read
+jobs:
+  exact-native-audio:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python3 -B tools/ns1/check_c00_r457_unified_audio.py
