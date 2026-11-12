@@ -1,0 +1,23 @@
+name: NS1 R23 bundled-program FS parent source semantics (host)
+on:
+  push:
+    branches:
+      - research/ns1-r23-bundled-parent-fs-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/core/file_sys/**"
+      - "encore-active/eden-core/include/core/file_sys/**"
+      - "tests/ns1_r23_113_parent_fs.py"
+      - ".github/workflows/ns1-r23-113-parent-fs.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  parent-resolution-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_113_parent_fs.py
