@@ -71,7 +71,6 @@ struct GPU::Impl {
     std::shared_ptr<Control::ChannelState> CreateChannel(s32 channel_id) {
         auto channel_state = std::make_shared<Tegra::Control::ChannelState>(channel_id);
         channels.emplace(channel_id, channel_state);
-        scheduler.DeclareChannel(channel_state);
         return channel_state;
     }
 
@@ -91,6 +90,11 @@ struct GPU::Impl {
 
     void InitChannel(Control::ChannelState& to_init, u64 program_id) {
         to_init.Init(system, program_id);
+        // ChannelState::Payload is constructed by Init(), not AllocateChannel().
+        // The strict scheduler must only see initialized channel owners.
+        const auto it = channels.find(to_init.bind_id);
+        ASSERT(it != channels.end() && it->second.get() == &to_init);
+        scheduler.DeclareChannel(it->second);
         to_init.BindRasterizer(renderer->ReadRasterizer());
         renderer->ReadRasterizer()->InitializeChannel(to_init);
     }
