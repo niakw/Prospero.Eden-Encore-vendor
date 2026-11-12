@@ -1,0 +1,23 @@
+name: NS1 R23 HID JoyHold and serialized input reload source checks
+on:
+  push:
+    branches:
+      - research/ns1-r23-hid-joyhold-reload-20261111
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/hid_core/**"
+      - "encore-active/eden-core/include/hid_core/hid_core.h"
+      - "tests/ns1_r23_19_joyhold_host.py"
+      - ".github/workflows/ns1-r23-19-joyhold.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  guest-joyhold:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_r23_19_joyhold_host.py
