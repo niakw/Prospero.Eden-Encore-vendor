@@ -11,7 +11,7 @@ src=root/"encore-active/eden-core/src/core/memory/cheat_engine.cpp"
 s=src.read_text()
 data=s.encode()
 sha=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
-assert sha=="c41b7a1ed82b1e69c93c28b1005d86478152893a",sha
+assert sha=="3223de18f4c6016b3e763e07e4166574b3d46c40",sha  # Maintained parser + runtime toggle source
 assert "out_name_size = end_index - start_index;" in s
 assert "std::string_view::npos" in s
 assert "data.size() - i < 8" in s
