@@ -10,7 +10,7 @@
 //
 
 'use strict';
-import {execSync} from 'child_process'
+import {execFileSync} from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
@@ -136,14 +136,12 @@ function downloadAndDecompress(downloadUrl, downloadPath, extractPath) {
         fs.writeFileSync(downloadPath, response.getBody());
         console.log(`File ${downloadUrl} downloaded successfully to ${downloadPath}.`);
         if (path.extname(downloadPath) === '.7z') {
-            const cmd = `7z x ${downloadPath} -o${extractPath}`
-            console.log(`Decompressing with command: ${cmd}`)
-            execSync(cmd, {stdio: 'inherit'})
+            console.log('Decompressing 7z archive')
+            execFileSync('7z', ['x', downloadPath, `-o${extractPath}`], {stdio: 'inherit'})
         } else if (/\.tar\.gz$/.test(downloadPath)) {
             mkdirp(extractPath)
-            const cmd = `tar -vxzf ${downloadPath} -C ${extractPath}`
-            console.log(`Decompressing with command: ${cmd}`)
-            execSync(cmd, {stdio: 'inherit'})
+            console.log('Decompressing tar archive')
+            execFileSync('tar', ['-vxzf', downloadPath, '-C', extractPath], {stdio: 'inherit'})
         }
         console.log(`File decompressed successfully to ${extractPath}.`);
     } catch (error) {
@@ -210,6 +208,7 @@ const librariesJsonPath = path.join(cwd, 'meta', 'libraries.json')
 const librariesJson = JSON.parse(fs.readFileSync(librariesJsonPath, 'utf-8'))
 const module = librariesJson['key']
 const self = module || path.basename(cwd)
+if (!/^[A-Za-z0-9_-]+$/.test(self)) throw new Error('Unsafe Boost module name')
 console.log(`self: ${self}`)
 
 // Check if cwdParentParent contains the files "CMakeLists.txt" "Jamroot" "boost-build.jam" "bootstrap.sh" "libs"
@@ -220,7 +219,7 @@ if (isBoostDir(cwdParentParent)) {
     boostDir = cwdParentParent
     console.log(`Found Boost at ${cwdParentParent}`)
 } else {
-    const branch = execSync('git rev-parse --abbrev-ref HEAD', {encoding: 'utf-8'}).trim()
+    const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {encoding: 'utf-8'}).trim()
     const boostBranchRegex = /^boost-1\.\d+\.\d+$/
     const isValidBoostBranch = branch === 'master' || branch === 'develop' || boostBranchRegex.test(branch);
     const boostBranch = isValidBoostBranch ? branch : 'develop'
@@ -230,22 +229,21 @@ if (isBoostDir(cwdParentParent)) {
         tempDir = mkTmpDir()
     }
     console.log(`Created temporary directory ${tempDir}`)
-    let boostDownloadCmd = `git clone https://github.com/boostorg/boost.git --depth 1 --branch ${boostBranch}`
-    execSync(boostDownloadCmd, {cwd: tempDir})
+    execFileSync('git', ['clone', 'https://github.com/boostorg/boost.git', '--depth', '1', '--branch', boostBranch], {cwd: tempDir})
     boostDir = path.join(tempDir, 'boost')
     console.log(`Initializing submodules in ${boostDir}`)
-    execSync('git submodule update --init --recursive', {cwd: boostDir})
+    execFileSync('git', ['submodule', 'update', '--init', '--recursive'], {cwd: boostDir})
     console.log(`Cloned Boost to ${boostDir}`)
 
     // Delete `self` from boost/libs
     const selfDir = path.join(boostDir, 'libs', self)
     console.log(`Deleting ${selfDir}`)
-    execSync(`rm -rf ${selfDir}`)
+    fs.rmSync(selfDir, {recursive: true, force: true})
 
     // Copy contents of cwd to boost/libs/self
     // const selfDirParent = path.join(boostDir, 'libs')
     console.log(`Copying ${cwd} to ${selfDir}`)
-    execSync(`cp -r ${cwd} ${selfDir}`)
+    fs.cpSync(cwd, selfDir, {recursive: true})
 }
 
 /*
@@ -322,7 +320,7 @@ console.log(`Generating documentation with command: ${mrDocsCmd}`)
 // If return code is not 0, print output to stderr and exit with return code.
 let mrDocsExitCode = 0
 try {
-    const mrDocsOutput = execSync(mrDocsCmd)
+    const mrDocsOutput = execFileSync(mrDocsExec, [`--config=${mrDocsConfigPath}`, mrDocsProjectPath, `--output=${mrDocsOutputDir}`])
     console.log(mrDocsOutput.toString())
     console.log(`Generated documentation at ${mrDocsOutputDir}`)
 } catch (error) {
@@ -332,7 +330,7 @@ try {
 }
 if (tempDir) {
     console.log(`Deleting temporary directory ${tempDir}`)
-    execSync(`rm -rf ${tempDir}`)
+    fs.rmSync(tempDir, {recursive: true, force: true})
 }
 if (mrDocsExitCode !== 0) {
     console.log(`Exiting with code ${mrDocsExitCode}`)
