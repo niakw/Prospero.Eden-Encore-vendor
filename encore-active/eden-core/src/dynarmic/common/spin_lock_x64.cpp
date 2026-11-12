@@ -15,9 +15,9 @@
 #include "dynarmic/common/spin_lock.h"
 
 #ifdef DYNARMIC_ENABLE_NO_EXECUTE_SUPPORT
-[[maybe_unused]] static const auto default_cg_mode = Xbyak::DontSetProtectRWE;
+static const auto default_cg_mode = Xbyak::DontSetProtectRWE;
 #else
-[[maybe_unused]] static const auto default_cg_mode = nullptr; //Allow RWE
+static const auto default_cg_mode = nullptr; //Allow RWE
 #endif
 
 namespace Dynarmic {
@@ -81,6 +81,9 @@ static_assert(__atomic_always_lock_free(sizeof(int), nullptr));
 extern "C" int sceKernelUsleep(unsigned int);
 
 void SpinLock::Lock() noexcept {
+    // Keep the exact upstream declaration prefix; the native path does
+    // not use Xbyak's codegen protection mode after the CMake splice.
+    (void)default_cg_mode;
     unsigned spins = 0;
     while (__atomic_exchange_n(&storage, 1, __ATOMIC_SEQ_CST)) {
         // Poll without repeatedly invalidating the owner's cache line. Guest CPU threads run at
