@@ -11,10 +11,26 @@ import subprocess
 
 root = Path(__file__).resolve().parents[1]
 expected = {
-    "ps5-mihawkgen": "e3b42f5b89775469bec04795b93f048b74aff207",
+    "ps5-mihawkgen": "aad67f4bd28c040db7aa0d78cfd3d0de85cfba7a",
     "ps5-fsr3-optical-flow": "85e34d638cd9e8b211e08fb19d1a57a588bb8d76",
     "libwebp": "3a7830b9713d9187cf1211862d4571ff58b0d507",
 }
+# The sole non-byte-for-byte upstream delta is a documented critical
+# Pillow vulnerability remediation in MihawkGen's Python training-only list.
+# All other upstream files, including models and licenses, remain original.
+upstream_baseline = "a800f08eb13fd9b6aac84f1ec21f9ac917f57330"
+relative_train = "sources/ps5-mihawkgen/train/requirements.txt"
+history_changes = subprocess.check_output(
+    ["git", "diff", "--name-only", upstream_baseline, "HEAD", "--",
+     "sources/ps5-mihawkgen"], cwd=root, text=True).splitlines()
+assert history_changes == [relative_train], history_changes
+original_train = subprocess.check_output(
+    ["git", "show", f"{upstream_baseline}:{relative_train}"], cwd=root, text=True)
+assert original_train.count("pillow==12.3.0") == 1
+assert (root / relative_train).read_text() == original_train.replace(
+    "pillow==12.3.0", "pillow==13.0.0"
+), "Unexpected MihawkGen upstream modification"
+
 for name, sha in expected.items():
     path = f"sources/{name}"
     actual = subprocess.check_output(["git", "rev-parse", f"HEAD:{path}"],
@@ -46,5 +62,5 @@ provenance = (root / "docs/PS5_INTERNAL_DEPENDENCY_ORIGINS_2026-11-10.md").read_
 readme = (root / "README.md").read_text()
 for name in expected:
     assert f"sources/{name}/" in provenance and f"sources/{name}/" in readme
-print("VENDOR_SOURCE_LAYOUT_PASS upstream_sources=3 original_git_trees=3 "
+print("VENDOR_SOURCE_LAYOUT_PASS upstream_sources=3 exact_git_trees=3 mihawk_training_security_patch=1 "
       "unchanged_models=1 original_licenses=1 no_nested_gitlinks=1")
