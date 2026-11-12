@@ -15,6 +15,9 @@ namespace {
 constexpr u64 NativeHeaderBytes = 0x80;
 constexpr std::size_t MaxwellHeaderBytes = 0x50;
 constexpr u32 MaxCapturedInstructions = ProgramCaptureState::MaximumInstructions;
+// The 1 MiB capture window and 0x80-byte header fit in u32 offsets.
+static_assert(u64{MaxCapturedInstructions} * sizeof(Instruction) +
+              NativeHeaderBytes <= std::numeric_limits<u32>::max());
 constexpr std::size_t NativeShaderReadPage = 4096;
 // Do not speculatively read a full guest allocation. A successful bounded
 // read ahead may be reused only inside the same 4 KiB GPU page.
@@ -36,7 +39,7 @@ NativeCaptureResult CaptureNativeShader(
                 : stage > last_native_graphics_stage ||
                   stage == static_cast<u32>(Shader::Stage::Compute))
         return result;
-    const u64 header_bytes = compute ? 0 : NativeHeaderBytes;
+    const u32 header_bytes = compute ? 0U : static_cast<u32>(NativeHeaderBytes);
     // Only the first native word must fit at admission. Later branches and
     // sparse shader pages are validated individually during their actual
     // reads; a short shader near the 49-bit ceiling is still legitimate.
@@ -116,7 +119,7 @@ NativeCaptureResult CaptureNativeShader(
         }
         if (!fetched && !checked_read(addr, bytes.data(), bytes.size())) {
             result.status = NativeCaptureStatus::Unmapped;
-            result.first_error_offset = header_bytes + index * sizeof(Instruction);
+            result.first_error_offset = header_bytes + index * static_cast<u32>(sizeof(Instruction));
             return result;
         }
         Instruction inst{};
@@ -132,14 +135,14 @@ NativeCaptureResult CaptureNativeShader(
         const u32 opcode = inst.Bits(0, 12);
         if (opcode == 0x958 || (opcode == 0x949 && !read_cbuf)) {
             result.status = NativeCaptureStatus::UnresolvedIndirectBranch;
-            result.first_error_offset = header_bytes + index * sizeof(Instruction);
+            result.first_error_offset = header_bytes + index * static_cast<u32>(sizeof(Instruction));
             return result;
         }
         saw_indirect |= opcode == 0x949;
         const auto observed = capture.Observe(inst, index);
         if (observed == ProgramCaptureState::Result::InvalidTarget) {
             result.status = NativeCaptureStatus::InvalidBranch;
-            result.first_error_offset = header_bytes + index * sizeof(Instruction);
+            result.first_error_offset = header_bytes + index * static_cast<u32>(sizeof(Instruction));
             return result;
         }
         native.push_back(inst);
@@ -213,7 +216,7 @@ NativeCaptureResult CaptureNativeShader(
                 if (bool(header_table) == bool(code_table)) {
                     result.status = NativeCaptureStatus::UnresolvedIndirectBranch;
                     result.first_error_offset =
-                        header_bytes + index * sizeof(Instruction);
+                        header_bytes + index * static_cast<u32>(sizeof(Instruction));
                     return result;
                 }
                 const bool with_header = bool(header_table);
@@ -228,7 +231,7 @@ NativeCaptureResult CaptureNativeShader(
                 if (!plans) {
                     result.status = NativeCaptureStatus::UnresolvedIndirectBranch;
                     result.first_error_offset =
-                        header_bytes + index * sizeof(Instruction);
+                        header_bytes + index * static_cast<u32>(sizeof(Instruction));
                     return result;
                 }
                 source.clear();
@@ -260,14 +263,14 @@ NativeCaptureResult CaptureNativeShader(
                     const auto current = read_instruction(native_index);
                     if (!current) {
                         result.first_error_offset = header_bytes +
-                            native_index * sizeof(Instruction);
+                            native_index * static_cast<u32>(sizeof(Instruction));
                         result.status = NativeCaptureStatus::Unmapped;
                         result.image = {};
                         return result;
                     }
                     if (current->words != native[native_index].words) {
                         result.first_error_offset = header_bytes +
-                            native_index * sizeof(Instruction);
+                            native_index * static_cast<u32>(sizeof(Instruction));
                         result.status = NativeCaptureStatus::TranslationFailed;
                         result.image = {};
                         return result;
@@ -318,8 +321,9 @@ NativeCaptureResult CaptureNativeShader(
         }
         if (!result.image.Ready()) {
             result.status = NativeCaptureStatus::TranslationFailed;
-            result.first_error_offset = header_bytes +
-                                        result.image.failed_native_offset;
+            result.first_error_offset = header_bytes + static_cast<u32>(
+                (std::min)(u64{result.image.failed_native_offset},
+                           u64{std::numeric_limits<u32>::max() - header_bytes}));
             return result;
         }
         // The capture may extend beyond the actual translation unit;
@@ -350,9 +354,8 @@ NativeCaptureResult CaptureNativeShader(
                 // corresponding full-span proof.
                 if (!bytes) bytes = sizeof(Instruction);
                 const auto mismatch = [&](std::size_t at, std::size_t length) {
-                    return !std::equal(source.begin() + at,
-                                       source.begin() + at + length,
-                                       verify.begin());
+                    return at > source.size() || length > source.size() - at ||
+                           std::memcmp(source.data() + at, verify.data(), length) != 0;
                 };
                 if (checked_read(address, verify.data(), bytes)) {
                     if (mismatch(offset, bytes)) {
@@ -438,9 +441,10 @@ bool NativeCaptureResult::ComputeSourceMatches(
         }
     };
     const auto matches = [&](std::size_t offset, std::size_t size) {
-        return std::equal(captured_compute_bytes.begin() + offset,
-                          captured_compute_bytes.begin() + offset + size,
-                          scratch.begin());
+        return offset <= captured_compute_bytes.size() &&
+               size <= captured_compute_bytes.size() - offset &&
+               std::memcmp(captured_compute_bytes.data() + offset,
+                           scratch.data(), size) == 0;
     };
     for (std::size_t offset = 0; offset < captured_compute_bytes.size();) {
         const u64 address = code_address + offset;
