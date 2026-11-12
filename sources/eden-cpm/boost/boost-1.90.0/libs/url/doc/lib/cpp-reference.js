@@ -253,7 +253,22 @@ class CppReferenceExtension {
                 this.logger.debug(`Dependency ${name} already exists at ${cloneDir}`)
             } else {
                 this.logger.debug(`Cloning ${repo} to ${cloneDir}`)
-                await this.runCommand('git', ['clone', repo, '--depth', '1', ...(tag ? ['--branch', tag] : []), cloneDir])
+                // Never allow Git options, local filesystem clones or remote
+                // transport helpers from a documentation dependency URL.
+                const dependencyUrl = new URL(repo)
+                if (dependencyUrl.protocol !== 'https:' ||
+                    !dependencyUrl.hostname || dependencyUrl.username || dependencyUrl.password) {
+                    throw new Error('Documentation dependency must use a public HTTPS Git URL')
+                }
+                if (!/^[A-Za-z0-9._-]+$/.test(name) ||
+                    (tag && (!/^[A-Za-z0-9._/-]+$/.test(tag) ||
+                     tag.split('/').some(part => part === '..' || !part)))) {
+                    throw new Error('Unsafe documentation dependency name or tag')
+                }
+                await this.runCommand('git', [
+                    'clone', '--depth', '1', ...(tag ? ['--branch', tag] : []),
+                    '--', dependencyUrl.toString(), cloneDir
+                ])
                 const skipCloningSubmodules = cloneSubmodules === false || cloneSubmodules === 'false'
                 if (!skipCloningSubmodules) {
                     await this.runCommand('git', ['submodule', 'update', '--init', '--recursive'], {cwd: cloneDir})
@@ -1244,27 +1259,44 @@ class CppReferenceExtension {
         if (!cmd) {
             throw new TypeError('Command not specified')
         }
-        let cmdv = CppReferenceExtension.parseCommand(cmd)
         const {input, output, quiet, implicitStdin, local, ...spawnOpts} = opts
+        if (!Array.isArray(argv) || !argv.every(arg =>
+            typeof arg === 'string' && !arg.includes('\\0'))) {
+            throw new TypeError('Invalid process argument vector')
+        }
+        // A documentation playbook is data, not permission to execute a
+        // configurable shell/command. Only audited tools and the discovered
+        // MrDocs binary may be launched.
+        const isMrDocs = cmd === this.MrDocsExecutable &&
+            typeof cmd === 'string' && path.isAbsolute(cmd) &&
+            path.basename(cmd) === (IS_WIN ? 'mrdocs.exe' : 'mrdocs') &&
+            path.basename(path.dirname(cmd)) === 'bin'
+        let executable
+        if (cmd === 'git' || cmd === 'tar' || cmd === '7z') {
+            executable = cmd
+        } else if (isMrDocs) {
+            executable = cmd
+        } else {
+            throw new Error('Unsupported documentation tool')
+        }
+        // Disallow accidental executable flags in place of the Git URL.
+        if (cmd === 'git' && argv[0] === 'clone' &&
+            (argv.indexOf('--') < 0 || argv.indexOf('--') + 2 !== argv.length)) {
+            throw new Error('Git clone requires the end-of-options delimiter')
+        }
         if (input) {
             input instanceof Buffer ? implicitStdin || argv.push('-') : argv.push(input)
         }
         if (IS_WIN) {
-            if (local && !cmdv[0].endsWith('.bat')) {
-                const cmd0 = `${cmdv[0]}.bat`
-                const cmdExists = await CppReferenceExtension.fileExists(ospath.join(opts.cwd || '', cmd0));
-                if (cmdExists) {
-                    cmdv[0] = cmd0
-                }
-            }
-            // Never concatenate user/configured arguments into a command
-            // shell. .bat/.cmd require cmd.exe and are intentionally rejected.
-            if (/\\.(?:bat|cmd)$/i.test(cmdv[0])) {
-                throw new Error('Shell batch execution is not supported in this documentation helper')
+            // A .bat/.cmd wrapper would require cmd.exe. Never auto-discover
+            // it from an untrusted playbook or enable a shell.
+            if (/\\.(?:bat|cmd)$/i.test(executable)) {
+                throw new Error('Shell batch execution is not supported')
             }
             Object.assign(spawnOpts, {windowsHide: true})
-        } else if (local) {
-            cmdv[0] = `./${cmdv[0]}`
+        }
+        if (local && !isMrDocs) {
+            throw new Error('Local executable path not permitted')
         }
         // The command and each argument remain separate OS-level argv values,
         // even if an Antora playbook sets opts.shell.
@@ -1272,7 +1304,7 @@ class CppReferenceExtension {
         return new Promise((resolve, reject) => {
             const stdout = []
             const stderr = []
-            const ps = spawn(cmdv[0], [...cmdv.slice(1), ...argv], spawnOpts)
+            const ps = spawn(executable, argv, spawnOpts)
             ps.on('close', (code) => {
                 if (code === 0) {
                     if (stderr.length) {
