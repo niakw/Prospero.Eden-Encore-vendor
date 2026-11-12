@@ -314,6 +314,18 @@ void KPageBufferSlabHeap::Initialize(Core::System& system) {
         kernel.MemoryManager().AllocateAndOpenContinuous(num_pages, 1, AllocateOption);
     ASSERT(slab_address != 0);
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+    // KPageBuffer does not create a process PTE first. Like KPort slabs,
+    // this allocation goes directly into the reserved sparse guest DRAM.
+    // Never let its free-list initialization write into an uncommitted slot.
+    const auto physical = GetInteger(slab_address);
+    if (physical < Core::DramMemoryMap::Base ||
+        !EdenNs2CommitGuestBacking(
+            system.DeviceMemory().buffer.BackingBasePointer(),
+            physical - Core::DramMemoryMap::Base, slab_size)) {
+        throw std::bad_alloc{};
+    }
+#endif
     // Initialize the slabheap.
     KPageBuffer::InitializeSlabHeap(kernel, system.DeviceMemory().GetPointer<void>(slab_address),
                                     slab_size);
