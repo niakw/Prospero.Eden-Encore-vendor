@@ -4,8 +4,12 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <charconv>
 #include <cstring>
 #include <new>
+#include <optional>
+#include <system_error>
+#include <vector>
 #include "common/logging.h"
 #include "common/random.h"
 #include "common/settings.h"
@@ -15,6 +19,7 @@
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/romfs_factory.h"
 #include "core/file_sys/romfs.h"
+#include "core/file_sys/vfs/vfs_layered.h"
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/filesystem/filesystem.h"
@@ -178,6 +183,121 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     // a missing ExeFS or fabricate a KProcess handoff.
     if (!dir) {
         return {ResultStatus::ErrorNullFile, {}};
+    }
+
+    // Loose ExeFS content can have most of its RomFS in a sibling
+    // updates/<version>/romfs. The standalone NS2 override previously looked
+    // only for base/exefs/romfs or base/romfs in ReadRomFS(), silently losing
+    // update-only files (System/HeapSize, RSDB and other title assets).
+    // Keep the same bounded, title-scoped overlay policy as the maintained
+    // eden-core deconstructed loader, without copying guest data into RAM.
+    // The NUP adapter has its own VFS and is not a standalone loose ExeFS.
+    if (standalone && file) {
+        FileSys::VirtualDir content_root = dir;
+        if (dir->GetName() == "exefs" && dir->GetParentDirectory())
+            content_root = dir->GetParentDirectory();
+        FileSys::VirtualDir game_root = content_root;
+        unsigned depth = 0;
+        for (auto cursor = content_root; cursor && depth < 9;
+             cursor = cursor->GetParentDirectory(), ++depth) {
+            if (cursor->GetName() == "base" && cursor->GetParentDirectory())
+                game_root = cursor->GetParentDirectory();
+            if (const auto parent = cursor->GetParentDirectory();
+                parent && parent->GetName() == "roms") {
+                game_root = cursor;
+                break;
+            }
+        }
+        FileSys::VirtualDir base_romfs;
+        depth = 0;
+        for (auto cursor = content_root; cursor && depth < 9;
+             cursor = cursor->GetParentDirectory(), ++depth) {
+            if (auto candidate = cursor->GetSubdirectory("romfs")) {
+                base_romfs = std::move(candidate);
+                break;
+            }
+            if (cursor == game_root) break;
+        }
+        if (const auto updates = game_root->GetSubdirectory("updates")) {
+            struct Candidate {
+                FileSys::VirtualDir directory;
+                std::optional<u64> version;
+                unsigned depth;
+            };
+            std::vector<Candidate> pending{{updates, std::nullopt, 0}};
+            FileSys::VirtualDir newest;
+            u64 newest_version = 0;
+            std::size_t visited = 0;
+            bool ambiguous = false;
+            while (!pending.empty() && visited++ < 128) {
+                Candidate candidate = std::move(pending.back());
+                pending.pop_back();
+                if (candidate.version &&
+                    (candidate.directory->GetSubdirectory("exefs") ||
+                     candidate.directory->GetSubdirectory("romfs"))) {
+                    if (!newest || *candidate.version > newest_version) {
+                        newest = candidate.directory;
+                        newest_version = *candidate.version;
+                        ambiguous = false;
+                    } else if (*candidate.version == newest_version &&
+                               candidate.directory != newest) {
+                        // Never choose arbitrarily between duplicate update
+                        // trees with the same version and different content.
+                        ambiguous = true;
+                    }
+                }
+                if (candidate.depth >= 5) continue;
+                for (const auto& nested : candidate.directory->GetSubdirectories()) {
+                    const auto name = nested->GetName();
+                    if (name == "exefs" || name == "romfs" || name == "dlc")
+                        continue;
+                    auto version = candidate.version;
+                    u64 parsed = 0;
+                    const auto [end, error] = std::from_chars(
+                        name.data(), name.data() + name.size(), parsed);
+                    if (error == std::errc{} && end == name.data() + name.size())
+                        version = parsed;
+                    if (pending.size() < 128)
+                        pending.push_back({nested, version, candidate.depth + 1});
+                }
+            }
+            if (!pending.empty()) {
+                LOG_WARNING(Loader, "EDEN_EXTRACTED_UPDATE status=scan_incomplete");
+            } else if (ambiguous) {
+                LOG_WARNING(Loader, "EDEN_EXTRACTED_UPDATE status=ambiguous_version");
+            } else if (newest) {
+                if (auto patch_exefs = newest->GetSubdirectory("exefs")) {
+                    auto layered = FileSys::LayeredVfsDirectory::MakeLayeredDirectory(
+                        {patch_exefs, dir});
+                    if (!layered)
+                        return {ResultStatus::ErrorMissingNPDM, {}};
+                    dir = std::move(layered);
+                }
+                if (auto patch_romfs = newest->GetSubdirectory("romfs")) {
+                    std::vector<FileSys::VirtualDir> layers{std::move(patch_romfs)};
+                    if (base_romfs) layers.push_back(base_romfs);
+                    auto layered = FileSys::LayeredVfsDirectory::MakeLayeredDirectory(
+                        std::move(layers));
+                    if (!layered)
+                        return {ResultStatus::ErrorNoRomFS, {}};
+                    // The first layer is the update. This includes files
+                    // absent from the base rather than replacing only matches.
+                    const bool has_heap = layered->GetFileRelative("System/HeapSize") != nullptr;
+                    const bool has_rsdb = layered->GetSubdirectory("RSDB") != nullptr;
+                    romfs = FileSys::CreateRomFS(std::move(layered), nullptr);
+                    if (!romfs)
+                        return {ResultStatus::ErrorNoRomFS, {}};
+                    LOG_INFO(Loader,
+                        "EDEN_EXTRACTED_UPDATE version={} exefs={} romfs=1"
+                        " base_romfs={} heap_file={} rsdb_dir={}",
+                        newest_version, int(newest->GetSubdirectory("exefs") != nullptr),
+                        int(base_romfs != nullptr), int(has_heap), int(has_rsdb));
+                } else {
+                    LOG_INFO(Loader, "EDEN_EXTRACTED_UPDATE version={} romfs=0",
+                             newest_version);
+                }
+            }
+        }
     }
 
     // Read meta to determine title ID
