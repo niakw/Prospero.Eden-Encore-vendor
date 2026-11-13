@@ -11,6 +11,9 @@ on:
 permissions:
   contents: write
   pull-requests: read
+concurrency:
+  group: verified-merged-branch-cleanup-${{ github.repository }}
+  cancel-in-progress: false
 jobs:
   cleanup:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.merged == true }}
@@ -77,6 +80,10 @@ jobs:
               try:
                   api(f'/git/refs/{ref}', 'DELETE')
               except HTTPError as exc:
+                  if exc.code == 404:
+                      # Another serialized cleanup may have removed it after discovery.
+                      print(f'ALREADY_REMOVED {name} PR #{pr_number}')
+                      continue
                   raise RuntimeError(f'Cannot delete {name} (PR #{pr_number}): HTTP {exc.code}') from exc
               removed.append(f'{name} (PR #{pr_number})')
               print(f'DELETED {name} PR #{pr_number}')
