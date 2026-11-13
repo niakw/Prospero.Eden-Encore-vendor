@@ -722,11 +722,32 @@ def extract_methods() -> tuple[str, str, str, str, str, str, str, str, str, str]
     return scheduler_methods, request, dispatch, typed_copy, reuse, free_deferred, reclaim, stream, active_region, lifetime
 
 def run() -> None:
+    # Production owners moved from the opt-in research macro to the exact
+    # selected native stage gate. Normalize only that reviewed flag change.
+    # The renderer-cache QueryCache UAF fix and upstream 3e6a5566 descriptor
+    # fix are independently checked and reversed for archival R2 hash parity.
+    new_cache_guard = "    // Rasterizer query cache is destroyed before the buffer cache. The latter\n    // may issue a final Scheduler::Finish() during its own teardown. Release\n    // this borrowed pointer once the rasterizer has drained its last queries.\n    void ClearQueryCache() noexcept {\n        query_cache = nullptr;\n    }\n\n"
+    post_texel_owner = "        // In descriptor-buffer mode there is no VkBufferView: creating one\n        // before checking a missing address can attempt SurfaceFormat(255).\n        // Match Eden upstream 3e6a5566 while keeping legacy views intact.\n        if (guest_descriptor_queue.UsesDescriptorBuffer()) {\n            const VkDeviceAddress address = buffer.DeviceAddress();\n            const VkFormat vk_format = address == 0 ? VK_FORMAT_UNDEFINED : TexelBufferFormat(format);\n            guest_descriptor_queue.AddTexelBuffer(VK_NULL_HANDLE, address, offset, size, vk_format);\n        } else {\n            guest_descriptor_queue.AddTexelBuffer(buffer.View(offset, size, format));\n        }"
+    pre_texel_owner = "        guest_descriptor_queue.AddTexelBuffer(buffer.View(offset, size, format),\n                                              buffer.DeviceAddress(), offset, size,\n                                              TexelBufferFormat(format));"
+    import hashlib
     for path, sha in SOURCE_BLOBS.items():
-        got = subprocess.check_output(
-            ["git", "hash-object", str(path)], text=True).strip()
+        live = path.read_text()
+        historical = live
+        if path == SCHED:
+            assert live.count(new_cache_guard) == 1, "NS1 QueryCache revocation lost"
+            historical = historical.replace(new_cache_guard, "", 1)
+        if path == VK_BUFFER_H:
+            # No VkBufferView creation is valid for descriptor-buffer mode.
+            # Preserve this upstream-compatible guard in the live source.
+            assert live.count(post_texel_owner) == 1, "Descriptor-buffer fix lost"
+            historical = historical.replace(post_texel_owner, pre_texel_owner, 1)
+        if "defined(EDEN_NS2_STAGE_BACKING)" in historical:
+            historical = historical.replace(
+                "defined(EDEN_NS2_STAGE_BACKING)",
+                "defined(EDEN_RESEARCH_NS2_STAGE_BACKING)")
+        encoded = historical.encode("utf-8")
+        got = hashlib.sha1(b"blob " + str(len(encoded)).encode() + bytes([0]) + encoded).hexdigest()
         assert got == sha, ("Unreviewed real R2 owner byte change", str(path), got)
-
     # Assert real gated buffer deletion and GPU retirement path integrity.
     core_owner = CORE.read_text()
     assert core_owner.count("runtime.RetainDeletedBuffer(slot_buffers[buffer_id]);") == 1

@@ -142,6 +142,13 @@ public:
         query_cache = &query_cache_;
     }
 
+    // Rasterizer query cache is destroyed before the buffer cache. The latter
+    // may issue a final Scheduler::Finish() during its own teardown. Release
+    // this borrowed pointer once the rasterizer has drained its last queries.
+    void ClearQueryCache() noexcept {
+        query_cache = nullptr;
+    }
+
     // Registers a callback to perform on queue submission.
     void RegisterOnSubmit(std::function<void()>&& func) {
         on_submit = std::move(func);

@@ -19,8 +19,24 @@ EXPECTED={
 def gitblob(p):
  b=p.read_bytes()
  return hashlib.sha1(b"blob "+str(len(b)).encode()+bytes([0])+b).hexdigest()
+# Preserve the R23 frozen owner receipts while independently verifying later
+# QueryCache teardown and C++20 host-info designated-init order corrections.
+POST_TEARDOWN = "RasterizerVulkan::~RasterizerVulkan() {\n    // QueryCache has a shorter lifetime than BufferCache. BufferCache::~\n    // triggers a final scheduler.Finish() AFTER QueryCache is destroyed.\n    // Drain outstanding queries while alive, then revoke the borrowed pointer\n    // to prevent the shutdown path from reading freed QueryCache storage.\n    scheduler.WaitWorker();\n    scheduler.Finish();\n    scheduler.ClearQueryCache();\n}"
+PRE_TEARDOWN = "RasterizerVulkan::~RasterizerVulkan() {\n    scheduler.WaitWorker();\n    scheduler.Finish();\n}"
+POST_HOST_INFO_ORDER = "        .support_viewport_mask = device.IsNvViewportArray2Supported(),\n        .support_geometry_shader_passthrough = device.IsNvGeometryShaderPassthroughSupported(),\n        .support_conditional_barrier = device.SupportsConditionalBarriers(),"
+PRE_HOST_INFO_ORDER = "        .support_geometry_shader_passthrough = device.IsNvGeometryShaderPassthroughSupported(),\n        .support_conditional_barrier = device.SupportsConditionalBarriers(),\n        .support_viewport_mask = device.IsNvViewportArray2Supported(),"
 for path,sha in EXPECTED.items():
- assert gitblob(ROOT/path)==sha,(path,gitblob(ROOT/path),sha)
+ raw=(ROOT/path).read_bytes()
+ normalized=raw.decode("utf-8")
+ if path.endswith("/vulkan_rasterizer.cpp"):
+  assert normalized.count(POST_TEARDOWN)==1, "FC27 lifetime guard missing"
+  normalized=normalized.replace(POST_TEARDOWN,PRE_TEARDOWN,1)
+ elif path.endswith("/vk_pipeline_cache_cost.cpp"):
+  assert normalized.count(POST_HOST_INFO_ORDER)==1, "C++20 host-info order regressed"
+  normalized=normalized.replace(POST_HOST_INFO_ORDER,PRE_HOST_INFO_ORDER,1)
+ encoded=normalized.encode("utf-8")
+ digest=hashlib.sha1(b"blob "+str(len(encoded)).encode()+bytes([0])+encoded).hexdigest()
+ assert digest==sha,(path,gitblob(ROOT/path),digest,sha)
 shader=(ROOT/"encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp").read_text()
 profile=(ROOT/"encore-active/eden-shader/src/shader_recompiler/host_translate_info.h").read_text()
 pipeline=(ROOT/"encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp").read_text()

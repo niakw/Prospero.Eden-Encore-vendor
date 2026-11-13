@@ -299,8 +299,13 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
 }
 
 RasterizerVulkan::~RasterizerVulkan() {
+    // QueryCache has a shorter lifetime than BufferCache. BufferCache::~
+    // triggers a final scheduler.Finish() AFTER QueryCache is destroyed.
+    // Drain outstanding queries while alive, then revoke the borrowed pointer
+    // to prevent the shutdown path from reading freed QueryCache storage.
     scheduler.WaitWorker();
     scheduler.Finish();
+    scheduler.ClearQueryCache();
 }
 
 namespace {
