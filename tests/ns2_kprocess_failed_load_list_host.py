@@ -33,10 +33,13 @@ assert "UnregisterProcessIfPresent(pid);" in method
 assert "SvcTrace::Unregister(pid);" in method
 assert "process_committed = true;" in method
 assert method.index("SCOPE_EXIT {") < method.index("loader.Load(*process, m_system)")
-assert slab.count("if (this->is_linked()) {")==1
-assert slab.count("kernel.ObjectListContainer().Unregister(this);")==1
-assert slab.index("if (this->is_linked()) {") < slab.index("if (is_initialized) {\n            arg = this->GetPostDestroyArgument()")
-assert slab.index("this->Finalize(kernel);") < slab.index("Derived::PostDestroy(kernel, arg);")
+listed=slab.split("class KAutoObjectWithSlabHeapAndContainer",1)[1]
+assert listed.count("if (this->is_linked()) {")==1
+assert listed.count("kernel.ObjectListContainer().Unregister(this);")==1
+assert listed.index("if (this->is_linked()) {") < listed.index(
+    "if (is_initialized) {\\n            arg = this->GetPostDestroyArgument()")
+assert listed.index("this->Finalize(kernel);") < listed.index(
+    "Derived::PostDestroy(kernel, arg);")
 
 stub=r"""
 #pragma once
