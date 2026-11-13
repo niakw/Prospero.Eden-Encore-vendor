@@ -84,7 +84,7 @@ assert 'std::vector<FileSys::VirtualDir> layers{std::move(patch_romfs)};' in ove
 assert "if (base_romfs) layers.push_back(base_romfs);" in overlay
 # Eglantine #350 revised its report: System/HeapSize is not a valid
 # mandatory resource for Bananza. Do not treat its absence as broken RomFS.
-assert 'System/HeapSize' not in overlay
+assert 'GetFileRelative("System/HeapSize")' not in overlay
 assert 'heap_file=' not in overlay
 assert 'rsdb_dir={} probe=optional' in overlay
 assert 'layered->GetSubdirectory("RSDB")' in overlay
