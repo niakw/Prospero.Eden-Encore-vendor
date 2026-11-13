@@ -24,6 +24,9 @@ overlay = owner[start:entry]
 assert "if (standalone && file)" in overlay  # do not change NUP adapter
 assert 'GetParentDirectory()' in overlay
 assert 'parent->GetName() == "roms"' in overlay
+assert 'bool within_library_title = false;' in overlay
+assert 'within_library_title = true;' in overlay
+assert 'if (const auto updates = within_library_title ?' in overlay
 assert 'game_root->GetSubdirectory("updates")' in overlay
 assert 'candidate.directory->GetSubdirectory("exefs")' in overlay
 assert 'candidate.directory->GetSubdirectory("romfs")' in overlay
