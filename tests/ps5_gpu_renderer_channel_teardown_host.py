@@ -17,6 +17,8 @@ OWNERS = {
     "vulkan": ROOT / "encore-active/eden-core/src/video_core/gpu_vulkan.cpp",
     "gl_native": ROOT / "encore-active/eden-core/src/video_core/gpu_gl_native.cpp",
     "gl_host": ROOT / "encore-active/eden-core/src/video_core/gpu_gl_host.cpp",
+    "gl_native_dev": ROOT / "encore-active/eden-core/src/video_core/gpu_gl_native_dev.cpp",
+    "gl_host_dev": ROOT / "encore-active/eden-core/src/video_core/gpu_gl_host_dev.cpp",
 }
 BASE = ROOT / "sources/eden/src/video_core/gpu.cpp"
 historic=BASE.read_text()
@@ -119,6 +121,6 @@ with tempfile.TemporaryDirectory(prefix="ps5-gpu-owner-shutdown-") as td:
             proc=subprocess.run([str(exe)],capture_output=True,text=True,timeout=30)
             assert proc.returncode==0,(name,compiler,proc.stderr[-2000:])
 print("PS5_GPU_SHUTDOWN_RENDERER_BEFORE_CHANNELS_HOST_PASS "
-      "real_selected_g21_owners=3 GPU_worker_stopped=1 "
+      "real_selected_g21_owners=5 GPU_worker_stopped=1 "
       "OpenGL_context_preserved=1 channel_uaf_order=prevented "
       "console_exit=unverified")
