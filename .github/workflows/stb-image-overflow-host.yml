@@ -1,0 +1,34 @@
+name: Vendor stb image allocation arithmetic (host)
+on:
+  pull_request:
+    paths:
+      - 'sources/eden/externals/stb/stb_image.h'
+      - 'sources/eden/externals/stb/stb_image_resize.h'
+      - 'tests/stb_image_overflow_host.c'
+      - '.github/workflows/stb-image-overflow-host.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'sources/eden/externals/stb/stb_image.h'
+      - 'sources/eden/externals/stb/stb_image_resize.h'
+      - 'tests/stb_image_overflow_host.c'
+      - '.github/workflows/stb-image-overflow-host.yml'
+permissions:
+  contents: read
+jobs:
+  stb-buffer-arithmetic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile and run C image arithmetic regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined \
+            tests/stb_image_overflow_host.c -lm -o /tmp/encore-stb-buffer-test
+          /tmp/encore-stb-buffer-test
+      - name: Reject whitespace damage
+        run: git diff --check
