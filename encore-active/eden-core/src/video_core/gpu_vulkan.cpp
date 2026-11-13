@@ -66,7 +66,15 @@ struct GPU::Impl {
         , gpu_thread{system_}
     {}
 
-    ~Impl() = default;
+    ~Impl() {
+        // Eglantine #462: the rasterizer can flush state referencing channel
+        // payloads on destruction. Here channels and scheduler are declared
+        // after renderer, so C++ default reverse order destroys them first.
+        // Join the PS5 GPU worker before any renderer resources are released.
+        NotifyShutdown();
+        gpu_thread.Stop();
+        renderer.reset();
+    }
 
     std::shared_ptr<Control::ChannelState> CreateChannel(s32 channel_id) {
         auto channel_state = std::make_shared<Tegra::Control::ChannelState>(channel_id);
