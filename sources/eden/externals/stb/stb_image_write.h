@@ -439,7 +439,17 @@ static void stbiw__write_pixel(stbi__write_context *s, int rgb_dir, int comp, in
             stbiw__write3(s, px[1 - rgb_dir], px[1], px[1 + rgb_dir]);
             break;
          }
-         /* FALLTHROUGH */
+         // Preserve the intentional RGBA -> RGB fallthrough without relying on
+         // comments that Clang does not recognize as a compiler annotation.
+#if defined(__cplusplus) && __cplusplus >= 201703L
+         [[fallthrough]];
+#elif defined(__has_attribute)
+#if __has_attribute(fallthrough)
+         __attribute__((fallthrough));
+#endif
+#elif defined(__GNUC__) && __GNUC__ >= 7
+         __attribute__((fallthrough));
+#endif
       case 3:
          stbiw__write3(s, d[1 - rgb_dir], d[1], d[1 + rgb_dir]);
          break;
