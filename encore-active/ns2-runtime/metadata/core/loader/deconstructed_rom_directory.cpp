@@ -225,13 +225,30 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
                 }
             }
             const auto base_dir = game_root->GetSubdirectory("base");
-            const auto base_exefs = base_dir ? base_dir->GetSubdirectory("exefs")
-                                            : game_root->GetSubdirectory("exefs");
-            if (base_exefs && base_exefs->GetFile("main") &&
-                base_exefs->GetFile("main.npdm")) {
+            // Some extracted titles put only RomFS under base/ and keep
+            // their genuine ExeFS at roms/<title>/exefs. A base/ directory
+            // existing by itself must not mask that executable fallback.
+            const auto nested_exefs = base_dir ? base_dir->GetSubdirectory("exefs")
+                                               : FileSys::VirtualDir{};
+            const auto root_exefs = game_root->GetSubdirectory("exefs");
+            const auto bootable_exefs = [](const FileSys::VirtualDir& exefs) {
+                return exefs && exefs->GetFile("main") &&
+                       exefs->GetFile("main.npdm");
+            };
+            const auto base_exefs = bootable_exefs(nested_exefs) ? nested_exefs :
+                                    bootable_exefs(root_exefs) ? root_exefs :
+                                    FileSys::VirtualDir{};
+            if (base_exefs) {
                 dir = base_exefs;
                 if (launched_from_update)
                     LOG_INFO(Loader, "EDEN_EXTRACTED_UPDATE base_exefs=restored");
+            } else if (launched_from_update) {
+                // A directly launched updates/<ver>/exefs/main cannot be
+                // treated as the base of another update. Mixing a new main
+                // with older rtld/sdk/modules can jump to guest PC=0x4.
+                // Reject the incomplete layout before any KProcess/NSO work.
+                LOG_WARNING(Loader, "EDEN_EXTRACTED_UPDATE status=base_exefs_missing");
+                return {ResultStatus::ErrorMissingNPDM, {}};
             }
             base_romfs = base_dir ? base_dir->GetSubdirectory("romfs")
                                  : FileSys::VirtualDir{};
