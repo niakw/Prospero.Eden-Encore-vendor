@@ -37,6 +37,13 @@ assert "candidate.depth >= 5" in overlay
 assert "truncated = true" in overlay
 assert "if (!pending.empty() || truncated)" in overlay
 assert "bool launched_from_update = false;" in overlay
+# An explicitly selected update version must never be replaced by an
+# unrelated numerically newer installed update found in the scan.
+assert 'newest = content_root;' in overlay
+assert 'source=selected_version version={}' in overlay
+assert 'pending.push_back({updates, std::nullopt, 0});' in overlay
+assert overlay.index('newest = content_root;') < overlay.index(
+    'while (!pending.empty() && visited++ < 128)')
 assert 'cursor->GetName() == "updates"' in overlay
 assert 'const auto nested_exefs = base_dir ? base_dir->GetSubdirectory("exefs")' in overlay
 assert 'const auto root_exefs = game_root->GetSubdirectory("exefs");' in overlay
