@@ -26,7 +26,7 @@ assert 'GetParentDirectory()' in overlay
 assert 'parent->GetName() == "roms"' in overlay
 assert 'bool within_library_title = false;' in overlay
 assert 'within_library_title = true;' in overlay
-assert 'if (const auto updates = within_library_title ?' in overlay
+assert 'if (const auto updates = within_library_title && !self_contained_update ?' in overlay
 assert 'game_root->GetSubdirectory("updates")' in overlay
 assert 'candidate.directory->GetSubdirectory("exefs")' in overlay
 assert 'candidate.directory->GetSubdirectory("romfs")' in overlay
@@ -46,12 +46,24 @@ assert 'bootable_exefs(nested_exefs) ? nested_exefs :' in overlay
 assert 'bootable_exefs(root_exefs) ? root_exefs :' in overlay
 assert 'dir = base_exefs;' in overlay
 assert 'else if (launched_from_update)' in overlay
-assert 'status=base_exefs_missing' in overlay
+# Eglantine #164/#431: a full selected update must boot with its OWN
+# ExeFS + RomFS even if there is no base ExeFS. An incomplete update
+# must still fail closed rather than borrow an unrelated version.
+assert 'bool self_contained_update = false;' in overlay
+assert 'const auto own_romfs = content_root->GetSubdirectory("romfs");' in overlay
+assert 'if (!bootable_exefs(dir) || !own_romfs)' in overlay
+assert 'status=base_missing_update_incomplete' in overlay
 assert 'return {ResultStatus::ErrorMissingNPDM, {}};' in overlay
+assert 'romfs = FileSys::CreateRomFS(own_romfs, nullptr);' in overlay
+assert 'self_contained_update = true;' in overlay
+assert 'source=selected_update_only' in overlay
+assert 'within_library_title && !self_contained_update ?' in overlay
+assert overlay.index('self_contained_update = true;') < overlay.index(
+    'if (const auto updates = within_library_title && !self_contained_update ?')
 assert 'base_dir ? base_dir->GetSubdirectory("romfs")' in overlay
 assert 'if (!base_romfs && !launched_from_update)' in overlay
 assert overlay.index("dir = base_exefs;") < overlay.index(
-    'if (const auto updates = within_library_title ?')
+    'if (const auto updates = within_library_title && !self_contained_update ?')
 assert "ambiguous = true" in overlay
 assert "if (auto patch_exefs = newest->GetSubdirectory" in overlay
 assert "if (auto patch_romfs = newest->GetSubdirectory" in overlay
@@ -72,4 +84,5 @@ assert 'RomFSFactory>(*this, system.GetContentProvider()' in owner[entry:end]
 assert 'if (romfs == nullptr && standalone && file)' in owner[end:]
 
 print("NS2_EXTRACTED_ROMFS_SOURCE_CONTRACT_PASS "
-      "update_only=1 base_fallback=1 bounded=1 nup_isolation=1 ps5_runtime=unverified")
+      "update_only=1 self_contained_update=1 mixed_versions_rejected=1 "
+      "base_fallback=1 bounded=1 nup_isolation=1 ps5_runtime=unverified")
