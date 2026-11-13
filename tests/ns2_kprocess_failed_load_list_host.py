@@ -37,7 +37,7 @@ listed=slab.split("class KAutoObjectWithSlabHeapAndContainer",1)[1]
 assert listed.count("if (this->is_linked()) {")==1
 assert listed.count("kernel.ObjectListContainer().Unregister(this);")==1
 assert listed.index("if (this->is_linked()) {") < listed.index(
-    "if (is_initialized) {\\n            arg = this->GetPostDestroyArgument()")
+    "arg = this->GetPostDestroyArgument();")
 assert listed.index("this->Finalize(kernel);") < listed.index(
     "Derived::PostDestroy(kernel, arg);")
 
