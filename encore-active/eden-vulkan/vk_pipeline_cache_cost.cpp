@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+// ENCORE_PS5_CACHE_DIAG_BEGIN
 #include <filesystem>
+// ENCORE_PS5_CACHE_DIAG_END
 #include "pipeline_trace_registry.h"
 #include "performance.h"
 #include "dev_vulkan.h"
@@ -1297,6 +1299,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     }
 
 #ifdef PS5_NATIVE
+    // ENCORE_PS5_CACHE_DIAG_BEGIN
     // Once per game load only: separate a missing per-title environment log,
     // a header-only log, and an existing cache whose records get rejected.
     // Never inspect or walk these files in the draw/submit hot path.
@@ -1322,7 +1325,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                 unsigned(use_vulkan_pipeline_cache), unsigned(driver_before.present),
                 static_cast<unsigned long long>(driver_before.bytes),
                 unsigned(CACHE_VERSION));
-
+    // ENCORE_PS5_CACHE_DIAG_END
     // The PS5 is launching one foreground game, so do not delay it by
     // compiling the full backlog of shaders from earlier sessions.
     // An already-stopped token is a special initialization-only request:
@@ -1348,12 +1351,14 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         size_t built{};
         size_t valid{};
         bool has_loaded{};
+        // ENCORE_PS5_CACHE_DIAG_BEGIN
 #ifdef PS5_NATIVE
         // Updated only by the disk reader; the main thread reads after drain.
         size_t disk_compute_records{};
         size_t disk_graphics_records{};
         size_t disk_graphics_admitted{};
 #endif
+        // ENCORE_PS5_CACHE_DIAG_END
         std::unique_ptr<PipelineStatistics> statistics;
     } state;
 
@@ -1361,9 +1366,11 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         state.statistics = std::make_unique<PipelineStatistics>(device);
     }
     const auto load_compute{[&](std::ifstream& file, FileEnvironment env) {
+        // ENCORE_PS5_CACHE_DIAG_BEGIN
 #ifdef PS5_NATIVE
         ++state.disk_compute_records;
 #endif
+        // ENCORE_PS5_CACHE_DIAG_END
         ComputePipelineCacheKey key;
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
 
@@ -1393,9 +1400,11 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
 #endif
     }};
     const auto load_graphics{[&](std::ifstream& file, std::vector<FileEnvironment> envs) {
+        // ENCORE_PS5_CACHE_DIAG_BEGIN
 #ifdef PS5_NATIVE
         ++state.disk_graphics_records;
 #endif
+        // ENCORE_PS5_CACHE_DIAG_END
         GraphicsPipelineCacheKey key;
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
 
@@ -1455,9 +1464,11 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                 callback(VideoCore::LoadCallbackStage::Build, state.built, state.total);
             }
         });
+        // ENCORE_PS5_CACHE_DIAG_BEGIN
 #ifdef PS5_NATIVE
         ++state.disk_graphics_admitted;
 #endif
+        // ENCORE_PS5_CACHE_DIAG_END
         // Workers read total while holding state.mutex. Publish reader
         // increments under the same lock to avoid a cache-prewarm data race.
         {
@@ -1530,6 +1541,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     std::printf("EDEN_PS5_SHADER_PREWARM queued=%zu completed=%zu valid=%zu rejected=%zu prebuild_ms=%lld limit=%zu\n",
                 state.total, state.built, state.valid, state.built - state.valid,
                 static_cast<long long>(startup_prewarm_ms), kStartupPrewarmPipelines);
+    // ENCORE_PS5_CACHE_DIAG_BEGIN
     const auto env_after = probe_cache(pipeline_cache_filename);
     std::printf("EDEN_PS5_SHADER_CACHE_ADMISSION title=%016llX"
                 " env_before_present=%u env_before_bytes=%llu"
@@ -1544,6 +1556,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                 state.disk_compute_records, state.disk_graphics_records,
                 state.disk_graphics_records - state.disk_graphics_admitted,
                 state.total, unsigned(CACHE_VERSION));
+    // ENCORE_PS5_CACHE_DIAG_END
 #endif
 
     if (use_vulkan_pipeline_cache) {
