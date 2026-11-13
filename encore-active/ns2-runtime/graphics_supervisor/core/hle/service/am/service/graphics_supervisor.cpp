@@ -552,13 +552,15 @@ private:
                 // Reject an invalid reported count before indexing them;
                 // retaining the queued image is safer than releasing its
                 // NVMap backing while GPU work might still be outstanding.
-                // The producer count is signed. Negative values and counts
-                // greater than the fixed four-entry array are invalid.
-                // Compare only after rejecting negatives; never wrap to u32.
-                if (fence.num_fences < 0 ||
-                    static_cast<std::size_t>(fence.num_fences) > fence.fences.size()) continue;
+                // Service::android::Fence::num_fences is u32, not signed:
+                // testing < 0 was always false and emitted a native compiler
+                // warning. Keep the original fail-closed release policy:
+                // retain the NVMap image until its entire reported fence
+                // array is known to fit and every syncpoint has expired.
+                const std::size_t fence_count = fence.num_fences;
+                if (fence_count > fence.fences.size()) continue;
                 bool done=true;
-                for (std::size_t i=0;i<static_cast<std::size_t>(fence.num_fences);++i) {
+                for (std::size_t i=0;i<fence_count;++i) {
                     const auto& point=fence.fences[i];
                     if (point.id == -1) continue;
                     auto& syncpoints=module->GetContainer().GetSyncpointManager();
