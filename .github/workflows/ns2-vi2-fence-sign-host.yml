@@ -1,4 +1,4 @@
-name: NS2 VI2 signed fence bounds host test
+name: NS2 VI2 unsigned fence bounds host test
 on:
   push:
     branches: [main]
@@ -14,7 +14,7 @@ on:
 permissions:
   contents: read
 jobs:
-  vi2-signed-fences:
+  vi2-unsigned-fences:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
