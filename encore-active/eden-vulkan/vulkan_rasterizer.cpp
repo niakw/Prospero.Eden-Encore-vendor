@@ -301,6 +301,8 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
 RasterizerVulkan::~RasterizerVulkan() {
     scheduler.WaitWorker();
     scheduler.Finish();
+    // BufferCache (destroyed after QueryCache) can still call Finish().
+    scheduler.ClearQueryCache();
 }
 
 namespace {
