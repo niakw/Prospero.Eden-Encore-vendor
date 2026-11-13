@@ -216,6 +216,7 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
         // can assemble an incompatible mix of old and new NSO modules.
         FileSys::VirtualDir base_romfs;
         bool launched_from_update = false;
+        bool self_contained_update = false;
         if (within_library_title) {
             for (auto cursor = content_root; cursor && cursor != game_root;
                  cursor = cursor->GetParentDirectory()) {
@@ -243,12 +244,29 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
                 if (launched_from_update)
                     LOG_INFO(Loader, "EDEN_EXTRACTED_UPDATE base_exefs=restored");
             } else if (launched_from_update) {
-                // A directly launched updates/<ver>/exefs/main cannot be
-                // treated as the base of another update. Mixing a new main
-                // with older rtld/sdk/modules can jump to guest PC=0x4.
-                // Reject the incomplete layout before any KProcess/NSO work.
-                LOG_WARNING(Loader, "EDEN_EXTRACTED_UPDATE status=base_exefs_missing");
-                return {ResultStatus::ErrorMissingNPDM, {}};
+                // Eglantine #164/#431: a complete update ExeFS plus its
+                // sibling RomFS can boot WITHOUT any base ExeFS. Do not
+                // reject such a legitimate direct update launch, and do not
+                // layer it with some OTHER update version discovered below.
+                // If the selected update has no own RomFS, fail closed:
+                // mounting an unrelated base/update against its main NSO
+                // can produce null guest reads and a PC=0x4 afterwards.
+                const auto own_romfs = content_root->GetSubdirectory("romfs");
+                if (!bootable_exefs(dir) || !own_romfs) {
+                    LOG_WARNING(Loader,
+                                "EDEN_EXTRACTED_UPDATE status=base_missing_update_incomplete");
+                    return {ResultStatus::ErrorMissingNPDM, {}};
+                }
+                const bool has_heap = own_romfs->GetFileRelative("System/HeapSize") != nullptr;
+                const bool has_rsdb = own_romfs->GetSubdirectory("RSDB") != nullptr;
+                romfs = FileSys::CreateRomFS(own_romfs, nullptr);
+                if (!romfs)
+                    return {ResultStatus::ErrorNoRomFS, {}};
+                self_contained_update = true;
+                LOG_INFO(Loader,
+                         "EDEN_EXTRACTED_UPDATE source=selected_update_only"
+                         " base_exefs=0 heap_file={} rsdb_dir={}",
+                         int(has_heap), int(has_rsdb));
             }
             base_romfs = base_dir ? base_dir->GetSubdirectory("romfs")
                                  : FileSys::VirtualDir{};
@@ -268,7 +286,7 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
                 if (cursor == game_root) break;
             }
         }
-        if (const auto updates = within_library_title ?
+        if (const auto updates = within_library_title && !self_contained_update ?
                 game_root->GetSubdirectory("updates") : FileSys::VirtualDir{}) {
             struct Candidate {
                 FileSys::VirtualDir directory;
