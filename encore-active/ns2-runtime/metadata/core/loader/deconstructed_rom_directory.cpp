@@ -229,6 +229,7 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
             u64 newest_version = 0;
             std::size_t visited = 0;
             bool ambiguous = false;
+            bool truncated = false;
             while (!pending.empty() && visited++ < 128) {
                 Candidate candidate = std::move(pending.back());
                 pending.pop_back();
@@ -259,9 +260,11 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
                         version = parsed;
                     if (pending.size() < 128)
                         pending.push_back({nested, version, candidate.depth + 1});
+                    else
+                        truncated = true;
                 }
             }
-            if (!pending.empty()) {
+            if (!pending.empty() || truncated) {
                 LOG_WARNING(Loader, "EDEN_EXTRACTED_UPDATE status=scan_incomplete");
             } else if (ambiguous) {
                 LOG_WARNING(Loader, "EDEN_EXTRACTED_UPDATE status=ambiguous_version");
@@ -297,6 +300,16 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
                              newest_version);
                 }
             }
+        }
+        // The update overlay is optional. The base RomFS must still mount
+        // when an extracted title is nested deeper than base/exefs, or when
+        // the selected update has only an ExeFS and no own RomFS.
+        // Preserve the same VFS ownership instead of returning a false
+        // ErrorNoRomFS from the old immediate-parent-only fallback.
+        if (!romfs && base_romfs) {
+            romfs = FileSys::CreateRomFS(std::move(base_romfs), nullptr);
+            if (!romfs) return {ResultStatus::ErrorNoRomFS, {}};
+            LOG_INFO(Loader, "EDEN_EXTRACTED_BASE_ROMFS status=mounted");
         }
     }
 
