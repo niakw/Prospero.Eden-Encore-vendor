@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <bit>
 #include <functional>
@@ -24,31 +25,18 @@ public:
     ~GPUDirtyMemoryManager() = default;
 
     void Collect(PAddr address, size_t size) {
-        TransformAddress t = BuildTransform(address, size);
-        TransformAddress tmp, original;
-        do {
-            tmp = current.load(std::memory_order_acquire);
-            original = tmp;
-            if (tmp.address != t.address) {
-                if (IsValid(tmp.address)) {
-                    std::scoped_lock lk(guard);
-                    // A concurrent same-region CAS can extend the mask AFTER
-                    // our initial load. Exchange first, then save the actual
-                    // displaced value in the already reserved vector slot.
-                    // This keeps the normal same-region CAS path lock-free.
-                    back_buffer.emplace_back(tmp);
-                    back_buffer.back() = current.exchange(t, std::memory_order_acq_rel);
-                    return;
-                }
-                tmp.address = t.address;
-                tmp.mask = 0;
-            }
-            if ((tmp.mask | t.mask) == tmp.mask) {
-                return;
-            }
-            tmp.mask |= t.mask;
-        } while (!current.compare_exchange_weak(original, tmp, std::memory_order_release,
-                                                std::memory_order_relaxed));
+        // One TransformAddress has 32 bits for 64-byte cells in a 2-KiB
+        // page. Crossing that boundary as a single BuildTransform can shift
+        // by >=32 (undefined behavior) and silently lose GPU dirty cells.
+        // Adapt Lichii #1586/#1591: split without changing the existing
+        // CAS/exchange and gather-lock ownership of each page update.
+        while (size != 0) {
+            const size_t in_page =
+                (std::min<size_t>)(size, page_size - (address & page_mask));
+            CollectInPage(address, in_page);
+            address += in_page;
+            size -= in_page;
+        }
     }
 
     void Gather(std::function<void(PAddr, size_t)>& callback) {
@@ -146,6 +134,35 @@ private:
         result.address = static_cast<u32>(address >> page_bits);
         result.mask = CreateMask<u32>(top_bit, minor_bit);
         return result;
+    }
+
+    // Called only for a nonempty range fully contained in one 2-KiB page.
+    void CollectInPage(PAddr address, size_t size) {
+        TransformAddress t = BuildTransform(address, size);
+        TransformAddress tmp, original;
+        do {
+            tmp = current.load(std::memory_order_acquire);
+            original = tmp;
+            if (tmp.address != t.address) {
+                if (IsValid(tmp.address)) {
+                    std::scoped_lock lk(guard);
+                    // A concurrent same-region CAS can extend the mask AFTER
+                    // our initial load. Exchange first, then save the actual
+                    // displaced value in the already reserved vector slot.
+                    // This keeps the normal same-region CAS path lock-free.
+                    back_buffer.emplace_back(tmp);
+                    back_buffer.back() = current.exchange(t, std::memory_order_acq_rel);
+                    return;
+                }
+                tmp.address = t.address;
+                tmp.mask = 0;
+            }
+            if ((tmp.mask | t.mask) == tmp.mask) {
+                return;
+            }
+            tmp.mask |= t.mask;
+        } while (!current.compare_exchange_weak(original, tmp, std::memory_order_release,
+                                                std::memory_order_relaxed));
     }
 
     std::atomic<TransformAddress> current{};

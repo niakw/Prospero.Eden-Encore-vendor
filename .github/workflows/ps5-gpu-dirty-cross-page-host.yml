@@ -1,0 +1,31 @@
+name: PS5 GPU dirty cross-page owner host regression
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-core/overrides/core/gpu_dirty_memory_manager.h'
+      - 'tools/check-gpu-dirty-cross-page-host.py'
+      - '.github/workflows/ps5-gpu-dirty-cross-page-host.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'encore-active/eden-core/overrides/core/gpu_dirty_memory_manager.h'
+      - 'tools/check-gpu-dirty-cross-page-host.py'
+      - '.github/workflows/ps5-gpu-dirty-cross-page-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-owner-cross-page:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact vendor sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile actual PS5 GPU-dirty header with ASan and UBSan
+        run: python3 -B tools/check-gpu-dirty-cross-page-host.py
+      - name: Confirm vendor working tree remains unchanged
+        run: git diff --exit-code
