@@ -9,6 +9,8 @@ on:
       - "encore-active/eden-core/src/video_core/gpu_vulkan.cpp"
       - "encore-active/eden-core/src/video_core/gpu_gl_native.cpp"
       - "encore-active/eden-core/src/video_core/gpu_gl_host.cpp"
+      - "encore-active/eden-core/src/video_core/gpu_gl_native_dev.cpp"
+      - "encore-active/eden-core/src/video_core/gpu_gl_host_dev.cpp"
       - "tests/ps5_gpu_renderer_channel_teardown_host.py"
       - ".github/workflows/ps5-gpu-renderer-channel-teardown-host.yml"
   workflow_dispatch:
