@@ -1,0 +1,32 @@
+name: PS5 G21 renderer-before-channel shutdown (host)
+
+on:
+  push:
+    branches:
+      - fix/nov14-ps5-gpu-renderer-channel-teardown
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/video_core/gpu_vulkan.cpp"
+      - "encore-active/eden-core/src/video_core/gpu_gl_native.cpp"
+      - "encore-active/eden-core/src/video_core/gpu_gl_host.cpp"
+      - "tests/ps5_gpu_renderer_channel_teardown_host.py"
+      - ".github/workflows/ps5-gpu-renderer-channel-teardown-host.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  g21-teardown-lifetime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Exact vendor source checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile actual maintained destructor order in C++20 ASan + UBSan
+        run: python3 -B tests/ps5_gpu_renderer_channel_teardown_host.py
+      - name: Scope
+        run: |
+          echo "Host-only GPU owner shutdown source proof. No native PS5 Vulkan/GL build, image resources or console exit/relauch test. Does not establish user's SIGSEGV is fixed." >> "$GITHUB_STEP_SUMMARY"
