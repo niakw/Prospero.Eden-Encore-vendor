@@ -5,12 +5,14 @@
 // Called ONLY after the user selects one validated wallpaper, never during enumeration.
 #include "jxr_decoder.h"
 
+#include <fcntl.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #ifndef __ANSI__
 #define __ANSI__
@@ -230,7 +232,7 @@ bool encore_jxr_to_webp(const char *src, const char *dst)
         }
     }
     if (fi == NULL) {
-        fprintf(stderr, "jxr: %s uses an unsupported pixel format\n", src);
+        fprintf(stderr, "EDEN_JXR_SELECT status=unsupported_pixel_format\n");
         goto done;
     }
 
@@ -253,7 +255,8 @@ bool encore_jxr_to_webp(const char *src, const char *dst)
     decoder->WMP.wmiI.cPostProcStrength = 0;
 
     I32 width, height;
-    decoder->GetSize(decoder, &width, &height);
+    if (decoder->GetSize(decoder, &width, &height) != WMP_errSuccess)
+        goto done;
     // 4K PS5 captures are expected, but arbitrary image dimensions are not.
     if (width <= 0 || height <= 0 || width > 3840 || height > 2160 ||
         (size_t)width * (size_t)height > 3840u * 2160u ||
@@ -336,8 +339,16 @@ bool encore_jxr_to_webp(const char *src, const char *dst)
     if (!WebPGetInfo(compressed, length, &checked_w, &checked_h) ||
         checked_w != target_w || checked_h != target_h)
         goto done;
-    FILE *out = fopen(dst, "wb");
-    if (!out) goto done;
+    // The caller supplies a private temporary path. Never follow a link or
+    // truncate an existing file, even when the gallery has been tampered with.
+    const int fd = open(dst, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (fd < 0) goto done;
+    FILE *out = fdopen(fd, "wb");
+    if (!out) {
+        close(fd);
+        remove(dst);
+        goto done;
+    }
     ok = fwrite(compressed, 1, length, out) == length;
     if (fclose(out) != 0) ok = false;
     if (!ok) remove(dst);
