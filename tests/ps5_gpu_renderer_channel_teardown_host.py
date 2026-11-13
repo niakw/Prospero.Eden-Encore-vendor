@@ -37,7 +37,7 @@ struct State {
 };
 static State state;
 namespace Settings { bool IsOpenGL() {return true;} }
-static void glFinish(){
+[[maybe_unused]] static void glFinish(){
     assert(!state.worker_running);
     assert(state.context_current && state.channels_alive);
     ++state.gl_finish;
