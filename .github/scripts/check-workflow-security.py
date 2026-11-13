@@ -28,7 +28,7 @@ def check_workflow(path: Path) -> int:
     )
     if READ_ONLY.search(content):
         raw = content.encode("utf-8")
-        git_blob = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\\0" + raw).hexdigest()
+        git_blob = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
         assert path.name == "cleanup-merged-pr-branches.yml" and git_blob == REVIEWED_CLEANUP_BLOB, (
             f"{path}: write-capable token scope requires separate review and exact source pin"
         )
