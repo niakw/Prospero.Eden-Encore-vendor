@@ -211,15 +211,45 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
                 break;
             }
         }
+        // A selected updates/<version>/exefs must not become the fallback
+        // ExeFS or RomFS for the real base game. Otherwise partial updates
+        // can assemble an incompatible mix of old and new NSO modules.
         FileSys::VirtualDir base_romfs;
-        depth = 0;
-        for (auto cursor = content_root; cursor && depth < 9;
-             cursor = cursor->GetParentDirectory(), ++depth) {
-            if (auto candidate = cursor->GetSubdirectory("romfs")) {
-                base_romfs = std::move(candidate);
-                break;
+        bool launched_from_update = false;
+        if (within_library_title) {
+            for (auto cursor = content_root; cursor && cursor != game_root;
+                 cursor = cursor->GetParentDirectory()) {
+                if (cursor->GetName() == "updates") {
+                    launched_from_update = true;
+                    break;
+                }
             }
-            if (cursor == game_root) break;
+            const auto base_dir = game_root->GetSubdirectory("base");
+            const auto base_exefs = base_dir ? base_dir->GetSubdirectory("exefs")
+                                            : game_root->GetSubdirectory("exefs");
+            if (base_exefs && base_exefs->GetFile("main") &&
+                base_exefs->GetFile("main.npdm")) {
+                dir = base_exefs;
+                if (launched_from_update)
+                    LOG_INFO(Loader, "EDEN_EXTRACTED_UPDATE base_exefs=restored");
+            }
+            base_romfs = base_dir ? base_dir->GetSubdirectory("romfs")
+                                 : FileSys::VirtualDir{};
+            if (!base_romfs)
+                base_romfs = game_root->GetSubdirectory("romfs");
+        }
+        // Nested non-update layouts retain their ancestor fallback.
+        // Do not accidentally treat a selected update RomFS as base.
+        if (!base_romfs && !launched_from_update) {
+            depth = 0;
+            for (auto cursor = content_root; cursor && depth < 9;
+                 cursor = cursor->GetParentDirectory(), ++depth) {
+                if (auto candidate = cursor->GetSubdirectory("romfs")) {
+                    base_romfs = std::move(candidate);
+                    break;
+                }
+                if (cursor == game_root) break;
+            }
         }
         if (const auto updates = within_library_title ?
                 game_root->GetSubdirectory("updates") : FileSys::VirtualDir{}) {
