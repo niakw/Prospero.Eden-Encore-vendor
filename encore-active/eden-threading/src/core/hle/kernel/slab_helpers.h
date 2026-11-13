@@ -150,8 +150,14 @@ public:
     virtual void Destroy(KernelCore& kernel) override {
         const bool is_initialized = this->IsInitialized();
         uintptr_t arg = 0;
-        if (is_initialized) {
+        // Process load can fail before initialization. Remove only objects
+        // that were really inserted, even when IsInitialized() is false.
+        // Conversely, do not unregister an initialized object that was never
+        // linked after a failed load. Lichii #1574 / Eglantine eb579d2.
+        if (this->is_linked()) {
             kernel.ObjectListContainer().Unregister(this);
+        }
+        if (is_initialized) {
             arg = this->GetPostDestroyArgument();
             this->Finalize(kernel);
         }
