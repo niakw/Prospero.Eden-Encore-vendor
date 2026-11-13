@@ -3,6 +3,7 @@
 from pathlib import Path
 import hashlib
 import os
+import re
 import subprocess
 import tempfile
 ROOT=Path(__file__).resolve().parents[1]
@@ -32,6 +33,14 @@ for path,sha in EXPECTED.items():
   assert normalized.count(POST_TEARDOWN)==1, "FC27 lifetime guard missing"
   normalized=normalized.replace(POST_TEARDOWN,PRE_TEARDOWN,1)
  elif path.endswith("/vk_pipeline_cache_cost.cpp"):
+  # Only strip the seven explicitly delimited, once-per-title PS5 cache
+  # diagnostics; preserve the original R23 golden owner SHA and every draw
+  # method byte. A genuine R23 source change still fails the exact receipt.
+  diag=r"(?ms)^[ \\t]*// ENCORE_PS5_CACHE_DIAG_BEGIN\\n.*?^[ \\t]*// ENCORE_PS5_CACHE_DIAG_END\\n"
+  assert normalized.count("ENCORE_PS5_CACHE_DIAG_BEGIN")==7
+  assert normalized.count("ENCORE_PS5_CACHE_DIAG_END")==7
+  normalized, removed=re.subn(diag,"",normalized)
+  assert removed==7, ("unexpected PS5 diagnostics scope", removed)
   assert normalized.count(POST_HOST_INFO_ORDER)==1, "C++20 host-info order regressed"
   normalized=normalized.replace(POST_HOST_INFO_ORDER,PRE_HOST_INFO_ORDER,1)
  encoded=normalized.encode("utf-8")
