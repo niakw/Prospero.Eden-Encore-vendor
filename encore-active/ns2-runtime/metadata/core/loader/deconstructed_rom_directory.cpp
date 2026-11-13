@@ -191,12 +191,14 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     // update-only files (System/HeapSize, RSDB and other title assets).
     // Keep the same bounded, title-scoped overlay policy as the maintained
     // eden-core deconstructed loader, without copying guest data into RAM.
-    // The NUP adapter has its own VFS and is not a standalone loose ExeFS.
+    // The NUP adapter also uses the standalone main-file constructor:
+    // never assume standalone alone establishes a real roms/<title> path.
     if (standalone && file) {
         FileSys::VirtualDir content_root = dir;
         if (dir->GetName() == "exefs" && dir->GetParentDirectory())
             content_root = dir->GetParentDirectory();
         FileSys::VirtualDir game_root = content_root;
+        bool within_library_title = false;
         unsigned depth = 0;
         for (auto cursor = content_root; cursor && depth < 9;
              cursor = cursor->GetParentDirectory(), ++depth) {
@@ -205,6 +207,7 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
             if (const auto parent = cursor->GetParentDirectory();
                 parent && parent->GetName() == "roms") {
                 game_root = cursor;
+                within_library_title = true;
                 break;
             }
         }
@@ -218,7 +221,8 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
             }
             if (cursor == game_root) break;
         }
-        if (const auto updates = game_root->GetSubdirectory("updates")) {
+        if (const auto updates = within_library_title ?
+                game_root->GetSubdirectory("updates") : FileSys::VirtualDir{}) {
             struct Candidate {
                 FileSys::VirtualDir directory;
                 std::optional<u64> version;
