@@ -333,6 +333,11 @@ VkShaderStageFlagBits ShaderStage(Shader::Stage stage) {
         return VK_SHADER_STAGE_FRAGMENT_BIT;
     case Shader::Stage::Compute:
         return VK_SHADER_STAGE_COMPUTE_BIT;
+    case Shader::Stage::Task:
+    case Shader::Stage::Mesh:
+        // This Vulkan owner has no maintained Task/Mesh stage conversion.
+        // Keep the existing failure diagnostic rather than invent a mapping.
+        break;
     }
     UNIMPLEMENTED_MSG("Unimplemented shader stage={}", stage);
     return {};
