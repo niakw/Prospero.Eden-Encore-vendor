@@ -252,21 +252,40 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
                 // mounting an unrelated base/update against its main NSO
                 // can produce null guest reads and a PC=0x4 afterwards.
                 const auto own_romfs = content_root->GetSubdirectory("romfs");
-                if (!bootable_exefs(dir) || !own_romfs) {
+                // A complete .romfs image next to the selected ExeFS main
+                // is another supported loose layout (Eglantine #342).
+                // Do not reject it merely because there is no directory.
+                FileSys::VirtualFile own_romfs_image;
+                for (const auto& entry : dir->GetFiles()) {
+                    if (entry->GetExtension() == "romfs") {
+                        own_romfs_image = entry;
+                        break;
+                    }
+                }
+                if (!bootable_exefs(dir) || (!own_romfs && !own_romfs_image)) {
                     LOG_WARNING(Loader,
                                 "EDEN_EXTRACTED_UPDATE status=base_missing_update_incomplete");
                     return {ResultStatus::ErrorMissingNPDM, {}};
                 }
-                const bool has_heap = own_romfs->GetFileRelative("System/HeapSize") != nullptr;
-                const bool has_rsdb = own_romfs->GetSubdirectory("RSDB") != nullptr;
-                romfs = FileSys::CreateRomFS(own_romfs, nullptr);
+                if (own_romfs) {
+                    const bool has_heap =
+                        own_romfs->GetFileRelative("System/HeapSize") != nullptr;
+                    const bool has_rsdb =
+                        own_romfs->GetSubdirectory("RSDB") != nullptr;
+                    romfs = FileSys::CreateRomFS(own_romfs, nullptr);
+                    LOG_INFO(Loader,
+                             "EDEN_EXTRACTED_UPDATE source=selected_update_only"
+                             " romfs_layout=directory heap_file={} rsdb_dir={}",
+                             int(has_heap), int(has_rsdb));
+                } else {
+                    romfs = own_romfs_image;
+                    LOG_INFO(Loader,
+                             "EDEN_EXTRACTED_UPDATE source=selected_update_only"
+                             " romfs_layout=file heap_probe=not_applicable");
+                }
                 if (!romfs)
                     return {ResultStatus::ErrorNoRomFS, {}};
                 self_contained_update = true;
-                LOG_INFO(Loader,
-                         "EDEN_EXTRACTED_UPDATE source=selected_update_only"
-                         " base_exefs=0 heap_file={} rsdb_dir={}",
-                         int(has_heap), int(has_rsdb));
             }
             base_romfs = base_dir ? base_dir->GetSubdirectory("romfs")
                                  : FileSys::VirtualDir{};
