@@ -51,10 +51,15 @@ assert 'else if (launched_from_update)' in overlay
 # must still fail closed rather than borrow an unrelated version.
 assert 'bool self_contained_update = false;' in overlay
 assert 'const auto own_romfs = content_root->GetSubdirectory("romfs");' in overlay
-assert 'if (!bootable_exefs(dir) || !own_romfs)' in overlay
+assert 'FileSys::VirtualFile own_romfs_image;' in overlay
+assert 'entry->GetExtension() == "romfs"' in overlay
+assert 'if (!bootable_exefs(dir) || (!own_romfs && !own_romfs_image))' in overlay
 assert 'status=base_missing_update_incomplete' in overlay
 assert 'return {ResultStatus::ErrorMissingNPDM, {}};' in overlay
 assert 'romfs = FileSys::CreateRomFS(own_romfs, nullptr);' in overlay
+assert 'romfs = own_romfs_image;' in overlay
+assert 'romfs_layout=directory' in overlay
+assert 'romfs_layout=file heap_probe=not_applicable' in overlay
 assert 'self_contained_update = true;' in overlay
 assert 'source=selected_update_only' in overlay
 assert 'within_library_title && !self_contained_update ?' in overlay
@@ -84,5 +89,6 @@ assert 'RomFSFactory>(*this, system.GetContentProvider()' in owner[entry:end]
 assert 'if (romfs == nullptr && standalone && file)' in owner[end:]
 
 print("NS2_EXTRACTED_ROMFS_SOURCE_CONTRACT_PASS "
-      "update_only=1 self_contained_update=1 mixed_versions_rejected=1 "
+      "update_only=1 self_contained_update=1 image_or_directory=1 "
+      "mixed_versions_rejected=1 "
       "base_fallback=1 bounded=1 nup_isolation=1 ps5_runtime=unverified")
