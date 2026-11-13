@@ -180,7 +180,8 @@ public:
 
     void InitializeHardwareDecoder(const HardwareContext& context, AVPixelFormat hw_pix_fmt);
     bool OpenContext(const Decoder& decoder, std::span<const u8> extradata = {});
-    bool SendPacket(const Packet& packet);
+    // Returns the FFmpeg status; EAGAIN does NOT consume the packet.
+    int SendPacket(const Packet& packet);
     std::shared_ptr<Frame> ReceiveFrame();
 
     AVCodecContext* GetCodecContext() const {
@@ -243,6 +244,9 @@ private:
     bool m_needs_h264_extradata{};
     s64 m_next_pts{};
     std::queue<FrameOffsets> m_pending_offsets;
+    // Frames drained to make room for a retried EAGAIN packet must remain
+    // observable by ReceiveFrame, ahead of later decoder output.
+    std::queue<std::shared_ptr<Frame>> m_ready_frames;
 };
 
 } // namespace FFmpeg
