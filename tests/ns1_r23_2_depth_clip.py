@@ -29,6 +29,17 @@ for name,expected in files.items():
     elif name=="fixed_pipeline_state.cpp":
         text=v.decode()
         assert "MaxwellDepthClampClip" in text and "regs.tir_mode == Maxwell::TIRMode::RasterNTargetM" in text,(name,"lost EDS3/TIR")
+    elif name=="vulkan_rasterizer.cpp":
+        # Nov13 QueryCache lifetime fix is added after the R23 renderer receipt.
+        # Prove its exact selected destructor, then reverse ONLY that hunk
+        # before checking the historical source blob.
+        post_teardown = "RasterizerVulkan::~RasterizerVulkan() {\n    // QueryCache has a shorter lifetime than BufferCache. BufferCache::~\n    // triggers a final scheduler.Finish() AFTER QueryCache is destroyed.\n    // Drain outstanding queries while alive, then revoke the borrowed pointer\n    // to prevent the shutdown path from reading freed QueryCache storage.\n    scheduler.WaitWorker();\n    scheduler.Finish();\n    scheduler.ClearQueryCache();\n}"
+        pre_teardown = "RasterizerVulkan::~RasterizerVulkan() {\n    scheduler.WaitWorker();\n    scheduler.Finish();\n}"
+        source = v.decode("utf-8")
+        assert source.count(post_teardown)==1, "FC27 teardown revocation lost"
+        normalized = source.replace(post_teardown, pre_teardown, 1).encode("utf-8")
+        normalized_sha = hashlib.sha1(b"blob "+str(len(normalized)).encode()+bytes([0])+normalized).hexdigest()
+        assert normalized_sha==expected,(name,actual,normalized_sha,expected)
     else:
         assert actual==expected,(name,actual)
 source=(root/"fixed_pipeline_state.cpp").read_text()
