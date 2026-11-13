@@ -1,4 +1,4 @@
-name: Cleanup merged pull request branches
+name: Cleanup merged or already-integrated pull request branches
 on:
   push:
     branches: [main]
@@ -60,22 +60,44 @@ jobs:
               if p['head']['repo'] and p['head']['repo']['full_name'] == repo
           }
           eligible = {}
+          closed_heads = {}
           for pr in pages('/pulls?state=closed'):
               head = pr['head']
-              if (pr['merged_at'] and head['repo'] and
-                  head['repo']['full_name'] == repo and head['ref'] not in open_heads):
-                  eligible[(head['ref'], head['sha'])] = pr['number']
+              if (head['repo'] and head['repo']['full_name'] == repo and
+                  head['ref'] not in open_heads):
+                  key = (head['ref'], head['sha'])
+                  if pr['merged_at']:
+                      eligible[key] = pr['number']
+                  else:
+                      closed_heads[key] = pr['number']
 
+          main_ref = next((item for item in branches if item['name'] == 'main'), None)
+          if not main_ref:
+              raise RuntimeError('Missing main branch in cleanup inventory')
+          main_sha = main_ref['commit']['sha']
           removed = []
           skipped = []
           for branch in branches:
               name = branch['name']
               sha = branch['commit']['sha']
               pr_number = eligible.get((name, sha))
-              if name in ('main', 'master') or branch.get('protected') or not pr_number:
+              if name in ('main', 'master') or branch.get('protected') or name in open_heads:
                   skipped.append(name)
                   continue
-              # Exact merged PR head SHA only; never delete later unmerged work.
+              if not pr_number:
+                  retired_pr = closed_heads.get((name, sha))
+                  if retired_pr:
+                      # A closed-but-unmerged PR may be superseded by later
+                      # integration. Delete only when its exact branch HEAD is
+                      # an ancestor of current main (no unique source commits).
+                      compare = api(f'/compare/{sha}...{main_sha}')
+                      if (compare.get('status') in ('ahead', 'identical') and
+                          compare.get('behind_by') == 0):
+                          pr_number = retired_pr
+              if not pr_number:
+                  skipped.append(name)
+                  continue
+              # Exact closed PR head SHA + merged OR provable ancestor of main.
               ref = quote('heads/' + name, safe='/')
               try:
                   api(f'/git/refs/{ref}', 'DELETE')
@@ -92,7 +114,7 @@ jobs:
           if summary:
               with open(summary, 'a', encoding='utf-8') as out:
                   out.write('### Verified merged branch cleanup\n\n')
-                  out.write(f'Deleted **{len(removed)}** verified merged heads. '
+                  out.write(f'Deleted **{len(removed)}** verified merged/already-integrated heads. '
                             f'Retained **{len(skipped)}** (main/protected/open/unmatched) refs.\n\n')
                   for entry in removed:
                       out.write(f'- {entry}\n')
