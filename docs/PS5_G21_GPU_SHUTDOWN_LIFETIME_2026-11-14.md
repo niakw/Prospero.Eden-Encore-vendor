@@ -11,13 +11,15 @@ Our active PS5 source is **not** the legacy `sources/eden/src/video_core/gpu.cpp
 - `encore-active/eden-core/src/video_core/gpu_vulkan.cpp` for Vulkan PS5.
 - `encore-active/eden-core/src/video_core/gpu_gl_native.cpp` for native OpenGL.
 - `encore-active/eden-core/src/video_core/gpu_gl_host.cpp` for host OpenGL.
+- `encore-active/eden-core/src/video_core/gpu_gl_native_dev.cpp` for native OpenGL diagnostic builds.
+- `encore-active/eden-core/src/video_core/gpu_gl_host_dev.cpp` for host OpenGL diagnostic builds.
 
-All three declare `renderer` **before** `scheduler`/`channels` and `gpu_thread` **last**. Thus reverse C++ member destruction stops the worker, then destroys the channels, and only later destroys the renderer. This is precisely the resource-lifetime hazard described upstream; it is independent of the user's SIGSEGV address, which has not yet been symbolized to this destructor.
+All five declare `renderer` **before** `scheduler`/`channels` and `gpu_thread` **last**. Thus reverse C++ member destruction stops the worker, then destroys the channels, and only later destroys the renderer. This is precisely the resource-lifetime hazard described upstream; it is independent of the user's SIGSEGV address, which has not yet been symbolized to this destructor.
 
 ## PS5 adaptation
 
 - Vulkan G21: `~Impl()` now calls `NotifyShutdown()`, `gpu_thread.Stop()`, then `renderer.reset()` **before member destruction**.
-- OpenGL G21 native and host: preserve existing `gpu_thread.Stop()` and GL context `MakeCurrent(); glFinish();`, then destroy the renderer explicitly while channels remain alive; `NotifyShutdown()` wakes pending waiters before worker join.
+- OpenGL G21 native, host and both DEV variants: preserve existing `gpu_thread.Stop()` and GL context `MakeCurrent(); glFinish();`, then destroy the renderer explicitly while channels remain alive; `NotifyShutdown()` wakes pending waiters before worker join.
 - Never free the renderer while the worker is alive: our source's worker is the last declared member; the desktop upstream one-liner alone would introduce a GPU race here. No new per-frame work or API, no modification of immutable `sources/eden`, no TitleID-specific branch.
 
 ## Host tests and limits
