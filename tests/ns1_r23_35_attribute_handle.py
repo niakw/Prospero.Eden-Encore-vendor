@@ -36,7 +36,7 @@ for path,sha in EXPECTED.items():
   # Only strip the seven explicitly delimited, once-per-title PS5 cache
   # diagnostics; preserve the original R23 golden owner SHA and every draw
   # method byte. A genuine R23 source change still fails the exact receipt.
-  diag=r"(?ms)^[ \\t]*// ENCORE_PS5_CACHE_DIAG_BEGIN\\n.*?^[ \\t]*// ENCORE_PS5_CACHE_DIAG_END\\n"
+  diag=r"(?ms)^[ \t]*// ENCORE_PS5_CACHE_DIAG_BEGIN\n.*?^[ \t]*// ENCORE_PS5_CACHE_DIAG_END\n"
   assert normalized.count("ENCORE_PS5_CACHE_DIAG_BEGIN")==7
   assert normalized.count("ENCORE_PS5_CACHE_DIAG_END")==7
   normalized, removed=re.subn(diag,"",normalized)
