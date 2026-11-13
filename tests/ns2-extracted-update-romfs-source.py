@@ -66,7 +66,7 @@ assert 'return {ResultStatus::ErrorMissingNPDM, {}};' in overlay
 assert 'romfs = FileSys::CreateRomFS(own_romfs, nullptr);' in overlay
 assert 'romfs = own_romfs_image;' in overlay
 assert 'romfs_layout=directory' in overlay
-assert 'romfs_layout=file heap_probe=not_applicable' in overlay
+assert 'romfs_layout=file rsdb_probe=not_applicable' in overlay
 assert 'self_contained_update = true;' in overlay
 assert 'source=selected_update_only' in overlay
 assert 'within_library_title && !self_contained_update ?' in overlay
@@ -82,8 +82,13 @@ assert "if (auto patch_romfs = newest->GetSubdirectory" in overlay
 assert overlay.index("if (auto patch_exefs") < overlay.index("if (auto patch_romfs")
 assert 'std::vector<FileSys::VirtualDir> layers{std::move(patch_romfs)};' in overlay
 assert "if (base_romfs) layers.push_back(base_romfs);" in overlay
-assert 'layered->GetFileRelative("System/HeapSize")' in overlay
+# Eglantine #350 revised its report: System/HeapSize is not a valid
+# mandatory resource for Bananza. Do not treat its absence as broken RomFS.
+assert 'System/HeapSize' not in overlay
+assert 'heap_file=' not in overlay
+assert 'rsdb_dir={} probe=optional' in overlay
 assert 'layered->GetSubdirectory("RSDB")' in overlay
+assert 'own_romfs->GetSubdirectory("RSDB")' in overlay
 assert "FileSys::CreateRomFS(std::move(layered), nullptr)" in overlay
 assert "if (!romfs && base_romfs)" in overlay
 assert "FileSys::CreateRomFS(std::move(base_romfs), nullptr)" in overlay
@@ -93,9 +98,21 @@ assert "std::ofstream" not in overlay
 assert "std::filesystem::copy" not in overlay
 assert "is_loaded = true;" in owner[entry:end]
 assert 'RomFSFactory>(*this, system.GetContentProvider()' in owner[entry:end]
+# The signal identifies the selected effective NSO/NPDM without pretending
+# that identical Title IDs or size prove version compatibility.
+identity = owner[entry:end]
+assert 'EDEN_NS2_EXEFS_IDENTITY title={:016x} main_bytes={}' in identity
+assert 'npdm_bytes={} romfs_staged={} identity=unverified' in identity
+assert 'metadata.GetTitleID(), effective_main->GetSize(), npdm->GetSize()' in identity
+assert identity.index('metadata.Reload(npdm)') < identity.index(
+    'EDEN_NS2_EXEFS_IDENTITY') < identity.index('PreflightNso(')
+assert identity.count('EDEN_NS2_EXEFS_IDENTITY') == 1
+assert 'if (metadata.IsSwitch2()) {' in identity
+assert 'ComputeSha256' not in identity and 'getenv(' not in identity
+
 assert 'if (romfs == nullptr && standalone && file)' in owner[end:]
 
 print("NS2_EXTRACTED_ROMFS_SOURCE_CONTRACT_PASS "
       "update_only=1 self_contained_update=1 image_or_directory=1 "
-      "mixed_versions_rejected=1 "
+      "mixed_versions_rejected=1 source_identity_log=1 optional_rsdb_probe=1 "
       "base_fallback=1 bounded=1 nup_isolation=1 ps5_runtime=unverified")
