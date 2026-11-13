@@ -16,6 +16,7 @@
 #define __ANSI__
 #endif
 #include <JXRGlue.h>
+#include <webp/decode.h>
 #include <webp/encode.h>
 
 // --- Reading pixels ----------------------------------------------------------
@@ -329,7 +330,7 @@ bool encore_jxr_to_webp(const char *src, const char *dst)
     const uint8_t *output = resized ? resized : pixels;
     const size_t length = WebPEncodeRGB(output, target_w, target_h,
                                         target_w * 3, 85.0f, &compressed);
-    if (length < 32 || length > (16u * 1024u * 1024u) || !compressed)
+    if (length < 32 || length > (12u * 1024u * 1024u) || !compressed)
         goto done;
     int checked_w = 0, checked_h = 0;
     if (!WebPGetInfo(compressed, length, &checked_w, &checked_h) ||
