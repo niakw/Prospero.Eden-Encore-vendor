@@ -30,7 +30,10 @@ bool Process::Initialize(Loader::AppLoader& loader, Loader::ResultStatus& out_lo
         out_load_result = Loader::ResultStatus::ErrorNotInitialized;
         return false;
     }
-    Kernel::KProcess::Register(m_system.Kernel(), process);
+    // Register only after loader.Load has succeeded. If NPDM/NSO/firmware
+    // loading fails before KProcess::Initialize, registering here leaves a
+    // dangling intrusive list node when the slab object is destroyed.
+    // Upstream Lichii #1574 / Eglantine eb579d2 found this exact failure.
 
     // On exit, ensure we free the additional reference to the process.
     SCOPE_EXIT {
@@ -71,6 +74,10 @@ bool Process::Initialize(Loader::AppLoader& loader, Loader::ResultStatus& out_lo
         out_load_result = Loader::ResultStatus::ErrorUnableToParseKernelMetadata;
         return false;
     }
+
+    // This object is now fully loaded with valid NPDM parameters. A failed
+    // load must never enter the global intrusive kernel object list.
+    Kernel::KProcess::Register(m_system.Kernel(), process);
 
     // TODO: remove this, kernel already tracks this
     m_system.Kernel().AppendNewProcess(process);
