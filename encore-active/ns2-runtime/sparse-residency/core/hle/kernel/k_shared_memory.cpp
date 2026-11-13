@@ -15,6 +15,7 @@
 #include "core/hle/kernel/svc_results.h"
 
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+#include <cstdio>
 #include <new>
 // The NS2 guest address range is reserved before title startup, but physical
 // backing remains sparse. Kernel-owned shared memory bypasses process PTE
@@ -84,7 +85,24 @@ Result KSharedMemory::Initialize(KernelCore& kernel, Core::DeviceMemory& device_
             throw std::bad_alloc{};
         }
 #endif
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+        // DeviceMemory::buffer is the *actual* HostMemory sparse owner. Its
+        // ClearBackingRegion checks the 12 GiB range, commits all touched
+        // physical granules, and only then writes. The external pre-admission
+        // above is not sufficient evidence that a guest pointer is writable.
+        // Avoid the raw GetPointer()+memset path observed in the NS2
+        // boot fault; console validation will determine whether it was causal.
+        const auto offset = GetInteger(block.GetAddress()) - Core::DramMemoryMap::Base;
+        if (block.GetSize() >= (1u << 20))
+            std::fprintf(stderr, "EDEN_NS2_SHARED_CLEAR begin offset=%zu bytes=%zu\n",
+                         static_cast<std::size_t>(offset), block.GetSize());
+        m_device_memory->buffer.ClearBackingRegion(offset, block.GetSize(), 0);
+        if (block.GetSize() >= (1u << 20))
+            std::fprintf(stderr, "EDEN_NS2_SHARED_CLEAR done offset=%zu bytes=%zu\n",
+                         static_cast<std::size_t>(offset), block.GetSize());
+#else
         std::memset(m_device_memory->GetPointer<void>(block.GetAddress()), 0, block.GetSize());
+#endif
     }
 
     R_SUCCEED();
