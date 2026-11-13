@@ -38,9 +38,16 @@ assert "truncated = true" in overlay
 assert "if (!pending.empty() || truncated)" in overlay
 assert "bool launched_from_update = false;" in overlay
 assert 'cursor->GetName() == "updates"' in overlay
-assert 'const auto base_exefs = base_dir ? base_dir->GetSubdirectory("exefs")' in overlay
-assert 'base_exefs->GetFile("main.npdm")' in overlay
+assert 'const auto nested_exefs = base_dir ? base_dir->GetSubdirectory("exefs")' in overlay
+assert 'const auto root_exefs = game_root->GetSubdirectory("exefs");' in overlay
+assert 'exefs->GetFile("main")' in overlay
+assert 'exefs->GetFile("main.npdm")' in overlay
+assert 'bootable_exefs(nested_exefs) ? nested_exefs :' in overlay
+assert 'bootable_exefs(root_exefs) ? root_exefs :' in overlay
 assert 'dir = base_exefs;' in overlay
+assert 'else if (launched_from_update)' in overlay
+assert 'status=base_exefs_missing' in overlay
+assert 'return {ResultStatus::ErrorMissingNPDM, {}};' in overlay
 assert 'base_dir ? base_dir->GetSubdirectory("romfs")' in overlay
 assert 'if (!base_romfs && !launched_from_update)' in overlay
 assert overlay.index("dir = base_exefs;") < overlay.index(
