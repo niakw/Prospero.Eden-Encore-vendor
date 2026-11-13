@@ -36,6 +36,15 @@ assert "visited++ < 128" in overlay
 assert "candidate.depth >= 5" in overlay
 assert "truncated = true" in overlay
 assert "if (!pending.empty() || truncated)" in overlay
+assert "bool launched_from_update = false;" in overlay
+assert 'cursor->GetName() == "updates"' in overlay
+assert 'const auto base_exefs = base_dir ? base_dir->GetSubdirectory("exefs")' in overlay
+assert 'base_exefs->GetFile("main.npdm")' in overlay
+assert 'dir = base_exefs;' in overlay
+assert 'base_dir ? base_dir->GetSubdirectory("romfs")' in overlay
+assert 'if (!base_romfs && !launched_from_update)' in overlay
+assert overlay.index("dir = base_exefs;") < overlay.index(
+    'if (const auto updates = within_library_title ?')
 assert "ambiguous = true" in overlay
 assert "if (auto patch_exefs = newest->GetSubdirectory" in overlay
 assert "if (auto patch_romfs = newest->GetSubdirectory" in overlay
