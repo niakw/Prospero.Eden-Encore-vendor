@@ -142,6 +142,10 @@ public:
         query_cache = &query_cache_;
     }
 
+    // QueryCache dies before BufferCache. BufferCache teardown can submit
+    // one final batch, so revoke the borrowed pointer after final drain.
+    void ClearQueryCache() noexcept { query_cache = nullptr; }
+
     // Registers a callback to perform on queue submission.
     void RegisterOnSubmit(std::function<void()>&& func) {
         on_submit = std::move(func);
