@@ -1,0 +1,30 @@
+name: NS2 failed KProcess load / intrusive slab lifetime host
+
+on:
+  push:
+    branches:
+      - fix/nov13-ns2-kprocess-unlinked-failed-load
+  pull_request:
+    paths:
+      - "encore-active/ns2-runtime/process/core/hle/service/os/process.cpp"
+      - "encore-active/eden-threading/src/core/hle/kernel/slab_helpers.h"
+      - "tests/ns2_kprocess_failed_load_list_host.py"
+      - ".github/workflows/ns2-kprocess-failed-load-list-host.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  process-list-lifetime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile real slab teardown under ASan + UBSan and validate NS2 process owner
+        run: python3 -B tests/ns2_kprocess_failed_load_list_host.py
+      - name: Validation boundary
+        run: |
+          echo "Source+host sanitizer only. No PS5 KProcess runtime, NS1/NS2 game load or relaunch claim. Paired engine H01/NS1 CMake tests are required before integration." >> "$GITHUB_STEP_SUMMARY"
