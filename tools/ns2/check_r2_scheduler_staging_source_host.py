@@ -722,9 +722,26 @@ def extract_methods() -> tuple[str, str, str, str, str, str, str, str, str, str]
     return scheduler_methods, request, dispatch, typed_copy, reuse, free_deferred, reclaim, stream, active_region, lifetime
 
 def run() -> None:
+    # The only later scheduler-header changes are the FC27 borrowed-cache
+    # lifetime revocation and activation of the reviewed NS2 staging flag.
+    # Normalize those exact reviewed hunks before comparing the immutable
+    # R2 archive receipt; never lower the source-integrity gate.
+    new_cache_guard = "    // Rasterizer query cache is destroyed before the buffer cache. The latter\n    // may issue a final Scheduler::Finish() during its own teardown. Release\n    // this borrowed pointer once the rasterizer has drained its last queries.\n    void ClearQueryCache() noexcept {\n        query_cache = nullptr;\n    }\n\n"
     for path, sha in SOURCE_BLOBS.items():
-        got = subprocess.check_output(
-            ["git", "hash-object", str(path)], text=True).strip()
+        if path == SCHED:
+            live = path.read_text()
+            assert live.count(new_cache_guard) == 1, "NS1 QueryCache revocation lost"
+            assert live.count("#if defined(PS5_NATIVE) && defined(EDEN_NS2_STAGE_BACKING)") == 2, (
+                "NS2 staging selected guards changed")
+            historical = live.replace(new_cache_guard, "", 1).replace(
+                "defined(EDEN_NS2_STAGE_BACKING)",
+                "defined(EDEN_RESEARCH_NS2_STAGE_BACKING)")
+            import hashlib
+            encoded = historical.encode("utf-8")
+            got = hashlib.sha1(b"blob " + str(len(encoded)).encode() + bytes([0]) + encoded).hexdigest()
+        else:
+            got = subprocess.check_output(
+                ["git", "hash-object", str(path)], text=True).strip()
         assert got == sha, ("Unreviewed real R2 owner byte change", str(path), got)
 
     # Assert real gated buffer deletion and GPU retirement path integrity.
