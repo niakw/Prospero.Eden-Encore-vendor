@@ -2496,6 +2496,12 @@ static int stbir__resize_arbitrary(
     size_t memory_required;
     void* extra_memory;
 
+    // Reject invalid dimensions before calculate_transform divides by them.
+    if (!input_data || !output_data || input_w <= 0 || input_h <= 0 ||
+        output_w <= 0 || output_h <= 0 || channels <= 0 ||
+        channels > STBIR_MAX_CHANNELS || (int)type < 0 || type >= STBIR_MAX_TYPES)
+        return 0;
+
     stbir__setup(&info, input_w, input_h, output_w, output_h, channels);
     stbir__calculate_transform(&info, s0,t0,s1,t1,transform);
     stbir__choose_filter(&info, h_filter, v_filter);
