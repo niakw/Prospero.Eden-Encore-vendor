@@ -312,12 +312,39 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
                 std::optional<u64> version;
                 unsigned depth;
             };
-            std::vector<Candidate> pending{{updates, std::nullopt, 0}};
+            std::vector<Candidate> pending;
             FileSys::VirtualDir newest;
             u64 newest_version = 0;
             std::size_t visited = 0;
             bool ambiguous = false;
             bool truncated = false;
+            if (launched_from_update) {
+                // When an explicit updates/<version>/exefs/main is selected,
+                // apply THAT version's ExeFS/RomFS to the real base. Never
+                // silently replace it with a different numerically newer
+                // update found by the automatic game-directory scan.
+                const auto selected_exefs = content_root->GetSubdirectory("exefs");
+                const auto selected_romfs = content_root->GetSubdirectory("romfs");
+                if (selected_exefs || selected_romfs) {
+                    newest = content_root;
+                    const auto& name = content_root->GetName();
+                    const auto [end, error] = std::from_chars(
+                        name.data(), name.data() + name.size(), newest_version);
+                    if (error != std::errc{} || end != name.data() + name.size()) {
+                        newest_version = 0;
+                        LOG_WARNING(Loader,
+                            "EDEN_EXTRACTED_UPDATE status=selected_version_non_numeric");
+                    }
+                    LOG_INFO(Loader,
+                        "EDEN_EXTRACTED_UPDATE source=selected_version version={}",
+                        newest_version);
+                } else {
+                    LOG_WARNING(Loader,
+                        "EDEN_EXTRACTED_UPDATE status=selected_version_missing_content");
+                }
+            } else {
+                pending.push_back({updates, std::nullopt, 0});
+            }
             while (!pending.empty() && visited++ < 128) {
                 Candidate candidate = std::move(pending.back());
                 pending.pop_back();
