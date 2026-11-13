@@ -188,7 +188,7 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     // Loose ExeFS content can have most of its RomFS in a sibling
     // updates/<version>/romfs. The standalone NS2 override previously looked
     // only for base/exefs/romfs or base/romfs in ReadRomFS(), silently losing
-    // update-only files (System/HeapSize, RSDB and other title assets).
+    // update-only files (versioned RSDB content and other title assets).
     // Keep the same bounded, title-scoped overlay policy as the maintained
     // eden-core deconstructed loader, without copying guest data into RAM.
     // The NUP adapter also uses the standalone main-file constructor:
@@ -268,20 +268,22 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
                     return {ResultStatus::ErrorMissingNPDM, {}};
                 }
                 if (own_romfs) {
-                    const bool has_heap =
-                        own_romfs->GetFileRelative("System/HeapSize") != nullptr;
+                    // Upstream Eglantine #350 corrected its earlier claim:
+                    // System/HeapSize is not a reliable Bananza content path.
+                    // rsdb_dir is an optional layout witness, not a boot
+                    // validity or version-compatibility assertion.
                     const bool has_rsdb =
                         own_romfs->GetSubdirectory("RSDB") != nullptr;
                     romfs = FileSys::CreateRomFS(own_romfs, nullptr);
                     LOG_INFO(Loader,
                              "EDEN_EXTRACTED_UPDATE source=selected_update_only"
-                             " romfs_layout=directory heap_file={} rsdb_dir={}",
-                             int(has_heap), int(has_rsdb));
+                             " romfs_layout=directory rsdb_dir={} probe=optional",
+                             int(has_rsdb));
                 } else {
                     romfs = own_romfs_image;
                     LOG_INFO(Loader,
                              "EDEN_EXTRACTED_UPDATE source=selected_update_only"
-                             " romfs_layout=file heap_probe=not_applicable");
+                             " romfs_layout=file rsdb_probe=not_applicable");
                 }
                 if (!romfs)
                     return {ResultStatus::ErrorNoRomFS, {}};
@@ -400,16 +402,18 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
                         return {ResultStatus::ErrorNoRomFS, {}};
                     // The first layer is the update. This includes files
                     // absent from the base rather than replacing only matches.
-                    const bool has_heap = layered->GetFileRelative("System/HeapSize") != nullptr;
+                    // The presence of RSDB proves only this visible
+                    // directory, not that the selected update has compatible
+                    // NSO/NPDM, or that a title's requested resource exists.
                     const bool has_rsdb = layered->GetSubdirectory("RSDB") != nullptr;
                     romfs = FileSys::CreateRomFS(std::move(layered), nullptr);
                     if (!romfs)
                         return {ResultStatus::ErrorNoRomFS, {}};
                     LOG_INFO(Loader,
                         "EDEN_EXTRACTED_UPDATE version={} exefs={} romfs=1"
-                        " base_romfs={} heap_file={} rsdb_dir={}",
+                        " base_romfs={} rsdb_dir={} probe=optional",
                         newest_version, int(newest->GetSubdirectory("exefs") != nullptr),
-                        int(base_romfs != nullptr), int(has_heap), int(has_rsdb));
+                        int(base_romfs != nullptr), int(has_rsdb));
                 } else {
                     LOG_INFO(Loader, "EDEN_EXTRACTED_UPDATE version={} romfs=0",
                              newest_version);
@@ -466,6 +470,19 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     if (metadata.IsSwitch2() && !dir->GetFile("main")) {
         LOG_ERROR(Loader, "NS2 ExeFS rejected: missing main NSO");
         return {ResultStatus::ErrorLoadingNSO, {}};
+    }
+    if (metadata.IsSwitch2()) {
+        // Upstream Eglantine #350 eventually isolated a failed loose-dump
+        // build, not a GPU/FS service regression. Report metadata for the
+        // *effective* patched ExeFS, without reading/hash-scanning guest
+        // content, leaking host paths or claiming a version from file size.
+        // A matching Title ID by itself does NOT prove update compatibility.
+        const auto effective_main = dir->GetFile("main");
+        LOG_INFO(Loader,
+                 "EDEN_NS2_EXEFS_IDENTITY title={:016x} main_bytes={}"
+                 " npdm_bytes={} romfs_staged={} identity=unverified",
+                 metadata.GetTitleID(), effective_main->GetSize(), npdm->GetSize(),
+                 int(romfs != nullptr));
     }
 #ifdef EDEN_NS2_GUEST_COUNTER
     // This is the real KProcess loader, unlike ProgramMetadata::Load used
