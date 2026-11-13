@@ -4,6 +4,7 @@
 This is a preventive host guard, not a substitute for CodeQL/Dependabot alerts.
 """
 from pathlib import Path
+import hashlib
 import re
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,6 +14,11 @@ PIN = re.compile(r"^[^\s@]+@[a-f0-9]{40}$")
 READ_ONLY = re.compile(r"(?m)^[ \t]+[a-z][a-z-]*:[ \t]*write(?:[ \t]*#.*)?$")
 DANGEROUS_EVENT = re.compile(r"(?m)^[ \t]*(?:pull_request_target|workflow_run):[ \t]*(?:#.*)?$")
 PERSIST_FALSE = re.compile(r"(?m)^[ \t]+persist-credentials:[ \t]*false(?:[ \t]*#.*)?$")
+# A single, separately reviewed branch-cleanup workflow is the only intentional
+# write-capable exception.  Its exact Git blob SHA is pinned, so edits to the
+# privileged script MUST undergo another explicit audit + pin update.
+REVIEWED_CLEANUP_BLOB = "9a25b7f3f6db15c2d0da0752b403b773354cfdf8"
+
 
 
 def check_workflow(path: Path) -> int:
@@ -20,7 +26,12 @@ def check_workflow(path: Path) -> int:
     assert re.search(r"(?m)^permissions:[ \t]*(?:#.*)?$", content), (
         f"{path}: missing explicit top-level GITHUB_TOKEN permissions"
     )
-    assert not READ_ONLY.search(content), f"{path}: write-capable token scope requires separate review"
+    if READ_ONLY.search(content):
+        raw = content.encode("utf-8")
+        git_blob = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
+        assert path.name == "cleanup-merged-pr-branches.yml" and git_blob == REVIEWED_CLEANUP_BLOB, (
+            f"{path}: write-capable token scope requires separate review and exact source pin"
+        )
     assert not DANGEROUS_EVENT.search(content), f"{path}: privileged event requires separate review"
     refs = USES.findall(content)
     checkouts = 0
@@ -43,7 +54,7 @@ def main() -> None:
     uses = sum(check_workflow(p) for p in paths)
     print(
         "ENCORE_VENDOR_WORKFLOW_SECURITY_PASS"
-        f" workflows={len(paths)} uses={uses} permissions=read_only"
+        f" workflows={len(paths)} uses={uses} permissions=read_only_except_pinned_cleanup"
         " external_actions=sha_pinned checkout_credentials=disabled"
     )
 
