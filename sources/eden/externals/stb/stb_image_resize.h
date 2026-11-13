@@ -395,6 +395,7 @@ STBIRDEF int stbir_resize_region(  const void *input_pixels , int input_w , int 
 #include <string.h>
 
 #include <math.h>
+#include <limits.h>
 
 #ifndef STBIR_MALLOC
 #include <stdlib.h>
@@ -912,18 +913,6 @@ static int stbir__get_contributors(float scale, stbir_filter filter, int input_s
         return output_size;
     else
         return (input_size + stbir__get_filter_pixel_margin(filter, scale) * 2);
-}
-
-static int stbir__get_total_horizontal_coefficients(stbir__info* info)
-{
-    return info->horizontal_num_contributors
-         * stbir__get_coefficient_width      (info->horizontal_filter, info->horizontal_scale);
-}
-
-static int stbir__get_total_vertical_coefficients(stbir__info* info)
-{
-    return info->vertical_num_contributors
-         * stbir__get_coefficient_width      (info->vertical_filter, info->vertical_scale);
 }
 
 static stbir__contributors* stbir__get_contributor(stbir__contributors* contributors, int n)
@@ -1674,7 +1663,7 @@ static void stbir__decode_and_resample_downsample(stbir__info* stbir_info, int n
     // Decode the nth scanline from the source image into the decode buffer.
     stbir__decode_scanline(stbir_info, n);
 
-    memset(stbir_info->horizontal_buffer, 0, stbir_info->output_w * stbir_info->channels * sizeof(float));
+    memset(stbir_info->horizontal_buffer, 0, (size_t)stbir_info->horizontal_buffer_size);
 
     // Now resample it into the horizontal buffer.
     if (stbir__use_width_upsampling(stbir_info))
@@ -2246,45 +2235,99 @@ static void stbir__choose_filter(stbir__info *info, stbir_filter h_filter, stbir
     info->vertical_filter = v_filter;
 }
 
-static stbir_uint32 stbir__calculate_memory(stbir__info *info)
+// Guard all sizes while still using the legacy signed-int offsets in the
+// resampling loops.  Widen BEFORE multiplying, then reject values that those
+// loops cannot represent.  Zero is reserved for invalid dimensions/overflow.
+static int stbir__checked_alloc_bytes(int count, int stride, size_t unit, int *out)
 {
-    int pixel_margin = stbir__get_filter_pixel_margin(info->horizontal_filter, info->horizontal_scale);
-    int filter_height = stbir__get_filter_pixel_width(info->vertical_filter, info->vertical_scale);
+    size_t bytes;
+    if (count <= 0 || stride <= 0 || unit == 0 || unit > (size_t)INT_MAX)
+        return 0;
+    if ((size_t)count > ((size_t)INT_MAX / unit) / (size_t)stride)
+        return 0;
+    bytes = (size_t)count * (size_t)stride * unit;
+    *out = (int)bytes;
+    return 1;
+}
 
-    info->horizontal_num_contributors = stbir__get_contributors(info->horizontal_scale, info->horizontal_filter, info->input_w, info->output_w);
-    info->vertical_num_contributors   = stbir__get_contributors(info->vertical_scale  , info->vertical_filter  , info->input_h, info->output_h);
+static size_t stbir__calculate_memory(stbir__info *info)
+{
+    int pixel_margin, vertical_margin, filter_height;
+    int horizontal_coefficient_width, vertical_coefficient_width;
+    int row_bytes;
+    size_t total = 0;
+    const int *sizes[8];
+    int n;
 
-    // One extra entry because floating point precision problems sometimes cause an extra to be necessary.
+    // Check before filter width/scale conversions or signed contributor sums.
+    if (info->input_w <= 0 || info->input_h <= 0 ||
+        info->output_w <= 0 || info->output_h <= 0 ||
+        info->channels <= 0 || info->channels > STBIR_MAX_CHANNELS ||
+        info->horizontal_filter <= 0 ||
+        (size_t)info->horizontal_filter >= STBIR__ARRAY_SIZE(stbir__filter_info_table) ||
+        info->vertical_filter <= 0 ||
+        (size_t)info->vertical_filter >= STBIR__ARRAY_SIZE(stbir__filter_info_table) ||
+        !(info->horizontal_scale >= 0.000001f && info->horizontal_scale <= 1000000000.0f) ||
+        !(info->vertical_scale >= 0.000001f && info->vertical_scale <= 1000000000.0f))
+        return 0;
+
+    pixel_margin = stbir__get_filter_pixel_margin(info->horizontal_filter, info->horizontal_scale);
+    vertical_margin = stbir__get_filter_pixel_margin(info->vertical_filter, info->vertical_scale);
+    filter_height = stbir__get_filter_pixel_width(info->vertical_filter, info->vertical_scale);
+    horizontal_coefficient_width = stbir__get_coefficient_width(info->horizontal_filter, info->horizontal_scale);
+    vertical_coefficient_width = stbir__get_coefficient_width(info->vertical_filter, info->vertical_scale);
+
+    if (pixel_margin < 0 || vertical_margin < 0 ||
+        pixel_margin > (INT_MAX - info->input_w) / 2 ||
+        vertical_margin > (INT_MAX - info->input_h) / 2 ||
+        filter_height < 0 || filter_height >= INT_MAX ||
+        horizontal_coefficient_width <= 0 || vertical_coefficient_width <= 0)
+        return 0;
+
+    info->horizontal_num_contributors = stbir__get_contributors(
+        info->horizontal_scale, info->horizontal_filter, info->input_w, info->output_w);
+    info->vertical_num_contributors = stbir__get_contributors(
+        info->vertical_scale, info->vertical_filter, info->input_h, info->output_h);
     info->ring_buffer_num_entries = filter_height + 1;
 
-    info->horizontal_contributors_size = info->horizontal_num_contributors * sizeof(stbir__contributors);
-    info->horizontal_coefficients_size = stbir__get_total_horizontal_coefficients(info) * sizeof(float);
-    info->vertical_contributors_size = info->vertical_num_contributors * sizeof(stbir__contributors);
-    info->vertical_coefficients_size = stbir__get_total_vertical_coefficients(info) * sizeof(float);
-    info->decode_buffer_size = (info->input_w + pixel_margin * 2) * info->channels * sizeof(float);
-    info->horizontal_buffer_size = info->output_w * info->channels * sizeof(float);
-    info->ring_buffer_size = info->output_w * info->channels * info->ring_buffer_num_entries * sizeof(float);
-    info->encode_buffer_size = info->output_w * info->channels * sizeof(float);
+    if (!stbir__checked_alloc_bytes(info->horizontal_num_contributors, 1,
+                                    sizeof(stbir__contributors), &info->horizontal_contributors_size) ||
+        !stbir__checked_alloc_bytes(info->horizontal_num_contributors, horizontal_coefficient_width,
+                                    sizeof(float), &info->horizontal_coefficients_size) ||
+        !stbir__checked_alloc_bytes(info->vertical_num_contributors, 1,
+                                    sizeof(stbir__contributors), &info->vertical_contributors_size) ||
+        !stbir__checked_alloc_bytes(info->vertical_num_contributors, vertical_coefficient_width,
+                                    sizeof(float), &info->vertical_coefficients_size) ||
+        !stbir__checked_alloc_bytes(info->input_w + pixel_margin * 2, info->channels,
+                                    sizeof(float), &info->decode_buffer_size) ||
+        !stbir__checked_alloc_bytes(info->output_w, info->channels, sizeof(float), &row_bytes) ||
+        !stbir__checked_alloc_bytes(row_bytes, info->ring_buffer_num_entries, 1,
+                                    &info->ring_buffer_size))
+        return 0;
 
-    STBIR_ASSERT(info->horizontal_filter != 0);
-    STBIR_ASSERT(info->horizontal_filter < STBIR__ARRAY_SIZE(stbir__filter_info_table)); // this now happens too late
-    STBIR_ASSERT(info->vertical_filter != 0);
-    STBIR_ASSERT(info->vertical_filter < STBIR__ARRAY_SIZE(stbir__filter_info_table)); // this now happens too late
+    info->horizontal_buffer_size = row_bytes;
+    info->encode_buffer_size = row_bytes;
 
     if (stbir__use_height_upsampling(info))
-        // The horizontal buffer is for when we're downsampling the height and we
-        // can't output the result of sampling the decode buffer directly into the
-        // ring buffers.
         info->horizontal_buffer_size = 0;
     else
-        // The encode buffer is to retain precision in the height upsampling method
-        // and isn't used when height downsampling.
         info->encode_buffer_size = 0;
 
-    return info->horizontal_contributors_size + info->horizontal_coefficients_size
-        + info->vertical_contributors_size + info->vertical_coefficients_size
-        + info->decode_buffer_size + info->horizontal_buffer_size
-        + info->ring_buffer_size + info->encode_buffer_size;
+    sizes[0] = &info->horizontal_contributors_size;
+    sizes[1] = &info->horizontal_coefficients_size;
+    sizes[2] = &info->vertical_contributors_size;
+    sizes[3] = &info->vertical_coefficients_size;
+    sizes[4] = &info->decode_buffer_size;
+    sizes[5] = &info->horizontal_buffer_size;
+    sizes[6] = &info->ring_buffer_size;
+    sizes[7] = &info->encode_buffer_size;
+    for (n = 0; n < 8; ++n)
+    {
+        if ((size_t)*sizes[n] > (size_t)INT_MAX - total)
+            return 0;
+        total += (size_t)*sizes[n];
+    }
+    return total;
 }
 
 static int stbir__resize_allocated(stbir__info *info,
@@ -2295,9 +2338,23 @@ static int stbir__resize_allocated(stbir__info *info,
     void* tempmem, size_t tempmem_size_in_bytes)
 {
     size_t memory_required = stbir__calculate_memory(info);
+    int minimum_input_stride, minimum_output_stride;
+    int width_stride_input, width_stride_output;
 
-    int width_stride_input = input_stride_in_bytes ? input_stride_in_bytes : info->channels * info->input_w * stbir__type_size[type];
-    int width_stride_output = output_stride_in_bytes ? output_stride_in_bytes : info->channels * info->output_w * stbir__type_size[type];
+    if (memory_required == 0 || (int)type < 0 || type >= STBIR_MAX_TYPES ||
+        input_stride_in_bytes < 0 || output_stride_in_bytes < 0 ||
+        !stbir__checked_alloc_bytes(info->input_w, info->channels, stbir__type_size[type],
+                                    &minimum_input_stride) ||
+        !stbir__checked_alloc_bytes(info->output_w, info->channels, stbir__type_size[type],
+                                    &minimum_output_stride))
+        return 0;
+    width_stride_input = input_stride_in_bytes ? input_stride_in_bytes : minimum_input_stride;
+    width_stride_output = output_stride_in_bytes ? output_stride_in_bytes : minimum_output_stride;
+    if (width_stride_input < minimum_input_stride ||
+        width_stride_output < minimum_output_stride ||
+        width_stride_input > INT_MAX / info->input_h ||
+        width_stride_output > INT_MAX / info->output_h)
+        return 0;
 
 #ifdef STBIR_DEBUG_OVERWRITE_TEST
 #define OVERWRITE_ARRAY_SIZE 8
@@ -2369,7 +2426,7 @@ static int stbir__resize_allocated(stbir__info *info,
     info->horizontal_filter_pixel_margin = stbir__get_filter_pixel_margin(info->horizontal_filter, info->horizontal_scale);
     info->vertical_filter_pixel_margin   = stbir__get_filter_pixel_margin(info->vertical_filter  , info->vertical_scale  );
 
-    info->ring_buffer_length_bytes = info->output_w * info->channels * sizeof(float);
+    info->ring_buffer_length_bytes = info->ring_buffer_size / info->ring_buffer_num_entries;
     info->decode_buffer_pixels = info->input_w + info->horizontal_filter_pixel_margin * 2;
 
 #define STBIR__NEXT_MEMPTR(current, newtype) (newtype*)(((unsigned char*)current) + current##_size)
@@ -2439,10 +2496,18 @@ static int stbir__resize_arbitrary(
     size_t memory_required;
     void* extra_memory;
 
+    // Reject invalid dimensions before calculate_transform divides by them.
+    if (!input_data || !output_data || input_w <= 0 || input_h <= 0 ||
+        output_w <= 0 || output_h <= 0 || channels <= 0 ||
+        channels > STBIR_MAX_CHANNELS || (int)type < 0 || type >= STBIR_MAX_TYPES)
+        return 0;
+
     stbir__setup(&info, input_w, input_h, output_w, output_h, channels);
     stbir__calculate_transform(&info, s0,t0,s1,t1,transform);
     stbir__choose_filter(&info, h_filter, v_filter);
     memory_required = stbir__calculate_memory(&info);
+    if (memory_required == 0)
+        return 0;
     extra_memory = STBIR_MALLOC(memory_required, alloc_context);
 
     if (!extra_memory)
