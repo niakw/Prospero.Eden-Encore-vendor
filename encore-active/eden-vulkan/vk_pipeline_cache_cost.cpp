@@ -1315,7 +1315,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                                    : DiskCacheProbe{};
     std::printf("EDEN_PS5_SHADER_CACHE_DISK title=%016llX stage=before"
                 " env_present=%u env_bytes=%llu driver_enabled=%u"
-                " driver_present=%u driver_bytes=%llu cache_version=%u\\n",
+                " driver_present=%u driver_bytes=%llu cache_version=%u\n",
                 static_cast<unsigned long long>(title_id),
                 unsigned(env_before.present),
                 static_cast<unsigned long long>(env_before.bytes),
@@ -1535,7 +1535,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                 " env_before_present=%u env_before_bytes=%llu"
                 " env_after_present=%u env_after_bytes=%llu"
                 " compute_records=%zu graphics_records=%zu graphics_filtered=%zu"
-                " queued=%zu cache_version=%u\\n",
+                " queued=%zu cache_version=%u\n",
                 static_cast<unsigned long long>(title_id),
                 unsigned(env_before.present),
                 static_cast<unsigned long long>(env_before.bytes),
