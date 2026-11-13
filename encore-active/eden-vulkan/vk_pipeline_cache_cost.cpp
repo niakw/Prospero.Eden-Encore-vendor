@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include "pipeline_trace_registry.h"
 #include "performance.h"
 #include "dev_vulkan.h"
@@ -1296,6 +1297,32 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     }
 
 #ifdef PS5_NATIVE
+    // Once per game load only: separate a missing per-title environment log,
+    // a header-only log, and an existing cache whose records get rejected.
+    // Never inspect or walk these files in the draw/submit hot path.
+    struct DiskCacheProbe {
+        bool present{};
+        std::uintmax_t bytes{};
+    };
+    const auto probe_cache = [](const std::filesystem::path& path) -> DiskCacheProbe {
+        std::error_code error;
+        const auto bytes = std::filesystem::file_size(path, error);
+        return {!error, error ? std::uintmax_t{} : bytes};
+    };
+    const auto env_before = probe_cache(pipeline_cache_filename);
+    const auto driver_before = use_vulkan_pipeline_cache
+                                   ? probe_cache(vulkan_pipeline_cache_filename)
+                                   : DiskCacheProbe{};
+    std::printf("EDEN_PS5_SHADER_CACHE_DISK title=%016llX stage=before"
+                " env_present=%u env_bytes=%llu driver_enabled=%u"
+                " driver_present=%u driver_bytes=%llu cache_version=%u\\n",
+                static_cast<unsigned long long>(title_id),
+                unsigned(env_before.present),
+                static_cast<unsigned long long>(env_before.bytes),
+                unsigned(use_vulkan_pipeline_cache), unsigned(driver_before.present),
+                static_cast<unsigned long long>(driver_before.bytes),
+                unsigned(CACHE_VERSION));
+
     // The PS5 is launching one foreground game, so do not delay it by
     // compiling the full backlog of shaders from earlier sessions.
     // An already-stopped token is a special initialization-only request:
@@ -1321,6 +1348,12 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         size_t built{};
         size_t valid{};
         bool has_loaded{};
+#ifdef PS5_NATIVE
+        // Updated only by the disk reader; the main thread reads after drain.
+        size_t disk_compute_records{};
+        size_t disk_graphics_records{};
+        size_t disk_graphics_admitted{};
+#endif
         std::unique_ptr<PipelineStatistics> statistics;
     } state;
 
@@ -1328,6 +1361,9 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         state.statistics = std::make_unique<PipelineStatistics>(device);
     }
     const auto load_compute{[&](std::ifstream& file, FileEnvironment env) {
+#ifdef PS5_NATIVE
+        ++state.disk_compute_records;
+#endif
         ComputePipelineCacheKey key;
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
 
@@ -1357,6 +1393,9 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
 #endif
     }};
     const auto load_graphics{[&](std::ifstream& file, std::vector<FileEnvironment> envs) {
+#ifdef PS5_NATIVE
+        ++state.disk_graphics_records;
+#endif
         GraphicsPipelineCacheKey key;
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
 
@@ -1416,6 +1455,9 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                 callback(VideoCore::LoadCallbackStage::Build, state.built, state.total);
             }
         });
+#ifdef PS5_NATIVE
+        ++state.disk_graphics_admitted;
+#endif
         // Workers read total while holding state.mutex. Publish reader
         // increments under the same lock to avoid a cache-prewarm data race.
         {
@@ -1488,6 +1530,20 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     std::printf("EDEN_PS5_SHADER_PREWARM queued=%zu completed=%zu valid=%zu rejected=%zu prebuild_ms=%lld limit=%zu\n",
                 state.total, state.built, state.valid, state.built - state.valid,
                 static_cast<long long>(startup_prewarm_ms), kStartupPrewarmPipelines);
+    const auto env_after = probe_cache(pipeline_cache_filename);
+    std::printf("EDEN_PS5_SHADER_CACHE_ADMISSION title=%016llX"
+                " env_before_present=%u env_before_bytes=%llu"
+                " env_after_present=%u env_after_bytes=%llu"
+                " compute_records=%zu graphics_records=%zu graphics_filtered=%zu"
+                " queued=%zu cache_version=%u\\n",
+                static_cast<unsigned long long>(title_id),
+                unsigned(env_before.present),
+                static_cast<unsigned long long>(env_before.bytes),
+                unsigned(env_after.present),
+                static_cast<unsigned long long>(env_after.bytes),
+                state.disk_compute_records, state.disk_graphics_records,
+                state.disk_graphics_records - state.disk_graphics_admitted,
+                state.total, unsigned(CACHE_VERSION));
 #endif
 
     if (use_vulkan_pipeline_cache) {
