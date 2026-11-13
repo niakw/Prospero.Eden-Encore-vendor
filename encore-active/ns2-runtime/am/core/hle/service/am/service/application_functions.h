@@ -36,10 +36,12 @@ private:
     Result GetDesiredLanguage(Out<u64> out_language_code);
     Result SetTerminateResult(Result terminate_result);
     Result GetDisplayVersion(Out<DisplayVersion> out_display_version);
-    Result ExtendSaveData(Out<u64> out_required_size, FileSys::SaveDataType type,
-                          Common::UUID user_id, u64 normal_size, u64 journal_size);
+    // CMIF places the account UID at the next 8-byte boundary after the
+    // u8 save type. Common::UUID has byte alignment; u128 has u64 alignment.
+    Result ExtendSaveData(Out<u64> out_required_size, FileSys::SaveDataType type, u128 user_id,
+                          u64 normal_size, u64 journal_size);
     Result GetSaveDataSize(Out<u64> out_normal_size, Out<u64> out_journal_size,
-                           FileSys::SaveDataType type, Common::UUID user_id);
+                           FileSys::SaveDataType type, u128 user_id);
     Result CreateCacheStorage(Out<u32> out_target_media, Out<u64> out_required_size, u16 index,
                               u64 normal_size, u64 journal_size);
     Result GetSaveDataSizeMax(Out<u64> out_max_normal_size, Out<u64> out_max_journal_size);
