@@ -1,0 +1,93 @@
+name: Cleanup merged pull request branches
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cleanup-merged-pr-branches.yml'
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: read
+jobs:
+  cleanup:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.merged == true }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Delete only verified merged same-repository branch heads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from urllib.error import HTTPError
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          repo = os.environ['GH_REPO']
+          token = os.environ['GH_TOKEN']
+          base = f'https://api.github.com/repos/{repo}'
+          headers = {
+              'Authorization': f'Bearer {token}',
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+
+          def api(path, method='GET'):
+              with urlopen(Request(base + path, headers=headers, method=method), timeout=25) as response:
+                  return json.load(response) if method == 'GET' else None
+
+          def pages(path, maximum=6):
+              for page in range(1, maximum + 1):
+                  result = api(path + ('&' if '?' in path else '?') + f'per_page=100&page={page}')
+                  yield from result
+                  if len(result) < 100:
+                      break
+
+          branches = list(pages('/branches'))
+          open_heads = {
+              p['head']['ref'] for p in pages('/pulls?state=open')
+              if p['head']['repo'] and p['head']['repo']['full_name'] == repo
+          }
+          eligible = {}
+          for pr in pages('/pulls?state=closed'):
+              head = pr['head']
+              if (pr['merged_at'] and head['repo'] and
+                  head['repo']['full_name'] == repo and head['ref'] not in open_heads):
+                  eligible[(head['ref'], head['sha'])] = pr['number']
+
+          removed = []
+          skipped = []
+          for branch in branches:
+              name = branch['name']
+              sha = branch['commit']['sha']
+              pr_number = eligible.get((name, sha))
+              if name in ('main', 'master') or branch.get('protected') or not pr_number:
+                  skipped.append(name)
+                  continue
+              # Exact merged PR head SHA only; never delete later unmerged work.
+              ref = quote('heads/' + name, safe='/')
+              try:
+                  api(f'/git/refs/{ref}', 'DELETE')
+              except HTTPError as exc:
+                  raise RuntimeError(f'Cannot delete {name} (PR #{pr_number}): HTTP {exc.code}') from exc
+              removed.append(f'{name} (PR #{pr_number})')
+              print(f'DELETED {name} PR #{pr_number}')
+
+          summary = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with open(summary, 'a', encoding='utf-8') as out:
+                  out.write('### Verified merged branch cleanup\n\n')
+                  out.write(f'Deleted **{len(removed)}** verified merged heads. '
+                            f'Retained **{len(skipped)}** (main/protected/open/unmatched) refs.\n\n')
+                  for entry in removed:
+                      out.write(f'- {entry}\n')
+          print(f'CLEANUP_RESULT deleted={len(removed)} retained={len(skipped)}')
+          PY
