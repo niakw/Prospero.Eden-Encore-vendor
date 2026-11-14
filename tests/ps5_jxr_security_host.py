@@ -51,6 +51,7 @@ harness = r"""
 #include "strcodec.h"
 #include <webp/decode.h>
 extern ERR ReadBinaryData(struct WMPStream *, const U32, const U32, U8 **);
+extern U32 load4BE(void *);
 
 static void rejected_inputs(void)
 {
@@ -79,6 +80,8 @@ static void rejected_inputs(void)
 
 static void bit_width_boundaries(void)
 {
+    _Alignas(4) U8 packed[8] = {0x00, 0xff, 0x12, 0x34, 0x56, 0x78, 0x00, 0x00};
+    assert(load4BE(packed + 2) == 0x12345678u);
     U16 slots[4] = {0xaaaa, 0xbbbb, 0xcccc, 0xdddd};
     BitIOInfo io = {0};
     io.pbCurrent = (U8 *)slots;
