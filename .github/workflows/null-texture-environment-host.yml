@@ -1,0 +1,19 @@
+name: Null texture environment regression (host)
+on:
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/video_core/shader_environment.cpp"
+      - "tests/ps5_null_texture_environment_host.py"
+      - ".github/workflows/null-texture-environment-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  null-texture-environment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ps5_null_texture_environment_host.py
