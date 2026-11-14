@@ -64,7 +64,17 @@ struct GPU::Impl {
         , gpu_thread{system_}
     {}
 
-    ~Impl() { gpu_thread.Stop(); if (renderer && Settings::IsOpenGL()) { renderer->Context().MakeCurrent(); glFinish(); } }
+    ~Impl() {
+        // Eglantine #462: the renderer still owns references to Maxwell
+        // channel state during teardown. Stop the dev GPU worker first.
+        NotifyShutdown();
+        gpu_thread.Stop();
+        if (renderer && Settings::IsOpenGL()) {
+            renderer->Context().MakeCurrent();
+            glFinish();
+        }
+        renderer.reset();
+    }
 
     std::shared_ptr<Control::ChannelState> CreateChannel(s32 channel_id) {
         auto channel_state = std::make_shared<Tegra::Control::ChannelState>(channel_id);
