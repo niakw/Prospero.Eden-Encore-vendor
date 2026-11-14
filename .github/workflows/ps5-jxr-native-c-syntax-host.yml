@@ -1,0 +1,50 @@
+name: Selected JPEG XR to WebP native C source syntax (host)
+
+on:
+  pull_request:
+    paths:
+      - "encore-active/ps5-jxr/**"
+      - "sources/jxrlib/**"
+      - ".github/workflows/ps5-jxr-native-c-syntax-host.yml"
+  push:
+    branches:
+      - feature/nov13-ps5-jxr-selected-only
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  selected-jxr-decoder:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact maintained codec and upstream JXR snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install WebP C headers used by the native adapter
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libwebp-dev clang
+      - name: Compile real maintained selected-image decoder with two host compilers
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cc in cc clang; do
+            "$cc" -std=gnu11 -D__ANSI__ -Werror=implicit-function-declaration \
+              -Werror=incompatible-pointer-types -fsyntax-only \
+              -Isources/jxrlib/common/include \
+              -Isources/jxrlib/jxrgluelib \
+              -Isources/jxrlib/image/sys \
+              -Isources/jxrlib/image/decode \
+              -Isources/jxrlib/image/encode \
+              encore-active/ps5-jxr/jxr_decoder.c
+            echo JXR_SELECTED_DECODER_HOST_SYNTAX_PASS compiler="$cc"
+          done
+      - name: Verify selected-only bounds and unmodified codec provenance
+        run: |
+          set -euo pipefail
+          python3 -B tests/ps5_jxr_selected_codec_source.py
+      - name: Explicit qualification boundary
+        if: always()
+        run: |
+          echo "Host C syntax and selected-only source constraints, not decoded PS5 JXR pixels or native PS5 link. Needs source codecs native compilation, C sanitizers and real image tests before release." >> "$GITHUB_STEP_SUMMARY"
