@@ -322,12 +322,13 @@ bool DecoderContext::OpenContext(const Decoder& decoder, std::span<const u8> ext
     return true;
 }
 
-int DecoderContext::SendPacket(const Packet& packet) {
-    const int ret = avcodec_send_packet(m_codec_context, packet.GetPacket());
-    if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN)) {
+bool DecoderContext::SendPacket(const Packet& packet) {
+    if (const int ret = avcodec_send_packet(m_codec_context, packet.GetPacket()); ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN)) {
         LOG_ERROR(HW_GPU, "avcodec_send_packet error: {}", AVError(ret));
+        return false;
     }
-    return ret;
+
+    return true;
 }
 
 std::shared_ptr<Frame> DecoderContext::ReceiveFrame() {
@@ -368,9 +369,6 @@ void DecodeApi::Reset() {
     m_next_pts = 0;
     while (!m_pending_offsets.empty()) {
         m_pending_offsets.pop();
-    }
-    while (!m_ready_frames.empty()) {
-        m_ready_frames.pop();
     }
 }
 
@@ -442,48 +440,18 @@ bool DecodeApi::SendPacket(std::span<const u8> packet_data, const FrameOffsets& 
         }
         m_opened = true;
     }
+    if (!offsets.hidden) {
+        m_pending_offsets.push(offsets);
+    }
     FFmpeg::Packet packet(packet_data);
     packet.GetPacket()->pts = m_next_pts;
     packet.GetPacket()->dts = m_next_pts;
-    // FFmpeg EAGAIN does not consume input. Drain output and retry the
-    // identical packet instead of silently dropping compressed video.
-    // The drained frames remain observable, in order, through ReceiveFrame.
-    constexpr int kMaxDrainRetries = 16;
-    for (int retry = 0; retry < kMaxDrainRetries; ++retry) {
-        const int ret = m_decoder_context->SendPacket(packet);
-        if (ret == 0) {
-            if (!offsets.hidden) {
-                m_pending_offsets.push(offsets);
-            }
-            ++m_next_pts;
-            return true;
-        }
-        if (ret != AVERROR(EAGAIN)) {
-            return false;
-        }
-        if (m_ready_frames.size() >= 32) {
-            LOG_ERROR(HW_GPU, "NVDEC EAGAIN output queue limit reached");
-            return false;
-        }
-        auto drained = m_decoder_context->ReceiveFrame();
-        if (!drained) {
-            LOG_ERROR(HW_GPU, "NVDEC EAGAIN without decodable output");
-            return false;
-        }
-        m_ready_frames.push(std::move(drained));
-    }
-    LOG_ERROR(HW_GPU, "NVDEC EAGAIN retry limit reached");
-    return false;
+    ++m_next_pts;
+    return m_decoder_context->SendPacket(packet);
 }
 
 std::optional<DecodeApi::DecodedFrame> DecodeApi::ReceiveFrame() {
-    std::shared_ptr<Frame> frame;
-    if (!m_ready_frames.empty()) {
-        frame = std::move(m_ready_frames.front());
-        m_ready_frames.pop();
-    } else {
-        frame = m_decoder_context->ReceiveFrame();
-    }
+    auto frame = m_decoder_context->ReceiveFrame();
     if (!frame) {
         return std::nullopt;
     }
