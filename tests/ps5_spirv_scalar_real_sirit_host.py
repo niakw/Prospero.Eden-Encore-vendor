@@ -44,7 +44,8 @@ template<class M> std::vector<u32> emit(M& m, u32 seed) {
     for (unsigned i=0; i<256; ++i) corpus.push_back(static_cast<u32>(rng()));
     std::vector<std::array<Id,2>> ids;
     for (int repeat=0; repeat<8; ++repeat) {
-        for (u32 bits : corpus) {
+        for (size_t i=0;i<corpus.size();++i) {
+            const u32 bits=corpus[i];
             Id iu{}, iff{};
             if constexpr (requires { m.u32_constants; }) {
                 iu=m.CachedConstant(m.u32_constants,u,bits);
@@ -55,7 +56,7 @@ template<class M> std::vector<u32> emit(M& m, u32 seed) {
             }
             assert(iu.value != iff.value);
             if (repeat==0) ids.push_back({iu,iff});
- 
+            else assert(iu.value==ids[i][0].value && iff.value==ids[i][1].value);
         }
     }
     // Independently test exact returned IDs, using the original creation order.
@@ -88,8 +89,8 @@ int main() {
 """
 # The exact dependency is compiled directly instead of enabling its upstream
 # tests or relying on a system-installed Sirit with different behavior.
-units = [sirit/"src/sirit.cpp", *sorted((sirit/"src/instructions").glob("*.cpp"))]
-assert len(units) == 18, len(units)
+units = [sirit/"src"/name for name in ["sirit.cpp","instructions/type.cpp","instructions/constant.cpp","instructions/function.cpp","instructions/flow.cpp","instructions/debug.cpp","instructions/derivatives.cpp","instructions/memory.cpp","instructions/annotation.cpp","instructions/misc.cpp","instructions/logical.cpp","instructions/conversion.cpp","instructions/bit.cpp","instructions/arithmetic.cpp","instructions/extension.cpp","instructions/image.cpp","instructions/group.cpp","instructions/barrier.cpp","instructions/atomic.cpp"]]
+assert all(p.is_file() for p in units)
 boost = cpm/"boost/boost-1.90.0/libs"
 includes=[ROOT/"sources/eden/src",sirit/"include",sirit/"src",
           cpm/"spirv-headers/vulkan-sdk-1.4.341.0/include", *sorted(boost.glob("*/include"))]
