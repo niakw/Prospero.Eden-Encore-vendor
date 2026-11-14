@@ -79,6 +79,13 @@ jobs:
           # moved ref or an open/protected branch, and re-check ancestry.
           approved_retired = {
               'feat/ps5-jxr-selected-only-decode': '1ec7b429238d1175a76dc94b7c0a7f1c2eb62864',
+              # Superseded source/audit heads reconciled on 2026-11-15.
+              # Each ref is already identical to, or an ancestor of, main;
+              # the ancestry check below remains mandatory before deletion.
+              'audit/fc27-storage-offset-shift': '46eed0e9f3f895c40cd22d8574d6e43269f64ba0',
+              'feat/p0-bananza-first-low-write': '46eed0e9f3f895c40cd22d8574d6e43269f64ba0',
+              'fix/fc27-dynamic-texture-static-sampler-fresh': '46eed0e9f3f895c40cd22d8574d6e43269f64ba0',
+              'fix/nov14-dynarmic-emitinvalid-unused-param': '3d0bbe80dc4afb5505131661f88e4996614c040e',
           }
           removed = []
           skipped = []
