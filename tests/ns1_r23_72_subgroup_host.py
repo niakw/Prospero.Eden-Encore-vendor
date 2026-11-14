@@ -33,6 +33,17 @@ for path,expected in files.items():
  elif path.endswith("vk_pipeline_cache_cost.cpp"):
   text=d.decode()
   assert "single_lane_geometry_subgroups" in text and "HasBrokenPattern" in text,(path,"subgroup/AMD pipeline not combined")
+ elif path.endswith("frontend/maxwell/translate_program.cpp"):
+  # Preserve the exact historic subgroup source after removing only the
+  # reviewed emulated geometry mask delta (Lichii #1466).
+  s=d.decode()
+  delta="                // Lichii #1466: lowering forwards Position and the generic vec4s.\n                // Do not declare unrelated built-in inputs in an emulated geometry stage.\n                for (size_t i = 0; i < program.info.passthrough.mask.size(); ++i) {\n                    if (i < static_cast<size_t>(IR::Attribute::PositionX) ||\n                        i > static_cast<size_t>(IR::Attribute::Generic31W)) {\n                        program.info.passthrough.mask[i] = false;\n                    }\n                }\n"
+  if delta in s:
+   assert s.count(delta)==1
+   prior=s.replace(delta,"",1).encode()
+   assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==expected
+  else:
+   assert actual==expected
  elif path.endswith("spirv_emit_context.h"):
   assert actual=="844a118358c874b0666aebda116c1d6a0c9a8ceb"
   source=d.decode()
