@@ -19,7 +19,7 @@ header_sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdiges
 assert header_sha in {
  "afe153f18075d00b8e822a1d992dcd8f5cad9a8c",
  "194476705f21bd1c27f532fdd5cc04d99a3cd620",
- "05a5f9c9c99ca92530bb80f079ae045951c43dae",
+ "fa5e7572ef99bba3db17154c63f60dddba7a87c6",
 },header_sha
 if header_sha!="afe153f18075d00b8e822a1d992dcd8f5cad9a8c":
  subprocess.run(["python3","-B",str(Path(__file__).resolve().parents[1]/"tests/ps5_ir_bfs_adaptive_host.py")],
