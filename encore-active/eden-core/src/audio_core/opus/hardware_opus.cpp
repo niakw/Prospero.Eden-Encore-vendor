@@ -127,7 +127,8 @@ Result HardwareOpus::InitializeMultiStreamDecodeObject(u32 sample_rate, u32 chan
     shared_memory.host_send_data[4] = total_stream_count;
     shared_memory.host_send_data[5] = stereo_stream_count;
 
-    ASSERT(channel_count <= shared_memory.channel_mapping.size());
+    R_UNLESS(channel_count > 0 && channel_count <= shared_memory.channel_mapping.size(),
+             ResultInvalidOpusChannelCount);
     std::memcpy(shared_memory.channel_mapping.data(), mappings, channel_count * sizeof(u8));
 
     opus_decoder.Send(ADSP::Direction::DSP,
@@ -179,8 +180,11 @@ Result HardwareOpus::DecodeInterleaved(u32& out_sample_count, void* output_data,
     shared_memory.host_send_data[0] = (u64)buffer;
     shared_memory.host_send_data[1] = (u64)input_data;
     shared_memory.host_send_data[2] = input_data_size;
+    R_UNLESS(channel_count > 0, ResultInvalidOpusChannelCount);
     shared_memory.host_send_data[3] = (u64)output_data;
-    shared_memory.host_send_data[4] = output_data_size;
+    // libopus takes frame_size in samples per channel, not bytes.
+    shared_memory.host_send_data[4] =
+        output_data_size / (static_cast<u64>(channel_count) * sizeof(s16));
     shared_memory.host_send_data[5] = 0;
     shared_memory.host_send_data[6] = reset;
 
@@ -209,8 +213,11 @@ Result HardwareOpus::DecodeInterleavedForMultiStream(u32& out_sample_count, void
     shared_memory.host_send_data[0] = (u64)buffer;
     shared_memory.host_send_data[1] = (u64)input_data;
     shared_memory.host_send_data[2] = input_data_size;
+    R_UNLESS(channel_count > 0, ResultInvalidOpusChannelCount);
     shared_memory.host_send_data[3] = (u64)output_data;
-    shared_memory.host_send_data[4] = output_data_size;
+    // libopus takes frame_size in samples per channel, not bytes.
+    shared_memory.host_send_data[4] =
+        output_data_size / (static_cast<u64>(channel_count) * sizeof(s16));
     shared_memory.host_send_data[5] = 0;
     shared_memory.host_send_data[6] = reset;
 
