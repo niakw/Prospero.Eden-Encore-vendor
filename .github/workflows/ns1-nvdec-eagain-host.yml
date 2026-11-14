@@ -5,6 +5,8 @@ on:
     paths:
       - "sources/eden/src/video_core/host1x/ffmpeg.cpp"
       - "sources/eden/src/video_core/host1x/ffmpeg.h"
+      - "encore-active/eden-core/src/video_core/host1x/ffmpeg.cpp"
+      - "encore-active/eden-core/overrides/video_core/host1x/ffmpeg.h"
       - "tests/ns1-nvdec-eagain-source.py"
       - "tests/ns1_nvdec_eagain_lossless_host.py"
       - ".github/workflows/ns1-nvdec-eagain-host.yml"
