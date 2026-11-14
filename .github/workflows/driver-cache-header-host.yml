@@ -1,0 +1,21 @@
+name: Vulkan driver cache header preflight (host)
+on:
+  pull_request:
+    paths:
+      - "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
+      - "tests/ps5_driver_cache_header_host.py"
+      - ".github/workflows/driver-cache-header-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  driver-cache-header:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Compile selected reader and test bounded file admission
+        run: python3 -B tests/ps5_driver_cache_header_host.py
