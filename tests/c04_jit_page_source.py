@@ -55,9 +55,23 @@ shift_new = "U const shifted = U(U(element) << U(T(shift_amount)));"
 result_old = "auto result = 0;"
 result_new = "T result = 0;"
 assert s.count(shift_new) == s.count(result_new) == 1
-reconstructed = s.replace(shift_new, shift_old, 1).replace(result_new, result_old, 1)
+# R23 #11 already owns one independent approved AVX-512 lane repair in this
+# same maintained TU. C04 must reverse BOTH known deltas before comparing
+# with the immutable pre-maintained blob; otherwise an unrelated approved
+# change makes every later eden-core PR fail this exact-source gate.
+r23_old = """        /*4*/ code.vplzcntd(tmp0.cvt256(), tmp0.cvt256());
+        /*1*/ code.vpxor(tmp1, tmp1, tmp1);
+        /*1*/ code.vpackusdw(tmp0, tmp0, tmp1);"""
+r23_new = """        /*4*/ code.vplzcntd(tmp0.cvt256(), tmp0.cvt256());
+        // AVX-512 VPACKUSDW consumes low 128-bit halves; restore lanes 4-7.
+        /*3*/ code.vextracti128(tmp1, tmp0.cvt256(), 1);
+        /*1*/ code.vpackusdw(tmp0, tmp0, tmp1);"""
+assert s.count(r23_new) == 1
+reconstructed = (s.replace(shift_new, shift_old, 1)
+                   .replace(result_new, result_old, 1)
+                   .replace(r23_new, r23_old, 1))
 assert blob(reconstructed) == ORIGINAL_BLOBS[vector]
-print("C04_VECTOR_LANE_TYPE_SOURCE_PASS")
+print("C04_VECTOR_LANE_TYPE_SOURCE_PASS r23_lane_delta_reconciled=1")
 
 # Upstream #136 uses a sign-*bit-index* parameter, but the selected native
 # G11 config already supplies countl_zero(pointer_mask), i.e. a shift count.
