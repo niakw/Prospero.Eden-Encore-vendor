@@ -60,7 +60,7 @@ class Cbuf:
 def biased(c:Cbuf)->bool:
     return c.index==0 and 0x100 <= c.offset < 0x700 and c.offset % 16 == 0
 
-base=Cbuf(0,0x178)
+base=Cbuf(0,0x180)
 shifted_c3=Cbuf(3,0x10)
 for seed in range(1024):
     order=[base,shifted_c3]
