@@ -610,15 +610,18 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     pipeline->SetEngine(maxwell3d, gpu_memory);
     // Mesh draw workgroups are not indexed vertices. Only standard vertex
     // draw calls may be split into handle-homogeneous runs.
-    attribute_handle_pipeline = nullptr;
-    attribute_handle_runs.clear();
-    if (split_attribute_handles && !mesh_draw && pipeline->UsesAttributeHandle()) {
-        CollectAttributeHandleRuns(is_indexed);
-        if (!attribute_handle_runs.empty()) {
-            attribute_handle_pipeline = pipeline;
-            pipeline->SetAttributeHandle(attribute_handle_runs.front().handle);
+    const auto prepare_attribute_handles = [&] {
+        attribute_handle_pipeline = nullptr;
+        attribute_handle_runs.clear();
+        if (split_attribute_handles && !pipeline->IsMeshPipeline() && pipeline->UsesAttributeHandle()) {
+            CollectAttributeHandleRuns(is_indexed);
+            if (!attribute_handle_runs.empty()) {
+                attribute_handle_pipeline = pipeline;
+                pipeline->SetAttributeHandle(attribute_handle_runs.front().handle);
+            }
         }
-    }
+    };
+    prepare_attribute_handles();
     bool pipeline_ok = pipeline->Configure(is_indexed);
     if (!pipeline_ok && pipeline->UsesForcedMsaaShadow()) {
         // The shader may read/store its destination or the texture cache
@@ -632,6 +635,9 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
             prepared_pipeline = pipeline;
             probe_pipeline = pipeline;
             pipeline->SetEngine(maxwell3d, gpu_memory);
+            // The 1x pipeline owns its own descriptor/attribute state. The
+            // rejected shadow is not a valid owner for later split draws.
+            prepare_attribute_handles();
             pipeline_ok = pipeline->Configure(is_indexed);
         }
     }

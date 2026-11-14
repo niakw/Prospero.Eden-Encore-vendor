@@ -1,0 +1,24 @@
+name: Native MSAA split texture handle fallback (host only)
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-vulkan/vulkan_rasterizer.cpp'
+      - 'tests/native_msaa_attribute_handle_rebind_host.py'
+      - '.github/workflows/native-msaa-attribute-handle-rebind-host.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        cxx: [g++, clang++]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/native_msaa_attribute_handle_rebind_host.py
+        env:
+          CXX: ${{ matrix.cxx }}

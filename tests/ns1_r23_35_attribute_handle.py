@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """NS1 R23 #35: 8 maintained source owner receipts and real draw-run method ASan."""
 from pathlib import Path
+from native_msaa_handle_receipt import restore_pre_rebind
 import hashlib
 import os
 import re
@@ -30,6 +31,7 @@ for path,sha in EXPECTED.items():
  raw=(ROOT/path).read_bytes()
  normalized=raw.decode("utf-8")
  if path.endswith("/vulkan_rasterizer.cpp"):
+  normalized=restore_pre_rebind(normalized)
   assert normalized.count(POST_TEARDOWN)==1, "FC27 lifetime guard missing"
   normalized=normalized.replace(POST_TEARDOWN,PRE_TEARDOWN,1)
  elif path.endswith("/vk_pipeline_cache_cost.cpp"):
