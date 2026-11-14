@@ -171,6 +171,7 @@ with tempfile.TemporaryDirectory(prefix="jxr-security-host-") as temp:
                "-D__ANSI__", "-DDISABLE_PERF_MEASUREMENT",
                "-Werror=implicit-function-declaration", "-Werror=incompatible-pointer-types",
                "-Werror=shift-negative-value", "-Werror=extra-tokens",
+               "-Werror=dangling-else", "-Werror=unused-value", "-Werror=constant-conversion",
                "-include", str(JXR / "jxr_compat.h")]
     command += ["-I" + str(path) for path in includes]
     command += [str(path) for path in sources + [ADAPTER / "jxr_decoder.c", code]]
@@ -180,3 +181,37 @@ with tempfile.TemporaryDirectory(prefix="jxr-security-host-") as temp:
     print("JXR_SECURITY_REJECT_HOST_PASS real_codec=1 overflow_guard=1", flush=True)
     subprocess.run([str(exe), "valid"], check=True, cwd=work, timeout=30)
     print("JXR_VALID_SDR_ROUNDTRIP_HOST_PASS 16x16 pixels=verified", flush=True)
+
+# Validate all representable bias inputs against the old intended modulo-256
+# arithmetic, without implementation-defined signed narrowing in the oracle.
+# The exact production block is extracted from the new source.
+encoder=(JXR/"image/encode/strenc.c").read_text()
+start=encoder.index("    // set nExpBias (signed 8-bit rollover")
+end=encoder.index("\n    pSC->cRow = 0;",start)
+block=encoder[start:end]
+bias_test=r"""
+#include <assert.h>
+#include <stdint.h>
+typedef int Int;
+typedef int8_t I8;
+struct Codec { struct { I8 nExpBias; } WMISCP; };
+static int actual(int input) {
+    struct Codec current = {{(I8)input}};
+    struct Codec *pSC = &current;
+"""+block+r"""
+    return pSC->WMISCP.nExpBias;
+}
+int main(void) {
+    for (int i=-128;i<=127;++i) {
+        unsigned encoded=(unsigned)(i==0 ? 4 : i+128)&255u;
+        int expected=encoded<128u?(int)encoded:(int)encoded-256;
+        assert(actual(i)==expected);
+    }
+}
+"""
+with tempfile.TemporaryDirectory(prefix="jxr-bias-") as temp:
+    p=Path(temp)/"bias.c"; p.write_text(bias_test)
+    exe=Path(temp)/"bias"
+    subprocess.run(["clang","-std=c11","-O2","-Wall","-Wextra","-Werror","-fsanitize=undefined",str(p),"-o",str(exe)],check=True,timeout=30)
+    subprocess.run([str(exe)],check=True,timeout=10)
+print("JXR_ROLLOVER_256_VALUES_HOST_PASS",flush=True)
