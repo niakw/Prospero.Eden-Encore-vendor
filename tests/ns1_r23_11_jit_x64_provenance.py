@@ -29,7 +29,17 @@ sm4=source("emit_x64_sm4.cpp","fc30c0e15853a75055561790221fc513d57cefeb",lambda 
 assert sm4.count(sm4_new)==1
 v_old="        /*4*/ code.vplzcntd(tmp0.cvt256(), tmp0.cvt256());\n        /*1*/ code.vpxor(tmp1, tmp1, tmp1);\n        /*1*/ code.vpackusdw(tmp0, tmp0, tmp1);"
 v_new="        /*4*/ code.vplzcntd(tmp0.cvt256(), tmp0.cvt256());\n        // AVX-512 VPACKUSDW consumes low 128-bit halves; restore lanes 4-7.\n        /*3*/ code.vextracti128(tmp1, tmp0.cvt256(), 1);\n        /*1*/ code.vpackusdw(tmp0, tmp0, tmp1);"
-source("emit_x64_vector.cpp","4afc50c77b167d6e36d180e04c5cf58259db62b7",lambda s:s.replace(v_new,v_old,1))
+# C04 independently qualified the lane-shift result type in this same TU.
+# Reverse all three reviewed deltas before matching the frozen preimage.
+shift_old = "auto const shifted = U(element) << U(T(shift_amount));"
+shift_new = "U const shifted = U(U(element) << U(T(shift_amount)));"
+result_old = "auto result = 0;"
+result_new = "T result = 0;"
+def recover_vector(s):
+    assert s.count(v_new) == s.count(shift_new) == s.count(result_new) == 1
+    return (s.replace(v_new,v_old,1).replace(shift_new,shift_old,1)
+             .replace(result_new,result_old,1))
+source("emit_x64_vector.cpp","4afc50c77b167d6e36d180e04c5cf58259db62b7",recover_vector)
 round_old="    ROUNDING_MODE_CASE(CASE, 0x3f)\n"
 round_new="    ROUNDING_MODE_CASE(CASE, 0x3f) " + chr(92) + "\n    ROUNDING_MODE_CASE(CASE, 0x40)\n"
 source("emit_x64_vector_floating_point.cpp","0ad3b022d0e27769036310ec02522d9280f136a3",lambda s:s.replace(round_new,round_old,1))
