@@ -60,6 +60,17 @@ static void rejected_inputs(void)
     assert(!encore_jxr_to_webp("missing.jxr", "out.webp"));
     assert(!encore_jxr_to_webp("short.jxr", "out.webp"));
     assert(!encore_jxr_to_webp("not-an-image.jxr", "out.webp"));
+    /* Exercise the real factory failure path independently of adapter prechecks. */
+    PKCodecFactory *codec = NULL;
+    PKImageDecode *decoder = NULL;
+    assert(PKCreateCodecFactory(&codec, WMP_SDK_VERSION) == WMP_errSuccess);
+    for (int i = 0; i < 16; ++i) {
+        assert(codec->CreateDecoderFromFile("not-an-image.jxr", &decoder) != WMP_errSuccess);
+        assert(decoder == NULL);
+        assert(codec->CreateDecoderFromFile("missing.jxr", &decoder) != WMP_errSuccess);
+        assert(decoder == NULL);
+    }
+    assert(codec->Release(&codec) == WMP_errSuccess);
     assert(!encore_jxr_to_webp("oversized.jxr", "out.webp"));
     assert(!encore_jxr_to_webp("link.jxr", "out.webp"));
     assert(access("out.webp", F_OK) != 0);
