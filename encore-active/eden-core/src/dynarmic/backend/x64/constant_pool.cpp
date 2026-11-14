@@ -16,7 +16,6 @@
 namespace Dynarmic::Backend::X64 {
 
 ConstantPool::ConstantPool(BlockOfCode& code, size_t size)
-    : insertion_point(0)
 {
     code.EnsureMemoryCommitted(align_size + size);
     code.int3();

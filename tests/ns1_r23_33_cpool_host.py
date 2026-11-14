@@ -15,6 +15,8 @@ def gitsha(value):
  raw=value.encode()
  return hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
 assert '::Common::unordered_map<ConstantT, u32, ConstantHash> constant_info;' in head
+assert 'std::size_t insertion_point;' not in head
+assert ': insertion_point(0)' not in s
 assert 'writableAddress(&target_constant)' in s
 assert 'frame[code.rip + static_cast<void*>(&pool[it->second])]' in s
 assert 'code.int3();' in s
@@ -32,8 +34,12 @@ start="    // Track the slot index rather than a duplicate pointer."
 end="    return frame[code.rip + static_cast<void*>(&pool[it->second])];"
 new=start+s.split(start,1)[1].split(end,1)[0]+end
 pre=s.replace(new,old,1)
+pre=pre.replace("ConstantPool::ConstantPool(BlockOfCode& code, size_t size)\n{",
+                "ConstantPool::ConstantPool(BlockOfCode& code, size_t size)\n    : insertion_point(0)\n{",1)
 assert gitsha(pre)=="c51408a77701705c8bbc341c074df1e582495104",gitsha(pre)
 original_header=head.replace("::Common::unordered_map<ConstantT, u32, ConstantHash>", "::Common::unordered_map<ConstantT, void*, ConstantHash>",1)
+original_header=original_header.replace("    std::span<ConstantT> pool;\n",
+                                        "    std::span<ConstantT> pool;\n    std::size_t insertion_point;\n",1)
 assert gitsha(original_header)=="d3bad95d701c75b3a3e616a46a916590387e867e"
 methodstart="Xbyak::Address ConstantPool::GetConstant("
 method=methodstart+s.split(methodstart,1)[1].split("\n}\n",1)[0]+"\n}"
@@ -102,4 +108,4 @@ with tempfile.TemporaryDirectory(prefix="ns1-cpool-") as tmp:
     "-o",str(p/"test")],check=True,timeout=90)
  subprocess.run([str(p/"test")],check=True,timeout=20,
     env={**os.environ,"ASAN_OPTIONS":"detect_leaks=1:halt_on_error=1"})
-print("R23_33_POOL_INDEX_AND_WX_ALIAS_ASAN_UBSAN_PASS duplicates=1 high_64bit=1 five_slots=1")
+print("R23_33_POOL_INDEX_AND_WX_ALIAS_ASAN_UBSAN_PASS duplicates=1 high_64bit=1 five_slots=1 stale_insertion_field=0")
