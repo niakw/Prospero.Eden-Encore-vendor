@@ -1,0 +1,33 @@
+name: PS5 per-title shader cache triage (source/host only)
+
+on:
+  push:
+    branches:
+      - fix/nov13-ps5-cache-source-diagnostics
+  pull_request:
+    paths:
+      - "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
+      - "encore-active/eden-core/src/video_core/shader_cache_reader.inc"
+      - "encore-active/eden-core/src/video_core/shader_environment.cpp"
+      - "tools/ps5_shader_cache_log_triage.py"
+      - "tests/ps5_shader_cache_disk_triage_host.py"
+      - ".github/workflows/ps5-shader-cache-disk-triage-host.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cache-triage-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Check out exact vendor revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify selected PS5 source contract and log parser
+        run: python3 -B tests/ps5_shader_cache_disk_triage_host.py
+      - name: Scope of verification
+        run: |
+          echo "This is a host/source/parser test only; no native PS5 compilation, title launch, GPU trace or frame-time result." >> "$GITHUB_STEP_SUMMARY"
