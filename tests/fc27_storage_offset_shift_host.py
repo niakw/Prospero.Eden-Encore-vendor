@@ -41,8 +41,8 @@ for needle in (
     ".offset_begin = 0x100,",
     ".offset_end = 0x700,",
     ".alignment = 16,",
-    "storage_buffer = Track(low_addr, &nvn_bias)",
-    "storage_buffer = Track(low_addr, nullptr)",
+    "Track(low_addr, &nvn_bias)",
+    "Track(low_addr, nullptr)",
 ):
     assert needle in src, needle
 assert src.index("Track(low_addr, &nvn_bias)") < src.index("Track(low_addr, nullptr)")
