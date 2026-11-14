@@ -33,6 +33,15 @@ for path,expected in files.items():
  elif path.endswith("vk_pipeline_cache_cost.cpp"):
   text=d.decode()
   assert "single_lane_geometry_subgroups" in text and "HasBrokenPattern" in text,(path,"subgroup/AMD pipeline not combined")
+ elif path.endswith("backend/spirv/emit_spirv.cpp"):
+  old="Id TypeId(const EmitContext& ctx, IR::Type type) {\n    switch (type) {\n    case IR::Type::U1:\n        return ctx.U1;\n    case IR::Type::U32:\n        return ctx.U32[1];\n    default:\n        throw NotImplementedException(\"Phi node type {}\", type);\n    }\n}"
+  new="Id TypeId(const EmitContext& ctx, IR::Type type) {\n    // Eglantine #492: use the already-declared scalar/vector type IDs.\n    // Optional widths may not have been declared for this shader/profile.\n    Id id{};\n    switch (type) {\n    case IR::Type::U1:\n        id = ctx.U1;\n        break;\n    case IR::Type::U8:\n        id = ctx.U8;\n        break;\n    case IR::Type::U16:\n        id = ctx.U16;\n        break;\n    case IR::Type::U32:\n        id = ctx.U32[1];\n        break;\n    case IR::Type::U64:\n        id = ctx.U64;\n        break;\n    case IR::Type::F16:\n        id = ctx.F16[1];\n        break;\n    case IR::Type::F32:\n        id = ctx.F32[1];\n        break;\n    case IR::Type::F64:\n        id = ctx.F64[1];\n        break;\n    case IR::Type::U32x2:\n        id = ctx.U32[2];\n        break;\n    case IR::Type::U32x3:\n        id = ctx.U32[3];\n        break;\n    case IR::Type::U32x4:\n        id = ctx.U32[4];\n        break;\n    case IR::Type::F16x2:\n        id = ctx.F16[2];\n        break;\n    case IR::Type::F16x3:\n        id = ctx.F16[3];\n        break;\n    case IR::Type::F16x4:\n        id = ctx.F16[4];\n        break;\n    case IR::Type::F32x2:\n        id = ctx.F32[2];\n        break;\n    case IR::Type::F32x3:\n        id = ctx.F32[3];\n        break;\n    case IR::Type::F32x4:\n        id = ctx.F32[4];\n        break;\n    case IR::Type::F64x2:\n        id = ctx.F64[2];\n        break;\n    case IR::Type::F64x3:\n        id = ctx.F64[3];\n        break;\n    case IR::Type::F64x4:\n        id = ctx.F64[4];\n        break;\n    default:\n        break;\n    }\n    if (!Sirit::ValidId(id)) {\n        throw NotImplementedException(\"Phi node type {}\", type);\n    }\n    return id;\n}"
+  if new in d.decode():
+   assert d.decode().count(new)==1
+   prior=d.decode().replace(new,old,1).encode()
+   assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==expected
+  else:
+   assert actual==expected
  elif path.endswith("frontend/maxwell/translate_program.cpp"):
   # Preserve the exact historic subgroup source after removing only the
   # reviewed emulated geometry mask delta (Lichii #1466).
@@ -120,3 +129,5 @@ with tempfile.TemporaryDirectory(prefix="r23-subgroup-") as tmp:
  subprocess.run([str(p/"test")],check=True,timeout=20,
     env={**os.environ,"ASAN_OPTIONS":"detect_leaks=1:halt_on_error=1"})
 print("R23_72_SUBGROUP_12_SOURCE_HOST_PASS geometry=1 spirv_opcode_rewrite=4")
+
+subprocess.run(["python3","-B",str(root/"tests/ps5_spirv_phi_types_host.py")],check=True,timeout=120)
