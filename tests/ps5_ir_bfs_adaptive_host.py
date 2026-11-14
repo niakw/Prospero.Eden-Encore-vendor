@@ -35,6 +35,9 @@ using u32=std::uint32_t;
 struct Inst;
 struct Value {
     const Inst* ptr{};
+    Value() = default;
+    Value(const Inst* value) : ptr{value} {}
+    Value(u32) : ptr{nullptr} {}
     bool IsImmediate() const { return ptr==nullptr; }
     const Inst* InstRecursive() const { return ptr; }
 };
