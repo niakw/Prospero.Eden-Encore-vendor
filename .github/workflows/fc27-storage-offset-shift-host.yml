@@ -1,0 +1,20 @@
+name: FC27 shifted storage offset regression (host)
+on:
+  pull_request:
+    paths:
+      - 'sources/eden/src/shader_recompiler/ir_opt/global_memory_to_storage_buffer_pass.cpp'
+      - 'sources/eden/src/shader_recompiler/frontend/ir/breadth_first_search.h'
+      - 'tests/fc27_storage_offset_shift_host.py'
+      - '.github/workflows/fc27-storage-offset-shift-host.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/fc27_storage_offset_shift_host.py
