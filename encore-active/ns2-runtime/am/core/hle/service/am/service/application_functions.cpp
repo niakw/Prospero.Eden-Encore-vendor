@@ -4,6 +4,10 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdio>
+#include <mutex>
+#include <optional>
+
 #include <openssl/evp.h>
 
 #include "common/hex_util.h"
@@ -31,6 +35,29 @@
 namespace Service::AM {
 
 namespace {
+
+// Diagnostic only: no changes to the language result or guest IPC layout.
+// Bound release stderr traffic and collapse consecutive identical replies,
+// including across repeated queries to the same AM instance.
+struct GuestLanguageReply {
+    u64 program_id;
+    u32 supported_languages;
+    int configured_index;
+    u64 language_code;
+    bool has_metadata;
+    bool operator==(const GuestLanguageReply&) const = default;
+};
+
+bool ShouldReportGuestLanguage(const GuestLanguageReply& reply) {
+    static std::mutex mutex;
+    static std::optional<GuestLanguageReply> last;
+    static unsigned emitted = 0;
+    std::scoped_lock lock{mutex};
+    if (emitted >= 32 || (last && *last == reply)) return false;
+    last = reply;
+    ++emitted;
+    return true;
+}
 
 FileSys::PatchManager::Metadata GetApplicationMetadata(Core::System& system, u64 program_id) {
     auto metadata = FileSys::PatchManager::GetMetadataFromBaseOrUpdate(system, program_id);
@@ -200,6 +227,22 @@ Result IApplicationFunctions::GetDesiredLanguage(Out<u64> out_language_code) {
     R_TRY(app_man->ConvertApplicationLanguageToLanguageCode(out_language_code, desired_language));
 
     LOG_DEBUG(Service_AM, "got desired_language={:016X}", *out_language_code);
+    const GuestLanguageReply reply{
+        m_applet->program_id, supported_languages,
+        static_cast<int>(Settings::values.language_index.GetValue()),
+        *out_language_code, res.first != nullptr};
+    if (ShouldReportGuestLanguage(reply)) {
+        char code[9]{};
+        for (unsigned i = 0; i < 8; ++i)
+            code[i] = static_cast<char>((reply.language_code >> (8u * i)) & 0xffu);
+        std::fprintf(stderr,
+                     "EDEN_GUEST_LANGUAGE_REPLY title=%016llX metadata=%d supported_languages=%08X configured_index=%d reply_code=%016llX reply_text=%s\n",
+                     static_cast<unsigned long long>(reply.program_id),
+                     static_cast<int>(reply.has_metadata),
+                     static_cast<unsigned>(reply.supported_languages),
+                     reply.configured_index,
+                     static_cast<unsigned long long>(reply.language_code), code);
+    }
     R_SUCCEED();
 }
 
