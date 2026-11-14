@@ -58,6 +58,7 @@ void ThreadManager::RunWorker(VideoCore::RendererBase& renderer, Core::Frontend:
             }
             if (auto* submit_list = std::get_if<SubmitListCommand>(&next.data)) {
                 const auto count = ++dispatches;
+                ::Eden::PublishGpuSubmissionSample(count);
                 if (count <= 3 || ::Eden::Performance::BootTrace()) LOG_INFO(Render_OpenGL, "EDEN_GPU_DISPATCH_BEGIN count={}", count);
                 { ::Eden::Performance::DiagnosticTimer dispatch_timer(::Eden::Performance::gpu_dispatch);
                 scheduler.Push(system.GPU(), submit_list->channel, std::move(submit_list->entries));
