@@ -34,12 +34,28 @@ for path,sha in EXPECTED.items():
   normalized=restore_pre_rebind(normalized)
   assert normalized.count(POST_TEARDOWN)==1, "FC27 lifetime guard missing"
   normalized=normalized.replace(POST_TEARDOWN,PRE_TEARDOWN,1)
+ elif path.endswith("/texture_pass.cpp") and gitblob(ROOT/path)=="3d9625f1981d6500e7b294018e0659464869d6f3":
+  post_or="        // A dynamic texture table may be ORed with one fixed sampler word.\n        // Keep the table as the primary operand so its shader-side index and\n        // descriptor count survive. Two dynamic tables still cannot be\n        // represented by the current descriptor ABI.\n        if (lhs->count > 1 && rhs->count > 1) {\n            return std::nullopt;\n        }\n        if (rhs->count > 1 ||\n            (lhs->count == 1 &&\n             (lhs->shift_left > 0 || lhs->index > rhs->index || lhs->offset > rhs->offset))) {\n            std::swap(lhs, rhs);\n        }\n        return ConstBufferAddr{\n            .index = lhs->index,\n            .offset = lhs->offset,\n            .shift_left = lhs->shift_left,\n            .secondary_index = rhs->index,\n            .secondary_offset = rhs->offset,\n            .secondary_shift_left = rhs->shift_left,\n            .dynamic_offset = lhs->dynamic_offset,\n            .count = lhs->count,\n            .has_secondary = true,\n        };"
+  pre_or="        if (lhs->count > 1 || rhs->count > 1) {\n            return std::nullopt;\n        }\n        if (lhs->shift_left > 0 || lhs->index > rhs->index || lhs->offset > rhs->offset) {\n            std::swap(lhs, rhs);\n        }\n        return ConstBufferAddr{\n            .index = lhs->index,\n            .offset = lhs->offset,\n            .shift_left = lhs->shift_left,\n            .secondary_index = rhs->index,\n            .secondary_offset = rhs->offset,\n            .secondary_shift_left = rhs->shift_left,\n            .dynamic_offset = {},\n            .count = 1,\n            .has_secondary = true,\n        };"
+  post_zero="    IR::Inst* const offset_inst{offset.InstRecursive()};\n    u32 base_offset{};\n    IR::U32 dynamic_offset{offset};\n    if (offset_inst->GetOpcode() == IR::Opcode::IAdd32) {\n        if (offset_inst->Arg(0).IsImmediate()) {\n            base_offset = offset_inst->Arg(0).U32();\n            dynamic_offset = IR::U32{offset_inst->Arg(1)};\n        } else if (offset_inst->Arg(1).IsImmediate()) {\n            base_offset = offset_inst->Arg(1).U32();\n            dynamic_offset = IR::U32{offset_inst->Arg(0)};\n        } else {\n            return std::nullopt;\n        }\n    } else if (offset_inst->GetOpcode() != IR::Opcode::ShiftLeftLogical32) {\n        return std::nullopt;\n    }"
+  pre_zero="    IR::Inst* const offset_inst{offset.InstRecursive()};\n    if (offset_inst->GetOpcode() != IR::Opcode::IAdd32) {\n        return std::nullopt;\n    }\n    u32 base_offset{};\n    IR::U32 dynamic_offset;\n    if (offset_inst->Arg(0).IsImmediate()) {\n        base_offset = offset_inst->Arg(0).U32();\n        dynamic_offset = IR::U32{offset_inst->Arg(1)};\n    } else if (offset_inst->Arg(1).IsImmediate()) {\n        base_offset = offset_inst->Arg(1).U32();\n        dynamic_offset = IR::U32{offset_inst->Arg(0)};\n    } else {\n        return std::nullopt;\n    }"
+  assert normalized.count(post_or)==1 and normalized.count(post_zero)==1
+  normalized=normalized.replace(post_or,pre_or,1).replace(post_zero,pre_zero,1)
+ elif path.endswith("/vk_graphics_pipeline_cost.cpp") and gitblob(ROOT/path)=="efa8fd4d73c111655fced67fe7dd1e6b7c0178ba":
+  fixed="const u32 second_offset{desc.secondary_cbuf_offset};"
+  indexed="const u32 second_offset{desc.secondary_cbuf_offset + index_offset};"
+  assert normalized.count(fixed)==1 and indexed not in normalized
+  normalized=normalized.replace(fixed,indexed,1)
  elif path.endswith("/vk_pipeline_cache_cost.cpp"):
   # FC27 XMAD pointer folding changes generated shader IR, so the selected
   # cache owner advances 19 -> 20. Reverse only that reviewed version bump
   # in the audit copy before reconstructing the frozen R23 receipt.
   raw_cache_blob=gitblob(ROOT/path)
-  if raw_cache_blob=="36aae4b17ef8e9681f62fabdd4cf37f09d0beefb":
+  if raw_cache_blob=="be5d48abd44996502b0829a6e0501d130a151455":
+   assert normalized.count("constexpr u32 CACHE_VERSION = 21;")==1
+   normalized=normalized.replace("constexpr u32 CACHE_VERSION = 21;",
+                                 "constexpr u32 CACHE_VERSION = 19;",1)
+  elif raw_cache_blob=="36aae4b17ef8e9681f62fabdd4cf37f09d0beefb":
    assert normalized.count("constexpr u32 CACHE_VERSION = 20;")==1
    normalized=normalized.replace("constexpr u32 CACHE_VERSION = 20;",
                                  "constexpr u32 CACHE_VERSION = 19;",1)
@@ -64,6 +80,7 @@ for path,sha in EXPECTED.items():
  if path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path) in {
      "c7e3ca901ea7ab82ec679c23cf43a1c556ac7e41",
      "36aae4b17ef8e9681f62fabdd4cf37f09d0beefb",
+     "be5d48abd44996502b0829a6e0501d130a151455",
  }:
   assert digest=="10d76dd2b7b02fe6ce89afa5c122194442ebf77f", (path,digest)
  else:
