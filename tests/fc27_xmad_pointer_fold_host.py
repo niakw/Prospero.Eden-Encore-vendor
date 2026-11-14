@@ -37,7 +37,8 @@ for needle in (
     assert src.count(needle)==1, needle
 assert "FoldHalvesRecombine" not in pinned
 assert "void FoldIMul32" not in pinned
-assert "constexpr u32 CACHE_VERSION = 20;" in cache
+assert "constexpr u32 CACHE_VERSION = 21;" in cache
+assert "constexpr u32 CACHE_VERSION = 20;" not in cache
 assert "constexpr u32 CACHE_VERSION = 19;" not in cache
 
 # Keep exact upstream structural constraints: only a 16/16 split of the SAME
