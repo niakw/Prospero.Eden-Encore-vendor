@@ -45,7 +45,6 @@ private:
 
     ::Common::unordered_map<ConstantT, u32, ConstantHash> constant_info;
     std::span<ConstantT> pool;
-    std::size_t insertion_point;
 };
 
 }  // namespace Dynarmic::Backend::X64
