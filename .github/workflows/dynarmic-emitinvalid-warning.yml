@@ -1,0 +1,18 @@
+name: Dynarmic EmitInvalid unused parameter source proof
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-core/src/dynarmic/backend/x64/emit_x64_native.cpp'
+      - 'encore-active/eden-core/src/dynarmic/backend/x64/emit_x64_host.cpp'
+      - 'tests/dynarmic_emitinvalid_unused_param.py'
+      - '.github/workflows/dynarmic-emitinvalid-warning.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 -B tests/dynarmic_emitinvalid_unused_param.py
