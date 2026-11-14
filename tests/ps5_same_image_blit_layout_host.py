@@ -83,6 +83,7 @@ struct CommandBuffer{
         ++s->resolves;
     }
 };}
+constexpr int VK_PIPELINE_STAGE_TRANSFER_BIT=vk::PIPELINE_STAGE_TRANSFER_BIT;
 struct Scheduler{State state;bool outside=false;
     void RequestOutsideRenderPassOperationContext(){outside=true;}
     template<class F>void Record(F fn){assert(outside);fn(vk::CommandBuffer{&state});}
