@@ -11,6 +11,14 @@ ROOT=Path(__file__).resolve().parents[1]
 header=ROOT/"encore-active/eden-shader/include/shader_recompiler/frontend/ir/breadth_first_search.h"
 source=header.read_text()
 baseline=source
+# The SSBO pruning candidate is additive around BreadthFirstSearch itself.
+# Strip that reviewed wrapper before reconstructing the older adaptive-BFS
+# predecessor; the order/match regression below still compiles the full
+# candidate header, including BreadthFirstSearchPruned.
+baseline=baseline.replace("#include <vector>\n","",1)
+pruned_begin=baseline.index("/// Repeated BFS with the same predicate/resolver over immutable IR.")
+pruned_end=baseline.index("\n} // namespace Shader::IR",pruned_begin)
+baseline=baseline[:pruned_begin]+baseline[pruned_end:]
 for new,old in json.loads("[[\"#include <algorithm>\\n#include <functional>\\n#include <optional>\\n#include <type_traits>\\n#include <queue>\\n#include <unordered_set>\",\"#include <functional>\\n#include <optional>\\n#include <type_traits>\\n#include <queue>\"],[\"    boost::container::small_vector<const Inst*, 2> visited;\\n    // Lichii nx2: keep the small shader path, but avoid quadratic membership\\n    // scans on large IR graphs. The queue and rightmost-first order are unchanged.\\n    std::unordered_set<const Inst*> visited_set;\\n    const auto first_visit = [&](const Inst* inst) {\\n        if (!visited_set.empty()) {\\n            return visited_set.insert(inst).second;\\n        }\\n        if (std::ranges::find(visited, inst) != visited.end()) {\\n            return false;\\n        }\\n        visited.push_back(inst);\\n        if (visited.size() > 64) {\\n            visited_set.insert(visited.begin(), visited.end());\\n        }\\n        return true;\\n    };\\n    std::queue<const Inst*> queue;\",\"    boost::container::small_vector<const Inst*, 2> visited;\\n    std::queue<const Inst*> queue;\"],[\"            if (first_visit(arg_inst)) {\\n                queue.push(arg_inst);\\n            }\",\"            if (std::ranges::find(visited, arg_inst) == visited.end()) {\\n                visited.push_back(arg_inst);\\n                queue.push(arg_inst);\\n            }\"]]"):
     assert baseline.count(new)==1
     baseline=baseline.replace(new,old,1)
@@ -19,8 +27,10 @@ assert hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()=
 mock=r"""
 #pragma once
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 namespace Shader::IR {
+using u32=std::uint32_t;
 struct Inst;
 struct Value {
     const Inst* ptr{};
