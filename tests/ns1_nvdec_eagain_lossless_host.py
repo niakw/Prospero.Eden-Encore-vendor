@@ -30,6 +30,7 @@ struct Decoder {
   std::deque<int> attempts;
   std::deque<int> ready;
   int send(int packet) {
+    (void)packet;
     if(attempts.empty()) return 0;
     int result=attempts.front(); attempts.pop_front();
     return result;
