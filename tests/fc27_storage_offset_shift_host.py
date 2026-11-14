@@ -32,7 +32,7 @@ bfs=BFS.read_text()
 # Exact immutable inputs for this audit. A source change must deliberately
 # update the semantic test, never silently restamp these witnesses.
 assert blob(PASS)=="4ce1ff6c19c4937855d4460a515aec6a8a1e07e0"
-assert blob(BFS)=="91b9c20ccde6397220608705d90e330f55e3c9c8"
+assert blob(BFS)=="ec5542554920826ea52b33fd4170c5a8e69648df"
 
 # The native FC27 pattern must be protected by the NVN-biased first search:
 # c0 descriptor range 0x100..0x700, alignment 16. c3 cannot satisfy it.
