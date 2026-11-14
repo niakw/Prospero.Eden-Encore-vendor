@@ -663,7 +663,7 @@ void flushToByte(BitIOInfo* pIO);
 *************************************************************************/
 #define PEEKBIT16(pIO, cBits) \
     assert(0 <= (I32)cBits && cBits <= 16);\
-    return (pIO->uiAccumulator >> (32 - cBits/* - pIO->cBitsUsed*/));
+    return cBits == 0 ? 0 : (pIO->uiAccumulator >> (32 - cBits));
 
 #define FLUSHBIT16(pIO, cBits) \
     assert(0 <= (I32)cBits && cBits <= 16);\

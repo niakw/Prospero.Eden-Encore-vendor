@@ -987,6 +987,9 @@ Void putBit16z(BitIOInfo* pIO, U32 uiBits, U32 cBits)
 {
     assert(cBits <= 16);
     assert(0 == uiBits >> cBits);
+    // Zero bits never change the bitstream or advance its write position.
+    // Avoid the 32-bit shift when both this count and cBitsUsed are zero.
+    if (cBits == 0) return;
 
     pIO->uiAccumulator = (pIO->uiAccumulator << cBits) | uiBits;
     pIO->cBitsUsed += cBits;
@@ -1001,7 +1004,7 @@ Void putBit16(BitIOInfo* pIO, U32 uiBits, U32 cBits)
 {
     assert(cBits <= 16);
 
-    uiBits &= ~(-1 << cBits);
+    uiBits &= ~((U32)~0u << cBits);
     putBit16z(pIO, uiBits, cBits);
 }
 

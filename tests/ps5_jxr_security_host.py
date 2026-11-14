@@ -48,6 +48,7 @@ harness = r"""
 #include <unistd.h>
 #include "JXRGlue.h"
 #include "jxr_decoder.h"
+#include "strcodec.h"
 #include <webp/decode.h>
 extern ERR ReadBinaryData(struct WMPStream *, const U32, const U32, U8 **);
 
@@ -74,6 +75,22 @@ static void rejected_inputs(void)
     assert(!encore_jxr_to_webp("oversized.jxr", "out.webp"));
     assert(!encore_jxr_to_webp("link.jxr", "out.webp"));
     assert(access("out.webp", F_OK) != 0);
+}
+
+static void bit_width_boundaries(void)
+{
+    U16 slots[4] = {0xaaaa, 0xbbbb, 0xcccc, 0xdddd};
+    BitIOInfo io = {0};
+    io.pbCurrent = (U8 *)slots;
+    io.iMask = -1;
+    io.uiAccumulator = 0xdeadbeefu;
+    assert(peekBit16(&io, 0) == 0);
+    putBit16(&io, 0xffffffffu, 0);
+    assert(io.uiAccumulator == 0xdeadbeefu && io.cBitsUsed == 0);
+    assert(io.pbCurrent == (U8 *)slots && slots[0] == 0xaaaa);
+    putBit16(&io, 0xffff1234u, 16);
+    assert((io.uiAccumulator & 0xffffu) == 0x1234u);
+    assert(io.cBitsUsed == 0 && io.pbCurrent == (U8 *)(slots + 1));
 }
 
 static void valid_roundtrip(void)
@@ -120,8 +137,10 @@ static void valid_roundtrip(void)
 int main(int argc, char **argv)
 {
     assert(argc == 2);
-    if (strcmp(argv[1], "reject") == 0)
+    if (strcmp(argv[1], "reject") == 0) {
+        bit_width_boundaries();
         rejected_inputs();
+    }
     else if (strcmp(argv[1], "valid") == 0)
         valid_roundtrip();
     else
