@@ -1,3 +1,4 @@
+#include <atomic>
 #include <bit>
 #include "jit-startup-retry.h"
 #include "watch.h"
@@ -26,6 +27,25 @@
 namespace Core {
 
 using namespace Common::Literals;
+
+namespace {
+std::atomic<u64> low_guest_write_sequence{0};
+
+inline void ReportLowGuestWrite(u64 address, std::size_t bytes, u64 value,
+                                u64 pc, u64 thread_id, std::size_t core) {
+    if (address >= 0x1000) {
+        return;
+    }
+    const u64 sequence =
+        low_guest_write_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (sequence > 64 && (sequence & (sequence - 1)) != 0) {
+        return;
+    }
+    LOG_ERROR(Core_ARM,
+              "EDEN_GUEST_LOW_WRITE seq={} pc={:#016x} address={:#x} bytes={} value={:#016x} core={} tid={}",
+              sequence, pc, address, bytes, value, core, thread_id);
+}
+} // namespace
 
 DynarmicCallbacks64::DynarmicCallbacks64(ArmDynarmic64& parent, Kernel::KProcess* process)
     : m_parent{parent}, m_memory(process->GetMemory())
@@ -76,30 +96,40 @@ std::optional<u32> DynarmicCallbacks64::MemoryReadCode(u64 vaddr) {
 }
 
 void DynarmicCallbacks64::MemoryWrite8(u64 vaddr, u8 value) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 1, u64(value), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (::Eden::Watch::Hit(vaddr, 1)) ::Eden::Watch::Report(vaddr, 1, u64(value), m_memory, *m_parent.m_jit, Kernel::GetCurrentThread(m_parent.m_system.Kernel()), m_parent.m_core_index);
     if (CheckMemoryAccess(vaddr, 1, Kernel::DebugWatchpointType::Write)) {
         m_memory.Write8(vaddr, value);
     }
 }
 void DynarmicCallbacks64::MemoryWrite16(u64 vaddr, u16 value) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 2, u64(value), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (::Eden::Watch::Hit(vaddr, 2)) ::Eden::Watch::Report(vaddr, 2, u64(value), m_memory, *m_parent.m_jit, Kernel::GetCurrentThread(m_parent.m_system.Kernel()), m_parent.m_core_index);
     if (CheckMemoryAccess(vaddr, 2, Kernel::DebugWatchpointType::Write)) {
         m_memory.Write16(vaddr, value);
     }
 }
 void DynarmicCallbacks64::MemoryWrite32(u64 vaddr, u32 value) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 4, u64(value), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (::Eden::Watch::Hit(vaddr, 4)) ::Eden::Watch::Report(vaddr, 4, u64(value), m_memory, *m_parent.m_jit, Kernel::GetCurrentThread(m_parent.m_system.Kernel()), m_parent.m_core_index);
     if (CheckMemoryAccess(vaddr, 4, Kernel::DebugWatchpointType::Write)) {
         m_memory.Write32(vaddr, value);
     }
 }
 void DynarmicCallbacks64::MemoryWrite64(u64 vaddr, u64 value) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 8, value, m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (::Eden::Watch::Hit(vaddr, 8)) ::Eden::Watch::Report(vaddr, 8, u64(value), m_memory, *m_parent.m_jit, Kernel::GetCurrentThread(m_parent.m_system.Kernel()), m_parent.m_core_index);
     if (CheckMemoryAccess(vaddr, 8, Kernel::DebugWatchpointType::Write)) {
         m_memory.Write64(vaddr, value);
     }
 }
 void DynarmicCallbacks64::MemoryWrite128(u64 vaddr, Dynarmic::A64::Vector value) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 16, u64(value[0]), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (::Eden::Watch::Hit(vaddr, 16)) ::Eden::Watch::Report(vaddr, 16, u64(value[0]), m_memory, *m_parent.m_jit, Kernel::GetCurrentThread(m_parent.m_system.Kernel()), m_parent.m_core_index);
     if (CheckMemoryAccess(vaddr, 16, Kernel::DebugWatchpointType::Write)) {
         m_memory.Write64(vaddr, value[0]);
@@ -108,26 +138,36 @@ void DynarmicCallbacks64::MemoryWrite128(u64 vaddr, Dynarmic::A64::Vector value)
 }
 
 bool DynarmicCallbacks64::MemoryWriteExclusive8(u64 vaddr, std::uint8_t value, std::uint8_t expected) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 1, u64(value), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (::Eden::Watch::Hit(vaddr, 1)) ::Eden::Watch::Report(vaddr, 1, u64(value), m_memory, *m_parent.m_jit, Kernel::GetCurrentThread(m_parent.m_system.Kernel()), m_parent.m_core_index);
     return CheckMemoryAccess(vaddr, 1, Kernel::DebugWatchpointType::Write) &&
             m_memory.WriteExclusive8(vaddr, value, expected);
 }
 bool DynarmicCallbacks64::MemoryWriteExclusive16(u64 vaddr, std::uint16_t value, std::uint16_t expected) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 2, u64(value), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (::Eden::Watch::Hit(vaddr, 2)) ::Eden::Watch::Report(vaddr, 2, u64(value), m_memory, *m_parent.m_jit, Kernel::GetCurrentThread(m_parent.m_system.Kernel()), m_parent.m_core_index);
     return CheckMemoryAccess(vaddr, 2, Kernel::DebugWatchpointType::Write) &&
             m_memory.WriteExclusive16(vaddr, value, expected);
 }
 bool DynarmicCallbacks64::MemoryWriteExclusive32(u64 vaddr, std::uint32_t value, std::uint32_t expected) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 4, u64(value), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (::Eden::Watch::Hit(vaddr, 4)) ::Eden::Watch::Report(vaddr, 4, u64(value), m_memory, *m_parent.m_jit, Kernel::GetCurrentThread(m_parent.m_system.Kernel()), m_parent.m_core_index);
     return CheckMemoryAccess(vaddr, 4, Kernel::DebugWatchpointType::Write) &&
             m_memory.WriteExclusive32(vaddr, value, expected);
 }
 bool DynarmicCallbacks64::MemoryWriteExclusive64(u64 vaddr, std::uint64_t value, std::uint64_t expected) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 8, value, m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (::Eden::Watch::Hit(vaddr, 8)) ::Eden::Watch::Report(vaddr, 8, u64(value), m_memory, *m_parent.m_jit, Kernel::GetCurrentThread(m_parent.m_system.Kernel()), m_parent.m_core_index);
     return CheckMemoryAccess(vaddr, 8, Kernel::DebugWatchpointType::Write) &&
             m_memory.WriteExclusive64(vaddr, value, expected);
 }
 bool DynarmicCallbacks64::MemoryWriteExclusive128(u64 vaddr, Dynarmic::A64::Vector value, Dynarmic::A64::Vector expected) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 16, u64(value[0]), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (::Eden::Watch::Hit(vaddr, 16)) ::Eden::Watch::Report(vaddr, 16, u64(value[0]), m_memory, *m_parent.m_jit, Kernel::GetCurrentThread(m_parent.m_system.Kernel()), m_parent.m_core_index);
     return CheckMemoryAccess(vaddr, 16, Kernel::DebugWatchpointType::Write) &&
             m_memory.WriteExclusive128(vaddr, value, expected);
