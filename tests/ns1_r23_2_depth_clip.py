@@ -23,6 +23,14 @@ for name,expected in files.items():
     if name=="include/video_core/vulkan_common/vulkan_device.h":
         text=v.decode()
         assert "IsExtDepthClipEnableSupported()" in text and "GetMaxSubgroupSize() const" in text,(name,"lost EDS3/subgroup API")
+    elif name=="vk_graphics_pipeline_cost.cpp" and actual=="efa8fd4d73c111655fced67fe7dd1e6b7c0178ba":
+        text=v.decode()
+        fixed="const u32 second_offset{desc.secondary_cbuf_offset};"
+        indexed="const u32 second_offset{desc.secondary_cbuf_offset + index_offset};"
+        assert text.count(fixed)==1 and indexed not in text
+        normalized=text.replace(fixed,indexed,1).encode()
+        normalized_sha=hashlib.sha1(b"blob "+str(len(normalized)).encode()+bytes([0])+normalized).hexdigest()
+        assert normalized_sha==expected,(name,actual,normalized_sha,expected)
     elif name=="vk_pipeline_cache_cost.cpp":
         text=v.decode()
         assert "dynamic_features.has_depth_clip_enable = device.IsExtDepthClipEnableSupported();" in text,(name,"lost EDS3 policy")
