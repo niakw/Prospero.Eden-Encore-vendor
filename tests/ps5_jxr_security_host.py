@@ -171,7 +171,7 @@ with tempfile.TemporaryDirectory(prefix="jxr-security-host-") as temp:
                "-D__ANSI__", "-DDISABLE_PERF_MEASUREMENT",
                "-Werror=implicit-function-declaration", "-Werror=incompatible-pointer-types",
                "-Werror=shift-negative-value", "-Werror=extra-tokens",
-               "-Werror=dangling-else", "-Werror=comma", "-Werror=constant-conversion",
+               "-Werror=dangling-else", "-Werror=unused-value", "-Werror=constant-conversion",
                "-include", str(JXR / "jxr_compat.h")]
     command += ["-I" + str(path) for path in includes]
     command += [str(path) for path in sources + [ADAPTER / "jxr_decoder.c", code]]
