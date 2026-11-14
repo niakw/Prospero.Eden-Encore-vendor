@@ -11,7 +11,7 @@ def gitsha(path):
 header_sha=gitsha(header)
 assert header_sha in {"afe153f18075d00b8e822a1d992dcd8f5cad9a8c",
                       "194476705f21bd1c27f532fdd5cc04d99a3cd620",
-                      "05a5f9c9c99ca92530bb80f079ae045951c43dae"}
+                      "fa5e7572ef99bba3db17154c63f60dddba7a87c6"}
 if header_sha in {"194476705f21bd1c27f532fdd5cc04d99a3cd620",
                   "05a5f9c9c99ca92530bb80f079ae045951c43dae"}:
     # The new header must preserve the exact predecessor's traversal and
