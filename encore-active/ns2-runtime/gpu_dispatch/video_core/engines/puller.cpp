@@ -135,7 +135,8 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
             UNIMPLEMENTED_MSG("Native 3D macro channel requires a fresh session");
             return;
         }
-        if (!native_3d) native_3d = std::make_unique<Tegra::NativeAmpereMacroState>();
+        if (!native_3d)
+            native_3d = std::make_unique<Tegra::NativeAmpereMacroState>(&native_mme_dram);
         // Register the engine BEFORE exposing the binding to GPFIFO dispatch.
         // Only this authenticated 0xC797 path may opt in to native shader
         // capture; an ordinary Maxwell engine can never inherit its identity.
@@ -742,7 +743,7 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
     if (native_compute_failed)
         throw std::runtime_error("Native Ampere Compute macro channel unavailable");
     if (!native_compute)
-        native_compute = std::make_unique<Tegra::NativeAmpereMacroState>();
+        native_compute = std::make_unique<Tegra::NativeAmpereMacroState>(&native_mme_dram);
     const auto fail = [&](const char* reason) {
         native_compute_failed = true;
         native_compute_macro_method = 0;
