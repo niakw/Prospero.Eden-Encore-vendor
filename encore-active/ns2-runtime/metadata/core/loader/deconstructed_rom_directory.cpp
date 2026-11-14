@@ -4,8 +4,12 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <charconv>
 #include <cstring>
 #include <new>
+#include <optional>
+#include <system_error>
+#include <vector>
 #include "common/logging.h"
 #include "common/random.h"
 #include "common/settings.h"
@@ -15,6 +19,7 @@
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/romfs_factory.h"
 #include "core/file_sys/romfs.h"
+#include "core/file_sys/vfs/vfs_layered.h"
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/filesystem/filesystem.h"
@@ -180,6 +185,253 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
         return {ResultStatus::ErrorNullFile, {}};
     }
 
+    // Loose ExeFS content can have most of its RomFS in a sibling
+    // updates/<version>/romfs. The standalone NS2 override previously looked
+    // only for base/exefs/romfs or base/romfs in ReadRomFS(), silently losing
+    // update-only files (versioned RSDB content and other title assets).
+    // Keep the same bounded, title-scoped overlay policy as the maintained
+    // eden-core deconstructed loader, without copying guest data into RAM.
+    // The NUP adapter also uses the standalone main-file constructor:
+    // never assume standalone alone establishes a real roms/<title> path.
+    if (standalone && file) {
+        FileSys::VirtualDir content_root = dir;
+        if (dir->GetName() == "exefs" && dir->GetParentDirectory())
+            content_root = dir->GetParentDirectory();
+        FileSys::VirtualDir game_root = content_root;
+        bool within_library_title = false;
+        unsigned depth = 0;
+        for (auto cursor = content_root; cursor && depth < 9;
+             cursor = cursor->GetParentDirectory(), ++depth) {
+            if (cursor->GetName() == "base" && cursor->GetParentDirectory())
+                game_root = cursor->GetParentDirectory();
+            if (const auto parent = cursor->GetParentDirectory();
+                parent && parent->GetName() == "roms") {
+                game_root = cursor;
+                within_library_title = true;
+                break;
+            }
+        }
+        // A selected updates/<version>/exefs must not become the fallback
+        // ExeFS or RomFS for the real base game. Otherwise partial updates
+        // can assemble an incompatible mix of old and new NSO modules.
+        FileSys::VirtualDir base_romfs;
+        bool launched_from_update = false;
+        bool self_contained_update = false;
+        if (within_library_title) {
+            for (auto cursor = content_root; cursor && cursor != game_root;
+                 cursor = cursor->GetParentDirectory()) {
+                if (cursor->GetName() == "updates") {
+                    launched_from_update = true;
+                    break;
+                }
+            }
+            const auto base_dir = game_root->GetSubdirectory("base");
+            // Some extracted titles put only RomFS under base/ and keep
+            // their genuine ExeFS at roms/<title>/exefs. A base/ directory
+            // existing by itself must not mask that executable fallback.
+            const auto nested_exefs = base_dir ? base_dir->GetSubdirectory("exefs")
+                                               : FileSys::VirtualDir{};
+            const auto root_exefs = game_root->GetSubdirectory("exefs");
+            const auto bootable_exefs = [](const FileSys::VirtualDir& exefs) {
+                return exefs && exefs->GetFile("main") &&
+                       exefs->GetFile("main.npdm");
+            };
+            const auto base_exefs = bootable_exefs(nested_exefs) ? nested_exefs :
+                                    bootable_exefs(root_exefs) ? root_exefs :
+                                    FileSys::VirtualDir{};
+            if (base_exefs) {
+                dir = base_exefs;
+                if (launched_from_update)
+                    LOG_INFO(Loader, "EDEN_EXTRACTED_UPDATE base_exefs=restored");
+            } else if (launched_from_update) {
+                // Eglantine #164/#431: a complete update ExeFS plus its
+                // sibling RomFS can boot WITHOUT any base ExeFS. Do not
+                // reject such a legitimate direct update launch, and do not
+                // layer it with some OTHER update version discovered below.
+                // If the selected update has no own RomFS, fail closed:
+                // mounting an unrelated base/update against its main NSO
+                // can produce null guest reads and a PC=0x4 afterwards.
+                const auto own_romfs = content_root->GetSubdirectory("romfs");
+                // A complete .romfs image next to the selected ExeFS main
+                // is another supported loose layout (Eglantine #342).
+                // Do not reject it merely because there is no directory.
+                FileSys::VirtualFile own_romfs_image;
+                for (const auto& entry : dir->GetFiles()) {
+                    if (entry->GetExtension() == "romfs") {
+                        own_romfs_image = entry;
+                        break;
+                    }
+                }
+                if (!bootable_exefs(dir) || (!own_romfs && !own_romfs_image)) {
+                    LOG_WARNING(Loader,
+                                "EDEN_EXTRACTED_UPDATE status=base_missing_update_incomplete");
+                    return {ResultStatus::ErrorMissingNPDM, {}};
+                }
+                if (own_romfs) {
+                    // Upstream Eglantine #350 corrected its earlier claim:
+                    // System/HeapSize is not a reliable Bananza content path.
+                    // rsdb_dir is an optional layout witness, not a boot
+                    // validity or version-compatibility assertion.
+                    const bool has_rsdb =
+                        own_romfs->GetSubdirectory("RSDB") != nullptr;
+                    romfs = FileSys::CreateRomFS(own_romfs, nullptr);
+                    LOG_INFO(Loader,
+                             "EDEN_EXTRACTED_UPDATE source=selected_update_only"
+                             " romfs_layout=directory rsdb_dir={} probe=optional",
+                             int(has_rsdb));
+                } else {
+                    romfs = own_romfs_image;
+                    LOG_INFO(Loader,
+                             "EDEN_EXTRACTED_UPDATE source=selected_update_only"
+                             " romfs_layout=file rsdb_probe=not_applicable");
+                }
+                if (!romfs)
+                    return {ResultStatus::ErrorNoRomFS, {}};
+                self_contained_update = true;
+            }
+            base_romfs = base_dir ? base_dir->GetSubdirectory("romfs")
+                                 : FileSys::VirtualDir{};
+            if (!base_romfs)
+                base_romfs = game_root->GetSubdirectory("romfs");
+        }
+        // Nested non-update layouts retain their ancestor fallback.
+        // Do not accidentally treat a selected update RomFS as base.
+        if (!base_romfs && !launched_from_update) {
+            depth = 0;
+            for (auto cursor = content_root; cursor && depth < 9;
+                 cursor = cursor->GetParentDirectory(), ++depth) {
+                if (auto candidate = cursor->GetSubdirectory("romfs")) {
+                    base_romfs = std::move(candidate);
+                    break;
+                }
+                if (cursor == game_root) break;
+            }
+        }
+        if (const auto updates = within_library_title && !self_contained_update ?
+                game_root->GetSubdirectory("updates") : FileSys::VirtualDir{}) {
+            struct Candidate {
+                FileSys::VirtualDir directory;
+                std::optional<u64> version;
+                unsigned depth;
+            };
+            std::vector<Candidate> pending;
+            FileSys::VirtualDir newest;
+            u64 newest_version = 0;
+            std::size_t visited = 0;
+            bool ambiguous = false;
+            bool truncated = false;
+            if (launched_from_update) {
+                // When an explicit updates/<version>/exefs/main is selected,
+                // apply THAT version's ExeFS/RomFS to the real base. Never
+                // silently replace it with a different numerically newer
+                // update found by the automatic game-directory scan.
+                const auto selected_exefs = content_root->GetSubdirectory("exefs");
+                const auto selected_romfs = content_root->GetSubdirectory("romfs");
+                if (selected_exefs || selected_romfs) {
+                    newest = content_root;
+                    const auto& name = content_root->GetName();
+                    const auto [end, error] = std::from_chars(
+                        name.data(), name.data() + name.size(), newest_version);
+                    if (error != std::errc{} || end != name.data() + name.size()) {
+                        newest_version = 0;
+                        LOG_WARNING(Loader,
+                            "EDEN_EXTRACTED_UPDATE status=selected_version_non_numeric");
+                    }
+                    LOG_INFO(Loader,
+                        "EDEN_EXTRACTED_UPDATE source=selected_version version={}",
+                        newest_version);
+                } else {
+                    LOG_WARNING(Loader,
+                        "EDEN_EXTRACTED_UPDATE status=selected_version_missing_content");
+                }
+            } else {
+                pending.push_back({updates, std::nullopt, 0});
+            }
+            while (!pending.empty() && visited++ < 128) {
+                Candidate candidate = std::move(pending.back());
+                pending.pop_back();
+                if (candidate.version &&
+                    (candidate.directory->GetSubdirectory("exefs") ||
+                     candidate.directory->GetSubdirectory("romfs"))) {
+                    if (!newest || *candidate.version > newest_version) {
+                        newest = candidate.directory;
+                        newest_version = *candidate.version;
+                        ambiguous = false;
+                    } else if (*candidate.version == newest_version &&
+                               candidate.directory != newest) {
+                        // Never choose arbitrarily between duplicate update
+                        // trees with the same version and different content.
+                        ambiguous = true;
+                    }
+                }
+                if (candidate.depth >= 5) continue;
+                for (const auto& nested : candidate.directory->GetSubdirectories()) {
+                    const auto name = nested->GetName();
+                    if (name == "exefs" || name == "romfs" || name == "dlc")
+                        continue;
+                    auto version = candidate.version;
+                    u64 parsed = 0;
+                    const auto [end, error] = std::from_chars(
+                        name.data(), name.data() + name.size(), parsed);
+                    if (error == std::errc{} && end == name.data() + name.size())
+                        version = parsed;
+                    if (pending.size() < 128)
+                        pending.push_back({nested, version, candidate.depth + 1});
+                    else
+                        truncated = true;
+                }
+            }
+            if (!pending.empty() || truncated) {
+                LOG_WARNING(Loader, "EDEN_EXTRACTED_UPDATE status=scan_incomplete");
+            } else if (ambiguous) {
+                LOG_WARNING(Loader, "EDEN_EXTRACTED_UPDATE status=ambiguous_version");
+            } else if (newest) {
+                if (auto patch_exefs = newest->GetSubdirectory("exefs")) {
+                    auto layered = FileSys::LayeredVfsDirectory::MakeLayeredDirectory(
+                        {patch_exefs, dir});
+                    if (!layered)
+                        return {ResultStatus::ErrorMissingNPDM, {}};
+                    dir = std::move(layered);
+                }
+                if (auto patch_romfs = newest->GetSubdirectory("romfs")) {
+                    std::vector<FileSys::VirtualDir> layers{std::move(patch_romfs)};
+                    if (base_romfs) layers.push_back(base_romfs);
+                    auto layered = FileSys::LayeredVfsDirectory::MakeLayeredDirectory(
+                        std::move(layers));
+                    if (!layered)
+                        return {ResultStatus::ErrorNoRomFS, {}};
+                    // The first layer is the update. This includes files
+                    // absent from the base rather than replacing only matches.
+                    // The presence of RSDB proves only this visible
+                    // directory, not that the selected update has compatible
+                    // NSO/NPDM, or that a title's requested resource exists.
+                    const bool has_rsdb = layered->GetSubdirectory("RSDB") != nullptr;
+                    romfs = FileSys::CreateRomFS(std::move(layered), nullptr);
+                    if (!romfs)
+                        return {ResultStatus::ErrorNoRomFS, {}};
+                    LOG_INFO(Loader,
+                        "EDEN_EXTRACTED_UPDATE version={} exefs={} romfs=1"
+                        " base_romfs={} rsdb_dir={} probe=optional",
+                        newest_version, int(newest->GetSubdirectory("exefs") != nullptr),
+                        int(base_romfs != nullptr), int(has_rsdb));
+                } else {
+                    LOG_INFO(Loader, "EDEN_EXTRACTED_UPDATE version={} romfs=0",
+                             newest_version);
+                }
+            }
+        }
+        // The update overlay is optional. The base RomFS must still mount
+        // when an extracted title is nested deeper than base/exefs, or when
+        // the selected update has only an ExeFS and no own RomFS.
+        // Preserve the same VFS ownership instead of returning a false
+        // ErrorNoRomFS from the old immediate-parent-only fallback.
+        if (!romfs && base_romfs) {
+            romfs = FileSys::CreateRomFS(std::move(base_romfs), nullptr);
+            if (!romfs) return {ResultStatus::ErrorNoRomFS, {}};
+            LOG_INFO(Loader, "EDEN_EXTRACTED_BASE_ROMFS status=mounted");
+        }
+    }
+
     // Read meta to determine title ID
     FileSys::VirtualFile npdm = dir->GetFile("main.npdm");
     if (npdm == nullptr) {
@@ -218,6 +470,19 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     if (metadata.IsSwitch2() && !dir->GetFile("main")) {
         LOG_ERROR(Loader, "NS2 ExeFS rejected: missing main NSO");
         return {ResultStatus::ErrorLoadingNSO, {}};
+    }
+    if (metadata.IsSwitch2()) {
+        // Upstream Eglantine #350 eventually isolated a failed loose-dump
+        // build, not a GPU/FS service regression. Report metadata for the
+        // *effective* patched ExeFS, without reading/hash-scanning guest
+        // content, leaking host paths or claiming a version from file size.
+        // A matching Title ID by itself does NOT prove update compatibility.
+        const auto effective_main = dir->GetFile("main");
+        LOG_INFO(Loader,
+                 "EDEN_NS2_EXEFS_IDENTITY title={:016x} main_bytes={}"
+                 " npdm_bytes={} romfs_staged={} identity=unverified",
+                 metadata.GetTitleID(), effective_main->GetSize(), npdm->GetSize(),
+                 int(romfs != nullptr));
     }
 #ifdef EDEN_NS2_GUEST_COUNTER
     // This is the real KProcess loader, unlike ProgramMetadata::Load used
