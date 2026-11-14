@@ -75,6 +75,11 @@ jobs:
           if not main_ref:
               raise RuntimeError('Missing main branch in cleanup inventory')
           main_sha = main_ref['commit']['sha']
+          # Owner-approved retired heads audited 2026-11-14. Never match a
+          # moved ref or an open/protected branch, and re-check ancestry.
+          approved_retired = {
+              'feat/ps5-jxr-selected-only-decode': '1ec7b429238d1175a76dc94b7c0a7f1c2eb62864',
+          }
           removed = []
           skipped = []
           for branch in branches:
@@ -94,11 +99,33 @@ jobs:
                       if (compare.get('status') in ('ahead', 'identical') and
                           compare.get('behind_by') == 0):
                           pr_number = retired_pr
+              if not pr_number and approved_retired.get(name) == sha:
+                  compare = api(f'/compare/{sha}...{main_sha}')
+                  if compare.get('status') in ('ahead', 'identical') and compare.get('behind_by') == 0:
+                      pr_number = 'retired-ancestor'
               if not pr_number:
                   skipped.append(name)
                   continue
               # Exact closed PR head SHA + merged OR provable ancestor of main.
               ref = quote('heads/' + name, safe='/')
+              # Last-minute safety check for every deletion. If a branch
+              # has moved, become protected or gained an open PR, retain it.
+              current = api('/branches/' + quote(name, safe=''))
+              if current['commit']['sha'] != sha or current.get('protected'):
+                  skipped.append(name)
+                  continue
+              if any(p['head']['repo'] and p['head']['repo']['full_name'] == repo and
+                     p['head']['ref'] == name for p in pages('/pulls?state=open')):
+                  skipped.append(name)
+                  continue
+              # Verify that current main still contains the reviewed head
+              # for explicitly retired refs (including after concurrent merges).
+              if pr_number == 'retired-ancestor':
+                  now_main = api('/branches/main')['commit']['sha']
+                  compare = api(f'/compare/{sha}...{now_main}')
+                  if compare.get('status') not in ('ahead', 'identical') or compare.get('behind_by') != 0:
+                      skipped.append(name)
+                      continue
               try:
                   api(f'/git/refs/{ref}', 'DELETE')
               except HTTPError as exc:
@@ -107,8 +134,8 @@ jobs:
                       print(f'ALREADY_REMOVED {name} PR #{pr_number}')
                       continue
                   raise RuntimeError(f'Cannot delete {name} (PR #{pr_number}): HTTP {exc.code}') from exc
-              removed.append(f'{name} (PR #{pr_number})')
-              print(f'DELETED {name} PR #{pr_number}')
+              removed.append(f'{name} (receipt {pr_number})')
+              print(f'DELETED {name} receipt={pr_number}')
 
           summary = os.environ.get('GITHUB_STEP_SUMMARY')
           if summary:
