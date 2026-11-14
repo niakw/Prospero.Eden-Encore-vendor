@@ -159,6 +159,25 @@ void PhysicalCore::RunThread(KernelCore& kernel, Kernel::KThread* thread) {
                     const bool lr_query = process &&
                         !process->GetPageTable().QueryInfo(
                             &lr_info, &lr_page, fault_context.lr).IsError();
+                    Kernel::KMemoryInfo sp_info{};
+                    Kernel::Svc::PageInfo sp_page{};
+                    const bool sp_query = process &&
+                        !process->GetPageTable().QueryInfo(
+                            &sp_info, &sp_page, fault_context.sp).IsError();
+                    std::fprintf(stderr,
+                        "EDEN_GUEST_FAULT_OWNER pid=%llu program=0x%016llx entry=0x%llx core=%zu tid=%llu\n",
+                        static_cast<unsigned long long>(process ? process->GetProcessId() : 0),
+                        static_cast<unsigned long long>(process ? process->GetProgramId() : 0),
+                        static_cast<unsigned long long>(process ? GetInteger(process->GetEntryPoint()) : 0),
+                        static_cast<std::size_t>(m_core_index),
+                        static_cast<unsigned long long>(thread->GetThreadId()));
+                    std::fprintf(stderr,
+                        "EDEN_GUEST_FAULT_SP_MAP sp=0x%llx query=%s start=0x%llx size=0x%llx state=%u\n",
+                        static_cast<unsigned long long>(fault_context.sp),
+                        sp_query ? "ok" : "failed",
+                        static_cast<unsigned long long>(sp_info.m_address),
+                        static_cast<unsigned long long>(sp_info.m_size),
+                        static_cast<unsigned>(sp_info.m_state));
                     std::fprintf(stderr,
                         "EDEN_GUEST_FAULT_LR_MAP lr=0x%llx query=%s start=0x%llx size=0x%llx state=%u\n",
                         static_cast<unsigned long long>(fault_context.lr),
