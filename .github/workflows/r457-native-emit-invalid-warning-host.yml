@@ -1,0 +1,27 @@
+name: R457 native invalid IR warning witness
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-core/src/dynarmic/backend/x64/emit_x64_native.cpp'
+      - 'encore-active/eden-core/src/dynarmic/backend/x64/emit_x64_host.cpp'
+      - 'tests/r457_native_emit_invalid_warning_host.py'
+      - '.github/workflows/r457-native-emit-invalid-warning-host.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'encore-active/eden-core/src/dynarmic/backend/x64/emit_x64_native.cpp'
+      - 'encore-active/eden-core/src/dynarmic/backend/x64/emit_x64_host.cpp'
+      - 'tests/r457_native_emit_invalid_warning_host.py'
+      - '.github/workflows/r457-native-emit-invalid-warning-host.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/r457_native_emit_invalid_warning_host.py
