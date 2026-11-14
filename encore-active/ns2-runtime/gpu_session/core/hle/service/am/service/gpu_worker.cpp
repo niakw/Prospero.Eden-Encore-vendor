@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -35,6 +36,46 @@
 namespace Service::AM {
 namespace {
 constexpr std::size_t MaxOwnedGpuMemoryHandles = 4096;
+
+struct BlockingBoundaryTrace {
+    BlockingBoundaryTrace(const char* operation_, u32 address_space_, u64 address_, u64 size_)
+        : operation{operation_}, address_space{address_space_}, address{address_}, size{size_} {
+#ifdef PS5_NATIVE
+        static std::atomic<unsigned> sequence{0};
+        ticket = sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+        active = ticket <= 32 || (ticket & (ticket - 1)) == 0;
+        if (active) {
+            start = std::chrono::steady_clock::now();
+            std::fprintf(stderr,
+                         "EDEN_NS2_BLOCKING_BOUNDARY op=%s phase=begin ticket=%u as=%u address=%llx size=%llx\n",
+                         operation, ticket, address_space,
+                         static_cast<unsigned long long>(address),
+                         static_cast<unsigned long long>(size));
+        }
+#endif
+    }
+    ~BlockingBoundaryTrace() {
+#ifdef PS5_NATIVE
+        if (active) {
+            const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::steady_clock::now() - start)
+                                .count();
+            std::fprintf(stderr,
+                         "EDEN_NS2_BLOCKING_BOUNDARY op=%s phase=end ticket=%u elapsed_us=%lld as=%u address=%llx size=%llx\n",
+                         operation, ticket, static_cast<long long>(us), address_space,
+                         static_cast<unsigned long long>(address),
+                         static_cast<unsigned long long>(size));
+        }
+#endif
+    }
+    const char* operation;
+    u32 address_space;
+    u64 address;
+    u64 size;
+    unsigned ticket{};
+    bool active{};
+    std::chrono::steady_clock::time_point start{};
+};
 static void TraceNs2WorkerResult(unsigned command, u32 result) {
 #ifdef PS5_NATIVE
     // Failures are actionable only with their actual guest-visible result.
@@ -249,20 +290,23 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size,
     const u64 region_size = table.GetAliasCodeRegionSize();
     const u64 slots = region_size / AliasAlignment;
     bool mapped = false;
-    if (slots && size <= region_size) {
-        const u64 attempts = std::min(slots, MaxAliasAttempts);
-        for (u64 step = 0; step < attempts; ++step) {
-            const u64 slot = (m_alias_slot_hint + step) % slots;
-            const u64 offset = slot * AliasAlignment;
-            if (offset > region_size || size > region_size - offset) continue;
-            const Kernel::KProcessAddress candidate{start + offset};
-            if (table.MapPageGroup(candidate, *pages, Kernel::KMemoryState::IoMemory,
-                                   Kernel::KMemoryPermission::UserReadWrite).IsSuccess()) {
-                alias = candidate;
-                m_alias_slot_hint = (slot + (size + AliasAlignment - 1) /
-                                    AliasAlignment) % slots;
-                mapped = true;
-                break;
+    {
+        BlockingBoundaryTrace trace{"214_map_page_group", address_space, address, size};
+        if (slots && size <= region_size) {
+            const u64 attempts = std::min(slots, MaxAliasAttempts);
+            for (u64 step = 0; step < attempts; ++step) {
+                const u64 slot = (m_alias_slot_hint + step) % slots;
+                const u64 offset = slot * AliasAlignment;
+                if (offset > region_size || size > region_size - offset) continue;
+                const Kernel::KProcessAddress candidate{start + offset};
+                if (table.MapPageGroup(candidate, *pages, Kernel::KMemoryState::IoMemory,
+                                       Kernel::KMemoryPermission::UserReadWrite).IsSuccess()) {
+                    alias = candidate;
+                    m_alias_slot_hint = (slot + (size + AliasAlignment - 1) /
+                                        AliasAlignment) % slots;
+                    mapped = true;
+                    break;
+                }
             }
         }
     }
@@ -485,7 +529,11 @@ void IGpuWorker::NormalModifyGpuMemory4K(HLERequestContext& ctx) {
                     static_cast<Nvidia::DeviceFD>(request->address_space));
                 // Preserve guest PTE interpretation while earlier 3D/Compute
                 // submissions may still reference this virtual range.
-                if (as) system.GPU().WaitForIdle();
+                if (as) {
+                    BlockingBoundaryTrace trace{"212_wait_idle", request->address_space,
+                                                request->address, request->size};
+                    system.GPU().WaitForIdle();
+                }
                 if (as && as->ModifyNativeKind(request->address, request->size,
                                                 request->backend_kind) ==
                                   Nvidia::NvResult::Success) {
@@ -521,7 +569,11 @@ void IGpuWorker::NormalUnmapGpuMemory4K(HLERequestContext& ctx) {
                     static_cast<Nvidia::DeviceFD>(request->address_space));
                 // The native 213 owner drops its NVMap pin as it unmaps
                 // GMMU. Drain submitted GPU readers/writers before unpin.
-                if (as) system.GPU().WaitForIdle();
+                if (as) {
+                    BlockingBoundaryTrace trace{"213_wait_idle", request->address_space,
+                                                request->address, request->size};
+                    system.GPU().WaitForIdle();
+                }
                 if (as && as->UnmapNative4K(request->address, request->size) ==
                                   Nvidia::NvResult::Success) {
                     m_mappings.RecordUnmapped(*request);
@@ -646,7 +698,11 @@ void IGpuWorker::DestroySparseRegion(HLERequestContext& ctx) {
                     // for BOTH modes; only a previously completed dense
                     // release may skip the second drain on retry.
                     if (!physical || !dense->second.gmmu_released)
-                        system.GPU().WaitForIdle();
+                        {
+                            BlockingBoundaryTrace trace{"215_wait_idle", request->address_space,
+                                                        request->address, request->size};
+                            system.GPU().WaitForIdle();
+                        }
                     // The native GMMU release is destructive. If NVMap or
                     // CPU-alias retirement fails, retry only the latter.
                     // Native sparse release stages the retained pin table before
@@ -771,7 +827,11 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
                         // Only a fully admitted batch reaches this point;
                         // complete all GPU reads/writes of its old PTEs
                         // before replacing those physical addresses.
-                        if (as) system.GPU().WaitForIdle();
+                        if (as) {
+                            BlockingBoundaryTrace trace{"216_wait_idle", request->address_space,
+                                                        0, request->count};
+                            system.GPU().WaitForIdle();
+                        }
                         const auto remapped = as
                             ? as->RemapNativeSparse(staged)
                             : Nvidia::NvResult::InvalidState;
