@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the exact native-only invalid-IR definition and fatal behavior witness."""
+"""Check the exact maintained invalid-IR definitions and fatal behavior witness."""
 from pathlib import Path
 import hashlib
 import shutil
@@ -15,17 +15,20 @@ def blob(path):
     return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
 
 assert blob(pinned) == "b9df3987ca5cc4ea960142f186848202c45dd666"
-assert blob(active / "emit_x64_host.cpp") == "b2ec3288f0b4d939422ff70d5a3716d722e6b842"
 assert blob(active / "emit_x64_native.cpp") == "46dfa1e0da81d15d5e6a0e5b6020dbf51c84b4ef"
 assert blob(assert_header) == "298af3071a9976a97ae52a4a0d3dabd7b9dd5935"
 before = "void EmitX64::EmitInvalid(EmitContext&, IR::Inst* inst) {\n    UNREACHABLE();\n}"
 after = "void EmitX64::EmitInvalid(EmitContext&, IR::Inst*) {\n    UNREACHABLE();\n}"
-native = (active / "emit_x64_native.cpp").read_text()
-assert native.count(after) == 1 and before not in native
-old_native = native.replace(after, before, 1).encode()
-assert hashlib.sha1(b"blob " + str(len(old_native)).encode() + b"\0" + old_native).hexdigest() == "205aa034f0ec2330aec5a81a628ce3ae326856ab"
+for rel, previous_blob in (
+    ("emit_x64_native.cpp", "205aa034f0ec2330aec5a81a628ce3ae326856ab"),
+    ("emit_x64_host.cpp", "b2ec3288f0b4d939422ff70d5a3716d722e6b842"),
+):
+    maintained = (active / rel).read_text()
+    assert maintained.count(after) == 1 and before not in maintained, rel
+    reconstructed = maintained.replace(after, before, 1).encode()
+    actual = hashlib.sha1(b"blob " + str(len(reconstructed)).encode() + b"\0" + reconstructed).hexdigest()
+    assert actual == previous_blob, (rel, actual, previous_blob)
 assert before in pinned.read_text()
-assert before in (active / "emit_x64_host.cpp").read_text()
 header = assert_header.read_text()
 assert '#define UNREACHABLE() UNREACHABLE_MSG("")' in header
 assert "[[noreturn]] void AssertFatalImpl();" in header
@@ -58,4 +61,4 @@ with tempfile.TemporaryDirectory(prefix="encore-native-invalid-ir-") as director
                             str(src), "-o", str(out)], check=True, timeout=40)
             result = subprocess.run([str(out)], timeout=10)
             assert result.returncode == 42
-print("NATIVE_EMIT_INVALID_WARNING_HOST_PASS exact_native_delta=1 fatal_call=1 host_unchanged=1")
+print("DYNARMIC_EMIT_INVALID_WARNING_HOST_PASS exact_native_delta=1 exact_host_delta=1 fatal_call=1")
