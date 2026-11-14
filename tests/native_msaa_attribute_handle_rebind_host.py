@@ -3,6 +3,7 @@
 Ordinary desktop C++ mock fixture only; no PS5 build, assets or GPU driver.
 """
 from pathlib import Path
+from native_msaa_handle_receipt import restore_pre_rebind
 import hashlib
 import os
 import subprocess
@@ -13,6 +14,7 @@ def git_blob(raw):
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
 assert git_blob(src)=="efd77028f0710ea9e50cbbe77b04eebf3f306610"
 text=src.decode()
+assert git_blob(restore_pre_rebind(text).encode())=="5b04321fa45d6b5e6af1d4b17bcf695348d0dd90"
 anchor="    const auto prepare_attribute_handles = [&] {"
 end="    configure_phase.Stop();"
 assert text.count(anchor)==1 and text.count("prepare_attribute_handles();")==2

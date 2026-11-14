@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """R23 #2: exact 7 active Vulkan source owners, native PS5 depth clip truth table."""
 from pathlib import Path
+from native_msaa_handle_receipt import restore_pre_rebind
 import hashlib
 import os
 import subprocess
@@ -35,7 +36,7 @@ for name,expected in files.items():
         # before checking the historical source blob.
         post_teardown = "RasterizerVulkan::~RasterizerVulkan() {\n    // QueryCache has a shorter lifetime than BufferCache. BufferCache::~\n    // triggers a final scheduler.Finish() AFTER QueryCache is destroyed.\n    // Drain outstanding queries while alive, then revoke the borrowed pointer\n    // to prevent the shutdown path from reading freed QueryCache storage.\n    scheduler.WaitWorker();\n    scheduler.Finish();\n    scheduler.ClearQueryCache();\n}"
         pre_teardown = "RasterizerVulkan::~RasterizerVulkan() {\n    scheduler.WaitWorker();\n    scheduler.Finish();\n}"
-        source = v.decode("utf-8")
+        source = restore_pre_rebind(v.decode("utf-8"))
         assert source.count(post_teardown)==1, "FC27 teardown revocation lost"
         normalized = source.replace(post_teardown, pre_teardown, 1).encode("utf-8")
         normalized_sha = hashlib.sha1(b"blob "+str(len(normalized)).encode()+bytes([0])+normalized).hexdigest()
