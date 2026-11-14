@@ -1,0 +1,30 @@
+name: PS5 Vulkan usage tracker partial 64-byte ranges (host)
+on:
+  pull_request:
+    paths:
+      - "encore-active/eden-core/overrides/usage-tracker/**"
+      - "tests/ps5_buffer_usage_granularity_host.py"
+      - ".github/workflows/ps5-buffer-usage-granularity-host.yml"
+  push:
+    branches:
+      - fix/nov14-ps5-buffer-usage-tracker-granularity
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  active-buffer-cache-usage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout verified vendor sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Execute real maintained UsageTracker C++20 under ASan and UBSan
+        run: |
+          set -euo pipefail
+          python3 -B tests/ps5_buffer_usage_granularity_host.py
+      - name: Qualification boundary
+        if: always()
+        run: |
+          echo "Source/host only. Header requires selected engine CMake include integration; no PS5 native RADV build, no FC27 texture/HUD console proof." >> "$GITHUB_STEP_SUMMARY"
