@@ -45,7 +45,14 @@ for path,sha in EXPECTED.items():
   normalized=normalized.replace(POST_HOST_INFO_ORDER,PRE_HOST_INFO_ORDER,1)
  encoded=normalized.encode("utf-8")
  digest=hashlib.sha1(b"blob "+str(len(encoded)).encode()+bytes([0])+encoded).hexdigest()
- assert digest==sha,(path,gitblob(ROOT/path),digest,sha)
+ # Later driver-cache preflight (vendor #115) changes only includes, the
+ # cache-header helper, native save staging and native disk reader. The
+ # exact reviewed original blob (and post-R23 normalized receipt) are
+ # both required for this successor; retain the historical R23 reference.
+ if path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path)=="c7e3ca901ea7ab82ec679c23cf43a1c556ac7e41":
+  assert digest=="10d76dd2b7b02fe6ce89afa5c122194442ebf77f", (path,digest)
+ else:
+  assert digest==sha,(path,gitblob(ROOT/path),digest,sha)
 shader=(ROOT/"encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp").read_text()
 profile=(ROOT/"encore-active/eden-shader/src/shader_recompiler/host_translate_info.h").read_text()
 pipeline=(ROOT/"encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp").read_text()
