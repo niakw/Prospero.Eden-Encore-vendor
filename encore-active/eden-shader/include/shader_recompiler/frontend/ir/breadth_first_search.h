@@ -95,7 +95,10 @@ auto BreadthFirstSearchPruned(Value value, Pred&& pred,
         [&](const Value& operand) {
             const Value resolved{resolve(operand)};
             if (!resolved.IsImmediate() && exhausted.contains(resolved.InstRecursive())) {
-                return Value{u32{0}};
+                // BreadthFirstSearch only needs an immediate sentinel to stop
+                // traversing this edge. Void is immediate too, and avoids
+                // fabricating a typed constant that is never observed.
+                return Value{};
             }
             return resolved;
         })};
