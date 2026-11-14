@@ -165,8 +165,10 @@ private:
     };
     std::optional<PendingNativeAcquire> pending_native_acquire;
     std::array<EngineID, 8> bound_engines{};
-    // A DmaPusher owns this puller, so MME code/DRAM are isolated to its
-    // channel. Allocate lazily only after authenticated native 3D bind.
+    // One DmaPusher/Puller belongs to one GPU channel. Hardware exposes one
+    // TU104 MME data RAM to that channel, shared by 3D and Compute, while
+    // their uploaded code/position RAM remains engine-local.
+    Tegra::NativeAmpereMacroState::DataRam native_mme_dram{};
     std::unique_ptr<Tegra::NativeAmpereMacroState> native_3d;
     std::vector<u32> native_parameters;
     u32 native_macro_method{};

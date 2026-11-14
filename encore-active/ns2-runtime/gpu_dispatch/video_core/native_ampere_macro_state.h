@@ -19,6 +19,14 @@ class NativeAmpereMacroState final {
 public:
     using Word=std::uint32_t;
     using Result=TuringMacroInterpreter::Result;
+    using DataRam=TuringMacroInterpreter::DataRam;
+
+    // Hardware data RAM belongs to the GPU channel and is shared by its
+    // 3D and compute MME engines. Code/position RAM remain engine-local.
+    explicit NativeAmpereMacroState(DataRam* shared_dram=nullptr) noexcept
+        : active_dram{shared_dram ? shared_dram : &owned_dram} {}
+    NativeAmpereMacroState(const NativeAmpereMacroState&)=delete;
+    NativeAmpereMacroState& operator=(const NativeAmpereMacroState&)=delete;
     static constexpr std::size_t MaxCodeWords=0x3000;
     static constexpr std::size_t MaxPositions=0x80;
     static constexpr std::size_t MaxFifo=4096;
@@ -61,7 +69,7 @@ public:
         if(parameters.size()>MaxFifo)
             return {false,start,0,"native macro FIFO limit exceeded"};
         std::vector<Word> fifo{parameters.begin(),parameters.end()};
-        interpreter.active_dram=&dram;
+        interpreter.active_dram=active_dram;
         return interpreter.Execute(
             std::span<const Word>{code.data(),uploaded},start,fifo,read,emit);
     }
@@ -75,7 +83,7 @@ public:
         Word macro_method, std::span<const Word> parameters,
         Read read, Allowed allowed, Commit commit, Valid valid) {
         static constexpr std::size_t MaxPendingMethods = 65536;
-        const auto old_dram = dram;
+        const auto old_dram = *active_dram;
         std::vector<std::pair<Word, Word>> pending;
         std::unordered_map<Word, Word> shadow;
         const auto stage_read = [&](Word address) -> Word {
@@ -99,11 +107,11 @@ public:
             // caller rejects the invocation; no methods have been committed.
             if (result.success) validation_ok = valid();
         } catch (...) {
-            dram = old_dram;
+            *active_dram = old_dram;
             throw;
         }
         if (!result.success || !validation_ok) {
-            dram = old_dram;
+            *active_dram = old_dram;
             if (result.success)
                 return {false, result.pc, result.consumed,
                         "invalid guest MME register read"};
@@ -117,7 +125,7 @@ public:
             for (const auto& [address, value] : pending)
                 commit(address, value);
         } catch (...) {
-            dram = old_dram;
+            *active_dram = old_dram;
             throw;
         }
         return result;
@@ -131,6 +139,7 @@ private:
     std::array<bool,MaxPositions> bound{};
     std::size_t position_pointer{};
     TuringMacroInterpreter interpreter;
-    TuringMacroInterpreter::DataRam dram{};
+    DataRam owned_dram{};
+    DataRam* active_dram{};
 };
 } // namespace Tegra
