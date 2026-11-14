@@ -1,0 +1,35 @@
+name: NS1 NVDEC FFmpeg packet EAGAIN consumption (host)
+
+on:
+  pull_request:
+    paths:
+      - "sources/eden/src/video_core/host1x/ffmpeg.cpp"
+      - "sources/eden/src/video_core/host1x/ffmpeg.h"
+      - "tests/ns1-nvdec-eagain-source.py"
+      - "tests/ns1_nvdec_eagain_lossless_host.py"
+      - ".github/workflows/ns1-nvdec-eagain-host.yml"
+  push:
+    branches:
+      - fix/nov13-ns1-nvdec-eagain-lossless
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  decoder-packet-ownership:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout selected decoder and surrounding source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check selected FFmpeg and GPU API source order
+        run: python3 -B tests/ns1-nvdec-eagain-source.py
+      - name: Execute bounded EAGAIN packet and FIFO cases under sanitizers
+        run: python3 -B tests/ns1_nvdec_eagain_lossless_host.py
+      - name: Qualification limits
+        if: always()
+        run: |
+          echo "Host-only algorithm model and selected-owner source assertions. Actual FFmpeg H264/VP8/VP9 decoding, PS5 native compile, EA intro video and game-output sync still untested." >> "$GITHUB_STEP_SUMMARY"
