@@ -76,10 +76,16 @@ print("C04_VECTOR_LANE_TYPE_SOURCE_PASS r23_lane_delta_reconciled=1")
 # Upstream #136 uses a sign-*bit-index* parameter, but the selected native
 # G11 config already supplies countl_zero(pointer_mask), i.e. a shift count.
 # Shifting by (63 - 8) instead of 8 could corrupt an A32 guest address.
-# Preserve the maintained code and independently verify the unchanged blob.
+# Preserve the current maintained code byte-exact. The old C04 receipt
+# predated the later reviewed G06/G07 checked-A32-fastmem owner now selected
+# by the engine and independently qualified by check-maintained-memory-g06-g07.py.
+# This C04 gate must pin that exact post-G06/G07 blob rather than reject every
+# unrelated eden-core PR because its historical receipt went stale.
 raw = MEMORY_PATH.read_text()
-assert blob(raw) == "c34906cc34a7b9576025520f1eb7f6416543ef33"
+assert blob(raw) == "505ea4017b6249d855ed63ae8033ea1868010a64"
+assert "#if defined(EDEN_A32_CHECKED_FASTMEM)" in raw
+assert "code.test(code.byte[r13 + index - checked_map_bytes], blocked_bit);" in raw
 assert "code.shl(page, *ctx.conf.page_table_sign_extension);" in raw
 assert "63 - int(*ctx.conf.page_table_sign_extension)" not in raw
-print("C04_A32_BIT_INDEX_PORT_EXCLUDED shift_semantics_unproven=1")
+print("C04_A32_BIT_INDEX_PORT_EXCLUDED shift_semantics_unproven=1 checked_fastmem_receipt=exact")
 print("C04_SOURCE_GATES_PASS corrections=3 no_unqualified_jit_port=1")
