@@ -64,7 +64,7 @@ for path,expected in files.items():
   header=d.decode()
   assert "GetMaxSubgroupSize() const" in header and "IsExtDepthClipEnableSupported()" in header,(path,"missing subgroup or EDS3 API")
  else:
-  assert actual in expected if isinstance(expected,set) else actual==expected,(path,actual,expected)
+  assert (actual in expected) if isinstance(expected, set) else (actual == expected), (path, actual, expected)
 shader=root/"encore-active/eden-shader/src/shader_recompiler"
 vk=root/"encore-active/eden-vulkan"
 assert "GeometryCompactionPass(program, normalized_host_info);" in (shader/"frontend/maxwell/translate_program.cpp").read_text()
