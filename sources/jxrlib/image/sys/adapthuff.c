@@ -1,14 +1,14 @@
 //*@@@+++@@@@******************************************************************
 //
-// Copyright © Microsoft Corp.
+// Copyright Â© Microsoft Corp.
 // All rights reserved.
 // 
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are met:
 // 
-// • Redistributions of source code must retain the above copyright notice,
+// â€¢ Redistributions of source code must retain the above copyright notice,
 //   this list of conditions and the following disclaimer.
-// • Redistributions in binary form must reproduce the above copyright notice,
+// â€¢ Redistributions in binary form must reproduce the above copyright notice,
 //   this list of conditions and the following disclaimer in the documentation
 //   and/or other materials provided with the distribution.
 // 
@@ -459,7 +459,7 @@ Void AdaptDiscriminant (CAdaptiveHuffman *pAdHuff)
     assert (t < gMaxTables[iSym]);
 
     //pAdHuff->m_iDiscriminant >>= 1;
-    pAdHuff->m_iLowerBound = (t == 0) ? (-1 << 31) : -THRESHOLD;
+    pAdHuff->m_iLowerBound = (t == 0) ? (Int)(1u << 31) : -THRESHOLD;
     pAdHuff->m_iUpperBound = (t == gMaxTables[iSym] - 1) ? (1 << 30) : THRESHOLD;
 
     switch (iSym) {
