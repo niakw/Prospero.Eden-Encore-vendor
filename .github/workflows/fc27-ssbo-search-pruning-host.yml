@@ -1,0 +1,23 @@
+name: FC27 SSBO failed-search pruning (host)
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-shader/include/shader_recompiler/frontend/ir/breadth_first_search.h'
+      - 'encore-active/eden-shader/src/shader_recompiler/ir_opt/global_memory_to_storage_buffer_pass.cpp'
+      - 'tests/ps5_ir_bfs_adaptive_host.py'
+      - 'tests/fc27_ssbo_search_pruning_host.py'
+      - '.github/workflows/fc27-ssbo-search-pruning-host.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-and-model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          python3 -B tests/fc27_ssbo_search_pruning_host.py
+          python3 -B tests/ps5_ir_bfs_adaptive_host.py
