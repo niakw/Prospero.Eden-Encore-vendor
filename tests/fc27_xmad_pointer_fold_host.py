@@ -21,7 +21,7 @@ def blob(path: Path)->str:
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
 
 assert blob(CONST)=="ce074980d021e14c80b76b4acb1372791c106b5f"
-assert blob(CACHE)=="36aae4b17ef8e9681f62fabdd4cf37f09d0beefb"
+assert blob(CACHE)=="be5d48abd44996502b0829a6e0501d130a151455"
 assert blob(PINNED)=="57c08588fbd1a160acbcdd516c2d38d15f95818b"
 
 src=CONST.read_text()
@@ -90,4 +90,4 @@ with tempfile.TemporaryDirectory(prefix="fc27-xmad-fold-") as tmp:
         str(p/"test.cpp"),"-o",str(p/"test")
     ],check=True,timeout=60)
     subprocess.run([str(p/"test")],check=True,timeout=20)
-print("FC27_XMAD_POINTER_FOLD_PASS cases=200009 pinned_immutable=1 cache_version=20 ps5_visual=unverified")
+print("FC27_XMAD_POINTER_FOLD_PASS cases=200009 pinned_immutable=1 cache_version=21 ps5_visual=unverified")
