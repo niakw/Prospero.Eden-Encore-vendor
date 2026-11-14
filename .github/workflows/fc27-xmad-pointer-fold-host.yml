@@ -1,0 +1,20 @@
+name: FC27 Maxwell XMAD pointer fold (host)
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-shader/src/shader_recompiler/ir_opt/constant_propagation_pass.cpp'
+      - 'encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp'
+      - 'tests/fc27_xmad_pointer_fold_host.py'
+      - '.github/workflows/fc27-xmad-pointer-fold-host.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  semantic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/fc27_xmad_pointer_fold_host.py
