@@ -10,8 +10,10 @@ def gitsha(path):
  return hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
 header_sha=gitsha(header)
 assert header_sha in {"afe153f18075d00b8e822a1d992dcd8f5cad9a8c",
-                      "194476705f21bd1c27f532fdd5cc04d99a3cd620"}
-if header_sha=="194476705f21bd1c27f532fdd5cc04d99a3cd620":
+                      "194476705f21bd1c27f532fdd5cc04d99a3cd620",
+                      "05a5f9c9c99ca92530bb80f079ae045951c43dae"}
+if header_sha in {"194476705f21bd1c27f532fdd5cc04d99a3cd620",
+                  "05a5f9c9c99ca92530bb80f079ae045951c43dae"}:
     # The new header must preserve the exact predecessor's traversal and
     # conditional resolver behavior, not merely pass a new SHA inventory.
     subprocess.run(["python3","-B",str(root/"tests/ps5_ir_bfs_adaptive_host.py")],
