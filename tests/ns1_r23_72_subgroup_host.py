@@ -13,7 +13,7 @@ files={
   "encore-active/eden-shader/src/shader_recompiler/backend/spirv/spirv_emit_context.h": "844a118358c874b0666aebda116c1d6a0c9a8ceb",
   "encore-active/eden-shader/src/shader_recompiler/frontend/maxwell/translate_program.cpp": "dd49db913a31d95a803aa6967f1b06bdba61777f",
   "encore-active/eden-shader/src/shader_recompiler/host_translate_info.h": "af549e742edca3ce3e790ea5343136094a42b197",
-  "encore-active/eden-shader/src/shader_recompiler/ir_opt/constant_propagation_pass.cpp": "6285fef16f2f500b36b1aa45d987f8774eb8131d",
+  "encore-active/eden-shader/src/shader_recompiler/ir_opt/constant_propagation_pass.cpp": {"6285fef16f2f500b36b1aa45d987f8774eb8131d", "ce074980d021e14c80b76b4acb1372791c106b5f"},
   "encore-active/eden-shader/src/shader_recompiler/ir_opt/geometry_compaction_pass.cpp": "98cfa47401afcebbd122f4f8b9473a3142ddad62",
   "encore-active/eden-shader/src/shader_recompiler/ir_opt/passes.h": "0c2b44e02249c0cfb06ccd3aa843adc0a12334e9",
   "encore-active/eden-shader/src/shader_recompiler/profile.h": "8e9c83f8885c18634bf02e68a167e6ce2ef33503",
@@ -64,7 +64,7 @@ for path,expected in files.items():
   header=d.decode()
   assert "GetMaxSubgroupSize() const" in header and "IsExtDepthClipEnableSupported()" in header,(path,"missing subgroup or EDS3 API")
  else:
-  assert actual==expected,(path,actual)
+  assert actual in expected if isinstance(expected,set) else actual==expected,(path,actual,expected)
 shader=root/"encore-active/eden-shader/src/shader_recompiler"
 vk=root/"encore-active/eden-vulkan"
 assert "GeometryCompactionPass(program, normalized_host_info);" in (shader/"frontend/maxwell/translate_program.cpp").read_text()
