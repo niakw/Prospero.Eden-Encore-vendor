@@ -1,0 +1,37 @@
+name: NS2 AM save UID CMIF alignment (host/source only)
+# No PS5 binary, external runner compiler or shader build: the selected
+# NS2 AM handler must preserve the 8-byte-aligned account UID on CMIF.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ns2-am-save-uid-host.yml'
+      - 'tests/ns2-am-save-uid-source.py'
+      - 'encore-active/ns2-runtime/am/**'
+      - 'encore-active/eden-core/include/common/uuid.h'
+      - 'sources/eden/src/common/common_types.h'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ns2-am-save-uid-host.yml'
+      - 'tests/ns2-am-save-uid-source.py'
+      - 'encore-active/ns2-runtime/am/**'
+      - 'encore-active/eden-core/include/common/uuid.h'
+      - 'sources/eden/src/common/common_types.h'
+permissions:
+  contents: read
+jobs:
+  selected-am-cmif:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: |
+            tests/ns2-am-save-uid-source.py
+            encore-active/ns2-runtime/am/core/hle/service/am/service
+            encore-active/eden-core/include/common/uuid.h
+            sources/eden/src/common/common_types.h
+      - name: Verify selected AM UID layout and save controller arguments
+        run: python3 -B tests/ns2-am-save-uid-source.py

@@ -31,7 +31,11 @@ assert "R_UNLESS(ctx != nullptr, ResultUnknown);" in new
 selected=root/"encore-active/ns2-runtime/am/core/hle/service/am/service/application_functions.cpp"
 selected_bytes=selected.read_bytes()
 selected_blob=hashlib.sha1(b"blob "+str(len(selected_bytes)).encode()+bytes([0])+selected_bytes).hexdigest()
-assert selected_blob=="3b7807a27ce8d4f4d2066413566d6cfc8d958baa",selected_blob
+# The selected AM unit also carries the independently reviewed NS2 CMIF
+# save-account UID alignment fix (Eglantine #80). Preserve this exact
+# post-change blob; the NS1 SHA1 pseudo-device implementation is unchanged.
+assert selected_blob=="1fa9b3437d72c4ad36d61ca4c190ece64149c75c",selected_blob
+assert "FileSys::SaveDataType type, u128 user_id)" in selected.read_text()
 assert 'std::span<u8, 16>{hash, 16}' in selected.read_text()
 assert 'std::span<u8, 20>{hash, std::size(hash)}' not in selected.read_text()
 
