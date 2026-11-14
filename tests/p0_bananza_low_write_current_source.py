@@ -25,7 +25,8 @@ for rel,expected in FILES.items():
     assert src.count("EDEN_GUEST_LOW_WRITE seq={}") == 1
     # Five ordinary stores + five exclusive stores. Reads are untouched.
     assert src.count("if (vaddr < 0x1000) ReportLowGuestWrite(")==10
-    read_region=src.split("std::optional<u32> DynarmicCallbacks64::MemoryReadCode",1)[0]
+    read_region=src.split("u8 DynarmicCallbacks64::MemoryRead8",1)[1].split(
+        "void DynarmicCallbacks64::MemoryWrite8",1)[0]
     assert "ReportLowGuestWrite(" not in read_region
     assert "address >= 0x1000" in src
     # The diagnostic records before CheckMemoryAccess, so an invalid low write
