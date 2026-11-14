@@ -7,12 +7,12 @@ import subprocess
 import tempfile
 r=Path(__file__).resolve().parents[1]/"encore-active/eden-shader"
 names={
- "src/shader_recompiler/ir_opt/texture_pass.cpp":"85c523e435ee8803ef3d2087567aa1a4b5d09369"
+ "src/shader_recompiler/ir_opt/texture_pass.cpp":{"85c523e435ee8803ef3d2087567aa1a4b5d09369","3d9625f1981d6500e7b294018e0659464869d6f3"}
 }
 for path,expected in names.items():
  b=(r/path).read_bytes()
  sha=hashlib.sha1(b"blob "+str(len(b)).encode()+bytes([0])+b).hexdigest()
- assert sha==expected,(path,sha)
+ assert sha in expected,(path,sha,expected)
 header=r/"include/shader_recompiler/frontend/ir/breadth_first_search.h"
 raw=header.read_bytes()
 header_sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()

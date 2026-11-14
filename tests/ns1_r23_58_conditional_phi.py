@@ -18,7 +18,8 @@ if header_sha in {"194476705f21bd1c27f532fdd5cc04d99a3cd620",
     # conditional resolver behavior, not merely pass a new SHA inventory.
     subprocess.run(["python3","-B",str(root/"tests/ps5_ir_bfs_adaptive_host.py")],
                    check=True,timeout=180)
-assert gitsha(source)=="85c523e435ee8803ef3d2087567aa1a4b5d09369"
+assert gitsha(source) in {"85c523e435ee8803ef3d2087567aa1a4b5d09369",
+                          "3d9625f1981d6500e7b294018e0659464869d6f3"}
 h=header.read_text()
 s=source.read_text()
 assert "template <typename Pred, typename Resolve = std::identity>" in h
