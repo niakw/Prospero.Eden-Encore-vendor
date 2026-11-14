@@ -1,0 +1,20 @@
+name: P0 Bananza first low guest write (host source)
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-core/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_normal.cpp'
+      - 'encore-active/eden-core/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_dev.cpp'
+      - 'tests/p0_bananza_low_write_source.py'
+      - '.github/workflows/p0-bananza-low-write.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/p0_bananza_low_write_source.py
