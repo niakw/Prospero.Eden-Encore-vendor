@@ -13,8 +13,8 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-source=(ROOT/"sources/eden/src/video_core/host1x/ffmpeg.cpp").read_text()
-header=(ROOT/"sources/eden/src/video_core/host1x/ffmpeg.h").read_text()
+source=(ROOT/"encore-active/eden-core/src/video_core/host1x/ffmpeg.cpp").read_text()
+header=(ROOT/"encore-active/eden-core/overrides/video_core/host1x/ffmpeg.h").read_text()
 for clause in ("kMaxDrainRetries = 16","m_ready_frames.size() >= 32",
                "ret == 0","ret != AVERROR(EAGAIN)", "m_pending_offsets.push(offsets)",
                "++m_next_pts", "m_ready_frames.push(std::move(drained))"):
