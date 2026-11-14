@@ -1,15 +1,15 @@
 
 //*@@@+++@@@@******************************************************************
 //
-// Copyright © Microsoft Corp.
+// Copyright Â© Microsoft Corp.
 // All rights reserved.
 // 
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are met:
 // 
-// • Redistributions of source code must retain the above copyright notice,
+// â€¢ Redistributions of source code must retain the above copyright notice,
 //   this list of conditions and the following disclaimer.
-// • Redistributions in binary form must reproduce the above copyright notice,
+// â€¢ Redistributions in binary form must reproduce the above copyright notice,
 //   this list of conditions and the following disclaimer in the documentation
 //   and/or other materials provided with the distribution.
 // 
@@ -372,8 +372,9 @@ ERR WriteContainerPre(
     //================
     // PFD
     assert (offPos <= OFFSET_OF_PFD); // otherwise stuff is overwritten
-    if (offPos < OFFSET_OF_PFD)
+    if (offPos < OFFSET_OF_PFD) {
         Call(pWS->Write(pWS, Zero, OFFSET_OF_PFD - offPos));
+    }
     offPos = (size_t)OFFSET_OF_PFD;
 
     if (!pIE->WMP.bHasAlpha || pIE->WMP.wmiSCP.uAlphaMode != 2) //no planar alpha
@@ -1569,7 +1570,7 @@ ERR ParsePFDEntry(
 
         case WMP_tagTransformation:
             FailIf(1 != uCount, WMP_errUnsupportedFormat);
-            assert(uValue < O_MAX);
+            FailIf(uValue >= O_MAX, WMP_errUnsupportedFormat);
             pID->WMP.fOrientationFromContainer = TRUE;
             pID->WMP.oOrientationFromContainer = uValue;
             break;
@@ -1804,7 +1805,7 @@ ERR ReadContainer(
     //================================
     // Header
     Call(pWS->Read(pWS, szSig, sizeof(szSig))); offPos += 2;
-    FailIf(szSig != strstr(szSig, "II"), WMP_errUnsupportedFormat);
+    FailIf((szSig[0] != 'I' || szSig[1] != 'I'), WMP_errUnsupportedFormat);
 
     Call(GetUShort(pWS, offPos, &uWmpID)); offPos += 2;
     FailIf(WMP_valWMPhotoID != (0x00FF & uWmpID), WMP_errUnsupportedFormat);

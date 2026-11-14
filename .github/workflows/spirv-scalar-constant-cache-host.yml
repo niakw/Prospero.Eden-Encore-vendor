@@ -1,0 +1,19 @@
+name: SPIR-V scalar constant cache semantics (host)
+on:
+  pull_request:
+    paths:
+      - "encore-active/eden-shader/src/shader_recompiler/backend/spirv/spirv_emit_context.h"
+      - "tests/ps5_spirv_scalar_constant_cache_host.py"
+      - ".github/workflows/spirv-scalar-constant-cache-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scalar-constant-cache:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ps5_spirv_scalar_constant_cache_host.py

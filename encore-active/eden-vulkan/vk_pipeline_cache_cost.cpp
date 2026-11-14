@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdio>
 // ENCORE_PS5_CACHE_DIAG_BEGIN
@@ -72,6 +73,7 @@
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 #ifdef PS5_NATIVE
 #include <limits>
+#include <new>
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "video_core/native_shader_capture.h"
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
@@ -190,6 +192,34 @@ constexpr u32 CACHE_VERSION = 19;
 constexpr size_t VULKAN_CACHE_FLUSH_PIPELINES = 128;
 constexpr size_t VULKAN_CACHE_FLUSH_MIN_SECONDS = 30;
 constexpr std::array<char, 8> VULKAN_CACHE_MAGIC_NUMBER{'y', 'u', 'z', 'u', 'v', 'k', 'c', 'h'};
+
+#ifdef PS5_NATIVE
+// ENCORE_DRIVER_CACHE_HEADER_BEGIN
+// A driver blob is optional acceleration, distinct from the guest shader
+// environment records. Limit temporary cache staging memory, not the
+// driver's in-memory cache or the environment log.
+constexpr size_t kNativeDriverCacheStagingLimit = 512ULL * 1024 * 1024;
+constexpr size_t kNativeDriverCacheHeaderSize = 32;
+
+bool NativeDriverCacheHeaderMatches(
+    const std::array<unsigned char, kNativeDriverCacheHeaderSize>& header,
+    const VkPhysicalDeviceProperties& properties) {
+    // Vulkan header v1 is little-endian regardless of native struct packing.
+    const auto u32_le = [&header](size_t offset) -> u32 {
+        return static_cast<u32>(header[offset]) |
+               (static_cast<u32>(header[offset + 1]) << 8) |
+               (static_cast<u32>(header[offset + 2]) << 16) |
+               (static_cast<u32>(header[offset + 3]) << 24);
+    };
+    return u32_le(0) == kNativeDriverCacheHeaderSize &&
+           u32_le(4) == VK_PIPELINE_CACHE_HEADER_VERSION_ONE &&
+           u32_le(8) == properties.vendorID &&
+           u32_le(12) == properties.deviceID &&
+           std::equal(header.begin() + 16, header.end(), properties.pipelineCacheUUID);
+}
+// ENCORE_DRIVER_CACHE_HEADER_END
+#endif
+
 
 template <typename Container>
 auto MakeSpan(Container& container) {
@@ -2278,6 +2308,13 @@ void PipelineCache::SerializeVulkanPipelineCache(const std::filesystem::path& fi
         std::vector<char> cache_data;
         if (pipeline_cache) {
             pipeline_cache.Read(&cache_size, nullptr);
+            if (cache_size > kNativeDriverCacheStagingLimit) {
+                LOG_WARNING(Render_Vulkan, "Driver cache exceeds native staging budget; retaining old cache");
+                file.close();
+                std::error_code cleanup_error;
+                std::filesystem::remove(staging, cleanup_error);
+                return;
+            }
             cache_data.resize(cache_size);
             pipeline_cache.Read(&cache_size, cache_data.data());
         }
@@ -2385,7 +2422,29 @@ vk::PipelineCache PipelineCache::LoadVulkanPipelineCache(const std::filesystem::
 
         static constexpr size_t header_size = magic_number.size() + sizeof(cache_version);
         const size_t cache_size = static_cast<size_t>(end) - header_size;
+#ifdef PS5_NATIVE
+        if (cache_size < kNativeDriverCacheHeaderSize ||
+            cache_size > kNativeDriverCacheStagingLimit) {
+            LOG_WARNING(Render_Vulkan, "Driver cache payload outside native staging bounds: {}", cache_size);
+            return create_pipeline_cache(0, nullptr);
+        }
+        std::array<unsigned char, kNativeDriverCacheHeaderSize> driver_header{};
+        file.read(reinterpret_cast<char*>(driver_header.data()), driver_header.size());
+        if (!NativeDriverCacheHeaderMatches(driver_header, device.GetPhysical().GetProperties())) {
+            LOG_WARNING(Render_Vulkan, "Driver cache header incompatible; using fresh driver cache");
+            return create_pipeline_cache(0, nullptr);
+        }
+        file.seekg(static_cast<std::streamoff>(header_size), std::ios::beg);
+        std::vector<char> cache_data;
+        try {
+            cache_data.resize(cache_size);
+        } catch (const std::bad_alloc&) {
+            LOG_WARNING(Render_Vulkan, "Driver cache allocation failed; using fresh driver cache");
+            return create_pipeline_cache(0, nullptr);
+        }
+#else
         std::vector<char> cache_data(cache_size);
+#endif
         file.read(cache_data.data(), cache_size);
 
         LOG_INFO(Render_Vulkan,

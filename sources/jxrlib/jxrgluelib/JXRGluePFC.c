@@ -1,14 +1,14 @@
 //*@@@+++@@@@******************************************************************
 //
-// Copyright © Microsoft Corp.
+// Copyright Â© Microsoft Corp.
 // All rights reserved.
 // 
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are met:
 // 
-// • Redistributions of source code must retain the above copyright notice,
+// â€¢ Redistributions of source code must retain the above copyright notice,
 //   this list of conditions and the following disclaimer.
-// • Redistributions in binary form must reproduce the above copyright notice,
+// â€¢ Redistributions in binary form must reproduce the above copyright notice,
 //   this list of conditions and the following disclaimer in the documentation
 //   and/or other materials provided with the distribution.
 // 
@@ -56,9 +56,9 @@ static U32 Convert_Half_To_Float(U16 u16)
     {
         return s << 31;
     }
-    else if (~(~0 << 5) == e) // inf, snan, qnan
+    else if (~(~0U << 5) == e) // inf, snan, qnan
     {
-        return (s << 31) | ~(~0 << 8) << 23| (m << 13);
+        return (s << 31) | ~(~0U << 8) << 23| (m << 13);
     }
 
     return (s << 31) | ((e - 15 + 127) << 23) | (m << 13); // norm

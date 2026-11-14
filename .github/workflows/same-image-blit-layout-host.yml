@@ -1,0 +1,21 @@
+name: Vulkan same-image blit layout (host)
+on:
+  pull_request:
+    paths:
+      - "encore-active/eden-vulkan/vk_texture_cache_cost.cpp"
+      - "tests/ps5_same_image_blit_layout_host.py"
+      - "tests/ns1_r23_18_tir_host.py"
+      - ".github/workflows/same-image-blit-layout-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  same-image-blit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ps5_same_image_blit_layout_host.py
+      - run: python3 -B tests/ns1_r23_18_tir_host.py

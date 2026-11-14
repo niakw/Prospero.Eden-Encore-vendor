@@ -1,14 +1,14 @@
 //*@@@+++@@@@******************************************************************
 //
-// Copyright © Microsoft Corp.
+// Copyright Â© Microsoft Corp.
 // All rights reserved.
 // 
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are met:
 // 
-// • Redistributions of source code must retain the above copyright notice,
+// â€¢ Redistributions of source code must retain the above copyright notice,
 //   this list of conditions and the following disclaimer.
-// • Redistributions in binary form must reproduce the above copyright notice,
+// â€¢ Redistributions in binary form must reproduce the above copyright notice,
 //   this list of conditions and the following disclaimer in the documentation
 //   and/or other materials provided with the distribution.
 // 
@@ -288,7 +288,13 @@ ERR CreateWS_File(struct WMPStream** ppWS, const char* szFilename, const char* s
     FailIf(NULL == pWS->state.file.pFile, WMP_errFileIO);
 #endif
 
-Cleanup:    
+Cleanup:
+    // Failure to open a file must not return a live allocated stream.
+    if (err != WMP_errSuccess && pWS) {
+        if (pWS->state.file.pFile)
+            fclose(pWS->state.file.pFile);
+        WMPFree((void **)ppWS);
+    }
     return err;
 }
 
@@ -694,7 +700,9 @@ U32 load4BE(void* pv)
     v |= ((U32)((U16 *) pv)[1]) << 16;
     return _byteswap_ulong(v);
 #else // _M_IA64
-    return _byteswap_ulong(*(U32*)pv);
+    U32 v;
+    memcpy(&v, pv, sizeof(U32));
+    return _byteswap_ulong(v);
 #endif // _M_IA64
 #endif // _BIG__ENDIAN_
 }
@@ -818,19 +826,21 @@ Void freeTileInfo(CWMImageStrCodec * pSC)
     else
         freeQuantizer(pSC->pTile[0].pQuantizerDC);
 
-    if(pSC->WMISCP.sbSubband != SB_DC_ONLY)
+    if(pSC->WMISCP.sbSubband != SB_DC_ONLY) {
         if((pSC->m_param.uQPMode & 2) != 0) // not LP uniform
             for(iTile = 0; iTile <= pSC->WMISCP.cNumOfSliceMinus1V; iTile ++)
                 freeQuantizer(pSC->pTile[iTile].pQuantizerLP);
         else
             freeQuantizer(pSC->pTile[0].pQuantizerLP);
+    }
 
-    if(pSC->WMISCP.sbSubband != SB_DC_ONLY && pSC->WMISCP.sbSubband != SB_NO_HIGHPASS)
+    if(pSC->WMISCP.sbSubband != SB_DC_ONLY && pSC->WMISCP.sbSubband != SB_NO_HIGHPASS) {
         if((pSC->m_param.uQPMode & 4) != 0) // not HP uniform
             for(iTile = 0; iTile <= pSC->WMISCP.cNumOfSliceMinus1V; iTile ++)
                 freeQuantizer(pSC->pTile[iTile].pQuantizerHP);
         else
             freeQuantizer(pSC->pTile[0].pQuantizerHP);
+    }
 
     if(pSC->pTile != NULL)
         free(pSC->pTile);
@@ -864,11 +874,12 @@ Void formatQuantizer(CWMIQuantizer * pQuantizer[MAX_CHANNELS], U8 cChMode, size_
     size_t iCh;
     
     for(iCh = 0; iCh < cCh; iCh ++){
-        if(iCh > 0)
+        if(iCh > 0) {
             if(cChMode == 0) // uniform
                 pQuantizer[iCh][iPos] = pQuantizer[0][iPos];
             else if(cChMode == 1) // mixed
                 pQuantizer[iCh][iPos] = pQuantizer[1][iPos];
+        }
         remapQP(pQuantizer[iCh] + iPos, (iCh > 0 && bShiftedUV == TRUE) ? SHIFTZERO - 1 : SHIFTZERO, bScaledArith);
     }
 }
@@ -981,6 +992,9 @@ Void putBit16z(BitIOInfo* pIO, U32 uiBits, U32 cBits)
 {
     assert(cBits <= 16);
     assert(0 == uiBits >> cBits);
+    // Zero bits never change the bitstream or advance its write position.
+    // Avoid the 32-bit shift when both this count and cBitsUsed are zero.
+    if (cBits == 0) return;
 
     pIO->uiAccumulator = (pIO->uiAccumulator << cBits) | uiBits;
     pIO->cBitsUsed += cBits;
@@ -995,7 +1009,7 @@ Void putBit16(BitIOInfo* pIO, U32 uiBits, U32 cBits)
 {
     assert(cBits <= 16);
 
-    uiBits &= ~(-1 << cBits);
+    uiBits &= ~((U32)~0u << cBits);
     putBit16z(pIO, uiBits, cBits);
 }
 

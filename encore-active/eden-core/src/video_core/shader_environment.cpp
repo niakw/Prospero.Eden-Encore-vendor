@@ -46,6 +46,50 @@ static u64 MakeCbufKey(u32 index, u32 offset) {
     return (static_cast<u64>(index) << 32) | offset;
 }
 
+// Lichii #1443: distinguish an empty TIC from a genuine 1D descriptor.
+// Reserve an impossible guest CBUF index in the existing environment record;
+// the record layout is unchanged and older readers ignore the extra key.
+constexpr u64 NULL_TEXTURE_2D_KEY = 0xffffffff00000001ULL;
+constexpr u32 NULL_TEXTURE_2D_VALUE = 1;
+
+static void NormalizeEmptyTexture(Tegra::Texture::TICEntry& entry) {
+    if (entry.raw != decltype(entry.raw){}) {
+        return;
+    }
+    entry.format.Assign(Tegra::Texture::TextureFormat::A8B8G8R8);
+    entry.r_type.Assign(Tegra::Texture::ComponentType::UNORM);
+    entry.g_type.Assign(Tegra::Texture::ComponentType::UNORM);
+    entry.b_type.Assign(Tegra::Texture::ComponentType::UNORM);
+    entry.a_type.Assign(Tegra::Texture::ComponentType::UNORM);
+    entry.texture_type.Assign(Tegra::Texture::TextureType::Texture2D);
+    entry.normalized_coords.Assign(1);
+}
+
+static void WriteNullTextureMarker(std::ostream& file) {
+    file.write(reinterpret_cast<const char*>(&NULL_TEXTURE_2D_KEY), sizeof(NULL_TEXTURE_2D_KEY))
+        .write(reinterpret_cast<const char*>(&NULL_TEXTURE_2D_VALUE), sizeof(NULL_TEXTURE_2D_VALUE));
+}
+
+static void RestoreNullTextureMarker(auto& cbufs, auto& types, auto& formats) {
+    const auto marker = cbufs.find(NULL_TEXTURE_2D_KEY);
+    const bool current = marker != cbufs.end() && marker->second == NULL_TEXTURE_2D_VALUE;
+    if (marker != cbufs.end()) {
+        cbufs.erase(marker);
+    }
+    if (!current) {
+        // Older records cannot distinguish genuine 1D textures from empty TICs.
+        // Omit ambiguous values so the existing missing-value path can rebuild.
+        for (auto it = types.begin(); it != types.end();) {
+            if (it->second == Shader::TextureType::Color1D) {
+                formats.erase(it->first);
+                it = types.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
 static Shader::TextureType ConvertTextureType(const Tegra::Texture::TICEntry& entry) {
     switch (entry.texture_type) {
     case Tegra::Texture::TextureType::Texture1D:
@@ -208,7 +252,7 @@ void GenericEnvironment::Serialize(std::ofstream& file) const {
     const u64 code_size{static_cast<u64>(CachedSizeBytes())};
     const u64 num_texture_types{static_cast<u64>(texture_types.size())};
     const u64 num_texture_pixel_formats{static_cast<u64>(texture_pixel_formats.size())};
-    const u64 num_cbuf_values{static_cast<u64>(cbuf_values.size())};
+    const u64 num_cbuf_values{static_cast<u64>(cbuf_values.size()) + 1};
     const u64 num_cbuf_replacement_values{static_cast<u64>(cbuf_replacements.size())};
 
     file.write(reinterpret_cast<const char*>(&code_size), sizeof(code_size))
@@ -239,6 +283,7 @@ void GenericEnvironment::Serialize(std::ofstream& file) const {
         file.write(reinterpret_cast<const char*>(&key), sizeof(key))
             .write(reinterpret_cast<const char*>(&type), sizeof(type));
     }
+    WriteNullTextureMarker(file);
     for (const auto& [key, type] : cbuf_replacements) {
         file.write(reinterpret_cast<const char*>(&key), sizeof(key))
             .write(reinterpret_cast<const char*>(&type), sizeof(type));
@@ -295,6 +340,7 @@ Tegra::Texture::TICEntry GenericEnvironment::ReadTextureInfo(GPUVAddr tic_addr, 
     const GPUVAddr descriptor_addr{tic_addr + handle.first * sizeof(Tegra::Texture::TICEntry)};
     Tegra::Texture::TICEntry entry;
     gpu_memory->ReadBlock(descriptor_addr, &entry, sizeof(entry));
+    NormalizeEmptyTexture(entry);
     return entry;
 }
 
@@ -548,6 +594,7 @@ void FileEnvironment::Deserialize(std::ifstream& file) {
             .read(reinterpret_cast<char*>(&value), sizeof(value));
         cbuf_values.emplace(key, value);
     }
+    RestoreNullTextureMarker(cbuf_values, texture_types, texture_pixel_formats);
     for (size_t i = 0; i < num_cbuf_replacement_values; ++i) {
         u64 key;
         Shader::ReplaceConstant value;

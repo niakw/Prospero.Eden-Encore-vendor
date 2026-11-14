@@ -1,0 +1,21 @@
+name: VFS and PFS0 HFS0 malformed input bounds (host)
+on:
+  pull_request:
+    paths:
+      - "encore-active/eden-core/src/core/file_sys/vfs/**"
+      - "encore-active/eden-core/src/core/file_sys/partition_filesystem.cpp"
+      - "encore-active/eden-core/src/core/file_sys/card_image.cpp"
+      - "tests/ps5_vfs_partition_bounds_host.py"
+      - ".github/workflows/vfs-partition-bounds-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bounds:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ps5_vfs_partition_bounds_host.py

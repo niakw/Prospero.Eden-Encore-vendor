@@ -1,0 +1,28 @@
+name: JPEG XR security backports and real image host test
+on:
+  pull_request:
+    paths:
+      - "sources/jxrlib/**"
+      - "encore-active/ps5-jxr/**"
+      - "tests/ps5_jxr_security_host.py"
+      - ".github/workflows/jxr-security-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  codec-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact maintained codec
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install host compiler and codec headers
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends clang libwebp-dev
+      - name: Test upstream backports with full host codec and sanitizers
+        run: |
+          python3 -B tests/ps5_jxr_selected_codec_source.py
+          python3 -B tests/ps5_jxr_security_host.py

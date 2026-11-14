@@ -19,6 +19,16 @@ for name,expected in files.items():
  if name.endswith("fixed_pipeline_state.cpp"):
   text=raw.decode()
   assert "MaxwellDepthClampClip" in text and "regs.tir_mode == Maxwell::TIRMode::RasterNTargetM" in text,(name,"lost EDS3/TIR")
+ elif name.endswith("vk_texture_cache_cost.cpp") and "Lichii #1466: same-image mip blits" in raw.decode():
+  text=raw.decode()
+  lo=text.index("void TextureCacheRuntime::BlitImage(")
+  hi=text.index("\nvoid TextureCacheRuntime::ConvertImage(",lo)
+  part=text[lo:hi]
+  for new,old in [["    // Lichii #1466: same-image mip blits must keep the shared image in GENERAL.\n    const VkImageLayout dst_layout =\n        src_image == dst_image ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;\n    scheduler.RequestOutsideRenderPassOperationContext();","    scheduler.RequestOutsideRenderPassOperationContext();"],["                      aspect_mask, is_resolve, dst_layout](vk::CommandBuffer cmdbuf) {","                      aspect_mask, is_resolve](vk::CommandBuffer cmdbuf) {"],[".newLayout = dst_layout,",".newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,"],[".oldLayout = dst_layout,",".oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,"],["                                dst_layout,\n                                MakeImageResolve","                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,\n                                MakeImageResolve"],["src_image, VK_IMAGE_LAYOUT_GENERAL, dst_image, dst_layout,","src_image, VK_IMAGE_LAYOUT_GENERAL, dst_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,"]]:
+   assert part.count(new)==1
+   part=part.replace(new,old,1)
+  prior=(text[:lo]+part+text[hi:]).encode()
+  assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==expected
  else:
   assert sha==expected,(name,sha)
  print("R23_18_FULL_SOURCE_OWNER_PASS",name)

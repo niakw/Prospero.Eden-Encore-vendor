@@ -1,0 +1,19 @@
+name: IR adaptive BFS order parity (host)
+on:
+  pull_request:
+    paths:
+      - "encore-active/eden-shader/include/shader_recompiler/frontend/ir/breadth_first_search.h"
+      - "tests/ps5_ir_bfs_adaptive_host.py"
+      - ".github/workflows/ir-bfs-adaptive-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ps5_ir_bfs_adaptive_host.py
