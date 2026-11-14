@@ -34,7 +34,66 @@ selected_blob=hashlib.sha1(b"blob "+str(len(selected_bytes)).encode()+bytes([0])
 # The selected AM unit also carries the independently reviewed NS2 CMIF
 # save-account UID alignment fix (Eglantine #80). Preserve this exact
 # post-change blob; the NS1 SHA1 pseudo-device implementation is unchanged.
-assert selected_blob=="1fa9b3437d72c4ad36d61ca4c190ece64149c75c",selected_blob
+assert selected_blob=="b8787c322258fcccd7c5d53a74097a5619e2211c",selected_blob
+# Reverse only the reviewed diagnostic additions and prove the exact original
+# CMIF/UUID owner is recovered. Keep the preceding historical receipt intact.
+selected_src=selected_bytes.decode()
+inc="#include <cstdio>\n#include <mutex>\n#include <optional>\n\n"
+helper=selected_src.split("// Diagnostic only: no changes",1)[1].split("FileSys::PatchManager::Metadata GetApplicationMetadata",1)[0]
+helper="// Diagnostic only: no changes"+helper
+call=selected_src.split("    const GuestLanguageReply reply{",1)[1].split("    R_SUCCEED();",1)[0]
+call="    const GuestLanguageReply reply{"+call
+assert selected_src.count(inc)==selected_src.count(helper)==selected_src.count(call)==1
+prior=selected_src.replace(inc,"",1).replace(helper,"",1).replace(call,"",1).encode()
+prior_blob=hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()
+assert prior_blob=="1fa9b3437d72c4ad36d61ca4c190ece64149c75c",prior_blob
+# Execute the actual bounded diagnostic decision function, not a copy.
+assert selected_src.index("    R_TRY(app_man->ConvertApplicationLanguageToLanguageCode(out_language_code, desired_language));") < selected_src.index("    const GuestLanguageReply reply{")
+assert "*out_language_code, res.first != nullptr" in call
+assert "reply_code=%016llX reply_text=%s" in call
+assert "static_cast<char>((reply.language_code >> (8u * i)) & 0xffu)" in call
+source_witness=r"""
+#include <cassert>
+#include <cstdint>
+#include <mutex>
+#include <optional>
+#include <thread>
+#include <atomic>
+#include <vector>
+using u32=std::uint32_t;
+using u64=std::uint64_t;
+""" + helper + r"""
+int main() {
+    GuestLanguageReply fr{1,8,2,0x7266,true};
+    assert(ShouldReportGuestLanguage(fr));
+    for(int i=0;i<1000;++i) assert(!ShouldReportGuestLanguage(fr));
+    auto ca=fr; ca.configured_index=13; ca.language_code=0x41432d7266ULL;
+    assert(ShouldReportGuestLanguage(ca)); assert(!ShouldReportGuestLanguage(ca));
+    auto unknown=ca; unknown.has_metadata=false; unknown.supported_languages=0;
+    assert(ShouldReportGuestLanguage(unknown));
+    auto next=unknown; next.program_id=2;
+    std::atomic<unsigned> accepted{0};
+    std::vector<std::thread> threads;
+    for(int i=0;i<8;++i) threads.emplace_back([&]{
+        for(int j=0;j<1000;++j) if(ShouldReportGuestLanguage(next)) ++accepted;
+    });
+    for(auto& thread:threads) thread.join();
+    assert(accepted==1);
+    for(unsigned i=0;i<28;++i) {
+        next.program_id=3+i;
+        assert(ShouldReportGuestLanguage(next));
+    }
+    next.program_id=100;
+    assert(!ShouldReportGuestLanguage(next)); // hard process cap: 32
+}
+"""
+with tempfile.TemporaryDirectory(prefix="guest-language-reply-") as tmp:
+    p=Path(tmp);(p/"t.cpp").write_text(source_witness)
+    for opt in ("-O0","-O2"):
+        subprocess.run([os.getenv("CXX","clang++"),"-std=c++20",opt,"-Wall","-Wextra","-Werror",
+                        "-pthread",str(p/"t.cpp"),"-o",str(p/"test")],check=True,timeout=60)
+        subprocess.run([str(p/"test")],check=True,timeout=20)
+print("EDEN_GUEST_LANGUAGE_REPLY_WITNESS_HOST_PASS exact_ancestor=1 duplicate=1 concurrent=1 cap=32")
 assert "FileSys::SaveDataType type, u128 user_id)" in selected.read_text()
 assert 'std::span<u8, 16>{hash, 16}' in selected.read_text()
 assert 'std::span<u8, 20>{hash, std::size(hash)}' not in selected.read_text()
