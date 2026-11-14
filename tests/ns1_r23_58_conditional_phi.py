@@ -8,7 +8,14 @@ source=root/"encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass
 def gitsha(path):
  raw=path.read_bytes()
  return hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
-assert gitsha(header)=="afe153f18075d00b8e822a1d992dcd8f5cad9a8c"
+header_sha=gitsha(header)
+assert header_sha in {"afe153f18075d00b8e822a1d992dcd8f5cad9a8c",
+                      "194476705f21bd1c27f532fdd5cc04d99a3cd620"}
+if header_sha=="194476705f21bd1c27f532fdd5cc04d99a3cd620":
+    # The new header must preserve the exact predecessor's traversal and
+    # conditional resolver behavior, not merely pass a new SHA inventory.
+    subprocess.run(["python3","-B",str(root/"tests/ps5_ir_bfs_adaptive_host.py")],
+                   check=True,timeout=180)
 assert gitsha(source)=="85c523e435ee8803ef3d2087567aa1a4b5d09369"
 h=header.read_text()
 s=source.read_text()
