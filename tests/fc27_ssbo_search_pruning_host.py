@@ -16,7 +16,7 @@ def blob(path: Path) -> str:
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
 
 assert blob(PINNED)=="4ce1ff6c19c4937855d4460a515aec6a8a1e07e0"
-assert blob(BFS)=="05a5f9c9c99ca92530bb80f079ae045951c43dae"
+assert blob(BFS)=="fa5e7572ef99bba3db17154c63f60dddba7a87c6"
 assert blob(ACTIVE)=="41ad0f5cef1e070e552b43ea49648d5e74f10bad"
 bfs=BFS.read_text()
 active=ACTIVE.read_text()
