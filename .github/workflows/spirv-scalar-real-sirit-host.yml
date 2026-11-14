@@ -1,0 +1,19 @@
+name: SPIR-V exact pinned Sirit module parity (host)
+on:
+  pull_request:
+    paths:
+      - "encore-active/eden-shader/src/shader_recompiler/backend/spirv/spirv_emit_context.h"
+      - "tests/ps5_spirv_scalar_real_sirit_host.py"
+      - ".github/workflows/spirv-scalar-real-sirit-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-sirit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ps5_spirv_scalar_real_sirit_host.py
