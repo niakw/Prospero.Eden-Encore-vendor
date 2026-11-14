@@ -12,6 +12,7 @@
 #include <type_traits>
 #include <queue>
 #include <unordered_set>
+#include <vector>
 
 #include <boost/container/small_vector.hpp>
 
@@ -72,6 +73,39 @@ auto BreadthFirstSearch(Value value, Pred&& pred, Resolve&& resolve = {})
     }
     // SSA tree has been traversed and the result hasn't been found
     return std::nullopt;
+}
+
+/// Repeated BFS with the same predicate/resolver over immutable IR. A failed
+/// search records every visited instruction as exhausted; later searches can
+/// resolve an exhausted subgraph to an immediate because it cannot contain a
+/// match for this predicate domain. Keep separate exhausted sets whenever the
+/// predicate semantics differ (for example biased vs unbiased SSBO lookup).
+template <typename Pred, typename Resolve = std::identity>
+auto BreadthFirstSearchPruned(Value value, Pred&& pred,
+                              std::unordered_set<const Inst*>& exhausted,
+                              Resolve&& resolve = {})
+    -> std::invoke_result_t<Pred, const Inst*> {
+    std::vector<const Inst*> visited;
+    const auto result{BreadthFirstSearch(
+        value,
+        [&](const Inst* inst) {
+            visited.push_back(inst);
+            return pred(inst);
+        },
+        [&](const Value& operand) {
+            const Value resolved{resolve(operand)};
+            if (!resolved.IsImmediate() && exhausted.contains(resolved.InstRecursive())) {
+                // BreadthFirstSearch only needs an immediate sentinel to stop
+                // traversing this edge. Void is immediate too, and avoids
+                // fabricating a typed constant that is never observed.
+                return Value{};
+            }
+            return resolved;
+        })};
+    if (!result) {
+        exhausted.insert(visited.begin(), visited.end());
+    }
+    return result;
 }
 
 } // namespace Shader::IR

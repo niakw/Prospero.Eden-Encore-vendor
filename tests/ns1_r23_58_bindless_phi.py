@@ -7,13 +7,23 @@ import subprocess
 import tempfile
 r=Path(__file__).resolve().parents[1]/"encore-active/eden-shader"
 names={
- "include/shader_recompiler/frontend/ir/breadth_first_search.h":"afe153f18075d00b8e822a1d992dcd8f5cad9a8c",
  "src/shader_recompiler/ir_opt/texture_pass.cpp":"85c523e435ee8803ef3d2087567aa1a4b5d09369"
 }
 for path,expected in names.items():
  b=(r/path).read_bytes()
  sha=hashlib.sha1(b"blob "+str(len(b)).encode()+bytes([0])+b).hexdigest()
  assert sha==expected,(path,sha)
+header=r/"include/shader_recompiler/frontend/ir/breadth_first_search.h"
+raw=header.read_bytes()
+header_sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
+assert header_sha in {
+ "afe153f18075d00b8e822a1d992dcd8f5cad9a8c",
+ "194476705f21bd1c27f532fdd5cc04d99a3cd620",
+ "fa5e7572ef99bba3db17154c63f60dddba7a87c6",
+},header_sha
+if header_sha!="afe153f18075d00b8e822a1d992dcd8f5cad9a8c":
+ subprocess.run(["python3","-B",str(Path(__file__).resolve().parents[1]/"tests/ps5_ir_bfs_adaptive_host.py")],
+                check=True,timeout=180)
 bfs=(r/"include/shader_recompiler/frontend/ir/breadth_first_search.h").read_text()
 texture=(r/"src/shader_recompiler/ir_opt/texture_pass.cpp").read_text()
 assert "template <typename Pred, typename Resolve = std::identity>" in bfs
