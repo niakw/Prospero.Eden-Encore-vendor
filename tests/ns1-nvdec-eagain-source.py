@@ -11,7 +11,7 @@ src = src_file.read_text()
 header = header_file.read_text()
 def git_blob(raw: bytes) -> str:
     return hashlib.sha1(b"blob " + str(len(raw)).encode() + bytes([0]) + raw).hexdigest()
-assert git_blob(src_file.read_bytes()) == "4f12f3cc625b5d74f72272b9ac156c8be7a839e0"
+assert git_blob(src_file.read_bytes()) == "9a3cf0b0a2cf92e467a619352b9345c2b7823d8b"
 assert git_blob(header_file.read_bytes()) == "4bca3f84dbc224e925e18c28001286ee0e337448"
 # Pinned Eden vendor source tree must remain byte-for-byte unmodified.
 assert git_blob((root / "sources/eden/src/video_core/host1x/ffmpeg.cpp").read_bytes()) == "676e5820a592b194d0c72ee61bfa67a0fa29f45a"
@@ -29,6 +29,10 @@ assert "ret != AVERROR(EAGAIN)" in src
 assert "m_ready_frames;" in header
 assert "while (!m_ready_frames.empty())" in src
 assert "m_ready_frames.size() >= 32" in src
+# R457 diagnostic-only extension: bounded post-decode witness; EAGAIN semantics above stay exact.
+assert src.count("EDEN_NVDEC_STAGE stage=decode") == 1
+assert src.count("static std::atomic<unsigned> decoded_witness{};") == 1
+assert "if (witness <= 3)" in src
 
 submit = src.split("bool DecodeApi::SendPacket(", 1)[1].split(
     "std::optional<DecodeApi::DecodedFrame> DecodeApi::ReceiveFrame(", 1)[0]

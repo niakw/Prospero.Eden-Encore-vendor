@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <cstring>
+#include <atomic>
 #include <string_view>
 #include <vector>
 
@@ -491,6 +492,17 @@ std::optional<DecodeApi::DecodedFrame> DecodeApi::ReceiveFrame() {
     if (!m_pending_offsets.empty()) {
         offsets = m_pending_offsets.front();
         m_pending_offsets.pop();
+    }
+    // Three process-wide receipts are enough to separate "decoder produced
+    // nothing" from downstream VIC/texture/presentation failures without
+    // adding per-frame release logging.
+    static std::atomic<unsigned> decoded_witness{};
+    const unsigned witness = decoded_witness.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (witness <= 3) {
+        LOG_INFO(HW_GPU,
+                 "EDEN_NVDEC_STAGE stage=decode count={} width={} height={} format={} luma={:#x} hidden={}",
+                 witness, frame->GetWidth(), frame->GetHeight(),
+                 static_cast<int>(frame->GetPixelFormat()), offsets.luma, offsets.hidden);
     }
     return DecodedFrame{std::move(frame), offsets};
 }
