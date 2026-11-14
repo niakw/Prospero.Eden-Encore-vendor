@@ -12,6 +12,9 @@
 #include "common/swap.h"
 #include "core/core.h"
 
+#include <algorithm>
+#include <limits>
+
 namespace AudioCore::OpusDecoder {
 using namespace Service::Audio;
 namespace {
@@ -41,16 +44,29 @@ Result OpusDecoder::Initialize(const OpusParametersEx& params, Kernel::KTransfer
         }
     };
 
-    auto frame_size{params.use_large_frame_size ? 5760 : 1920};
-    shared_buffer.resize(transfer_memory_size);
+    const u64 frame_size = params.use_large_frame_size ? 5760 : 1920;
+    const u64 in_data_size = 0x600u;
+    // out_data is a byte span. The previous expression counted s16 samples
+    // but used that value as bytes, so the later memcpy could exceed it.
+    buffer_size = Common::AlignUp(
+        (frame_size * params.channel_count * sizeof(s16)) /
+            (48'000 / params.sample_rate),
+        16ull);
+    // The guest transfer-memory size describes Nintendo's decoder. Host
+    // libopus may require a larger state object (FC26/FC27 multi-generation
+    // titles expose this difference). Keep decoder state, input scratch and
+    // output bytes disjoint in host memory.
+    const u64 host_work_size =
+        static_cast<u64>(hardware_opus.GetWorkBufferSize(params.channel_count)) + in_data_size;
+    const u64 work_size = std::max<u64>(transfer_memory_size, host_work_size);
+    R_UNLESS(work_size <= std::numeric_limits<std::size_t>::max() - buffer_size,
+             ResultBufferTooSmall);
+    shared_buffer.resize(static_cast<std::size_t>(work_size + buffer_size), 0);
     shared_memory_mapped = true;
 
-    buffer_size =
-        Common::AlignUp((frame_size * params.channel_count) / (48'000 / params.sample_rate), 16);
-
-    out_data = {shared_buffer.data() + shared_buffer.size() - buffer_size, buffer_size};
-    size_t in_data_size{0x600u};
-    in_data = {out_data.data() - in_data_size, in_data_size};
+    out_data = {shared_buffer.data() + shared_buffer.size() - buffer_size,
+                static_cast<std::size_t>(buffer_size)};
+    in_data = {out_data.data() - in_data_size, static_cast<std::size_t>(in_data_size)};
 
     ON_RESULT_FAILURE {
         if (shared_memory_mapped) {
@@ -77,16 +93,26 @@ Result OpusDecoder::Initialize(const OpusMultiStreamParametersEx& params, Kernel
         }
     };
 
-    auto frame_size{params.use_large_frame_size ? 5760 : 1920};
-    shared_buffer.resize(transfer_memory_size, 0);
+    const u64 frame_size = params.use_large_frame_size ? 5760 : 1920;
+    const u64 in_data_size =
+        Common::AlignUp(1500ull * params.total_stream_count, 64ull);
+    buffer_size = Common::AlignUp(
+        (frame_size * params.channel_count * sizeof(s16)) /
+            (48'000 / params.sample_rate),
+        16ull);
+    const u64 host_work_size =
+        static_cast<u64>(hardware_opus.GetWorkBufferSizeForMultiStream(
+            params.total_stream_count, params.stereo_stream_count)) +
+        in_data_size;
+    const u64 work_size = std::max<u64>(transfer_memory_size, host_work_size);
+    R_UNLESS(work_size <= std::numeric_limits<std::size_t>::max() - buffer_size,
+             ResultBufferTooSmall);
+    shared_buffer.resize(static_cast<std::size_t>(work_size + buffer_size), 0);
     shared_memory_mapped = true;
 
-    buffer_size =
-        Common::AlignUp((frame_size * params.channel_count) / (48'000 / params.sample_rate), 16);
-
-    out_data = {shared_buffer.data() + shared_buffer.size() - buffer_size, buffer_size};
-    size_t in_data_size{Common::AlignUp(1500ull * params.total_stream_count, 64u)};
-    in_data = {out_data.data() - in_data_size, in_data_size};
+    out_data = {shared_buffer.data() + shared_buffer.size() - buffer_size,
+                static_cast<std::size_t>(buffer_size)};
+    in_data = {out_data.data() - in_data_size, static_cast<std::size_t>(in_data_size)};
 
     ON_RESULT_FAILURE {
         if (shared_memory_mapped) {
