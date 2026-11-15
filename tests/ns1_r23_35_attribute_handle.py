@@ -4,9 +4,9 @@ from pathlib import Path
 from native_msaa_handle_receipt import restore_pre_rebind
 import hashlib
 import os
-import sys
 import re
 import subprocess
+import sys
 import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 EXPECTED={
@@ -42,6 +42,14 @@ for path,sha in EXPECTED.items():
   pre_zero="    IR::Inst* const offset_inst{offset.InstRecursive()};\n    if (offset_inst->GetOpcode() != IR::Opcode::IAdd32) {\n        return std::nullopt;\n    }\n    u32 base_offset{};\n    IR::U32 dynamic_offset;\n    if (offset_inst->Arg(0).IsImmediate()) {\n        base_offset = offset_inst->Arg(0).U32();\n        dynamic_offset = IR::U32{offset_inst->Arg(1)};\n    } else if (offset_inst->Arg(1).IsImmediate()) {\n        base_offset = offset_inst->Arg(1).U32();\n        dynamic_offset = IR::U32{offset_inst->Arg(0)};\n    } else {\n        return std::nullopt;\n    }"
   assert normalized.count(post_or)==1 and normalized.count(post_zero)==1
   normalized=normalized.replace(post_or,pre_or,1).replace(post_zero,pre_zero,1)
+ elif path.endswith("/vk_rasterizer.h") and gitblob(ROOT/path)=="7c754c82c12c4f4c934abd3d7f2cdb25222e8d2a":
+  # FC27/Lichii #397 adds one batch hook. Remove exactly that declaration
+  # before checking the frozen R23 header receipt.
+  cpu_race_decl="    void OnCacheInvalidations(std::span<const std::pair<DAddr, u64>> ranges) override;\n"
+  assert normalized.count(cpu_race_decl)==1
+  normalized=normalized.replace(cpu_race_decl,"",1)
+  restored=normalized.encode("utf-8")
+  assert hashlib.sha1(b"blob "+str(len(restored)).encode()+bytes([0])+restored).hexdigest()==EXPECTED[path]
  elif path.endswith("/vk_graphics_pipeline_cost.cpp") and gitblob(ROOT/path)=="efa8fd4d73c111655fced67fe7dd1e6b7c0178ba":
   fixed="const u32 second_offset{desc.secondary_cbuf_offset};"
   indexed="const u32 second_offset{desc.secondary_cbuf_offset + index_offset};"
