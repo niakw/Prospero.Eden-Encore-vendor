@@ -78,7 +78,8 @@ public:
     void Subtract(T a,std::size_t n){
         const T b=a+n; std::vector<std::pair<T,T>> out;
         for(auto [x,y]:r){ if(y<=a||x>=b) out.emplace_back(x,y); else {
-            if(x<a) out.emplace_back(x,a);\n            if(y>b) out.emplace_back(b,y);
+            if(x<a) out.emplace_back(x,a);
+            if(y>b) out.emplace_back(b,y);
         }} r=std::move(out);
     }
     template<class F> void ForEach(F&& f) const { for(auto [x,y]:r) f(x,y); }
