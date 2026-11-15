@@ -7,6 +7,10 @@
 #include <cstdint>
 #include <optional>
 
+#ifdef PS5_NATIVE
+extern "C" bool eden_native_detailed_logging() noexcept __attribute__((weak));
+#endif
+
 namespace Eden::NS2::SvcTrace {
 constexpr std::uint32_t MaxSamples = 32;
 // One active experimental process; subsequent loads replace this identity.
@@ -45,6 +49,13 @@ inline void Unregister(std::uint64_t pid) noexcept {
 [[nodiscard]] inline std::optional<std::uint32_t> Next(std::uint64_t pid) noexcept {
     if (pid == 0 || active_pid.load(std::memory_order_acquire) != pid)
         return std::nullopt;
+#ifdef PS5_NATIVE
+    // The shipping binary may compile this bounded witness, but normal play
+    // must not pay for per-SVC logging. Only the user's explicit Detailed
+    // Logging preference admits the first MaxSamples calls.
+    if (!eden_native_detailed_logging || !eden_native_detailed_logging())
+        return std::nullopt;
+#endif
     std::uint32_t current = observations.load(std::memory_order_relaxed);
     while (current < MaxSamples) {
         if (observations.compare_exchange_weak(current, current + 1,
