@@ -19,6 +19,14 @@ gpus=[(root/f"encore-active/eden-core/src/video_core/{name}").read_text()
 # Source ownership: immutable vendor/sources/eden remains untouched; native include override owns the ABI.
 assert "void ForEachPendingCpuWrite" in gpu_h
 assert "virtual void OnCacheInvalidations" in iface
+# The native shared GPU graph selects vulkan_abi, not merely the generic
+# overrides copy. Both interfaces must expose the identical batch contract.
+unified_iface=(root/"encore-active/ns2-runtime/vulkan_abi/video_core/rasterizer_interface.h").read_text()
+batch_abi="virtual void OnCacheInvalidations(std::span<const std::pair<DAddr, u64>> ranges)"
+assert iface.count(batch_abi)==unified_iface.count(batch_abi)==1
+assert "for (const auto& [addr, size] : ranges) OnCacheInvalidation(addr, size);" in unified_iface
+assert "virtual bool DispatchNativeCompute(" in unified_iface
+
 assert "void ForEachPending(" in dirty
 assert "PendingCpuWrites pending_cpu_writes;" in base
 assert "SetPendingCpuWrites(PendingCpuWrites source)" in base
