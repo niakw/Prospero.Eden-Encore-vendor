@@ -13,6 +13,7 @@ assert "(mode != 0 && mode != 0x100 && mode != 0x200)" in source
 code=r"""
 #include <cassert>
 #include <string_view>
+#include <iostream>
 #include "shader_recompiler/frontend/ampere/lower_to_maxwell.h"
 using Shader::Ampere::Instruction;
 using Shader::Ampere::LowerToMaxwell;
