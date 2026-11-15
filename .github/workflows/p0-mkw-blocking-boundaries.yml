@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp'
+      - 'encore-active/ns2-helpers/include/core/loader/ns2_svc_trace.h'
+      - 'encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc.cpp'
       - 'tests/p0_mkw_blocking_boundaries_source.py'
       - '.github/workflows/p0-mkw-blocking-boundaries.yml'
   workflow_dispatch:
