@@ -4,6 +4,7 @@ from pathlib import Path
 from native_msaa_handle_receipt import restore_pre_rebind
 import hashlib
 import os
+import sys
 import re
 import subprocess
 import tempfile
@@ -225,5 +226,5 @@ with tempfile.TemporaryDirectory(prefix="r23-attribute-handle-") as td:
                  "-fsanitize=address,undefined","-fno-omit-frame-pointer",
                  str(d/"run.cpp"),"-o",str(d/"run")],check=True,timeout=70)
  subprocess.run([str(d/"run")],check=True,timeout=25,
-                env={**os.environ,"ASAN_OPTIONS":"halt_on_error=1:detect_leaks=1"})
+                env={**os.environ,"ASAN_OPTIONS":"halt_on_error=1:detect_leaks=" + ("0" if sys.platform == "darwin" else "1")})
 print("R23_35_VERTEX_ATTRIBUTE_TEXTURE_RUNS_PASS sources=8 paths=6")
