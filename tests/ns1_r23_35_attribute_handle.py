@@ -4,6 +4,7 @@ from pathlib import Path
 from native_msaa_handle_receipt import restore_pre_rebind
 import hashlib
 import os
+import sys
 import re
 import subprocess
 import tempfile
@@ -218,12 +219,18 @@ int main(){
  assert(raster.attribute_handle_runs[0].count==9);
 }
 """;
+cxx = os.getenv("CXX","clang++")
+apple_clang_without_lsan = (
+    sys.platform == "darwin" and
+    "Apple clang" in subprocess.check_output(
+        [cxx, "--version"], text=True, stderr=subprocess.STDOUT)
+)
 with tempfile.TemporaryDirectory(prefix="r23-attribute-handle-") as td:
  d=Path(td)
  (d/"run.cpp").write_text(test)
- subprocess.run([os.getenv("CXX","clang++"),"-std=c++20","-O1","-g",
+ subprocess.run([cxx,"-std=c++20","-O1","-g",
                  "-fsanitize=address,undefined","-fno-omit-frame-pointer",
                  str(d/"run.cpp"),"-o",str(d/"run")],check=True,timeout=70)
  subprocess.run([str(d/"run")],check=True,timeout=25,
-                env={**os.environ,"ASAN_OPTIONS":"halt_on_error=1:detect_leaks=1"})
+                env={**os.environ,"ASAN_OPTIONS":"halt_on_error=1:detect_leaks=" + ("0" if apple_clang_without_lsan else "1")})
 print("R23_35_VERTEX_ATTRIBUTE_TEXTURE_RUNS_PASS sources=8 paths=6")
