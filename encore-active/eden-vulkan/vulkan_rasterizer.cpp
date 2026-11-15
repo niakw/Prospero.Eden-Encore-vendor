@@ -15,6 +15,7 @@
 #include <array>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 #include <fmt/format.h>
 
@@ -952,14 +953,31 @@ void RasterizerVulkan::DrawTexture() {
                                     .y = ScaleSrc(draw_texture_state.src_y1)}};
     Extent3D src_size = {static_cast<u32>(ScaleSrc(texture.size.width)),
                          static_cast<u32>(ScaleSrc(texture.size.height)), texture.size.depth};
+
+    std::optional<VkRect2D> scissor;
+    if (maxwell3d->regs.scissor_test[0].enable) {
+        u32 up_scale = 1;
+        u32 down_shift = 0;
+        if (dst_rescaling) {
+            up_scale = Settings::values.resolution_info.up_scale;
+            down_shift = Settings::values.resolution_info.down_shift;
+        }
+        scissor = GetScissorState(maxwell3d->regs, 0, up_scale, down_shift);
+    }
+
+    const auto& fb_images = framebuffer->Images();
+    const auto fb_end = fb_images.begin() + framebuffer->NumImages();
+    const bool src_is_target =
+        std::find(fb_images.begin(), fb_end, texture.ImageHandle()) != fb_end;
+    if (src_is_target && src_rescaling == dst_rescaling &&
+        src_region.start.x == dst_region.start.x && src_region.start.y == dst_region.start.y &&
+        src_region.end.x == dst_region.end.x && src_region.end.y == dst_region.end.y &&
+        maxwell3d->regs.blend.enable[0] == 0) {
+        return;
+    }
+
     blit_image.BlitColor(framebuffer, texture.RenderTarget(), texture.ImageHandle(),
-                         sampler->Handle(), dst_region, src_region, src_size);
-#ifdef PS5_NATIVE
-    // Raw-image blit directly binds its own Vulkan graphics pipeline.
-    // It does not invalidate Scheduler's cached guest graphics state.
-    // Ensure the following guest draw rebinds pipeline and descriptors.
-    scheduler.InvalidateState();
-#endif
+                         sampler->Handle(), dst_region, src_region, src_size, scissor);
 }
 
 void RasterizerVulkan::Clear(u32 layer_count) {
