@@ -601,6 +601,12 @@ void Maxwell3D::ProcessCBBind(size_t stage_index) {
     // Bind the buffer currently in CB_ADDRESS to the specified index in the desired shader
     // stage.
     const auto& bind_data = regs.bind_groups[stage_index];
+    // Lichii e6e03043 / current Eglantine: CB_BIND encodes a 5-bit slot,
+    // while Maxwell3D keeps only 18 constant-buffer entries per stage.
+    // Reject guest slots 18..31 before indexing the fixed-size state array.
+    if (bind_data.shader_slot >= Regs::MaxConstBuffers) {
+        return;
+    }
     auto& buffer = state.shader_stages[stage_index].const_buffers[bind_data.shader_slot];
     buffer.enabled = bind_data.valid.Value() != 0;
     buffer.address = regs.const_buffer.Address();
