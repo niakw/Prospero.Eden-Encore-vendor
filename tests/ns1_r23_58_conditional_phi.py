@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """R23 #58 shader conditional Phi: exact source and selected diamond detection."""
 from pathlib import Path
-import hashlib, os, subprocess, tempfile
+import hashlib, os, subprocess, sys, tempfile
 root=Path(__file__).resolve().parents[1]
 header=root/"encore-active/eden-shader/include/shader_recompiler/frontend/ir/breadth_first_search.h"
 source=root/"encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp"
@@ -74,6 +74,6 @@ with tempfile.TemporaryDirectory(prefix="r23-phi-") as td:
  subprocess.run([os.getenv("CXX","clang++"),"-std=c++20","-O1","-g",
     "-fsanitize=address,undefined",str(p/"t.cpp"),"-o",str(p/"test")],check=True,timeout=70)
  subprocess.run([str(p/"test")],check=True,timeout=20,
-    env={**os.environ,"ASAN_OPTIONS":"detect_leaks=1:halt_on_error=1"})
+    env={**os.environ,"ASAN_OPTIONS":"detect_leaks=" + ("0" if sys.platform == "darwin" else "1") + ":halt_on_error=1"})
 print("R23_58_CONDITIONAL_PHI_HEADER_ASAN_UBSAN_PASS diamond=1 wrong_header=3")
 print("R23_58_FULL_SPIRV_GPU_AND_PHI_GOLDEN_UNQUALIFIED")
