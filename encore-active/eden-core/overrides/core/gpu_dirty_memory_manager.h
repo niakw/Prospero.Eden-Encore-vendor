@@ -39,6 +39,22 @@ public:
         }
     }
 
+    /// Enumerate collected writes without consuming them. Downloads can use
+    /// this snapshot to avoid writing an older GPU copy over newer guest CPU bytes.
+    void ForEachPending(const std::function<void(PAddr, size_t)>& callback) {
+        std::vector<TransformAddress> pending;
+        {
+            // Same order as Gather: gather guard, then producer-vector guard.
+            std::scoped_lock gather_lock(gather_guard);
+            std::scoped_lock lk(guard);
+            pending = back_buffer;
+            pending.insert(pending.end(), front_buffer.begin(), front_buffer.end());
+            const TransformAddress t = current.load(std::memory_order_acquire);
+            if (IsValid(t.address)) pending.push_back(t);
+        }
+        for (const auto& transform : pending) ForEachRun(transform, callback);
+    }
+
     void Gather(std::function<void(PAddr, size_t)>& callback) {
         // Video decode can gather GPU dirty regions off the graphics worker.
         // Keep the complete swap, callback walk and clear exclusive among
@@ -99,6 +115,22 @@ private:
         u32 address;
         u32 mask;
     };
+
+    template <typename Func>
+    static void ForEachRun(const TransformAddress& transform, Func&& callback) {
+        size_t offset = 0;
+        u64 mask = transform.mask;
+        while (mask != 0) {
+            const size_t empty_bits = std::countr_zero(mask);
+            offset += empty_bits << align_bits;
+            mask >>= empty_bits;
+            const size_t continuous_bits = std::countr_one(mask);
+            callback((static_cast<PAddr>(transform.address) << page_bits) + offset,
+                     continuous_bits << align_bits);
+            mask = continuous_bits < align_size ? (mask >> continuous_bits) : 0;
+            offset += continuous_bits << align_bits;
+        }
+    }
 
     constexpr static size_t page_bits = DEVICE_PAGEBITS - 1;
     constexpr static size_t page_size = 1ULL << page_bits;
