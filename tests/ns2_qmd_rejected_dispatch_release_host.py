@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Host-qualify QMD completion releases when native shader dispatch is rejected.
+"""Regression: rejected preflight must not publish a native shader completion.
 
-Upstream contract: Lichii e6e0304303ba / current Eglantine keep QMD releases
-moving even if Eden cannot lower a native shader. Encore additionally freezes
-the transaction after the first dispatch decision so retries cannot re-read a
-mutated descriptor or duplicate dispatch/release work.
+The #158 Lichii compatibility candidate conflated unsupported shaders,
+unmapped release targets, and failed admission. Restore the previous exact
+scheduler until distinct outcomes and full joined GPU tests are qualified.
+The real rejected dispatch must not freeze an unaccepted transaction.
 """
 from pathlib import Path
 import os
@@ -14,10 +14,9 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 header = root / "encore-active/ns2-runtime/gpu_dispatch/video_core/native_qmd.h"
 source = header.read_text()
-assert "Lichii e6e03043" in source
-assert "state.dispatch_decided = true;" in source
-assert 'error = "native shader dispatch required";' in source
-assert 'return "native shader dispatch required";' in source  # RejectShaderDispatch overload remains strict.
+assert 'return "native shader dispatch required";' in source
+assert "discard_uncommitted_dependent();" in source
+assert "if (!dispatched)" in source
 
 cpp = r"""
 #include <array>
@@ -49,60 +48,50 @@ static Descriptor MakeQmd(Word payload, bool has_shader=true) {
 int main() {
     constexpr Address qmd_addr = 0x4000;
 
-    // 1) Rejected shader: report the error, but still publish completion release.
+    // 1) Rejected preflight cannot publish completion, but a later valid
+    // action 3 may retry after the missing backing is restored.
     {
         Scheduler s;
         Descriptor live = MakeQmd(0x12345678);
-        unsigned reads=0, dispatches=0, releases=0;
+        unsigned dispatches=0, releases=0;
+        bool ready=false;
         Word seen_payload=0;
-        auto read = [&](Address a, Descriptor& out) {
-            assert(a == qmd_addr); ++reads; out = live; return true;
+        auto read=[&](Address a, Descriptor& out) {
+            assert(a==qmd_addr); out=live; return true;
         };
-        auto release = [&](Address a, Word payload, Word flags) {
-            assert(a == 0x1000); assert((flags >> 30) == 1);
+        auto release=[&](Address a, Word payload, Word flags) {
+            assert(a==0x1000 && (flags>>30)==1);
             ++releases; seen_payload=payload; return true;
         };
-        auto dispatch = [&](const Descriptor&) { ++dispatches; return false; };
-        const std::string_view err = s.Signal(qmd_addr, 3, read, release, dispatch);
-        assert(err == "native shader dispatch required");
-        assert(reads == 2); // initial load + just-before-first dispatch decision
-        assert(dispatches == 1);
-        assert(releases == 1 && seen_payload == 0x12345678);
-
-        // Completed QMD is not re-dispatched or re-released.
-        const std::string_view retry = s.Signal(qmd_addr, 2, read, release, dispatch);
-        assert(retry.empty());
-        assert(dispatches == 1 && releases == 1);
+        auto dispatch=[&](const Descriptor&) {
+            ++dispatches; return ready;
+        };
+        assert(s.Signal(qmd_addr,3,read,release,dispatch)=="native shader dispatch required");
+        assert(dispatches==1 && releases==0);
+        ready=true;
+        live=MakeQmd(0x22222222);
+        assert(s.Signal(qmd_addr,3,read,release,dispatch).empty());
+        assert(dispatches==2 && releases==1 && seen_payload==0x22222222);
+        assert(s.Signal(qmd_addr,2,read,release,dispatch).empty());
+        assert(dispatches==2 && releases==1);
     }
 
-    // 2) Partial release failure after rejected dispatch: retry freezes descriptor
-    // and payload, and never re-dispatches.
+    // 2) Once actual dispatch has been accepted, release retries do not
+    // re-dispatch the shader or publish a release slot twice.
     {
         Scheduler s;
-        Descriptor live = MakeQmd(0x11111111);
-        unsigned reads=0, dispatches=0, release_calls=0;
-        auto read = [&](Address, Descriptor& out) { ++reads; out = live; return true; };
-        auto reject_release = [&](Address, Word payload, Word) {
-            ++release_calls; assert(payload == 0x11111111); return false;
+        Descriptor live=MakeQmd(0x11111111);
+        unsigned dispatches=0, release_calls=0;
+        auto read=[&](Address, Descriptor& out){ out=live; return true; };
+        auto dispatch=[&](const Descriptor&){ ++dispatches; return true; };
+        auto reject_release=[&](Address, Word, Word){ ++release_calls; return false; };
+        assert(s.Signal(qmd_addr,3,read,reject_release,dispatch)=="unmapped QMD release");
+        assert(dispatches==1 && release_calls==1);
+        auto release=[&](Address, Word payload, Word){
+            assert(payload==0x11111111); ++release_calls; return true;
         };
-        auto dispatch = [&](const Descriptor&) { ++dispatches; return false; };
-        const std::string_view first = s.Signal(qmd_addr, 3, read, reject_release, dispatch);
-        assert(first == "unmapped QMD release");
-        assert(dispatches == 1 && release_calls == 1);
-        const unsigned frozen_reads = reads;
-
-        // Guest mutates the backing QMD after the failed release. Retry must use
-        // the frozen transaction payload, not the new bytes.
-        live = MakeQmd(0x22222222);
-        Word seen_payload=0;
-        auto good_release = [&](Address, Word payload, Word) {
-            ++release_calls; seen_payload=payload; return true;
-        };
-        const std::string_view retry = s.Signal(qmd_addr, 2, read, good_release, dispatch);
-        assert(retry == "native shader dispatch required");
-        assert(reads == frozen_reads);
-        assert(dispatches == 1);
-        assert(release_calls == 2 && seen_payload == 0x11111111);
+        assert(s.Signal(qmd_addr,2,read,release,dispatch).empty());
+        assert(dispatches==1 && release_calls==2);
     }
 
     // 3) Real accepted dispatch keeps the normal success contract.
@@ -159,6 +148,6 @@ with tempfile.TemporaryDirectory(prefix="ns2-qmd-release-reject-") as td:
             if run.returncode:
                 raise RuntimeError(run.stdout + run.stderr)
             seen += 1
-            print("NS2_QMD_REJECT_RELEASE_PASS", Path(cxx).name, opt,
-                  "release_on_reject=1 retry_frozen=1 no_duplicate_dispatch=1")
+            print("NS2_QMD_PREFLIGHT_RETRY_PASS", Path(cxx).name, opt,
+                  "no_release_on_reject=1 valid_retry=1 no_duplicate_dispatch=1")
     assert seen >= 2

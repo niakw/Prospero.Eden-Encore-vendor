@@ -105,7 +105,7 @@ public:
                     // A caller may retry a failed release with action 2. A
                     // fresh action 3 must not reset accepted semaphore slots
                     // and re-execute a shader from an unfinished transaction.
-                    if (request.action == 3 && state.dispatch_decided && !state.completed)
+                    if (request.action == 3 && state.dispatched && !state.completed)
                         return "QMD reload during pending release";
                     bool descriptor_loaded{};
                     try {
@@ -148,7 +148,6 @@ public:
                     state.loaded = true;
                     state.completed = false;
                     // A fresh launch/reload starts a new completion transaction.
-                    state.dispatch_decided = false;
                     state.dispatched = false;
                     state.released_slots = 0;
                 }
@@ -177,12 +176,12 @@ public:
             if (!state.loaded || !state.scheduled || state.completed || state.dependencies > 0) continue;
             if (state.dependencies < 0) return "QMD dependency underflow";
             // The SDK may patch release payloads while dependencies are
-            // pending, so fetch the descriptor just before FIRST dispatch
-            // decision. Once dispatch is accepted OR deliberately skipped,
-            // that descriptor and its release payloads form one immutable
-            // completion transaction. On a partial semaphore failure, do not
-            // read possibly reused guest memory and attach different releases.
-            if (!state.dispatch_decided) {
+            // pending, so fetch the descriptor just before FIRST dispatch.
+            // Once a GPU submission was accepted, that descriptor and its
+            // release payloads form a single immutable transaction. On a
+            // partial semaphore failure, do not read possibly reused guest
+            // memory and attach different releases to the original dispatch.
+            if (!state.dispatched) {
                 bool descriptor_loaded{};
                 try {
                     descriptor_loaded = read(request.address, state.descriptor);
@@ -256,33 +255,31 @@ public:
                 if (dependent_newly_inserted)
                     states.erase(dependent_address);
             };
-            // Hardware launches do not turn a queue completion into a failed
-            // command. Lichii e6e03043 and current Eglantine therefore keep
-            // QMD releases moving even when Eden cannot translate a shader.
-            // Preserve that compatibility rule while keeping Encore's stricter
-            // transaction semantics: the first dispatch decision freezes the
-            // QMD descriptor, and release retries never re-dispatch or attach
-            // different payloads to a partially completed transaction.
-            const bool has_shader =
-                qmd[12] && (qmd[13] & 0xffff) && (qmd[14] & 0xffff);
-            bool dispatched = state.dispatched;
-            if (!state.dispatch_decided) {
-                dispatched = !has_shader;
-                if (!dispatched) {
-                    try {
-                        dispatched = dispatch(qmd);
-                    } catch (...) {
-                        state.poisoned = true;
-                        discard_uncommitted_dependent();
-                        return "QMD dispatch exception";
-                    }
+            // Never forge completion of a native shader which did not
+            // execute. Upstream currently releases despite a rejected shader
+            // to advance guest queues; that masks incorrect rendering and
+            // can let the guest reuse memory while GPU work never happened.
+            // Keep this QMD pending for a future genuine dispatch backend.
+            // A failed semaphore delivery must not mark the QMD complete.
+            // On retry, never launch the same GPU work or queue an already
+            // accepted release a second time (especially atomic reductions).
+            bool dispatched = state.dispatched ||
+                !(qmd[12] && (qmd[13] & 0xffff) && (qmd[14] & 0xffff));
+            if (!dispatched) {
+                try {
+                    dispatched = dispatch(qmd);
+                } catch (...) {
+                    state.poisoned = true;
+                    discard_uncommitted_dependent();
+                    return "QMD dispatch exception";
                 }
-                state.dispatch_decided = true;
-                state.dispatched = dispatched;
             }
             safe_trace("run", request.address, dispatched ? 1 : 0);
-            if (has_shader && !dispatched)
-                error = "native shader dispatch required";
+            if (!dispatched) {
+                discard_uncommitted_dependent();
+                return "native shader dispatch required";
+            }
+            state.dispatched = true;
             for (std::size_t slot = 0; slot < ReleaseSlots.size(); ++slot) {
                 const Word base = ReleaseSlots[slot];
                 const Word flags = qmd[base + 1];
@@ -325,7 +322,6 @@ private:
         bool loaded{};
         bool scheduled{};
         bool completed{};
-        bool dispatch_decided{};
         bool dispatched{};
         bool poisoned{};
         Word released_slots{};
