@@ -293,6 +293,10 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
       fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache, device, scheduler),
       wfi_event(device.GetLogical().CreateEvent()) {
     scheduler.SetQueryCache(query_cache);
+    buffer_cache.SetPendingCpuWrites(
+        [this](const std::function<void(DAddr, size_t)>& callback) {
+            gpu.ForEachPendingCpuWrite(callback);
+        });
 #ifdef PS5_NATIVE
     native_compute_device_limits = device.GetPhysical().GetProperties().limits;
 #endif
@@ -2443,6 +2447,16 @@ bool RasterizerVulkan::OnCPUWrite(DAddr addr, u64 size) {
         ::Eden::Performance::CachePhase::GuestWriteShaderInvalidate, sample_guest_write};
     pipeline_cache.InvalidateRegion(addr, size);
     return false;
+}
+
+void RasterizerVulkan::OnCacheInvalidations(std::span<const std::pair<DAddr, u64>> ranges) {
+    // Remove the complete CPU-write batch from GPU-owned ranges before any
+    // individual invalidation can download stale bytes over a later write.
+    {
+        std::scoped_lock lock{buffer_cache.mutex};
+        buffer_cache.ClaimCpuWrites(ranges);
+    }
+    for (const auto& [addr, size] : ranges) OnCacheInvalidation(addr, size);
 }
 
 void RasterizerVulkan::OnCacheInvalidation(DAddr addr, u64 size) {
