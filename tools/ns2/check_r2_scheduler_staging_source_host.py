@@ -771,7 +771,7 @@ def run() -> None:
                 "    const Common::RangeSet<DAddr> cpu_written = PendingCpuWriteRanges();\n\n"
             )
             assert historical.count(download_guard) == 1
-            historical = historical.replace(download_guard, "", 1)
+            historical = historical.replace(download_guard, "\n", 1)
 
             mapped_after = (
                 "            WriteDownloadedMemory(cpu_written, copy_device_addr, copy_mapped_memory, copy.size);"
