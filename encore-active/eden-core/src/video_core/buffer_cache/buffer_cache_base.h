@@ -339,6 +339,13 @@ public:
         } while (channel_state->has_deleted_buffers);
     }
 
+    using PendingCpuWrites = std::function<void(const std::function<void(DAddr, size_t)>&)>;
+    void SetPendingCpuWrites(PendingCpuWrites source) { pending_cpu_writes = std::move(source); }
+
+    /// Remove all about-to-be-applied CPU writes from GPU-owned ranges before
+    /// any one write can trigger a download of older bytes over another.
+    void ClaimCpuWrites(std::span<const std::pair<DAddr, u64>> ranges);
+
     std::recursive_mutex mutex;
     Runtime& runtime;
     bool any_buffer_uploaded = false;
@@ -492,6 +499,10 @@ private:
 
     void ClearDownload(DAddr base_addr, u64 size);
 
+    [[nodiscard]] Common::RangeSet<DAddr> PendingCpuWriteRanges();
+    void WriteDownloadedMemory(const Common::RangeSet<DAddr>& cpu_written,
+                               DAddr device_addr, const u8* data, u64 size);
+
     void InlineMemoryImplementation(DAddr dest_address, size_t copy_size,
                                     std::span<const u8> inlined_buffer);
 
@@ -524,6 +535,7 @@ private:
     Common::OverlapRangeSet<DAddr> async_downloads;
     std::deque<std::optional<Async_Buffer>> async_buffers;
     std::deque<boost::container::small_vector<BufferCopy, 4>> pending_downloads;
+    PendingCpuWrites pending_cpu_writes;
     std::optional<Async_Buffer> current_buffer;
 
     std::deque<Async_Buffer> async_buffers_death_ring;
