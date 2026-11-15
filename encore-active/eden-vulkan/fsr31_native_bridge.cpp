@@ -252,9 +252,9 @@ bool Fsr31NativeBridge::TryRecordToGuest(
     if (!temporal_output) {
         return false;
     }
-    // The compute output is in GENERAL after the FSR dispatch. The existing
-    // Vulkan blit helper transitions it to SHADER_READ_ONLY_OPTIMAL and writes
-    // into the guest target without changing any guest texture metadata.
+    // The compute output is in GENERAL after the FSR dispatch. The maintained
+    // raw blit keeps sampled sources in GENERAL, matching its descriptor and
+    // the next FSR compute submission, so no compensating layout transition is needed.
     const VideoCommon::Region2D full{
         .start = {0, 0},
         .end = {static_cast<s32>(extent.width), static_cast<s32>(extent.height)},
@@ -262,31 +262,6 @@ bool Fsr31NativeBridge::TryRecordToGuest(
     blit.BlitColor(destination, temporal_output->view, temporal_output->image,
                    upscaler->PointSampler(), full, full,
                    VideoCommon::Extent3D{extent.width, extent.height, 1});
-    // BlitImageHelper leaves the source in SHADER_READ_ONLY_OPTIMAL; restore
-    // GENERAL before the next FSR compute submission (otherwise history
-    // storage writes and layout tracking diverge on the second frame).
-    scheduler.RequestOutsideRenderPassOperationContext();
-    scheduler.Record([output = temporal_output->image](Vulkan::vk::CommandBuffer cmdbuf) {
-        const VkImageMemoryBarrier barrier{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .pNext = nullptr,
-            .srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
-            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-            .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image = output,
-            .subresourceRange = {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0, .levelCount = 1,
-                .baseArrayLayer = 0, .layerCount = 1,
-            },
-        };
-        cmdbuf.PipelineBarrier(
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, {}, {}, barrier);
-    });
     return true;
 }
 
