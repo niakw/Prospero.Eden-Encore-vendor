@@ -127,6 +127,11 @@ public:
     /// Notify rasterizer that any caches of the specified region are desync with guest
     virtual void OnCacheInvalidation(PAddr addr, u64 size) = 0;
 
+    /// Batch invalidation: implementations may first protect the whole set from stale downloads.
+    virtual void OnCacheInvalidations(std::span<const std::pair<DAddr, u64>> ranges) {
+        for (const auto& [addr, size] : ranges) OnCacheInvalidation(addr, size);
+    }
+
     virtual bool OnCPUWrite(PAddr addr, u64 size) = 0;
 
     /// Sync memory between guest and host.
