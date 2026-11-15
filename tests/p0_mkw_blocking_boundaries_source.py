@@ -5,6 +5,8 @@ import hashlib
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp"
+TRACE = ROOT / "encore-active/ns2-helpers/include/core/loader/ns2_svc_trace.h"
+SVC = ROOT / "encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc.cpp"
 
 def blob(path: Path) -> str:
     data = path.read_bytes()
@@ -22,4 +24,12 @@ assert "std::chrono::steady_clock::now()" in text
 assert text.count("system.GPU().WaitForIdle();") >= 5
 assert "table.MapPageGroup(candidate, *pages, Kernel::KMemoryState::IoMemory" in text
 assert "KeepWrites(" not in text and "GpuSplit" not in text
-print("P0_MKW_BLOCKING_BOUNDARY_SOURCE_PASS ops=5 bounded=1 lichii_1413_not_blindly_ported=1")
+trace = TRACE.read_text()
+svc = SVC.read_text()
+assert 'constexpr std::uint32_t MaxSamples = 32;' in trace
+assert 'eden_native_detailed_logging() noexcept __attribute__((weak))' in trace
+assert 'if (!eden_native_detailed_logging || !eden_native_detailed_logging())' in trace
+assert '#ifdef EDEN_NS2_SVC_TRACE' in svc
+assert 'SvcTrace::Next(process.GetProcessId())' in svc
+assert 'NS2 real HLE SVC[{}]' in svc
+print("P0_MKW_BLOCKING_BOUNDARY_SOURCE_PASS ops=5 bounded=1 svc_samples=32 detailed_only=1 lichii_1413_not_blindly_ported=1")
