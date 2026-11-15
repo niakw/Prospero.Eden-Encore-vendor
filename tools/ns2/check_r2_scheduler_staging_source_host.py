@@ -733,6 +733,63 @@ def run() -> None:
     for path, sha in SOURCE_BLOBS.items():
         live = path.read_text()
         historical = live
+        if path == CORE and "BufferCache<P>::ClaimCpuWrites" in historical:
+            # FC27/Lichii #397 adaptation: keep the live stale-readback
+            # protection, but reverse exactly that reviewed delta before
+            # checking the immutable R2 owner receipt.
+            helper_start = historical.index(
+                "template <class P>\nvoid BufferCache<P>::ClaimCpuWrites")
+            helper_end = historical.index(
+                "template <class P>\nvoid BufferCache<P>::PopAsyncBuffers",
+                helper_start)
+            helper = historical[helper_start:helper_end]
+            assert helper.count("BufferCache<P>::ClaimCpuWrites") == 1
+            assert helper.count("BufferCache<P>::PendingCpuWriteRanges") == 1
+            assert helper.count("BufferCache<P>::WriteDownloadedMemory") == 1
+            historical = historical[:helper_start] + historical[helper_end:]
+
+            async_guard = (
+                "    // The fencing thread may land an older GPU snapshot while the guest CPU\n"
+                "    // has already produced newer bytes. Preserve every pending CPU range.\n"
+                "    const Common::RangeSet<DAddr> cpu_written = PendingCpuWriteRanges();\n"
+            )
+            assert historical.count(async_guard) == 1
+            historical = historical.replace(async_guard, "", 1)
+
+            async_after = (
+                "            WriteDownloadedMemory(cpu_written, start,\n"
+                "                                  &read_mapped_memory[start - device_addr], end - start);"
+            )
+            async_before = (
+                "            device_memory.WriteBlockUnsafe(start, &read_mapped_memory[start - device_addr],\n"
+                "                                           end - start);"
+            )
+            assert historical.count(async_after) == 1
+            historical = historical.replace(async_after, async_before, 1)
+
+            download_guard = (
+                "    const Common::RangeSet<DAddr> cpu_written = PendingCpuWriteRanges();\n\n"
+            )
+            assert historical.count(download_guard) == 1
+            historical = historical.replace(download_guard, "\n", 1)
+
+            mapped_after = (
+                "            WriteDownloadedMemory(cpu_written, copy_device_addr, copy_mapped_memory, copy.size);"
+            )
+            mapped_before = (
+                "            device_memory.WriteBlockUnsafe(copy_device_addr, copy_mapped_memory, copy.size);"
+            )
+            assert historical.count(mapped_after) == 1
+            historical = historical.replace(mapped_after, mapped_before, 1)
+
+            immediate_after = (
+                "            WriteDownloadedMemory(cpu_written, copy_device_addr, immediate_buffer.data(), copy.size);"
+            )
+            immediate_before = (
+                "            device_memory.WriteBlockUnsafe(copy_device_addr, immediate_buffer.data(), copy.size);"
+            )
+            assert historical.count(immediate_after) == 1
+            historical = historical.replace(immediate_after, immediate_before, 1)
         if path == SCHED:
             assert live.count(new_cache_guard) == 1, "NS1 QueryCache revocation lost"
             historical = historical.replace(new_cache_guard, "", 1)
