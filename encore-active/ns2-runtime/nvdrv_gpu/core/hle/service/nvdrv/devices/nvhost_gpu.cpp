@@ -28,8 +28,27 @@
 #include "video_core/memory_manager.h"
 // GPU pushbuffer and syncpoint method types come from dma_pusher.h.
 
+#ifdef PS5_NATIVE
+extern "C" bool eden_native_detailed_logging() noexcept __attribute__((weak));
+#endif
+
 namespace Service::Nvidia::Devices {
 namespace {
+#ifdef PS5_NATIVE
+constexpr unsigned GpfifoTraceLimit = 32;
+std::atomic<unsigned> g_gpfifo_route_trace{0};
+std::atomic<unsigned> g_gpfifo_base_trace{0};
+std::atomic<unsigned> g_gpfifo_impl_trace{0};
+
+[[nodiscard]] bool NextDetailedGpfifoTrace(std::atomic<unsigned>& counter,
+                                           unsigned& ticket) noexcept {
+    if (!eden_native_detailed_logging || !eden_native_detailed_logging())
+        return false;
+    ticket = counter.fetch_add(1, std::memory_order_relaxed) + 1;
+    return ticket <= GpfifoTraceLimit;
+}
+#endif
+
 Tegra::CommandHeader BuildFenceAction(Tegra::Engines::Puller::FenceOperation op, u32 syncpoint_id) {
     Tegra::Engines::Puller::FenceAction result{};
     result.op.Assign(op);
@@ -76,8 +95,16 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
             return WrapFixed(this, &nvhost_gpu::SetNVMAPfd, input, output);
         case 0x3:
             return WrapFixed(this, &nvhost_gpu::ChannelSetTimeout, input, output);
-        case 0x8:
+        case 0x8: {
+#ifdef PS5_NATIVE
+            unsigned ticket{};
+            if (NextDetailedGpfifoTrace(g_gpfifo_route_trace, ticket))
+                std::fprintf(stderr,
+                             "EDEN_NS2_GPFIFO_ROUTE ticket=%u route=ioctl1-submit input=%zu output=%zu\n",
+                             ticket, input.size(), output.size());
+#endif
             return WrapFixedVariable(this, &nvhost_gpu::SubmitGPFIFOBase1, input, output, fd, false);
+        }
         case 0x9:
             return WrapFixed(this, &nvhost_gpu::AllocateObjectContext, input, output, fd);
         case 0xb:
@@ -90,8 +117,16 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
             return WrapFixed(this, &nvhost_gpu::AllocGPFIFOEx, input, output, fd);
         case 0x1a:
             return WrapFixed(this, &nvhost_gpu::AllocGPFIFOEx2, input, output, fd);
-        case 0x1b:
+        case 0x1b: {
+#ifdef PS5_NATIVE
+            unsigned ticket{};
+            if (NextDetailedGpfifoTrace(g_gpfifo_route_trace, ticket))
+                std::fprintf(stderr,
+                             "EDEN_NS2_GPFIFO_ROUTE ticket=%u route=ioctl1-kickoff input=%zu output=%zu\n",
+                             ticket, input.size(), output.size());
+#endif
             return WrapFixedVariable(this, &nvhost_gpu::SubmitGPFIFOBase1, input, output, fd, true);
+        }
         case 0x1d:
             return WrapFixed(this, &nvhost_gpu::ChannelSetTimeslice, input, output);
         default:
@@ -118,9 +153,17 @@ NvResult nvhost_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> inpu
     switch (command.group) {
     case 'H':
         switch (command.cmd) {
-        case 0x1b:
+        case 0x1b: {
+#ifdef PS5_NATIVE
+            unsigned ticket{};
+            if (NextDetailedGpfifoTrace(g_gpfifo_route_trace, ticket))
+                std::fprintf(stderr,
+                             "EDEN_NS2_GPFIFO_ROUTE ticket=%u route=ioctl2-kickoff input=%zu inline=%zu output=%zu\n",
+                             ticket, input.size(), inline_input.size(), output.size());
+#endif
             return WrapFixedInlIn(this, &nvhost_gpu::SubmitGPFIFOBase2, input, inline_input,
                                   output, fd);
+        }
         }
         break;
     }
@@ -397,11 +440,34 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     // BadParameter later. Maxwell/NS1 retains its original admission.
     const bool native = UsesNativeAbi(fd);
     auto& flags = params.flags;
+#ifdef PS5_NATIVE
+    unsigned impl_trace_ticket{};
+    const bool trace_impl = NextDetailedGpfifoTrace(g_gpfifo_impl_trace, impl_trace_ticket);
+    if (trace_impl)
+        std::fprintf(stderr,
+                     "EDEN_NS2_GPFIFO_IMPL ticket=%u stage=enter native=%u initialized=%u gmmu=%u entries=%u flags=%08x fence_id=%u fence_value=%u\n",
+                     impl_trace_ticket, static_cast<unsigned>(native),
+                     static_cast<unsigned>(channel_state->initialized),
+                     static_cast<unsigned>(channel_state->memory_manager != nullptr),
+                     static_cast<unsigned>(params.num_entries),
+                     static_cast<unsigned>(flags.raw),
+                     static_cast<unsigned>(params.fence.id),
+                     static_cast<unsigned>(params.fence.value));
+#endif
     const auto native_plan = native
         ? PlanNativeSubmission(static_cast<u32>(flags.raw),
                                static_cast<u32>(params.fence.value), true)
         : std::optional<NativeSubmissionPlan>{};
-    if (native && !native_plan) return NvResult::BadParameter;
+    if (native && !native_plan) {
+#ifdef PS5_NATIVE
+        if (trace_impl)
+            std::fprintf(stderr,
+                         "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=native-plan flags=%08x fence_value=%u\n",
+                         impl_trace_ticket, static_cast<unsigned>(flags.raw),
+                         static_cast<unsigned>(params.fence.value));
+#endif
+        return NvResult::BadParameter;
+    }
 
     // A native GPU device may expose multiple FDs. A rejected or foreign
     // process must not cause InitChannel on another guest's address space.
@@ -409,12 +475,27 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     if (native) {
         const auto it = sessions.find(fd);
         const auto* owner = it == sessions.end() ? nullptr : core.GetSession(it->second);
-        if (!owner || !owner->process) return NvResult::InvalidState;
+        if (!owner || !owner->process) {
+#ifdef PS5_NATIVE
+            if (trace_impl)
+                std::fprintf(stderr,
+                             "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=owner-session\n",
+                             impl_trace_ticket);
+#endif
+            return NvResult::InvalidState;
+        }
         native_owner = owner->process;
         for (const auto& [other_fd, session_id] : sessions) {
             const auto* opened = core.GetSession(session_id);
-            if (!opened || opened->process != native_owner)
+            if (!opened || opened->process != native_owner) {
+#ifdef PS5_NATIVE
+                if (trace_impl)
+                    std::fprintf(stderr,
+                                 "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=mixed-owner\n",
+                                 impl_trace_ticket);
+#endif
                 return NvResult::InvalidState;
+            }
         }
     }
 
@@ -426,6 +507,13 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     // wait needs no command; NS1 retains its existing wait path.
     if (native && flags.fence_wait.Value() &&
         !syncpoint_manager.IsFenceSignalled(params.fence)) {
+#ifdef PS5_NATIVE
+        if (trace_impl)
+            std::fprintf(stderr,
+                         "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=unresolved-native-wait fence_id=%u fence_value=%u\n",
+                         impl_trace_ticket, static_cast<unsigned>(params.fence.id),
+                         static_cast<unsigned>(params.fence.value));
+#endif
         return NvResult::NotImplemented;
     }
 
@@ -445,6 +533,13 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
                 LOG_ERROR(Service_NVDRV,
                           "Native GPFIFO rejected unmapped command span address={:#x} bytes={:#x}",
                           address, bytes);
+#ifdef PS5_NATIVE
+                if (trace_impl)
+                    std::fprintf(stderr,
+                                 "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=unmapped-command address=%016llx bytes=%llu\n",
+                                 impl_trace_ticket, static_cast<unsigned long long>(address),
+                                 static_cast<unsigned long long>(bytes));
+#endif
                 return NvResult::InvalidSize;
             }
         }
@@ -473,13 +568,28 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
                      static_cast<unsigned>(params.num_entries),
                      static_cast<unsigned>(params.flags.raw));
 #endif
-    if (native && (!channel_state->initialized || !channel_state->memory_manager))
+    if (native && (!channel_state->initialized || !channel_state->memory_manager)) {
+#ifdef PS5_NATIVE
+        if (trace_impl)
+            std::fprintf(stderr,
+                         "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=channel-not-ready initialized=%u gmmu=%u\n",
+                         impl_trace_ticket, static_cast<unsigned>(channel_state->initialized),
+                         static_cast<unsigned>(channel_state->memory_manager != nullptr));
+#endif
         return NvResult::InvalidState;
+    }
     // Bind only a validated process, after the channel has a real GMMU
     // and the complete native fence plan has already passed admission.
     if (native && !NativeGpuChannelRegistry::Instance().Bind(
-                      channel_state.get(), native_owner))
+                      channel_state.get(), native_owner)) {
+#ifdef PS5_NATIVE
+        if (trace_impl)
+            std::fprintf(stderr,
+                         "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=channel-bind\n",
+                         impl_trace_ticket);
+#endif
         return NvResult::InvalidState;
+    }
 
     const auto bind_id = channel_state->bind_id;
     const u32 native_completion = native_plan ? native_plan->completion_count : 0;
@@ -543,6 +653,17 @@ Core::Memory::Memory& nvhost_gpu::GetSessionMemory(DeviceFD fd) {
 NvResult nvhost_gpu::SubmitGPFIFOBase1(IoctlSubmitGpfifo& params,
                                        std::span<Tegra::CommandListHeader> commands, DeviceFD fd,
                                        bool kickoff) {
+#ifdef PS5_NATIVE
+    unsigned base_trace_ticket{};
+    const bool trace_base = NextDetailedGpfifoTrace(g_gpfifo_base_trace, base_trace_ticket);
+    if (trace_base)
+        std::fprintf(stderr,
+                     "EDEN_NS2_GPFIFO_BASE ticket=%u route=%s entries=%u span=%zu address=%016llx flags=%08x\n",
+                     base_trace_ticket, kickoff ? "base1-kickoff" : "base1-submit",
+                     static_cast<unsigned>(params.num_entries), commands.size(),
+                     static_cast<unsigned long long>(params.address),
+                     static_cast<unsigned>(params.flags.raw));
+#endif
     // Kickoff H:0x1b passes only the fixed ioctl header. Its GPFIFO list
     // lives in guest memory at params.address, NOT in the inline variable
     // span (which may legitimately be empty). Comparing its count against
@@ -551,15 +672,30 @@ NvResult nvhost_gpu::SubmitGPFIFOBase1(IoctlSubmitGpfifo& params,
     constexpr u32 MaxKickoffEntries = 1U << 16; // 512 KiB of 8-byte headers
     if (kickoff) {
         if (params.num_entries > MaxKickoffEntries ||
-            (params.num_entries != 0 && params.address == 0))
+            (params.num_entries != 0 && params.address == 0)) {
+#ifdef PS5_NATIVE
+            if (trace_base)
+                std::fprintf(stderr,
+                             "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=base1 reason=kickoff-shape entries=%u address=%016llx\n",
+                             base_trace_ticket, static_cast<unsigned>(params.num_entries),
+                             static_cast<unsigned long long>(params.address));
+#endif
             return NvResult::InvalidSize;
+        }
         // A pointer-backed command list must be read from the exact owner
         // process for THIS FD. GetSessionMemory's legacy fallback to the
         // application process would otherwise read a different title's RAM.
         const auto it = sessions.find(fd);
         const auto* session = it == sessions.end() ? nullptr : core.GetSession(it->second);
-        if (!session || !session->process)
+        if (!session || !session->process) {
+#ifdef PS5_NATIVE
+            if (trace_base)
+                std::fprintf(stderr,
+                             "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=base1 reason=session\n",
+                             base_trace_ticket);
+#endif
             return NvResult::InvalidState;
+        }
         // A native FIFO pointer is guest-controlled. A partial/unmapped
         // ReadBlock can return zero-filled commands yet still acknowledge
         // the GPU fence as if real work had been submitted. Require that
@@ -571,9 +707,24 @@ NvResult nvhost_gpu::SubmitGPFIFOBase1(IoctlSubmitGpfifo& params,
                 [&](std::uint64_t address, std::size_t bytes) {
                     return session->process->GetMemory().IsValidVirtualAddressRange(
                         address, bytes);
-                }))
+                })) {
+#ifdef PS5_NATIVE
+            if (trace_base)
+                std::fprintf(stderr,
+                             "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=base1 reason=guest-header-range entries=%u address=%016llx\n",
+                             base_trace_ticket, static_cast<unsigned>(params.num_entries),
+                             static_cast<unsigned long long>(params.address));
+#endif
             return NvResult::InvalidSize;
+        }
     } else if (params.num_entries > commands.size()) {
+#ifdef PS5_NATIVE
+        if (trace_base)
+            std::fprintf(stderr,
+                         "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=base1 reason=inline-span entries=%u span=%zu\n",
+                         base_trace_ticket, static_cast<unsigned>(params.num_entries),
+                         commands.size());
+#endif
         UNIMPLEMENTED();
         return NvResult::InvalidSize;
     }
@@ -596,7 +747,23 @@ NvResult nvhost_gpu::SubmitGPFIFOBase1(IoctlSubmitGpfifo& params,
 
 NvResult nvhost_gpu::SubmitGPFIFOBase2(IoctlSubmitGpfifo& params,
                                        std::span<const Tegra::CommandListHeader> commands, DeviceFD fd) {
+#ifdef PS5_NATIVE
+    unsigned base_trace_ticket{};
+    const bool trace_base = NextDetailedGpfifoTrace(g_gpfifo_base_trace, base_trace_ticket);
+    if (trace_base)
+        std::fprintf(stderr,
+                     "EDEN_NS2_GPFIFO_BASE ticket=%u route=base2-kickoff entries=%u span=%zu flags=%08x\n",
+                     base_trace_ticket, static_cast<unsigned>(params.num_entries),
+                     commands.size(), static_cast<unsigned>(params.flags.raw));
+#endif
     if (params.num_entries > commands.size()) {
+#ifdef PS5_NATIVE
+        if (trace_base)
+            std::fprintf(stderr,
+                         "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=base2 reason=inline-span entries=%u span=%zu\n",
+                         base_trace_ticket, static_cast<unsigned>(params.num_entries),
+                         commands.size());
+#endif
         UNIMPLEMENTED();
         return NvResult::InvalidSize;
     }
