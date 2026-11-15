@@ -881,16 +881,21 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             transpose_matrix(static_cast<u32>(dest), source);
             break;
         }
-        case 0x83b: { // LDSM.16.M88.2/.4: distribute 8x8 matrices across the warp.
+        case 0x83b: { // LDSM.16.M88.1/.2/.4: distribute 8x8 matrices across the warp.
+            // Lichii e6e0304303ba adds the one-matrix form used by its
+            // title-4 shader corpus. Encore already has stricter transpose,
+            // uniform-offset and register-pressure handling for .2/.4; extend
+            // only the matrix-count selector, not the surrounding semantics.
             // Diagnostic switch: reject the tensor forms as if unsupported.
             if (std::getenv("EDEN_NATIVE_DISABLE_TENSOR"))
                 return fail(index, "native tensor instructions disabled");
             u32 address = insn.Bits(24, 8);
             const bool transpose = insn.Bits(78, 1);
             const u32 mode = insn.words[2] & ~0x08004000U;
-            const u32 matrices = mode == 0x100 ? 2U : 4U;
+            const u32 matrices = mode == 0 ? 1U : mode == 0x100 ? 2U : 4U;
             const bool uniform_offset = insn.Bits(91, 1);
-            if (native_predicate != 7 || (mode != 0x100 && mode != 0x200) ||
+            if (native_predicate != 7 ||
+                (mode != 0 && mode != 0x100 && mode != 0x200) ||
                 (!uniform_offset && insn.Bits(32, 8)) ||
                 (dest & (matrices - 1)) || dest + matrices > reserved_register)
                 return fail(index, "native shared matrix load mode");
