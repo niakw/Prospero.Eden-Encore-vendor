@@ -1,0 +1,31 @@
+name: NS2 GPU-access SVC / GetInfo enum parity
+
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-backports/src/core/hle/kernel/svc_types.h'
+      - 'encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc_types.h'
+      - 'tests/ns2_gpu_access_svc_info_types_source.py'
+      - '.github/workflows/ns2-gpu-access-svc-info-types-host.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'encore-active/eden-backports/src/core/hle/kernel/svc_types.h'
+      - 'encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc_types.h'
+      - 'tests/ns2_gpu_access_svc_info_types_source.py'
+      - '.github/workflows/ns2-gpu-access-svc-info-types-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check selected SVC header parity
+        run: python3 -B tests/ns2_gpu_access_svc_info_types_source.py
