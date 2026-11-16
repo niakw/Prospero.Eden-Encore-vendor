@@ -86,7 +86,7 @@ with tempfile.TemporaryDirectory(prefix="ps5-gpu-owner-shutdown-") as td:
     root=Path(td)
     for name,path in OWNERS.items():
         source=path.read_text()
-        token="    ~Impl() {"
+        # Upstream Eglantine/Lichii include the complete dirty-manager type in gpu.cpp.\n        # core/core.h only forward-declares it; iterating std::span<T> requires T complete\n        # with the PS5 libc++ implementation used by the native build.\n        dirty_include = '#include "core/gpu_dirty_memory_manager.h"'\n        assert source.count(dirty_include) == 1, (name, "missing complete GPUDirtyMemoryManager include")\n        assert source.index(dirty_include) < source.index("system.GetGPUDirtyMemoryManager()"), name\n        token="    ~Impl() {"
         assert source.count(token)==1
         begin=source.index(token)
         end=source.index("    std::shared_ptr<Control::ChannelState> CreateChannel(",begin)
