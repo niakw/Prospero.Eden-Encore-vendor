@@ -158,6 +158,9 @@ enum class InfoType : u32 {
     IoRegionHint = 27,
     AliasRegionExtraSize = 28,
 
+    // Switch 2 kernels: page granule queried by the SDK during VAMM / RELRO setup.
+    Nx2VammSize = 33,
+
     TransferMemoryHint = 34,
 
     Unknown37 = 37,

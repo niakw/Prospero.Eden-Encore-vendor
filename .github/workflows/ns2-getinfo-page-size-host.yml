@@ -1,0 +1,22 @@
+name: NS2 GetInfo 0x21 page-size source contract
+
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-backports/src/core/hle/kernel/svc_types.h'
+      - 'encore-active/eden-backports/src/core/hle/kernel/svc/svc_info.cpp'
+      - 'tests/ns2_getinfo_page_size_source.py'
+      - '.github/workflows/ns2-getinfo-page-size-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check bounded InfoType 33 contract
+        run: python3 -B tests/ns2_getinfo_page_size_source.py
