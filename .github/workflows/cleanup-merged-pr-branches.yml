@@ -99,6 +99,12 @@ jobs:
                   ('ad1b660706c610a9ccb2af8c0b66d3e09702c507', '#156+#158'),
               'fix/ns2-ldsm-m88x1-nov15':
                   ('d8db4657cd979cd827d34c17aee68c508cda0653', '#157'),
+              # #176 RETAA/RETAB staging branch is divergent only because the
+              # reviewed runtime files were promoted through current main.
+              # Both exact runtime blobs were compared byte-for-byte to main
+              # on 2026-11-16 before admitting this immutable retired head.
+              'fix/ns2-retab-production-20261116':
+                  ('643921143f2f744032c6e7de3dcec5a6bbe8a79e', '#176->main-053acc8'),
           }
           removed = []
           skipped = []
