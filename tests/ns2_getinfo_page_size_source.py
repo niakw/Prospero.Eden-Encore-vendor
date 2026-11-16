@@ -19,8 +19,8 @@ info = INFO.read_text()
 mem = MEM.read_text()
 
 assert types.count("Nx2VammSize = 33,") == 1
-assert "Nx2RegionAddress = 29" not in types
-assert "Nx2RegionSize = 30" not in types
+# InfoTypes 29/30 may be supplied by the separate VAMM virtual-region contract.
+# Physical remote-memory types 31/32 remain intentionally outside this page-size patch.
 assert "Nx2RemoteMemorySize = 31" not in types
 assert "Nx2RemoteMemoryUsed = 32" not in types
 

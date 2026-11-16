@@ -158,6 +158,11 @@ enum class InfoType : u32 {
     IoRegionHint = 27,
     AliasRegionExtraSize = 28,
 
+    // Switch 2 kernels: VAMM / remote-region virtual address range. The graphics SDK maps
+    // physical pages into this range; the physical remote-memory allowance is separate.
+    Nx2RegionAddress = 29,
+    Nx2RegionSize = 30,
+
     // Switch 2 kernels: page granule queried by the SDK during VAMM / RELRO setup.
     Nx2VammSize = 33,
 
