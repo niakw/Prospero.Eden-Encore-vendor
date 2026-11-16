@@ -1,0 +1,23 @@
+name: Eden backport manifest active hashes
+
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-backports/**'
+      - 'tests/eden_backports_manifest_hashes_host.py'
+      - '.github/workflows/eden-backports-manifest-hashes.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  active-hashes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify all maintained active backport hashes and byte counts
+        run: python3 -B tests/eden_backports_manifest_hashes_host.py
