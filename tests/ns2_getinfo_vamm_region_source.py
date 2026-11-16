@@ -10,6 +10,7 @@ Upstream evidence:
 InfoTypes 31/32 are deliberately excluded: their remote-memory allowance is title/layout specific.
 """
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 TYPES = ROOT / "encore-active/eden-backports/src/core/hle/kernel/svc_types.h"
@@ -33,9 +34,12 @@ assert "GetInteger(page_table.GetAliasRegionStart()) + half" in info
 assert "InfoType::Nx2RemoteMemorySize" not in info
 assert "InfoType::Nx2RemoteMemoryUsed" not in info
 
-# Selected NS2 kernel layout: 39-bit alias = 64 GiB -> VAMM half = 32 GiB.
-assert ".bit_width = 39" in addr
-assert ".size = 64_GiB" in addr
-assert "KAddressSpaceInfo::Type::Alias" in addr
+# Selected NS2 kernel layout: the same table row must bind 39-bit + 64 GiB + Alias.
+alias39 = re.search(
+    r"\{\s*\.bit_width\s*=\s*39\s*,[^\n]*\.size\s*=\s*64_GiB\s*,[^\n]*"
+    r"KAddressSpaceInfo::Type::Alias",
+    addr,
+)
+assert alias39, "selected NS2 kernel must expose a 64 GiB alias region"
 
 print("NS2_GETINFO_VAMM_REGION_SOURCE_PASS info=29,30 alias=64GiB vamm=32GiB remote_memory=unchanged ps5=unverified")
