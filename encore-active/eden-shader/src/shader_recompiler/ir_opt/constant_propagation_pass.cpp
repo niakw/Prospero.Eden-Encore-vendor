@@ -1101,7 +1101,11 @@ void ConstantPropagation(Environment& env, IR::Block& block, IR::Inst& inst) {
                 throw LogicError("Undefined result in {}({}, {}, {})", IR::Opcode::BitFieldUExtract,
                                  base, shift, count);
             }
-            return (base >> shift) & ((1U << count) - 1);
+            if (count == 0) {
+                return 0U;
+            }
+            const u32 mask{count == 32 ? ~0U : (1U << count) - 1};
+            return (base >> shift) & mask;
         });
         return;
     case IR::Opcode::BitFieldSExtract:
