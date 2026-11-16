@@ -13,7 +13,7 @@ files={
   "encore-active/eden-shader/src/shader_recompiler/backend/spirv/spirv_emit_context.h": "844a118358c874b0666aebda116c1d6a0c9a8ceb",
   "encore-active/eden-shader/src/shader_recompiler/frontend/maxwell/translate_program.cpp": "dd49db913a31d95a803aa6967f1b06bdba61777f",
   "encore-active/eden-shader/src/shader_recompiler/host_translate_info.h": "af549e742edca3ce3e790ea5343136094a42b197",
-  "encore-active/eden-shader/src/shader_recompiler/ir_opt/constant_propagation_pass.cpp": {"6285fef16f2f500b36b1aa45d987f8774eb8131d", "ce074980d021e14c80b76b4acb1372791c106b5f"},
+  "encore-active/eden-shader/src/shader_recompiler/ir_opt/constant_propagation_pass.cpp": {"6285fef16f2f500b36b1aa45d987f8774eb8131d", "ce074980d021e14c80b76b4acb1372791c106b5f", "9cbdcbffe4117f9bc7957a69d15e6a277fcfe12b"},
   "encore-active/eden-shader/src/shader_recompiler/ir_opt/geometry_compaction_pass.cpp": "98cfa47401afcebbd122f4f8b9473a3142ddad62",
   "encore-active/eden-shader/src/shader_recompiler/ir_opt/passes.h": "0c2b44e02249c0cfb06ccd3aa843adc0a12334e9",
   "encore-active/eden-shader/src/shader_recompiler/profile.h": "8e9c83f8885c18634bf02e68a167e6ce2ef33503",
@@ -27,6 +27,13 @@ files={
 for path,expected in files.items():
  d=(root/path).read_bytes()
  actual=hashlib.sha1(b"blob "+str(len(d)).encode()+bytes([0])+d).hexdigest()
+ if path.endswith("ir_opt/constant_propagation_pass.cpp") and actual=="9cbdcbffe4117f9bc7957a69d15e6a277fcfe12b":
+  source=d.decode()
+  new_hunk="            if (count == 0) {\n                return 0U;\n            }\n            const u32 mask{count == 32 ? ~0U : (1U << count) - 1};\n            return (base >> shift) & mask;\n"
+  old_hunk="            return (base >> shift) & ((1U << count) - 1);\n"
+  assert source.count(new_hunk)==1 and old_hunk not in source
+  prior=source.replace(new_hunk,old_hunk,1).encode()
+  assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()=="ce074980d021e14c80b76b4acb1372791c106b5f"
  if path.endswith("ir_opt/passes.h"):
   text=d.decode()
   assert "GeometryCompactionPass" in text and "HasBrokenPattern" in text,(path,"subgroup/AMD owners not combined")
