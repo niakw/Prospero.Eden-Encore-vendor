@@ -253,46 +253,6 @@ std::optional<std::string> MakeRequest(const std::string& url, const std::string
     }
 }
 
-std::optional<HttpResponse> PostJson(const std::string& url, const std::string& path,
-                                     const std::string& body,
-                                     std::size_t timeout_seconds) {
-    try {
-        constexpr std::size_t max_timeout_seconds = 15;
-        constexpr std::size_t max_request_bytes = 64 * 1024;
-        constexpr std::size_t max_response_bytes = 64 * 1024;
-        if (!url.starts_with("https://") || path.empty() || path.front() != '/' ||
-            path.find_first_of("\r\n") != std::string::npos ||
-            body.empty() || body.size() > max_request_bytes ||
-            timeout_seconds == 0 || timeout_seconds > max_timeout_seconds) {
-            LOG_ERROR(Common, "Refusing invalid HTTPS JSON POST target or bounds");
-            return std::nullopt;
-        }
-
-        std::unique_ptr<httplib::Client> client = std::make_unique<httplib::Client>(url);
-        client->set_connection_timeout(timeout_seconds);
-        client->set_read_timeout(timeout_seconds);
-        client->set_write_timeout(timeout_seconds);
-#ifdef YUZU_BUNDLED_OPENSSL
-        client->load_ca_cert_store(kCert, sizeof(kCert));
-#endif
-        client->set_follow_location(false);
-        httplib::Result result = client->Post(path, body, "application/json");
-        if (!result) {
-            LOG_ERROR(Common, "POST to {}{} returned null", url, path);
-            return std::nullopt;
-        }
-        const auto& response = result.value();
-        if (response.body.size() > max_response_bytes) {
-            LOG_ERROR(Common, "POST to {}{} returned oversized response", url, path);
-            return std::nullopt;
-        }
-        return HttpResponse{.status = response.status, .body = response.body};
-    } catch (const std::exception& e) {
-        LOG_ERROR(Common, "POST to {}{} failed: {}", url, path, e.what());
-        return std::nullopt;
-    }
-}
-
 std::vector<Release> GetReleases() {
     const auto body = GetReleasesBody();
 
