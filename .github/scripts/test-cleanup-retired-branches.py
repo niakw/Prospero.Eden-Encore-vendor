@@ -22,10 +22,17 @@ assert len(nodes) == 1
 approved = ast.literal_eval(nodes[0].value)
 assert approved and all(len(sha) == 40 for sha in approved.values())
 name, sha = next(iter(approved.items()))
+sup_nodes = [n for n in ast.parse(program).body if isinstance(n, ast.Assign)
+             and any(isinstance(t, ast.Name) and t.id == "approved_superseded" for t in n.targets)]
+assert len(sup_nodes) == 1
+approved_superseded = ast.literal_eval(sup_nodes[0].value)
+assert approved_superseded
+assert all(len(value[0]) == 40 and value[1] for value in approved_superseded.values())
+sup_name, (sup_sha, _sup_receipt) = next(iter(approved_superseded.items()))
 repo = "fixture/repo"
 main = "f" * 40
 
-def exercise(mode):
+def exercise(mode, name=name, sha=sha, superseded=False):
     snapshot = [{"name": "main", "commit": {"sha": main}, "protected": True},
                 {"name": name, "commit": {"sha": sha}, "protected": mode == "protected"},
                 {"name": "fixture/unknown", "commit": {"sha": "a"*40}, "protected": False}]
@@ -69,11 +76,20 @@ def exercise(mode):
     with patch.dict(os.environ, {"GH_TOKEN": "fake-token", "GH_REPO": repo}, clear=True), \
          patch("urllib.request.urlopen", fake_open), contextlib.redirect_stdout(io.StringIO()):
         exec(code, {})
-    assert deleted == ([name] if mode == "eligible" else []), (mode, deleted)
-    if mode == "eligible":
-        assert sum(p.startswith("/compare/") for _, p in queries) == 2
+    expected_delete = mode == "eligible" or (
+        superseded and mode in ("diverged", "late_diverged")
+    )
+    assert deleted == ([name] if expected_delete else []), (mode, superseded, deleted)
+    compare_count = sum(p.startswith("/compare/") for _, p in queries)
+    if superseded:
+        assert compare_count == 0, (mode, compare_count)
+    elif mode == "eligible":
+        assert compare_count == 2
 
-for mode in ("eligible", "protected", "stale", "moved", "open", "late_open",
-             "diverged", "late_diverged"):
+modes = ("eligible", "protected", "stale", "moved", "open", "late_open",
+         "diverged", "late_diverged")
+for mode in modes:
     exercise(mode)
-print("RETIRED_BRANCH_CLEANUP_HOST_PASS scenarios=8 no_network=1 exact_refs=1")
+for mode in modes:
+    exercise(mode, sup_name, sup_sha, True)
+print("RETIRED_BRANCH_CLEANUP_HOST_PASS scenarios=16 no_network=1 exact_refs=1 superseded_exact_sha=1")
