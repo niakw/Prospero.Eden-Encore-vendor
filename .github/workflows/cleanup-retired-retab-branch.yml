@@ -1,0 +1,100 @@
+name: Cleanup retired Nov16 RETAB branch
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/cleanup-retired-retab-branch.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cleanup-retired-retab-branch.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: read
+jobs:
+  verify-and-clean:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      TARGET_BRANCH: fix/ns2-retab-production-20261116
+      TARGET_SHA: 643921143f2f744032c6e7de3dcec5a6bbe8a79e
+      RETAB_DECODER_BLOB: 952a1e12b3a243b414fd1b8313de783c51a36d09
+      RETAB_TRANSLATOR_BLOB: fd966e118c2d7464106498e3d9099b159b4e37a4
+    steps:
+      - name: Verify exact superseded RETAB head and delete only after merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          GH_EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from urllib.error import HTTPError
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          repo=os.environ["GH_REPO"]
+          token=os.environ["GH_TOKEN"]
+          target=os.environ["TARGET_BRANCH"]
+          expected_head=os.environ["TARGET_SHA"]
+          expected_files={
+              "encore-active/ns2-runtime/ldapr/maintained/dynarmic/frontend/A64/decoder/a64.inc":
+                  os.environ["RETAB_DECODER_BLOB"],
+              "encore-active/ns2-runtime/ldapr/maintained/dynarmic/frontend/A64/translate/impl/a64_branch.cpp":
+                  os.environ["RETAB_TRANSLATOR_BLOB"],
+          }
+          base=f"https://api.github.com/repos/{repo}"
+          headers={
+              "Authorization":f"Bearer {token}",
+              "Accept":"application/vnd.github+json",
+              "X-GitHub-Api-Version":"2022-11-28",
+          }
+          def api(path, method="GET"):
+              req=Request(base+path,headers=headers,method=method)
+              with urlopen(req,timeout=20) as response:
+                  return json.load(response) if method=="GET" else None
+
+          try:
+              branch=api("/branches/"+quote(target,safe=""))
+          except HTTPError as exc:
+              if exc.code==404:
+                  print("RETAB_CLEANUP_ALREADY_DONE")
+                  raise SystemExit(0)
+              raise
+          assert branch["commit"]["sha"]==expected_head, (
+              "retired branch moved", branch["commit"]["sha"])
+          assert not branch.get("protected"), "retired branch became protected"
+
+          pr=api("/pulls/176")
+          assert pr["state"]=="closed" and not pr.get("merged_at"), (
+              "PR176 state changed", pr["state"], pr.get("merged_at"))
+
+          open_prs=api("/pulls?state=open&per_page=100")
+          assert not any(
+              item.get("head",{}).get("repo")
+              and item["head"]["repo"]["full_name"]==repo
+              and item["head"]["ref"]==target
+              for item in open_prs
+          ), "retired branch gained an open PR"
+
+          for path, expected_blob in expected_files.items():
+              encoded=quote(path,safe="/")
+              target_file=api(f"/contents/{encoded}?ref={quote(target,safe='')}")
+              main_file=api(f"/contents/{encoded}?ref=main")
+              assert target_file["sha"]==expected_blob, (path,"target",target_file["sha"])
+              assert main_file["sha"]==expected_blob, (path,"main",main_file["sha"])
+          print("RETAB_RETIRED_BRANCH_PROOF_PASS files=2 exact_head=1 main_equivalent=1")
+
+          if os.environ["GH_EVENT_NAME"]=="pull_request":
+              print("RETAB_CLEANUP_DRY_RUN pull_request=1")
+              raise SystemExit(0)
+
+          current=api("/branches/"+quote(target,safe=""))
+          assert current["commit"]["sha"]==expected_head and not current.get("protected")
+          ref=quote("heads/"+target,safe="/")
+          api("/git/refs/"+ref,"DELETE")
+          print("RETAB_CLEANUP_DELETED branch="+target)
+          PY
