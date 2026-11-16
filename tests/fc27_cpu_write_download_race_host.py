@@ -13,8 +13,9 @@ rast=(root/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
 rast_h=(root/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
 gpu_h=(root/"encore-active/eden-core/overrides/video_core/gpu.h").read_text()
 iface=(root/"encore-active/eden-core/overrides/video_core/rasterizer_interface.h").read_text()
+gpu_names=("gpu_vulkan.cpp","gpu_gl_native.cpp","gpu_gl_native_dev.cpp")
 gpus=[(root/f"encore-active/eden-core/src/video_core/{name}").read_text()
-      for name in ("gpu_vulkan.cpp","gpu_gl_native.cpp","gpu_gl_native_dev.cpp")]
+      for name in gpu_names]
 
 # Source ownership: immutable vendor/sources/eden remains untouched; native include override owns the ABI.
 assert "void ForEachPendingCpuWrite" in gpu_h
@@ -40,7 +41,11 @@ assert "gpu.ForEachPendingCpuWrite(callback);" in rast
 assert "void RasterizerVulkan::OnCacheInvalidations" in rast
 assert "buffer_cache.ClaimCpuWrites(ranges);" in rast
 assert "OnCacheInvalidations(std::span<const std::pair<DAddr, u64>> ranges) override;" in rast_h
-for src in gpus:
+for name, src in zip(gpu_names, gpus):
+    # Lichii/Eglantine gpu.cpp include the complete collector type directly.
+    # core/core.h only forward-declares it; libc++ std::span iteration and
+    # ForEachPending member access require the complete type in every TU.
+    assert '#include "core/gpu_dirty_memory_manager.h"' in src, name
     assert "system.GetGPUDirtyMemoryManager()" in src
     assert "renderer->ReadRasterizer()->OnCacheInvalidations(writes);" in src
     assert "void GPU::ForEachPendingCpuWrite(" in src
