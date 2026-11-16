@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
@@ -43,6 +44,18 @@ struct Release {
 
 // Make a request via httplib, and return the response body if applicable.
 std::optional<std::string> MakeRequest(const std::string &url, const std::string &path);
+
+struct HttpResponse {
+    int status{};
+    std::string body;
+};
+
+// Small HTTPS-only JSON POST primitive for opt-in launcher services.
+// It never follows redirects and reports HTTP status to the caller so policy
+// can distinguish retryable transport failures from server rejection.
+std::optional<HttpResponse> PostJson(const std::string& url, const std::string& path,
+                                     const std::string& body,
+                                     std::size_t timeout_seconds = 5);
 
 // Get all of the latest stable releases.
 std::vector<Release> GetReleases();
