@@ -17,7 +17,7 @@ PERSIST_FALSE = re.compile(r"(?m)^[ \t]+persist-credentials:[ \t]*false(?:[ \t]*
 # A single, separately reviewed branch-cleanup workflow is the only intentional
 # write-capable exception.  Its exact Git blob SHA is pinned, so edits to the
 # privileged script MUST undergo another explicit audit + pin update.
-REVIEWED_CLEANUP_BLOB = "2f9d4df946fc0cf647a81d860e783fe9d37106cc"
+REVIEWED_CLEANUP_BLOB = "fa5707da68e4281fc6eb620162a3c52e644b1a43"
 
 
 
