@@ -20,6 +20,7 @@
 #include "common/settings_enums.h"
 #include "core/core.h"
 #include "core/core_timing.h"
+#include "core/gpu_dirty_memory_manager.h"
 #include "core/frontend/emu_window.h"
 #include "core/frontend/graphics_context.h"
 #include "core/hle/service/nvdrv/nvdata.h"
