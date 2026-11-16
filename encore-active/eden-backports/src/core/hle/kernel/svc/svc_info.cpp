@@ -6,6 +6,7 @@
 
 #include "core/core.h"
 #include "core/core_timing.h"
+#include "core/memory.h"
 #include "core/hle/kernel/k_memory_manager.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/k_resource_limit.h"
@@ -40,6 +41,7 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
     case InfoType::UsedNonSystemMemorySize:
     case InfoType::IsApplication:
     case InfoType::FreeThreadCount:
+    case InfoType::Nx2VammSize:
     case InfoType::AliasRegionExtraSize: {
         R_UNLESS(info_sub_id == 0, ResultInvalidEnumValue);
 
@@ -65,6 +67,12 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
             R_SUCCEED();
         case InfoType::HeapRegionSize:
             *result = process->GetPageTable().GetHeapRegionSize();
+            R_SUCCEED();
+        case InfoType::Nx2VammSize:
+            // Switch 2 SDKs use InfoType 33 as the page granule for VAMM / RELRO alignment.
+            // Lichii/Eglantine and nxnative agree on the 4 KiB ARM granule.
+            *result = Core::Memory::YUZU_PAGESIZE;
+            LOG_WARNING(Kernel_SVC, "(STUBBED) Switch 2 InfoType 33, returning {:#x}", *result);
             R_SUCCEED();
         case InfoType::AslrRegionAddress:
             *result = GetInteger(process->GetPageTable().GetAliasCodeRegionStart());
