@@ -1,0 +1,24 @@
+name: Common HTTPS JSON POST source contract
+
+on:
+  pull_request:
+    paths:
+      - 'sources/eden/src/common/net/net.cpp'
+      - 'sources/eden/src/common/net/net.h'
+      - 'tests/common_net_post_json_source.py'
+      - '.github/workflows/common-net-post-json-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify strict POST JSON transport
+        run: |
+          python3 -B tests/common_net_post_json_source.py
+          git diff --check HEAD^ HEAD || true
