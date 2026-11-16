@@ -87,6 +87,19 @@ jobs:
               'fix/fc27-dynamic-texture-static-sampler-fresh': '46eed0e9f3f895c40cd22d8574d6e43269f64ba0',
               'fix/nov14-dynarmic-emitinvalid-unused-param': '46eed0e9f3f895c40cd22d8574d6e43269f64ba0',
           }
+          # Exact squash/rebase heads audited 2026-11-16. Their useful source
+          # owners/tests were compared against current main and are superseded by
+          # the cited merged PRs. Never match a moved ref or an open/protected branch.
+          approved_superseded = {
+              'fix/fc27-cpu-write-download-race-nov15':
+                  ('1cdc369839abfafe2f73215ecfec3c5689953bcd', '#156'),
+              'fix/maxwell-cbbind-slot-oob-nov15':
+                  ('e009331eecccc0cf765be2052b191736cd9b1a30', '#163'),
+              'fix/nov15-fc27-ns2-safe-combined':
+                  ('ad1b660706c610a9ccb2af8c0b66d3e09702c507', '#156+#158'),
+              'fix/ns2-ldsm-m88x1-nov15':
+                  ('d8db4657cd979cd827d34c17aee68c508cda0653', '#157'),
+          }
           removed = []
           skipped = []
           for branch in branches:
@@ -110,10 +123,14 @@ jobs:
                   compare = api(f'/compare/{sha}...{main_sha}')
                   if compare.get('status') in ('ahead', 'identical') and compare.get('behind_by') == 0:
                       pr_number = 'retired-ancestor'
+              if not pr_number and name in approved_superseded:
+                  approved_sha, receipt = approved_superseded[name]
+                  if approved_sha == sha:
+                      pr_number = f'superseded-{receipt}'
               if not pr_number:
                   skipped.append(name)
                   continue
-              # Exact closed PR head SHA + merged OR provable ancestor of main.
+              # Exact merged/ancestor/superseded branch+SHA receipt only.
               ref = quote('heads/' + name, safe='/')
               # Last-minute safety check for every deletion. If a branch
               # has moved, become protected or gained an open PR, retain it.
