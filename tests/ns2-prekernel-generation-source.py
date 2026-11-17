@@ -26,6 +26,11 @@ assert switch2 in helper
 assert diagnostic in helper
 assert helper.index(probe) < helper.index(switch2) < helper.index("return switch2;")
 assert "metadata.Load(npdm) == Loader::ResultStatus::Success &&" not in helper
+# Stay aligned with Eglantine/Lichii: generation comes from the parsed extended
+# ACID layout, never merely from an 0x04 program-id prefix.
+assert "PlatformMask" not in metadata
+assert "Switch2Platform" not in metadata
+assert "is_switch2 = is_switch2 ||" not in metadata
 assert "const FileSys::VirtualFile& direct_extracted_npdm" in helper
 assert "if (direct_extracted_npdm)" in helper
 assert helper.index("if (direct_extracted_npdm)") < helper.index("const auto check_program_nca")
