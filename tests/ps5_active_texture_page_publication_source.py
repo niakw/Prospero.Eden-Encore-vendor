@@ -40,7 +40,7 @@ assert shadow.count(sparse_mark) == 1
 # Pair the producer with the real PS5 lock-elision consumer. A future refactor
 # must not keep NeverHeld() fast paths while silently dropping publication.
 cpu_start = raster.index("bool RasterizerVulkan::OnCPUWrite")
-cpu_end = raster.index("\nvoid RasterizerVulkan::InvalidateRegion", cpu_start)
+cpu_end = raster.index("\nvoid RasterizerVulkan::OnCacheInvalidations", cpu_start)
 cpu_write = raster[cpu_start:cpu_end]
 assert "::Eden::ImagePages::NeverHeld" in cpu_write
 assert "texture_cache.WriteMemory" in cpu_write
