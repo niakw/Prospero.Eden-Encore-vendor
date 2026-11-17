@@ -639,12 +639,27 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             emit(base(0x5c18000000000000ULL) | (u64{250} << 8) | (u64{251} << 20) | (u64{16} << 39));
             break;
         }
-        case 0x234: { // HSETP2, packed half compare with register sources
-            // Reviewed form from the EglantinePS5 Bananza geometry shader
-            // patch. Other modes still fail closed; no fabricated predicate.
-            if (insn.Bits(64, 5) || insn.Bits(69, 2) > 2 || insn.Bits(91, 1))
+        case 0x234: case 0x434: case 0x634: { // HSETP2: register, immediate or constant-buffer B.
+            // Lichii #1511 / 19be851d: Age of Imprisonment and MKW use the CBUF form.
+            // Keep Encore's existing predicate/swizzle admission and materialize only
+            // the non-register operand into a reserved scratch register.
+            if (insn.Bits(69, 2) > 2 || insn.Bits(91, 1))
                 return fail(index, "native half predicate comparison mode");
-            const auto a = half_source(0), b = half_source(1);
+            const auto a = half_source(0);
+            HalfSource b{};
+            if (opcode == 0x234) {
+                if (insn.Bits(64, 5))
+                    return fail(index, "native half predicate comparison mode");
+                b = half_source(1);
+            } else if (opcode == 0x434) {
+                mov_imm(250, insn.words[1]);
+                b = {250, 0, false, false};
+            } else {
+                if (insn.Bits(64, 5) || !valid_cbuf())
+                    return fail(index, "native half predicate comparison mode");
+                emit(0x4c98000000000000ULL | predicate | 250 | (u64{15} << 39) | cbuf());
+                b = {250, insn.Bits(60, 2), insn.Bits(62, 1) != 0, insn.Bits(63, 1) != 0};
+            }
             emit(0x5d20000000000000ULL | predicate | insn.Bits(84, 3) |
                  (u64{insn.Bits(81, 3)} << 3) | (u64{insn.Bits(80, 1)} << 6) |
                  (u64{a.reg} << 8) | (u64{b.reg} << 20) | (u64{b.swizzle} << 28) |
