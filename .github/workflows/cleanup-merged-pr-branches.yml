@@ -105,6 +105,11 @@ jobs:
               # on 2026-11-16 before admitting this immutable retired head.
               'fix/ns2-retab-production-20261116':
                   ('643921143f2f744032c6e7de3dcec5a6bbe8a79e', '#176->main-053acc8'),
+              # Nov17 heads retired after #183 was merged to vendor/main.
+              'fix/ns2-prekernel-generation-20261117':
+                  ('e6670e9b7592869dc4af5c0571af6c46c7b6e18d', '#181->#183'),
+              'perf/ps5-cold-shader-warm-manifest-20261117':
+                  ('e42f077cbdc05412501c63821d5ab81e5ec17cf5', '#184-not-admitted'),
           }
           removed = []
           skipped = []
