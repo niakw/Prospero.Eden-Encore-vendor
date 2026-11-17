@@ -60,6 +60,23 @@ for path,sha in EXPECTED.items():
   # cache owner advances 19 -> 20. Reverse only that reviewed version bump
   # in the audit copy before reconstructing the frozen R23 receipt.
   raw_cache_blob=gitblob(ROOT/path)
+  if raw_cache_blob=="4ad643fb59d21c81b7c3cd1137764958ccafdd00":
+   # #184 is additive around the existing cache owner. Strip exactly its
+   # three guarded learned-manifest blocks plus the bounded restored-prewarm
+   # selector before applying the older R23 reconstruction below.
+   for marker in ("MANIFEST", "GRAPHICS_MIRROR", "COMPUTE_MIRROR"):
+    pattern=rf"(?ms)^#ifdef PS5_NATIVE\\n[ \\t]*// ENCORE_PS5_WARM_{marker}_BEGIN\\n.*?[ \\t]*// ENCORE_PS5_WARM_{marker}_END\\n#endif\\n"
+    normalized,count=re.subn(pattern,"",normalized)
+    assert count==1,(marker,count)
+   limit_pattern=r"(?ms)^[ \\t]*// ENCORE_PS5_WARM_LIMIT_BEGIN\\n.*?^[ \\t]*// ENCORE_PS5_WARM_LIMIT_END\\n"
+   normalized,count=re.subn(limit_pattern,"",normalized)
+   assert count==1,("LIMIT",count)
+   assert normalized.count("startup_prewarm_limit")==2
+   normalized=normalized.replace("startup_prewarm_limit","kStartupPrewarmPipelines")
+   restored=normalized.encode("utf-8")
+   restored_blob=hashlib.sha1(b"blob "+str(len(restored)).encode()+bytes([0])+restored).hexdigest()
+   assert restored_blob=="be5d48abd44996502b0829a6e0501d130a151455",restored_blob
+   raw_cache_blob=restored_blob
   if raw_cache_blob=="be5d48abd44996502b0829a6e0501d130a151455":
    assert normalized.count("constexpr u32 CACHE_VERSION = 21;")==1
    normalized=normalized.replace("constexpr u32 CACHE_VERSION = 21;",
@@ -90,6 +107,7 @@ for path,sha in EXPECTED.items():
      "c7e3ca901ea7ab82ec679c23cf43a1c556ac7e41",
      "36aae4b17ef8e9681f62fabdd4cf37f09d0beefb",
      "be5d48abd44996502b0829a6e0501d130a151455",
+     "4ad643fb59d21c81b7c3cd1137764958ccafdd00",
  }:
   assert digest=="10d76dd2b7b02fe6ce89afa5c122194442ebf77f", (path,digest)
  else:
