@@ -22,7 +22,9 @@ assert probe.count(
 ) == 1
 assert "if (direct_extracted_npdm)" in probe
 assert probe.index("if (direct_extracted_npdm)") < probe.index("const auto check_program_nca")
-assert 'OpenDirectory(filepath, FileSys::OpenMode::Read)' in core
+assert 'Common::SplitPath(filepath, &launch_dir, &launch_filename, nullptr);' in core
+assert 'launch_filename == "main" ? launch_dir' in core
+assert 'virtual_filesystem->OpenDirectory(npdm_dir, FileSys::OpenMode::Read)' in core
 assert 'exefs_dir->GetFile("main.npdm")' in core
 assert probe.index('directory->GetFile("main.npdm")') < probe.index(
     "EDEN_NS2_PREKERNEL_PROBE file=1"
