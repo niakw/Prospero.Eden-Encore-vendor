@@ -1856,6 +1856,15 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
             LOG_WARNING(Render_Vulkan,
                         "0x{:016x}: using PS5 fragment shuffle fallback",
                         key.unique_hashes[index]);
+            static std::atomic<unsigned> fragment_shuffle_witness{};
+            const unsigned fallback_witness =
+                fragment_shuffle_witness.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (fallback_witness <= 8) {
+                std::fprintf(stderr,
+                             "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx\n",
+                             fallback_witness,
+                             static_cast<unsigned long long>(key.unique_hashes[index]));
+            }
 #else
             LOG_WARNING(Render_Vulkan,
                         "0x{:016x}: skipping fragment shuffle with known driver issue",
