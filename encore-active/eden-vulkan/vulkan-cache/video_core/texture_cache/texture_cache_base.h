@@ -528,6 +528,9 @@ private:
     DAddr virtual_invalid_space{};
 
     bool has_deleted_images = false;
+    /// True only while UpdateRenderTargets(true) binds a clear target; JoinImages
+    /// uses it to skip an initial upload that a proven full clear overwrites.
+    bool clearing_render_targets = false;
     bool is_rescaling = false;
     u64 total_used_memory = 0;
     u64 minimum_memory;
