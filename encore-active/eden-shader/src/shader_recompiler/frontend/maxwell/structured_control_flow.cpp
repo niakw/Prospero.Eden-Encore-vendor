@@ -298,13 +298,16 @@ Node SiblingFromNephew(Node uncle, Node nephew) noexcept {
 }
 
 bool AreOrdered(Node left_sibling, Node right_sibling) noexcept {
-    const Node end{right_sibling->up->children.end()};
-    for (auto it = right_sibling; it != end; ++it) {
-        if (it == left_sibling) {
-            return false;
-        }
+    if (left_sibling == right_sibling) {
+        return false;
     }
-    return true;
+    const Node end{right_sibling->up->children.end()};
+    for (Node left = left_sibling, right = right_sibling;;) {
+        if (++right == left_sibling) return false;
+        if (right == end) return true;
+        if (++left == right_sibling) return true;
+        if (left == end) return false;
+    }
 }
 
 bool NeedsLift(Node goto_stmt, Node label_stmt) noexcept {

@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -125,6 +126,10 @@ public:
     }
 
 private:
+    // Lichii f8f29b5: first use may claim a queued build instead of waiting
+    // behind unrelated worker jobs.
+    void RunBuild();
+
     const Device& device;
     vk::PipelineCache& pipeline_cache;
     GuestDescriptorQueue& guest_descriptor_queue;
@@ -158,6 +163,8 @@ private:
     vk::DescriptorUpdateTemplate descriptor_update_template;
     vk::Pipeline pipeline;
 
+    std::function<void()> build_task;
+    std::atomic_bool build_claimed{false};
     ::Eden::StripedCondition build_condvar;
     ::Eden::StripedMutex build_mutex;
     std::atomic_bool is_built{false};

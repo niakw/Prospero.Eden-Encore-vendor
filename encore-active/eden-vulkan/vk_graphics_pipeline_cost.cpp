@@ -482,18 +482,17 @@ GraphicsPipeline::GraphicsPipeline(
     // publishing the builder lambda that captures this pipeline by pointer.
     // The worker must never see a partially constructed ConfigureFunc.
     configure_func = ConfigureFunc(spv_modules, stage_infos);
+    build_task = std::move(func);
     if (worker_thread) {
 #ifdef PS5_NATIVE
         if (::Eden::DevVulkan::fast_first_pipelines) {
-            // Cold first-use compilation has priority over speculative optimization.
-            // Publish BEFORE enqueuing, including work waiting in the builder queue.
             pending_first_use_graphics_builds.fetch_add(1, std::memory_order_release);
             try {
-                worker_thread->QueueWork([build = std::move(func)]() mutable {
+                worker_thread->QueueWork([this] {
                     SCOPE_EXIT {
                         pending_first_use_graphics_builds.fetch_sub(1, std::memory_order_release);
                     };
-                    build();
+                    RunBuild();
                 });
             } catch (...) {
                 pending_first_use_graphics_builds.fetch_sub(1, std::memory_order_release);
@@ -502,16 +501,21 @@ GraphicsPipeline::GraphicsPipeline(
         } else
 #endif
         {
-            worker_thread->QueueWork(std::move(func));
+            worker_thread->QueueWork([this] { RunBuild(); });
         }
-        // QueueWork returned successfully; the worker now owns completion,
-        // including paths where pipeline validation or compilation fails.
         build_handed_off = true;
     } else {
-        // Synchronous func() owns the completion callback from this point.
         build_handed_off = true;
-        func();
+        RunBuild();
     }
+}
+
+void GraphicsPipeline::RunBuild() {
+    if (build_claimed.exchange(true, std::memory_order_acq_rel)) {
+        return;
+    }
+    build_task();
+    build_task = nullptr;
 }
 
 void GraphicsPipeline::AddTransition(GraphicsPipeline* transition) {
@@ -961,6 +965,7 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
 #endif
         // Wait for the pipeline to be built
         scheduler.Record([this](vk::CommandBuffer) {
+            RunBuild();
             // Builder published the pipeline before this ordered GPU callback.
             // Acquire its completion without taking a redundant build mutex.
             // An unfinished build still follows the original condition wait.

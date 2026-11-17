@@ -11,6 +11,7 @@
 #include <atomic>
 #include <memory>
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <type_traits>
 #include <vector>
@@ -231,6 +232,10 @@ public:
     }
 
 private:
+    // Lichii f8f29b5: first use may claim a queued build instead of waiting
+    // behind unrelated worker jobs.
+    void RunBuild();
+
     template <typename Spec>
     bool ConfigureImpl(bool is_indexed);
 
@@ -308,6 +313,8 @@ private:
     u32 last_descriptor_buffer_chunk{};
     u64 last_descriptor_buffer_generation{};
 
+    std::function<void()> build_task;
+    std::atomic_bool build_claimed{false};
     ::Eden::StripedCondition build_condvar;
     ::Eden::StripedMutex build_mutex;
     std::atomic_bool is_built{false};

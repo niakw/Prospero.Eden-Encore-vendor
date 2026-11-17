@@ -228,17 +228,16 @@ ComputePipeline::ComputePipeline(const Device& device_, Scheduler& scheduler, vk
                          shader_hash);
         }
     }};
+    build_task = std::move(func);
     if (thread_worker) {
 #ifdef PS5_NATIVE
-        // Reserve a slot BEFORE QueueWork: a pending compute shader has
-        // priority over a speculative optimized graphics rebuild.
         pending_first_use_compute_builds.fetch_add(1, std::memory_order_release);
         try {
-            thread_worker->QueueWork([build = std::move(func)]() mutable {
+            thread_worker->QueueWork([this] {
                 SCOPE_EXIT {
                     pending_first_use_compute_builds.fetch_sub(1, std::memory_order_release);
                 };
-                build();
+                RunBuild();
             });
         } catch (...) {
             pending_first_use_compute_builds.fetch_sub(1, std::memory_order_release);
@@ -246,15 +245,22 @@ ComputePipeline::ComputePipeline(const Device& device_, Scheduler& scheduler, vk
         }
         build_handed_off = true;
 #else
-        thread_worker->QueueWork(std::move(func));
+        thread_worker->QueueWork([this] { RunBuild(); });
 #endif
     } else {
 #ifdef PS5_NATIVE
-        // Inline func() has its own completion guard.
         build_handed_off = true;
 #endif
-        func();
+        RunBuild();
     }
+}
+
+void ComputePipeline::RunBuild() {
+    if (build_claimed.exchange(true, std::memory_order_acq_rel)) {
+        return;
+    }
+    build_task();
+    build_task = nullptr;
 }
 
 #ifdef PS5_NATIVE
@@ -474,6 +480,7 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
 #endif
         // Wait for the pipeline to be built
         scheduler.Record([this](vk::CommandBuffer) {
+            RunBuild();
             // Builder published the pipeline before this ordered GPU callback.
             // Acquire its completion without taking a redundant build mutex.
             // An unfinished build still follows the original condition wait.
