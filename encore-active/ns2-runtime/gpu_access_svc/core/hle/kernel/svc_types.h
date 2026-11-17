@@ -165,6 +165,12 @@ enum class InfoType : u32 {
     Nx2RegionAddress = 29,
     Nx2RegionSize = 30,
 
+    // Switch 2 kernels: remote-memory allowance and current usage. On base-PS5 Encore
+    // these protocol values are exposed as zero unless a title-specific, host-qualified
+    // physical policy exists; answering the query must not invent guest RAM.
+    Nx2RemoteMemorySize = 31,
+    Nx2RemoteMemoryUsed = 32,
+
     // Switch 2 kernels: page granule queried by the SDK during VAMM / RELRO setup.
     Nx2VammSize = 33,
 

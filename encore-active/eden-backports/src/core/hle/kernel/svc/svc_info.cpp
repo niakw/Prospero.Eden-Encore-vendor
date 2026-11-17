@@ -43,6 +43,8 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
     case InfoType::FreeThreadCount:
     case InfoType::Nx2RegionAddress:
     case InfoType::Nx2RegionSize:
+    case InfoType::Nx2RemoteMemorySize:
+    case InfoType::Nx2RemoteMemoryUsed:
     case InfoType::Nx2VammSize:
     case InfoType::AliasRegionExtraSize: {
         R_UNLESS(info_sub_id == 0, ResultInvalidEnumValue);
@@ -84,6 +86,15 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
                         static_cast<u32>(info_id_type), *result);
             R_SUCCEED();
         }
+        case InfoType::Nx2RemoteMemorySize:
+        case InfoType::Nx2RemoteMemoryUsed:
+            // Current Lichii returns zero for titles without an explicitly qualified
+            // remote-memory pool. Preserve that protocol success on base PS5 without
+            // copying its desktop/title-specific 512 MiB physical reservation.
+            *result = 0;
+            LOG_WARNING(Kernel_SVC, "(STUBBED) Switch 2 InfoType {}, returning 0 (no qualified PS5 remote-memory pool)",
+                        static_cast<u32>(info_id_type));
+            R_SUCCEED();
         case InfoType::Nx2VammSize:
             // Switch 2 SDKs use InfoType 33 as the page granule for VAMM / RELRO alignment.
             // Lichii/Eglantine and nxnative agree on the 4 KiB ARM granule.
