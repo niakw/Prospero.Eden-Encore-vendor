@@ -71,6 +71,8 @@ NvResult nvhost_as_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> i
             return WrapFixed(this, &nvhost_as_gpu::GetVARegions1, input, output);
         case 0x9:
             return WrapFixed(this, &nvhost_as_gpu::AllocAsEx, input, output);
+        case 0xb:
+            return WrapFixed(this, &nvhost_as_gpu::Nx2GetSyncpointShimInfo, input, output);
         case 0x14:
             return WrapVariable(this, &nvhost_as_gpu::Remap, input, output);
         default:
@@ -524,6 +526,32 @@ NvResult nvhost_as_gpu::ModifyNativeKind(u64 address, u64 size, u8 kind) {
         return NvResult::BadParameter;
     const u64 delta = address - it->first;
     gmmu->Map(address, mapping.ptr + delta, size, static_cast<Tegra::PTEKind>(kind), false);
+    return NvResult::Success;
+}
+
+// Lichii 12125bc / NX2 blocker #46: newer NVN reads syncpoints through a read-only
+// GPU virtual page and asserts when characteristics bit 26 is advertised without this ioctl.
+// The page is virtual only: no PS5 physical allocation is consumed.
+NvResult nvhost_as_gpu::Nx2GetSyncpointShimInfo(IoctlNx2SyncpointShimInfo& params) {
+    std::scoped_lock lock{mutex};
+    if (!m_native_process || !vm.initialised || !gmmu ||
+        vm.va_range_end < VM::YUZU_PAGESIZE) {
+        return NvResult::NotSupported;
+    }
+
+    const u64 address = vm.va_range_end - VM::YUZU_PAGESIZE;
+    if (!Common::IsAligned(address, u64{VM::YUZU_PAGESIZE})) {
+        return NvResult::BadValue;
+    }
+    if (!nx2_syncpoint_shim) {
+        gmmu->SetNativeSyncpointShim(address);
+        nx2_syncpoint_shim = true;
+    }
+    params.address = address;
+    params.stride = sizeof(u32);
+    params.count = Tegra::MemoryManager::NumShimSyncpoints;
+    LOG_INFO(Service_NVDRV, "EDEN_NS2_SYNCPOINT_SHIM address={:#x} stride={} count={}",
+             address, params.stride, params.count);
     return NvResult::Success;
 }
 

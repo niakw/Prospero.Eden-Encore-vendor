@@ -43,6 +43,11 @@ public:
                            u64 big_page_bits_ = 16, u64 page_bits_ = 12);
     ~MemoryManager();
 
+    // Switch 2 NVN reads Host1x syncpoints through a read-only GPU virtual page.
+    // Zero keeps the NS1 path unchanged until native NVN requests ioctl A/0xB.
+    void SetNativeSyncpointShim(GPUVAddr address);
+    static constexpr u32 NumShimSyncpoints = 192;
+
     static constexpr bool HAS_FLUSH_INVALIDATION = true;
 
     inline size_t GetID() const noexcept {
@@ -228,6 +233,7 @@ private:
     VideoCommon::InvalidationAccumulator accumulator;
 
     static std::atomic<size_t> unique_identifier_generator;
+    std::atomic<GPUVAddr> native_syncpoint_shim{0};
 
     Common::ScratchBuffer<u8> tmp_buffer;
 };

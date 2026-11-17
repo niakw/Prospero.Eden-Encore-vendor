@@ -70,6 +70,10 @@ MemoryManager::MemoryManager(Core::System& system_, u64 address_space_bits_, GPU
     : MemoryManager(system_, system_.Host1x().MemoryManager(), address_space_bits_, split_address_, big_page_bits_, page_bits_)
 {}
 
+void MemoryManager::SetNativeSyncpointShim(GPUVAddr address) {
+    native_syncpoint_shim.store(address, std::memory_order_release);
+}
+
 MemoryManager::~MemoryManager() = default;
 
 MemoryManager::EntryType MemoryManager::GetEntry(size_t position, bool is_big_page) const {
@@ -308,6 +312,16 @@ std::optional<DAddr> MemoryManager::GpuToCpuAddress(GPUVAddr addr, std::size_t s
 
 template <typename T>
 T MemoryManager::Read(GPUVAddr addr) const {
+    if constexpr (sizeof(T) == sizeof(u32)) {
+        const GPUVAddr shim = native_syncpoint_shim.load(std::memory_order_acquire);
+        constexpr u64 shim_bytes = u64{NumShimSyncpoints} * sizeof(u32);
+        if (shim != 0 && addr >= shim && addr - shim < shim_bytes &&
+            Common::IsAligned(addr - shim, sizeof(u32))) {
+            return static_cast<T>(system.Host1x().GetSyncpointManager().GetGuestSyncpointValue(
+                static_cast<u32>((addr - shim) / sizeof(u32))));
+        }
+    }
+
     T value{};
     // The physical backing of consecutive guest GPU 4 KiB pages need not
     // be contiguous. This shared NS1/NS2 owner preserves the single-page
@@ -441,6 +455,28 @@ void MemoryManager::ReadBlockImpl(GPUVAddr gpu_src_addr, void* dest_buffer, std:
     if (gpu_src_addr >= address_space_size ||
         size > address_space_size - gpu_src_addr) {
         std::memset(dest_buffer, 0, size);
+        return;
+    }
+
+    // NVN's syncpoint shim is deliberately not backed by guest/device RAM. Serve reads wholly
+    // inside its 192 u32 words directly from Host1x; all ordinary NS1 addresses keep this path.
+    const GPUVAddr shim = native_syncpoint_shim.load(std::memory_order_acquire);
+    constexpr u64 shim_bytes = u64{NumShimSyncpoints} * sizeof(u32);
+    if (shim != 0 && gpu_src_addr >= shim && gpu_src_addr - shim < shim_bytes &&
+        size <= shim_bytes - (gpu_src_addr - shim)) {
+        auto* out = static_cast<u8*>(dest_buffer);
+        u64 rel = gpu_src_addr - shim;
+        std::size_t remaining = size;
+        while (remaining != 0) {
+            const u32 value = system.Host1x().GetSyncpointManager().GetGuestSyncpointValue(
+                static_cast<u32>(rel / sizeof(u32)));
+            const std::size_t in_word = static_cast<std::size_t>(rel % sizeof(u32));
+            const std::size_t amount = (std::min)(remaining, sizeof(u32) - in_word);
+            std::memcpy(out, reinterpret_cast<const u8*>(&value) + in_word, amount);
+            out += amount;
+            rel += amount;
+            remaining -= amount;
+        }
         return;
     }
     auto set_to_zero = [&]([[maybe_unused]] std::size_t page_index, [[maybe_unused]] std::size_t offset, std::size_t copy_amount) {
