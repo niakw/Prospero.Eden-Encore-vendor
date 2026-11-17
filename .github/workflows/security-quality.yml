@@ -62,6 +62,7 @@ jobs:
             sources/ps5-mihawkgen
             sources/ps5-fsr3-optical-flow
             sources/libwebp
+            sources/eden/src/common/thread_worker.h
             tools/check-source-tree-layout.py
             tests/ps5-late-upstream-fixes-source.py
             tests/ps5-full-clear-skip-upload-source.py
