@@ -46,8 +46,8 @@
       "upstream": "83a044f8ab5d9117c9cad8aae095b2359f02da27af0c5caab75ce6e5a3f03d56"
     },
     "src/core/device_memory_manager.h": {
-      "active": "4f762c2d5560c9988c8842a8b461acb42e52c154cb8d4fc69e35248be1c82bc9",
-      "bytes": 11309,
+      "active": "87ac22b80a44c637d01f031bb26ab573a000baba5b522269c1f6f2cd4e9ba17a",
+      "bytes": 11442,
       "upstream": "b98873fdb1d3bef10d0b328d303970b969454ec59ccc51b3effc019ac593b163"
     },
     "src/core/device_memory_manager.inc": {
@@ -86,13 +86,13 @@
       "upstream": "35f77abe92d86d553c0ced0651001116c1a053766d108588c2704690049f8b6b"
     },
     "src/core/hle/kernel/svc_types.h": {
-      "active": "9279f2f72c0ac8c1abc9352dafd4fae6f9f2500a0b0fae47ae4312a081098ce9",
-      "bytes": 14523,
+      "active": "fe9c75c0a63cf3b5519de3790230e8828780dcd1988e023bc75dc5760d96cafd",
+      "bytes": 14838,
       "upstream": "5619f8fd62f292084432263d56456e7b656b626dad7781a76ba9ccb2f70a1acb"
     },
     "src/core/hle/kernel/svc/svc_info.cpp": {
-      "active": "fca95ca301fac4bda2d38f53e3254ee2cb287ad7fa6d8556ecf155cfefc79f56",
-      "bytes": 14845,
+      "active": "96d07b8eb9d30493576abba46e40ebe8b2b6c0cbd7428abc81e9fd6d12395785",
+      "bytes": 15493,
       "upstream": "76b12e3a425e6f60d4982348ea8bbe17e109b3d06341362191b1545cb6ae112c"
     },
     "src/core/hle/service/acc/acc.cpp": {

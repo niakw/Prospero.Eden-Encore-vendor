@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
-for rel in (
-    "sources/eden/src/core/device_memory_manager.h",
-    "encore-active/eden-backports/src/core/device_memory_manager.h",
-):
-    text=(R/rel).read_text()
-    assert "physical_max_bits = 34;" in text,rel
-    assert "physical_max_bits = 33;" not in text,rel
+# The original pinned Eden source stays immutable; only PS5 maintained overlay widens SMMU.
+pinned=(R/"sources/eden/src/core/device_memory_manager.h").read_text()
+assert "physical_max_bits = 33;" in pinned
+assert "physical_max_bits = 34;" not in pinned
+active=(R/"encore-active/eden-backports/src/core/device_memory_manager.h").read_text()
+assert "physical_max_bits = 34;" in active
+assert "physical_max_bits = 33;" not in active
 # PS5 must size reverse mappings from actual configured DRAM, not reserve a
 # worst-case 16-GiB reverse map just because the representable range is 34-bit.
 engine_hint=R.parent/"headless/backports/eden-ps5-gpu-physical-capacity.patch"
