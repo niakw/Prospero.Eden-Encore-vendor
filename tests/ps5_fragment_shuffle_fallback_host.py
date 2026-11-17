@@ -28,6 +28,9 @@ assert "std::array<bool, Maxwell::MaxShaderProgram> fragment_shuffle_fallback{};
 assert "Shader::Optimization::HasBrokenPattern(programs[index])" in pipeline
 assert "fragment_shuffle_fallback[index] = true;" in pipeline
 assert "using PS5 fragment shuffle fallback" in pipeline
+assert "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx" in pipeline
+assert "fallback_witness <= 8" in pipeline
+assert "fragment_shuffle_witness.fetch_add(1, std::memory_order_relaxed)" in pipeline
 assert "skipping fragment shuffle with known driver issue" in pipeline
 assert "emit_profile.has_broken_spirv_fragment_shuffle = fragment_shuffle_fallback[index];" in pipeline
 assert "EmitSPIRV(emit_profile, runtime_info, program, binding)" in pipeline
