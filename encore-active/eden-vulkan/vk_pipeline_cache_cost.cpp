@@ -1323,6 +1323,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     pipeline_cache_filename = base_dir / "vulkan.bin";
 
 #ifdef PS5_NATIVE
+    // ENCORE_PS5_WARM_MANIFEST_BEGIN
     // Keep a driver-independent record of pipelines that compiled successfully.
     // It lives beside cache/shader, not inside it: clearing the compiled
     // shader/JIT caches can therefore rebuild known environments instead of
@@ -1376,6 +1377,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                 unsigned(!warm_pipeline_cache_filename.empty() &&
                          std::filesystem::exists(warm_pipeline_cache_filename)),
                 unsigned(restored_from_warm_manifest), unsigned(CACHE_VERSION));
+    // ENCORE_PS5_WARM_MANIFEST_END
 #endif
 
     if (use_vulkan_pipeline_cache) {
@@ -1427,11 +1429,13 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     // Games with fewer cached entries load only those entries. This policy
     // applies to every title (NS1 and NS2) without any title ID exceptions.
     // Keep the worker queue, draw order and GPU fences unchanged.
-    constexpr size_t kNormalStartupPrewarmPipelines = 32;
+    constexpr size_t kStartupPrewarmPipelines = 32;
+    // ENCORE_PS5_WARM_LIMIT_BEGIN
     constexpr size_t kRestoredStartupPrewarmPipelines = 128;
     const size_t startup_prewarm_limit = restored_from_warm_manifest
                                             ? kRestoredStartupPrewarmPipelines
-                                            : kNormalStartupPrewarmPipelines;
+                                            : kStartupPrewarmPipelines;
+    // ENCORE_PS5_WARM_LIMIT_END
     const auto startup_prewarm_started = std::chrono::steady_clock::now();
     std::stop_source startup_reader;
 #endif
@@ -2204,9 +2208,11 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
         }
         SerializePipeline(key, env_ptrs, pipeline_cache_filename, CACHE_VERSION);
 #ifdef PS5_NATIVE
+        // ENCORE_PS5_WARM_GRAPHICS_MIRROR_BEGIN
         if (!warm_pipeline_cache_filename.empty()) {
             SerializePipeline(key, env_ptrs, warm_pipeline_cache_filename, CACHE_VERSION);
         }
+        // ENCORE_PS5_WARM_GRAPHICS_MIRROR_END
 #endif
     });
 #ifdef PS5_NATIVE
@@ -2244,12 +2250,15 @@ std::unique_ptr<ComputePipeline> PipelineCache::CreateComputePipeline(
     try {
 #endif
     serialization_thread.QueueWork([this, key, env_ = std::move(env)] {
-        const std::array<const GenericEnvironment*, 1> env_ptrs{&env_};
-        SerializePipeline(key, env_ptrs, pipeline_cache_filename, CACHE_VERSION);
+        SerializePipeline(key, std::array<const GenericEnvironment*, 1>{&env_},
+                          pipeline_cache_filename, CACHE_VERSION);
 #ifdef PS5_NATIVE
+        // ENCORE_PS5_WARM_COMPUTE_MIRROR_BEGIN
         if (!warm_pipeline_cache_filename.empty()) {
-            SerializePipeline(key, env_ptrs, warm_pipeline_cache_filename, CACHE_VERSION);
+            SerializePipeline(key, std::array<const GenericEnvironment*, 1>{&env_},
+                              warm_pipeline_cache_filename, CACHE_VERSION);
         }
+        // ENCORE_PS5_WARM_COMPUTE_MIRROR_END
 #endif
     });
 #ifdef PS5_NATIVE
