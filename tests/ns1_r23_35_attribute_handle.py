@@ -60,6 +60,56 @@ for path,sha in EXPECTED.items():
   # cache owner advances 19 -> 20. Reverse only that reviewed version bump
   # in the audit copy before reconstructing the frozen R23 receipt.
   raw_cache_blob=gitblob(ROOT/path)
+  if raw_cache_blob=="e10c4893c03da57dce7f607d3e0af46d62e343f1":
+   post_programs="""    std::array<Shader::IR::Program, Maxwell::MaxShaderProgram> programs;
+#ifdef PS5_NATIVE
+    // Eden #4503 drops known-broken non-NVIDIA fragment shaders entirely.
+    // On PS5 that visibly removes guest draws. Keep the exact predicate but
+    // route only matching programs through the newer Lichii/Eglantine
+    // broadcast/select SPIR-V fallback.
+    std::array<bool, Maxwell::MaxShaderProgram> fragment_shuffle_fallback{};
+#endif
+"""
+   pre_programs="    std::array<Shader::IR::Program, Maxwell::MaxShaderProgram> programs;\n"
+   post_skip="""        // Avoid native subgroup shuffle for the known PositionXY fragment
+        // pattern on non-NVIDIA drivers. Desktop/mobile preserve Eden #4503's
+        // fail-closed skip. PS5 instead uses the newer upstream broadcast
+        // fallback so the whole guest draw is not silently discarded.
+        if (device.GetDriverID() != VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
+            Shader::Optimization::HasBrokenPattern(programs[index])) {
+#ifdef PS5_NATIVE
+            fragment_shuffle_fallback[index] = true;
+            LOG_WARNING(Render_Vulkan,
+                        "0x{:016x}: using PS5 fragment shuffle fallback",
+                        key.unique_hashes[index]);
+#else
+            LOG_WARNING(Render_Vulkan,
+                        "0x{:016x}: skipping fragment shuffle with known driver issue",
+                        key.unique_hashes[index]);
+            return nullptr;
+#endif
+        }"""
+   pre_skip="""        // Avoid compiling a known-broken fragment shuffle sourced from
+        // PositionXY on non-NVIDIA drivers (notably RADV/RDNA2). Recognize
+        // the IR pattern, not a broad title or vendor blacklist.
+        if (device.GetDriverID() != VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
+            Shader::Optimization::HasBrokenPattern(programs[index])) {
+            LOG_WARNING(Render_Vulkan,
+                        "0x{:016x}: skipping fragment shuffle with known driver issue",
+                        key.unique_hashes[index]);
+            return nullptr;
+        }"""
+   post_emit="""        auto emit_profile = profile;
+#ifdef PS5_NATIVE
+        emit_profile.has_broken_spirv_fragment_shuffle = fragment_shuffle_fallback[index];
+#endif
+        const std::vector<u32> code{([&] { auto cost = Eden::Performance::VulkanTimer(22); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderSpirv, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return EmitSPIRV(emit_profile, runtime_info, program, binding); }())};"""
+   pre_emit="""        const std::vector<u32> code{([&] { auto cost = Eden::Performance::VulkanTimer(22); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderSpirv, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return EmitSPIRV(profile, runtime_info, program, binding); }())};"""
+   assert normalized.count(post_programs)==1 and normalized.count(post_skip)==1 and normalized.count(post_emit)==1
+   normalized=normalized.replace(post_programs,pre_programs,1).replace(post_skip,pre_skip,1).replace(post_emit,pre_emit,1)
+   predecessor=normalized.encode("utf-8")
+   assert hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()=="be5d48abd44996502b0829a6e0501d130a151455"
+   raw_cache_blob="be5d48abd44996502b0829a6e0501d130a151455"
   if raw_cache_blob=="be5d48abd44996502b0829a6e0501d130a151455":
    assert normalized.count("constexpr u32 CACHE_VERSION = 21;")==1
    normalized=normalized.replace("constexpr u32 CACHE_VERSION = 21;",
