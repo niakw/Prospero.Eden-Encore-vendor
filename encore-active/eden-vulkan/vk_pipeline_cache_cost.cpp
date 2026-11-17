@@ -1322,6 +1322,62 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     }
     pipeline_cache_filename = base_dir / "vulkan.bin";
 
+#ifdef PS5_NATIVE
+    // Keep a driver-independent record of pipelines that compiled successfully.
+    // It lives beside cache/shader, not inside it: clearing the compiled
+    // shader/JIT caches can therefore rebuild known environments instead of
+    // rediscovering them during the first match. This is not a driver blob.
+    bool restored_from_warm_manifest = false;
+    warm_pipeline_cache_filename.clear();
+    const auto warm_root{shader_dir.parent_path() / "shader-warm"};
+    const auto warm_dir{warm_root / fmt::format("{:016x}", title_id)};
+    if (Common::FS::CreateDir(warm_root) && Common::FS::CreateDir(warm_dir)) {
+        warm_pipeline_cache_filename = warm_dir / "vulkan.bin";
+        std::error_code active_error;
+        std::error_code warm_error;
+        const bool active_present =
+            std::filesystem::is_regular_file(pipeline_cache_filename, active_error);
+        const bool warm_present =
+            std::filesystem::is_regular_file(warm_pipeline_cache_filename, warm_error);
+        if (!active_present && !active_error && warm_present && !warm_error) {
+            bool valid_manifest = false;
+            try {
+                std::ifstream manifest(warm_pipeline_cache_filename, std::ios::binary);
+                manifest.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+                std::array<char, 8> magic{};
+                u32 version{};
+                manifest.read(magic.data(), magic.size())
+                    .read(reinterpret_cast<char*>(&version), sizeof(version));
+                constexpr std::array<char, 8> kEnvironmentMagic{
+                    'y', 'u', 'z', 'u', 'c', 'a', 'c', 'h'};
+                valid_manifest = magic == kEnvironmentMagic && version == CACHE_VERSION;
+            } catch (...) {
+                valid_manifest = false;
+            }
+            if (valid_manifest) {
+                std::error_code copy_error;
+                std::filesystem::copy_file(
+                    warm_pipeline_cache_filename, pipeline_cache_filename,
+                    std::filesystem::copy_options::overwrite_existing, copy_error);
+                restored_from_warm_manifest = !copy_error;
+                if (copy_error) {
+                    LOG_WARNING(Common_Filesystem,
+                                "PS5 shader warm manifest restore failed: {}",
+                                copy_error.message());
+                }
+            } else {
+                std::error_code remove_error;
+                std::filesystem::remove(warm_pipeline_cache_filename, remove_error);
+            }
+        }
+    }
+    std::printf("EDEN_PS5_SHADER_WARM_MANIFEST title=%016llX present=%u restored=%u cache_version=%u\n",
+                static_cast<unsigned long long>(title_id),
+                unsigned(!warm_pipeline_cache_filename.empty() &&
+                         std::filesystem::exists(warm_pipeline_cache_filename)),
+                unsigned(restored_from_warm_manifest), unsigned(CACHE_VERSION));
+#endif
+
     if (use_vulkan_pipeline_cache) {
         vulkan_pipeline_cache_filename = base_dir / "vulkan_pipelines.bin";
         vulkan_pipeline_cache =
@@ -1371,7 +1427,11 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     // Games with fewer cached entries load only those entries. This policy
     // applies to every title (NS1 and NS2) without any title ID exceptions.
     // Keep the worker queue, draw order and GPU fences unchanged.
-    constexpr size_t kStartupPrewarmPipelines = 32;
+    constexpr size_t kNormalStartupPrewarmPipelines = 32;
+    constexpr size_t kRestoredStartupPrewarmPipelines = 128;
+    const size_t startup_prewarm_limit = restored_from_warm_manifest
+                                            ? kRestoredStartupPrewarmPipelines
+                                            : kNormalStartupPrewarmPipelines;
     const auto startup_prewarm_started = std::chrono::steady_clock::now();
     std::stop_source startup_reader;
 #endif
@@ -1425,7 +1485,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             ++state.total;
         }
 #ifdef PS5_NATIVE
-        if (state.total == kStartupPrewarmPipelines)
+        if (state.total == startup_prewarm_limit)
             startup_reader.request_stop();
 #endif
     }};
@@ -1506,7 +1566,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             ++state.total;
         }
 #ifdef PS5_NATIVE
-        if (state.total == kStartupPrewarmPipelines)
+        if (state.total == startup_prewarm_limit)
             startup_reader.request_stop();
 #endif
     }};
@@ -1570,7 +1630,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         std::chrono::steady_clock::now() - startup_prewarm_started).count();
     std::printf("EDEN_PS5_SHADER_PREWARM queued=%zu completed=%zu valid=%zu rejected=%zu prebuild_ms=%lld limit=%zu\n",
                 state.total, state.built, state.valid, state.built - state.valid,
-                static_cast<long long>(startup_prewarm_ms), kStartupPrewarmPipelines);
+                static_cast<long long>(startup_prewarm_ms), startup_prewarm_limit);
     // ENCORE_PS5_CACHE_DIAG_BEGIN
     const auto env_after = probe_cache(pipeline_cache_filename);
     std::printf("EDEN_PS5_SHADER_CACHE_ADMISSION title=%016llX"
@@ -2143,6 +2203,11 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
             }
         }
         SerializePipeline(key, env_ptrs, pipeline_cache_filename, CACHE_VERSION);
+#ifdef PS5_NATIVE
+        if (!warm_pipeline_cache_filename.empty()) {
+            SerializePipeline(key, env_ptrs, warm_pipeline_cache_filename, CACHE_VERSION);
+        }
+#endif
     });
 #ifdef PS5_NATIVE
     } catch (const std::exception& error) {
@@ -2179,8 +2244,13 @@ std::unique_ptr<ComputePipeline> PipelineCache::CreateComputePipeline(
     try {
 #endif
     serialization_thread.QueueWork([this, key, env_ = std::move(env)] {
-        SerializePipeline(key, std::array<const GenericEnvironment*, 1>{&env_},
-                          pipeline_cache_filename, CACHE_VERSION);
+        const std::array<const GenericEnvironment*, 1> env_ptrs{&env_};
+        SerializePipeline(key, env_ptrs, pipeline_cache_filename, CACHE_VERSION);
+#ifdef PS5_NATIVE
+        if (!warm_pipeline_cache_filename.empty()) {
+            SerializePipeline(key, env_ptrs, warm_pipeline_cache_filename, CACHE_VERSION);
+        }
+#endif
     });
 #ifdef PS5_NATIVE
     } catch (const std::exception& error) {
