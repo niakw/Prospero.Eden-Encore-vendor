@@ -26,6 +26,14 @@ assert switch2 in helper
 assert diagnostic in helper
 assert helper.index(probe) < helper.index(switch2) < helper.index("return switch2;")
 assert "metadata.Load(npdm) == Loader::ResultStatus::Success &&" not in helper
+assert "const FileSys::VirtualFile& direct_extracted_npdm" in helper
+assert "if (direct_extracted_npdm)" in helper
+assert helper.index("if (direct_extracted_npdm)") < helper.index("const auto check_program_nca")
+assert 'OpenDirectory(filepath, FileSys::OpenMode::Read)' in core
+assert 'exefs_dir->GetFile("main.npdm")' in core
+assert core.index('exefs_dir->GetFile("main.npdm")') < core.index(
+    "InitializeKernel(system)"
+)
 
 load_begin = metadata.index("Loader::ResultStatus ProgramMetadata::Load(VirtualFile file)")
 load_end = metadata.index("Loader::ResultStatus ProgramMetadata::Reload", load_begin)
