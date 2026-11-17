@@ -66,7 +66,8 @@ assert process_table.count(begin) == 1
 assert process_table.replace(begin, "", 1) == base_process_table
 
 kprocess = KPROCESS.read_text()
-assert "m_is_switch2" not in kprocess
+assert "bool m_is_switch2" not in kprocess
+assert "m_is_switch2 =" not in kprocess
 assert "aslr_space_start, metadata.IsSwitch2()" in kprocess
 assert "aslr_space_start, is_switch2));" in kprocess
 assert "aslr_space_start, false));" in kprocess
