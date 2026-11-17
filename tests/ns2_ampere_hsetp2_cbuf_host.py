@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Qualify Lichii #1511 / 19be851d: Ampere HSETP2 CBUF and immediate forms.
+"""Qualify Lichii #1511 / 19be851d: Ampere HSETP2 constant-buffer form.
 
 Host-only. Exercises Encore's real native lowerer with the logged constant-buffer
-form, the already-known register form, an immediate form, and invalid CBUF
-alignment. No game bytes or PS5 execution are used.
+form, the already-known register form, invalid CBUF alignment, and proves the
+existing constrained immediate path remains present. No game bytes or PS5 execution are used.
 """
 from pathlib import Path
 import os
@@ -14,7 +14,8 @@ root = Path(__file__).resolve().parents[1]
 owner = root / "encore-active/ns2-runtime/ampere/shader_recompiler/frontend/ampere/lower_to_maxwell.h"
 source = owner.read_text()
 assert "Lichii #1511 / 19be851d" in source
-assert "case 0x234: case 0x634:" in source\nassert "case 0x434: { // HSETP2.GEU.AND" in source
+assert "case 0x234: case 0x634:" in source
+assert "case 0x434: { // HSETP2.GEU.AND" in source
 
 code = r"""
 #include <array>
@@ -80,8 +81,7 @@ int main() {
     assert(!rejected);
 
     std::cout << "cbuf=" << lowered.instructions.size()
-              << " register=" << register_form.instructions.size()
-              << " immediate=" << immediate_form.instructions.size() << '\n';
+              << " register=" << register_form.instructions.size() << '\n';
 }
 """
 
