@@ -4,7 +4,8 @@
 
 This is source qualification only. It proves the selected successor differs
 from the pinned Eden owner only by Eglantine/Lichii dce3adbc's IsSwitch2
-alias-region memory budget. It does not prove a PS5 guest stack maps.
+alias-region memory budget plus bounded PS5 stack/context receipts. The
+receipts prove source ordering, not that a real PS5 guest stack maps.
 """
 from pathlib import Path
 import hashlib
@@ -34,7 +35,57 @@ assert active.count("metadata.IsSwitch2()") == 1
 assert "m_is_switch2" not in active
 assert "IsSwitch2() const" not in active
 
-restored = active.replace(block, "", 1)
+stack_receipt = """#if defined(PS5_NATIVE)
+        // Fatal guest PC=4 reports on PS5 showed SP in a state=0 region.
+        // Prove the page-table state immediately after the real KProcess map,
+        // before any thread runs or teardown can modify it. One receipt per
+        // process start; no guest memory is dereferenced.
+        KMemoryInfo stack_info{};
+        Svc::PageInfo stack_page{};
+        const KProcessAddress probe = stack_top - 16;
+        const bool stack_query =
+            !m_page_table.QueryInfo(&stack_info, &stack_page, probe).IsError();
+        std::fprintf(stderr,
+                     "EDEN_MAIN_STACK_MAP bottom=0x%llx top=0x%llx bytes=0x%llx "
+                     "probe=0x%llx query=%s start=0x%llx size=0x%llx state=%u\\n",
+                     static_cast<unsigned long long>(stack_bottom),
+                     static_cast<unsigned long long>(stack_top),
+                     static_cast<unsigned long long>(stack_size),
+                     static_cast<unsigned long long>(probe),
+                     stack_query ? "ok" : "failed",
+                     static_cast<unsigned long long>(stack_info.m_address),
+                     static_cast<unsigned long long>(stack_info.m_size),
+                     static_cast<unsigned>(stack_info.m_state));
+#endif
+"""
+context_receipt = """#if defined(PS5_NATIVE)
+    {
+        const auto& initial_context = main_thread->GetContext();
+        std::fprintf(stderr,
+                     "EDEN_MAIN_THREAD_CONTEXT entry=0x%llx pc=0x%llx sp=0x%llx "
+                     "lr=0x%llx stack_top=0x%llx\\n",
+                     static_cast<unsigned long long>(this->GetEntryPoint()),
+                     static_cast<unsigned long long>(initial_context.pc),
+                     static_cast<unsigned long long>(initial_context.sp),
+                     static_cast<unsigned long long>(initial_context.lr),
+                     static_cast<unsigned long long>(stack_top));
+    }
+#endif
+"""
+
+assert active.count(stack_receipt) == 1
+assert active.count(context_receipt) == 1
+run = active.split("Result KProcess::Run(", 1)[1].split("\nResult KProcess::Terminate(", 1)[0]
+assert run.index("m_page_table.MapPages(") < run.index("EDEN_MAIN_STACK_MAP")
+assert run.index("EDEN_MAIN_STACK_MAP") < run.index("KThread::InitializeUserThread(")
+assert run.index("KThread::InitializeUserThread(") < run.index("EDEN_MAIN_THREAD_CONTEXT")
+assert "m_page_table.QueryInfo(&stack_info, &stack_page, probe)" in run
+assert "stack_top - 16" in run
+assert "initial_context.sp" in run and "initial_context.pc" in run
+
+restored = active.replace(stack_receipt, "", 1).replace(context_receipt, "", 1)
+restored = restored.replace("#include <cstdio>\n", "", 1)
+restored = restored.replace(block, "", 1)
 assert restored == base
 
 def blob(text: str) -> str:
@@ -42,7 +93,7 @@ def blob(text: str) -> str:
     return hashlib.sha1(b"blob " + str(len(raw)).encode() + bytes([0]) + raw).hexdigest()
 
 assert blob(base) == "f338b293eb5feadceed8948b89ba0b77dcd17c26"
-assert blob(active) == "dfef3558a4649b0c9ee92c1c5ed3a21e1c2910d3"
+assert blob(active) == "21f098061b52e45962db90cad0146c7cc6673eff"
 
 method = active.split("Result KProcess::LoadFromMetadata(", 1)[1].split(
     "\nvoid KProcess::LoadModule(", 1
@@ -51,4 +102,4 @@ assert method.index("this->Initialize(") < method.index("metadata.IsSwitch2()")
 assert method.index("metadata.IsSwitch2()") < method.index("InitializeInterfaces(kernel)")
 assert method.count("GetHeapRegionSize() + m_page_table.GetAliasRegionSize()") == 1
 
-print("NS2_KPROCESS_MEMORY_BUDGET_SOURCE_PASS upstream=dce3adbc abi_layout_unchanged=1")
+print("NS2_KPROCESS_MEMORY_BUDGET_SOURCE_PASS upstream=dce3adbc abi_layout_unchanged=1 stack_receipt=1 thread_context_receipt=1")
