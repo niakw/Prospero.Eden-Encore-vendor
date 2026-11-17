@@ -140,6 +140,7 @@ for path,sha in EXPECTED.items():
      "c7e3ca901ea7ab82ec679c23cf43a1c556ac7e41",
      "36aae4b17ef8e9681f62fabdd4cf37f09d0beefb",
      "be5d48abd44996502b0829a6e0501d130a151455",
+     "e10c4893c03da57dce7f607d3e0af46d62e343f1",
  }:
   assert digest=="10d76dd2b7b02fe6ce89afa5c122194442ebf77f", (path,digest)
  else:
