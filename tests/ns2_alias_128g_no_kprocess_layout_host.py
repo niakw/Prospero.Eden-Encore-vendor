@@ -71,7 +71,12 @@ assert "m_is_switch2 =" not in kprocess
 assert "aslr_space_start, metadata.IsSwitch2()" in kprocess
 assert "aslr_space_start, is_switch2));" in kprocess
 assert "aslr_space_start, false));" in kprocess
-assert kprocess.index("metadata.IsSwitch2()") < kprocess.index(
+load_from_metadata = kprocess.split("Result KProcess::LoadFromMetadata(", 1)[1].split(
+    "\nvoid KProcess::LoadModule(", 1
+)[0]
+assert load_from_metadata.index(
+    "aslr_space_start, metadata.IsSwitch2())"
+) < load_from_metadata.index(
     "m_page_table.GetHeapRegionSize() + m_page_table.GetAliasRegionSize()"
 )
 
