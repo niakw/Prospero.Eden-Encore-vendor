@@ -2564,7 +2564,9 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             // depth compare or F16 form is admitted here.
             const u32 mask = insn.Bits(72, 4), second_dest = insn.Bits(64, 8);
             const u32 source_a = insn.Bits(24, 8), source_b = insn.Bits(32, 8);
-            const u32 limit = uses_uniform_bank ? high_uniform_base : 246U;
+            // Encore reserves guest-visible registers below the scratch/uniform area.
+            // Use its existing limit instead of Lichii's high_uniform_base convention.
+            const u32 limit = reserved_register;
             const u32 components = static_cast<u32>(std::popcount(mask));
             const bool split = second_dest != 255;
             const u32 low_count = split ? std::min(components, 2U) : components;
