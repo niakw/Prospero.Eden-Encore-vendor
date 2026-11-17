@@ -21,6 +21,18 @@ for name,expected in files.items():
   assert "MaxwellDepthClampClip" in text and "regs.tir_mode == Maxwell::TIRMode::RasterNTargetM" in text,(name,"lost EDS3/TIR")
  elif name.endswith("texture_cache/texture_cache.h") and "ImagePages::Mark(image.cpu_addr" in raw.decode():
   text=raw.decode()
+  # The active shared PS5 cache advanced again with reviewed full-clear upload
+  # elision. Pin the complete current owner, then normalize ONLY that exact
+  # additive region before applying the older image-page normalization below.
+  assert sha == "744bf30e1421dcce212146f7e26e9d90558676a8", (name, sha)
+  scope_start=text.index("    // Lichii/PS5 patch 0078: a full clear may create a target")
+  scope_end=text.index("    auto& flags = maxwell3d->dirty.flags;",scope_start)
+  text=text[:scope_start]+text[scope_end:]
+  clear_start=text.index("    // A new render target that the clear binding overwrites whole needs no")
+  clear_end=text.index("\n    if (can_rescale)",clear_start)
+  text=text[:clear_start]+"""    // TODO: Only upload what we need
+    RefreshContents(new_image, new_image_id);
+"""+text[clear_end:]
   # The active shared PS5 cache advanced after the frozen R23 receipt.
   # Reverse only the reviewed page-publication contract and prove the
   # remaining owner is byte-identical to the historical R23 source.
