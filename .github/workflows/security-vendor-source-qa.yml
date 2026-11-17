@@ -95,5 +95,12 @@ jobs:
               (cd "sources/eden-cpm/boost/boost-1.90.0/libs/$directory/doc" &&
                   npm ci --ignore-scripts --dry-run --no-audit --no-fund --loglevel=error)
           done
+      - name: NS2 Ampere focused host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B tests/ns2_ampere_imad_negated_addend_host.py
+          python3 -B tests/ns2_dynamic_texture_found_bit_limit_host.py
+          python3 -B tests/ns2_duskbloods_tld4_imad_host.py
       - name: Verify no whitespace damage
         run: git diff --check
