@@ -968,10 +968,10 @@ Result KProcess::Run(KernelCore& kernel, s32 priority, size_t stack_size) {
         std::fprintf(stderr,
                      "EDEN_MAIN_STACK_MAP bottom=0x%llx top=0x%llx bytes=0x%llx "
                      "probe=0x%llx query=%s start=0x%llx size=0x%llx state=%u\n",
-                     static_cast<unsigned long long>(stack_bottom),
-                     static_cast<unsigned long long>(stack_top),
+                     static_cast<unsigned long long>(GetInteger(stack_bottom)),
+                     static_cast<unsigned long long>(GetInteger(stack_top)),
                      static_cast<unsigned long long>(stack_size),
-                     static_cast<unsigned long long>(probe),
+                     static_cast<unsigned long long>(GetInteger(probe)),
                      stack_query ? "ok" : "failed",
                      static_cast<unsigned long long>(stack_info.m_address),
                      static_cast<unsigned long long>(stack_info.m_size),
@@ -1015,11 +1015,11 @@ Result KProcess::Run(KernelCore& kernel, s32 priority, size_t stack_size) {
         std::fprintf(stderr,
                      "EDEN_MAIN_THREAD_CONTEXT entry=0x%llx pc=0x%llx sp=0x%llx "
                      "lr=0x%llx stack_top=0x%llx\n",
-                     static_cast<unsigned long long>(this->GetEntryPoint()),
+                     static_cast<unsigned long long>(GetInteger(this->GetEntryPoint())),
                      static_cast<unsigned long long>(initial_context.pc),
                      static_cast<unsigned long long>(initial_context.sp),
                      static_cast<unsigned long long>(initial_context.lr),
-                     static_cast<unsigned long long>(stack_top));
+                     static_cast<unsigned long long>(GetInteger(stack_top)));
     }
 #endif
 
