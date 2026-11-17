@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2023 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdio>
 #include <random>
 #include "common/scope_exit.h"
 #include "common/settings.h"
@@ -947,6 +948,28 @@ Result KProcess::Run(KernelCore& kernel, s32 priority, size_t stack_size) {
 
         stack_top = stack_bottom + stack_size;
         m_main_thread_stack_size = stack_size;
+#if defined(PS5_NATIVE)
+        // Fatal guest PC=4 reports on PS5 showed SP in a state=0 region.
+        // Prove the page-table state immediately after the real KProcess map,
+        // before any thread runs or teardown can modify it. One receipt per
+        // process start; no guest memory is dereferenced.
+        KMemoryInfo stack_info{};
+        Svc::PageInfo stack_page{};
+        const KProcessAddress probe = stack_top - 16;
+        const bool stack_query =
+            !m_page_table.QueryInfo(&stack_info, &stack_page, probe).IsError();
+        std::fprintf(stderr,
+                     "EDEN_MAIN_STACK_MAP bottom=0x%llx top=0x%llx bytes=0x%llx "
+                     "probe=0x%llx query=%s start=0x%llx size=0x%llx state=%u\n",
+                     static_cast<unsigned long long>(stack_bottom),
+                     static_cast<unsigned long long>(stack_top),
+                     static_cast<unsigned long long>(stack_size),
+                     static_cast<unsigned long long>(probe),
+                     stack_query ? "ok" : "failed",
+                     static_cast<unsigned long long>(stack_info.m_address),
+                     static_cast<unsigned long long>(stack_info.m_size),
+                     static_cast<unsigned>(stack_info.m_state));
+#endif
     }
 
     // Ensure our stack is safe to clean up on exit.
@@ -979,6 +1002,19 @@ Result KProcess::Run(KernelCore& kernel, s32 priority, size_t stack_size) {
     // Initialize the thread.
     R_TRY(KThread::InitializeUserThread(kernel.System(), main_thread, this->GetEntryPoint(), 0,
                                         stack_top, priority, m_ideal_core_id, this));
+#if defined(PS5_NATIVE)
+    {
+        const auto& initial_context = main_thread->GetContext();
+        std::fprintf(stderr,
+                     "EDEN_MAIN_THREAD_CONTEXT entry=0x%llx pc=0x%llx sp=0x%llx "
+                     "lr=0x%llx stack_top=0x%llx\n",
+                     static_cast<unsigned long long>(this->GetEntryPoint()),
+                     static_cast<unsigned long long>(initial_context.pc),
+                     static_cast<unsigned long long>(initial_context.sp),
+                     static_cast<unsigned long long>(initial_context.lr),
+                     static_cast<unsigned long long>(stack_top));
+    }
+#endif
 
     // Register the thread, and commit our reservation.
     KThread::Register(kernel, main_thread);
