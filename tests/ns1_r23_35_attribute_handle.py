@@ -60,6 +60,22 @@ for path,sha in EXPECTED.items():
   # cache owner advances 19 -> 20. Reverse only that reviewed version bump
   # in the audit copy before reconstructing the frozen R23 receipt.
   raw_cache_blob=gitblob(ROOT/path)
+  if raw_cache_blob=="dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56":
+   witness_block="""            static std::atomic<unsigned> fragment_shuffle_witness{};
+            const unsigned fallback_witness =
+                fragment_shuffle_witness.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (fallback_witness <= 8) {
+                std::fprintf(stderr,
+                             "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx\\n",
+                             fallback_witness,
+                             static_cast<unsigned long long>(key.unique_hashes[index]));
+            }
+"""
+   assert normalized.count(witness_block)==1
+   normalized=normalized.replace(witness_block,"",1)
+   predecessor=normalized.encode("utf-8")
+   assert hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()=="e10c4893c03da57dce7f607d3e0af46d62e343f1"
+   raw_cache_blob="e10c4893c03da57dce7f607d3e0af46d62e343f1"
   if raw_cache_blob=="e10c4893c03da57dce7f607d3e0af46d62e343f1":
    post_programs="""    std::array<Shader::IR::Program, Maxwell::MaxShaderProgram> programs;
 #ifdef PS5_NATIVE
@@ -141,6 +157,7 @@ for path,sha in EXPECTED.items():
      "36aae4b17ef8e9681f62fabdd4cf37f09d0beefb",
      "be5d48abd44996502b0829a6e0501d130a151455",
      "e10c4893c03da57dce7f607d3e0af46d62e343f1",
+     "dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56",
  }:
   assert digest=="10d76dd2b7b02fe6ce89afa5c122194442ebf77f", (path,digest)
  else:
