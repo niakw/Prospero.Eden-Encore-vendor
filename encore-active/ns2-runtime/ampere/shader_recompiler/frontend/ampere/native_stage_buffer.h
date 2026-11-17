@@ -38,23 +38,26 @@ DecodeNativeStageBufferAccess(const Instruction& instruction) {
     const u32 region = instruction.Bits(76, 2);
     const bool output = instruction.Bits(79, 1) != 0;
     const bool is_32 = instruction.Bits(75, 1) != 0;
+    const bool skew = instruction.Bits(78, 1) != 0;
+    const bool output_read = !write && output && is_32 && !skew;
     const u32 value = instruction.Bits(write ? 32 : 16, 8);
     // Only region 3 (attribute) and 0 (primitive/map) are defined.
-    // Task/Mesh reads are attribute-input; writes are output-region.
+    // Task/Mesh reads normally consume attribute-input. ISBERD.ATTR.32.O
+    // reads back a word previously written to the output attribute region
+    // (Lichii 31f1378 / #2074). Writes remain output-region operations.
     // U8 writes in the attribute region are not supported by the native
     // guest stage-buffer layout and must not silently become U32 writes.
     if ((instruction.words[2] & ~0xf800U) != 0 ||
         (region != 0 && region != 3) ||
-        (write != output) ||
+        (write != output && !output_read) ||
         (!write && region != 3) ||
         (!write && value == 255) ||
-        // The current IR IsbeRead is word-wide. Without a byte-extract
+        // Both input and output reads are word-wide. Without byte-extract
         // lowering, an U8 read would return the wrong guest value.
         (!write && !is_32) ||
-        // The pseudo-IR currently carries SKEW but the active translator
-        // cannot apply the required lane-relative byte offset. Reject it
-        // rather than returning a plausible but incorrect mesh attribute.
-        instruction.Bits(78, 1) != 0 ||
+        // SKEW changes the lane-relative byte address. It remains rejected
+        // for reads until the exact guest addressing rule is modeled.
+        skew ||
         (write && region == 3 && !is_32)) {
         return std::nullopt;
     }
@@ -65,7 +68,7 @@ DecodeNativeStageBufferAccess(const Instruction& instruction) {
         .write = write,
         .width_32 = is_32,
         .attribute = region == 3,
-        .skew = instruction.Bits(78, 1) != 0,
+        .skew = skew,
         .output = output,
     };
 }
