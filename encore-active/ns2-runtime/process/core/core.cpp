@@ -124,8 +124,18 @@ namespace {
     const auto check_npdm = [](const FileSys::VirtualFile& npdm) {
         if (!npdm) return false;
         FileSys::ProgramMetadata metadata;
-        return metadata.Load(npdm) == Loader::ResultStatus::Success &&
-               metadata.IsSwitch2();
+        const auto status = metadata.Load(npdm);
+        // Generation selection happens before kernel/device-memory creation.
+        // ProgramMetadata marks Switch 2 as soon as the extended ACID body is
+        // safely identified; later ACI/FAC/KAC validation still belongs to the
+        // real loader and must remain fail-closed there. Requiring full NPDM
+        // success here can silently select the 4 GiB NS1 layout for a genuine
+        // NS2 program, causing a monolithic PS5 backing allocation before the
+        // loader gets a chance to report the actual metadata error.
+        const bool switch2 = metadata.IsSwitch2();
+        LOG_INFO(Core, "EDEN_NS2_PREKERNEL_NPDM status={} switch2={}",
+                 static_cast<unsigned>(status), int(switch2));
+        return switch2;
     };
     const auto check_program_nca = [&](const std::shared_ptr<FileSys::NCA>& program) {
         if (!program || program->GetStatus() != Loader::ResultStatus::Success)
