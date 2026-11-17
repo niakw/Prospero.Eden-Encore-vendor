@@ -139,7 +139,9 @@ private:
     static constexpr size_t device_virtual_bits = Traits::device_virtual_bits;
     static constexpr size_t device_as_size = 1ULL << device_virtual_bits;
     static constexpr size_t physical_min_bits = 32;
-    static constexpr size_t physical_max_bits = 33;
+    // Lichii 2835fec7 / bb7b14ac: Switch 2 10/12 GiB layouts require
+    // physical addresses above the historical 33-bit ceiling.
+    static constexpr size_t physical_max_bits = 34;
     static constexpr size_t page_bits = 12;
     static constexpr size_t page_size = 1ULL << page_bits;
     static constexpr size_t page_mask = page_size - 1ULL;
