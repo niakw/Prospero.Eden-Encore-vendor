@@ -406,11 +406,23 @@ struct System::Impl {
         // string. NS2 may temporarily require a 12 GiB guest layout, but that
         // override must not survive a subsequent NS1 launch in the same app.
         FileSys::VirtualFile direct_extracted_npdm;
-        if (virtual_filesystem && Common::FS::IsDir(filepath)) {
-            const auto exefs_dir =
-                virtual_filesystem->OpenDirectory(filepath, FileSys::OpenMode::Read);
-            direct_extracted_npdm =
-                exefs_dir ? exefs_dir->GetFile("main.npdm") : FileSys::VirtualFile{};
+        if (virtual_filesystem) {
+            std::string launch_dir;
+            std::string launch_filename;
+            Common::SplitPath(filepath, &launch_dir, &launch_filename, nullptr);
+            // The PS5 library selects loose ExeFS by its regular file
+            // ".../exefs/main", not by the directory itself. Resolve main.npdm
+            // from that exact VFS parent before kernel/device-memory creation.
+            // Keep directory launches for desktop/developer callers too.
+            const std::string npdm_dir =
+                launch_filename == "main" ? launch_dir :
+                Common::FS::IsDir(filepath) ? filepath : std::string{};
+            if (!npdm_dir.empty()) {
+                const auto exefs_dir =
+                    virtual_filesystem->OpenDirectory(npdm_dir, FileSys::OpenMode::Read);
+                direct_extracted_npdm =
+                    exefs_dir ? exefs_dir->GetFile("main.npdm") : FileSys::VirtualFile{};
+            }
         }
         const bool is_ns2_program =
             virtual_filesystem && IsSwitch2LaunchProgram(
