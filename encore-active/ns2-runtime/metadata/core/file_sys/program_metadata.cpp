@@ -80,11 +80,15 @@ Loader::ResultStatus ProgramMetadata::Load(VirtualFile file) {
     constexpr u64 Switch2Platform = 0x0400000000000000ULL;
     const u64 program_id = aci_header.title_id;
     const bool switch2_platform = (program_id & PlatformMask) == Switch2Platform;
+#if defined(PS5_NATIVE)
+    // Keep the standalone parser host test linkable without the full logger.
+    // On PS5, report only the bounded generation witness.
     if (switch2_platform && !is_switch2) {
         LOG_INFO(Loader,
                  "EDEN_NS2_PLATFORM_IDENTITY title={:016x} acid_extended=0 classification=switch2",
                  program_id);
     }
+#endif
     is_switch2 = is_switch2 || switch2_platform;
 
     constexpr u64 fac_read_size = 4 + sizeof(FileAccessControl::permissions) +
