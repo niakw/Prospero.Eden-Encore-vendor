@@ -109,7 +109,7 @@ int main(){
         c.WriteMemory(0x1100,0x20);
         assert((events==std::vector<int>{1,2,3}));
         assert(c.downloads.size()==1);
-        assert(c.downloads[0]==std::pair<DAddr,u64>{0x1000,0x1000});
+        assert((c.downloads[0]==std::pair<DAddr,u64>{0x1000,0x1000}));
         assert(!c.gpu_modified_ranges.Intersects(0x1100,0x20));
         assert(c.gpu_modified_ranges.Intersects(0x1200,0x20));
     }
