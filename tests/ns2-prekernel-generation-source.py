@@ -34,7 +34,9 @@ assert "is_switch2 = is_switch2 ||" not in metadata
 assert "const FileSys::VirtualFile& direct_extracted_npdm" in helper
 assert "if (direct_extracted_npdm)" in helper
 assert helper.index("if (direct_extracted_npdm)") < helper.index("const auto check_program_nca")
-assert 'OpenDirectory(filepath, FileSys::OpenMode::Read)' in core
+assert 'Common::SplitPath(filepath, &launch_dir, &launch_filename, nullptr);' in core
+assert 'launch_filename == "main" ? launch_dir' in core
+assert 'virtual_filesystem->OpenDirectory(npdm_dir, FileSys::OpenMode::Read)' in core
 assert 'exefs_dir->GetFile("main.npdm")' in core
 assert core.index('exefs_dir->GetFile("main.npdm")') < core.index(
     "InitializeKernel(system)"
