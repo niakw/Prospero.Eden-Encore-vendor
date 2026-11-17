@@ -868,9 +868,18 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 emit(base(0x5c10000000000000ULL) | (u64{insn.Bits(64, 8)} << 8) | (u64{250} << 20));
                 break;
             }
-            if ((insn.words[2] & ~0x2ffU) != 0x078e0000 || (insn.words[1] & ~0xffU))
+            // Lichii 6df7441 / #2083: bit 75 negates the register addend.
+            // Preserve Encore's special zero-product/carry cases above; only widen
+            // the ordinary register IMAD form and materialize -c in reserved R252.
+            if ((insn.words[2] & ~0xaffU) != 0x078e0000 || (insn.words[1] & ~0xffU))
                 return fail(index, "native integer register multiply mode");
-            multiply_low(insn.Bits(24, 8), insn.Bits(32, 8), insn.Bits(64, 8), false);
+            u32 addend = insn.Bits(64, 8);
+            if (insn.Bits(75, 1) && addend != 255) {
+                emit(0x5c10000000000000ULL | predicate | 252 | (u64{255} << 8) |
+                     (u64{addend} << 20) | (u64{1} << 48));
+                addend = 252;
+            }
+            multiply_low(insn.Bits(24, 8), insn.Bits(32, 8), addend, false);
             break;
         }
         case 0x23a: { // MOVM.16.MT88: transpose an 8x8 b16 register matrix across the warp.
