@@ -39,6 +39,9 @@ assert "int(metadata.IsSwitch2())" in loader
 assert "int(metadata.UsesExtendedAcid())" in loader
 assert "int(bool(dir->GetFile(\"main\")))" in loader
 # Classification is still based on verified metadata, never the offline ID.
+metadata = (root / "encore-active/ns2-runtime/metadata/core/file_sys/program_metadata.cpp").read_text()
+assert "PlatformMask" not in metadata
+assert "Switch2Platform" not in metadata
 assert "metadata.GetTitleID(), int(metadata.IsSwitch2())" in loader
 
 print("NS2_GENERATION_BOUNDARY_RECEIPT_SOURCE_PASS")
