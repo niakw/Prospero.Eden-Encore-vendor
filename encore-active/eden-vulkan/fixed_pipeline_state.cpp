@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <bit>
 #include <numeric>
@@ -185,7 +186,14 @@ void FixedPipelineState::Refresh(Tegra::Engines::Maxwell3D& maxwell3d, DynamicFe
     for (size_t i = 0; i < regs.rt.size(); ++i) {
         color_formats[i] = static_cast<u8>(regs.rt[i].format);
     }
-    alpha_test_ref = std::bit_cast<u32>(regs.alpha_test_ref);
+    // Lichii #121 / PS5 patch 0075: ignore a reference the alpha test cannot consume,
+    // and quantize active comparisons to the 8-bit alpha precision visible in textures. This
+    // prevents fades from generating a distinct graphics pipeline for sub-1/255 changes.
+    const u32 packed_alpha_test = alpha_test_func.Value();
+    alpha_test_ref = packed_alpha_test != PackComparisonOp(Maxwell::ComparisonOp::Never_GL) &&
+                             packed_alpha_test != PackComparisonOp(Maxwell::ComparisonOp::Always_GL)
+                         ? std::bit_cast<u32>(std::round(regs.alpha_test_ref * 255.0f) / 255.0f)
+                         : 0;
     point_size = std::bit_cast<u32>(regs.point_size);
 
     if (maxwell3d.dirty.flags[Dirty::VertexInput]) {
