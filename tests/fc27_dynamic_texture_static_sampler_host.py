@@ -25,7 +25,10 @@ def blob(path: Path)->str:
     raw=path.read_bytes()
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
 
-assert blob(TEX)=="3d9625f1981d6500e7b294018e0659464869d6f3"
+# Known successor of the original FC27 texture-table owner: vendor cb10b809
+# adds only Lichii #1914's found-bit descriptor bound. Its dedicated host test
+# validates that helper; retain the FC27 fixed-sampler contract below.
+assert blob(TEX)=="889456a31ddeb87e411ce4d0d2d41078b9593244"
 assert blob(GFX)=="efa8fd4d73c111655fced67fe7dd1e6b7c0178ba"
 assert blob(CMP)=="7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2"
 cache_blob=blob(CACHE)
@@ -44,6 +47,8 @@ if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48a
         assert "fallback_witness <= 8" in selected
 
 tex=TEX.read_text()
+assert "Upstream Lichii 5e33a765 / #1914" in tex
+assert "DynamicDescriptorIndexLimit(dynamic_offset, size_shift)" in tex
 gfx=GFX.read_text()
 cmp=CMP.read_text()
 cache=CACHE.read_text()
