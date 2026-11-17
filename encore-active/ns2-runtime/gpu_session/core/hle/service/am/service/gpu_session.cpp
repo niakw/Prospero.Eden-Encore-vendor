@@ -51,8 +51,12 @@ IGpuSession::IGpuSession(Core::System& system_,
         {33, &IGpuSession::CreateAddressSpace, "CreateAddressSpace"},
         {41, &IGpuSession::CreateGraphicsDevice, "CreateGraphicsDevice"},
         {42, &IGpuSession::DestroyGraphicsDevice, "DestroyGraphicsDevice"},
-        {202, &IGpuSession::GetAddressSpacePartition, "GetGsvPartition"},
-        {203, &IGpuSession::GetAddressSpacePartition, "GetUserPartition"},
+        // Newer NS2 SDK contract (Lichii nx2_gsv): 201=user, 202=GSV,
+        // 203=full GPU VA range. Keeping the old shifted IDs makes NVN close
+        // the GPU device and can surface later as a null guest branch.
+        {201, &IGpuSession::GetUserPartition, "GetUserPartition"},
+        {202, &IGpuSession::GetGsvPartition, "GetGsvPartition"},
+        {203, &IGpuSession::GetVaRange, "GetVaRange"},
         // Worker transport 21/22 is real; native GPU worker operations
         // 101/102 and 211-216 remain explicitly unsupported.
     };
@@ -411,76 +415,84 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
     rb.Push(id);
 }
 
-void IGpuSession::GetAddressSpacePartition(HLERequestContext& ctx) {
-    const std::scoped_lock lock{m_shared->mutex};
+void IGpuSession::GetUserPartition(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     const std::array<GP::U32, 3> command{packet[0], packet[1], packet[2]};
-    const bool user = ctx.GetCommand() == 203;
     Result result = Kernel::ResultInvalidCombination;
-    std::array<u64, 9> values{};
-    if (!user) values[0] = ~u64{0}; // No supervisor-owned VA range.
-    const auto request = GP::DecodeAddressSpacePartition(command, ctx.GetCommand());
-    if (request) {
+    u64 first{};
+    u64 size{};
+    if (const auto request = GP::DecodeAddressSpacePartition(command, 201)) {
         result = Kernel::ResultNotFound;
-        // A guest may have closed the NVDRV descriptor while the TIPC
-        // session kept its numeric ID. Validate the exact opened device
-        // identity before either returning a success partition or invoking
-        // an IOCTL that might otherwise target a recycled foreign FD.
-        const bool owned = m_shared->address_spaces.Owns(request->address_space);
-        if (owned && ResolveOpenedAddressSpace(request->address_space)) {
+        const std::scoped_lock lock{m_shared->mutex};
+        if (m_shared->address_spaces.Owns(request->address_space) &&
+            ResolveOpenedAddressSpace(request->address_space)) {
+            // Lichii's current newer-SDK contract: the user partition is the
+            // process GPU VA interval. It is deliberately independent from
+            // the legacy GetVARegions ioctl shape.
+            first = Nvidia::Devices::NativeNs2GpuVaStart;
+            size = Nvidia::Devices::NativeNs2GpuVaEnd - first;
             result = ResultSuccess;
-            if (user) {
-                std::array<u8, 64> input{};
-                std::array<u8, 64> output{};
-                const u32_le buffer_size{48};
-                std::memcpy(input.data() + 8, &buffer_size, sizeof(buffer_size));
-                Nvidia::Ioctl ioctl{};
-                ioctl.raw = 0xc0404108;
-                // The partition query is an allocating NVDRV ioctl on
-                // some driver paths. Never unwind through IPC or return an
-                // apparently valid VA partition on host OOM.
-                Nvidia::NvResult ioctl_result = Nvidia::NvResult::InvalidState;
-                bool ioctl_oom = false;
-                try {
-                    ioctl_result = m_module->Ioctl1(
-                        static_cast<Nvidia::DeviceFD>(request->address_space),
-                        ioctl, input, output);
-                } catch (const std::bad_alloc&) {
-                    ioctl_oom = true;
-                }
-                if (ioctl_oom) {
-                    result = Kernel::ResultOutOfResource;
-                } else if (ioctl_result != Nvidia::NvResult::Success) {
-                    result = Kernel::ResultInvalidState;
-                } else {
-                    std::array<Nvidia::Devices::nvhost_as_gpu::VaRegion, 2> regions{};
-                    std::memcpy(regions.data(), output.data() + 16, sizeof(regions));
-                    // Both NVDRV regions must describe finite, non-empty
-                    // spans. The first descriptor is the published lower
-                    // bound: validating only the second permitted malformed
-                    // first-page counts to produce a successful guest reply.
-                    const auto first_end = GP::AddressSpaceRegionEnd(
-                        regions[0].offset, regions[0].pages, regions[0].page_size);
-                    const auto end = GP::AddressSpaceRegionEnd(
-                        regions[1].offset, regions[1].pages, regions[1].page_size);
-                    if (!first_end || !end || regions[0].offset > regions[1].offset ||
-                        *first_end >= regions[1].offset || *first_end > *end) {
-                        result = Kernel::ResultInvalidState;
-                    } else {
-                        values[0] = 1;
-                        values[1] = regions[0].offset;
-                        values[2] = *end;
-                    }
-                }
-            }
-        } else if (owned) {
+        } else if (m_shared->address_spaces.Owns(request->address_space)) {
             result = Kernel::ResultInvalidState;
         }
     }
-    IPC::ResponseBuilder rb{ctx, user ? 20U : 6U};
+    IPC::ResponseBuilder rb{ctx, 6};
     rb.Push(result.raw);
-    for (size_t i = 0; i < (user ? values.size() : size_t{2}); ++i)
-        rb.Push(values[i]);
+    rb.Push(first);
+    rb.Push(size);
+}
+
+void IGpuSession::GetGsvPartition(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<GP::U32, 3> command{packet[0], packet[1], packet[2]};
+    Result result = Kernel::ResultInvalidCombination;
+    u64 first{};
+    u64 last{};
+    if (const auto request = GP::DecodeAddressSpacePartition(command, 202)) {
+        result = Kernel::ResultNotFound;
+        const std::scoped_lock lock{m_shared->mutex};
+        if (m_shared->address_spaces.Owns(request->address_space) &&
+            ResolveOpenedAddressSpace(request->address_space)) {
+            // Empty partition is min > max. Returning 0,0 is a one-byte
+            // partition at address zero to newer SDKs and makes them abort.
+            first = ~u64{0};
+            last = 0;
+            result = ResultSuccess;
+        } else if (m_shared->address_spaces.Owns(request->address_space)) {
+            result = Kernel::ResultInvalidState;
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 6};
+    rb.Push(result.raw);
+    rb.Push(first);
+    rb.Push(last);
+}
+
+void IGpuSession::GetVaRange(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<GP::U32, 3> command{packet[0], packet[1], packet[2]};
+    Result result = Kernel::ResultInvalidCombination;
+    u64 kind{};
+    u64 first{};
+    u64 size{};
+    if (const auto request = GP::DecodeAddressSpacePartition(command, 203)) {
+        result = Kernel::ResultNotFound;
+        const std::scoped_lock lock{m_shared->mutex};
+        if (m_shared->address_spaces.Owns(request->address_space) &&
+            ResolveOpenedAddressSpace(request->address_space)) {
+            kind = 1;
+            first = Nvidia::Devices::NativeNs2GpuVaStart;
+            size = Nvidia::Devices::NativeNs2GpuVaEnd - first;
+            result = ResultSuccess;
+        } else if (m_shared->address_spaces.Owns(request->address_space)) {
+            result = Kernel::ResultInvalidState;
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 8};
+    rb.Push(result.raw);
+    rb.Push(kind);
+    rb.Push(first);
+    rb.Push(size);
 }
 
 void IGpuSession::CreateGraphicsDevice(HLERequestContext& ctx) {

@@ -32,7 +32,9 @@ private:
     void GetNotificationRange(HLERequestContext& ctx);
     void GetNotificationEvent(HLERequestContext& ctx);
     void CreateAddressSpace(HLERequestContext& ctx);
-    void GetAddressSpacePartition(HLERequestContext& ctx);
+    void GetUserPartition(HLERequestContext& ctx);
+    void GetGsvPartition(HLERequestContext& ctx);
+    void GetVaRange(HLERequestContext& ctx);
     void CreateGraphicsDevice(HLERequestContext& ctx);
     void DestroyGraphicsDevice(HLERequestContext& ctx);
     [[nodiscard]] std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>

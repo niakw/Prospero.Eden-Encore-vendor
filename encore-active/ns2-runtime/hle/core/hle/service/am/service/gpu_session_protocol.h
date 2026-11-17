@@ -38,7 +38,7 @@ struct CreateDeviceRequest {
 };
 struct PartitionRequest {
     U32 address_space{};
-    bool user{};
+    U32 command{};
 };
 constexpr U64 ReadPair(U32 lo, U32 hi) {
     return U64{lo} | (U64{hi} << 32);
@@ -147,14 +147,14 @@ inline constexpr std::optional<U32> DecodeEventIndex(std::span<const U32> packet
 }
 inline constexpr std::optional<PartitionRequest> DecodeAddressSpacePartition(
     std::span<const U32> packet, U32 command) {
-    if (command != 202 && command != 203) {
+    if (command != 201 && command != 202 && command != 203) {
         return std::nullopt;
     }
     if (packet.size() != 3 || packet[0] != 16 + command ||
         packet[1] != 1) {
         return std::nullopt;
     }
-    return PartitionRequest{packet[2], command == 203};
+    return PartitionRequest{packet[2], command};
 }
 inline constexpr bool IsAcquireWorker(std::span<const U32> packet) {
     return packet.size() == 2 && packet[0] == 0x26 && packet[1] == 0;
