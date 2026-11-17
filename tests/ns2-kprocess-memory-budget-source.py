@@ -57,7 +57,11 @@ prior_metadata_call = """    R_TRY(this->Initialize(kernel, params, metadata.Get
 assert active.count(alias_wrapper) == 1
 assert active.count(alias_page_call) == 1
 assert active.count(alias_metadata_call) == 1
-assert "m_is_switch2" not in active
+# Encore intentionally does NOT take Lichii #1773's KProcess data member:
+# the shared PS5 4/6-core ABI must retain the existing object layout. Comments
+# may mention the upstream field, so test actual declarations/assignments.
+assert "bool m_is_switch2" not in active
+assert "m_is_switch2 =" not in active
 assert active.count("metadata.IsSwitch2()") == 2
 
 current_method = active.split("Result KProcess::LoadFromMetadata(", 1)[1].split(
