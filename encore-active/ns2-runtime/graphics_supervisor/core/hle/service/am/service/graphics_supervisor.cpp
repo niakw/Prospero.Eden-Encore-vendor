@@ -39,9 +39,13 @@
 #include "core/hle/service/am/service/graphics_video_decoder_session.h"
 #include "core/hle/service/am/service/native_image_layout.h"
 #include "core/hle/service/ipc_helpers.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/server_manager.h"
 #include "core/core_timing.h"
+#include "core/memory.h"
+#include "video_core/host1x/syncpoint_manager.h"
 #include "core/hle/kernel/k_readable_event.h"
+#include "core/hle/kernel/k_transfer_memory.h"
 #include "core/hle/service/nvnflinger/buffer_queue_producer.h"
 #include "core/hle/service/nvnflinger/ui/graphic_buffer.h"
 #include "core/hle/service/vi/application_display_service.h"
@@ -87,7 +91,327 @@ static Result CreateMetadataSession(Core::System& system, HLERequestContext& ctx
     R_TRY(server.RegisterSession(&session->GetServerSession(), std::move(manager)));
     *out_client = &session->GetClientSession();
     R_SUCCEED();
+
 }
+
+static void NativeTipcReplyWords(HLERequestContext& ctx, std::initializer_list<u32> words) {
+    IPC::ResponseBuilder rb{ctx, static_cast<u32>(2 + words.size())};
+    rb.PushRaw<u32>(ResultSuccess.raw);
+    for (const u32 word : words) rb.PushRaw<u32>(word);
+}
+
+class INativeSyncptSession final : public ServiceFramework<INativeSyncptSession> {
+public:
+    explicit INativeSyncptSession(Core::System& system_)
+        : ServiceFramework{system_, "nx2:syncpt"}, m_context{system_, "nx2:syncpt"} {
+        static const FunctionInfo f[] = {
+            {0, &INativeSyncptSession::Handshake, "Handshake"},
+            {1, &INativeSyncptSession::GetCount, "GetCount"},
+            {21, &INativeSyncptSession::Zero, "Unknown21"},
+            {22, &INativeSyncptSession::GetSlotEvent, "GetSlotEvent"},
+            {103, &INativeSyncptSession::QueryCounter, "QueryCounter"},
+            {201, &INativeSyncptSession::RequestSlotEvent, "RequestSlotEvent"},
+            {202, &INativeSyncptSession::CancelSlotEvent, "CancelSlotEvent"},
+        };
+        RegisterHandlersTipc(f);
+    }
+    ~INativeSyncptSession() override {
+        {
+            std::scoped_lock lk{m_shared->mutex};
+            m_shared->alive = false;
+        }
+        for (auto& request : m_requests) Cancel(request);
+        for (auto* event : m_events) if (event) m_context.CloseEvent(event);
+    }
+    Result HandleSyncRequest(Kernel::KServerSession& session, HLERequestContext& ctx) override {
+#ifdef PS5_NATIVE
+        if (ctx.IsTipc()) {
+            const auto n = m_trace_count.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (n <= 32 || (n & (n - 1)) == 0) {
+                std::fprintf(stderr,
+                    "EDEN_NS2_IPC owner=syncpt cmd=%u known=%u count=%u\n",
+                    static_cast<unsigned>(ctx.GetCommand()),
+                    static_cast<unsigned>(handlers_tipc.contains(ctx.GetCommand())), n);
+            }
+        }
+#endif
+        return ServiceFrameworkBase::HandleSyncRequest(session, ctx);
+    }
+private:
+    static constexpr u32 HostSyncpoints = Tegra::Host1x::SyncpointManager::NUM_MAX_SYNCPOINTS;
+    static constexpr u32 MaxSlots = 64;
+    struct SlotRequest {
+        u32 syncpoint{};
+        std::atomic<bool> pending{};
+        Tegra::Host1x::SyncpointManager::ActionHandle handle{};
+    };
+    struct SharedState {
+        std::mutex mutex;
+        bool alive{true};
+    };
+    Kernel::KEvent* EventFor(u32 slot) {
+        if (slot >= MaxSlots) return nullptr;
+        auto*& event = m_events[slot];
+        if (event) return event;
+        char name[48]{};
+        std::snprintf(name, sizeof(name), "nx2:syncpt:Slot%u", slot);
+        try {
+            event = m_context.CreateEvent(name);
+        } catch (const std::bad_alloc&) {
+            event = nullptr;
+        }
+        return event;
+    }
+    void Handshake(HLERequestContext& ctx) {
+        const auto* w = ctx.CommandBuffer();
+        NativeTipcReplyWords(ctx, {w[2], w[3]});
+    }
+    void GetCount(HLERequestContext& ctx) {
+        NativeTipcReplyWords(ctx, {32});
+    }
+    void Zero(HLERequestContext& ctx) {
+        NativeTipcReplyWords(ctx, {0});
+    }
+    void QueryCounter(HLERequestContext& ctx) {
+        const u32 syncpoint = ~ctx.CommandBuffer()[2];
+        const u64 value = syncpoint < HostSyncpoints
+            ? system.Host1x().GetSyncpointManager().GetGuestSyncpointValue(syncpoint) : 0;
+        NativeTipcReplyWords(ctx, {static_cast<u32>(value), static_cast<u32>(value >> 32), 0});
+    }
+    void GetSlotEvent(HLERequestContext& ctx) {
+        const u32 slot = ctx.CommandBuffer()[2];
+        auto* event = EventFor(slot);
+        if (!event) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultOutOfResource.raw);
+            return;
+        }
+        IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+        rb.Push(ResultSuccess.raw);
+        rb.PushCopyObjects(ctx, event->GetReadableEvent());
+    }
+    void RequestSlotEvent(HLERequestContext& ctx) {
+        const auto* w = ctx.CommandBuffer();
+        const u32 slot = w[2];
+        const u32 syncpoint = ~w[3];
+        const u64 value = u64{w[4]} | (u64{w[5]} << 32);
+        auto* event = EventFor(slot);
+        if (!event) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(slot >= MaxSlots ? Kernel::ResultInvalidArgument.raw
+                                    : Kernel::ResultOutOfResource.raw);
+            return;
+        }
+        if (syncpoint >= HostSyncpoints) {
+            event->Signal(system.Kernel());
+            NativeTipcReplyWords(ctx, {});
+            return;
+        }
+        auto& request = m_requests[slot];
+        Cancel(request);
+        event->Clear(system.Kernel());
+        request.syncpoint = syncpoint;
+        request.pending.store(true, std::memory_order_release);
+        auto& manager = system.Host1x().GetSyncpointManager();
+        request.handle = manager.RegisterGuestAction(
+            syncpoint, static_cast<u32>(value),
+            [shared=m_shared, &kernel=system.Kernel(), request=&request, event] {
+                std::scoped_lock lk{shared->mutex};
+                if (!shared->alive) return;
+                request->pending.store(false, std::memory_order_release);
+                event->Signal(kernel);
+            });
+        NativeTipcReplyWords(ctx, {});
+    }
+    void CancelSlotEvent(HLERequestContext& ctx) {
+        const u32 slot = ctx.CommandBuffer()[2];
+        if (slot >= MaxSlots) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidArgument.raw);
+            return;
+        }
+        Cancel(m_requests[slot]);
+        auto* event = EventFor(slot);
+        if (!event) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultOutOfResource.raw);
+            return;
+        }
+        event->Signal(system.Kernel());
+        NativeTipcReplyWords(ctx, {});
+    }
+    bool Cancel(SlotRequest& request) {
+        if (!request.pending.exchange(false, std::memory_order_acq_rel)) return false;
+        system.Host1x().GetSyncpointManager().DeregisterGuestAction(request.syncpoint,
+                                                                    request.handle);
+        request.handle = 0;
+        return true;
+    }
+    KernelHelpers::ServiceContext m_context;
+    std::array<Kernel::KEvent*, MaxSlots> m_events{};
+    std::array<SlotRequest, MaxSlots> m_requests{};
+    std::shared_ptr<SharedState> m_shared = std::make_shared<SharedState>();
+    std::atomic<u32> m_trace_count{};
+};
+
+struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
+    static constexpr u32 ValuesOffset = 0x40;
+    static constexpr u32 RoSummaryOffset = 0x1040;
+    static constexpr u32 RoBitsOffset = 0x1100;
+    static constexpr u32 RwSummaryOffset = 0x0;
+    static constexpr u32 RwBitsOffset = 0x100;
+    static constexpr u32 HostSyncpoints = Tegra::Host1x::SyncpointManager::NUM_MAX_SYNCPOINTS;
+    static constexpr std::chrono::nanoseconds PollInterval{std::chrono::microseconds{500}};
+
+    NativeSyncptState(Core::System& system_, Kernel::KProcess* process_)
+        : system{system_}, process{process_}, context{system_, "nx2:gsv:syncpt"} {}
+    ~NativeSyncptState() {
+        Shutdown();
+        for (auto* event : events) if (event) context.CloseEvent(event);
+    }
+    void Shutdown() {
+        if (stopped.exchange(true, std::memory_order_acq_rel)) return;
+        system.Host1x().GetSyncpointManager().SetGuestMirror({});
+        if (poll) {
+            system.CoreTiming().UnscheduleEvent(poll);
+            poll.reset();
+        }
+    }
+    static size_t TipcDataOffset(const u32* w) {
+        if ((w[1] & 0x80000000) == 0) return 2;
+        const u32 desc = w[2];
+        return 3 + ((desc & 1) ? 2 : 0) + ((desc >> 1) & 0xF) + ((desc >> 5) & 0xF);
+    }
+    bool EnsureEvents() {
+        if (events[0] && events[1]) return true;
+        try {
+            if (!events[0]) events[0] = context.CreateEvent("nx2:gsv:SyncptRequest");
+            if (!events[1]) events[1] = context.CreateEvent("nx2:gsv:SyncptNotify");
+        } catch (const std::bad_alloc&) {
+            return false;
+        }
+        return events[0] && events[1];
+    }
+    void Attach(HLERequestContext& ctx) {
+        const auto* w = ctx.CommandBuffer();
+        const size_t data = TipcDataOffset(w);
+        if (data + 1 >= IPC::COMMAND_BUFFER_LENGTH) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidCombination.raw);
+            return;
+        }
+        auto rw = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(ctx.GetCopyHandle(0));
+        auto ro = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(ctx.GetCopyHandle(1));
+        if (rw.IsNull() || ro.IsNull() || rw->GetOwner() != process || ro->GetOwner() != process ||
+            rw->GetSize() < 0x1000 || ro->GetSize() < 0x2000) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidHandle.raw);
+            return;
+        }
+        if (!EnsureEvents()) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultOutOfResource.raw);
+            return;
+        }
+        if (memory != nullptr) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidState.raw);
+            return;
+        }
+        const u32 requested = w[data + 1];
+        count = std::min<u32>(requested, (0x1000 - 0x40) / 8);
+        memory = &ro->GetOwner()->GetMemory();
+        rw_address = GetInteger(rw->GetSourceAddress());
+        ro_address = GetInteger(ro->GetSourceAddress());
+        memory->Write32(ro_address + 0x00, 1);
+        memory->Write32(ro_address + 0x04, 0);
+        memory->Write32(ro_address + 0x08, count);
+        memory->Write32(ro_address + 0x0c, ValuesOffset);
+        memory->Write32(ro_address + 0x10, RwSummaryOffset);
+        memory->Write32(ro_address + 0x14, RoSummaryOffset);
+        memory->Write32(ro_address + 0x18, RwBitsOffset);
+        memory->Write32(ro_address + 0x1c, RoBitsOffset);
+        UpdateValues();
+        Install();
+        IPC::ResponseBuilder rb{ctx, 2, 2, 0};
+        rb.Push(ResultSuccess.raw);
+        rb.PushCopyObjects(ctx, *events[0]);
+        rb.PushCopyObjects(ctx, events[1]->GetReadableEvent());
+    }
+    bool UpdateValues(std::array<u64, 0x40>* changed=nullptr) {
+        if (!memory || stopped.load(std::memory_order_acquire)) return false;
+        auto& manager = system.Host1x().GetSyncpointManager();
+        bool any = false;
+        manager.WithGuestValuesStable([&] {
+            const u32 limit = std::min(count, HostSyncpoints);
+            for (u32 id=0; id<limit; ++id) {
+                const u32 value = manager.GetGuestSyncpointValue(id);
+                const u64 address = ro_address + ValuesOffset + u64{id} * 8;
+                if (memory->Read64(address) != value) {
+                    memory->Write64(address, value);
+                    any = true;
+                }
+                if (changed && polled_values[id] != value)
+                    (*changed)[id / 64] |= u64{1} << (id % 64);
+                polled_values[id] = value;
+            }
+        });
+        return any;
+    }
+    void Poll() {
+        if (!memory || stopped.load(std::memory_order_acquire) || !events[1]) return;
+        const u32 words = (count + 63) / 64;
+        std::array<u64, 0x40> armed{};
+        for (u32 i=0; i<words && i<armed.size(); ++i)
+            armed[i] = memory->Read64(rw_address + RwBitsOffset + u64{i} * 8);
+        std::array<u64, 0x40> changed{};
+        UpdateValues(&changed);
+        bool acked=false;
+        for (u32 i=0; i<words && i<armed.size(); ++i) {
+            const u64 address = ro_address + RoBitsOffset + u64{i} * 8;
+            if (memory->Read64(address) != armed[i]) {
+                memory->Write64(address, armed[i]);
+                acked=true;
+            }
+            if ((armed[i] & changed[i]) != 0) acked=true;
+        }
+        memory->Write64(ro_address + RoSummaryOffset,
+                        memory->Read64(rw_address + RwSummaryOffset));
+        if (acked) events[1]->Signal(system.Kernel());
+    }
+    void Install() {
+        stopped.store(false, std::memory_order_release);
+        std::weak_ptr<NativeSyncptState> weak = shared_from_this();
+        system.Host1x().GetSyncpointManager().SetGuestMirror(
+            [weak](u32 id,u32 value) {
+                if (auto self=weak.lock();
+                    self && !self->stopped.load(std::memory_order_acquire) &&
+                    self->memory && id<std::min(self->count,HostSyncpoints)) {
+                    self->memory->Write64(self->ro_address + ValuesOffset + u64{id}*8, value);
+                }
+            });
+        if (!poll) {
+            poll=Core::Timing::CreateEvent("nx2:gsv:SyncptPoll",
+                [weak](s64,std::chrono::nanoseconds)->std::optional<std::chrono::nanoseconds>{
+                    if (auto self=weak.lock()) self->Poll();
+                    return std::nullopt;
+                });
+            system.CoreTiming().ScheduleLoopingEvent(PollInterval,PollInterval,poll);
+        }
+    }
+    Core::System& system;
+    Kernel::KProcess* process;
+    KernelHelpers::ServiceContext context;
+    std::array<Kernel::KEvent*,2> events{};
+    Core::Memory::Memory* memory{};
+    u64 rw_address{};
+    u64 ro_address{};
+    u32 count{};
+    std::array<u32,HostSyncpoints> polled_values{};
+    std::shared_ptr<Core::Timing::EventType> poll;
+    std::atomic<bool> stopped{false};
+};
+
 // VI2 uses the actual VI compositor; a frame is acknowledged only when
 // Nvnflinger QueueBuffer accepts a real, process-owned NVMap GraphicBuffer.
 class IVi2Session final : public ServiceFramework<IVi2Session> {
@@ -738,12 +1062,15 @@ private:
 IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess* process,
                                          u64 aruid)
     : ServiceFramework{system_, "IGraphicsSupervisor"}, m_process{process},
-      m_bootstrap{aruid}, m_aruid{aruid} {
+      m_bootstrap{aruid}, m_aruid{aruid},
+      m_syncpt{std::make_shared<NativeSyncptState>(system_, process)} {
     m_process->Open(kernel);
     static const FunctionInfo functions[] = {
         {4, &IGraphicsSupervisor::Initialize, "Initialize"},
         {11, &IGraphicsSupervisor::BindProcess, "BindProcess"},
         {101, &IGraphicsSupervisor::CompleteBootstrap, "CompleteBootstrap"},
+        {202, &IGraphicsSupervisor::OpenSyncptSession, "OpenSyncptSession"},
+        {204, &IGraphicsSupervisor::AttachSyncptMemory, "AttachSyncptMemory"},
         {401, &IGraphicsSupervisor::InitializeGpuContext, "InitializeGpuContext"},
         {402, &IGraphicsSupervisor::InitializeGpuContext, "ActivateGpuContext"},
         {434, &IGraphicsSupervisor::RegisterGpuAddressSpace, "RegisterGpuAddressSpace"},
@@ -777,6 +1104,8 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
     RegisterHandlersTipc(functions);
 }
 IGraphicsSupervisor::~IGraphicsSupervisor() {
+    if (m_syncpt) m_syncpt->Shutdown();
+    m_syncpt.reset();
     // Release the real NVMap backing and page-table locks before the native
     // NVDRV session and the application KProcess lose their final owner.
     const std::scoped_lock lock{m_native_memory_mutex};
@@ -1003,6 +1332,34 @@ void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx,2,0,1};rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
+void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {
+    Kernel::KClientSession* client{};
+    Result result = Kernel::ResultOutOfResource;
+    try {
+        auto handler = std::make_shared<INativeSyncptSession>(system);
+        result = CreateMetadataSession(system, ctx, std::move(handler), &client);
+    } catch (const std::bad_alloc&) {
+        result = Kernel::ResultOutOfResource;
+    }
+    if (result.IsSuccess()) {
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+        rb.Push(result.raw);
+        ctx.AddMoveObject(client);
+    } else {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+    }
+}
+
+void IGraphicsSupervisor::AttachSyncptMemory(HLERequestContext& ctx) {
+    if (!m_syncpt) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidState.raw);
+        return;
+    }
+    m_syncpt->Attach(ctx);
+}
+
 void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
     const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
     // Only actual NVDRV service modules can back address-space FD creation.

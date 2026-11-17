@@ -18,6 +18,7 @@ namespace Service::Nvidia { class Module; namespace Devices { class nvhost_as_gp
 namespace Service::AM {
 class IGpuSession;
 class IGraphicsVideoDecoderSession;
+struct NativeSyncptState;
 class IGraphicsSupervisor final : public ServiceFramework<IGraphicsSupervisor> {
 public:
     IGraphicsSupervisor(Core::System& system, Kernel::KProcess* process, u64 aruid);
@@ -54,6 +55,8 @@ private:
     void BindProcess(HLERequestContext& ctx);
     void CompleteBootstrap(HLERequestContext& ctx);
     void InitializeGpuContext(HLERequestContext& ctx);
+    void OpenSyncptSession(HLERequestContext& ctx);
+    void AttachSyncptMemory(HLERequestContext& ctx);
     void OpenGpuSession(HLERequestContext& ctx);
     void InitializeDisplayContext(HLERequestContext& ctx);
     void FinalizeDisplayContext(HLERequestContext& ctx);
@@ -84,6 +87,9 @@ private:
     const u64 m_aruid;
     bool m_display_ready{};
     std::vector<std::weak_ptr<IGpuSession>> m_gpu_sessions;
+    // Shared because CoreTiming callbacks keep only weak references; shutdown
+    // can therefore disarm polling before the last callback releases state.
+    std::shared_ptr<NativeSyncptState> m_syncpt;
     std::mutex m_native_memory_mutex;
     GraphicsSupervisorProtocol::NativeMemoryLedger m_native_memory;
     std::shared_ptr<Nvidia::Module> m_native_module;
