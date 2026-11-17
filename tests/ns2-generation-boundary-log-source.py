@@ -17,6 +17,13 @@ probe = core[start:end]
 assert probe.count("EDEN_NS2_PREKERNEL_PROBE file=0 directory=0 extracted_npdm=0") == 1
 assert probe.count("EDEN_NS2_PREKERNEL_PROBE file=1 directory={} extracted_npdm={}") == 1
 assert probe.count("EDEN_NS2_PREKERNEL_NPDM status={} switch2={}") == 1
+assert probe.count(
+    "EDEN_NS2_PREKERNEL_PROBE file={} directory=1 extracted_npdm=1 direct=1"
+) == 1
+assert "if (direct_extracted_npdm)" in probe
+assert probe.index("if (direct_extracted_npdm)") < probe.index("const auto check_program_nca")
+assert 'OpenDirectory(filepath, FileSys::OpenMode::Read)' in core
+assert 'exefs_dir->GetFile("main.npdm")' in core
 assert probe.index('directory->GetFile("main.npdm")') < probe.index(
     "EDEN_NS2_PREKERNEL_PROBE file=1"
 ) < probe.index("if (extracted) return check_npdm(extracted);")
