@@ -120,7 +120,10 @@ namespace {
 // detecting a container's filename alone would misclassify NS1 games.
 [[nodiscard]] bool IsSwitch2LaunchProgram(const FileSys::VirtualFile& file,
                                           u64 program_id, std::size_t program_index) {
-    if (!file) return false;
+    if (!file) {
+        LOG_INFO(Core, "EDEN_NS2_PREKERNEL_PROBE file=0 directory=0 extracted_npdm=0");
+        return false;
+    }
     const auto check_npdm = [](const FileSys::VirtualFile& npdm) {
         if (!npdm) return false;
         FileSys::ProgramMetadata metadata;
@@ -147,6 +150,11 @@ namespace {
         // Retain the existing extracted ExeFS path for both generations.
         const auto directory = file->GetContainingDirectory();
         const auto extracted = directory ? directory->GetFile("main.npdm") : nullptr;
+        // Log once per boot without filenames, keys or untrusted NPDM bytes.
+        // The later effective loader may see a different patched ExeFS.
+        LOG_INFO(Core,
+                 "EDEN_NS2_PREKERNEL_PROBE file=1 directory={} extracted_npdm={}",
+                 int(bool(directory)), int(bool(extracted)));
         if (extracted) return check_npdm(extracted);
         switch (Loader::IdentifyFile(file)) {
         case Loader::FileType::XCI: {
