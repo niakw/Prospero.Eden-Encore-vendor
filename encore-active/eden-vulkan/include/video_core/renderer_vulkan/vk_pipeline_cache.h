@@ -230,6 +230,12 @@ private:
     Shader::HostTranslateInfo host_info;
 
     std::filesystem::path pipeline_cache_filename;
+#ifdef PS5_NATIVE
+    // Driver-independent, learned environment records. This is deliberately
+    // outside cache/shader so clearing compiled shader/JIT caches can still
+    // rebuild known successful pipelines during the next loading screen.
+    std::filesystem::path warm_pipeline_cache_filename;
+#endif
 
     std::filesystem::path vulkan_pipeline_cache_filename;
     vk::PipelineCache vulkan_pipeline_cache;
