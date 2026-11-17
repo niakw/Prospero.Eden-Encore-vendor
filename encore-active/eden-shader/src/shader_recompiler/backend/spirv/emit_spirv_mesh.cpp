@@ -193,6 +193,17 @@ Id EmitIsbeRead(EmitContext& ctx, Id address) {
                         word);
 }
 
+// Read back a word previously written to the output attribute region.
+// Lichii 31f1378 / #2074: required by ISBERD.ATTR.32.O task/mesh programs.
+Id EmitIsbeReadOutput(EmitContext& ctx, Id address) {
+    const Id index{ctx.OpShiftRightLogical(ctx.U32[1], address, ctx.Const(2U))};
+    if (ctx.stage == Stage::Task) {
+        return ctx.OpLoad(ctx.U32[1], PayloadWord(ctx, index));
+    }
+    return ctx.OpLoad(ctx.U32[1], SharedWord(ctx, ctx.mesh_attributes,
+                                            Clamped(ctx, index, ctx.mesh_attribute_words)));
+}
+
 void EmitIsbeWriteAttribute(EmitContext& ctx, Id address, Id value) {
     const Id index{ctx.OpShiftRightLogical(ctx.U32[1], address, ctx.Const(2U))};
     // An out-of-range guest write must not be clamped onto the final valid
