@@ -34,7 +34,8 @@ assert src.count("EDEN_NVDEC_STAGE stage=decode") == 2
 assert src.count("static std::atomic<unsigned> decoded_witness{};") == 1
 assert "if (witness <= 3)" in src
 assert "EncoreDetailedVideoLogEnabled()" not in src
-assert "eden_native_detailed_logging" not in src\nassert "std::fprintf(stderr" in src
+assert "eden_native_detailed_logging" not in src
+assert "std::fprintf(stderr" in src
 
 submit = src.split("bool DecodeApi::SendPacket(", 1)[1].split(
     "std::optional<DecodeApi::DecodedFrame> DecodeApi::ReceiveFrame(", 1)[0]
