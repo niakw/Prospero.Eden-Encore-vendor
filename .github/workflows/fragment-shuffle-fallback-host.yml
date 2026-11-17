@@ -1,0 +1,22 @@
+name: Fragment shuffle fallback host
+on:
+  pull_request:
+    paths:
+      - "encore-active/eden-shader/src/shader_recompiler/profile.h"
+      - "encore-active/eden-shader/src/shader_recompiler/backend/spirv/emit_spirv_warp.cpp"
+      - "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
+      - "tests/ps5_fragment_shuffle_fallback_host.py"
+      - ".github/workflows/fragment-shuffle-fallback-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fragment-shuffle-fallback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify fragment shuffle fallback
+        run: python3 -B tests/ps5_fragment_shuffle_fallback_host.py
