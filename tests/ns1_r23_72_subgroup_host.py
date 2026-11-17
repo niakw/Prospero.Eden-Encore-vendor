@@ -9,14 +9,14 @@ root=Path(__file__).resolve().parents[1]
 files={
   "encore-active/eden-shader/src/shader_recompiler/CMakeLists.txt": "cc9ce95d9269d2dbd13dd6bbbf44c1afa0d87fb1",
   "encore-active/eden-shader/src/shader_recompiler/backend/spirv/emit_spirv.cpp": "fd303bf04a3010916a190344cfb96bb46e64691b",
-  "encore-active/eden-shader/src/shader_recompiler/backend/spirv/emit_spirv_warp.cpp": "8d835099614b9b185d36e2c76a2519ade6faa6f1",
+  "encore-active/eden-shader/src/shader_recompiler/backend/spirv/emit_spirv_warp.cpp": {"8d835099614b9b185d36e2c76a2519ade6faa6f1", "69e1b7ab58b8a51cde0e11e28e62153be8e4822c"},
   "encore-active/eden-shader/src/shader_recompiler/backend/spirv/spirv_emit_context.h": "844a118358c874b0666aebda116c1d6a0c9a8ceb",
   "encore-active/eden-shader/src/shader_recompiler/frontend/maxwell/translate_program.cpp": "dd49db913a31d95a803aa6967f1b06bdba61777f",
   "encore-active/eden-shader/src/shader_recompiler/host_translate_info.h": "af549e742edca3ce3e790ea5343136094a42b197",
   "encore-active/eden-shader/src/shader_recompiler/ir_opt/constant_propagation_pass.cpp": {"6285fef16f2f500b36b1aa45d987f8774eb8131d", "ce074980d021e14c80b76b4acb1372791c106b5f", "9cbdcbffe4117f9bc7957a69d15e6a277fcfe12b"},
   "encore-active/eden-shader/src/shader_recompiler/ir_opt/geometry_compaction_pass.cpp": "98cfa47401afcebbd122f4f8b9473a3142ddad62",
   "encore-active/eden-shader/src/shader_recompiler/ir_opt/passes.h": "0c2b44e02249c0cfb06ccd3aa843adc0a12334e9",
-  "encore-active/eden-shader/src/shader_recompiler/profile.h": "8e9c83f8885c18634bf02e68a167e6ce2ef33503",
+  "encore-active/eden-shader/src/shader_recompiler/profile.h": {"8e9c83f8885c18634bf02e68a167e6ce2ef33503", "0c1db4867e945b367bba01bd9de6fa42f47099a9"},
   "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp": "2e67b2a0d8dcba21ca28711c666dd352da624042",
   "encore-active/eden-vulkan/include/video_core/vulkan_common/vulkan_device.h": "6c17ea15d036f2c4fb8e51f655e8a0cc33e4b1b8"
 }
@@ -77,8 +77,15 @@ vk=root/"encore-active/eden-vulkan"
 assert "GeometryCompactionPass(program, normalized_host_info);" in (shader/"frontend/maxwell/translate_program.cpp").read_text()
 assert "TightenOutputVertices(program);" in (shader/"frontend/maxwell/translate_program.cpp").read_text()
 assert "single_lane_geometry_subgroups" in (shader/"host_translate_info.h").read_text()
-assert "has_broken_spirv_subgroup_shuffle" in (shader/"profile.h").read_text()
-assert "VK_DRIVER_ID_MESA_TURNIP" in (vk/"vk_pipeline_cache_cost.cpp").read_text()
+profile_source=(shader/"profile.h").read_text()
+warp_source=(shader/"backend/spirv/emit_spirv_warp.cpp").read_text()
+pipeline_source=(vk/"vk_pipeline_cache_cost.cpp").read_text()
+assert "has_broken_spirv_subgroup_shuffle" in profile_source
+if "has_broken_spirv_fragment_shuffle" in profile_source:
+    assert "bool UseShuffleFallback(EmitContext& ctx)" in warp_source
+    assert "fragment_shuffle_fallback[index] = true;" in pipeline_source
+    assert "EmitSPIRV(emit_profile, runtime_info, program, binding)" in pipeline_source
+assert "VK_DRIVER_ID_MESA_TURNIP" in pipeline_source
 assert "device.GetMaxSubgroupSize()" in (vk/"vk_pipeline_cache_cost.cpp").read_text()
 assert "GetMaxSubgroupSize() const" in (vk/"include/video_core/vulkan_common/vulkan_device.h").read_text()
 emit=(shader/"backend/spirv/emit_spirv.cpp").read_text()
