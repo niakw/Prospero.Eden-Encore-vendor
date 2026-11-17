@@ -29,20 +29,23 @@ def blob(path: Path)->str:
 # adds only Lichii #1914's found-bit descriptor bound. Its dedicated host test
 # validates that helper; retain the FC27 fixed-sampler contract below.
 assert blob(TEX)=="889456a31ddeb87e411ce4d0d2d41078b9593244"
-assert blob(GFX)=="efa8fd4d73c111655fced67fe7dd1e6b7c0178ba"
-assert blob(CMP)=="7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2"
+gfx_blob=blob(GFX)
+assert gfx_blob in {"efa8fd4d73c111655fced67fe7dd1e6b7c0178ba","526aa16b22ba3918c29ce85c884d606dcfd185a1"}
+cmp_blob=blob(CMP)
+assert cmp_blob in {"7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2","7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600"}
 cache_blob=blob(CACHE)
 assert cache_blob in {
     "be5d48abd44996502b0829a6e0501d130a151455",
     "e10c4893c03da57dce7f607d3e0af46d62e343f1",
     "dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56",
+    "e3910d11f33376097a90858118ba276f7e02cb70",
 }, cache_blob
-if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56"}:
+if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70"}:
     selected=CACHE.read_text()
     assert "fragment_shuffle_fallback[index] = true;" in selected
     assert "EmitSPIRV(emit_profile, runtime_info, program, binding)" in selected
     assert "skipping fragment shuffle with known driver issue" in selected
-    if cache_blob=="dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56":
+    if cache_blob in {"dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70"}:
         assert "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx" in selected
         assert "fallback_witness <= 8" in selected
 
@@ -52,6 +55,14 @@ assert "DynamicDescriptorIndexLimit(dynamic_offset, size_shift)" in tex
 gfx=GFX.read_text()
 cmp=CMP.read_text()
 cache=CACHE.read_text()
+if gfx_blob=="526aa16b22ba3918c29ce85c884d606dcfd185a1":
+    assert "void GraphicsPipeline::RunBuild()" in gfx
+    assert "build_claimed.exchange(true, std::memory_order_acq_rel)" in gfx
+if cmp_blob=="7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600":
+    assert "void ComputePipeline::RunBuild()" in cmp
+    assert "build_claimed.exchange(true, std::memory_order_acq_rel)" in cmp
+if cache_blob=="e3910d11f33376097a90858118ba276f7e02cb70":
+    assert cache.index("workers.WaitForRequests();") < cache.index("serialization_thread.WaitForRequests();")
 
 # Dynamic + static composition. Two dynamic arrays remain deliberately rejected.
 for needle in (
