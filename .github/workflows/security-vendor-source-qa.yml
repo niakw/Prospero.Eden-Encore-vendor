@@ -102,5 +102,6 @@ jobs:
           python3 -B tests/ns2_ampere_imad_negated_addend_host.py
           python3 -B tests/ns2_dynamic_texture_found_bit_limit_host.py
           python3 -B tests/ns2_duskbloods_tld4_imad_host.py
+          python3 -B tests/fc27_gpu_page_sibling_preservation_host.py
       - name: Verify no whitespace damage
         run: git diff --check

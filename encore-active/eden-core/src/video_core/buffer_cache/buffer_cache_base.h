@@ -233,7 +233,9 @@ public:
 
     void UnmapGPUMemory(size_t as_id, GPUVAddr gpu_addr, size_t size);
 
-    void WriteMemory(DAddr device_addr, u64 size);
+    /// Preserve GPU-written bytes elsewhere on touched pages before a CPU write
+    /// changes the page-granular ownership. Disable only when the mapping is going away.
+    void WriteMemory(DAddr device_addr, u64 size, bool keep_page_gpu_data = true);
 
     void CachedWriteMemory(DAddr device_addr, u64 size);
 

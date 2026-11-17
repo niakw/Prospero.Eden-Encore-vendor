@@ -2514,7 +2514,7 @@ void RasterizerVulkan::UnmapMemory(DAddr addr, u64 size) {
     // a buffer registered later begins CPU-dirty and uploads normally.
     if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
         std::scoped_lock lock{buffer_cache.mutex};
-        buffer_cache.WriteMemory(addr, size);
+        buffer_cache.WriteMemory(addr, size, false);
     }
     pipeline_cache.OnCacheInvalidation(addr, size);
 }
