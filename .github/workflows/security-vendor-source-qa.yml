@@ -109,6 +109,7 @@ jobs:
           python3 -B tests/ns2_gpu_identity_mapping_source.py
           python3 -B tests/ns2_nvhost_unknown_node_fallback_source.py
           python3 -B tests/ns2_smmu_34bit_capacity_source.py
+          python3 -B tests/ns2_backport_manifest_preserved_source.py
           python3 -B tests/ns2_syncpoint_shim_source.py
           python3 -B tests/ns2_font_service_source.py
           python3 -B tests/ns2_dynamic_texture_found_bit_limit_host.py
