@@ -388,8 +388,30 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
                             } else {
                                 const auto status = m_shared->address_spaces.Add(candidate);
                                 if (status == GP::Status::Success) {
-                                    id = candidate;
-                                    result = ResultSuccess;
+                                    // Replay every earlier sub-101 identity map into this new GMMU.
+                                    Nvidia::NvResult replay = Nvidia::NvResult::Success;
+                                    for (auto& identity : m_shared->identity_gpu_mappings) {
+                                        replay = as->MapNative4K(identity.handle, identity.address,
+                                                                0, identity.size, 0);
+                                        if (replay != Nvidia::NvResult::Success ||
+                                            !identity.AddSpace(candidate))
+                                            break;
+                                    }
+                                    if (replay == Nvidia::NvResult::Success) {
+                                        id = candidate;
+                                        result = ResultSuccess;
+                                    } else {
+                                        for (auto& identity : m_shared->identity_gpu_mappings) {
+                                            if (!identity.HasSpace(candidate)) continue;
+                                            as->UnmapNative4K(identity.address, identity.size);
+                                            identity.RemoveSpace(candidate);
+                                        }
+                                        m_shared->address_spaces.Remove(candidate);
+                                        m_shared->opened_gpu_as.erase(it);
+                                        result = replay == Nvidia::NvResult::InsufficientMemory
+                                            ? Kernel::ResultOutOfResource
+                                            : Kernel::ResultInvalidState;
+                                    }
                                 } else {
                                     m_shared->opened_gpu_as.erase(it);
                                     result = Translate(status);

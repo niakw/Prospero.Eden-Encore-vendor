@@ -12,6 +12,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <vector>
 
 #include "core/hle/service/am/service/gpu_session_protocol.h"
 #include "core/hle/service/kernel_helpers.h"
@@ -19,6 +20,34 @@
 namespace Kernel { class KEvent; class KProcess; }
 namespace Service::Nvidia { class Module; namespace Devices { class nvhost_as_gpu; } }
 namespace Service::AM {
+
+struct IdentityGpuMapping {
+    std::uint32_t handle{};
+    std::uint64_t address{};
+    std::uint64_t size{};
+    std::array<std::uint32_t, GpuSessionProtocol::MaxAddressSpaces> mapped_spaces{};
+    std::size_t mapped_count{};
+
+    [[nodiscard]] bool HasSpace(std::uint32_t id) const {
+        for (std::size_t i = 0; i < mapped_count; ++i)
+            if (mapped_spaces[i] == id) return true;
+        return false;
+    }
+    [[nodiscard]] bool AddSpace(std::uint32_t id) {
+        if (HasSpace(id)) return true;
+        if (mapped_count >= mapped_spaces.size()) return false;
+        mapped_spaces[mapped_count++] = id;
+        return true;
+    }
+    void RemoveSpace(std::uint32_t id) {
+        for (std::size_t i = 0; i < mapped_count; ++i) {
+            if (mapped_spaces[i] != id) continue;
+            mapped_spaces[i] = mapped_spaces[mapped_count - 1];
+            mapped_spaces[--mapped_count] = 0;
+            return;
+        }
+    }
+};
 
 struct GpuWorkerSharedState {
     explicit GpuWorkerSharedState(Core::System& system,
@@ -36,6 +65,9 @@ struct GpuWorkerSharedState {
     // GPU worker KSessions. A numeric NVDRV FD alone can be recycled and
     // GetDevice<nvhost_as_gpu> is a static_cast, not a type check.
     std::map<std::uint32_t, std::weak_ptr<Nvidia::Devices::nvhost_as_gpu>> opened_gpu_as;
+    // gpu sub 101 is an identity map on Switch 2: GPU VA == CPU VA.
+    // Keep it process-local and replay it into later-created GMMUs.
+    std::vector<IdentityGpuMapping> identity_gpu_mappings;
     // Caller holds mutex except during final shared-state destruction.
     [[nodiscard]] std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
     FindOwnedAddressSpace(std::uint32_t id) const;

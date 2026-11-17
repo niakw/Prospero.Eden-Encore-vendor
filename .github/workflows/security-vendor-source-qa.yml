@@ -106,6 +106,7 @@ jobs:
           python3 -B tests/ns2_syncpt_bootstrap_source.py
           python3 -B tests/ns2_recent_svc_fault_trace_host.py
           python3 -B tests/ns2_ipc_started_thread_handoff_source.py
+          python3 -B tests/ns2_gpu_identity_mapping_source.py
           python3 -B tests/ns2_dynamic_texture_found_bit_limit_host.py
           python3 -B tests/ns2_duskbloods_tld4_imad_host.py
           python3 -B tests/fc27_gpu_page_sibling_preservation_host.py

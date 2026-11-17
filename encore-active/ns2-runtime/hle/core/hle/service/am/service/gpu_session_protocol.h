@@ -111,6 +111,16 @@ public:
         }
         return Status::NotFound;
     }
+    Status Remove(U32 id) {
+        for (auto& slot : slots) {
+            if (slot && slot->id == id) {
+                slot.reset();
+                --count;
+                return Status::Success;
+            }
+        }
+        return Status::NotFound;
+    }
     [[nodiscard]] std::array<std::optional<U32>, MaxAddressSpaces> OwnedIds() const {
         std::array<std::optional<U32>, MaxAddressSpaces> ids{};
         for (std::size_t i = 0; i < slots.size(); ++i)

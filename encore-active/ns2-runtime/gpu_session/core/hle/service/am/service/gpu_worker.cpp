@@ -193,6 +193,28 @@ IGpuWorker::~IGpuWorker() {
             LOG_ERROR(Service_AM, "NS2 native GPU VA unmap failed as={} VA={:#x}",
                       mapping.address_space, mapping.address);
     }
+    // Identity maps are deliberately outside MappingLedger. Remove only those
+    // owned by this worker before its NVMap handles are released.
+    for (const u32 memory_id : m_memory) {
+        const auto identity = std::find_if(
+            m_shared->identity_gpu_mappings.begin(), m_shared->identity_gpu_mappings.end(),
+            [memory_id](const IdentityGpuMapping& mapping) {
+                return mapping.handle == memory_id;
+            });
+        if (identity == m_shared->identity_gpu_mappings.end()) continue;
+        while (identity->mapped_count) {
+            const u32 as_id = identity->mapped_spaces[identity->mapped_count - 1];
+            if (const auto as = m_shared->FindOwnedAddressSpace(as_id)) {
+                if (as->UnmapNative4K(identity->address, identity->size) !=
+                    Nvidia::NvResult::Success)
+                    LOG_ERROR(Service_AM, "NS2 identity GPU VA unmap failed as={} VA={:#x}",
+                              as_id, identity->address);
+            }
+            identity->RemoveSpace(as_id);
+        }
+        m_shared->identity_gpu_mappings.erase(identity);
+    }
+
     // The sparse reservations are gone: it is now safe to drop the NVMap pins,
     // unmap CPU aliases and close the page-group physical allocations.
     while (!m_dense_regions.empty()) {
@@ -964,6 +986,50 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
         return Kernel::ResultOutOfResource;
     }
     id = handle->id;
+
+    // Lichii NX2 #30/#42: CreateGpuAccessibleMemory publishes an identity
+    // mapping immediately. Do not wait for command 211 to make the range
+    // visible to the GMMUs.
+    try {
+        m_shared->identity_gpu_mappings.push_back(
+            IdentityGpuMapping{id, begin, size, {}, 0});
+    } catch (const std::bad_alloc&) {
+        const auto undone = page_table.UnlockForDeviceAddressSpace(begin, size);
+        if (undone.IsError())
+            LOG_ERROR(Service_AM, "NS2 identity registry rollback unlock failed: {:#x}", undone.raw);
+        handle.reset();
+        nvmap.FreeHandle(id, false);
+        return undone.IsError() ? undone : Kernel::ResultOutOfResource;
+    }
+    auto& identity = m_shared->identity_gpu_mappings.back();
+    Result identity_result = ResultSuccess;
+    for (const auto owned : m_shared->address_spaces.OwnedIds()) {
+        if (!owned) continue;
+        const auto as = m_shared->FindOwnedAddressSpace(*owned);
+        if (!as) continue;
+        const auto mapped = as->MapNative4K(id, begin, 0, size, 0);
+        if (mapped != Nvidia::NvResult::Success || !identity.AddSpace(*owned)) {
+            identity_result = mapped == Nvidia::NvResult::InsufficientMemory
+                ? Kernel::ResultOutOfResource : Kernel::ResultInvalidState;
+            break;
+        }
+    }
+    if (identity_result.IsError()) {
+        while (identity.mapped_count) {
+            const u32 as_id = identity.mapped_spaces[identity.mapped_count - 1];
+            if (const auto as = m_shared->FindOwnedAddressSpace(as_id))
+                as->UnmapNative4K(begin, size);
+            identity.RemoveSpace(as_id);
+        }
+        m_shared->identity_gpu_mappings.pop_back();
+        const auto undone = page_table.UnlockForDeviceAddressSpace(begin, size);
+        if (undone.IsError())
+            LOG_ERROR(Service_AM, "NS2 identity-map rollback unlock failed: {:#x}", undone.raw);
+        handle.reset();
+        nvmap.FreeHandle(id, false);
+        return undone.IsError() ? undone : identity_result;
+    }
+
     m_memory.push_back(id);
     return ResultSuccess;
 }
@@ -992,8 +1058,50 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
     auto handle = nvmap.GetHandle(id);
     R_UNLESS(handle, Kernel::ResultInvalidState);
+
+    // Sub 102 destroys this memory object. Remove all 211 mappings owned by
+    // this worker plus the sub-101 identity mappings before testing pins.
+    std::vector<GW::Mapping> mapped_memory;
+    try {
+        for (const auto& [key, mapping] : m_mappings.Mappings())
+            if (!mapping.sparse && mapping.memory == id)
+                mapped_memory.push_back(mapping);
+    } catch (const std::bad_alloc&) {
+        return Kernel::ResultOutOfResource;
+    }
+    auto identity_it = std::find_if(
+        m_shared->identity_gpu_mappings.begin(), m_shared->identity_gpu_mappings.end(),
+        [id](const IdentityGpuMapping& mapping) { return mapping.handle == id; });
+    if (!mapped_memory.empty() ||
+        (identity_it != m_shared->identity_gpu_mappings.end() && identity_it->mapped_count))
+        system.GPU().WaitForIdle();
+
+    for (const auto& mapping : mapped_memory) {
+        const auto as = m_shared->FindOwnedAddressSpace(mapping.address_space);
+        if (as && as->UnmapNative4K(mapping.address, mapping.size) != Nvidia::NvResult::Success)
+            return Kernel::ResultInvalidState;
+        const GW::Unmap4K unmap{mapping.address_space, 0, mapping.address, mapping.size, 0};
+        if (m_mappings.RecordUnmapped(unmap) != GW::LedgerStatus::Success)
+            return Kernel::ResultInvalidState;
+    }
+
+    if (identity_it != m_shared->identity_gpu_mappings.end()) {
+        while (identity_it->mapped_count) {
+            const u32 as_id = identity_it->mapped_spaces[identity_it->mapped_count - 1];
+            if (const auto as = m_shared->FindOwnedAddressSpace(as_id)) {
+                if (as->UnmapNative4K(identity_it->address, identity_it->size) !=
+                    Nvidia::NvResult::Success)
+                    return Kernel::ResultInvalidState;
+            }
+            identity_it->RemoveSpace(as_id);
+        }
+        m_shared->identity_gpu_mappings.erase(identity_it);
+    }
+
     {
         const std::scoped_lock lock{handle->mutex};
+        // Any remaining pins are external to this worker. Keep destruction
+        // retryable rather than releasing live GPU backing.
         // A pinned/duplicated resource is not safe to release synchronously.
         // Do not signal completion while external GPU references remain.
         R_UNLESS(handle->dupes == 1 && handle->internal_dupes == 0 &&
