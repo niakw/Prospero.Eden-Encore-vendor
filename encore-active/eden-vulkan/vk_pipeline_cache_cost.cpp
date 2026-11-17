@@ -793,10 +793,14 @@ void EdenResetStaticVertexInputBinding() noexcept;
 PipelineCache::~PipelineCache() {
     EdenResetStaticVertexInputBinding();
 #ifdef PS5_NATIVE
+    // Lichii 499e2e4: queued builders capture pipeline objects by pointer.
+    // Drain them while the cache still owns every pipeline; otherwise member
+    // destruction can race a late builder during title teardown.
+    workers.WaitForRequests();
     // First-use shader environments are serialized on this worker. Let all
     // accepted writes finish before destroying the worker and VkPipelineCache,
     // or a later launch re-translates shaders that were never persisted.
-    // This is a shutdown-only drain, never a wait in the draw hot path.
+    // These are shutdown-only drains, never waits in the draw hot path.
     serialization_thread.WaitForRequests();
 #endif
     if (use_vulkan_pipeline_cache && !vulkan_pipeline_cache_filename.empty()) {

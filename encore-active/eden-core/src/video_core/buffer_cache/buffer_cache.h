@@ -174,6 +174,19 @@ void BufferCache<P>::UnmapGPUMemory(size_t as_id, GPUVAddr gpu_addr, size_t size
 
 template <class P>
 void BufferCache<P>::WriteMemory(DAddr device_addr, u64 size, bool keep_page_gpu_data) {
+    const DAddr page_begin = Common::AlignDown(device_addr, DEVICE_PAGESIZE);
+    const DAddr page_end = Common::AlignUp(device_addr + size, DEVICE_PAGESIZE);
+
+    // Lichii 44bf47d: the written range is wholly inside these pages. If the
+    // pages contain no GPU-written bytes, the exact range cannot contain any
+    // either, so avoid a second interval-tree walk on the overwhelmingly
+    // common clean CPU-write path. This preserves b13c4c1 semantics.
+    if (keep_page_gpu_data && page_end > page_begin &&
+        !gpu_modified_ranges.Intersects(page_begin, page_end - page_begin)) {
+        memory_tracker.MarkRegionAsCpuModified(device_addr, size);
+        return;
+    }
+
     if (IsRegionGpuModified(device_addr, size)) {
         ClearDownload(device_addr, size);
         gpu_modified_ranges.Subtract(device_addr, size);
@@ -184,8 +197,6 @@ void BufferCache<P>::WriteMemory(DAddr device_addr, u64 size, bool keep_page_gpu
     // even when other bytes on that page are still newer on the GPU. Preserve
     // those sibling bytes before the page becomes CPU-owned, otherwise a later
     // upload can overwrite correct host-buffer data with the stale guest copy.
-    const DAddr page_begin = Common::AlignDown(device_addr, DEVICE_PAGESIZE);
-    const DAddr page_end = Common::AlignUp(device_addr + size, DEVICE_PAGESIZE);
     if (keep_page_gpu_data && page_end > page_begin &&
         IsRegionGpuModified(page_begin, page_end - page_begin)) {
         DownloadMemory(page_begin, page_end - page_begin);

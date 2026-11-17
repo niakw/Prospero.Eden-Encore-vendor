@@ -9,6 +9,7 @@
 #include <bit>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
 
 #include <fmt/ranges.h>
 #include "common/assert.h"
@@ -148,10 +149,33 @@ NvResult nvhost_ctrl::IocCtrlEventWait(IocCtrlEventWaitParams& params, bool is_a
 
     const auto check_failing = [&]() {
         if (events[slot].fails > 2) {
+            const bool detailed =
+                ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed);
+            const long long begin_ns = detailed ? ::Eden::Performance::NowNs() : 0;
+            const u32 before = detailed
+                ? host1x_syncpoint_manager.GetHostSyncpointValue(fence_id) : 0;
+            long long suspended_ns = 0;
+            long long wait_ns = 0;
             {
                 auto lk = system.StallApplication();
+                const long long suspended_at =
+                    detailed ? ::Eden::Performance::NowNs() : 0;
                 host1x_syncpoint_manager.WaitHost(fence_id, target_value);
+                const long long waited_at =
+                    detailed ? ::Eden::Performance::NowNs() : 0;
                 system.UnstallApplication();
+                if (detailed) {
+                    suspended_ns = suspended_at - begin_ns;
+                    wait_ns = waited_at - suspended_at;
+                }
+            }
+            if (detailed) {
+                const u32 after = host1x_syncpoint_manager.GetHostSyncpointValue(fence_id);
+                std::fprintf(stderr,
+                    "EDEN_NVHOST_STALL slot=%u fence=%u target=%u before=%u after=%u "
+                    "suspend_ns=%lld wait_ns=%lld fails=%u\n",
+                    slot, fence_id, target_value, before, after,
+                    suspended_ns, wait_ns, events[slot].fails);
             }
             params.value.raw = target_value;
             return true;

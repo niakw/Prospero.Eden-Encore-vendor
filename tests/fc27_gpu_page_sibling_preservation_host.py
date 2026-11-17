@@ -31,6 +31,8 @@ assert CACHE.count(start)==CACHE.count(stop)==1
 method=start+CACHE.split(start,1)[1].split(stop,1)[0]+"\n}"
 for needle in (
     "Upstream Lichii/Eglantine b13c4c1",
+    "Lichii 44bf47d",
+    "!gpu_modified_ranges.Intersects(page_begin, page_end - page_begin)",
     "gpu_modified_ranges.Subtract(device_addr, size);",
     "Common::AlignDown(device_addr, DEVICE_PAGESIZE)",
     "Common::AlignUp(device_addr + size, DEVICE_PAGESIZE)",
@@ -95,13 +97,25 @@ public:
     Ranges gpu_modified_ranges;
     Tracker memory_tracker;
     std::vector<std::pair<DAddr,u64>> downloads;
-    bool IsRegionGpuModified(DAddr a,std::size_t n){return gpu_modified_ranges.Intersects(a,n);}
+    int exact_queries{};
+    bool IsRegionGpuModified(DAddr a,std::size_t n){
+        ++exact_queries;
+        return gpu_modified_ranges.Intersects(a,n);
+    }
     void ClearDownload(DAddr,u64){events.push_back(1);}
     void DownloadMemory(DAddr a,u64 n){events.push_back(2);downloads.emplace_back(a,n);}
     void WriteMemory(DAddr,u64,bool=true);
 };
 """ + method + r"""
 int main(){
+    {
+        BufferCache<> c;
+        events.clear();
+        c.WriteMemory(0x2100,0x20);
+        assert((events==std::vector<int>{3}));
+        assert(c.exact_queries==0);
+        assert(c.downloads.empty());
+    }
     {
         BufferCache<> c;
         c.gpu_modified_ranges.Add(0x1000,0x1000);
@@ -149,4 +163,4 @@ with tempfile.TemporaryDirectory(prefix="fc27-gpu-page-sibling-") as td:
             if run.returncode:
                 raise RuntimeError(run.stdout+run.stderr)
 
-print("FC27_GPU_PAGE_SIBLING_PRESERVATION_HOST_PASS upstream=b13c4c1 sibling=downloaded unmap=skip ps5=unverified")
+print("FC27_GPU_PAGE_SIBLING_PRESERVATION_HOST_PASS upstream=b13c4c1,44bf47d clean_query=1 sibling=downloaded unmap=skip ps5=unverified")
