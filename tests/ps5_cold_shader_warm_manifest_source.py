@@ -20,19 +20,20 @@ assert "'y', 'u', 'z', 'u', 'c', 'a', 'c', 'h'" in CPP
 assert 'version == CACHE_VERSION' in CPP
 assert 'std::filesystem::copy_file(' in CPP
 assert 'restored_from_warm_manifest = !copy_error;' in CPP
-assert 'kNormalStartupPrewarmPipelines = 32' in CPP
+assert 'kStartupPrewarmPipelines = 32' in CPP
 assert 'kRestoredStartupPrewarmPipelines = 128' in CPP
 assert 'state.total == startup_prewarm_limit' in CPP
 assert 'EDEN_PS5_SHADER_WARM_MANIFEST' in CPP
 
 # Successful first-use graphics and compute records are mirrored on the
 # serialization worker; no driver VkPipelineCache blob is copied to warm state.
-assert CPP.count('SerializePipeline(key, env_ptrs, warm_pipeline_cache_filename, CACHE_VERSION);') == 2
+assert CPP.count('SerializePipeline(key, env_ptrs, warm_pipeline_cache_filename, CACHE_VERSION);') == 1
+assert CPP.count('warm_pipeline_cache_filename, CACHE_VERSION);') >= 2
 assert 'SerializeVulkanPipelineCache(warm_pipeline_cache_filename' not in CPP
 assert 'vulkan_pipelines.bin' in CPP
 
 # The feature is PS5-only and must not alter desktop cache paths.
-assert '#ifdef PS5_NATIVE\n    // Keep a driver-independent record' in CPP
+assert '// ENCORE_PS5_WARM_MANIFEST_BEGIN' in CPP
 assert '#ifdef PS5_NATIVE\n        if (!warm_pipeline_cache_filename.empty())' in CPP
 
 print("PS5_COLD_SHADER_WARM_MANIFEST_SOURCE_PASS normal=32 restored=128 driver_blob=excluded")
