@@ -119,14 +119,39 @@ namespace {
 // program NPDM. This must cover NSP/XCI/NCA as well as extracted ExeFS:
 // detecting a container's filename alone would misclassify NS1 games.
 [[nodiscard]] bool IsSwitch2LaunchProgram(const FileSys::VirtualFile& file,
+                                          const FileSys::VirtualFile& direct_extracted_npdm,
                                           u64 program_id, std::size_t program_index) {
-    if (!file) return false;
+    if (!file) {
+        LOG_INFO(Core, "EDEN_NS2_PREKERNEL_PROBE file=0 directory=0 extracted_npdm=0");
+        return false;
+    }
     const auto check_npdm = [](const FileSys::VirtualFile& npdm) {
         if (!npdm) return false;
         FileSys::ProgramMetadata metadata;
-        return metadata.Load(npdm) == Loader::ResultStatus::Success &&
-               metadata.IsSwitch2();
+        const auto status = metadata.Load(npdm);
+        // Generation selection happens before kernel/device-memory creation.
+        // ProgramMetadata marks Switch 2 as soon as the extended ACID body is
+        // safely identified; later ACI/FAC/KAC validation still belongs to the
+        // real loader and must remain fail-closed there. Requiring full NPDM
+        // success here can silently select the 4 GiB NS1 layout for a genuine
+        // NS2 program, causing a monolithic PS5 backing allocation before the
+        // loader gets a chance to report the actual metadata error.
+        const bool switch2 = metadata.IsSwitch2();
+        LOG_INFO(Core, "EDEN_NS2_PREKERNEL_NPDM status={} switch2={}",
+                 static_cast<unsigned>(status), int(switch2));
+        return switch2;
     };
+    // Extracted ExeFS is launched from a directory path. Resolve its NPDM
+    // directly from that directory before relying on VirtualFile parent
+    // ownership: RealVFS/adapter wrappers may hand back a bootable "main"
+    // whose containing-directory link is not preserved. This is generation
+    // detection only; the real loader still performs full metadata admission.
+    if (direct_extracted_npdm) {
+        LOG_INFO(Core,
+                 "EDEN_NS2_PREKERNEL_PROBE file={} directory=1 extracted_npdm=1 direct=1",
+                 int(bool(file)));
+        return check_npdm(direct_extracted_npdm);
+    }
     const auto check_program_nca = [&](const std::shared_ptr<FileSys::NCA>& program) {
         if (!program || program->GetStatus() != Loader::ResultStatus::Success)
             return false;
@@ -137,6 +162,11 @@ namespace {
         // Retain the existing extracted ExeFS path for both generations.
         const auto directory = file->GetContainingDirectory();
         const auto extracted = directory ? directory->GetFile("main.npdm") : nullptr;
+        // Log once per boot without filenames, keys or untrusted NPDM bytes.
+        // The later effective loader may see a different patched ExeFS.
+        LOG_INFO(Core,
+                 "EDEN_NS2_PREKERNEL_PROBE file=1 directory={} extracted_npdm={}",
+                 int(bool(directory)), int(bool(extracted)));
         if (extracted) return check_npdm(extracted);
         switch (Loader::IdentifyFile(file)) {
         case Loader::FileType::XCI: {
@@ -375,9 +405,29 @@ struct System::Impl {
         // Resolve the NPDM before kernel initialization, never from a title
         // string. NS2 may temporarily require a 12 GiB guest layout, but that
         // override must not survive a subsequent NS1 launch in the same app.
+        FileSys::VirtualFile direct_extracted_npdm;
+        if (virtual_filesystem) {
+            std::string launch_dir;
+            std::string launch_filename;
+            Common::SplitPath(filepath, &launch_dir, &launch_filename, nullptr);
+            // The PS5 library selects loose ExeFS by its regular file
+            // ".../exefs/main", not by the directory itself. Resolve main.npdm
+            // from that exact VFS parent before kernel/device-memory creation.
+            // Keep directory launches for desktop/developer callers too.
+            const std::string npdm_dir =
+                launch_filename == "main" ? launch_dir :
+                Common::FS::IsDir(filepath) ? filepath : std::string{};
+            if (!npdm_dir.empty()) {
+                const auto exefs_dir =
+                    virtual_filesystem->OpenDirectory(npdm_dir, FileSys::OpenMode::Read);
+                direct_extracted_npdm =
+                    exefs_dir ? exefs_dir->GetFile("main.npdm") : FileSys::VirtualFile{};
+            }
+        }
         const bool is_ns2_program =
             virtual_filesystem && IsSwitch2LaunchProgram(
                                       GetGameFileFromPath(virtual_filesystem, filepath),
+                                      direct_extracted_npdm,
                                       params.program_id, params.program_index);
         if (is_ns2_program) {
             if (!ns2_memory_layout_override &&

@@ -15,8 +15,8 @@ def blob(path):
     return subprocess.check_output(["git","hash-object",str(path.relative_to(ROOT))],
                                    cwd=ROOT,text=True).strip()
 
-assert blob(FF)=="1f3834ef66b97033fc662d7c7c9ee3456cb62bca"
-assert blob(VIC)=="279255ee6527d6fc13b77147f73168917e427ea8"
+assert blob(FF)=="2eadc437cec5559560e5aaf849dd3b6446782e99"
+assert blob(VIC)=="48008fc5f3b05c3e95432827c03e20b815cce21c"
 assert blob(ORIG)=="1a89f3de06981f95be9e5dc743a7c36b8ab6c4cf"
 
 ff=FF.read_text()
@@ -33,8 +33,8 @@ for marker in (
 assert ff.count("EDEN_NVDEC_STAGE stage=decode") == 2
 assert ff.count("static std::atomic<unsigned> decoded_witness{};") == 1
 assert "if (witness <= 3)" in ff
-assert "EncoreDetailedVideoLogEnabled()" in ff
-assert "eden_native_detailed_logging && eden_native_detailed_logging()" in ff
+assert "EncoreDetailedVideoLogEnabled()" not in ff
+assert "eden_native_detailed_logging" not in ff
 assert "std::fprintf(stderr" in ff
 
 # VIC remains the pristine implementation plus bounded receipts; no black fill
@@ -53,11 +53,11 @@ assert vic.count("nvdec_vic_input_witness.fetch_add") == 1
 assert vic.count("nvdec_vic_output_witness.fetch_add") == 1
 assert vic.count("if (witness <= 3)") == 2
 assert "std::memory_order_relaxed" in vic
-assert "EncoreDetailedVideoLogEnabled()" in vic
+assert "EncoreDetailedVideoLogEnabled()" not in vic
 assert vic.count("std::fprintf(stderr") == 2
 
 # There are exactly three stage sites total. This rejects accidental per-frame
 # diagnostic proliferation.
 combined=ff+vic
 assert combined.count("EDEN_NVDEC_STAGE stage=") == 6
-print("FC27_NVDEC_VIC_STAGE_WITNESS_SOURCE_PASS stages=3 max_each=3 detailed_stderr=1 eagain_preserved=1 semantic_fix=0")
+print("FC27_NVDEC_VIC_STAGE_WITNESS_SOURCE_PASS stages=3 max_each=3 standard_ps5_stderr=1 eagain_preserved=1 semantic_fix=0")

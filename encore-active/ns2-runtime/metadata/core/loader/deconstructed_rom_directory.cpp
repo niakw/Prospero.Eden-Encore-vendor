@@ -464,6 +464,17 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     if (result2 != ResultStatus::Success) {
         return {result2, {}};
     }
+    // The preliminary generation probe and this effective patched loader
+    // are deliberately separate. Report the outcome even for Switch 1
+    // classifications; previously the NS2-only identity receipt could be
+    // absent, hiding a wrong-generation classification behind a guest PC=4.
+    // No filenames, user paths, keys or NPDM bytes leave the runtime.
+    LOG_INFO(Loader,
+             "EDEN_EXEFS_GENERATION title={:016x} switch2={} extended_acid={}"
+             " npdm_bytes={} update_override={} effective_main={}",
+             metadata.GetTitleID(), int(metadata.IsSwitch2()),
+             int(metadata.UsesExtendedAcid()), npdm->GetSize(), int(override_update),
+             int(bool(dir->GetFile("main"))));
     // A valid NPDM with only auxiliary ExeFS modules is not a bootable
     // native NS2 process. Reject the absent executable before KProcess
     // sizing, mapping or SVC registration; legacy NS1 remains unchanged.

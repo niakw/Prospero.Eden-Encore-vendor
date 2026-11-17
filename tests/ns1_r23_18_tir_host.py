@@ -19,6 +19,30 @@ for name,expected in files.items():
  if name.endswith("fixed_pipeline_state.cpp"):
   text=raw.decode()
   assert "MaxwellDepthClampClip" in text and "regs.tir_mode == Maxwell::TIRMode::RasterNTargetM" in text,(name,"lost EDS3/TIR")
+ elif name.endswith("texture_cache/texture_cache.h") and "ImagePages::Mark(image.cpu_addr" in raw.decode():
+  text=raw.decode()
+  # The active shared PS5 cache advanced after the frozen R23 receipt.
+  # Reverse only the reviewed page-publication contract and prove the
+  # remaining owner is byte-identical to the historical R23 source.
+  include='#ifdef PS5_NATIVE\n#include "image_pages.h"\n#endif\n'
+  dense='''#ifdef PS5_NATIVE
+        // RasterizerVulkan may elide later CPU/DMA texture invalidations only
+        // after this monotonic witness has been published. The shadow Vulkan
+        // cache already did this; the PS5-selected ns2-astc owner must too.
+        ::Eden::ImagePages::Mark(image.cpu_addr, image.guest_size_bytes);
+#endif
+'''
+  sparse='''#ifdef PS5_NATIVE
+            ::Eden::ImagePages::Mark(cpu_addr, size);
+#endif
+'''
+  assert text.count(include)==1 and text.count(dense)==1 and text.count(sparse)==1
+  prior=text.replace(include,"",1).replace(dense,"",1).replace(sparse,"",1).encode()
+  assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==expected
+  assert text.index("::Eden::ImagePages::Mark(image.cpu_addr") < text.index(
+      "slot_map_views.insert(image.gpu_addr")
+  assert text.index("::Eden::ImagePages::Mark(cpu_addr, size);") < text.index(
+      "slot_map_views.insert(gpu_addr, cpu_addr")
  elif name.endswith("vk_texture_cache_cost.cpp") and "Lichii #1466: same-image mip blits" in raw.decode():
   text=raw.decode()
   lo=text.index("void TextureCacheRuntime::BlitImage(")

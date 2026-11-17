@@ -56,15 +56,6 @@ extern "C" {
 namespace Tegra::Host1x {
 namespace {
 
-#if defined(PS5_NATIVE)
-extern "C" bool eden_native_detailed_logging() noexcept __attribute__((weak));
-inline bool EncoreDetailedVideoLogEnabled() noexcept {
-    return eden_native_detailed_logging && eden_native_detailed_logging();
-}
-#else
-inline bool EncoreDetailedVideoLogEnabled() noexcept { return false; }
-#endif
-
 std::atomic<unsigned> nvdec_vic_input_witness{};
 std::atomic<unsigned> nvdec_vic_output_witness{};
 
@@ -147,14 +138,14 @@ void Vic::Execute() noexcept {
                                  "EDEN_NVDEC_STAGE stage=vic_input count={} vic={} nvdec={} luma={:#x} width={} height={} format={}",
                                  witness, id, nvdec_id, luma_offset, frame->GetWidth(),
                                  frame->GetHeight(), static_cast<int>(frame->GetPixelFormat()));
-                        if (EncoreDetailedVideoLogEnabled()) {
-                            std::fprintf(stderr,
-                                         "EDEN_NVDEC_STAGE stage=vic_input count=%u vic=%d nvdec=%d luma=0x%llx width=%d height=%d format=%d\n",
-                                         witness, id, nvdec_id,
-                                         static_cast<unsigned long long>(luma_offset),
-                                         frame->GetWidth(), frame->GetHeight(),
-                                         static_cast<int>(frame->GetPixelFormat()));
-                        }
+#if defined(PS5_NATIVE)
+                        std::fprintf(stderr,
+                                     "EDEN_NVDEC_STAGE stage=vic_input count=%u vic=%d nvdec=%d luma=0x%llx width=%d height=%d format=%d\n",
+                                     witness, id, nvdec_id,
+                                     static_cast<unsigned long long>(luma_offset),
+                                     frame->GetWidth(), frame->GetHeight(),
+                                     static_cast<int>(frame->GetPixelFormat()));
+#endif
                     }
                     switch (frame->GetPixelFormat()) {
                     case AV_PIX_FMT_YUV420P:
@@ -208,14 +199,14 @@ void Vic::Execute() noexcept {
                      "EDEN_NVDEC_STAGE stage=vic_output count={} vic={} width={} height={} format={} luma={:#x} chroma={:#x}",
                      witness, id, output_width, output_height, static_cast<int>(format.Value()),
                      regs.output_surface.luma.Address(), regs.output_surface.chroma_u.Address());
-            if (EncoreDetailedVideoLogEnabled()) {
-                std::fprintf(stderr,
-                             "EDEN_NVDEC_STAGE stage=vic_output count=%u vic=%d width=%u height=%u format=%d luma=0x%llx chroma=0x%llx\n",
-                             witness, id, static_cast<unsigned>(output_width),
-                             static_cast<unsigned>(output_height), static_cast<int>(format.Value()),
-                             static_cast<unsigned long long>(regs.output_surface.luma.Address()),
-                             static_cast<unsigned long long>(regs.output_surface.chroma_u.Address()));
-            }
+#if defined(PS5_NATIVE)
+            std::fprintf(stderr,
+                         "EDEN_NVDEC_STAGE stage=vic_output count=%u vic=%d width=%u height=%u format=%d luma=0x%llx chroma=0x%llx\n",
+                         witness, id, static_cast<unsigned>(output_width),
+                         static_cast<unsigned>(output_height), static_cast<int>(format.Value()),
+                         static_cast<unsigned long long>(regs.output_surface.luma.Address()),
+                         static_cast<unsigned long long>(regs.output_surface.chroma_u.Address()));
+#endif
         }
     }
 }

@@ -22,6 +22,9 @@
 #include "common/alignment.h"
 #include "common/settings.h"
 #include "common/slot_vector.h"
+#ifdef PS5_NATIVE
+#include "image_pages.h"
+#endif
 #include "video_core/control/channel_state.h"
 #include "video_core/dirty_flags.h"
 #include "video_core/engines/kepler_compute.h"
@@ -2771,6 +2774,12 @@ void TextureCache<P>::RegisterImage(ImageId image_id) {
         (*channel_state->gpu_page_table)[page].push_back(image_id);
     });
     if (False(image.flags & ImageFlagBits::Sparse)) {
+#ifdef PS5_NATIVE
+        // RasterizerVulkan may elide later CPU/DMA texture invalidations only
+        // after this monotonic witness has been published. The shadow Vulkan
+        // cache already did this; the PS5-selected ns2-astc owner must too.
+        ::Eden::ImagePages::Mark(image.cpu_addr, image.guest_size_bytes);
+#endif
         auto map_id =
             slot_map_views.insert(image.gpu_addr, image.cpu_addr, image.guest_size_bytes, image_id);
         ForEachCPUPage(image.cpu_addr, image.guest_size_bytes,
@@ -2781,6 +2790,9 @@ void TextureCache<P>::RegisterImage(ImageId image_id) {
     boost::container::small_vector<ImageViewId, 16> sparse_maps;
     ForEachSparseSegment(
         image, [this, image_id, &sparse_maps](GPUVAddr gpu_addr, DAddr cpu_addr, size_t size) {
+#ifdef PS5_NATIVE
+            ::Eden::ImagePages::Mark(cpu_addr, size);
+#endif
             auto map_id = slot_map_views.insert(gpu_addr, cpu_addr, size, image_id);
             ForEachCPUPage(cpu_addr, size,
                            [this, map_id](u64 page) { page_table[page].push_back(map_id); });

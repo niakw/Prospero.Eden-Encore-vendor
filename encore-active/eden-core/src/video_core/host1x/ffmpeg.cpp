@@ -31,15 +31,6 @@ namespace FFmpeg {
 
 namespace {
 
-#if defined(PS5_NATIVE)
-extern "C" bool eden_native_detailed_logging() noexcept __attribute__((weak));
-inline bool EncoreDetailedVideoLogEnabled() noexcept {
-    return eden_native_detailed_logging && eden_native_detailed_logging();
-}
-#else
-inline bool EncoreDetailedVideoLogEnabled() noexcept { return false; }
-#endif
-
 constexpr AVPixelFormat PreferredGpuFormat = AV_PIX_FMT_NV12;
 constexpr AVPixelFormat PreferredCpuFormat = AV_PIX_FMT_YUV420P;
 constexpr std::array PreferredGpuDecoders = {
@@ -513,14 +504,17 @@ std::optional<DecodeApi::DecodedFrame> DecodeApi::ReceiveFrame() {
                  "EDEN_NVDEC_STAGE stage=decode count={} width={} height={} format={} luma={:#x} hidden={}",
                  witness, frame->GetWidth(), frame->GetHeight(),
                  static_cast<int>(frame->GetPixelFormat()), offsets.luma, offsets.hidden);
-        if (EncoreDetailedVideoLogEnabled()) {
-            std::fprintf(stderr,
-                         "EDEN_NVDEC_STAGE stage=decode count=%u width=%d height=%d format=%d luma=0x%llx hidden=%u\n",
-                         witness, frame->GetWidth(), frame->GetHeight(),
-                         static_cast<int>(frame->GetPixelFormat()),
-                         static_cast<unsigned long long>(offsets.luma),
-                         offsets.hidden ? 1u : 0u);
-        }
+#if defined(PS5_NATIVE)
+        // Always expose only the first three decoded frames in the standard
+        // console trace. This is bounded and lets a normal user log prove
+        // whether black video failed before or after NVDEC.
+        std::fprintf(stderr,
+                     "EDEN_NVDEC_STAGE stage=decode count=%u width=%d height=%d format=%d luma=0x%llx hidden=%u\n",
+                     witness, frame->GetWidth(), frame->GetHeight(),
+                     static_cast<int>(frame->GetPixelFormat()),
+                     static_cast<unsigned long long>(offsets.luma),
+                     offsets.hidden ? 1u : 0u);
+#endif
     }
     return DecodedFrame{std::move(frame), offsets};
 }

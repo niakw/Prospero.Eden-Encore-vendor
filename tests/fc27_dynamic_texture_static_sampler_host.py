@@ -28,7 +28,20 @@ def blob(path: Path)->str:
 assert blob(TEX)=="3d9625f1981d6500e7b294018e0659464869d6f3"
 assert blob(GFX)=="efa8fd4d73c111655fced67fe7dd1e6b7c0178ba"
 assert blob(CMP)=="7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2"
-assert blob(CACHE)=="be5d48abd44996502b0829a6e0501d130a151455"
+cache_blob=blob(CACHE)
+assert cache_blob in {
+    "be5d48abd44996502b0829a6e0501d130a151455",
+    "e10c4893c03da57dce7f607d3e0af46d62e343f1",
+    "dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56",
+}, cache_blob
+if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56"}:
+    selected=CACHE.read_text()
+    assert "fragment_shuffle_fallback[index] = true;" in selected
+    assert "EmitSPIRV(emit_profile, runtime_info, program, binding)" in selected
+    assert "skipping fragment shuffle with known driver issue" in selected
+    if cache_blob=="dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56":
+        assert "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx" in selected
+        assert "fallback_witness <= 8" in selected
 
 tex=TEX.read_text()
 gfx=GFX.read_text()

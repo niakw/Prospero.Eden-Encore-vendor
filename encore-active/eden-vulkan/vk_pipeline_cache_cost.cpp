@@ -1799,6 +1799,13 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     LOG_DEBUG(Render_Vulkan, "{:#016x}", hash);
     size_t env_index{0};
     std::array<Shader::IR::Program, Maxwell::MaxShaderProgram> programs;
+#ifdef PS5_NATIVE
+    // Eden #4503 drops known-broken non-NVIDIA fragment shaders entirely.
+    // On PS5 that visibly removes guest draws. Keep the exact predicate but
+    // route only matching programs through the newer Lichii/Eglantine
+    // broadcast/select SPIR-V fallback.
+    std::array<bool, Maxwell::MaxShaderProgram> fragment_shuffle_fallback{};
+#endif
     const bool uses_vertex_a{key.unique_hashes[0] != 0};
     const bool uses_vertex_b{key.unique_hashes[1] != 0};
 
@@ -1838,15 +1845,32 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
             programs[index] = MergeDualVertexPrograms(program_va, program_vb, env);
         }
 
-        // Avoid compiling a known-broken fragment shuffle sourced from
-        // PositionXY on non-NVIDIA drivers (notably RADV/RDNA2). Recognize
-        // the IR pattern, not a broad title or vendor blacklist.
+        // Avoid native subgroup shuffle for the known PositionXY fragment
+        // pattern on non-NVIDIA drivers. Desktop/mobile preserve Eden #4503's
+        // fail-closed skip. PS5 instead uses the newer upstream broadcast
+        // fallback so the whole guest draw is not silently discarded.
         if (device.GetDriverID() != VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
             Shader::Optimization::HasBrokenPattern(programs[index])) {
+#ifdef PS5_NATIVE
+            fragment_shuffle_fallback[index] = true;
+            LOG_WARNING(Render_Vulkan,
+                        "0x{:016x}: using PS5 fragment shuffle fallback",
+                        key.unique_hashes[index]);
+            static std::atomic<unsigned> fragment_shuffle_witness{};
+            const unsigned fallback_witness =
+                fragment_shuffle_witness.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (fallback_witness <= 8) {
+                std::fprintf(stderr,
+                             "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx\n",
+                             fallback_witness,
+                             static_cast<unsigned long long>(key.unique_hashes[index]));
+            }
+#else
             LOG_WARNING(Render_Vulkan,
                         "0x{:016x}: skipping fragment shuffle with known driver issue",
                         key.unique_hashes[index]);
             return nullptr;
+#endif
         }
 
         if (Settings::values.dump_guest_shaders) {
@@ -1880,7 +1904,11 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
 
         const auto runtime_info{MakeRuntimeInfo(programs, key, program, previous_stage, device)};
         ConvertLegacyToGeneric(program, runtime_info);
-        const std::vector<u32> code{([&] { auto cost = Eden::Performance::VulkanTimer(22); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderSpirv, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return EmitSPIRV(profile, runtime_info, program, binding); }())};
+        auto emit_profile = profile;
+#ifdef PS5_NATIVE
+        emit_profile.has_broken_spirv_fragment_shuffle = fragment_shuffle_fallback[index];
+#endif
+        const std::vector<u32> code{([&] { auto cost = Eden::Performance::VulkanTimer(22); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderSpirv, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return EmitSPIRV(emit_profile, runtime_info, program, binding); }())};
         device.SaveShader(code);
         modules[stage_index] = ([&] { auto cost = Eden::Performance::VulkanTimer(23); ::Eden::Performance::CachePhaseTimer stage_cost{::Eden::Performance::CachePhase::ShaderModule, ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)}; return BuildShader(device, code); }());
 

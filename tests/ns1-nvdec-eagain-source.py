@@ -11,7 +11,7 @@ src = src_file.read_text()
 header = header_file.read_text()
 def git_blob(raw: bytes) -> str:
     return hashlib.sha1(b"blob " + str(len(raw)).encode() + bytes([0]) + raw).hexdigest()
-assert git_blob(src_file.read_bytes()) == "1f3834ef66b97033fc662d7c7c9ee3456cb62bca"
+assert git_blob(src_file.read_bytes()) == "2eadc437cec5559560e5aaf849dd3b6446782e99"
 assert git_blob(header_file.read_bytes()) == "4bca3f84dbc224e925e18c28001286ee0e337448"
 # Pinned Eden vendor source tree must remain byte-for-byte unmodified.
 assert git_blob((root / "sources/eden/src/video_core/host1x/ffmpeg.cpp").read_bytes()) == "676e5820a592b194d0c72ee61bfa67a0fa29f45a"
@@ -33,7 +33,8 @@ assert "m_ready_frames.size() >= 32" in src
 assert src.count("EDEN_NVDEC_STAGE stage=decode") == 2
 assert src.count("static std::atomic<unsigned> decoded_witness{};") == 1
 assert "if (witness <= 3)" in src
-assert "EncoreDetailedVideoLogEnabled()" in src
+assert "EncoreDetailedVideoLogEnabled()" not in src
+assert "eden_native_detailed_logging" not in src
 assert "std::fprintf(stderr" in src
 
 submit = src.split("bool DecodeApi::SendPacket(", 1)[1].split(
