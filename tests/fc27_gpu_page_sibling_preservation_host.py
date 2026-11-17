@@ -41,8 +41,12 @@ for needle in (
     "memory_tracker.MarkRegionAsCpuModified(device_addr, size);",
 ):
     assert needle in method, needle
+sibling_branch = method.split(
+    "if (keep_page_gpu_data && page_end > page_begin &&\n"
+    "        IsRegionGpuModified(page_begin, page_end - page_begin)) {", 1
+)[1].split("\n    }", 1)[0]
+assert sibling_branch.index("DownloadMemory(") < method.rindex("memory_tracker.MarkRegionAsCpuModified")
 assert method.index("gpu_modified_ranges.Subtract") < method.index("DownloadMemory(")
-assert method.index("DownloadMemory(") < method.index("MarkRegionAsCpuModified")
 
 def function(text, marker):
     begin=text.index(marker)
