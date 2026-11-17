@@ -71,26 +71,6 @@ Loader::ResultStatus ProgramMetadata::Load(VirtualFile file) {
         return Loader::ResultStatus::ErrorBadACIHeader;
     }
 
-    // Switch generation is encoded independently in the program ID platform byte.
-    // Lichii/Eglantine use 0x04xxxxxxxxxxxxxx for Switch 2 and 0x01... for
-    // Switch 1. Keep the physical ACID layout in uses_extended_acid, but do
-    // not misclassify a valid 0x04 NPDM as Switch 1 merely because a dump or
-    // repack presents a legacy-sized ACID signature/key prefix.
-    constexpr u64 PlatformMask = 0xFF00000000000000ULL;
-    constexpr u64 Switch2Platform = 0x0400000000000000ULL;
-    const u64 program_id = aci_header.title_id;
-    const bool switch2_platform = (program_id & PlatformMask) == Switch2Platform;
-#if defined(PS5_NATIVE)
-    // Keep the standalone parser host test linkable without the full logger.
-    // On PS5, report only the bounded generation witness.
-    if (switch2_platform && !is_switch2) {
-        LOG_INFO(Loader,
-                 "EDEN_NS2_PLATFORM_IDENTITY title={:016x} acid_extended=0 classification=switch2",
-                 program_id);
-    }
-#endif
-    is_switch2 = is_switch2 || switch2_platform;
-
     constexpr u64 fac_read_size = 4 + sizeof(FileAccessControl::permissions) +
                                   sizeof(FileAccessControl::unknown);
     if (acid_header.fac_size < fac_read_size ||
