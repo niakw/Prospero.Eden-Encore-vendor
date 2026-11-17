@@ -2504,16 +2504,19 @@ static void Call64(Core::System& system, u32 imm, std::span<uint64_t, 8> args) {
 void Call(Core::System& system, u32 imm) {
     auto& kernel = system.Kernel();
     auto& process = GetCurrentProcess(kernel);
+    std::array<uint64_t, 8> args;
+    kernel.CurrentPhysicalCore().SaveSvcArguments(process, args);
 #ifdef EDEN_NS2_SVC_TRACE
-    // Research instrumentation only, bounded to registered NS2 processes.
-    // Shipping builds do not pay for logging on the SVC dispatch hot path.
+    // Detailed logging keeps a fixed recent ring without per-call I/O. On a
+    // fatal guest branch PhysicalCore asks this TU to dump it once.
+    Eden::NS2::SvcTrace::RecordRecent(process.GetProcessId(), imm,
+                                      process.IsPermittedSvc(imm), args);
+    // Preserve the historical first-32 witness for existing host contracts.
     if (const auto sample = Eden::NS2::SvcTrace::Next(process.GetProcessId())) {
         LOG_INFO(Kernel_SVC, "NS2 real HLE SVC[{}] pid={} imm={:#x} permitted={}",
                  *sample, process.GetProcessId(), imm, process.IsPermittedSvc(imm));
     }
 #endif
-    std::array<uint64_t, 8> args;
-    kernel.CurrentPhysicalCore().SaveSvcArguments(process, args);
     //kernel.EnterSVCProfile();
     LOG_TRACE(Kernel_SVC, "{} [0]={:#x} [1]={:#x} [2]={:#x} [3]={:#x} [4]={:#x} [5]={:#x} [6]={:#x}",
         imm, GetArg64(args, 0), GetArg64(args, 1), GetArg64(args, 2),
@@ -2565,3 +2568,9 @@ void Call(Core::System& system, u32 imm) {
 }
 
 } // namespace Kernel::Svc
+
+#ifdef EDEN_NS2_SVC_TRACE
+extern "C" void eden_ns2_dump_recent_svc(std::uint64_t pid) noexcept {
+    Eden::NS2::SvcTrace::DumpRecent(pid, stderr);
+}
+#endif

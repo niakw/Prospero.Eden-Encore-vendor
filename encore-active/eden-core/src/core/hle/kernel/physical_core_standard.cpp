@@ -4,6 +4,9 @@
 #include "performance.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/arm/debug.h"
+#if defined(__PROSPERO__)
+extern "C" void eden_ns2_dump_recent_svc(std::uint64_t) noexcept __attribute__((weak));
+#endif
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -171,6 +174,22 @@ void PhysicalCore::RunThread(KernelCore& kernel, Kernel::KThread* thread) {
                         static_cast<unsigned long long>(process ? GetInteger(process->GetEntryPoint()) : 0),
                         static_cast<std::size_t>(m_core_index),
                         static_cast<unsigned long long>(thread->GetThreadId()));
+                    std::fprintf(stderr,
+                        "EDEN_GUEST_FAULT_REGS x0=0x%llx x1=0x%llx x2=0x%llx x3=0x%llx "
+                        "x4=0x%llx x5=0x%llx x6=0x%llx x7=0x%llx\n",
+                        static_cast<unsigned long long>(fault_context.r[0]),
+                        static_cast<unsigned long long>(fault_context.r[1]),
+                        static_cast<unsigned long long>(fault_context.r[2]),
+                        static_cast<unsigned long long>(fault_context.r[3]),
+                        static_cast<unsigned long long>(fault_context.r[4]),
+                        static_cast<unsigned long long>(fault_context.r[5]),
+                        static_cast<unsigned long long>(fault_context.r[6]),
+                        static_cast<unsigned long long>(fault_context.r[7]));
+#if defined(__PROSPERO__)
+                    if (process && eden_ns2_dump_recent_svc) {
+                        eden_ns2_dump_recent_svc(process->GetProcessId());
+                    }
+#endif
                     std::fprintf(stderr,
                         "EDEN_GUEST_FAULT_SP_MAP sp=0x%llx query=%s start=0x%llx size=0x%llx state=%u\n",
                         static_cast<unsigned long long>(fault_context.sp),
