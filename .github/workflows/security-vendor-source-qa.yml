@@ -101,6 +101,7 @@ jobs:
           set -euo pipefail
           python3 -B tests/ns2_ampere_imad_negated_addend_host.py
           python3 -B tests/ns2_ampere_hsetp2_cbuf_host.py
+          python3 -B tests/ns2_alias_128g_no_kprocess_layout_host.py
           python3 -B tests/ns2_dynamic_texture_found_bit_limit_host.py
           python3 -B tests/ns2_duskbloods_tld4_imad_host.py
           python3 -B tests/fc27_gpu_page_sibling_preservation_host.py

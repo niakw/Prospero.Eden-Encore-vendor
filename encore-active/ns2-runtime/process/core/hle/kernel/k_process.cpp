@@ -360,6 +360,13 @@ Result KProcess::Initialize(KernelCore& kernel, const Svc::CreateProcessParamete
 Result KProcess::Initialize(KernelCore& kernel, const Svc::CreateProcessParameter& params,
                             std::span<const u32> user_caps, KResourceLimit* res_limit,
                             KMemoryManager::Pool pool, KProcessAddress aslr_space_start) {
+    R_RETURN(this->Initialize(kernel, params, user_caps, res_limit, pool, aslr_space_start, false));
+}
+
+Result KProcess::Initialize(KernelCore& kernel, const Svc::CreateProcessParameter& params,
+                            std::span<const u32> user_caps, KResourceLimit* res_limit,
+                            KMemoryManager::Pool pool, KProcessAddress aslr_space_start,
+                            bool is_switch2) {
     ASSERT(res_limit != nullptr);
 
     // Set members.
@@ -420,7 +427,7 @@ Result KProcess::Initialize(KernelCore& kernel, const Svc::CreateProcessParamete
             False(params.flags & Svc::CreateProcessFlag::DisableDeviceAddressSpaceMerge);
         R_TRY(m_page_table.Initialize(as_type, enable_aslr, enable_das_merge, !enable_aslr, pool,
                                       params.code_address, code_size, m_system_resource, res_limit,
-                                      m_memory, aslr_space_start));
+                                      m_memory, aslr_space_start, is_switch2));
     }
     ON_RESULT_FAILURE_2 {
         m_page_table.Finalize();
@@ -1295,7 +1302,11 @@ Result KProcess::LoadFromMetadata(KernelCore& kernel, const FileSys::ProgramMeta
     std::memcpy(params.name.data(), name.data(), sizeof(params.name));
 
     // Initialize for application process.
-    R_TRY(this->Initialize(kernel, params, metadata.GetKernelCapabilities(), res_limit, pool, aslr_space_start));
+    // Lichii #1773: generation changes only page-table region sizing. Pass it
+    // explicitly instead of adding an m_is_switch2 field to KProcess; Encore's
+    // shared 4/6-core ABI requires the KProcess object layout to remain identical.
+    R_TRY(this->Initialize(kernel, params, metadata.GetKernelCapabilities(), res_limit, pool,
+                           aslr_space_start, metadata.IsSwitch2()));
 
     // Assign remaining properties.
     m_ideal_core_id = metadata.GetMainThreadCore();

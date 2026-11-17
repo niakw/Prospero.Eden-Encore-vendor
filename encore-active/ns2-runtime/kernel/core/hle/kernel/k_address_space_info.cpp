@@ -47,6 +47,8 @@ constexpr KAddressSpaceInfo Ns2HeapInfo{
     .type = KAddressSpaceInfo::Type::Heap,
 };
 
+constexpr size_t Ns2AliasRegionSize = 128_GiB;
+
 const KAddressSpaceInfo& GetAddressSpaceInfo(size_t width, KAddressSpaceInfo::Type type) {
     if (width == 39 && type == KAddressSpaceInfo::Type::Heap &&
         Settings::values.memory_layout_mode.GetValue() == Settings::MemoryLayout::Memory_12Gb) {
@@ -67,6 +69,16 @@ std::size_t KAddressSpaceInfo::GetAddressSpaceStart(size_t width, KAddressSpaceI
 }
 
 std::size_t KAddressSpaceInfo::GetAddressSpaceSize(size_t width, KAddressSpaceInfo::Type type) {
+    return GetAddressSpaceSize(width, type, false);
+}
+
+std::size_t KAddressSpaceInfo::GetAddressSpaceSize(size_t width, KAddressSpaceInfo::Type type,
+                                                   bool is_switch2) {
+    // Lichii #1773: Switch 2 VAMM can reserve two ~60 GiB ranges. This is
+    // virtual address capacity only; it does not allocate 128 GiB of PS5 RAM.
+    if (is_switch2 && width == 39 && type == KAddressSpaceInfo::Type::Alias) {
+        return Ns2AliasRegionSize;
+    }
     return GetAddressSpaceInfo(width, type).size;
 }
 
