@@ -97,6 +97,11 @@ public:
 private:
     friend class EventInterface;
 
+    /// Builds a logged fallback for nvgpu nodes used by Switch 2 drivers
+    /// but absent from the Switch 1 device table. Known builders always win.
+    std::function<std::shared_ptr<Devices::nvdevice>(DeviceFD, const std::string&)>
+        nx2_stub_builder;
+
     /// Manages syncpoints on the host
     NvCore::Container container;
 
