@@ -33,8 +33,8 @@ for marker in (
 assert ff.count("EDEN_NVDEC_STAGE stage=decode") == 2
 assert ff.count("static std::atomic<unsigned> decoded_witness{};") == 1
 assert "if (witness <= 3)" in ff
-assert "EncoreDetailedVideoLogEnabled()" in ff
-assert "eden_native_detailed_logging && eden_native_detailed_logging()" in ff
+assert "EncoreDetailedVideoLogEnabled()" not in ff
+assert "eden_native_detailed_logging" not in ff
 assert "std::fprintf(stderr" in ff
 
 # VIC remains the pristine implementation plus bounded receipts; no black fill
@@ -53,7 +53,7 @@ assert vic.count("nvdec_vic_input_witness.fetch_add") == 1
 assert vic.count("nvdec_vic_output_witness.fetch_add") == 1
 assert vic.count("if (witness <= 3)") == 2
 assert "std::memory_order_relaxed" in vic
-assert "EncoreDetailedVideoLogEnabled()" in vic
+assert "EncoreDetailedVideoLogEnabled()" not in vic
 assert vic.count("std::fprintf(stderr") == 2
 
 # There are exactly three stage sites total. This rejects accidental per-frame
