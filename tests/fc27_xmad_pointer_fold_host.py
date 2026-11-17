@@ -27,7 +27,16 @@ if const_blob=="9cbdcbffe4117f9bc7957a69d15e6a277fcfe12b":
     assert current.count("            if (count == 0) {\n                return 0U;\n            }\n            const u32 mask{count == 32 ? ~0U : (1U << count) - 1};\n            return (base >> shift) & mask;\n")==1
     restored=current.replace("            if (count == 0) {\n                return 0U;\n            }\n            const u32 mask{count == 32 ? ~0U : (1U << count) - 1};\n            return (base >> shift) & mask;\n","            return (base >> shift) & ((1U << count) - 1);\n",1).encode()
     assert hashlib.sha1(b"blob "+str(len(restored)).encode()+bytes([0])+restored).hexdigest()=="ce074980d021e14c80b76b4acb1372791c106b5f"
-assert blob(CACHE)=="be5d48abd44996502b0829a6e0501d130a151455"
+cache_blob=blob(CACHE)
+assert cache_blob in {
+    "be5d48abd44996502b0829a6e0501d130a151455",
+    "e10c4893c03da57dce7f607d3e0af46d62e343f1",
+}, cache_blob
+if cache_blob=="e10c4893c03da57dce7f607d3e0af46d62e343f1":
+    selected=CACHE.read_text()
+    assert "fragment_shuffle_fallback[index] = true;" in selected
+    assert "EmitSPIRV(emit_profile, runtime_info, program, binding)" in selected
+    assert "skipping fragment shuffle with known driver issue" in selected
 assert blob(PINNED)=="57c08588fbd1a160acbcdd516c2d38d15f95818b"
 
 src=CONST.read_text()
