@@ -639,10 +639,10 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             emit(base(0x5c18000000000000ULL) | (u64{250} << 8) | (u64{251} << 20) | (u64{16} << 39));
             break;
         }
-        case 0x234: case 0x434: case 0x634: { // HSETP2: register, immediate or constant-buffer B.
+        case 0x234: case 0x634: { // HSETP2: register or constant-buffer B.
             // Lichii #1511 / 19be851d: Age of Imprisonment and MKW use the CBUF form.
-            // Keep Encore's existing predicate/swizzle admission and materialize only
-            // the non-register operand into a reserved scratch register.
+            // Encore already has a separately constrained 0x434 immediate HSETP2 path below;
+            // do not merge that title-observed form into this generic predicate path.
             if (insn.Bits(69, 2) > 2 || insn.Bits(91, 1))
                 return fail(index, "native half predicate comparison mode");
             const auto a = half_source(0);
@@ -651,9 +651,6 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 if (insn.Bits(64, 5))
                     return fail(index, "native half predicate comparison mode");
                 b = half_source(1);
-            } else if (opcode == 0x434) {
-                mov_imm(250, insn.words[1]);
-                b = {250, 0, false, false};
             } else {
                 if (insn.Bits(64, 5) || !valid_cbuf())
                     return fail(index, "native half predicate comparison mode");

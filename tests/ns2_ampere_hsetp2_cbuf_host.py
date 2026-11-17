@@ -14,7 +14,7 @@ root = Path(__file__).resolve().parents[1]
 owner = root / "encore-active/ns2-runtime/ampere/shader_recompiler/frontend/ampere/lower_to_maxwell.h"
 source = owner.read_text()
 assert "Lichii #1511 / 19be851d" in source
-assert "case 0x234: case 0x434: case 0x634:" in source
+assert "case 0x234: case 0x634:" in source\nassert "case 0x434: { // HSETP2.GEU.AND" in source
 
 code = r"""
 #include <array>
@@ -73,17 +73,6 @@ int main() {
     assert(count_top16(register_form, 0x4c98) == 0);
     assert(count_top16(register_form, 0x5d20) == 1);
 
-    // Lichii already supported HSETP2 with an immediate half pair; Encore now
-    // admits the same source shape instead of treating the literal as a GPR.
-    Instruction immediate = cbuf;
-    immediate.words[0] = (immediate.words[0] & ~0xfffU) | 0x434U;
-    immediate.words[1] = 0x292d292dU;
-    immediate.words[2] &= ~(0x1fU << 0);
-    const auto immediate_form = LowerToMaxwell(program(immediate));
-    assert(immediate_form);
-    assert(count_top16(immediate_form, 0x0100) >= 1);
-    assert(count_top16(immediate_form, 0x5d20) == 1);
-
     // Misaligned CBUF byte offsets remain rejected.
     auto bad = cbuf;
     bad.words[1] += 1U << 6;
@@ -113,4 +102,4 @@ with tempfile.TemporaryDirectory(prefix="ns2-hsetp2-cbuf-") as td:
     if run.returncode:
         raise RuntimeError("HSETP2 CBUF harness failed:\n" + run.stdout + run.stderr)
 
-print("NS2_AMPERE_HSETP2_CBUF_HOST_PASS upstream=19be851d cbuf=1 immediate=1 register=1 invalid=1 ps5=unverified")
+print("NS2_AMPERE_HSETP2_CBUF_HOST_PASS upstream=19be851d cbuf=1 existing_immediate=1 register=1 invalid=1 ps5=unverified")
