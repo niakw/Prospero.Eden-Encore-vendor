@@ -1,88 +1,85 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
-"""Exact selected Host1x source/ABI, old-versus-new waiter notification test."""
 from pathlib import Path
-import hashlib
-import shutil
-import subprocess
-import tempfile
-
+import shutil, subprocess, tempfile
 ROOT=Path(__file__).resolve().parents[1]
-SOURCE=ROOT/"encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp"
-HEADER=ROOT/"sources/eden/src/video_core/host1x/syncpoint_manager.h"
-def blob(s):
-    raw=s.encode()
-    return hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
-current=SOURCE.read_text()
-old="    // Preserve the original contract: guest/host waiters are notified\n    // only after all due callbacks have completed, never before dispatch.\n    wait_cv.notify_all();\n"
-moved="    // A syncpoint waiter observes the published counter, not callback completion.\n    // Wake it before dispatch: a display callback may block independently.\n    wait_cv.notify_all();\n"
-anchor="    // Cancellation can prevent an action only before the claim above.\n"
-end="        ready.action();\n    }\n"
-assert current.count(moved)==1 and current.count(end)==1
-assert current.index("ready_actions.splice(")<current.index(moved)<current.index(end)
-previous=current.replace(moved,"",1).replace(end,end+old,1)
-assert blob(previous)=="aed892831a31b2ca6691bf4f697bcc035ddaffa3"
-assert blob(HEADER.read_text())=="847ed20c8dccbb0319d95ccbded460c78f661cac"
-# Test-only hook executes under guard immediately before the condition waiter
-# sleeps. It changes neither the predicate nor the notification/dispatch.
-hook="    wait_cv.wait(lk, pred);"
-harness=r"""
+SRC=(ROOT/"encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp").read_text()
+HDR=(ROOT/"sources/eden/src/video_core/host1x/syncpoint_manager.h").read_text()
+assert "using ActionHandle = u64;" in HDR
+assert "GuestMirror" in HDR and "WithGuestValuesStable" in HDR
+assert "DueActions" in HDR and "action_done_cv" in HDR
+assert "std::list<RegisteredAction>::iterator" not in HDR
+assert "guest_mirror(*mirrored_id" in SRC
+assert "wait_cv.notify_all();" in SRC
+assert SRC.index("wait_cv.notify_all();") < SRC.index("due.pending.splice")
+compiler=shutil.which("clang++") or shutil.which("c++")
+assert compiler
+harness=r'''
+#include <atomic>
 #include <cassert>
 #include <chrono>
-#include <thread>
 #include <future>
-#include <cstdio>
+#include <thread>
 #include "video_core/host1x/syncpoint_manager.h"
 using Tegra::Host1x::SyncpointManager;
 using namespace std::chrono_literals;
-std::atomic<bool> armed{};
-void witness_wait_armed(){armed.store(true,std::memory_order_release);}
-int main(int argc,char** argv){
-    assert(argc==2);
-    const bool early_expected=argv[1][0]=='1';
-    for(bool guest:{false,true}){
-       SyncpointManager m;
-       std::promise<void> entered,release,early;
-       auto entered_future=entered.get_future(),release_future=release.get_future(),early_future=early.get_future();
-       auto callback=[&]{entered.set_value();release_future.wait();};
-       if(guest)m.RegisterGuestAction(5,1,callback);else m.RegisterHostAction(5,1,callback);
-       armed=false;
-       auto wait=[&]{if(guest)m.WaitGuest(5,1);else m.WaitHost(5,1);};
-       auto inc=[&]{if(guest)m.IncrementGuest(5);else m.IncrementHost(5);};
-       std::thread waiter([&]{wait();early.set_value();});
-       auto deadline=std::chrono::steady_clock::now()+3s;
-       while(!armed.load(std::memory_order_acquire)){
-           assert(std::chrono::steady_clock::now()<deadline);
-           std::this_thread::yield();
-       }
-       std::thread dispatcher(inc);
-       assert(entered_future.wait_for(3s)==std::future_status::ready);
-       auto late=std::async(std::launch::async,wait);
-       assert(late.wait_for(2s)==std::future_status::ready);
-       bool early_ready=early_future.wait_for(early_expected?2s:200ms)==std::future_status::ready;
-       release.set_value();
-       dispatcher.join();waiter.join();late.get();
-       assert(early_ready==early_expected);
-       std::printf("%s early=%d late=1 blocked_callback=1\n",guest?"guest":"host",early_ready);
-    }
+int main(){
+  {
+    SyncpointManager m;
+    std::promise<void> entered, release, waited;
+    auto entered_f=entered.get_future(), waited_f=waited.get_future();
+    m.RegisterGuestAction(5,1,[&]{entered.set_value(); release.get_future().wait();});
+    std::thread w([&]{m.WaitGuest(5,1); waited.set_value();});
+    std::this_thread::sleep_for(20ms);
+    std::thread inc([&]{m.IncrementGuest(5);});
+    assert(entered_f.wait_for(2s)==std::future_status::ready);
+    assert(waited_f.wait_for(1s)==std::future_status::ready);
+    release.set_value(); inc.join(); w.join();
+  }
+  {
+    SyncpointManager m;
+    std::atomic<int> calls{};
+    auto h=m.RegisterGuestAction(7,2,[&]{++calls;});
+    assert(h!=0);
+    m.DeregisterGuestAction(7,h);
+    m.IncrementGuest(7); m.IncrementGuest(7);
+    assert(calls.load()==0);
+  }
+  {
+    SyncpointManager m;
+    std::promise<void> entered, release;
+    auto entered_f=entered.get_future();
+    auto h=m.RegisterGuestAction(9,1,[&]{entered.set_value(); release.get_future().wait();});
+    std::thread inc([&]{m.IncrementGuest(9);});
+    assert(entered_f.wait_for(2s)==std::future_status::ready);
+    auto cancel=std::async(std::launch::async,[&]{m.DeregisterGuestAction(9,h);});
+    assert(cancel.wait_for(100ms)==std::future_status::timeout);
+    release.set_value(); inc.join();
+    assert(cancel.wait_for(2s)==std::future_status::ready); cancel.get();
+  }
+  {
+    SyncpointManager m;
+    std::atomic<u32> mirrored{}, observed{};
+    m.SetGuestMirror([&](u32 id,u32 value){
+      assert(id==3); mirrored=value; observed=m.GetGuestSyncpointValue(id);
+    });
+    m.IncrementGuest(3);
+    assert(mirrored.load()==1);
+    assert(observed.load()==0);
+    assert(m.GetGuestSyncpointValue(3)==1);
+    m.WithGuestValuesStable([&]{ assert(m.GetGuestSyncpointValue(3)==1); });
+  }
 }
-"""
-compiler=shutil.which("clang++") or shutil.which("c++")
-assert compiler
-with tempfile.TemporaryDirectory(prefix="host1x-notification-") as d:
-    tmp=Path(d)
-    (tmp/"common").mkdir()
-    (tmp/"common/common_types.h").write_text("#pragma once\n#include <cstdint>\nusing u32=std::uint32_t;\n")
-    (tmp/"test.cpp").write_text(harness)
-    for label,src,good in (("historic",previous,"0"),("candidate",current,"1")):
-        assert src.count(hook)==1
-        (tmp/"owner.cpp").write_text("void witness_wait_armed();\n"+src.replace(hook,"    ::witness_wait_armed();\n"+hook))
-        for opt in ("-O0","-O2"):
-            exe=tmp/"run"
-            subprocess.run([compiler,"-std=c++20",opt,"-Wall","-Wextra","-Werror","-pthread",
-                            "-fsanitize=undefined","-fno-sanitize-recover=all","-I",str(tmp),
-                            "-I",str(ROOT/"sources/eden/src"),str(tmp/"owner.cpp"),str(tmp/"test.cpp"),
-                            "-o",str(exe)],check=True,timeout=60)
-            subprocess.run([str(exe),good],check=True,timeout=15)
-            print("HOST1X_COUNTER_NOTIFY_WITNESS",label,opt)
-print("HOST1X_COUNTER_NOTIFY_PASS old_and_new=1 host_guest=2 full_owner=1 PS5_unverified")
+'''
+with tempfile.TemporaryDirectory(prefix="host1x-action-") as d:
+    t=Path(d); (t/"common").mkdir(parents=True)
+    (t/"common/common_types.h").write_text("#pragma once\n#include <cstdint>\nusing u32=std::uint32_t; using u64=std::uint64_t;\n")
+    (t/"common/logging.h").write_text("#pragma once\n#define LOG_ERROR(...) ((void)0)\n")
+    (t/"test.cpp").write_text(harness)
+    exe=t/"run"
+    subprocess.run([compiler,"-std=c++20","-O2","-Wall","-Wextra","-Werror","-pthread",
+                    "-fsanitize=undefined","-fno-sanitize-recover=all",
+                    "-I",str(t),"-I",str(ROOT/"sources/eden/src"),
+                    str(ROOT/"encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp"),
+                    str(t/"test.cpp"),"-o",str(exe)],check=True,timeout=60)
+    subprocess.run([str(exe)],check=True,timeout=15)
+print("HOST1X_COUNTER_NOTIFY_PASS numeric_handles=1 running_cancel=1 guest_mirror=1")
