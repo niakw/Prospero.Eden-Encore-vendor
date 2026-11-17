@@ -31,12 +31,16 @@ cache_blob=blob(CACHE)
 assert cache_blob in {
     "be5d48abd44996502b0829a6e0501d130a151455",
     "e10c4893c03da57dce7f607d3e0af46d62e343f1",
+    "dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56",
 }, cache_blob
-if cache_blob=="e10c4893c03da57dce7f607d3e0af46d62e343f1":
+if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56"}:
     selected=CACHE.read_text()
     assert "fragment_shuffle_fallback[index] = true;" in selected
     assert "EmitSPIRV(emit_profile, runtime_info, program, binding)" in selected
     assert "skipping fragment shuffle with known driver issue" in selected
+    if cache_blob=="dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56":
+        assert "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx" in selected
+        assert "fallback_witness <= 8" in selected
 assert blob(PINNED)=="57c08588fbd1a160acbcdd516c2d38d15f95818b"
 
 src=CONST.read_text()
