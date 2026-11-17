@@ -19,6 +19,29 @@ ACTIVE = ROOT / "encore-active/ns2-runtime/process/core/hle/kernel/k_process.cpp
 base = BASE.read_text()
 active = ACTIVE.read_text()
 
+# PS5 receipt compile successor: KProcessAddress is Common::ProcessAddress, a
+# TypedAddress with no integer conversion operator. Qualify Eden's supported
+# accessor, then normalize only the five log operands in the audit copy so the
+# historical dce3adbc / #1773 receipts remain byte-for-byte immutable.
+typed = (ROOT / "sources/eden/src/common/typed_address.h").read_text()
+assert "constexpr inline uint64_t GetInteger(Common::TypedAddress<Virtual, T> address)" in typed
+assert "return address.GetValue();" in typed
+typed_receipts = (
+    ("static_cast<unsigned long long>(GetInteger(stack_bottom))",
+     "static_cast<unsigned long long>(stack_bottom)", 1),
+    ("static_cast<unsigned long long>(GetInteger(stack_top))",
+     "static_cast<unsigned long long>(stack_top)", 2),
+    ("static_cast<unsigned long long>(GetInteger(probe))",
+     "static_cast<unsigned long long>(probe)", 1),
+    ("static_cast<unsigned long long>(GetInteger(this->GetEntryPoint()))",
+     "static_cast<unsigned long long>(this->GetEntryPoint())", 1),
+)
+for current, historical, expected_count in typed_receipts:
+    assert active.count(current) == expected_count, (current, active.count(current))
+    assert historical not in active
+    active = active.replace(current, historical)
+print("NS2_KPROCESS_TYPED_ADDRESS_RECEIPT_PASS", "operands=5", "api=GetInteger")
+
 # Lichii #1773 is independently qualified and deliberately does not add a
 # KProcess data member. Reverse its three KProcess-source edits exactly so
 # this older dce3adbc receipt can retain byte-for-byte provenance.
