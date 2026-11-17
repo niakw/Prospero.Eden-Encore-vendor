@@ -94,6 +94,16 @@ Result StartThread(Core::System& system, Handle thread_handle) {
     // Try to start the thread.
     R_TRY(thread->Run(system.Kernel()));
 
+    // Lichii 3140648: if a lower-priority worker starts on our own core,
+    // hardware IPC latency lets it consume startup arguments before this
+    // caller resumes and reuses its stack.
+    KThread& cur_thread = GetCurrentThread(system.Kernel());
+    if (thread->GetActiveCore() == cur_thread.GetActiveCore() &&
+        thread->GetPriority() > cur_thread.GetPriority()) {
+        thread->Open(system.Kernel());
+        cur_thread.GetPendingStartedThreads().push_back(thread.GetPointerUnsafe());
+    }
+
     R_SUCCEED();
 }
 

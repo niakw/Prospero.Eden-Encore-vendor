@@ -4,12 +4,15 @@
 // SPDX-FileCopyrightText: Copyright 2023 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <chrono>
+
 #include "common/scope_exit.h"
 #include "common/scratch_buffer.h"
 #include "core/core.h"
 #include "core/hle/kernel/k_client_session.h"
 #include "core/hle/kernel/k_hardware_timer.h"
 #include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_scheduler.h"
 #include "core/hle/kernel/k_scoped_resource_reservation.h"
 #include "core/hle/kernel/k_server_session.h"
 #include "core/hle/kernel/k_session.h"
@@ -30,7 +33,31 @@ Result SendSyncRequestImpl(KernelCore& kernel, uintptr_t message, size_t buffer_
     ASSERT(parent.IsNotNull());
 
     // Send the request.
-    R_RETURN(session->SendSyncRequest(kernel, message, buffer_size));
+    const Result result = session->SendSyncRequest(kernel, message, buffer_size);
+
+    // Lichii 3140648: HLE services can reply before a same-core worker has
+    // executed its entry code. Keep the caller in the IPC scheduling window
+    // until such workers block/exit, bounded to 20 ms of host time.
+    auto& pending = GetCurrentThread(kernel).GetPendingStartedThreads();
+    if (!pending.empty()) [[unlikely]] {
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(20);
+        for (KThread* thread : pending) {
+            const auto still_starting = [&] {
+                KScopedSchedulerLock sl{kernel};
+                return thread->GetState() == ThreadState::Runnable ||
+                       thread->GetWaitingLockInfo() != nullptr;
+            };
+            while (still_starting() && std::chrono::steady_clock::now() < deadline) {
+                static_cast<void>(GetCurrentThread(kernel).Sleep(
+                    kernel, kernel.HardwareTimer().GetTick() + 50'000));
+            }
+            thread->Close(kernel);
+        }
+        pending.clear();
+    }
+
+    R_RETURN(result);
 }
 
 Result ReplyAndReceiveImpl(KernelCore& kernel, int32_t* out_index, uintptr_t message,

@@ -331,6 +331,13 @@ namespace Kernel {
     }
 
     void KThread::Finalize(KernelCore& kernel) {
+        // A starter may exit without issuing the IPC that normally releases
+        // these retained worker references.
+        for (KThread* thread : m_pending_started_threads) {
+            thread->Close(kernel);
+        }
+        m_pending_started_threads.clear();
+
         // If the thread has an owner process, unregister it.
         if (m_parent != nullptr) {
             m_parent->UnregisterThread(kernel, this);
