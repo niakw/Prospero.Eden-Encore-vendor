@@ -734,31 +734,33 @@ def run() -> None:
         live = path.read_text()
         historical = live
         if path == CORE:
-            # Review the exact November 18 compatibility delta before rolling
-            # back later FC27 source receipts to the immutable R2 snapshot.
-            # The upstream Intersects call is not present in our pinned
-            # Common::RangeSet; the maintained method is semantically the same
-            # ForEachInRange query. Do not relax any source-blob check.
-            old_query = "!gpu_modified_ranges.Intersects(page_begin, page_end - page_begin)"
+            # Restore the *exact* historical R2 WriteMemory body for its
+            # immutable Git blob receipt. The later Lichii b13c4c1 sibling
+            # preservation and 44bf47d single-query optimization are
+            # separately verified by fc27_gpu_page_sibling_preservation_host.py.
+            # Do not update the historical receipt or weaken its comparison.
             current_query = "!IsRegionGpuModified(page_begin, page_end - page_begin)"
-            assert historical.count(current_query) == 1, "Native RangeSet ABI adaptation missing"
-            assert old_query not in historical, "Uncompilable upstream RangeSet API returned"
-            current_comment = (
-                "    // Lichii 44bf47d: the written range is wholly inside these pages. If the\n"
-                "    // pages contain no GPU-written bytes, the exact range cannot contain any\n"
-                "    // either. Use the maintained IsRegionGpuModified/ForEachInRange API:\n"
-                "    // this pinned RangeSet has no upstream Intersects member. Keep the\n"
-                "    // single-query clean CPU-write fast path and b13c4c1 sibling preservation."
+            assert live.count(current_query) == 1, "Pinned RangeSet ABI adaptation missing"
+            assert "!gpu_modified_ranges.Intersects(page_begin" not in live
+            begin = historical.index("template <class P>\nvoid BufferCache<P>::WriteMemory(")
+            finish = historical.index(
+                "\ntemplate <class P>\nvoid BufferCache<P>::CachedWriteMemory", begin)
+            new_method = historical[begin:finish]
+            assert new_method.count("DownloadMemory(page_begin, page_end - page_begin);") == 1
+            assert new_method.count("IsRegionGpuModified(page_begin, page_end - page_begin)") == 2
+            assert new_method.index("DownloadMemory(page_begin") < new_method.rindex(
+                "memory_tracker.MarkRegionAsCpuModified(device_addr, size);")
+            historical_method = (
+                "template <class P>\n"
+                "void BufferCache<P>::WriteMemory(DAddr device_addr, u64 size) {\n"
+                "    if (IsRegionGpuModified(device_addr, size)) {\n"
+                "        ClearDownload(device_addr, size);\n"
+                "        gpu_modified_ranges.Subtract(device_addr, size);\n"
+                "    }\n"
+                "    memory_tracker.MarkRegionAsCpuModified(device_addr, size);\n"
+                "}\n"
             )
-            former_comment = (
-                "    // Lichii 44bf47d: the written range is wholly inside these pages. If the\n"
-                "    // pages contain no GPU-written bytes, the exact range cannot contain any\n"
-                "    // either, so avoid a second interval-tree walk on the overwhelmingly\n"
-                "    // common clean CPU-write path. This preserves b13c4c1 semantics."
-            )
-            assert historical.count(current_comment) == 1
-            historical = historical.replace(current_query, old_query, 1)
-            historical = historical.replace(current_comment, former_comment, 1)
+            historical = historical[:begin] + historical_method + historical[finish:]
         if path == CORE and "BufferCache<P>::ClaimCpuWrites" in historical:
             # FC27/Lichii #397 adaptation: keep the live stale-readback
             # protection, but reverse exactly that reviewed delta before
