@@ -28,6 +28,7 @@ POST_TEARDOWN = "RasterizerVulkan::~RasterizerVulkan() {\n    // QueryCache has 
 PRE_TEARDOWN = "RasterizerVulkan::~RasterizerVulkan() {\n    scheduler.WaitWorker();\n    scheduler.Finish();\n}"
 POST_HOST_INFO_ORDER = "        .support_viewport_mask = device.IsNvViewportArray2Supported(),\n        .support_geometry_shader_passthrough = device.IsNvGeometryShaderPassthroughSupported(),\n        .support_conditional_barrier = device.SupportsConditionalBarriers(),"
 PRE_HOST_INFO_ORDER = "        .support_geometry_shader_passthrough = device.IsNvGeometryShaderPassthroughSupported(),\n        .support_conditional_barrier = device.SupportsConditionalBarriers(),\n        .support_viewport_mask = device.IsNvViewportArray2Supported(),"
+VERTEX_MASK_PIPELINE_BLOB = "22e8403bb7b2722bae65742097b8cb18ef160f03"
 for path,sha in EXPECTED.items():
  raw=(ROOT/path).read_bytes()
  normalized=raw.decode("utf-8")
@@ -55,6 +56,18 @@ for path,sha in EXPECTED.items():
   indexed="const u32 second_offset{desc.secondary_cbuf_offset + index_offset};"
   assert normalized.count(fixed)==1 and indexed not in normalized
   normalized=normalized.replace(fixed,indexed,1)
+ elif path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path)==VERTEX_MASK_PIPELINE_BLOB:
+  # Full-file successor is pinned exactly here; the dedicated FC27 mask test
+  # independently removes only its reviewed delta and recovers e3910d11...
+  for needle in (
+      "EdenRecordVertexAttributeMask(",
+      "EdenKnownVertexAttributeMask(",
+      "EdenMaxVertexAttributeMasks = 8192",
+      "unmasked_vertex_attribute_types_valid = false;",
+      "graphics_key.state.attribute_types &= *mask;",
+  ):
+   assert needle in normalized, needle
+  continue
  elif path.endswith("/vk_pipeline_cache_cost.cpp"):
   # FC27 XMAD pointer folding changes generated shader IR, so the selected
   # cache owner advances 19 -> 20. Reverse only that reviewed version bump
