@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: fc27-vertex-attribute-key-mask-${{ github.head_ref || github.ref }}
+  group: fc27-vertex-attribute-key-mask-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
