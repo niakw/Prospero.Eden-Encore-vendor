@@ -733,6 +733,32 @@ def run() -> None:
     for path, sha in SOURCE_BLOBS.items():
         live = path.read_text()
         historical = live
+        if path == CORE:
+            # Review the exact November 18 compatibility delta before rolling
+            # back later FC27 source receipts to the immutable R2 snapshot.
+            # The upstream Intersects call is not present in our pinned
+            # Common::RangeSet; the maintained method is semantically the same
+            # ForEachInRange query. Do not relax any source-blob check.
+            old_query = "!gpu_modified_ranges.Intersects(page_begin, page_end - page_begin)"
+            current_query = "!IsRegionGpuModified(page_begin, page_end - page_begin)"
+            assert historical.count(current_query) == 1, "Native RangeSet ABI adaptation missing"
+            assert old_query not in historical, "Uncompilable upstream RangeSet API returned"
+            current_comment = (
+                "    // Lichii 44bf47d: the written range is wholly inside these pages. If the\n"
+                "    // pages contain no GPU-written bytes, the exact range cannot contain any\n"
+                "    // either. Use the maintained IsRegionGpuModified/ForEachInRange API:\n"
+                "    // this pinned RangeSet has no upstream Intersects member. Keep the\n"
+                "    // single-query clean CPU-write fast path and b13c4c1 sibling preservation."
+            )
+            former_comment = (
+                "    // Lichii 44bf47d: the written range is wholly inside these pages. If the\n"
+                "    // pages contain no GPU-written bytes, the exact range cannot contain any\n"
+                "    // either, so avoid a second interval-tree walk on the overwhelmingly\n"
+                "    // common clean CPU-write path. This preserves b13c4c1 semantics."
+            )
+            assert historical.count(current_comment) == 1
+            historical = historical.replace(current_query, old_query, 1)
+            historical = historical.replace(current_comment, former_comment, 1)
         if path == CORE and "BufferCache<P>::ClaimCpuWrites" in historical:
             # FC27/Lichii #397 adaptation: keep the live stale-readback
             # protection, but reverse exactly that reviewed delta before
