@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'encore-active/eden-core/src/video_core/textures/decoders.cpp'
-      - 'encore-active/eden-core/src/video_core/textures/decoders.h'
+      - 'encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h'
       - 'encore-active/eden-core/src/video_core/engines/engine_upload.cpp'
       - 'encore-active/eden-core/guest-bridge/engine_upload.cpp'
       - 'encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp'
@@ -13,7 +13,7 @@ on:
   pull_request:
     paths:
       - 'encore-active/eden-core/src/video_core/textures/decoders.cpp'
-      - 'encore-active/eden-core/src/video_core/textures/decoders.h'
+      - 'encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h'
       - 'encore-active/eden-core/src/video_core/engines/engine_upload.cpp'
       - 'encore-active/eden-core/guest-bridge/engine_upload.cpp'
       - 'encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp'
@@ -40,7 +40,7 @@ jobs:
           sparse-checkout: |
             .github/workflows/ns2-r3-decoder-host.yml
             encore-active/eden-core/src/video_core/textures/decoders.cpp
-            encore-active/eden-core/src/video_core/textures/decoders.h
+            encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h
             encore-active/eden-core/src/video_core/engines/engine_upload.cpp
             encore-active/eden-core/guest-bridge/engine_upload.cpp
             encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp
@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git hash-object encore-active/eden-core/src/video_core/textures/decoders.cpp)" = 'cce0ff3300ef5f70e5df8e67eed7f276a8e147d9'
-          test "$(git hash-object encore-active/eden-core/src/video_core/textures/decoders.h)" = 'b1824a1203eee4b374416c2cd16995a79bb6954f'
+          test "$(git hash-object encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h)" = 'b1824a1203eee4b374416c2cd16995a79bb6954f'
           test "$(git hash-object encore-active/eden-core/src/video_core/engines/engine_upload.cpp)" = 'a217f52b0085a3e59ddc7daab20391cf23245657'
           test "$(git hash-object encore-active/eden-core/guest-bridge/engine_upload.cpp)" = '4dc4273c7b7f59bc79d4fcac815df86baa121bf9'
           test "$(git hash-object sources/eden/src/video_core/textures/decoders.cpp)" = '25b0860b0f7a9b31f49b63647c64d8d5493fab71'
@@ -102,7 +102,7 @@ jobs:
                 "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror -Wno-unused-parameter \
                   -fsanitize=address,undefined -fno-sanitize-recover=all \
                   -fno-omit-frame-pointer \
-                  -I"${shims}" $([[ "${flavor}" == maintained ]] && printf %s "-Iencore-active/eden-core/src") \
+                  -I"${shims}" $([[ "${flavor}" == maintained ]] && printf %s "-Iencore-active/eden-core/overrides/native-tiling") \
                   -Isources/eden/src "${test_file}" "${source_file}" -o "${executable}"
                 result=$("${executable}")
                 echo "${compiler} O${opt} ${flavor}: ${result}"
@@ -123,7 +123,7 @@ jobs:
               executable="${RUNNER_TEMP}/r3-native-${compiler//+/p}-O${opt}"
               "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror -Wno-unused-parameter \
                 -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer \
-                -DEDEN_TEST_NATIVE_TILING=1 -I"${shims}" -Iencore-active/eden-core/src \
+                -DEDEN_TEST_NATIVE_TILING=1 -I"${shims}" -Iencore-active/eden-core/overrides/native-tiling \
                 -Isources/eden/src "${test_file}" \
                 encore-active/eden-core/src/video_core/textures/decoders.cpp -o "${executable}"
               output=$("${executable}")
