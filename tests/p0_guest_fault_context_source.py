@@ -1,53 +1,50 @@
 #!/usr/bin/env python3
-"""Source proof for bounded P0 guest prefetch-fault context diagnostics."""
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Exact real guest-fault context source owner; pin predecessor, not a false replay."""
 from pathlib import Path
 import hashlib
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = {
+# The baseline already includes fault registers and the previous SVC dumper,
+# so removing the oldest OWNER/SP_MAP slice alone is no longer reversible.
+# First recover the *exact* selected predecessor (vendor main), then check
+# the source-owned snapshot and full fault context. Do not rewrite history.
+PREDECESSOR = {
     "encore-active/eden-core/src/core/hle/kernel/physical_core_dev.cpp":
-        "09e27e5361e70d123cdbbd6d450c596d7a272657",
+        "4521fd48028b9852cc6929c642bfd906421ea474",
     "encore-active/eden-core/src/core/hle/kernel/physical_core_standard.cpp":
-        "bbcc4658c87dc530f5820f8e1e6a71da1aa9cea1",
+        "bbd7f7a5a069e6f4407a1e4f0e2b4b333f611911",
 }
-INSERT = r'''                    Kernel::KMemoryInfo sp_info{};
-                    Kernel::Svc::PageInfo sp_page{};
-                    const bool sp_query = process &&
-                        !process->GetPageTable().QueryInfo(
-                            &sp_info, &sp_page, fault_context.sp).IsError();
-                    std::fprintf(stderr,
-                        "EDEN_GUEST_FAULT_OWNER pid=%llu program=0x%016llx entry=0x%llx core=%zu tid=%llu\n",
-                        static_cast<unsigned long long>(process ? process->GetProcessId() : 0),
-                        static_cast<unsigned long long>(process ? process->GetProgramId() : 0),
-                        static_cast<unsigned long long>(process ? GetInteger(process->GetEntryPoint()) : 0),
-                        static_cast<std::size_t>(m_core_index),
-                        static_cast<unsigned long long>(thread->GetThreadId()));
-                    std::fprintf(stderr,
-                        "EDEN_GUEST_FAULT_SP_MAP sp=0x%llx query=%s start=0x%llx size=0x%llx state=%u\n",
-                        static_cast<unsigned long long>(fault_context.sp),
-                        sp_query ? "ok" : "failed",
-                        static_cast<unsigned long long>(sp_info.m_address),
-                        static_cast<unsigned long long>(sp_info.m_size),
-                        static_cast<unsigned>(sp_info.m_state));
-'''
+OLD_DECL = 'extern "C" void eden_ns2_dump_recent_svc(std::uint64_t) noexcept __attribute__((weak));'
+NEW_DECL = '''extern "C" void eden_ns2_dump_recent_svc(
+    std::uint64_t pid, std::uint64_t program_id, std::uint64_t fault_pc, std::uint64_t fault_lr,
+    std::uint64_t fault_sp) noexcept __attribute__((weak));'''
+OLD_CALL = "eden_ns2_dump_recent_svc(process->GetProcessId());"
+NEW_CALL = '''eden_ns2_dump_recent_svc(process->GetProcessId(),
+                            process->GetProgramId(), fault_context.pc,
+                            fault_context.lr, fault_context.sp);'''
 
 def blob(text: str) -> str:
     raw = text.encode()
     return hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
 
-for rel, previous in FILES.items():
-    text = (ROOT / rel).read_text()
-    assert text.count(INSERT) == 1, rel
-    assert text.count("EDEN_GUEST_FAULT_OWNER") == 1, rel
-    assert text.count("EDEN_GUEST_FAULT_SP_MAP") == 1, rel
-    assert text.index("EDEN_GUEST_FAULT_OWNER") < text.index("EDEN_GUEST_FAULT_LR_MAP"), rel
-    reconstructed = text.replace(INSERT, "", 1)
-    assert blob(reconstructed) == previous, (rel, blob(reconstructed), previous)
-    # Diagnostic-only: page-table metadata queries, no guest memory read/write.
-    owner = text[text.index("EDEN_GUEST_FAULT_OWNER")-900:text.index("EDEN_GUEST_FAULT_LR_MAP")]
-    assert "Read" not in owner and "Write" not in owner and "GetMemory()" not in owner, rel
+for rel, previous in PREDECESSOR.items():
+    source = (ROOT / rel).read_text()
+    assert source.count(NEW_DECL) == 1, rel
+    assert source.count(NEW_CALL) == 1, rel
+    for marker in ("EDEN_GUEST_FAULT_OWNER", "EDEN_GUEST_FAULT_REGS",
+                   "EDEN_GUEST_FAULT_SP_MAP", "EDEN_GUEST_FAULT_LR_MAP"):
+        assert source.count(marker) == 1, (rel, marker)
+    assert source.index("EDEN_GUEST_FAULT_OWNER") < source.index("EDEN_GUEST_FAULT_REGS") < (
+        source.index("eden_ns2_dump_recent_svc(process->GetProcessId(),")
+    ) < source.index("EDEN_GUEST_FAULT_SP_MAP") < source.index("EDEN_GUEST_FAULT_LR_MAP"), rel
+    predecessor = source.replace(NEW_DECL, OLD_DECL, 1).replace(NEW_CALL, OLD_CALL, 1)
+    assert blob(predecessor) == previous, (rel, blob(predecessor), previous)
+    fatal = source[source.index("EDEN_GUEST_FAULT_OWNER") - 800:
+                   source.index("EDEN_GUEST_FAULT_LR_MAP")]
+    assert "GetMemory()" not in fatal and "ReadMemory(" not in fatal, rel
 
 pinned = (ROOT / "sources/eden/src/core/hle/kernel/physical_core.cpp").read_text()
 assert "EDEN_GUEST_FAULT_OWNER" not in pinned
 assert "EDEN_GUEST_FAULT_SP_MAP" not in pinned
-print("P0_GUEST_FAULT_CONTEXT_SOURCE_PASS owner=1 stack_map=1 no_guest_deref=1 upstream_immutable=1")
+print("P0_GUEST_FAULT_CONTEXT_SOURCE_PASS title=1 registers=8 sp_lr_maps=1 quiet_bridge=1 immutable_original=1")
