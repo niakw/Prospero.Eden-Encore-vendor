@@ -580,15 +580,20 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     }
     // Bind only a validated process, after the channel has a real GMMU
     // and the complete native fence plan has already passed admission.
-    if (native && !NativeGpuChannelRegistry::Instance().Bind(
-                      channel_state.get(), native_owner)) {
+    // Only an authenticated Switch 2 channel may switch its address-space
+    // texture layout. NS1 never enters this branch and keeps Maxwell tiling.
+    if (native) {
+        if (!NativeGpuChannelRegistry::Instance().Bind(
+                channel_state.get(), native_owner)) {
 #ifdef PS5_NATIVE
-        if (trace_impl)
-            std::fprintf(stderr,
-                         "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=channel-bind\n",
-                         impl_trace_ticket);
+            if (trace_impl)
+                std::fprintf(stderr,
+                             "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=channel-bind\n",
+                             impl_trace_ticket);
 #endif
-        return NvResult::InvalidState;
+            return NvResult::InvalidState;
+        }
+        channel_state->memory_manager->EnableNativeTiling();
     }
 
     const auto bind_id = channel_state->bind_id;

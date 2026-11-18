@@ -6,6 +6,12 @@ on:
     paths:
       - 'encore-active/eden-core/src/video_core/textures/decoders.cpp'
       - 'encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h'
+      - 'encore-active/eden-core/overrides/native-tiling/video_core/memory_manager.h'
+      - 'encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp'
+      - 'tests/ns2_native_tiling_activation_source.py'
+      - 'encore-active/eden-core/overrides/native-tiling/video_core/memory_manager.h'
+      - 'encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp'
+      - 'tests/ns2_native_tiling_activation_source.py'
       - 'encore-active/eden-core/src/video_core/engines/engine_upload.cpp'
       - 'encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp'
       - 'tests/ns2_sw_blitter_native_tiling_source.py'
@@ -45,6 +51,11 @@ jobs:
             .github/workflows/ns2-r3-decoder-host.yml
             encore-active/eden-core/src/video_core/textures/decoders.cpp
             encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h
+            encore-active/eden-core/overrides/native-tiling/video_core/memory_manager.h
+            encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp
+            encore-active/ns2-runtime/gpu_dispatch/video_core/control/channel_state.cpp
+            tests/ns2_native_tiling_activation_source.py
+            sources/eden/src/video_core/memory_manager.h
             encore-active/eden-core/src/video_core/engines/engine_upload.cpp
             encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp
             tests/ns2_sw_blitter_native_tiling_source.py
@@ -70,6 +81,7 @@ jobs:
           grep -F 'memory_manager.UsesNativeTiling()' encore-active/eden-core/guest-bridge/engine_upload.cpp
           test "$(grep -cF 'memory_manager.UsesNativeTiling()' encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp)" = 2
           python3 -B tests/ns2_sw_blitter_native_tiling_source.py
+          python3 -B tests/ns2_native_tiling_activation_source.py
       - name: Create minimal shims only for unused GPU and assertion dependencies
         shell: bash
         run: |
