@@ -27,16 +27,17 @@ assert call.index("Call64(system, imm, args);") < call.index("SvcTrace::RecordOu
 assert call.index("SvcTrace::RecordOutcome") < call.index("LoadSvcArguments(process, args)")
 assert "process.Is64Bit() && (imm == 0x06 || imm == 0x29)" in call
 assert 'extern "C" void eden_ns2_dump_recent_svc' in svc
-assert 'eden_native_capture_ns2_svc_fault(pid, fault_pc, fault_lr, fault_sp, last_svc)' in svc
+assert 'eden_native_capture_ns2_svc_fault(pid, program_id, fault_pc, fault_lr, fault_sp, last_svc)' in svc
 assert '"svc=not_observed"' in svc
-assert "std::uint64_t pid, std::uint64_t fault_pc" in svc
+assert "std::uint64_t pid, std::uint64_t program_id, std::uint64_t fault_pc" in svc
 assert svc.index("SvcTrace::DumpRecent(pid, stderr)") < svc.index(
     "SvcTrace::FormatCriticalRecent(pid, last_svc, sizeof(last_svc))")
 for src in (std, dev):
     assert "EDEN_GUEST_FAULT_REGS" in src
     assert "fault_context.r[7]" in src
     assert "eden_ns2_dump_recent_svc(process->GetProcessId()," in src
-    assert "fault_context.pc, fault_context.lr, fault_context.sp)" in src
+    assert "process->GetProgramId(), fault_context.pc," in src
+    assert "fault_context.lr, fault_context.sp)" in src
     assert "fault_pc, std::uint64_t fault_lr" in src
 
 cc = shutil.which("clang++") or shutil.which("g++")
