@@ -32,7 +32,7 @@ method=start+CACHE.split(start,1)[1].split(stop,1)[0]+"\n}"
 for needle in (
     "Upstream Lichii/Eglantine b13c4c1",
     "Lichii 44bf47d",
-    "!gpu_modified_ranges.Intersects(page_begin, page_end - page_begin)",
+    "!IsRegionGpuModified(page_begin, page_end - page_begin)",
     "gpu_modified_ranges.Subtract(device_addr, size);",
     "Common::AlignDown(device_addr, DEVICE_PAGESIZE)",
     "Common::AlignUp(device_addr + size, DEVICE_PAGESIZE)",
@@ -117,7 +117,7 @@ int main(){
         events.clear();
         c.WriteMemory(0x2100,0x20);
         assert((events==std::vector<int>{3}));
-        assert(c.exact_queries==0);
+        assert(c.exact_queries==1);
         assert(c.downloads.empty());
     }
     {
@@ -167,4 +167,4 @@ with tempfile.TemporaryDirectory(prefix="fc27-gpu-page-sibling-") as td:
             if run.returncode:
                 raise RuntimeError(run.stdout+run.stderr)
 
-print("FC27_GPU_PAGE_SIBLING_PRESERVATION_HOST_PASS upstream=b13c4c1,44bf47d clean_query=1 sibling=downloaded unmap=skip ps5=unverified")
+print("FC27_GPU_PAGE_SIBLING_PRESERVATION_HOST_PASS upstream=b13c4c1,44bf47d clean_query=1 pinned_rangeset_api=1 sibling=downloaded unmap=skip ps5=unverified")
