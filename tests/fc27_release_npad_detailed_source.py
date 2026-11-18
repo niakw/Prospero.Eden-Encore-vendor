@@ -30,7 +30,7 @@ prior=text
 assert prior.count(block)==1
 prior=prior.replace(block,"",1)
 assert prior.count(helper)==1
-prior=prior.replace(helper,"",1)
+prior=prior.replace(helper,'#include "hid_core/resources/shared_memory_format.h"\\n\\nnamespace Service::HID {\\n',1)
 assert prior.count(new_includes)==1
 prior=prior.replace(new_includes,old_includes,1)
 raw=prior.encode()
