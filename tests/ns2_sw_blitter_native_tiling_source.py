@@ -7,6 +7,7 @@ source and destination subrect transforms. The decoder API keeps false as its
 default, preserving the NS1 layout when native tiling is not selected.
 """
 from pathlib import Path
+import hashlib
 
 root = Path(__file__).resolve().parents[1]
 pinned = (root / "sources/eden/src/video_core/engines/sw_blitter/blitter.cpp").read_text()
@@ -20,11 +21,18 @@ dst_old = """                       dst.block_height, dst.block_depth, dst_exten
 dst_new = """                       dst.block_height, dst.block_depth, dst_extent_x * dst_bytes_per_pixel,
                        memory_manager.UsesNativeTiling());"""
 
-assert pinned.count(src_old) == 1 and pinned.count(dst_old) == 1
 assert "memory_manager.UsesNativeTiling()" not in pinned
-expected = pinned.replace(src_old, src_new, 1).replace(dst_old, dst_new, 1)
-assert active == expected, "software blitter drift beyond reviewed Lichii #2121 adaptation"
+assert active.count(src_new) == 1 and active.count(dst_new) == 1
 assert active.count("memory_manager.UsesNativeTiling()") == 2
+
+# The maintained blitter already carried reviewed PS5 changes before #2121.
+# Reverse ONLY the two native-tiling arguments and require its exact previous
+# Git blob, instead of incorrectly comparing the maintained owner to pristine Eden.
+previous = active.replace(src_new, src_old, 1).replace(dst_new, dst_old, 1)
+previous_blob = hashlib.sha1(
+    b"blob " + str(len(previous.encode())).encode() + b"\0" + previous.encode()
+).hexdigest()
+assert previous_blob == "51f84857fdbbda43fbc84e079dda758e30dc5957", previous_blob
 
 blit = active.split("bool SoftwareBlitEngine::Blit(", 1)[1]
 source_branch = blit.split("if (src.linear == Fermi2D::MemoryLayout::BlockLinear)", 1)[1].split(
