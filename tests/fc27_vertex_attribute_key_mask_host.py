@@ -46,6 +46,8 @@ for needle in (
     "graphics_key.unique_hashes[0] == 0 && graphics_key.unique_hashes[1] != 0",
     "graphics_key.state.attribute_types &= *mask;",
     "it->second = ~u64{0};",
+    "constexpr size_t EdenMaxVertexAttributeMasks = 8192;",
+    "eden_vertex_attribute_masks.size() >= EdenMaxVertexAttributeMasks",
 ):
     assert needle in PIPE, needle
 
@@ -152,6 +154,6 @@ print(
 print(
     "FC27_VERTEX_ATTRIBUTE_MASK_CANDIDATE_PASS "
     "unread_collapses=1 read_type_preserved=1 vertexA_conservative=1 "
-    "raw_restore_order=1 ns2_excluded=1 collision_widens=1 "
+    "raw_restore_order=1 ns2_excluded=1 collision_widens=1 registry_bounded=8192 "
     "shader_info_source=selected runtime_candidate=1 gameplay_unverified=1"
 )
