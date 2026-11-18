@@ -6,7 +6,7 @@
 #include "core/arm/debug.h"
 #if defined(__PROSPERO__)
 extern "C" void eden_ns2_dump_recent_svc(
-    std::uint64_t pid, std::uint64_t fault_pc, std::uint64_t fault_lr,
+    std::uint64_t pid, std::uint64_t program_id, std::uint64_t fault_pc, std::uint64_t fault_lr,
     std::uint64_t fault_sp) noexcept __attribute__((weak));
 #endif
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
@@ -190,7 +190,8 @@ void PhysicalCore::RunThread(KernelCore& kernel, Kernel::KThread* thread) {
 #if defined(__PROSPERO__)
                     if (process && eden_ns2_dump_recent_svc) {
                         eden_ns2_dump_recent_svc(process->GetProcessId(),
-                            fault_context.pc, fault_context.lr, fault_context.sp);
+                            process->GetProgramId(), fault_context.pc,
+                            fault_context.lr, fault_context.sp);
                     }
 #endif
                     std::fprintf(stderr,
