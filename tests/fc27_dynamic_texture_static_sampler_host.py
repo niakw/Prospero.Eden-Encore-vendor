@@ -39,16 +39,23 @@ assert cache_blob in {
     "e10c4893c03da57dce7f607d3e0af46d62e343f1",
     "dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56",
     "e3910d11f33376097a90858118ba276f7e02cb70",
+    "22e8403bb7b2722bae65742097b8cb18ef160f03",  # exact predecessor proven by fc27_vertex_attribute_key_mask_host.py
 }, cache_blob
-if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70"}:
+if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","22e8403bb7b2722bae65742097b8cb18ef160f03"}:
     selected=CACHE.read_text()
     assert "fragment_shuffle_fallback[index] = true;" in selected
     assert "EmitSPIRV(emit_profile, runtime_info, program, binding)" in selected
     assert "skipping fragment shuffle with known driver issue" in selected
-    if cache_blob in {"dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70"}:
+    if cache_blob in {"dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","22e8403bb7b2722bae65742097b8cb18ef160f03"}:
         assert "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx" in selected
         assert "fallback_witness <= 8" in selected
 
+if cache_blob=="22e8403bb7b2722bae65742097b8cb18ef160f03":
+    assert "EdenRecordVertexAttributeMask(" in selected
+    assert "EdenKnownVertexAttributeMask(" in selected
+    assert "unmasked_vertex_attribute_types_valid = false;" in selected
+    assert "EdenMaxVertexAttributeMasks = 8192" in selected
+    assert selected.index("graphics_key.state.attribute_types = unmasked_vertex_attribute_types;") < selected.index("graphics_key.state.Refresh(*maxwell3d, dynamic_features);")
 tex=TEX.read_text()
 assert "Upstream Lichii 5e33a765 / #1914" in tex
 assert "DynamicDescriptorIndexLimit(dynamic_offset, size_shift)" in tex
