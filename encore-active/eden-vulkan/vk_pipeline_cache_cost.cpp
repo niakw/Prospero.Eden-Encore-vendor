@@ -897,6 +897,7 @@ bool EdenAttributelessStaticKey(const FixedPipelineState& state) {
 std::mutex eden_vertex_attribute_mask_mutex;
 std::map<EdenVertexIdentity, u64> eden_vertex_attribute_masks;
 std::atomic<u32> eden_vertex_attribute_mask_generation{0};
+constexpr size_t EdenMaxVertexAttributeMasks = 8192;
 
 u64 EdenVertexAttributeReadMask(const Shader::Info& info) noexcept {
     static_assert(Shader::IR::NUM_GENERICS <= 32);
@@ -914,8 +915,14 @@ void EdenRecordVertexAttributeMask(EdenVertexIdentity vertex_hash, const Shader:
     bool changed{};
     {
         std::scoped_lock lock{eden_vertex_attribute_mask_mutex};
-        const auto [it, inserted] = eden_vertex_attribute_masks.try_emplace(vertex_hash, mask);
-        if (inserted) {
+        auto it = eden_vertex_attribute_masks.find(vertex_hash);
+        if (it == eden_vertex_attribute_masks.end()) {
+            // Bounded optimization metadata. Once full, unknown shaders keep
+            // the historical unmasked key; correctness never depends on this.
+            if (eden_vertex_attribute_masks.size() >= EdenMaxVertexAttributeMasks) {
+                return;
+            }
+            eden_vertex_attribute_masks.emplace(vertex_hash, mask);
             changed = true;
         } else if (it->second != mask && it->second != ~u64{0}) {
             // A hash collision or inconsistent metadata must never make the
