@@ -52,6 +52,8 @@
 #include <atomic>
 #include <mutex>
 #include <set>
+#include <map>
+#include <optional>
 #include <unordered_set>
 #include "video_core/renderer_vulkan/vk_state_tracker.h"
 #include "video_core/memory_manager.h"
@@ -886,6 +888,92 @@ bool EdenAttributelessStaticKey(const FixedPipelineState& state) {
            std::ranges::none_of(state.attributes,
                                 [](const auto& attribute) { return attribute.raw != 0; });
 }
+
+#ifdef PS5_NATIVE
+// Lichii #408: the fixed pipeline key needs only the type bits for generic
+// attributes the VertexB program actually reads. Keep this separate from the
+// existing all-or-nothing attributeless cache so that historical behavior and
+// disk-cache admission remain unchanged.
+std::mutex eden_vertex_attribute_mask_mutex;
+std::map<EdenVertexIdentity, u64> eden_vertex_attribute_masks;
+std::atomic<u32> eden_vertex_attribute_mask_generation{0};
+
+u64 EdenVertexAttributeReadMask(const Shader::Info& info) noexcept {
+    static_assert(Shader::IR::NUM_GENERICS <= 32);
+    u64 mask{};
+    for (size_t index = 0; index < Shader::IR::NUM_GENERICS; ++index) {
+        if (info.loads.Generic(index)) {
+            mask |= u64{3} << (index * 2);
+        }
+    }
+    return mask;
+}
+
+void EdenRecordVertexAttributeMask(EdenVertexIdentity vertex_hash, const Shader::Info& info) {
+    const u64 mask = EdenVertexAttributeReadMask(info);
+    bool changed{};
+    {
+        std::scoped_lock lock{eden_vertex_attribute_mask_mutex};
+        const auto [it, inserted] = eden_vertex_attribute_masks.try_emplace(vertex_hash, mask);
+        if (inserted) {
+            changed = true;
+        } else if (it->second != mask && it->second != ~u64{0}) {
+            // A hash collision or inconsistent metadata must never make the
+            // key less specific. Widen to all attributes and keep it widened.
+            it->second = ~u64{0};
+            changed = true;
+        }
+    }
+    if (changed) {
+        eden_vertex_attribute_mask_generation.fetch_add(1, std::memory_order_release);
+    }
+}
+
+std::optional<u64> EdenKnownVertexAttributeMask(EdenVertexIdentity vertex_hash) {
+    struct Lookup {
+        EdenVertexIdentity hash{};
+        u32 generation{~u32{0}};
+        u64 mask{};
+        bool known{};
+    };
+    struct Bucket {
+        std::array<Lookup, 4> ways{};
+        unsigned next_slot{};
+    };
+    static thread_local std::array<Bucket, 16> buckets{};
+    static thread_local Lookup last{};
+
+    const u32 generation =
+        eden_vertex_attribute_mask_generation.load(std::memory_order_acquire);
+    if (last.hash == vertex_hash && last.generation == generation) {
+        return last.known ? std::optional<u64>{last.mask} : std::nullopt;
+    }
+    auto& bucket = buckets[(vertex_hash[0] ^ std::rotl(vertex_hash[1], 11)) &
+                           (buckets.size() - 1)];
+    for (const auto& lookup : bucket.ways) {
+        if (lookup.hash == vertex_hash && lookup.generation == generation) {
+            last = lookup;
+            return lookup.known ? std::optional<u64>{lookup.mask} : std::nullopt;
+        }
+    }
+
+    Lookup lookup{};
+    lookup.hash = vertex_hash;
+    lookup.generation = generation;
+    {
+        const std::scoped_lock lock{eden_vertex_attribute_mask_mutex};
+        if (const auto it = eden_vertex_attribute_masks.find(vertex_hash);
+            it != eden_vertex_attribute_masks.end()) {
+            lookup.mask = it->second;
+            lookup.known = true;
+        }
+    }
+    bucket.ways[bucket.next_slot] = lookup;
+    bucket.next_slot = (bucket.next_slot + 1) & (bucket.ways.size() - 1);
+    last = lookup;
+    return lookup.known ? std::optional<u64>{lookup.mask} : std::nullopt;
+}
+#endif
 } // Anonymous namespace
 
 GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
@@ -993,7 +1081,34 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipelineForMsaa(
         current_pipeline = nullptr;
         return nullptr;
     }
+#ifdef PS5_NATIVE
+    if (native) {
+        // Never reuse Maxwell key state across an authenticated Ampere path.
+        unmasked_vertex_attribute_types_valid = false;
+    } else if (dynamic_features.has_dynamic_vertex_input &&
+               unmasked_vertex_attribute_types_valid) {
+        // The previous lookup may have masked this union. Restore the raw
+        // register-derived types before Refresh decides whether VertexInput
+        // is dirty for the current draw.
+        graphics_key.state.attribute_types = unmasked_vertex_attribute_types;
+    }
+#endif
     graphics_key.state.Refresh(*maxwell3d, dynamic_features);
+#ifdef PS5_NATIVE
+    if (!native && dynamic_features.has_dynamic_vertex_input) {
+        unmasked_vertex_attribute_types = graphics_key.state.attribute_types;
+        unmasked_vertex_attribute_types_valid = true;
+        // VertexA+VertexB merging has additional input semantics; preserve its
+        // historical full key. Ordinary VertexB-only NS1 programs can safely
+        // ignore type bits for attributes their compiled pipeline never reads.
+        if (graphics_key.unique_hashes[0] == 0 && graphics_key.unique_hashes[1] != 0) {
+            if (const auto mask = EdenKnownVertexAttributeMask(
+                    {graphics_key.unique_hashes[0], graphics_key.unique_hashes[1]})) {
+                graphics_key.state.attribute_types &= *mask;
+            }
+        }
+    }
+#endif
     if (requested_samples != VK_SAMPLE_COUNT_1_BIT) {
         using Tegra::Texture::MsaaMode;
         MsaaMode mode{};
@@ -1887,6 +2002,10 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     }
     if (uses_vertex_b) {
         EdenRecordAttributeless({key.unique_hashes[0], key.unique_hashes[1]}, programs[1].info);
+#ifdef PS5_NATIVE
+        EdenRecordVertexAttributeMask(
+            {key.unique_hashes[0], key.unique_hashes[1]}, programs[1].info);
+#endif
     }
     std::array<const Shader::Info*, Maxwell::MaxShaderStage> infos{};
     std::array<vk::ShaderModule, Maxwell::MaxShaderStage> modules;
