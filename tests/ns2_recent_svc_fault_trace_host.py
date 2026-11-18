@@ -18,7 +18,7 @@ dev = (R / "encore-active/eden-core/src/core/hle/kernel/physical_core_dev.cpp").
 
 for marker in ("RecentSamples = 64", "RecordRecent(", "RecordOutcome(", "DumpRecent(",
                "outcome=completed", "outcome=pending", "EDEN_NS2_RECENT_SVC_BEGIN",
-               "EDEN_NS2_RECENT_SVC_END", "outcome_sequence"):
+               "EDEN_NS2_RECENT_SVC_END", "outcome_sequence", "FormatCriticalRecent("):
     assert marker in hdr, marker
 call = svc.split("void Call(Core::System& system, u32 imm) {", 1)[1]
 assert call.index("SaveSvcArguments(process, args)") < call.index("SvcTrace::RecordRecent")
@@ -27,6 +27,9 @@ assert call.index("Call64(system, imm, args);") < call.index("SvcTrace::RecordOu
 assert call.index("SvcTrace::RecordOutcome") < call.index("LoadSvcArguments(process, args)")
 assert "process.Is64Bit() && (imm == 0x06 || imm == 0x29)" in call
 assert 'extern "C" void eden_ns2_dump_recent_svc' in svc
+assert 'eden_native_capture_ns2_svc_fault(last_svc)' in svc
+assert svc.index("SvcTrace::DumpRecent(pid, stderr)") < svc.index(
+    "SvcTrace::FormatCriticalRecent(pid, last_svc, sizeof(last_svc))")
 for src in (std, dev):
     assert "EDEN_GUEST_FAULT_REGS" in src
     assert "fault_context.r[7]" in src
@@ -87,13 +90,22 @@ int main() {
     assert(text.find("seq=80 imm=0x29") != std::string::npos);
     assert(text.find("outcome=pending") != std::string::npos);
     assert(text.find("value=0xfeed") == std::string::npos);
+char recent_critical[240]{};
+    assert(FormatCriticalRecent(9, recent_critical, sizeof(recent_critical)) != 0);
+    assert(std::string(recent_critical).find("svc=0x29 pending") != std::string::npos);
+    assert(std::string(recent_critical).find("svc=0x6 done r=0xdead") != std::string::npos);
 #ifdef PS5_NATIVE
     logging_enabled = false;
-    assert(RecordRecent(9, 0x29, true, a) == 0);
-    RecordOutcome(9, 80, 0, 0xbeef, 1, 1);
-    assert(dump(9).empty());
+    assert(RecordRecent(9, 0x30, true, a) == 0); // no quiet verbosity
+    const auto quiet_seq = RecordRecent(9, 0x29, true, a);
+    assert(quiet_seq == 81); // critical ABI witness always kept
+    RecordOutcome(9, quiet_seq, 0x123, 0xbeef, 0x1083d03f00, 0x8029800c);
+    assert(dump(9).empty()); // no verbose stdout/stderr
+    assert(FormatCriticalRecent(9, recent_critical, sizeof(recent_critical)) != 0);
+    assert(std::string(recent_critical).find("svc=0x29 done r=0x123 v=0xbeef") != std::string::npos);
+    assert(std::string(recent_critical).find("svc=0x29 pending") != std::string::npos);
     logging_enabled = true;
-    assert(dump(9).find("value=0xbeef") == std::string::npos);
+    assert(dump(9).find("value=0xbeef") != std::string::npos);
 #endif
     ResetForTitle();
     assert(!IsActive(9));
@@ -117,5 +129,5 @@ with tempfile.TemporaryDirectory(prefix="ns2-svc-ring-outcome-") as d:
                  str(src), "-o", str(exe)],
                 check=True, capture_output=True, text=True, timeout=60)
             subprocess.run([str(exe)], check=True, timeout=10)
-print("NS2_RECENT_SVC_OUTCOME_HOST_PASS ring=64 contexts=pc_sp results=x0_x1 pending=1 wrap=1 reset=1 quiet=1 O0=1 O2=1")
+print("NS2_RECENT_SVC_OUTCOME_HOST_PASS ring=64 contexts=pc_sp results=x0_x1 pending=1 wrap=1 reset=1 quiet_critical=1 fatal_snapshot=1 O0=1 O2=1")
 print("Source/host only: no guest SVC correctness, native PS5 build or NS2 boot is claimed.")
