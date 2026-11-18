@@ -2590,7 +2590,21 @@ void Call(Core::System& system, u32 imm) {
 } // namespace Kernel::Svc
 
 #ifdef EDEN_NS2_SVC_TRACE
+#ifdef PS5_NATIVE
+// Defined by the PS5 frontend's crash-only incident owner, never by guest HLE.
+extern "C" void eden_native_capture_ns2_svc_fault(const char*) noexcept __attribute__((weak));
+#endif
 extern "C" void eden_ns2_dump_recent_svc(std::uint64_t pid) noexcept {
     Eden::NS2::SvcTrace::DumpRecent(pid, stderr);
+#ifdef PS5_NATIVE
+    // PhysicalCore invokes this only for a real fatal guest prefetch abort.
+    // Format from the already-in-memory ring before KProcess teardown resets
+    // it; persist independently of stderr when Detailed Logging is OFF.
+    if (eden_native_capture_ns2_svc_fault) {
+        char last_svc[240]{};
+        if (Eden::NS2::SvcTrace::FormatCriticalRecent(pid, last_svc, sizeof(last_svc)))
+            eden_native_capture_ns2_svc_fault(last_svc);
+    }
+#endif
 }
 #endif
