@@ -2590,7 +2590,27 @@ void Call(Core::System& system, u32 imm) {
 } // namespace Kernel::Svc
 
 #ifdef EDEN_NS2_SVC_TRACE
-extern "C" void eden_ns2_dump_recent_svc(std::uint64_t pid) noexcept {
+#ifdef PS5_NATIVE
+// A real, strong frontend implementation writes to an independent bounded
+// incident file. Weak declaration keeps non-PS5 and partial vendor tests linkable.
+extern "C" void eden_native_capture_ns2_svc_fault(
+    std::uint64_t pid, std::uint64_t program_id, std::uint64_t fault_pc,
+    std::uint64_t fault_lr, std::uint64_t fault_sp,
+    const char* critical_svc) noexcept __attribute__((weak));
+#endif
+extern "C" void eden_ns2_dump_recent_svc(
+    std::uint64_t pid, std::uint64_t program_id, std::uint64_t fault_pc,
+    std::uint64_t fault_lr, std::uint64_t fault_sp) noexcept {
     Eden::NS2::SvcTrace::DumpRecent(pid, stderr);
+#ifdef PS5_NATIVE
+    // This is a real guest abort, never a gameplay frame. The fatal PC/LR/SP
+    // remains useful even if no critical SVC was observed in the recent ring.
+    if (eden_native_capture_ns2_svc_fault) {
+        char last_svc[240]{};
+        if (!Eden::NS2::SvcTrace::FormatCriticalRecent(pid, last_svc, sizeof(last_svc)))
+            std::snprintf(last_svc, sizeof(last_svc), "svc=not_observed");
+        eden_native_capture_ns2_svc_fault(pid, program_id, fault_pc, fault_lr, fault_sp, last_svc);
+    }
+#endif
 }
 #endif

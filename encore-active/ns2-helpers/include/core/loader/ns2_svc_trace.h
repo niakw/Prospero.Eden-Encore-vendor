@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <optional>
 
 #ifdef PS5_NATIVE
@@ -90,7 +91,11 @@ inline void Unregister(std::uint64_t pid) noexcept {
 
 inline std::uint64_t RecordRecent(std::uint64_t pid, std::uint32_t imm, bool permitted,
                          const std::array<std::uint64_t, 8>& svc_args) noexcept {
-    if (!IsActive(pid) || !DetailedEnabled())
+    // The last GetInfo/QueryMemory result is needed even when optional
+    // verbose logging is OFF. Only these two SVCs stay in the fixed RAM ring
+    // in quiet mode. Never write or allocate during dispatch.
+    const bool fatal_relevant = imm == 0x06 || imm == 0x29;
+    if (!IsActive(pid) || (!fatal_relevant && !DetailedEnabled()))
         return 0;
     const std::uint64_t seq = recent_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
     auto& entry = recent[(seq - 1) % RecentSamples];
@@ -112,7 +117,7 @@ inline std::uint64_t RecordRecent(std::uint64_t pid, std::uint32_t imm, bool per
 inline void RecordOutcome(std::uint64_t pid, std::uint64_t seq,
                           std::uint64_t result, std::uint64_t value,
                           std::uint64_t sp, std::uint64_t pc) noexcept {
-    if (!seq || !IsActive(pid) || !DetailedEnabled()) return;
+    if (!seq || !IsActive(pid)) return;
     auto& entry = recent[(seq - 1) % RecentSamples];
     if (entry.sequence.load(std::memory_order_acquire) != seq) return;
     entry.outcome_sequence.store(0, std::memory_order_release);
@@ -122,6 +127,48 @@ inline void RecordOutcome(std::uint64_t pid, std::uint64_t seq,
     entry.svc_pc.store(pc, std::memory_order_relaxed);
     if (entry.sequence.load(std::memory_order_acquire) == seq)
         entry.outcome_sequence.store(seq, std::memory_order_release);
+}
+
+// Error-only string snapshot. Called ONLY on an actual guest prefetch fault,
+// before the process unload resets its ring. It is *not* a verbose logger.
+// The caller saves this short summary through the independent crash-only
+// application sink, so stderr=/dev/null cannot erase it.
+inline std::size_t FormatCriticalRecent(std::uint64_t pid, char* output,
+                                        std::size_t capacity) noexcept {
+    if (!output || capacity < 2) return 0;
+    output[0] = '\0';
+    if (!IsActive(pid)) return 0;
+    const std::uint64_t end = recent_sequence.load(std::memory_order_acquire);
+    const std::uint64_t first = end > RecentSamples ? end - RecentSamples + 1 : 1;
+    std::size_t used = 0;
+    unsigned count = 0;
+    for (std::uint64_t seq = end; seq >= first && seq != 0 && count < 2; --seq) {
+        const auto& entry = recent[(seq - 1) % RecentSamples];
+        if (entry.sequence.load(std::memory_order_acquire) != seq) continue;
+        const auto imm = entry.imm.load(std::memory_order_relaxed);
+        if (imm != 0x06 && imm != 0x29) continue;
+        const bool completed = entry.outcome_sequence.load(std::memory_order_acquire) == seq;
+        const auto result = entry.result_x0.load(std::memory_order_relaxed);
+        const auto value = entry.value_x1.load(std::memory_order_relaxed);
+        const auto sp = entry.svc_sp.load(std::memory_order_relaxed);
+        const auto pc = entry.svc_pc.load(std::memory_order_relaxed);
+        if (entry.sequence.load(std::memory_order_acquire) != seq) continue;
+        char part[176];
+        const int length = std::snprintf(part, sizeof(part),
+            "svc=0x%x %s r=0x%llx v=0x%llx sp=0x%llx pc=0x%llx;",
+            imm, completed ? "done" : "pending",
+            static_cast<unsigned long long>(completed ? result : 0),
+            static_cast<unsigned long long>(completed ? value : 0),
+            static_cast<unsigned long long>(completed ? sp : 0),
+            static_cast<unsigned long long>(completed ? pc : 0));
+        if (length <= 0 || static_cast<std::size_t>(length) >= sizeof(part) ||
+            used + static_cast<std::size_t>(length) >= capacity) break;
+        std::memcpy(output + used, part, static_cast<std::size_t>(length));
+        used += static_cast<std::size_t>(length);
+        output[used] = '\0';
+        ++count;
+    }
+    return used;
 }
 
 inline void DumpRecent(std::uint64_t pid, std::FILE* stream = stderr) noexcept {
