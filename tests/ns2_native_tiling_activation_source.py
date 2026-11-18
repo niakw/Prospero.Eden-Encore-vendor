@@ -30,11 +30,25 @@ api = """    ~MemoryManager();
 raster = "    VideoCore::RasterizerInterface* rasterizer = nullptr;\n"
 assert pinned.count(dtor) == 1 and pinned.count(raster) == 1
 assert "EnableNativeTiling" not in pinned and "UsesNativeTiling" not in pinned
-expected = pinned.replace(dtor, api, 1).replace(raster, raster + "\n    bool native_tiling{};\n", 1)
+shim_declarations = ("""    // Lichii 12125bc / NX2 #46: guest NVN reads Host1x syncpoint words
+    // through a read-only GPU virtual shim; zero preserves NS1 behavior.
+    void SetNativeSyncpointShim(GPUVAddr address);
+    static constexpr u32 NumShimSyncpoints = 192;
+
+""")
+combined_api = api.replace("    /// Switch 2 lays out block-linear surfaces",
+                           shim_declarations + "    /// Switch 2 lays out block-linear surfaces", 1)
+expected = pinned.replace(dtor, combined_api, 1).replace(raster, raster + "\n    bool native_tiling{};\n", 1).replace(
+    "    static std::atomic<size_t> unique_identifier_generator;\n",
+    "    static std::atomic<size_t> unique_identifier_generator;\n"
+    "    std::atomic<GPUVAddr> native_syncpoint_shim{0};\n", 1)
 assert overlay == expected, "native-tiling MemoryManager drift beyond reviewed upstream API"
 assert overlay.count("bool native_tiling{};") == 1
 assert overlay.count("EnableNativeTiling()") == 1
 assert overlay.count("UsesNativeTiling() const") == 1
+for name in ("SetNativeSyncpointShim", "NumShimSyncpoints", "native_syncpoint_shim"):
+    assert name in overlay and name not in pinned, name
+assert "EnqueueDeferredCPUWrite" not in overlay  # never activate experimental bridge
 
 # The generation-neutral ChannelState must not globally opt every game in.
 assert "EnableNativeTiling" not in channel

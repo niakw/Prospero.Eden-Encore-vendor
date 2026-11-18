@@ -22,6 +22,9 @@ on:
       - '.github/workflows/ns2-r3-decoder-host.yml'
   pull_request:
     paths:
+      # Validate the shipping combined shim/tiling ABI before merging.
+      - 'encore-active/eden-core/overrides/native-tiling/video_core/memory_manager.h'
+      - 'tests/ns2_native_tiling_activation_source.py'
       - 'encore-active/eden-core/src/video_core/textures/decoders.cpp'
       - 'encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h'
       - 'encore-active/eden-core/src/video_core/engines/engine_upload.cpp'

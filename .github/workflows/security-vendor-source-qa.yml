@@ -4,6 +4,9 @@ on:
     branches: [main, security/codeql-dependabot-triage-20261112]
   pull_request:
     paths:
+      # NS2 shim/tiling ABI touches a shipping native header, not pinned Eden.
+      - 'encore-active/eden-core/overrides/native-tiling/video_core/memory_manager.h'
+      - 'tests/ns2_syncpoint_shim_source.py'
       - 'sources/**'
       - '.github/workflows/security-vendor-source-qa.yml'
 permissions:
