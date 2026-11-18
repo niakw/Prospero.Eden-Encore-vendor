@@ -8,8 +8,8 @@ This lot now contains a **source candidate** for PS5 NS1 only. It still makes no
 
 ## Upstream-first evidence
 
-- Lichii PR #408, *Ocarina of Time: fix stutter from pipeline rebuilds and slow compute builds*, reports that dynamic vertex-input keys included all 32 attribute register types even when the vertex shader did not read them. The same shaders could therefore fan out to as many as 20 pipeline keys. Its focused policy keeps only the two-bit types for attributes present in the vertex program's input map, and stays conservative when VertexA is active.
-- EglantinePS5 PR #105, merged and console-tested, independently shows the PS5 consequence of a closely related key/prebuild mismatch: 78–81 pipelines were rebuilt mid-game for about 2.2 s of GPU-thread stalls; accepting the correct cached attributeless key reduced those mid-game rebuilds to zero in that test.
+- Lichii PR #408, commit `e3d61078810c482fed7ecd1958487df63e0e26fe` (*key vertex attribute types by what the program reads*), reports that dynamic vertex-input keys included all 32 attribute register types even when the vertex shader did not read them. The same shaders could therefore fan out to as many as 20 pipeline keys. Its focused policy keeps only the two-bit types for attributes present in the vertex program's input map, and stays conservative when VertexA is active.
+- EglantinePS5 PR #105, merged as `4957dcc6e2ae327e5a8d435bb457a961068ad241` and console-tested, independently shows the PS5 consequence of a closely related key/prebuild mismatch: 78–81 pipelines were rebuilt mid-game for about 2.2 s of GPU-thread stalls; accepting the correct cached attributeless key reduced those mid-game rebuilds to zero in that test.
 - Lichii PR #2102 targets a different layer: a waiter can claim the driver-stage build after CPU translation rather than waiting behind the queue. Encore's existing `RunBuild()` replay covers that class; it does not address redundant distinct keys.
 - Broad shader-cache v2 migration, eviction changes and warm-up systems from Lichii #408/#579 are deliberately **not** imported here.
 
