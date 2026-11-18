@@ -1,9 +1,21 @@
 name: NS2 R3 complete decoder public API - host compare
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'encore-active/eden-core/src/video_core/textures/decoders.cpp'
+      - 'encore-active/eden-core/src/video_core/textures/decoders.h'
+      - 'encore-active/eden-core/src/video_core/engines/engine_upload.cpp'
+      - 'encore-active/eden-core/guest-bridge/engine_upload.cpp'
+      - 'encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp'
+      - '.github/workflows/ns2-r3-decoder-host.yml'
   pull_request:
     paths:
       - 'encore-active/eden-core/src/video_core/textures/decoders.cpp'
+      - 'encore-active/eden-core/src/video_core/textures/decoders.h'
+      - 'encore-active/eden-core/src/video_core/engines/engine_upload.cpp'
+      - 'encore-active/eden-core/guest-bridge/engine_upload.cpp'
       - 'encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp'
       - '.github/workflows/ns2-r3-decoder-host.yml'
   workflow_dispatch:
@@ -28,6 +40,9 @@ jobs:
           sparse-checkout: |
             .github/workflows/ns2-r3-decoder-host.yml
             encore-active/eden-core/src/video_core/textures/decoders.cpp
+            encore-active/eden-core/src/video_core/textures/decoders.h
+            encore-active/eden-core/src/video_core/engines/engine_upload.cpp
+            encore-active/eden-core/guest-bridge/engine_upload.cpp
             encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp
             sources/eden/src/video_core/textures/decoders.cpp
             sources/eden/src/video_core/textures/decoders.h
@@ -38,9 +53,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git hash-object encore-active/eden-core/src/video_core/textures/decoders.cpp)" = 'cc8bb22035f306e45389b6a7efbceeddb45dd6d0'
+          test "$(git hash-object encore-active/eden-core/src/video_core/textures/decoders.cpp)" = 'cce0ff3300ef5f70e5df8e67eed7f276a8e147d9'
+          test "$(git hash-object encore-active/eden-core/src/video_core/textures/decoders.h)" = 'b1824a1203eee4b374416c2cd16995a79bb6954f'
+          test "$(git hash-object encore-active/eden-core/src/video_core/engines/engine_upload.cpp)" = 'a217f52b0085a3e59ddc7daab20391cf23245657'
+          test "$(git hash-object encore-active/eden-core/guest-bridge/engine_upload.cpp)" = '4dc4273c7b7f59bc79d4fcac815df86baa121bf9'
           test "$(git hash-object sources/eden/src/video_core/textures/decoders.cpp)" = '25b0860b0f7a9b31f49b63647c64d8d5493fab71'
           test "$(git hash-object sources/eden/src/video_core/textures/decoders.h)" = '1e14a3875356ed4a2e6c949694618d12be7d77e0'
+          grep -F 'memory_manager.UsesNativeTiling()' encore-active/eden-core/src/video_core/engines/engine_upload.cpp
+          grep -F 'memory_manager.UsesNativeTiling()' encore-active/eden-core/guest-bridge/engine_upload.cpp
       - name: Create minimal shims only for unused GPU and assertion dependencies
         shell: bash
         run: |
@@ -81,8 +101,9 @@ jobs:
                 executable="${RUNNER_TEMP}/r3-${compiler//+/p}-O${opt}-${flavor}"
                 "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror -Wno-unused-parameter \
                   -fsanitize=address,undefined -fno-sanitize-recover=all \
-                  -fno-omit-frame-pointer -I"${shims}" -Isources/eden/src \
-                  "${test_file}" "${source_file}" -o "${executable}"
+                  -fno-omit-frame-pointer \
+                  -I"${shims}" $([[ "${flavor}" == maintained ]] && printf %s "-Iencore-active/eden-core/src") \
+                  -Isources/eden/src "${test_file}" "${source_file}" -o "${executable}"
                 result=$("${executable}")
                 echo "${compiler} O${opt} ${flavor}: ${result}"
                 outputs+=("${result}")
@@ -91,3 +112,23 @@ jobs:
             done
           done
           echo 'PASS: 4 exact-source old-versus-maintained public API equivalence comparisons'
+      - name: Prove Switch 2 native-tiling I2M mismatch and roundtrip
+        shell: bash
+        run: |
+          set -euo pipefail
+          shims="${RUNNER_TEMP}/r3-shims"
+          test_file=encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp
+          for compiler in clang++ g++; do
+            for opt in 1 2; do
+              executable="${RUNNER_TEMP}/r3-native-${compiler//+/p}-O${opt}"
+              "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror -Wno-unused-parameter \
+                -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer \
+                -DEDEN_TEST_NATIVE_TILING=1 -I"${shims}" -Iencore-active/eden-core/src \
+                -Isources/eden/src "${test_file}" \
+                encore-active/eden-core/src/video_core/textures/decoders.cpp -o "${executable}"
+              output=$("${executable}")
+              echo "${compiler} O${opt}: ${output}"
+              grep -F "native_tiling=1 mismatch_witness=1" <<<"${output}"
+            done
+          done
+          echo 'PASS: Lichii #2085 native I2M tiling semantics'

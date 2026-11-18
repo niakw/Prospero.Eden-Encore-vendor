@@ -60,6 +60,40 @@ int main() {
         Mix(digest,back);
         ++partial_cases;
     }
+#ifdef EDEN_TEST_NATIVE_TILING
+    // Lichii #2085 regression: a 2x2 BPP16 I2M upload differs at GOB
+    // offset bits 5/6 on Switch 2. Maxwell-written bytes must NOT decode
+    // as the original under native tiling; native write/read must roundtrip.
+    {
+        constexpr u32 bpp=16, width=2, height=2, depth=1, bh=0, bd=0;
+        const auto tiled_bytes=Tegra::Texture::CalculateSize(true,bpp,width,height,depth,bh,bd);
+        const auto linear_bytes=Tegra::Texture::CalculateSize(false,bpp,width,height,depth,bh,bd);
+        std::vector<u8> original(linear_bytes),maxwell(tiled_bytes,0),native(tiled_bytes,0);
+        std::vector<u8> wrong(linear_bytes,0),back(linear_bytes,0);
+        for(std::size_t i=0;i<original.size();++i)
+            original[i]=static_cast<u8>((i*17U+3U)&255U);
+        Tegra::Texture::SwizzleSubrect(maxwell,original,bpp,width,height,depth,
+                                      0,0,width,height,bh,bd,width*bpp,false);
+        Tegra::Texture::UnswizzleSubrect(wrong,maxwell,bpp,width,height,depth,
+                                        0,0,width,height,bh,bd,width*bpp,true);
+        Check(wrong!=original,"Maxwell/native mismatch witness");
+        Tegra::Texture::SwizzleSubrect(native,original,bpp,width,height,depth,
+                                      0,0,width,height,bh,bd,width*bpp,true);
+        Tegra::Texture::UnswizzleSubrect(back,native,bpp,width,height,depth,
+                                        0,0,width,height,bh,bd,width*bpp,true);
+        Check(back==original,"native I2M subrect roundtrip");
+        std::fill(native.begin(),native.end(),0);
+        std::fill(back.begin(),back.end(),0);
+        Tegra::Texture::SwizzleTexture(native,original,bpp,width,height,depth,bh,bd,1,true);
+        Tegra::Texture::UnswizzleTexture(back,native,bpp,width,height,depth,bh,bd,1,true);
+        Check(back==original,"native full texture roundtrip");
+        Mix(digest,native);
+    }
+#endif
     std::cout << "PASS: full=" << full_cases << " partial=" << partial_cases
-              << " digest=" << digest << '\n';
+              << " digest=" << digest
+#ifdef EDEN_TEST_NATIVE_TILING
+              << " native_tiling=1 mismatch_witness=1"
+#endif
+              << '\n';
 }
