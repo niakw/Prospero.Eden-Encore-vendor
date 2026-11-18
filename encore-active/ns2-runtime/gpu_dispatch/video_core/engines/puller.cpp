@@ -6,6 +6,7 @@
 
 #ifdef PS5_NATIVE
 #include "gpu_failure.h"
+#include "performance.h"
 #endif
 #include "common/assert.h"
 #include "common/scope_exit.h"
@@ -354,7 +355,7 @@ bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {
     if (!pending_native_acquire) {
         return true;
     }
-    const auto& pending = *pending_native_acquire;
+    auto& pending = *pending_native_acquire;
 #ifdef PS5_NATIVE
     auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
     const auto ticket = registry.CaptureTicket(&dma_pusher.channel_state);
@@ -382,6 +383,42 @@ bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {
         throw std::runtime_error("Ampere SEM_EXECUTE: invalid parked operation");
     }
     if (!*ready) {
+#ifdef PS5_NATIVE
+        // Advanced logs only: classify a parked native acquire without
+        // changing fence draining, semaphore reads, scheduler cadence or
+        // wake-up semantics. Milestones + a 10-second tail avoid log storms.
+        if (::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)) {
+            const u64 now_ns = static_cast<u64>(::Eden::Performance::NowNs());
+            if (pending.detailed_started_ns == 0) {
+                pending.detailed_started_ns = now_ns;
+                pending.detailed_last_log_ns = now_ns;
+            }
+            ++pending.detailed_polls;
+            const u64 elapsed_ns = now_ns - pending.detailed_started_ns;
+            constexpr std::array<u64, 3> milestones_ns{
+                50'000'000ULL, 500'000'000ULL, 2'000'000'000ULL};
+            bool emit = false;
+            if (pending.detailed_log_stage < milestones_ns.size() &&
+                elapsed_ns >= milestones_ns[pending.detailed_log_stage]) {
+                ++pending.detailed_log_stage;
+                emit = true;
+            } else if (pending.detailed_log_stage >= milestones_ns.size() &&
+                       now_ns - pending.detailed_last_log_ns >= 10'000'000'000ULL) {
+                emit = true;
+            }
+            if (emit) {
+                pending.detailed_last_log_ns = now_ns;
+                LOG_WARNING(HW_GPU,
+                            "EDEN_NS2_ACQUIRE_WAIT channel={} va={:#x} cpu={:#x} op={} "
+                            "target={:#x} current={:#x} elapsed_ms={} polls={} "
+                            "process_gen={} channel_gen={}",
+                            dma_pusher.channel_state.bind_id, pending.address,
+                            pending.cpu_address, pending.operation, pending.value, observed.value,
+                            elapsed_ns / 1'000'000ULL, pending.detailed_polls,
+                            pending.process_generation, pending.channel_generation);
+            }
+        }
+#endif
         return false;
     }
     pending_native_acquire.reset();
