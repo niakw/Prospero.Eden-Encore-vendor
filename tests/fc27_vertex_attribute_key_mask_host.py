@@ -7,14 +7,68 @@ non-constant attribute register, while Shader::Info already records exactly
 which generic attributes the vertex shader reads.
 """
 from pathlib import Path
+import hashlib
 
 ROOT = Path(__file__).resolve().parents[1]
-PIPE = (ROOT / "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp").read_text()
+PIPE_PATH = ROOT / "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
+HEADER_PATH = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_pipeline_cache.h"
+PIPE = PIPE_PATH.read_text()
 FIXED = (ROOT / "encore-active/eden-vulkan/fixed_pipeline_state.cpp").read_text()
 INFO = (ROOT / "encore-active/eden-shader/src/shader_recompiler/shader_info.h").read_text()
 COLLECT = (
     ROOT / "encore-active/eden-shader/src/shader_recompiler/ir_opt/collect_shader_info_pass.cpp"
 ).read_text()
+
+
+def git_blob_bytes(data):
+    return hashlib.sha1(b"blob " + str(len(data)).encode() + bytes([0]) + data).hexdigest()
+
+# Exact successor receipt: remove ONLY this candidate's reviewed additions and
+# recover the prior selected owner byte-for-byte. This lets older focused gates
+# admit the successor without weakening their historical receipts.
+assert git_blob_bytes(PIPE_PATH.read_bytes()) == "22e8403bb7b2722bae65742097b8cb18ef160f03"
+predecessor = PIPE
+for include in ("#include <map>\n", "#include <optional>\n"):
+    assert predecessor.count(include) == 1
+    predecessor = predecessor.replace(include, "", 1)
+
+registry_begin = predecessor.index("#ifdef PS5_NATIVE\n// Lichii #408:")
+registry_end = predecessor.index("#endif\n} // Anonymous namespace", registry_begin) + len("#endif\n")
+predecessor = predecessor[:registry_begin] + predecessor[registry_end:]
+
+refresh = predecessor.index("    graphics_key.state.Refresh(*maxwell3d, dynamic_features);")
+restore_begin = predecessor.rfind("#ifdef PS5_NATIVE\n    if (native) {", 0, refresh)
+assert restore_begin >= 0
+restore_end = predecessor.index("#endif\n", restore_begin) + len("#endif\n")
+predecessor = predecessor[:restore_begin] + predecessor[restore_end:]
+
+refresh = predecessor.index("    graphics_key.state.Refresh(*maxwell3d, dynamic_features);")
+mask_begin = predecessor.index("#ifdef PS5_NATIVE\n    if (!native && dynamic_features.has_dynamic_vertex_input)", refresh)
+mask_end = predecessor.index("#endif\n", mask_begin) + len("#endif\n")
+predecessor = predecessor[:mask_begin] + predecessor[mask_end:]
+
+record_delta = """#ifdef PS5_NATIVE
+        EdenRecordVertexAttributeMask(
+            {key.unique_hashes[0], key.unique_hashes[1]}, programs[1].info);
+#endif
+"""
+assert predecessor.count(record_delta) == 1
+predecessor = predecessor.replace(record_delta, "", 1)
+assert git_blob_bytes(predecessor.encode()) == "e3910d11f33376097a90858118ba276f7e02cb70"
+
+header = HEADER_PATH.read_text()
+assert git_blob_bytes(HEADER_PATH.read_bytes()) == "0502146a2ba56694ef2469e2949ad353d855c291"
+header_delta = """#ifdef PS5_NATIVE
+    // Dynamic vertex-input types before the shader-read mask. Refresh only
+    // rewrites these when VertexInput is dirty, so restore this raw value
+    // before the next shader key is evaluated.
+    u64 unmasked_vertex_attribute_types{};
+    bool unmasked_vertex_attribute_types_valid{};
+#endif
+"""
+assert header.count(header_delta) == 1
+header_predecessor = header.replace(header_delta, "", 1)
+assert git_blob_bytes(header_predecessor.encode()) == "343383c7b5ed55f181cee9d840e6b59fae0409d0"
 
 # Exact selected-source negative control: dynamic vertex input currently keys
 # every non-constant attribute type, independently of what VertexB reads.
