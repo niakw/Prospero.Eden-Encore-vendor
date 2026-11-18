@@ -7,6 +7,10 @@ on:
       - 'encore-active/eden-core/src/video_core/textures/decoders.cpp'
       - 'encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h'
       - 'encore-active/eden-core/src/video_core/engines/engine_upload.cpp'
+      - 'encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp'
+      - 'tests/ns2_sw_blitter_native_tiling_source.py'
+      - 'encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp'
+      - 'tests/ns2_sw_blitter_native_tiling_source.py'
       - 'encore-active/eden-core/guest-bridge/engine_upload.cpp'
       - 'encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp'
       - '.github/workflows/ns2-r3-decoder-host.yml'
@@ -42,6 +46,9 @@ jobs:
             encore-active/eden-core/src/video_core/textures/decoders.cpp
             encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h
             encore-active/eden-core/src/video_core/engines/engine_upload.cpp
+            encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp
+            tests/ns2_sw_blitter_native_tiling_source.py
+            sources/eden/src/video_core/engines/sw_blitter/blitter.cpp
             encore-active/eden-core/guest-bridge/engine_upload.cpp
             encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp
             sources/eden/src/video_core/textures/decoders.cpp
@@ -61,6 +68,8 @@ jobs:
           test "$(git hash-object sources/eden/src/video_core/textures/decoders.h)" = '1e14a3875356ed4a2e6c949694618d12be7d77e0'
           grep -F 'memory_manager.UsesNativeTiling()' encore-active/eden-core/src/video_core/engines/engine_upload.cpp
           grep -F 'memory_manager.UsesNativeTiling()' encore-active/eden-core/guest-bridge/engine_upload.cpp
+          test "$(grep -cF 'memory_manager.UsesNativeTiling()' encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp)" = 2
+          python3 -B tests/ns2_sw_blitter_native_tiling_source.py
       - name: Create minimal shims only for unused GPU and assertion dependencies
         shell: bash
         run: |
