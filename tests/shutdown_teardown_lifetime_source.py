@@ -27,8 +27,64 @@ def blob(text: str) -> str:
     raw = text.encode()
     return hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
 
+def reverse_1932(source: str, relative: str) -> str:
+    loader_after = """            // The kernel was initialized before loader admission. Leaving it
+            // alive retains lists into device memory already being destroyed,
+            // and can crash during failed-launch teardown or next title.
+            // Lichii #1932: the local KProcess must die while its kernel is alive.
+            process.reset();
+            ShutdownMainProcess();"""
+    loader_before = """            // The kernel was initialized before loader admission. Leaving it
+            // alive retains lists into device memory already being destroyed,
+            // and can crash during failed-launch teardown or next title.
+            ShutdownMainProcess();"""
+    shutdown_after = """        debugger.reset();
+        {
+            // Lichii #1932: these are kernel-owned objects. Destroy them while
+            // the kernel still exists; keep queued general-channel bytes for
+            // the next kernel/session.
+            std::scoped_lock lk{general_channel_mutex};
+            general_channel_event.reset();
+            general_channel_context.reset();
+        }
+        kernel.Shutdown();"""
+    shutdown_before = """        debugger.reset();
+        kernel.Shutdown();"""
+    ensure_after = """            general_channel_context.emplace(system, "GeneralChannel");
+            general_channel_event.emplace(*general_channel_context);
+            if (!general_channel.empty()) {
+                general_channel_event->Signal(kernel);
+            }
+        }"""
+    ensure_before = """            general_channel_context.emplace(system, "GeneralChannel");
+            general_channel_event.emplace(*general_channel_context);
+        }"""
+    pop_after = """bool System::TryPopGeneralChannel(std::vector<u8>& out_data) {
+    std::scoped_lock lk{impl->general_channel_mutex};
+    if (impl->general_channel.empty()) {
+        return false;
+    }
+    // A queue can survive a kernel restart while its old Event cannot.
+    impl->EnsureGeneralChannelInitialized(*this);
+    out_data = std::move(impl->general_channel.back());"""
+    pop_before = """bool System::TryPopGeneralChannel(std::vector<u8>& out_data) {
+    std::scoped_lock lk{impl->general_channel_mutex};
+    if (!impl->general_channel_event || impl->general_channel.empty()) {
+        return false;
+    }
+    out_data = std::move(impl->general_channel.back());"""
+    for after, before, label in (
+        (loader_after, loader_before, "failed-loader"),
+        (shutdown_after, shutdown_before, "general-channel teardown"),
+        (ensure_after, ensure_before, "general-channel recreate"),
+        (pop_after, pop_before, "general-channel pop"),
+    ):
+        assert source.count(after) == 1, (relative, label)
+        source = source.replace(after, before, 1)
+    return source
+
 for relative, predecessor in cores.items():
-    source = (ROOT / relative).read_text()
+    source = reverse_1932((ROOT / relative).read_text(), relative)
     start = "    void ShutdownMainProcess() {"
     stop = "\n    bool IsShuttingDown()"
     assert source.count(start) == source.count(stop) == 1, relative

@@ -334,6 +334,8 @@ struct System::Impl {
             // The kernel was initialized before loader admission. Leaving it
             // alive retains lists into device memory already being destroyed,
             // and can crash during failed-launch teardown or next title.
+            // Lichii #1932: the local KProcess must die while its kernel is alive.
+            process.reset();
             ShutdownMainProcess();
             return SystemResultStatus::ErrorGetLoader;
         }
@@ -443,6 +445,14 @@ struct System::Impl {
         perf_stats.reset();
         cpu_manager.Shutdown();
         debugger.reset();
+        {
+            // Lichii #1932: these are kernel-owned objects. Destroy them while
+            // the kernel still exists; keep queued general-channel bytes for
+            // the next kernel/session.
+            std::scoped_lock lk{general_channel_mutex};
+            general_channel_event.reset();
+            general_channel_context.reset();
+        }
         kernel.Shutdown();
         stop_event = {};
         Network::RestartSocketOperations();
@@ -543,6 +553,9 @@ struct System::Impl {
         if (!general_channel_event) {
             general_channel_context.emplace(system, "GeneralChannel");
             general_channel_event.emplace(*general_channel_context);
+            if (!general_channel.empty()) {
+                general_channel_event->Signal(kernel);
+            }
         }
     }
 };
@@ -994,9 +1007,11 @@ void System::PushGeneralChannelData(std::vector<u8>&& data) {
 
 bool System::TryPopGeneralChannel(std::vector<u8>& out_data) {
     std::scoped_lock lk{impl->general_channel_mutex};
-    if (!impl->general_channel_event || impl->general_channel.empty()) {
+    if (impl->general_channel.empty()) {
         return false;
     }
+    // A queue can survive a kernel restart while its old Event cannot.
+    impl->EnsureGeneralChannelInitialized(*this);
     out_data = std::move(impl->general_channel.back());
     impl->general_channel.pop_back();
     if (impl->general_channel.empty()) {
