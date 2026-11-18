@@ -2509,8 +2509,20 @@ void Call(Core::System& system, u32 imm) {
 #ifdef EDEN_NS2_SVC_TRACE
     // Detailed logging keeps a fixed recent ring without per-call I/O. On a
     // fatal guest branch PhysicalCore asks this TU to dump it once.
-    Eden::NS2::SvcTrace::RecordRecent(process.GetProcessId(), imm,
-                                      process.IsPermittedSvc(imm), args);
+    const std::uint64_t svc_trace_sequence =
+        Eden::NS2::SvcTrace::RecordRecent(process.GetProcessId(), imm,
+                                          process.IsPermittedSvc(imm), args);
+    // The ArmInterface is halted here, before the kernel SVC may reschedule
+    // this guest thread. Capture PC/SP only on the two last SVC families
+    // seen before both NS2 title faults; never read the stale KThread copy.
+    std::uint64_t svc_trace_sp = 0;
+    std::uint64_t svc_trace_pc = 0;
+    if (svc_trace_sequence && process.Is64Bit() && (imm == 0x06 || imm == 0x29)) {
+        ThreadContext svc_context{};
+        process.GetArmInterface(kernel.CurrentPhysicalCore().CoreIndex())->GetContext(svc_context);
+        svc_trace_sp = svc_context.sp;
+        svc_trace_pc = svc_context.pc;
+    }
     // Preserve the historical first-32 witness for existing host contracts.
     if (const auto sample = Eden::NS2::SvcTrace::Next(process.GetProcessId())) {
         LOG_INFO(Kernel_SVC, "NS2 real HLE SVC[{}] pid={} imm={:#x} permitted={}",
@@ -2564,6 +2576,14 @@ void Call(Core::System& system, u32 imm) {
         Call32(system, imm, args);
     }
     //kernel.ExitSVCProfile();
+#ifdef EDEN_NS2_SVC_TRACE
+    // Record the *actual* ABI result x0 and value x1 after dispatch, not a
+    // guessed success. QueryMemory x1 is PageInfo; GetInfo x1 is the value.
+    // No print, guest-memory access, result rewriting or new SVC behavior.
+    if (svc_trace_sequence && process.Is64Bit() && (imm == 0x06 || imm == 0x29))
+        Eden::NS2::SvcTrace::RecordOutcome(process.GetProcessId(), svc_trace_sequence,
+                                            args[0], args[1], svc_trace_sp, svc_trace_pc);
+#endif
     kernel.CurrentPhysicalCore().LoadSvcArguments(process, args);
 }
 

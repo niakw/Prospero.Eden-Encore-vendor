@@ -12,7 +12,9 @@ def blob(path: Path) -> str:
     data = path.read_bytes()
     return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
 
-assert blob(SRC) == "38f4563b8106ef640759dd4bbc69d987a44c8e4a"
+# The shipping GPU worker changed after the original SHA was sealed.
+# Keep the current exact worker pinned; this PR does not modify it.
+assert blob(SRC) == "d1e806379b446d335e93159c465e6e0ec27455a9"
 text = SRC.read_text()
 for op in ("214_map_page_group", "212_wait_idle", "213_wait_idle", "215_wait_idle", "216_wait_idle"):
     assert text.count('BlockingBoundaryTrace trace{"' + op) == 1, op
@@ -28,7 +30,9 @@ trace = TRACE.read_text()
 svc = SVC.read_text()
 assert 'constexpr std::uint32_t MaxSamples = 32;' in trace
 assert 'eden_native_detailed_logging() noexcept __attribute__((weak))' in trace
-assert 'if (!eden_native_detailed_logging || !eden_native_detailed_logging())' in trace
+assert 'return eden_native_detailed_logging && eden_native_detailed_logging();' in trace
+assert 'if (!IsActive(pid) || !DetailedEnabled())' in trace
+assert 'if (!stream || !IsActive(pid) || !DetailedEnabled())' in trace
 assert '#ifdef EDEN_NS2_SVC_TRACE' in svc
 assert 'SvcTrace::Next(process.GetProcessId())' in svc
 assert 'NS2 real HLE SVC[{}]' in svc
