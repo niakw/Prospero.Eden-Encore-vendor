@@ -259,7 +259,7 @@ void SwizzleTexture(std::span<u8> output, std::span<const u8> input, u32 bytes_p
     width = (width * bytes_per_pixel) >> new_bpp;
     bytes_per_pixel = 1U << new_bpp;
     Swizzle<true>(output, input, bytes_per_pixel, width, height, depth, block_height, block_depth,
-                  stride);
+                  stride, native_tiling);
 }
 
 void SwizzleSubrect(std::span<u8> output, std::span<const u8> input, u32 bytes_per_pixel, u32 width,
