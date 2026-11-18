@@ -559,6 +559,11 @@ struct System::Impl {
         // Reset per-game flags
         Settings::values.use_squashed_iterated_blend = false;
 
+        // Lichii #1952: the cheat VM runs on CoreTiming. Stop it before
+        // SyncPause(false), guest suspension, or service/process teardown.
+        // Its destructor unschedules the timer event and joins an active run.
+        cheat_engine.reset();
+
         is_powered_on = false;
         exit_locked = false;
         exit_requested = false;
@@ -573,7 +578,6 @@ struct System::Impl {
         Network::CancelPendingSocketOperations();
         kernel.SuspendEmulation(true);
         ::Eden::ReportStep("shutdown", "Completed kernel.SuspendEmulation(true)");
-        cheat_engine.reset();
         kernel.CloseServices();
         ::Eden::ReportStep("shutdown", "Completed kernel.CloseServices()");
         kernel.ShutdownCores();
@@ -582,7 +586,6 @@ struct System::Impl {
         ::Eden::ReportStep("shutdown", "Completed services.reset()");
         service_manager.reset();
         fs_controller.Reset();
-        cheat_engine.reset();
         core_timing.ClearPendingEvents();
         app_loader.reset();
         audio_core.reset();
