@@ -18,7 +18,9 @@
 #include <cstddef>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stop_token>
 #include <thread>
@@ -52,8 +54,6 @@
 #include <atomic>
 #include <mutex>
 #include <set>
-#include <map>
-#include <optional>
 #include <unordered_set>
 #include "video_core/renderer_vulkan/vk_state_tracker.h"
 #include "video_core/memory_manager.h"
