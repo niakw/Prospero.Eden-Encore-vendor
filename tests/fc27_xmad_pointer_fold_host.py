@@ -43,7 +43,7 @@ if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48a
     if cache_blob in {"dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","22e8403bb7b2722bae65742097b8cb18ef160f03"}:
         assert "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx" in selected
         assert "fallback_witness <= 8" in selected
-        if cache_blob=="e3910d11f33376097a90858118ba276f7e02cb70":
+        if cache_blob in {"e3910d11f33376097a90858118ba276f7e02cb70","22e8403bb7b2722bae65742097b8cb18ef160f03"}:
             # Successor changed only the reviewed PS5 pipeline teardown sequence.
             # The exact source blob above prevents accidentally accepting further drift.
             assert "workers.WaitForRequests();" in selected

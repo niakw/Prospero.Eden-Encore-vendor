@@ -68,7 +68,7 @@ if gfx_blob=="526aa16b22ba3918c29ce85c884d606dcfd185a1":
 if cmp_blob=="7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600":
     assert "void ComputePipeline::RunBuild()" in cmp
     assert "build_claimed.exchange(true, std::memory_order_acq_rel)" in cmp
-if cache_blob=="e3910d11f33376097a90858118ba276f7e02cb70":
+if cache_blob in {"e3910d11f33376097a90858118ba276f7e02cb70","22e8403bb7b2722bae65742097b8cb18ef160f03"}:
     assert cache.index("workers.WaitForRequests();") < cache.index("serialization_thread.WaitForRequests();")
 
 # Dynamic + static composition. Two dynamic arrays remain deliberately rejected.
