@@ -1,0 +1,27 @@
+name: NS2 SVC result and stopped-context host witness
+on:
+  pull_request:
+    paths:
+      - 'encore-active/ns2-helpers/include/core/loader/ns2_svc_trace.h'
+      - 'encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc.cpp'
+      - 'tests/ns2_recent_svc_fault_trace_host.py'
+      - '.github/workflows/ns2-svc-outcome-host.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'encore-active/ns2-helpers/include/core/loader/ns2_svc_trace.h'
+      - 'encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc.cpp'
+      - 'tests/ns2_recent_svc_fault_trace_host.py'
+      - '.github/workflows/ns2-svc-outcome-host.yml'
+permissions:
+  contents: read
+jobs:
+  stopped-svc-result-witness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile actual outcome ring with success, failure, pending, rollover and logging-OFF controls
+        run: python3 -B tests/ns2_recent_svc_fault_trace_host.py
