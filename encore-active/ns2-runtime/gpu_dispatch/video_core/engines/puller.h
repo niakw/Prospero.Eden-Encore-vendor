@@ -162,6 +162,12 @@ private:
         const void* process{};
         u64 process_generation{};
         u64 channel_generation{};
+        // Detailed-logging diagnostics only. These fields never participate in
+        // semaphore admission or resumption and remain zero in quiet mode.
+        u64 detailed_started_ns{};
+        u64 detailed_last_log_ns{};
+        u32 detailed_polls{};
+        u32 detailed_log_stage{};
     };
     std::optional<PendingNativeAcquire> pending_native_acquire;
     std::array<EngineID, 8> bound_engines{};
