@@ -33,7 +33,31 @@ for needle in (
     "EdenAttributeless({graphics_key.unique_hashes[0], graphics_key.unique_hashes[1]})",
 ):
     assert needle in PIPE, needle
-assert "KeyedAttributeTypes(" not in PIPE
+# The runtime candidate must consume the published per-shader mask only on
+# PS5 NS1/Maxwell and restore the raw union before every subsequent Refresh.
+for needle in (
+    "u64 EdenVertexAttributeReadMask(const Shader::Info& info) noexcept",
+    "void EdenRecordVertexAttributeMask(EdenVertexIdentity vertex_hash, const Shader::Info& info)",
+    "std::optional<u64> EdenKnownVertexAttributeMask(EdenVertexIdentity vertex_hash)",
+    "if (native) {",
+    "unmasked_vertex_attribute_types_valid = false;",
+    "graphics_key.state.attribute_types = unmasked_vertex_attribute_types;",
+    "unmasked_vertex_attribute_types = graphics_key.state.attribute_types;",
+    "graphics_key.unique_hashes[0] == 0 && graphics_key.unique_hashes[1] != 0",
+    "graphics_key.state.attribute_types &= *mask;",
+    "it->second = ~u64{0};",
+):
+    assert needle in PIPE, needle
+
+restore = PIPE.index("graphics_key.state.attribute_types = unmasked_vertex_attribute_types;")
+refresh = PIPE.index("graphics_key.state.Refresh(*maxwell3d, dynamic_features);")
+capture = PIPE.index("unmasked_vertex_attribute_types = graphics_key.state.attribute_types;")
+masked = PIPE.index("graphics_key.state.attribute_types &= *mask;")
+assert restore < refresh < capture < masked
+assert PIPE.index("EdenRecordVertexAttributeMask(") < PIPE.rindex("EdenRecordVertexAttributeMask(")
+
+GRAPHICS = (ROOT / "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp").read_text()
+assert "stage_infos[0].loads.Generic(index)" in GRAPHICS
 
 # The shader compiler already owns the information needed for a safe mask.
 assert "VaryingState loads;" in INFO
@@ -128,5 +152,6 @@ print(
 print(
     "FC27_VERTEX_ATTRIBUTE_MASK_CANDIDATE_PASS "
     "unread_collapses=1 read_type_preserved=1 vertexA_conservative=1 "
-    "shader_info_source=selected runtime_changed=0"
+    "raw_restore_order=1 ns2_excluded=1 collision_widens=1 "
+    "shader_info_source=selected runtime_candidate=1 gameplay_unverified=1"
 )
