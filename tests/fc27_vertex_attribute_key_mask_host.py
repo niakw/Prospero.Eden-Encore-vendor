@@ -32,7 +32,7 @@ for include in ("#include <map>\n", "#include <optional>\n"):
     assert predecessor.count(include) == 1
     predecessor = predecessor.replace(include, "", 1)
 
-registry_begin = predecessor.index("#ifdef PS5_NATIVE\n// Lichii #408:")
+registry_begin = predecessor.index("\n#ifdef PS5_NATIVE\n// Lichii #408:")
 registry_end = predecessor.index("#endif\n} // Anonymous namespace", registry_begin) + len("#endif\n")
 predecessor = predecessor[:registry_begin] + predecessor[registry_end:]
 
