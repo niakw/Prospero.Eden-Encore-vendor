@@ -5,11 +5,13 @@ on:
     paths:
       - 'encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp'
       - 'tests/ns2_vi2_signed_fence_count_host.py'
+      - 'tests/ns2_syncpt_bootstrap_source.py'
       - '.github/workflows/ns2-vi2-fence-sign-host.yml'
   pull_request:
     paths:
       - 'encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp'
       - 'tests/ns2_vi2_signed_fence_count_host.py'
+      - 'tests/ns2_syncpt_bootstrap_source.py'
       - '.github/workflows/ns2-vi2-fence-sign-host.yml'
 permissions:
   contents: read
@@ -21,4 +23,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: python3 -B tests/ns2_vi2_signed_fence_count_host.py
+      - name: Graphics supervisor source contracts
+        run: |
+          set -euo pipefail
+          python3 -B tests/ns2_syncpt_bootstrap_source.py
+          python3 -B tests/ns2_vi2_signed_fence_count_host.py
