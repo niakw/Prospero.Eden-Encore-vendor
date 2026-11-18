@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """FC27 P1 research: reproduce redundant dynamic vertex-attribute pipeline keys.
 
-Upstream-first witness for Lichii #408. This does NOT change runtime behavior.
-It proves the selected Encore Vulkan key still includes types for every
+Upstream-first witness for Lichii #408. The witness itself does not mutate runtime.
+It proves the selected Encore raw Vulkan state still includes types for every
 non-constant attribute register, while Shader::Info already records exactly
 which generic attributes the vertex shader reads.
 """
