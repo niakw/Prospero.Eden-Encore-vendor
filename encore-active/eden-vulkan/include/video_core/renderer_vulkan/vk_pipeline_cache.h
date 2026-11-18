@@ -177,6 +177,13 @@ private:
     bool use_vulkan_pipeline_cache{};
 
     GraphicsPipelineCacheKey graphics_key{};
+#ifdef PS5_NATIVE
+    // Dynamic vertex-input types before the shader-read mask. Refresh only
+    // rewrites these when VertexInput is dirty, so restore this raw value
+    // before the next shader key is evaluated.
+    u64 unmasked_vertex_attribute_types{};
+    bool unmasked_vertex_attribute_types_valid{};
+#endif
     GraphicsPipeline* current_pipeline{};
 
     ::Common::unordered_map<ComputePipelineCacheKey, std::unique_ptr<ComputePipeline>> compute_cache;
