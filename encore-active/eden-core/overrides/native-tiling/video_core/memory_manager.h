@@ -43,6 +43,11 @@ public:
                            u64 big_page_bits_ = 16, u64 page_bits_ = 12);
     ~MemoryManager();
 
+    // Lichii 12125bc / NX2 #46: guest NVN reads Host1x syncpoint words
+    // through a read-only GPU virtual shim; zero preserves NS1 behavior.
+    void SetNativeSyncpointShim(GPUVAddr address);
+    static constexpr u32 NumShimSyncpoints = 192;
+
     /// Switch 2 lays out block-linear surfaces with the console's GOB swizzle.
     /// Disabled by default so the unified binary keeps Maxwell/NS1 layout.
     void EnableNativeTiling() {
@@ -239,6 +244,7 @@ private:
     VideoCommon::InvalidationAccumulator accumulator;
 
     static std::atomic<size_t> unique_identifier_generator;
+    std::atomic<GPUVAddr> native_syncpoint_shim{0};
 
     Common::ScratchBuffer<u8> tmp_buffer;
 };
