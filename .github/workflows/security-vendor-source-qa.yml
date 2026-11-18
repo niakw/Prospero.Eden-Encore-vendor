@@ -66,6 +66,10 @@ jobs:
           assert "execSync(" not in docs and "execFileSync(" in docs
           print("SECURITY_SHELL_INJECTION_PASS")
           PY
+      # Explicitly track CVE-2026-112366 in the retained Boost docs snapshot.
+      # A passing inventory means bounded scope, NOT a patched npm package.
+      - name: Inventory unpatched Boost Antora picomatch exposure
+        run: python3 -B tests/boost_picomatch_doc_exposure_host.py
       - name: Reject vulnerable npm and pip dependency pins
         shell: bash
         run: |
