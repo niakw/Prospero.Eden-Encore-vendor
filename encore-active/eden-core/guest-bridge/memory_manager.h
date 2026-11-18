@@ -44,6 +44,11 @@ public:
                            u64 big_page_bits_ = 16, u64 page_bits_ = 12);
     ~MemoryManager();
 
+    // Lichii 12125bc / NX2 blocker #46: NVN reads Host1x syncpoints
+    // through a read-only GPU virtual shim. Zero leaves NS1 unchanged.
+    void SetNativeSyncpointShim(GPUVAddr address);
+    static constexpr u32 NumShimSyncpoints = 192;
+
     static constexpr bool HAS_FLUSH_INVALIDATION = true;
 
     inline size_t GetID() const noexcept {
@@ -231,6 +236,7 @@ private:
     VideoCommon::InvalidationAccumulator accumulator;
 
     static std::atomic<size_t> unique_identifier_generator;
+    std::atomic<GPUVAddr> native_syncpoint_shim{0};
 
     Common::ScratchBuffer<u8> tmp_buffer;
 };
