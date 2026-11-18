@@ -3,6 +3,7 @@
 #include <atomic>
 #include <bit>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <mutex>
