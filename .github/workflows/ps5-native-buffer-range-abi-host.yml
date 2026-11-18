@@ -1,0 +1,28 @@
+name: PS5 native BufferCache RangeSet ABI (host)
+
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h'
+      - 'encore-active/eden-core/src/video_core/buffer_cache/buffer_cache_base.h'
+      - 'tests/fc27_gpu_page_sibling_preservation_host.py'
+      - '.github/workflows/ps5-native-buffer-range-abi-host.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h'
+      - 'encore-active/eden-core/src/video_core/buffer_cache/buffer_cache_base.h'
+      - 'tests/fc27_gpu_page_sibling_preservation_host.py'
+      - '.github/workflows/ps5-native-buffer-range-abi-host.yml'
+permissions:
+  contents: read
+jobs:
+  native-range-abi:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Prove selected BufferCache range ABI and GPU sibling preservation
+        run: python3 -B tests/fc27_gpu_page_sibling_preservation_host.py

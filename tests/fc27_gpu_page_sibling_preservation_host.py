@@ -17,6 +17,15 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 BASE=(ROOT/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache_base.h").read_text()
 CACHE=(ROOT/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h").read_text()
+RANGESET=(ROOT/"sources/eden/src/common/range_sets.h").read_text()
+# Native dependency RangeSet has no Intersects member; the selected
+# BufferCache must call its existing ForEachInRange-based query instead.
+assert "void ForEachInRange(AddressType device_addr, size_t size, Func&& func) const;" in RANGESET
+assert "Intersects(" not in RANGESET
+assert "gpu_modified_ranges.Intersects(" not in CACHE
+query_start=CACHE.index("bool BufferCache<P>::IsRegionGpuModified(DAddr addr, size_t size)")
+query=CACHE[query_start:CACHE.index("\n}\n", query_start)]
+assert "gpu_modified_ranges.ForEachInRange(addr, size," in query
 RASTERS=[
     ROOT/"encore-active/eden-vulkan/vulkan_rasterizer.cpp",
     ROOT/"encore-active/eden-core/guest-bridge/vulkan_rasterizer.cpp",
@@ -32,7 +41,7 @@ method=start+CACHE.split(start,1)[1].split(stop,1)[0]+"\n}"
 for needle in (
     "Upstream Lichii/Eglantine b13c4c1",
     "Lichii 44bf47d",
-    "!gpu_modified_ranges.Intersects(page_begin, page_end - page_begin)",
+    "!IsRegionGpuModified(page_begin, page_end - page_begin)",
     "gpu_modified_ranges.Subtract(device_addr, size);",
     "Common::AlignDown(device_addr, DEVICE_PAGESIZE)",
     "Common::AlignUp(device_addr + size, DEVICE_PAGESIZE)",
@@ -117,7 +126,7 @@ int main(){
         events.clear();
         c.WriteMemory(0x2100,0x20);
         assert((events==std::vector<int>{3}));
-        assert(c.exact_queries==0);
+        assert(c.exact_queries==1);
         assert(c.downloads.empty());
     }
     {
@@ -167,4 +176,4 @@ with tempfile.TemporaryDirectory(prefix="fc27-gpu-page-sibling-") as td:
             if run.returncode:
                 raise RuntimeError(run.stdout+run.stderr)
 
-print("FC27_GPU_PAGE_SIBLING_PRESERVATION_HOST_PASS upstream=b13c4c1,44bf47d clean_query=1 sibling=downloaded unmap=skip ps5=unverified")
+print("FC27_GPU_PAGE_SIBLING_PRESERVATION_HOST_PASS upstream=b13c4c1,44bf47d clean_query=1 pinned_rangeset_api=1 sibling=downloaded unmap=skip ps5=unverified")

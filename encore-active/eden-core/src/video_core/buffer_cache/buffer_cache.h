@@ -179,10 +179,11 @@ void BufferCache<P>::WriteMemory(DAddr device_addr, u64 size, bool keep_page_gpu
 
     // Lichii 44bf47d: the written range is wholly inside these pages. If the
     // pages contain no GPU-written bytes, the exact range cannot contain any
-    // either, so avoid a second interval-tree walk on the overwhelmingly
-    // common clean CPU-write path. This preserves b13c4c1 semantics.
+    // either. Use the maintained IsRegionGpuModified/ForEachInRange API:
+    // this pinned RangeSet has no upstream Intersects member. Keep the
+    // single-query clean CPU-write fast path and b13c4c1 sibling preservation.
     if (keep_page_gpu_data && page_end > page_begin &&
-        !gpu_modified_ranges.Intersects(page_begin, page_end - page_begin)) {
+        !IsRegionGpuModified(page_begin, page_end - page_begin)) {
         memory_tracker.MarkRegionAsCpuModified(device_addr, size);
         return;
     }

@@ -733,6 +733,34 @@ def run() -> None:
     for path, sha in SOURCE_BLOBS.items():
         live = path.read_text()
         historical = live
+        if path == CORE:
+            # Restore the *exact* historical R2 WriteMemory body for its
+            # immutable Git blob receipt. The later Lichii b13c4c1 sibling
+            # preservation and 44bf47d single-query optimization are
+            # separately verified by fc27_gpu_page_sibling_preservation_host.py.
+            # Do not update the historical receipt or weaken its comparison.
+            current_query = "!IsRegionGpuModified(page_begin, page_end - page_begin)"
+            assert live.count(current_query) == 1, "Pinned RangeSet ABI adaptation missing"
+            assert "!gpu_modified_ranges.Intersects(page_begin" not in live
+            begin = historical.index("template <class P>\nvoid BufferCache<P>::WriteMemory(")
+            finish = historical.index(
+                "\ntemplate <class P>\nvoid BufferCache<P>::CachedWriteMemory", begin)
+            new_method = historical[begin:finish]
+            assert new_method.count("DownloadMemory(page_begin, page_end - page_begin);") == 1
+            assert new_method.count("IsRegionGpuModified(page_begin, page_end - page_begin)") == 2
+            assert new_method.index("DownloadMemory(page_begin") < new_method.rindex(
+                "memory_tracker.MarkRegionAsCpuModified(device_addr, size);")
+            historical_method = (
+                "template <class P>\n"
+                "void BufferCache<P>::WriteMemory(DAddr device_addr, u64 size) {\n"
+                "    if (IsRegionGpuModified(device_addr, size)) {\n"
+                "        ClearDownload(device_addr, size);\n"
+                "        gpu_modified_ranges.Subtract(device_addr, size);\n"
+                "    }\n"
+                "    memory_tracker.MarkRegionAsCpuModified(device_addr, size);\n"
+                "}\n"
+            )
+            historical = historical[:begin] + historical_method + historical[finish:]
         if path == CORE and "BufferCache<P>::ClaimCpuWrites" in historical:
             # FC27/Lichii #397 adaptation: keep the live stale-readback
             # protection, but reverse exactly that reviewed delta before
