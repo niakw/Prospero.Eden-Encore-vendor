@@ -18,13 +18,18 @@ struct Registry {
     std::mutex mutex;
     std::map<Identity, u64> masks;
     std::atomic<u32> generation{0};
+    static constexpr std::size_t MaxMasks = 128;
 
     void Publish(Identity hash, u64 mask) {
         bool changed = false;
         {
             std::scoped_lock lock{mutex};
-            const auto [it, inserted] = masks.try_emplace(hash, mask);
-            if (inserted) {
+            auto it = masks.find(hash);
+            if (it == masks.end()) {
+                if (masks.size() >= MaxMasks) {
+                    return;
+                }
+                masks.emplace(hash, mask);
                 changed = true;
             } else if (it->second != mask && it->second != ~u64{0}) {
                 it->second = ~u64{0};
@@ -132,8 +137,14 @@ int main() {
     assert(registry.generation.load(std::memory_order_acquire) == widened_generation);
     assert(registry.Lookup(shader) == ~u64{0});
 
-    // Unknown identities remain unknown and cannot accidentally inherit a
-    // colliding bucket's mask.
+    // Fill bounded metadata; overflow identities stay on the historical
+    // unknown/unmasked behavior and cannot inherit a colliding memo entry.
+    for (u64 i = 1000; registry.masks.size() < Registry::MaxMasks; ++i) {
+        registry.Publish({0, i}, u64{3} << ((i % 32) * 2));
+    }
+    const auto full_size = registry.masks.size();
     constexpr Identity unknown{0, 0xfeedface};
+    registry.Publish(unknown, partial);
+    assert(registry.masks.size() == full_size);
     assert(!registry.Lookup(unknown));
 }
