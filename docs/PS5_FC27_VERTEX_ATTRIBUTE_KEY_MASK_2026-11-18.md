@@ -41,7 +41,7 @@ This is a mechanism witness only. It does not establish that FC27's historical 8
 
 The selected PS5 Vulkan owner now keeps a raw copy of dynamic vertex `attribute_types` per `PipelineCache`. Before a new `FixedPipelineState::Refresh`, it restores that raw value so a mask from one shader cannot leak into the next key. After Refresh it captures the raw value again.
 
-A builder that has translated VertexB publishes a two-bit mask derived from the same `Shader::Info::loads.Generic(index)` predicate already used by the selected graphics-pipeline builder to decide which vertex attributes are actually emitted. The GPU-thread lookup uses a bounded thread-local memo backed by a synchronized map.
+A builder that has translated VertexB publishes a two-bit mask derived from the same `Shader::Info::loads.Generic(index)` predicate already used by the selected graphics-pipeline builder to decide which vertex attributes are actually emitted. The GPU-thread lookup uses a bounded thread-local memo backed by a synchronized map capped at 8192 shader identities; once full, unknown identities remain on the historical unmasked path.
 
 Admission is deliberately narrow:
 1. `PS5_NATIVE` only.
@@ -49,8 +49,8 @@ Admission is deliberately narrow:
 3. VertexA+VertexB stays unmasked.
 4. An unknown shader mask leaves the historical key unchanged.
 5. If the same shader identity ever publishes conflicting metadata, the stored mask widens permanently to all 64 type bits, disabling this optimization for that identity.
-6. The existing zero-attribute/static-input optimization remains intact and separate.
-7. No on-disk cache migration is performed. Existing unmasked records may miss once and remain valid; cache-format/version is unchanged.
+6. The metadata map is capped at 8192 identities; overflow is fail-open to the historical unmasked key.\n7. The existing zero-attribute/static-input optimization remains intact and separate.
+8. No on-disk cache migration is performed. Existing unmasked records may miss once and remain valid; cache-format/version is unchanged.
 
 The host witness keeps the historical negative control and now also verifies source ordering (raw restore → Refresh → raw capture → mask), NS2 exclusion, VertexA conservatism, used/unread counterexamples, and the collision fail-safe.
 
