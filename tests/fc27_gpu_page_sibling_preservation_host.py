@@ -17,6 +17,15 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 BASE=(ROOT/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache_base.h").read_text()
 CACHE=(ROOT/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h").read_text()
+RANGESET=(ROOT/"sources/eden/src/common/range_sets.h").read_text()
+# Native dependency RangeSet has no Intersects member; the selected
+# BufferCache must call its existing ForEachInRange-based query instead.
+assert "void ForEachInRange(AddressType device_addr, size_t size, Func&& func) const;" in RANGESET
+assert "Intersects(" not in RANGESET
+assert "gpu_modified_ranges.Intersects(" not in CACHE
+query_start=CACHE.index("bool BufferCache<P>::IsRegionGpuModified(DAddr addr, size_t size)")
+query=CACHE[query_start:CACHE.index("\n}\n", query_start)]
+assert "gpu_modified_ranges.ForEachInRange(addr, size," in query
 RASTERS=[
     ROOT/"encore-active/eden-vulkan/vulkan_rasterizer.cpp",
     ROOT/"encore-active/eden-core/guest-bridge/vulkan_rasterizer.cpp",
