@@ -43,6 +43,9 @@
 #include "core/hle/service/server_manager.h"
 #include "core/core_timing.h"
 #include "core/memory.h"
+// Lichii nx2_gsv: calls through Core::System::Host1x() require the complete Host1x type.
+// Keep this dependency direct; do not rely on unrelated transitive GPU headers.
+#include "video_core/host1x/host1x.h"
 #include "video_core/host1x/syncpoint_manager.h"
 #include "core/hle/kernel/k_readable_event.h"
 #include "core/hle/kernel/k_transfer_memory.h"
