@@ -4,7 +4,7 @@
 
 FC27 NS1 can show severe first-visit hitches which reduce after the scene has been exercised. Encore's PS5 Vulkan path deliberately waits for an unbuilt graphics pipeline rather than skipping the draw, because skipped first-use draws can produce missing HUD/text. The R457-versus-current host replay proves that `RunBuild()` removes one worker-queue dependency, but it does **not** remove the driver pipeline compilation itself.
 
-This research lot changes no runtime behavior and makes no PS5 performance claim.
+This lot now contains a **source candidate** for PS5 NS1 only. It still makes no PS5 performance claim, does not change NS2/Ampere handling, and does not migrate the disk cache.
 
 ## Upstream-first evidence
 
@@ -37,13 +37,27 @@ It proves:
 
 This is a mechanism witness only. It does not establish that FC27's historical 858 >50 ms frames are caused by these keys.
 
-## Candidate boundary
+## Implemented source candidate
 
-If the negative control is green, the next runtime candidate should be separate and narrow:
-1. NS1/Maxwell graphics only initially; do not alter authenticated NS2 Ampere keys.
-2. Publish a two-bit read mask per `{VertexA, VertexB}` identity from the existing shader-builder result.
-3. Apply it to a fresh copy of `attribute_types` before the graphics-cache lookup; never carry a masked value into the next shader key.
-4. Preserve VertexA conservative behavior.
-5. Do not migrate the on-disk cache in the first experiment; allow old records to miss and be rebuilt once, then evaluate a safe migration separately.
-6. Add exact negative controls for used/unread types, alternating HUD/world identities, collisions, cache hits, and title teardown.
-7. Only claim an FC27 improvement after a PS5 A/B capture compares pipeline creations, held-draw time, frame-time distribution, Options latency and HUD freshness at equivalent cache state.
+The selected PS5 Vulkan owner now keeps a raw copy of dynamic vertex `attribute_types` per `PipelineCache`. Before a new `FixedPipelineState::Refresh`, it restores that raw value so a mask from one shader cannot leak into the next key. After Refresh it captures the raw value again.
+
+A builder that has translated VertexB publishes a two-bit mask derived from the same `Shader::Info::loads.Generic(index)` predicate already used by the selected graphics-pipeline builder to decide which vertex attributes are actually emitted. The GPU-thread lookup uses a bounded thread-local memo backed by a synchronized map.
+
+Admission is deliberately narrow:
+1. `PS5_NATIVE` only.
+2. Authenticated NS2/Ampere (`native == true`) explicitly clears the raw-state validity and never consumes this mask.
+3. VertexA+VertexB stays unmasked.
+4. An unknown shader mask leaves the historical key unchanged.
+5. If the same shader identity ever publishes conflicting metadata, the stored mask widens permanently to all 64 type bits, disabling this optimization for that identity.
+6. The existing zero-attribute/static-input optimization remains intact and separate.
+7. No on-disk cache migration is performed. Existing unmasked records may miss once and remain valid; cache-format/version is unchanged.
+
+The host witness keeps the historical negative control and now also verifies source ordering (raw restore → Refresh → raw capture → mask), NS2 exclusion, VertexA conservatism, used/unread counterexamples, and the collision fail-safe.
+
+## Validation still required
+
+Before any merge as a performance fix:
+- run the focused vendor CI and normal source/security checks;
+- pair the vendor candidate to an engine branch and run the full host preflight/native owner gates;
+- inspect warnings and exact selected owner hashes;
+- **do not** claim reduced FC27 stutter until PS5 A/B compares pipeline creations, held-draw time, frame-time distribution, Options latency and HUD freshness at equivalent cache state.
