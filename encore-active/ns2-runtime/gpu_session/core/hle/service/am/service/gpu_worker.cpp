@@ -1059,6 +1059,64 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
     auto handle = nvmap.GetHandle(id);
     R_UNLESS(handle, Kernel::ResultInvalidState);
 
+    // Lichii #1199: sub 102 must remove every GPU reference to this memory,
+    // not only its identity/211 maps. Native 216 sparse remaps retain an NVMap
+    // pin and otherwise make 102 return Busy forever. Snapshot those ranges
+    // before any destructive mutation. If a range overlays a dense 214 region,
+    // restore that region's own backing; mode-1 sparse VA becomes unbacked.
+    struct SparseRestoreBatch {
+        u32 address_space{};
+        std::shared_ptr<Nvidia::Devices::nvhost_as_gpu> owner;
+        std::vector<Nvidia::Devices::NativeSparseRemapEntry> entries;
+    };
+    std::vector<SparseRestoreBatch> sparse_restore;
+    try {
+        for (const auto owned : m_shared->address_spaces.OwnedIds()) {
+            if (!owned) continue;
+            auto as = m_shared->FindOwnedAddressSpace(*owned);
+            if (!as) continue;
+            std::vector<Nvidia::Devices::NativeSparseRange> ranges;
+            const auto snapshot = as->SnapshotNativeSparseHandle(id, ranges);
+            if (snapshot == Nvidia::NvResult::InsufficientMemory)
+                return Kernel::ResultOutOfResource;
+            if (snapshot != Nvidia::NvResult::Success)
+                return Kernel::ResultInvalidState;
+            if (ranges.empty()) continue;
+
+            SparseRestoreBatch batch;
+            batch.address_space = *owned;
+            batch.owner = std::move(as);
+            batch.entries.reserve(ranges.size());
+            for (const auto& range : ranges) {
+                const auto shift =
+                    m_mappings.SparsePageShift(*owned, range.address, range.size);
+                if (!shift) return Kernel::ResultInvalidCurrentMemory;
+
+                Nvidia::Devices::NativeSparseRemapEntry entry{};
+                entry.flags = *shift == 16 ? 0x2000U : 0x1000U;
+                entry.destination_pages = range.address >> *shift;
+                entry.pages = range.size >> *shift;
+
+                auto dense = m_dense_regions.upper_bound({*owned, range.address});
+                if (dense != m_dense_regions.begin()) {
+                    --dense;
+                    const auto& region = dense->second;
+                    if (dense->first.first == *owned &&
+                        range.address >= region.address &&
+                        range.address - region.address < region.size &&
+                        range.size <= region.size - (range.address - region.address)) {
+                        entry.handle = region.nvmap_handle;
+                        entry.source_pages = (range.address - region.address) >> *shift;
+                    }
+                }
+                batch.entries.push_back(entry);
+            }
+            sparse_restore.push_back(std::move(batch));
+        }
+    } catch (const std::bad_alloc&) {
+        return Kernel::ResultOutOfResource;
+    }
+
     // Sub 102 destroys this memory object. Remove all 211 mappings owned by
     // this worker plus the sub-101 identity mappings before testing pins.
     std::vector<GW::Mapping> mapped_memory;
@@ -1072,9 +1130,33 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
     auto identity_it = std::find_if(
         m_shared->identity_gpu_mappings.begin(), m_shared->identity_gpu_mappings.end(),
         [id](const IdentityGpuMapping& mapping) { return mapping.handle == id; });
-    if (!mapped_memory.empty() ||
+    if (!sparse_restore.empty() || !mapped_memory.empty() ||
         (identity_it != m_shared->identity_gpu_mappings.end() && identity_it->mapped_count))
         system.GPU().WaitForIdle();
+
+    // All allocations completed before this point. Remap each address space
+    // independently; a later failure is retryable because this memory handle
+    // is not freed until every remaining sparse pin has disappeared.
+    u64 restored_sparse_ranges{};
+    for (const auto& batch : sparse_restore) {
+        const auto remapped = batch.owner->RemapNativeSparse(batch.entries);
+        if (remapped == Nvidia::NvResult::InsufficientMemory)
+            return Kernel::ResultOutOfResource;
+        if (remapped != Nvidia::NvResult::Success)
+            return Kernel::ResultInvalidState;
+        restored_sparse_ranges += batch.entries.size();
+    }
+#ifdef PS5_NATIVE
+    if (restored_sparse_ranges) {
+        static std::atomic<unsigned> destroy_sparse_reports{0};
+        const auto n = destroy_sparse_reports.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (n <= 32 || (n % 1000) == 0) {
+            std::fprintf(stderr,
+                         "EDEN_NS2_GPU_102_SPARSE_RESTORE handle=%u ranges=%llu count=%u\n",
+                         id, static_cast<unsigned long long>(restored_sparse_ranges), n);
+        }
+    }
+#endif
 
     for (const auto& mapping : mapped_memory) {
         const auto as = m_shared->FindOwnedAddressSpace(mapping.address_space);

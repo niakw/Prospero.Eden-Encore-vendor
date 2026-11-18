@@ -74,6 +74,11 @@ public:
     NvResult ReserveNativeSparse4K(u64 address, u64 size, u8 page_shift = 12);
     NvResult ReleaseNativeSparse4K(u64 address, u64 size);
     NvResult RemapNativeSparse(std::span<const NativeSparseRemapEntry> entries);
+    // Lichii #1199 equivalent: snapshot every sparse GPU range that still
+    // references a guest memory handle before TIPC 102 destroys that memory.
+    // Read-only and transactional: allocation failure leaves GMMU/pins intact.
+    NvResult SnapshotNativeSparseHandle(u32 handle_id,
+                                        std::vector<NativeSparseRange>& ranges);
     NvResult ModifyNativeKind(u64 address, u64 size, u8 kind);
 
     Kernel::KEvent* QueryEvent(u32 event_id) override;

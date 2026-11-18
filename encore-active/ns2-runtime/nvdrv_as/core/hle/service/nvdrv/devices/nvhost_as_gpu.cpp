@@ -440,6 +440,30 @@ NvResult nvhost_as_gpu::RemapNativeSparse(std::span<const NativeSparseRemapEntry
     return NvResult::Success;
 }
 
+NvResult nvhost_as_gpu::SnapshotNativeSparseHandle(
+    u32 handle_id, std::vector<NativeSparseRange>& ranges) {
+    if (!handle_id) return NvResult::BadParameter;
+    const std::scoped_lock lock{mutex};
+    if (!vm.initialised || !gmmu) return NvResult::InvalidState;
+
+    ranges.clear();
+    try {
+        const auto count = std::count_if(
+            native_sparse_mappings.Ranges().begin(),
+            native_sparse_mappings.Ranges().end(),
+            [handle_id](const auto& item) { return item.second.handle == handle_id; });
+        ranges.reserve(count);
+        for (const auto& [address, range] : native_sparse_mappings.Ranges()) {
+            (void)address;
+            if (range.handle == handle_id) ranges.push_back(range);
+        }
+    } catch (const std::bad_alloc&) {
+        ranges.clear();
+        return NvResult::InsufficientMemory;
+    }
+    return NvResult::Success;
+}
+
 NvResult nvhost_as_gpu::ReleaseNativeSparse4K(u64 address, u64 size) {
     constexpr u64 page = VM::YUZU_PAGESIZE;
     if (!size || ((address | size) & (page - 1)) ||
