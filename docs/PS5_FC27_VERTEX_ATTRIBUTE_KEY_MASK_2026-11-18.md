@@ -49,7 +49,8 @@ Admission is deliberately narrow:
 3. VertexA+VertexB stays unmasked.
 4. An unknown shader mask leaves the historical key unchanged.
 5. If the same shader identity ever publishes conflicting metadata, the stored mask widens permanently to all 64 type bits, disabling this optimization for that identity.
-6. The metadata map is capped at 8192 identities; overflow is fail-open to the historical unmasked key.\n7. The existing zero-attribute/static-input optimization remains intact and separate.
+6. The metadata map is capped at 8192 identities; overflow is fail-open to the historical unmasked key.
+7. The existing zero-attribute/static-input optimization remains intact and separate.
 8. No on-disk cache migration is performed. Existing unmasked records may miss once and remain valid; cache-format/version is unchanged.
 
 The host witness keeps the historical negative control and now also verifies source ordering (raw restore → Refresh → raw capture → mask), NS2 exclusion, VertexA conservatism, used/unread counterexamples, and the collision fail-safe.
