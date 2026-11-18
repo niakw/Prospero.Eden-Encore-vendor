@@ -835,7 +835,31 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
                             }
                             effective = kind->selected;
                         }
-                        staged.push_back(*entry);
+                        auto staged_entry = *entry;
+                        if (!range->handle) {
+                            // Lichii 216 GPU-only semantics: unmapping a tile
+                            // inside a dense 214 region reveals that region's
+                            // own physical backing again. Leaving handle=0
+                            // would turn a valid render target into sparse zero
+                            // pages until the region is destroyed.
+                            auto dense = m_dense_regions.upper_bound(
+                                {request->address_space, range->address});
+                            if (dense != m_dense_regions.begin()) {
+                                --dense;
+                                const auto& region = dense->second;
+                                if (dense->first.first == request->address_space &&
+                                    !region.gmmu_released && !region.nvmap_released &&
+                                    range->address >= region.address &&
+                                    range->address - region.address < region.size &&
+                                    range->size <=
+                                        region.size - (range->address - region.address)) {
+                                    staged_entry.handle = region.nvmap_handle;
+                                    staged_entry.source_pages =
+                                        (range->address - region.address) >> *page_shift;
+                                }
+                            }
+                        }
+                        staged.push_back(staged_entry);
                         selected.push_back(effective);
                     }
                     } catch (const std::bad_alloc&) {
