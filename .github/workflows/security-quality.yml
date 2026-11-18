@@ -67,6 +67,7 @@ jobs:
             sources/ps5-fsr3-optical-flow
             sources/libwebp
             sources/eden/src/common/thread_worker.h
+            sources/eden/src/video_core/vulkan_common/vulkan_device.cpp
             tools/check-source-tree-layout.py
             tests/ps5-late-upstream-fixes-source.py
             tests/ps5-full-clear-skip-upload-source.py
