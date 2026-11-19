@@ -54,6 +54,21 @@ for needle in ("SCOPE_EXIT {", "session->GetClientSession().Close(kernel);",
     assert needle in meta
 assert meta.index("SCOPE_EXIT {") < meta.index("server.RegisterSession(")
 assert meta.index("R_TRY(registered);") < meta.index("transferred_to_server = true;")
+# A real default VI display exists. Native VI2 capacity commands 1 and 3
+# must not report zero, which prevents some NS2 clients from opening a
+# display/notification endpoint. Lichii nx2:vi2 returns 1,1,7 for 1,3,5.
+vi2_capacity = cpp[vi2_begin:].split("void Limit(HLERequestContext& ctx) {",1)[1].split(
+    "\n    }",1)[0]
+for check in ("const u32 command = ctx.GetCommand();",
+              "p[0] == 16 + command && p[1] == 0",
+              "const u32 available = command == 5 ? 7u : 1u;",
+              "rb.Push<u32>(result.IsSuccess() ? available : 0u);"):
+    assert check in vi2_capacity, check
+for handler in ('{1,&IVi2Session::Limit,"GetNotificationLimit"}',
+                '{3,&IVi2Session::Limit,"GetSessionLimit"}',
+                '{5,&IVi2Session::Limit,"GetRequestGroupLimit"}'):
+    assert handler in cpp
+assert "rb.Push<u32>(ctx.GetCommand()==5?7:0);" not in cpp
 assert "rw->GetOwner() != process" in cpp and "ro->GetOwner() != process" in cpp
 assert "std::array<Kernel::KEvent*, MaxSlots> m_events{};" in cpp
-print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 session_rollback=1 mirror=1 direct_host1x=1")
+print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")

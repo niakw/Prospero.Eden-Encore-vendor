@@ -593,10 +593,19 @@ private:
     }
     void Limit(HLERequestContext& ctx) {
         const auto* p=ctx.CommandBuffer();
-        const Result result=p[0]==16+ctx.GetCommand()&&p[1]==0?
-            ResultSuccess:Kernel::ResultInvalidCombination;
-        IPC::ResponseBuilder rb{ctx,3}; rb.Push(result.raw);
-        rb.Push<u32>(ctx.GetCommand()==5?7:0);
+        const u32 command = ctx.GetCommand();
+        const Result result = p[0] == 16 + command && p[1] == 0
+            ? ResultSuccess : Kernel::ResultInvalidCombination;
+        // The NS2 SDK probes display/notification capacity before any
+        // client buffer can be submitted. Returning zero for commands 1/3
+        // advertises a nonexistent display and can abort VI2 initialization.
+        // Lichii's reviewed nx2:vi2 replies one for both, and seven for
+        // the timestamp/request-group count (TIPC 5). Encore exposes one
+        // real default VI display; never report capacity on invalid input.
+        const u32 available = command == 5 ? 7u : 1u;
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(result.raw);
+        rb.Push<u32>(result.IsSuccess() ? available : 0u);
     }
     void Event(HLERequestContext& ctx) {
         const auto* p=ctx.CommandBuffer();
