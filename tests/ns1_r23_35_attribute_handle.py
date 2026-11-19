@@ -132,13 +132,42 @@ u32 DynamicDescriptorIndexLimit(const IR::U32& dynamic_offset, u32 size_shift) {
   # in the audit copy before reconstructing the frozen R23 receipt.
   raw_cache_blob=gitblob(ROOT/path)
   if raw_cache_blob=="e3910d11f33376097a90858118ba276f7e02cb70":
-   teardown_drain="""    // Lichii 499e2e4: queued builders capture pipeline objects by pointer.
+   current_destructor="""PipelineCache::~PipelineCache() {
+    EdenResetStaticVertexInputBinding();
+#ifdef PS5_NATIVE
+    // Lichii 499e2e4: queued builders capture pipeline objects by pointer.
     // Drain them while the cache still owns every pipeline; otherwise member
     // destruction can race a late builder during title teardown.
     workers.WaitForRequests();
+    // First-use shader environments are serialized on this worker. Let all
+    // accepted writes finish before destroying the worker and VkPipelineCache,
+    // or a later launch re-translates shaders that were never persisted.
+    // These are shutdown-only drains, never waits in the draw hot path.
+    serialization_thread.WaitForRequests();
+#endif
+    if (use_vulkan_pipeline_cache && !vulkan_pipeline_cache_filename.empty()) {
+        SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
+                                     CACHE_VERSION);
+    }
+}
 """
-   assert normalized.count(teardown_drain)==1
-   normalized=normalized.replace(teardown_drain,"",1)
+   predecessor_destructor="""PipelineCache::~PipelineCache() {
+    EdenResetStaticVertexInputBinding();
+#ifdef PS5_NATIVE
+    // First-use shader environments are serialized on this worker. Let all
+    // accepted writes finish before destroying the worker and VkPipelineCache,
+    // or a later launch re-translates shaders that were never persisted.
+    // This is a shutdown-only drain, never a wait in the draw hot path.
+    serialization_thread.WaitForRequests();
+#endif
+    if (use_vulkan_pipeline_cache && !vulkan_pipeline_cache_filename.empty()) {
+        SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
+                                     CACHE_VERSION);
+    }
+}
+"""
+   assert normalized.count(current_destructor)==1
+   normalized=normalized.replace(current_destructor,predecessor_destructor,1)
    predecessor=normalized.encode("utf-8")
    assert hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()=="dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56"
    raw_cache_blob="dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56"
