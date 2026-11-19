@@ -129,7 +129,10 @@ int main(){
     assert(!r.OnCPUWrite(0x7000,64));
     assert(r.buffer_cache.writes==3 && r.texture_cache.writes==2);
     assert(r.pipeline_cache.invalidations==4);
-    assert(Eden::BufferWriteAhead::calls==3);
+    // First ordinary unmodified write and last registered write only.
+    // GPU-modified early return and BufferPages::NeverRegistered shortcuts
+    // correctly do not enter the write-ahead helper.
+    assert(Eden::BufferWriteAhead::calls==2);
 }
 """
 compilers=list(dict.fromkeys(filter(None, (os.environ.get("CXX"),shutil.which("clang++"),shutil.which("g++")))))
