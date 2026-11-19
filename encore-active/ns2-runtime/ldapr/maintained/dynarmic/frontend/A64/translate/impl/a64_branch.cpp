@@ -70,17 +70,6 @@ bool TranslatorVisitor::RET(Reg Rn) {
     return false;
 }
 
-// ARMv8.3 authenticated returns. Encore does not emulate PAC keys/authentication
-// in the guest CPU today; match the reviewed Lichii no-PAC model and preserve
-// ordinary return-stack semantics. M selects RETAA vs RETAB but does not change
-// the raw X30 target while authentication is disabled.
-bool TranslatorVisitor::RETA(bool M) {
-    (void)M;
-    ir.SetPC(X(64, Reg::R30));
-    ir.SetTerm(IR::Term::PopRSBHint{});
-    return false;
-}
-
 bool TranslatorVisitor::CBZ(bool sf, Imm<19> imm19, Reg Rt) {
     const size_t datasize = sf ? 64 : 32;
     const s64 offset = concatenate(imm19, Imm<2>{0}).SignExtend<s64>();
