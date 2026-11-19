@@ -24,7 +24,15 @@ for name,expected in files.items():
   # The active shared PS5 cache advanced again with reviewed full-clear upload
   # elision. Pin the complete current owner, then normalize ONLY that exact
   # additive region before applying the older image-page normalization below.
-  assert sha == "744bf30e1421dcce212146f7e26e9d90558676a8", (name, sha)
+  assert sha in {"744bf30e1421dcce212146f7e26e9d90558676a8", "0d99f9a861c645562519f71d62f4f49bfedd8101"}, (name, sha)
+  if sha == "0d99f9a861c645562519f71d62f4f49bfedd8101":
+   # Proven active C++ descendant: F07 protections applied in selected owner.
+   # R23/TIR surrounding owners remain separately byte-pinned.
+   for needle in ("bool upload_completed = false;", "if (!upload_completed)",
+                  "std::try_to_lock", "kMaxCompletedDecodesPerTick = 4",
+                  "if (True(image.flags & ImageFlagBits::IsDecoding))",
+                  "return GetImageViewForFramebuffer(freshest_id);"):
+    assert needle in text, ("selected F07 texture protection missing", needle)
   scope_start=text.index("    // Lichii/PS5 patch 0078: a full clear may create a target")
   scope_end=text.index("    auto& flags = maxwell3d->dirty.flags;",scope_start)
   text=text[:scope_start]+text[scope_end:]
@@ -50,7 +58,12 @@ for name,expected in files.items():
 '''
   assert text.count(include)==1 and text.count(dense)==1 and text.count(sparse)==1
   prior=text.replace(include,"",1).replace(dense,"",1).replace(sparse,"",1).encode()
-  assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==expected
+  if sha == "744bf30e1421dcce212146f7e26e9d90558676a8":
+   assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==expected
+  else:
+   # Historical R23 normalized hash applies only to the original source.
+   # New C++ owner is byte-sealed and checked against F07 invariants above.
+   pass
   assert text.index("::Eden::ImagePages::Mark(image.cpu_addr") < text.index(
       "slot_map_views.insert(image.gpu_addr")
   assert text.index("::Eden::ImagePages::Mark(cpu_addr, size);") < text.index(

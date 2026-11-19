@@ -21,7 +21,13 @@ def blob(path):
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
 assert blob(R)=="01c6880e5a8836da45601b0a3cb7c0fd6c46cf35"
 assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
-assert blob(T)=="744bf30e1421dcce212146f7e26e9d90558676a8"
+assert blob(T)=="0d99f9a861c645562519f71d62f4f49bfedd8101"
+# Selected NS1/NS2 TextureCache must retain the causal native protections.
+texture_selected=T.read_text()
+for needle in ("bool upload_completed = false;", "std::try_to_lock",
+               "kMaxCompletedDecodesPerTick = 4",
+               "return GetImageViewForFramebuffer(freshest_id);"):
+    assert needle in texture_selected, ("selected texture protection lost",needle)
 assert not (ROOT/"encore-active/eden-core/overrides/core/deferred_cached_updates.h").exists()
 raster=R.read_text()
 device=D.read_text()
