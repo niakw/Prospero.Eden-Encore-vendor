@@ -27,6 +27,7 @@
 #endif
 #include "core/memory.h"
 #ifdef PS5_NATIVE
+#include "core/deferred_cached_updates.h"
 #include "core/hle/kernel/board/nintendo/nx/k_system_control.h"
 #include "gpu_fault_rate_limit.h"
 #endif
@@ -391,6 +392,14 @@ void DeviceMemoryManager<Traits>::Unmap(DAddr address, size_t size) {
     size_t start_page_d = address >> Memory::YUZU_PAGEBITS;
     size_t num_pages = Common::AlignUp(size, Memory::YUZU_PAGESIZE) >> Memory::YUZU_PAGEBITS;
     device_inter->InvalidateRegion(address, size);
+#ifdef PS5_NATIVE
+    // A guest CPU write may already have changed buffer-cache word state but
+    // deliberately publish its host page-protection decrement after dropping
+    // buffer_cache.mutex. InvalidateRegion orders us behind that cache lock;
+    // wait before removing backing so the deferred decrement cannot be lost
+    // against a later remap.
+    ::Eden::DeferredCachedUpdates::WaitForPublished();
+#endif
     std::scoped_lock lk(mapping_guard);
 
     tracked_entries.CommitRegion(start_page_d, start_page_d + num_pages); // should already be committed, but just in case
@@ -980,6 +989,27 @@ void DeviceMemoryManager<Traits>::UpdatePagesCachedBatch(std::span<const std::pa
     for (const auto& [start, length] : ranges)
         if (start >= device_as_size || length > device_as_size - start)
             return;
+#ifdef PS5_NATIVE
+    if (auto* deferred = ::Eden::DeferredCachedUpdates::active_collector) {
+        if (delta < 0) {
+            if (deferred->TryAdd(
+                    this,
+                    [](void* owner, std::span<const ::Eden::DeferredCachedUpdates::Range> runs,
+                       s32 run_delta) {
+                        static_cast<DeviceMemoryManager<Traits>*>(owner)
+                            ->UpdatePagesCachedBatch(runs, run_delta);
+                    },
+                    ranges, delta)) {
+                return;
+            }
+        } else if (!deferred->Empty()) {
+            // Tracking must never lag behind the word state. Flush any older
+            // decrements synchronously before a +1/zero update, preserving the
+            // exact call order and falling back to the original locked path.
+            deferred->Flush();
+        }
+    }
+#endif
     std::shared_lock registry_lk(process_registry_guard);
     // Make a local copy and sort by address
     std::vector<std::pair<DAddr, size_t>> tmp(ranges.begin(), ranges.end());
