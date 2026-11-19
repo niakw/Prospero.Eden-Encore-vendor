@@ -35,74 +35,13 @@ for path,sha in EXPECTED.items():
   normalized=restore_pre_rebind(normalized)
   assert normalized.count(POST_TEARDOWN)==1, "FC27 lifetime guard missing"
   normalized=normalized.replace(POST_TEARDOWN,PRE_TEARDOWN,1)
- elif path.endswith("/texture_pass.cpp") and gitblob(ROOT/path) in {"3d9625f1981d6500e7b294018e0659464869d6f3","889456a31ddeb87e411ce4d0d2d41078b9593244"}:
-  texture_blob=gitblob(ROOT/path)
-  if texture_blob=="889456a31ddeb87e411ce4d0d2d41078b9593244":
-   # Vendor cb10b809 / upstream Lichii #1914 adds only the found-bit
-   # descriptor bound. Reconstruct its exact predecessor before applying the
-   # older dynamic-table normalization below.
-   found_bit="""// The elements a dynamic offset can select below the clamp to the last one: a bit index found by
-// FLO (FindUMsb, or 31 minus it for FLO.SH) takes one of 32. Its -1 for no bit set is past any
-// count, so it takes the last element as it does in a longer array.
-// Upstream Lichii 5e33a765 / #1914.
-u32 DynamicDescriptorIndexLimit(const IR::U32& dynamic_offset, u32 size_shift) {
-    const IR::Inst* const offset = dynamic_offset.InstRecursive();
-    if (!offset || offset->GetOpcode() != IR::Opcode::ShiftLeftLogical32 ||
-        !offset->Arg(1).IsImmediate() || offset->Arg(1).U32() != size_shift) {
-        return ~0U;
-    }
-    const auto is_bit_index = [](const IR::Value& value) {
-        const IR::Inst* inst = value.IsImmediate() ? nullptr : value.InstRecursive();
-        if (inst && inst->GetOpcode() == IR::Opcode::BitwiseXor32 && inst->Arg(1).IsImmediate() &&
-            inst->Arg(1).U32() == 31) {
-            inst = inst->Arg(0).IsImmediate() ? nullptr : inst->Arg(0).InstRecursive();
-        }
-        return inst && (inst->GetOpcode() == IR::Opcode::FindUMsb32 ||
-                        inst->GetOpcode() == IR::Opcode::FindSMsb32);
-    };
-    const IR::Value index = offset->Arg(0);
-    const IR::Inst* const select = index.IsImmediate() ? nullptr : index.InstRecursive();
-    if (select && select->GetOpcode() == IR::Opcode::SelectU32) {
-        return is_bit_index(select->Arg(1)) && is_bit_index(select->Arg(2)) ? 32U : ~0U;
-    }
-    return is_bit_index(index) ? 32U : ~0U;
-}
-
-"""
-   post_count="""        .count = (std::min)(DynamicDescriptorCount(base_offset, size_shift,
-                                                   (std::min)({DESCRIPTOR_MAX_COUNT, sampled_limit,
-                                                               resource_limit})),
-                            DynamicDescriptorIndexLimit(dynamic_offset, size_shift)),
-"""
-   pre_count="""        .count = DynamicDescriptorCount(base_offset, size_shift, (std::min)({DESCRIPTOR_MAX_COUNT, sampled_limit, resource_limit})),
-"""
-   assert normalized.count(found_bit)==1 and normalized.count(post_count)==1
-   normalized=normalized.replace(found_bit,"",1).replace(post_count,pre_count,1)
-   predecessor=normalized.encode("utf-8")
-   assert hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()=="3d9625f1981d6500e7b294018e0659464869d6f3"
+ elif path.endswith("/texture_pass.cpp") and gitblob(ROOT/path)=="3d9625f1981d6500e7b294018e0659464869d6f3":
   post_or="        // A dynamic texture table may be ORed with one fixed sampler word.\n        // Keep the table as the primary operand so its shader-side index and\n        // descriptor count survive. Two dynamic tables still cannot be\n        // represented by the current descriptor ABI.\n        if (lhs->count > 1 && rhs->count > 1) {\n            return std::nullopt;\n        }\n        if (rhs->count > 1 ||\n            (lhs->count == 1 &&\n             (lhs->shift_left > 0 || lhs->index > rhs->index || lhs->offset > rhs->offset))) {\n            std::swap(lhs, rhs);\n        }\n        return ConstBufferAddr{\n            .index = lhs->index,\n            .offset = lhs->offset,\n            .shift_left = lhs->shift_left,\n            .secondary_index = rhs->index,\n            .secondary_offset = rhs->offset,\n            .secondary_shift_left = rhs->shift_left,\n            .dynamic_offset = lhs->dynamic_offset,\n            .count = lhs->count,\n            .has_secondary = true,\n        };"
   pre_or="        if (lhs->count > 1 || rhs->count > 1) {\n            return std::nullopt;\n        }\n        if (lhs->shift_left > 0 || lhs->index > rhs->index || lhs->offset > rhs->offset) {\n            std::swap(lhs, rhs);\n        }\n        return ConstBufferAddr{\n            .index = lhs->index,\n            .offset = lhs->offset,\n            .shift_left = lhs->shift_left,\n            .secondary_index = rhs->index,\n            .secondary_offset = rhs->offset,\n            .secondary_shift_left = rhs->shift_left,\n            .dynamic_offset = {},\n            .count = 1,\n            .has_secondary = true,\n        };"
   post_zero="    IR::Inst* const offset_inst{offset.InstRecursive()};\n    u32 base_offset{};\n    IR::U32 dynamic_offset{offset};\n    if (offset_inst->GetOpcode() == IR::Opcode::IAdd32) {\n        if (offset_inst->Arg(0).IsImmediate()) {\n            base_offset = offset_inst->Arg(0).U32();\n            dynamic_offset = IR::U32{offset_inst->Arg(1)};\n        } else if (offset_inst->Arg(1).IsImmediate()) {\n            base_offset = offset_inst->Arg(1).U32();\n            dynamic_offset = IR::U32{offset_inst->Arg(0)};\n        } else {\n            return std::nullopt;\n        }\n    } else if (offset_inst->GetOpcode() != IR::Opcode::ShiftLeftLogical32) {\n        return std::nullopt;\n    }"
   pre_zero="    IR::Inst* const offset_inst{offset.InstRecursive()};\n    if (offset_inst->GetOpcode() != IR::Opcode::IAdd32) {\n        return std::nullopt;\n    }\n    u32 base_offset{};\n    IR::U32 dynamic_offset;\n    if (offset_inst->Arg(0).IsImmediate()) {\n        base_offset = offset_inst->Arg(0).U32();\n        dynamic_offset = IR::U32{offset_inst->Arg(1)};\n    } else if (offset_inst->Arg(1).IsImmediate()) {\n        base_offset = offset_inst->Arg(1).U32();\n        dynamic_offset = IR::U32{offset_inst->Arg(0)};\n    } else {\n        return std::nullopt;\n    }"
   assert normalized.count(post_or)==1 and normalized.count(post_zero)==1
   normalized=normalized.replace(post_or,pre_or,1).replace(post_zero,pre_zero,1)
- elif path.endswith("/vk_graphics_pipeline.h") and gitblob(ROOT/path)=="bafff9a441a60b3dfb7e7d5a7a260741f45f59dc":
-  # Lichii f8f29b5 waited-pipeline inline build adds only the callable build
-  # owner and claim bit. Remove those reviewed members before the frozen R23
-  # header receipt.
-  assert normalized.count("#include <functional>\n")==1
-  run_build="""    // Lichii f8f29b5: first use may claim a queued build instead of waiting
-    // behind unrelated worker jobs.
-    void RunBuild();
-
-"""
-  build_members="""    std::function<void()> build_task;
-    std::atomic_bool build_claimed{false};
-"""
-  assert normalized.count(run_build)==1 and normalized.count(build_members)==1
-  normalized=normalized.replace("#include <functional>\n","",1).replace(run_build,"",1).replace(build_members,"",1)
-  predecessor=normalized.encode("utf-8")
-  assert hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()=="d49090a476f6a9bf61026331f59c9fbb1d918729"
  elif path.endswith("/vk_rasterizer.h") and gitblob(ROOT/path)=="7c754c82c12c4f4c934abd3d7f2cdb25222e8d2a":
   # FC27/Lichii #397 adds one batch hook. Remove exactly that declaration
   # before checking the frozen R23 header receipt.
@@ -111,17 +50,7 @@ u32 DynamicDescriptorIndexLimit(const IR::U32& dynamic_offset, u32 size_shift) {
   normalized=normalized.replace(cpu_race_decl,"",1)
   restored=normalized.encode("utf-8")
   assert hashlib.sha1(b"blob "+str(len(restored)).encode()+bytes([0])+restored).hexdigest()==EXPECTED[path]
- elif path.endswith("/vk_graphics_pipeline_cost.cpp") and gitblob(ROOT/path) in {"efa8fd4d73c111655fced67fe7dd1e6b7c0178ba","526aa16b22ba3918c29ce85c884d606dcfd185a1"}:
-  graphics_blob=gitblob(ROOT/path)
-  if graphics_blob=="526aa16b22ba3918c29ce85c884d606dcfd185a1":
-   waited_ctor="    configure_func = ConfigureFunc(spv_modules, stage_infos);\n    build_task = std::move(func);\n    if (worker_thread) {\n#ifdef PS5_NATIVE\n        if (::Eden::DevVulkan::fast_first_pipelines) {\n            pending_first_use_graphics_builds.fetch_add(1, std::memory_order_release);\n            try {\n                worker_thread->QueueWork([this] {\n                    SCOPE_EXIT {\n                        pending_first_use_graphics_builds.fetch_sub(1, std::memory_order_release);\n                    };\n                    RunBuild();\n                });\n            } catch (...) {\n                pending_first_use_graphics_builds.fetch_sub(1, std::memory_order_release);\n                throw;\n            }\n        } else\n#endif\n        {\n            worker_thread->QueueWork([this] { RunBuild(); });\n        }\n        build_handed_off = true;\n    } else {\n        build_handed_off = true;\n        RunBuild();\n    }\n}\n\nvoid GraphicsPipeline::RunBuild() {\n    if (build_claimed.exchange(true, std::memory_order_acq_rel)) {\n        return;\n    }\n    build_task();\n    build_task = nullptr;\n}\n"
-   predecessor_ctor="    configure_func = ConfigureFunc(spv_modules, stage_infos);\n    if (worker_thread) {\n#ifdef PS5_NATIVE\n        if (::Eden::DevVulkan::fast_first_pipelines) {\n            // Cold first-use compilation has priority over speculative optimization.\n            // Publish BEFORE enqueuing, including work waiting in the builder queue.\n            pending_first_use_graphics_builds.fetch_add(1, std::memory_order_release);\n            try {\n                worker_thread->QueueWork([build = std::move(func)]() mutable {\n                    SCOPE_EXIT {\n                        pending_first_use_graphics_builds.fetch_sub(1, std::memory_order_release);\n                    };\n                    build();\n                });\n            } catch (...) {\n                pending_first_use_graphics_builds.fetch_sub(1, std::memory_order_release);\n                throw;\n            }\n        } else\n#endif\n        {\n            worker_thread->QueueWork(std::move(func));\n        }\n        // QueueWork returned successfully; the worker now owns completion,\n        // including paths where pipeline validation or compilation fails.\n        build_handed_off = true;\n    } else {\n        // Synchronous func() owns the completion callback from this point.\n        build_handed_off = true;\n        func();\n    }\n}\n"
-   waited_callback="        // Wait for the pipeline to be built\n        scheduler.Record([this](vk::CommandBuffer) {\n            RunBuild();\n            // Builder published the pipeline before this ordered GPU callback.\n            // Acquire its completion without taking a redundant build mutex.\n            // An unfinished build still follows the original condition wait.\n            if (is_built.load(std::memory_order_acquire)) return;\n#ifdef PS5_NATIVE\n            // Publication can race the initial fast acquire. The build owner\n            // holds this mutex when publishing, so a false result here means\n            // the condition wait must actually release the lock.\n            // Include contention acquiring build_mutex in the keyed\n            // diagnostic; a genuinely blocked condvar wait must not omit\n            // the GPU worker's preceding mutex delay.\n            ::Eden::Performance::PipelineWaitTrace keyed_wait;\n            std::unique_lock lock{build_mutex};\n            keyed_wait.MarkLockAcquired();\n            if (is_built.load(std::memory_order_acquire)) {\n                lock.unlock();\n                // A publisher may complete while this GPU callback waits\n                // for build_mutex. Do not call condvar; report only genuine\n                // (>1ms) mutex contention, never an instant ready callback.\n                if (keyed_wait.WasBlockedOnMutex())\n                    keyed_wait.Complete(\"graphics\", key.Hash(), CanExecuteDraw());\n                return;\n            }\n#endif\n            auto timer = Eden::Performance::VulkanTimer(16);\n            // Only unfinished builds contribute a worker wait; no clock in quiet mode.\n            ::Eden::Performance::CachePhaseTimer pipeline_ready_wait{\n                ::Eden::Performance::CachePhase::GraphicsPipelineWait,\n                ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)};\n#ifndef PS5_NATIVE\n            std::unique_lock lock{build_mutex};\n#endif\n            build_condvar.wait(lock, [this] { return is_built.load(std::memory_order::relaxed); });\n#ifdef PS5_NATIVE\n            lock.unlock();\n            pipeline_ready_wait.Stop();\n            timer.reset(); // Exclude diagnostic print I/O from VulkanTimer(16).\n            keyed_wait.Complete(\"graphics\", key.Hash(), CanExecuteDraw());\n#endif"
-   predecessor_callback="        // Wait for the pipeline to be built\n        scheduler.Record([this](vk::CommandBuffer) {\n            // Builder published the pipeline before this ordered GPU callback.\n            // Acquire its completion without taking a redundant build mutex.\n            // An unfinished build still follows the original condition wait.\n            if (is_built.load(std::memory_order_acquire)) return;\n#ifdef PS5_NATIVE\n            // Publication can race the initial fast acquire. The build owner\n            // holds this mutex when publishing, so a false result here means\n            // the condition wait must actually release the lock.\n            // Include contention acquiring build_mutex in the keyed\n            // diagnostic; a genuinely blocked condvar wait must not omit\n            // the GPU worker's preceding mutex delay.\n            ::Eden::Performance::PipelineWaitTrace keyed_wait;\n            std::unique_lock lock{build_mutex};\n            keyed_wait.MarkLockAcquired();\n            if (is_built.load(std::memory_order_acquire)) {\n                lock.unlock();\n                // A publisher may complete while this GPU callback waits\n                // for build_mutex. Do not call condvar; report only genuine\n                // (>1ms) mutex contention, never an instant ready callback.\n                if (keyed_wait.WasBlockedOnMutex())\n                    keyed_wait.Complete(\"graphics\", key.Hash(), CanExecuteDraw());\n                return;\n            }\n#endif\n            auto timer = Eden::Performance::VulkanTimer(16);\n            // Only unfinished builds contribute a worker wait; no clock in quiet mode.\n            ::Eden::Performance::CachePhaseTimer pipeline_ready_wait{\n                ::Eden::Performance::CachePhase::GraphicsPipelineWait,\n                ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)};\n#ifndef PS5_NATIVE\n            std::unique_lock lock{build_mutex};\n#endif\n            build_condvar.wait(lock, [this] { return is_built.load(std::memory_order::relaxed); });\n#ifdef PS5_NATIVE\n            lock.unlock();\n            pipeline_ready_wait.Stop();\n            timer.reset(); // Exclude diagnostic print I/O from VulkanTimer(16).\n            keyed_wait.Complete(\"graphics\", key.Hash(), CanExecuteDraw());\n#endif"
-   assert normalized.count(waited_ctor)==1 and normalized.count(waited_callback)==1
-   normalized=normalized.replace(waited_ctor,predecessor_ctor,1).replace(waited_callback,predecessor_callback,1)
-   predecessor=normalized.encode("utf-8")
-   assert hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()=="efa8fd4d73c111655fced67fe7dd1e6b7c0178ba"
+ elif path.endswith("/vk_graphics_pipeline_cost.cpp") and gitblob(ROOT/path)=="efa8fd4d73c111655fced67fe7dd1e6b7c0178ba":
   fixed="const u32 second_offset{desc.secondary_cbuf_offset};"
   indexed="const u32 second_offset{desc.secondary_cbuf_offset + index_offset};"
   assert normalized.count(fixed)==1 and indexed not in normalized
@@ -131,46 +60,6 @@ u32 DynamicDescriptorIndexLimit(const IR::U32& dynamic_offset, u32 size_shift) {
   # cache owner advances 19 -> 20. Reverse only that reviewed version bump
   # in the audit copy before reconstructing the frozen R23 receipt.
   raw_cache_blob=gitblob(ROOT/path)
-  if raw_cache_blob=="e3910d11f33376097a90858118ba276f7e02cb70":
-   current_destructor="""PipelineCache::~PipelineCache() {
-    EdenResetStaticVertexInputBinding();
-#ifdef PS5_NATIVE
-    // Lichii 499e2e4: queued builders capture pipeline objects by pointer.
-    // Drain them while the cache still owns every pipeline; otherwise member
-    // destruction can race a late builder during title teardown.
-    workers.WaitForRequests();
-    // First-use shader environments are serialized on this worker. Let all
-    // accepted writes finish before destroying the worker and VkPipelineCache,
-    // or a later launch re-translates shaders that were never persisted.
-    // These are shutdown-only drains, never waits in the draw hot path.
-    serialization_thread.WaitForRequests();
-#endif
-    if (use_vulkan_pipeline_cache && !vulkan_pipeline_cache_filename.empty()) {
-        SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
-                                     CACHE_VERSION);
-    }
-}
-"""
-   predecessor_destructor="""PipelineCache::~PipelineCache() {
-    EdenResetStaticVertexInputBinding();
-#ifdef PS5_NATIVE
-    // First-use shader environments are serialized on this worker. Let all
-    // accepted writes finish before destroying the worker and VkPipelineCache,
-    // or a later launch re-translates shaders that were never persisted.
-    // This is a shutdown-only drain, never a wait in the draw hot path.
-    serialization_thread.WaitForRequests();
-#endif
-    if (use_vulkan_pipeline_cache && !vulkan_pipeline_cache_filename.empty()) {
-        SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
-                                     CACHE_VERSION);
-    }
-}
-"""
-   assert normalized.count(current_destructor)==1
-   normalized=normalized.replace(current_destructor,predecessor_destructor,1)
-   predecessor=normalized.encode("utf-8")
-   assert hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()=="dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56"
-   raw_cache_blob="dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56"
   if raw_cache_blob=="dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56":
    witness_block="""            static std::atomic<unsigned> fragment_shuffle_witness{};
             const unsigned fallback_witness =
@@ -269,7 +158,6 @@ u32 DynamicDescriptorIndexLimit(const IR::U32& dynamic_offset, u32 size_shift) {
      "be5d48abd44996502b0829a6e0501d130a151455",
      "e10c4893c03da57dce7f607d3e0af46d62e343f1",
      "dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56",
-     "e3910d11f33376097a90858118ba276f7e02cb70",
  }:
   assert digest=="10d76dd2b7b02fe6ce89afa5c122194442ebf77f", (path,digest)
  else:
