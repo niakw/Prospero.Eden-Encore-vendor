@@ -35,7 +35,51 @@ for path,sha in EXPECTED.items():
   normalized=restore_pre_rebind(normalized)
   assert normalized.count(POST_TEARDOWN)==1, "FC27 lifetime guard missing"
   normalized=normalized.replace(POST_TEARDOWN,PRE_TEARDOWN,1)
- elif path.endswith("/texture_pass.cpp") and gitblob(ROOT/path)=="3d9625f1981d6500e7b294018e0659464869d6f3":
+ elif path.endswith("/texture_pass.cpp") and gitblob(ROOT/path) in {"3d9625f1981d6500e7b294018e0659464869d6f3","889456a31ddeb87e411ce4d0d2d41078b9593244"}:
+  texture_blob=gitblob(ROOT/path)
+  if texture_blob=="889456a31ddeb87e411ce4d0d2d41078b9593244":
+   # Vendor cb10b809 / upstream Lichii #1914 adds only the found-bit
+   # descriptor bound. Reconstruct its exact predecessor before applying the
+   # older dynamic-table normalization below.
+   found_bit="""// The elements a dynamic offset can select below the clamp to the last one: a bit index found by
+// FLO (FindUMsb, or 31 minus it for FLO.SH) takes one of 32. Its -1 for no bit set is past any
+// count, so it takes the last element as it does in a longer array.
+// Upstream Lichii 5e33a765 / #1914.
+u32 DynamicDescriptorIndexLimit(const IR::U32& dynamic_offset, u32 size_shift) {
+    const IR::Inst* const offset = dynamic_offset.InstRecursive();
+    if (!offset || offset->GetOpcode() != IR::Opcode::ShiftLeftLogical32 ||
+        !offset->Arg(1).IsImmediate() || offset->Arg(1).U32() != size_shift) {
+        return ~0U;
+    }
+    const auto is_bit_index = [](const IR::Value& value) {
+        const IR::Inst* inst = value.IsImmediate() ? nullptr : value.InstRecursive();
+        if (inst && inst->GetOpcode() == IR::Opcode::BitwiseXor32 && inst->Arg(1).IsImmediate() &&
+            inst->Arg(1).U32() == 31) {
+            inst = inst->Arg(0).IsImmediate() ? nullptr : inst->Arg(0).InstRecursive();
+        }
+        return inst && (inst->GetOpcode() == IR::Opcode::FindUMsb32 ||
+                        inst->GetOpcode() == IR::Opcode::FindSMsb32);
+    };
+    const IR::Value index = offset->Arg(0);
+    const IR::Inst* const select = index.IsImmediate() ? nullptr : index.InstRecursive();
+    if (select && select->GetOpcode() == IR::Opcode::SelectU32) {
+        return is_bit_index(select->Arg(1)) && is_bit_index(select->Arg(2)) ? 32U : ~0U;
+    }
+    return is_bit_index(index) ? 32U : ~0U;
+}
+
+"""
+   post_count="""        .count = (std::min)(DynamicDescriptorCount(base_offset, size_shift,
+                                                   (std::min)({DESCRIPTOR_MAX_COUNT, sampled_limit,
+                                                               resource_limit})),
+                            DynamicDescriptorIndexLimit(dynamic_offset, size_shift)),
+"""
+   pre_count="""        .count = DynamicDescriptorCount(base_offset, size_shift, (std::min)({DESCRIPTOR_MAX_COUNT, sampled_limit, resource_limit})),
+"""
+   assert normalized.count(found_bit)==1 and normalized.count(post_count)==1
+   normalized=normalized.replace(found_bit,"",1).replace(post_count,pre_count,1)
+   predecessor=normalized.encode("utf-8")
+   assert hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()=="3d9625f1981d6500e7b294018e0659464869d6f3"
   post_or="        // A dynamic texture table may be ORed with one fixed sampler word.\n        // Keep the table as the primary operand so its shader-side index and\n        // descriptor count survive. Two dynamic tables still cannot be\n        // represented by the current descriptor ABI.\n        if (lhs->count > 1 && rhs->count > 1) {\n            return std::nullopt;\n        }\n        if (rhs->count > 1 ||\n            (lhs->count == 1 &&\n             (lhs->shift_left > 0 || lhs->index > rhs->index || lhs->offset > rhs->offset))) {\n            std::swap(lhs, rhs);\n        }\n        return ConstBufferAddr{\n            .index = lhs->index,\n            .offset = lhs->offset,\n            .shift_left = lhs->shift_left,\n            .secondary_index = rhs->index,\n            .secondary_offset = rhs->offset,\n            .secondary_shift_left = rhs->shift_left,\n            .dynamic_offset = lhs->dynamic_offset,\n            .count = lhs->count,\n            .has_secondary = true,\n        };"
   pre_or="        if (lhs->count > 1 || rhs->count > 1) {\n            return std::nullopt;\n        }\n        if (lhs->shift_left > 0 || lhs->index > rhs->index || lhs->offset > rhs->offset) {\n            std::swap(lhs, rhs);\n        }\n        return ConstBufferAddr{\n            .index = lhs->index,\n            .offset = lhs->offset,\n            .shift_left = lhs->shift_left,\n            .secondary_index = rhs->index,\n            .secondary_offset = rhs->offset,\n            .secondary_shift_left = rhs->shift_left,\n            .dynamic_offset = {},\n            .count = 1,\n            .has_secondary = true,\n        };"
   post_zero="    IR::Inst* const offset_inst{offset.InstRecursive()};\n    u32 base_offset{};\n    IR::U32 dynamic_offset{offset};\n    if (offset_inst->GetOpcode() == IR::Opcode::IAdd32) {\n        if (offset_inst->Arg(0).IsImmediate()) {\n            base_offset = offset_inst->Arg(0).U32();\n            dynamic_offset = IR::U32{offset_inst->Arg(1)};\n        } else if (offset_inst->Arg(1).IsImmediate()) {\n            base_offset = offset_inst->Arg(1).U32();\n            dynamic_offset = IR::U32{offset_inst->Arg(0)};\n        } else {\n            return std::nullopt;\n        }\n    } else if (offset_inst->GetOpcode() != IR::Opcode::ShiftLeftLogical32) {\n        return std::nullopt;\n    }"
