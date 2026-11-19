@@ -23,6 +23,15 @@ RANGESET=(ROOT/"sources/eden/src/common/range_sets.h").read_text()
 assert "void ForEachInRange(AddressType device_addr, size_t size, Func&& func) const;" in RANGESET
 assert "Intersects(" not in RANGESET
 assert "gpu_modified_ranges.Intersects(" not in CACHE
+# Lichii 15dd980: Bananza binds storage slots 16/17. The selected shared
+# BufferCache must expose all 32 bits without changing mask width or selecting
+# the divergent research-only class layout.
+assert "constexpr u32 NUM_STORAGE_BUFFERS = 32;" in BASE
+assert 'static_assert(NUM_STORAGE_BUFFERS <= 32, "storage-buffer bitmasks must fit u32");' in BASE
+assert "u32 enabled_compute_storage_buffers = 0;" in BASE
+assert "u32 written_compute_storage_buffers = 0;" in BASE
+assert "ssbo_index >= NUM_STORAGE_BUFFERS" in CACHE
+assert "1U << ssbo_index" in CACHE
 query_start=CACHE.index("bool BufferCache<P>::IsRegionGpuModified(DAddr addr, size_t size)")
 query=CACHE[query_start:CACHE.index("\n}\n", query_start)]
 assert "gpu_modified_ranges.ForEachInRange(addr, size," in query
