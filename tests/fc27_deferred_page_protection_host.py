@@ -1,152 +1,147 @@
 #!/usr/bin/env python3
-"""FC27: source + concurrency witness for post-lock cached-page publication.
+"""FC27 #194 safety rollback: compile the exact synchronous rasterizer CPU-write owner.
 
-Ports the safety invariant from Lichii #1518 without GpuSplit: logical cache
-word state stays under buffer_cache.mutex; only negative page-cache count
-publication may leave the lock. A positive/zero update flushes older negatives
-synchronously first. Device Unmap invalidates the cache, then waits for any
-already-published deferred update before removing backing.
+This historical test path deliberately remains for the existing CI callers.
+Do not re-enable deferred cached-page untracking without a PS5-safe scheduler
+ownership gate matching upstream Lichii #1518 and console visual evidence.
 """
 from pathlib import Path
+import hashlib
+import os
 import shutil
 import subprocess
 import tempfile
 
-ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "encore-active/eden-core/overrides/core/deferred_cached_updates.h"
-DEVICE = ROOT / "encore-active/eden-core/overrides/core/device_memory_manager.inc"
-RASTER = ROOT / "encore-active/eden-vulkan/vulkan_rasterizer.cpp"
+ROOT=Path(__file__).resolve().parents[1]
+R=ROOT/"encore-active/eden-vulkan/vulkan_rasterizer.cpp"
+D=ROOT/"encore-active/eden-core/overrides/core/device_memory_manager.inc"
+T=ROOT/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h"
+def blob(path):
+    raw=path.read_bytes()
+    return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
+assert blob(R)=="01c6880e5a8836da45601b0a3cb7c0fd6c46cf35"
+assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
+assert blob(T)=="744bf30e1421dcce212146f7e26e9d90558676a8"
+assert not (ROOT/"encore-active/eden-core/overrides/core/deferred_cached_updates.h").exists()
+raster=R.read_text()
+device=D.read_text()
+texture=T.read_text()
+assert "DeferredCachedUpdates" not in raster+device
+assert "ImagePages::Mark(image.cpu_addr, image.guest_size_bytes);" in texture
+assert "ImagePages::Mark(cpu_addr, size);" in texture
+start=raster.index("bool RasterizerVulkan::OnCPUWrite(")
+end=raster.index("\nvoid RasterizerVulkan::OnCacheInvalidations(",start)
+method=raster[start:end]
+assert "static thread_local" not in method
+assert method.index("GuestCacheLock(buffer_cache.mutex, false)") < method.index("buffer_cache.OnCPUWrite(addr, size)")
+assert method.index("buffer_cache.OnCPUWrite(addr, size)") < method.index("texture_cache.WriteMemory(addr, size)")
+assert "if (buffer_cache.OnCPUWrite(addr, size)) {\n            return true;\n        }" in method
+assert "ImagePages::NeverHeld" in method
+assert "device_inter->InvalidateRegion(address, size);" in device
+assert "WaitForPublished" not in device
+assert "void DeviceMemoryManager<Traits>::UpdatePagesCachedBatch" in device
+assert "TryAdd(" not in device
 
-helper = HELPER.read_text(encoding="utf-8")
-device = DEVICE.read_text(encoding="utf-8")
-raster = RASTER.read_text(encoding="utf-8")
-
-assert "inline thread_local Collector* active_collector{};" in helper
-assert "inline std::atomic<u32> published_updates{0};" in helper
-assert "if (flushing || delta >= 0 || ranges.empty())" in helper
-assert "Flush();\n            return false;" in helper
-
-batch = device.split("void DeviceMemoryManager<Traits>::UpdatePagesCachedBatch(", 1)[1].split(
-    "\n}\n\n} // namespace Core", 1
-)[0]
-assert batch.index("if (delta < 0)") < batch.index("deferred->TryAdd(")
-try_add = batch.index("deferred->TryAdd(")
-assert try_add < batch.index("return;", try_add)
-assert batch.index("} else if (!deferred->Empty())") < batch.index("deferred->Flush();")
-assert batch.index("deferred->Flush();") < batch.index(
-    "std::shared_lock registry_lk(process_registry_guard);"
-)
-
-unmap = device.split("void DeviceMemoryManager<Traits>::Unmap(", 1)[1].split(
-    "\ntemplate <typename Traits>\nvoid DeviceMemoryManager<Traits>::TrackContinuityImpl", 1
-)[0]
-assert unmap.index("device_inter->InvalidateRegion(address, size);") < unmap.index(
-    "::Eden::DeferredCachedUpdates::WaitForPublished();"
-)
-assert unmap.index("::Eden::DeferredCachedUpdates::WaitForPublished();") < unmap.index(
-    "std::scoped_lock lk(mapping_guard);"
-)
-
-cpu = raster.split("bool RasterizerVulkan::OnCPUWrite(", 1)[1].split(
-    "\nvoid RasterizerVulkan::OnCacheInvalidations", 1
-)[0]
-for needle in (
-    "::Eden::DeferredCachedUpdates::Collector deferred;",
-    "::Eden::DeferredCachedUpdates::active_collector = &deferred;",
-    "::Eden::DeferredCachedUpdates::BeginPublish();",
-    "::Eden::DeferredCachedUpdates::EndPublish();",
-):
-    assert needle in cpu
-assert cpu.index("GuestCacheLock(buffer_cache.mutex, false)") < cpu.index(
-    "::Eden::DeferredCachedUpdates::BeginPublish();"
-)
-assert cpu.index("buffer_cache.OnCPUWrite(addr, size)") < cpu.index(
-    "::Eden::DeferredCachedUpdates::BeginPublish();"
-)
-assert cpu.index("::Eden::DeferredCachedUpdates::BeginPublish();") < cpu.index(
-    "deferred.Flush();", cpu.index("if (publish_deferred)")
-)
-# The old all-write DEV queue remains a separate, unselected implementation.
-assert "GpuDeferredWrite::TryEnqueue" not in cpu
-
-fixture = r'''
-#include <atomic>
+fixture=r"""
 #include <cassert>
-#include <chrono>
-#include <thread>
-#include <vector>
-#include "core/deferred_cached_updates.h"
-
-using Eden::DeferredCachedUpdates::Collector;
-using Eden::DeferredCachedUpdates::Range;
-
-struct Tracker {
-    std::vector<int> deltas;
-    std::vector<DAddr> starts;
+#include <atomic>
+#include <cstdint>
+#include <mutex>
+using DAddr=std::uint64_t; using u64=std::uint64_t;
+#define DEBUG_ASSERT(x) assert(x)
+struct FakeMutex {
+    bool held=false;
+    void lock(){assert(!held);held=true;}
+    void unlock(){assert(held);held=false;}
 };
-
-static void Apply(void* raw, std::span<const Range> ranges, s32 delta) {
-    auto& tracker = *static_cast<Tracker*>(raw);
-    tracker.deltas.push_back(delta);
-    tracker.starts.push_back(ranges.front().first);
+namespace Eden {
+namespace Performance {
+enum class CachePhase {GuestWriteBufferWait,GuestWriteBufferWork,
+    GuestWriteTextureWait,GuestWriteTextureWork,GuestWriteShaderInvalidate};
+struct BatchedGuestWriteTimer {};
+bool ShouldSampleGuestWrite(){return false;}
+struct CachePhaseTimer {
+    CachePhaseTimer(CachePhase,bool){}
+    void Stop(){}
+};
+void GuestCacheLock(FakeMutex& m,bool){m.lock();}
+struct CpuAhead { bool load(std::memory_order) const{return false;} };
+CpuAhead cpu_write_ahead;
 }
-
-int main() {
-    Tracker tracker;
-    Collector collector;
-    const Range first[]{{0x1000, 0x1000}};
-    const Range second[]{{0x3000, 0x2000}};
-
-    // Negative updates are held and preserve call order.
-    assert(collector.TryAdd(&tracker, Apply, first, -1));
-    assert(collector.TryAdd(&tracker, Apply, second, -1));
-    assert(tracker.deltas.empty());
-    collector.Flush();
-    assert((tracker.deltas == std::vector<int>{-1, -1}));
-    assert((tracker.starts == std::vector<DAddr>{0x1000, 0x3000}));
-    assert(collector.Empty());
-
-    // Tracking must never be deferred.
-    assert(!collector.TryAdd(&tracker, Apply, first, +1));
-    assert(collector.Empty());
-
-    // Published updates block an Unmap-style waiter until EndPublish.
-    using namespace Eden::DeferredCachedUpdates;
-    BeginPublish();
-    std::atomic<bool> entered{false};
-    std::atomic<bool> released{false};
-    std::thread waiter([&] {
-        entered.store(true, std::memory_order_release);
-        WaitForPublished();
-        released.store(true, std::memory_order_release);
-    });
-    while (!entered.load(std::memory_order_acquire)) std::this_thread::yield();
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    assert(!released.load(std::memory_order_acquire));
-    EndPublish();
-    waiter.join();
-    assert(released.load(std::memory_order_acquire));
-    assert(published_updates.load(std::memory_order_acquire) == 0);
+namespace BufferPages {
+bool skip=false;
+bool NeverRegistered(DAddr,u64){return skip;}
 }
-'''
-
-compiler = shutil.which("clang++") or shutil.which("g++")
-assert compiler, "C++20 compiler required"
-with tempfile.TemporaryDirectory(prefix="fc27-deferred-pages-") as td:
-    source = Path(td) / "test.cpp"
-    exe = Path(td) / "test"
-    source.write_text(fixture, encoding="utf-8")
-    cmd = [
-        compiler, "-std=c++20", "-O2", "-pthread",
-        "-fsanitize=undefined", "-fno-sanitize-recover=all",
-        "-I", str(ROOT / "encore-active/eden-core/overrides"),
-        "-I", str(ROOT / "sources/eden/src"),
-        str(source), "-o", str(exe),
-    ]
-    built = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    assert built.returncode == 0, built.stderr[-5000:]
-    ran = subprocess.run([str(exe)], capture_output=True, text=True, timeout=20)
-    assert ran.returncode == 0, ran.stderr[-3000:]
-
-print("FC27_DEFERRED_PAGE_PROTECTION_HOST_PASS negative_only=1 order=1 unmap_wait=1 fail_safe_positive=1")
-print("Host/source proof only; PS5 FC27 frame-time improvement remains unverified")
+namespace ImagePages {
+bool skip=false;
+bool NeverHeld(DAddr,u64){return skip;}
+}
+namespace BufferWriteAhead {
+std::atomic<int> calls{};
+template<class A,class B>
+bool MarkFollowingPages(std::uint64_t,std::uint64_t,bool,A,B) {
+    ++calls; return false;
+}
+}
+}
+struct BufferCache {
+    FakeMutex mutex;
+    int writes{};
+    bool gpu_modified{};
+    bool OnCPUWrite(DAddr,u64){assert(mutex.held);++writes;return gpu_modified;}
+    bool IsRegionRegistered(DAddr,u64){assert(mutex.held);return true;}
+};
+struct TextureCache {
+    FakeMutex mutex;
+    int writes{};
+    void WriteMemory(DAddr,u64){assert(mutex.held);++writes;}
+};
+struct PipelineCache {
+    int invalidations{};
+    void InvalidateRegion(DAddr,u64){++invalidations;}
+};
+struct RasterizerVulkan {
+    BufferCache buffer_cache;
+    TextureCache texture_cache;
+    PipelineCache pipeline_cache;
+    bool OnCPUWrite(DAddr,u64);
+};
+""" + method + r"""
+int main(){
+    RasterizerVulkan r;
+    assert(!r.OnCPUWrite(0x4000,64));
+    assert(r.buffer_cache.writes==1 && r.texture_cache.writes==1);
+    assert(r.pipeline_cache.invalidations==1);
+    assert(!r.buffer_cache.mutex.held && !r.texture_cache.mutex.held);
+    r.buffer_cache.gpu_modified=true;
+    assert(r.OnCPUWrite(0x4000,64));
+    assert(r.buffer_cache.writes==2 && r.texture_cache.writes==1);
+    assert(r.pipeline_cache.invalidations==1);
+    r.buffer_cache.gpu_modified=false;
+    Eden::BufferPages::skip=true;
+    assert(!r.OnCPUWrite(0x5000,64));
+    assert(r.buffer_cache.writes==2 && r.texture_cache.writes==2);
+    assert(r.pipeline_cache.invalidations==2);
+    Eden::ImagePages::skip=true;
+    assert(!r.OnCPUWrite(0x6000,64));
+    assert(r.texture_cache.writes==2 && r.pipeline_cache.invalidations==3);
+    Eden::BufferPages::skip=false;
+    assert(!r.OnCPUWrite(0x7000,64));
+    assert(r.buffer_cache.writes==3 && r.texture_cache.writes==2);
+    assert(r.pipeline_cache.invalidations==4);
+    assert(Eden::BufferWriteAhead::calls==3);
+}
+"""
+compilers=list(dict.fromkeys(filter(None, (os.environ.get("CXX"),shutil.which("clang++"),shutil.which("g++")))))
+assert compilers, "host C++ compiler required"
+with tempfile.TemporaryDirectory(prefix="fc27-sync-page-") as temp:
+    code=Path(temp)/"test.cpp"
+    code.write_text(fixture)
+    for compiler in compilers:
+        for opt in ("-O0","-O2"):
+            binary=Path(temp)/(Path(compiler).name+opt)
+            subprocess.run([compiler,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
+                            "-fsanitize=undefined","-fno-sanitize-recover=all",
+                            str(code),"-o",str(binary)],check=True,timeout=45)
+            subprocess.run([str(binary)],check=True,timeout=10)
+print("FC27_SYNCHRONOUS_PAGE_PROTECTION_HOST_PASS source=1 gpu_modified=1 texture_invalidate=1 ps5=unverified")

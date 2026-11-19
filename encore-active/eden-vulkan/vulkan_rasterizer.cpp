@@ -54,7 +54,6 @@
 #ifdef PS5_NATIVE
 #include <stdexcept>
 #include "common/cityhash.h"
-#include "core/deferred_cached_updates.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "shader_recompiler/frontend/ampere/capture.h"
 #include "shader_recompiler/frontend/ampere/maxwell_environment.h"
@@ -2429,70 +2428,25 @@ bool RasterizerVulkan::OnCPUWrite(DAddr addr, u64 size) {
     // Buffer and texture page evidence independently guards their mutexes.
     // Shader invalidation always runs, even if neither cache ever owned a page.
     if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
-        bool gpu_modified = false;
-#ifdef PS5_NATIVE
-        static thread_local ::Eden::DeferredCachedUpdates::Collector deferred;
-        bool publish_deferred = false;
-#endif
         ::Eden::Performance::CachePhaseTimer buffer_wait{
             ::Eden::Performance::CachePhase::GuestWriteBufferWait, sample_guest_write};
         ::Eden::Performance::GuestCacheLock(buffer_cache.mutex, false);
         buffer_wait.Stop();
-        {
-            std::lock_guard lock{buffer_cache.mutex, std::adopt_lock};
-#ifdef PS5_NATIVE
-            const bool owns_deferred_scope =
-                ::Eden::DeferredCachedUpdates::active_collector == nullptr;
-            if (owns_deferred_scope) {
-                ::Eden::DeferredCachedUpdates::active_collector = &deferred;
-            }
-            // If an allocation or other exception escapes before sealing the
-            // batch, restore the original synchronous ordering while the
-            // buffer-cache lock is still held.
-            SCOPE_EXIT {
-                if (owns_deferred_scope &&
-                    ::Eden::DeferredCachedUpdates::active_collector == &deferred) {
-                    ::Eden::DeferredCachedUpdates::active_collector = nullptr;
-                    deferred.Flush();
-                }
-            };
-#endif
-            ::Eden::Performance::CachePhaseTimer buffer_work{
-                ::Eden::Performance::CachePhase::GuestWriteBufferWork, sample_guest_write};
-            gpu_modified = buffer_cache.OnCPUWrite(addr, size);
-            if (!gpu_modified) {
-                (void)::Eden::BufferWriteAhead::MarkFollowingPages(
-                    static_cast<std::uint64_t>(addr), static_cast<std::uint64_t>(size),
-                    ::Eden::Performance::cpu_write_ahead.load(std::memory_order_relaxed),
-                    [&](std::uint64_t page, std::uint64_t span) {
-                        return buffer_cache.IsRegionRegistered(static_cast<DAddr>(page), span);
-                    },
-                    [&](std::uint64_t page, std::uint64_t span) {
-                        return buffer_cache.OnCPUWrite(static_cast<DAddr>(page), span);
-                    });
-            }
-#ifdef PS5_NATIVE
-            if (owns_deferred_scope) {
-                ::Eden::DeferredCachedUpdates::active_collector = nullptr;
-                if (!deferred.Empty()) {
-                    // Publish before the cache lock is released. Device Unmap
-                    // first invalidates this same cache path, then waits for
-                    // the publication to complete before discarding backing.
-                    ::Eden::DeferredCachedUpdates::BeginPublish();
-                    publish_deferred = true;
-                }
-            }
-#endif
-        }
-#ifdef PS5_NATIVE
-        if (publish_deferred) {
-            SCOPE_EXIT { ::Eden::DeferredCachedUpdates::EndPublish(); };
-            deferred.Flush();
-        }
-#endif
-        if (gpu_modified) {
+        std::lock_guard lock{buffer_cache.mutex, std::adopt_lock};
+        ::Eden::Performance::CachePhaseTimer buffer_work{
+            ::Eden::Performance::CachePhase::GuestWriteBufferWork, sample_guest_write};
+        if (buffer_cache.OnCPUWrite(addr, size)) {
             return true;
         }
+        (void)::Eden::BufferWriteAhead::MarkFollowingPages(
+            static_cast<std::uint64_t>(addr), static_cast<std::uint64_t>(size),
+            ::Eden::Performance::cpu_write_ahead.load(std::memory_order_relaxed),
+            [&](std::uint64_t page, std::uint64_t span) {
+                return buffer_cache.IsRegionRegistered(static_cast<DAddr>(page), span);
+            },
+            [&](std::uint64_t page, std::uint64_t span) {
+                return buffer_cache.OnCPUWrite(static_cast<DAddr>(page), span);
+            });
     }
     // ImagePages is monotonically published before texture slot insertion.
     // Only never-held small ranges may skip the texture-cache mutex; unknown
