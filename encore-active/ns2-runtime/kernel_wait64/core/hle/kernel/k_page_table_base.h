@@ -243,12 +243,6 @@ public:
                                 size_t code_size, KSystemResource* system_resource,
                                 KResourceLimit* resource_limit, Core::Memory::Memory& memory,
                                 KProcessAddress aslr_space_start);
-    Result InitializeForProcess(Svc::CreateProcessFlag as_type, bool enable_aslr,
-                                bool enable_device_address_space_merge, bool from_back,
-                                KMemoryManager::Pool pool, KProcessAddress code_address,
-                                size_t code_size, KSystemResource* system_resource,
-                                KResourceLimit* resource_limit, Core::Memory::Memory& memory,
-                                KProcessAddress aslr_space_start, bool is_switch2);
 
     Result FinalizeProcess();
     void Finalize();
