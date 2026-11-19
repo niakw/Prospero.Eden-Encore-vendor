@@ -89,13 +89,32 @@ inline void Unregister(std::uint64_t pid) noexcept {
     return std::nullopt;
 }
 
+// Only boot-relevant SVC families are retained without verbose logging.
+// This is a bounded in-memory witness, not an IPC trace or a blocking logger.
+[[nodiscard]] constexpr bool IsHangBoundarySvc(std::uint32_t imm) noexcept {
+    switch (imm) {
+    case 0x06: // QueryMemory
+    case 0x18: // WaitSynchronization
+    case 0x1c: // WaitProcessWideKeyAtomic
+    case 0x1f: // ConnectToNamedPort
+    case 0x20: // SendSyncRequestLight
+    case 0x21: // SendSyncRequest
+    case 0x22: // SendSyncRequestWithUserBuffer
+    case 0x29: // GetInfo
+    case 0x34: // WaitForAddress
+    case 0x43: // ReplyAndReceive
+    case 0x80: // NS2 GPU-access memory attribute SVC
+        return true;
+    default:
+        return false;
+    }
+}
+
 inline std::uint64_t RecordRecent(std::uint64_t pid, std::uint32_t imm, bool permitted,
                          const std::array<std::uint64_t, 8>& svc_args) noexcept {
-    // The last GetInfo/QueryMemory result is needed even when optional
-    // verbose logging is OFF. Only these two SVCs stay in the fixed RAM ring
-    // in quiet mode. Never write or allocate during dispatch.
-    const bool fatal_relevant = imm == 0x06 || imm == 0x29;
-    if (!IsActive(pid) || (!fatal_relevant && !DetailedEnabled()))
+    // Keep the last SVC/IPC/wait boundary even when detailed logs are OFF.
+    // This never performs I/O or guest-memory access in the SVC dispatcher.
+    if (!IsActive(pid) || (!IsHangBoundarySvc(imm) && !DetailedEnabled()))
         return 0;
     const std::uint64_t seq = recent_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
     auto& entry = recent[(seq - 1) % RecentSamples];
@@ -111,7 +130,7 @@ inline std::uint64_t RecordRecent(std::uint64_t pid, std::uint32_t imm, bool per
     return seq;
 }
 
-// Finish only the observed GetInfo/QueryMemory calls. Never dereference
+// Finish only the selected SVC calls. Never dereference
 // guest pointers or format/log in the SVC hot path. The pair of sequence
 // checks rejects a slot that was recycled while the SVC was executing.
 inline void RecordOutcome(std::uint64_t pid, std::uint64_t seq,
@@ -146,7 +165,7 @@ inline std::size_t FormatCriticalRecent(std::uint64_t pid, char* output,
         const auto& entry = recent[(seq - 1) % RecentSamples];
         if (entry.sequence.load(std::memory_order_acquire) != seq) continue;
         const auto imm = entry.imm.load(std::memory_order_relaxed);
-        if (imm != 0x06 && imm != 0x29) continue;
+        if (!IsHangBoundarySvc(imm)) continue;
         const bool completed = entry.outcome_sequence.load(std::memory_order_acquire) == seq;
         const auto result = entry.result_x0.load(std::memory_order_relaxed);
         const auto value = entry.value_x1.load(std::memory_order_relaxed);
@@ -201,7 +220,7 @@ inline void DumpRecent(std::uint64_t pid, std::FILE* stream = stderr) noexcept {
             static_cast<unsigned long long>(args[3]),
             static_cast<unsigned long long>(args[4]),
             static_cast<unsigned long long>(args[5]));
-        if (imm == 0x06 || imm == 0x29) {
+        if (IsHangBoundarySvc(imm)) {
             const bool completed = entry.outcome_sequence.load(std::memory_order_acquire) == seq;
             if (completed) {
                 const auto result = entry.result_x0.load(std::memory_order_relaxed);
