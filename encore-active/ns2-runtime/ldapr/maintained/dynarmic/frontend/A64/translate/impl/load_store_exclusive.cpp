@@ -9,11 +9,6 @@
 
 namespace Dynarmic::A64 {
 
-// Reviewed RCpc LDAPR: LDAR's acquire ordering is strictly stronger.
-bool TranslatorVisitor::LDAPR(Imm<2> size, Reg Rn, Reg Rt) {
-    return LDAR(size, Rn, Rt);
-}
-
 static bool ExclusiveSharedDecodeAndOperation(TranslatorVisitor& v, bool pair, size_t size, bool L, bool o0, std::optional<Reg> Rs, std::optional<Reg> Rt2, Reg Rn, Reg Rt) {
     // Shared Decode
 
