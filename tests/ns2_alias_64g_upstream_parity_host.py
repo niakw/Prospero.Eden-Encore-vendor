@@ -47,7 +47,7 @@ assert "return GetAddressSpaceInfo(width, type).size;" in address
 
 # Remove every API surface introduced solely to propagate the #1773 generation
 # flag. KProcess metadata still identifies NS2 for the existing memory budget.
-assert "GetAddressSpaceSize(std::size_t width, Type type,\n"
+assert address_h.count("GetAddressSpaceSize(std::size_t width, Type type);") == 1
 assert "bool is_switch2" not in address_h
 assert "bool is_switch2" not in page_h
 assert "bool is_switch2" not in process_table
