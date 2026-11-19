@@ -64,8 +64,16 @@ public:
         const void* code_ptr = nullptr;
     };
     static_assert(sizeof(FastDispatchEntry) == 0x10);
+#if defined(PS5_NATIVE)
+    // EglantinePS5 #104: 64K entries (1 MiB per A64 JIT) rather than
+    // 1M (16 MiB). The hash mask shrinks with the table; collisions
+    // fall through to the existing block lookup, not incorrect execution.
+    static constexpr u64 fast_dispatch_table_mask = 0xFFFF0;
+    static constexpr size_t fast_dispatch_table_size = 0x10000;
+#else
     static constexpr u64 fast_dispatch_table_mask = 0xFFFFF0;
     static constexpr size_t fast_dispatch_table_size = 0x100000;
+#endif
 
     void ClearFastDispatchTable();
     void GenMemory128Accessors();
