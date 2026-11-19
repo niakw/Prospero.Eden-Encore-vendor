@@ -30,4 +30,5 @@ jobs:
       - name: Verify selected cache ownership and compile synchronous method with sanitizers
         run: python3 -B tests/fc27_deferred_page_protection_host.py
       - name: Record evidence boundary
-        run: echo 'Controlled #194 rollback. Host-only; PS5 FC27 image correctness and FPS still unverified.' >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          printf '%s\n' 'Controlled #194 rollback: host-only; PS5 FC27 image correctness and FPS unverified.' >> "$GITHUB_STEP_SUMMARY"
