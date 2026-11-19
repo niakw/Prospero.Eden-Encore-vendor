@@ -1,0 +1,32 @@
+name: FC27 deferred cached-page protection (host only)
+
+on:
+  pull_request:
+    paths:
+      - 'encore-active/eden-core/overrides/core/deferred_cached_updates.h'
+      - 'encore-active/eden-core/overrides/core/device_memory_manager.inc'
+      - 'encore-active/eden-vulkan/vulkan_rasterizer.cpp'
+      - 'tests/fc27_deferred_page_protection_host.py'
+      - '.github/workflows/fc27-deferred-page-protection-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ordering-and-unmap-barrier:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Exercise exact deferred publication helper and selected source ordering
+        run: |
+          set -euo pipefail
+          python3 -B tests/fc27_deferred_page_protection_host.py
+      - name: Record validation boundary
+        run: |
+          {
+            echo 'Lichii #1518 ordering invariant adapted without GpuSplit.'
+            echo 'Host/source test only: no PS5 build, FC27 FPS, HUD latency or gameplay claim.'
+          } >> "$GITHUB_STEP_SUMMARY"
