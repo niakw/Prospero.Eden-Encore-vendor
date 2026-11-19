@@ -131,6 +131,17 @@ u32 DynamicDescriptorIndexLimit(const IR::U32& dynamic_offset, u32 size_shift) {
   # cache owner advances 19 -> 20. Reverse only that reviewed version bump
   # in the audit copy before reconstructing the frozen R23 receipt.
   raw_cache_blob=gitblob(ROOT/path)
+  if raw_cache_blob=="e3910d11f33376097a90858118ba276f7e02cb70":
+   teardown_drain="""    // Lichii 499e2e4: queued builders capture pipeline objects by pointer.
+    // Drain them while the cache still owns every pipeline; otherwise member
+    // destruction can race a late builder during title teardown.
+    workers.WaitForRequests();
+"""
+   assert normalized.count(teardown_drain)==1
+   normalized=normalized.replace(teardown_drain,"",1)
+   predecessor=normalized.encode("utf-8")
+   assert hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()=="dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56"
+   raw_cache_blob="dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56"
   if raw_cache_blob=="dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56":
    witness_block="""            static std::atomic<unsigned> fragment_shuffle_witness{};
             const unsigned fallback_witness =
@@ -229,6 +240,7 @@ u32 DynamicDescriptorIndexLimit(const IR::U32& dynamic_offset, u32 size_shift) {
      "be5d48abd44996502b0829a6e0501d130a151455",
      "e10c4893c03da57dce7f607d3e0af46d62e343f1",
      "dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56",
+     "e3910d11f33376097a90858118ba276f7e02cb70",
  }:
   assert digest=="10d76dd2b7b02fe6ce89afa5c122194442ebf77f", (path,digest)
  else:
