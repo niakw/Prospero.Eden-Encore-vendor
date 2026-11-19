@@ -58,7 +58,7 @@ namespace Eden {
 namespace Performance {
 enum class CachePhase {GuestWriteBufferWait,GuestWriteBufferWork,
     GuestWriteTextureWait,GuestWriteTextureWork,GuestWriteShaderInvalidate};
-struct BatchedGuestWriteTimer {};
+struct BatchedGuestWriteTimer { ~BatchedGuestWriteTimer() {} };
 bool ShouldSampleGuestWrite(){return false;}
 struct CachePhaseTimer {
     CachePhaseTimer(CachePhase,bool){}
