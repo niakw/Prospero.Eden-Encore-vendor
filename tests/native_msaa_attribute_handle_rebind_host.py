@@ -3,7 +3,8 @@
 Ordinary desktop C++ mock fixture only; no PS5 build, assets or GPU driver.
 """
 from pathlib import Path
-from native_msaa_handle_receipt import (CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE,\n    CURRENT_PAGE_SIBLING, CURRENT_DEFERRED_PAGE_PROTECTION, NEW, OLD, restore_pre_rebind)
+from native_msaa_handle_receipt import (CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE,
+    CURRENT_PAGE_SIBLING, CURRENT_DEFERRED_PAGE_PROTECTION, NEW, OLD, restore_pre_rebind)
 import hashlib
 import os
 import subprocess
