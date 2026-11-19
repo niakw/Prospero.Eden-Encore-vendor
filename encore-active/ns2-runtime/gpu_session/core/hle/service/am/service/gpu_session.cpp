@@ -44,6 +44,7 @@ IGpuSession::IGpuSession(Core::System& system_,
       m_process{process} {
     m_process->Open(kernel);
     static const FunctionInfo functions[] = {
+        {0, &IGpuSession::Handshake, "Handshake"},
         {11, &IGpuSession::GetNotificationRange, "GetNotificationRange"},
         {12, &IGpuSession::GetNotificationEvent, "GetNotificationEvent"},
         {21, &IGpuSession::RequestWorker, "RequestWorker"},
@@ -68,6 +69,17 @@ IGpuSession::~IGpuSession() {
     // worker client continues holding the process and the NVDRV FD owner.
     m_shared.reset();
     m_process->Close(kernel);
+}
+
+void IGpuSession::Handshake(HLERequestContext& ctx) {
+    // Newer NS2 SDKs send TIPC 0 with a two-word token before GPU setup.
+    // Reply with ONE u32 result followed by the exact token words; a CMIF
+    // Result would shift them and an unrecognized command aborts initialization.
+    const auto* command = ctx.CommandBuffer();
+    IPC::ResponseBuilder rb{ctx, 4};
+    rb.PushRaw<u32>(ResultSuccess.raw);
+    rb.PushRaw<u32>(command[2]);
+    rb.PushRaw<u32>(command[3]);
 }
 
 Result IGpuSession::HandleSyncRequest(Kernel::KServerSession& session,

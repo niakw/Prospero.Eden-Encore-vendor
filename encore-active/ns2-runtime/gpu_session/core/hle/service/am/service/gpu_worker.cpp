@@ -152,6 +152,7 @@ IGpuWorker::IGpuWorker(Core::System& system_, std::shared_ptr<Nvidia::Module> mo
       m_module{std::move(module)}, m_process{process} {
     m_process->Open(kernel);
     static const FunctionInfo functions[] = {
+        {0, &IGpuWorker::Handshake, "Handshake"},
         {101, &IGpuWorker::CreateGpuAccessibleMemory, "CreateGpuAccessibleMemory"},
         {102, &IGpuWorker::DestroyGpuAccessibleMemory, "DestroyGpuAccessibleMemory"},
         {211, &IGpuWorker::NormalMapGpuMemory4K, "NormalMapGpuMemory4K"},
@@ -436,6 +437,16 @@ bool IGpuWorker::RetireGpuOnlyRegion(u32 address_space, u64 address) {
     m_dense_bytes -= region.size;
     m_dense_regions.erase(it);
     return true;
+}
+
+void IGpuWorker::Handshake(HLERequestContext& ctx) {
+    // The acquired worker is a separate KSession but shares the same
+    // NS2 TIPC-0 token-echo contract as its parent GPU session.
+    const auto* command = ctx.CommandBuffer();
+    IPC::ResponseBuilder rb{ctx, 4};
+    rb.PushRaw<u32>(ResultSuccess.raw);
+    rb.PushRaw<u32>(command[2]);
+    rb.PushRaw<u32>(command[3]);
 }
 
 Result IGpuWorker::HandleSyncRequest(Kernel::KServerSession& session,
