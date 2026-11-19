@@ -346,7 +346,8 @@ public:
 
     /// Remove all about-to-be-applied CPU writes from GPU-owned ranges before
     /// any one write can trigger a download of older bytes over another.
-    void ClaimCpuWrites(std::span<const std::pair<DAddr, u64>> ranges);
+    template <typename Ranges>
+    void ClaimCpuWrites(const Ranges& ranges);
 
     std::recursive_mutex mutex;
     Runtime& runtime;
