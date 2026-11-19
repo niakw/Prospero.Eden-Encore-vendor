@@ -2073,7 +2073,15 @@ void TextureCache<P>::QueueAsyncDecode(Image& image, ImageId image_id) {
     decode->image_id = image_id;
     async_decodes.push_back(std::move(decode));
 
+#ifdef PS5_NATIVE
+    // UnswizzleImage fully populates each submitted copy before ConvertImage reads it.
+    // Avoid zeroing the entire temporary under texture_cache.mutex on every cold decode.
+    // This matches the already-reviewed Vulkan owner and its O0/O2 host witness.
+    Common::ScratchBuffer<u8> local_unswizzle_data_buffer;
+    local_unswizzle_data_buffer.resize_destructive(image.unswizzled_size_bytes);
+#else
     std::vector<u8> local_unswizzle_data_buffer(image.unswizzled_size_bytes, 0);
+#endif
     Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::UnsafeRead> swizzle_data(*gpu_memory, image.gpu_addr, image.guest_size_bytes, &swizzle_data_buffer);
     auto copies = UnswizzleImage(*gpu_memory, image.gpu_addr, image.info, swizzle_data, local_unswizzle_data_buffer);
     const size_t out_size = MapSizeBytes(image);
