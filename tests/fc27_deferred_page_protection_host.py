@@ -21,13 +21,23 @@ def blob(path):
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
 assert blob(R)=="01c6880e5a8836da45601b0a3cb7c0fd6c46cf35"
 assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
-assert blob(T)=="0d99f9a861c645562519f71d62f4f49bfedd8101"
+assert blob(T)=="859a9e46fb63a97fee82c8ea6b1566317264f98f"
 # Selected NS1/NS2 TextureCache must retain the causal native protections.
 texture_selected=T.read_text()
 for needle in ("bool upload_completed = false;", "std::try_to_lock",
                "kMaxCompletedDecodesPerTick = 4",
                "return GetImageViewForFramebuffer(freshest_id);"):
     assert needle in texture_selected, ("selected texture protection lost",needle)
+# The PS5-selected owner must also contain the previously shadow-only BCn 3D
+# cancellation, allocation, and bounds protections, not just 2D decode fixes.
+shadow=(ROOT/"encore-active/eden-vulkan/vulkan-cache/video_core/texture_cache/texture_cache.h").read_text()
+method="void TextureCache<P>::TickAsyncUnswizzle() {"
+def body(src):
+    return src.split(method,1)[1].split("\n}\n",1)[0]
+assert body(texture_selected)==body(shadow), "selected BCn 3D GPU unswizzle protections diverged"
+for needle in ("invalid_slices", "staging.mapped_span.size() < task.total_size",
+               "ImageFlagBits::CpuModified | ImageFlagBits::Remapped"):
+    assert needle in body(texture_selected), needle
 assert not (ROOT/"encore-active/eden-core/overrides/core/deferred_cached_updates.h").exists()
 raster=R.read_text()
 device=D.read_text()
