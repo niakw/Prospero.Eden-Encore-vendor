@@ -21,7 +21,7 @@ def blob(path):
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
 assert blob(R)=="01c6880e5a8836da45601b0a3cb7c0fd6c46cf35"
 assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
-assert blob(T)=="859a9e46fb63a97fee82c8ea6b1566317264f98f"
+assert blob(T)=="c7cb95ecaf388b925fc29582499bbd4b54a77f75"
 # Selected NS1/NS2 TextureCache must retain the causal native protections.
 texture_selected=T.read_text()
 for needle in ("bool upload_completed = false;", "std::try_to_lock",
@@ -38,6 +38,15 @@ assert body(texture_selected)==body(shadow), "selected BCn 3D GPU unswizzle prot
 for needle in ("invalid_slices", "staging.mapped_span.size() < task.total_size",
                "ImageFlagBits::CpuModified | ImageFlagBits::Remapped"):
     assert needle in body(texture_selected), needle
+# Keep zero-fill elision scoped to the native async conversion input only.
+alloc_start="void TextureCache<P>::QueueAsyncDecode(Image& image, ImageId image_id) {"
+def native_allocation(src):
+    block=src.split(alloc_start,1)[1]
+    begin=block.index("    Common::ScratchBuffer<u8> local_unswizzle_data_buffer;")
+    end=block.index("    Tegra::Memory::GpuGuestMemory<u8",begin)
+    return block[begin:end]
+assert native_allocation(texture_selected)==native_allocation(shadow)
+assert "resize_destructive(image.unswizzled_size_bytes);" in native_allocation(texture_selected)
 assert not (ROOT/"encore-active/eden-core/overrides/core/deferred_cached_updates.h").exists()
 raster=R.read_text()
 device=D.read_text()

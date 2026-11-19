@@ -24,8 +24,8 @@ for name,expected in files.items():
   # The active shared PS5 cache advanced again with reviewed full-clear upload
   # elision. Pin the complete current owner, then normalize ONLY that exact
   # additive region before applying the older image-page normalization below.
-  assert sha in {"744bf30e1421dcce212146f7e26e9d90558676a8", "0d99f9a861c645562519f71d62f4f49bfedd8101", "859a9e46fb63a97fee82c8ea6b1566317264f98f"}, (name, sha)
-  if sha in {"0d99f9a861c645562519f71d62f4f49bfedd8101", "859a9e46fb63a97fee82c8ea6b1566317264f98f"}:
+  assert sha in {"744bf30e1421dcce212146f7e26e9d90558676a8", "0d99f9a861c645562519f71d62f4f49bfedd8101", "859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75"}, (name, sha)
+  if sha in {"0d99f9a861c645562519f71d62f4f49bfedd8101", "859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75"}:
    # Proven active C++ descendant: F07 protections applied in selected owner.
    # R23/TIR surrounding owners remain separately byte-pinned.
    for needle in ("bool upload_completed = false;", "if (!upload_completed)",
@@ -33,12 +33,15 @@ for name,expected in files.items():
                   "if (True(image.flags & ImageFlagBits::IsDecoding))",
                   "return GetImageViewForFramebuffer(freshest_id);"):
     assert needle in text, ("selected F07 texture protection missing", needle)
-   if sha == "859a9e46fb63a97fee82c8ea6b1566317264f98f":
+   if sha in {"859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75"}:
     shadow=(r/"encore-active/eden-vulkan/vulkan-cache/video_core/texture_cache/texture_cache.h").read_text()
     sig="void TextureCache<P>::TickAsyncUnswizzle() {"
     def selected_method(src):
      return src.split(sig,1)[1].split("\n}\n",1)[0]
     assert selected_method(text)==selected_method(shadow), "selected BCn 3D protection parity lost"
+   if sha == "c7cb95ecaf388b925fc29582499bbd4b54a77f75":
+    assert "Common::ScratchBuffer<u8> local_unswizzle_data_buffer;" in text
+    assert "local_unswizzle_data_buffer.resize_destructive(image.unswizzled_size_bytes);" in text
     assert "invalid_slices" in text and "ImageFlagBits::CpuModified | ImageFlagBits::Remapped" in text
   scope_start=text.index("    // Lichii/PS5 patch 0078: a full clear may create a target")
   scope_end=text.index("    auto& flags = maxwell3d->dirty.flags;",scope_start)
