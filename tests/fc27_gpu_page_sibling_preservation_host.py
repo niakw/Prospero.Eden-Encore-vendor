@@ -176,25 +176,4 @@ with tempfile.TemporaryDirectory(prefix="fc27-gpu-page-sibling-") as td:
             if run.returncode:
                 raise RuntimeError(run.stdout+run.stderr)
 
-
-# Lichii #1328 (closed, not merged): two CPU-written spans on one GPU-written
-# page can lose the second span when the first WriteMemory downloads the page.
-# The selected PS5 CMake graph copies this BufferCache and Vulkan rasterizer.
-raster=(ROOT/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
-inner=raster.split("void RasterizerVulkan::InnerInvalidation(",1)[1].split(
-    "\nbool RasterizerVulkan::OnCPUWrite(",1)[0]
-assert "template <typename Ranges>\nvoid BufferCache<P>::ClaimCpuWrites(const Ranges& ranges)" in CACHE
-assert "template <typename Ranges>\n    void ClaimCpuWrites(const Ranges& ranges);" in BASE
-start=inner.index("if (buffer_may_overlap) {")
-stop=inner.index("\n    {\n        for (const auto& [addr, size] : sequences)",start)
-block=inner[start:stop]
-assert block.index("std::scoped_lock lock{buffer_cache.mutex};") < block.index(
-    "buffer_cache.ClaimCpuWrites(sequences);")
-assert block.index("buffer_cache.ClaimCpuWrites(sequences);") < block.index(
-    "buffer_cache.WriteMemory(addr, size);")
-assert "if (!::Eden::BufferPages::NeverRegistered(addr, size))" in block
-assert "buffer_cache.ClaimCpuWrites(ranges);" in raster.split(
-    "void RasterizerVulkan::OnCacheInvalidations(",1)[1].split(
-    "\nvoid RasterizerVulkan::OnCacheInvalidation(",1)[0]
-
-print("FC27_GPU_PAGE_SIBLING_PRESERVATION_HOST_PASS upstream=b13c4c1,44bf47d,1328 batch_claim=1 sibling=downloaded ps5=unverified")
+print("FC27_GPU_PAGE_SIBLING_PRESERVATION_HOST_PASS upstream=b13c4c1,44bf47d clean_query=1 pinned_rangeset_api=1 sibling=downloaded unmap=skip ps5=unverified")

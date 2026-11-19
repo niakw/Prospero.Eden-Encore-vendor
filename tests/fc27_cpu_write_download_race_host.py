@@ -31,7 +31,7 @@ assert "virtual bool DispatchNativeCompute(" in unified_iface
 assert "void ForEachPending(" in dirty
 assert "PendingCpuWrites pending_cpu_writes;" in base
 assert "SetPendingCpuWrites(PendingCpuWrites source)" in base
-assert "template <typename Ranges>\n    void ClaimCpuWrites(const Ranges& ranges);" in base
+assert "void ClaimCpuWrites(" in base
 assert "PendingCpuWriteRanges()" in base
 assert "WriteDownloadedMemory(" in base
 assert cache.count("device_memory.WriteBlockUnsafe(")==1, "all readback writes must pass protection helper"
@@ -61,7 +61,7 @@ def method(text, marker):
             if depth==0: return text[start:i+1]
     raise AssertionError(marker)
 
-claim=method(cache,"template <class P>\ntemplate <typename Ranges>\nvoid BufferCache<P>::ClaimCpuWrites")
+claim=method(cache,"template <class P>\nvoid BufferCache<P>::ClaimCpuWrites")
 pending=method(cache,"template <class P>\nCommon::RangeSet<DAddr> BufferCache<P>::PendingCpuWriteRanges")
 write=method(cache,"template <class P>\nvoid BufferCache<P>::WriteDownloadedMemory")
 
@@ -109,7 +109,7 @@ public:
         bool hit=false; gpu_modified_ranges.ForEachInRange(a,n,[&](DAddr,DAddr){hit=true;}); return hit;
     }
     void ClearDownload(DAddr a,u64 n){cleared.emplace_back(a,n);}
-    template <typename Ranges> void ClaimCpuWrites(const Ranges&);
+    void ClaimCpuWrites(std::span<const std::pair<DAddr,u64>>);
     Common::RangeSet<DAddr> PendingCpuWriteRanges();
     void WriteDownloadedMemory(const Common::RangeSet<DAddr>&,DAddr,const u8*,u64);
 };

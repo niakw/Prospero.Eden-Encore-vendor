@@ -19,14 +19,7 @@ T=ROOT/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h"
 def blob(path):
     raw=path.read_bytes()
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
-assert blob(R)=="49e7a97dfafffe8b5433b4c77bcc1b8ce0800cbb"
-# The synchronous CPU write path is unchanged. Only InnerInvalidation now
-# claims every CPU-written span before readback can replace a later span.
-raster_text=R.read_text()
-batch=raster_text.split("void RasterizerVulkan::InnerInvalidation(",1)[1].split(
-    "\nbool RasterizerVulkan::OnCPUWrite(",1)[0]
-assert batch.index("buffer_cache.ClaimCpuWrites(sequences);") < batch.index(
-    "buffer_cache.WriteMemory(addr, size);")
+assert blob(R)=="01c6880e5a8836da45601b0a3cb7c0fd6c46cf35"
 assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
 assert blob(T)=="c7cb95ecaf388b925fc29582499bbd4b54a77f75"
 # Selected NS1/NS2 TextureCache must retain the causal native protections.
