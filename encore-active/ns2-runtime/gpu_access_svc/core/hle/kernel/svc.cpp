@@ -2577,12 +2577,16 @@ void Call(Core::System& system, u32 imm) {
     }
     //kernel.ExitSVCProfile();
 #ifdef EDEN_NS2_SVC_TRACE
-    // Record the *actual* ABI result x0 and value x1 after dispatch, not a
-    // guessed success. QueryMemory x1 is PageInfo; GetInfo x1 is the value.
-    // No print, guest-memory access, result rewriting or new SVC behavior.
-    if (svc_trace_sequence && process.Is64Bit() && (imm == 0x06 || imm == 0x29))
-        Eden::NS2::SvcTrace::RecordOutcome(process.GetProcessId(), svc_trace_sequence,
-                                            args[0], args[1], svc_trace_sp, svc_trace_pc);
+    // Record the real ABI result after dispatch for bounded quiet boot boundaries.
+    // x1 is meaningful for QueryMemory and GetInfo; never expose an arbitrary
+    // guest pointer or IPC payload from other SVCs in the crash-only summary.
+    // No per-call print, guest-memory access, or changed guest result.
+    if (svc_trace_sequence && process.Is64Bit() &&
+        Eden::NS2::SvcTrace::IsHangBoundarySvc(imm))
+        Eden::NS2::SvcTrace::RecordOutcome(
+            process.GetProcessId(), svc_trace_sequence, args[0],
+            (imm == 0x06 || imm == 0x29) ? args[1] : 0,
+            svc_trace_sp, svc_trace_pc);
 #endif
     kernel.CurrentPhysicalCore().LoadSvcArguments(process, args);
 }
