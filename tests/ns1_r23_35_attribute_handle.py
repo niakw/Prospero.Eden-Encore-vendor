@@ -103,7 +103,7 @@ u32 DynamicDescriptorIndexLimit(const IR::U32& dynamic_offset, u32 size_shift) {
   normalized=normalized.replace("#include <functional>\n","",1).replace(run_build,"",1).replace(build_members,"",1)
   predecessor=normalized.encode("utf-8")
   assert hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()=="d49090a476f6a9bf61026331f59c9fbb1d918729"
-elif path.endswith("/vk_rasterizer.h") and gitblob(ROOT/path)=="7c754c82c12c4f4c934abd3d7f2cdb25222e8d2a":
+ elif path.endswith("/vk_rasterizer.h") and gitblob(ROOT/path)=="7c754c82c12c4f4c934abd3d7f2cdb25222e8d2a":
   # FC27/Lichii #397 adds one batch hook. Remove exactly that declaration
   # before checking the frozen R23 header receipt.
   cpu_race_decl="    void OnCacheInvalidations(std::span<const std::pair<DAddr, u64>> ranges) override;\n"
