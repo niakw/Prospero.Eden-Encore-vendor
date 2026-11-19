@@ -23,10 +23,19 @@ for owner, owner_hdr, klass in ((cpp,hdr,"IGpuSession"),(worker,worker_hdr,"IGpu
     body=owner.split(sig,1)[1].split("\n}\n",1)[0]
     for needle in ("ctx.CommandBuffer()", "IPC::ResponseBuilder rb{ctx, 4};",
                    "rb.PushRaw<u32>(ResultSuccess.raw);",
-                   "rb.PushRaw<u32>(command[2]);",
-                   "rb.PushRaw<u32>(command[3]);"):
+                   "const u32 token_lo = command[2];",
+                   "const u32 token_hi = command[3];",
+                   "rb.PushRaw<u32>(token_lo);",
+                   "rb.PushRaw<u32>(token_hi);"):
         assert needle in body, (klass,needle)
+    # The production ResponseBuilder constructor clears ctx.CommandBuffer().
+    # Reading token words after it is constructed silently echoes zero.
     assert body.index("command[2]") < body.index("command[3]")
+    assert body.index("const u32 token_lo = command[2];") < body.index("IPC::ResponseBuilder rb{ctx, 4};")
+    assert body.index("const u32 token_hi = command[3];") < body.index("IPC::ResponseBuilder rb{ctx, 4};")
+    assert body.index("IPC::ResponseBuilder rb{ctx, 4};") < body.index("rb.PushRaw<u32>(token_lo);")
+ipc=(R/"encore-active/eden-core/include/core/hle/service/ipc_helpers.h").read_text()
+assert "std::memset(cmdbuf, 0, sizeof(u32) * IPC::COMMAND_BUFFER_LENGTH);" in ipc
     assert "return ServiceFrameworkBase::HandleSyncRequest(session, ctx);" in owner
     assert "handlers_tipc.contains(ctx.GetCommand())" in owner
 assert "GetAddressSpacePartition" not in cpp

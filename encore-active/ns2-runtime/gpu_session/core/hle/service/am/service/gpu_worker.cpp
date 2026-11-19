@@ -442,11 +442,15 @@ bool IGpuWorker::RetireGpuOnlyRegion(u32 address_space, u64 address) {
 void IGpuWorker::Handshake(HLERequestContext& ctx) {
     // The acquired worker is a separate KSession but shares the same
     // NS2 TIPC-0 token-echo contract as its parent GPU session.
+    // ResponseBuilder zeroes the shared command buffer on construction.
+    // Capture both input words before creating it or the handshake echoes 0.
     const auto* command = ctx.CommandBuffer();
+    const u32 token_lo = command[2];
+    const u32 token_hi = command[3];
     IPC::ResponseBuilder rb{ctx, 4};
     rb.PushRaw<u32>(ResultSuccess.raw);
-    rb.PushRaw<u32>(command[2]);
-    rb.PushRaw<u32>(command[3]);
+    rb.PushRaw<u32>(token_lo);
+    rb.PushRaw<u32>(token_hi);
 }
 
 Result IGpuWorker::HandleSyncRequest(Kernel::KServerSession& session,
