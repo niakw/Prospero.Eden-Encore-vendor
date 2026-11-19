@@ -66,7 +66,15 @@ VirtualFile RomFSFactory::OpenPatchedRomFSWithProgramIndex(u64 title_id, u8 prog
                                                            ContentRecordType type) const {
     const auto res_title_id = GetBaseTitleIDWithProgramIndex(title_id, program_index);
 
-    return OpenPatchedRomFS(res_title_id, type);
+    auto romfs = OpenPatchedRomFS(res_title_id, type);
+    // Lichii #159: current program's loose ExeFS/NUP RomFS is owned by the
+    // loader, not the NCA content provider. Never substitute it for a nonzero
+    // program index, Data request, or a title with updatable NCA content.
+    if (!romfs && program_index == 0 && type == ContentRecordType::Program &&
+        !updatable) {
+        return file;
+    }
+    return romfs;
 }
 
 VirtualFile RomFSFactory::Open(u64 title_id, StorageId storage, ContentRecordType type) const {
