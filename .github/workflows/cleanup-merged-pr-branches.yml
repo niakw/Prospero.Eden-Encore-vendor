@@ -111,6 +111,14 @@ jobs:
               'perf/ps5-cold-shader-warm-manifest-20261117':
                   ('e42f077cbdc05412501c63821d5ab81e5ec17cf5', '#184-not-admitted'),
           }
+          # Owner-directed 19 Nov 2026 cleanup: preserve nonmerged work
+          # with immutable Git archive tags BEFORE deleting its exact branch.
+          # Future changes belong to main alone.
+          approved_to_archive = {
+              'docs/english-default-project-records-20261118': '4704ba937910e3960a0cf9c778ff3348fce8df19',
+              'research/fc27-partial-vertex-attribute-key-20261118': '0f5afe23ec95a16ff65114b08c9e354c7695236d',
+              'research/ns2-pending-acquire-diagnostics-20261118': 'ad8402b321cdfa4c33459025f900c8af2ce1cb9e',
+          }
           removed = []
           skipped = []
           for branch in branches:
@@ -138,10 +146,14 @@ jobs:
                   approved_sha, receipt = approved_superseded[name]
                   if approved_sha == sha:
                       pr_number = f'superseded-{receipt}'
+              archival_tag = None
+              if not pr_number and approved_to_archive.get(name) == sha:
+                  archival_tag = f'archive/2026-11-19/{name}'
+                  pr_number = 'archived-unmerged'
               if not pr_number:
                   skipped.append(name)
                   continue
-              # Exact merged/ancestor/superseded branch+SHA receipt only.
+              # Verified merged/ancestor/superseded heads or exact archived source.
               ref = quote('heads/' + name, safe='/')
               # Last-minute safety check for every deletion. If a branch
               # has moved, become protected or gained an open PR, retain it.
@@ -161,6 +173,27 @@ jobs:
                   if compare.get('status') not in ('ahead', 'identical') or compare.get('behind_by') != 0:
                       skipped.append(name)
                       continue
+              if archival_tag is not None:
+                  # A lightweight tag retains unmerged code/test history
+                  # after a work branch disappears from GitHub's branch list.
+                  full_tag = 'refs/tags/' + archival_tag
+                  tag_request = Request(
+                      base + '/git/refs',
+                      data=json.dumps({'ref': full_tag, 'sha': sha}).encode('utf-8'),
+                      headers={**headers, 'Content-Type': 'application/json'},
+                      method='POST')
+                  try:
+                      with urlopen(tag_request, timeout=25):
+                          pass
+                  except HTTPError as exc:
+                      if exc.code != 422:
+                          raise
+                  verified_tag = api('/git/ref/tags/' + quote(archival_tag, safe='/'))
+                  if (verified_tag.get('ref') != full_tag or
+                      verified_tag.get('object', {}).get('type') != 'commit' or
+                      verified_tag.get('object', {}).get('sha') != sha):
+                      raise RuntimeError(f'Archive tag mismatch: {archival_tag}')
+                  print(f'ARCHIVED {name} sha={sha} tag={full_tag}')
               try:
                   api(f'/git/refs/{ref}', 'DELETE')
               except HTTPError as exc:
