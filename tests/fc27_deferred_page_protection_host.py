@@ -30,7 +30,8 @@ batch = device.split("void DeviceMemoryManager<Traits>::UpdatePagesCachedBatch("
     "\n}\n\n} // namespace Core", 1
 )[0]
 assert batch.index("if (delta < 0)") < batch.index("deferred->TryAdd(")
-try_add = batch.index("deferred->TryAdd(")\nassert try_add < batch.index("return;", try_add)
+try_add = batch.index("deferred->TryAdd(")
+assert try_add < batch.index("return;", try_add)
 assert batch.index("} else if (!deferred->Empty())") < batch.index("deferred->Flush();")
 assert batch.index("deferred->Flush();") < batch.index(
     "std::shared_lock registry_lk(process_registry_guard);"
