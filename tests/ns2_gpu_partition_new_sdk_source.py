@@ -10,6 +10,25 @@ for marker in (
     '{203, &IGpuSession::GetVaRange, "GetVaRange"}',
 ):
     assert marker in cpp, marker
+# Lichii nx2 GSV: TIPC 0 is a real token-echo handshake before graphics init.
+# A missing handler in the PS5-selected session returned NotImplemented and
+# could stop newer SDKs before a single NVDRV GPFIFO or guest frame.
+worker=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp").read_text()
+worker_hdr=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.h").read_text()
+for owner, owner_hdr, klass in ((cpp,hdr,"IGpuSession"),(worker,worker_hdr,"IGpuWorker")):
+    assert '{0, &'+klass+'::Handshake, "Handshake"}' in owner
+    assert "void Handshake(HLERequestContext& ctx);" in owner_hdr
+    sig="void "+klass+"::Handshake(HLERequestContext& ctx) {"
+    assert owner.count(sig)==1
+    body=owner.split(sig,1)[1].split("\n}\n",1)[0]
+    for needle in ("ctx.CommandBuffer()", "IPC::ResponseBuilder rb{ctx, 4};",
+                   "rb.PushRaw<u32>(ResultSuccess.raw);",
+                   "rb.PushRaw<u32>(command[2]);",
+                   "rb.PushRaw<u32>(command[3]);"):
+        assert needle in body, (klass,needle)
+    assert body.index("command[2]") < body.index("command[3]")
+    assert "return ServiceFrameworkBase::HandleSyncRequest(session, ctx);" in owner
+    assert "handlers_tipc.contains(ctx.GetCommand())" in owner
 assert "GetAddressSpacePartition" not in cpp
 assert "GetAddressSpacePartition" not in hdr
 for cmd in ("201","202","203"):
