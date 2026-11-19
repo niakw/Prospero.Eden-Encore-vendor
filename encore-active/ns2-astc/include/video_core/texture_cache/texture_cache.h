@@ -2284,29 +2284,129 @@ void TextureCache<P>::TickAsyncDecode() {
 template <class P>
 void TextureCache<P>::TickAsyncUnswizzle() {
     if (unswizzle_queue.empty()) {
+#ifdef PS5_NATIVE
+        // Do not carry the prior batch's 4-frame cooldown across an idle
+        // period. A future texture is a fresh request, not a queued batch.
+        current_unswizzle_frame = 0u;
+#endif
         return;
     }
 
+#ifndef PS5_NATIVE
     if(current_unswizzle_frame > 0) {
         current_unswizzle_frame--;
         return;
     }
+#endif
 
     PendingUnswizzle& task = unswizzle_queue.front();
     Image& image = slot_images[task.image_id];
+#ifdef PS5_NATIVE
+    // This task may span several frames. A new CPU write or guest remap
+    // invalidates its staged bytes even when texture dimensions do not change.
+    // Abandon the old content before dispatching another GPU upload batch.
+    if (True(image.flags & (ImageFlagBits::CpuModified | ImageFlagBits::Remapped)) ||
+        swizzle_chunk_size == 0 || swizzle_slices_per_batch == 0) {
+        if (task.initialized) {
+            // Previously submitted batches may still be on the GPU worker.
+            // Return their source buffer using the EXISTING deferred free.
+            runtime.FreeDeferredStagingBuffer(task.staging_buffer);
+        }
+        image.flags |= ImageFlagBits::CpuModified;
+        if (True(image.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(image, task.image_id);
+        }
+        image.flags &= ~ImageFlagBits::IsDecoding;
+        unswizzle_queue.pop_front();
+        current_unswizzle_frame = 0u;
+        // No throttling after cancellation: the replacement can be queued
+        // as soon as RefreshContents observes the retained CPU modification.
+        return;
+    }
+#endif
+
+#ifdef PS5_NATIVE
+    if(current_unswizzle_frame > 0) {
+        current_unswizzle_frame--;
+        return;
+    }
+#endif
 
     if (!task.initialized) {
         task.total_size = MapSizeBytes(image);
+#ifndef PS5_NATIVE
         task.staging_buffer = runtime.UploadStagingBuffer(task.total_size, true);
+#endif
 
         const auto& info = image.info;
         const u32 bytes_per_block = BytesPerBlock(info.format);
         const u32 width_blocks = Common::DivCeil(info.size.width, 4u);
         const u32 height_blocks = Common::DivCeil(info.size.height, 4u);
 
+#ifdef PS5_NATIVE
+        // Widen BEFORE multiplying: an overflowing u32 stride can become 0
+        // and trigger a division by zero in the multi-frame upload below.
+        const size_t stride = static_cast<size_t>(width_blocks) * bytes_per_block;
+#else
         const u32 stride = width_blocks * bytes_per_block;
+#endif
         const u32 aligned_height = height_blocks;
+#ifdef PS5_NATIVE
+        const bool slice_overflow =
+            aligned_height != 0 && stride > std::numeric_limits<size_t>::max() / aligned_height;
+        task.bytes_per_slice = slice_overflow ? 0 : stride * aligned_height;
+        // The current staging allocation must hold complete 3D slices.
+        // Reject zero, overflow and misaligned guest sizes before ANY read or
+        // accelerated upload; an incomplete final slice can overrun staging.
+        const bool invalid_slices =
+            task.bytes_per_slice == 0 || task.bytes_per_slice > task.total_size ||
+            task.total_size % task.bytes_per_slice != 0 ||
+            // This accelerated path admits one layer/level of 3D BCn;
+            // extra slices are as invalid as missing ones. Otherwise
+            // depth - z_start can underflow in the last upload batch.
+            task.total_size / task.bytes_per_slice != static_cast<size_t>(info.size.depth);
+        if (invalid_slices) {
+            // No GPU staging exists yet; reject invalid geometry without
+            // reserving a potentially huge upload buffer.
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, task.image_id);
+            }
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            unswizzle_queue.pop_front();
+            current_unswizzle_frame = 0u;
+            return;
+        }
+#else
         task.bytes_per_slice = static_cast<size_t>(stride) * aligned_height;
+#endif
+#ifdef PS5_NATIVE
+        // A rejected/short staging allocation must not pin IsDecoding or
+        // permit guest DMA reads into an incomplete mapped GPU upload.
+        auto staging = [&]() -> decltype(runtime.UploadStagingBuffer(task.total_size, true)) {
+            try {
+                return runtime.UploadStagingBuffer(task.total_size, true);
+            } catch (...) {
+                return {};
+            }
+        }();
+        if (!staging.buffer || staging.mapped_span.size() < task.total_size) {
+            // A valid deferred buffer may have been returned with a short
+            // mapping. Release it through the existing GPU-tick mechanism.
+            if (staging.buffer) {
+                runtime.FreeDeferredStagingBuffer(staging);
+            }
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, task.image_id);
+            }
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            unswizzle_queue.pop_front();
+            current_unswizzle_frame = 0u;
+            return;
+        }
+        task.staging_buffer = staging;
+#endif
         task.last_submitted_offset = 0;
         task.initialized = true;
     }
@@ -2319,12 +2419,44 @@ void TextureCache<P>::TickAsyncUnswizzle() {
 
         if (remaining > swizzle_chunk_size) {
             copy_amount = (copy_amount / task.bytes_per_slice) * task.bytes_per_slice;
-            if (copy_amount == 0) copy_amount = task.bytes_per_slice;
+            if (copy_amount == 0) {
+#ifdef PS5_NATIVE
+                // One BCn-3D slice can exceed the per-frame read budget.
+                // Stage a partial slice; dispatch still waits until a full
+                // slice is ready. Do not copy >budget under texture mutex.
+                // A zero budget can occur if GPU unswizzle is toggled
+                // after cache construction. Retain forward progress instead
+                // of pinning IsDecoding forever on a zero-byte read.
+                copy_amount = swizzle_chunk_size != 0
+                    ? (std::min)(swizzle_chunk_size, remaining)
+                    : (std::min)(task.bytes_per_slice, remaining);
+#else
+                copy_amount = task.bytes_per_slice;
+#endif
+            }
         }
 
+#ifdef PS5_NATIVE
+        try {
+#endif
         gpu_memory->ReadBlock(image.gpu_addr + task.current_offset,
                               task.staging_buffer.mapped_span.data() + task.current_offset,
                               copy_amount);
+#ifdef PS5_NATIVE
+        } catch (...) {
+            // A failed guest read invalidates the partial GPU staging data.
+            // Deferred release also protects batches submitted earlier.
+            runtime.FreeDeferredStagingBuffer(task.staging_buffer);
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, task.image_id);
+            }
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            unswizzle_queue.pop_front();
+            current_unswizzle_frame = 0u;
+            return;
+        }
+#endif
         task.current_offset += copy_amount;
     }
 
@@ -2338,8 +2470,27 @@ void TextureCache<P>::TickAsyncUnswizzle() {
         const u32 z_count = (std::min)(slices_to_process, image.info.size.depth - z_start);
 
         if (z_count > 0) {
+#ifdef PS5_NATIVE
+            try {
+#endif
             const auto uploads = FullUploadSwizzles(task.info);
             runtime.AccelerateImageUpload(image, task.staging_buffer, FixSmallVectorADL(uploads), z_start, z_count);
+#ifdef PS5_NATIVE
+            } catch (...) {
+                // Upload setup/recording may reject a batch. Submitted GPU
+                // commands keep their source alive through the deferred pool;
+                // reject the incomplete old revision and retry from guest data.
+                runtime.FreeDeferredStagingBuffer(task.staging_buffer);
+                image.flags |= ImageFlagBits::CpuModified;
+                if (True(image.flags & ImageFlagBits::Tracked)) {
+                    UntrackImage(image, task.image_id);
+                }
+                image.flags &= ~ImageFlagBits::IsDecoding;
+                unswizzle_queue.pop_front();
+                current_unswizzle_frame = 0u;
+                return;
+            }
+#endif
             task.last_submitted_offset += (static_cast<size_t>(z_count) * task.bytes_per_slice);
         }
     }
@@ -2353,8 +2504,14 @@ void TextureCache<P>::TickAsyncUnswizzle() {
         image.flags &= ~ImageFlagBits::IsDecoding;
         unswizzle_queue.pop_front();
 
+#ifdef PS5_NATIVE
+        // Throttle back-to-back queued uploads, not a later newly queued
+        // texture after an otherwise empty GPU frame.
+        current_unswizzle_frame = unswizzle_queue.empty() ? 0u : 4u;
+#else
         // Wait 4 frames to process the next entry
         current_unswizzle_frame = 4u;
+#endif
     }
 }
 
