@@ -3,7 +3,8 @@
 Ordinary desktop C++ mock fixture only; no PS5 build, assets or GPU driver.
 """
 from pathlib import Path
-from native_msaa_handle_receipt import CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE, NEW, OLD, restore_pre_rebind
+from native_msaa_handle_receipt import (CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE,
+    CURRENT_PAGE_SIBLING, CURRENT_DEFERRED_PAGE_PROTECTION, NEW, OLD, restore_pre_rebind)
 import hashlib
 import os
 import subprocess
@@ -12,7 +13,8 @@ root=Path(__file__).resolve().parents[1]
 src=(root/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_bytes()
 def git_blob(raw):
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
-assert git_blob(src) in {NEW, CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE}
+assert git_blob(src) in {NEW, CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE,
+                         CURRENT_PAGE_SIBLING, CURRENT_DEFERRED_PAGE_PROTECTION}
 text=src.decode()
 assert git_blob(restore_pre_rebind(text).encode())==OLD
 anchor="    const auto prepare_attribute_handles = [&] {"
