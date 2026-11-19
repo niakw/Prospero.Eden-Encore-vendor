@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cmath>
 #include "common/logging.h"
+#include "common/scope_exit.h"
 #include "common/settings.h"
 #include <memory>
 #include <limits>
@@ -91,10 +92,27 @@ static Result CreateMetadataSession(Core::System& system, HLERequestContext& ctx
     session->Initialize(kernel, nullptr, 0);
     reservation.Commit();
     Kernel::KSession::Register(kernel, session);
-    R_TRY(server.RegisterSession(&session->GetServerSession(), std::move(manager)));
+    // RegisterSession may fail or allocate after the quota was committed.
+    // Until the server accepts its endpoint, close BOTH endpoints so that
+    // guest session quota and the process-owned kernel objects are returned.
+    // Match the already-reviewed GPU worker session rollback contract.
+    bool transferred_to_server = false;
+    SCOPE_EXIT {
+        if (!transferred_to_server) {
+            session->GetClientSession().Close(kernel);
+            session->GetServerSession().Close(kernel);
+        }
+    };
+    Result registered = Kernel::ResultOutOfResource;
+    try {
+        registered = server.RegisterSession(&session->GetServerSession(), std::move(manager));
+    } catch (const std::bad_alloc&) {
+        return Kernel::ResultOutOfResource;
+    }
+    R_TRY(registered);
+    transferred_to_server = true;
     *out_client = &session->GetClientSession();
     R_SUCCEED();
-
 }
 
 static void NativeTipcReplyWords(HLERequestContext& ctx, std::initializer_list<u32> words) {
@@ -443,6 +461,7 @@ public:
         : ServiceFramework{sys,"IVi2Session"}, m_owner{std::move(owner)},
           m_aruid{aruid}, m_context{sys,"NativeVi2"} {
         static const FunctionInfo f[]{
+            {0,&IVi2Session::Handshake,"Handshake"},
             {1,&IVi2Session::Limit,"GetNotificationLimit"},
             {3,&IVi2Session::Limit,"GetSessionLimit"},
             {5,&IVi2Session::Limit,"GetRequestGroupLimit"},
@@ -512,6 +531,15 @@ public:
         return system.IsPoweredOn()?ctx.WriteToOutgoingCommandBuffer():ResultSuccess;
     }
 private:
+    void Handshake(HLERequestContext& ctx) {
+        // NS2 SDK VI2 initialization requires the exact incoming u64 token
+        // to be echoed. The raw TIPC reply clears the request command buffer,
+        // so preserve its words before constructing the reply.
+        const auto* packet = ctx.CommandBuffer();
+        const u32 token_lo = packet[2];
+        const u32 token_hi = packet[3];
+        NativeTipcReplyWords(ctx, {token_lo, token_hi});
+    }
     static u64 W(const u32* p,size_t i) {return u64{p[i]}|(u64{p[i+1]}<<32);}
     Client* Find(u64 id) {
         if (!id) return nullptr;
