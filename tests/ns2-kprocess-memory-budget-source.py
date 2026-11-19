@@ -50,6 +50,10 @@ assert "aslr_space_start, metadata.IsSwitch2())" not in active
 assert "aslr_space_start, is_switch2" not in active
 assert active.count("metadata.IsSwitch2()") == 1
 
+def blob(text: str) -> str:
+    raw = text.encode()
+    return hashlib.sha1(b"blob " + str(len(raw)).encode() + bytes([0]) + raw).hexdigest()
+
 block = """    // Upstream Eglantine/Lichii dce3adbc: Switch 2 applications size
     // nninitStartup heap from total memory, which exceeds the ordinary
     // 64-bit heap region. Count the alias region too, bounded by the
