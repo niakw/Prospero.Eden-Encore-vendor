@@ -82,6 +82,11 @@ bool TranslateSingleInstruction(IR::Block& block, LocationDescriptor descriptor,
 #include "impl/impl.cpp"
 #include "dynarmic/frontend/A64/translate/impl/impl.h"
 #include "dynarmic/frontend/A64/translate/impl/load_store_exclusive.cpp"
+#if defined(EDEN_NS2_A64_V81_V85)
+#include "dynarmic/frontend/A64/translate/impl/load_store_atomic.cpp"
+#include "dynarmic/frontend/A64/translate/impl/memory_tagging.cpp"
+#include "dynarmic/frontend/A64/translate/impl/pointer_authentication.cpp"
+#endif
 #include "dynarmic/frontend/A64/translate/impl/load_store_load_literal.cpp"
 #include "dynarmic/frontend/A64/translate/impl/load_store_multiple_structures.cpp"
 #include "dynarmic/frontend/A64/translate/impl/load_store_no_allocate_pair.cpp"

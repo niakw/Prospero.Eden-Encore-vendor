@@ -1,0 +1,23 @@
+name: NS2 A64 ARMv8.1-8.5 source provenance (host)
+
+on:
+  pull_request:
+    paths:
+      - 'encore-active/ns2-runtime/ldapr/maintained/**'
+      - 'encore-active/eden-core/src/dynarmic/frontend/A64/translate/a64_translate.cpp'
+      - 'tests/ns2_a64_v81_v85_source.py'
+      - '.github/workflows/ns2-a64-v81-v85-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-provenance:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify exact reviewed Dynarmic base and Lichii 11aac324 blobs
+        run: python3 -B tests/ns2_a64_v81_v85_source.py
