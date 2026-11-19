@@ -7,12 +7,56 @@ import subprocess
 import tempfile
 r=Path(__file__).resolve().parents[1]/"encore-active/eden-shader"
 names={
- "src/shader_recompiler/ir_opt/texture_pass.cpp":{"85c523e435ee8803ef3d2087567aa1a4b5d09369","3d9625f1981d6500e7b294018e0659464869d6f3"}
+ "src/shader_recompiler/ir_opt/texture_pass.cpp":{"85c523e435ee8803ef3d2087567aa1a4b5d09369","3d9625f1981d6500e7b294018e0659464869d6f3","889456a31ddeb87e411ce4d0d2d41078b9593244"}
 }
 for path,expected in names.items():
  b=(r/path).read_bytes()
  sha=hashlib.sha1(b"blob "+str(len(b)).encode()+bytes([0])+b).hexdigest()
  assert sha in expected,(path,sha,expected)
+ # Current vendor adds only Lichii #1914's found-bit descriptor bound after
+ # the Phi owner this test validates. Reverse that exact successor to prove
+ # the current hash is not an unrelated shader-pass drift.
+ if path.endswith("texture_pass.cpp") and sha=="889456a31ddeb87e411ce4d0d2d41078b9593244":
+  text=b.decode()
+  found_bit="""// The elements a dynamic offset can select below the clamp to the last one: a bit index found by
+// FLO (FindUMsb, or 31 minus it for FLO.SH) takes one of 32. Its -1 for no bit set is past any
+// count, so it takes the last element as it does in a longer array.
+// Upstream Lichii 5e33a765 / #1914.
+u32 DynamicDescriptorIndexLimit(const IR::U32& dynamic_offset, u32 size_shift) {
+    const IR::Inst* const offset = dynamic_offset.InstRecursive();
+    if (!offset || offset->GetOpcode() != IR::Opcode::ShiftLeftLogical32 ||
+        !offset->Arg(1).IsImmediate() || offset->Arg(1).U32() != size_shift) {
+        return ~0U;
+    }
+    const auto is_bit_index = [](const IR::Value& value) {
+        const IR::Inst* inst = value.IsImmediate() ? nullptr : value.InstRecursive();
+        if (inst && inst->GetOpcode() == IR::Opcode::BitwiseXor32 && inst->Arg(1).IsImmediate() &&
+            inst->Arg(1).U32() == 31) {
+            inst = inst->Arg(0).IsImmediate() ? nullptr : inst->Arg(0).InstRecursive();
+        }
+        return inst && (inst->GetOpcode() == IR::Opcode::FindUMsb32 ||
+                        inst->GetOpcode() == IR::Opcode::FindSMsb32);
+    };
+    const IR::Value index = offset->Arg(0);
+    const IR::Inst* const select = index.IsImmediate() ? nullptr : index.InstRecursive();
+    if (select && select->GetOpcode() == IR::Opcode::SelectU32) {
+        return is_bit_index(select->Arg(1)) && is_bit_index(select->Arg(2)) ? 32U : ~0U;
+    }
+    return is_bit_index(index) ? 32U : ~0U;
+}
+
+"""
+  post_count="""        .count = (std::min)(DynamicDescriptorCount(base_offset, size_shift,
+                                                   (std::min)({DESCRIPTOR_MAX_COUNT, sampled_limit,
+                                                               resource_limit})),
+                            DynamicDescriptorIndexLimit(dynamic_offset, size_shift)),
+"""
+  pre_count="""        .count = DynamicDescriptorCount(base_offset, size_shift, (std::min)({DESCRIPTOR_MAX_COUNT, sampled_limit, resource_limit})),
+"""
+  assert text.count(found_bit)==1 and text.count(post_count)==1
+  predecessor=text.replace(found_bit,"",1).replace(post_count,pre_count,1).encode()
+  predecessor_sha=hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()
+  assert predecessor_sha=="3d9625f1981d6500e7b294018e0659464869d6f3",predecessor_sha
 header=r/"include/shader_recompiler/frontend/ir/breadth_first_search.h"
 raw=header.read_bytes()
 header_sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
