@@ -895,6 +895,38 @@ void MemoryManager::FlushCaching() {
     if (accumulator.InvalidateAll([this](GPUVAddr addr, size_t size) {
         GetSubmappedRangeImpl<false>(addr, size, page_stash2);
     })) {
+#ifdef PS5_NATIVE
+        // A GPU-addressed CB_DATA batch may revisit the same physical pages
+        // through separate GPU ranges or aliases. All writes have already
+        // reached guest memory, so combine ONLY overlapping/touching device
+        // intervals before the existing CPU-write ownership claim. This
+        // shortens GPU-held BufferCache/TextureCache work without moving
+        // page protection, skipping invalidation, or changing draw ordering.
+        // Keep disjoint physical ranges separate (including sparse mappings).
+        if (page_stash2.size() > 1) {
+            std::sort(page_stash2.begin(), page_stash2.end(),
+                      [](const auto& lhs, const auto& rhs) {
+                          return lhs.first < rhs.first;
+                      });
+            size_t retained = 0;
+            for (size_t read = 0, count = page_stash2.size(); read < count; ++read) {
+                const auto [addr, size] = page_stash2[read];
+                if (retained != 0 && size != 0) {
+                    auto& previous = page_stash2[retained - 1];
+                    // The GMMU returns valid, bounded device spans. The
+                    // subtraction also avoids comparing overflow-prone ends.
+                    const DAddr offset = addr - previous.first;
+                    if (previous.second != 0 && offset <= previous.second) {
+                        previous.second = std::max(previous.second,
+                                                   static_cast<size_t>(offset) + size);
+                        continue;
+                    }
+                }
+                page_stash2[retained++] = {addr, size};
+            }
+            page_stash2.resize(retained);
+        }
+#endif
         rasterizer->InnerInvalidation(VideoCommon::FixSmallVectorADL(page_stash2));
         page_stash2.clear();
     }
