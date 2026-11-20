@@ -40,6 +40,9 @@ assert "buffer_cache.SetPendingCpuWrites(" in rast
 assert "gpu.ForEachPendingCpuWrite(callback);" in rast
 assert "void RasterizerVulkan::OnCacheInvalidations" in rast
 assert "buffer_cache.ClaimCpuWrites(ranges);" in rast
+inner=rast.split("void RasterizerVulkan::InnerInvalidation(", 1)[1].split("bool RasterizerVulkan::OnCPUWrite(", 1)[0]
+assert inner.count("buffer_cache.ClaimCpuWrites(sequences);")==1
+assert inner.index("buffer_cache.ClaimCpuWrites(sequences);") < inner.index("buffer_cache.WriteMemory(addr, size);")
 assert "OnCacheInvalidations(std::span<const std::pair<DAddr, u64>> ranges) override;" in rast_h
 for name, src in zip(gpu_names, gpus):
     # Lichii/Eglantine gpu.cpp include the complete collector type directly.
@@ -61,7 +64,7 @@ def method(text, marker):
             if depth==0: return text[start:i+1]
     raise AssertionError(marker)
 
-claim=method(cache,"template <class P>\nvoid BufferCache<P>::ClaimCpuWrites")
+claim=method(cache,"template <class P>\ntemplate <typename RangeSize>\nvoid BufferCache<P>::ClaimCpuWrites")
 pending=method(cache,"template <class P>\nCommon::RangeSet<DAddr> BufferCache<P>::PendingCpuWriteRanges")
 write=method(cache,"template <class P>\nvoid BufferCache<P>::WriteDownloadedMemory")
 
@@ -109,7 +112,8 @@ public:
         bool hit=false; gpu_modified_ranges.ForEachInRange(a,n,[&](DAddr,DAddr){hit=true;}); return hit;
     }
     void ClearDownload(DAddr a,u64 n){cleared.emplace_back(a,n);}
-    void ClaimCpuWrites(std::span<const std::pair<DAddr,u64>>);
+    template <typename RangeSize>
+    void ClaimCpuWrites(std::span<const std::pair<DAddr,RangeSize>>);
     Common::RangeSet<DAddr> PendingCpuWriteRanges();
     void WriteDownloadedMemory(const Common::RangeSet<DAddr>&,DAddr,const u8*,u64);
 };
@@ -127,8 +131,14 @@ int main(){
     }
     c.gpu_modified_ranges.Add(0,128);
     const std::pair<DAddr,u64> writes[]={{32,16},{80,8}};
-    c.ClaimCpuWrites(writes);
+    c.ClaimCpuWrites(std::span<const std::pair<DAddr,u64>>{writes});
     assert(c.cleared.size()==2);
+    // The source owner must also accept size_t-like collected batches on
+    // ABIs where their exact integer type differs from u64.
+    c.gpu_modified_ranges.Add(0,128);
+    const std::pair<DAddr,std::uint32_t> narrow_writes[]={{32,16},{80,8}};
+    c.ClaimCpuWrites(std::span<const std::pair<DAddr,std::uint32_t>>{narrow_writes});
+    assert(c.cleared.size()==4);
     for(int i=0;i<128;i++){
         const bool claimed=(i>=32&&i<48)||(i>=80&&i<88);
         assert(c.gpu_modified_ranges.Has(i)==!claimed);

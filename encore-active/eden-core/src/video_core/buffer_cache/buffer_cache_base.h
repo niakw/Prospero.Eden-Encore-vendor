@@ -354,7 +354,10 @@ public:
 
     /// Remove all about-to-be-applied CPU writes from GPU-owned ranges before
     /// any one write can trigger a download of older bytes over another.
-    void ClaimCpuWrites(std::span<const std::pair<DAddr, u64>> ranges);
+    // Both GPU-collected writes (size_t) and normal guest batches (u64)
+    // must be claimed together before any stale GPU page readback begins.
+    template <typename RangeSize>
+    void ClaimCpuWrites(std::span<const std::pair<DAddr, RangeSize>> ranges);
 
     std::recursive_mutex mutex;
     Runtime& runtime;

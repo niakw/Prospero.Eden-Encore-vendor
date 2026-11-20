@@ -2443,6 +2443,10 @@ void RasterizerVulkan::InnerInvalidation(std::span<const std::pair<DAddr, std::s
     // unknown/large ranges. Keep rechecks under the original cache mutex.
     if (buffer_may_overlap) {
         std::scoped_lock lock{buffer_cache.mutex};
+        // Claim the ENTIRE CPU-write batch before WriteMemory on any range.
+        // Otherwise its GPU sibling download may overwrite a later write
+        // within the same page (Lichii #1328). The lock and draw order stay.
+        buffer_cache.ClaimCpuWrites(sequences);
         for (const auto& [addr, size] : sequences) {
             if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
                 buffer_cache.WriteMemory(addr, size);
