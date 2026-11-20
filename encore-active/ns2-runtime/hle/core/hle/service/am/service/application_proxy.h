@@ -16,6 +16,7 @@ class IDebugFunctions;
 class IDisplayController;
 class IGraphicsScalingParametersFunctions;
 class ILibraryAppletCreator;
+class IPerformanceFunctions;
 class IProcessWindingController;
 class ISelfController;
 class IWindowController;
@@ -32,6 +33,7 @@ private:
     Result GetDisplayController(Out<SharedPointer<IDisplayController>> out_display_controller);
     Result GetGraphicsScalingParametersFunctions(
         Out<SharedPointer<IGraphicsScalingParametersFunctions>> out_functions);
+    Result GetPerformanceFunctions(Out<SharedPointer<IPerformanceFunctions>> out_functions);
     Result GetProcessWindingController(
         Out<SharedPointer<IProcessWindingController>> out_process_winding_controller);
     Result GetDebugFunctions(Out<SharedPointer<IDebugFunctions>> out_debug_functions);
