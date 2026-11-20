@@ -100,6 +100,13 @@ if(PS5_NATIVE)
     unset(_encore_h05_source)
     unset(_encore_h05_header_root)
 
+    # PS5 NS2 startup: bounded HLE IPC wake fairness, independently
+    # source-ported from Lichii 9757e3b1 (Mario Tennis Fever 0/5 -> 8/8).
+    # A real process-generation check in the C++ owner avoids touching
+    # FC27 / ordinary NS1 service scheduling.
+    encore_replace_core_source(
+        "hle/kernel/k_server_session.cpp" "core/hle/kernel/k_server_session.cpp")
+
     foreach(name IN ITEMS k_condition_variable.cpp k_address_arbiter.cpp)
         encore_replace_core_source(
             "hle/kernel/${name}" "core/hle/kernel/${name}")
