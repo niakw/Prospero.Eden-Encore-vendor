@@ -4,6 +4,7 @@
 #include <utility>
 #include <cstdint>
 #include <limits>
+#include <new>
 #include "core/hle/service/am/service/gpu_worker_shared.h"
 #include "core/hle/service/nvdrv/core/container.h"
 #include "core/hle/service/nvdrv/nvdrv.h"
@@ -16,7 +17,15 @@ GpuWorkerSharedState::GpuWorkerSharedState(Core::System& system,
                                            Kernel::KProcess* process)
     : event_context{system, "NS2GpuNotification"}, module{std::move(module_)},
       native_process{process} {
+    // This ticket is mandatory for native channel ownership and Ampere
+    // shader authorization. An unchecked false result lets GSV 497 report
+    // a valid GPU session, while NVDRV later refuses every channel bind:
+    // the guest can then wait forever without a first GPU submission.
+    // GSV's OpenGpuSession catches bad_alloc and returns an error without
+    // publishing a KClientSession. No process epoch exists on failure.
     native_registered = Nvidia::Devices::NativeGpuProcessRegistry::Instance().Register(process);
+    if (!native_registered)
+        throw std::bad_alloc{};
 }
 
 std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>

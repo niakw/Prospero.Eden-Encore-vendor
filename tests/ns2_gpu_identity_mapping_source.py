@@ -56,4 +56,15 @@ assert "if (!identity.AddSpace(*owned))" in reg_replay
 assert reg_replay.index("as->UnmapNative4K(begin, size)") < reg_replay.index(
     "identity_result = Kernel::ResultInvalidState;", reg_replay.index("if (!identity.AddSpace(*owned))"))
 
+# Native process admission is a prerequisite for real NVDRV channel
+# tickets; never publish a successful GPU session after registration fails.
+shared_cpp=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.cpp").read_text()
+assert "native_registered = Nvidia::Devices::NativeGpuProcessRegistry::Instance().Register(process);" in shared_cpp
+assert "if (!native_registered)\n        throw std::bad_alloc{};" in shared_cpp
+gsv=(R/"encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
+open_gpu=gsv.split("void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {", 1)[1].split("\n}", 1)[0]
+assert "std::make_shared<IGpuSession>(system, module, m_process)" in open_gpu
+assert "catch (const std::bad_alloc&)" in open_gpu
+assert "result = Kernel::ResultOutOfResource;" in open_gpu
+
 print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap")
