@@ -110,6 +110,14 @@ assert identity.count('EDEN_NS2_EXEFS_IDENTITY') == 1
 assert 'if (metadata.IsSwitch2()) {' in identity
 assert 'ComputeSha256' not in identity and 'getenv(' not in identity
 
+# The selected standalone ExeFS loader must pass the Switch 2 NPDM
+# Program ID to FSP registration. Otherwise RomFS and save-data factories
+# are created for program zero before first guest GPU submission.
+assert 'process.GetProcessId(), metadata.IsSwitch2() ? metadata.GetTitleID() : u64{},' in owner
+assert 'process.GetProcessId(), {},' not in owner
+assert owner.index('metadata.Reload(npdm)') < owner.index(
+    'metadata.IsSwitch2() ? metadata.GetTitleID() : u64{}')
+
 assert 'if (romfs == nullptr && standalone && file)' in owner[end:]
 
 print("NS2_EXTRACTED_ROMFS_SOURCE_CONTRACT_PASS "

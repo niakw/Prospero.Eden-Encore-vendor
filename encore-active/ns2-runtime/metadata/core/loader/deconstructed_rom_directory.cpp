@@ -687,8 +687,12 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     if (standalone) {
         title_id = metadata.GetTitleID();
         try {
+            // The Switch 2 NPDM identity must reach fsp-srv and the save-data
+            // factory. Zero here makes every loose ExeFS title look like
+            // program 0 to FileSystemController. Preserve the historical
+            // NS1 standalone registration behavior.
             const auto registered = system.GetFileSystemController().RegisterProcess(
-                process.GetProcessId(), {},
+                process.GetProcessId(), metadata.IsSwitch2() ? metadata.GetTitleID() : u64{},
                 std::make_shared<FileSys::RomFSFactory>(*this, system.GetContentProvider(),
                                                         system.GetFileSystemController()));
             if (metadata.IsSwitch2() && registered.IsError()) {

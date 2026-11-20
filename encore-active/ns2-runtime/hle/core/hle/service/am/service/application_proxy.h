@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "core/hle/service/cmif_types.h"
 #include "core/hle/service/service.h"
 
@@ -17,6 +19,7 @@ class IDisplayController;
 class IGraphicsScalingParametersFunctions;
 class ILibraryAppletCreator;
 class IPerformanceFunctions;
+struct Ns2PerformanceRequest;
 class IProcessWindingController;
 class ISelfController;
 class IWindowController;
@@ -29,11 +32,11 @@ public:
     ~IApplicationProxy();
 
 private:
+    Result GetPerformanceFunctions(Out<SharedPointer<IPerformanceFunctions>> out_functions);
     Result GetAudioController(Out<SharedPointer<IAudioController>> out_audio_controller);
     Result GetDisplayController(Out<SharedPointer<IDisplayController>> out_display_controller);
     Result GetGraphicsScalingParametersFunctions(
         Out<SharedPointer<IGraphicsScalingParametersFunctions>> out_functions);
-    Result GetPerformanceFunctions(Out<SharedPointer<IPerformanceFunctions>> out_functions);
     Result GetProcessWindingController(
         Out<SharedPointer<IProcessWindingController>> out_process_winding_controller);
     Result GetDebugFunctions(Out<SharedPointer<IDebugFunctions>> out_debug_functions);
@@ -49,6 +52,8 @@ private:
     WindowSystem& m_window_system;
     Kernel::KProcess* const m_process;
     const std::shared_ptr<Applet> m_applet;
+    // A shared request survives reopening command 40 on this application proxy.
+    const std::shared_ptr<Ns2PerformanceRequest> m_performance_state;
 };
 
 } // namespace Service::AM
