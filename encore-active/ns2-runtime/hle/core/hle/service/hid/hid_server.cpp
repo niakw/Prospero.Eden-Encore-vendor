@@ -12,6 +12,8 @@
 #include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/kernel/k_transfer_memory.h"
 #include "core/hle/kernel/kernel.h"
+#include "core/hle/kernel/svc_results.h"
+#include <new>
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/hid/active_vibration_device_list.h"
 #include "core/hle/service/hid/applet_resource.h"
@@ -119,6 +121,8 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {134, C<&IHidServer::SetNpadAnalogStickUseCenterClamp>, "SetNpadAnalogStickUseCenterClamp"},
         {135, C<&IHidServer::SetNpadCaptureButtonAssignment>, "SetNpadCaptureButtonAssignment"},
         {136, C<&IHidServer::ClearNpadCaptureButtonAssignment>, "ClearNpadCaptureButtonAssignment"},
+        {138, C<&IHidServer::SetSceneIdForPrivateApp>, "SetSceneIdForPrivateApp"},
+        {139, C<&IHidServer::GetSceneIdForPrivateApp>, "GetSceneIdForPrivateApp"},
         {200, C<&IHidServer::GetVibrationDeviceInfo>, "GetVibrationDeviceInfo"},
         {201, C<&IHidServer::SendVibrationValue>, "SendVibrationValue"},
         {202, C<&IHidServer::GetActualVibrationValue>, "GetActualVibrationValue"},
@@ -132,6 +136,7 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {210, C<&IHidServer::EndPermitVibrationSession>, "EndPermitVibrationSession"},
         {211, C<&IHidServer::IsVibrationDeviceMounted>, "IsVibrationDeviceMounted"},
         {212, C<&IHidServer::SendVibrationValueInBool>, "SendVibrationValueInBool"},
+        {220, C<&IHidServer::IsOunceVibrationDeviceMounted>, "IsOunceVibrationDeviceMounted"},
         {300, C<&IHidServer::ActivateConsoleSixAxisSensor>, "ActivateConsoleSixAxisSensor"},
         {301, C<&IHidServer::StartConsoleSixAxisSensor>, "StartConsoleSixAxisSensor"},
         {302, C<&IHidServer::StopConsoleSixAxisSensor>, "StopConsoleSixAxisSensor"},
@@ -241,6 +246,10 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {3111, &IHidServer::StubJcms, "FinalizeJcms"},
         {3112, &IHidServer::StubJcms, "StartJcms"},
         {3113, &IHidServer::StubJcms, "StopJcms"},
+        // Confirmed Nmouse signatures only. Do not fake undocumented 3130/3131/3134-3149.
+        {3132, C<&IHidServer::SetNmousePointerRanges>, "SetNmousePointerRanges"},
+        {3133, C<&IHidServer::GetNmousePointerRanges>, "GetNmousePointerRanges"},
+        {3139, C<&IHidServer::InitializeNmouse2>, "InitializeNmouse2"},
         {3150, C<&IHidServer::SetMouseLibraryVersion>, "SetMouseLibraryVersion"}, //21.0.0+
         // What? -- {12010, nullptr, "SetButtonConfigLeft"},
     };
@@ -1079,6 +1088,37 @@ Result IHidServer::IsVibrationDeviceMounted(
     R_SUCCEED();
 }
 
+Result IHidServer::SetSceneIdForPrivateApp(ClientAppletResourceUserId aruid, u64 scene_id) {
+    const std::scoped_lock lock{m_ns2_state_mutex};
+    try {
+        m_ns2_scene_ids[aruid.pid] = scene_id;
+    } catch (const std::bad_alloc&) {
+        R_THROW(Kernel::ResultOutOfResource);
+    }
+    R_SUCCEED();
+}
+
+Result IHidServer::GetSceneIdForPrivateApp(Out<u64> out_scene_id,
+                                           ClientAppletResourceUserId aruid) {
+    const std::scoped_lock lock{m_ns2_state_mutex};
+    const auto it = m_ns2_scene_ids.find(aruid.pid);
+    *out_scene_id = it != m_ns2_scene_ids.end() ? it->second : 0;
+    R_SUCCEED();
+}
+
+Result IHidServer::IsOunceVibrationDeviceMounted(
+    Out<bool> out_is_mounted, Core::HID::VibrationDeviceHandle vibration_device_handle,
+    ClientAppletResourceUserId aruid) {
+    *out_is_mounted = false;
+    if (IsVibrationHandleValid(vibration_device_handle).IsSuccess()) {
+        const auto* device = GetResourceManager()->GetVibrationDevice(vibration_device_handle);
+        if (device != nullptr) {
+            *out_is_mounted = device->IsVibrationMounted();
+        }
+    }
+    R_SUCCEED();
+}
+
 Result IHidServer::SendVibrationValueInBool(
     bool is_vibrating, Core::HID::VibrationDeviceHandle vibration_device_handle,
     ClientAppletResourceUserId aruid) {
@@ -1478,6 +1518,44 @@ Result IHidServer::SetTouchScreenResolution(u32 width, u32 height,
              aruid.pid);
 
     GetResourceManager()->GetTouchScreen()->SetTouchScreenResolution(width, height, aruid.pid);
+    R_SUCCEED();
+}
+
+Result IHidServer::InitializeNmouse2(u32 pointer_type, s32 width, s32 height,
+                                      u32 unknown, ClientAppletResourceUserId aruid,
+                                      u64 t_mem_size, InCopyHandle<Kernel::KTransferMemory> t_mem) {
+    // CMIF decodes the guest COPY TransferMemory descriptor. No Nmouse sensor
+    // is exposed: keep its user-space buffer untouched and report no samples.
+    static_cast<void>(pointer_type);
+    static_cast<void>(unknown);
+    static_cast<void>(t_mem_size);
+    static_cast<void>(t_mem);
+    const std::scoped_lock lock{m_ns2_state_mutex};
+    try {
+        m_ns2_nmouse_ranges[aruid.pid] = {width, height};
+    } catch (const std::bad_alloc&) {
+        R_THROW(Kernel::ResultOutOfResource);
+    }
+    R_SUCCEED();
+}
+
+Result IHidServer::SetNmousePointerRanges(s32 width, s32 height,
+                                          ClientAppletResourceUserId aruid) {
+    const std::scoped_lock lock{m_ns2_state_mutex};
+    try {
+        m_ns2_nmouse_ranges[aruid.pid] = {width, height};
+    } catch (const std::bad_alloc&) {
+        R_THROW(Kernel::ResultOutOfResource);
+    }
+    R_SUCCEED();
+}
+
+Result IHidServer::GetNmousePointerRanges(Out<s32> out_width, Out<s32> out_height,
+                                          ClientAppletResourceUserId aruid) {
+    const std::scoped_lock lock{m_ns2_state_mutex};
+    const auto it = m_ns2_nmouse_ranges.find(aruid.pid);
+    *out_width = it != m_ns2_nmouse_ranges.end() ? it->second.width : 0;
+    *out_height = it != m_ns2_nmouse_ranges.end() ? it->second.height : 0;
     R_SUCCEED();
 }
 
