@@ -24,8 +24,8 @@ for name,expected in files.items():
   # The active shared PS5 cache advanced again with reviewed full-clear upload
   # elision. Pin the complete current owner, then normalize ONLY that exact
   # additive region before applying the older image-page normalization below.
-  assert sha in {"744bf30e1421dcce212146f7e26e9d90558676a8", "0d99f9a861c645562519f71d62f4f49bfedd8101", "859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75"}, (name, sha)
-  if sha in {"0d99f9a861c645562519f71d62f4f49bfedd8101", "859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75"}:
+  assert sha in {"744bf30e1421dcce212146f7e26e9d90558676a8", "0d99f9a861c645562519f71d62f4f49bfedd8101", "859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53"}, (name, sha)
+  if sha in {"0d99f9a861c645562519f71d62f4f49bfedd8101", "859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53"}:
    # Proven active C++ descendant: F07 protections applied in selected owner.
    # R23/TIR surrounding owners remain separately byte-pinned.
    for needle in ("bool upload_completed = false;", "if (!upload_completed)",
@@ -33,16 +33,29 @@ for name,expected in files.items():
                   "if (True(image.flags & ImageFlagBits::IsDecoding))",
                   "return GetImageViewForFramebuffer(freshest_id);"):
     assert needle in text, ("selected F07 texture protection missing", needle)
-   if sha in {"859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75"}:
+   if sha in {"859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53"}:
     shadow=(r/"encore-active/eden-vulkan/vulkan-cache/video_core/texture_cache/texture_cache.h").read_text()
     sig="void TextureCache<P>::TickAsyncUnswizzle() {"
     def selected_method(src):
      return src.split(sig,1)[1].split("\n}\n",1)[0]
     assert selected_method(text)==selected_method(shadow), "selected BCn 3D protection parity lost"
-   if sha == "c7cb95ecaf388b925fc29582499bbd4b54a77f75":
+   if sha in {"c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53"}:
     assert "Common::ScratchBuffer<u8> local_unswizzle_data_buffer;" in text
     assert "local_unswizzle_data_buffer.resize_destructive(image.unswizzled_size_bytes);" in text
     assert "invalid_slices" in text and "ImageFlagBits::CpuModified | ImageFlagBits::Remapped" in text
+  if sha == "9384f3f5534717762dea82796086617b41f1eb53":
+   # Verify the complete C++ owner only gained the reviewed two DMA
+   # methods; the older image-page, TIR and ASTC contracts stay unchanged.
+   before_dma=text.index("// DMA can update device guest memory")
+   after_dma=text.index("template <class P>\nbool TextureCache<P>::IsDownloadable(", before_dma)
+   methods=text[before_dma:after_dma]
+   for symbol in ("TextureCache<P>::WriteGpuMemory(",
+                  "TextureCache<P>::IsGpuMemoryGpuModified(", "return !mapped;"):
+    assert symbol in methods, symbol
+   prior=(text[:before_dma]+text[after_dma:]).encode()
+   old_sha=hashlib.sha1(b"blob "+str(len(prior)).encode()+b"\x00"+prior).hexdigest()
+   assert old_sha=="c7cb95ecaf388b925fc29582499bbd4b54a77f75", old_sha
+   text=prior.decode()
   scope_start=text.index("    // Lichii/PS5 patch 0078: a full clear may create a target")
   scope_end=text.index("    auto& flags = maxwell3d->dirty.flags;",scope_start)
   text=text[:scope_start]+text[scope_end:]

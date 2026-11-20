@@ -19,9 +19,11 @@ T=ROOT/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h"
 def blob(path):
     raw=path.read_bytes()
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
-assert blob(R)=="01c6880e5a8836da45601b0a3cb7c0fd6c46cf35"
+# Current maintained runtime owners. The CPU-write rollback still requires
+# synchronous protection even though DMA clean-image invalidation was added.
+assert blob(R)=="9da620ea3f4a4e0ab22e9747bf4e1058c09ce20b"
 assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
-assert blob(T)=="c7cb95ecaf388b925fc29582499bbd4b54a77f75"
+assert blob(T)=="9384f3f5534717762dea82796086617b41f1eb53"
 # Selected NS1/NS2 TextureCache must retain the causal native protections.
 texture_selected=T.read_text()
 for needle in ("bool upload_completed = false;", "std::try_to_lock",
@@ -52,6 +54,15 @@ raster=R.read_text()
 device=D.read_text()
 texture=T.read_text()
 assert "DeferredCachedUpdates" not in raster+device
+# The DMA fix may invalidate only guest-current destination images.
+dma=raster.split("bool AccelerateDMA::BufferCopy(",1)[1].split(
+    "\ntemplate <bool IS_IMAGE_UPLOAD>",1)[0]
+assert "std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};" in dma
+assert dma.index("buffer_cache.DMACopy(") < dma.index("texture_cache.WriteGpuMemory(")
+assert "if (!copied_gpu_bytes &&" in dma
+assert "!texture_cache.IsGpuMemoryGpuModified(src_address, amount)" in dma
+assert "!texture_cache.IsGpuMemoryGpuModified(dest_address, amount)" in dma
+assert "bool may_claim_buffer = false;" in raster
 assert "ImagePages::Mark(image.cpu_addr, image.guest_size_bytes);" in texture
 assert "ImagePages::Mark(cpu_addr, size);" in texture
 start=raster.index("bool RasterizerVulkan::OnCPUWrite(")
