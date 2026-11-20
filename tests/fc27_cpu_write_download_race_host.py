@@ -40,6 +40,20 @@ assert "buffer_cache.SetPendingCpuWrites(" in rast
 assert "gpu.ForEachPendingCpuWrite(callback);" in rast
 assert "void RasterizerVulkan::OnCacheInvalidations" in rast
 assert "buffer_cache.ClaimCpuWrites(ranges);" in rast
+# The GPU-collected path keeps the already-reviewed claim-before-readback
+# contract, but locks each cache only once per batch (not per dirty page).
+collected=rast.split("void RasterizerVulkan::OnCacheInvalidations(", 1)[1].split(
+    "void RasterizerVulkan::OnCacheInvalidation(", 1)[0]
+assert collected.count("buffer_cache.ClaimCpuWrites(ranges);")==1
+assert collected.count("std::scoped_lock lock{texture_cache.mutex};")==1
+assert collected.count("std::scoped_lock lock{buffer_cache.mutex};")==2
+assert collected.count("texture_cache.WriteMemory(addr, size);")==1
+assert collected.count("buffer_cache.WriteMemory(addr, size);")==1
+assert collected.count("pipeline_cache.InvalidateRegion(addr, size);")==1
+assert collected.index("buffer_cache.ClaimCpuWrites(ranges);") < collected.index(
+    "texture_cache.WriteMemory(addr, size);") < collected.index(
+    "buffer_cache.WriteMemory(addr, size);") < collected.index(
+    "pipeline_cache.InvalidateRegion(addr, size);")
 inner=rast.split("void RasterizerVulkan::InnerInvalidation(", 1)[1].split("bool RasterizerVulkan::OnCPUWrite(", 1)[0]
 assert inner.count("buffer_cache.ClaimCpuWrites(sequences);")==1
 assert inner.index("buffer_cache.ClaimCpuWrites(sequences);") < inner.index("buffer_cache.WriteMemory(addr, size);")
