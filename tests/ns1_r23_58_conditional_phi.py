@@ -19,7 +19,7 @@ if header_sha in {"194476705f21bd1c27f532fdd5cc04d99a3cd620",
     subprocess.run(["python3","-B",str(root/"tests/ps5_ir_bfs_adaptive_host.py")],
                    check=True,timeout=180)
 assert gitsha(source) in {"85c523e435ee8803ef3d2087567aa1a4b5d09369",
-                          "3d9625f1981d6500e7b294018e0659464869d6f3","0010ffd43e7ac3fb482c46277c854ab9a76b06ab"}
+                          "3d9625f1981d6500e7b294018e0659464869d6f3","0010ffd43e7ac3fb482c46277c854ab9a76b06ab","30c9a612a88fa6cd832a40ad0f717b4944db45a1"} 
 h=header.read_text()
 s=source.read_text()
 # FC27's selected shader owner retains the R23 conditional-Phi walker, and
