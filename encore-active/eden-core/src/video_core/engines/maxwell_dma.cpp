@@ -139,12 +139,18 @@ void MaxwellDMA::Launch() {
             }
             const size_t byte_count = static_cast<size_t>(regs.line_length_in) * component_size;
             read_buffer.resize_destructive(byte_count);
-            const u32 value = regs.remap_const.remap_consta_value;
             u8* const bytes = read_buffer.data();
-            for (u32 element = 0; element < regs.line_length_in; ++element) {
-                const size_t base = static_cast<size_t>(element) * component_size;
-                for (u32 byte = 0; byte < component_size; ++byte) {
-                    bytes[base + byte] = static_cast<u8>(value >> (byte * 8));
+            if (component_size == 4) {
+                // Retain the original optimized bulk fill for ordinary u32 clears.
+                std::ranges::fill(std::span<u32>(reinterpret_cast<u32*>(bytes), regs.line_length_in),
+                                  regs.remap_const.remap_consta_value);
+            } else {
+                const u32 value = regs.remap_const.remap_consta_value;
+                for (u32 element = 0; element < regs.line_length_in; ++element) {
+                    const size_t base = static_cast<size_t>(element) * component_size;
+                    for (u32 byte = 0; byte < component_size; ++byte) {
+                        bytes[base + byte] = static_cast<u8>(value >> (byte * 8));
+                    }
                 }
             }
             memory_manager.WriteBlockUnsafe(regs.offset_out, bytes, byte_count);
