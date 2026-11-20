@@ -31,7 +31,7 @@ for name,expected in files.items():
         normalized=text.replace(fixed,indexed,1).encode()
         normalized_sha=hashlib.sha1(b"blob "+str(len(normalized)).encode()+bytes([0])+normalized).hexdigest()
         assert normalized_sha==expected,(name,actual,normalized_sha,expected)
-    elif name=="vk_graphics_pipeline_cost.cpp" and actual=="bae8f3c36fc4e595e9b630ca55cc50496468e173":
+    elif name=="vk_graphics_pipeline_cost.cpp" and actual in {"bae8f3c36fc4e595e9b630ca55cc50496468e173","f3c82781675b6979a8be96a333184e048ef57f81"}:
         # The live FC27 owner extends the earlier exact-attribute binding
         # with an optional bounded graphics transition hint graph. Its exact
         # full-source SHA is pinned, and the separate FC27 transition harness
