@@ -91,7 +91,7 @@ for service in ("OpenDisplaySession", "OpenGpuSession"):
     assert "rb.Push(result.raw);" in failure
     assert "return;" in failure
     assert body.index("if (result.IsError()) {") < body.index(
-        "IPC::ResponseBuilder rb{ctx, 2, 0, 1};")
+        "IPC::ResponseBuilder rb{ctx, 2, 1, 0};")
     assert body.count("ctx.AddMoveObject(client);") == 1
 # The GPU weak-owner vector must be provisioned before a server-managed
 # kernel session is registered, otherwise a bad_alloc can leak that session.
@@ -133,14 +133,14 @@ for needle in (
     'handler->InitializeForProcess(m_process)',
     'CreateMetadataSession(system, ctx,',
     'catch (const std::bad_alloc&)',
-    'IPC::ResponseBuilder rb{ctx, 2, 0, 1};',
+    'IPC::ResponseBuilder rb{ctx, 2, 1, 0};',
     'ctx.AddMoveObject(client);',
 ):
     assert needle in nvsrv,needle
 assert nvsrv.index('handler->InitializeForProcess(m_process)') < nvsrv.index(
     'CreateMetadataSession(system, ctx,')
 assert nvsrv.index('if (result.IsError()) {') < nvsrv.index(
-    'IPC::ResponseBuilder rb{ctx, 2, 0, 1};')
+    'IPC::ResponseBuilder rb{ctx, 2, 1, 0};')
 # 1402 must reject a second active user session (firmware 0x200f3),
 # while a closed child must not be kept alive by the parent supervisor.
 assert 'std::weak_ptr<Nvidia::NVDRV> m_nvsrv_session;' in hdr
