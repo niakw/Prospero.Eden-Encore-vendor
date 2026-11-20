@@ -256,9 +256,11 @@ constexpr std::optional<EventSupervisorBind> DecodeEventSupervisorBind(std::span
     return EventSupervisorBind{(static_cast<u64>(packet[3]) << 32) | packet[2], packet[4]};
 }
 
-constexpr bool IsSupportedDisplaySession(u64 flags) {
-    return flags == 0x300020000ULL || flags == 0x300030000ULL ||
-           flags == 0x300040000ULL;
+constexpr bool IsSupportedDisplaySession(u64 version) {
+    // SwitchBrew GSV 305: 19.0.0 uses 0x300010000. Keep admitted later
+    // SDK versions and reject unknown values rather than faking a session.
+    return version == 0x300010000ULL || version == 0x300020000ULL ||
+           version == 0x300030000ULL || version == 0x300040000ULL;
 }
 
 constexpr u32 NativeGpuProfileForBootstrap(u64 flags) {
