@@ -74,8 +74,12 @@ public:
         return Status::Success;
     }
     Status CanOpenGpuSession(std::span<const U32> packet, bool module_available) const {
-        if (packet.size()<4 || packet[0]!=0x201 || packet[1]!=2 ||
-            (U64{packet[2]} | (U64{packet[3]} << 32))!=2)
+        if (packet.size()<4 || packet[0]!=0x201 || packet[1]!=2)
+            return Status::InvalidPacket;
+        const U64 version = U64{packet[2]} | (U64{packet[3]} << 32);
+        // Firmware 19.0.0 documents version 2; later SDK captures include
+        // version 4 (Eglantine #574). Preserve both observed ABI versions.
+        if (version != 2 && version != 4)
             return Status::InvalidPacket;
         return phase==Phase::Ready && module_available
             ? Status::Success : Status::InvalidState;
