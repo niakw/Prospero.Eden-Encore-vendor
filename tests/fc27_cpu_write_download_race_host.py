@@ -160,6 +160,78 @@ int main(){
 }
 """
 
+# Compile the actual selected GPU-collected batch callback: one lock per
+# cache domain, all CPU claims before any image/buffer writes, and no lost
+# shader invalidations. This is the SAME existing FC27 host regression job.
+batch_method=method(rast,"void RasterizerVulkan::OnCacheInvalidations(")
+batch_cpp=r"""
+#include <cassert>
+#include <cstdint>
+#include <mutex>
+#include <span>
+#include <utility>
+#include <vector>
+using DAddr=std::uint64_t; using u64=std::uint64_t;
+struct CountMutex {
+    int acquired{}, held{};
+    void lock(){assert(!held);++acquired;++held;}
+    void unlock(){assert(held);--held;}
+};
+namespace Eden {
+namespace BufferPages {
+    bool NeverRegistered(DAddr addr,u64){return addr==0x3000;}
+}
+namespace ImagePages {
+    bool NeverHeld(DAddr addr,u64){return addr==0x2000;}
+}
+}
+static std::vector<int> calls;
+struct BufferCache {
+    CountMutex mutex;
+    std::vector<DAddr> writes;
+    void ClaimCpuWrites(std::span<const std::pair<DAddr,u64>> batch){
+        assert(mutex.held);assert(batch.size()==5);calls.push_back(1);
+    }
+    void WriteMemory(DAddr addr,u64){
+        assert(mutex.held);writes.push_back(addr);calls.push_back(3);
+    }
+};
+struct TextureCache {
+    CountMutex mutex;
+    std::vector<DAddr> writes;
+    void WriteMemory(DAddr addr,u64){
+        assert(mutex.held);writes.push_back(addr);calls.push_back(2);
+    }
+};
+struct PipelineCache {
+    std::vector<DAddr> invalidated;
+    void InvalidateRegion(DAddr addr,u64){
+        invalidated.push_back(addr);calls.push_back(4);
+    }
+};
+struct RasterizerVulkan {
+    BufferCache buffer_cache;
+    TextureCache texture_cache;
+    PipelineCache pipeline_cache;
+    void OnCacheInvalidations(std::span<const std::pair<DAddr,u64>>);
+};
+""" + batch_method + r"""
+int main(){
+    RasterizerVulkan r;
+    const std::pair<DAddr,u64> batch[]={{0x1000,4},{0x2000,8},
+                                        {0x3000,16},{0,4},{0x4000,0}};
+    r.OnCacheInvalidations(batch);
+    assert(r.buffer_cache.mutex.acquired==2 && !r.buffer_cache.mutex.held);
+    assert(r.texture_cache.mutex.acquired==1 && !r.texture_cache.mutex.held);
+    assert((r.buffer_cache.writes==std::vector<DAddr>{0x1000,0x2000}));
+    assert((r.texture_cache.writes==std::vector<DAddr>{0x1000,0x3000}));
+    assert((r.pipeline_cache.invalidated==std::vector<DAddr>{0x1000,0x2000,0x3000}));
+    assert(!calls.empty() && calls.front()==1);
+    int previous=0;
+    for(int phase:calls){assert(phase>=previous);previous=phase;}
+}
+"""
+
 dirty_cpp=r"""
 #include <cassert>
 #include <functional>
@@ -186,6 +258,7 @@ int main(){
 with tempfile.TemporaryDirectory(prefix="fc27-cpu-write-download-") as td:
     d=Path(td)
     (d/"model.cpp").write_text(cpp)
+    (d/"batch.cpp").write_text(batch_cpp)
     stub=d/"stub/core"; stub.mkdir(parents=True)
     (stub/"device_memory_manager.h").write_text(
         "#pragma once\n#include <cstddef>\n#include <cstdint>\n"
@@ -199,6 +272,10 @@ with tempfile.TemporaryDirectory(prefix="fc27-cpu-write-download-") as td:
             subprocess.run([cxx,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
                             str(d/"model.cpp"),"-o",str(exe)],check=True,timeout=60)
             subprocess.run([str(exe)],check=True,timeout=20)
+            batch_exe=d/("batch-"+Path(cxx).name+opt[2:])
+            subprocess.run([cxx,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
+                            str(d/"batch.cpp"),"-o",str(batch_exe)],check=True,timeout=60)
+            subprocess.run([str(batch_exe)],check=True,timeout=20)
             dirty_exe=d/("dirty-"+Path(cxx).name+opt[2:])
             subprocess.run([cxx,"-std=c++20",opt,"-Wall","-Wextra","-Werror","-pthread",
                             "-I",str(d/"stub"),
