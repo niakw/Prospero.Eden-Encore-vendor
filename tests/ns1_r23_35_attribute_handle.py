@@ -19,6 +19,15 @@ EXPECTED={
   "encore-active/eden-vulkan/vulkan_rasterizer.cpp": "2530e3754435175810cbf24cb20446e177d1f19f",
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h": "cb35d183c8a9c2ea05f5eb8949a167ea295f8ce7"
 }
+# Reviewed FC27 successor: pin each complete changed production blob
+# while retaining the immutable historical R23 oracle for unchanged owners.
+CURRENT_ATTRIBUTE_SOURCE={
+  "encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp": "0010ffd43e7ac3fb482c46277c854ab9a76b06ab",
+  "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h": "515a766a6cc4d6fcba7692ad396f45396b746d28",
+  "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp": "2834a18fe7638749ec83cc8f5feb1fcde6c71a9a",
+  "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h": "6467fd4d704de6b77deb7e6cba4b8e33f70f5a08",
+  "encore-active/eden-vulkan/vulkan_rasterizer.cpp": "046269f8484776e22c8aee308b75c7b98f8bf5c6",
+}
 def gitblob(p):
  b=p.read_bytes()
  return hashlib.sha1(b"blob "+str(len(b)).encode()+bytes([0])+b).hexdigest()
@@ -30,6 +39,9 @@ POST_HOST_INFO_ORDER = "        .support_viewport_mask = device.IsNvViewportArra
 PRE_HOST_INFO_ORDER = "        .support_geometry_shader_passthrough = device.IsNvGeometryShaderPassthroughSupported(),\n        .support_conditional_barrier = device.SupportsConditionalBarriers(),\n        .support_viewport_mask = device.IsNvViewportArray2Supported(),"
 for path,sha in EXPECTED.items():
  raw=(ROOT/path).read_bytes()
+ if path in CURRENT_ATTRIBUTE_SOURCE:
+  assert gitblob(ROOT/path)==CURRENT_ATTRIBUTE_SOURCE[path], ("FC27 maintained successor drift",path)
+  continue
  normalized=raw.decode("utf-8")
  if path.endswith("/vulkan_rasterizer.cpp"):
   normalized=restore_pre_rebind(normalized)
@@ -173,7 +185,12 @@ assert "support_attribute_texture_handle{}" in profile
 assert "single_lane_geometry_subgroups{}" in profile, "lost subgroup support"
 assert "ResolveConditionalPhi(operand, block)" in shader, "lost conditional Phi shader fix"
 assert "MaxwellDepthClampClip(" in rast, "lost EDS3 depth clamp"
-assert "desc.cbuf_index == Shader::ATTRIBUTE_HANDLE_CBUF_INDEX" in pipeline
+assert "desc.cbuf_index != Shader::ATTRIBUTE_HANDLE_CBUF_INDEX" in pipeline
+assert "attribute_handle_source = desc.cbuf_offset;" in pipeline
+assert ".offset = *attribute_source" in shader
+assert "Generic31W" in shader
+assert "attribute_handle_source = pipeline->AttributeHandleSource();" in rast
+assert "attribute_handle_source.reset();" in rast
 assert "attribute_handle_runs.size() > 1" in rast
 assert "CanExecuteRecordedDraw()" in rast and "DrawMeshTasksEXT" in rast
 assert "struct AttributeHandleRun" in header
@@ -187,16 +204,29 @@ test=r"""
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <optional>
 #include <vector>
 using u32=std::uint32_t;
 using GPUVAddr=std::uint64_t;
+namespace Shader::IR {
+enum class Attribute : u32 { Generic0X=32, Generic31W=159 };
+}
 namespace Tegra::Engines {
 struct Maxwell3D {
  struct Regs {
   enum class PrimitiveTopology {Triangles, Lines};
   struct VertexAttribute {
    enum class Type { UInt, SInt, Float};
-   enum class Size {Invalid, X32};
+   enum class Size {Invalid, Size_R32, Size_R32_G32, Size_R32_G32_B32, Size_R32_G32_B32_A32};
+   u32 ComponentCount() const {
+     switch(size) {
+     case Size::Size_R32: return 1;
+     case Size::Size_R32_G32: return 2;
+     case Size::Size_R32_G32_B32: return 3;
+     case Size::Size_R32_G32_B32_A32: return 4;
+     default: return 0;
+     }
+   }
    struct Buf {u32 i=0;u32 Value() const{return i;}};
    bool constant=true;
    Size size=Size::Invalid;
@@ -244,6 +274,7 @@ struct Memory {
 struct RasterizerVulkan {
  struct AttributeHandleRun {u32 first{},count{},handle{};};
  std::vector<AttributeHandleRun> attribute_handle_runs;
+ std::optional<u32> attribute_handle_source{};
  Tegra::Engines::Maxwell3D* maxwell3d{};
  Memory* gpu_memory{};
  void CollectAttributeHandleRuns(bool);
@@ -257,7 +288,7 @@ int main(){
  raster.maxwell3d=&engine;
  raster.gpu_memory=&mem;
  auto& attr=engine.regs.vertex_attrib_format[0];
- attr.constant=false;attr.size=Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Size::X32;attr.type=Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Type::UInt;
+ attr.constant=false;attr.size=Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Size::Size_R32;attr.type=Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Type::UInt;
  auto& stream=engine.regs.vertex_streams[0];stream.enabled=true;
  engine.draw_manager.draw_state.vertex_buffer.count=9;
  for(u32 i=0;i<9;i++) mem.values[1000+i*4]=i<3?11:(i<6?22:11);
@@ -289,6 +320,24 @@ int main(){
  assert(raster.attribute_handle_runs[0].count==9);
  raster.attribute_handle_runs.clear();
  attr.constant=false;
+ // A different integer attribute precedes the shader's real handle.
+ auto& other=engine.regs.vertex_attrib_format[1];
+ other.constant=false;
+ other.size=Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Size::Size_R32;
+ other.type=Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Type::UInt;
+ other.buffer.i=1;
+ auto& other_stream=engine.regs.vertex_streams[1];
+ other_stream.enabled=true;
+ other_stream.address=2000;
+ for(u32 i=0;i<9;i++) mem.values[2000+i*4]=i<3?41:(i<6?42:41);
+ raster.attribute_handle_source=36;
+ raster.CollectAttributeHandleRuns(false);
+ assert(raster.attribute_handle_runs.size()==3);
+ assert(raster.attribute_handle_runs[0].handle==41);
+ assert(raster.attribute_handle_runs[1].handle==42);
+ assert(raster.attribute_handle_runs[2].handle==41);
+ raster.attribute_handle_runs.clear();
+ raster.attribute_handle_source.reset();
  engine.draw_manager.draw_state.topology=Tegra::Engines::Maxwell3D::Regs::PrimitiveTopology::Lines;
  raster.CollectAttributeHandleRuns(false);
  assert(raster.attribute_handle_runs.size()==1);
