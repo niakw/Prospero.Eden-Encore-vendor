@@ -58,6 +58,9 @@ private:
     void OpenSyncptSession(HLERequestContext& ctx);
     void AttachSyncptMemory(HLERequestContext& ctx);
     void OpenGpuSession(HLERequestContext& ctx);
+    void InitializeFeatureContext(HLERequestContext& ctx);
+    void OpenCameraSession(HLERequestContext& ctx);
+    void OpenChatSession(HLERequestContext& ctx);
     void InitializeDisplayContext(HLERequestContext& ctx);
     void FinalizeDisplayContext(HLERequestContext& ctx);
     void OpenDisplaySession(HLERequestContext& ctx);
@@ -72,6 +75,7 @@ private:
     void ConfigureNativeWindowImagePool(HLERequestContext& ctx);
     void CalculateNativeImageSize(HLERequestContext& ctx);
     void CalculateNativeImageRequirements(HLERequestContext& ctx);
+    void CalculateChatImagePoolSize(HLERequestContext& ctx);
     void RegisterGpuAddressSpace(HLERequestContext& ctx);
     // Upstream TIPC 911/912 and 426/427/428: native video pools only.
     void CreateVideoImagePool(HLERequestContext& ctx);

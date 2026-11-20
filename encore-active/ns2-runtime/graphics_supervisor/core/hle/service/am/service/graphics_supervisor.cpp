@@ -121,6 +121,61 @@ static void NativeTipcReplyWords(HLERequestContext& ctx, std::initializer_list<u
     for (const u32 word : words) rb.PushRaw<u32>(word);
 }
 
+
+static std::optional<NativeVideoImageLayout> CalculateChatCameraImageLayout(
+    std::span<const u32> preference, u32 count) {
+    // MKW 1.8.0 asks for three 384x216 local-camera images with format 0x38.
+    // This is a block-linear four-byte image in nn::chat::gsv, not one of
+    // the decoder-pool pitch-linear formats handled by command 911.
+    if (preference.size() != 16 || count == 0 || count > NativeVideoPoolLedger::MaxImages ||
+        preference[6] != 0x38) {
+        return {};
+    }
+    const u64 width = (preference[2] & 0xffffU) + 1;
+    const u64 height = (preference[2] >> 16) + 1;
+    const u32 requested_block_log2 = preference[4];
+    const u64 requested_pitch_gobs = preference[5];
+    constexpr u64 bytes_per_pixel = 4;
+    const u64 minimum_gobs = (width * bytes_per_pixel + 63) / 64;
+
+    u32 block_log2 = requested_block_log2;
+    u64 pitch{};
+    if (block_log2 <= 8 && requested_pitch_gobs >= minimum_gobs &&
+        requested_pitch_gobs <= 4096) {
+        pitch = requested_pitch_gobs * 64;
+    } else {
+        block_log2 = 7;
+        pitch = (width * bytes_per_pixel + 63) & ~u64{63};
+    }
+    const u64 block_rows = u64{1} << block_log2;
+    if (height > std::numeric_limits<u64>::max() - (block_rows - 1)) {
+        return {};
+    }
+    const u64 aligned_height = (height + block_rows - 1) & ~(block_rows - 1);
+    if (pitch == 0 || aligned_height > std::numeric_limits<u64>::max() / pitch) {
+        return {};
+    }
+    const u64 raw_bytes = pitch * aligned_height;
+    const u64 alignment = std::max<u64>(4096, 64 * block_rows);
+    if (raw_bytes > std::numeric_limits<u64>::max() - (alignment - 1)) {
+        return {};
+    }
+    const u64 image_bytes = (raw_bytes + alignment - 1) & ~(alignment - 1);
+    if (image_bytes == 0 || image_bytes > std::numeric_limits<u32>::max() ||
+        image_bytes > std::numeric_limits<u64>::max() / count) {
+        return {};
+    }
+    return NativeVideoImageLayout{
+        image_bytes * count,
+        static_cast<u32>(image_bytes),
+        static_cast<u32>(image_bytes),
+        static_cast<u32>(std::min<u64>(pitch, std::numeric_limits<u32>::max())),
+        false,
+        0,
+        8,
+    };
+}
+
 class INativeSyncptSession final : public ServiceFramework<INativeSyncptSession> {
 public:
     explicit INativeSyncptSession(Core::System& system_)
@@ -1099,6 +1154,105 @@ private:
     std::shared_ptr<Core::Timing::EventType> m_poll;
 };
 
+
+class INativeChatGsvSession final : public ServiceFramework<INativeChatGsvSession> {
+public:
+    explicit INativeChatGsvSession(Core::System& system_)
+        : ServiceFramework{system_, "nx2:chat:gsv"},
+          m_context{system_, "nx2:chat:gsv"} {
+        static const FunctionInfo functions[] = {
+            {1, &INativeChatGsvSession::GetEventId, "GetEventId"},
+            {11, &INativeChatGsvSession::GetEvent, "GetEvent"},
+            {103, &INativeChatGsvSession::OpenVirtualDisplay, "OpenVirtualDisplay"},
+        };
+        RegisterHandlersTipc(functions);
+    }
+
+    ~INativeChatGsvSession() override {
+        for (auto& [_, event] : m_events) {
+            if (event) m_context.CloseEvent(event);
+        }
+    }
+
+private:
+    void GetEventId(HLERequestContext& ctx) {
+        // SDK aborts when this exceeds 0x3ff. One idle event is sufficient
+        // while Encore has no active GameChat room.
+        NativeTipcReplyWords(ctx, {0});
+    }
+
+    void GetEvent(HLERequestContext& ctx) {
+        const u32 id = ctx.CommandBuffer()[2];
+        if (id > 0x3ff) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidArgument.raw);
+            return;
+        }
+        auto*& event = m_events[id];
+        if (!event) {
+            char name[48]{};
+            std::snprintf(name, sizeof(name), "nx2:chat:gsv:Event%u", id);
+            try {
+                event = m_context.CreateEvent(name);
+            } catch (const std::bad_alloc&) {
+                IPC::ResponseBuilder rb{ctx, 2};
+                rb.Push(Kernel::ResultOutOfResource.raw);
+                return;
+            }
+        }
+        IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+        rb.Push(ResultSuccess.raw);
+        rb.PushCopyObjects(ctx, event->GetReadableEvent());
+    }
+
+    void OpenVirtualDisplay(HLERequestContext& ctx) {
+        NativeTipcReplyWords(ctx, {});
+    }
+
+    KernelHelpers::ServiceContext m_context;
+    std::map<u32, Kernel::KEvent*> m_events;
+};
+
+class INativeCameraSession final : public ServiceFramework<INativeCameraSession> {
+public:
+    explicit INativeCameraSession(Core::System& system_)
+        : ServiceFramework{system_, "nx2:camera"},
+          m_context{system_, "nx2:camera"},
+          m_event{m_context.CreateEvent("nx2:camera:Event")} {
+        static const FunctionInfo functions[] = {
+            {3, &INativeCameraSession::OpenCamera, "OpenCamera"},
+            {21, &INativeCameraSession::GetCameraEvent, "GetCameraEvent"},
+            {29, &INativeCameraSession::CheckImagePreference, "CheckImagePreference"},
+        };
+        RegisterHandlers(functions);
+    }
+
+    ~INativeCameraSession() override {
+        if (m_event) m_context.CloseEvent(m_event);
+    }
+
+private:
+    void OpenCamera(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(ResultSuccess);
+        rb.Push<u64>(0);
+    }
+
+    void GetCameraEvent(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2, 1};
+        rb.Push(ResultSuccess);
+        rb.PushCopyObjects(ctx, m_event->GetReadableEvent());
+    }
+
+    void CheckImagePreference(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    KernelHelpers::ServiceContext m_context;
+    Kernel::KEvent* m_event{};
+};
+
 IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess* process,
                                          u64 aruid)
     : ServiceFramework{system_, "IGraphicsSupervisor"}, m_process{process},
@@ -1132,13 +1286,20 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {905, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSessionWithFlag"},
         {906, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSessionWithVersion"},
         {1002, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSession2"},
+        {601, &IGraphicsSupervisor::InitializeFeatureContext, "InitializeCameraContext"},
+        {602, &IGraphicsSupervisor::OpenCameraSession, "OpenCameraContext"},
+        {1201, &IGraphicsSupervisor::InitializeFeatureContext, "InitializeChatContext"},
+        {1202, &IGraphicsSupervisor::OpenChatSession, "OpenChatSession"},
         {911, &IGraphicsSupervisor::CreateVideoImagePool, "CreateVideoImagePool"},
+        {1211, &IGraphicsSupervisor::CreateVideoImagePool, "CreateChatImagePool"},
         {912, &IGraphicsSupervisor::DestroyVideoImagePool, "DestroyVideoImagePool"},
+        {1212, &IGraphicsSupervisor::DestroyVideoImagePool, "DestroyChatImagePool"},
         {961, &IGraphicsSupervisor::GetCpuVideoImageDescriptor, "GetCpuUserImageDescriptor"},
         {426, &IGraphicsSupervisor::MapVideoGpuImage, "MapNativeGpuImage"},
         {427, &IGraphicsSupervisor::UnmapVideoGpuImage, "UnmapNativeGpuImage"},
         {428, &IGraphicsSupervisor::QueryVideoGpuImage, "QueryNativeGpuImage"},
         {435, &IGraphicsSupervisor::CalculateNativeImageSize, "CalculateNativeImageSize"},
+        {1291, &IGraphicsSupervisor::CalculateChatImagePoolSize, "CalculateChatImagePoolSize"},
         {1510, &IGraphicsSupervisor::CalculateNativeImageRequirements, "CalculateRequirements"},
     };
     RegisterHandlersTipc(functions);
@@ -1372,6 +1533,51 @@ void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx,2,0,1};rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
+
+void IGraphicsSupervisor::InitializeFeatureContext(HLERequestContext& ctx) {
+    // 601/1201 are the camera/GameChat admission calls. The SDK only
+    // consumes the result before requesting the corresponding session.
+    NativeTipcReplyWords(ctx, {});
+}
+
+void IGraphicsSupervisor::OpenCameraSession(HLERequestContext& ctx) {
+    Kernel::KClientSession* client{};
+    Result result = Kernel::ResultOutOfResource;
+    try {
+        auto handler = std::make_shared<INativeCameraSession>(system);
+        result = CreateMetadataSession(system, ctx, std::move(handler), &client);
+    } catch (const std::bad_alloc&) {
+        result = Kernel::ResultOutOfResource;
+    }
+    if (result.IsError()) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
+    }
+    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    rb.Push(result.raw);
+    rb.PushCopyObjects(ctx, *client);
+}
+
+void IGraphicsSupervisor::OpenChatSession(HLERequestContext& ctx) {
+    Kernel::KClientSession* client{};
+    Result result = Kernel::ResultOutOfResource;
+    try {
+        auto handler = std::make_shared<INativeChatGsvSession>(system);
+        result = CreateMetadataSession(system, ctx, std::move(handler), &client);
+    } catch (const std::bad_alloc&) {
+        result = Kernel::ResultOutOfResource;
+    }
+    if (result.IsError()) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
+    }
+    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    rb.Push(result.raw);
+    rb.PushCopyObjects(ctx, *client);
+}
+
 void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {
     Kernel::KClientSession* client{};
     Result result = Kernel::ResultOutOfResource;
@@ -1843,12 +2049,16 @@ void IGraphicsSupervisor::CreateVideoImagePool(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     u32 first{};
-    if (packet[0] == 0x39f && packet[1] == 18) {
+    const bool chat_pool = ctx.GetCommand() == 1211;
+    const u32 expected_header = chat_pool ? 0x4cbU : 0x39fU;
+    if (packet[0] == expected_header && packet[1] == 18) {
         result = Kernel::ResultInvalidState;
         if (m_bootstrap.GpuContextReady()) {
             const std::span<const u32> preference{packet + 2, 16};
             const u32 count = packet[18];
-            const auto layout = CalculateNativeVideoImageLayout(preference, count);
+            const auto layout = chat_pool
+                ? CalculateChatCameraImageLayout(preference, count)
+                : CalculateNativeVideoImageLayout(preference, count);
             result = Kernel::ResultNotImplemented;
             if (layout && (layout->image_bytes & 0xfffU) == 0 &&
                 (layout->image_stride & 0xfffU) == 0) {
@@ -1900,7 +2110,9 @@ void IGraphicsSupervisor::CreateVideoImagePool(HLERequestContext& ctx) {
 void IGraphicsSupervisor::DestroyVideoImagePool(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
-    if (packet[0] == 0x3a0 && packet[1] == 1) {
+    const bool chat_pool = ctx.GetCommand() == 1212;
+    const u32 expected_header = chat_pool ? 0x4ccU : 0x3a0U;
+    if (packet[0] == expected_header && packet[1] == 1) {
         const std::scoped_lock lock{m_native_memory_mutex};
         result = Kernel::ResultNotFound;
         const auto pool = m_video_pools.Get(packet[2]);
@@ -2160,6 +2372,24 @@ void IGraphicsSupervisor::DestroyNativeImage(HLERequestContext& ctx) {
     }
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
+}
+
+
+void IGraphicsSupervisor::CalculateChatImagePoolSize(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::span<const u32> preference{packet + 2, 16};
+    const u32 count = packet[18];
+    const auto layout =
+        packet[1] == 17 ? CalculateChatCameraImageLayout(preference, count) : std::nullopt;
+    const Result result = layout ? ResultSuccess : Kernel::ResultInvalidCombination;
+    IPC::ResponseBuilder rb{ctx, 6};
+    rb.Push(result.raw);
+    rb.Push(layout ? static_cast<u32>(layout->total_bytes) : 0u);
+    rb.Push(layout ? static_cast<u32>(layout->total_bytes >> 32) : 0u);
+    // The layout helper rounds every image to the real block alignment.
+    const u64 alignment = layout ? std::max<u64>(4096, 64ULL << preference[4]) : 0;
+    rb.Push(static_cast<u32>(alignment));
+    rb.Push(static_cast<u32>(alignment >> 32));
 }
 
 static std::optional<NativeImageRequirements> ParseNativeImageRequest(HLERequestContext& ctx) {
