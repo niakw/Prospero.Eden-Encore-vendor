@@ -27,6 +27,10 @@ assert 'Result OpenApplicationProxyWithFlags(' in proxy_header
 assert 'u32 flags, ClientProcessId pid' in proxy_header
 assert blob(BASE/"am/service/application_proxy_service.h")=="e5f4ea345bdb7a50da8586d6347feae5851d47f6"
 assert 'if (const auto applet = this->GetAppletFromProcessId(pid))' in proxy_text
+# SwitchBrew AM appletOE: official users retry 0x19280 (AM 201) when
+# their applet is not registered yet; never replace that with 0xFFFFFFFF.
+assert 'R_THROW(Result{ErrorModule::AM, 201});' in proxy_text
+assert 'UNIMPLEMENTED();\n        R_THROW(ResultUnknown);' not in proxy_text
 assert 'std::make_shared<IApplicationProxy>' in proxy_text
 assert 'use_auto_stub' not in proxy_text
 ap=(ACTIVE/"am/service/application_proxy.cpp").read_text()
