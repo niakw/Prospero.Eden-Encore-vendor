@@ -49,7 +49,13 @@ public:
     Status Complete(std::span<const U32> packet) {
         if (packet.size()<2 || packet[0]!=0x75 || packet[1]!=0)
             return Status::InvalidPacket;
-        if (phase!=Phase::ProcessBound) return Status::InvalidState;
+        // The observed NS2 GSV boot sequence is 4 -> 101 -> 1402: some
+        // SDKs never issue the optional SetCurrentProcessHandle (11). The
+        // initial 4 already checked the copied KProcess and ARUID, so 101
+        // may complete that authenticated bootstrap directly. Retain 11 as
+        // an additional identity check when the guest does send it.
+        if (phase!=Phase::Initialized && phase!=Phase::ProcessBound)
+            return Status::InvalidState;
         phase=Phase::Ready;
         return Status::Success;
     }
