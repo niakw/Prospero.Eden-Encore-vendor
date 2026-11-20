@@ -130,13 +130,24 @@ void MaxwellDMA::Launch() {
         const bool is_const_a_dst = regs.remap_const.dst_x == RemapConst::Swizzle::CONST_A;
         if (regs.launch_dma.remap_enable != 0 && is_const_a_dst) {
             const u32 component_size = regs.remap_const.component_size_minus_one + 1;
-            ASSERT(component_size == 1 || component_size == 2 || component_size == 4);
+            // NVIDIA B0B5 SET_REMAP_COMPONENTS allows 1..4 bytes per component.
+            // The old u32 fill followed by a shorter 1/2-byte copy produced
+            // 00-padded words instead of contiguous CONST_A components.
+            ASSERT(component_size >= 1 && component_size <= 4);
             if (component_size == 4) {
                 accelerate.BufferClear(regs.offset_out, regs.line_length_in, regs.remap_const.remap_consta_value);
             }
-            read_buffer.resize_destructive(regs.line_length_in * sizeof(u32));
-            std::ranges::fill(std::span<u32>(reinterpret_cast<u32*>(read_buffer.data()), regs.line_length_in), regs.remap_const.remap_consta_value);
-            memory_manager.WriteBlockUnsafe(regs.offset_out, reinterpret_cast<u8*>(read_buffer.data()), static_cast<size_t>(regs.line_length_in) * component_size);
+            const size_t byte_count = static_cast<size_t>(regs.line_length_in) * component_size;
+            read_buffer.resize_destructive(byte_count);
+            const u32 value = regs.remap_const.remap_consta_value;
+            u8* const bytes = read_buffer.data();
+            for (u32 element = 0; element < regs.line_length_in; ++element) {
+                const size_t base = static_cast<size_t>(element) * component_size;
+                for (u32 byte = 0; byte < component_size; ++byte) {
+                    bytes[base + byte] = static_cast<u8>(value >> (byte * 8));
+                }
+            }
+            memory_manager.WriteBlockUnsafe(regs.offset_out, bytes, byte_count);
         } else {
             memory_manager.FlushCaching();
             const auto convert_linear_2_blocklinear_addr = [](u64 address) {
