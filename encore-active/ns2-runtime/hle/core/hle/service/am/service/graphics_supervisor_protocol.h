@@ -273,9 +273,14 @@ constexpr u32 NativeGpuProfileForBootstrap(u64 flags) {
 }
 
 inline bool IsLocalBootstrap(const BootstrapRequest& request) {
+    // GSV 4 BootWithRemoteMemory has five u64 arguments. The first is the
+    // SDK version, the following three are reserved zero, and the final one
+    // comes from GetInfo(InfoType 31/32). Do not reject the legitimate
+    // kernel-provided last value as if it were a fourth reserved word.
     return (request.flags == 0x8000000000000005ULL ||
             request.flags == 0x8000000000000006ULL || request.flags == 0x8000000000000007ULL) &&
-           std::ranges::all_of(request.parameters, [](u64 value) { return value == 0; });
+           request.parameters[0] == 0 && request.parameters[1] == 0 &&
+           request.parameters[2] == 0;
 }
 
 inline std::optional<BootstrapRequest> DecodeBootstrap(std::span<const u32> packet) {
