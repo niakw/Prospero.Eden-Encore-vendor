@@ -9,6 +9,8 @@
 #include "core/hle/service/nvdrv/nvdrv.h"
 #include "core/hle/service/service.h"
 
+namespace Kernel { class KProcess; }
+
 namespace Service::Nvidia {
 
 class NVDRV final : public ServiceFramework<NVDRV> {
@@ -19,6 +21,12 @@ public:
     std::shared_ptr<Module> GetModule() const {
         return nvdrv;
     }
+
+    // GSV 1402 supplies a verified Switch 2 KProcess and must return a
+    // fully usable NvRm child session, without a synthetic guest CMIF init.
+    // Only called on a fresh NVDRV object; CloseSession remains owned by
+    // its existing destructor.
+    [[nodiscard]] bool InitializeForProcess(Kernel::KProcess* process);
 
 private:
     void Open(HLERequestContext& ctx);

@@ -95,4 +95,38 @@ for handler in ('{1,&IVi2Session::Limit,"GetNotificationLimit"}',
 assert "rb.Push<u32>(ctx.GetCommand()==5?7:0);" not in cpp
 assert "rw->GetOwner() != process" in cpp and "ro->GetOwner() != process" in cpp
 assert "std::array<Kernel::KEvent*, MaxSlots> m_events{};" in cpp
+# GSV 1402 is a *real* NVDRV-backed nvsrv child session, needed by
+# newer NS2 graphics SDKs before they can reach any GPFIFO submit.
+# Compare Lichii nx2 GSV 1402; do not substitute a zero-reply stub.
+nvhdr=(R/"sources/eden/src/core/hle/service/nvdrv/nvdrv_interface.h").read_text()
+nvcpp=(R/"sources/eden/src/core/hle/service/nvdrv/nvdrv_interface.cpp").read_text()
+assert '{1402, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSession"}' in cpp
+assert 'void OpenNvsrvSession(HLERequestContext& ctx);' in hdr
+nvsrv=cpp.split("void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
+for needle in (
+    'packet[0] == 16 + 1402 && packet[1] == 0',
+    'm_bootstrap.CurrentPhase() == GB::Phase::Ready',
+    'GetService<Nvidia::NVDRV>("nvdrv:s", true)',
+    'std::make_shared<Nvidia::NVDRV>(',
+    'system, module, "nx2:nvsrv"',
+    'handler->InitializeForProcess(m_process)',
+    'CreateMetadataSession(system, ctx,',
+    'catch (const std::bad_alloc&)',
+    'IPC::ResponseBuilder rb{ctx, 2, 0, 1};',
+    'ctx.AddMoveObject(client);',
+):
+    assert needle in nvsrv,needle
+assert nvsrv.index('handler->InitializeForProcess(m_process)') < nvsrv.index(
+    'CreateMetadataSession(system, ctx,')
+assert nvsrv.index('if (result.IsError()) {') < nvsrv.index(
+    'IPC::ResponseBuilder rb{ctx, 2, 0, 1};')
+assert 'bool InitializeForProcess(Kernel::KProcess* process);' in nvhdr
+nvinitialize=nvcpp.split('bool NVDRV::InitializeForProcess(Kernel::KProcess* process) {',1)[1].split("\n}",1)[0]
+assert nvinitialize.index('if (!process || is_initialized)') < nvinitialize.index(
+    'nvdrv->GetContainer().OpenSession(process)')
+assert nvinitialize.index('session_id = nvdrv->GetContainer().OpenSession(process);') < nvinitialize.index(
+    'is_initialized = true;')
+assert 'container.CloseSession(session_id);' in nvcpp
+assert '{13, &NVDRV::SetGraphicsFirmwareMemoryMarginEnabled' in nvcpp
+
 print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")

@@ -58,6 +58,7 @@ private:
     void OpenSyncptSession(HLERequestContext& ctx);
     void AttachSyncptMemory(HLERequestContext& ctx);
     void OpenGpuSession(HLERequestContext& ctx);
+    void OpenNvsrvSession(HLERequestContext& ctx);
     void InitializeFeatureContext(HLERequestContext& ctx);
     void OpenCameraSession(HLERequestContext& ctx);
     void OpenChatSession(HLERequestContext& ctx);

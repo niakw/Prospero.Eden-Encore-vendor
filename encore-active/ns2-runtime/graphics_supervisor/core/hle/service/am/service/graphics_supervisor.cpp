@@ -1273,6 +1273,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {402, &IGraphicsSupervisor::InitializeGpuContext, "ActivateGpuContext"},
         {434, &IGraphicsSupervisor::RegisterGpuAddressSpace, "RegisterGpuAddressSpace"},
         {497, &IGraphicsSupervisor::OpenGpuSession, "OpenGpuSession"},
+        {1402, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSession"},
         {301, &IGraphicsSupervisor::InitializeDisplayContext, "InitializeDisplayContext"},
         {303, &IGraphicsSupervisor::FinalizeDisplayContext, "FinalizeDisplayContext"},
         {305, &IGraphicsSupervisor::OpenDisplaySession, "OpenDisplaySession"},
@@ -1621,6 +1622,48 @@ void IGraphicsSupervisor::AttachSyncptMemory(HLERequestContext& ctx) {
         return;
     }
     m_syncpt->Attach(ctx);
+}
+
+void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
+    // Switch 2 GSV 1402 returns a real NVDRV INvDrvServices session.
+    // The guest uses this nvsrv handle for NvRm channel setup; a missing
+    // service here can stop NVN before the first GPFIFO submission.
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    Kernel::KClientSession* client{};
+    if (packet[0] == 16 + 1402 && packet[1] == 0) {
+        result = Kernel::ResultInvalidState;
+        if (m_process && m_bootstrap.CurrentPhase() == GB::Phase::Ready) {
+            try {
+                const auto service =
+                    system.ServiceManager().GetService<Nvidia::NVDRV>("nvdrv:s", true);
+                const auto module = service ? service->GetModule() : nullptr;
+                if (module) {
+                    // NVDRV CMIF 3 normally initialises with copied process
+                    // handles. GSV already owns the authenticated process:
+                    // set up its real NVDRV container session directly.
+                    auto handler = std::make_shared<Nvidia::NVDRV>(
+                        system, module, "nx2:nvsrv");
+                    if (handler->InitializeForProcess(m_process)) {
+                        result = CreateMetadataSession(system, ctx,
+                                                       std::move(handler), &client);
+                    }
+                }
+            } catch (const std::bad_alloc&) {
+                result = Kernel::ResultOutOfResource;
+            }
+        }
+    }
+    // A failed nvsrv admission must not return a MOVE descriptor or a null
+    // kernel object. Keep normal NVDRV/NS1 service registration unchanged.
+    if (result.IsError()) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
+    }
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(result.raw);
+    ctx.AddMoveObject(client);
 }
 
 void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {

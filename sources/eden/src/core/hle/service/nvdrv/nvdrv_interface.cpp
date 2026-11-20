@@ -154,6 +154,17 @@ void NVDRV::Close(HLERequestContext& ctx) {
     rb.PushEnum(result);
 }
 
+bool NVDRV::InitializeForProcess(Kernel::KProcess* process) {
+    if (!process || is_initialized)
+        return false;
+    // OpenSession may allocate; only publish initialized state after it
+    // succeeds. The existing destructor releases this same container ref
+    // if GSV later fails to publish the kernel client session.
+    session_id = nvdrv->GetContainer().OpenSession(process);
+    is_initialized = true;
+    return true;
+}
+
 void NVDRV::Initialize(HLERequestContext& ctx) {
     LOG_WARNING(Service_NVDRV, "(STUBBED) called");
     IPC::ResponseBuilder rb{ctx, 3};
