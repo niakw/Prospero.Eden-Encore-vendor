@@ -40,6 +40,26 @@ assert cache_owner.index("workers.WaitForRequests();") < cache_owner.index(
 assert "EDEN_PS5_SHADER_CACHE_DISK" not in source.split(
     "GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline", 1)[1].split(
     "void PipelineCache::LoadDiskResources(", 1)[0]
+# The CMake-selected native pipeline cache must preserve correct first-use
+# shader execution while preferentially warming the most RECENT 32 valid
+# pipeline records for a small existing per-game environment log. Large
+# caches retain the original prefix-32 admission and short startup parse.
+load_method = source.split("void PipelineCache::LoadDiskResources(", 1)[1].split(
+    "void PipelineCache::QueueVulkanPipelineCacheFlush(", 1)[0]
+assert "constexpr size_t kStartupPrewarmPipelines = 32;" in load_method
+assert "constexpr std::uintmax_t kRecentShaderCacheScanLimit = 64ULL << 20;" in load_method
+assert "env_before.bytes <= kRecentShaderCacheScanLimit" in load_method
+assert "std::deque<Common::UniqueFunction<void>> recent_cache_builds;" in load_method
+assert "recent_cache_builds.pop_front();" in load_method
+assert "recent_cache_builds.emplace_back(std::move(build));" in load_method
+assert "workers.QueueWork(std::move(build));" in load_method
+assert "prefer_recent_cache ? stop_loading : startup_reader.get_token()" in load_method
+assert "if (prefer_recent_cache && !stop_loading.stop_requested())" in load_method
+assert "workers.WaitForRequests();" in load_method
+assert load_method.count("++state.total;") == 2
+assert load_method.count("startup_reader.request_stop();") == 1
+assert load_method.count("schedule_prewarm([this, key,") == 2
+assert load_method.count("VideoCommon::LoadPipelines(reader_token") == 1
 assert "MAGIC_NUMBER" in reader and "cache_version != expected_cache_version" in reader
 assert "std::filesystem::resize_file(filename" in reader
 assert "GenericEnvironment::CanBeSerialized" in writer
@@ -84,6 +104,61 @@ assert classify(session(graphics=1, filtered=0, compute=0, queued=1, valid=0)) =
     "pipelines_queued_but_none_executable")
 assert classify(session()) == "cache_admitted_verify_reuse_and_frame_latency"
 assert module.summarize(["old game log only"]) == []
+
+# C++20 replay of the two admission paths. This checks the bounded
+# selected pipeline identifiers and ensures discarded jobs are NEVER
+# compiled. It deliberately does not claim a PS5 performance improvement.
+import shutil
+import subprocess
+import tempfile
+fixture = r"""
+#include <cassert>
+#include <cstdint>
+#include <deque>
+#include <functional>
+#include <vector>
+constexpr std::size_t kStartupPrewarmPipelines=32;
+constexpr std::uintmax_t kRecentShaderCacheScanLimit=64ULL<<20;
+static std::vector<unsigned> Simulate(unsigned count,std::uintmax_t bytes){
+    const bool prefer_recent_cache=bytes>12&&bytes<=kRecentShaderCacheScanLimit;
+    std::deque<std::function<void()>> recent_cache_builds;
+    std::vector<unsigned> started;
+    for(unsigned i=0;i<count;++i){
+        std::function<void()> build=[&,i]{started.push_back(i);};
+        if(prefer_recent_cache){
+            if(recent_cache_builds.size()==kStartupPrewarmPipelines)
+                recent_cache_builds.pop_front();
+            recent_cache_builds.emplace_back(std::move(build));
+        }else{
+            build();
+            if(started.size()==kStartupPrewarmPipelines)break;
+        }
+    }
+    for(auto& build:recent_cache_builds)build();
+    return started;
+}
+int main(){
+    for(unsigned count: {0u,1u,31u,32u,33u,250u}){
+        auto recent=Simulate(count,28682396);
+        auto prefix=Simulate(count,65ULL<<20);
+        const auto n=count<32?count:32;
+        assert(recent.size()==n&&prefix.size()==n);
+        for(unsigned i=0;i<n;++i){
+            assert(recent[i]==count-n+i);
+            assert(prefix[i]==i);
+        }
+    }
+}
+"""
+compiler=shutil.which("clang++") or shutil.which("g++")
+assert compiler, "C++20 compiler required"
+with tempfile.TemporaryDirectory(prefix="fc27-recent-shader-cache-") as temp:
+    cpp=Path(temp)/"prewarm.cpp"; cpp.write_text(fixture)
+    for flag in ("-O0","-O2"):
+        exe=Path(temp)/("prewarm"+flag[1:])
+        subprocess.run([compiler,"-std=c++20",flag,"-Wall","-Wextra","-Werror",
+                        str(cpp),"-o",str(exe)],check=True,timeout=55)
+        subprocess.run([str(exe)],check=True,timeout=12)
 
 print("PS5_SHADER_CACHE_TRIAGE_HOST_PASS parser_cases=8 "
       "load_once=1 reader_owner=1 runtime=unverified")
