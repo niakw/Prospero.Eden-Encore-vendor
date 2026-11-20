@@ -246,7 +246,9 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {3111, &IHidServer::StubJcms, "FinalizeJcms"},
         {3112, &IHidServer::StubJcms, "StartJcms"},
         {3113, &IHidServer::StubJcms, "StopJcms"},
-        // Confirmed Nmouse signatures only. Do not fake undocumented 3130/3131/3134-3149.
+        // Documented Nmouse lifecycle and pointer ABI; do not invent sensor samples.
+        {3130, C<&IHidServer::InitializeNmouse>, "InitializeNmouse"},
+        {3131, C<&IHidServer::FinalizeNmouse>, "FinalizeNmouse"},
         {3132, C<&IHidServer::SetNmousePointerRanges>, "SetNmousePointerRanges"},
         {3133, C<&IHidServer::GetNmousePointerRanges>, "GetNmousePointerRanges"},
         {3139, C<&IHidServer::InitializeNmouse2>, "InitializeNmouse2"},
@@ -1518,6 +1520,24 @@ Result IHidServer::SetTouchScreenResolution(u32 width, u32 height,
              aruid.pid);
 
     GetResourceManager()->GetTouchScreen()->SetTouchScreenResolution(width, height, aruid.pid);
+    R_SUCCEED();
+}
+
+Result IHidServer::InitializeNmouse(u8 pointer_type, s32 width, s32 height,
+                                     ClientAppletResourceUserId aruid, u64 t_mem_size,
+                                     InCopyHandle<Kernel::KTransferMemory> t_mem) {
+    // Horizon 20+ Nmouse initialization: a copied, read-only TransferMemory,
+    // pointer-type byte, state-range dimensions and the process ARUID.
+    // With no emulated Joy-Con 2 sensor, the guest buffer has no samples.
+    static_cast<void>(pointer_type);
+    static_cast<void>(t_mem_size);
+    static_cast<void>(t_mem);
+    R_RETURN(SetNmousePointerRanges(width, height, aruid));
+}
+
+Result IHidServer::FinalizeNmouse(ClientAppletResourceUserId aruid) {
+    const std::scoped_lock lock{m_ns2_state_mutex};
+    m_ns2_nmouse_ranges.erase(aruid.pid);
     R_SUCCEED();
 }
 

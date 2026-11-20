@@ -45,6 +45,10 @@ private:
     Result IsOunceVibrationDeviceMounted(Out<bool> out_is_mounted,
                                          Core::HID::VibrationDeviceHandle vibration_device_handle,
                                          ClientAppletResourceUserId aruid);
+    Result InitializeNmouse(u8 pointer_type, s32 width, s32 height,
+                            ClientAppletResourceUserId aruid, u64 t_mem_size,
+                            InCopyHandle<Kernel::KTransferMemory> t_mem);
+    Result FinalizeNmouse(ClientAppletResourceUserId aruid);
     Result InitializeNmouse2(u32 pointer_type, s32 width, s32 height, u32 unknown,
                              ClientAppletResourceUserId aruid, u64 t_mem_size,
                              InCopyHandle<Kernel::KTransferMemory> t_mem);
