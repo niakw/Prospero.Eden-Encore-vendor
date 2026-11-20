@@ -9,6 +9,7 @@
 #include "dev_vulkan.h"
 #include <array>
 #include <cstring>
+#include <limits>
 #include <new>
 #include <span>
 #include <vector>
@@ -173,17 +174,25 @@ public:
     virtual ~QuadIndexBuffer() = default;
 
     void UpdateBuffer(u32 num_indices_) {
+        // Lichii #414: the old LUT can remain referenced by recorded GPU
+        // commands. Reclaim it only after its real submission tick completes,
+        // rather than stalling all GPU work on every index-buffer growth.
+        while (!retired_buffers.empty() && scheduler.IsFree(retired_buffers.front().first)) {
+            retired_buffers.erase(retired_buffers.begin());
+        }
         if (num_indices_ <= num_indices) {
             return;
         }
 
-        // The very first LUT has no previous device buffer to protect.
-        // Keep the original GPU fence when replacing an already-used buffer.
         if (buffer) {
-            { auto timer = Eden::Performance::VulkanTimer(7); scheduler.Finish(); }
+            retired_buffers.emplace_back(scheduler.CurrentTick(), std::move(buffer));
         }
 
-        num_indices = num_indices_;
+        // Geometric growth avoids repeatedly replacing the LUT for small
+        // draw-count increases. Do not overflow the guest-provided u32 count.
+        const u32 headroom = std::numeric_limits<u32>::max() - num_indices;
+        const u32 grown = num_indices + (std::min)(num_indices / 2, headroom);
+        num_indices = (std::max)(num_indices_, grown);
         index_type = IndexTypeFromNumElements(device, num_indices);
 
         const u32 num_quads = GetQuadsNum(num_indices);
@@ -274,6 +283,7 @@ protected:
     StagingBufferPool& staging_pool;
 
     vk::Buffer buffer{};
+    std::vector<std::pair<u64, vk::Buffer>> retired_buffers;
     MemoryCommit memory_commit{};
     VkIndexType index_type{};
     u32 num_indices = 0;
