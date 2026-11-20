@@ -147,6 +147,9 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {310, nullptr, "Unknown310"}, // [20.0.0+]
         {320, D<&IApplicationFunctions::GetScreenShotAndContinuousRecordingInitiallyEnabled>,
          "GetScreenShotAndContinuousRecordingInitiallyEnabled"}, // NS2 SDK 20.0+
+        // SDKs that request 321 expect a full one-byte response, not a
+        // successful IPC reply with stale data left in the output word.
+        {321, D<&IApplicationFunctions::Unknown321>, "Unknown321"}, // Switch 2
         {330, D<&IApplicationFunctions::Unknown330>, "Unknown330"}, // [20.0.0+]
         {500, nullptr, "StartContinuousRecordingFlushForDebug"},
         {1000, nullptr, "CreateMovieMaker"},
@@ -616,6 +619,14 @@ Result IApplicationFunctions::GetScreenShotAndContinuousRecordingInitiallyEnable
                              m_applet->game_play_recording_state == GamePlayRecordingState::Enabled;
     LOG_DEBUG(Service_AM, "called, screenshot={}, recording={}", *out_screenshot_enabled,
               *out_recording_enabled);
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::Unknown321(Out<u8> out) {
+    // Upstream Lichii/Eglantine NS2 initialization requires one data byte.
+    // Meaning is unknown; report a deterministic zero without auto-stubbing.
+    LOG_WARNING(Service_AM, "(STUBBED) called");
+    *out = 0;
     R_SUCCEED();
 }
 

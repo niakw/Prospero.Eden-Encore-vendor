@@ -54,6 +54,14 @@ jcms=hid.split("void IHidServer::StubJcms(HLERequestContext& ctx)",1)[1].split("
 assert "IPC::ResponseBuilder rb{ctx, 2};" in jcms and "rb.Push(ResultSuccess);" in jcms
 assert "use_auto_stub" not in jcms
 assert "void StubJcms(HLERequestContext& ctx);" in hidh
+# Switch 2 application functions command 321 is a one-byte output.
+# It must not silently return success without the byte, nor modify 320.
+appfunc=(ROOT/"encore-active/ns2-runtime/am/core/hle/service/am/service/application_functions.cpp").read_text()
+appfunc_header=(ROOT/"encore-active/ns2-runtime/am/core/hle/service/am/service/application_functions.h").read_text()
+assert '{321, D<&IApplicationFunctions::Unknown321>, "Unknown321"}' in appfunc
+assert 'Result Unknown321(Out<u8> out);' in appfunc_header
+assert 'Result IApplicationFunctions::Unknown321(Out<u8> out) {' in appfunc
+assert '*out = 0;' in appfunc.split('Result IApplicationFunctions::Unknown321(Out<u8> out) {',1)[1].split('}',1)[0]
 audio=(BASE/"audio/audio_device.cpp").read_text()
 assert '{19, D<&IAudioDevice::SetAudioDeviceOutputVolumeAutoTuneEnabled>' in audio
 assert '{20, D<&IAudioDevice::IsAudioDeviceOutputVolumeAutoTuneEnabled>' in audio
