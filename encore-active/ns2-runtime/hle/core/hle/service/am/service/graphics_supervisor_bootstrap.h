@@ -73,6 +73,16 @@ public:
         }
         return Status::Success;
     }
+    Status DestroyGpuContext(std::span<const U32> packet, bool resources_released) {
+        // TIPC 403 has no input/output; do not revoke a live VA/session.
+        if (packet.size()<2 || packet[0]!=16+403 || packet[1]!=0)
+            return Status::InvalidPacket;
+        if (phase!=Phase::Ready || !gpu_initialized || !resources_released)
+            return Status::InvalidState;
+        gpu_initialized=false;
+        gpu_ready=false;
+        return Status::Success;
+    }
     Status CanOpenGpuSession(std::span<const U32> packet, bool module_available) const {
         if (packet.size()<4 || packet[0]!=0x201 || packet[1]!=2)
             return Status::InvalidPacket;

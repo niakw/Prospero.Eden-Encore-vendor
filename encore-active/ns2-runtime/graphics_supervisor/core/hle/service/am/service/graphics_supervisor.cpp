@@ -1272,6 +1272,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {204, &IGraphicsSupervisor::AttachSyncptMemory, "AttachSyncptMemory"},
         {401, &IGraphicsSupervisor::InitializeGpuContext, "InitializeGpuContext"},
         {402, &IGraphicsSupervisor::InitializeGpuContext, "ActivateGpuContext"},
+        {403, &IGraphicsSupervisor::DestroyGpuContext, "DestroyGpuContext"},
         {434, &IGraphicsSupervisor::RegisterGpuAddressSpace, "RegisterGpuAddressSpace"},
         {497, &IGraphicsSupervisor::OpenGpuSession, "OpenGpuSession"},
         {1402, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSession"},
@@ -1430,6 +1431,24 @@ void IGraphicsSupervisor::InitializeGpuContext(HLERequestContext& ctx) {
     const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
     const Result result = TranslateBootstrap(
         m_bootstrap.InitializeGpuContext(packet, ctx.GetCommand()));
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGraphicsSupervisor::DestroyGpuContext(HLERequestContext& ctx) {
+    const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
+    // The kernel session and native GPU memory have independent owners.
+    // The context may be retired only once those owners have released
+    // their real GMMU mappings, NVMap pins and worker handles.
+    const std::scoped_lock lock{m_native_memory_mutex};
+    std::erase_if(m_gpu_sessions, [](const auto& weak) { return weak.expired(); });
+    const bool resources_released =
+        m_gpu_sessions.empty() && m_nvsrv_session.expired() &&
+        m_native_memory.Count() == 0 && m_native_images.Count() == 0 &&
+        m_video_pools.ImageCount() == 0 && m_video_mappings.empty() &&
+        m_native_parents.empty() && !m_native_memory_session.has_value();
+    const Result result = TranslateBootstrap(
+        m_bootstrap.DestroyGpuContext(packet, resources_released));
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
 }
