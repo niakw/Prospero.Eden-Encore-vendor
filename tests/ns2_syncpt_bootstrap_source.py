@@ -15,6 +15,27 @@ for marker in (
 ):
     assert marker in cpp, marker
 assert "NativeSyncptState" in hdr
+# Native GSV child replies are one COPY descriptor (not MOVE) on the wire:
+# Lichii nx2 ReturnRawSession uses ResponseBuilder(ctx, 2, 1, 0).
+# Internally the original KSession client reference must be transferred to
+# the guest handle to avoid leaking it after guest CloseHandle.
+for service in ("OpenSyncptSession", "OpenDisplaySession", "OpenGpuSession",
+                "OpenNvsrvSession", "OpenCameraSession", "OpenChatSession",
+                "OpenVideoDecoderSession", "OpenVideoDecoderChildSession"):
+    begin = f"void IGraphicsSupervisor::{service}(HLERequestContext& ctx) {{"
+    assert cpp.count(begin) == 1, service
+    body = cpp.split(begin, 1)[1].split("\n}", 1)[0]
+    assert "IPC::ResponseBuilder rb{ctx, 2, 1, 0};" in body, service
+    assert "IPC::ResponseBuilder rb{ctx, 2, 0, 1};" not in body, service
+    assert "ctx.AddMoveObject(client);" in body, ("HLE copy-slot + transfer-ref", service)
+# The selected HLE interface advertises COPY count in the TIPC descriptor;
+# WriteToOutgoingCommandBuffer then writes the sole queued handle and releases
+# its creator reference for the internal move queue.
+writer=(R/"sources/eden/src/core/hle/service/hle_ipc.cpp").read_text()
+assert writer.index("for (auto& object : outgoing_copy_objects)") < writer.index(
+    "for (auto& object : outgoing_move_objects)")
+assert "object->Close(kernel);" in writer.split(
+    "for (auto& object : outgoing_move_objects)", 1)[1].split("cmd_buf[current_offset++] = handle;", 1)[0]
 for marker in ("ValuesOffset = 0x40","RoSummaryOffset = 0x1040","RoBitsOffset = 0x1100",
                "RwBitsOffset = 0x100","PollInterval{std::chrono::microseconds{500}}"):
     assert marker in cpp, marker

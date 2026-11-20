@@ -1540,14 +1540,18 @@ void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
             }
         }
     }
-    // TIPC 305 returns a MOVE handle only when a real VI2 session exists.
-    // On failure, do not append a null kernel object or misstate the reply size.
+    // The Switch 2 SDK expects one COPY handle descriptor for every native
+    // GSV child session (305/202/497/1402 and video/feature children).
+    // Internal AddMoveObject below is deliberate: the HLE serializer writes
+    // its one handle into the same slot, then releases the KSession creator's
+    // reference after handle_table.Add(). AddCopyObject would leak that ref.
+    // On failure, never publish a descriptor or a null kernel object.
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
@@ -1572,7 +1576,7 @@ void IGraphicsSupervisor::OpenCameraSession(HLERequestContext& ctx) {
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
@@ -1591,7 +1595,7 @@ void IGraphicsSupervisor::OpenChatSession(HLERequestContext& ctx) {
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
@@ -1606,7 +1610,7 @@ void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {
         result = Kernel::ResultOutOfResource;
     }
     if (result.IsSuccess()) {
-        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+        IPC::ResponseBuilder rb{ctx, 2, 1, 0};
         rb.Push(result.raw);
         ctx.AddMoveObject(client);
     } else {
@@ -1661,14 +1665,14 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
             }
         }
     }
-    // A failed nvsrv admission must not return a MOVE descriptor or a null
-    // kernel object. Keep normal NVDRV/NS1 service registration unchanged.
+    // TIPC 1402 returns a COPY descriptor; fail-closed admission must never
+    // publish a null handle. Preserve normal NVDRV/NS1 registration.
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
@@ -1695,14 +1699,14 @@ void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
             result = Kernel::ResultOutOfResource;
         }
     }
-    // TIPC 497 must not move a null client when bootstrap/NVDRV admission
-    // or session creation fails. Keep the success reply ABI unchanged.
+    // TIPC 497 must expose the guest's expected COPY descriptor only on
+    // successful bootstrap/NVDRV admission; no null session on failure.
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
@@ -2100,7 +2104,7 @@ void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
@@ -2121,7 +2125,7 @@ void IGraphicsSupervisor::OpenVideoDecoderChildSession(HLERequestContext& ctx) {
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
