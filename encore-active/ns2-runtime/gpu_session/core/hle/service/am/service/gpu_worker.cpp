@@ -1046,10 +1046,23 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
         if (!owned) continue;
         const auto as = m_shared->FindOwnedAddressSpace(*owned);
         if (!as) continue;
-        const auto mapped = as->MapNative4K(id, begin, 0, size, 0);
-        if (mapped != Nvidia::NvResult::Success || !identity.AddSpace(*owned)) {
+        Nvidia::NvResult mapped = Nvidia::NvResult::InvalidState;
+        try {
+            mapped = as->MapNative4K(id, begin, 0, size, 0);
+        } catch (const std::bad_alloc&) {
+            // Preserve the normal unlock/NVMap rollback below on host OOM.
+            identity_result = Kernel::ResultOutOfResource;
+            break;
+        }
+        if (mapped != Nvidia::NvResult::Success) {
             identity_result = mapped == Nvidia::NvResult::InsufficientMemory
                 ? Kernel::ResultOutOfResource : Kernel::ResultInvalidState;
+            break;
+        }
+        if (!identity.AddSpace(*owned)) {
+            // Never leave a successful but untracked identity mapping live.
+            (void)as->UnmapNative4K(begin, size);
+            identity_result = Kernel::ResultInvalidState;
             break;
         }
     }

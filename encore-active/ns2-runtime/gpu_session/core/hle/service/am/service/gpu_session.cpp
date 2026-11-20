@@ -409,9 +409,17 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
                                     for (auto& identity : m_shared->identity_gpu_mappings) {
                                         replay = as->MapNative4K(identity.handle, identity.address,
                                                                 0, identity.size, 0);
-                                        if (replay != Nvidia::NvResult::Success ||
-                                            !identity.AddSpace(candidate))
+                                        if (replay != Nvidia::NvResult::Success)
                                             break;
+                                        if (!identity.AddSpace(candidate)) {
+                                            // The GPU VA mapping succeeded, but the fixed-size
+                                            // identity registry rejected it. Undo the untracked
+                                            // mapping and fail this address-space transaction.
+                                            // Never report Success with an orphaned GPU VA.
+                                            (void)as->UnmapNative4K(identity.address, identity.size);
+                                            replay = Nvidia::NvResult::InvalidState;
+                                            break;
+                                        }
                                     }
                                     if (replay == Nvidia::NvResult::Success) {
                                         id = candidate;
@@ -434,6 +442,18 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
                                 }
                             }
                         } catch (const std::bad_alloc&) {
+                            // A later GPU VA allocation may throw *after* the
+                            // FD, slot and earlier identity maps were published.
+                            // Remove all state belonging to this candidate
+                            // before Close(fd); otherwise a future boot can see
+                            // a stale registered address-space ID.
+                            for (auto& identity : m_shared->identity_gpu_mappings) {
+                                if (!identity.HasSpace(candidate)) continue;
+                                (void)as->UnmapNative4K(identity.address, identity.size);
+                                identity.RemoveSpace(candidate);
+                            }
+                            (void)m_shared->address_spaces.Remove(candidate);
+                            m_shared->opened_gpu_as.erase(candidate);
                             result = Kernel::ResultOutOfResource;
                         }
                         if (result.IsError()) m_module->Close(fd);
