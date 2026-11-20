@@ -75,7 +75,7 @@ public:
     }
     Status CanOpenGpuSession(std::span<const U32> packet, bool module_available) const {
         if (packet.size()<4 || packet[0]!=0x201 || packet[1]!=2 ||
-            (U64{packet[2]} | (U64{packet[3]} << 32))!=4)
+            (U64{packet[2]} | (U64{packet[3]} << 32))!=2)
             return Status::InvalidPacket;
         return phase==Phase::Ready && module_available
             ? Status::Success : Status::InvalidState;
