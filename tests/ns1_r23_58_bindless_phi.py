@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 r=Path(__file__).resolve().parents[1]/"encore-active/eden-shader"
 names={
- "src/shader_recompiler/ir_opt/texture_pass.cpp":{"85c523e435ee8803ef3d2087567aa1a4b5d09369","3d9625f1981d6500e7b294018e0659464869d6f3","0010ffd43e7ac3fb482c46277c854ab9a76b06ab"}
+ "src/shader_recompiler/ir_opt/texture_pass.cpp":{"85c523e435ee8803ef3d2087567aa1a4b5d09369","3d9625f1981d6500e7b294018e0659464869d6f3","0010ffd43e7ac3fb482c46277c854ab9a76b06ab","30c9a612a88fa6cd832a40ad0f717b4944db45a1"} 
 }
 for path,expected in names.items():
  b=(r/path).read_bytes()
