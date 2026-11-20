@@ -45,6 +45,13 @@ for name,expected in files.items():
         text=v.decode()
         assert "dynamic_features.has_depth_clip_enable = device.IsExtDepthClipEnableSupported();" in text,(name,"lost EDS3 policy")
         assert "single_lane_geometry_subgroups" in text and "Shader::Optimization::HasBrokenPattern" in text,(name,"lost shader integration")
+    elif name=="vulkan_device.cpp" and actual=="c1126bd34a026ccc5c46acea49c9b4a3deeb5d26":
+        # Exact current Vulkan device owner differs from frozen R23 for
+        # other reviewed PS5/NS2 capabilities. Check depth-clip negotiation
+        # without weakening its opt-in/feature guard.
+        text=v.decode()
+        assert "extensions.depth_clip_enable = features.depth_clip_enable.depthClipEnable;" in text
+        assert "RemoveExtensionFeatureIfUnsuitable(extensions.depth_clip_enable" in text
     elif name=="fixed_pipeline_state.cpp":
         text=v.decode()
         assert "MaxwellDepthClampClip" in text and "regs.tir_mode == Maxwell::TIRMode::RasterNTargetM" in text,(name,"lost EDS3/TIR")
