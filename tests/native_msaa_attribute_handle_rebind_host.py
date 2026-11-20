@@ -12,9 +12,21 @@ root=Path(__file__).resolve().parents[1]
 src=(root/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_bytes()
 def git_blob(raw):
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
-assert git_blob(src) in {NEW, CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE}
+# The later FC27 rasterizer retains the same MSAA fallback path, with a
+# precise attribute-source selection and batched CPU-write invalidation.
+# It is separately byte-sealed by the engine's original Vulkan R23 oracle.
+CURRENT_FC27_RASTERIZER="71d097b9a83028dfad9370792c905bb3bfccfd5a"
+selected=git_blob(src)
+assert selected in {NEW, CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE, CURRENT_FC27_RASTERIZER}
 text=src.decode()
-assert git_blob(restore_pre_rebind(text).encode())==OLD
+if selected==CURRENT_FC27_RASTERIZER:
+    assert "attribute_handle_source = pipeline->AttributeHandleSource();" in text
+    assert "attribute_handle_source.reset();" in text
+    assert "void RasterizerVulkan::OnCacheInvalidations(" in text
+    assert "buffer_cache.ClaimCpuWrites(ranges);" in text
+    assert "RasterizerVulkan::~RasterizerVulkan()" in text
+else:
+    assert git_blob(restore_pre_rebind(text).encode())==OLD
 anchor="    const auto prepare_attribute_handles = [&] {"
 end="    configure_phase.Stop();"
 assert text.count(anchor)==1 and text.count("prepare_attribute_handles();")==2
@@ -36,6 +48,7 @@ struct Pipeline {
     int configured=0, engine=0, bound=-1;
     bool UsesForcedMsaaShadow() const {return forced;}
     bool UsesAttributeHandle() const {return handles;}
+    std::optional<int> AttributeHandleSource() const {return handles?std::optional<int>{forced?77:83}:std::nullopt;}
     bool IsMeshPipeline() const {return mesh;}
     void SetAttributeHandle(int h){ bound=h; }
     void SetEngine(int,int){ ++engine; }
@@ -55,6 +68,7 @@ void run(bool shadow_succeeds,bool guest_handles,bool guest_mesh,bool split,bool
     Pipeline* prepared_pipeline=pipeline;
     Pipeline* probe_pipeline=pipeline;
     Pipeline* attribute_handle_pipeline=nullptr;
+    std::optional<int> attribute_handle_source{};
     std::vector<Run> attribute_handle_runs;
     bool split_attribute_handles=split,is_indexed=true;
     unsigned collect=0;
@@ -67,6 +81,7 @@ void run(bool shadow_succeeds,bool guest_handles,bool guest_mesh,bool split,bool
         assert(pipeline_ok && prepared_pipeline==&shadow && probe_pipeline==&shadow);
         assert(shadow_pass.resolve==0 && guest.configured==0);
         assert(attribute_handle_pipeline==(split?&shadow:nullptr));
+        assert(attribute_handle_source==(split?std::optional<int>{77}:std::nullopt));
         assert(collect==(split?1u:0u));
         return;
     }
@@ -75,6 +90,7 @@ void run(bool shadow_succeeds,bool guest_handles,bool guest_mesh,bool split,bool
     assert(pipeline_ok && prepared_pipeline==&guest && probe_pipeline==&guest && guest.engine==1 && guest.configured==1);
     const bool expected=split && guest_handles && !guest_mesh;
     assert(attribute_handle_pipeline==(expected?&guest:nullptr));
+    assert(attribute_handle_source==(expected?std::optional<int>{83}:std::nullopt));
     assert(attribute_handle_runs.size()==(expected?2u:0u));
     assert(guest.bound==(expected?37:-1));
     assert(collect==unsigned(split)+unsigned(expected));
