@@ -12,13 +12,20 @@ assert blob(BASE/"am/service/application_proxy.h")=="8c62459c45ed040d28d6ffc80d7
 assert blob(BASE/"hid/hid_server.cpp")=="9689bce8dd69ba186bf9a24d02e53a9f2fb8954d"
 assert blob(BASE/"hid/hid_server.h")=="57a1a04b9c7d135a8181f2dde0d418cade1f29b3"
 # The shipping Eden appletOE service has only cmd 0; the Switch 2 SDK
-# uses cmd 10 with the same typed arguments. Never rely on global auto-stub.
+# uses cmd 10 with an additional u32 in the reserved input. Keep the\n# original process/session ownership and do not enable global auto-stub.
 proxy_base=(BASE/"am/service/application_proxy_service.cpp")
 proxy_owner=(ACTIVE/"am/service/application_proxy_service.cpp")
 assert blob(proxy_base)=="b7d7b3c2d957ee0d5414f73428afc0cd0891f179"
 proxy_text=proxy_owner.read_text()
 assert proxy_text.count('{0, D<&IApplicationProxyService::OpenApplicationProxy>')==1
-assert proxy_text.count('{10, D<&IApplicationProxyService::OpenApplicationProxy>')==1
+assert proxy_text.count('{10, D<&IApplicationProxyService::OpenApplicationProxyWithFlags>')==1
+assert 'Result IApplicationProxyService::OpenApplicationProxyWithFlags(' in proxy_text
+assert 'R_UNLESS(flags == 0 || flags == 2, ResultUnknown)' in proxy_text
+assert 'R_RETURN(OpenApplicationProxy(out_application_proxy, pid, process_handle))' in proxy_text
+proxy_header=(ACTIVE/"am/service/application_proxy_service.h").read_text()
+assert 'Result OpenApplicationProxyWithFlags(' in proxy_header
+assert 'u32 flags, ClientProcessId pid' in proxy_header
+assert blob(BASE/"am/service/application_proxy_service.h")=="e5f4ea345bdb7a50da8586d6347feae5851d47f6"
 assert 'if (const auto applet = this->GetAppletFromProcessId(pid))' in proxy_text
 assert 'std::make_shared<IApplicationProxy>' in proxy_text
 assert 'use_auto_stub' not in proxy_text

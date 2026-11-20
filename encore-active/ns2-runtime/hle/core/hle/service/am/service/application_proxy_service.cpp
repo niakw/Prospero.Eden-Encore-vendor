@@ -16,10 +16,11 @@ IApplicationProxyService::IApplicationProxyService(Core::System& system_,
     : ServiceFramework{system_, "appletOE"}, m_window_system{window_system} {
     static const FunctionInfo functions[] = {
         {0, D<&IApplicationProxyService::OpenApplicationProxy>, "OpenApplicationProxy"},
-        // Switch 2 nn::am uses command 10 with precisely the command-0
-        // proxy arguments and reply. Reuse the real applet/process handle;
-        // never fabricate a session or enable auto-stub for unrelated IPC.
-        {10, D<&IApplicationProxyService::OpenApplicationProxy>, "OpenApplicationProxy (Switch 2)"},
+        // Switch 2 OpenApplicationProxy2 carries an extra u32 before the
+        // reserved PID field. Decode it explicitly instead of treating the
+        // request as command 0 (Switchbrew / Lichii nx2).
+        {10, D<&IApplicationProxyService::OpenApplicationProxyWithFlags>,
+         "OpenApplicationProxy2"},
     };
     RegisterHandlers(functions);
 }
@@ -39,6 +40,15 @@ Result IApplicationProxyService::OpenApplicationProxy(
         UNIMPLEMENTED();
         R_THROW(ResultUnknown);
     }
+}
+
+Result IApplicationProxyService::OpenApplicationProxyWithFlags(
+    Out<SharedPointer<IApplicationProxy>> out_application_proxy, u32 flags, ClientProcessId pid,
+    InCopyHandle<Kernel::KProcess> process_handle) {
+    // The Switch 2 SDK sends flags 0 or 2; retain the original process
+    // validation, session lifetime and error behavior of command 0.
+    R_UNLESS(flags == 0 || flags == 2, ResultUnknown);
+    R_RETURN(OpenApplicationProxy(out_application_proxy, pid, process_handle));
 }
 
 std::shared_ptr<Applet> IApplicationProxyService::GetAppletFromProcessId(ProcessId process_id) {
