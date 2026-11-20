@@ -26,7 +26,7 @@ CURRENT_ATTRIBUTE_SOURCE={
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h": "cc53133dd516e2d1d245326866ab3ce0c852b36b",
   "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp": "bae8f3c36fc4e595e9b630ca55cc50496468e173",
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h": "6467fd4d704de6b77deb7e6cba4b8e33f70f5a08",
-  "encore-active/eden-vulkan/vulkan_rasterizer.cpp": "046269f8484776e22c8aee308b75c7b98f8bf5c6",
+  "encore-active/eden-vulkan/vulkan_rasterizer.cpp": "71d097b9a83028dfad9370792c905bb3bfccfd5a",
 }
 # Two byte-sealed PS5-only transition-hint changes sit on TOP of the
 # original FC27 attribute-handle successor. Reconstruct its exact existing
