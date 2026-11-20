@@ -617,8 +617,10 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     // draw calls may be split into handle-homogeneous runs.
     const auto prepare_attribute_handles = [&] {
         attribute_handle_pipeline = nullptr;
+        attribute_handle_source.reset();
         attribute_handle_runs.clear();
         if (split_attribute_handles && !pipeline->IsMeshPipeline() && pipeline->UsesAttributeHandle()) {
+            attribute_handle_source = pipeline->AttributeHandleSource();
             CollectAttributeHandleRuns(is_indexed);
             if (!attribute_handle_runs.empty()) {
                 attribute_handle_pipeline = pipeline;
@@ -675,12 +677,44 @@ void RasterizerVulkan::CollectAttributeHandleRuns(bool is_indexed) {
     if (total == 0) return;
 
     const VertexAttribute* source{};
-    for (const auto& attr : regs.vertex_attrib_format) {
-        if (attr.constant || attr.size == VertexAttribute::Size::Invalid) continue;
-        if (attr.type == VertexAttribute::Type::UInt ||
-            attr.type == VertexAttribute::Type::SInt) {
-            source = &attr;
-            break;
+    u32 component_byte_offset{};
+    if (attribute_handle_source) {
+        // Generic0X..Generic31W are four consecutive IR values per input.
+        // Only 32-bit components can be read as an unmodified texture handle.
+        constexpr u32 first = static_cast<u32>(Shader::IR::Attribute::Generic0X);
+        constexpr u32 last = static_cast<u32>(Shader::IR::Attribute::Generic31W);
+        const u32 encoded = *attribute_handle_source;
+        if (encoded >= first && encoded <= last) {
+            const u32 generic = (encoded - first) / 4;
+            const u32 component = (encoded - first) % 4;
+            if (generic < regs.vertex_attrib_format.size()) {
+                const auto& attr = regs.vertex_attrib_format[generic];
+                const bool is_32bit =
+                    attr.size == VertexAttribute::Size::Size_R32 ||
+                    attr.size == VertexAttribute::Size::Size_R32_G32 ||
+                    attr.size == VertexAttribute::Size::Size_R32_G32_B32 ||
+                    attr.size == VertexAttribute::Size::Size_R32_G32_B32_A32;
+                if (!attr.constant && is_32bit && component < attr.ComponentCount() &&
+                    (attr.type == VertexAttribute::Type::UInt ||
+                     attr.type == VertexAttribute::Type::SInt ||
+                     attr.type == VertexAttribute::Type::Float)) {
+                    source = &attr;
+                    component_byte_offset = component * sizeof(u32);
+                }
+            }
+        }
+    }
+    if (!source) {
+        // Legacy cached shader metadata (offset=0) retains its old lookup
+        // until the shader is recompiled. Never guess a component on an
+        // unsupported packed or normalized attribute format.
+        for (const auto& attr : regs.vertex_attrib_format) {
+            if (attr.constant || attr.size == VertexAttribute::Size::Invalid) continue;
+            if (attr.type == VertexAttribute::Type::UInt ||
+                attr.type == VertexAttribute::Type::SInt) {
+                source = &attr;
+                break;
+            }
         }
     }
     if (!source) {
@@ -695,7 +729,8 @@ void RasterizerVulkan::CollectAttributeHandleRuns(bool is_indexed) {
 
     const u32 primitive_size =
         state.topology == Maxwell::PrimitiveTopology::Triangles ? 3 : total;
-    const GPUVAddr base_address = stream.Address() + source->offset;
+    const GPUVAddr base_address = stream.Address() + source->offset +
+                                 component_byte_offset;
     const auto read_handle = [&](u32 position) {
         u32 vertex{};
         if (is_indexed) {
@@ -746,6 +781,7 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
     SCOPE_EXIT {
         split_attribute_handles = false;
         attribute_handle_pipeline = nullptr;
+        attribute_handle_source.reset();
         attribute_handle_runs.clear();
     };
     PrepareDraw(is_indexed, [this, is_indexed, instance_count] {

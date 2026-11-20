@@ -396,7 +396,17 @@ GraphicsPipeline::GraphicsPipeline(
         num_image_elements += storage_views;
         num_descriptor_entries += NumDescriptorEntries(*info);
         for (const auto& desc : info->texture_descriptors) {
-            uses_attribute_handle |= desc.cbuf_index == Shader::ATTRIBUTE_HANDLE_CBUF_INDEX;
+            if (desc.cbuf_index != Shader::ATTRIBUTE_HANDLE_CBUF_INDEX)
+                continue;
+            if (!uses_attribute_handle) {
+                attribute_handle_source = desc.cbuf_offset;
+            } else if (attribute_handle_source &&
+                       *attribute_handle_source != desc.cbuf_offset) {
+                // A single per-run handle cannot represent two different
+                // shader varyings. Preserve the old unspecialized path.
+                attribute_handle_source.reset();
+            }
+            uses_attribute_handle = true;
         }
     }
     fragment_has_color0_output = stage_infos[NUM_STAGES - 1].stores_frag_color[0];

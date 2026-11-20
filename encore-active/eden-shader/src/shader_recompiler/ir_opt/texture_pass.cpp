@@ -570,16 +570,29 @@ std::optional<ConstBufferAddr> TryGetConstBuffer(const IR::Inst* inst, Environme
     };
 }
 
-bool IsAttributeSourcedHandle(const IR::Value& handle) {
-    if (handle.IsImmediate()) {
-        return false;
-    }
+// Preserve the exact guest varying component supplying a bindless handle.
+// The old bool discarded this identity and the rasterizer guessed the first
+// integer input, which may be an unrelated vertex attribute.
+std::optional<u32> IsAttributeSourcedHandle(const IR::Value& handle) {
+    if (handle.IsImmediate()) return std::nullopt;
     const IR::Inst* inst{handle.InstRecursive()};
+    if (!inst) return std::nullopt;
     if (inst->GetOpcode() == IR::Opcode::BitCastU32F32 && !inst->Arg(0).IsImmediate()) {
         inst = inst->Arg(0).InstRecursive();
     }
-    return inst->GetOpcode() == IR::Opcode::GetAttribute ||
-           inst->GetOpcode() == IR::Opcode::GetAttributeU32;
+    if (!inst || (inst->GetOpcode() != IR::Opcode::GetAttribute &&
+                  inst->GetOpcode() != IR::Opcode::GetAttributeU32))
+        return std::nullopt;
+    // Only generic varyings map to vertex attribute slots. System values
+    // (PrimitiveId, VertexId, etc.) are not valid texture-handle sources.
+    constexpr u32 first = static_cast<u32>(IR::Attribute::Generic0X);
+    constexpr u32 last = static_cast<u32>(IR::Attribute::Generic31W);
+    const u32 attribute = static_cast<u32>(inst->Arg(0).Attribute());
+    if (attribute < first || attribute > last) return std::nullopt;
+    if (!inst->Arg(1).IsEmpty() &&
+        (!inst->Arg(1).IsImmediate() || inst->Arg(1).U32() != 0))
+        return std::nullopt;
+    return attribute;
 }
 
 TextureInst MakeInst(Environment& env, IR::Block* block, IR::Inst& inst, const HostTranslateInfo& host_info) {
@@ -587,13 +600,17 @@ TextureInst MakeInst(Environment& env, IR::Block* block, IR::Inst& inst, const H
     if (IsBindless(inst)) {
         const std::optional<ConstBufferAddr> track_addr{TrackCached(inst.Arg(0), env, host_info, block)};
 
+        const auto attribute_source = host_info.support_attribute_texture_handle
+                                          ? IsAttributeSourcedHandle(inst.Arg(0))
+                                          : std::nullopt;
         if (track_addr) {
             addr = *track_addr;
-        } else if (host_info.support_attribute_texture_handle &&
-                   IsAttributeSourcedHandle(inst.Arg(0))) {
+        } else if (attribute_source) {
             addr = ConstBufferAddr{
                 .index = ATTRIBUTE_HANDLE_CBUF_INDEX,
-                .offset = 0,
+                // No descriptor ABI change: this field is unused for the
+                // sentinel and can carry the exact GenericN component.
+                .offset = *attribute_source,
                 .shift_left = 0,
                 .secondary_index = 0,
                 .secondary_offset = 0,

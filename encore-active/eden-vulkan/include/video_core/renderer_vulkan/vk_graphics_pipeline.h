@@ -13,6 +13,7 @@
 #include <condition_variable>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <type_traits>
 #include <vector>
 
@@ -153,6 +154,9 @@ public:
     [[nodiscard]] bool UsesAttributeHandle() const noexcept {
         return uses_attribute_handle;
     }
+    [[nodiscard]] std::optional<u32> AttributeHandleSource() const noexcept {
+        return attribute_handle_source;
+    }
     void SetAttributeHandle(u32 handle) noexcept {
         attribute_handle = handle;
     }
@@ -278,6 +282,9 @@ private:
     u32 num_textures{};
     u32 attribute_handle{};
     bool uses_attribute_handle{};
+    // GenericN component encoded in the existing sentinel descriptor offset.
+    // Empty for legacy cached shaders or conflicting attributes across stages.
+    std::optional<u32> attribute_handle_source{};
     // Immutable shader layout: no UBO/SSBO/TBO means no host buffer work.
     std::array<bool, NUM_STAGES> stage_has_host_buffer_bindings{};
     std::array<bool, NUM_STAGES> stage_has_image_bindings{};

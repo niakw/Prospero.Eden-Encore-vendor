@@ -180,6 +180,7 @@ private:
     void CollectAttributeHandleRuns(bool is_indexed);
     std::vector<AttributeHandleRun> attribute_handle_runs;
     GraphicsPipeline* attribute_handle_pipeline{};
+    std::optional<u32> attribute_handle_source{};
     bool split_attribute_handles{};
 
     void FlushWork();
