@@ -704,8 +704,8 @@ void RasterizerVulkan::CollectAttributeHandleRuns(bool is_indexed) {
             }
         }
     }
-    if (!source) {
-        // Legacy cached shader metadata (offset=0) retains its old lookup
+    if (!source && !attribute_handle_source) {
+        // Only legacy shaders without an explicit source may use the old lookup
         // until the shader is recompiled. Never guess a component on an
         // unsupported packed or normalized attribute format.
         for (const auto& attr : regs.vertex_attrib_format) {

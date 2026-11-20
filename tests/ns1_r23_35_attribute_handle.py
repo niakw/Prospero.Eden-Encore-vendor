@@ -337,6 +337,14 @@ int main(){
  assert(raster.attribute_handle_runs[1].handle==42);
  assert(raster.attribute_handle_runs[2].handle==41);
  raster.attribute_handle_runs.clear();
+ // A known shader source must not alias another integer attribute when
+ // its own slot is missing or has an unsupported format.
+ raster.attribute_handle_source=40; // Generic2X: no valid vertex slot
+ raster.CollectAttributeHandleRuns(false);
+ assert(raster.attribute_handle_runs.size()==1);
+ assert(raster.attribute_handle_runs[0].count==9 &&
+        raster.attribute_handle_runs[0].handle==0);
+ raster.attribute_handle_runs.clear();
  raster.attribute_handle_source.reset();
  engine.draw_manager.draw_state.topology=Tegra::Engines::Maxwell3D::Regs::PrimitiveTopology::Lines;
  raster.CollectAttributeHandleRuns(false);
