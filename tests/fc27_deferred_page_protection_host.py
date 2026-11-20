@@ -21,7 +21,7 @@ def blob(path):
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
 # Current maintained runtime owners. The CPU-write rollback still requires
 # synchronous protection even though DMA clean-image invalidation was added.
-assert blob(R)=="1921bf328af024a9ca001b9691e278a16fdf03ce"
+assert blob(R)=="f8f27a5ed489c49f5de5a72bfa575416088ce472"
 assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
 assert blob(T)=="f4fc069bee00c6794907b54a9b29ccc52203c880"
 # Selected NS1/NS2 TextureCache must retain the causal native protections.
