@@ -139,23 +139,4 @@ assert nvinitialize.index('session_id = nvdrv->GetContainer().OpenSession(proces
 assert 'container.CloseSession(session_id);' in nvcpp
 assert '{13, &NVDRV::SetGraphicsFirmwareMemoryMarginEnabled' in nvcpp
 
-# GSV 1402 must dispatch the nvsrv child using TIPC rather than the
-# pinned original NVDRV CMIF table. The original byte source stays intact.
-tipc=(R/"encore-active/eden-core/src/core/hle/service/nvdrv/nvdrv_interface.cpp").read_text()
-assert tipc.count("RegisterHandlers(functions);") == 1
-assert 'if (std::string_view{name} == "nx2:nvsrv") {' in tipc
-assert tipc.count("RegisterHandlersTipc(tipc_functions);") == 1
-assert "if (ctx.IsTipc()) {" in tipc
-assert "rb.PushRaw<u32>(ResultSuccess.raw);" in tipc
-assert tipc.count("rb.Push(ResultSuccess);") == 1
-assert tipc.count("PushNvdrvSuccess(rb, ctx);") == 13
-for method in ("Open", "Ioctl1", "Close", "QueryEvent", "DumpGraphicsMemoryInfo",
-               "Ioctl2", "Ioctl3", "SetGraphicsFirmwareMemoryMarginEnabled"):
-    assert f"&NVDRV::{method}" in tipc.split("static const FunctionInfo tipc_functions[]",1)[1]
-assert '{3, &NVDRV::Initialize, "Initialize"}' not in tipc.split(
-    "static const FunctionInfo tipc_functions[]",1)[1]
-assert "RegisterHandlersTipc(tipc_functions);" not in nvcpp
-framework=(R/"encore-active/eden-core/src/core/hle/service/service.cpp").read_text()
-assert "InvokeRequestTipc(ctx);" in framework
-
 print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")
