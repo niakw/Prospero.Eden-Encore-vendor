@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 r=Path(__file__).resolve().parents[1]/"encore-active/eden-shader"
 names={
- "src/shader_recompiler/ir_opt/texture_pass.cpp":{"85c523e435ee8803ef3d2087567aa1a4b5d09369","3d9625f1981d6500e7b294018e0659464869d6f3"}
+ "src/shader_recompiler/ir_opt/texture_pass.cpp":{"85c523e435ee8803ef3d2087567aa1a4b5d09369","3d9625f1981d6500e7b294018e0659464869d6f3","0010ffd43e7ac3fb482c46277c854ab9a76b06ab"}
 }
 for path,expected in names.items():
  b=(r/path).read_bytes()
@@ -26,6 +26,11 @@ if header_sha!="afe153f18075d00b8e822a1d992dcd8f5cad9a8c":
                 check=True,timeout=180)
 bfs=(r/"include/shader_recompiler/frontend/ir/breadth_first_search.h").read_text()
 texture=(r/"src/shader_recompiler/ir_opt/texture_pass.cpp").read_text()
+# FC27's selected shader owner retains the R23 conditional-Phi walker, and
+# additionally composes one dynamic texture table with a fixed sampler.
+# The exact whole-source SHA above rejects any unknown shader change.
+assert "if (lhs->count > 1 && rhs->count > 1)" in texture
+assert "DynamicDescriptorIndexLimit(dynamic_offset, size_shift)" in texture
 assert "template <typename Pred, typename Resolve = std::identity>" in bfs
 assert "value = resolve(value);" in bfs
 assert "resolve(inst->Arg(arg))" in bfs
