@@ -530,8 +530,26 @@ void GraphicsPipeline::RunBuild() {
 
 void GraphicsPipeline::AddTransition(GraphicsPipeline* transition) {
 #ifdef PS5_NATIVE
-    // Both appends are optional memoization. The canonical graphics cache
-    // already owns the target and will resolve a missing edge on demand.
+    // Only a fast-path hint: the canonical graphics_cache still owns ALL
+    // pipelines. A pipeline with hundreds of different successors must not
+    // accumulate unbounded state or scan every former successor on each miss.
+    // The two HUD/overlay hot indices remain pinned across ring replacement.
+    if (transition_keys.size() >= kNativeTransitionHintLimit) {
+        size_t slot = next_transition_replacement;
+        for (size_t skipped = 0; skipped < 2; ++skipped) {
+            if (slot != hot_transition_indices[0] &&
+                slot != hot_transition_indices[1]) break;
+            slot = (slot + 1) % kNativeTransitionHintLimit;
+        }
+        // Both vectors are already fully allocated here. Replacing a hint
+        // cannot invalidate a live shader pipeline or allocate GPU objects.
+        transition_keys[slot] = transition->key;
+        transitions[slot] = transition;
+        next_transition_replacement = (slot + 1) % kNativeTransitionHintLimit;
+        return;
+    }
+    // Before the hint ring is full, preserve the exception-safe pairing
+    // of keys and pointers on the GPU owner.
     try {
         transition_keys.push_back(transition->key);
     } catch (...) {
@@ -541,15 +559,9 @@ void GraphicsPipeline::AddTransition(GraphicsPipeline* transition) {
     transition_keys.push_back(transition->key);
 #endif
 #ifdef PS5_NATIVE
-    // Both arrays must describe the same transition index. An allocation
-    // failure while appending the pointer must not leave an orphaned key:
-    // Next() would later index past transitions and corrupt a guest draw.
     try {
         transitions.push_back(transition);
     } catch (...) {
-        // Transition memoization is optional. The primary graphics cache
-        // already owns the pipeline; a later lookup can use its slow path.
-        // Do not abort a guest draw solely because this edge could not fit.
         transition_keys.pop_back();
         return;
     }

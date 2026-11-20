@@ -23,10 +23,17 @@ EXPECTED={
 # while retaining the immutable historical R23 oracle for unchanged owners.
 CURRENT_ATTRIBUTE_SOURCE={
   "encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp": "0010ffd43e7ac3fb482c46277c854ab9a76b06ab",
-  "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h": "515a766a6cc4d6fcba7692ad396f45396b746d28",
-  "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp": "2834a18fe7638749ec83cc8f5feb1fcde6c71a9a",
+  "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h": "cc53133dd516e2d1d245326866ab3ce0c852b36b",
+  "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp": "bae8f3c36fc4e595e9b630ca55cc50496468e173",
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h": "6467fd4d704de6b77deb7e6cba4b8e33f70f5a08",
-  "encore-active/eden-vulkan/vulkan_rasterizer.cpp": "046269f8484776e22c8aee308b75c7b98f8bf5c6",
+  "encore-active/eden-vulkan/vulkan_rasterizer.cpp": "71d097b9a83028dfad9370792c905bb3bfccfd5a",
+}
+# Two byte-sealed PS5-only transition-hint changes sit on TOP of the
+# original FC27 attribute-handle successor. Reconstruct its exact existing
+# receipt instead of treating the new optional hint cache as an R23 change.
+BOUNDED_GRAPHICS_REVERSE={
+  "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp":("bae8f3c36fc4e595e9b630ca55cc50496468e173","2834a18fe7638749ec83cc8f5feb1fcde6c71a9a","void GraphicsPipeline::AddTransition(GraphicsPipeline* transition) {\n#ifdef PS5_NATIVE\n    // Only a fast-path hint: the canonical graphics_cache still owns ALL\n    // pipelines. A pipeline with hundreds of different successors must not\n    // accumulate unbounded state or scan every former successor on each miss.\n    // The two HUD/overlay hot indices remain pinned across ring replacement.\n    if (transition_keys.size() >= kNativeTransitionHintLimit) {\n        size_t slot = next_transition_replacement;\n        for (size_t skipped = 0; skipped < 2; ++skipped) {\n            if (slot != hot_transition_indices[0] &&\n                slot != hot_transition_indices[1]) break;\n            slot = (slot + 1) % kNativeTransitionHintLimit;\n        }\n        // Both vectors are already fully allocated here. Replacing a hint\n        // cannot invalidate a live shader pipeline or allocate GPU objects.\n        transition_keys[slot] = transition->key;\n        transitions[slot] = transition;\n        next_transition_replacement = (slot + 1) % kNativeTransitionHintLimit;\n        return;\n    }\n    // Before the hint ring is full, preserve the exception-safe pairing\n    // of keys and pointers on the GPU owner.\n    try {\n        transition_keys.push_back(transition->key);\n    } catch (...) {\n        return;\n    }\n#else\n    transition_keys.push_back(transition->key);\n#endif\n#ifdef PS5_NATIVE\n    try {\n        transitions.push_back(transition);\n    } catch (...) {\n        transition_keys.pop_back();\n        return;\n    }\n#else\n    transitions.push_back(transition);\n#endif\n}","void GraphicsPipeline::AddTransition(GraphicsPipeline* transition) {\n#ifdef PS5_NATIVE\n    // Both appends are optional memoization. The canonical graphics cache\n    // already owns the target and will resolve a missing edge on demand.\n    try {\n        transition_keys.push_back(transition->key);\n    } catch (...) {\n        return;\n    }\n#else\n    transition_keys.push_back(transition->key);\n#endif\n#ifdef PS5_NATIVE\n    // Both arrays must describe the same transition index. An allocation\n    // failure while appending the pointer must not leave an orphaned key:\n    // Next() would later index past transitions and corrupt a guest draw.\n    try {\n        transitions.push_back(transition);\n    } catch (...) {\n        // Transition memoization is optional. The primary graphics cache\n        // already owns the pipeline; a later lookup can use its slow path.\n        // Do not abort a guest draw solely because this edge could not fit.\n        transition_keys.pop_back();\n        return;\n    }\n#else\n    transitions.push_back(transition);\n#endif\n}"),
+  "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h":("cc53133dd516e2d1d245326866ab3ce0c852b36b","515a766a6cc4d6fcba7692ad396f45396b746d28","    // Transition hints are not the pipeline owners. Limit their memory\n    // growth and the O(N) unsuccessful Next() search on shader-heavy titles.\n    // The canonical graphics_cache remains complete and handles all misses.\n    static constexpr size_t kNativeTransitionHintLimit = 64;\n    // GPU owner only: the two hot indices stay valid across vector growth\n    // and are never replaced when the bounded ring rolls over.\n    std::array<size_t, 2> hot_transition_indices{};\n    size_t next_transition_replacement{};\n","    // GPU owner only. Two valid indices remain stable across vector growth.\n    std::array<size_t, 2> hot_transition_indices{};\n"),
 }
 def gitblob(p):
  b=p.read_bytes()
@@ -40,7 +47,28 @@ PRE_HOST_INFO_ORDER = "        .support_geometry_shader_passthrough = device.IsN
 for path,sha in EXPECTED.items():
  raw=(ROOT/path).read_bytes()
  if path in CURRENT_ATTRIBUTE_SOURCE:
-  assert gitblob(ROOT/path)==CURRENT_ATTRIBUTE_SOURCE[path], ("FC27 maintained successor drift",path)
+  current=gitblob(ROOT/path)
+  assert current==CURRENT_ATTRIBUTE_SOURCE[path], ("FC27 maintained successor drift",path)
+  if path in BOUNDED_GRAPHICS_REVERSE:
+   new_sha, old_sha, new_hunk, old_hunk = BOUNDED_GRAPHICS_REVERSE[path]
+   assert current == new_sha and raw.decode("utf-8").count(new_hunk) == 1
+   prior = raw.decode("utf-8").replace(new_hunk, old_hunk, 1).encode("utf-8")
+   assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==old_sha, ("FC27 graphics hint predecessor drift", path)
+   assert "kNativeTransitionHintLimit = 64" in raw.decode("utf-8") or "next_transition_replacement" in raw.decode("utf-8")
+  continue
+ if path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path)=="cfac496d574010b8121611c8616d38bf7cdcbc41":
+  # Reviewed newest-32 native prewarm overlay. The complete current shader
+  # owner is cryptographically pinned; the engine's Vulkan/R23 audit separately
+  # reverses its entire exact LoadDiskResources hunk to the historical blob.
+  # This older attribute-handle test should still reject unknown sources,
+  # but must not mistake a bounded shader reader change for an ABI change.
+  selected=raw.decode("utf-8")
+  assert "constexpr u32 CACHE_VERSION = 21;" in selected
+  assert "kStartupPrewarmPipelines = 32;" in selected
+  assert "kRecentShaderCacheScanLimit = 64ULL << 20;" in selected
+  assert "recent_cache_builds.pop_front();" in selected
+  assert "workers.WaitForRequests();" in selected
+  assert "fragment_shuffle_fallback[index] = true;" in selected
   continue
  normalized=raw.decode("utf-8")
  if path.endswith("/vulkan_rasterizer.cpp"):

@@ -99,8 +99,13 @@ void BufferCache<P>::RunGarbageCollector() {
     lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, clean_up);
 }
 
+
 template <class P>
+#ifdef PS5_NATIVE
+void BufferCache<P>::TickFrame(std::optional<u64> externally_sampled_usage) {
+#else
 void BufferCache<P>::TickFrame() {
+#endif
     // Homebrew console apps don't create or bind any channels, so this will be nullptr.
     if (!channel_state) {
 #ifdef PS5_NATIVE
@@ -147,7 +152,14 @@ void BufferCache<P>::TickFrame() {
         const bool near_gc_watermark =
             total_used_memory >= minimum_memory - minimum_memory / 3;
         if (near_gc_watermark || (frame_tick & 1u) == 0) {
-            total_used_memory = runtime.GetDeviceMemoryUsage();
+            // The native Vulkan caller already sampled outside the cache
+            // mutex. Other backends and changed frame conditions retain the
+            // original in-lock fallback, so eviction thresholds stay exact.
+            if (externally_sampled_usage) {
+                total_used_memory = *externally_sampled_usage;
+            } else {
+                total_used_memory = runtime.GetDeviceMemoryUsage();
+            }
         }
 #else
         total_used_memory = runtime.GetDeviceMemoryUsage();
@@ -831,7 +843,8 @@ void BufferCache<P>::PopAsyncFlushes() {
 }
 
 template <class P>
-void BufferCache<P>::ClaimCpuWrites(std::span<const std::pair<DAddr, u64>> ranges) {
+template <typename RangeSize>
+void BufferCache<P>::ClaimCpuWrites(std::span<const std::pair<DAddr, RangeSize>> ranges) {
     for (const auto& [device_addr, size] : ranges) {
         if (IsRegionGpuModified(device_addr, size)) {
             ClearDownload(device_addr, size);

@@ -187,7 +187,11 @@ void TextureCache<P>::RunGarbageCollector() {
 }
 
 template <class P>
+#ifdef PS5_NATIVE
+void TextureCache<P>::TickFrame(std::optional<u64> externally_sampled_usage) {
+#else
 void TextureCache<P>::TickFrame() {
+#endif
     // Release only oversized transient CPU scratch at the next frame boundary.
     // The normal <= 64 MiB cached working set and GPU residency are unchanged.
 #ifdef EDEN_NS2_ASTC_SCRATCH_TRIM
@@ -200,7 +204,17 @@ void TextureCache<P>::TickFrame() {
 #endif
     // If we can obtain the memory info, use it instead of the estimate.
     if (runtime.CanReportMemoryUsage()) {
+#ifdef PS5_NATIVE
+        // Native Vulkan sampled before the TextureCache mutex was held.
+        // Other callers retain the previous synchronous query fallback.
+        if (externally_sampled_usage) {
+            total_used_memory = *externally_sampled_usage;
+        } else {
+            total_used_memory = runtime.GetDeviceMemoryUsage();
+        }
+#else
         total_used_memory = runtime.GetDeviceMemoryUsage();
+#endif
     }
     if (total_used_memory > minimum_memory) {
         RunGarbageCollector();

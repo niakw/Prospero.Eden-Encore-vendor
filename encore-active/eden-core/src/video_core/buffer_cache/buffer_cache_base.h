@@ -13,6 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -228,7 +229,13 @@ public:
 
     ~BufferCache();
 
+#ifdef PS5_NATIVE
+    // Consume one native GPU-memory sample shared with TextureCache.
+    // Other backends retain the original budget query fallback.
+    void TickFrame(std::optional<u64> externally_sampled_usage = std::nullopt);
+#else
     void TickFrame();
+#endif
 
     bool BindMultiRangeStorage(const Binding& binding, bool is_written,
                                std::span<const MultiRangeSegment> pool);
@@ -354,7 +361,10 @@ public:
 
     /// Remove all about-to-be-applied CPU writes from GPU-owned ranges before
     /// any one write can trigger a download of older bytes over another.
-    void ClaimCpuWrites(std::span<const std::pair<DAddr, u64>> ranges);
+    // Both GPU-collected writes (size_t) and normal guest batches (u64)
+    // must be claimed together before any stale GPU page readback begins.
+    template <typename RangeSize>
+    void ClaimCpuWrites(std::span<const std::pair<DAddr, RangeSize>> ranges);
 
     std::recursive_mutex mutex;
     Runtime& runtime;

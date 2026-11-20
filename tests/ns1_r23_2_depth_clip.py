@@ -31,10 +31,27 @@ for name,expected in files.items():
         normalized=text.replace(fixed,indexed,1).encode()
         normalized_sha=hashlib.sha1(b"blob "+str(len(normalized)).encode()+bytes([0])+normalized).hexdigest()
         assert normalized_sha==expected,(name,actual,normalized_sha,expected)
+    elif name=="vk_graphics_pipeline_cost.cpp" and actual=="bae8f3c36fc4e595e9b630ca55cc50496468e173":
+        # The live FC27 owner extends the earlier exact-attribute binding
+        # with an optional bounded graphics transition hint graph. Its exact
+        # full-source SHA is pinned, and the separate FC27 transition harness
+        # compiles Next/AddTransition with the fallback cache still complete.
+        text=v.decode()
+        assert text.count("const u32 second_offset{desc.secondary_cbuf_offset};")==1
+        assert "desc.secondary_cbuf_offset + index_offset" not in text
+        assert text.count("kNativeTransitionHintLimit")==3 or (
+            "kNativeTransitionHintLimit" in text and "next_transition_replacement" in text)
     elif name=="vk_pipeline_cache_cost.cpp":
         text=v.decode()
         assert "dynamic_features.has_depth_clip_enable = device.IsExtDepthClipEnableSupported();" in text,(name,"lost EDS3 policy")
         assert "single_lane_geometry_subgroups" in text and "Shader::Optimization::HasBrokenPattern" in text,(name,"lost shader integration")
+    elif name=="vulkan_device.cpp" and actual=="c1126bd34a026ccc5c46acea49c9b4a3deeb5d26":
+        # Exact current Vulkan device owner differs from frozen R23 for
+        # other reviewed PS5/NS2 capabilities. Check depth-clip negotiation
+        # without weakening its opt-in/feature guard.
+        text=v.decode()
+        assert "extensions.depth_clip_enable = features.depth_clip_enable.depthClipEnable;" in text
+        assert "RemoveExtensionFeatureIfUnsuitable(extensions.depth_clip_enable" in text
     elif name=="fixed_pipeline_state.cpp":
         text=v.decode()
         assert "MaxwellDepthClampClip" in text and "regs.tir_mode == Maxwell::TIRMode::RasterNTargetM" in text,(name,"lost EDS3/TIR")
@@ -44,11 +61,25 @@ for name,expected in files.items():
         # before checking the historical source blob.
         post_teardown = "RasterizerVulkan::~RasterizerVulkan() {\n    // QueryCache has a shorter lifetime than BufferCache. BufferCache::~\n    // triggers a final scheduler.Finish() AFTER QueryCache is destroyed.\n    // Drain outstanding queries while alive, then revoke the borrowed pointer\n    // to prevent the shutdown path from reading freed QueryCache storage.\n    scheduler.WaitWorker();\n    scheduler.Finish();\n    scheduler.ClearQueryCache();\n}"
         pre_teardown = "RasterizerVulkan::~RasterizerVulkan() {\n    scheduler.WaitWorker();\n    scheduler.Finish();\n}"
-        source = restore_pre_rebind(v.decode("utf-8"))
-        assert source.count(post_teardown)==1, "FC27 teardown revocation lost"
-        normalized = source.replace(post_teardown, pre_teardown, 1).encode("utf-8")
-        normalized_sha = hashlib.sha1(b"blob "+str(len(normalized)).encode()+bytes([0])+normalized).hexdigest()
-        assert normalized_sha==expected,(name,actual,normalized_sha,expected)
+        if actual=="71d097b9a83028dfad9370792c905bb3bfccfd5a":
+            # This byte-sealed runtime successor includes reviewed frame/CPU
+            # invalidation optimizations and the anti-regression rollback of
+            # deferred page protection (#194). Do not attempt to reverse it
+            # through a two-commit-only MSAA helper. The engine Vulkan oracle
+            # reconstructs the exact historic R23 predecessor separately.
+            source=v.decode("utf-8")
+            assert source.count(post_teardown)==1
+            assert "MaxwellDepthClampClip(regs, device.IsExtDepthClipEnableSupported()).clamp" in source
+            assert "buffer_cache.ClaimCpuWrites(sequences);" in source
+            assert "buffer_cache.ClaimCpuWrites(ranges);" in source
+            assert "deferred_cached_updates" not in source
+            assert "GetDeviceMemoryUsage()" in source
+        else:
+            source = restore_pre_rebind(v.decode("utf-8"))
+            assert source.count(post_teardown)==1, "FC27 teardown revocation lost"
+            normalized = source.replace(post_teardown, pre_teardown, 1).encode("utf-8")
+            normalized_sha = hashlib.sha1(b"blob "+str(len(normalized)).encode()+bytes([0])+normalized).hexdigest()
+            assert normalized_sha==expected,(name,actual,normalized_sha,expected)
     else:
         assert actual==expected,(name,actual)
 source=(root/"fixed_pipeline_state.cpp").read_text()

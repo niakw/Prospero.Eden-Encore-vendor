@@ -33,20 +33,30 @@ assert cache_blob in {
     "e10c4893c03da57dce7f607d3e0af46d62e343f1",
     "dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56",
     "e3910d11f33376097a90858118ba276f7e02cb70",
+    "cfac496d574010b8121611c8616d38bf7cdcbc41",
 }, cache_blob
-if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70"}:
+if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41"}:
     selected=CACHE.read_text()
     assert "fragment_shuffle_fallback[index] = true;" in selected
     assert "EmitSPIRV(emit_profile, runtime_info, program, binding)" in selected
     assert "skipping fragment shuffle with known driver issue" in selected
-    if cache_blob in {"dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70"}:
+    if cache_blob in {"dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41"}:
         assert "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx" in selected
         assert "fallback_witness <= 8" in selected
-        if cache_blob=="e3910d11f33376097a90858118ba276f7e02cb70":
+        if cache_blob in {"e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41"}:
             # Successor changed only the reviewed PS5 pipeline teardown sequence.
             # The exact source blob above prevents accidentally accepting further drift.
             assert "workers.WaitForRequests();" in selected
             assert selected.index("workers.WaitForRequests();") < selected.index("serialization_thread.WaitForRequests();")
+if cache_blob=="cfac496d574010b8121611c8616d38bf7cdcbc41":
+    # Only the reviewed native cache-admission policy changed after e3910d;
+    # preserve the graphics shader fallback and shutdown drain contracts.
+    selected=CACHE.read_text()
+    assert selected.count("kStartupPrewarmPipelines = 32;")==1
+    assert "kRecentShaderCacheScanLimit = 64ULL << 20;" in selected
+    assert "recent_cache_builds.pop_front();" in selected
+    assert "prefer_recent_cache ? stop_loading : startup_reader.get_token()" in selected
+    assert "workers.WaitForRequests();" in selected
 assert blob(PINNED)=="57c08588fbd1a160acbcdd516c2d38d15f95818b"
 
 src=CONST.read_text()

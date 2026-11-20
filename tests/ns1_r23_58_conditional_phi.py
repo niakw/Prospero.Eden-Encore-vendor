@@ -19,9 +19,14 @@ if header_sha in {"194476705f21bd1c27f532fdd5cc04d99a3cd620",
     subprocess.run(["python3","-B",str(root/"tests/ps5_ir_bfs_adaptive_host.py")],
                    check=True,timeout=180)
 assert gitsha(source) in {"85c523e435ee8803ef3d2087567aa1a4b5d09369",
-                          "3d9625f1981d6500e7b294018e0659464869d6f3"}
+                          "3d9625f1981d6500e7b294018e0659464869d6f3","0010ffd43e7ac3fb482c46277c854ab9a76b06ab"}
 h=header.read_text()
 s=source.read_text()
+# FC27's selected shader owner retains the R23 conditional-Phi walker, and
+# additionally composes one dynamic texture table with a fixed sampler.
+# The exact whole-source SHA above rejects any unknown shader change.
+assert "if (lhs->count > 1 && rhs->count > 1)" in s
+assert "DynamicDescriptorIndexLimit(dynamic_offset, size_shift)" in s
 assert "template <typename Pred, typename Resolve = std::identity>" in h
 assert "value = resolve(value);" in h
 assert "const Value arg_value{resolve(inst->Arg(arg))};" in h

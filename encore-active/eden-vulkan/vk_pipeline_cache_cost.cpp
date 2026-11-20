@@ -16,6 +16,7 @@
 #include "dev_vulkan.h"
 #include "diagnostics.h"
 #include <cstddef>
+#include <deque>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -1371,11 +1372,17 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
 #endif
 
 #ifdef PS5_NATIVE
-    // Restore a bounded prefix of a title's saved pipelines before gameplay.
-    // Games with fewer cached entries load only those entries. This policy
-    // applies to every title (NS1 and NS2) without any title ID exceptions.
-    // Keep the worker queue, draw order and GPU fences unchanged.
+    // FC27: the old fixed 32-entry PREFIX admitted 18 compute and only
+    // 14 graphics shaders from a 28.7 MiB cache. Thousands of newer records
+    // were ignored and the GPU owner still translated 303 new graphics keys.
+    // Parse modest caches once and retain only the newest 32 valid builders;
+    // a large cache keeps the existing fast prefix cap to avoid startup I/O.
     constexpr size_t kStartupPrewarmPipelines = 32;
+    constexpr std::uintmax_t kRecentShaderCacheScanLimit = 64ULL << 20;
+    const bool prefer_recent_cache =
+        env_before.present && env_before.bytes > 12 &&
+        env_before.bytes <= kRecentShaderCacheScanLimit;
+    std::deque<Common::UniqueFunction<void>> recent_cache_builds;
     const auto startup_prewarm_started = std::chrono::steady_clock::now();
     std::stop_source startup_reader;
 #endif
@@ -1399,6 +1406,28 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     if (device.IsKhrPipelineExecutablePropertiesEnabled()) {
         state.statistics = std::make_unique<PipelineStatistics>(device);
     }
+    const auto schedule_prewarm = [&](Common::UniqueFunction<void> build) {
+#ifdef PS5_NATIVE
+        if (prefer_recent_cache) {
+            // No driver work while scanning the file. Move-only jobs own all
+            // shader environments and cannot outlive this loading function.
+            // Discard oldest unstarted work without creating GPU pipelines.
+            if (recent_cache_builds.size() == kStartupPrewarmPipelines)
+                recent_cache_builds.pop_front();
+            recent_cache_builds.emplace_back(std::move(build));
+            return;
+        }
+#endif
+        workers.QueueWork(std::move(build));
+        {
+            std::scoped_lock lock{state.mutex};
+            ++state.total;
+        }
+#ifdef PS5_NATIVE
+        if (state.total == kStartupPrewarmPipelines)
+            startup_reader.request_stop();
+#endif
+    };
     const auto load_compute{[&](std::ifstream& file, FileEnvironment env) {
         // ENCORE_PS5_CACHE_DIAG_BEGIN
 #ifdef PS5_NATIVE
@@ -1408,7 +1437,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         ComputePipelineCacheKey key;
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
 
-        workers.QueueWork([this, key, env_ = std::move(env), &state, &callback]() mutable {
+        schedule_prewarm([this, key, env_ = std::move(env), &state, &callback]() mutable {
             ShaderPools pools;
             auto pipeline{CreateComputePipeline(pools, key, env_, state.statistics.get(), false)};
             std::scoped_lock lock{state.mutex};
@@ -1422,16 +1451,6 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                 callback(VideoCore::LoadCallbackStage::Build, state.built, state.total);
             }
         });
-        // Workers read total while holding state.mutex. Publish reader
-        // increments under the same lock to avoid a cache-prewarm data race.
-        {
-            std::scoped_lock count_lock{state.mutex};
-            ++state.total;
-        }
-#ifdef PS5_NATIVE
-        if (state.total == kStartupPrewarmPipelines)
-            startup_reader.request_stop();
-#endif
     }};
     const auto load_graphics{[&](std::ifstream& file, std::vector<FileEnvironment> envs) {
         // ENCORE_PS5_CACHE_DIAG_BEGIN
@@ -1473,7 +1492,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             return;
         }
 
-        workers.QueueWork([this, key, envs_ = std::move(envs), &state, &callback]() mutable {
+        schedule_prewarm([this, key, envs_ = std::move(envs), &state, &callback]() mutable {
             ShaderPools pools;
             boost::container::static_vector<Shader::Environment*, 5> env_ptrs;
             for (auto& env : envs_) {
@@ -1503,22 +1522,15 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         ++state.disk_graphics_admitted;
 #endif
         // ENCORE_PS5_CACHE_DIAG_END
-        // Workers read total while holding state.mutex. Publish reader
-        // increments under the same lock to avoid a cache-prewarm data race.
-        {
-            std::scoped_lock count_lock{state.mutex};
-            ++state.total;
-        }
-#ifdef PS5_NATIVE
-        if (state.total == kStartupPrewarmPipelines)
-            startup_reader.request_stop();
-#endif
     }};
     // Only the reader observes the quota stop. Passing this token to
     // workers.WaitForRequests() would permanently request_stop() on the
     // shader-builder pool, breaking first-use shaders later in gameplay.
 #ifdef PS5_NATIVE
-    const std::stop_token reader_token{startup_reader.get_token()};
+    // Newest-entry mode must read to the last VALID record (also repairing
+    // a corrupt tail); large caches retain the old first-32 stop token.
+    const std::stop_token reader_token{
+        prefer_recent_cache ? stop_loading : startup_reader.get_token()};
 #else
     const std::stop_token reader_token{stop_loading};
 #endif
@@ -1542,6 +1554,14 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         VideoCommon::LoadPipelines(reader_token, pipeline_cache_filename, CACHE_VERSION, load_compute,
                                    load_graphics);
 #ifdef PS5_NATIVE
+        if (prefer_recent_cache && !stop_loading.stop_requested()) {
+            for (auto& build : recent_cache_builds) {
+                workers.QueueWork(std::move(build));
+                std::scoped_lock lock{state.mutex};
+                ++state.total;
+            }
+            recent_cache_builds.clear();
+        }
     } catch (const std::exception& error) {
         LOG_WARNING(Render_Vulkan, "PS5 shader prewarm aborted: {}", error.what());
     } catch (...) {

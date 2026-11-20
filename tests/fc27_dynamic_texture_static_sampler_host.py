@@ -18,6 +18,7 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 TEX=ROOT/"encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp"
 GFX=ROOT/"encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp"
+GFX_HEADER=ROOT/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h"
 CMP=ROOT/"encore-active/eden-vulkan/vk_compute_pipeline_cost.cpp"
 CACHE=ROOT/"encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
 
@@ -30,7 +31,8 @@ def blob(path: Path)->str:
 # validates that helper; retain the FC27 fixed-sampler contract below.
 assert blob(TEX)=="0010ffd43e7ac3fb482c46277c854ab9a76b06ab"
 gfx_blob=blob(GFX)
-assert gfx_blob in {"efa8fd4d73c111655fced67fe7dd1e6b7c0178ba","526aa16b22ba3918c29ce85c884d606dcfd185a1","2834a18fe7638749ec83cc8f5feb1fcde6c71a9a"}
+assert gfx_blob in {"efa8fd4d73c111655fced67fe7dd1e6b7c0178ba","526aa16b22ba3918c29ce85c884d606dcfd185a1","2834a18fe7638749ec83cc8f5feb1fcde6c71a9a",
+                    "bae8f3c36fc4e595e9b630ca55cc50496468e173"}
 cmp_blob=blob(CMP)
 assert cmp_blob in {"7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2","7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600"}
 cache_blob=blob(CACHE)
@@ -39,16 +41,26 @@ assert cache_blob in {
     "e10c4893c03da57dce7f607d3e0af46d62e343f1",
     "dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56",
     "e3910d11f33376097a90858118ba276f7e02cb70",
+    "cfac496d574010b8121611c8616d38bf7cdcbc41",
 }, cache_blob
-if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70"}:
+if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41"}:
     selected=CACHE.read_text()
     assert "fragment_shuffle_fallback[index] = true;" in selected
     assert "EmitSPIRV(emit_profile, runtime_info, program, binding)" in selected
     assert "skipping fragment shuffle with known driver issue" in selected
-    if cache_blob in {"dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70"}:
+    if cache_blob in {"dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41"}:
         assert "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx" in selected
         assert "fallback_witness <= 8" in selected
 
+if cache_blob=="cfac496d574010b8121611c8616d38bf7cdcbc41":
+    # Only the reviewed native cache-admission policy changed after e3910d;
+    # preserve the graphics shader fallback and shutdown drain contracts.
+    selected=CACHE.read_text()
+    assert selected.count("kStartupPrewarmPipelines = 32;")==1
+    assert "kRecentShaderCacheScanLimit = 64ULL << 20;" in selected
+    assert "recent_cache_builds.pop_front();" in selected
+    assert "prefer_recent_cache ? stop_loading : startup_reader.get_token()" in selected
+    assert "workers.WaitForRequests();" in selected
 tex=TEX.read_text()
 assert "Upstream Lichii 5e33a765 / #1914" in tex
 assert "DynamicDescriptorIndexLimit(dynamic_offset, size_shift)" in tex
@@ -61,7 +73,7 @@ if gfx_blob=="526aa16b22ba3918c29ce85c884d606dcfd185a1":
 if cmp_blob=="7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600":
     assert "void ComputePipeline::RunBuild()" in cmp
     assert "build_claimed.exchange(true, std::memory_order_acq_rel)" in cmp
-if cache_blob=="e3910d11f33376097a90858118ba276f7e02cb70":
+if cache_blob in {"e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41"}:
     assert cache.index("workers.WaitForRequests();") < cache.index("serialization_thread.WaitForRequests();")
 
 # Dynamic + static composition. Two dynamic arrays remain deliberately rejected.
@@ -89,6 +101,76 @@ for needle in ("DynamicDescriptorCount(", "DynamicSampledTextureCap(",
                "DESCRIPTOR_MAX_COUNT = 1024"):
     assert needle in tex
 assert "HandleOp::Index" not in tex
+
+# The selected GPU-owner transition graph must stay bounded. Evicted
+# transition hints reenter the canonical graphics_cache; no draw/pipeline is
+# dropped and two frequently alternating HUD edges remain reachable.
+def method(text,marker):
+    start=text.index(marker)
+    brace=text.index("{",start)
+    depth=0
+    for i in range(brace,len(text)):
+        if text[i]=="{": depth+=1
+        elif text[i]=="}":
+            depth-=1
+            if depth==0:return text[start:i+1]
+    raise AssertionError(marker)
+
+if gfx_blob == "bae8f3c36fc4e595e9b630ca55cc50496468e173":
+    selected_header=GFX_HEADER.read_text()
+    assert blob(GFX_HEADER)=="cc53133dd516e2d1d245326866ab3ce0c852b36b"
+    transition_next=method(selected_header,
+        "GraphicsPipeline* Next(const GraphicsPipelineCacheKey& current_key) noexcept")
+    transition_add=method(gfx,"void GraphicsPipeline::AddTransition(")
+    transition_members=selected_header.split(
+        "    std::vector<GraphicsPipelineCacheKey> transition_keys;",1)[1].split(
+        "    std::array<vk::ShaderModule, NUM_STAGES> spv_modules;",1)[0]
+    transition_cpp=r"""
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cstddef>
+#include <iterator>
+#include <memory>
+#include <utility>
+#include <vector>
+struct GraphicsPipelineCacheKey {
+    unsigned id{};
+    bool operator==(const GraphicsPipelineCacheKey&) const = default;
+};
+struct GraphicsPipeline {
+    const GraphicsPipelineCacheKey key;
+    explicit GraphicsPipeline(unsigned id):key{id}{}
+    void AddTransition(GraphicsPipeline* transition);
+    std::vector<GraphicsPipelineCacheKey> transition_keys;
+""" + transition_members + transition_next + r"""
+};
+""" + transition_add + r"""
+int main(){
+    GraphicsPipeline source{9999};
+    std::vector<std::unique_ptr<GraphicsPipeline>> full;
+    for(unsigned i=0;i<320;i++){
+        full.push_back(std::make_unique<GraphicsPipeline>(i));
+        source.AddTransition(full.back().get());
+        assert(source.transition_keys.size()==source.transitions.size());
+        assert(source.transition_keys.size()<=64);
+        if(i==11) {
+            assert(source.Next(full[0]->key)==full[0].get());
+            assert(source.Next(full[1]->key)==full[1].get());
+        }
+    }
+    // The two hot overlay/HUD transitions survive ring replacement.
+    assert(source.Next(full[0]->key)==full[0].get());
+    assert(source.Next(full[1]->key)==full[1].get());
+    assert(source.Next(full[319]->key)==full[319].get());
+    assert(source.Next(source.key)==&source);
+    // Hint retirement can miss, but the full canonical owner is retained.
+    assert(source.Next(full[2]->key)==nullptr);
+    assert(full[2]->key.id==2);
+}
+"""
+else:
+    transition_cpp=None
 
 cpp=r"""
 #include <cassert>
@@ -164,5 +246,13 @@ with tempfile.TemporaryDirectory(prefix="fc27-dyn-tex-") as tmp:
         str(p/"test.cpp"),"-o",str(p/"test")
     ],check=True,timeout=60)
     subprocess.run([str(p/"test")],check=True,timeout=20)
+    if transition_cpp is not None:
+        (p/"transitions.cpp").write_text(transition_cpp)
+        subprocess.run([
+            os.getenv("CXX","clang++"),"-std=c++20","-DPS5_NATIVE","-O1","-g",
+            "-fsanitize=undefined","-fno-sanitize-recover=all",
+            str(p/"transitions.cpp"),"-o",str(p/"transitions")
+        ],check=True,timeout=60)
+        subprocess.run([str(p/"transitions")],check=True,timeout=20)
 
 print("FC27_DYNAMIC_TEXTURE_STATIC_SAMPLER_PASS table_gt32=1 sampler_fixed=1 zero_base_shift=1 cache=21 ps5_visual=unverified")
