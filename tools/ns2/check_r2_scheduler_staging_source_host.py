@@ -742,7 +742,7 @@ def run() -> None:
             # source. Pin ALL current bytes and keep the important R2 and
             # FC27 runtime safety invariants. Unexpected drift remains red.
             current = hashlib.sha1(
-                b"blob " + str(len(live.encode())).encode() + b"\\0" + live.encode()
+                b"blob " + str(len(live.encode())).encode() + bytes([0]) + live.encode()
             ).hexdigest()
             if current == "41239f19b9e16741d49e31145c504e0086b1095e":
                 assert live.count("page_has_gpu_writes") >= 3
