@@ -91,8 +91,8 @@
       "upstream": "5619f8fd62f292084432263d56456e7b656b626dad7781a76ba9ccb2f70a1acb"
     },
     "src/core/hle/kernel/svc/svc_info.cpp": {
-      "active": "96d07b8eb9d30493576abba46e40ebe8b2b6c0cbd7428abc81e9fd6d12395785",
-      "bytes": 15493,
+      "active": "c93ecde553212fd4b74858fb6e30aa99524b659ef909048f1325ca0cfc6a7849",
+      "bytes": 15845,
       "upstream": "76b12e3a425e6f60d4982348ea8bbe17e109b3d06341362191b1545cb6ae112c"
     },
     "src/core/hle/service/acc/acc.cpp": {
