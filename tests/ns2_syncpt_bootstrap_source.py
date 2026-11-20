@@ -65,7 +65,7 @@ for service in ("OpenDisplaySession", "OpenGpuSession"):
     assert "catch (const std::bad_alloc&)" in body
     assert "result = Kernel::ResultOutOfResource;" in body
     assert "if (result.IsError()) {" in body
-    failure = body.split("if (result.IsError()) {", 1)[1].split("}", 1)[0]
+    failure = body.split("if (result.IsError()) {", 1)[1].split("\n    }", 1)[0]
     assert "IPC::ResponseBuilder rb{ctx, 2};" in failure
     assert "rb.Push(result.raw);" in failure
     assert "return;" in failure
