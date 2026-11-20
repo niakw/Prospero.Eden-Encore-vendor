@@ -40,7 +40,7 @@ Result IApplicationProxyService::OpenApplicationProxy(
         // Horizon retries AM 201 (0x19280) while the process is not yet
         // registered as an applet. ResultUnknown aborts that SDK retry path.
         // This is the NS2 appletOE owner; the NS1 service remains unchanged.
-        R_THROW(Result{ErrorModule::AM, 201});
+        R_THROW(Result(ErrorModule::AM, 201));
     }
 }
 
