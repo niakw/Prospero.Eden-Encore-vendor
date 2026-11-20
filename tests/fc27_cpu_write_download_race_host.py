@@ -8,6 +8,8 @@ import tempfile
 root=Path(__file__).resolve().parents[1]
 cache=(root/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h").read_text()
 base=(root/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache_base.h").read_text()
+texture=(root/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h").read_text()
+texture_base=(root/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache_base.h").read_text()
 dirty=(root/"encore-active/eden-core/overrides/core/gpu_dirty_memory_manager.h").read_text()
 rast=(root/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
 rast_h=(root/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
@@ -78,21 +80,24 @@ def method(text, marker):
             if depth==0: return text[start:i+1]
     raise AssertionError(marker)
 
-# The native PS5 renderer samples the GPU budget OUTSIDE the BufferCache
-# critical section. Preserve sampling policy, GC fallback and guest writes.
-poll=method(cache,"template <class P>\nstd::optional<u64> BufferCache<P>::PollFrameMemoryUsage")
-frame=cache.split("void BufferCache<P>::TickFrame(",1)[1].split(
+# Native PS5 Vulkan obtains ONE driver budget sample before either cache
+# mutex and reuses it in both cache frame GC paths.
+buffer_frame=cache.split("void BufferCache<P>::TickFrame(",1)[1].split(
     "template <class P>\nvoid BufferCache<P>::UnmapGPUMemory(",1)[0]
+texture_frame=texture.split("void TextureCache<P>::TickFrame(",1)[1].split(
+    "template <class P>\nconst typename P::ImageView& TextureCache<P>::GetImageView",1)[0]
 raster_tick=rast.split("void RasterizerVulkan::TickFrame()",1)[1].split(
     "bool RasterizerVulkan::AccelerateConditionalRendering()",1)[0]
-assert poll.count("std::scoped_lock lock{mutex};")==1
-assert poll.index("std::scoped_lock lock{mutex};") < poll.index("return runtime.GetDeviceMemoryUsage();")
-assert poll.count("runtime.GetDeviceMemoryUsage();")==1
-assert poll.count("near_gc_watermark || (frame_tick & 1u) == 0")==1
-assert "externally_sampled_usage" in frame
-assert "if (externally_sampled_usage)" in frame and "total_used_memory = *externally_sampled_usage;" in frame
-assert frame.index("if (externally_sampled_usage)") < frame.index("runtime.GetDeviceMemoryUsage();")
-assert raster_tick.index("buffer_cache.PollFrameMemoryUsage();") < raster_tick.index(
+assert "PollFrameMemoryUsage" not in base+cache+raster_tick
+assert "void TickFrame(std::optional<u64> externally_sampled_usage" in base+texture_base
+assert "total_used_memory = *externally_sampled_usage;" in buffer_frame
+assert "total_used_memory = *externally_sampled_usage;" in texture_frame
+assert "runtime.GetDeviceMemoryUsage();" in buffer_frame
+assert "runtime.GetDeviceMemoryUsage();" in texture_frame
+assert raster_tick.count("texture_cache_runtime.GetDeviceMemoryUsage()")==1
+assert raster_tick.index("texture_cache_runtime.GetDeviceMemoryUsage()") < raster_tick.index(
+    "std::scoped_lock lock{texture_cache.mutex};") < raster_tick.index(
+    "texture_cache.TickFrame(frame_memory_usage);") < raster_tick.index(
     "std::scoped_lock lock{buffer_cache.mutex};") < raster_tick.index(
     "buffer_cache.TickFrame(frame_memory_usage);")
 
@@ -251,56 +256,34 @@ int main(){
 }
 """
 
-poll_method=method(cache,"template <class P>\nstd::optional<u64> BufferCache<P>::PollFrameMemoryUsage")
-poll_cpp=r"""
+# Compile the exact selected renderer's shared budget-expression.
+# Refuse a driver query while either cache lock is held.
+budget_cpp=r"""
 #include <cassert>
 #include <cstdint>
-#include <mutex>
 #include <optional>
 using u64=std::uint64_t;
-struct OwnerMutex {
-    bool held=false;
-    int acquisitions=0;
-    void lock(){ assert(!held);held=true;++acquisitions; }
-    void unlock(){ assert(held);held=false; }
+static bool texture_locked=false, buffer_locked=false;
+struct TextureRuntime {
+  int calls=0; bool supported=true;
+  bool CanReportMemoryUsage() const{return supported;}
+  u64 GetDeviceMemoryUsage(){
+    assert(!texture_locked && !buffer_locked);
+    ++calls;
+    return 900;
+  }
 };
-struct Runtime {
-    OwnerMutex* lock{};
-    bool enabled=true;
-    int queries=0;
-    bool CanReportMemoryUsage() const{return enabled;}
-    u64 GetDeviceMemoryUsage(){
-        assert(lock && !lock->held);
-        ++queries;
-        return 1234;
-    }
-};
-struct BufferCache {
-    OwnerMutex mutex;
-    Runtime runtime{&mutex};
-    bool channel_state=true;
-    u64 minimum_memory=1200;
-    u64 total_used_memory=300;
-    u64 frame_tick=0;
-    std::optional<u64> PollFrameMemoryUsage();
-};
-""" + poll_method.replace("template <class P>\n","",1).replace("BufferCache<P>::","BufferCache::",1) + r"""
-int main(){
-    BufferCache cache;
-    assert(cache.PollFrameMemoryUsage()==1234);
-    assert(cache.runtime.queries==1 && cache.mutex.acquisitions==1);
-    cache.frame_tick=1;
-    assert(!cache.PollFrameMemoryUsage());
-    assert(cache.runtime.queries==1);
-    cache.total_used_memory=900; // near the existing 2/3 watermark
-    assert(cache.PollFrameMemoryUsage()==1234);
-    assert(cache.runtime.queries==2);
-    cache.channel_state=false;
-    assert(!cache.PollFrameMemoryUsage());
-    cache.channel_state=true;
-    cache.runtime.enabled=false;
-    assert(!cache.PollFrameMemoryUsage());
-    assert(cache.runtime.queries==2 && !cache.mutex.held);
+int main() {
+  TextureRuntime texture_cache_runtime;
+""" + "    const std::optional<u64> frame_memory_usage =\n        texture_cache_runtime.CanReportMemoryUsage()\n            ? std::optional<u64>{texture_cache_runtime.GetDeviceMemoryUsage()}\n            : std::nullopt;" + r"""
+  assert(frame_memory_usage && *frame_memory_usage==900);
+  texture_locked=true;
+  const u64 tex=*frame_memory_usage;
+  texture_locked=false;
+  buffer_locked=true;
+  const u64 buf=*frame_memory_usage;
+  buffer_locked=false;
+  assert(tex==buf && texture_cache_runtime.calls==1);
 }
 """
 
@@ -331,7 +314,7 @@ with tempfile.TemporaryDirectory(prefix="fc27-cpu-write-download-") as td:
     d=Path(td)
     (d/"model.cpp").write_text(cpp)
     (d/"batch.cpp").write_text(batch_cpp)
-    (d/"poll.cpp").write_text(poll_cpp)
+    (d/"budget.cpp").write_text(budget_cpp)
     stub=d/"stub/core"; stub.mkdir(parents=True)
     (stub/"device_memory_manager.h").write_text(
         "#pragma once\n#include <cstddef>\n#include <cstdint>\n"
@@ -349,10 +332,10 @@ with tempfile.TemporaryDirectory(prefix="fc27-cpu-write-download-") as td:
             subprocess.run([cxx,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
                             str(d/"batch.cpp"),"-o",str(batch_exe)],check=True,timeout=60)
             subprocess.run([str(batch_exe)],check=True,timeout=20)
-            poll_exe=d/("poll-"+Path(cxx).name+opt[2:])
+            budget_exe=d/("budget-"+Path(cxx).name+opt[2:])
             subprocess.run([cxx,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
-                            str(d/"poll.cpp"),"-o",str(poll_exe)],check=True,timeout=60)
-            subprocess.run([str(poll_exe)],check=True,timeout=20)
+                            str(d/"budget.cpp"),"-o",str(budget_exe)],check=True,timeout=60)
+            subprocess.run([str(budget_exe)],check=True,timeout=20)
             dirty_exe=d/("dirty-"+Path(cxx).name+opt[2:])
             subprocess.run([cxx,"-std=c++20",opt,"-Wall","-Wextra","-Werror","-pthread",
                             "-I",str(d/"stub"),

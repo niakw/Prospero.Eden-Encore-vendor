@@ -18,6 +18,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <type_traits>
 // TODO: find out which don't require stable iters
@@ -166,7 +167,12 @@ public:
     explicit TextureCache(Runtime&, Tegra::MaxwellDeviceMemoryManager&);
 
     /// Notify the cache that a new frame has been queued
+#ifdef PS5_NATIVE
+    // Reuse the PS5 Vulkan memory sample already obtained before cache locks.
+    void TickFrame(std::optional<u64> externally_sampled_usage = std::nullopt);
+#else
     void TickFrame();
+#endif
 
     /// Return a constant reference to the given image view id
     [[nodiscard]] const ImageView& GetImageView(ImageViewId id) const noexcept;

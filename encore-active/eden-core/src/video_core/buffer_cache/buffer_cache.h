@@ -99,26 +99,6 @@ void BufferCache<P>::RunGarbageCollector() {
     lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, clean_up);
 }
 
-#ifdef PS5_NATIVE
-template <class P>
-std::optional<u64> BufferCache<P>::PollFrameMemoryUsage() {
-    // Only the quick scheduling decision reads cache state under its mutex.
-    // The Vulkan/PS5 memory-budget query can enter the driver or a platform
-    // callback. Never hold the mutex used by CPU writes across that call.
-    bool query = false;
-    {
-        std::scoped_lock lock{mutex};
-        const bool near_gc_watermark =
-            total_used_memory >= minimum_memory - minimum_memory / 3;
-        query = channel_state && runtime.CanReportMemoryUsage() &&
-                (near_gc_watermark || (frame_tick & 1u) == 0);
-    }
-    if (!query) {
-        return std::nullopt;
-    }
-    return runtime.GetDeviceMemoryUsage();
-}
-#endif
 
 template <class P>
 #ifdef PS5_NATIVE

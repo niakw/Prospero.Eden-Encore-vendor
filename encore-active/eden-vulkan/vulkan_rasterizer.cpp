@@ -2698,6 +2698,15 @@ void RasterizerVulkan::TickFrame() {
     // quiet release. Wait and held intervals use disjoint timer scopes.
     const bool frame_sample = ::Eden::Performance::ShouldSampleCacheFrame();
 #endif
+#ifdef PS5_NATIVE
+    // Both native caches share the same RADV/PS5 GPU-memory budget.
+    // Query ONCE before either guest cache mutex, retaining original
+    // texture and buffer GC thresholds and retirement ordering.
+    const std::optional<u64> frame_memory_usage =
+        texture_cache_runtime.CanReportMemoryUsage()
+            ? std::optional<u64>{texture_cache_runtime.GetDeviceMemoryUsage()}
+            : std::nullopt;
+#endif
     {
 #ifdef PS5_NATIVE
         ::Eden::Performance::CachePhaseTimer texture_wait{
@@ -2709,13 +2718,13 @@ void RasterizerVulkan::TickFrame() {
         ::Eden::Performance::CachePhaseTimer texture_held{
             ::Eden::Performance::CachePhase::FrameTextureHeld, frame_sample};
 #endif
-        texture_cache.TickFrame();
-    }
 #ifdef PS5_NATIVE
-    // Poll the driver while neither guest cache mutex is held. CPU writes
-    // must not wait for the PS5 memory-budget callback every sampled frame.
-    const std::optional<u64> frame_memory_usage = buffer_cache.PollFrameMemoryUsage();
+        texture_cache.TickFrame(frame_memory_usage);
+#else
+        texture_cache.TickFrame();
 #endif
+    }
+
     {
 #ifdef PS5_NATIVE
         ::Eden::Performance::CachePhaseTimer buffer_wait{

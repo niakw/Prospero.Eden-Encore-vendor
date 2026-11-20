@@ -230,9 +230,8 @@ public:
     ~BufferCache();
 
 #ifdef PS5_NATIVE
-    // Poll RADV/PS5 memory budget without holding the guest BufferCache mutex.
-    // Called by the native Vulkan rasterizer before frame housekeeping.
-    [[nodiscard]] std::optional<u64> PollFrameMemoryUsage();
+    // Consume one native GPU-memory sample shared with TextureCache.
+    // Other backends retain the original budget query fallback.
     void TickFrame(std::optional<u64> externally_sampled_usage = std::nullopt);
 #else
     void TickFrame();
