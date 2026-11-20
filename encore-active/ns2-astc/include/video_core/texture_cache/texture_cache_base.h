@@ -261,6 +261,12 @@ public:
     /// Mark images in a range as modified from the CPU
     void WriteMemory(DAddr cpu_addr, size_t size);
 
+    /// Invalidate cached images after a DMA copy whose bytes are already in guest memory.
+    void WriteGpuMemory(GPUVAddr gpu_addr, size_t size);
+
+    /// True when a GPU range includes a newer GPU-owned image (or unknown mapping).
+    [[nodiscard]] bool IsGpuMemoryGpuModified(GPUVAddr gpu_addr, size_t size);
+
     /// Download contents of host images to guest memory in a region
     void DownloadMemory(DAddr cpu_addr, size_t size);
 

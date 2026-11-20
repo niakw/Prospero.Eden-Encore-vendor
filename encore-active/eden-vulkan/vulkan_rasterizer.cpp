@@ -2470,7 +2470,17 @@ bool RasterizerVulkan::OnCPUWrite(DAddr addr, u64 size) {
 void RasterizerVulkan::OnCacheInvalidations(std::span<const std::pair<DAddr, u64>> ranges) {
     // Remove the complete CPU-write batch from GPU-owned ranges before any
     // individual invalidation can download stale bytes over a later write.
-    {
+    // No registered buffer page in this CPU-write batch means no buffer can
+    // own GPU bytes to claim. Avoid the buffer mutex entirely in that case.
+    // NeverRegistered is monotonic and fails closed on unknown address spans.
+    bool may_claim_buffer = false;
+    for (const auto& [addr, size] : ranges) {
+        if (addr != 0 && size != 0 && !::Eden::BufferPages::NeverRegistered(addr, size)) {
+            may_claim_buffer = true;
+            break;
+        }
+    }
+    if (may_claim_buffer) {
         std::scoped_lock lock{buffer_cache.mutex};
         buffer_cache.ClaimCpuWrites(ranges);
     }
@@ -2781,8 +2791,23 @@ bool AccelerateDMA::BufferCopy(GPUVAddr src_address, GPUVAddr dest_address, u64 
     if (amount == 0 || amount > static_cast<u64>(~u32{0})) {
         return false;
     }
-    std::scoped_lock lock{buffer_cache.mutex};
-    return buffer_cache.DMACopy(src_address, dest_address, amount);
+    // A buffer DMA updates guest memory without invoking the texture-cache
+    // CPU-write callback. Hold both cache locks over the ownership decision
+    // and copy so another thread cannot publish a newer image in between.
+    // Lichii c84935f / 47d2368 / 36bfb77: only invalidate destination images
+    // whose latest bytes are already in guest memory. Skip the unsafe case
+    // rather than uploading stale CPU bytes over GPU-owned image contents.
+    std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
+    bool copied_gpu_bytes = false;
+    if (!buffer_cache.DMACopy(src_address, dest_address, amount, &copied_gpu_bytes)) {
+        return false;
+    }
+    if (!copied_gpu_bytes &&
+        !texture_cache.IsGpuMemoryGpuModified(src_address, amount) &&
+        !texture_cache.IsGpuMemoryGpuModified(dest_address, amount)) {
+        texture_cache.WriteGpuMemory(dest_address, amount);
+    }
+    return true;
 }
 
 template <bool IS_IMAGE_UPLOAD>

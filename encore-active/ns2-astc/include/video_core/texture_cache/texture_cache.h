@@ -929,6 +929,32 @@ void TextureCache<P>::WriteMemory(DAddr cpu_addr, size_t size) {
     });
 }
 
+// DMA can update device guest memory without going through the usual CPU-write
+// callback. Mirror that write into the image cache only when the GPU has no
+// newer image data that would be lost by a subsequent upload.
+template <class P>
+void TextureCache<P>::WriteGpuMemory(GPUVAddr gpu_addr, size_t size) {
+    for (const auto& [piece_addr, piece_size] : gpu_memory->GetSubmappedRange(gpu_addr, size)) {
+        if (const auto device_addr = gpu_memory->GpuToCpuAddress(piece_addr)) {
+            WriteMemory(*device_addr, piece_size);
+        }
+    }
+}
+
+template <class P>
+bool TextureCache<P>::IsGpuMemoryGpuModified(GPUVAddr gpu_addr, size_t size) {
+    bool mapped = false;
+    for (const auto& [piece_addr, piece_size] : gpu_memory->GetSubmappedRange(gpu_addr, size)) {
+        mapped = true;
+        const auto device_addr = gpu_memory->GpuToCpuAddress(piece_addr);
+        // An unresolvable submapping is not evidence that guest bytes are current.
+        if (!device_addr || IsRegionGpuModified(*device_addr, piece_size)) {
+            return true;
+        }
+    }
+    return !mapped;
+}
+
 template <class P>
 bool TextureCache<P>::IsDownloadable(const ImageBase& image) const noexcept {
     if (!image.IsSafeGpuCopy()) {

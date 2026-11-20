@@ -280,7 +280,8 @@ void BufferCache<P>::ClearDownload(DAddr device_addr, u64 size) {
 }
 
 template <class P>
-bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount) {
+bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount,
+                             bool* gpu_written) {
     // FindBuffer and SynchronizeBuffer accept u32 byte spans. Never truncate
     // a wider DMA request: the caller can take its ordinary software path.
     // Reject empty copies before dirty-range bookkeeping as well.
@@ -329,6 +330,9 @@ bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 am
     // This subtraction in this order is important for overlapping copies.
     gpu_modified_ranges.Subtract(*cpu_dest_address, amount);
     const bool has_new_downloads = tmp_intervals.size() != 0;
+    if (gpu_written) {
+        *gpu_written = has_new_downloads;
+    }
     for (const auto& pair : tmp_intervals) {
         gpu_modified_ranges.Add(pair.first, pair.second);
     }

@@ -316,7 +316,10 @@ public:
     void PopAsyncFlushes();
     void PopAsyncBuffers();
 
-    bool DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount);
+    /// Optionally report whether the copied source contains GPU-owned buffer bytes.
+    /// A caller must not re-upload the destination texture from stale guest memory.
+    bool DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount,
+                 bool* gpu_written = nullptr);
 
     bool DMAClear(GPUVAddr src_address, u64 amount, u32 value);
 
