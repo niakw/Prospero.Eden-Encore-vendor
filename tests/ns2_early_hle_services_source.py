@@ -12,13 +12,20 @@ assert blob(BASE/"am/service/application_proxy.h")=="8c62459c45ed040d28d6ffc80d7
 assert blob(BASE/"hid/hid_server.cpp")=="9689bce8dd69ba186bf9a24d02e53a9f2fb8954d"
 assert blob(BASE/"hid/hid_server.h")=="57a1a04b9c7d135a8181f2dde0d418cade1f29b3"
 # The shipping Eden appletOE service has only cmd 0; the Switch 2 SDK
-# uses cmd 10 with the same typed arguments. Never rely on global auto-stub.
+# uses cmd 10 with an extra input u32. Decode that input before forwarding
+# to command 0, keeping real process validation and no global auto-stub.
 proxy_base=(BASE/"am/service/application_proxy_service.cpp")
 proxy_owner=(ACTIVE/"am/service/application_proxy_service.cpp")
 assert blob(proxy_base)=="b7d7b3c2d957ee0d5414f73428afc0cd0891f179"
 proxy_text=proxy_owner.read_text()
 assert proxy_text.count('{0, D<&IApplicationProxyService::OpenApplicationProxy>')==1
-assert proxy_text.count('{10, D<&IApplicationProxyService::OpenApplicationProxy>')==1
+assert proxy_text.count('{10, D<&IApplicationProxyService::OpenApplicationProxyWithFlags>')==1
+assert proxy_text.count('Result IApplicationProxyService::OpenApplicationProxyWithFlags(')==1
+assert 'R_UNLESS(flags == 0 || flags == 2, ResultUnknown)' in proxy_text
+assert 'R_RETURN(OpenApplicationProxy(out_application_proxy, pid, process_handle))' in proxy_text
+proxy_header=(ACTIVE/"am/service/application_proxy_service.h").read_text()
+assert proxy_header.count('Result OpenApplicationProxyWithFlags(')==1
+assert 'u32 flags, ClientProcessId pid' in proxy_header
 assert 'if (const auto applet = this->GetAppletFromProcessId(pid))' in proxy_text
 assert 'std::make_shared<IApplicationProxy>' in proxy_text
 assert 'use_auto_stub' not in proxy_text
@@ -27,6 +34,15 @@ aph=(ACTIVE/"am/service/application_proxy.h").read_text()
 gfx=(ACTIVE/"am/service/graphics_scaling_parameters_functions.h").read_text()
 hid=(ACTIVE/"hid/hid_server.cpp").read_text()
 hidh=(ACTIVE/"hid/hid_server.h").read_text()
+assert ap.count('{40, D<&IApplicationProxy::GetPerformanceFunctions>')==1
+assert ap.count('std::make_shared<IPerformanceFunctions>(system)')==1
+assert 'class IPerformanceFunctions;' in aph
+assert 'Result GetPerformanceFunctions(Out<SharedPointer<IPerformanceFunctions>>' in aph
+perf=(ACTIVE/"am/service/performance_functions.h").read_text()
+assert '{0, D<&IPerformanceFunctions::IsCpuOverclockEnabled>' in perf
+assert '{1, D<&IPerformanceFunctions::SetCpuOverclockEnabled>' in perf
+assert '*out_enabled = m_requested_overclock;' in perf
+assert 'm_requested_overclock = enabled;' in perf
 assert ap.count('{60, D<&IApplicationProxy::GetGraphicsScalingParametersFunctions>')==1
 assert ap.count('std::make_shared<IGraphicsScalingParametersFunctions>(system)')==1
 assert "class IGraphicsScalingParametersFunctions;" in aph
@@ -44,4 +60,4 @@ audio=(BASE/"audio/audio_device.cpp").read_text()
 assert '{19, D<&IAudioDevice::SetAudioDeviceOutputVolumeAutoTuneEnabled>' in audio
 assert '{20, D<&IAudioDevice::IsAudioDeviceOutputVolumeAutoTuneEnabled>' in audio
 assert "*out_enabled = false;" in audio
-print("NS2_EARLY_HLE_SERVICE_SOURCE_PASS graphics_scale=10 jcms=4 audio_autotune=preexisting syncpoint=later-excluded ps5=unverified")
+print("NS2_EARLY_HLE_SERVICE_SOURCE_PASS appletOE_10=flags proxy_40=performance graphics_scale=10 jcms=4 audio_autotune=preexisting ps5=unverified")
