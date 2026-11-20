@@ -1267,6 +1267,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {4, &IGraphicsSupervisor::Initialize, "Initialize"},
         {11, &IGraphicsSupervisor::BindProcess, "BindProcess"},
         {101, &IGraphicsSupervisor::CompleteBootstrap, "CompleteBootstrap"},
+        {201, &IGraphicsSupervisor::CreateSyncptContext, "CreateSyncptContext"},
         {202, &IGraphicsSupervisor::OpenSyncptSession, "OpenSyncptSession"},
         {204, &IGraphicsSupervisor::AttachSyncptMemory, "AttachSyncptMemory"},
         {401, &IGraphicsSupervisor::InitializeGpuContext, "InitializeGpuContext"},
@@ -1598,6 +1599,21 @@ void IGraphicsSupervisor::OpenChatSession(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 2, 1, 0};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
+}
+
+void IGraphicsSupervisor::CreateSyncptContext(HLERequestContext& ctx) {
+    // Horizon S2 GSV 201 has no input/output. The per-process SyncptState
+    // was already constructed with this GSV session; 202 serves the child
+    // session and 204 attaches the real transfer-memory mirrors.
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    if (packet[0] == 16 + 201 && packet[1] == 0) {
+        result = m_syncpt && m_process &&
+                         m_bootstrap.CurrentPhase() == GB::Phase::Ready
+                     ? ResultSuccess : Kernel::ResultInvalidState;
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
 }
 
 void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {

@@ -55,6 +55,7 @@ private:
     void BindProcess(HLERequestContext& ctx);
     void CompleteBootstrap(HLERequestContext& ctx);
     void InitializeGpuContext(HLERequestContext& ctx);
+    void CreateSyncptContext(HLERequestContext& ctx);
     void OpenSyncptSession(HLERequestContext& ctx);
     void AttachSyncptMemory(HLERequestContext& ctx);
     void OpenGpuSession(HLERequestContext& ctx);
