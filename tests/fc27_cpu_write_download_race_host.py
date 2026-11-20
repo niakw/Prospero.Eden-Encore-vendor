@@ -12,6 +12,7 @@ texture=(root/"encore-active/ns2-astc/include/video_core/texture_cache/texture_c
 texture_base=(root/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache_base.h").read_text()
 dirty=(root/"encore-active/eden-core/overrides/core/gpu_dirty_memory_manager.h").read_text()
 rast=(root/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
+manager=(root/"encore-active/eden-core/src/video_core/memory_manager.cpp").read_text()
 rast_h=(root/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
 gpu_h=(root/"encore-active/eden-core/overrides/video_core/gpu.h").read_text()
 iface=(root/"encore-active/eden-core/overrides/video_core/rasterizer_interface.h").read_text()
@@ -102,6 +103,16 @@ assert raster_tick.index("texture_cache_runtime.GetDeviceMemoryUsage()") < raste
     "buffer_cache.TickFrame(frame_memory_usage);")
 
 
+# The native GMMU must merge ONLY overlapping or exactly adjacent
+# physical spans before CPU ownership is claimed. Never merge through a
+# sparse gap: it may contain independent GPU-written sibling bytes.
+flush=method(manager,"void MemoryManager::FlushCaching()")
+assert "std::sort(page_stash2.begin(), page_stash2.end()," in flush
+assert "const DAddr offset = addr - previous.first;" in flush
+assert "offset <= previous.second" in flush
+assert "page_stash2.resize(retained);" in flush
+assert flush.index("page_stash2.resize(retained);") < flush.index(
+    "rasterizer->InnerInvalidation(VideoCommon::FixSmallVectorADL(page_stash2));")
 claim=method(cache,"template <class P>\ntemplate <typename RangeSize>\nvoid BufferCache<P>::ClaimCpuWrites")
 pending=method(cache,"template <class P>\nCommon::RangeSet<DAddr> BufferCache<P>::PendingCpuWriteRanges")
 write=method(cache,"template <class P>\nvoid BufferCache<P>::WriteDownloadedMemory")
@@ -287,6 +298,87 @@ int main() {
 }
 """
 
+merge_cpp=r"""
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <random>
+#include <span>
+#include <utility>
+#include <vector>
+#define PS5_NATIVE 1
+using u64=std::uint64_t;
+using DAddr=std::uint64_t;
+namespace VideoCommon {
+template<class T> std::span<const typename T::value_type> FixSmallVectorADL(const T& v) {
+    return {v.data(),v.size()};
+}
+}
+struct StubRasterizer {
+    std::vector<std::pair<DAddr,std::size_t>> last;
+    unsigned calls=0;
+    void InnerInvalidation(std::span<const std::pair<DAddr,std::size_t>> ranges) {
+        ++calls;
+        last.assign(ranges.begin(),ranges.end());
+    }
+};
+struct StubAccumulator {
+    std::vector<std::pair<DAddr,std::size_t>> dirty;
+    template<class F> bool InvalidateAll(F&& f) {
+        if(dirty.empty())return false;
+        for(auto [addr,n]:dirty)f(addr,n);
+        dirty.clear();
+        return true;
+    }
+};
+struct MemoryManager {
+    StubAccumulator accumulator;
+    std::vector<std::pair<DAddr,std::size_t>> page_stash2;
+    StubRasterizer* rasterizer;
+    explicit MemoryManager(StubRasterizer& r):rasterizer(&r){}
+    template<bool> void GetSubmappedRangeImpl(DAddr addr,std::size_t n,
+                std::vector<std::pair<DAddr,std::size_t>>& out) {
+        if(n)out.emplace_back(addr,n);
+    }
+    void FlushCaching();
+};
+""" + flush + r"""
+int main() {
+    StubRasterizer r;
+    MemoryManager m(r);
+    m.accumulator.dirty={{0x2000,4},{0x1004,8},{0x1000,8},
+                         {0x2004,4},{0x1000,8},{0x3000,2}};
+    m.FlushCaching();
+    assert(r.calls==1&&r.last.size()==3);
+    assert((r.last[0]==std::pair<DAddr,std::size_t>{0x1000,12}));
+    assert((r.last[1]==std::pair<DAddr,std::size_t>{0x2000,8}));
+    assert((r.last[2]==std::pair<DAddr,std::size_t>{0x3000,2}));
+    m.FlushCaching();
+    assert(r.calls==1); // no phantom invalidations
+    std::mt19937_64 gen(0xFC27);
+    for(unsigned t=0;t<4000;++t){
+        std::vector<unsigned char> touched(4096);
+        for(unsigned j=0;j<64;++j){
+            auto a=static_cast<std::size_t>(gen()%4096);
+            auto n=static_cast<std::size_t>(gen()%64);
+            if(n>4096-a)n=4096-a;
+            m.accumulator.dirty.emplace_back(a,n);
+            for(std::size_t k=a;k<a+n;++k)touched[k]=1;
+        }
+        m.FlushCaching();
+        std::vector<unsigned char> actual(4096);
+        std::size_t prev_end=0;
+        for(auto [a,n]:r.last) {
+            assert(a>=prev_end && a+n<=4096);
+            prev_end=static_cast<std::size_t>(a+n);
+            for(std::size_t k=a;k<a+n;++k)actual[k]=1;
+        }
+        assert(touched==actual);
+    }
+}
+"""
+
 dirty_cpp=r"""
 #include <cassert>
 #include <functional>
@@ -315,6 +407,7 @@ with tempfile.TemporaryDirectory(prefix="fc27-cpu-write-download-") as td:
     (d/"model.cpp").write_text(cpp)
     (d/"batch.cpp").write_text(batch_cpp)
     (d/"budget.cpp").write_text(budget_cpp)
+    (d/"merge.cpp").write_text(merge_cpp)
     stub=d/"stub/core"; stub.mkdir(parents=True)
     (stub/"device_memory_manager.h").write_text(
         "#pragma once\n#include <cstddef>\n#include <cstdint>\n"
@@ -336,6 +429,10 @@ with tempfile.TemporaryDirectory(prefix="fc27-cpu-write-download-") as td:
             subprocess.run([cxx,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
                             str(d/"budget.cpp"),"-o",str(budget_exe)],check=True,timeout=60)
             subprocess.run([str(budget_exe)],check=True,timeout=20)
+            merge_exe=d/("merge-"+Path(cxx).name+opt[2:])
+            subprocess.run([cxx,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
+                            str(d/"merge.cpp"),"-o",str(merge_exe)],check=True,timeout=60)
+            subprocess.run([str(merge_exe)],check=True,timeout=20)
             dirty_exe=d/("dirty-"+Path(cxx).name+opt[2:])
             subprocess.run([cxx,"-std=c++20",opt,"-Wall","-Wextra","-Werror","-pthread",
                             "-I",str(d/"stub"),
