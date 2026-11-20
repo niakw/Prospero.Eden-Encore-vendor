@@ -251,6 +251,7 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {3131, C<&IHidServer::FinalizeNmouse>, "FinalizeNmouse"},
         {3132, C<&IHidServer::SetNmousePointerRanges>, "SetNmousePointerRanges"},
         {3133, C<&IHidServer::GetNmousePointerRanges>, "GetNmousePointerRanges"},
+        {3138, C<&IHidServer::SetMergedNmouseSourceTypes>, "SetMergedNmouseSourceTypes"},
         {3139, C<&IHidServer::InitializeNmouse2>, "InitializeNmouse2"},
         {3150, C<&IHidServer::SetMouseLibraryVersion>, "SetMouseLibraryVersion"}, //21.0.0+
         // What? -- {12010, nullptr, "SetButtonConfigLeft"},
@@ -1538,6 +1539,20 @@ Result IHidServer::InitializeNmouse(u8 pointer_type, s32 width, s32 height,
 Result IHidServer::FinalizeNmouse(ClientAppletResourceUserId aruid) {
     const std::scoped_lock lock{m_ns2_state_mutex};
     m_ns2_nmouse_ranges.erase(aruid.pid);
+    m_ns2_merged_mouse_sources.erase(aruid.pid);
+    R_SUCCEED();
+}
+
+Result IHidServer::SetMergedNmouseSourceTypes(u32 source_types,
+                                               ClientAppletResourceUserId aruid) {
+    // Horizon S2 accepts a BitFlagSet of NmouseType. The documented
+    // SDK masks this to 0x6; preserve only supported types, per ARUID.
+    const std::scoped_lock lock{m_ns2_state_mutex};
+    try {
+        m_ns2_merged_mouse_sources[aruid.pid] = source_types & 0x6U;
+    } catch (const std::bad_alloc&) {
+        R_THROW(Kernel::ResultOutOfResource);
+    }
     R_SUCCEED();
 }
 

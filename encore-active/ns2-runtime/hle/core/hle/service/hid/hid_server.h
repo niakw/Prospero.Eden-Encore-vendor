@@ -49,6 +49,7 @@ private:
                             ClientAppletResourceUserId aruid, u64 t_mem_size,
                             InCopyHandle<Kernel::KTransferMemory> t_mem);
     Result FinalizeNmouse(ClientAppletResourceUserId aruid);
+    Result SetMergedNmouseSourceTypes(u32 source_types, ClientAppletResourceUserId aruid);
     Result InitializeNmouse2(u32 pointer_type, s32 width, s32 height, u32 unknown,
                              ClientAppletResourceUserId aruid, u64 t_mem_size,
                              InCopyHandle<Kernel::KTransferMemory> t_mem);
@@ -295,6 +296,7 @@ private:
     std::mutex m_ns2_state_mutex;
     std::unordered_map<u64, u64> m_ns2_scene_ids;
     std::unordered_map<u64, NmousePointerRanges> m_ns2_nmouse_ranges;
+    std::unordered_map<u64, u32> m_ns2_merged_mouse_sources;
 };
 
 } // namespace Service::HID
