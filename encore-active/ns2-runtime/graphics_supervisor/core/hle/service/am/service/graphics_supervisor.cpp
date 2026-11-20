@@ -1554,9 +1554,9 @@ void IGraphicsSupervisor::OpenCameraSession(HLERequestContext& ctx) {
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
-    rb.PushCopyObjects(ctx, *client);
+    ctx.AddMoveObject(client);
 }
 
 void IGraphicsSupervisor::OpenChatSession(HLERequestContext& ctx) {
@@ -1573,9 +1573,9 @@ void IGraphicsSupervisor::OpenChatSession(HLERequestContext& ctx) {
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
-    rb.PushCopyObjects(ctx, *client);
+    ctx.AddMoveObject(client);
 }
 
 void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {
@@ -2386,8 +2386,9 @@ void IGraphicsSupervisor::CalculateChatImagePoolSize(HLERequestContext& ctx) {
     rb.Push(result.raw);
     rb.Push(layout ? static_cast<u32>(layout->total_bytes) : 0u);
     rb.Push(layout ? static_cast<u32>(layout->total_bytes >> 32) : 0u);
-    // The layout helper rounds every image to the real block alignment.
-    const u64 alignment = layout ? std::max<u64>(4096, 64ULL << preference[4]) : 0;
+    // Keep malformed guest block-height values from reaching a host shift.
+    const u32 block_log2 = preference[4] <= 8 ? preference[4] : 7;
+    const u64 alignment = layout ? std::max<u64>(4096, 64ULL << block_log2) : 0;
     rb.Push(static_cast<u32>(alignment));
     rb.Push(static_cast<u32>(alignment >> 32));
 }
