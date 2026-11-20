@@ -28,9 +28,9 @@ def blob(path: Path)->str:
 # Known successor of the original FC27 texture-table owner: vendor cb10b809
 # adds only Lichii #1914's found-bit descriptor bound. Its dedicated host test
 # validates that helper; retain the FC27 fixed-sampler contract below.
-assert blob(TEX)=="889456a31ddeb87e411ce4d0d2d41078b9593244"
+assert blob(TEX)=="0010ffd43e7ac3fb482c46277c854ab9a76b06ab"
 gfx_blob=blob(GFX)
-assert gfx_blob in {"efa8fd4d73c111655fced67fe7dd1e6b7c0178ba","526aa16b22ba3918c29ce85c884d606dcfd185a1"}
+assert gfx_blob in {"efa8fd4d73c111655fced67fe7dd1e6b7c0178ba","526aa16b22ba3918c29ce85c884d606dcfd185a1","2834a18fe7638749ec83cc8f5feb1fcde6c71a9a"}
 cmp_blob=blob(CMP)
 assert cmp_blob in {"7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2","7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600"}
 cache_blob=blob(CACHE)
