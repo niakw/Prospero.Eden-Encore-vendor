@@ -120,6 +120,16 @@ assert nvsrv.index('handler->InitializeForProcess(m_process)') < nvsrv.index(
     'CreateMetadataSession(system, ctx,')
 assert nvsrv.index('if (result.IsError()) {') < nvsrv.index(
     'IPC::ResponseBuilder rb{ctx, 2, 0, 1};')
+# 1402 must reject a second active user session (firmware 0x200f3),
+# while a closed child must not be kept alive by the parent supervisor.
+assert 'std::weak_ptr<Nvidia::NVDRV> m_nvsrv_session;' in hdr
+assert 'if (!m_nvsrv_session.expired()) {' in nvsrv
+assert 'result = Result{0x200f3};' in nvsrv
+assert nvsrv.index('result = Result{0x200f3};') < nvsrv.index(
+    'handler->InitializeForProcess(m_process)')
+assert nvsrv.index('CreateMetadataSession(system, ctx, handler, &client)') < nvsrv.index(
+    'm_nvsrv_session = handler;')
+assert 'std::move(handler)' not in nvsrv
 assert 'bool InitializeForProcess(Kernel::KProcess* process);' in nvhdr
 nvinitialize=nvcpp.split('bool NVDRV::InitializeForProcess(Kernel::KProcess* process) {',1)[1].split("\n}",1)[0]
 assert nvinitialize.index('if (!process || is_initialized)') < nvinitialize.index(

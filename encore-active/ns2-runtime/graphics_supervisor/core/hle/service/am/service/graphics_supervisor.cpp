@@ -1625,32 +1625,39 @@ void IGraphicsSupervisor::AttachSyncptMemory(HLERequestContext& ctx) {
 }
 
 void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
-    // Switch 2 GSV 1402 returns a real NVDRV INvDrvServices session.
-    // The guest uses this nvsrv handle for NvRm channel setup; a missing
-    // service here can stop NVN before the first GPFIFO submission.
+    // Switch 2 GSV 1402 returns a real NVDRV INvDrv2User session.
+    // The guest uses this handle for NvRm channel setup before GPFIFO.
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     Kernel::KClientSession* client{};
     if (packet[0] == 16 + 1402 && packet[1] == 0) {
         result = Kernel::ResultInvalidState;
         if (m_process && m_bootstrap.CurrentPhase() == GB::Phase::Ready) {
-            try {
-                const auto service =
-                    system.ServiceManager().GetService<Nvidia::NVDRV>("nvdrv:s", true);
-                const auto module = service ? service->GetModule() : nullptr;
-                if (module) {
-                    // NVDRV CMIF 3 normally initialises with copied process
-                    // handles. GSV already owns the authenticated process:
-                    // set up its real NVDRV container session directly.
-                    auto handler = std::make_shared<Nvidia::NVDRV>(
-                        system, module, "nx2:nvsrv");
-                    if (handler->InitializeForProcess(m_process)) {
-                        result = CreateMetadataSession(system, ctx,
-                                                       std::move(handler), &client);
+            // The firmware permits only one live 1402 user session and
+            // specifies 0x200f3 when the guest tries to open another.
+            // Do not take an extra NVDRV container reference on failure.
+            if (!m_nvsrv_session.expired()) {
+                result = Result{0x200f3};
+            } else {
+                try {
+                    const auto service =
+                        system.ServiceManager().GetService<Nvidia::NVDRV>("nvdrv:s", true);
+                    const auto module = service ? service->GetModule() : nullptr;
+                    if (module) {
+                        auto handler = std::make_shared<Nvidia::NVDRV>(
+                            system, module, "nx2:nvsrv");
+                        if (handler->InitializeForProcess(m_process)) {
+                            // Keep the handler reachable through the kernel
+                            // session manager; weak tracking must not keep a
+                            // closed guest handle alive.
+                            result = CreateMetadataSession(system, ctx, handler, &client);
+                            if (result.IsSuccess())
+                                m_nvsrv_session = handler;
+                        }
                     }
+                } catch (const std::bad_alloc&) {
+                    result = Kernel::ResultOutOfResource;
                 }
-            } catch (const std::bad_alloc&) {
-                result = Kernel::ResultOutOfResource;
             }
         }
     }

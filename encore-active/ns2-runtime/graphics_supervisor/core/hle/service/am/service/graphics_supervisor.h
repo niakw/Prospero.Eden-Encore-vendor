@@ -14,7 +14,7 @@
 #include "core/hle/service/am/service/graphics_supervisor_protocol.h"
 #include "core/hle/service/am/service/native_image_layout.h"
 namespace Kernel { class KProcess; }
-namespace Service::Nvidia { class Module; namespace Devices { class nvhost_as_gpu; } }
+namespace Service::Nvidia { class Module; class NVDRV; namespace Devices { class nvhost_as_gpu; } }
 namespace Service::AM {
 class IGpuSession;
 class IGraphicsVideoDecoderSession;
@@ -92,6 +92,8 @@ private:
     const u64 m_aruid;
     bool m_display_ready{};
     std::vector<std::weak_ptr<IGpuSession>> m_gpu_sessions;
+    // TIPC 1402: an active INvDrv2User child is exclusive per GSV session.
+    std::weak_ptr<Nvidia::NVDRV> m_nvsrv_session;
     // Shared because CoreTiming callbacks keep only weak references; shutdown
     // can therefore disarm polling before the last callback releases state.
     std::shared_ptr<NativeSyncptState> m_syncpt;
