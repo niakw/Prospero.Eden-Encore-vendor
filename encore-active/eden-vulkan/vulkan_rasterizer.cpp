@@ -2711,6 +2711,11 @@ void RasterizerVulkan::TickFrame() {
 #endif
         texture_cache.TickFrame();
     }
+#ifdef PS5_NATIVE
+    // Poll the driver while neither guest cache mutex is held. CPU writes
+    // must not wait for the PS5 memory-budget callback every sampled frame.
+    const std::optional<u64> frame_memory_usage = buffer_cache.PollFrameMemoryUsage();
+#endif
     {
 #ifdef PS5_NATIVE
         ::Eden::Performance::CachePhaseTimer buffer_wait{
@@ -2722,7 +2727,11 @@ void RasterizerVulkan::TickFrame() {
         ::Eden::Performance::CachePhaseTimer buffer_held{
             ::Eden::Performance::CachePhase::FrameBufferHeld, frame_sample};
 #endif
+#ifdef PS5_NATIVE
+        buffer_cache.TickFrame(frame_memory_usage);
+#else
         buffer_cache.TickFrame();
+#endif
     }
 }
 

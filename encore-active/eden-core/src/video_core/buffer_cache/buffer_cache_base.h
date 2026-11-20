@@ -13,6 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -228,7 +229,14 @@ public:
 
     ~BufferCache();
 
+#ifdef PS5_NATIVE
+    // Poll RADV/PS5 memory budget without holding the guest BufferCache mutex.
+    // Called by the native Vulkan rasterizer before frame housekeeping.
+    [[nodiscard]] std::optional<u64> PollFrameMemoryUsage();
+    void TickFrame(std::optional<u64> externally_sampled_usage = std::nullopt);
+#else
     void TickFrame();
+#endif
 
     bool BindMultiRangeStorage(const Binding& binding, bool is_written,
                                std::span<const MultiRangeSegment> pool);

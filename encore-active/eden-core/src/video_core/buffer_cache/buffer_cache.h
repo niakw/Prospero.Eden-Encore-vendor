@@ -99,8 +99,33 @@ void BufferCache<P>::RunGarbageCollector() {
     lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, clean_up);
 }
 
+#ifdef PS5_NATIVE
 template <class P>
+std::optional<u64> BufferCache<P>::PollFrameMemoryUsage() {
+    // Only the quick scheduling decision reads cache state under its mutex.
+    // The Vulkan/PS5 memory-budget query can enter the driver or a platform
+    // callback. Never hold the mutex used by CPU writes across that call.
+    bool query = false;
+    {
+        std::scoped_lock lock{mutex};
+        const bool near_gc_watermark =
+            total_used_memory >= minimum_memory - minimum_memory / 3;
+        query = channel_state && runtime.CanReportMemoryUsage() &&
+                (near_gc_watermark || (frame_tick & 1u) == 0);
+    }
+    if (!query) {
+        return std::nullopt;
+    }
+    return runtime.GetDeviceMemoryUsage();
+}
+#endif
+
+template <class P>
+#ifdef PS5_NATIVE
+void BufferCache<P>::TickFrame(std::optional<u64> externally_sampled_usage) {
+#else
 void BufferCache<P>::TickFrame() {
+#endif
     // Homebrew console apps don't create or bind any channels, so this will be nullptr.
     if (!channel_state) {
 #ifdef PS5_NATIVE
@@ -147,7 +172,14 @@ void BufferCache<P>::TickFrame() {
         const bool near_gc_watermark =
             total_used_memory >= minimum_memory - minimum_memory / 3;
         if (near_gc_watermark || (frame_tick & 1u) == 0) {
-            total_used_memory = runtime.GetDeviceMemoryUsage();
+            // The native Vulkan caller already sampled outside the cache
+            // mutex. Other backends and changed frame conditions retain the
+            // original in-lock fallback, so eviction thresholds stay exact.
+            if (externally_sampled_usage) {
+                total_used_memory = *externally_sampled_usage;
+            } else {
+                total_used_memory = runtime.GetDeviceMemoryUsage();
+            }
         }
 #else
         total_used_memory = runtime.GetDeviceMemoryUsage();
