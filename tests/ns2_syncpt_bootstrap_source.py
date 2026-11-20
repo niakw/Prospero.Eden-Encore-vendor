@@ -54,6 +54,30 @@ for needle in ("SCOPE_EXIT {", "session->GetClientSession().Close(kernel);",
     assert needle in meta
 assert meta.index("SCOPE_EXIT {") < meta.index("server.RegisterSession(")
 assert meta.index("R_TRY(registered);") < meta.index("transferred_to_server = true;")
+# NS2 display (gsv 305) and GPU (gsv 497) session creation must
+# reply with a MOVE handle only after a real KClientSession exists. The
+# previous failure path wrote a null move object and a success-shaped TIPC
+# handle descriptor. Guard both bootstrap rejection and host OOM.
+for service in ("OpenDisplaySession", "OpenGpuSession"):
+    sig = f"void IGraphicsSupervisor::{service}(HLERequestContext& ctx) {{"
+    assert cpp.count(sig) == 1
+    body = cpp.split(sig, 1)[1].split("\n}", 1)[0]
+    assert "catch (const std::bad_alloc&)" in body
+    assert "result = Kernel::ResultOutOfResource;" in body
+    assert "if (result.IsError()) {" in body
+    failure = body.split("if (result.IsError()) {", 1)[1].split("}", 1)[0]
+    assert "IPC::ResponseBuilder rb{ctx, 2};" in failure
+    assert "rb.Push(result.raw);" in failure
+    assert "return;" in failure
+    assert body.index("if (result.IsError()) {") < body.index(
+        "IPC::ResponseBuilder rb{ctx, 2, 0, 1};")
+    assert body.count("ctx.AddMoveObject(client);") == 1
+# The GPU weak-owner vector must be provisioned before a server-managed
+# kernel session is registered, otherwise a bad_alloc can leak that session.
+gpu_open = cpp.split("void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {", 1)[1].split("\n}", 1)[0]
+assert gpu_open.index("m_gpu_sessions.reserve(m_gpu_sessions.size() + 1);") < gpu_open.index(
+    "CreateMetadataSession(system, ctx, handler, &client)")
+
 # A real default VI display exists. Native VI2 capacity commands 1 and 3
 # must not report zero, which prevents some NS2 clients from opening a
 # display/notification endpoint. Lichii nx2:vi2 returns 1,1,7 for 1,3,5.

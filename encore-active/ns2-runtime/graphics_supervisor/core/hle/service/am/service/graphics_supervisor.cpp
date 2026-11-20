@@ -1522,19 +1522,32 @@ void IGraphicsSupervisor::FinalizeDisplayContext(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
 }
 void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
-    const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;
+    const auto* p = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
     Kernel::KClientSession* client{};
-    if(p[0]==0x141&&p[1]==2&&
+    if (p[0] == 0x141 && p[1] == 2 &&
         GraphicsSupervisorProtocol::IsSupportedDisplaySession(
-            u64{p[2]}|(u64{p[3]}<<32))){
-        result=Kernel::ResultInvalidState;
-        if(m_display_ready){
-            auto owner=std::static_pointer_cast<IGraphicsSupervisor>(shared_from_this());
-            auto handler=std::make_shared<IVi2Session>(system,std::move(owner),m_aruid);
-            result=CreateMetadataSession(system,ctx,std::move(handler),&client);
+            u64{p[2]} | (u64{p[3]} << 32))) {
+        result = Kernel::ResultInvalidState;
+        if (m_display_ready) {
+            try {
+                auto owner = std::static_pointer_cast<IGraphicsSupervisor>(shared_from_this());
+                auto handler = std::make_shared<IVi2Session>(system, std::move(owner), m_aruid);
+                result = CreateMetadataSession(system, ctx, std::move(handler), &client);
+            } catch (const std::bad_alloc&) {
+                result = Kernel::ResultOutOfResource;
+            }
         }
     }
-    IPC::ResponseBuilder rb{ctx,2,0,1};rb.Push(result.raw);
+    // TIPC 305 returns a MOVE handle only when a real VI2 session exists.
+    // On failure, do not append a null kernel object or misstate the reply size.
+    if (result.IsError()) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
+    }
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
 
@@ -1618,12 +1631,26 @@ void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
     Result result = TranslateBootstrap(m_bootstrap.CanOpenGpuSession(packet, module != nullptr));
     Kernel::KClientSession* client{};
     if (result.IsSuccess()) {
-        auto handler = std::make_shared<IGpuSession>(system, module, m_process);
-        result = CreateMetadataSession(system, ctx, handler, &client);
-        if (result.IsSuccess()) {
+        try {
             std::erase_if(m_gpu_sessions, [](const auto& weak) { return weak.expired(); });
-            m_gpu_sessions.emplace_back(handler);
+            // Allocate the weak-owner slot BEFORE publishing a kernel session.
+            // A later vector growth failure must not orphan that client handle.
+            m_gpu_sessions.reserve(m_gpu_sessions.size() + 1);
+            auto handler = std::make_shared<IGpuSession>(system, module, m_process);
+            result = CreateMetadataSession(system, ctx, handler, &client);
+            if (result.IsSuccess()) {
+                m_gpu_sessions.emplace_back(handler);
+            }
+        } catch (const std::bad_alloc&) {
+            result = Kernel::ResultOutOfResource;
         }
+    }
+    // TIPC 497 must not move a null client when bootstrap/NVDRV admission
+    // or session creation fails. Keep the success reply ABI unchanged.
+    if (result.IsError()) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
     }
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
