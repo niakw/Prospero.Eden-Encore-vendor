@@ -11,6 +11,17 @@ assert blob(BASE/"am/service/application_proxy.cpp")=="6e1328fee7d9d9cce46c4424c
 assert blob(BASE/"am/service/application_proxy.h")=="8c62459c45ed040d28d6ffc80d7621f0a82fb123"
 assert blob(BASE/"hid/hid_server.cpp")=="9689bce8dd69ba186bf9a24d02e53a9f2fb8954d"
 assert blob(BASE/"hid/hid_server.h")=="57a1a04b9c7d135a8181f2dde0d418cade1f29b3"
+# The shipping Eden appletOE service has only cmd 0; the Switch 2 SDK
+# uses cmd 10 with the same typed arguments. Never rely on global auto-stub.
+proxy_base=(BASE/"am/service/application_proxy_service.cpp")
+proxy_owner=(ACTIVE/"am/service/application_proxy_service.cpp")
+assert blob(proxy_base)=="b7d7b3c2d957ee0d5414f73428afc0cd0891f179"
+proxy_text=proxy_owner.read_text()
+assert proxy_text.count('{0, D<&IApplicationProxyService::OpenApplicationProxy>')==1
+assert proxy_text.count('{10, D<&IApplicationProxyService::OpenApplicationProxy>')==1
+assert 'if (const auto applet = this->GetAppletFromProcessId(pid))' in proxy_text
+assert 'std::make_shared<IApplicationProxy>' in proxy_text
+assert 'use_auto_stub' not in proxy_text
 ap=(ACTIVE/"am/service/application_proxy.cpp").read_text()
 aph=(ACTIVE/"am/service/application_proxy.h").read_text()
 gfx=(ACTIVE/"am/service/graphics_scaling_parameters_functions.h").read_text()
