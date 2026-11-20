@@ -50,7 +50,10 @@ method=start+CACHE.split(start,1)[1].split(stop,1)[0]+"\n}"
 for needle in (
     "Upstream Lichii/Eglantine b13c4c1",
     "Lichii 44bf47d",
-    "!IsRegionGpuModified(page_begin, page_end - page_begin)",
+    "const bool page_has_gpu_writes =",
+    "if (keep_page_gpu_data && !page_has_gpu_writes) {",
+    "const bool overlaps_cpu_write = IsRegionGpuModified(device_addr, size);",
+    "(!overlaps_cpu_write || IsRegionGpuModified(page_begin, page_end - page_begin))",
     "gpu_modified_ranges.Subtract(device_addr, size);",
     "Common::AlignDown(device_addr, DEVICE_PAGESIZE)",
     "Common::AlignUp(device_addr + size, DEVICE_PAGESIZE)",
@@ -60,11 +63,13 @@ for needle in (
 ):
     assert needle in method, needle
 sibling_branch = method.split(
-    "if (keep_page_gpu_data && page_end > page_begin &&\n"
-    "        IsRegionGpuModified(page_begin, page_end - page_begin)) {", 1
+    "if (page_has_gpu_writes &&\n"
+    "        (!overlaps_cpu_write || IsRegionGpuModified(page_begin, page_end - page_begin))) {", 1
 )[1].split("\n    }", 1)[0]
 assert sibling_branch.index("DownloadMemory(") < method.rindex("memory_tracker.MarkRegionAsCpuModified")
 assert method.index("gpu_modified_ranges.Subtract") < method.index("DownloadMemory(")
+assert method.index("const bool page_has_gpu_writes") < method.index("const bool overlaps_cpu_write")
+assert method.count("IsRegionGpuModified(page_begin, page_end - page_begin)") == 2
 
 def function(text, marker):
     begin=text.index(marker)
@@ -80,14 +85,20 @@ for path in RASTERS:
     assert "buffer_cache.WriteMemory(addr, size, false);" in unmap, path
     assert "buffer_cache.WriteMemory(addr, size);" not in unmap, path
 
+iterator_start=BASE.index("    template <typename Func>\n    static void ForEachEnabledBit(")
+iterator_end=BASE.index("\n\n    template <typename Func>\n    void ForEachBufferInRange(", iterator_start)
+iterator_method=BASE[iterator_start:iterator_end]
+assert "enabled_mask &= enabled_mask - 1;" in iterator_method
 cpp=r"""
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <cassert>
 #include <cstdint>
 #include <iostream>
 #include <utility>
 #include <vector>
-using u64=std::uint64_t; using DAddr=std::uint64_t;
+using u32=std::uint32_t; using u64=std::uint64_t; using DAddr=std::uint64_t;
 static constexpr DAddr DEVICE_PAGESIZE=4096;
 static std::vector<int> events;
 namespace Common {
@@ -127,9 +138,25 @@ public:
     void ClearDownload(DAddr,u64){events.push_back(1);}
     void DownloadMemory(DAddr a,u64 n){events.push_back(2);downloads.emplace_back(a,n);}
     void WriteMemory(DAddr,u64,bool=true);
+""" + iterator_method + r"""
 };
 """ + method + r"""
 int main(){
+    // Source-extracted binding iteration, including the high (31st) bit.
+    const auto check_mask=[](u32 mask) {
+        std::vector<u32> actual;
+        BufferCache<>::ForEachEnabledBit(mask, [&](u32 i){actual.push_back(i);});
+        u32 expected_count=0;
+        for (u32 remaining=mask; remaining!=0; remaining &= remaining-1) {
+            assert(expected_count<actual.size());
+            assert(actual[expected_count++]==static_cast<u32>(std::countr_zero(remaining)));
+        }
+        assert(expected_count==actual.size());
+    };
+    for (u32 mask: std::array<u32,6>{0,1,0x80000000u,0xffffffffu,0x55555555u,0xaaaaaaaau}) {
+        check_mask(mask);
+    }
+    for (u32 mask=0; mask<65536; ++mask) check_mask(mask*0x9e3779b9u);
     {
         BufferCache<> c;
         events.clear();
@@ -145,9 +172,21 @@ int main(){
         c.WriteMemory(0x1100,0x20);
         assert((events==std::vector<int>{1,2,3}));
         assert(c.downloads.size()==1);
+        assert(c.exact_queries==3);
         assert((c.downloads[0]==std::pair<DAddr,u64>{0x1000,0x1000}));
         assert(!c.gpu_modified_ranges.Intersects(0x1100,0x20));
         assert(c.gpu_modified_ranges.Intersects(0x1200,0x20));
+    }
+    {
+        // CPU and GPU dirty spans share a page but never overlap: the page
+        // result remains valid, avoiding a third interval lookup.
+        BufferCache<> c;
+        c.gpu_modified_ranges.Add(0x1200,0x20);
+        events.clear();
+        c.WriteMemory(0x1100,0x20);
+        assert((events==std::vector<int>{2,3}));
+        assert(c.exact_queries==2);
+        assert(c.downloads.size()==1);
     }
     {
         BufferCache<> c;
@@ -155,6 +194,7 @@ int main(){
         events.clear();
         c.WriteMemory(0x1100,0x20);
         assert((events==std::vector<int>{1,3}));
+        assert(c.exact_queries==3);
         assert(c.downloads.empty());
     }
     {
@@ -165,7 +205,7 @@ int main(){
         assert((events==std::vector<int>{1,3}));
         assert(c.downloads.empty());
     }
-    std::cout<<"sibling_download=1 exact_only=0 unmap=0\n";
+    std::cout<<"sibling_download=1 exact_only=0 unmap=0 bit_iteration=1\n";
 }
 """
 compilers=list(dict.fromkeys(x for x in (shutil.which("clang++"),shutil.which("g++"),shutil.which(os.getenv("CXX",""))) if x))

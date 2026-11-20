@@ -360,11 +360,12 @@ public:
 private:
     template <typename Func>
     static void ForEachEnabledBit(u32 enabled_mask, Func&& func) {
-        for (u32 index = 0; enabled_mask != 0; ++index, enabled_mask >>= 1) {
-            const int disabled_bits = std::countr_zero(enabled_mask);
-            index += disabled_bits;
-            enabled_mask >>= disabled_bits;
+        // Iterate occupied binding slots directly; preserve the original
+        // ascending indices without shifting a second time per enabled slot.
+        while (enabled_mask != 0) {
+            const u32 index = static_cast<u32>(std::countr_zero(enabled_mask));
             func(index);
+            enabled_mask &= enabled_mask - 1;
         }
     }
 

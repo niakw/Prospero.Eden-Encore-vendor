@@ -182,13 +182,18 @@ void BufferCache<P>::WriteMemory(DAddr device_addr, u64 size, bool keep_page_gpu
     // either. Use the maintained IsRegionGpuModified/ForEachInRange API:
     // this pinned RangeSet has no upstream Intersects member. Keep the
     // single-query clean CPU-write fast path and b13c4c1 sibling preservation.
-    if (keep_page_gpu_data && page_end > page_begin &&
-        !IsRegionGpuModified(page_begin, page_end - page_begin)) {
+    // Only one page-wide GPU-ownership query is needed before the write.
+    // Keep its result for GPU-written sibling bytes: a second page query is
+    // necessary only after we actually removed an overlapping GPU-owned span.
+    const bool page_has_gpu_writes = keep_page_gpu_data && page_end > page_begin &&
+                                     IsRegionGpuModified(page_begin, page_end - page_begin);
+    if (keep_page_gpu_data && !page_has_gpu_writes) {
         memory_tracker.MarkRegionAsCpuModified(device_addr, size);
         return;
     }
 
-    if (IsRegionGpuModified(device_addr, size)) {
+    const bool overlaps_cpu_write = IsRegionGpuModified(device_addr, size);
+    if (overlaps_cpu_write) {
         ClearDownload(device_addr, size);
         gpu_modified_ranges.Subtract(device_addr, size);
     }
@@ -198,8 +203,8 @@ void BufferCache<P>::WriteMemory(DAddr device_addr, u64 size, bool keep_page_gpu
     // even when other bytes on that page are still newer on the GPU. Preserve
     // those sibling bytes before the page becomes CPU-owned, otherwise a later
     // upload can overwrite correct host-buffer data with the stale guest copy.
-    if (keep_page_gpu_data && page_end > page_begin &&
-        IsRegionGpuModified(page_begin, page_end - page_begin)) {
+    if (page_has_gpu_writes &&
+        (!overlaps_cpu_write || IsRegionGpuModified(page_begin, page_end - page_begin))) {
         DownloadMemory(page_begin, page_end - page_begin);
     }
 
