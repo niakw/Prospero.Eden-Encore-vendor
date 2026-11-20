@@ -2524,7 +2524,42 @@ void RasterizerVulkan::OnCacheInvalidations(std::span<const std::pair<DAddr, u64
         std::scoped_lock lock{buffer_cache.mutex};
         buffer_cache.ClaimCpuWrites(ranges);
     }
-    for (const auto& [addr, size] : ranges) OnCacheInvalidation(addr, size);
+
+    // The single-range invalidation callback takes the texture and buffer
+    // mutex once PER range. GPU-collected write batches often contain many
+    // pages; acquire each domain only once, as InnerInvalidation already
+    // does for the same texture -> buffer -> shader ordering. The prior
+    // ClaimCpuWrites still precedes every possible GPU sibling readback.
+    bool may_touch_texture = false;
+    for (const auto& [addr, size] : ranges) {
+        if (addr != 0 && size != 0 && !::Eden::ImagePages::NeverHeld(addr, size)) {
+            may_touch_texture = true;
+            break;
+        }
+    }
+    if (may_touch_texture) {
+        std::scoped_lock lock{texture_cache.mutex};
+        for (const auto& [addr, size] : ranges) {
+            if (addr != 0 && size != 0 && !::Eden::ImagePages::NeverHeld(addr, size)) {
+                texture_cache.WriteMemory(addr, size);
+            }
+        }
+    }
+    if (may_claim_buffer) {
+        std::scoped_lock lock{buffer_cache.mutex};
+        for (const auto& [addr, size] : ranges) {
+            if (addr != 0 && size != 0 && !::Eden::BufferPages::NeverRegistered(addr, size)) {
+                buffer_cache.WriteMemory(addr, size);
+            }
+        }
+    }
+    // Guest shaders always observe invalidation, including writes into
+    // pages that have never held a BufferCache or TextureCache allocation.
+    for (const auto& [addr, size] : ranges) {
+        if (addr != 0 && size != 0) {
+            pipeline_cache.InvalidateRegion(addr, size);
+        }
+    }
 }
 
 void RasterizerVulkan::OnCacheInvalidation(DAddr addr, u64 size) {
