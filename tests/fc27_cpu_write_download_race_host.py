@@ -310,6 +310,7 @@ merge_cpp=r"""
 #define PS5_NATIVE 1
 using u64=std::uint64_t;
 using DAddr=std::uint64_t;
+using GPUVAddr=std::uint64_t;
 namespace VideoCommon {
 template<class T> std::span<const typename T::value_type> FixSmallVectorADL(const T& v) {
     return {v.data(),v.size()};
