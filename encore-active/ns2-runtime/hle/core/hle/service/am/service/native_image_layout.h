@@ -114,6 +114,12 @@ struct NativeVideoImageLayout {
     bool nv12{};
     u32 chroma_offset{};
     u32 cpu_kind{}; // nn::gsv::CpuUserImageDescriptor: 8 RGBA, 9 BGRA, 10 NV12
+    // GameChat 1211 pools use the native block-linear 426/428 ABI, while
+    // decoder 911 pools retain Eden's address/last-byte reply convention.
+    bool native_gpu_layout{};
+    u32 gpu_layout_code{};
+    u32 block_height_log2{};
+    u32 pitch_gobs{};
 };
 inline std::optional<NativeVideoImageLayout> CalculateNativeVideoImageLayout(
     std::span<const u32> preference, u32 count) {
@@ -163,6 +169,10 @@ struct NativeVideoImageView {
     u32 packed_dimensions{};
     u64 offset{};
     u64 size{};
+    bool native_gpu_layout{};
+    u32 gpu_layout_code{};
+    u32 block_height_log2{};
+    u32 pitch_gobs{};
 };
 class NativeVideoPoolLedger {
 public:
@@ -198,8 +208,10 @@ public:
                 continue;
             const u64 offset = u64{image - pool.first_id} * pool.layout.image_stride;
             if (offset > std::numeric_limits<u32>::max()) return {};
-            return NativeVideoImageView{pool.backing, pool.packed_dimensions,
-                                        offset, pool.layout.image_bytes};
+            return NativeVideoImageView{
+                pool.backing, pool.packed_dimensions, offset, pool.layout.image_bytes,
+                pool.layout.native_gpu_layout, pool.layout.gpu_layout_code,
+                pool.layout.block_height_log2, pool.layout.pitch_gobs};
         }
         return {};
     }

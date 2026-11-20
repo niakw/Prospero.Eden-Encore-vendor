@@ -173,6 +173,10 @@ static std::optional<NativeVideoImageLayout> CalculateChatCameraImageLayout(
         false,
         0,
         8,
+        true,
+        preference[1],
+        block_log2,
+        static_cast<u32>(pitch / 64),
     };
 }
 
@@ -2163,6 +2167,7 @@ void IGraphicsSupervisor::QueryVideoGpuImage(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     std::array<u64, 16> descriptor{};
+    u64 image_offset{};
     if (packet[0] == 0x1bc && packet[1] == 1) {
         const std::scoped_lock lock{m_native_memory_mutex};
         result = Kernel::ResultNotFound;
@@ -2171,13 +2176,21 @@ void IGraphicsSupervisor::QueryVideoGpuImage(HLERequestContext& ctx) {
             descriptor[1] = image->packed_dimensions;
             descriptor[4] = 0x101000001ULL;
             descriptor[5] = image->offset | (image->size << 32);
+            if (image->native_gpu_layout) {
+                // nn::chat::gsv native images expose layout code, block
+                // height and pitch, and return the per-image backing offset.
+                descriptor[0] |= u64{image->gpu_layout_code} << 32;
+                descriptor[2] = u64{image->block_height_log2} |
+                                (u64{image->pitch_gobs} << 32);
+                image_offset = image->offset;
+            }
             result = ResultSuccess;
         }
     }
     IPC::ResponseBuilder rb{ctx, 39};
     rb.Push(result.raw);
     rb.Push<u64>(0);
-    rb.Push<u64>(0);
+    rb.Push(image_offset);
     for (const u64 field : descriptor) rb.Push(field);
     rb.Push<u32>(0);
 }
@@ -2186,7 +2199,7 @@ void IGraphicsSupervisor::MapVideoGpuImage(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     std::array<u64, 16> descriptor{};
-    u64 address{}, size{};
+    u64 address{}, size{}, second_reply{};
     if (packet[0] == 0x1ba && packet[1] == 4 && packet[3] == 1 &&
         ((packet[5] & 0xff) == 1 || (packet[5] & 0xff) == 3)) {
         result = Kernel::ResultNotFound;
@@ -2197,6 +2210,11 @@ void IGraphicsSupervisor::MapVideoGpuImage(HLERequestContext& ctx) {
                 descriptor[1] = image->packed_dimensions;
                 descriptor[4] = 0x101000001ULL;
                 descriptor[5] = image->offset | (image->size << 32);
+                if (image->native_gpu_layout) {
+                    descriptor[0] |= u64{image->gpu_layout_code} << 32;
+                    descriptor[2] = u64{image->block_height_log2} |
+                                    (u64{image->pitch_gobs} << 32);
+                }
                 size = image->size;
                 const auto key = std::make_pair(packet[4], packet[2]);
                 if (auto it = m_video_mappings.find(key); it != m_video_mappings.end()) {
@@ -2237,14 +2255,26 @@ void IGraphicsSupervisor::MapVideoGpuImage(HLERequestContext& ctx) {
                         }
                     }
                 }
-                if (result.IsSuccess()) descriptor[5] &= 0xffffffff00000000ULL;
+                if (result.IsSuccess()) {
+                    if (image->native_gpu_layout) {
+                        // GameChat 426 returns backing offset; keep the same
+                        // offset in the GpuOunceUserImageDescriptor.
+                        second_reply = image->offset;
+                    } else {
+                        // Decoder images keep Eden's historical mapped ABI:
+                        // second u64 is the last mapped byte and descriptor
+                        // offset becomes zero once directly GPU-addressed.
+                        descriptor[5] &= 0xffffffff00000000ULL;
+                        second_reply = address + size - 1;
+                    }
+                }
             }
         }
     }
     IPC::ResponseBuilder rb{ctx, 39};
     rb.Push(result.raw);
     rb.Push(address);
-    rb.Push(size ? address + size - 1 : 0);
+    rb.Push(second_reply);
     for (const u64 field : descriptor) rb.Push(field);
     rb.Push<u32>(0);
 }
