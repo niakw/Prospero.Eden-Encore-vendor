@@ -29,12 +29,12 @@ def blob(path: Path)->str:
 # Known successor of the original FC27 texture-table owner: vendor cb10b809
 # adds only Lichii #1914's found-bit descriptor bound. Its dedicated host test
 # validates that helper; retain the FC27 fixed-sampler contract below.
-assert blob(TEX)=="0010ffd43e7ac3fb482c46277c854ab9a76b06ab"
+assert blob(TEX)=="30c9a612a88fa6cd832a40ad0f717b4944db45a1"
 gfx_blob=blob(GFX)
 assert gfx_blob in {"efa8fd4d73c111655fced67fe7dd1e6b7c0178ba","526aa16b22ba3918c29ce85c884d606dcfd185a1","2834a18fe7638749ec83cc8f5feb1fcde6c71a9a",
-                    "bae8f3c36fc4e595e9b630ca55cc50496468e173"}
+                    "bae8f3c36fc4e595e9b630ca55cc50496468e173","f3c82781675b6979a8be96a333184e048ef57f81"} 
 cmp_blob=blob(CMP)
-assert cmp_blob in {"7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2","7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600"}
+assert cmp_blob in {"7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2","7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600","bb9552866e26e502839eed646be9af6ea0a0db0a"} 
 cache_blob=blob(CACHE)
 assert cache_blob in {
     "be5d48abd44996502b0829a6e0501d130a151455",
@@ -89,6 +89,13 @@ for needle in (
 assert "if (lhs->count > 1 || rhs->count > 1)" not in tex
 
 # The texture table advances; the secondary sampler word is fixed.
+# Repeated samples of ONE array must not consume multiple descriptor-array
+# budget slots; exactly the identity merged by Descriptors::Add is counted.
+assert "using ArrayKey = std::array<u32, 11>;" in tex
+assert "std::ranges::find(arrays, key) == arrays.end()" in tex
+assert "return static_cast<u32>(arrays.size());" in tex
+assert "cbuf.count, DynamicDescriptorSizeShift(cbuf.dynamic_offset)" in tex
+
 assert gfx.count("const u32 second_offset{desc.secondary_cbuf_offset};")==1
 assert "desc.secondary_cbuf_offset + index_offset" not in gfx
 assert cmp.count("const u32 secondary_offset{desc.secondary_cbuf_offset};")==1
@@ -116,7 +123,7 @@ def method(text,marker):
             if depth==0:return text[start:i+1]
     raise AssertionError(marker)
 
-if gfx_blob == "bae8f3c36fc4e595e9b630ca55cc50496468e173":
+if gfx_blob in {"bae8f3c36fc4e595e9b630ca55cc50496468e173","f3c82781675b6979a8be96a333184e048ef57f81"}:
     selected_header=GFX_HEADER.read_text()
     assert blob(GFX_HEADER)=="cc53133dd516e2d1d245326866ab3ce0c852b36b"
     transition_next=method(selected_header,
