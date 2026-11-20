@@ -268,8 +268,14 @@ private:
     std::vector<GraphicsPipelineCacheKey> transition_keys;
     std::vector<GraphicsPipeline*> transitions;
 #ifdef PS5_NATIVE
-    // GPU owner only. Two valid indices remain stable across vector growth.
+    // Transition hints are not the pipeline owners. Limit their memory
+    // growth and the O(N) unsuccessful Next() search on shader-heavy titles.
+    // The canonical graphics_cache remains complete and handles all misses.
+    static constexpr size_t kNativeTransitionHintLimit = 64;
+    // GPU owner only: the two hot indices stay valid across vector growth
+    // and are never replaced when the bounded ring rolls over.
     std::array<size_t, 2> hot_transition_indices{};
+    size_t next_transition_replacement{};
 #endif
 
     std::array<vk::ShaderModule, NUM_STAGES> spv_modules;
