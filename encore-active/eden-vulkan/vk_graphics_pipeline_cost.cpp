@@ -524,8 +524,12 @@ void GraphicsPipeline::RunBuild() {
     if (build_claimed.exchange(true, std::memory_order_acq_rel)) {
         return;
     }
-    build_task();
+    // The build callback publishes is_built before it returns. Cache teardown
+    // may then destroy this pipeline; never access its members afterward.
+    // Transfer ownership while this instance is still guaranteed alive.
+    auto task = std::move(build_task);
     build_task = nullptr;
+    task();
 }
 
 void GraphicsPipeline::AddTransition(GraphicsPipeline* transition) {
