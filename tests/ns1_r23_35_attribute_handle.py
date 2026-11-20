@@ -56,6 +56,20 @@ for path,sha in EXPECTED.items():
    assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==old_sha, ("FC27 graphics hint predecessor drift", path)
    assert "kNativeTransitionHintLimit = 64" in raw.decode("utf-8") or "next_transition_replacement" in raw.decode("utf-8")
   continue
+ if path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path)=="cfac496d574010b8121611c8616d38bf7cdcbc41":
+  # Reviewed newest-32 native prewarm overlay. The complete current shader
+  # owner is cryptographically pinned; the engine's Vulkan/R23 audit separately
+  # reverses its entire exact LoadDiskResources hunk to the historical blob.
+  # This older attribute-handle test should still reject unknown sources,
+  # but must not mistake a bounded shader reader change for an ABI change.
+  selected=raw.decode("utf-8")
+  assert "constexpr u32 CACHE_VERSION = 21;" in selected
+  assert "kStartupPrewarmPipelines = 32;" in selected
+  assert "kRecentShaderCacheScanLimit = 64ULL << 20;" in selected
+  assert "recent_cache_builds.pop_front();" in selected
+  assert "workers.WaitForRequests();" in selected
+  assert "fragment_shuffle_fallback[index] = true;" in selected
+  continue
  normalized=raw.decode("utf-8")
  if path.endswith("/vulkan_rasterizer.cpp"):
   normalized=restore_pre_rebind(normalized)
