@@ -24,8 +24,8 @@ for name,expected in files.items():
   # The active shared PS5 cache advanced again with reviewed full-clear upload
   # elision. Pin the complete current owner, then normalize ONLY that exact
   # additive region before applying the older image-page normalization below.
-  assert sha in {"744bf30e1421dcce212146f7e26e9d90558676a8", "0d99f9a861c645562519f71d62f4f49bfedd8101", "859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53"}, (name, sha)
-  if sha in {"0d99f9a861c645562519f71d62f4f49bfedd8101", "859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53"}:
+  assert sha in {"744bf30e1421dcce212146f7e26e9d90558676a8", "0d99f9a861c645562519f71d62f4f49bfedd8101", "859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53", "f4fc069bee00c6794907b54a9b29ccc52203c880"}, (name, sha)
+  if sha in {"0d99f9a861c645562519f71d62f4f49bfedd8101", "859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53", "f4fc069bee00c6794907b54a9b29ccc52203c880"}:
    # Proven active C++ descendant: F07 protections applied in selected owner.
    # R23/TIR surrounding owners remain separately byte-pinned.
    for needle in ("bool upload_completed = false;", "if (!upload_completed)",
@@ -33,17 +33,27 @@ for name,expected in files.items():
                   "if (True(image.flags & ImageFlagBits::IsDecoding))",
                   "return GetImageViewForFramebuffer(freshest_id);"):
     assert needle in text, ("selected F07 texture protection missing", needle)
-   if sha in {"859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53"}:
+   if sha in {"859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53", "f4fc069bee00c6794907b54a9b29ccc52203c880"}:
     shadow=(r/"encore-active/eden-vulkan/vulkan-cache/video_core/texture_cache/texture_cache.h").read_text()
     sig="void TextureCache<P>::TickAsyncUnswizzle() {"
     def selected_method(src):
      return src.split(sig,1)[1].split("\n}\n",1)[0]
     assert selected_method(text)==selected_method(shadow), "selected BCn 3D protection parity lost"
-   if sha in {"c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53"}:
+   if sha in {"c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53", "f4fc069bee00c6794907b54a9b29ccc52203c880"}:
     assert "Common::ScratchBuffer<u8> local_unswizzle_data_buffer;" in text
     assert "local_unswizzle_data_buffer.resize_destructive(image.unswizzled_size_bytes);" in text
     assert "invalid_slices" in text and "ImageFlagBits::CpuModified | ImageFlagBits::Remapped" in text
-  if sha == "9384f3f5534717762dea82796086617b41f1eb53":
+  if sha == "f4fc069bee00c6794907b54a9b29ccc52203c880":
+   # Restore just the new coverage guard first, then verify that every
+   # other byte matches the previously qualified DMA texture owner.
+   previous_method="bool TextureCache<P>::IsGpuMemoryGpuModified(GPUVAddr gpu_addr, size_t size) {\n    bool mapped = false;\n    for (const auto& [piece_addr, piece_size] : gpu_memory->GetSubmappedRange(gpu_addr, size)) {\n        mapped = true;\n        const auto device_addr = gpu_memory->GpuToCpuAddress(piece_addr);\n        // An unresolvable submapping is not evidence that guest bytes are current.\n        if (!device_addr || IsRegionGpuModified(*device_addr, piece_size)) {\n            return true;\n        }\n    }\n    return !mapped;\n}"
+   current_method="bool TextureCache<P>::IsGpuMemoryGpuModified(GPUVAddr gpu_addr, size_t size) {\n    // GetSubmappedRange omits unmapped/reserved holes. A partial translation\n    // must never make a DMA destination look safe for a guest-memory upload.\n    // Check full half-open coverage without adding addresses that might wrap.\n    size_t covered = 0;\n    for (const auto& [piece_addr, piece_size] : gpu_memory->GetSubmappedRange(gpu_addr, size)) {\n        if (piece_addr < gpu_addr || piece_addr - gpu_addr != covered ||\n            piece_size == 0 || piece_size > size - covered) {\n            return true;\n        }\n        const auto device_addr = gpu_memory->GpuToCpuAddress(piece_addr);\n        if (!device_addr || IsRegionGpuModified(*device_addr, piece_size)) {\n            return true;\n        }\n        covered += piece_size;\n    }\n    // No segments, partial coverage, and invalid ranges all fail closed.\n    return covered != size || size == 0;\n}"
+   assert text.count(current_method)==1, "GMMU gap guard owner changed"
+   text=text.replace(current_method,previous_method,1)
+   restored=text.encode()
+   prior_sha=hashlib.sha1(b"blob "+str(len(restored)).encode()+b"\x00"+restored).hexdigest()
+   assert prior_sha=="9384f3f5534717762dea82796086617b41f1eb53", ("DMA GMMU gap reverse",prior_sha)
+  if sha in {"9384f3f5534717762dea82796086617b41f1eb53", "f4fc069bee00c6794907b54a9b29ccc52203c880"}:
    # Verify the complete C++ owner only gained the reviewed two DMA
    # methods; the older image-page, TIR and ASTC contracts stay unchanged.
    before_dma=text.index("// DMA can update device guest memory")

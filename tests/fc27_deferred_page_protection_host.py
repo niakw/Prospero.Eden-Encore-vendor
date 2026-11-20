@@ -23,7 +23,7 @@ def blob(path):
 # synchronous protection even though DMA clean-image invalidation was added.
 assert blob(R)=="9da620ea3f4a4e0ab22e9747bf4e1058c09ce20b"
 assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
-assert blob(T)=="9384f3f5534717762dea82796086617b41f1eb53"
+assert blob(T)=="f4fc069bee00c6794907b54a9b29ccc52203c880"
 # Selected NS1/NS2 TextureCache must retain the causal native protections.
 texture_selected=T.read_text()
 for needle in ("bool upload_completed = false;", "std::try_to_lock",
@@ -63,6 +63,11 @@ assert "if (!copied_gpu_bytes &&" in dma
 assert "!texture_cache.IsGpuMemoryGpuModified(src_address, amount)" in dma
 assert "!texture_cache.IsGpuMemoryGpuModified(dest_address, amount)" in dma
 assert "bool may_claim_buffer = false;" in raster
+# The GMMU may return mapped fragments while omitting holes. Re-uploading
+# those spans must fail closed when any byte remains untranslatable.
+assert "piece_addr - gpu_addr != covered" in texture
+assert "piece_size > size - covered" in texture
+assert "return covered != size || size == 0;" in texture
 assert "ImagePages::Mark(image.cpu_addr, image.guest_size_bytes);" in texture
 assert "ImagePages::Mark(cpu_addr, size);" in texture
 start=raster.index("bool RasterizerVulkan::OnCPUWrite(")

@@ -943,16 +943,23 @@ void TextureCache<P>::WriteGpuMemory(GPUVAddr gpu_addr, size_t size) {
 
 template <class P>
 bool TextureCache<P>::IsGpuMemoryGpuModified(GPUVAddr gpu_addr, size_t size) {
-    bool mapped = false;
+    // GetSubmappedRange omits unmapped/reserved holes. A partial translation
+    // must never make a DMA destination look safe for a guest-memory upload.
+    // Check full half-open coverage without adding addresses that might wrap.
+    size_t covered = 0;
     for (const auto& [piece_addr, piece_size] : gpu_memory->GetSubmappedRange(gpu_addr, size)) {
-        mapped = true;
+        if (piece_addr < gpu_addr || piece_addr - gpu_addr != covered ||
+            piece_size == 0 || piece_size > size - covered) {
+            return true;
+        }
         const auto device_addr = gpu_memory->GpuToCpuAddress(piece_addr);
-        // An unresolvable submapping is not evidence that guest bytes are current.
         if (!device_addr || IsRegionGpuModified(*device_addr, piece_size)) {
             return true;
         }
+        covered += piece_size;
     }
-    return !mapped;
+    // No segments, partial coverage, and invalid ranges all fail closed.
+    return covered != size || size == 0;
 }
 
 template <class P>
