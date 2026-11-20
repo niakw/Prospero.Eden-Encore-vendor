@@ -10,8 +10,8 @@ expected={
     "bytes": 11442
   },
   "src/core/hle/kernel/svc/svc_info.cpp": {
-    "active": "96d07b8eb9d30493576abba46e40ebe8b2b6c0cbd7428abc81e9fd6d12395785",
-    "bytes": 15493
+    "active": "c93ecde553212fd4b74858fb6e30aa99524b659ef909048f1325ca0cfc6a7849",
+    "bytes": 15845
   },
   "src/core/hle/kernel/svc_types.h": {
     "active": "fe9c75c0a63cf3b5519de3790230e8828780dcd1988e023bc75dc5760d96cafd",
