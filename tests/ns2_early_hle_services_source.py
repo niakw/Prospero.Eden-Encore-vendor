@@ -27,6 +27,20 @@ aph=(ACTIVE/"am/service/application_proxy.h").read_text()
 gfx=(ACTIVE/"am/service/graphics_scaling_parameters_functions.h").read_text()
 hid=(ACTIVE/"hid/hid_server.cpp").read_text()
 hidh=(ACTIVE/"hid/hid_server.h").read_text()
+# EglantinePS5 / Eglantine nx2: command 40 is a typed performance
+# interface, not the command-60 graphics-scale interface or auto-success stub.
+perf=(ACTIVE/"am/service/performance_functions.h").read_text()
+assert ap.count('{40, D<&IApplicationProxy::GetPerformanceFunctions>')==1
+assert 'std::make_shared<IPerformanceFunctions>(system, m_performance_state)' in ap
+assert 'm_performance_state{std::make_shared<Ns2PerformanceRequest>()}' in ap
+assert 'class IPerformanceFunctions;' in aph
+assert 'const std::shared_ptr<Ns2PerformanceRequest> m_performance_state;' in aph
+assert '{0, D<&IPerformanceFunctions::IsCpuOverclockEnabled>' in perf
+assert '{1, D<&IPerformanceFunctions::SetCpuOverclockEnabled>' in perf
+assert 'cpu_overclock_requested.load(std::memory_order_relaxed)' in perf
+assert 'cpu_overclock_requested.store(enabled, std::memory_order_relaxed)' in perf
+assert 'Settings::values.cpu_clock.GetValue() != Settings::CpuClock::Normal' in perf
+assert 'use_auto_stub' not in perf and 'ReturnNx2StubInterface' not in perf
 assert ap.count('{60, D<&IApplicationProxy::GetGraphicsScalingParametersFunctions>')==1
 assert ap.count('std::make_shared<IGraphicsScalingParametersFunctions>(system)')==1
 assert "class IGraphicsScalingParametersFunctions;" in aph

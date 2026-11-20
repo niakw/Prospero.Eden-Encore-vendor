@@ -10,6 +10,7 @@
 #include "core/hle/service/am/service/display_controller.h"
 #include "core/hle/service/am/service/graphics_scaling_parameters_functions.h"
 #include "core/hle/service/am/service/library_applet_creator.h"
+#include "core/hle/service/am/service/performance_functions.h"
 #include "core/hle/service/am/service/process_winding_controller.h"
 #include "core/hle/service/am/service/self_controller.h"
 #include "core/hle/service/am/service/window_controller.h"
@@ -20,7 +21,8 @@ namespace Service::AM {
 IApplicationProxy::IApplicationProxy(Core::System& system_, std::shared_ptr<Applet> applet,
                                      Kernel::KProcess* process, WindowSystem& window_system)
     : ServiceFramework{system_, "IApplicationProxy"},
-      m_window_system{window_system}, m_process{process}, m_applet{std::move(applet)} {
+      m_window_system{window_system}, m_process{process}, m_applet{std::move(applet)},
+      m_performance_state{std::make_shared<Ns2PerformanceRequest>()} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, D<&IApplicationProxy::GetCommonStateGetter>, "GetCommonStateGetter"},
@@ -31,6 +33,8 @@ IApplicationProxy::IApplicationProxy(Core::System& system_, std::shared_ptr<Appl
         {10, D<&IApplicationProxy::GetProcessWindingController>, "GetProcessWindingController"},
         {11, D<&IApplicationProxy::GetLibraryAppletCreator>, "GetLibraryAppletCreator"},
         {20, D<&IApplicationProxy::GetApplicationFunctions>, "GetApplicationFunctions"},
+        // nn::am::service::IPerformanceFunctions is requested at NS2 startup.
+        {40, D<&IApplicationProxy::GetPerformanceFunctions>, "GetPerformanceFunctions"},
         {60, D<&IApplicationProxy::GetGraphicsScalingParametersFunctions>, "GetGraphicsScalingParametersFunctions"},
         {1000, D<&IApplicationProxy::GetDebugFunctions>, "GetDebugFunctions"},
     };
@@ -40,6 +44,13 @@ IApplicationProxy::IApplicationProxy(Core::System& system_, std::shared_ptr<Appl
 }
 
 IApplicationProxy::~IApplicationProxy() = default;
+
+Result IApplicationProxy::GetPerformanceFunctions(
+    Out<SharedPointer<IPerformanceFunctions>> out_functions) {
+    LOG_DEBUG(Service_AM, "called");
+    *out_functions = std::make_shared<IPerformanceFunctions>(system, m_performance_state);
+    R_SUCCEED();
+}
 
 Result IApplicationProxy::GetGraphicsScalingParametersFunctions(
     Out<SharedPointer<IGraphicsScalingParametersFunctions>> out_functions) {
