@@ -288,6 +288,20 @@ bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 am
     if (amount == 0 || amount > static_cast<u64>(~u32{0})) {
         return false;
     }
+    // Both buffers are subsequently addressed as single CPU intervals.
+    // Sparse or aliased GMMU pages can map adjacent GPU addresses to
+    // disjoint physical memory: their DMA must use MaxwellDMA's page-aware
+    // guest-memory fallback instead of this contiguous Vulkan copy.
+    // The cheap one-page case avoids a full PTE walk in the common path.
+    const bool source_contiguous =
+        gpu_memory->IsGranularRange(src_address, amount) ||
+        gpu_memory->IsContinuousRange(src_address, amount);
+    const bool dest_contiguous =
+        gpu_memory->IsGranularRange(dest_address, amount) ||
+        gpu_memory->IsContinuousRange(dest_address, amount);
+    if (!source_contiguous || !dest_contiguous) {
+        return false;
+    }
     const std::optional<DAddr> cpu_src_address = gpu_memory->GpuToCpuAddress(src_address);
     const std::optional<DAddr> cpu_dest_address = gpu_memory->GpuToCpuAddress(dest_address);
     if (!cpu_src_address || !cpu_dest_address) {
@@ -356,16 +370,23 @@ bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 am
 
 template <class P>
 bool BufferCache<P>::DMAClear(GPUVAddr dst_address, u64 amount, u32 value) {
-    const std::optional<DAddr> cpu_dst_address = gpu_memory->GpuToCpuAddress(dst_address);
-    if (!cpu_dst_address) {
-        return false;
-    }
     // FindBuffer accepts a u32 byte span; never truncate or issue an empty fill.
     if (amount == 0 || amount > static_cast<u64>(~u32{0}) / sizeof(u32)) {
         return false;
     }
     // The DMA amount counts u32 values; registration is measured in bytes.
     const size_t size = amount * sizeof(u32);
+    // As with DMACopy, a GPU-virtual clear cannot be represented by one
+    // physically contiguous cached buffer across noncontiguous guest pages.
+    // MaxwellDMA always writes the CPU guest bytes after this acceleration.
+    if (!gpu_memory->IsGranularRange(dst_address, size) &&
+        !gpu_memory->IsContinuousRange(dst_address, size)) {
+        return false;
+    }
+    const std::optional<DAddr> cpu_dst_address = gpu_memory->GpuToCpuAddress(dst_address);
+    if (!cpu_dst_address) {
+        return false;
+    }
     const bool dest_dirty = IsRegionRegistered(*cpu_dst_address, size);
     if (!dest_dirty) {
         return false;
@@ -376,6 +397,9 @@ bool BufferCache<P>::DMAClear(GPUVAddr dst_address, u64 amount, u32 value) {
 
     const BufferId buffer = FindBuffer(*cpu_dst_address, static_cast<u32>(size), false);
     Buffer& dest_buffer = slot_buffers[buffer];
+    // Lichii maintained DMAClear: land any pending CPU data before a
+    // partial GPU fill, so its neighbouring bytes survive the next read.
+    SynchronizeBuffer(dest_buffer, *cpu_dst_address, static_cast<u32>(size));
     const u32 offset = dest_buffer.Offset(*cpu_dst_address);
     runtime.ClearBuffer(dest_buffer, offset, size, value);
     dest_buffer.MarkUsage(offset, size);

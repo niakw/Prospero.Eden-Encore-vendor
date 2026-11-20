@@ -28,6 +28,26 @@ assert "gpu_modified_ranges.Intersects(" not in CACHE
 # the divergent research-only class layout.
 assert "constexpr u32 NUM_STORAGE_BUFFERS = 32;" in BASE
 assert 'static_assert(NUM_STORAGE_BUFFERS <= 32, "storage-buffer bitmasks must fit u32");' in BASE
+# DMA acceleration may only use one physical buffer span when the full
+# guest GPU address range is demonstrably contiguous.
+copy_method=CACHE.split("bool BufferCache<P>::DMACopy(",1)[1].split(
+    "bool BufferCache<P>::DMAClear(",1)[0]
+clear_method=CACHE.split("bool BufferCache<P>::DMAClear(",1)[1].split(
+    "std::pair<typename P::Buffer*",1)[0]
+for sym in ("gpu_memory->IsGranularRange(src_address, amount)",
+            "gpu_memory->IsContinuousRange(src_address, amount)",
+            "gpu_memory->IsGranularRange(dest_address, amount)",
+            "gpu_memory->IsContinuousRange(dest_address, amount)"):
+    assert sym in copy_method, sym
+assert copy_method.index("if (!source_contiguous || !dest_contiguous)") < copy_method.index(
+    "ClearDownload(*cpu_dest_address, amount)")
+for sym in ("gpu_memory->IsGranularRange(dst_address, size)",
+            "gpu_memory->IsContinuousRange(dst_address, size)"):
+    assert sym in clear_method, sym
+assert clear_method.index("!gpu_memory->IsContinuousRange(dst_address, size)") < clear_method.index(
+    "ClearDownload(*cpu_dst_address, size)")
+assert clear_method.index("SynchronizeBuffer(dest_buffer") < clear_method.index(
+    "runtime.ClearBuffer(dest_buffer")
 assert "u32 enabled_compute_storage_buffers = 0;" in BASE
 assert "u32 written_compute_storage_buffers = 0;" in BASE
 assert "ssbo_index >= NUM_STORAGE_BUFFERS" in CACHE
