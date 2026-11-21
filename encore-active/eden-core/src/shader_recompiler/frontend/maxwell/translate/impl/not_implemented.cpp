@@ -39,6 +39,7 @@ static_assert(EdenPrmtIndexReference(0x11223344u, 0x55667788u, 0xffffu) == 0u);
 // SPDX-FileCopyrightText: Copyright 2021 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "common/bit_field.h"
 #include "common/common_types.h"
 #include "shader_recompiler/exception.h"
 #include "shader_recompiler/frontend/maxwell/opcodes.h"
@@ -49,6 +50,73 @@ namespace Shader::Maxwell {
 [[noreturn]] static void ThrowNotImplemented(Opcode opcode) {
     throw NotImplementedException("Instruction {} is not implemented", opcode);
 }
+
+namespace {
+// Maxwell GM107 IMUL encoding: envytools gm107.c tab5c38_{0,1}/tab1f00_{0,1}.
+// Algorithm adapted from carafe-nx/carafe-lab b1f10cef (GPL-3.0-or-later).
+// Build the high word from 16-bit products so the IR never requires an
+// integer-64 multiply that a host shader backend may not provide.
+IR::U32 MultiplyHigh(TranslatorVisitor& v, const IR::U32& a, const IR::U32& b,
+                     bool is_a_signed, bool is_b_signed) {
+    const IR::U32 mask{v.ir.Imm32(0xffff)};
+    const IR::U32 sixteen{v.ir.Imm32(16)};
+    const IR::U32 a_lo{v.ir.BitwiseAnd(a, mask)};
+    const IR::U32 a_hi{v.ir.ShiftRightLogical(a, sixteen)};
+    const IR::U32 b_lo{v.ir.BitwiseAnd(b, mask)};
+    const IR::U32 b_hi{v.ir.ShiftRightLogical(b, sixteen)};
+    const IR::U32 lo_lo{v.ir.IMul(a_lo, b_lo)};
+    const IR::U32 hi_lo{v.ir.IMul(a_hi, b_lo)};
+    const IR::U32 lo_hi{v.ir.IMul(a_lo, b_hi)};
+    const IR::U32 hi_hi{v.ir.IMul(a_hi, b_hi)};
+    const IR::U32 middle{v.ir.IAdd(v.ir.IAdd(v.ir.ShiftRightLogical(lo_lo, sixteen),
+                                             v.ir.BitwiseAnd(hi_lo, mask)),
+                                   v.ir.BitwiseAnd(lo_hi, mask))};
+    IR::U32 high{v.ir.IAdd(v.ir.IAdd(hi_hi, v.ir.ShiftRightLogical(hi_lo, sixteen)),
+                           v.ir.IAdd(v.ir.ShiftRightLogical(lo_hi, sixteen),
+                                     v.ir.ShiftRightLogical(middle, sixteen)))};
+    if (is_a_signed) {
+        const IR::U1 negative{v.ir.ILessThan(a, v.ir.Imm32(0), true)};
+        high = v.ir.ISub(high, IR::U32{v.ir.Select(negative, b, v.ir.Imm32(0))});
+    }
+    if (is_b_signed) {
+        const IR::U1 negative{v.ir.ILessThan(b, v.ir.Imm32(0), true)};
+        high = v.ir.ISub(high, IR::U32{v.ir.Select(negative, a, v.ir.Imm32(0))});
+    }
+    return high;
+}
+
+void TranslateIMul(TranslatorVisitor& v, u64 insn, const IR::U32& src_b,
+                   bool high, bool is_a_signed, bool is_b_signed, bool cc) {
+    union {
+        u64 raw;
+        BitField<0, 8, IR::Reg> dest_reg;
+        BitField<8, 8, IR::Reg> src_reg_a;
+    } const imul{insn};
+
+    // Condition-code publication has separate carry/overflow semantics.
+    // Keep it fail-closed until those flags are implemented and verified.
+    if (cc) {
+        throw NotImplementedException("IMUL.CC");
+    }
+    const IR::U32 src_a{v.X(imul.src_reg_a)};
+    const IR::U32 result{
+        high ? MultiplyHigh(v, src_a, src_b, is_a_signed, is_b_signed)
+             : v.ir.IMul(src_a, src_b)};
+    v.X(imul.dest_reg, result);
+}
+
+void TranslateIMul(TranslatorVisitor& v, u64 insn, const IR::U32& src_b) {
+    union {
+        u64 raw;
+        BitField<39, 1, u64> high;
+        BitField<40, 1, u64> is_a_signed;
+        BitField<41, 1, u64> is_b_signed;
+        BitField<47, 1, u64> cc;
+    } const imul{insn};
+    TranslateIMul(v, insn, src_b, imul.high != 0, imul.is_a_signed != 0,
+                  imul.is_b_signed != 0, imul.cc != 0);
+}
+} // namespace
 
 void TranslatorVisitor::ATOMS_cas(u64) {
     ThrowNotImplemented(Opcode::ATOMS_cas);
@@ -162,20 +230,28 @@ void TranslatorVisitor::IMADSP_imm(u64) {
     ThrowNotImplemented(Opcode::IMADSP_imm);
 }
 
-void TranslatorVisitor::IMUL_reg(u64) {
-    ThrowNotImplemented(Opcode::IMUL_reg);
+void TranslatorVisitor::IMUL_reg(u64 insn) {
+    TranslateIMul(*this, insn, GetReg20(insn));
 }
 
-void TranslatorVisitor::IMUL_cbuf(u64) {
-    ThrowNotImplemented(Opcode::IMUL_cbuf);
+void TranslatorVisitor::IMUL_cbuf(u64 insn) {
+    TranslateIMul(*this, insn, GetCbuf(insn));
 }
 
-void TranslatorVisitor::IMUL_imm(u64) {
-    ThrowNotImplemented(Opcode::IMUL_imm);
+void TranslatorVisitor::IMUL_imm(u64 insn) {
+    TranslateIMul(*this, insn, GetImm20(insn));
 }
 
-void TranslatorVisitor::IMUL32I(u64) {
-    ThrowNotImplemented(Opcode::IMUL32I);
+void TranslatorVisitor::IMUL32I(u64 insn) {
+    union {
+        u64 raw;
+        BitField<52, 1, u64> cc;
+        BitField<53, 1, u64> high;
+        BitField<54, 1, u64> is_a_signed;
+        BitField<55, 1, u64> is_b_signed;
+    } const imul{insn};
+    TranslateIMul(*this, insn, GetImm32(insn), imul.high != 0,
+                  imul.is_a_signed != 0, imul.is_b_signed != 0, imul.cc != 0);
 }
 
 void TranslatorVisitor::JCAL(u64) {
