@@ -91,10 +91,34 @@ void Fermi2D::Blit() {
         }
     }
 
-    // A clipped command only needs its intersected endpoints. Do not first
-    // evaluate the original unchecked 32.32 multiply (or signed s32 sums)
-    // before running the clipped-source overflow checks below.
+    // Compute the 32.32 blit extents only after validating signed guest
+    // arithmetic. The unclipped fallback previously multiplied two guest
+    // values before checking overflow, and added two signed s32 coordinates.
     const bool clip_enabled = regs.clip_enable != 0;
+    s32 dst_end_x = args.dst_x0;
+    s32 dst_end_y = args.dst_y0;
+    s32 src_end_x = static_cast<s32>(srcX >> 32);
+    s32 src_end_y = static_cast<s32>(srcY >> 32);
+    if (!clip_enabled) {
+        const s64 dst_x_wide = static_cast<s64>(args.dst_x0) + args.dst_width;
+        const s64 dst_y_wide = static_cast<s64>(args.dst_y0) + args.dst_height;
+        s64 step_x{}, step_y{}, far_x{}, far_y{};
+        if (dst_x_wide < (std::numeric_limits<s32>::min)() ||
+            dst_x_wide > (std::numeric_limits<s32>::max)() ||
+            dst_y_wide < (std::numeric_limits<s32>::min)() ||
+            dst_y_wide > (std::numeric_limits<s32>::max)() ||
+            __builtin_mul_overflow(args.du_dx, static_cast<s64>(args.dst_width), &step_x) ||
+            __builtin_mul_overflow(args.dv_dy, static_cast<s64>(args.dst_height), &step_y) ||
+            __builtin_add_overflow(srcX, step_x, &far_x) ||
+            __builtin_add_overflow(srcY, step_y, &far_y)) {
+            AssertFailSoftImpl();
+            return;
+        }
+        dst_end_x = static_cast<s32>(dst_x_wide);
+        dst_end_y = static_cast<s32>(dst_y_wide);
+        src_end_x = static_cast<s32>(far_x >> 32);
+        src_end_y = static_cast<s32>(far_y >> 32);
+    }
     Config config{
         .operation = regs.operation,
         .filter = args.sample_mode.filter,
@@ -102,14 +126,12 @@ void Fermi2D::Blit() {
             args.du_dx != null_derivative || args.dv_dy != null_derivative || delegate_to_gpu,
         .dst_x0 = args.dst_x0,
         .dst_y0 = args.dst_y0,
-        .dst_x1 = clip_enabled ? args.dst_x0 : args.dst_x0 + args.dst_width,
-        .dst_y1 = clip_enabled ? args.dst_y0 : args.dst_y0 + args.dst_height,
+        .dst_x1 = dst_end_x,
+        .dst_y1 = dst_end_y,
         .src_x0 = static_cast<s32>(srcX >> 32),
         .src_y0 = static_cast<s32>(srcY >> 32),
-        .src_x1 = clip_enabled ? static_cast<s32>(srcX >> 32)
-                               : static_cast<s32>((srcX + args.du_dx * args.dst_width) >> 32),
-        .src_y1 = clip_enabled ? static_cast<s32>(srcY >> 32)
-                               : static_cast<s32>((srcY + args.dv_dy * args.dst_height) >> 32),
+        .src_x1 = src_end_x,
+        .src_y1 = src_end_y,
     };
 
     // NVIDIA 2D CLIP_X/Y/W/H is a destination scissor, not a change to
