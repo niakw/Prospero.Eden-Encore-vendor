@@ -87,8 +87,9 @@ private:
         s32_le runlist_id{};
     };
     static_assert(sizeof(IoctlChannelOpen) == 4, "IoctlChannelOpen ABI size");
-    // NVGPU_IOCTL_CHANNEL_SETUP_BIND (0xC0504821), NVIDIA nvgpu UAPI.
-    // The ioctl is INOUT 80 bytes, including nine trailing reserved words.
+    // Switch 2 NVGPU_IOCTL_CHANNEL_SETUP_BIND (0xC0504821), 80-byte INOUT ABI.
+    // Unlike older Linux layouts, the final 40 bytes expose usermode GPU VAs
+    // and the hardware channel id, followed by only three reserved words.
     struct IoctlChannelSetupBind {
         u32_le num_gpfifo_entries{};
         u32_le num_inflight_jobs{};
@@ -98,7 +99,11 @@ private:
         u32_le work_submit_token{};
         u64_le userd_dmabuf_offset{};
         u64_le gpfifo_dmabuf_offset{};
-        std::array<u32_le, 9> reserved{};
+        u64_le gpfifo_gpu_va{};
+        u64_le userd_gpu_va{};
+        u64_le usermode_mmio_gpu_va{};
+        u32_le hw_channel_id{};
+        std::array<u32_le, 3> reserved{};
     };
     static_assert(sizeof(IoctlChannelSetupBind) == 80, "IoctlChannelSetupBind ABI size");
 

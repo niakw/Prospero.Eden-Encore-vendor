@@ -56,6 +56,10 @@ assert submit.index("syncpoint_manager.IsSyncpointAllocated(") < submit.index(
 hdr=(ROOT/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
 pure=(ROOT/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_submission.h").read_text()
 assert "static_assert(sizeof(IoctlChannelSetupBind) == 80" in hdr
+for field in ("gpfifo_gpu_va", "userd_gpu_va", "usermode_mmio_gpu_va", "hw_channel_id"):
+    assert field in hdr, field
+assert "std::array<u32_le, 3> reserved{}" in hdr
+assert "std::array<u32_le, 9> reserved{}" not in hdr
 assert "NativeKernelChannelSetupStatus ValidateNativeKernelChannelSetup" in pure
 assert "num_entries < 4" in pure and "num_entries > (1U << 28)" in pure
 assert "request.flags != 0" in pure and "request.num_inflight_jobs != 0" in pure
@@ -67,8 +71,12 @@ for needle in ("ValidateNativeKernelChannelSetup(request)",
                "native_runlist_id.has_value()",
                "channel_state->memory_manager",
                "system.GPU().InitChannel(*channel_state, program_id)",
-               "if (!channel_state->initialized) return NvResult::InvalidState;",
+               "if (!channel_state->initialized || channel_state->bind_id < 0)",
                "params.work_submit_token = 0",
+               "params.gpfifo_gpu_va = 0",
+               "params.userd_gpu_va = 0",
+               "params.usermode_mmio_gpu_va = 0",
+               "params.hw_channel_id = static_cast<u32>(channel_state->bind_id)",
                "return NvResult::NotImplemented"):
     assert needle in bind, needle
 assert bind.index("ValidateNativeKernelChannelSetup(request)") < bind.index(
@@ -82,4 +90,4 @@ for forbidden in ("submitted_words", "command_word=", "guest_bytes=", "dump_push
         line for line in text.splitlines() if "EDEN_NS2_GPFIFO_" in line
     )
 
-print("P0_NS2_GPFIFO_PREIMPL_TRACE_SOURCE_PASS routes=6 reasons=11 bounded=32 detailed_only=1 semantic_bypass=0")
+print("P0_NS2_GPFIFO_PREIMPL_TRACE_SOURCE_PASS routes=6 reasons=11 bounded=32 detailed_only=1 semantic_bypass=0 setup_bind_s2_response=1")

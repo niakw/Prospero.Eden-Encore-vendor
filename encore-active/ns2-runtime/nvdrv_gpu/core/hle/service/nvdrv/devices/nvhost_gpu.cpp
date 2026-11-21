@@ -316,8 +316,18 @@ NvResult nvhost_gpu::ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd
     // and no doorbell token are returned. User mode was rejected above.
     channel_state->program_id = program_id;
     system.GPU().InitChannel(*channel_state, program_id);
-    if (!channel_state->initialized) return NvResult::InvalidState;
+    if (!channel_state->initialized || channel_state->bind_id < 0)
+        return NvResult::InvalidState;
+
+    // Switch 2 returns the complete setup-bind response. Kernel submit has no
+    // guest USERD/GPFIFO/usermode-MMIO mappings, so those addresses and the
+    // doorbell token remain zero. The virtual GPU scheduler's bind_id is the
+    // emulated channel id corresponding to nvgpu's chid.
     params.work_submit_token = 0;
+    params.gpfifo_gpu_va = 0;
+    params.userd_gpu_va = 0;
+    params.usermode_mmio_gpu_va = 0;
+    params.hw_channel_id = static_cast<u32>(channel_state->bind_id);
     return NvResult::Success;
 }
 
