@@ -392,13 +392,20 @@ void MaxwellDMA::BindRasterizer(VideoCore::RasterizerInterface* rasterizer_) {
 
 void MaxwellDMA::ConsumeSinkImpl(Core::System& system) {
     for (auto [method, value] : method_sink) {
+        if (method >= NUM_REGS) {
+            ASSERT_MSG(false, "Invalid deferred MaxwellDMA register");
+            continue;
+        }
         regs.reg_array[method] = value;
     }
     method_sink.clear();
 }
 
 void MaxwellDMA::CallMethod(Core::System& system, u32 method, u32 method_argument, bool is_last_call) {
-    ASSERT_MSG(method < NUM_REGS, "Invalid MaxwellDMA register");
+    if (method >= NUM_REGS) {
+        ASSERT_MSG(false, "Invalid MaxwellDMA register");
+        return;
+    }
 
     regs.reg_array[method] = method_argument;
 
