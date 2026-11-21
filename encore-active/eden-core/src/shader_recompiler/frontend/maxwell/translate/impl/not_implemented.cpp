@@ -101,8 +101,17 @@ void TranslateIMul(TranslatorVisitor& v, u64 insn, const IR::U32& src_b) {
                   imul.is_b_signed != 0, imul.cc != 0);
 }
 
+enum class ImadNegation : u32 {
+    None = 0,
+    Addend = 1,
+    Multiplier = 2,
+    Reserved = 3,
+};
+
 // Maxwell GM107 IMAD: low multiplication is sign-independent modulo 2^32;
 // HI uses the same signed/unsigned high-word product as IMUL, then adds C.
+// AvgMode 51..52 is shared by the register/cbuf/immediate forms:
+// 1 negates the addend, 2 negates the multiplier, 3 is reserved.
 // X/SAT/CC have independent carry/saturation/flag semantics and remain
 // deliberately fail-closed until those contracts are implemented.
 void TranslateIMad(TranslatorVisitor& v, u64 insn, const IR::U32& src_b,
@@ -115,6 +124,7 @@ void TranslateIMad(TranslatorVisitor& v, u64 insn, const IR::U32& src_b,
         BitField<48, 1, u64> is_a_signed;
         BitField<49, 1, u64> extended;
         BitField<50, 1, u64> saturate;
+        BitField<51, 2, u64> negation;
         BitField<53, 1, u64> is_b_signed;
         BitField<54, 1, u64> high;
     } const imad{insn};
@@ -122,12 +132,27 @@ void TranslateIMad(TranslatorVisitor& v, u64 insn, const IR::U32& src_b,
     if (imad.extended != 0 || imad.saturate != 0 || imad.cc != 0) {
         throw NotImplementedException("IMAD X/SAT/CC modifiers");
     }
+
+    const ImadNegation negation{static_cast<ImadNegation>(imad.negation.Value())};
+    if (negation == ImadNegation::Reserved) {
+        throw NotImplementedException("IMAD reserved PlusOne mode");
+    }
+
     const IR::U32 src_a{v.X(imad.src_reg_a)};
+    IR::U32 multiplier{src_b};
+    IR::U32 addend{src_c};
+    if (negation == ImadNegation::Multiplier) {
+        multiplier = v.ir.ISub(v.ir.Imm32(0), multiplier);
+    } else if (negation == ImadNegation::Addend) {
+        addend = v.ir.ISub(v.ir.Imm32(0), addend);
+    }
+
     const IR::U32 product{
         imad.high != 0
-            ? MultiplyHigh(v, src_a, src_b, imad.is_a_signed != 0, imad.is_b_signed != 0)
-            : v.ir.IMul(src_a, src_b)};
-    v.X(imad.dest_reg, v.ir.IAdd(product, src_c));
+            ? MultiplyHigh(v, src_a, multiplier, imad.is_a_signed != 0,
+                           imad.is_b_signed != 0)
+            : v.ir.IMul(src_a, multiplier)};
+    v.X(imad.dest_reg, v.ir.IAdd(product, addend));
 }
 
 // NVIDIA PTX prmt.b32 specialized controls and envytools GM107 tab5bc0_0
@@ -325,8 +350,8 @@ void TranslatorVisitor::IMAD_imm(u64 insn) {
 void TranslatorVisitor::IMAD32I(u64 insn) {
     // GM107 IMAD32I: D = A * imm32 + old(D). The low word is independent
     // of signedness; HI uses bits 54/57 as the A/B signed-type selectors.
-    // Negating A or the addend and publishing condition codes remain
-    // fail-closed until their exact arithmetic flag contracts are covered.
+    // AvgMode 55..56 matches regular IMAD: 1 negates the old-D addend,
+    // 2 negates the immediate multiplier, and 3 remains reserved.
     union {
         u64 raw;
         BitField<0, 8, IR::Reg> dest_reg;
@@ -334,21 +359,33 @@ void TranslatorVisitor::IMAD32I(u64 insn) {
         BitField<52, 1, u64> cc;
         BitField<53, 1, u64> high;
         BitField<54, 1, u64> is_a_signed;
-        BitField<55, 1, u64> negate_addend;
-        BitField<56, 1, u64> negate_a;
+        BitField<55, 2, u64> negation;
         BitField<57, 1, u64> is_b_signed;
     } const imad{insn};
 
-    if (imad.cc != 0 || imad.negate_addend != 0 || imad.negate_a != 0) {
-        throw NotImplementedException("IMAD32I CC/NEG modifiers");
+    if (imad.cc != 0) {
+        throw NotImplementedException("IMAD32I CC modifier");
     }
+    const ImadNegation negation{static_cast<ImadNegation>(imad.negation.Value())};
+    if (negation == ImadNegation::Reserved) {
+        throw NotImplementedException("IMAD32I reserved PlusOne mode");
+    }
+
     const IR::U32 src_a{X(imad.src_reg_a)};
-    const IR::U32 src_b{GetImm32(insn)};
+    IR::U32 multiplier{GetImm32(insn)};
+    IR::U32 addend{X(imad.dest_reg)};
+    if (negation == ImadNegation::Multiplier) {
+        multiplier = ir.ISub(ir.Imm32(0), multiplier);
+    } else if (negation == ImadNegation::Addend) {
+        addend = ir.ISub(ir.Imm32(0), addend);
+    }
+
     const IR::U32 product{
         imad.high != 0
-            ? MultiplyHigh(*this, src_a, src_b, imad.is_a_signed != 0, imad.is_b_signed != 0)
-            : ir.IMul(src_a, src_b)};
-    X(imad.dest_reg, ir.IAdd(product, X(imad.dest_reg)));
+            ? MultiplyHigh(*this, src_a, multiplier, imad.is_a_signed != 0,
+                           imad.is_b_signed != 0)
+            : ir.IMul(src_a, multiplier)};
+    X(imad.dest_reg, ir.IAdd(product, addend));
 }
 
 void TranslatorVisitor::IMADSP_reg(u64) {
