@@ -343,6 +343,25 @@ assert "std::bad_alloc" in _native_gpu
 assert "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;" in _ctrl_gpu
 assert "system.GPU().WaitForIdle();" in _gsv
 
+# A failed GMMU MapSparse followed by failed Unmap is a partially
+# committed GPU page table. Both native sparse allocator branches must
+# quarantine BEFORE returning, keeping the VA ledger/pins reserved.
+_allocate_block = _as_runtime.split("NvResult nvhost_as_gpu::AllocateSpace(",1)[1].split(
+    "\n}",1)[0]
+for allocator_name in ("first_page", "start_page"):
+    rollback = (
+        "allocation_map.erase(address);\n"
+        f"                allocator.Free({allocator_name}, params.pages);"
+    )
+    failure = _allocate_block.rfind("} catch (const std::bad_alloc&) {", 0,
+                                  _allocate_block.index(rollback))
+    assert failure >= 0,allocator_name
+    error_block = _allocate_block[failure:_allocate_block.index(rollback)]
+    assert "gmmu->Unmap(address, size);" in error_block,allocator_name
+    assert "native_sparse_poisoned = true;" in error_block,allocator_name
+    assert error_block.index("native_sparse_poisoned = true;") < error_block.index(
+        "return NvResult::InvalidState;"),allocator_name
+
 # Native AllocSpace must reject any page size other than 4K or its
 # negotiated big-page size before reserving the FlatAllocator page count.
 # Otherwise the declared GMMU span can exceed the actual VA reservation.

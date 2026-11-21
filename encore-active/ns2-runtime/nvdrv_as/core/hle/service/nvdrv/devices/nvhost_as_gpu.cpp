@@ -1292,6 +1292,10 @@ NvResult nvhost_as_gpu::AllocateSpace(IoctlAllocSpace& params) {
                 try {
                     gmmu->Unmap(address, size);
                 } catch (const std::bad_alloc&) {
+                    // GMMU rollback failed after a partial MapSparse.
+                    // Retain VA ownership and quarantine all further native
+                    // mutations; an untracked live PTE must not be reused.
+                    native_sparse_poisoned = true;
                     return NvResult::InvalidState;
                 }
                 allocation_map.erase(address);
@@ -1394,6 +1398,10 @@ NvResult nvhost_as_gpu::AllocateSpace(IoctlAllocSpace& params) {
                 try {
                     gmmu->Unmap(address, size);
                 } catch (const std::bad_alloc&) {
+                    // The GMMU might still contain some reserved PTEs.
+                    // Do not let a later ioctl overwrite these stale pages
+                    // or release their owning VA on a second failed unwind.
+                    native_sparse_poisoned = true;
                     return NvResult::InvalidState;
                 }
                 allocation_map.erase(address);
