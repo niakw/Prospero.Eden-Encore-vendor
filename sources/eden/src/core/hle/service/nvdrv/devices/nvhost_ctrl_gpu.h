@@ -23,8 +23,10 @@ namespace Service::Nvidia::Devices {
 
 class nvhost_ctrl_gpu final : public nvdevice {
 public:
-    explicit nvhost_ctrl_gpu(Core::System& system_, EventInterface& events_interface_,
-                             NvCore::Container& core);
+    explicit nvhost_ctrl_gpu(Core::System& system_, EventInterface& events_interface_);
+    // The original host C++ constructor remains unchanged; the PS5-selected
+    // controller opts into process-scoped native topology via this setter.
+    void SetNativeContainer(NvCore::Container& container) { core = &container; }
     ~nvhost_ctrl_gpu() override;
 
     NvResult Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> input,
@@ -196,9 +198,14 @@ private:
     NvResult GetCharacteristics3(IoctlCharacteristics& params,
                                  std::span<IoctlGpuCharacteristics> gpu_characteristics);
 
-    NvResult GetTPCMasks1(IoctlGpuGetTpcMasksArgs& params, bool native);
-    NvResult GetTPCMasks3(IoctlGpuGetTpcMasksArgs& params, std::span<u32> tpc_mask,
-                          bool native);
+    // Keep legacy signatures for the non-PS5 original nvhost_ctrl_gpu.cpp.
+    NvResult GetTPCMasks1(IoctlGpuGetTpcMasksArgs& params);
+    NvResult GetTPCMasks3(IoctlGpuGetTpcMasksArgs& params, std::span<u32> tpc_mask);
+    // Distinct names avoid overloaded pointer-to-member ambiguity in
+    // WrapFixed / WrapFixedInlOut under host and native C++ compilers.
+    NvResult GetTPCMasksNative1(IoctlGpuGetTpcMasksArgs& params, bool native);
+    NvResult GetTPCMasksNative3(IoctlGpuGetTpcMasksArgs& params, std::span<u32> tpc_mask,
+                                bool native);
     [[nodiscard]] bool UsesNativeAbi(DeviceFD fd) const;
 
     NvResult GetActiveSlotMask(IoctlActiveSlotMask& params);
@@ -211,7 +218,7 @@ private:
     NvResult GetGpuTime(IoctlGetGpuTime& params);
 
     EventInterface& events_interface;
-    NvCore::Container& core;
+    NvCore::Container* core{};
     ::Common::unordered_map<DeviceFD, NvCore::SessionId> sessions;
 
     // Events

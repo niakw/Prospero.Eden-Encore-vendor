@@ -19,9 +19,8 @@
 
 namespace Service::Nvidia::Devices {
 
-nvhost_ctrl_gpu::nvhost_ctrl_gpu(Core::System& system_, EventInterface& events_interface_,
-                                 NvCore::Container& core_)
-    : nvdevice{system_}, events_interface{events_interface_}, core{core_} {
+nvhost_ctrl_gpu::nvhost_ctrl_gpu(Core::System& system_, EventInterface& events_interface_)
+    : nvdevice{system_}, events_interface{events_interface_} {
     error_notifier_event = events_interface.CreateEvent("CtrlGpuErrorNotifier");
     unknown_event = events_interface.CreateEvent("CtrlGpuUnknownEvent");
 }
@@ -47,7 +46,7 @@ NvResult nvhost_ctrl_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8>
         case 0x5:
             return WrapFixed(this, &nvhost_ctrl_gpu::GetCharacteristics1, input, output);
         case 0x6:
-            return WrapFixed(this, &nvhost_ctrl_gpu::GetTPCMasks1, input, output,
+            return WrapFixed(this, &nvhost_ctrl_gpu::GetTPCMasksNative1, input, output,
                              UsesNativeAbi(fd));
         case 0x7:
             return WrapFixed(this, &nvhost_ctrl_gpu::FlushL2, input, output);
@@ -116,7 +115,7 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
                                    inline_output);
         }
         case 0x6:
-            return WrapFixedInlOut(this, &nvhost_ctrl_gpu::GetTPCMasks3, input, output,
+            return WrapFixedInlOut(this, &nvhost_ctrl_gpu::GetTPCMasksNative3, input, output,
                                    inline_output, UsesNativeAbi(fd));
         case 0x1f: {
             // Switch 2 GET_ENGINE_INFO (0xC010471F) is a two-phase
@@ -197,8 +196,8 @@ void nvhost_ctrl_gpu::OnClose(DeviceFD fd) {
 
 bool nvhost_ctrl_gpu::UsesNativeAbi(DeviceFD fd) const {
     const auto it = sessions.find(fd);
-    if (it == sessions.end()) return false;
-    const auto* session = core.GetSession(it->second);
+    if (it == sessions.end() || !core) return false;
+    const auto* session = core->GetSession(it->second);
     return session && session->process &&
            NativeGpuProcessRegistry::Instance().Contains(session->process);
 }
@@ -292,7 +291,11 @@ NvResult nvhost_ctrl_gpu::GetCharacteristics3(
     return NvResult::Success;
 }
 
-NvResult nvhost_ctrl_gpu::GetTPCMasks1(IoctlGpuGetTpcMasksArgs& params, bool native) {
+NvResult nvhost_ctrl_gpu::GetTPCMasks1(IoctlGpuGetTpcMasksArgs& params) {
+    return GetTPCMasksNative1(params, false);
+}
+
+NvResult nvhost_ctrl_gpu::GetTPCMasksNative1(IoctlGpuGetTpcMasksArgs& params, bool native) {
     LOG_DEBUG(Service_NVDRV, "called, mask_buffer_size={:#x}", params.mask_buffer_size);
     if (params.mask_buffer_size != 0) {
         params.tcp_mask = native ? ((u32{1} << NativeGpuTpcsPerGpc) - 1U) : 3U;
@@ -300,7 +303,13 @@ NvResult nvhost_ctrl_gpu::GetTPCMasks1(IoctlGpuGetTpcMasksArgs& params, bool nat
     return NvResult::Success;
 }
 
-NvResult nvhost_ctrl_gpu::GetTPCMasks3(IoctlGpuGetTpcMasksArgs& params, std::span<u32> tpc_mask, bool native) {
+NvResult nvhost_ctrl_gpu::GetTPCMasks3(IoctlGpuGetTpcMasksArgs& params,
+                                        std::span<u32> tpc_mask) {
+    return GetTPCMasksNative3(params, tpc_mask, false);
+}
+
+NvResult nvhost_ctrl_gpu::GetTPCMasksNative3(IoctlGpuGetTpcMasksArgs& params,
+                                              std::span<u32> tpc_mask, bool native) {
     LOG_DEBUG(Service_NVDRV, "called, mask_buffer_size={:#x}", params.mask_buffer_size);
     if (params.mask_buffer_size != 0) {
         params.tcp_mask = native ? ((u32{1} << NativeGpuTpcsPerGpc) - 1U) : 3U;
