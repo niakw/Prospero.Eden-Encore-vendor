@@ -71,10 +71,11 @@ nvhost_gpu::nvhost_gpu(Core::System& system_, EventInterface& events_interface_,
 }
 
 nvhost_gpu::~nvhost_gpu() {
-    // The unified PS5 NVDRV owner serves both Maxwell/NS1 and Ampere/NS2.
-    // Close the exact GPU channel while its ChannelState, syncpoint and NvMap
-    // state are still alive. Global shutdown already owns GPU teardown.
-    if (channel_state && system.IsPoweredOn() && !system.IsShuttingDown()) {
+    // Normal guest close retires the channel from OnClose when its last FD
+    // disappears. If teardown bypassed OnClose, preserve the same ordering
+    // here while the ChannelState and NVDRV resources are still alive.
+    if (!sessions.empty() && channel_state &&
+        system.IsPoweredOn() && !system.IsShuttingDown()) {
         system.GPU().ReleaseChannel(*channel_state);
     }
     NativeGpuChannelRegistry::Instance().Unbind(channel_state.get());
@@ -189,6 +190,14 @@ void nvhost_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
 
 void nvhost_gpu::OnClose(DeviceFD fd) {
     sessions.erase(fd);
+    // One shared ChannelState backs this nvhost-gpu device owner. Do not
+    // retire it while another guest FD still references the same device.
+    // Once the final FD closes, release Maxwell/NS1 (and native NS2) state
+    // before a later title can allocate another channel in this PS5 process.
+    if (sessions.empty() && channel_state &&
+        system.IsPoweredOn() && !system.IsShuttingDown()) {
+        system.GPU().ReleaseChannel(*channel_state);
+    }
 }
 
 NvResult nvhost_gpu::SetNVMAPfd(IoctlSetNvmapFD& params) {
