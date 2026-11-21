@@ -79,10 +79,22 @@ void Fermi2D::Blit() {
     auto srcX = args.src_x0;
     auto srcY = args.src_y0;
     if (args.sample_mode.origin == Origin::Corner) {
-        srcX -= (args.du_dx >> 33) << 32;
-        srcY -= (args.dv_dy >> 33) << 32;
+        // Shift-left of a negative signed derivative is undefined in C++.
+        // The integer-pixel correction has the same value as the original
+        // 32.32 expression, but must not overflow the signed guest range.
+        const s64 adjust_x = (args.du_dx >> 33) * (s64{1} << 32);
+        const s64 adjust_y = (args.dv_dy >> 33) * (s64{1} << 32);
+        if (__builtin_sub_overflow(srcX, adjust_x, &srcX) ||
+            __builtin_sub_overflow(srcY, adjust_y, &srcY)) {
+            AssertFailSoftImpl();
+            return;
+        }
     }
 
+    // A clipped command only needs its intersected endpoints. Do not first
+    // evaluate the original unchecked 32.32 multiply (or signed s32 sums)
+    // before running the clipped-source overflow checks below.
+    const bool clip_enabled = regs.clip_enable != 0;
     Config config{
         .operation = regs.operation,
         .filter = args.sample_mode.filter,
@@ -90,12 +102,14 @@ void Fermi2D::Blit() {
             args.du_dx != null_derivative || args.dv_dy != null_derivative || delegate_to_gpu,
         .dst_x0 = args.dst_x0,
         .dst_y0 = args.dst_y0,
-        .dst_x1 = args.dst_x0 + args.dst_width,
-        .dst_y1 = args.dst_y0 + args.dst_height,
+        .dst_x1 = clip_enabled ? args.dst_x0 : args.dst_x0 + args.dst_width,
+        .dst_y1 = clip_enabled ? args.dst_y0 : args.dst_y0 + args.dst_height,
         .src_x0 = static_cast<s32>(srcX >> 32),
         .src_y0 = static_cast<s32>(srcY >> 32),
-        .src_x1 = static_cast<s32>((srcX + args.du_dx * args.dst_width) >> 32),
-        .src_y1 = static_cast<s32>((srcY + args.dv_dy * args.dst_height) >> 32),
+        .src_x1 = clip_enabled ? static_cast<s32>(srcX >> 32)
+                               : static_cast<s32>((srcX + args.du_dx * args.dst_width) >> 32),
+        .src_y1 = clip_enabled ? static_cast<s32>(srcY >> 32)
+                               : static_cast<s32>((srcY + args.dv_dy * args.dst_height) >> 32),
     };
 
     // NVIDIA 2D CLIP_X/Y/W/H is a destination scissor, not a change to
