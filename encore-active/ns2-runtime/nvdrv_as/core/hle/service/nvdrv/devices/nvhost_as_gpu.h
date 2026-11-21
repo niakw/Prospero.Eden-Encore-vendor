@@ -50,7 +50,8 @@ enum class MappingFlags : u32 {
 };
 DECLARE_ENUM_FLAG_OPERATORS(MappingFlags);
 
-class nvhost_as_gpu final : public nvdevice {
+class nvhost_as_gpu final : public nvdevice,
+                            public std::enable_shared_from_this<nvhost_as_gpu> {
 public:
     explicit nvhost_as_gpu(Core::System& system_, Module& module, NvCore::Container& core);
     ~nvhost_as_gpu() override;

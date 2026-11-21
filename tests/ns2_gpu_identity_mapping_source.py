@@ -67,4 +67,23 @@ assert "std::make_shared<IGpuSession>(system, module, m_process)" in open_gpu
 assert "catch (const std::bad_alloc&)" in open_gpu
 assert "result = Kernel::ResultOutOfResource;" in open_gpu
 
-print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap")
+# An AS FD can close while its scheduler channel still has queued work.
+# Keep a strong AS/GMMU lease in ChannelState through GPU payload teardown.
+# The generic Maxwell channel leaves this lease empty; there is no
+# additional GPU mapping, synthetic VA or per-game admission.
+channel_h=(R/"sources/eden/src/video_core/control/channel_state.h").read_text()
+as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
+assert "public std::enable_shared_from_this<nvhost_as_gpu>" in as_h
+assert channel_h.index("std::shared_ptr<void> address_space_owner{};") < channel_h.index(
+    "std::optional<Payload> payload;")
+as_bind=as_cpp.split("NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {",1)[1].split(
+    "\n}",1)[0]
+assert as_bind.index("const std::scoped_lock lock{mutex, gpu_channel_device->channel_mutex};") < as_bind.index(
+    "auto owner = weak_from_this().lock();")
+assert as_bind.index("session->process != m_native_process") < as_bind.index(
+    "channel.address_space_owner = std::move(owner);") < as_bind.index(
+    "channel.memory_manager = gmmu.get();")
+assert "if (!owner) return NvResult::InvalidState;" in as_bind
+
+print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload")

@@ -977,6 +977,15 @@ NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {
     auto& channel = *gpu_channel_device->channel_state;
     if (channel.memory_manager && channel.memory_manager != gmmu.get())
         return NvResult::InvalidState;
+    // NVIDIA's AS/channel contract: closing the AS FD never invalidates a
+    // live channel's GMMU. The GPU scheduler can still hold ChannelState
+    // after both NVDRV device FDs are closed; a raw gmmu.get() alone was a
+    // use-after-free waiting for the next guest submission. Retain the real
+    // AS object (including its NvMap pin ledger) until all GPU channel
+    // payloads have retired. No ownership cycle: AS owns no channel.
+    auto owner = weak_from_this().lock();
+    if (!owner) return NvResult::InvalidState;
+    channel.address_space_owner = std::move(owner);
     channel.memory_manager = gmmu.get();
     return NvResult::Success;
 }
