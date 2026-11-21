@@ -146,6 +146,18 @@ void Fermi2D::Blit() {
         config.dst_x1 = static_cast<s32>(right);
         config.dst_y0 = static_cast<s32>(top);
         config.dst_y1 = static_cast<s32>(bottom);
+        // The software fallback treats extents as unsigned. Never pass a
+        // negative/reversed/out-of-surface source rectangle to that decoder
+        // if this destination scissor exposes an unsupported sample range.
+        if (config.src_x0 < 0 || config.src_y0 < 0 ||
+            config.src_x1 <= config.src_x0 || config.src_y1 <= config.src_y0 ||
+            static_cast<u64>(config.src_x1) > src.width ||
+            static_cast<u64>(config.src_y1) > src.height ||
+            static_cast<u64>(config.dst_x1) > regs.dst.width ||
+            static_cast<u64>(config.dst_y1) > regs.dst.height) {
+            AssertFailSoftImpl();
+            return;
+        }
     }
 
     const auto need_align_to_pitch =
