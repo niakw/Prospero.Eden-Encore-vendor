@@ -5,6 +5,42 @@ from pathlib import Path
 import hashlib
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# The PS5 Vulkan GPU worker must retire before CloseServices can close NVDRV
+# address spaces. The historical #1932/#1952 provenance receipts predate
+# this independent GPU/GMMU lifetime fix: undo only its exact source delta
+# before comparing the original predecessor SHA.
+def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
+    if relative != "encore-active/ns2-runtime/process/core/core.cpp":
+        return source
+    early = '''        ::Eden::ReportStep("shutdown", "Completed kernel.SuspendEmulation(true)");
+        // GPU::Impl owns the Vulkan worker, scheduler, channel states and
+        // renderer; native NVDRV address spaces own the GMMU/NvMap backing
+        // those channel states reference. Once guest CPU cores are suspended,
+        // join and destroy the GPU BEFORE CloseServices can release the
+        // channel's address space. The old order could let the GPU worker or
+        // renderer touch already-unpinned guest memory during exit/relaunch.
+        // Keep Host1x and the NVDRV containers alive throughout GPU teardown.
+        gpu_core.reset();
+        ::Eden::ReportStep("shutdown", "Completed gpu_core.reset()");
+        kernel.CloseServices();'''
+    legacy = '''        ::Eden::ReportStep("shutdown", "Completed kernel.SuspendEmulation(true)");
+        kernel.CloseServices();'''
+    late = '''        app_loader.reset();
+        audio_core.reset();
+        host1x_core.reset();'''
+    old_late = '''        app_loader.reset();
+        audio_core.reset();
+        gpu_core.reset();
+        ::Eden::ReportStep("shutdown", "Completed gpu_core.reset()");
+        host1x_core.reset();'''
+    assert source.count(early) == 1 and source.count(late) == 1, relative
+    shutdown = source.split("    void ShutdownMainProcess() {", 1)[1].split(
+        "\n    bool IsShuttingDown()", 1)[0]
+    assert shutdown.index("kernel.SuspendEmulation(true);") < shutdown.index(
+        "gpu_core.reset();") < shutdown.index("kernel.CloseServices();")
+    assert shutdown.index("gpu_core.reset();") < shutdown.index("services.reset();")
+    return source.replace(early, legacy, 1).replace(late, old_late, 1)
 cores = {
     "encore-active/eden-core/src/core/core_standard.cpp":
         "2085b5e5751669e9d3885e80c95cab8bf28dd24e",
@@ -84,7 +120,8 @@ def reverse_1932(source: str, relative: str) -> str:
     return source
 
 for relative, predecessor in cores.items():
-    source = reverse_1932((ROOT / relative).read_text(), relative)
+    source = reverse_1932(remove_native_gpu_teardown_fix(
+        (ROOT / relative).read_text(), relative), relative)
     start = "    void ShutdownMainProcess() {"
     stop = "\n    bool IsShuttingDown()"
     assert source.count(start) == source.count(stop) == 1, relative
