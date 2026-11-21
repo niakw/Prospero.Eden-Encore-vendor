@@ -5,6 +5,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "common/logging.h"
+#include "common/scope_exit.h"
+#include <new>
 #include "core/hle/result.h"
 #include "core/hle/service/am/am_results.h"
 #include "core/hle/service/am/frontend/applets.h"
@@ -112,6 +114,23 @@ void ISelfController::GetGraphicsSupervisor(HLERequestContext& ctx) {
         rb.Push(Kernel::ResultLimitReached.raw);
         return;
     }
+
+    // Prepare all fallible host allocations before committing a kernel session.
+    // An allocation failure in the graphics supervisor or server manager must
+    // leave the quota and both KSession endpoints untouched.
+    auto& server = ctx.GetManager()->GetServerManager();
+    std::shared_ptr<SessionRequestManager> manager;
+    try {
+        auto handler = std::make_shared<IGraphicsSupervisor>(
+            system, m_process, m_applet->aruid.pid);
+        manager = std::make_shared<SessionRequestManager>(kernel, server);
+        manager->SetSessionHandler(std::move(handler));
+    } catch (const std::bad_alloc&) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultOutOfResource.raw);
+        return;
+    }
+
     auto* session = Kernel::KSession::Create(kernel);
     if (!session) {
         IPC::ResponseBuilder rb{ctx, 2};
@@ -121,17 +140,33 @@ void ISelfController::GetGraphicsSupervisor(HLERequestContext& ctx) {
     session->Initialize(kernel, nullptr, 0);
     reservation.Commit();
     Kernel::KSession::Register(kernel, session);
-    auto& server = ctx.GetManager()->GetServerManager();
-    auto manager = std::make_shared<SessionRequestManager>(kernel, server);
-    manager->SetSessionHandler(
-        std::make_shared<IGraphicsSupervisor>(system, m_process, m_applet->aruid.pid));
-    const Result registered = server.RegisterSession(&session->GetServerSession(),
-                                                     std::move(manager));
+
+    // RegisterSession may fail or allocate *after* the session quota was
+    // committed. Release both original endpoints unless the server owns
+    // its endpoint. On success SelfController retains the client reference;
+    // the guest gets a distinct COPY handle and the destructor closes ours.
+    bool transferred_to_server = false;
+    SCOPE_EXIT {
+        if (!transferred_to_server) {
+            session->GetClientSession().Close(kernel);
+            session->GetServerSession().Close(kernel);
+        }
+    };
+    Result registered = Kernel::ResultOutOfResource;
+    try {
+        registered = server.RegisterSession(&session->GetServerSession(),
+                                            std::move(manager));
+    } catch (const std::bad_alloc&) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultOutOfResource.raw);
+        return;
+    }
     if (registered.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(registered.raw);
         return;
     }
+    transferred_to_server = true;
     m_graphics_supervisor_session = &session->GetClientSession();
     IPC::ResponseBuilder rb{ctx, 2, 1};
     rb.Push(ResultSuccess.raw);
