@@ -403,7 +403,7 @@ void MaxwellDMA::Launch() {
                     for (u64 offset = 0; offset < length;) {
                         const GPUVAddr tiled_address = tiled_base + offset;
                         const size_t count = static_cast<size_t>(
-                            (std::min)(length - offset, 16ULL - (tiled_address & 15ULL)));
+                            (std::min)(length - offset, u64{16} - (tiled_address & u64{15})));
                         const GPUVAddr mapped_address =
                             convert_linear_2_blocklinear_addr(tiled_address);
                         const GPUVAddr source = src_tiled ? mapped_address : linear_base + offset;
