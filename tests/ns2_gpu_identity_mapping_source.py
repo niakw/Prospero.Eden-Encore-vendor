@@ -290,6 +290,24 @@ for name,next_name in (("AllocGPFIFOEx","AllocGPFIFOEx2"),
         "native_channel_enabled = true;") < alloc.rindex(
         "params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);")
 
+# CHANNEL_SETUP_BIND is a second native GPFIFO admission path. A
+# successful InitChannel must mark it runnable before the first H:0x1B submit.
+# Invalid or incomplete binding never publishes this enabled state.
+setup_bind=nvhost_cpp.split("NvResult nvhost_gpu::ChannelSetupBind(",1)[1].split(
+    "\n}",1)[0]
+assert "if (!channel_state || !channel_state->memory_manager ||" in setup_bind
+assert "if (channel_state->initialized) return NvResult::AlreadyAllocated;" in setup_bind
+for token in ("system.GPU().InitChannel(*channel_state, program_id);",
+              "if (!channel_state->initialized || channel_state->bind_id < 0)",
+              "return NvResult::InvalidState;",
+              "native_channel_enabled = true;",
+              "params.work_submit_token = 0;"):
+    assert token in setup_bind,token
+assert setup_bind.index("system.GPU().InitChannel(*channel_state, program_id);") < setup_bind.index(
+    "if (!channel_state->initialized || channel_state->bind_id < 0)") < setup_bind.index(
+    "native_channel_enabled = true;") < setup_bind.index(
+    "params.work_submit_token = 0;")
+
 submit_impl=nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split(
     "\n}",1)[0]
 assert "if (!native_channel_enabled)" in submit_impl

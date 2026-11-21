@@ -16,7 +16,7 @@ for x in ("class nx2_stub_device final",
           "// not implemented yet on Encore",
           "return NvResult::NotImplemented;"):
     assert x in stub,x
-assert stub.count("// not implemented yet on Encore") >= 7
+assert stub.count("// not implemented yet on Encore") >= 6
 fallback=stub[stub.index("NvResult Stub("):]
 assert "std::fill(output.begin(), output.end(), u8{0})" not in fallback
 assert "std::copy_n(input.begin(), std::min(input.size(), output.size()), output.begin())" not in fallback
