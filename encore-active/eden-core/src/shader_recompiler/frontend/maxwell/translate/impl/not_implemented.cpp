@@ -243,11 +243,11 @@ void TranslatorVisitor::BPT(u64) {
 }
 
 void TranslatorVisitor::BRA(u64) {
-    ThrowNotImplemented(Opcode::BRA);
+    // CFG owns the branch. This visitor is reached only when the predicate is statically false.
 }
 
 void TranslatorVisitor::BRK(u64) {
-    ThrowNotImplemented(Opcode::BRK);
+    // CFG owns the break token/branch. A statically false branch is a no-op here.
 }
 
 void TranslatorVisitor::CAL(u64) {
@@ -267,7 +267,7 @@ void TranslatorVisitor::CCTLT(u64) {
 }
 
 void TranslatorVisitor::CONT(u64) {
-    ThrowNotImplemented(Opcode::CONT);
+    // CFG owns the continue token/branch. A statically false branch is a no-op here.
 }
 
 void TranslatorVisitor::CS2R(u64) {
@@ -396,7 +396,7 @@ void TranslatorVisitor::JCAL(u64) {
 }
 
 void TranslatorVisitor::JMP(u64) {
-    ThrowNotImplemented(Opcode::JMP);
+    // CFG owns the jump. This visitor is reached only when the predicate is statically false.
 }
 
 void TranslatorVisitor::KIL(u64) {
@@ -412,7 +412,7 @@ void TranslatorVisitor::LEPC(u64) {
 }
 
 void TranslatorVisitor::LONGJMP(u64) {
-    ThrowNotImplemented(Opcode::LONGJMP);
+    // CFG owns the token pop/branch. A statically false branch is a no-op here.
 }
 
 void TranslatorVisitor::NOP(u64) {
@@ -428,11 +428,11 @@ void TranslatorVisitor::PCNT(u64) {
 }
 
 void TranslatorVisitor::PEXIT(u64) {
-    ThrowNotImplemented(Opcode::PEXIT);
+    // CFG records the PEXIT reconvergence token; there is no data-path IR side effect.
 }
 
 void TranslatorVisitor::PLONGJMP(u64) {
-    ThrowNotImplemented(Opcode::PLONGJMP);
+    // CFG records the PLONGJMP reconvergence token; there is no data-path IR side effect.
 }
 
 void TranslatorVisitor::PRET(u64) {
@@ -464,7 +464,7 @@ void TranslatorVisitor::RAM(u64) {
 }
 
 void TranslatorVisitor::RET(u64) {
-    ThrowNotImplemented(Opcode::RET);
+    // CFG owns function return. A statically false return is a no-op here.
 }
 
 void TranslatorVisitor::RTT(u64) {
@@ -500,7 +500,7 @@ void TranslatorVisitor::SUATOM_cas(u64) {
 }
 
 void TranslatorVisitor::SYNC(u64) {
-    ThrowNotImplemented(Opcode::SYNC);
+    // CFG owns the SSY token pop/branch. A statically false sync is a no-op here.
 }
 
 void TranslatorVisitor::TXA(u64) {
