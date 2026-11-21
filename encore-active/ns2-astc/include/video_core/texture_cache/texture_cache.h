@@ -983,6 +983,83 @@ void TextureCache<P>::WriteGpuMemory(GPUVAddr gpu_addr, size_t size) {
 }
 
 template <class P>
+void TextureCache<P>::WriteDmaCopy(
+    GPUVAddr src_addr, GPUVAddr dest_addr, size_t size,
+    std::span<const std::pair<DAddr, size_t>> gpu_written_dest) {
+    if (size == 0) {
+        return;
+    }
+    const std::optional<DAddr> src = gpu_memory->GpuToCpuAddress(src_addr);
+    const std::optional<DAddr> dest = gpu_memory->GpuToCpuAddress(dest_addr);
+    if (!src || !dest ||
+        *src > (std::numeric_limits<DAddr>::max)() - size ||
+        *dest > (std::numeric_limits<DAddr>::max)() - size) {
+        return;
+    }
+    const DAddr src_end = *src + size;
+    const DAddr dest_end = *dest + size;
+
+    // BufferCache reports destination bytes whose source was newer on the GPU.
+    // Guest memory still contains older bytes there until a later download.
+    boost::container::small_vector<std::pair<DAddr, size_t>, 8> unheld;
+    unheld.reserve(gpu_written_dest.size() + 4);
+    for (const auto& [begin, length] : gpu_written_dest) {
+        if (length == 0 || begin < *dest || begin >= dest_end ||
+            length > dest_end - begin) {
+            return;
+        }
+        unheld.emplace_back(begin, length);
+    }
+
+    // GPU-written source images have the same property: DMACopy moves their
+    // host-GPU bytes, while the guest-memory mirror still holds older data.
+    ForEachImageInRegion(*src, size, [&](ImageId, Image& image) {
+        if (False(image.flags & ImageFlagBits::GpuModified)) {
+            return;
+        }
+        const DAddr begin = (std::max)(static_cast<DAddr>(image.cpu_addr), *src);
+        const DAddr end = (std::min)(static_cast<DAddr>(image.cpu_addr_end), src_end);
+        if (begin < end) {
+            unheld.emplace_back(*dest + (begin - *src), static_cast<size_t>(end - begin));
+        }
+    });
+
+    const auto overlaps_unheld = [&unheld](const Image& image) {
+        return std::ranges::any_of(unheld, [&image](const auto& range) {
+            const DAddr range_end = range.first + range.second;
+            return range.first < image.cpu_addr_end && image.cpu_addr < range_end;
+        });
+    };
+
+    ForEachImageInRegion(*dest, size, [&](ImageId image_id, Image& image) {
+        // Uploading this image would consume bytes that guest memory does not
+        // hold yet, or discard GPU-owned texels outside the copied interval.
+        const bool keeps_gpu_contents =
+            True(image.flags & ImageFlagBits::GpuModified) &&
+            (image.cpu_addr < *dest || image.cpu_addr_end > dest_end);
+        if (overlaps_unheld(image) || keeps_gpu_contents) {
+            return;
+        }
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+        if (image.ns2_astc_dirty) {
+            if (image.ns2_astc_dirty->MarkWrite(*dest, size)) {
+                image.flags |= ImageFlagBits::CpuModified;
+                return;
+            }
+            image.ns2_astc_dirty.reset();
+        }
+#endif
+        if (True(image.flags & ImageFlagBits::CpuModified)) {
+            return;
+        }
+        image.flags |= ImageFlagBits::CpuModified;
+        if (True(image.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(image, image_id);
+        }
+    });
+}
+
+template <class P>
 bool TextureCache<P>::IsGpuMemoryGpuModified(GPUVAddr gpu_addr, size_t size) {
     // GetSubmappedRange omits unmapped/reserved holes. A partial translation
     // must never make a DMA destination look safe for a guest-memory upload.

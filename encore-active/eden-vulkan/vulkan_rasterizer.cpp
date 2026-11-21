@@ -2919,13 +2919,22 @@ bool AccelerateDMA::BufferCopy(GPUVAddr src_address, GPUVAddr dest_address, u64 
     // rather than uploading stale CPU bytes over GPU-owned image contents.
     std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
     bool copied_gpu_bytes = false;
-    if (!buffer_cache.DMACopy(src_address, dest_address, amount, &copied_gpu_bytes)) {
+    boost::container::small_vector<std::pair<DAddr, size_t>, 4> gpu_written_dest;
+    if (!buffer_cache.DMACopy(src_address, dest_address, amount, &copied_gpu_bytes,
+                              &gpu_written_dest)) {
         return false;
     }
-    if (!copied_gpu_bytes &&
-        !texture_cache.IsGpuMemoryGpuModified(src_address, amount) &&
-        !texture_cache.IsGpuMemoryGpuModified(dest_address, amount)) {
-        texture_cache.WriteGpuMemory(dest_address, amount);
+    if (gpu_memory && gpu_memory->UsesNativeTiling()) {
+        // GPU-50 is an NS1 Maxwell coherency fix. Keep the separately owned
+        // native-tiling/NS2 policy byte-for-byte equivalent to its old guard.
+        if (!copied_gpu_bytes &&
+            !texture_cache.IsGpuMemoryGpuModified(src_address, amount) &&
+            !texture_cache.IsGpuMemoryGpuModified(dest_address, amount)) {
+            texture_cache.WriteGpuMemory(dest_address, amount);
+        }
+    } else {
+        texture_cache.WriteDmaCopy(src_address, dest_address, static_cast<size_t>(amount),
+                                   gpu_written_dest);
     }
     return true;
 }

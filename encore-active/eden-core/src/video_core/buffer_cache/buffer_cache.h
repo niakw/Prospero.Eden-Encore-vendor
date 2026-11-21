@@ -292,8 +292,12 @@ void BufferCache<P>::ClearDownload(DAddr device_addr, u64 size) {
 }
 
 template <class P>
-bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount,
-                             bool* gpu_written) {
+bool BufferCache<P>::DMACopy(
+    GPUVAddr src_address, GPUVAddr dest_address, u64 amount, bool* gpu_written,
+    boost::container::small_vector<std::pair<DAddr, size_t>, 4>* gpu_written_dest) {
+    if (gpu_written_dest) {
+        gpu_written_dest->clear();
+    }
     // FindBuffer and SynchronizeBuffer accept u32 byte spans. Never truncate
     // a wider DMA request: the caller can take its ordinary software path.
     // Reject empty copies before dirty-range bookkeeping as well.
@@ -371,6 +375,9 @@ bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 am
     const bool has_new_downloads = tmp_intervals.size() != 0;
     if (gpu_written) {
         *gpu_written = has_new_downloads;
+    }
+    if (gpu_written_dest) {
+        *gpu_written_dest = tmp_intervals;
     }
     for (const auto& pair : tmp_intervals) {
         gpu_modified_ranges.Add(pair.first, pair.second);
