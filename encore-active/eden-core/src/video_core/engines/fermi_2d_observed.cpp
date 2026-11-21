@@ -73,22 +73,36 @@ void Fermi2D::ConsumeSinkImpl(Core::System& system) {
 void Fermi2D::Blit() {
     LOG_DEBUG(HW_GPU, "called. source address={:#x}, destination address={:#x}", regs.src.Address(), regs.dst.Address());
 
-    // A soft UNIMPLEMENTED_IF_MSG reports a failure but continues execution.
-    // Never turn unsupported Fermi2D operations or nonzero layers into a
-    // normal SrcCopy of layer zero: that silently overwrites guest pixels.
+    // Never treat an unsupported 2D operation as a SrcCopy: soft
+    // assertions return in release and would silently overwrite guest RAM.
     if (regs.operation != Operation::SrcCopy) {
         UNIMPLEMENTED_MSG("Operation is not copy");
         return;
     }
-    if (regs.src.layer != 0) {
-        UNIMPLEMENTED_MSG("Source layer is not zero");
-        return;
-    }
-    if (regs.dst.layer != 0) {
-        UNIMPLEMENTED_MSG("Destination layer is not zero");
-        return;
-    }
-    if (regs.src.depth != 1) {
+    // NVIDIA 2D pitch surfaces have contiguous, pitch*height-sized slices.
+    // Support only explicitly addressed layers of two pitch-linear images.
+    // Block-linear layers require a separate verified origin_z decoder.
+    const bool pitch_layer_copy = regs.src.layer != 0 || regs.dst.layer != 0;
+    if (pitch_layer_copy) {
+        const auto valid_pitch_layers = [](const Surface& surface) {
+            constexpr u64 MAX_PLANE_BYTES = 256ULL << 20;
+            const u64 bpp = BytesPerBlock(
+                PixelFormatFromRenderTargetFormat(surface.format));
+            if (surface.linear != MemoryLayout::Pitch || surface.depth == 0 ||
+                surface.layer >= surface.depth || surface.width == 0 ||
+                surface.height == 0 || surface.pitch == 0 || bpp == 0 ||
+                bpp > 16 || static_cast<u64>(surface.width) * bpp > surface.pitch) {
+                return false;
+            }
+            const u64 plane = static_cast<u64>(surface.pitch) * surface.height;
+            return plane != 0 && plane <= MAX_PLANE_BYTES;
+        };
+        if (!valid_pitch_layers(regs.src) || !valid_pitch_layers(regs.dst) ||
+            regs.src.format != regs.dst.format || regs.clip_enable != 0) {
+            UNIMPLEMENTED_MSG("Unsupported layered Fermi2D surface or operation");
+            return;
+        }
+    } else if (regs.src.depth != 1) {
         UNIMPLEMENTED_MSG("Source depth is not one");
         return;
     }
@@ -244,6 +258,42 @@ void Fermi2D::Blit() {
     }
 
     memory_manager.FlushCaching();
+    if (pitch_layer_copy) {
+        // Copy ONLY the selected pitch-linear slice. The software blitter
+        // snapshots the source before constructing the destination writer,
+        // preserving overlapping guest surfaces. Do not route a layered
+        // operation to TextureCache's layer-zero Vulkan acceleration.
+        Surface dst = regs.dst;
+        const auto select_pitch_layer = [this](Surface& surface) {
+            constexpr u64 MAX_PLANE_BYTES = 256ULL << 20;
+            const u64 plane = static_cast<u64>(surface.pitch) * surface.height;
+            if (plane == 0 || plane > MAX_PLANE_BYTES ||
+                surface.depth == 0 || surface.layer >= surface.depth ||
+                (surface.layer != 0 && plane > ~u64{0} / surface.layer)) {
+                return false;
+            }
+            const u64 offset = plane * surface.layer;
+            const GPUVAddr base = surface.Address();
+            if (base > ~u64{0} - offset ||
+                base + offset > ~u64{0} - plane ||
+                !memory_manager.IsFullyMappedRange(base + offset,
+                                                   static_cast<size_t>(plane))) {
+                return false;
+            }
+            const GPUVAddr selected = base + offset;
+            surface.addr_upper = static_cast<u32>(selected >> 32);
+            surface.addr_lower = static_cast<u32>(selected);
+            surface.layer = 0;
+            surface.depth = 1;
+            return true;
+        };
+        if (!select_pitch_layer(src) || !select_pitch_layer(dst)) {
+            AssertFailSoftImpl();
+            return; // Reject without writing a partial destination layer.
+        }
+        sw_blitter->Blit(src, dst, config);
+        return;
+    }
     if (!rasterizer->AccelerateSurfaceCopy(src, regs.dst, config)) {
         sw_blitter->Blit(src, regs.dst, config);
     }
