@@ -5,6 +5,42 @@ shared=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu
 worker=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp").read_text()
 worker_hdr=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.h").read_text()
 registration=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_memory_registration.h").read_text()
+worker_protocol=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_worker_protocol.h").read_text()
+# MKW recreates sparse region 214 at the exact same start VA while
+# growing its extent. Encore must retire that exact predecessor like a 215
+# before reserving the replacement, but keep arbitrary overlap fail-closed.
+for token in (
+    "std::optional<Mapping> ExactSparse(",
+    "PrepareSparseReplacingExact(",
+    "if (exact == mappings.end() || !exact->second.sparse)",
+    "next->second.address - address < size",
+    "previous->second.address < previous->second.address + previous->second.size"
+):
+    # The last predicate is checked structurally below because the production
+    # expression is written as an overflow-free subtraction.
+    if token.startswith("previous->second.address <"):
+        continue
+    assert token in worker_protocol, token
+create_sparse=worker.split(
+    "void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {",1
+)[1].split("\nvoid IGpuWorker::DestroySparseRegion(",1)[0]
+for token in (
+    "m_mappings.ExactSparse(request->address_space, request->begin)",
+    "m_mappings.PrepareSparseReplacingExact(",
+    '"214_replace_wait_idle"',
+    "system.GPU().WaitForIdle();",
+    "as->ReleaseNativeSparse4K(",
+    "RetireGpuOnlyRegion(",
+    "m_mappings.RecordReleasedSparse(",
+    "as->ReserveNativeSparse4K(",
+):
+    assert token in create_sparse, token
+assert create_sparse.index("m_mappings.PrepareSparseReplacingExact(") < create_sparse.index(
+    "system.GPU().WaitForIdle();") < create_sparse.index(
+    "as->ReleaseNativeSparse4K(") < create_sparse.index(
+    "m_mappings.RecordReleasedSparse(") < create_sparse.index(
+    "as->ReserveNativeSparse4K(")
+
 # Worker 172/173 are real SDK debug-label metadata on *live* NVMap
 # handles. The selected worker must neither echo Success for retired IDs nor
 # allocate a fake label object without recording its data.

@@ -655,57 +655,113 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
                 m_shared->address_spaces.Owns(request->address_space) &&
                 m_shared->devices.Get(request->device).has_value()) {
                 const u64 size = request->end - request->begin + 1;
+                const auto replaced =
+                    m_mappings.ExactSparse(request->address_space, request->begin);
                 GW::MappingLedger::Pending staged_ledger;
-                const auto preflight = m_mappings.PrepareSparse(
-                    request->address_space, request->device, request->begin, size,
-                    staged_ledger, request->page_shift);
+                // Lichii/MKW: the title grows a sparse region at the exact
+                // same start VA without a preceding 215. Preallocate the new
+                // ledger node while the old owner is still intact, but never
+                // permit replacement of an unrelated overlapping mapping.
+                const auto preflight = replaced
+                    ? m_mappings.PrepareSparseReplacingExact(
+                          request->address_space, request->device, request->begin,
+                          size, staged_ledger, request->page_shift)
+                    : m_mappings.PrepareSparse(
+                          request->address_space, request->device, request->begin,
+                          size, staged_ledger, request->page_shift);
                 result = TranslateMappingStatus(preflight);
                 if (preflight == GW::LedgerStatus::Success) {
                     result = Kernel::ResultInvalidState;
                     const auto as = m_shared->FindOwnedAddressSpace(
                         static_cast<Nvidia::DeviceFD>(request->address_space));
-                    const auto reserved = as
-                        ? as->ReserveNativeSparse4K(request->begin, size,
-                                                  request->page_shift)
-                        : Nvidia::NvResult::InvalidState;
-                    if (reserved == Nvidia::NvResult::InsufficientMemory)
-                        result = Kernel::ResultOutOfResource;
-                    if (reserved == Nvidia::NvResult::Success) {
-                        const auto committed = m_mappings.CommitPrepared(staged_ledger);
-                        if (committed == GW::LedgerStatus::Success) {
-                            // Mode 0 requests physical GPU-only render storage.
-                            // Mode 1 remains an explicitly unbacked sparse VA
-                            // until the guest submits physical 216 mappings.
-                            if (request->allocation_mode == 0) {
-                                result = BackGpuOnlyRegion(
-                                    request->address_space, request->begin, size,
-                                    request->page_shift);
-                                dense_backed = result.IsSuccess();
-                                if (!dense_backed) {
-                                    // Preserve the VA ledger if the backend rollback fails;
-                                    // otherwise a retry could overlap a still-live GMMU VA.
-                                    if (as->ReleaseNativeSparse4K(request->begin, size) ==
-                                            Nvidia::NvResult::Success) {
-                                        const auto released = m_mappings.RecordReleasedSparse(
-                                            request->address_space, request->begin, size);
-                                        if (released != GW::LedgerStatus::Success)
-                                            LOG_ERROR(Service_AM,
-                                                "NS2 sparse 214 ledger rollback failed as={} VA={:#x}",
-                                                request->address_space, request->begin);
-                                    } else {
-                                        LOG_ERROR(Service_AM,
-                                            "NS2 sparse 214 GMMU rollback failed as={} VA={:#x}",
-                                            request->address_space, request->begin);
-                                    }
-                                }
-                            } else {
-                                result = ResultSuccess;
+                    bool old_retired = !replaced.has_value();
+                    if (as && replaced) {
+                        auto dense = m_dense_regions.find(
+                            {request->address_space, request->begin});
+                        const bool physical = dense != m_dense_regions.end();
+                        const bool gmmu_already_released =
+                            physical && dense->second.gmmu_released;
+                        // Replacing 214 is destructive to the old PTEs and
+                        // possibly their NVMap pin. Drain old GPU users first,
+                        // just like an explicit 215.
+                        if (!gmmu_already_released) {
+                            BlockingBoundaryTrace trace{
+                                "214_replace_wait_idle", request->address_space,
+                                request->begin, replaced->size};
+                            system.GPU().WaitForIdle();
+                        }
+                        const auto release_result = gmmu_already_released
+                            ? Nvidia::NvResult::Success
+                            : as->ReleaseNativeSparse4K(
+                                  request->begin, replaced->size);
+                        if (release_result == Nvidia::NvResult::InsufficientMemory) {
+                            result = Kernel::ResultOutOfResource;
+                        } else if (release_result == Nvidia::NvResult::Success) {
+                            if (physical) dense->second.gmmu_released = true;
+                            const bool physical_retired =
+                                !physical || RetireGpuOnlyRegion(
+                                    request->address_space, request->begin);
+                            if (physical_retired) {
+                                const auto released =
+                                    m_mappings.RecordReleasedSparse(
+                                        request->address_space, request->begin,
+                                        replaced->size);
+                                result = TranslateMappingStatus(released);
+                                old_retired = released == GW::LedgerStatus::Success;
                             }
-                            if (result.IsSuccess())
-                                m_shared->events[request->notification]->Signal(kernel);
-                        } else {
-                            as->ReleaseNativeSparse4K(request->begin, size);
-                            result = TranslateMappingStatus(committed);
+                        }
+                    }
+                    if (as && old_retired) {
+                        const auto reserved = as->ReserveNativeSparse4K(
+                            request->begin, size, request->page_shift);
+                        if (reserved == Nvidia::NvResult::InsufficientMemory)
+                            result = Kernel::ResultOutOfResource;
+                        if (reserved == Nvidia::NvResult::Success) {
+                            const auto committed =
+                                m_mappings.CommitPrepared(staged_ledger);
+                            if (committed == GW::LedgerStatus::Success) {
+                                // Mode 0 requests physical GPU-only render storage.
+                                // Mode 1 remains an explicitly unbacked sparse VA
+                                // until the guest submits physical 216 mappings.
+                                if (request->allocation_mode == 0) {
+                                    result = BackGpuOnlyRegion(
+                                        request->address_space, request->begin, size,
+                                        request->page_shift);
+                                    dense_backed = result.IsSuccess();
+                                    if (!dense_backed) {
+                                        // Preserve the VA ledger if backend rollback
+                                        // fails; otherwise a retry could overlap a
+                                        // still-live GMMU VA.
+                                        if (as->ReleaseNativeSparse4K(
+                                                request->begin, size) ==
+                                                Nvidia::NvResult::Success) {
+                                            const auto released =
+                                                m_mappings.RecordReleasedSparse(
+                                                    request->address_space,
+                                                    request->begin, size);
+                                            if (released != GW::LedgerStatus::Success)
+                                                LOG_ERROR(
+                                                    Service_AM,
+                                                    "NS2 sparse 214 ledger rollback failed as={} VA={:#x}",
+                                                    request->address_space,
+                                                    request->begin);
+                                        } else {
+                                            LOG_ERROR(
+                                                Service_AM,
+                                                "NS2 sparse 214 GMMU rollback failed as={} VA={:#x}",
+                                                request->address_space,
+                                                request->begin);
+                                        }
+                                    }
+                                } else {
+                                    result = ResultSuccess;
+                                }
+                                if (result.IsSuccess())
+                                    m_shared->events[request->notification]->Signal(kernel);
+                            } else {
+                                as->ReleaseNativeSparse4K(request->begin, size);
+                                result = TranslateMappingStatus(committed);
+                            }
                         }
                     }
                 }

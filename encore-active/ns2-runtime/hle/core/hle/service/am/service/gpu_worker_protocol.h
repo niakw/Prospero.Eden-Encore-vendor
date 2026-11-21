@@ -202,6 +202,47 @@ public:
         }
         return LedgerStatus::Success;
     }
+    // MKW can recreate a sparse region at the SAME start VA with a larger
+    // extent without sending 215 first. Stage the replacement node before
+    // the caller destructively retires the old GMMU owner. Only that exact
+    // sparse start may be replaced; every unrelated overlap stays rejected.
+    [[nodiscard]] std::optional<Mapping> ExactSparse(U32 as, U64 address) const {
+        const auto it = mappings.find({as, address});
+        if (it == mappings.end() || !it->second.sparse) return std::nullopt;
+        return it->second;
+    }
+    LedgerStatus PrepareSparseReplacingExact(U32 as, U32 device, U64 address,
+                                             U64 size, Pending& pending,
+                                             U8 page_shift = 12) const {
+        if (!pending.empty()) return LedgerStatus::Invalid;
+        if ((page_shift != 12 && page_shift != 16) || !as || !device ||
+            device >= MaxDevices || !size ||
+            ((address | size) & ((U64{1} << page_shift) - 1)) ||
+            address > std::numeric_limits<U64>::max() - size ||
+            (size >> 12) > std::numeric_limits<U32>::max())
+            return LedgerStatus::Invalid;
+        const auto exact = mappings.find({as, address});
+        if (exact == mappings.end() || !exact->second.sparse)
+            return LedgerStatus::NotFound;
+        auto next = exact;
+        ++next;
+        if (next != mappings.end() && next->first.first == as &&
+            next->second.address - address < size)
+            return LedgerStatus::Overlap;
+        if (exact != mappings.begin()) {
+            const auto previous = std::prev(exact);
+            if (previous->first.first == as &&
+                address - previous->second.address < previous->second.size)
+                return LedgerStatus::Overlap;
+        }
+        try {
+            pending.emplace(std::make_pair(as, address),
+                            Mapping{as, 0, device, address, size, 0, 0, true, page_shift});
+        } catch (const std::bad_alloc&) {
+            return LedgerStatus::OutOfResource;
+        }
+        return LedgerStatus::Success;
+    }
     LedgerStatus CommitPrepared(Pending& pending) {
         if (pending.size() != 1) return LedgerStatus::Invalid;
         const auto& staged = pending.begin()->second;
