@@ -351,6 +351,47 @@ assert modify.index("native_ioctl_remap_pins.find(range.handle)") < modify.index
     "cursor = address;")
 
 
+# Switch 2 A:0x0D is a variable-size array of 40-byte remap records,
+# not the legacy A:0x14 20-byte ioctl and not GSV's separate 4K owner.
+# The guest-owned NVDRV VA reservation and retained pins are checked
+# before the first sparse GMMU update, including multi-entry batches.
+native_remap=as_cpp.split("NvResult nvhost_as_gpu::RemapNativeIoctl(std::span<const NativeSparseRemapEntry> entries) {",1)[1].split(
+    "\n}",1)[0]
+assert "NvResult RemapNativeIoctl(std::span<const NativeSparseRemapEntry> entries);" in as_h
+for marker in ("case 0xd: { // NS2 NVGPU_AS_IOCTL_REMAP",
+               "(command.raw & 0xC000FFFFU) != 0xC000410DU",
+               "input.size() % EntrySize != 0",
+               "input.size() / EntrySize > 256",
+               "std::memcpy(entries.data(), input.data(), input.size());",
+               "const NvResult result = RemapNativeIoctl(entries);"):
+    assert marker in as_ioctl, marker
+for marker in ("DecodeNativeSparseRemap(entry)",
+               "NativeGpuAllocation::FindContaining(",
+               "native_sparse_regions.contains(allocation->first)",
+               "allocation->second.big_pages",
+               "SelectNativeMemoryKind(",
+               "session->process != m_native_process",
+               "mapping_map.lower_bound(range->address)",
+               "updated = native_ioctl_remap_mappings",
+               "freshly_pinned.try_emplace(handle_id, DAddr{})",
+               "NativePinnedPhysicalSpan(pinned, step.range.source_offset",
+               "gmmu->MapSparse(range.address, range.size, step.big_page)",
+               "native_ioctl_remap_pins.merge(freshly_pinned)",
+               "nvmap.UnpinHandle(it->first)"):
+    assert marker in native_remap, marker
+assert native_remap.index("updated = native_ioctl_remap_mappings") < native_remap.index(
+    "freshly_pinned.try_emplace(handle_id, DAddr{})") < native_remap.index(
+    "NativePinnedPhysicalSpan(pinned, step.range.source_offset") < native_remap.index(
+    "gmmu->MapSparse(range.address, range.size, step.big_page)")
+for marker in ("NativeGpuAllocation::FindContaining(",
+               "native_sparse_regions.contains(allocation->first)",
+               "const bool big_page = allocation->second.big_pages;",
+               "static_cast<Tegra::PTEKind>(kind->backend), big_page"):
+    assert marker in modify, marker
+assert modify.index("native_sparse_regions.contains(allocation->first)") < modify.index(
+    "const auto& ranges = native_ioctl_remap_mappings.Ranges()")
+
+
 # GetVARegions1/3 serialize 64-bit byte offsets from u32 page indexes.
 # The old u32-first shift wrapped the 16-GiB GA10F big-page region to 0.
 va_regions=as_cpp.split("void nvhost_as_gpu::GetVARegionsImpl(IoctlGetVaRegions& params) {",1)[1].split(
