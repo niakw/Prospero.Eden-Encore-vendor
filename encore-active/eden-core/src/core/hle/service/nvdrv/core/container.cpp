@@ -7,6 +7,7 @@
 #include <atomic>
 #include <deque>
 #include <mutex>
+#include <limits>
 
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/nvdrv/core/container.h"
@@ -115,6 +116,18 @@ SessionId Container::OpenSession(Kernel::KProcess* process) {
         }
     }
     return SessionId{new_id};
+}
+
+bool Container::RetainSession(SessionId id, const Kernel::KProcess* process) {
+    if (!process) return false;
+    const std::scoped_lock lock{impl->session_guard};
+    if (id.id >= impl->sessions.size()) return false;
+    auto& session = impl->sessions[id.id];
+    if (!session.is_active || session.process != process || session.ref_count <= 0 ||
+        session.ref_count == std::numeric_limits<s32>::max())
+        return false;
+    ++session.ref_count;
+    return true;
 }
 
 void Container::CloseSession(SessionId session_id) {

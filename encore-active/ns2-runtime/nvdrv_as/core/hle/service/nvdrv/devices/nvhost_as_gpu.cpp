@@ -39,16 +39,23 @@ nvhost_as_gpu::nvhost_as_gpu(Core::System& system_, Module& module_, NvCore::Con
       gmmu{} {}
 
 nvhost_as_gpu::~nvhost_as_gpu() {
-    // Closing an AS without explicit unmaps must not strand NvMap pins.
-    const std::scoped_lock lock{mutex};
-    for (const auto& [address, mapping] : mapping_map) {
-        nvmap.UnpinHandle(mapping.handle);
+    // Unpin the GPU pages while this AS still owns its exact NvCore session:
+    // CloseSession may otherwise retire the SMMU mappings before cleanup.
+    {
+        const std::scoped_lock lock{mutex};
+        for (const auto& [address, mapping] : mapping_map) {
+            nvmap.UnpinHandle(mapping.handle);
+        }
+        mapping_map.clear();
+        for (const auto& [handle, address] : native_sparse_pins) {
+            nvmap.UnpinHandle(handle);
+        }
+        native_sparse_pins.clear();
     }
-    mapping_map.clear();
-    for (const auto& [handle, address] : native_sparse_pins) {
-        nvmap.UnpinHandle(handle);
-    }
-    native_sparse_pins.clear();
+    // Never call CloseSession holding the AS mutex: final session close can
+    // finalize a process and indirectly close other service objects.
+    if (m_channel_session_retained && m_nv_session)
+        container.CloseSession(*m_nv_session);
     if (m_native_process) m_native_process->Close(system.Kernel());
 }
 
@@ -114,6 +121,7 @@ NvResult nvhost_as_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8> i
 
 void nvhost_as_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
     if (const auto* session = container.GetSession(session_id)) {
+        m_nv_session = session_id;
         m_native_process = session->process;
         if (m_native_process) m_native_process->Open(system.Kernel());
     }
@@ -985,6 +993,16 @@ NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {
     // payloads have retired. No ownership cycle: AS owns no channel.
     auto owner = weak_from_this().lock();
     if (!owner) return NvResult::InvalidState;
+    if (!m_channel_session_retained) {
+        // Holding the AS object alone is insufficient: a different NVDRV
+        // service can close this process's final session and UnmapAllHandles.
+        // Retain the exact, live AS session before publishing a channel
+        // pointer; no new ASID or guest GPU VA is allocated here.
+        if (!m_nv_session ||
+            !container.RetainSession(*m_nv_session, m_native_process))
+            return NvResult::InvalidState;
+        m_channel_session_retained = true;
+    }
     channel.address_space_owner = std::move(owner);
     channel.memory_manager = gmmu.get();
     return NvResult::Success;

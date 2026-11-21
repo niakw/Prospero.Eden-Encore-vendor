@@ -58,6 +58,10 @@ public:
     ~Container();
 
     SessionId OpenSession(Kernel::KProcess* process);
+    // Retain the SAME already-open session (not a new GPU ASID) until
+    // its bound channel and queued GPU commands release their GMMU.
+    // Reject stale/recycled session IDs, foreign processes and overflow.
+    [[nodiscard]] bool RetainSession(SessionId id, const Kernel::KProcess* process);
     void CloseSession(SessionId id);
 
     Session* GetSession(SessionId id);

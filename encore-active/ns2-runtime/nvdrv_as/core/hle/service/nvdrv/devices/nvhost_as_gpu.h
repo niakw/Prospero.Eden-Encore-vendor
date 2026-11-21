@@ -224,6 +224,11 @@ private:
     std::map<u64, Allocation> allocation_map;
     std::mutex mutex; //!< Locks all AS operations
     Kernel::KProcess* m_native_process{};
+    // BindChannel retains the real NvCore session while any scheduler
+    // ChannelState owns this AS; otherwise CloseSession can unmap backing
+    // handles even though the AS shared_ptr itself is still alive.
+    std::optional<NvCore::SessionId> m_nv_session{};
+    bool m_channel_session_retained{};
 
     struct VM {
         static constexpr u32 YUZU_PAGESIZE{0x1000};

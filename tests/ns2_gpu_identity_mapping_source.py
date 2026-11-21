@@ -86,4 +86,24 @@ assert as_bind.index("session->process != m_native_process") < as_bind.index(
     "channel.memory_manager = gmmu.get();")
 assert "if (!owner) return NvResult::InvalidState;" in as_bind
 
-print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload")
+# The AS owner alone cannot prevent NvCore::CloseSession from unmapping
+# every NVMap handle. The actual PS5-selected Container must hold a checked
+# reference to the same live session until the last bound channel retires.
+nvcore_h=(R/"sources/eden/src/core/hle/service/nvdrv/core/container.h").read_text()
+nvcore_cpp=(R/"encore-active/eden-core/src/core/hle/service/nvdrv/core/container.cpp").read_text()
+assert "bool RetainSession(SessionId id, const Kernel::KProcess* process);" in nvcore_h
+retain=nvcore_cpp.split("bool Container::RetainSession(SessionId id, const Kernel::KProcess* process) {",1)[1].split(
+    "\n}",1)[0]
+for token in ("session_guard", "impl->sessions.size()", "session.is_active",
+              "session.process != process", "session.ref_count <= 0",
+              "std::numeric_limits<s32>::max()", "++session.ref_count;"):
+    assert token in retain,token
+assert "std::optional<NvCore::SessionId> m_nv_session{};" in as_h
+assert "bool m_channel_session_retained{};" in as_h
+assert "m_nv_session = session_id;" in as_cpp
+assert "container.CloseSession(*m_nv_session);" in as_cpp
+assert as_cpp.index("container.CloseSession(*m_nv_session);") > as_cpp.index(
+    "native_sparse_pins.clear();")
+assert as_bind.index("container.RetainSession(*m_nv_session, m_native_process)") < as_bind.index(
+    "channel.address_space_owner = std::move(owner);")
+print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained")
