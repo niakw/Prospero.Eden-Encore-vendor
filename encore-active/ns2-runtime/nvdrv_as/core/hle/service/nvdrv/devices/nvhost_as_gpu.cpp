@@ -751,6 +751,86 @@ NvResult nvhost_as_gpu::AllocateSpace(IoctlAllocSpace& params) {
         return NvResult::Success;
     }
 
+    // The GA10F big-page sparse AS path feeds ioctl A:0x14. Do not use
+    // the Maxwell AllocateSpace fallback: it can overwrite a live fixed
+    // VA and publish GMMU state before its CPU allocation-map owner exists.
+    // This is the same exclusive reservation protocol as native small sparse
+    // pages, with the allocator/VA range selected for big pages.
+    const bool big_sparse =
+        params.page_size == vm.big_page_size &&
+        ((params.flags & MappingFlags::Sparse) != MappingFlags::None);
+    if (big_sparse && m_native_process &&
+        NativeGpuProcessRegistry::Instance().Contains(m_native_process)) {
+        if (!gmmu || !vm.big_page_allocator || !params.pages)
+            return NvResult::BadValue;
+        constexpr u32 allowed_flags =
+            static_cast<u32>(MappingFlags::Fixed) | static_cast<u32>(MappingFlags::Sparse);
+        if ((static_cast<u32>(params.flags) & ~allowed_flags) != 0)
+            return NvResult::BadValue;
+
+        auto& allocator = *vm.big_page_allocator;
+        const u64 first_va = static_cast<u64>(allocator.GetVAStart())
+                             << vm.big_page_size_bits;
+        const u64 limit_va = static_cast<u64>(allocator.GetVALimit())
+                             << vm.big_page_size_bits;
+        const u64 size = static_cast<u64>(params.pages) * vm.big_page_size;
+        if (limit_va <= first_va || size > limit_va - first_va)
+            return NvResult::InsufficientMemory;
+        const bool fixed = (params.flags & MappingFlags::Fixed) != MappingFlags::None;
+        u64 address = fixed ? static_cast<u64>(params.offset) : 0;
+        if (fixed) {
+            if (address < first_va || address >= limit_va ||
+                (address & (vm.big_page_size - 1)) != 0 ||
+                size > limit_va - address)
+                return NvResult::BadValue;
+            const auto reserved = allocation_map.lower_bound(address);
+            if ((reserved != allocation_map.end() &&
+                 reserved->first < address + size) ||
+                (reserved != allocation_map.begin() &&
+                 std::prev(reserved)->second.size >
+                     address - std::prev(reserved)->first))
+                return NvResult::BadValue;
+            const auto mapped = mapping_map.lower_bound(address);
+            if ((mapped != mapping_map.end() &&
+                 mapped->first < address + size) ||
+                (mapped != mapping_map.begin() &&
+                 std::prev(mapped)->second.size >
+                     address - std::prev(mapped)->first))
+                return NvResult::BadValue;
+        }
+
+        u32 first_page{};
+        bool reserved_pages = false;
+        bool recorded = false;
+        try {
+            if (fixed) {
+                first_page = static_cast<u32>(address >> vm.big_page_size_bits);
+                allocator.AllocateFixed(first_page, params.pages);
+            } else {
+                first_page = allocator.Allocate(params.pages);
+                if (!first_page) return NvResult::InsufficientMemory;
+                address = static_cast<u64>(first_page) << vm.big_page_size_bits;
+            }
+            reserved_pages = true;
+            const auto [it, inserted] = allocation_map.try_emplace(
+                address, Allocation{{}, size, vm.big_page_size, true, true});
+            if (!inserted) {
+                allocator.Free(first_page, params.pages);
+                return NvResult::BadValue;
+            }
+            recorded = true;
+            // Sparse VA has no backing and no NVMap pin. Real backing is
+            // published only by a later fully preflighted A:0x14 remap.
+            gmmu->MapSparse(address, size, true);
+        } catch (const std::bad_alloc&) {
+            if (recorded) allocation_map.erase(address);
+            if (reserved_pages) allocator.Free(first_page, params.pages);
+            return NvResult::InsufficientMemory;
+        }
+        params.offset = address;
+        return NvResult::Success;
+    }
+
     if (params.page_size != vm.big_page_size &&
         ((params.flags & MappingFlags::Sparse) != MappingFlags::None)) {
         UNIMPLEMENTED_MSG("Sparse small pages are not implemented!");
