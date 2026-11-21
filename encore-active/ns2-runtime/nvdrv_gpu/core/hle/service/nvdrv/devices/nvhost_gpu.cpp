@@ -127,6 +127,13 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
             return WrapFixed(this, &nvhost_gpu::SetErrorNotifier, input, output, fd);
         case 0xd:
             return WrapFixed(this, &nvhost_gpu::SetChannelPriority, input, output);
+        case 0x12: { // Switch 2 NVGPU_IOCTL_CHANNEL_EVENT_ID_CONTROL
+            if (command.raw != 0x40104812U) break;
+            if (input.size() != sizeof(IoctlNativeEventIdControl) || !output.empty())
+                return NvResult::InvalidSize;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+            return WrapFixed(this, &nvhost_gpu::NativeEventIdControl, input, output, fd);
+        }
         case 0x16: { // Switch NVGPU_IOCTL_CHANNEL_GET_ERROR_INFO
             if (command.raw != 0x80804816U) break;
             if (!input.empty() || output.size() != sizeof(IoctlGetErrorInfo))
@@ -412,6 +419,60 @@ NvResult nvhost_gpu::ZCullBind(IoctlZCullBind& params) {
     zcull_params = params;
     LOG_DEBUG(Service_NVDRV, "called, gpu_va={:X}, mode={:X}", zcull_params.gpu_va,
               zcull_params.mode);
+    return NvResult::Success;
+}
+
+NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, DeviceFD fd) {
+    // Ounce's S2 channel wrapper serializes {cmd, event_id, u64 zero} into
+    // 0x40104812. Nintendo documents these ids as the same ones returned by
+    // QueryEvent. Encore owns real KEvents for ids 1..3 only; do not claim
+    // CILP/semaphore events (4..6) until their producers exist.
+    const std::scoped_lock lock{channel_mutex};
+    if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+
+    u64 program_id{};
+    if (const auto status = ValidateChannelOwner(fd, program_id);
+        status != NvResult::Success)
+        return status;
+
+    const u32 cmd = static_cast<u32>(params.cmd);
+    const u32 event_id = static_cast<u32>(params.id);
+    if (cmd > 2 || event_id == 0 || event_id > 6)
+        return NvResult::BadParameter;
+    if (static_cast<u64>(params.reserved) != 0)
+        return NvResult::NotImplemented;
+
+    Kernel::KEvent* event{};
+    switch (event_id) {
+    case 1:
+        event = sm_exception_breakpoint_int_report_event;
+        break;
+    case 2:
+        event = sm_exception_breakpoint_pause_report_event;
+        break;
+    case 3:
+        event = error_notifier_event;
+        break;
+    default:
+        return NvResult::NotImplemented;
+    }
+
+    const u32 bit = 1u << event_id;
+    switch (cmd) {
+    case 0: // disable
+        native_event_enable_mask &= ~bit;
+        event->GetReadableEvent().Clear(system.Kernel());
+        break;
+    case 1: // enable
+        native_event_enable_mask |= bit;
+        // Registration starts from a clean event state. Actual GPU fault/
+        // breakpoint producers can signal the already-exported QueryEvent.
+        event->GetReadableEvent().Clear(system.Kernel());
+        break;
+    case 2: // clear
+        event->GetReadableEvent().Clear(system.Kernel());
+        break;
+    }
     return NvResult::Success;
 }
 

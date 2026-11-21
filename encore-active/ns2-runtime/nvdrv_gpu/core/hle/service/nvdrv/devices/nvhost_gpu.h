@@ -164,6 +164,14 @@ private:
     };
     static_assert(sizeof(IoctlEventIdControl) == 8, "IoctlEventIdControl is incorrect size");
 
+    struct IoctlNativeEventIdControl {
+        u32_le cmd{}; // 0=disable, 1=enable, 2=clear
+        u32_le id{};  // same ids as QueryEvent
+        u64_le reserved{}; // Ounce S2 wrapper sends zero
+    };
+    static_assert(sizeof(IoctlNativeEventIdControl) == 16,
+                  "IoctlNativeEventIdControl is incorrect size");
+
     struct IoctlGetErrorInfo {
         u32_le type{}; // 0=no_error, 1=mmu, 2=gr, 3=pbdma, 4=timeout
         std::array<u32_le, 31> info{};
@@ -235,6 +243,7 @@ private:
     bool native_error_notifier_initialized{};
     IoctlGetErrorInfo native_error_info{};
     IoctlGetErrorNotification native_error_notification{};
+    u32 native_event_enable_mask{};
 
     NvResult ChannelOpen(IoctlChannelOpen& params, DeviceFD fd);
     NvResult ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd);
@@ -243,6 +252,7 @@ private:
     NvResult SetClientData(IoctlClientData& params);
     NvResult GetClientData(IoctlClientData& params);
     NvResult ZCullBind(IoctlZCullBind& params);
+    NvResult NativeEventIdControl(IoctlNativeEventIdControl& params, DeviceFD fd);
     NvResult SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd);
     NvResult GetErrorInfo(IoctlGetErrorInfo& params, DeviceFD fd);
     NvResult GetErrorNotification(IoctlGetErrorNotification& params, DeviceFD fd);

@@ -238,6 +238,41 @@ assert worker_destroy.index("system.GPU().WaitForIdle();") < worker_destroy.inde
     "for (const auto& [key, mapping] : m_mappings.Mappings())")
 
 
+# Ounce S2 channel EventIdControl is input-only 0x40104812 and carries
+# {u32 cmd, u32 QueryEvent id, u64 zero}. The real setup path enables id=2.
+# Encore configures the three QueryEvent-backed KEvents and refuses ids 4..6
+# until their CILP/semaphore producers exist.
+assert "struct IoctlNativeEventIdControl" in nvhost_hdr
+assert "u64_le reserved{}; // Ounce S2 wrapper sends zero" in nvhost_hdr
+assert 'static_assert(sizeof(IoctlNativeEventIdControl) == 16' in nvhost_hdr
+assert "u32 native_event_enable_mask{};" in nvhost_hdr
+event_route=nvhost_cpp.split(
+    "case 0x12: { // Switch 2 NVGPU_IOCTL_CHANNEL_EVENT_ID_CONTROL",1
+)[1].split("case 0x16:",1)[0]
+for token in ("command.raw != 0x40104812U",
+              "input.size() != sizeof(IoctlNativeEventIdControl)",
+              "!output.empty()",
+              "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented",
+              "NativeEventIdControl, input, output, fd"):
+    assert token in event_route,token
+event_ctrl=nvhost_cpp.split(
+    "NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, DeviceFD fd) {",1
+)[1].split("\n}",1)[0]
+for token in ("ValidateChannelOwner(fd, program_id)",
+              "cmd > 2 || event_id == 0 || event_id > 6",
+              "static_cast<u64>(params.reserved) != 0",
+              "case 1:", "sm_exception_breakpoint_int_report_event",
+              "case 2:", "sm_exception_breakpoint_pause_report_event",
+              "case 3:", "error_notifier_event",
+              "native_event_enable_mask &= ~bit",
+              "native_event_enable_mask |= bit",
+              "GetReadableEvent().Clear(system.Kernel())"):
+    assert token in event_ctrl,token
+assert "default:\n        return NvResult::NotImplemented;" in event_ctrl
+assert event_ctrl.index("case 2:") < event_ctrl.index(
+    "sm_exception_breakpoint_pause_report_event")
+assert event_ctrl.count("return NvResult::Success;") == 1
+
 # OunceVK installs H:0x0C before preemption/GPFIFO2. Nintendo's
 # channel ABI intentionally does not expose Linux's dma-buf notifier:
 # mem!=0 enables internal state, mem==0 disables it, and offset/size are
