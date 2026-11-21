@@ -17,7 +17,7 @@ def blob(path: Path) -> str:
 
 assert blob(PINNED)=="4ce1ff6c19c4937855d4460a515aec6a8a1e07e0"
 assert blob(BFS)=="fa5e7572ef99bba3db17154c63f60dddba7a87c6"
-assert blob(ACTIVE)=="41ad0f5cef1e070e552b43ea49648d5e74f10bad"
+assert blob(ACTIVE)=="602d45b4d2ad872b138d62ce05f379b5e1103602"
 bfs=BFS.read_text()
 active=ACTIVE.read_text()
 for needle in (
@@ -35,6 +35,15 @@ for needle in (
     assert needle in active, needle
 assert "BreadthFirstSearchPruned" not in PINNED.read_text()
 assert "biased_exhausted" not in PINNED.read_text()
+
+# CAS must participate in collection before the existing write and lowering paths.
+# Otherwise a valid global 32-bit compare-exchange never acquires an SSBO binding.
+classified=active.split("bool IsGlobalMemory(",1)[1].split("bool IsGlobalMemoryWrite(",1)[0]
+writes=active.split("bool IsGlobalMemoryWrite(",1)[1].split("IR::Opcode GlobalToStorage(",1)[0]
+assert classified.count("case IR::Opcode::GlobalAtomicCompareExchange32:")==1
+assert writes.count("case IR::Opcode::GlobalAtomicCompareExchange32:")==1
+assert active.count("return IR::Opcode::StorageAtomicCompareExchange32;")==1
+assert active.count("return ReplaceAtomicCompareExchange(")==1
 
 # Model the exact invariant used by the C++ wrapper: immutable graph, same
 # rightmost-first BFS, and exhausted sets isolated per predicate domain.
