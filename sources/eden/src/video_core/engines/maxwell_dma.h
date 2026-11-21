@@ -222,8 +222,7 @@ public:
         u32 remap_constb_value;
 
         union {
-            // Four selectors occupy four-bit slots; the fourth starts at bit 12.
-            BitField<0, 16, u32> dst_components_raw;
+            BitField<0, 12, u32> dst_components_raw;
             BitField<0, 3, Swizzle> dst_x;
             BitField<4, 3, Swizzle> dst_y;
             BitField<8, 3, Swizzle> dst_z;
@@ -233,14 +232,9 @@ public:
             BitField<24, 2, u32> num_dst_components_minus_one;
         };
 
-        [[nodiscard]] Swizzle GetComponent(size_t i) const {
-            // B0B5 reserves one padding bit in each nibble, even though
-            // SRC_X..NO_WRITE use three selector bits per destination slot.
-            if (i >= 4) {
-                return static_cast<Swizzle>(7); // Reserved / invalid selector.
-            }
+        Swizzle GetComponent(size_t i) const {
             const u32 raw = dst_components_raw;
-            return static_cast<Swizzle>((raw >> (i * 4)) & 0x7);
+            return static_cast<Swizzle>((raw >> (i * 3)) & 0x7);
         }
     };
     static_assert(sizeof(RemapConst) == 12);
