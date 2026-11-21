@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstring>
+#include <limits>
 #include <new>
 #include <atomic>
 #include <cstdio>
