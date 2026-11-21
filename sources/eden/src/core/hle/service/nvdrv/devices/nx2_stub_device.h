@@ -124,6 +124,15 @@ private:
         return NvResult::Success;
     }
 
+    NvResult GetTsgTimeslice(std::span<u8> output) {
+        if (output.size() < sizeof(u32))
+            return NvResult::InvalidSize;
+        const std::scoped_lock lock{tsg_mutex};
+        const u32 value = tsg_timeslice_us;
+        std::memcpy(output.data(), &value, sizeof(value));
+        return NvResult::Success;
+    }
+
     NvResult TsgIoctl(Ioctl command, std::span<const u8> input,
                       std::span<u8> output) {
         switch (static_cast<u32>(command.raw)) {
@@ -135,6 +144,8 @@ private:
             return ConfigureTsgScheduling(input, output, true);
         case 0xC0045408U: // Ounce SET_TIMESLICE: u32 microseconds
             return ConfigureTsgScheduling(input, output, false);
+        case 0x8004540AU: // Ounce GET_TIMESLICE: output u32 microseconds
+            return GetTsgTimeslice(output);
         case 0xC0045402U: { // UNBIND_CHANNEL
             const auto request = DecodeNativeTsgBinding(input, false);
             if (!request || output.size() < input.size())
