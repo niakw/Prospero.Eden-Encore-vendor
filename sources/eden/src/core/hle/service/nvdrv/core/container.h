@@ -58,6 +58,9 @@ public:
     ~Container();
 
     SessionId OpenSession(Kernel::KProcess* process);
+    // Retain the SAME live session while a bound Maxwell channel keeps its
+    // GMMU address-space owner. This adds no ASID or guest allocation.
+    [[nodiscard]] bool RetainSession(SessionId id, const Kernel::KProcess* process);
     void CloseSession(SessionId id);
 
     Session* GetSession(SessionId id);
