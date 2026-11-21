@@ -71,6 +71,15 @@ nvhost_gpu::nvhost_gpu(Core::System& system_, EventInterface& events_interface_,
 }
 
 nvhost_gpu::~nvhost_gpu() {
+    // Guest close: retire the exact bound channel on the GPU worker BEFORE
+    // its syncpoint, rasterizer state and GMMU-backed NvMap pins are freed.
+    // Global shutdown destroys GPU before NVDRV services, so the worker is
+    // no longer available then; GPU::Impl teardown already drains it.
+    // Empty leases are Maxwell/NS1 channels and stay on their old path.
+    if (channel_state && channel_state->address_space_owner &&
+        system.IsPoweredOn() && !system.IsShuttingDown()) {
+        system.GPU().ReleaseChannel(*channel_state);
+    }
     NativeGpuChannelRegistry::Instance().Unbind(channel_state.get());
     events_interface.FreeEvent(sm_exception_breakpoint_int_report_event);
     events_interface.FreeEvent(sm_exception_breakpoint_pause_report_event);

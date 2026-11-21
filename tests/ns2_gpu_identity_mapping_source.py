@@ -106,4 +106,36 @@ assert as_cpp.index("container.CloseSession(*m_nv_session);") > as_cpp.index(
     "native_sparse_pins.clear();")
 assert as_bind.index("container.RetainSession(*m_nv_session, m_native_process)") < as_bind.index(
     "channel.address_space_owner = std::move(owner);")
-print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained")
+# A guest can close the native channel while its scheduler still owns a
+# parked semaphore. Retire on the GPU worker *after* preceding command
+# batches, remove the pending epoch, release rasterizer channel caches,
+# then let the channel drop its AS/session lease. Never run this from the
+# global shutdown, which has already destroyed GPU before NVDRV.
+scheduler_h=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.h").read_text()
+scheduler_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.cpp").read_text()
+gpu_cpp=(R/"encore-active/eden-core/src/video_core/gpu_vulkan.cpp").read_text()
+nvhost_cpp=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+assert "void RetireChannel(const ChannelState* old_channel);" in scheduler_h
+retire=scheduler_cpp.split("void Scheduler::RetireChannel(const ChannelState* old_channel) {",1)[1].split(
+    "\n}",1)[0]
+for needle in ("std::unique_lock epoch_lock(scheduling_guard);",
+               "std::scoped_lock gpu_lock(gpu_submit_guard);",
+               "std::scoped_lock pending_lock(pending_guard);",
+               "it->second.get() != old_channel",
+               "std::erase(pending_native_channels, it->second);",
+               "channels.erase(it);"):
+    assert needle in retire,needle
+release=gpu_cpp.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split("\n    }",1)[0]
+assert release.index("RequestSyncOperation([this, owner]") < release.index("gpu_thread.TickGPU(is_async);") < release.index("WaitForSyncOperation(fence);")
+assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
+    "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);") < release.index(
+    "channels.erase(owner->bind_id);")
+dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}",1)[0]
+for needle in ("channel_state->address_space_owner",
+               "system.IsPoweredOn()", "!system.IsShuttingDown()",
+               "system.GPU().ReleaseChannel(*channel_state)"):
+    assert needle in dtor,needle
+assert dtor.index("system.GPU().ReleaseChannel(*channel_state)") < dtor.index(
+    "NativeGpuChannelRegistry::Instance().Unbind(channel_state.get())")
+
+print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker")

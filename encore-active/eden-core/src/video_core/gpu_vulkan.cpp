@@ -114,7 +114,27 @@ struct GPU::Impl {
     }
 
     void ReleaseChannel(Control::ChannelState& to_release) {
-        UNIMPLEMENTED();
+        const auto channel_id = to_release.bind_id;
+        const auto found = channels.find(channel_id);
+        if (found == channels.end() || found->second.get() != &to_release)
+            return;
+        // This runs when a native NVDRV channel FD closes while the title
+        // still executes. Queue the retirement AFTER all prior GPU pushes,
+        // on the same worker that owns Vulkan/rasterizer channel caches.
+        // Do not free the GMMU/NvMap pins from the CPU service thread.
+        const auto owner = found->second;
+        const u64 fence = RequestSyncOperation([this, owner] {
+            scheduler.RetireChannel(owner.get());
+            if (current_channel == owner.get()) {
+                current_channel = nullptr;
+                bound_channel = -1;
+            }
+            if (owner->initialized)
+                renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);
+            channels.erase(owner->bind_id);
+        });
+        gpu_thread.TickGPU(is_async);
+        WaitForSyncOperation(fence);
     }
 
     /// Binds a renderer to the GPU.
