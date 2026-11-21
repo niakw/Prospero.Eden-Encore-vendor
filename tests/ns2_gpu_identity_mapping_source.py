@@ -3,6 +3,23 @@ from pathlib import Path
 R=Path(__file__).resolve().parents[1]
 shared=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.h").read_text()
 worker=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp").read_text()
+worker_hdr=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.h").read_text()
+registration=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_memory_registration.h").read_text()
+# Worker 171 is a real nn::gpu SDK command, not a global success stub.
+assert '{171, &IGpuWorker::EnsureGpuMemoryComptags, "EnsureGpuMemoryComptags"}' in worker
+assert "void EnsureGpuMemoryComptags(HLERequestContext& ctx);" in worker_hdr
+for needle in ("packet.size() != 3", "packet[0] != 0xbb", "packet[1] != 1",
+               "packet[2] == 0"):
+    assert needle in registration, needle
+ensure=worker.split("void IGpuWorker::EnsureGpuMemoryComptags(HLERequestContext& ctx) {",1)[1].split(
+    "\n}\n",1)[0]
+for needle in ("std::find(m_memory.begin(), m_memory.end(), *id)",
+               "m_pending_device_unlocks.contains(*id)",
+               "GetNvMapFile().GetHandle(*id)",
+               "result = handle ? ResultSuccess : Kernel::ResultInvalidState"):
+    assert needle in ensure, needle
+assert "WaitForIdle" not in ensure
+assert "CreateHandle" not in ensure and "Alloc(" not in ensure
 session=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_session.cpp").read_text()
 proto=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_session_protocol.h").read_text()
 for x in ("struct IdentityGpuMapping","identity_gpu_mappings","AddSpace","RemoveSpace"):
