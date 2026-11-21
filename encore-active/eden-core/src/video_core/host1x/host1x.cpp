@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: 2021 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <array>
 #include <mutex>
 
 #include "core/core.h"
@@ -14,10 +15,11 @@
 namespace Tegra::Host1x {
 
 namespace {
-// Synchronizes the existing device variant array without modifying Host1x
-// object layout or creating divergent public ABI headers.  A channel close
-// holds this lock until its CDMA worker has joined and the variant is gone.
-std::mutex device_dispatch_mutex;
+// Protect the device variant and its CDMA enqueue/teardown per guest FD.
+// Shutdown() may join a worker: a single global lock would stall independent
+// NVDEC/VIC channels for the entire duration of that join. Keep the lock table
+// outside Host1x so native class layout and the selected headers remain intact.
+std::array<std::mutex, 1024> device_dispatch_mutexes;
 }
 
 Host1x::Host1x(Core::System& system_)
@@ -50,7 +52,7 @@ void Host1x::StartDevice(s32 fd, ChannelType type, u32 syncpt) {
     }
     // Do not destroy a variant while another service thread is enqueuing
     // onto its CDMA worker. The lock spans Shutdown + variant replacement.
-    std::scoped_lock lk{device_dispatch_mutex};
+    std::scoped_lock lk{device_dispatch_mutexes[static_cast<std::size_t>(fd)]};
     // A repeated Open on a recycled FD also destroys the old variant.
     // Quiesce it first so its jthread cannot access freed decoder state.
     if (type == ChannelType::NvDec || type == ChannelType::VIC) {
@@ -86,7 +88,7 @@ void Host1x::StopDevice(s32 fd, ChannelType type) {
     }
     // Block guest submissions until the worker is quiescent and the
     // device variant is removed.
-    std::scoped_lock lk{device_dispatch_mutex};
+    std::scoped_lock lk{device_dispatch_mutexes[static_cast<std::size_t>(fd)]};
     auto& device = devices[static_cast<std::size_t>(fd)];
     if (auto* nvdec = std::get_if<Tegra::Host1x::Nvdec>(&device)) {
         nvdec->Shutdown();
@@ -103,7 +105,7 @@ void Host1x::PushEntries(s32 fd, ChCommandHeaderList&& entries) {
     if (fd < 0 || static_cast<std::size_t>(fd) >= devices.size()) {
         return;
     }
-    std::scoped_lock lk{device_dispatch_mutex};
+    std::scoped_lock lk{device_dispatch_mutexes[static_cast<std::size_t>(fd)]};
     auto& device = devices[static_cast<std::size_t>(fd)];
     if (auto* nvdec = std::get_if<Tegra::Host1x::Nvdec>(&device)) {
         nvdec->PushEntries(std::move(entries));
