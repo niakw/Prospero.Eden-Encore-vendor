@@ -1019,6 +1019,7 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
         constexpr size_t MAX_TILED_ALIAS_BYTES = size_t{64} << 20;
         if (src_size == 0 || dst_size == 0 ||
             src_size > MAX_TILED_ALIAS_BYTES ||
+            dst_size > MAX_TILED_ALIAS_BYTES ||
             !memory_manager.IsFullyMappedRange(src_operand.address, src_size) ||
             !memory_manager.IsFullyMappedRange(dst_operand.address, dst_size)) {
             LOG_WARNING(Render_OpenGL, "Unmapped or oversized tiled-to-pitch DMA alias");
@@ -1110,6 +1111,7 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
         constexpr size_t MAX_TILED_ALIAS_BYTES = size_t{64} << 20;
         if (src_size == 0 || dst_size == 0 ||
             src_size > MAX_TILED_ALIAS_BYTES ||
+            dst_size > MAX_TILED_ALIAS_BYTES ||
             !memory_manager.IsFullyMappedRange(src_addr, src_size) ||
             !memory_manager.IsFullyMappedRange(dst_addr, dst_size)) {
             LOG_WARNING(Render_OpenGL, "Unmapped or oversized pitch-to-tiled DMA alias");
