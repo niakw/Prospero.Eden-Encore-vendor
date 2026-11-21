@@ -1358,11 +1358,11 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {314, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "DestroyNativeWindowAliasImagePool"},
         {315, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "CreateNativeWindowAliasImagePool"},
         {901, &IGraphicsSupervisor::InitializeVideoCodecContext, "InitializeVideoDecoderContext"},
-        {1001, &IGraphicsSupervisor::InitializeVideoCodecContext, "InitializeVideoCodecContext2"},
+        {1001, &IGraphicsSupervisor::UnavailableVideoEncoder, "CreateVideoEncoderContext"},
         {902, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSession"},
         {905, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSessionWithFlag"},
         {906, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSessionWithVersion"},
-        {1002, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSession2"},
+        {1002, &IGraphicsSupervisor::UnavailableVideoEncoder, "InitializeVideoEncoderContext"},
         {601, &IGraphicsSupervisor::InitializeFeatureContext, "InitializeCameraContext"},
         {602, &IGraphicsSupervisor::OpenCameraSession, "OpenCameraContext"},
         {1201, &IGraphicsSupervisor::InitializeFeatureContext, "InitializeChatContext"},
@@ -2504,17 +2504,25 @@ bool IGraphicsSupervisor::WriteVideoSurface(
     return true;
 }
 
-// 901 and 1001 are the SDK's video codec/server-context admission calls.
+// 901 is the SDK video *decoder* context admission call.
 // Acknowledging these without a live GPU context and NVDRV module would
 // falsely advertise a usable decoder and cause later codec handle failures.
-// Existing 902/905/906/1002 still authenticate real child sessions, rather
+// Existing 902/905/906 still authenticate real decoder child sessions, rather
 // than relying on a guessed global initialized flag shared across SDKs.
+// SwitchBrew GSV 1001/1002 are VIDEO ENCODER operations, not decoder
+// aliases. Eden has no NS2 encoder backend; avoid granting a decoder
+// session or advertising encoder support without an implementation.
+void IGraphicsSupervisor::UnavailableVideoEncoder(HLERequestContext& ctx) {
+    // not implemented yet on Encore
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(Kernel::ResultNotImplemented.raw);
+}
+
 void IGraphicsSupervisor::InitializeVideoCodecContext(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     const u32 command = ctx.GetCommand();
     Result result = Kernel::ResultInvalidCombination;
-    if ((command == 901 || command == 1001) &&
-        packet[0] == command + 0x10 && packet[1] == 0) {
+    if (command == 901 && packet[0] == command + 0x10 && packet[1] == 0) {
         result = Kernel::ResultInvalidState;
         if (m_process && m_bootstrap.GpuContextReady()) {
             const auto source = system.ServiceManager().GetService<Nvidia::NVDRV>("nvdrv:s", true);
@@ -2526,17 +2534,17 @@ void IGraphicsSupervisor::InitializeVideoCodecContext(HLERequestContext& ctx) {
     rb.Push(result.raw);
 }
 
-// 902/905/906/1002 create real child kernel sessions. No codec operation
+// 902/905/906 create real decoder child kernel sessions. No codec operation
 // reports success until the session has initialized its actual FFmpeg owner.
 void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
     const auto* w = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     Kernel::KClientSession* client{};
     const u32 cmd = ctx.GetCommand();
-    // 902/1002 have no input words; 905 carries a flag, 906 a flag and
+    // 902 has no input words; 905 carries a flag, 906 a flag and
     // library version. Reject malformed TIPC lengths before creating a
     // kernel session or reserving a service handle.
-    const bool shape = (cmd == 902 || cmd == 1002) ? w[1] == 0 :
+    const bool shape = cmd == 902 ? w[1] == 0 :
                        cmd == 905 ? w[1] == 1 : cmd == 906 && w[1] == 3;
     if (w[0] == cmd + 0x10 && shape) {
         result = Kernel::ResultInvalidState;

@@ -295,4 +295,18 @@ pool_create=cpp.split("void IGraphicsSupervisor::CreateVideoImagePool(HLERequest
 assert "CalculateNativeVideoImageLayout(preference, count)" in pool_create
 
 
+# SwitchBrew GSV 1001/1002 are VIDEO ENCODER, not decoder aliases.
+# Without a native encoder implementation, both must fail closed and never
+# construct a decoder child session or mutate the decoder admission state.
+for cmd, name in ((1001, "CreateVideoEncoderContext"),
+                  (1002, "InitializeVideoEncoderContext")):
+    assert f'{{{cmd}, &IGraphicsSupervisor::UnavailableVideoEncoder, "{name}"}}' in cpp
+    assert f'{{{cmd}, &IGraphicsSupervisor::InitializeVideoCodecContext' not in cpp
+    assert f'{{{cmd}, &IGraphicsSupervisor::OpenVideoDecoderSession' not in cpp
+stub = cpp.split("void IGraphicsSupervisor::UnavailableVideoEncoder(HLERequestContext& ctx) {", 1)[1].split("\n}", 1)[0]
+assert "// not implemented yet on Encore" in stub
+assert "Kernel::ResultNotImplemented.raw" in stub
+assert "ctx.AddMoveObject" not in stub
+assert "void UnavailableVideoEncoder(HLERequestContext& ctx);" in hdr
+
 print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS graphics_frame=1101,1102,1111,1112,1113 native_memory=113-transfer-owner donated_usage=498 supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")
