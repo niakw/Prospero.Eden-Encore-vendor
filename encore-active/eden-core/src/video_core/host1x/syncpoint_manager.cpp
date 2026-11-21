@@ -117,7 +117,19 @@ void SyncpointManager::Increment(std::atomic<u32>& syncpoint, std::condition_var
         due.running = due.pending.front().id;
         due.pending.pop_front();
         lk.unlock();
-        action();
+        try {
+            action();
+        } catch (...) {
+            // DeregisterAction may already be waiting for this running handle.
+            // Restore the guarded state before propagating the fatal callback:
+            // otherwise due points to this stack object forever and teardown
+            // can block on action_done_cv after the GPU/Host1x worker failed.
+            lk.lock();
+            due.running = 0;
+            action_done_cv.notify_all();
+            std::erase(due_actions, &due);
+            throw;
+        }
         action = nullptr;
         lk.lock();
         due.running = 0;
