@@ -4,6 +4,7 @@ R=Path(__file__).resolve().parents[1]
 cpp=(R/"encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
 hdr=(R/"encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.h").read_text()
 host=(R/"sources/eden/src/video_core/host1x/syncpoint_manager.h").read_text()
+proto=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/graphics_supervisor_protocol.h").read_text()
 for marker in (
     '{202, &IGraphicsSupervisor::OpenSyncptSession, "OpenSyncptSession"}',
     '{204, &IGraphicsSupervisor::AttachSyncptMemory, "AttachSyncptMemory"}',
@@ -53,7 +54,6 @@ assert "WaitForIdle" not in frame_handler
 # Native memory command 113 consumes a real process-owned TransferMemory.
 # It must retain that kernel object instead of trying to stack a second
 # DeviceShared lock on pages already locked by KTransferMemory.
-proto=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/graphics_supervisor_protocol.h").read_text()
 assert '{113, &IGraphicsSupervisor::BindNativeTransferMemory, "CreateNativeMemoryWithTransferMemory"}' in cpp
 assert 'void BindNativeTransferMemory(HLERequestContext& ctx);' in hdr
 for needle in ("packet.size() != 9", "packet[0] != 0x81",
