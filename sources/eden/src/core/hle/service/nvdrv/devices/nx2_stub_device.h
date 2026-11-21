@@ -115,12 +115,14 @@ private:
             return TsgIoctl(command, input, output);
 #endif
         LOG_WARNING(Service_NVDRV,
-                    "(STUBBED) {} fd={} ioctl={:08X} group={:01X} command={:02X} in={:#x}",
+                    "(NOT IMPLEMENTED) {} fd={} ioctl={:08X} group={:01X} command={:02X} in={:#x}",
                     name, fd, command.raw, command.group, command.cmd, input.size());
-        std::fill(output.begin(), output.end(), u8{0});
-        std::copy_n(input.begin(), std::min(input.size(), output.size()), output.begin());
-        std::fill(inline_output.begin(), inline_output.end(), u8{0});
-        return NvResult::Success;
+        // not implemented yet on Encore: opening an unknown Switch 2 nvhost
+        // node is allowed so NVN can continue discovery, but an unknown ioctl
+        // must never be acknowledged with fabricated output/state.
+        (void)output;
+        (void)inline_output;
+        return NvResult::NotImplemented;
     }
     std::string name;
     TsgChannelVerifier verify_channel;
