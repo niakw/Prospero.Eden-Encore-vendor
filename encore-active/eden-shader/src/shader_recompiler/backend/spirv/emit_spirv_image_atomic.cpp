@@ -7,12 +7,69 @@
 
 namespace Shader::Backend::SPIRV {
 namespace {
-Id Image(EmitContext& ctx, IR::TextureInstInfo info) {
+void DecorateNonUniform(EmitContext& ctx, Id object) {
+    if (ctx.non_uniform_ids.contains(object.value)) {
+        return;
+    }
+    ctx.Decorate(object, spv::Decoration::NonUniform);
+    ctx.non_uniform_ids.insert(object.value);
+}
+
+[[nodiscard]] Id CheckedAtomicImageIndex(EmitContext& ctx, const IR::Value& index, u32 count,
+                                         bool non_uniform_supported) {
+    if (!count || index.IsEmpty() || index.Type() != IR::Type::U32) {
+        throw LogicError("Invalid atomic image descriptor index type");
+    }
+    if (index.IsImmediate()) {
+        const u32 selected{index.U32()};
+        if (selected >= count) {
+            throw LogicError("Atomic image descriptor array index out of range");
+        }
+        return ctx.Const(selected);
+    }
+    if (!non_uniform_supported) {
+        throw LogicError("Dynamic atomic image descriptor requires non-uniform indexing support");
+    }
+    const Id idx{ctx.Def(index)};
+    DecorateNonUniform(ctx, idx);
+    return idx;
+}
+
+Id Image(EmitContext& ctx, const IR::Value& index, IR::TextureInstInfo info) {
     if (info.type == TextureType::Buffer) {
         const ImageBufferDefinition def{ctx.image_buffers.at(info.descriptor_index)};
+        if (def.count > 1) {
+            const bool dynamic{!index.IsImmediate()};
+            const Id idx{CheckedAtomicImageIndex(
+                ctx, index, def.count,
+                ctx.profile.support_storage_texel_buffer_array_nonuniform_indexing)};
+            const Id pointer{ctx.OpAccessChain(def.pointer_type, def.id, idx)};
+            if (dynamic) {
+                ctx.uses_nonuniform_storage_texel_buffer = true;
+                DecorateNonUniform(ctx, pointer);
+            }
+            return pointer;
+        }
+        if (!index.IsImmediate() || index.U32() != 0) {
+            throw NotImplementedException("Image indexing");
+        }
         return def.id;
     } else {
         const ImageDefinition def{ctx.images.at(info.descriptor_index)};
+        if (def.count > 1) {
+            const bool dynamic{!index.IsImmediate()};
+            const Id idx{CheckedAtomicImageIndex(
+                ctx, index, def.count, ctx.profile.support_storage_image_array_nonuniform_indexing)};
+            const Id pointer{ctx.OpAccessChain(def.pointer_type, def.id, idx)};
+            if (dynamic) {
+                ctx.uses_nonuniform_storage_image = true;
+                DecorateNonUniform(ctx, pointer);
+            }
+            return pointer;
+        }
+        if (!index.IsImmediate() || index.U32() != 0) {
+            throw NotImplementedException("Image indexing");
+        }
         return def.id;
     }
 }
@@ -25,12 +82,8 @@ std::pair<Id, Id> AtomicArgs(EmitContext& ctx) {
 
 Id ImageAtomicU32(EmitContext& ctx, IR::Inst* inst, const IR::Value& index, Id coords, Id value,
                   Id (Sirit::Module::*atomic_func)(Id, Id, Id, Id, Id)) {
-    if (!index.IsImmediate() || index.U32() != 0) {
-        // TODO: handle layers
-        throw NotImplementedException("Image indexing");
-    }
     const auto info{inst->Flags<IR::TextureInstInfo>()};
-    const Id image{Image(ctx, info)};
+    const Id image{Image(ctx, index, info)};
     const Id pointer{ctx.OpImageTexelPointer(ctx.image_u32, image, coords, ctx.Const(0U))};
     const auto [scope, semantics]{AtomicArgs(ctx)};
     return (ctx.*atomic_func)(ctx.U32[1], pointer, scope, semantics, value);
@@ -43,13 +96,8 @@ enum class ImageCasOperation {
 
 Id ImageAtomicCasU32(EmitContext& ctx, IR::Inst* inst, const IR::Value& index, Id coords, Id limit,
                      ImageCasOperation operation) {
-    if (!index.IsImmediate() || index.U32() != 0) {
-        // Descriptor-array indexing is handled separately; do not conflate it
-        // with the Inc/Dec CAS semantics.
-        throw NotImplementedException("Image indexing");
-    }
     const auto info{inst->Flags<IR::TextureInstInfo>()};
-    const Id image{Image(ctx, info)};
+    const Id image{Image(ctx, index, info)};
     const Id pointer{ctx.OpImageTexelPointer(ctx.image_u32, image, coords, ctx.Const(0U))};
     const auto [scope, semantics]{AtomicArgs(ctx)};
 
