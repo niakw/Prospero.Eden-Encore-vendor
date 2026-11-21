@@ -84,6 +84,12 @@ NvResult nvhost_as_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> i
             return WrapFixed(this, &nvhost_as_gpu::AllocAsEx, input, output);
         case 0xb:
             return WrapFixed(this, &nvhost_as_gpu::Nx2GetSyncpointShimInfo, input, output);
+        case 0xc: // Switch 2 NVGPU_AS_IOCTL_MAPPING_MODIFY
+            if (command.raw != 0xC020410CU) break;
+            if (input.size() != sizeof(IoctlNativeMappingModify) ||
+                output.size() != sizeof(IoctlNativeMappingModify))
+                return NvResult::InvalidSize;
+            return WrapFixed(this, &nvhost_as_gpu::NativeMappingModify, input, output);
         case 0x14:
             return WrapVariable(this, &nvhost_as_gpu::Remap, input, output);
         default:
@@ -544,6 +550,94 @@ NvResult nvhost_as_gpu::UnmapNative4K(u64 address, u64 size) {
                                   static_cast<u32>(size >> VM::PAGE_SIZE_BITS));
     allocation_map.erase(reservation);
     map_buffer_offsets.erase(static_cast<s64>(address));
+    return NvResult::Success;
+}
+
+// NVGPU_AS_IOCTL_MAPPING_MODIFY (NS2): select the real supported backend
+// kind on an already owned GMMU mapping. Never acknowledge a format change
+// without updating the page table. All spans are validated before mutation.
+NvResult nvhost_as_gpu::NativeMappingModify(IoctlNativeMappingModify& params) {
+    const std::scoped_lock lock{mutex};
+    if (!m_native_process ||
+        !NativeGpuProcessRegistry::Instance().Contains(m_native_process))
+        return NvResult::NotImplemented;
+    if (!vm.initialised || !gmmu)
+        return NvResult::InvalidState;
+    const s32 preferred = static_cast<s16>(params.compressed_kind);
+    const s32 fallback = static_cast<s16>(params.uncompressed_kind);
+    if (preferred < 0 || preferred > 255 || fallback < 0 || fallback > 255)
+        return NvResult::NotSupported;
+    const auto kind = SelectNativeMemoryKind(static_cast<u8>(preferred),
+                                             static_cast<u8>(fallback));
+    if (!kind) return NvResult::NotSupported;
+    const u64 gpu_base = params.map_address;
+    const u64 offset = params.buffer_offset;
+    const u64 size = params.buffer_size;
+    if (!size || gpu_base >= vm.va_range_end || offset > vm.va_range_end - gpu_base)
+        return NvResult::BadValue;
+    const u64 address = gpu_base + offset;
+    if (address >= vm.va_range_end || size > vm.va_range_end - address)
+        return NvResult::BadValue;
+
+    // Direct NVMap views carry their own lifetime pin in mapping_map.
+    // Resolve a containing view, not a numeric handle supplied by the guest.
+    auto direct = mapping_map.upper_bound(address);
+    if (direct != mapping_map.begin()) {
+        --direct;
+        const auto& view = direct->second;
+        if (address >= direct->first &&
+            address - direct->first < view.size &&
+            size <= view.size - (address - direct->first)) {
+            const u64 page = view.big_page ? vm.big_page_size : VM::YUZU_PAGESIZE;
+            if (((address | size) & (page - 1)) != 0)
+                return NvResult::BadValue;
+            const u64 delta = address - direct->first;
+            if (!NativePinnedPhysicalSpan(view.ptr, delta, size))
+                return NvResult::BadValue;
+            gmmu->Map(address, view.ptr + delta, size,
+                      static_cast<Tegra::PTEKind>(kind->backend), view.big_page);
+            return NvResult::Success;
+        }
+    }
+
+    // Sparse A:0x14 remaps have their own pin ledger. Preflight EVERY
+    // region, including partial splits, before modifying the first PTE.
+    // Do not touch GSV's independently owned 4K sparse remap ledger.
+    if (((address | size) & (vm.big_page_size - 1)) != 0)
+        return NvResult::BadValue;
+    const auto& ranges = native_ioctl_remap_mappings.Ranges();
+    const u64 end = address + size;
+    u64 cursor = address;
+    while (cursor < end) {
+        auto it = ranges.upper_bound(cursor);
+        if (it == ranges.begin()) return NvResult::BadValue;
+        --it;
+        const auto& range = it->second;
+        if (cursor < range.address || cursor - range.address >= range.size ||
+            !range.handle)
+            return NvResult::BadValue;
+        const u64 delta = cursor - range.address;
+        const u64 length = std::min(end - cursor, range.size - delta);
+        const auto pin = native_ioctl_remap_pins.find(range.handle);
+        if (pin == native_ioctl_remap_pins.end() ||
+            range.source_offset > std::numeric_limits<u64>::max() - delta ||
+            !NativePinnedPhysicalSpan(
+                pin->second, range.source_offset + delta, length))
+            return NvResult::BadValue;
+        cursor += length;
+    }
+
+    cursor = address;
+    while (cursor < end) {
+        auto it = std::prev(ranges.upper_bound(cursor));
+        const auto& range = it->second;
+        const u64 delta = cursor - range.address;
+        const u64 length = std::min(end - cursor, range.size - delta);
+        const auto pin = native_ioctl_remap_pins.find(range.handle);
+        gmmu->Map(cursor, pin->second + range.source_offset + delta, length,
+                  static_cast<Tegra::PTEKind>(kind->backend), true);
+        cursor += length;
+    }
     return NvResult::Success;
 }
 

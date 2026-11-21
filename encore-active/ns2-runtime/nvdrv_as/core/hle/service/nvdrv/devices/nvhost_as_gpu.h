@@ -259,6 +259,17 @@ private:
     } vm;
     std::unique_ptr<Tegra::MemoryManager> gmmu;
 
+    struct IoctlNativeMappingModify {
+        s16_le compressed_kind{};
+        s16_le uncompressed_kind{};
+        u32_le padding{}; // ABI alignment, not an input field.
+        u64_le buffer_offset{};
+        u64_le buffer_size{};
+        u64_le map_address{};
+    };
+    static_assert(sizeof(IoctlNativeMappingModify) == 32);
+    NvResult NativeMappingModify(IoctlNativeMappingModify& params);
+
     struct IoctlNx2SyncpointShimInfo {
         u64_le address{};
         u32_le stride{};
