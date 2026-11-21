@@ -17,6 +17,7 @@
 #include "core/hle/ipc.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/kernel.h"
+#include "core/hle/kernel/svc_results.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/service.h"
 #include "core/hle/service/sm/sm.h"
@@ -79,6 +80,13 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(HLERequestContext& ctx,
         LOG_WARNING(Service, "Using auto stub fallback!");
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
+    } else if (info != nullptr) {
+        // not implemented yet on Encore: this command ID is known, but no handler contract exists.
+        // Fail closed instead of leaving request words in the outgoing IPC buffer or faking success.
+        LOG_WARNING(Service, "Known command has no Encore implementation: {}::{} ({})", service_name,
+                    ctx.GetCommand(), function_name);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultNotImplemented);
     }
 }
 
