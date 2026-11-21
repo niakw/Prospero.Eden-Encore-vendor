@@ -105,8 +105,19 @@ assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
 assert release.index("gpu_thread.TickGPU(is_async);") < release.index(
     "WaitForSyncOperation(fence);")
 
+on_close=nvhost_cpp.split("void nvhost_gpu::OnClose(DeviceFD fd) {",1)[1].split("\n}\n",1)[0]
+for needle in ("sessions.erase(fd);",
+               "sessions.empty() && channel_state",
+               "system.IsPoweredOn() && !system.IsShuttingDown()",
+               "system.GPU().ReleaseChannel(*channel_state);"):
+    assert needle in on_close,needle
+assert on_close.index("sessions.erase(fd);") < on_close.index(
+    "sessions.empty() && channel_state") < on_close.index(
+    "system.GPU().ReleaseChannel(*channel_state);")
+
 dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}\n",1)[0]
-for needle in ("channel_state && system.IsPoweredOn() && !system.IsShuttingDown()",
+for needle in ("!sessions.empty() && channel_state",
+               "system.IsPoweredOn() && !system.IsShuttingDown()",
                "system.GPU().ReleaseChannel(*channel_state);",
                "NativeGpuChannelRegistry::Instance().Unbind(channel_state.get());",
                "syncpoint_manager.FreeSyncpoint(channel_syncpoint);"):
@@ -116,4 +127,5 @@ assert dtor.index("system.GPU().ReleaseChannel(*channel_state);") < dtor.index(
     "NativeGpuChannelRegistry::Instance().Unbind(channel_state.get())") < dtor.index(
     "syncpoint_manager.FreeSyncpoint(channel_syncpoint);")
 print("NS1_MAXWELL_CHANNEL_RETIRE_SOURCE_PASS exact_epoch=1 worker_order=1 "
-      "pending_wait_removed=1 rasterizer_release=1 ns1_fd_close=1 shutdown_guard=1")
+      "pending_wait_removed=1 rasterizer_release=1 final_fd_close=1 "
+      "destructor_fallback=1 shutdown_guard=1")
