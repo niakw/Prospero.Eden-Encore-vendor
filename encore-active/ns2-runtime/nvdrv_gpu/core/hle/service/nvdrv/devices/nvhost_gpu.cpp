@@ -900,7 +900,11 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
                 : BuildIncrementWithWfiCommandList(params.fence, native_completion)});
     }
 
-    flags.raw = 0;
+    // Switch's submit struct defines flags as input. Preserve the accepted
+    // value on native Ioctl2 H:0x1B replies; OunceVK verifies it byte-for-byte.
+    // Maxwell/NS1 keeps Eden's historical zero-on-return behaviour.
+    if (!native)
+        flags.raw = 0;
 
     return NvResult::Success;
 }

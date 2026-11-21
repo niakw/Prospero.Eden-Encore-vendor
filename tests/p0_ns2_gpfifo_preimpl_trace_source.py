@@ -35,6 +35,16 @@ assert 'NativeGpuChannelRegistry::Instance().Bind(' in text
 assert 'gpu.PushGPUEntries(bind_id, std::move(entries));' in text
 assert 'return SubmitGPFIFOImpl(params, std::move(entries), fd);' in text
 
+# Switch GPFIFO submit defines flags as input. OunceVK's native Ioctl2
+# H:0x1B sends flags=6 and rejects a successful reply if those flags are
+# overwritten. Native Encore preserves accepted flags; Maxwell keeps zero.
+submit_impl = text.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split(
+    "\n}",1)[0]
+assert "if (!native)\n        flags.raw = 0;" in submit_impl
+assert "OunceVK verifies it byte-for-byte" in submit_impl
+assert submit_impl.index("gpu.PushGPUEntries(bind_id, std::move(entries));") < submit_impl.index(
+    "if (!native)\n        flags.raw = 0;")
+
 # A hostile NS2 FENCE_WAIT must not call HasSyncpointExpired/
 # IsFenceSignalled on an out-of-range or unreserved ID, since the
 # inherited manager uses an assertion/at() there. Admission must happen
