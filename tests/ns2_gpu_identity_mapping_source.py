@@ -157,6 +157,8 @@ core_shutdown=(R/"encore-active/ns2-runtime/process/core/core.cpp").read_text().
 assert core_shutdown.index("gpu_core.reset();") < core_shutdown.index("kernel.CloseServices();")
 assert "system.IsPoweredOn() && !system.IsShuttingDown()" in worker_destroy
 assert worker_destroy.index("system.IsPoweredOn() && !system.IsShuttingDown()") < worker_destroy.index(
-    "system.GPU().WaitForIdle();") < worker_destroy.index("m_mappings.Mappings())")
+    "m_mappings.Mappings().empty()") < worker_destroy.index("system.GPU().WaitForIdle();")
+assert worker_destroy.index("system.GPU().WaitForIdle();") < worker_destroy.index(
+    "for (const auto& [key, mapping] : m_mappings.Mappings())")
 
 print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")
