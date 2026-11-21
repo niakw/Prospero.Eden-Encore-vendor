@@ -82,6 +82,11 @@ private:
     };
     static_assert(sizeof(IoctlSetNvmapFD) == 4, "IoctlSetNvmapFD is incorrect size");
 
+    struct IoctlChannelOpen {
+        s32_le runlist_id{};
+    };
+    static_assert(sizeof(IoctlChannelOpen) == 4, "IoctlChannelOpen ABI size");
+
     struct IoctlChannelSetTimeout {
         u32_le timeout{};
     };
@@ -187,6 +192,7 @@ private:
     u32_le channel_priority{};
     u32_le channel_timeslice{};
 
+    NvResult ChannelOpen(IoctlChannelOpen& params, DeviceFD fd);
     NvResult SetNVMAPfd(IoctlSetNvmapFD& params);
     NvResult SetClientData(IoctlClientData& params);
     NvResult GetClientData(IoctlClientData& params);
@@ -225,6 +231,9 @@ private:
     ::Common::unordered_map<DeviceFD, NvCore::SessionId> sessions;
     u32 channel_syncpoint;
     u32 native_submit_logs{};
+    // An authenticated NS2 /dev/nvhost-gpu channel retains its selected
+    // logical runlist until this NVDRV device is closed.
+    std::optional<s32> native_runlist_id{};
     std::mutex channel_mutex;
 
     // Events

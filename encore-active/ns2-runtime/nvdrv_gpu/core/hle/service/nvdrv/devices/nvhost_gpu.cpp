@@ -129,6 +129,10 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
         }
         case 0x1d:
             return WrapFixed(this, &nvhost_gpu::ChannelSetTimeslice, input, output);
+        case 0x20: // Switch 2 NVGPU_IOCTL_CHANNEL_OPEN
+            if (command.raw != 0x40044820U) break;
+            if (input.size() != sizeof(IoctlChannelOpen)) return NvResult::InvalidSize;
+            return WrapFixed(this, &nvhost_gpu::ChannelOpen, input, output, fd);
         default:
             break;
         }
@@ -194,6 +198,31 @@ bool nvhost_gpu::CanBindNativeTsgChannel(DeviceFD fd, NvCore::SessionId owner) {
     return channel && tsg && channel->process &&
            channel->process == tsg->process &&
            NativeGpuProcessRegistry::Instance().Contains(channel->process);
+}
+
+NvResult nvhost_gpu::ChannelOpen(IoctlChannelOpen& params, DeviceFD fd) {
+    // This ioctl selects an engine runlist for the *existing*, live
+    // scheduler channel. The two advertised runlists are graphics (0)
+    // and asynchronous copy (1). Creating the GPFIFO ring and USERD
+    // still belongs to CHANNEL_SETUP_BIND, never to this method.
+    const std::scoped_lock lock{channel_mutex};
+    if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+    u64 program_id{};
+    if (const auto status = ValidateChannelOwner(fd, program_id);
+        status != NvResult::Success)
+        return status;
+    const s32 runlist_id = static_cast<s32>(params.runlist_id);
+    if (runlist_id != 0 && runlist_id != 1) return NvResult::BadParameter;
+    if (!channel_state) return NvResult::InvalidState;
+    if (native_runlist_id)
+        return *native_runlist_id == runlist_id
+            ? NvResult::Success : NvResult::AlreadyAllocated;
+    if (channel_state->initialized) return NvResult::InvalidState;
+    // No fake host GPU runlist, memory mapping, syncpoint or fence:
+    // the existing virtual GPU queue already owns this ChannelState.
+    channel_state->program_id = program_id;
+    native_runlist_id = runlist_id;
+    return NvResult::Success;
 }
 
 NvResult nvhost_gpu::SetNVMAPfd(IoctlSetNvmapFD& params) {
