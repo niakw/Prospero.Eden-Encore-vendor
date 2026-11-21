@@ -40,7 +40,12 @@ void Fermi2D::BindRasterizer(VideoCore::RasterizerInterface* rasterizer_) {
 }
 
 void Fermi2D::CallMethod(Core::System& system, u32 method, u32 method_argument, bool is_last_call) {
-    ASSERT_MSG(method < Regs::NUM_REGS, "Invalid Fermi2D register, increase the size of the Regs structure");
+    // Assertions can be soft in release. Reject the guest method before
+    // indexing the register file; an out-of-range write corrupts emulator state.
+    if (method >= Regs::NUM_REGS) {
+        ASSERT_MSG(false, "Invalid Fermi2D register, increase the size of the Regs structure");
+        return;
+    }
     regs.reg_array[method] = method_argument;
 
     if (method == FERMI2D_REG_INDEX(pixels_from_memory.src_y0) + 1) {
@@ -56,6 +61,10 @@ void Fermi2D::CallMultiMethod(Core::System& system, u32 method, const u32* base_
 
 void Fermi2D::ConsumeSinkImpl(Core::System& system) {
     for (auto [method, value] : method_sink) {
+        if (method >= Regs::NUM_REGS) {
+            ASSERT_MSG(false, "Invalid deferred Fermi2D register");
+            continue;
+        }
         regs.reg_array[method] = value;
     }
     method_sink.clear();
