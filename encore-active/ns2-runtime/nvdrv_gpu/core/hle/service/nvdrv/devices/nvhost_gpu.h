@@ -57,6 +57,7 @@ public:
     void OnOpen(NvCore::SessionId session_id, DeviceFD fd) override;
     void OnClose(DeviceFD fd) override;
     bool CanBindNativeTsgChannel(DeviceFD fd, NvCore::SessionId session) override;
+    bool IsGpuChannelDevice() const override { return true; }
 
     Kernel::KEvent* QueryEvent(u32 event_id) override;
 

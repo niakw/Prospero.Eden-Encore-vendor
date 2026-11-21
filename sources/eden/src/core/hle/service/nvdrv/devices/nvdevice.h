@@ -71,6 +71,11 @@ public:
      */
     virtual void OnClose(DeviceFD fd) = 0;
 
+    // Module::GetDevice<T> uses a static downcast. Always check the concrete
+    // device family before converting an untrusted guest FD into a GPU
+    // channel; valid NvMap/ctrl FDs must not become nvhost_gpu objects.
+    virtual bool IsGpuChannelDevice() const { return false; }
+
     // A Switch 2 TSG may only bind an existing native GPU channel opened
     // by the SAME KProcess. Non-channel NVDRV devices must reject this check.
     virtual bool CanBindNativeTsgChannel(DeviceFD, NvCore::SessionId) { return false; }

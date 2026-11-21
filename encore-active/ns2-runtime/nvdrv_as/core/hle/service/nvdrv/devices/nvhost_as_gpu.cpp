@@ -949,6 +949,13 @@ NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {
     // The old path accepted a null GMMU and could crash on an unknown FD.
     if (params.fd <= 0 || module.VerifyFD(params.fd) != NvResult::Success)
         return NvResult::BadParameter;
+    // Verify the device's concrete family through its virtual base BEFORE
+    // the static pointer downcast. VerifyFD alone checks existence, not type.
+    // A valid foreign FD (nvmap, ctrl, TSG...) is guest-controlled and used
+    // to reinterpret an unrelated vtable/object here.
+    const auto base_device = module.GetDevice<nvdevice>(params.fd);
+    if (!base_device || !base_device->IsGpuChannelDevice())
+        return NvResult::BadParameter;
     auto gpu_channel_device = module.GetDevice<nvhost_gpu>(params.fd);
     if (!gpu_channel_device || !gpu_channel_device->channel_state)
         return NvResult::BadParameter;
