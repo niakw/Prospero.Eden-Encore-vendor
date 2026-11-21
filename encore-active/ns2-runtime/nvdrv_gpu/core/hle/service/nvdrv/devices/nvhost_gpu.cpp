@@ -138,6 +138,30 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
         }
         case 0x1d:
             return WrapFixed(this, &nvhost_gpu::ChannelSetTimeslice, input, output);
+        case 0x1f: { // Switch 2 NVGPU_IOCTL_CHANNEL_SET_PREEMPTION_MODE
+            // The guest provides two little-endian u32 preemption modes.
+            // Encore's serialized GPU worker supports Wait-For-Idle only;
+            // pretending to support mid-draw or mid-compute preemption
+            // would make a later fence/scheduler guarantee untrue.
+            if (command.raw != 0xC008481FU) break;
+            if (input.size() != 8 || output.size() != 8)
+                return NvResult::InvalidSize;
+            const std::scoped_lock lock{channel_mutex};
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+            u64 program_id{};
+            if (const auto status = ValidateChannelOwner(fd, program_id);
+                status != NvResult::Success)
+                return status;
+            std::array<u32_le, 2> modes{};
+            std::memcpy(modes.data(), input.data(), sizeof(modes));
+            // Both WFI modes are zero. The worker already preserves
+            // command ordering and only switches contexts at queue work
+            // boundaries. Nonzero modes require an actual preemption model.
+            if (modes[0] != 0 || modes[1] != 0)
+                return NvResult::NotImplemented;
+            std::memcpy(output.data(), modes.data(), sizeof(modes));
+            return NvResult::Success;
+        }
         case 0x20: // Switch 2 NVGPU_IOCTL_CHANNEL_OPEN
             if (command.raw != 0x40044820U) break;
             if (input.size() != sizeof(IoctlChannelOpen)) return NvResult::InvalidSize;

@@ -169,4 +169,21 @@ assert worker_destroy.index("system.IsPoweredOn() && !system.IsShuttingDown()") 
 assert worker_destroy.index("system.GPU().WaitForIdle();") < worker_destroy.index(
     "for (const auto& [key, mapping] : m_mappings.Mappings())")
 
+
+# Switch 2 channel preemption-mode ioctl (SwitchBrew 0xC008481F) is
+# implemented only for WFI/WFI: the existing GPU worker schedules at
+# command boundaries, not mid-shader. Unsupported preemption must fail
+# closed, and an unrelated NS1 or foreign FD must not change ABI.
+preempt=nvhost_cpp.split("case 0x1f: { // Switch 2 NVGPU_IOCTL_CHANNEL_SET_PREEMPTION_MODE",1)[1].split(
+    "case 0x20: // Switch 2 NVGPU_IOCTL_CHANNEL_OPEN",1)[0]
+for token in ("command.raw != 0xC008481FU", "input.size() != 8 || output.size() != 8",
+              "const std::scoped_lock lock{channel_mutex};", "!UsesNativeAbi(fd)",
+              "ValidateChannelOwner(fd, program_id)", "std::array<u32_le, 2> modes{}",
+              "modes[0] != 0 || modes[1] != 0", "return NvResult::NotImplemented;",
+              "std::memcpy(output.data(), modes.data(), sizeof(modes));"):
+    assert token in preempt,token
+assert preempt.index("ValidateChannelOwner(fd, program_id)") < preempt.index(
+    "modes[0] != 0 || modes[1] != 0") < preempt.index(
+    "std::memcpy(output.data(), modes.data(), sizeof(modes));")
+
 print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")
