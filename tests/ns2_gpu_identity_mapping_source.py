@@ -287,7 +287,7 @@ for name,next_name in (("AllocGPFIFOEx","AllocGPFIFOEx2"),
                   "native_channel_enabled = true;"):
         assert token in alloc,(name,token)
     assert alloc.index("system.GPU().InitChannel(*channel_state, program_id);") < alloc.index(
-        "native_channel_enabled = true;") < alloc.index(
+        "native_channel_enabled = true;") < alloc.rindex(
         "params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);")
 
 submit_impl=nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split(
