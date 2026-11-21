@@ -5,6 +5,7 @@ cpp=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_se
 hdr=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_session.h").read_text()
 proto=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_session_protocol.h").read_text()
 for marker in (
+    '{200, &IGpuSession::SynchronizeAddressSpace, "SynchronizeGpuAddressSpace"}',
     '{201, &IGpuSession::GetUserPartition, "GetUserPartition"}',
     '{202, &IGpuSession::GetGsvPartition, "GetGsvPartition"}',
     '{203, &IGpuSession::GetVaRange, "GetVaRange"}',
@@ -38,6 +39,23 @@ for owner, owner_hdr, klass in ((cpp,hdr,"IGpuSession"),(worker,worker_hdr,"IGpu
     assert "std::memset(cmdbuf, 0, sizeof(u32) * IPC::COMMAND_BUFFER_LENGTH);" in ipc
     assert "return ServiceFrameworkBase::HandleSyncRequest(session, ctx);" in owner
     assert "handlers_tipc.contains(ctx.GetCommand())" in owner
+# GPU-session TIPC 200 is the SDK's address-space job barrier. The worker's
+# GMMU mutations are synchronous here, so completion signals the existing
+# notification event without draining unrelated graphics work.
+assert "void SynchronizeAddressSpace(HLERequestContext& ctx);" in hdr
+assert "DecodeSynchronizeAddressSpace" in proto
+for needle in ("packet.size() != 4", "packet[0] != 0xd8", "packet[1] != 2",
+               "packet[2] == 0", "packet[3] >= MaxNotificationEvents"):
+    assert needle in proto, needle
+sync=cpp.split("void IGpuSession::SynchronizeAddressSpace(HLERequestContext& ctx) {",1)[1].split(
+    "\n}\n\nvoid IGpuSession::GetUserPartition",1)[0]
+for needle in ("m_shared->address_spaces.Owns(request->address_space)",
+               "ResolveOpenedAddressSpace(request->address_space)",
+               "m_shared->events[request->notification]",
+               "m_shared->events[request->notification]->Signal(kernel)",
+               "result = ResultSuccess"):
+    assert needle in sync, needle
+assert "WaitForIdle" not in sync
 assert "GetAddressSpacePartition" not in cpp
 assert "GetAddressSpacePartition" not in hdr
 for cmd in ("201","202","203"):
@@ -57,4 +75,4 @@ assert "first = ~u64{0};" in cpp and "last = 0;" in cpp
 assert "kind = 1;" in cpp
 # The obsolete nine-u64 GetVARegions reply was a shifted older contract.
 assert "std::array<u64, 9> values" not in cpp
-print("NS2_GPU_PARTITION_NEW_SDK_SOURCE_PASS commands=201,202,203 upstream=Lichii")
+print("NS2_GPU_PARTITION_NEW_SDK_SOURCE_PASS commands=200,201,202,203 sync_event=owned no_global_idle=1")
