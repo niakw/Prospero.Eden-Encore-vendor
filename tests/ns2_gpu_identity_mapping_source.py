@@ -323,6 +323,34 @@ assert alloc.index("const bool small_sparse =") < alloc.index(
     'UNIMPLEMENTED_MSG("Sparse small pages are not implemented!");')
 
 
+# Native /dev/nvhost-as-gpu MAPPING_MODIFY is the documented 32-byte
+# GA10F kind-change ABI. Its direct and sparse paths must validate the
+# entire owner/pin span before publishing any changed GPU page table.
+as_ioctl=as_cpp.split("NvResult nvhost_as_gpu::Ioctl1(DeviceFD fd, Ioctl command,",1)[1].split(
+    "\n}",1)[0]
+modify=as_cpp.split("NvResult nvhost_as_gpu::NativeMappingModify(IoctlNativeMappingModify& params) {",1)[1].split(
+    "\n}",1)[0]
+for marker in ("struct IoctlNativeMappingModify {",
+               "static_assert(sizeof(IoctlNativeMappingModify) == 32);",
+               "NvResult NativeMappingModify(IoctlNativeMappingModify& params);"):
+    assert marker in as_h,marker
+assert "case 0xc: // Switch 2 NVGPU_AS_IOCTL_MAPPING_MODIFY" in as_ioctl
+assert "command.raw != 0xC020410CU" in as_ioctl
+assert "WrapFixed(this, &nvhost_as_gpu::NativeMappingModify" in as_ioctl
+for marker in ("NativeGpuProcessRegistry::Instance().Contains(m_native_process)",
+               "SelectNativeMemoryKind(", "mapping_map.upper_bound(address)",
+               "NativePinnedPhysicalSpan(view.ptr, delta, size)",
+               "native_ioctl_remap_mappings.Ranges()",
+               "native_ioctl_remap_pins.find(range.handle)",
+               "range.source_offset + delta", "return NvResult::NotSupported;"):
+    assert marker in modify,marker
+assert modify.index("SelectNativeMemoryKind(") < modify.index("gmmu->Map(address,")
+assert modify.index("while (cursor < end) {") < modify.index("cursor = address;") < modify.index(
+    "gmmu->Map(cursor,")
+assert modify.index("native_ioctl_remap_pins.find(range.handle)") < modify.index(
+    "cursor = address;")
+
+
 # GetVARegions1/3 serialize 64-bit byte offsets from u32 page indexes.
 # The old u32-first shift wrapped the 16-GiB GA10F big-page region to 0.
 va_regions=as_cpp.split("void nvhost_as_gpu::GetVARegionsImpl(IoctlGetVaRegions& params) {",1)[1].split(
