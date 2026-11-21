@@ -108,27 +108,43 @@ destroy=cpp.split("void IGraphicsSupervisor::DestroyNativeMemory(HLERequestConte
     "\n}\n\nvoid IGraphicsSupervisor::BindNativeTransferMemory",1)[0]
 assert "m_native_transfer_backings.find(packet[2])" in destroy
 assert "transfer->second->Close(kernel);" in destroy
-# Native GSV child replies are one COPY descriptor (not MOVE) on the wire:
-# Lichii nx2 ReturnRawSession uses ResponseBuilder(ctx, 2, 1, 0).
-# Internally the original KSession client reference must be transferred to
-# the guest handle to avoid leaking it after guest CloseHandle.
+# Current libounce proves that the bootstrap child handles below are HIPC
+# MOVE descriptors: root 202 sync, 305 VI2, 497 GPU and 1402 nvservices.
+# AddMoveObject transfers the creator reference; no extra KClientSession Open
+# is needed for these server-managed child sessions.
 for service in ("OpenSyncptSession", "OpenDisplaySession", "OpenGpuSession",
-                "OpenNvsrvSession", "OpenCameraSession", "OpenChatSession",
-                "OpenVideoDecoderSession", "OpenVideoDecoderChildSession"):
+                "OpenNvsrvSession"):
     begin = f"void IGraphicsSupervisor::{service}(HLERequestContext& ctx) {{"
     assert cpp.count(begin) == 1, service
     body = cpp.split(begin, 1)[1].split("\n}", 1)[0]
-    assert "IPC::ResponseBuilder rb{ctx, 2, 1, 0};" in body, service
-    assert "IPC::ResponseBuilder rb{ctx, 2, 0, 1};" not in body, service
-    assert "ctx.AddMoveObject(client);" in body, ("HLE copy-slot + transfer-ref", service)
-# The selected HLE interface advertises COPY count in the TIPC descriptor;
-# WriteToOutgoingCommandBuffer then writes the sole queued handle and releases
-# its creator reference for the internal move queue.
+    assert "IPC::ResponseBuilder rb{ctx, 2, 0, 1};" in body, service
+    assert "IPC::ResponseBuilder rb{ctx, 2, 1, 0};" not in body, service
+    assert "ctx.AddMoveObject(client);" in body, ("HLE move descriptor", service)
+# Feature/video children not used by the current P0 bootstrap are left on
+# their existing contract until a client packet proves their descriptor ABI.
+# WriteToOutgoingCommandBuffer consumes one queued move reference after
+# installing the guest handle.
 writer=(R/"sources/eden/src/core/hle/service/hle_ipc.cpp").read_text()
 assert writer.index("for (auto& object : outgoing_copy_objects)") < writer.index(
     "for (auto& object : outgoing_move_objects)")
 assert "object->Close(kernel);" in writer.split(
     "for (auto& object : outgoing_move_objects)", 1)[1].split("cmd_buf[current_offset++] = handle;", 1)[0]
+# Sync child command 22 also moves the readable slot event. Unlike a
+# child KSession, the service must keep its original event reference so it can
+# arm/signal/cancel the same slot later; therefore one extra transfer ref is
+# opened and consumed by the HLE move serializer.
+sync_slot=cpp.split("void GetSlotEvent(HLERequestContext& ctx) {",1)[1].split(
+    "\n    }\n    void RequestSlotEvent",1)[0]
+for needle in (
+    "readable->Open(system.Kernel())",
+    "ctx.AddMoveObject(readable);",
+    "readable->Close(system.Kernel());",
+    "IPC::ResponseBuilder rb{ctx, 2, 0, 1};",
+):
+    assert needle in sync_slot,needle
+assert "PushCopyObjects" not in sync_slot
+assert "IPC::ResponseBuilder rb{ctx, 2, 1, 0};" not in sync_slot
+
 for marker in ("ValuesOffset = 0x40","RoSummaryOffset = 0x1040","RoBitsOffset = 0x1100",
                "RwBitsOffset = 0x100","PollInterval{std::chrono::microseconds{500}}"):
     assert marker in cpp, marker

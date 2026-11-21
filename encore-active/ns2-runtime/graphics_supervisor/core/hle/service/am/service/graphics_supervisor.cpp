@@ -268,9 +268,25 @@ private:
             rb.Push(Kernel::ResultOutOfResource.raw);
             return;
         }
-        IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+        auto* readable = &event->GetReadableEvent();
+        // libounce gsvSyncCreateEvent requests a HIPC MOVE handle. The
+        // SyncptSession still owns/signals this event, so transfer one extra
+        // readable-event reference and retain the original until teardown.
+        if (!readable->Open(system.Kernel())) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidState.raw);
+            return;
+        }
+        try {
+            ctx.AddMoveObject(readable);
+        } catch (const std::bad_alloc&) {
+            readable->Close(system.Kernel());
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultOutOfResource.raw);
+            return;
+        }
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(ResultSuccess.raw);
-        rb.PushCopyObjects(ctx, event->GetReadableEvent());
     }
     void RequestSlotEvent(HLERequestContext& ctx) {
         const auto* w = ctx.CommandBuffer();
@@ -1698,7 +1714,7 @@ void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
             }
         }
     }
-    // The Switch 2 SDK expects one COPY handle descriptor for every native
+    // The Switch 2 SDK expects one MOVE handle descriptor for every native
     // GSV child session (305/202/497/1402 and video/feature children).
     // Internal AddMoveObject below is deliberate: the HLE serializer writes
     // its one handle into the same slot, then releases the KSession creator's
@@ -1709,7 +1725,7 @@ void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
@@ -1783,7 +1799,7 @@ void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {
         result = Kernel::ResultOutOfResource;
     }
     if (result.IsSuccess()) {
-        IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(result.raw);
         ctx.AddMoveObject(client);
     } else {
@@ -1875,16 +1891,16 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
             }
         }
     }
-    // Both native 1401 and 1402 return a COPY descriptor; do not manufacture
+    // Both native 1401 and 1402 return a MOVE descriptor; do not manufacture
     // a session until a process-owned TransferMemory passes 1401 validation.
-    // TIPC 1402 returns a COPY descriptor; fail-closed admission must never
+    // TIPC 1402 returns a MOVE descriptor; fail-closed admission must never
     // publish a null handle. Preserve normal NVDRV/NS1 registration.
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
@@ -1929,14 +1945,14 @@ void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
             result = Kernel::ResultOutOfResource;
         }
     }
-    // TIPC 497 must expose the guest's expected COPY descriptor only on
+    // TIPC 497 must expose the guest's expected MOVE descriptor only on
     // successful bootstrap/NVDRV admission; no null session on failure.
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
 }
