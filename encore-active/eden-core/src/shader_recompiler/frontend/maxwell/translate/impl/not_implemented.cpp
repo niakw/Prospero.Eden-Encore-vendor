@@ -321,10 +321,6 @@ void TranslateIMadSp(TranslatorVisitor& v, u64 insn, const IR::U32& src_b,
 
 } // namespace
 
-void TranslatorVisitor::ATOMS_cas(u64) {
-    ThrowNotImplemented(Opcode::ATOMS_cas);
-}
-
 void TranslatorVisitor::B2R(u64) {
     ThrowNotImplemented(Opcode::B2R);
 }
