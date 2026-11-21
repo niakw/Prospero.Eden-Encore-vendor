@@ -218,6 +218,10 @@ private:
     std::map<u64, NativeSparseRegion> native_sparse_regions;
     NativeSparseMappingTable native_sparse_mappings;
     std::map<u32, DAddr> native_sparse_pins;
+    // GPU AS ioctl A:0x14 sparse big-page ownership stays separate from
+    // the GSV/worker's 4K native sparse-remap lifetime.
+    NativeSparseMappingTable native_ioctl_remap_mappings;
+    std::map<u32, DAddr> native_ioctl_remap_pins;
     std::map<u64, Mapping> mapping_map;
     //!< Holds allocations created by AllocSpace from
     //!< which fixed buffers can be mapped into

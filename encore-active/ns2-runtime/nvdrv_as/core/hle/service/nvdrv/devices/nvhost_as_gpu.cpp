@@ -52,6 +52,9 @@ nvhost_as_gpu::~nvhost_as_gpu() {
             nvmap.UnpinHandle(handle);
         }
         native_sparse_pins.clear();
+        for (const auto& [handle, address] : native_ioctl_remap_pins)
+            nvmap.UnpinHandle(handle);
+        native_ioctl_remap_pins.clear();
     }
     // Never call CloseSession holding the AS mutex: final session close can
     // finalize a process and indirectly close other service objects.
@@ -824,10 +827,26 @@ NvResult nvhost_as_gpu::FreeSpace(IoctlFreeSpace& params) {
     if (native_sparse_regions.contains(params.offset))
         return NvResult::BadParameter;
     if (auto const it = allocation_map.find(params.offset); it != allocation_map.end()) {
-        auto const allocation = it->second;
+        const auto& allocation = it->second;
         if (allocation.page_size != params.page_size || allocation.size != (u64(params.pages) * params.page_size))
             return NvResult::BadValue;
 
+        const bool native = m_native_process &&
+            NativeGpuProcessRegistry::Instance().Contains(m_native_process);
+        NativeSparseMappingTable updated_remaps;
+        std::set<u32> retained_remap_handles;
+        if (native && allocation.sparse) {
+            // Stage ownership removal before changing GMMU or releasing a pin.
+            // A failed allocation leaves all other sparse regions intact.
+            try {
+                updated_remaps = native_ioctl_remap_mappings;
+                updated_remaps.Replace(NativeSparseRange{
+                    static_cast<u64>(params.offset), allocation.size, 0, 0});
+                retained_remap_handles = updated_remaps.ReferencedHandles();
+            } catch (const std::bad_alloc&) {
+                return NvResult::InsufficientMemory;
+            }
+        }
         for (const auto mapping_offset : allocation.mappings)
             if (!FreeMappingLocked(mapping_offset))
                 return NvResult::BadValue;
@@ -835,6 +854,18 @@ NvResult nvhost_as_gpu::FreeSpace(IoctlFreeSpace& params) {
         // Unset sparse flag if required
         if (allocation.sparse)
             gmmu->Unmap(params.offset, allocation.size);
+        if (native && allocation.sparse) {
+            native_ioctl_remap_mappings = std::move(updated_remaps);
+            for (auto pin = native_ioctl_remap_pins.begin();
+                 pin != native_ioctl_remap_pins.end();) {
+                if (retained_remap_handles.contains(pin->first)) {
+                    ++pin;
+                    continue;
+                }
+                nvmap.UnpinHandle(pin->first);
+                pin = native_ioctl_remap_pins.erase(pin);
+            }
+        }
 
         auto& allocator{params.page_size == VM::YUZU_PAGESIZE ? *vm.small_page_allocator : *vm.big_page_allocator};
         u32 page_size_bits{params.page_size == VM::YUZU_PAGESIZE ? VM::PAGE_SIZE_BITS : vm.big_page_size_bits};
@@ -848,6 +879,144 @@ NvResult nvhost_as_gpu::FreeSpace(IoctlFreeSpace& params) {
 
 NvResult nvhost_as_gpu::Remap(std::span<IoctlRemapEntry> entries) {
     LOG_DEBUG(Service_NVDRV, "called, num_entries={:#x}", entries.size());
+
+    // Native GA10F big-page remaps: validate the entire batch and retain
+    // its physical backing before changing any guest-visible GMMU page.
+    // Maxwell keeps the original implementation below.
+    if (m_native_process &&
+        NativeGpuProcessRegistry::Instance().Contains(m_native_process)) {
+        const std::scoped_lock lock{mutex};
+        if (!vm.initialised || !gmmu || !vm.big_page_allocator ||
+            entries.empty() || entries.size() > 256)
+            return NvResult::BadValue;
+
+        struct RemapStep {
+            u64 address;
+            u64 size;
+            u64 source;
+            u32 handle;
+            u16 kind;
+        };
+        NativeSparseMappingTable updated;
+        std::vector<RemapStep> steps;
+        std::set<u32> retained;
+        std::set<u32> needed;
+        try {
+            updated = native_ioctl_remap_mappings;
+            steps.reserve(entries.size());
+            for (const auto& entry : entries) {
+                if (!entry.big_pages || entry.kind > std::numeric_limits<u8>::max())
+                    return NvResult::BadValue;
+                const u64 address = static_cast<u64>(entry.as_offset_big_pages)
+                                    << vm.big_page_size_bits;
+                const u64 size = static_cast<u64>(entry.big_pages)
+                                 << vm.big_page_size_bits;
+                const u64 source = static_cast<u64>(entry.handle_offset_big_pages)
+                                   << vm.big_page_size_bits;
+                if (address >= vm.va_range_end ||
+                    size > vm.va_range_end - address)
+                    return NvResult::BadValue;
+                const auto alloc = NativeGpuAllocation::FindContaining(
+                    allocation_map, address, size);
+                if (alloc == allocation_map.end() || !alloc->second.sparse ||
+                    !alloc->second.big_pages)
+                    return NvResult::BadValue;
+                // A direct MapBufferEx map has a different pin owner.
+                // Replacing it here would make its recorded backing stale.
+                const auto next = mapping_map.lower_bound(address);
+                if ((next != mapping_map.end() && next->first < address + size) ||
+                    (next != mapping_map.begin() &&
+                     std::prev(next)->second.size >
+                         address - std::prev(next)->first))
+                    return NvResult::BadValue;
+                const u32 handle_id = entry.handle;
+                if (handle_id) {
+                    const auto handle = nvmap.GetHandle(handle_id);
+                    const auto* owner =
+                        handle ? container.GetSession(handle->session_id) : nullptr;
+                    if (!handle || !handle->allocated || !owner ||
+                        owner->process != m_native_process ||
+                        source > handle->orig_size ||
+                        size > handle->orig_size - source)
+                        return NvResult::BadValue;
+                }
+                updated.Replace(NativeSparseRange{address, size, source, handle_id});
+                steps.push_back({address, size, source, handle_id, entry.kind});
+            }
+            retained = updated.ReferencedHandles();
+            needed = retained;
+            // An entry superseded later in this batch still needs its pin
+            // until every earlier map has completed in submission order.
+            for (const auto& step : steps)
+                if (step.handle) needed.insert(step.handle);
+            if (updated.Ranges().size() > 65536 || needed.size() > 4096)
+                return NvResult::InsufficientMemory;
+        } catch (const std::bad_alloc&) {
+            return NvResult::InsufficientMemory;
+        }
+
+        std::map<u32, DAddr> freshly_pinned;
+        const auto rollback_new = [&] {
+            for (const auto& [handle, physical] : freshly_pinned)
+                if (physical) nvmap.UnpinHandle(handle);
+        };
+        for (const u32 handle_id : needed) {
+            if (native_ioctl_remap_pins.contains(handle_id))
+                continue;
+            std::map<u32, DAddr>::iterator pending;
+            try {
+                pending = freshly_pinned.try_emplace(handle_id, DAddr{}).first;
+            } catch (const std::bad_alloc&) {
+                rollback_new();
+                return NvResult::InsufficientMemory;
+            }
+            const DAddr pinned = nvmap.PinHandle(handle_id, false);
+            if (!pinned) {
+                freshly_pinned.erase(pending);
+                rollback_new();
+                return NvResult::InsufficientMemory;
+            }
+            pending->second = pinned;
+        }
+        for (const auto& step : steps) {
+            if (!step.handle) continue;
+            const auto old = native_ioctl_remap_pins.find(step.handle);
+            const DAddr pinned = old == native_ioctl_remap_pins.end()
+                                     ? freshly_pinned.at(step.handle)
+                                     : old->second;
+            if (!NativePinnedPhysicalSpan(pinned, step.source, step.size)) {
+                rollback_new();
+                return NvResult::BadValue;
+            }
+        }
+
+        // From here no fallible bookkeeping remains. Keep all old and new
+        // pins live until the ordered GMMU changes are fully published.
+        for (const auto& step : steps) {
+            if (!step.handle) {
+                gmmu->MapSparse(step.address, step.size, true);
+                continue;
+            }
+            const auto old = native_ioctl_remap_pins.find(step.handle);
+            const DAddr pinned = old == native_ioctl_remap_pins.end()
+                                     ? freshly_pinned.at(step.handle)
+                                     : old->second;
+            gmmu->Map(step.address, pinned + step.source, step.size,
+                      static_cast<Tegra::PTEKind>(step.kind), true);
+        }
+        native_ioctl_remap_mappings = std::move(updated);
+        native_ioctl_remap_pins.merge(freshly_pinned);
+        for (auto pin = native_ioctl_remap_pins.begin();
+             pin != native_ioctl_remap_pins.end();) {
+            if (retained.contains(pin->first)) {
+                ++pin;
+                continue;
+            }
+            nvmap.UnpinHandle(pin->first);
+            pin = native_ioctl_remap_pins.erase(pin);
+        }
+        return NvResult::Success;
+    }
 
     if (!vm.initialised) {
         return NvResult::BadValue;
