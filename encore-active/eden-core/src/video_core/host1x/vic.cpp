@@ -299,6 +299,12 @@ void Vic::ReadProgressiveY8__V8U8_N420(const SlotStruct& slot, std::span<const P
         out_luma_height, out_luma_stride);
 
     slot_surface.resize_destructive(out_luma_width * out_luma_height);
+    // ScratchBuffer does not initialize reused storage. A decoded FFmpeg frame can
+    // be narrower or shorter than the guest slot: clear only the pixels the
+    // decode loops will not overwrite, preventing stale pixels reaching VIC output.
+    if (in_luma_width < s32(out_luma_width) || in_luma_height < s32(out_luma_height)) {
+        std::fill(slot_surface.begin(), slot_surface.end(), Pixel{});
+    }
     if (COMPILED_HAS_SSE41 && HasSSE41() && in_luma_width % 16 == 0) {
 #if COMPILED_HAS_SSE41
         auto const alpha_linear = u16(slot.config.planar_alpha.Value());
@@ -480,6 +486,11 @@ void Vic::ReadInterlacedY8__V8U8_N420(const SlotStruct& slot, std::span<const Pl
 
         auto const in_luma_width = (std::min)(frame->GetWidth(), s32(out_luma_width));
         auto const in_luma_height = (std::min)(frame->GetHeight(), s32(out_luma_height));
+        // Bob copies a complete slot row even when FFmpeg supplied fewer pixels.
+        // Initialize the uncovered region only for a partial decoded surface.
+        if (in_luma_width < s32(out_luma_width) || in_luma_height < s32(out_luma_height)) {
+            std::fill(slot_surface.begin(), slot_surface.end(), Pixel{});
+        }
         auto const in_luma_stride{frame->GetStride(0)};
 
         [[maybe_unused]] auto const in_chroma_width = (frame->GetWidth() + 1) / 2;
