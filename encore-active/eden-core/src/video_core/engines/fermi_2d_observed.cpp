@@ -64,10 +64,25 @@ void Fermi2D::ConsumeSinkImpl(Core::System& system) {
 void Fermi2D::Blit() {
     LOG_DEBUG(HW_GPU, "called. source address={:#x}, destination address={:#x}", regs.src.Address(), regs.dst.Address());
 
-    UNIMPLEMENTED_IF_MSG(regs.operation != Operation::SrcCopy, "Operation is not copy");
-    UNIMPLEMENTED_IF_MSG(regs.src.layer != 0, "Source layer is not zero");
-    UNIMPLEMENTED_IF_MSG(regs.dst.layer != 0, "Destination layer is not zero");
-    UNIMPLEMENTED_IF_MSG(regs.src.depth != 1, "Source depth is not one");
+    // A soft UNIMPLEMENTED_IF_MSG reports a failure but continues execution.
+    // Never turn unsupported Fermi2D operations or nonzero layers into a
+    // normal SrcCopy of layer zero: that silently overwrites guest pixels.
+    if (regs.operation != Operation::SrcCopy) {
+        UNIMPLEMENTED_MSG("Operation is not copy");
+        return;
+    }
+    if (regs.src.layer != 0) {
+        UNIMPLEMENTED_MSG("Source layer is not zero");
+        return;
+    }
+    if (regs.dst.layer != 0) {
+        UNIMPLEMENTED_MSG("Destination layer is not zero");
+        return;
+    }
+    if (regs.src.depth != 1) {
+        UNIMPLEMENTED_MSG("Source depth is not one");
+        return;
+    }
 
     const auto& args = regs.pixels_from_memory;
     constexpr s64 null_derivative = 1ULL << 32;
