@@ -499,11 +499,16 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
         const u64 gob_height = u64{8} << block_height;
         const u64 padded_height =
             (static_cast<u64>(image.height) + gob_height - 1) & ~(gob_height - 1);
+        // Multiply after the cap check. A malformed guest can otherwise
+        // overflow u64 before the decoder's image-allocation admission.
+        if (padded_width == 0 || padded_height == 0 ||
+            padded_width > MAX_BYTES / padded_height) {
+            return false;
+        }
         const u64 bytes = padded_width * padded_height;
         // Existing decoders address GOBs through u32 offsets and require
         // a correctly allocated full image, including its tile padding.
-        if (padded_width == 0 || bytes > MAX_BYTES ||
-            bytes > (std::numeric_limits<u32>::max)() ||
+        if (bytes > (std::numeric_limits<u32>::max)() ||
             address > (std::numeric_limits<u64>::max)() - bytes) {
             return false;
         }
