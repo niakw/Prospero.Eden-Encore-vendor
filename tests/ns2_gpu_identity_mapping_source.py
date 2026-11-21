@@ -343,3 +343,15 @@ assert "split > end" in _va_layout
 assert "std::bad_alloc" in _native_gpu
 assert "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;" in _ctrl_gpu
 assert "system.GPU().WaitForIdle();" in _gsv
+
+# Native repeated ALLOC_AS_EX on the same authenticated descriptor
+# fails as a guest ioctl error before the legacy Maxwell host assertion.
+_alloc_as = _as_runtime.split("NvResult nvhost_as_gpu::AllocAsEx(IoctlAllocAsEx& params) {",1)[1].split(
+    "\n}",1)[0]
+_repeat = _alloc_as.split("if (vm.initialised) {",1)[1].split(
+    "\n    }",1)[0]
+assert _repeat.index("NativeGpuProcessRegistry::Instance().Contains(m_native_process)") < _repeat.index(
+    "return NvResult::InvalidState;") < _repeat.index(
+    'ASSERT_MSG(false, "Cannot initialise an address space twice!");')
+
+

@@ -1017,6 +1017,12 @@ NvResult nvhost_as_gpu::AllocAsEx(IoctlAllocAsEx& params) {
     std::scoped_lock lock(mutex);
 
     if (vm.initialised) {
+        // An NS2 guest may retry ALLOC_AS/ALLOC_AS_EX on an already open FD.
+        // This is an invalid ioctl state, not a reason to assert or stop the
+        // emulator's host process. Preserve the legacy Maxwell diagnostic.
+        if (m_native_process &&
+            NativeGpuProcessRegistry::Instance().Contains(m_native_process))
+            return NvResult::InvalidState;
         ASSERT_MSG(false, "Cannot initialise an address space twice!");
         return NvResult::InvalidState;
     }
