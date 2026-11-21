@@ -127,11 +127,15 @@ for block in (on_close,dtor):
 assert on_close.index("sessions.erase(fd);") < on_close.index("try {")
 close_body=module_cpp.split("NvResult Module::Close(DeviceFD fd) {",1)[1].split(
     "\n}\n",1)[0]
-assert close_body.index("itr->second->OnClose(fd);") < close_body.index(
+assert close_body.index("try {") < close_body.index("itr->second->OnClose(fd);")
+assert close_body.count("open_files.erase(itr);") >= 2
+catch_tail=close_body.split("catch (...) {",1)[1]
+assert catch_tail.index("open_files.erase(itr);") < catch_tail.index("throw;")
+assert close_body.index("itr->second->OnClose(fd);") < close_body.rindex(
     "open_files.erase(itr);")
 assert '#include "gpu_failure.h"' in nvhost_cpp
 print("NS1_NVDRV_CLOSE_EXCEPTION_SAFE_PASS final_fd=1 destructor_noexcept=1 "
-      "failure_latched=1 module_erase_reachable=1")
+      "failure_latched=1 module_erase_reachable=1 generic_close_rollback=1")
 
 # Module::Open publishes builder-owned devices before device-specific OnOpen.
 # A thrown OnOpen must erase that published FD for both known and stub devices.
