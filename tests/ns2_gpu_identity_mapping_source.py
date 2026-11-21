@@ -5,6 +5,32 @@ shared=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu
 worker=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp").read_text()
 worker_hdr=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.h").read_text()
 registration=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_memory_registration.h").read_text()
+# Worker 172/173 are real SDK debug-label metadata on *live* NVMap
+# handles. The selected worker must neither echo Success for retired IDs nor
+# allocate a fake label object without recording its data.
+for command, name in ((172, "SetGpuMemoryUserDebugLabel"),
+                      (173, "SetGpuMemorySdkDebugLabel")):
+    assert f'{{{command}, &IGpuWorker::{name}, "{name}"}}' in worker
+    assert f"void {name}(HLERequestContext& ctx);" in worker_hdr
+    sig = f"void IGpuWorker::{name}(HLERequestContext& ctx) {{"
+    assert worker.count(sig) == 1
+    body = worker.split(sig, 1)[1].split("\n}\n", 1)[0]
+    for needle in ("std::find(m_memory.begin(), m_memory.end(), request->id)",
+                   "m_pending_device_unlocks.contains(request->id)",
+                   "GetNvMapFile().GetHandle(request->id)",
+                   "m_memory_debug_labels.try_emplace(request->id)",
+                   "catch (const std::bad_alloc&)",
+                   "result = ResultSuccess"):
+        assert needle in body, (name, needle)
+for needle in ("packet.size() != 7", "packet[0] != 0xbc", "packet[1] != 5",
+               "packet.size() != 5", "packet[0] != 0xbd", "packet[1] != 3",
+               "DecodeGpuMemoryUserDebugLabel", "DecodeGpuMemorySdkDebugLabel"):
+    assert needle in registration, needle
+assert "std::map<u32, MemoryDebugLabels> m_memory_debug_labels;" in worker_hdr
+release = worker.split("Result IGpuWorker::ReleaseMemory", 1)[1].split(
+    "void IGpuWorker::CreateGpuAccessibleMemory", 1)[0]
+assert release.count("m_memory_debug_labels.erase(id);") == 2
+
 # Worker 171 is a real nn::gpu SDK command, not a global success stub.
 assert '{171, &IGpuWorker::EnsureGpuMemoryComptags, "EnsureGpuMemoryComptags"}' in worker
 assert "void EnsureGpuMemoryComptags(HLERequestContext& ctx);" in worker_hdr

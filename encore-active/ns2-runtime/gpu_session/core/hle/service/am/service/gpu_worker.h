@@ -4,6 +4,7 @@
 
 // Experimental Switch 2 worker IPC endpoint. Having a kernel session does
 // not imply native 4-KiB VA mapping, NvMap registration or GPU submissions.
+#include <array>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -30,6 +31,8 @@ private:
     void CreateGpuAccessibleMemory(HLERequestContext& ctx);
     void DestroyGpuAccessibleMemory(HLERequestContext& ctx);
     void EnsureGpuMemoryComptags(HLERequestContext& ctx);
+    void SetGpuMemoryUserDebugLabel(HLERequestContext& ctx);
+    void SetGpuMemorySdkDebugLabel(HLERequestContext& ctx);
     void NormalMapGpuMemory4K(HLERequestContext& ctx);
     void NormalModifyGpuMemory4K(HLERequestContext& ctx);
     void NormalUnmapGpuMemory4K(HLERequestContext& ctx);
@@ -42,6 +45,12 @@ private:
     std::shared_ptr<GpuWorkerSharedState> m_shared;
     std::optional<std::size_t> m_nv_session;
     std::vector<u32> m_memory;
+    struct MemoryDebugLabels {
+        std::optional<std::array<u64, 2>> user;
+        std::optional<u64> sdk;
+    };
+    // Labels are bounded by live NVMap memory handles and erased on release.
+    std::map<u32, MemoryDebugLabels> m_memory_debug_labels;
     // FreeHandle can succeed before the guest page-table device unlock does.
     // Keep the exact span and a weak NVMap lifetime so a subsequent guest
     // release (or worker teardown) can finish without double-freeing a handle.

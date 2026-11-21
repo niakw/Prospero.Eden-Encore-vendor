@@ -156,6 +156,8 @@ IGpuWorker::IGpuWorker(Core::System& system_, std::shared_ptr<Nvidia::Module> mo
         {101, &IGpuWorker::CreateGpuAccessibleMemory, "CreateGpuAccessibleMemory"},
         {102, &IGpuWorker::DestroyGpuAccessibleMemory, "DestroyGpuAccessibleMemory"},
         {171, &IGpuWorker::EnsureGpuMemoryComptags, "EnsureGpuMemoryComptags"},
+        {172, &IGpuWorker::SetGpuMemoryUserDebugLabel, "SetGpuMemoryUserDebugLabel"},
+        {173, &IGpuWorker::SetGpuMemorySdkDebugLabel, "SetGpuMemorySdkDebugLabel"},
         {211, &IGpuWorker::NormalMapGpuMemory4K, "NormalMapGpuMemory4K"},
         {212, &IGpuWorker::NormalModifyGpuMemory4K, "NormalModifyGpuMemory4K"},
         {213, &IGpuWorker::NormalUnmapGpuMemory4K, "NormalUnmapGpuMemory4K"},
@@ -1109,6 +1111,7 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
         R_TRY(m_process->GetPageTable().UnlockForDeviceAddressSpace(
             pending->second.address, pending->second.size));
         m_pending_device_unlocks.erase(pending);
+        m_memory_debug_labels.erase(id);
         m_memory.erase(it);
         m_shared->events[notification]->Signal(kernel);
         return ResultSuccess;
@@ -1275,6 +1278,7 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
     R_TRY(m_process->GetPageTable().UnlockForDeviceAddressSpace(
         pending->second.address, pending->second.size));
     m_pending_device_unlocks.erase(pending);
+    m_memory_debug_labels.erase(id);
     m_memory.erase(it);
     m_shared->events[notification]->Signal(kernel);
     return ResultSuccess;
@@ -1330,6 +1334,69 @@ void IGpuWorker::EnsureGpuMemoryComptags(HLERequestContext& ctx) {
                 // fallback. Therefore a live owned handle already satisfies
                 // the comptag requirement without allocating fake metadata.
                 result = handle ? ResultSuccess : Kernel::ResultInvalidState;
+            }
+        }
+    }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGpuWorker::SetGpuMemoryUserDebugLabel(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<u32, 7> command{
+        packet[0], packet[1], packet[2], packet[3],
+        packet[4], packet[5], packet[6]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto request = DecodeGpuMemoryUserDebugLabel(command)) {
+        const std::scoped_lock lock{m_mutex};
+        result = Kernel::ResultNotFound;
+        if (std::find(m_memory.begin(), m_memory.end(), request->id) != m_memory.end()) {
+            result = Kernel::ResultBusy;
+            if (!m_pending_device_unlocks.contains(request->id)) {
+                const auto handle = m_module->GetContainer().GetNvMapFile().GetHandle(request->id);
+                result = Kernel::ResultInvalidState;
+                if (handle) {
+                    try {
+                        auto [it, inserted] = m_memory_debug_labels.try_emplace(request->id);
+                        (void)inserted;
+                        it->second.user = request->value;
+                        result = ResultSuccess;
+                    } catch (const std::bad_alloc&) {
+                        result = Kernel::ResultOutOfResource;
+                    }
+                }
+            }
+        }
+    }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGpuWorker::SetGpuMemorySdkDebugLabel(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<u32, 5> command{
+        packet[0], packet[1], packet[2], packet[3], packet[4]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto request = DecodeGpuMemorySdkDebugLabel(command)) {
+        const std::scoped_lock lock{m_mutex};
+        result = Kernel::ResultNotFound;
+        if (std::find(m_memory.begin(), m_memory.end(), request->id) != m_memory.end()) {
+            result = Kernel::ResultBusy;
+            if (!m_pending_device_unlocks.contains(request->id)) {
+                const auto handle = m_module->GetContainer().GetNvMapFile().GetHandle(request->id);
+                result = Kernel::ResultInvalidState;
+                if (handle) {
+                    try {
+                        auto [it, inserted] = m_memory_debug_labels.try_emplace(request->id);
+                        (void)inserted;
+                        it->second.sdk = request->value;
+                        result = ResultSuccess;
+                    } catch (const std::bad_alloc&) {
+                        result = Kernel::ResultOutOfResource;
+                    }
+                }
             }
         }
     }

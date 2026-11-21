@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include <array>
 #include <optional>
 #include <span>
 #include "common/common_types.h"
@@ -66,6 +67,31 @@ struct GpuMemoryRelease {
     u32 id;
     u32 notification;
 };
+struct GpuMemoryUserDebugLabel {
+    u32 id{};
+    std::array<u64, 2> value{};
+};
+struct GpuMemorySdkDebugLabel {
+    u32 id{};
+    u64 value{};
+};
+// nn::gpu::sdk uses worker TIPC 172/173 to annotate an existing
+// GpuMemoryHandle. These are metadata operations, never GPU submissions.
+inline constexpr std::optional<GpuMemoryUserDebugLabel> DecodeGpuMemoryUserDebugLabel(
+    std::span<const u32> packet) {
+    if (packet.size() != 7 || packet[0] != 0xbc || packet[1] != 5 || !packet[2])
+        return {};
+    return GpuMemoryUserDebugLabel{packet[2],
+        {u64{packet[3]} | (u64{packet[4]} << 32),
+         u64{packet[5]} | (u64{packet[6]} << 32)}};
+}
+inline constexpr std::optional<GpuMemorySdkDebugLabel> DecodeGpuMemorySdkDebugLabel(
+    std::span<const u32> packet) {
+    if (packet.size() != 5 || packet[0] != 0xbd || packet[1] != 3 || !packet[2])
+        return {};
+    return GpuMemorySdkDebugLabel{packet[2],
+        u64{packet[3]} | (u64{packet[4]} << 32)};
+}
 inline constexpr std::optional<u32> DecodeEnsureGpuMemoryComptags(
     std::span<const u32> packet) {
     // nn::gpu::sdk::EnsureGpuMemoryComptags: worker TIPC 171 carries only
