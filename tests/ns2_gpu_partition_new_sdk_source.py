@@ -44,7 +44,15 @@ for cmd in ("201","202","203"):
     assert f"DecodeAddressSpacePartition(command, {cmd})" in cpp
 assert "command != 201 && command != 202 && command != 203" in proto
 assert "first = Nvidia::Devices::NativeNs2GpuVaStart;" in cpp
-assert "size = Nvidia::Devices::NativeNs2GpuVaEnd - first;" in cpp
+assert cpp.count("size = Nvidia::Devices::NativeNs2GpuVaSmallSplit - first;") == 2
+# NVIDIA VA page-table geometry can cover 1 TiB, while NVN's reported
+# user region ends at 768 GiB. Keep those distinct exactly as the
+# reviewed Lichii upstream reports GetUserPartition/GetVaRange.
+layout=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/native_gpu_va_layout.h").read_text()
+assert "NativeNs2GpuVaSmallSplit = 3ULL << 38;" in layout
+assert "NativeNs2GpuVaEnd = 1ULL << 40;" in layout
+assert "const u64_le range_end{Nvidia::Devices::NativeNs2GpuVaEnd};" in cpp
+assert "0xC000000000" in cpp
 assert "first = ~u64{0};" in cpp and "last = 0;" in cpp
 assert "kind = 1;" in cpp
 # The obsolete nine-u64 GetVARegions reply was a shifted older contract.

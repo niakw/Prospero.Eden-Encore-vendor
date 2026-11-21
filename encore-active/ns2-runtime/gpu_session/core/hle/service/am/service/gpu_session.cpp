@@ -480,10 +480,12 @@ void IGpuSession::GetUserPartition(HLERequestContext& ctx) {
         if (m_shared->address_spaces.Owns(request->address_space) &&
             ResolveOpenedAddressSpace(request->address_space)) {
             // Lichii's current newer-SDK contract: the user partition is the
-            // process GPU VA interval. It is deliberately independent from
-            // the legacy GetVARegions ioctl shape.
+            // range published to NVN. Unlike the 1-TiB GMMU page-table capacity,
+            // the guest-visible user partition ends at 0xC000000000
+            // (768 GiB). Do not return the 1-TiB GMMU ceiling as the
+            // end/size: it advertises VA outside the proven NVN range.
             first = Nvidia::Devices::NativeNs2GpuVaStart;
-            size = Nvidia::Devices::NativeNs2GpuVaEnd - first;
+            size = Nvidia::Devices::NativeNs2GpuVaSmallSplit - first;
             result = ResultSuccess;
         } else if (m_shared->address_spaces.Owns(request->address_space)) {
             result = Kernel::ResultInvalidState;
@@ -534,8 +536,10 @@ void IGpuSession::GetVaRange(HLERequestContext& ctx) {
         if (m_shared->address_spaces.Owns(request->address_space) &&
             ResolveOpenedAddressSpace(request->address_space)) {
             kind = 1;
+            // This TIPC view is bounded by the native user VA partition,
+            // not by the wider 1-TiB GMMU address-space coverage.
             first = Nvidia::Devices::NativeNs2GpuVaStart;
-            size = Nvidia::Devices::NativeNs2GpuVaEnd - first;
+            size = Nvidia::Devices::NativeNs2GpuVaSmallSplit - first;
             result = ResultSuccess;
         } else if (m_shared->address_spaces.Owns(request->address_space)) {
             result = Kernel::ResultInvalidState;
