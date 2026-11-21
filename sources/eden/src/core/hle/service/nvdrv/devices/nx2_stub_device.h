@@ -146,6 +146,24 @@ private:
             return ConfigureTsgScheduling(input, output, false);
         case 0x8004540AU: // Ounce GET_TIMESLICE: output u32 microseconds
             return GetTsgTimeslice(output);
+        case 0x00005403U: // ENABLE
+            // not implemented yet on Encore: requires real TSG/runlist enable state.
+            return NvResult::NotImplemented;
+        case 0x00005404U: // DISABLE
+            // not implemented yet on Encore: requires real TSG/runlist disable state.
+            return NvResult::NotImplemented;
+        case 0x00005405U: // PREEMPT
+            // not implemented yet on Encore: requires a real GPU preemption boundary.
+            return NvResult::NotImplemented;
+        case 0xC0105409U: // EVENT_ID_CTRL
+            // not implemented yet on Encore: TSG event delivery is not modeled.
+            return NvResult::NotImplemented;
+        case 0xC018540CU: // READ_SINGLE_SM_ERROR_STATE
+            // not implemented yet on Encore: no per-TSG hardware SM error state exists.
+            return NvResult::NotImplemented;
+        case 0xC008540DU: // Ounce SET_L2_SECTOR_PROMOTION
+            // not implemented yet on Encore: requires TSG-scoped L2 cache policy.
+            return NvResult::NotImplemented;
         case 0xC0045402U: { // UNBIND_CHANNEL
             const auto request = DecodeNativeTsgBinding(input, false);
             if (!request || output.size() < input.size())

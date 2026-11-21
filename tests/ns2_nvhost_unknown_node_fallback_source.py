@@ -13,11 +13,14 @@ for x in ("class nx2_stub_device final",
           "// not implemented yet on Encore",
           "return NvResult::NotImplemented;"):
     assert x in stub,x
+assert stub.count("// not implemented yet on Encore") >= 7
 fallback=stub[stub.index("NvResult Stub("):]
 assert "std::fill(output.begin(), output.end(), u8{0})" not in fallback
 assert "std::copy_n(input.begin(), std::min(input.size(), output.size()), output.begin())" not in fallback
 for ioctl in ("0xC0045401U", "0xC0045402U", "0xC018540BU",
-              "0xC0085407U", "0xC0045408U", "0x8004540AU"):
+              "0xC0085407U", "0xC0045408U", "0x8004540AU",
+              "0x00005403U", "0x00005404U", "0x00005405U",
+              "0xC0105409U", "0xC018540CU", "0xC008540DU"):
     assert ioctl in stub, ioctl
 for needle in (
     "ConfigureTsgScheduling",
@@ -35,4 +38,4 @@ for needle in (
 for dev in ("/dev/nvhost-as-gpu","/dev/nvhost-gpu","/dev/nvhost-ctrl-gpu",
             "/dev/nvhost-ctrl","/dev/nvhost-nvdec","/dev/nvhost-vic"):
     assert f'builders["{dev}"]' in cpp,dev
-print("NS2_NVHOST_UNKNOWN_NODE_FALLBACK_SOURCE_PASS upstream=5cb4786 tsg_open=1 known_devices_preserved=1 unknown_ioctl_fail_closed=1 tsg_prebind_scheduling=1 tsg_get_timeslice=1")
+print("NS2_NVHOST_UNKNOWN_NODE_FALLBACK_SOURCE_PASS upstream=5cb4786 tsg_open=1 known_devices_preserved=1 unknown_ioctl_fail_closed=1 tsg_prebind_scheduling=1 tsg_get_timeslice=1 tsg_known_failclosed=6")
