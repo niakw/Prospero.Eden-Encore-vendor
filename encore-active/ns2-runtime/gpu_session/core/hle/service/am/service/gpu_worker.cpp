@@ -155,6 +155,7 @@ IGpuWorker::IGpuWorker(Core::System& system_, std::shared_ptr<Nvidia::Module> mo
         {0, &IGpuWorker::Handshake, "Handshake"},
         {101, &IGpuWorker::CreateGpuAccessibleMemory, "CreateGpuAccessibleMemory"},
         {102, &IGpuWorker::DestroyGpuAccessibleMemory, "DestroyGpuAccessibleMemory"},
+        {171, &IGpuWorker::EnsureGpuMemoryComptags, "EnsureGpuMemoryComptags"},
         {211, &IGpuWorker::NormalMapGpuMemory4K, "NormalMapGpuMemory4K"},
         {212, &IGpuWorker::NormalModifyGpuMemory4K, "NormalModifyGpuMemory4K"},
         {213, &IGpuWorker::NormalUnmapGpuMemory4K, "NormalUnmapGpuMemory4K"},
@@ -1303,6 +1304,34 @@ void IGpuWorker::DestroyGpuAccessibleMemory(HLERequestContext& ctx) {
     if (const auto release = DecodeGpuMemoryRelease(command)) {
         const std::scoped_lock lock{m_mutex, m_shared->mutex};
         result = ReleaseMemory(release->id, release->notification);
+    }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGpuWorker::EnsureGpuMemoryComptags(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<u32, 3> command{packet[0], packet[1], packet[2]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto id = DecodeEnsureGpuMemoryComptags(command)) {
+        const std::scoped_lock lock{m_mutex, m_shared->mutex};
+        const auto owned = std::find(m_memory.begin(), m_memory.end(), *id);
+        result = Kernel::ResultNotFound;
+        if (owned != m_memory.end()) {
+            // A handle being destructively released is not a valid comptag
+            // owner even though it remains in m_memory until the deferred
+            // page-table unlock completes.
+            result = Kernel::ResultBusy;
+            if (!m_pending_device_unlocks.contains(*id)) {
+                const auto handle = m_module->GetContainer().GetNvMapFile().GetHandle(*id);
+                // This backend never publishes NVIDIA compressed PTEs:
+                // SelectNativeMemoryKind returns the guest's uncompressed
+                // fallback. Therefore a live owned handle already satisfies
+                // the comptag requirement without allocating fake metadata.
+                result = handle ? ResultSuccess : Kernel::ResultInvalidState;
+            }
+        }
     }
     TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 2};

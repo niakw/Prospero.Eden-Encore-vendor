@@ -29,6 +29,7 @@ private:
     void Handshake(HLERequestContext& ctx);
     void CreateGpuAccessibleMemory(HLERequestContext& ctx);
     void DestroyGpuAccessibleMemory(HLERequestContext& ctx);
+    void EnsureGpuMemoryComptags(HLERequestContext& ctx);
     void NormalMapGpuMemory4K(HLERequestContext& ctx);
     void NormalModifyGpuMemory4K(HLERequestContext& ctx);
     void NormalUnmapGpuMemory4K(HLERequestContext& ctx);

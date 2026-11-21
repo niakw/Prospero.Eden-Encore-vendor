@@ -66,6 +66,17 @@ struct GpuMemoryRelease {
     u32 id;
     u32 notification;
 };
+inline constexpr std::optional<u32> DecodeEnsureGpuMemoryComptags(
+    std::span<const u32> packet) {
+    // nn::gpu::sdk::EnsureGpuMemoryComptags: worker TIPC 171 carries only
+    // the live GpuMemoryHandle. Encore always selects an uncompressed
+    // fallback kind for compressed native requests, so no NVIDIA comptag
+    // storage is allocated by the backend.
+    if (packet.size() != 3 || packet[0] != 0xbb || packet[1] != 1 ||
+        packet[2] == 0)
+        return {};
+    return packet[2];
+}
 constexpr std::optional<GpuMemoryRelease> DecodeGpuMemoryRelease(
     std::span<const u32> packet) {
     if (packet.size() != 4 || packet[0] != 0x76 || packet[1] != 2 ||
