@@ -288,4 +288,16 @@ native_big_page_index=(1<<34)>>17
 assert (native_big_page_index<<17)==(16<<30)
 assert ((native_big_page_index<<17)&0xFFFFFFFF)==0
 
+
+# Native GPU topology and engine/runlist discovery must not leak through
+# the shared NVDRV ioctl3 device into a Maxwell/NS1 session. Guard after
+# the exact NS2 command-number check, before copying any response bytes.
+ctrl_gpu = (R/"encore-active/ns2-runtime/nvdrv/core/hle/service/nvdrv/devices/nvhost_ctrl_gpu.cpp").read_text()
+native_info = ctrl_gpu.split("if (command.raw != 0xC010471FU) break;", 1)[1].split("case 0x13: {", 1)[0]
+native_vsms = ctrl_gpu.split("if (command.raw != 0xC0084713U) break;", 1)[1].split("default:", 1)[0]
+for branch, use in ((native_info, "engine"), (native_vsms, "vsms")):
+    assert "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;" in branch, use
+    assert branch.index("if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;") < branch.index(
+        "return NvResult::Success;"), use
+
 print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")

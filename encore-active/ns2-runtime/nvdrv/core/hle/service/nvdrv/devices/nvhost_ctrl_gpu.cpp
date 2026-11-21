@@ -139,6 +139,7 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
             // descriptors. NvRm selects runlist IDs from this reply before
             // opening a GPU channel. No host runlist is scheduled here.
             if (command.raw != 0xC010471FU) break;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
             struct NativeEngineInfo {
                 u32_le engine_id;
                 u32_le instance;
@@ -177,6 +178,7 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
             // native characteristics and GetTPCMasks3 reply.
             // The Switch 1 4-byte variant remains unsupported.
             if (command.raw != 0xC0084713U) break;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
             constexpr size_t NativeVirtualSmCount =
                 NativeGpuTpcsPerGpc * NativeGpuSmsPerTpc;
             if (input.size() != 8 || output.size() != 8 ||
