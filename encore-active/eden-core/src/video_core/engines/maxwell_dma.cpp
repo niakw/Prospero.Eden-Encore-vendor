@@ -134,6 +134,21 @@ bool PitchDmaPhysicalOverlap(MemoryManager& memory, GPUVAddr source,
     return false;
 }
 
+// A tiled software conversion may read directly from guest pages while
+// writing the same physical pages under another GPU virtual address.
+bool DmaTiledSoftwareOverlap(MemoryManager& memory, GPUVAddr src, size_t src_bytes,
+                             GPUVAddr dst, size_t dst_bytes) {
+    if (src_bytes == 0 || dst_bytes == 0) return false;
+    constexpr u64 MAX_ADDRESS = (std::numeric_limits<u64>::max)();
+    if (src > MAX_ADDRESS - src_bytes || dst > MAX_ADDRESS - dst_bytes)
+        return true; // Fail closed in the mapping preflight below.
+    const u64 src_end = src + src_bytes;
+    const u64 dst_end = dst + dst_bytes;
+    return (src < dst_end && dst < src_end) ||
+        PitchDmaPhysicalOverlap(memory, src, dst, 0, 0, 1, src_bytes, dst_bytes,
+                                src, src_end, dst, dst_end);
+}
+
 // MemoryManager::CopyBlock is an individual-row transfer, not a snapshot
 // of all rows. Aliased rows must be captured before the first write.
 bool CopyPitchDmaPlain(MemoryManager& memory, GPUVAddr source,
@@ -999,6 +1014,29 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
     }
     const size_t dst_size = static_cast<size_t>(dst_size_wide);
 
+    if (DmaTiledSoftwareOverlap(memory_manager, src_operand.address, src_size,
+                                dst_operand.address, dst_size)) {
+        constexpr size_t MAX_TILED_ALIAS_BYTES = size_t{64} << 20;
+        if (src_size == 0 || dst_size == 0 ||
+            src_size > MAX_TILED_ALIAS_BYTES ||
+            !memory_manager.IsFullyMappedRange(src_operand.address, src_size) ||
+            !memory_manager.IsFullyMappedRange(dst_operand.address, dst_size)) {
+            LOG_WARNING(Render_OpenGL, "Unmapped or oversized tiled-to-pitch DMA alias");
+            return;
+        }
+        // Direct GuestMemory spans are unsafe when source/dest share device
+        // pages: preserve ALL input microtiles before the first output write.
+        std::vector<u8> source_snapshot(src_size);
+        memory_manager.ReadBlock(src_operand.address, source_snapshot.data(), src_size);
+        Tegra::Memory::GpuGuestMemoryScoped<
+            u8, Tegra::Memory::GuestMemoryFlags::UnsafeReadCachedWrite>
+            tmp_write_buffer(memory_manager, dst_operand.address, dst_size, &write_buffer);
+        UnswizzleSubrect(tmp_write_buffer, source_snapshot, bytes_per_pixel, width,
+                         height, depth, x_offset, src_params.origin.y, x_elements,
+                         regs.line_count, block_height, block_depth, dst_operand.pitch);
+        return;
+    }
+
     Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::SafeRead> tmp_read_buffer(
         memory_manager, src_operand.address, src_size, &read_buffer);
     Tegra::Memory::GpuGuestMemoryScoped<u8, Tegra::Memory::GuestMemoryFlags::UnsafeReadCachedWrite>
@@ -1068,6 +1106,25 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
 
     GPUVAddr src_addr = regs.offset_in;
     GPUVAddr dst_addr = regs.offset_out;
+    if (DmaTiledSoftwareOverlap(memory_manager, src_addr, src_size, dst_addr, dst_size)) {
+        constexpr size_t MAX_TILED_ALIAS_BYTES = size_t{64} << 20;
+        if (src_size == 0 || dst_size == 0 ||
+            src_size > MAX_TILED_ALIAS_BYTES ||
+            !memory_manager.IsFullyMappedRange(src_addr, src_size) ||
+            !memory_manager.IsFullyMappedRange(dst_addr, dst_size)) {
+            LOG_WARNING(Render_OpenGL, "Unmapped or oversized pitch-to-tiled DMA alias");
+            return;
+        }
+        std::vector<u8> source_snapshot(src_size);
+        memory_manager.ReadBlock(src_addr, source_snapshot.data(), src_size);
+        Tegra::Memory::GpuGuestMemoryScoped<
+            u8, Tegra::Memory::GuestMemoryFlags::UnsafeReadCachedWrite>
+            tmp_write_buffer(memory_manager, dst_addr, dst_size, &write_buffer);
+        SwizzleSubrect(tmp_write_buffer, source_snapshot, bytes_per_pixel, width,
+                       height, depth, x_offset, dst_params.origin.y, x_elements,
+                       regs.line_count, block_height, block_depth, regs.pitch_in);
+        return;
+    }
     Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::SafeRead> tmp_read_buffer(
         memory_manager, src_addr, src_size, &read_buffer);
     Tegra::Memory::GpuGuestMemoryScoped<u8, Tegra::Memory::GuestMemoryFlags::UnsafeReadCachedWrite>
