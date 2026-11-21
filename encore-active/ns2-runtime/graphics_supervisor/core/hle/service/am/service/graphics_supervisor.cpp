@@ -1720,6 +1720,17 @@ void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
     // its one handle into the same slot, then releases the KSession creator's
     // reference after handle_table.Add(). AddCopyObject would leak that ref.
     // On failure, never publish a descriptor or a null kernel object.
+    // AddMoveObject may allocate after CreateMetadataSession published a
+    // live KClientSession. On host OOM release its creator reference rather
+    // than leaking a service session or throwing through the IPC handler.
+    if (result.IsSuccess()) {
+        try {
+            ctx.AddMoveObject(client);
+        } catch (const std::bad_alloc&) {
+            client->Close(system.Kernel());
+            result = Kernel::ResultOutOfResource;
+        }
+    }
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
@@ -1727,7 +1738,6 @@ void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
     }
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
-    ctx.AddMoveObject(client);
 }
 
 void IGraphicsSupervisor::InitializeFeatureContext(HLERequestContext& ctx) {
@@ -1799,9 +1809,17 @@ void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {
         result = Kernel::ResultOutOfResource;
     }
     if (result.IsSuccess()) {
+        try {
+            ctx.AddMoveObject(client);
+        } catch (const std::bad_alloc&) {
+            // The creator reference has not entered the outgoing queue.
+            client->Close(system.Kernel());
+            result = Kernel::ResultOutOfResource;
+        }
+    }
+    if (result.IsSuccess()) {
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(result.raw);
-        ctx.AddMoveObject(client);
     } else {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
@@ -1895,6 +1913,17 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
     // a session until a process-owned TransferMemory passes 1401 validation.
     // TIPC 1402 returns a MOVE descriptor; fail-closed admission must never
     // publish a null handle. Preserve normal NVDRV/NS1 registration.
+    // AddMoveObject may allocate after CreateMetadataSession published a
+    // live KClientSession. On host OOM release its creator reference rather
+    // than leaking a service session or throwing through the IPC handler.
+    if (result.IsSuccess()) {
+        try {
+            ctx.AddMoveObject(client);
+        } catch (const std::bad_alloc&) {
+            client->Close(system.Kernel());
+            result = Kernel::ResultOutOfResource;
+        }
+    }
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
@@ -1902,7 +1931,6 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
     }
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
-    ctx.AddMoveObject(client);
 }
 
 void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
@@ -1947,6 +1975,17 @@ void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
     }
     // TIPC 497 must expose the guest's expected MOVE descriptor only on
     // successful bootstrap/NVDRV admission; no null session on failure.
+    // AddMoveObject may allocate after CreateMetadataSession published a
+    // live KClientSession. On host OOM release its creator reference rather
+    // than leaking a service session or throwing through the IPC handler.
+    if (result.IsSuccess()) {
+        try {
+            ctx.AddMoveObject(client);
+        } catch (const std::bad_alloc&) {
+            client->Close(system.Kernel());
+            result = Kernel::ResultOutOfResource;
+        }
+    }
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
@@ -1954,7 +1993,6 @@ void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
     }
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
-    ctx.AddMoveObject(client);
 }
 
 void IGraphicsSupervisor::QueryDonatedTransferMemoryUsage(HLERequestContext& ctx) {

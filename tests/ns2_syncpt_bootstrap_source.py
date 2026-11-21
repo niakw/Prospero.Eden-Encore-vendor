@@ -120,6 +120,16 @@ for service in ("OpenSyncptSession", "OpenDisplaySession", "OpenGpuSession",
     assert "IPC::ResponseBuilder rb{ctx, 2, 0, 1};" in body, service
     assert "IPC::ResponseBuilder rb{ctx, 2, 1, 0};" not in body, service
     assert "ctx.AddMoveObject(client);" in body, ("HLE move descriptor", service)
+    # The KClientSession creator reference must be released if the outgoing
+    # MOVE handle vector cannot allocate; the success descriptor is never
+    # emitted after host OOM. Applies to real 202/305/497/1402 bootstrap.
+    for needle in ("catch (const std::bad_alloc&)",
+                   "client->Close(system.Kernel());",
+                   "result = Kernel::ResultOutOfResource;"):
+        assert needle in body,(service,"move-oom",needle)
+    assert body.index("ctx.AddMoveObject(client);") < body.index(
+        "client->Close(system.Kernel());") < body.index(
+        "IPC::ResponseBuilder rb{ctx, 2, 0, 1};")
 # Feature/video children not used by the current P0 bootstrap are left on
 # their existing contract until a client packet proves their descriptor ABI.
 # WriteToOutgoingCommandBuffer consumes one queued move reference after
