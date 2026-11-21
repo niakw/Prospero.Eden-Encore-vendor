@@ -545,29 +545,28 @@ void IGpuSession::GetVaRange(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     const std::array<GP::U32, 3> command{packet[0], packet[1], packet[2]};
     Result result = Kernel::ResultInvalidCombination;
-    u64 kind{};
-    u64 first{};
-    u64 size{};
+    // libounce gsvGpuGetVmUserRanges consumes:
+    //   u64 count; GsvGpuVaRange ranges[4] ({u64 first,u64 last}).
+    // Keep the unused three records zero and publish the one proven NVN
+    // user interval with an inclusive end.
+    std::array<u64_le, 9> payload{};
     if (const auto request = GP::DecodeAddressSpacePartition(command, 203)) {
         result = Kernel::ResultNotFound;
         const std::scoped_lock lock{m_shared->mutex};
         if (m_shared->address_spaces.Owns(request->address_space) &&
             ResolveOpenedAddressSpace(request->address_space)) {
-            kind = 1;
-            // This TIPC view is bounded by the native user VA partition,
-            // not by the wider 1-TiB GMMU address-space coverage.
-            first = Nvidia::Devices::NativeNs2GpuVaStart;
-            size = Nvidia::Devices::NativeNs2GpuVaSmallSplit - first;
+            payload[0] = 1;
+            payload[1] = Nvidia::Devices::NativeNs2GpuVaStart;
+            payload[2] = Nvidia::Devices::NativeNs2GpuVaSmallSplit - 1;
             result = ResultSuccess;
         } else if (m_shared->address_spaces.Owns(request->address_space)) {
             result = Kernel::ResultInvalidState;
         }
     }
-    IPC::ResponseBuilder rb{ctx, 8};
+    // Result word + 72-byte output payload = 19 TIPC words.
+    IPC::ResponseBuilder rb{ctx, 20};
     rb.Push(result.raw);
-    rb.Push(kind);
-    rb.Push(first);
-    rb.Push(size);
+    rb.PushRaw(payload);
 }
 
 void IGpuSession::CreateGraphicsDevice(HLERequestContext& ctx) {

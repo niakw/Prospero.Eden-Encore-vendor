@@ -91,7 +91,7 @@ for cmd in ("201","202","203"):
     assert f"DecodeAddressSpacePartition(command, {cmd})" in cpp
 assert "command != 201 && command != 202 && command != 203" in proto
 assert "first = Nvidia::Devices::NativeNs2GpuVaStart;" in cpp
-assert cpp.count("size = Nvidia::Devices::NativeNs2GpuVaSmallSplit - first;") == 2
+assert cpp.count("size = Nvidia::Devices::NativeNs2GpuVaSmallSplit - first;") == 1
 # NVIDIA VA page-table geometry can cover 1 TiB, while NVN's reported
 # user region ends at 768 GiB. Keep those distinct exactly as the
 # reviewed Lichii upstream reports GetUserPartition/GetVaRange.
@@ -101,7 +101,19 @@ assert "NativeNs2GpuVaEnd = 1ULL << 40;" in layout
 assert "const u64_le range_end{Nvidia::Devices::NativeNs2GpuVaEnd};" in cpp
 assert "0xC000000000" in cpp
 assert "first = ~u64{0};" in cpp and "last = 0;" in cpp
-assert "kind = 1;" in cpp
+get_ranges=cpp.split("void IGpuSession::GetVaRange(HLERequestContext& ctx) {",1)[1].split(
+    "\n}\n\nvoid IGpuSession::CreateGraphicsDevice",1)[0]
+for marker in (
+    "std::array<u64_le, 9> payload{};",
+    "payload[0] = 1;",
+    "payload[1] = Nvidia::Devices::NativeNs2GpuVaStart;",
+    "payload[2] = Nvidia::Devices::NativeNs2GpuVaSmallSplit - 1;",
+    "IPC::ResponseBuilder rb{ctx, 20};",
+    "rb.PushRaw(payload);",
+):
+    assert marker in get_ranges, marker
+assert "u64 kind{};" not in get_ranges
+assert "rb.Push(kind);" not in get_ranges
 # The obsolete nine-u64 GetVARegions reply was a shifted older contract.
 assert "std::array<u64, 9> values" not in cpp
 print("NS2_GPU_PARTITION_NEW_SDK_SOURCE_PASS commands=200,201,202,203 sync_event=owned no_global_idle=1")
