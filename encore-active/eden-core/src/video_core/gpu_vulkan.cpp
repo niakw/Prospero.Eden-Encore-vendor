@@ -412,7 +412,9 @@ struct GPU::Impl {
 
     Tegra::Control::Scheduler scheduler;
     ::Common::unordered_map<s32, std::shared_ptr<Tegra::Control::ChannelState>> channels;
-    Tegra::Control::ChannelState* current_channel;
+    // A guest may close an NVDRV GPU FD before its first successful bind.
+    // ReleaseChannel compares this pointer even for an uninitialized owner.
+    Tegra::Control::ChannelState* current_channel{};
     s32 bound_channel{-1};
 
     std::deque<size_t> free_swap_counters;
