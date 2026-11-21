@@ -1,19 +1,3 @@
-#include <atomic>
-#include <cstdio>
-
-namespace {
-unsigned EdenGpuBoundedSample(std::atomic<unsigned>& samples) noexcept {
-    unsigned current = samples.load(std::memory_order_relaxed);
-    while (current < 8u) {
-        if (samples.compare_exchange_weak(current, current + 1u,
-                                          std::memory_order_relaxed))
-            return current;
-    }
-    return 8u;
-}
-}
-
-
 namespace {
 constexpr unsigned EdenPrmtIndexReference(unsigned a, unsigned b, unsigned selector) {
     unsigned result = 0;
