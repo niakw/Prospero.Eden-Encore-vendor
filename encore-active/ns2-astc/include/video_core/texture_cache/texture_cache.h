@@ -424,7 +424,7 @@ typename P::Sampler* TextureCache<P>::GetSampler(u32 index, bool compute) {
 template <class P>
 SamplerId TextureCache<P>::GetSamplerId(u32 index, bool compute) {
     auto& table = compute ? channel_state->compute_sampler_table : channel_state->graphics_sampler_table;
-    if (index > table.current_limit) {
+    if (index > table.current_limit || index >= table.descriptors.size()) {
         LOG_DEBUG(HW_GPU, "Invalid sampler index={}", index);
         return NULL_SAMPLER_ID;
     }
@@ -450,10 +450,14 @@ typename P::Sampler& TextureCache<P>::GetSampler(SamplerId id) noexcept {
 
 template <class P>
 void TextureCache<P>::SynchronizeDescriptors(bool compute) {
+    // A guest-controlled TIC/TSC limit must never allocate an unbounded
+    // descriptor array from inside DescriptorTable::Refresh() noexcept.
+    // 21-bit table indices are the conservative upstream upper bound.
+    constexpr u32 MaxDescriptorTableLimit = (1U << 21) - 1;
     if (compute) {
         const bool linked_tsc = kepler_compute->launch_description.linked_tsc;
-        const u32 tic_limit = kepler_compute->regs.tic.limit;
-        const u32 tsc_limit = linked_tsc ? tic_limit : kepler_compute->regs.tsc.limit;
+        const u32 tic_limit = (std::min)(kepler_compute->regs.tic.limit, MaxDescriptorTableLimit);
+        const u32 tsc_limit = linked_tsc ? tic_limit : (std::min)(kepler_compute->regs.tsc.limit, MaxDescriptorTableLimit);
         bool bindings_changed = false;
         if (channel_state->compute_sampler_table.Synchronize(kepler_compute->regs.tsc.Address(), tsc_limit))
             bindings_changed = true;
@@ -464,8 +468,8 @@ void TextureCache<P>::SynchronizeDescriptors(bool compute) {
         }
     } else {
         const bool linked_tsc = maxwell3d->regs.sampler_binding == Tegra::Engines::Maxwell3D::Regs::SamplerBinding::ViaHeaderBinding;
-        const u32 tic_limit = maxwell3d->regs.tex_header.limit;
-        const u32 tsc_limit = linked_tsc ? tic_limit : maxwell3d->regs.tex_sampler.limit;
+        const u32 tic_limit = (std::min)(maxwell3d->regs.tex_header.limit, MaxDescriptorTableLimit);
+        const u32 tsc_limit = linked_tsc ? tic_limit : (std::min)(maxwell3d->regs.tex_sampler.limit, MaxDescriptorTableLimit);
         bool bindings_changed = false;
         if (channel_state->graphics_sampler_table.Synchronize(maxwell3d->regs.tex_sampler.Address(), tsc_limit))
             bindings_changed = true;
@@ -820,7 +824,7 @@ std::shared_ptr<u8> TextureCache<P>::PinNativeSampler(SamplerId id) {
 template <class P>
 ImageViewId TextureCache<P>::VisitImageView(u32 index, bool compute) {
     auto& table = compute ? channel_state->compute_image_table : channel_state->graphics_image_table;
-    if (index > table.current_limit) {
+    if (index > table.current_limit || index >= table.descriptors.size()) {
         LOG_DEBUG(HW_GPU, "Invalid image view index={}", index);
         return NULL_IMAGE_VIEW_ID;
     }
