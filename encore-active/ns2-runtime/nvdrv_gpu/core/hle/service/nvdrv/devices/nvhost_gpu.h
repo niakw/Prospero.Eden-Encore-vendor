@@ -164,11 +164,17 @@ private:
     };
     static_assert(sizeof(IoctlEventIdControl) == 8, "IoctlEventIdControl is incorrect size");
 
+    struct IoctlGetErrorInfo {
+        u32_le type{}; // 0=no_error, 1=mmu, 2=gr, 3=pbdma, 4=timeout
+        std::array<u32_le, 31> info{};
+    };
+    static_assert(sizeof(IoctlGetErrorInfo) == 128, "IoctlGetErrorInfo is incorrect size");
+
     struct IoctlGetErrorNotification {
         u64_le timestamp{};
         u32_le info32{};
         u16_le info16{};
-        u16_le status{}; // 0 = healthy; non-zero = channel/GPU error
+        u16_le status{}; // Switch ABI: always 0xFFFF
     };
     static_assert(sizeof(IoctlGetErrorNotification) == 16,
                   "IoctlGetErrorNotification is incorrect size");
@@ -224,10 +230,11 @@ private:
     // is persisted even though explicit hardware-style preempt remains unsupported.
     u32 native_graphics_preemption_mode{};
     u32 native_compute_preemption_mode{};
-    // Native H:0x0C retains the exact NvMap backing just like nvgpu retains
-    // its dma-buf. The offset is kept for future real GPU-error publication.
-    std::optional<u32> native_error_notifier_handle{};
-    u64 native_error_notifier_offset{};
+    // Switch keeps channel error state inside the driver. H:0x0C only
+    // enables/disables it; H:0x16/H:0x17 return the current snapshots.
+    bool native_error_notifier_initialized{};
+    IoctlGetErrorInfo native_error_info{};
+    IoctlGetErrorNotification native_error_notification{};
 
     NvResult ChannelOpen(IoctlChannelOpen& params, DeviceFD fd);
     NvResult ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd);
@@ -237,6 +244,7 @@ private:
     NvResult GetClientData(IoctlClientData& params);
     NvResult ZCullBind(IoctlZCullBind& params);
     NvResult SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd);
+    NvResult GetErrorInfo(IoctlGetErrorInfo& params, DeviceFD fd);
     NvResult GetErrorNotification(IoctlGetErrorNotification& params, DeviceFD fd);
     NvResult SetChannelPriority(IoctlChannelSetPriority& params);
     // Authenticate the exact FD before changing channel/engine state. Native

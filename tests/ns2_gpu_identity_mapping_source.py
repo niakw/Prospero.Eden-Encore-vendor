@@ -238,71 +238,70 @@ assert worker_destroy.index("system.GPU().WaitForIdle();") < worker_destroy.inde
     "for (const auto& [key, mapping] : m_mappings.Mappings())")
 
 
-# OunceVK's real native channel setup queries event 7 then installs
-# H:0x0C SET_ERROR_NOTIFIER before preemption and first GPFIFO2. Native
-# Encore must retain the real process-owned NvMap backing and clear the
-# 16-byte NVIDIA notification record instead of returning a stub Success.
+# OunceVK installs H:0x0C before preemption/GPFIFO2. Nintendo's
+# channel ABI intentionally does not expose Linux's dma-buf notifier:
+# mem!=0 enables internal state, mem==0 disables it, and offset/size are
+# ignored. H:0x16/H:0x17 fetch the current error snapshots.
 assert 'case 0xc:' in nvhost_cpp
 notifier_route=nvhost_cpp.split("case 0xc:",1)[1].split("case 0xd:",1)[0]
 assert "SetErrorNotifier, input, output, fd" in notifier_route
 notifier=nvhost_cpp.split(
     "NvResult nvhost_gpu::SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd) {",1
 )[1].split("\n}",1)[0]
-for token in (
-    "if (!UsesNativeAbi(fd))",
-    "ValidateChannelOwner(fd, program_id)",
-    "sessions.find(fd)",
-    "nvmap.GetHandle(params.mem)",
-    "core.GetSession(handle->session_id)",
-    "backing_session->process != channel_session->process",
-    "constexpr u64 NativeErrorNotifierBytes = 16",
-    "handle->Duplicate(true)",
-    "current.get() == handle.get()",
-    "handle->dupes > 0",
-    "NativeErrorNotifierBytes <= handle->orig_size - offset",
-    "IsValidVirtualAddressRange",
-    "memory.WriteBlock",
-    "nvmap.FreeHandle(params.mem, true)",
-    "native_error_notifier_handle = params.mem",
-    "native_error_notifier_offset = static_cast<u64>(params.offset)",
-):
-    assert token in notifier, token
-assert "NvResult SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd);" in nvhost_hdr
-assert "std::optional<u32> native_error_notifier_handle{};" in nvhost_hdr
-assert "u64 native_error_notifier_offset{};" in nvhost_hdr
-dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}",1)[0]
-assert "nvmap.FreeHandle(*native_error_notifier_handle, true);" in dtor
-assert dtor.index("system.GPU().ReleaseChannel(*channel_state)") < dtor.index(
-    "nvmap.FreeHandle(*native_error_notifier_handle, true);")
+for token in ("if (!UsesNativeAbi(fd))",
+              "ValidateChannelOwner(fd, program_id)",
+              "native_error_notifier_initialized = static_cast<u32>(params.mem) != 0",
+              "native_error_info = {}",
+              "native_error_notification = {}",
+              "native_error_notification.status = 0xFFFF",
+              "error_notifier_event->GetReadableEvent().Clear(system.Kernel())"):
+    assert token in notifier,token
+for forbidden in ("nvmap.GetHandle(params.mem)", "handle->Duplicate(true)",
+                  "memory.WriteBlock", "native_error_notifier_handle",
+                  "params.offset) != 0", "params.size) != 0"):
+    assert forbidden not in notifier,forbidden
 
-# OunceVK immediately reads H:0x17 after notifier/preemption and accepts
-# channel setup only when the live 16-byte notification status is healthy.
-# Read the same retained NvMap record; do not synthesize a zero result.
-health_route=nvhost_cpp.split("case 0x17: { // Switch 2 NVGPU_IOCTL_CHANNEL_GET_ERROR_NOTIFICATION",1)[1].split(
-    "case 0x18:",1)[0]
+assert "struct IoctlGetErrorInfo" in nvhost_hdr
+assert "std::array<u32_le, 31> info{};" in nvhost_hdr
+assert 'static_assert(sizeof(IoctlGetErrorInfo) == 128' in nvhost_hdr
+assert "Switch ABI: always 0xFFFF" in nvhost_hdr
+assert "bool native_error_notifier_initialized{};" in nvhost_hdr
+assert "IoctlGetErrorInfo native_error_info{};" in nvhost_hdr
+assert "IoctlGetErrorNotification native_error_notification{};" in nvhost_hdr
+assert "std::optional<u32> native_error_notifier_handle{};" not in nvhost_hdr
+
+health_info_route=nvhost_cpp.split(
+    "case 0x16: { // Switch NVGPU_IOCTL_CHANNEL_GET_ERROR_INFO",1
+)[1].split("case 0x17:",1)[0]
+for token in ("command.raw != 0x80804816U", "!input.empty()",
+              "output.size() != sizeof(IoctlGetErrorInfo)",
+              "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented",
+              "GetErrorInfo, input, output, fd"):
+    assert token in health_info_route,token
+
+health_route=nvhost_cpp.split(
+    "case 0x17: { // Switch NVGPU_IOCTL_CHANNEL_GET_ERROR_NOTIFICATION",1
+)[1].split("case 0x18:",1)[0]
 for token in ("command.raw != 0xC0104817U",
               "sizeof(IoctlGetErrorNotification)",
+              "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented",
               "GetErrorNotification, input, output, fd"):
-    assert token in health_route, token
+    assert token in health_route,token
+
+health_info=nvhost_cpp.split(
+    "NvResult nvhost_gpu::GetErrorInfo(IoctlGetErrorInfo& params, DeviceFD fd) {",1
+)[1].split("\n}",1)[0]
 health=nvhost_cpp.split(
     "NvResult nvhost_gpu::GetErrorNotification(IoctlGetErrorNotification& params, DeviceFD fd) {",1
 )[1].split("\n}",1)[0]
-for token in ("!UsesNativeAbi(fd)", "ValidateChannelOwner(fd, program_id)",
-              "!native_error_notifier_handle", "nvmap.GetHandle(*native_error_notifier_handle)",
-              "handle->internal_dupes <= 0", "native_error_notifier_offset",
-              "IsValidVirtualAddressRange", "memory.ReadBlock",
-              "sizeof(IoctlGetErrorNotification)", "return NvResult::Success"):
-    assert token in health, token
-assert "NvResult GetErrorNotification(IoctlGetErrorNotification& params, DeviceFD fd);" in nvhost_hdr
-assert "0 = healthy; non-zero = channel/GPU error" in nvhost_hdr
-
-# OunceVK closes the same notifier by sending a completely zero H:0x0C
-# payload. This must release the retained duplicate without accepting malformed
-# partially-zero disable requests.
-for token in ("if (params.mem == 0)", "params.offset) != 0", "params.size) != 0",
-              "nvmap.FreeHandle(*native_error_notifier_handle, true)",
-              "native_error_notifier_handle.reset()", "native_error_notifier_offset = 0"):
-    assert token in notifier, token
+for body in (health_info,health):
+    assert "ValidateChannelOwner(fd, program_id)" in body
+    assert "if (!native_error_notifier_initialized)" in body
+    assert "return NvResult::InvalidState;" in body
+assert "params = native_error_info;" in health_info
+assert "params = native_error_notification;" in health
+assert "params.status = 0xFFFF;" in health
+assert "memory.ReadBlock" not in health
 
 # Switch 2 channel preemption-mode ioctl (SwitchBrew 0xC008481F).
 # NVIDIA common UAPI permits compute CTA (bit1), and OunceVK's actual

@@ -13,6 +13,7 @@
 #include "common/assert.h"
 #include "common/logging.h"
 #include "core/core.h"
+#include "core/hle/kernel/k_event.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/nvdrv/core/container.h"
 #include "core/hle/service/nvdrv/core/nvmap.h"
@@ -85,10 +86,6 @@ nvhost_gpu::~nvhost_gpu() {
         system.GPU().ReleaseChannel(*channel_state);
     }
     NativeGpuChannelRegistry::Instance().Unbind(channel_state.get());
-    if (native_error_notifier_handle) {
-        nvmap.FreeHandle(*native_error_notifier_handle, true);
-        native_error_notifier_handle.reset();
-    }
     events_interface.FreeEvent(sm_exception_breakpoint_int_report_event);
     events_interface.FreeEvent(sm_exception_breakpoint_pause_report_event);
     events_interface.FreeEvent(error_notifier_event);
@@ -130,11 +127,19 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
             return WrapFixed(this, &nvhost_gpu::SetErrorNotifier, input, output, fd);
         case 0xd:
             return WrapFixed(this, &nvhost_gpu::SetChannelPriority, input, output);
-        case 0x17: { // Switch 2 NVGPU_IOCTL_CHANNEL_GET_ERROR_NOTIFICATION
+        case 0x16: { // Switch NVGPU_IOCTL_CHANNEL_GET_ERROR_INFO
+            if (command.raw != 0x80804816U) break;
+            if (!input.empty() || output.size() != sizeof(IoctlGetErrorInfo))
+                return NvResult::InvalidSize;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+            return WrapFixed(this, &nvhost_gpu::GetErrorInfo, input, output, fd);
+        }
+        case 0x17: { // Switch NVGPU_IOCTL_CHANNEL_GET_ERROR_NOTIFICATION
             if (command.raw != 0xC0104817U) break;
             if (output.size() != sizeof(IoctlGetErrorNotification) ||
                 (!input.empty() && input.size() != sizeof(IoctlGetErrorNotification)))
                 return NvResult::InvalidSize;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
             return WrapFixed(this, &nvhost_gpu::GetErrorNotification, input, output, fd);
         }
         case 0x18:
@@ -411,9 +416,9 @@ NvResult nvhost_gpu::ZCullBind(IoctlZCullBind& params) {
 }
 
 NvResult nvhost_gpu::SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd) {
-    // Preserve the legacy Eden/NS1 behaviour. Switch 2 is stricter because
-    // OunceVK installs this notifier in the real channel-setup path before
-    // its first GPFIFO2 submission.
+    // Nintendo intentionally removed Linux nvgpu's userspace notifier DMA.
+    // offset/size are ignored; mem is only a non-zero enable token. Error
+    // details are read through H:0x16/H:0x17.
     if (!UsesNativeAbi(fd)) {
         LOG_WARNING(Service_NVDRV, "(STUBBED) called, offset={:X}, size={:X}, mem={:X}",
                     params.offset, params.size, params.mem);
@@ -426,112 +431,42 @@ NvResult nvhost_gpu::SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd
         status != NvResult::Success)
         return status;
 
-    const auto session_it = sessions.find(fd);
-    if (session_it == sessions.end())
-        return NvResult::BadParameter;
-    const auto* channel_session = core.GetSession(session_it->second);
-    if (!channel_session || !channel_session->process)
-        return NvResult::InvalidState;
-
-    if (params.mem == 0) {
-        if (static_cast<u64>(params.offset) != 0 || static_cast<u64>(params.size) != 0)
-            return NvResult::BadParameter;
-        if (native_error_notifier_handle)
-            nvmap.FreeHandle(*native_error_notifier_handle, true);
-        native_error_notifier_handle.reset();
-        native_error_notifier_offset = 0;
-        return NvResult::Success;
-    }
-
-    auto handle = nvmap.GetHandle(params.mem);
-    if (!handle)
-        return NvResult::BadParameter;
-    const auto* backing_session = core.GetSession(handle->session_id);
-    if (!backing_session || backing_session->process != channel_session->process)
-        return NvResult::BadParameter;
-
-    // Linux nvgpu maps a 16-byte nvgpu_notification at offset and retains
-    // the dma-buf until channel close/replacement. Mirror that lifetime with
-    // one internal NVMap duplicate; never retain a raw guest pointer.
-    constexpr u64 NativeErrorNotifierBytes = 16;
-    if (handle->Duplicate(true) != NvResult::Success)
-        return NvResult::BadParameter;
-
-    bool installed = false;
-    {
-        const auto current = nvmap.GetHandle(params.mem);
-        if (current && current.get() == handle.get()) {
-            const std::scoped_lock handle_lock{handle->mutex};
-            const u64 offset = static_cast<u64>(params.offset);
-            if (handle->allocated && handle->dupes > 0 && handle->address != 0 &&
-                offset <= handle->orig_size &&
-                NativeErrorNotifierBytes <= handle->orig_size - offset &&
-                handle->address <= std::numeric_limits<u64>::max() - offset) {
-                const u64 address = handle->address + offset;
-                std::array<u8, NativeErrorNotifierBytes> clear{};
-                auto& memory = channel_session->process->GetMemory();
-                installed = memory.IsValidVirtualAddressRange(
-                                Common::ProcessAddress{address}, clear.size()) &&
-                            memory.WriteBlock(Common::ProcessAddress{address},
-                                              clear.data(), clear.size());
-            }
-        }
-    }
-    if (!installed) {
-        nvmap.FreeHandle(params.mem, true);
-        return NvResult::BadParameter;
-    }
-
-    // Commit replacement only after the new notifier has a stable backing
-    // and its status record was initialized. Same-handle replacement is safe:
-    // the new duplicate is acquired before the previous duplicate is dropped.
-    if (native_error_notifier_handle)
-        nvmap.FreeHandle(*native_error_notifier_handle, true);
-    native_error_notifier_handle = params.mem;
-    native_error_notifier_offset = static_cast<u64>(params.offset);
+    native_error_notifier_initialized = static_cast<u32>(params.mem) != 0;
+    native_error_info = {};
+    native_error_notification = {};
+    native_error_notification.status = 0xFFFF;
+    error_notifier_event->GetReadableEvent().Clear(system.Kernel());
     return NvResult::Success;
 }
 
-NvResult nvhost_gpu::GetErrorNotification(IoctlGetErrorNotification& params, DeviceFD fd) {
-    if (!UsesNativeAbi(fd))
-        return NvResult::NotImplemented;
-
+NvResult nvhost_gpu::GetErrorInfo(IoctlGetErrorInfo& params, DeviceFD fd) {
     const std::scoped_lock lock{channel_mutex};
+    if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
     u64 program_id{};
     if (const auto status = ValidateChannelOwner(fd, program_id);
         status != NvResult::Success)
         return status;
-    if (!native_error_notifier_handle)
+    if (!native_error_notifier_initialized)
         return NvResult::InvalidState;
 
-    const auto session_it = sessions.find(fd);
-    if (session_it == sessions.end())
-        return NvResult::InvalidState;
-    const auto* channel_session = core.GetSession(session_it->second);
-    const auto handle = nvmap.GetHandle(*native_error_notifier_handle);
-    if (!channel_session || !channel_session->process || !handle)
-        return NvResult::InvalidState;
-    const auto* backing_session = core.GetSession(handle->session_id);
-    if (!backing_session || backing_session->process != channel_session->process)
-        return NvResult::InvalidState;
-
-    constexpr u64 NativeErrorNotifierBytes = sizeof(IoctlGetErrorNotification);
-    const std::scoped_lock handle_lock{handle->mutex};
-    const u64 offset = native_error_notifier_offset;
-    if (!handle->allocated || handle->internal_dupes <= 0 || handle->address == 0 ||
-        offset > handle->orig_size || NativeErrorNotifierBytes > handle->orig_size - offset ||
-        handle->address > std::numeric_limits<u64>::max() - offset)
-        return NvResult::InvalidState;
-    const u64 address = handle->address + offset;
-    auto& memory = channel_session->process->GetMemory();
-    if (!memory.IsValidVirtualAddressRange(Common::ProcessAddress{address},
-                                           sizeof(IoctlGetErrorNotification)) ||
-        !memory.ReadBlock(Common::ProcessAddress{address}, &params,
-                          sizeof(IoctlGetErrorNotification)))
-        return NvResult::BadParameter;
+    params = native_error_info;
     return NvResult::Success;
 }
 
+NvResult nvhost_gpu::GetErrorNotification(IoctlGetErrorNotification& params, DeviceFD fd) {
+    const std::scoped_lock lock{channel_mutex};
+    if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+    u64 program_id{};
+    if (const auto status = ValidateChannelOwner(fd, program_id);
+        status != NvResult::Success)
+        return status;
+    if (!native_error_notifier_initialized)
+        return NvResult::InvalidState;
+
+    params = native_error_notification;
+    params.status = 0xFFFF;
+    return NvResult::Success;
+}
 NvResult nvhost_gpu::SetChannelPriority(IoctlChannelSetPriority& params) {
     channel_priority = params.priority;
     LOG_INFO(Service_NVDRV, "called, priority={:X}", channel_priority);
