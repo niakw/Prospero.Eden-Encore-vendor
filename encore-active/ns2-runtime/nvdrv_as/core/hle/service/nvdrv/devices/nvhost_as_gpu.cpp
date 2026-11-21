@@ -957,35 +957,119 @@ NvResult nvhost_as_gpu::UnmapNative4K(u64 address, u64 size) {
 }
 
 NvResult nvhost_as_gpu::ModifyNativeKind(u64 address, u64 size, u8 kind) {
-    constexpr u64 page = VM::YUZU_PAGESIZE;
-    if (!size || (address | size) & (page - 1)) return NvResult::BadParameter;
-    const std::scoped_lock lock{mutex};
-    if (!vm.initialised || !gmmu || native_sparse_poisoned)
-        return NvResult::InvalidState;
-    auto it = mapping_map.upper_bound(address);
-    if (it == mapping_map.begin()) return NvResult::BadParameter;
-    --it;
-    const auto& mapping = it->second;
-    if (address < it->first || address - it->first >= mapping.size ||
-        size > mapping.size - (address - it->first))
+    constexpr u64 small_page = VM::YUZU_PAGESIZE;
+    if (!size || ((address | size) & (small_page - 1)) ||
+        address > std::numeric_limits<u64>::max() - size)
         return NvResult::BadParameter;
-    const u64 mapping_page = mapping.big_page ? vm.big_page_size : page;
-    if ((address | size) & (mapping_page - 1)) return NvResult::BadParameter;
-    const u64 delta = address - it->first;
+    const std::scoped_lock lock{mutex};
+    if (!vm.initialised || !gmmu || native_sparse_poisoned ||
+        address >= vm.va_range_end || size > vm.va_range_end - address)
+        return NvResult::InvalidState;
+
+    // The direct NvMap view is a distinct pin owner. Preserve this
+    // existing path, including its exact GPU PTE page class.
+    auto direct = mapping_map.upper_bound(address);
+    if (direct != mapping_map.begin()) {
+        --direct;
+        const auto& mapping = direct->second;
+        if (address >= direct->first &&
+            address - direct->first < mapping.size) {
+            const u64 delta = address - direct->first;
+            if (size > mapping.size - delta)
+                return NvResult::BadParameter;
+            const u64 page = mapping.big_page ? vm.big_page_size : small_page;
+            if (((address | size) & (page - 1)) ||
+                !NativePinnedPhysicalSpan(mapping.ptr, delta, size) ||
+                ((mapping.ptr + delta) & (page - 1)))
+                return NvResult::BadParameter;
+            try {
+                gmmu->Map(address, mapping.ptr + delta, size,
+                          static_cast<Tegra::PTEKind>(kind), mapping.big_page);
+            } catch (const std::bad_alloc&) {
+                native_sparse_poisoned = true;
+                return NvResult::InsufficientMemory;
+            }
+            return NvResult::Success;
+        }
+    }
+
+    // A:0x0D/A:0x14 and GSV216 share one native sparse pin ledger.
+    // The earlier consolidated version searched mapping_map only:
+    // sparse views could never change kind despite valid GPU backing.
+    // Admit exactly one owned sparse allocation, never an unknown VA.
+    bool big_page = false;
+    bool owned = false;
+    const auto region = native_sparse_regions.upper_bound(address);
+    if (region != native_sparse_regions.begin()) {
+        const auto& prior = *std::prev(region);
+        owned = address >= prior.first &&
+                address - prior.first < prior.second.size &&
+                size <= prior.second.size - (address - prior.first);
+    }
+    if (!owned) {
+        const auto allocation = NativeGpuAllocation::FindContaining(
+            allocation_map, address, size);
+        if (allocation != allocation_map.end() && allocation->second.sparse) {
+            owned = true;
+            big_page = allocation->second.big_pages;
+        }
+    }
+    if (!owned)
+        return NvResult::BadParameter;
+    const u64 page = big_page ? vm.big_page_size : small_page;
+    if (((address | size) & (page - 1)) != 0)
+        return NvResult::BadParameter;
+
+    const auto& ranges = native_sparse_mappings.Ranges();
+    const u64 end = address + size;
+    u64 cursor = address;
+    // No fallible GMMU mutation before ALL sparse segments and physical
+    // backing have passed validation. A hole or unpinned alias is an error,
+    // not an implicit zero-filled successful kind change.
+    while (cursor < end) {
+        auto it = ranges.upper_bound(cursor);
+        if (it == ranges.begin()) return NvResult::BadParameter;
+        --it;
+        const auto& range = it->second;
+        if (cursor < range.address || cursor - range.address >= range.size ||
+            !range.handle)
+            return NvResult::BadParameter;
+        const u64 delta = cursor - range.address;
+        const u64 length = std::min(end - cursor, range.size - delta);
+        if (!length ||
+            range.source_offset > std::numeric_limits<u64>::max() - delta)
+            return NvResult::BadParameter;
+        const u64 source = range.source_offset + delta;
+        const auto pin = native_sparse_pins.find(range.handle);
+        if (pin == native_sparse_pins.end() ||
+            !NativePinnedPhysicalSpan(pin->second, source, length) ||
+            ((pin->second + source) & (page - 1)))
+            return NvResult::BadParameter;
+        cursor += length;
+    }
+
+    // All old and new pinned owners remain live until the page table
+    // changes finish. An OOM after a partial map quarantines them rather
+    // than allowing an unpin/unmap against still-referenced guest backing.
+    cursor = address;
     try {
-        gmmu->Map(address, mapping.ptr + delta, size,
-                  static_cast<Tegra::PTEKind>(kind), mapping.big_page);
+        while (cursor < end) {
+            const auto it = std::prev(ranges.upper_bound(cursor));
+            const auto& range = it->second;
+            const u64 delta = cursor - range.address;
+            const u64 length = std::min(end - cursor, range.size - delta);
+            const auto pin = native_sparse_pins.find(range.handle);
+            gmmu->Map(cursor, pin->second + range.source_offset + delta, length,
+                      static_cast<Tegra::PTEKind>(kind), big_page);
+            cursor += length;
+        }
     } catch (const std::bad_alloc&) {
-        // Keep the existing physical owner/pin on a partially failed edit.
         native_sparse_poisoned = true;
         return NvResult::InsufficientMemory;
     }
     return NvResult::Success;
 }
 
-// Lichii 12125bc / NX2 blocker #46: newer NVN reads syncpoints through a read-only
-// GPU virtual page and asserts when characteristics bit 26 is advertised without this ioctl.
-// The page is virtual only: no PS5 physical allocation is consumed.
 NvResult nvhost_as_gpu::Nx2GetSyncpointShimInfo(IoctlNx2SyncpointShimInfo& params) {
     std::scoped_lock lock{mutex};
     if (!m_native_process ||

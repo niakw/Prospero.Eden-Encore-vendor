@@ -344,6 +344,25 @@ assert "std::bad_alloc" in _native_gpu
 assert "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;" in _ctrl_gpu
 assert "system.GPU().WaitForIdle();" in _gsv
 
+# Preserve public NVDRV A:0x0C mapping-kind coverage for both direct
+# NvMap views and sparse remap pins. The two valid ownership domains are
+# disjoint; preflight the entire sparse range before the first GMMU mutation.
+_mod_kind = _as_runtime.split("NvResult nvhost_as_gpu::ModifyNativeKind(u64 address, u64 size, u8 kind) {",1)[1].split(
+    "\n}",1)[0]
+for marker in ("mapping_map.upper_bound(address)",
+               "NativeGpuAllocation::FindContaining(",
+               "native_sparse_regions.upper_bound(address)",
+               "native_sparse_mappings.Ranges()",
+               "native_sparse_pins.find(range.handle)",
+               "NativePinnedPhysicalSpan(pin->second, source, length)",
+               "static_cast<Tegra::PTEKind>(kind), big_page)",
+               "native_sparse_poisoned = true;"):
+    assert marker in _mod_kind, marker
+assert _mod_kind.index("while (cursor < end) {") < _mod_kind.index(
+    "\n    cursor = address;") < _mod_kind.index("gmmu->Map(cursor,")
+
+
+
 # Native repeated ALLOC_AS_EX on the same authenticated descriptor
 # fails as a guest ioctl error before the legacy Maxwell host assertion.
 _alloc_as = _as_runtime.split("NvResult nvhost_as_gpu::AllocAsEx(IoctlAllocAsEx& params) {",1)[1].split(
