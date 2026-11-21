@@ -218,9 +218,18 @@ void IGpuSession::AcquireWorker(HLERequestContext& ctx) {
         }
     }
     if (result.IsSuccess()) {
+        // AddMoveObject can allocate. Roll back its transfer reference while
+        // preserving the service-owned worker on a failed MOVE publication.
+        try {
+            ctx.AddMoveObject(m_worker);
+        } catch (const std::bad_alloc&) {
+            m_worker->Close(kernel);
+            result = Kernel::ResultOutOfResource;
+        }
+    }
+    if (result.IsSuccess()) {
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(result.raw);
-        ctx.AddMoveObject(m_worker);
     } else {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
@@ -271,9 +280,18 @@ void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
     if (result.IsSuccess() && !readable->Open(kernel))
         result = Kernel::ResultInvalidState;
     if (result.IsSuccess()) {
+        // The event remains owned by the service. A failed MOVE publication
+        // must close only the extra readable-event transfer reference.
+        try {
+            ctx.AddMoveObject(readable);
+        } catch (const std::bad_alloc&) {
+            readable->Close(kernel);
+            result = Kernel::ResultOutOfResource;
+        }
+    }
+    if (result.IsSuccess()) {
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(result.raw);
-        ctx.AddMoveObject(readable);
     } else {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);

@@ -52,6 +52,12 @@ for needle in (
     assert needle in get_event, needle
 assert "ctx.AddCopyObject(readable);" not in get_event
 assert "IPC::ResponseBuilder rb{ctx, 2, 1, 0};" not in get_event
+for token in ("catch (const std::bad_alloc&)", "readable->Close(kernel);",
+              "result = Kernel::ResultOutOfResource;"):
+    assert token in get_event, ("notification MOVE OOM rollback",token)
+assert get_event.index("ctx.AddMoveObject(readable);") < get_event.index(
+    "readable->Close(kernel);") < get_event.index(
+    "IPC::ResponseBuilder rb{ctx, 2, 0, 1};")
 acquire=cpp.split("void IGpuSession::AcquireWorker(HLERequestContext& ctx) {",1)[1].split(
     "\n}\n\nvoid IGpuSession::GetNotificationRange",1)[0]
 for needle in (
@@ -61,6 +67,12 @@ for needle in (
 ):
     assert needle in acquire, needle
 assert "ctx.AddCopyObject(m_worker)" not in acquire
+for token in ("catch (const std::bad_alloc&)", "m_worker->Close(kernel);",
+              "result = Kernel::ResultOutOfResource;"):
+    assert token in acquire, ("worker MOVE OOM rollback",token)
+assert acquire.index("ctx.AddMoveObject(m_worker);") < acquire.index(
+    "m_worker->Close(kernel);") < acquire.index(
+    "IPC::ResponseBuilder rb{ctx, 2, 0, 1};")
 assert acquire.index("m_worker->Open(kernel)") < acquire.index("ctx.AddMoveObject(m_worker)")
 # HLE MOVE inserts the guest handle then consumes exactly one transferred ref.
 hle=(R/"sources/eden/src/core/hle/service/hle_ipc.cpp").read_text()
