@@ -134,6 +134,16 @@ NvResult nvhost_nvdec_common::Submit(IoctlSubmit& params, std::span<u8> data, De
     offset += SliceVectors(data, syncpt_increments, params.syncpoint_count, offset);
     offset += SliceVectors(data, fence_thresholds, params.fence_count, offset);
 
+    // The NVDRV syncpoint table has 192 entries. IncrementSyncpointMaxExt
+    // uses std::array::at(id), which throws for a forged guest id and
+    // asserts for an unreserved slot. Reject invalid IDs before updating
+    // any fence, preventing a half-submitted NVDEC batch.
+    for (const auto& increment : syncpt_increments) {
+        if (!syncpoint_manager.IsSyncpointAllocated(increment.id)) {
+            return NvResult::InvalidState;
+        }
+    }
+
     // Preflight command handles and word counts before changing fences.
     // word_count is SIGNED: passing -1 to CpuGuestMemory creates a
     // massive size_t span and may exhaust the PS5 host process.
