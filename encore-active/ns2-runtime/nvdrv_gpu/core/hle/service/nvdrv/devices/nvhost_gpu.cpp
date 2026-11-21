@@ -39,6 +39,10 @@ extern "C" bool eden_native_detailed_logging() noexcept __attribute__((weak));
 
 namespace Service::Nvidia::Devices {
 namespace {
+// Lichii 46c3ee5010 / upstream 8799a851: the common native submission
+// path normally carries far fewer than 512 GPFIFO headers. Keep them in
+// the ioctl wrapper's inline storage and spill only exceptional large lists.
+constexpr size_t GpfifoInlineEntries = 512;
 #ifdef PS5_NATIVE
 constexpr unsigned GpfifoTraceLimit = 32;
 std::atomic<unsigned> g_gpfifo_route_trace{0};
@@ -117,7 +121,8 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
                              "EDEN_NS2_GPFIFO_ROUTE ticket=%u route=ioctl1-submit input=%zu output=%zu\n",
                              ticket, input.size(), output.size());
 #endif
-            return WrapFixedVariable(this, &nvhost_gpu::SubmitGPFIFOBase1, input, output, fd, false);
+            return WrapFixedVariable<GpfifoInlineEntries>(
+                this, &nvhost_gpu::SubmitGPFIFOBase1, input, output, fd, false);
         }
         case 0x9:
             return WrapFixed(this, &nvhost_gpu::AllocateObjectContext, input, output, fd);
@@ -177,7 +182,8 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
                              "EDEN_NS2_GPFIFO_ROUTE ticket=%u route=ioctl1-kickoff input=%zu output=%zu\n",
                              ticket, input.size(), output.size());
 #endif
-            return WrapFixedVariable(this, &nvhost_gpu::SubmitGPFIFOBase1, input, output, fd, true);
+            return WrapFixedVariable<GpfifoInlineEntries>(
+                this, &nvhost_gpu::SubmitGPFIFOBase1, input, output, fd, true);
         }
         case 0x1d:
             return WrapFixed(this, &nvhost_gpu::ChannelSetTimeslice, input, output);
@@ -266,8 +272,9 @@ NvResult nvhost_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> inpu
                              "EDEN_NS2_GPFIFO_ROUTE ticket=%u route=ioctl2-kickoff input=%zu inline=%zu output=%zu\n",
                              ticket, input.size(), inline_input.size(), output.size());
 #endif
-            return WrapFixedInlIn(this, &nvhost_gpu::SubmitGPFIFOBase2, input, inline_input,
-                                  output, fd);
+            return WrapFixedInlIn<GpfifoInlineEntries>(
+                this, &nvhost_gpu::SubmitGPFIFOBase2, input, inline_input,
+                output, fd);
         }
         }
         break;
@@ -1183,7 +1190,7 @@ NvResult nvhost_gpu::SubmitGPFIFOBase1(IoctlSubmitGpfifo& params,
     try {
         // Size the guest command list before any fence is reserved; a host
         // OOM must return NVDRV InsufficientMemory, not unwind through IPC.
-        entries.command_lists.resize(params.num_entries);
+        entries.command_lists.resize(params.num_entries, boost::container::default_init);
     } catch (const std::bad_alloc&) {
         return NvResult::InsufficientMemory;
     }
@@ -1229,7 +1236,7 @@ NvResult nvhost_gpu::SubmitGPFIFOBase2(IoctlSubmitGpfifo& params,
     try {
         // Size the guest command list before any fence is reserved; a host
         // OOM must return NVDRV InsufficientMemory, not unwind through IPC.
-        entries.command_lists.resize(params.num_entries);
+        entries.command_lists.resize(params.num_entries, boost::container::default_init);
     } catch (const std::bad_alloc&) {
         return NvResult::InsufficientMemory;
     }

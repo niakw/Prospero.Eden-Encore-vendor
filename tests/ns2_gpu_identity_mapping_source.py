@@ -195,6 +195,7 @@ scheduler_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/sche
 gpu_cpp=(R/"encore-active/eden-core/src/video_core/gpu_vulkan.cpp").read_text()
 nvhost_cpp=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
 nvhost_hdr=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
+ioctl_serialization=(R/"encore-active/eden-core/src/core/hle/service/nvdrv/devices/ioctl_serialization.h").read_text()
 assert "void RetireChannel(const ChannelState* old_channel);" in scheduler_h
 retire=scheduler_cpp.split("void Scheduler::RetireChannel(const ChannelState* old_channel) {",1)[1].split(
     "\n}",1)[0]
@@ -278,6 +279,25 @@ for token in ("channel->process != tsg->process",
 legacy_count=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_submission.h").read_text()
 assert "constexpr bool ValidNativeGpfifoLegacyAllocationCount(" in legacy_count
 assert "entries != 0 && entries <= (1U << 28)" in legacy_count
+# Recent Lichii/upstream GPFIFO hot-path optimization: only the three
+# native GPU submit wrappers opt into 512 inline headers. All other NVDRV
+# wrappers keep InputCapacity=0, while the copied CommandList avoids a
+# redundant zero fill before every header is overwritten.
+for token in ("using IoctlInputBuffer = std::conditional_t<",
+              "boost::container::small_vector<T, Capacity>",
+              "size_t InputCapacity = 0",
+              "var_args.resize(num_var_args, boost::container::default_init)",
+              "inl_in_var_args.resize(num_inl_in_var_args, boost::container::default_init)",
+              "WrapGeneric<FixedArg, VarArg, Null, Null, InputCapacity>",
+              "WrapGeneric<FixedArg, Null, InlInVarArg, Null, InputCapacity>"):
+    assert token in ioctl_serialization,token
+assert "constexpr size_t GpfifoInlineEntries = 512;" in nvhost_cpp
+assert nvhost_cpp.count("WrapFixedVariable<GpfifoInlineEntries>(") == 2
+assert nvhost_cpp.count("WrapFixedInlIn<GpfifoInlineEntries>(") == 1
+assert nvhost_cpp.count(
+    "entries.command_lists.resize(params.num_entries, boost::container::default_init);"
+) == 2
+
 # Ampere setup-bind itself makes the channel runnable:
 # nvgpu_channel_setup_bind -> ga10b_channel_bind -> nvgpu_channel_enable.
 # Ounce relies on that and sends no explicit H:0x0E/TSG ENABLE before the
