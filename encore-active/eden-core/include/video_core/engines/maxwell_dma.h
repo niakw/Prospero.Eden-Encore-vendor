@@ -267,6 +267,10 @@ private:
 
     void CopyBlockLinearToBlockLinear();
 
+    // B0B5 remap between pitch and block-linear 2D surfaces. Other layouts
+    // remain separately qualified; no guest-title-specific behavior.
+    [[nodiscard]] bool CopyBlockLinearRemap();
+
     void ReleaseSemaphore();
 
     void ConsumeSinkImpl(Core::System& system) override;
