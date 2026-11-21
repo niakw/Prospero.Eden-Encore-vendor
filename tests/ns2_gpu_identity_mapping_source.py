@@ -357,7 +357,9 @@ for allocator_name in ("first_page", "start_page"):
                                   _allocate_block.index(rollback))
     assert failure >= 0,allocator_name
     error_block = _allocate_block[failure:_allocate_block.index(rollback)]
-    assert "gmmu->Unmap(address, size);" in error_block,allocator_name
+    # GMMU rollback attempt precedes the inner catch that quarantines it.
+    unmap = _allocate_block.rfind("gmmu->Unmap(address, size);", 0, failure)
+    assert unmap >= 0 and failure - unmap < 150,allocator_name
     assert "native_sparse_poisoned = true;" in error_block,allocator_name
     assert error_block.index("native_sparse_poisoned = true;") < error_block.index(
         "return NvResult::InvalidState;"),allocator_name
