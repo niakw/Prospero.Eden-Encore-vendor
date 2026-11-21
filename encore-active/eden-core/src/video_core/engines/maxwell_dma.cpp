@@ -589,6 +589,10 @@ void MaxwellDMA::Launch() {
                                                  std::vector<Interval>& out) {
                             constexpr u64 GPU_PAGE = 4096;
                             for (u64 offset = 0; offset < bytes;) {
+                                // Bound page translations for guest-sized 1D DMA.
+                                // An unknown overlap remains an alias, which is
+                                // snapshotted or rejected before any GPU write.
+                                if (out.size() == 16384) return false;
                                 const GPUVAddr address = base + offset;
                                 const u64 count = (std::min)(
                                     bytes - offset,
