@@ -229,7 +229,7 @@ remap=as_cpp.split("NvResult nvhost_as_gpu::Remap(std::span<IoctlRemapEntry> ent
     "\n}",1)[0]
 free_space=as_cpp.split("NvResult nvhost_as_gpu::FreeSpace(IoctlFreeSpace& params) {",1)[1].split(
     "\n}",1)[0]
-header=ROOT.joinpath("encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+header=R.joinpath("encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
 assert "NativeSparseMappingTable native_ioctl_remap_mappings;" in header
 assert "std::map<u32, DAddr> native_ioctl_remap_pins;" in header
 assert remap.index("updated = native_ioctl_remap_mappings;") < remap.index(
