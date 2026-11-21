@@ -431,14 +431,12 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
         return true;
     }
 
-    // These are exactly the element sizes implemented by the shared GOB
-    // subrectangle decoder. Do not pass an arbitrary bitfield to its
-    // ASSERT-only default path or to its unsigned 32-bit address math.
-    const auto supported_bpp = [](u64 size) {
-        return size == 1 || size == 2 || size == 3 || size == 4 ||
-               size == 6 || size == 8 || size == 12 || size == 16;
-    };
-    if (!supported_bpp(src_bpp) || !supported_bpp(dst_bpp)) {
+    // The shared subrectangle decoder's BPP=3/6/12 paths copy whole
+    // pixels across 16-byte GOB microtiles. Those memcpy ranges can overlap
+    // the next Y row. Decode every byte using its own GOB address instead:
+    // width/origin/extent are scaled to bytes and BPP=1 in the decoder.
+    // All 1..4 components of size 1..4 are then representable (1..16 B).
+    if (src_bpp == 0 || dst_bpp == 0 || src_bpp > 16 || dst_bpp > 16) {
         return false;
     }
 
@@ -561,10 +559,14 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
         if (src_tiled) {
             std::vector<u8> tiled_src(src_tiled_size);
             memory_manager.ReadBlock(regs.offset_in, tiled_src.data(), tiled_src.size());
-            UnswizzleSubrect(linear_src, tiled_src, static_cast<u32>(src_bpp),
-                             regs.src_params.width, regs.src_params.height, 1,
-                             regs.src_params.origin.x.Value(), regs.src_params.origin.y.Value(),
-                             blocks, rows, regs.src_params.block_size.height.Value(), 0,
+            UnswizzleSubrect(linear_src, tiled_src, 1,
+                             static_cast<u32>(static_cast<u64>(regs.src_params.width) * src_bpp),
+                             regs.src_params.height, 1,
+                             static_cast<u32>(static_cast<u64>(regs.src_params.origin.x.Value()) *
+                                              src_bpp),
+                             regs.src_params.origin.y.Value(),
+                             static_cast<u32>(src_row_bytes), rows,
+                             regs.src_params.block_size.height.Value(), 0,
                              static_cast<u32>(src_row_bytes));
         } else {
             for (u32 row = 0; row < rows; ++row) {
@@ -587,10 +589,14 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
         tiled_dst.resize(dst_tiled_size);
         memory_manager.ReadBlock(regs.offset_out, tiled_dst.data(), tiled_dst.size());
         if (needs_destination) {
-            UnswizzleSubrect(linear_dst, tiled_dst, static_cast<u32>(dst_bpp),
-                             regs.dst_params.width, regs.dst_params.height, 1,
-                             regs.dst_params.origin.x.Value(), regs.dst_params.origin.y.Value(),
-                             blocks, rows, regs.dst_params.block_size.height.Value(), 0,
+            UnswizzleSubrect(linear_dst, tiled_dst, 1,
+                             static_cast<u32>(static_cast<u64>(regs.dst_params.width) * dst_bpp),
+                             regs.dst_params.height, 1,
+                             static_cast<u32>(static_cast<u64>(regs.dst_params.origin.x.Value()) *
+                                              dst_bpp),
+                             regs.dst_params.origin.y.Value(),
+                             static_cast<u32>(dst_row_bytes), rows,
+                             regs.dst_params.block_size.height.Value(), 0,
                              static_cast<u32>(dst_row_bytes));
         }
     } else if (needs_destination) {
@@ -631,10 +637,14 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
         }
     }
     if (dst_tiled) {
-        SwizzleSubrect(tiled_dst, linear_dst, static_cast<u32>(dst_bpp),
-                       regs.dst_params.width, regs.dst_params.height, 1,
-                       regs.dst_params.origin.x.Value(), regs.dst_params.origin.y.Value(),
-                       blocks, rows, regs.dst_params.block_size.height.Value(), 0,
+        SwizzleSubrect(tiled_dst, linear_dst, 1,
+                       static_cast<u32>(static_cast<u64>(regs.dst_params.width) * dst_bpp),
+                       regs.dst_params.height, 1,
+                       static_cast<u32>(static_cast<u64>(regs.dst_params.origin.x.Value()) *
+                                        dst_bpp),
+                       regs.dst_params.origin.y.Value(),
+                       static_cast<u32>(dst_row_bytes), rows,
+                       regs.dst_params.block_size.height.Value(), 0,
                        static_cast<u32>(dst_row_bytes));
         memory_manager.WriteBlock(regs.offset_out, tiled_dst.data(), tiled_dst.size());
     } else {
