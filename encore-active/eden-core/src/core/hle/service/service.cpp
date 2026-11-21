@@ -58,6 +58,14 @@ namespace Service {
         return function_name == "SetUrl" || function_name == "ImportCrt" ||
                function_name == "ImportPki" || function_name == "SetAutoUpload";
     }
+    if (service_name == "ICommonStateGetter") {
+        return function_name == "AllowToEnterSleep" ||
+               function_name == "DisallowToEnterSleep";
+    }
+    if (service_name == "ISelfController") {
+        return function_name == "SetDesirableKeyboardLayout" ||
+               function_name == "ReportMultimediaError";
+    }
     return false;
 }
 
