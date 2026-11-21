@@ -10,6 +10,9 @@
 #include <tuple>
 #include <stdint.h>
 
+// VIC surfaces can have odd pixel strides or guest-mapped plane addresses
+// that are only naturally (not 16-byte) aligned. SSE reads/writes below
+// intentionally use _mm_loadu/_mm_storeu on all decoded and output spans.
 #if defined(ARCHITECTURE_x86_64)
 #include <immintrin.h>
 #endif
@@ -336,7 +339,7 @@ void Vic::ReadProgressiveY8__V8U8_N420(const SlotStruct& slot, std::span<const P
 
                     // Chroma is already interleaved in semiplanar format, just load 16 bytes
                     // chroma = VV UU VV UU VV UU VV UU VV UU VV UU VV UU VV UU
-                    chroma = _mm_load_si128((__m128i*)&chroma_u_buffer[src_chroma + x]);
+                    chroma = _mm_loadu_si128((__m128i*)&chroma_u_buffer[src_chroma + x]);
                 }
 
                 // Convert the low 8 bytes of 8-bit luma into 16-bit luma
@@ -419,14 +422,14 @@ void Vic::ReadProgressiveY8__V8U8_N420(const SlotStruct& slot, std::span<const P
 
                 // Store out the pixels. One pixel is now 8 bytes, so each store is 2 pixels.
                 // [AA AA] [VV VV] [UU UU] [LL LL] [AA AA] [VV VV] [UU UU] [LL LL]
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 0], yuv01);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 2], yuv23);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 4], yuv45);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 6], yuv67);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 8], yuv89);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 10], yuv1011);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 12], yuv1213);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 14], yuv1415);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 0], yuv01);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 2], yuv23);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 4], yuv45);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 6], yuv67);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 8], yuv89);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 10], yuv1011);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 12], yuv1213);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 14], yuv1415);
             }
             for (; x < in_luma_width; x++) {
                 slot_surface[dst + x].r = u16(luma_buffer[src_luma + x] << 2);
@@ -852,14 +855,14 @@ void Vic::WriteY8__V8U8_N420(const OutputSurfaceConfig& output_surface_config) n
                     _mm_prefetch((const char*)&output_surface[src + x + 24], _MM_HINT_T0);
 
                     // Load the 64-bit pixels, 2 per variable.
-                    auto pixel01 = _mm_load_si128((__m128i*)&output_surface[src + x + 0]);
-                    auto pixel23 = _mm_load_si128((__m128i*)&output_surface[src + x + 2]);
-                    auto pixel45 = _mm_load_si128((__m128i*)&output_surface[src + x + 4]);
-                    auto pixel67 = _mm_load_si128((__m128i*)&output_surface[src + x + 6]);
-                    auto pixel89 = _mm_load_si128((__m128i*)&output_surface[src + x + 8]);
-                    auto pixel1011 = _mm_load_si128((__m128i*)&output_surface[src + x + 10]);
-                    auto pixel1213 = _mm_load_si128((__m128i*)&output_surface[src + x + 12]);
-                    auto pixel1415 = _mm_load_si128((__m128i*)&output_surface[src + x + 14]);
+                    auto pixel01 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 0]);
+                    auto pixel23 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 2]);
+                    auto pixel45 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 4]);
+                    auto pixel67 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 6]);
+                    auto pixel89 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 8]);
+                    auto pixel1011 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 10]);
+                    auto pixel1213 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 12]);
+                    auto pixel1415 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 14]);
 
                     // Split out the luma of each pixel using the luma_mask above.
                     // pixel01 = [AA2 AA2] [VV2 VV2] [UU2 UU2] [LL2 LL2] [AA1 AA1] [VV1 VV1] [UU1 UU1] [LL1 LL1]
@@ -905,7 +908,7 @@ void Vic::WriteY8__V8U8_N420(const OutputSurfaceConfig& output_surface_config) n
                     auto luma = _mm_packus_epi16(luma_lo, luma_hi);
 
                     // Store the 16 bytes of luma
-                    _mm_store_si128((__m128i*)&out_luma[dst_luma + x], luma);
+                    _mm_storeu_si128((__m128i*)&out_luma[dst_luma + x], luma);
 
                     if (y % 2 == 0) {
                         // Chroma, done every other line as it's half the height of luma.
@@ -958,7 +961,7 @@ void Vic::WriteY8__V8U8_N420(const OutputSurfaceConfig& output_surface_config) n
                         auto chroma = _mm_packus_epi16(chroma_lo, chroma_hi);
 
                         // Store the 16 bytes of chroma.
-                        _mm_store_si128((__m128i*)&out_chroma[dst_chroma + x + 0], chroma);
+                        _mm_storeu_si128((__m128i*)&out_chroma[dst_chroma + x + 0], chroma);
                     }
 
                     // clang-format on
@@ -1103,14 +1106,14 @@ void Vic::WriteABGR(const OutputSurfaceConfig& output_surface_config, VideoPixel
 
                     // Load the pixels, 16-bit channels, 8 bytes per pixel, e.g
                     // pixel01 = [AA AA BB BB GG GG RR RR AA AA BB BB GG GG RR RR
-                    auto pixel01 = _mm_load_si128((__m128i*)&inp[src + x + 0]);
-                    auto pixel23 = _mm_load_si128((__m128i*)&inp[src + x + 2]);
-                    auto pixel45 = _mm_load_si128((__m128i*)&inp[src + x + 4]);
-                    auto pixel67 = _mm_load_si128((__m128i*)&inp[src + x + 6]);
-                    auto pixel89 = _mm_load_si128((__m128i*)&inp[src + x + 8]);
-                    auto pixel1011 = _mm_load_si128((__m128i*)&inp[src + x + 10]);
-                    auto pixel1213 = _mm_load_si128((__m128i*)&inp[src + x + 12]);
-                    auto pixel1415 = _mm_load_si128((__m128i*)&inp[src + x + 14]);
+                    auto pixel01 = _mm_loadu_si128((__m128i*)&inp[src + x + 0]);
+                    auto pixel23 = _mm_loadu_si128((__m128i*)&inp[src + x + 2]);
+                    auto pixel45 = _mm_loadu_si128((__m128i*)&inp[src + x + 4]);
+                    auto pixel67 = _mm_loadu_si128((__m128i*)&inp[src + x + 6]);
+                    auto pixel89 = _mm_loadu_si128((__m128i*)&inp[src + x + 8]);
+                    auto pixel1011 = _mm_loadu_si128((__m128i*)&inp[src + x + 10]);
+                    auto pixel1213 = _mm_loadu_si128((__m128i*)&inp[src + x + 12]);
+                    auto pixel1415 = _mm_loadu_si128((__m128i*)&inp[src + x + 14]);
 
                     // Right-shift the channels by 16 to un-do the left shift on read and bring the range
                     // back to 8-bit.
@@ -1147,10 +1150,10 @@ void Vic::WriteABGR(const OutputSurfaceConfig& output_surface_config, VideoPixel
                     }
 
                     // Store the pixels
-                    _mm_store_si128((__m128i*)&out[dst + x * 4 + 0], pixels0_lo);
-                    _mm_store_si128((__m128i*)&out[dst + x * 4 + 16], pixels0_hi);
-                    _mm_store_si128((__m128i*)&out[dst + x * 4 + 32], pixels1_lo);
-                    _mm_store_si128((__m128i*)&out[dst + x * 4 + 48], pixels1_hi);
+                    _mm_storeu_si128((__m128i*)&out[dst + x * 4 + 0], pixels0_lo);
+                    _mm_storeu_si128((__m128i*)&out[dst + x * 4 + 16], pixels0_hi);
+                    _mm_storeu_si128((__m128i*)&out[dst + x * 4 + 32], pixels1_lo);
+                    _mm_storeu_si128((__m128i*)&out[dst + x * 4 + 48], pixels1_hi);
                 }
                 for (; x < surface_width; x++) {
                     if (format == VideoPixelFormat::A8R8G8B8) {
