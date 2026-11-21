@@ -1315,7 +1315,14 @@ NvResult nvhost_as_gpu::AllocateSpace(IoctlAllocSpace& params) {
         NativeGpuProcessRegistry::Instance().Contains(m_native_process)) {
         constexpr u32 allowed_flags =
             static_cast<u32>(MappingFlags::Fixed) | static_cast<u32>(MappingFlags::Sparse);
-        if (!gmmu || !params.pages ||
+        // The VA allocator counts 4K or negotiated big-page units.
+        // An arbitrary page_size would reserve N small pages but publish
+        // N*page_size bytes of GPU VA, aliasing an adjacent reservation.
+        // Validate the exact page class BEFORE any allocator/GMMU change.
+        if (!gmmu || !vm.small_page_allocator || !vm.big_page_allocator ||
+            !params.pages ||
+            (params.page_size != VM::YUZU_PAGESIZE &&
+             params.page_size != vm.big_page_size) ||
             (static_cast<u32>(params.flags) & ~allowed_flags))
             return NvResult::BadValue;
         const bool big = params.page_size == vm.big_page_size;

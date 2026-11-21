@@ -344,6 +344,20 @@ assert "std::bad_alloc" in _native_gpu
 assert "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;" in _ctrl_gpu
 assert "system.GPU().WaitForIdle();" in _gsv
 
+# Native AllocSpace must reject any page size other than 4K or its
+# negotiated big-page size before reserving the FlatAllocator page count.
+# Otherwise the declared GMMU span can exceed the actual VA reservation.
+_alloc = _as_runtime.split("NvResult nvhost_as_gpu::AllocateSpace(IoctlAllocSpace& params) {",1)[1].split(
+    "\n}",1)[0]
+_native_non_sparse = _alloc.split("const bool big = params.page_size == vm.big_page_size;",1)[0]
+for marker in ("params.page_size != VM::YUZU_PAGESIZE",
+               "params.page_size != vm.big_page_size",
+               "vm.small_page_allocator",
+               "vm.big_page_allocator"):
+    assert marker in _native_non_sparse,marker
+assert _native_non_sparse.index("params.page_size != VM::YUZU_PAGESIZE") < len(_native_non_sparse)
+
+
 # Native retirement must drain GPU readers before GMMU unmap or
 # NvMap unpin; do it outside the AS mutex to avoid blocking the worker.
 for name in ("FreeSpace", "UnmapBuffer"):
