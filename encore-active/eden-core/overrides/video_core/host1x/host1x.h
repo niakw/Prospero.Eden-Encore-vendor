@@ -172,20 +172,9 @@ public:
     void StartDevice(s32 fd, ChannelType type, u32 syncpt);
     void StopDevice(s32 fd, ChannelType type);
 
-    void PushEntries(s32 fd, ChCommandHeaderList&& entries) {
-        // A negative or >=1024 NVDRV descriptor must not index the fixed
-        // Host1x device table; never route a malformed submit to a
-        // previous channel or a recycled guest-memory owner.
-        if (fd < 0 || static_cast<std::size_t>(fd) >= devices.size()) {
-            return;
-        }
-        auto& device = devices[static_cast<std::size_t>(fd)];
-        if (auto const nvdec = std::get_if<Tegra::Host1x::Nvdec>(&device)) {
-            nvdec->PushEntries(std::move(entries));
-        } else if (auto const vic = std::get_if<Tegra::Host1x::Vic>(&device)) {
-            vic->PushEntries(std::move(entries));
-        }
-    }
+    // Submission and FD close/reopen can originate from different NVDRV
+    // service threads. Dispatch must not race with device variant teardown.
+    void PushEntries(s32 fd, ChCommandHeaderList&& entries);
 
     Core::System& system;
     SyncpointManager syncpoint_manager;

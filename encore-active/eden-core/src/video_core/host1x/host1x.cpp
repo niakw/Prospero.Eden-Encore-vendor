@@ -4,12 +4,21 @@
 // SPDX-FileCopyrightText: 2021 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <mutex>
+
 #include "core/core.h"
 #include "video_core/host1x/host1x.h"
 #include "video_core/host1x/nvdec.h"
 #include "video_core/host1x/vic.h"
 
 namespace Tegra::Host1x {
+
+namespace {
+// Synchronizes the existing device variant array without modifying Host1x
+// object layout or creating divergent public ABI headers.  A channel close
+// holds this lock until its CDMA worker has joined and the variant is gone.
+std::mutex device_dispatch_mutex;
+}
 
 Host1x::Host1x(Core::System& system_)
     : system{system_}
@@ -39,6 +48,9 @@ void Host1x::StartDevice(s32 fd, ChannelType type, u32 syncpt) {
         LOG_ERROR(HW_GPU, "Reject invalid Host1x StartDevice FD {}", fd);
         return;
     }
+    // Do not destroy a variant while another service thread is enqueuing
+    // onto its CDMA worker. The lock spans Shutdown + variant replacement.
+    std::scoped_lock lk{device_dispatch_mutex};
     // A repeated Open on a recycled FD also destroys the old variant.
     // Quiesce it first so its jthread cannot access freed decoder state.
     if (type == ChannelType::NvDec || type == ChannelType::VIC) {
@@ -72,6 +84,9 @@ void Host1x::StopDevice(s32 fd, ChannelType type) {
         LOG_ERROR(HW_GPU, "Reject invalid Host1x StopDevice FD {}", fd);
         return;
     }
+    // Block guest submissions until the worker is quiescent and the
+    // device variant is removed.
+    std::scoped_lock lk{device_dispatch_mutex};
     auto& device = devices[static_cast<std::size_t>(fd)];
     if (auto* nvdec = std::get_if<Tegra::Host1x::Nvdec>(&device)) {
         nvdec->Shutdown();
@@ -79,6 +94,22 @@ void Host1x::StopDevice(s32 fd, ChannelType type) {
         vic->Shutdown();
     }
     device.emplace<std::monostate>();
+}
+
+void Host1x::PushEntries(s32 fd, ChCommandHeaderList&& entries) {
+    // Signed DeviceFD is supplied by NVDRV. Keep the original bounds
+    // guard, but protect the variant lookup AND enqueue against a
+    // simultaneous StopDevice / StartDevice on the same descriptor.
+    if (fd < 0 || static_cast<std::size_t>(fd) >= devices.size()) {
+        return;
+    }
+    std::scoped_lock lk{device_dispatch_mutex};
+    auto& device = devices[static_cast<std::size_t>(fd)];
+    if (auto* nvdec = std::get_if<Tegra::Host1x::Nvdec>(&device)) {
+        nvdec->PushEntries(std::move(entries));
+    } else if (auto* vic = std::get_if<Tegra::Host1x::Vic>(&device)) {
+        vic->PushEntries(std::move(entries));
+    }
 }
 
 } // namespace Tegra::Host1x
