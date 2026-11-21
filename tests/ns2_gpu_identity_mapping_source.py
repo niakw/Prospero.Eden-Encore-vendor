@@ -344,6 +344,18 @@ assert "std::bad_alloc" in _native_gpu
 assert "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;" in _ctrl_gpu
 assert "system.GPU().WaitForIdle();" in _gsv
 
+# Native retirement must drain GPU readers before GMMU unmap or
+# NvMap unpin; do it outside the AS mutex to avoid blocking the worker.
+for name in ("FreeSpace", "UnmapBuffer"):
+    block = _as_runtime.split("NvResult nvhost_as_gpu::" + name + "(", 1)[1].split(
+        "std::scoped_lock lock(mutex);", 1)[0]
+    for marker in ("NativeGpuProcessRegistry::Instance().Contains(m_native_process)",
+                   "system.IsPoweredOn() && !system.IsShuttingDown()",
+                   "system.GPU().WaitForIdle();"):
+        assert marker in block, (name, marker)
+    assert block.index("system.GPU().WaitForIdle();") < len(block)
+
+
 # Preserve public NVDRV A:0x0C mapping-kind coverage for both direct
 # NvMap views and sparse remap pins. The two valid ownership domains are
 # disjoint; preflight the entire sparse range before the first GMMU mutation.

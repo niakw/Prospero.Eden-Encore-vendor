@@ -1501,6 +1501,14 @@ bool nvhost_as_gpu::FreeMappingLocked(u64 offset) noexcept {
 
 NvResult nvhost_as_gpu::FreeSpace(IoctlFreeSpace& params) {
     LOG_DEBUG(Service_NVDRV, "called, offset={:X}, pages={:X}, page_size={:X}", params.offset, params.pages, params.page_size);
+    // A native GPU free retires GMMU PTEs and may drop the last NVMap
+    // physical pin. A queued GPU command could still dereference that PA.
+    // Drain BEFORE taking the AS mutex: GPU command processing can query
+    // these page tables while WaitForIdle() runs. NS1 stays unchanged.
+    if (m_native_process &&
+        NativeGpuProcessRegistry::Instance().Contains(m_native_process) &&
+        system.IsPoweredOn() && !system.IsShuttingDown())
+        system.GPU().WaitForIdle();
     std::scoped_lock lock(mutex);
     if (!vm.initialised) {
         return NvResult::BadValue;
@@ -2046,6 +2054,13 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
 }
 
 NvResult nvhost_as_gpu::UnmapBuffer(IoctlUnmapBuffer& params) {
+    // Native unmap also invalidates the GMMU and unpins NvMap memory.
+    // Never let the producer retire backing ahead of an already queued
+    // consumer. Do NOT wait with mutex held (GPU worker may read its PTEs).
+    if (m_native_process &&
+        NativeGpuProcessRegistry::Instance().Contains(m_native_process) &&
+        system.IsPoweredOn() && !system.IsShuttingDown())
+        system.GPU().WaitForIdle();
     std::scoped_lock lock(mutex);
     if (native_sparse_poisoned && m_native_process &&
         NativeGpuProcessRegistry::Instance().Contains(m_native_process))
