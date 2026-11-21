@@ -168,7 +168,7 @@ private:
         u64_le timestamp{};
         u32_le info32{};
         u16_le info16{};
-        u16_le status{}; // always 0xFFFF
+        u16_le status{}; // 0 = healthy; non-zero = channel/GPU error
     };
     static_assert(sizeof(IoctlGetErrorNotification) == 16,
                   "IoctlGetErrorNotification is incorrect size");
@@ -237,6 +237,7 @@ private:
     NvResult GetClientData(IoctlClientData& params);
     NvResult ZCullBind(IoctlZCullBind& params);
     NvResult SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd);
+    NvResult GetErrorNotification(IoctlGetErrorNotification& params, DeviceFD fd);
     NvResult SetChannelPriority(IoctlChannelSetPriority& params);
     // Authenticate the exact FD before changing channel/engine state. Native
     // sessions may not share a GPU channel with another guest process.

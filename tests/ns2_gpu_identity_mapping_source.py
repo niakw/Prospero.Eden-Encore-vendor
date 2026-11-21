@@ -275,6 +275,35 @@ assert "nvmap.FreeHandle(*native_error_notifier_handle, true);" in dtor
 assert dtor.index("system.GPU().ReleaseChannel(*channel_state)") < dtor.index(
     "nvmap.FreeHandle(*native_error_notifier_handle, true);")
 
+# OunceVK immediately reads H:0x17 after notifier/preemption and accepts
+# channel setup only when the live 16-byte notification status is healthy.
+# Read the same retained NvMap record; do not synthesize a zero result.
+health_route=nvhost_cpp.split("case 0x17: { // Switch 2 NVGPU_IOCTL_CHANNEL_GET_ERROR_NOTIFICATION",1)[1].split(
+    "case 0x18:",1)[0]
+for token in ("command.raw != 0xC0104817U",
+              "sizeof(IoctlGetErrorNotification)",
+              "GetErrorNotification, input, output, fd"):
+    assert token in health_route, token
+health=nvhost_cpp.split(
+    "NvResult nvhost_gpu::GetErrorNotification(IoctlGetErrorNotification& params, DeviceFD fd) {",1
+)[1].split("\n}",1)[0]
+for token in ("!UsesNativeAbi(fd)", "ValidateChannelOwner(fd, program_id)",
+              "!native_error_notifier_handle", "nvmap.GetHandle(*native_error_notifier_handle)",
+              "handle->internal_dupes <= 0", "native_error_notifier_offset",
+              "IsValidVirtualAddressRange", "memory.ReadBlock",
+              "sizeof(IoctlGetErrorNotification)", "return NvResult::Success"):
+    assert token in health, token
+assert "NvResult GetErrorNotification(IoctlGetErrorNotification& params, DeviceFD fd);" in nvhost_hdr
+assert "0 = healthy; non-zero = channel/GPU error" in nvhost_hdr
+
+# OunceVK closes the same notifier by sending a completely zero H:0x0C
+# payload. This must release the retained duplicate without accepting malformed
+# partially-zero disable requests.
+for token in ("if (params.mem == 0)", "params.offset) != 0", "params.size) != 0",
+              "nvmap.FreeHandle(*native_error_notifier_handle, true)",
+              "native_error_notifier_handle.reset()", "native_error_notifier_offset = 0"):
+    assert token in notifier, token
+
 # Switch 2 channel preemption-mode ioctl (SwitchBrew 0xC008481F).
 # NVIDIA common UAPI permits compute CTA (bit1), and OunceVK's actual
 # native 3D setup sends {graphics=0, compute=2} before first GPFIFO submit.

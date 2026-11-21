@@ -130,6 +130,13 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
             return WrapFixed(this, &nvhost_gpu::SetErrorNotifier, input, output, fd);
         case 0xd:
             return WrapFixed(this, &nvhost_gpu::SetChannelPriority, input, output);
+        case 0x17: { // Switch 2 NVGPU_IOCTL_CHANNEL_GET_ERROR_NOTIFICATION
+            if (command.raw != 0xC0104817U) break;
+            if (output.size() != sizeof(IoctlGetErrorNotification) ||
+                (!input.empty() && input.size() != sizeof(IoctlGetErrorNotification)))
+                return NvResult::InvalidSize;
+            return WrapFixed(this, &nvhost_gpu::GetErrorNotification, input, output, fd);
+        }
         case 0x18:
             return WrapFixed(this, &nvhost_gpu::AllocGPFIFOEx, input, output, fd);
         case 0x1a:
@@ -420,11 +427,21 @@ NvResult nvhost_gpu::SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd
         return status;
 
     const auto session_it = sessions.find(fd);
-    if (session_it == sessions.end() || params.mem == 0)
+    if (session_it == sessions.end())
         return NvResult::BadParameter;
     const auto* channel_session = core.GetSession(session_it->second);
     if (!channel_session || !channel_session->process)
         return NvResult::InvalidState;
+
+    if (params.mem == 0) {
+        if (static_cast<u64>(params.offset) != 0 || static_cast<u64>(params.size) != 0)
+            return NvResult::BadParameter;
+        if (native_error_notifier_handle)
+            nvmap.FreeHandle(*native_error_notifier_handle, true);
+        native_error_notifier_handle.reset();
+        native_error_notifier_offset = 0;
+        return NvResult::Success;
+    }
 
     auto handle = nvmap.GetHandle(params.mem);
     if (!handle)
@@ -472,6 +489,46 @@ NvResult nvhost_gpu::SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd
         nvmap.FreeHandle(*native_error_notifier_handle, true);
     native_error_notifier_handle = params.mem;
     native_error_notifier_offset = static_cast<u64>(params.offset);
+    return NvResult::Success;
+}
+
+NvResult nvhost_gpu::GetErrorNotification(IoctlGetErrorNotification& params, DeviceFD fd) {
+    if (!UsesNativeAbi(fd))
+        return NvResult::NotImplemented;
+
+    const std::scoped_lock lock{channel_mutex};
+    u64 program_id{};
+    if (const auto status = ValidateChannelOwner(fd, program_id);
+        status != NvResult::Success)
+        return status;
+    if (!native_error_notifier_handle)
+        return NvResult::InvalidState;
+
+    const auto session_it = sessions.find(fd);
+    if (session_it == sessions.end())
+        return NvResult::InvalidState;
+    const auto* channel_session = core.GetSession(session_it->second);
+    const auto handle = nvmap.GetHandle(*native_error_notifier_handle);
+    if (!channel_session || !channel_session->process || !handle)
+        return NvResult::InvalidState;
+    const auto* backing_session = core.GetSession(handle->session_id);
+    if (!backing_session || backing_session->process != channel_session->process)
+        return NvResult::InvalidState;
+
+    constexpr u64 NativeErrorNotifierBytes = sizeof(IoctlGetErrorNotification);
+    const std::scoped_lock handle_lock{handle->mutex};
+    const u64 offset = native_error_notifier_offset;
+    if (!handle->allocated || handle->internal_dupes <= 0 || handle->address == 0 ||
+        offset > handle->orig_size || NativeErrorNotifierBytes > handle->orig_size - offset ||
+        handle->address > std::numeric_limits<u64>::max() - offset)
+        return NvResult::InvalidState;
+    const u64 address = handle->address + offset;
+    auto& memory = channel_session->process->GetMemory();
+    if (!memory.IsValidVirtualAddressRange(Common::ProcessAddress{address},
+                                           sizeof(IoctlGetErrorNotification)) ||
+        !memory.ReadBlock(Common::ProcessAddress{address}, &params,
+                          sizeof(IoctlGetErrorNotification)))
+        return NvResult::BadParameter;
     return NvResult::Success;
 }
 
