@@ -101,6 +101,35 @@ void TranslateIMul(TranslatorVisitor& v, u64 insn, const IR::U32& src_b) {
                   imul.is_b_signed != 0, imul.cc != 0);
 }
 
+// Maxwell GM107 IMAD: low multiplication is sign-independent modulo 2^32;
+// HI uses the same signed/unsigned high-word product as IMUL, then adds C.
+// X/SAT/CC have independent carry/saturation/flag semantics and remain
+// deliberately fail-closed until those contracts are implemented.
+void TranslateIMad(TranslatorVisitor& v, u64 insn, const IR::U32& src_b,
+                   const IR::U32& src_c) {
+    union {
+        u64 raw;
+        BitField<0, 8, IR::Reg> dest_reg;
+        BitField<8, 8, IR::Reg> src_reg_a;
+        BitField<47, 1, u64> cc;
+        BitField<48, 1, u64> is_a_signed;
+        BitField<49, 1, u64> extended;
+        BitField<50, 1, u64> saturate;
+        BitField<53, 1, u64> is_b_signed;
+        BitField<54, 1, u64> high;
+    } const imad{insn};
+
+    if (imad.extended != 0 || imad.saturate != 0 || imad.cc != 0) {
+        throw NotImplementedException("IMAD X/SAT/CC modifiers");
+    }
+    const IR::U32 src_a{v.X(imad.src_reg_a)};
+    const IR::U32 product{
+        imad.high != 0
+            ? MultiplyHigh(v, src_a, src_b, imad.is_a_signed != 0, imad.is_b_signed != 0)
+            : v.ir.IMul(src_a, src_b)};
+    v.X(imad.dest_reg, v.ir.IAdd(product, src_c));
+}
+
 // NVIDIA PTX prmt.b32 specialized controls and envytools GM107 tab5bc0_0
 // use mode values 1..6 in bits 48..51. Values 7..15 are reserved.
 enum class PrmtMode : u32 {
@@ -277,20 +306,20 @@ void TranslatorVisitor::IDP_imm(u64) {
     ThrowNotImplemented(Opcode::IDP_imm);
 }
 
-void TranslatorVisitor::IMAD_reg(u64) {
-    ThrowNotImplemented(Opcode::IMAD_reg);
+void TranslatorVisitor::IMAD_reg(u64 insn) {
+    TranslateIMad(*this, insn, GetReg20(insn), GetReg39(insn));
 }
 
-void TranslatorVisitor::IMAD_rc(u64) {
-    ThrowNotImplemented(Opcode::IMAD_rc);
+void TranslatorVisitor::IMAD_rc(u64 insn) {
+    TranslateIMad(*this, insn, GetReg39(insn), GetCbuf(insn));
 }
 
-void TranslatorVisitor::IMAD_cr(u64) {
-    ThrowNotImplemented(Opcode::IMAD_cr);
+void TranslatorVisitor::IMAD_cr(u64 insn) {
+    TranslateIMad(*this, insn, GetCbuf(insn), GetReg39(insn));
 }
 
-void TranslatorVisitor::IMAD_imm(u64) {
-    ThrowNotImplemented(Opcode::IMAD_imm);
+void TranslatorVisitor::IMAD_imm(u64 insn) {
+    TranslateIMad(*this, insn, GetImm20(insn), GetReg39(insn));
 }
 
 void TranslatorVisitor::IMAD32I(u64) {
