@@ -4,6 +4,11 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
+#include <array>
+#include <limits>
+#include <vector>
+
 #include "common/algorithm.h"
 #include "common/assert.h"
 #include "common/logging.h"
@@ -40,6 +45,181 @@ constexpr bool CanCoalescePitchDma(u64 source, u64 dest, u32 width, u32 rows,
         return false;
     }
     total = bytes;
+    return true;
+}
+
+// Remapped DMA lengths are measured in pixels/blocks, NOT bytes. Component
+// width and per-pixel component counts are configured independently by the
+// B0B5 SET_REMAP_COMPONENTS register. Apply all four destination selectors;
+// NO_WRITE must preserve the current destination component. This is generic
+// copy-engine behavior, shared by every guest title using this class.
+bool CopyPitchRemap(MemoryManager& memory, const MaxwellDMA::RemapConst& remap,
+                    GPUVAddr source, GPUVAddr destination, s32 source_pitch,
+                    s32 destination_pitch, u32 blocks, u32 rows,
+                    Common::ScratchBuffer<u8>& source_scratch,
+                    Common::ScratchBuffer<u8>& destination_scratch) {
+    using Swizzle = MaxwellDMA::RemapConst::Swizzle;
+    const u32 component_size = remap.component_size_minus_one + 1;
+    const u32 src_components = remap.num_src_components_minus_one + 1;
+    const u32 dst_components = remap.num_dst_components_minus_one + 1;
+    const std::array<Swizzle, 4> selectors{
+        remap.dst_x.Value(), remap.dst_y.Value(),
+        remap.dst_z.Value(), remap.dst_w.Value(),
+    };
+    bool needs_source = false;
+    bool needs_destination = false;
+    bool has_writes = false;
+    bool identity = src_components == dst_components;
+    for (u32 slot = 0; slot < dst_components; ++slot) {
+        const auto selector = selectors[slot];
+        const u32 value = static_cast<u32>(selector);
+        if (selector == Swizzle::NO_WRITE) {
+            needs_destination = true;
+            identity = false;
+        } else if (selector == Swizzle::CONST_A || selector == Swizzle::CONST_B) {
+            has_writes = true;
+            identity = false;
+        } else if (value < 4 && value < src_components) {
+            needs_source = true;
+            has_writes = true;
+            identity &= value == slot;
+        } else {
+            return false; // Reserved or out-of-range source component.
+        }
+    }
+    if (blocks == 0 || rows == 0 || !has_writes) {
+        return true;
+    }
+    const u64 src_stride = static_cast<u64>(component_size) * src_components;
+    const u64 dst_stride = static_cast<u64>(component_size) * dst_components;
+    const u64 src_row_bytes = static_cast<u64>(blocks) * src_stride;
+    const u64 dst_row_bytes = static_cast<u64>(blocks) * dst_stride;
+    constexpr u64 MAX_CPU_REMAP_BYTES = 64ULL << 20;
+    if (dst_row_bytes > MAX_CPU_REMAP_BYTES / rows ||
+        (needs_source && src_row_bytes > MAX_CPU_REMAP_BYTES / rows)) {
+        return false; // Do not OOM the PS5 on a guest-controlled DMA span.
+    }
+
+    // Validate the full signed-pitch address envelopes before any writes.
+    const auto envelope = [](GPUVAddr base, s32 pitch, u32 row_count, u64 bytes,
+                             u64& begin, u64& end) {
+        const u64 magnitude = pitch < 0 ? static_cast<u64>(-static_cast<s64>(pitch))
+                                        : static_cast<u64>(pitch);
+        const u64 delta = magnitude * (row_count - 1);
+        constexpr u64 MAX_ADDRESS = (std::numeric_limits<u64>::max)();
+        if (pitch < 0) {
+            if (delta > base || bytes > MAX_ADDRESS - base) {
+                return false;
+            }
+            begin = base - delta;
+            end = base + bytes;
+        } else {
+            if (delta > MAX_ADDRESS - base ||
+                bytes > MAX_ADDRESS - base - delta) {
+                return false;
+            }
+            begin = base;
+            end = base + delta + bytes;
+        }
+        return true;
+    };
+    u64 src_begin{}, src_end{}, dst_begin{}, dst_end{};
+    const s32 actual_src_pitch = rows == 1 ? 0 : source_pitch;
+    const s32 actual_dst_pitch = rows == 1 ? 0 : destination_pitch;
+    if (!envelope(source, actual_src_pitch, rows, src_row_bytes, src_begin, src_end) ||
+        !envelope(destination, actual_dst_pitch, rows, dst_row_bytes, dst_begin, dst_end)) {
+        return false;
+    }
+    const bool overlap = needs_source && src_begin < dst_end && dst_begin < src_end;
+    const auto row_address = [](GPUVAddr base, s32 pitch, u32 row) {
+        const u64 magnitude = pitch < 0 ? static_cast<u64>(-static_cast<s64>(pitch))
+                                        : static_cast<u64>(pitch);
+        const u64 delta = magnitude * row;
+        return pitch < 0 ? base - delta : base + delta;
+    };
+
+    // Common identity remaps remain a normal DMA block copy; never turn
+    // every format-preserving upload into a CPU per-component loop.
+    if (identity && !overlap) {
+        u64 contiguous_bytes{};
+        if (src_row_bytes <= static_cast<u64>((std::numeric_limits<u32>::max)()) &&
+            CanCoalescePitchDma(source, destination, static_cast<u32>(src_row_bytes),
+                                rows, actual_src_pitch, actual_dst_pitch,
+                                contiguous_bytes)) {
+            memory.CopyBlock(destination, source, static_cast<size_t>(contiguous_bytes));
+        } else {
+            for (u32 row = 0; row < rows; ++row) {
+                memory.CopyBlock(row_address(destination, actual_dst_pitch, row),
+                                 row_address(source, actual_src_pitch, row),
+                                 static_cast<size_t>(src_row_bytes));
+            }
+        }
+        return true;
+    }
+
+    // Snapshot overlapping source rows before modifying any destination row.
+    // A partial stencil/depth remap may leave some destination components
+    // unchanged; read those bytes before writing each output chunk.
+    std::vector<u8> snapshot;
+    if (overlap) {
+        snapshot.resize(static_cast<size_t>(src_row_bytes * rows));
+        for (u32 row = 0; row < rows; ++row) {
+            memory.ReadBlock(row_address(source, actual_src_pitch, row),
+                             snapshot.data() + static_cast<size_t>(src_row_bytes * row),
+                             static_cast<size_t>(src_row_bytes));
+        }
+    }
+    constexpr size_t CHUNK_BYTES = 64 * 1024;
+    const u64 chunk_blocks = (std::max)(u64{1}, CHUNK_BYTES / (std::max)(src_stride, dst_stride));
+    source_scratch.resize_destructive(static_cast<size_t>(chunk_blocks * src_stride));
+    destination_scratch.resize_destructive(static_cast<size_t>(chunk_blocks * dst_stride));
+    for (u32 row = 0; row < rows; ++row) {
+        const u64 source_base = row_address(source, actual_src_pitch, row);
+        const u64 destination_base = row_address(destination, actual_dst_pitch, row);
+        for (u64 start = 0; start < blocks; start += chunk_blocks) {
+            const u64 count = (std::min)(chunk_blocks, static_cast<u64>(blocks) - start);
+            const size_t src_bytes = static_cast<size_t>(count * src_stride);
+            const size_t dst_bytes = static_cast<size_t>(count * dst_stride);
+            const u64 src_address = source_base + start * src_stride;
+            const u64 dst_address = destination_base + start * dst_stride;
+            const u8* src_bytes_ptr = nullptr;
+            if (needs_source) {
+                if (overlap) {
+                    src_bytes_ptr = snapshot.data() +
+                        static_cast<size_t>(row * src_row_bytes + start * src_stride);
+                } else {
+                    memory.ReadBlock(src_address, source_scratch.data(), src_bytes);
+                    src_bytes_ptr = source_scratch.data();
+                }
+            }
+            if (needs_destination) {
+                memory.ReadBlock(dst_address, destination_scratch.data(), dst_bytes);
+            }
+            u8* const dst = destination_scratch.data();
+            for (u64 element = 0; element < count; ++element) {
+                const u8* const src = needs_source ? src_bytes_ptr + element * src_stride : nullptr;
+                for (u32 slot = 0; slot < dst_components; ++slot) {
+                    const auto sel = selectors[slot];
+                    u8* const target = dst + element * dst_stride + slot * component_size;
+                    if (sel == Swizzle::NO_WRITE) {
+                        continue;
+                    }
+                    if (static_cast<u32>(sel) < 4) {
+                        const u8* component = src + static_cast<u32>(sel) * component_size;
+                        std::copy_n(component, component_size, target);
+                    } else {
+                        const u32 value = sel == Swizzle::CONST_A
+                                              ? remap.remap_consta_value
+                                              : remap.remap_constb_value;
+                        for (u32 byte = 0; byte < component_size; ++byte) {
+                            target[byte] = static_cast<u8>(value >> (8 * byte));
+                        }
+                    }
+                }
+            }
+            memory.WriteBlock(dst_address, dst, dst_bytes);
+        }
+    }
     return true;
 }
 } // namespace
@@ -86,6 +266,24 @@ void MaxwellDMA::Launch() {
     // TODO(Subv): Perform more research and implement all features of this engine.
     const LaunchDMA& launch = regs.launch_dma;
     ASSERT(launch.interrupt_type == LaunchDMA::InterruptType::NONE);
+
+    if (launch.remap_enable != 0 &&
+        launch.src_memory_layout == LaunchDMA::MemoryLayout::PITCH &&
+        launch.dst_memory_layout == LaunchDMA::MemoryLayout::PITCH) {
+        // SET_REMAP_COMPONENTS defines the width and swizzle for *all*
+        // components, even when multi-line DMA is enabled. Do not perform
+        // the old raw byte copy with an implicit one-byte block width.
+        memory_manager.FlushCaching();
+        const u32 rows = launch.multi_line_enable != 0 ? regs.line_count : 1;
+        if (!CopyPitchRemap(memory_manager, regs.remap_const, regs.offset_in, regs.offset_out,
+                            regs.pitch_in, regs.pitch_out, regs.line_length_in, rows,
+                            read_buffer, write_buffer)) {
+            LOG_WARNING(Render_OpenGL, "Unsupported or oversized pitch DMA remap");
+            AssertFailSoftImpl();
+        }
+        ReleaseSemaphore();
+        return;
+    }
 
     if (launch.multi_line_enable) {
         const bool is_src_pitch = launch.src_memory_layout == LaunchDMA::MemoryLayout::PITCH;
