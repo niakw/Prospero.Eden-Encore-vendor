@@ -200,7 +200,7 @@ for service in ("OpenDisplaySession", "OpenGpuSession"):
     assert "rb.Push(result.raw);" in failure
     assert "return;" in failure
     assert body.index("if (result.IsError()) {") < body.index(
-        "IPC::ResponseBuilder rb{ctx, 2, 1, 0};")
+        "IPC::ResponseBuilder rb{ctx, 2, 0, 1};")
     assert body.count("ctx.AddMoveObject(client);") == 1
 # The GPU weak-owner vector must be provisioned before a server-managed
 # kernel session is registered, otherwise a bad_alloc can leak that session.
@@ -242,14 +242,14 @@ for needle in (
     'handler->InitializeForProcess(m_process)',
     'CreateMetadataSession(system, ctx,',
     'catch (const std::bad_alloc&)',
-    'IPC::ResponseBuilder rb{ctx, 2, 1, 0};',
+    'IPC::ResponseBuilder rb{ctx, 2, 0, 1};',
     'ctx.AddMoveObject(client);',
 ):
     assert needle in nvsrv,needle
 assert nvsrv.index('handler->InitializeForProcess(m_process)') < nvsrv.index(
     'CreateMetadataSession(system, ctx,')
 assert nvsrv.index('if (result.IsError()) {') < nvsrv.index(
-    'IPC::ResponseBuilder rb{ctx, 2, 1, 0};')
+    'IPC::ResponseBuilder rb{ctx, 2, 0, 1};')
 # Firmware boot can open native NvDrv2User (1402) BEFORE GPU session (497).
 # A process is therefore already native for the first NVDRV ioctl. Tie the
 # ticket to the actual child session lifetime, not GSV parent / program ID.
