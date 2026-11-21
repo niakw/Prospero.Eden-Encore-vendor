@@ -301,7 +301,14 @@ for name,next_name in (("AllocGPFIFOEx","AllocGPFIFOEx2"),
     # The immediate (already-bound) branch remains runnable after real init.
     immediate=alloc.split("system.GPU().InitChannel(*channel_state, program_id);",1)[1]
     assert immediate.index("native_channel_enabled = true;") < immediate.index(
+        "native_gpfifo_configured = true;") < immediate.index(
         "params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);")
+    assert deferred.index("native_channel_enabled = true;") < deferred.index(
+        "native_gpfifo_configured = true;") < deferred.index(
+        "params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);")
+    assert "if (!channel_state->initialized || channel_state->bind_id < 0)" in immediate
+    assert immediate.index("if (!channel_state->initialized || channel_state->bind_id < 0)") < (
+        immediate.index("native_gpfifo_configured = true;"))
 
 # CHANNEL_SETUP_BIND is a second native GPFIFO admission path. A
 # successful InitChannel must mark it runnable before the first H:0x1B submit.
@@ -319,13 +326,17 @@ for token in ("system.GPU().InitChannel(*channel_state, program_id);",
 assert setup_bind.index("system.GPU().InitChannel(*channel_state, program_id);") < setup_bind.index(
     "if (!channel_state->initialized || channel_state->bind_id < 0)") < setup_bind.index(
     "native_channel_enabled = true;") < setup_bind.index(
+    "native_gpfifo_configured = true;") < setup_bind.index(
     "params.work_submit_token = 0;")
 
 submit_impl=nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split(
     "\n}",1)[0]
 assert "if (!native_channel_enabled)" in submit_impl
 assert "reason=channel-disabled" in submit_impl
+assert "bool native_gpfifo_configured{};" in nvhost_hdr
+assert "if (!native_gpfifo_configured)" in submit_impl
 assert submit_impl.index("if (!native_channel_enabled)") < submit_impl.index(
+    "if (!native_gpfifo_configured)") < submit_impl.index(
     "for (const auto& [other_fd, session_id] : sessions)")
 
 # Ounce S2 channel EventIdControl is input-only 0x40104812 and carries

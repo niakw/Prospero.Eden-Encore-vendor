@@ -249,6 +249,9 @@ private:
     // Logical CCSR enable state for the authenticated NS2 channel. Direct
     // H:0x0E/0x0F and TSG H:0x03/0x04 both update this one source of truth.
     bool native_channel_enabled{};
+    // Enabling a channel/TSG is not GPFIFO allocation. The first native
+    // submit must follow a successful ALLOC_GPFIFO_EX[2] or SETUP_BIND.
+    bool native_gpfifo_configured{};
 
     NvResult NativeChannelSetEnabled(DeviceFD fd, bool enabled);
     NvResult ChannelOpen(IoctlChannelOpen& params, DeviceFD fd);

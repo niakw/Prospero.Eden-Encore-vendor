@@ -288,8 +288,10 @@ void nvhost_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
 
 void nvhost_gpu::OnClose(DeviceFD fd) {
     const std::scoped_lock lock{channel_mutex};
-    if (UsesNativeAbi(fd))
+    if (UsesNativeAbi(fd)) {
         native_channel_enabled = false;
+        native_gpfifo_configured = false;
+    }
     sessions.erase(fd);
 }
 
@@ -402,6 +404,7 @@ NvResult nvhost_gpu::ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd
     // otherwise the first kernel-mode H:0x1B submit is rejected as disabled.
     // Publish only after InitChannel succeeds, never on a failed setup.
     native_channel_enabled = true;
+    native_gpfifo_configured = true;
 
     // Switch 2 returns the complete setup-bind response. Kernel submit has no
     // guest USERD/GPFIFO/usermode-MMIO mappings, so those addresses and the
@@ -650,18 +653,24 @@ NvResult nvhost_gpu::AllocGPFIFOEx(IoctlAllocGpfifoEx& params, DeviceFD fd) {
         // otherwise its later first submit is rejected as disabled before
         // SubmitGPFIFOImpl can perform the deferred InitChannel. The submit
         // still requires a real bound GMMU and initialized scheduler.
-        if (UsesNativeAbi(fd))
+        if (UsesNativeAbi(fd)) {
             native_channel_enabled = true;
+            native_gpfifo_configured = true;
+        }
         params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
         return NvResult::Success;
     }
 
     system.GPU().InitChannel(*channel_state, program_id);
     // NVIDIA Ampere channel_setup_bind ends with ga10b_channel_bind(),
-    // which enables the channel. Ounce uses this implicit transition and
-    // does not issue H:0x0E/TSG ENABLE before its first GPFIFO2 submit.
-    if (UsesNativeAbi(fd))
+    // which enables the channel. A native allocation cannot succeed until
+    // InitChannel really publishes a scheduler channel and valid bind id.
+    if (UsesNativeAbi(fd)) {
+        if (!channel_state->initialized || channel_state->bind_id < 0)
+            return NvResult::InvalidState;
         native_channel_enabled = true;
+        native_gpfifo_configured = true;
+    }
 
     params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
 
@@ -695,18 +704,24 @@ NvResult nvhost_gpu::AllocGPFIFOEx2(IoctlAllocGpfifoEx& params, DeviceFD fd) {
         // otherwise its later first submit is rejected as disabled before
         // SubmitGPFIFOImpl can perform the deferred InitChannel. The submit
         // still requires a real bound GMMU and initialized scheduler.
-        if (UsesNativeAbi(fd))
+        if (UsesNativeAbi(fd)) {
             native_channel_enabled = true;
+            native_gpfifo_configured = true;
+        }
         params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
         return NvResult::Success;
     }
 
     system.GPU().InitChannel(*channel_state, program_id);
     // NVIDIA Ampere channel_setup_bind ends with ga10b_channel_bind(),
-    // which enables the channel. Ounce uses this implicit transition and
-    // does not issue H:0x0E/TSG ENABLE before its first GPFIFO2 submit.
-    if (UsesNativeAbi(fd))
+    // which enables the channel. A native allocation cannot succeed until
+    // InitChannel really publishes a scheduler channel and valid bind id.
+    if (UsesNativeAbi(fd)) {
+        if (!channel_state->initialized || channel_state->bind_id < 0)
+            return NvResult::InvalidState;
         native_channel_enabled = true;
+        native_gpfifo_configured = true;
+    }
 
     params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
 
@@ -882,6 +897,11 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
 #endif
             return NvResult::InvalidState;
         }
+        // An ENABLE/TSG ENABLE ioctl changes scheduling state only; it must
+        // never bypass the GPFIFO setup contract or create a channel on an
+        // unallocated ring at first submission.
+        if (!native_gpfifo_configured)
+            return NvResult::InvalidState;
         for (const auto& [other_fd, session_id] : sessions) {
             const auto* opened = core.GetSession(session_id);
             if (!opened || opened->process != native_owner) {
