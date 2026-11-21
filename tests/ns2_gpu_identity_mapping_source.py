@@ -367,10 +367,14 @@ for allocator_name in ("first_page", "start_page"):
         "allocation_map.erase(address);\n"
         f"                allocator.Free({allocator_name}, params.pages);"
     )
+    # The regular native allocator can erase the same ledger entry in
+    # its earlier try_emplace failure path. Inspect the FINAL rollback tied
+    # to failed MapSparse, not that unrelated pre-publication cleanup.
+    rollback_offset = _allocate_block.rindex(rollback)
     failure = _allocate_block.rfind("} catch (const std::bad_alloc&) {", 0,
-                                  _allocate_block.index(rollback))
+                                  rollback_offset)
     assert failure >= 0,allocator_name
-    error_block = _allocate_block[failure:_allocate_block.index(rollback)]
+    error_block = _allocate_block[failure:rollback_offset]
     # GMMU rollback attempt precedes the inner catch that quarantines it.
     unmap = _allocate_block.rfind("gmmu->Unmap(address, size);", 0, failure)
     assert unmap >= 0 and failure - unmap < 150,allocator_name
