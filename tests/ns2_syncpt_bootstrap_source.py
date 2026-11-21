@@ -77,6 +77,33 @@ for needle in (
 assert "LockForMapDeviceAddressSpace" not in bind113
 assert "UnlockForDeviceAddressSpace" not in bind113
 assert "std::map<u32, Kernel::KTransferMemory*> m_native_transfer_backings;" in hdr
+# GSV 498 is the SDK's exact donated-work-buffer usage query: no input and
+# three u64 outputs. The boot KTransferMemory must outlive the IPC handle.
+assert '{498, &IGraphicsSupervisor::QueryDonatedTransferMemoryUsage, "TryQueryDonatedTransferMemoryUsage"}' in cpp
+assert 'void QueryDonatedTransferMemoryUsage(HLERequestContext& ctx);' in hdr
+assert 'Kernel::KTransferMemory* m_bootstrap_transfer_memory{};' in hdr
+assert 'u64 m_bootstrap_transfer_memory_size{};' in hdr
+init=cpp.split("void IGraphicsSupervisor::Initialize(HLERequestContext& ctx) {",1)[1].split(
+    "\n}\nvoid IGraphicsSupervisor::BindProcess",1)[0]
+for needle in (
+    "donated_transfer = memory.GetPointerUnsafe();",
+    "donated_size = request->size;",
+    "donated_transfer->Open(kernel);",
+    "m_bootstrap_transfer_memory = donated_transfer;",
+    "m_bootstrap_transfer_memory_size = donated_size;",
+):
+    assert needle in init, needle
+query498=cpp.split("void IGraphicsSupervisor::QueryDonatedTransferMemoryUsage(HLERequestContext& ctx) {",1)[1].split(
+    "\n}\n\nstatic Result NativeMemoryError",1)[0]
+for needle in (
+    "packet[0] != 16 + 498 || packet[1] != 0",
+    "!m_bootstrap_transfer_memory || m_bootstrap_transfer_memory_size == 0",
+    "static_cast<u32>(m_bootstrap_transfer_memory_size)",
+    "static_cast<u32>(m_bootstrap_transfer_memory_size >> 32)",
+    "0, 0, 0, 0",
+):
+    assert needle in query498, needle
+assert "m_bootstrap_transfer_memory->Close(kernel);" in cpp
 destroy=cpp.split("void IGraphicsSupervisor::DestroyNativeMemory(HLERequestContext& ctx) {",1)[1].split(
     "\n}\n\nvoid IGraphicsSupervisor::BindNativeTransferMemory",1)[0]
 assert "m_native_transfer_backings.find(packet[2])" in destroy
@@ -268,4 +295,4 @@ pool_create=cpp.split("void IGraphicsSupervisor::CreateVideoImagePool(HLERequest
 assert "CalculateNativeVideoImageLayout(preference, count)" in pool_create
 
 
-print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS graphics_frame=1101,1102,1111,1112,1113 native_memory=113-transfer-owner supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")
+print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS graphics_frame=1101,1102,1111,1112,1113 native_memory=113-transfer-owner donated_usage=498 supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")

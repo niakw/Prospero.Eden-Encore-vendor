@@ -60,6 +60,7 @@ private:
     void OpenSyncptSession(HLERequestContext& ctx);
     void AttachSyncptMemory(HLERequestContext& ctx);
     void OpenGpuSession(HLERequestContext& ctx);
+    void QueryDonatedTransferMemoryUsage(HLERequestContext& ctx);
     void OpenNvsrvSession(HLERequestContext& ctx);
     void InitializeFeatureContext(HLERequestContext& ctx);
     void OpenCameraSession(HLERequestContext& ctx);
@@ -105,6 +106,11 @@ private:
     u32 m_graphics_frame_restart_mode{};
     u32 m_graphics_frame_timeslice_mode{};
     std::vector<std::weak_ptr<IGpuSession>> m_gpu_sessions;
+    // TIPC 1 donates a real process-owned work buffer. Keep the kernel owner
+    // alive so TIPC 498 can report the exact donated capacity without
+    // pretending the HLE backend consumed storage it never suballocated.
+    Kernel::KTransferMemory* m_bootstrap_transfer_memory{};
+    u64 m_bootstrap_transfer_memory_size{};
     // TIPC 1402: an active INvDrv2User child is exclusive per GSV session.
     std::weak_ptr<Nvidia::NVDRV> m_nvsrv_session;
     // Shared because CoreTiming callbacks keep only weak references; shutdown

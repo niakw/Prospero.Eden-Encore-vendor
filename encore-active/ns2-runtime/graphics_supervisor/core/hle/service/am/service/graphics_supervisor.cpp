@@ -1341,6 +1341,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {434, &IGraphicsSupervisor::RegisterGpuAddressSpace, "RegisterGpuAddressSpace"},
         {496, &IGraphicsSupervisor::OpenGpuSession, "OpenGpuSessionWithTransferMemory"},
         {497, &IGraphicsSupervisor::OpenGpuSession, "OpenGpuSession"},
+        {498, &IGraphicsSupervisor::QueryDonatedTransferMemoryUsage, "TryQueryDonatedTransferMemoryUsage"},
         {1401, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSessionWithTransferMemory"},
         {1402, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSession"},
         {301, &IGraphicsSupervisor::InitializeDisplayContext, "InitializeDisplayContext"},
@@ -1473,6 +1474,11 @@ IGraphicsSupervisor::~IGraphicsSupervisor() {
                   "NS2 native TransferMemory backing quarantined at shutdown: {}", id);
     }
     m_native_transfer_backings.clear();
+    if (m_bootstrap_transfer_memory) {
+        m_bootstrap_transfer_memory->Close(kernel);
+        m_bootstrap_transfer_memory = nullptr;
+        m_bootstrap_transfer_memory_size = 0;
+    }
     m_process->Close(kernel);
 }
 Result IGraphicsSupervisor::HandleSyncRequest(Kernel::KServerSession& session,
@@ -1498,6 +1504,8 @@ Result IGraphicsSupervisor::HandleSyncRequest(Kernel::KServerSession& session,
 void IGraphicsSupervisor::Initialize(HLERequestContext& ctx) {
     const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
     bool matches = false;
+    Kernel::KTransferMemory* donated_transfer{};
+    u64 donated_size{};
     Result result = Kernel::ResultInvalidCombination;
     if (ctx.GetCommand() == 1) {
         const auto request = GraphicsSupervisorProtocol::DecodeBootstrapTransferMemory(packet);
@@ -1514,8 +1522,20 @@ void IGraphicsSupervisor::Initialize(HLERequestContext& ctx) {
                 rb.Push(Kernel::ResultInvalidSize.raw);
                 return;
             }
+            if (matches) {
+                donated_transfer = memory.GetPointerUnsafe();
+                donated_size = request->size;
+            }
         }
         result = TranslateBootstrap(m_bootstrap.InitializeTransferMemory(packet, matches));
+        if (result.IsSuccess() && donated_transfer) {
+            // GSV owns the donated work buffer for the session lifetime.
+            // Retain the kernel object even though Encore's HLE backend does
+            // not suballocate storage from it.
+            donated_transfer->Open(kernel);
+            m_bootstrap_transfer_memory = donated_transfer;
+            m_bootstrap_transfer_memory_size = donated_size;
+        }
     } else {
         const auto request = GraphicsSupervisorProtocol::DecodeBootstrap(packet);
         if (request) {
@@ -1919,6 +1939,29 @@ void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 2, 1, 0};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
+}
+
+void IGraphicsSupervisor::QueryDonatedTransferMemoryUsage(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    if (packet[0] != 16 + 498 || packet[1] != 0) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidCombination.raw);
+        return;
+    }
+    // This query only exists for the TransferMemory boot form. Remote-memory
+    // bootstrap did not donate a work buffer and must not receive a synthetic
+    // success. Encore's HLE services retain the real buffer but intentionally
+    // allocate their runtime objects elsewhere, so used and peak are exactly 0.
+    if (!m_bootstrap_transfer_memory || m_bootstrap_transfer_memory_size == 0) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidState.raw);
+        return;
+    }
+    NativeTipcReplyWords(ctx, {
+        static_cast<u32>(m_bootstrap_transfer_memory_size),
+        static_cast<u32>(m_bootstrap_transfer_memory_size >> 32),
+        0, 0, 0, 0,
+    });
 }
 
 static Result NativeMemoryError(GraphicsSupervisorProtocol::NativeMemoryStatus status) {
