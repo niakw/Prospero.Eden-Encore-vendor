@@ -54,6 +54,10 @@ namespace Service {
                function_name == "UpdateAppletSuspendedDuration" ||
                function_name == "InvalidateForcedShutdownDetection";
     }
+    if (service_name == "eupld:c") {
+        return function_name == "SetUrl" || function_name == "ImportCrt" ||
+               function_name == "ImportPki" || function_name == "SetAutoUpload";
+    }
     return false;
 }
 
