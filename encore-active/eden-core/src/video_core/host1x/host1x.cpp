@@ -19,7 +19,18 @@ Host1x::Host1x(Core::System& system_)
     , allocator{1 << 12}
 {}
 
-Host1x::~Host1x() = default;
+Host1x::~Host1x() {
+    // A whole Host1x teardown destroys all device variants after this
+    // destructor body. Quiesce every CDMA worker while NVDEC/VIC state,
+    // GPU memory and the frame queue are still constructed.
+    for (auto& device : devices) {
+        if (auto* nvdec = std::get_if<Tegra::Host1x::Nvdec>(&device)) {
+            nvdec->Shutdown();
+        } else if (auto* vic = std::get_if<Tegra::Host1x::Vic>(&device)) {
+            vic->Shutdown();
+        }
+    }
+}
 
 void Host1x::StartDevice(s32 fd, ChannelType type, u32 syncpt) {
     // DeviceFD originates in NVDRV guest-facing handlers. The Host1x
@@ -27,6 +38,15 @@ void Host1x::StartDevice(s32 fd, ChannelType type, u32 syncpt) {
     if (fd < 0 || static_cast<std::size_t>(fd) >= devices.size()) {
         LOG_ERROR(HW_GPU, "Reject invalid Host1x StartDevice FD {}", fd);
         return;
+    }
+    // A repeated Open on a recycled FD also destroys the old variant.
+    // Quiesce it first so its jthread cannot access freed decoder state.
+    if (type == ChannelType::NvDec || type == ChannelType::VIC) {
+        if (auto* nvdec = std::get_if<Tegra::Host1x::Nvdec>(&devices[fd])) {
+            nvdec->Shutdown();
+        } else if (auto* vic = std::get_if<Tegra::Host1x::Vic>(&devices[fd])) {
+            vic->Shutdown();
+        }
     }
     switch (type) {
     case ChannelType::NvDec:
@@ -52,7 +72,13 @@ void Host1x::StopDevice(s32 fd, ChannelType type) {
         LOG_ERROR(HW_GPU, "Reject invalid Host1x StopDevice FD {}", fd);
         return;
     }
-    devices[static_cast<std::size_t>(fd)].emplace<std::monostate>();
+    auto& device = devices[static_cast<std::size_t>(fd)];
+    if (auto* nvdec = std::get_if<Tegra::Host1x::Nvdec>(&device)) {
+        nvdec->Shutdown();
+    } else if (auto* vic = std::get_if<Tegra::Host1x::Vic>(&device)) {
+        vic->Shutdown();
+    }
+    device.emplace<std::monostate>();
 }
 
 } // namespace Tegra::Host1x

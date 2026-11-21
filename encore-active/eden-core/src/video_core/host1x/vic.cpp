@@ -134,6 +134,9 @@ Vic::Vic(Host1x& host1x_, s32 id_, u32 syncpt) noexcept
 }
 
 Vic::~Vic() noexcept {
+    // The CDMA worker may still execute VIC ProcessMethod/Execute. Its
+    // base-class jthread otherwise joins after derived buffers die.
+    Shutdown();
     LOG_INFO(HW_GPU, "Destroying vic {}", id);
     host1x.frame_queue.Close(id);
 }
