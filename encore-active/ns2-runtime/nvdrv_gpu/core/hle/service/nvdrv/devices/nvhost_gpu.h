@@ -224,6 +224,10 @@ private:
     // is persisted even though explicit hardware-style preempt remains unsupported.
     u32 native_graphics_preemption_mode{};
     u32 native_compute_preemption_mode{};
+    // Native H:0x0C retains the exact NvMap backing just like nvgpu retains
+    // its dma-buf. The offset is kept for future real GPU-error publication.
+    std::optional<u32> native_error_notifier_handle{};
+    u64 native_error_notifier_offset{};
 
     NvResult ChannelOpen(IoctlChannelOpen& params, DeviceFD fd);
     NvResult ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd);
@@ -232,7 +236,7 @@ private:
     NvResult SetClientData(IoctlClientData& params);
     NvResult GetClientData(IoctlClientData& params);
     NvResult ZCullBind(IoctlZCullBind& params);
-    NvResult SetErrorNotifier(IoctlSetErrorNotifier& params);
+    NvResult SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd);
     NvResult SetChannelPriority(IoctlChannelSetPriority& params);
     // Authenticate the exact FD before changing channel/engine state. Native
     // sessions may not share a GPU channel with another guest process.

@@ -238,6 +238,43 @@ assert worker_destroy.index("system.GPU().WaitForIdle();") < worker_destroy.inde
     "for (const auto& [key, mapping] : m_mappings.Mappings())")
 
 
+# OunceVK's real native channel setup queries event 7 then installs
+# H:0x0C SET_ERROR_NOTIFIER before preemption and first GPFIFO2. Native
+# Encore must retain the real process-owned NvMap backing and clear the
+# 16-byte NVIDIA notification record instead of returning a stub Success.
+assert 'case 0xc:' in nvhost_cpp
+notifier_route=nvhost_cpp.split("case 0xc:",1)[1].split("case 0xd:",1)[0]
+assert "SetErrorNotifier, input, output, fd" in notifier_route
+notifier=nvhost_cpp.split(
+    "NvResult nvhost_gpu::SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd) {",1
+)[1].split("\n}",1)[0]
+for token in (
+    "if (!UsesNativeAbi(fd))",
+    "ValidateChannelOwner(fd, program_id)",
+    "sessions.find(fd)",
+    "nvmap.GetHandle(params.mem)",
+    "core.GetSession(handle->session_id)",
+    "backing_session->process != channel_session->process",
+    "constexpr u64 NativeErrorNotifierBytes = 16",
+    "handle->Duplicate(true)",
+    "current.get() == handle.get()",
+    "handle->dupes > 0",
+    "NativeErrorNotifierBytes <= handle->orig_size - offset",
+    "IsValidVirtualAddressRange",
+    "memory.WriteBlock",
+    "nvmap.FreeHandle(params.mem, true)",
+    "native_error_notifier_handle = params.mem",
+    "native_error_notifier_offset = static_cast<u64>(params.offset)",
+):
+    assert token in notifier, token
+assert "NvResult SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd);" in nvhost_hdr
+assert "std::optional<u32> native_error_notifier_handle{};" in nvhost_hdr
+assert "u64 native_error_notifier_offset{};" in nvhost_hdr
+dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}",1)[0]
+assert "nvmap.FreeHandle(*native_error_notifier_handle, true);" in dtor
+assert dtor.index("system.GPU().ReleaseChannel(*channel_state)") < dtor.index(
+    "nvmap.FreeHandle(*native_error_notifier_handle, true);")
+
 # Switch 2 channel preemption-mode ioctl (SwitchBrew 0xC008481F).
 # NVIDIA common UAPI permits compute CTA (bit1), and OunceVK's actual
 # native 3D setup sends {graphics=0, compute=2} before first GPFIFO submit.

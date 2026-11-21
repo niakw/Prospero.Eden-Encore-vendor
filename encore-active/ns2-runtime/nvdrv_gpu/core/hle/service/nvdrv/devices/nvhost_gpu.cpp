@@ -85,6 +85,10 @@ nvhost_gpu::~nvhost_gpu() {
         system.GPU().ReleaseChannel(*channel_state);
     }
     NativeGpuChannelRegistry::Instance().Unbind(channel_state.get());
+    if (native_error_notifier_handle) {
+        nvmap.FreeHandle(*native_error_notifier_handle, true);
+        native_error_notifier_handle.reset();
+    }
     events_interface.FreeEvent(sm_exception_breakpoint_int_report_event);
     events_interface.FreeEvent(sm_exception_breakpoint_pause_report_event);
     events_interface.FreeEvent(error_notifier_event);
@@ -123,7 +127,7 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
         case 0xb:
             return WrapFixed(this, &nvhost_gpu::ZCullBind, input, output);
         case 0xc:
-            return WrapFixed(this, &nvhost_gpu::SetErrorNotifier, input, output);
+            return WrapFixed(this, &nvhost_gpu::SetErrorNotifier, input, output, fd);
         case 0xd:
             return WrapFixed(this, &nvhost_gpu::SetChannelPriority, input, output);
         case 0x18:
@@ -399,9 +403,75 @@ NvResult nvhost_gpu::ZCullBind(IoctlZCullBind& params) {
     return NvResult::Success;
 }
 
-NvResult nvhost_gpu::SetErrorNotifier(IoctlSetErrorNotifier& params) {
-    LOG_WARNING(Service_NVDRV, "(STUBBED) called, offset={:X}, size={:X}, mem={:X}", params.offset,
-                params.size, params.mem);
+NvResult nvhost_gpu::SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd) {
+    // Preserve the legacy Eden/NS1 behaviour. Switch 2 is stricter because
+    // OunceVK installs this notifier in the real channel-setup path before
+    // its first GPFIFO2 submission.
+    if (!UsesNativeAbi(fd)) {
+        LOG_WARNING(Service_NVDRV, "(STUBBED) called, offset={:X}, size={:X}, mem={:X}",
+                    params.offset, params.size, params.mem);
+        return NvResult::Success;
+    }
+
+    const std::scoped_lock lock{channel_mutex};
+    u64 program_id{};
+    if (const auto status = ValidateChannelOwner(fd, program_id);
+        status != NvResult::Success)
+        return status;
+
+    const auto session_it = sessions.find(fd);
+    if (session_it == sessions.end() || params.mem == 0)
+        return NvResult::BadParameter;
+    const auto* channel_session = core.GetSession(session_it->second);
+    if (!channel_session || !channel_session->process)
+        return NvResult::InvalidState;
+
+    auto handle = nvmap.GetHandle(params.mem);
+    if (!handle)
+        return NvResult::BadParameter;
+    const auto* backing_session = core.GetSession(handle->session_id);
+    if (!backing_session || backing_session->process != channel_session->process)
+        return NvResult::BadParameter;
+
+    // Linux nvgpu maps a 16-byte nvgpu_notification at offset and retains
+    // the dma-buf until channel close/replacement. Mirror that lifetime with
+    // one internal NVMap duplicate; never retain a raw guest pointer.
+    constexpr u64 NativeErrorNotifierBytes = 16;
+    if (handle->Duplicate(true) != NvResult::Success)
+        return NvResult::BadParameter;
+
+    bool installed = false;
+    {
+        const auto current = nvmap.GetHandle(params.mem);
+        if (current && current.get() == handle.get()) {
+            const std::scoped_lock handle_lock{handle->mutex};
+            const u64 offset = static_cast<u64>(params.offset);
+            if (handle->allocated && handle->dupes > 0 && handle->address != 0 &&
+                offset <= handle->orig_size &&
+                NativeErrorNotifierBytes <= handle->orig_size - offset &&
+                handle->address <= std::numeric_limits<u64>::max() - offset) {
+                const u64 address = handle->address + offset;
+                std::array<u8, NativeErrorNotifierBytes> clear{};
+                auto& memory = channel_session->process->GetMemory();
+                installed = memory.IsValidVirtualAddressRange(
+                                Common::ProcessAddress{address}, clear.size()) &&
+                            memory.WriteBlock(Common::ProcessAddress{address},
+                                              clear.data(), clear.size());
+            }
+        }
+    }
+    if (!installed) {
+        nvmap.FreeHandle(params.mem, true);
+        return NvResult::BadParameter;
+    }
+
+    // Commit replacement only after the new notifier has a stable backing
+    // and its status record was initialized. Same-handle replacement is safe:
+    // the new duplicate is acquired before the previous duplicate is dropped.
+    if (native_error_notifier_handle)
+        nvmap.FreeHandle(*native_error_notifier_handle, true);
+    native_error_notifier_handle = params.mem;
+    native_error_notifier_offset = static_cast<u64>(params.offset);
     return NvResult::Success;
 }
 
