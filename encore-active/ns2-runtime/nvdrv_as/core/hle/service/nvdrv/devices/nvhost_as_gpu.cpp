@@ -1135,18 +1135,20 @@ NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {
     return NvResult::Success;
 }
 
+// GetVAStart is a 32-bit PAGE INDEX; promote before shifting to 64-bit GPU VA.
+// A 16-GiB region must not wrap to address zero in this u64 ioctl field.
 void nvhost_as_gpu::GetVARegionsImpl(IoctlGetVaRegions& params) {
     params.buf_size = 2 * sizeof(VaRegion);
 
     params.regions = std::array<VaRegion, 2>{
         VaRegion{
-            .offset = vm.small_page_allocator->GetVAStart() << VM::PAGE_SIZE_BITS,
+            .offset = static_cast<u64>(vm.small_page_allocator->GetVAStart()) << VM::PAGE_SIZE_BITS,
             .page_size = VM::YUZU_PAGESIZE,
             ._pad0_{},
             .pages = vm.small_page_allocator->GetVALimit() - vm.small_page_allocator->GetVAStart(),
         },
         VaRegion{
-            .offset = vm.big_page_allocator->GetVAStart() << vm.big_page_size_bits,
+            .offset = static_cast<u64>(vm.big_page_allocator->GetVAStart()) << vm.big_page_size_bits,
             .page_size = vm.big_page_size,
             ._pad0_{},
             .pages = vm.big_page_allocator->GetVALimit() - vm.big_page_allocator->GetVAStart(),

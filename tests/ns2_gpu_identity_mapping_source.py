@@ -275,4 +275,17 @@ assert native_sparse.index("gmmu->MapSparse(address, size, false);") < native_sp
 assert alloc.index("const bool small_sparse =") < alloc.index(
     'UNIMPLEMENTED_MSG("Sparse small pages are not implemented!");')
 
+# GetVARegions1/3 serialize 64-bit byte offsets from u32 page indexes.
+# The old u32-first shift wrapped the 16-GiB GA10F big-page region to 0.
+va_regions=as_cpp.split("void nvhost_as_gpu::GetVARegionsImpl(IoctlGetVaRegions& params) {",1)[1].split(
+    "\n}",1)[0]
+assert ".offset = static_cast<u64>(vm.small_page_allocator->GetVAStart()) << VM::PAGE_SIZE_BITS," in va_regions
+assert ".offset = static_cast<u64>(vm.big_page_allocator->GetVAStart()) << vm.big_page_size_bits," in va_regions
+for accessor in ("GetVARegions1", "GetVARegions3"):
+    block=as_cpp.split("NvResult nvhost_as_gpu::"+accessor+"(",1)[1].split("\n}",1)[0]
+    assert "GetVARegionsImpl(params);" in block
+native_big_page_index=(1<<34)>>17
+assert (native_big_page_index<<17)==(16<<30)
+assert ((native_big_page_index<<17)&0xFFFFFFFF)==0
+
 print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")
