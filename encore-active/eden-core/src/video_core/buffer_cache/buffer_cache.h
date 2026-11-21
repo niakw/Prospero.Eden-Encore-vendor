@@ -1847,8 +1847,12 @@ typename BufferCache<P>::OverlapResult BufferCache<P>::ResolveOverlaps(DAddr dev
     bool has_stream_leap = false;
     auto expand_begin = [&](DAddr add_value) {
         static constexpr DAddr min_page = CACHING_PAGESIZE + Core::DEVICE_PAGESIZE;
-        if (add_value > begin - min_page) {
-            begin = min_page;
+        // A stream near the start of physical memory may begin before
+        // min_page. Subtraction in the original test then wraps around and
+        // turns an ordinary backward leap into a huge invalid GPU buffer.
+        // Never move begin forwards past the range we already own.
+        if (begin <= min_page || add_value > begin - min_page) {
+            begin = (std::min)(begin, min_page);
             device_addr = Core::DEVICE_PAGESIZE;
             return;
         }
