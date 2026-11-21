@@ -158,6 +158,8 @@ IGpuWorker::IGpuWorker(Core::System& system_, std::shared_ptr<Nvidia::Module> mo
         {171, &IGpuWorker::EnsureGpuMemoryComptags, "EnsureGpuMemoryComptags"},
         {172, &IGpuWorker::SetGpuMemoryUserDebugLabel, "SetGpuMemoryUserDebugLabel"},
         {173, &IGpuWorker::SetGpuMemorySdkDebugLabel, "SetGpuMemorySdkDebugLabel"},
+        {225, &IGpuWorker::SetGpuSegmentUserDebugLabel, "SetGpuSegmentUserDebugLabel"},
+        {226, &IGpuWorker::SetGpuSegmentSdkDebugLabel, "SetGpuSegmentSdkDebugLabel"},
         {211, &IGpuWorker::NormalMapGpuMemory4K, "NormalMapGpuMemory4K"},
         {212, &IGpuWorker::NormalModifyGpuMemory4K, "NormalModifyGpuMemory4K"},
         {213, &IGpuWorker::NormalUnmapGpuMemory4K, "NormalUnmapGpuMemory4K"},
@@ -1396,6 +1398,70 @@ void IGpuWorker::SetGpuMemorySdkDebugLabel(HLERequestContext& ctx) {
                     } catch (const std::bad_alloc&) {
                         result = Kernel::ResultOutOfResource;
                     }
+                }
+            }
+        }
+    }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGpuWorker::SetGpuSegmentUserDebugLabel(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<u32, 11> command{
+        packet[0], packet[1], packet[2], packet[3], packet[4], packet[5],
+        packet[6], packet[7], packet[8], packet[9], packet[10]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto request = DecodeGpuSegmentUserDebugLabel(command)) {
+        const std::scoped_lock lock{m_mutex, m_shared->mutex};
+        result = Kernel::ResultNotFound;
+        if (m_shared->FindOwnedAddressSpace(request->address_space)) {
+            const auto key = std::make_tuple(
+                request->address_space, request->address, request->size);
+            const auto existing = m_segment_debug_labels.find(key);
+            result = Kernel::ResultOutOfResource;
+            if (existing != m_segment_debug_labels.end() ||
+                m_segment_debug_labels.size() < GpuWorkerProtocol::MaxMappings) {
+                try {
+                    auto [it, inserted] = m_segment_debug_labels.try_emplace(key);
+                    (void)inserted;
+                    it->second.user = request->value;
+                    result = ResultSuccess;
+                } catch (const std::bad_alloc&) {
+                    result = Kernel::ResultOutOfResource;
+                }
+            }
+        }
+    }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGpuWorker::SetGpuSegmentSdkDebugLabel(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<u32, 9> command{
+        packet[0], packet[1], packet[2], packet[3], packet[4],
+        packet[5], packet[6], packet[7], packet[8]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto request = DecodeGpuSegmentSdkDebugLabel(command)) {
+        const std::scoped_lock lock{m_mutex, m_shared->mutex};
+        result = Kernel::ResultNotFound;
+        if (m_shared->FindOwnedAddressSpace(request->address_space)) {
+            const auto key = std::make_tuple(
+                request->address_space, request->address, request->size);
+            const auto existing = m_segment_debug_labels.find(key);
+            result = Kernel::ResultOutOfResource;
+            if (existing != m_segment_debug_labels.end() ||
+                m_segment_debug_labels.size() < GpuWorkerProtocol::MaxMappings) {
+                try {
+                    auto [it, inserted] = m_segment_debug_labels.try_emplace(key);
+                    (void)inserted;
+                    it->second.sdk = request->value;
+                    result = ResultSuccess;
+                } catch (const std::bad_alloc&) {
+                    result = Kernel::ResultOutOfResource;
                 }
             }
         }

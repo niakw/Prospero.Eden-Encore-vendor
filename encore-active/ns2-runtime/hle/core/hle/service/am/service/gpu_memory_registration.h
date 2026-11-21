@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include <array>
+#include <limits>
 #include <optional>
 #include <span>
 #include "common/common_types.h"
@@ -92,6 +93,50 @@ inline constexpr std::optional<GpuMemorySdkDebugLabel> DecodeGpuMemorySdkDebugLa
     return GpuMemorySdkDebugLabel{packet[2],
         u64{packet[3]} | (u64{packet[4]} << 32)};
 }
+struct GpuSegmentUserDebugLabel {
+    u32 address_space{};
+    u64 address{};
+    u64 size{};
+    std::array<u64, 2> value{};
+};
+struct GpuSegmentSdkDebugLabel {
+    u32 address_space{};
+    u64 address{};
+    u64 size{};
+    u64 value{};
+};
+inline constexpr bool IsValidGpuSegmentDebugRange(u32 address_space, u64 address, u64 size) {
+    return address_space != 0 && size != 0 &&
+           address <= std::numeric_limits<u64>::max() - size;
+}
+// nn::gpu::sdk SetGpuSegment*DebugLabel: worker TIPC 225/226.
+// These are debug metadata requests, not GPU submissions or mappings.
+inline constexpr std::optional<GpuSegmentUserDebugLabel>
+DecodeGpuSegmentUserDebugLabel(std::span<const u32> packet) {
+    if (packet.size() != 11 || packet[0] != 0xe1 || packet[1] != 9)
+        return {};
+    GpuSegmentUserDebugLabel result{
+        packet[2],
+        u64{packet[3]} | (u64{packet[4]} << 32),
+        u64{packet[5]} | (u64{packet[6]} << 32),
+        {u64{packet[7]} | (u64{packet[8]} << 32),
+         u64{packet[9]} | (u64{packet[10]} << 32)}};
+    return IsValidGpuSegmentDebugRange(result.address_space, result.address, result.size)
+        ? std::optional<GpuSegmentUserDebugLabel>{result} : std::nullopt;
+}
+inline constexpr std::optional<GpuSegmentSdkDebugLabel>
+DecodeGpuSegmentSdkDebugLabel(std::span<const u32> packet) {
+    if (packet.size() != 9 || packet[0] != 0xe2 || packet[1] != 7)
+        return {};
+    GpuSegmentSdkDebugLabel result{
+        packet[2],
+        u64{packet[3]} | (u64{packet[4]} << 32),
+        u64{packet[5]} | (u64{packet[6]} << 32),
+        u64{packet[7]} | (u64{packet[8]} << 32)};
+    return IsValidGpuSegmentDebugRange(result.address_space, result.address, result.size)
+        ? std::optional<GpuSegmentSdkDebugLabel>{result} : std::nullopt;
+}
+
 inline constexpr std::optional<u32> DecodeEnsureGpuMemoryComptags(
     std::span<const u32> packet) {
     // nn::gpu::sdk::EnsureGpuMemoryComptags: worker TIPC 171 carries only

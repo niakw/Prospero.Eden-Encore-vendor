@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <tuple>
 #include <vector>
 #include "core/hle/service/service.h"
 #include "core/hle/service/am/service/gpu_worker_protocol.h"
@@ -33,6 +34,8 @@ private:
     void EnsureGpuMemoryComptags(HLERequestContext& ctx);
     void SetGpuMemoryUserDebugLabel(HLERequestContext& ctx);
     void SetGpuMemorySdkDebugLabel(HLERequestContext& ctx);
+    void SetGpuSegmentUserDebugLabel(HLERequestContext& ctx);
+    void SetGpuSegmentSdkDebugLabel(HLERequestContext& ctx);
     void NormalMapGpuMemory4K(HLERequestContext& ctx);
     void NormalModifyGpuMemory4K(HLERequestContext& ctx);
     void NormalUnmapGpuMemory4K(HLERequestContext& ctx);
@@ -51,6 +54,14 @@ private:
     };
     // Labels are bounded by live NVMap memory handles and erased on release.
     std::map<u32, MemoryDebugLabels> m_memory_debug_labels;
+    struct SegmentDebugLabels {
+        std::optional<std::array<u64, 2>> user;
+        std::optional<u64> sdk;
+    };
+    // Segment labels are metadata only. Bound their host allocation by the
+    // same maximum number of worker mapping records and key them to the
+    // currently owned native GPU address space plus exact guest span.
+    std::map<std::tuple<u32, u64, u64>, SegmentDebugLabels> m_segment_debug_labels;
     // FreeHandle can succeed before the guest page-table device unlock does.
     // Keep the exact span and a weak NVMap lifetime so a subsequent guest
     // release (or worker teardown) can finish without double-freeing a handle.

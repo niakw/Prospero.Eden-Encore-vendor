@@ -31,6 +31,29 @@ release = worker.split("Result IGpuWorker::ReleaseMemory", 1)[1].split(
     "void IGpuWorker::CreateGpuAccessibleMemory", 1)[0]
 assert release.count("m_memory_debug_labels.erase(id);") == 2
 
+# Worker 225/226 are nn::gpu segment debug metadata, keyed to a live
+# process-owned GPU address-space handle. They must not create GPU mappings.
+for command, name in ((225, "SetGpuSegmentUserDebugLabel"),
+                      (226, "SetGpuSegmentSdkDebugLabel")):
+    assert f'{{{command}, &IGpuWorker::{name}, "{name}"}}' in worker
+    assert f"void {name}(HLERequestContext& ctx);" in worker_hdr
+    body=worker.split(f"void IGpuWorker::{name}(HLERequestContext& ctx) {{",1)[1].split(
+        "\n}\n",1)[0]
+    for needle in ("std::scoped_lock lock{m_mutex, m_shared->mutex}",
+                   "m_shared->FindOwnedAddressSpace(request->address_space)",
+                   "m_segment_debug_labels.try_emplace(key)",
+                   "m_segment_debug_labels.size() < GpuWorkerProtocol::MaxMappings",
+                   "catch (const std::bad_alloc&)",
+                   "result = ResultSuccess"):
+        assert needle in body, (name, needle)
+for needle in ("DecodeGpuSegmentUserDebugLabel", "packet.size() != 11",
+               "packet[0] != 0xe1", "packet[1] != 9",
+               "DecodeGpuSegmentSdkDebugLabel", "packet.size() != 9",
+               "packet[0] != 0xe2", "packet[1] != 7",
+               "IsValidGpuSegmentDebugRange"):
+    assert needle in registration, needle
+assert "std::map<std::tuple<u32, u64, u64>, SegmentDebugLabels> m_segment_debug_labels;" in worker_hdr
+
 # Worker 171 is a real nn::gpu SDK command, not a global success stub.
 assert '{171, &IGpuWorker::EnsureGpuMemoryComptags, "EnsureGpuMemoryComptags"}' in worker
 assert "void EnsureGpuMemoryComptags(HLERequestContext& ctx);" in worker_hdr
