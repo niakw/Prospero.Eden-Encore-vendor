@@ -397,6 +397,12 @@ NvResult nvhost_gpu::ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd
     if (!channel_state->initialized || channel_state->bind_id < 0)
         return NvResult::InvalidState;
 
+    // CHANNEL_SETUP_BIND ends with the native channel bound to its runlist.
+    // Unlike CHANNEL_OPEN, this successful bind makes GPFIFO work runnable;
+    // otherwise the first kernel-mode H:0x1B submit is rejected as disabled.
+    // Publish only after InitChannel succeeds, never on a failed setup.
+    native_channel_enabled = true;
+
     // Switch 2 returns the complete setup-bind response. Kernel submit has no
     // guest USERD/GPFIFO/usermode-MMIO mappings, so those addresses and the
     // doorbell token remain zero. The virtual GPU scheduler's bind_id is the
