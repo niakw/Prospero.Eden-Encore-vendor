@@ -63,8 +63,8 @@ bool CopyPitchRemap(MemoryManager& memory, const MaxwellDMA::RemapConst& remap,
     const u32 src_components = remap.num_src_components_minus_one + 1;
     const u32 dst_components = remap.num_dst_components_minus_one + 1;
     const std::array<Swizzle, 4> selectors{
-        remap.dst_x.Value(), remap.dst_y.Value(),
-        remap.dst_z.Value(), remap.dst_w.Value(),
+        remap.GetComponent(0), remap.GetComponent(1),
+        remap.GetComponent(2), remap.GetComponent(3),
     };
     bool needs_source = false;
     bool needs_destination = false;
