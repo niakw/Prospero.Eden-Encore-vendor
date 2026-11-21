@@ -103,6 +103,12 @@ Vic::~Vic() noexcept {
 }
 
 void Vic::ProcessMethod(u32 method, u32 arg) noexcept {
+    // Reject guest methods outside the real register file before indexing.
+    // Soft assertions do not stop execution on every release configuration.
+    if (method >= VicRegisters::NUM_REGS) {
+        ASSERT_MSG(false, "Invalid VIC method {:#x}", method);
+        return;
+    }
     LOG_TRACE(HW_GPU, "Vic {} method {:#x}", id, u32(method));
     regs.reg_array[method] = arg;
     switch (Method(method * sizeof(u32))) {
@@ -118,15 +124,34 @@ void Vic::Execute() noexcept {
     ConfigStruct config{};
     host1x.gmmu_manager.ReadBlock(regs.config_struct_offset.Address(), &config, sizeof(ConfigStruct));
 
-    auto output_width = config.output_surface_config.out_surface_width + 1;
-    auto output_height = config.output_surface_config.out_surface_height + 1;
-    output_surface.resize(output_width * output_height);
+    const u32 output_width = config.output_surface_config.out_surface_width + 1;
+    const u32 output_height = config.output_surface_config.out_surface_height + 1;
+    // A guest VIC command can request a huge scratch allocation inside
+    // noexcept Execute(). Bound the complete pixel extent before resize.
+    constexpr u64 MAX_VIC_SURFACE_BYTES = 256ULL << 20;
+    constexpr u64 MAX_VIC_PIXELS = MAX_VIC_SURFACE_BYTES / sizeof(Pixel);
+    const u64 output_pixels = static_cast<u64>(output_width) * output_height;
+    if (output_pixels == 0 || output_pixels > MAX_VIC_PIXELS) {
+        LOG_WARNING(HW_GPU, "Rejecting oversized VIC output {}x{}", output_width, output_height);
+        return;
+    }
+    output_surface.resize(static_cast<size_t>(output_pixels));
 
     bool decoded_this_execute = false;
     if (Settings::values.nvdec_emulation.GetValue() != Settings::NvdecEmulation::Off) {
         bool decoded_frame = false;
         for (size_t i = 0; i < config.slot_structs.size(); i++) {
             if (auto& slot_config = config.slot_structs[i]; slot_config.config.slot_enable) {
+                const u64 slot_width = slot_config.surface_config.slot_surface_width + 1;
+                const u64 slot_height = slot_config.surface_config.slot_surface_height + 1;
+                const auto frame_format = slot_config.config.frame_format.Value();
+                const u64 fields = frame_format == DxvhadFrameFormat::TopField ||
+                                   frame_format == DxvhadFrameFormat::BottomField ? 2 : 1;
+                if (slot_width * slot_height * fields > MAX_VIC_PIXELS) {
+                    LOG_WARNING(HW_GPU, "Rejecting oversized VIC slot {}: {}x{} fields={}",
+                                i, slot_width, slot_height, fields);
+                    continue;
+                }
                 auto const luma_offset = regs.surfaces[i][SurfaceIndex::Current].luma.Address();
                 if (nvdec_id == -1)
                     nvdec_id = host1x.frame_queue.VicFindNvdecFdFromOffset(luma_offset);
@@ -156,7 +181,7 @@ void Vic::Execute() noexcept {
                         break;
                     default:
                         UNIMPLEMENTED_MSG("Unimplemented slot pixel format {}", u32(slot_config.surface_config.slot_pixel_format.Value()));
-                        break;
+                        continue; // No decoded pixels to blend.
                     }
                     Blend(config, slot_config, config.output_surface_config.out_pixel_format);
                     decoded_frame = true;
@@ -531,9 +556,17 @@ void Vic::Blend(const ConfigStruct& config, const SlotStruct& slot, VideoPixelFo
 
     source_bottom = (std::min)(source_bottom, out_surface_height);
     source_right = (std::min)(source_right, out_surface_width);
-
-    [[maybe_unused]] auto const work_width = u32((std::max)(0, s32(source_right) - s32(source_left)));
-    [[maybe_unused]] auto const work_height = u32((std::max)(0, s32(source_bottom) - s32(source_top)));
+    // The decoded slot can be smaller than the output. Check the actual
+    // ScratchBuffer extent before either SIMD/scalar path touches pixels.
+    source_bottom = (std::min)(source_bottom,
+                               static_cast<u32>(slot_surface.size() / in_surface_width));
+    source_right = (std::min)(source_right, in_surface_width);
+    if (source_left >= source_right || source_top >= source_bottom ||
+        rect_left >= rect_right || rect_top >= rect_bottom) {
+        return;
+    }
+    const u32 work_width = source_right - source_left;
+    const u32 work_height = source_bottom - source_top;
 
     // TODO Alpha blending. No games I've seen use more than a single surface or supply an alpha
     // below max, so it's ignored for now.
@@ -591,19 +624,21 @@ void Vic::Blend(const ConfigStruct& config, const SlotStruct& slot, VideoPixelFo
             };
 
             for (u32 y = source_top; y < source_bottom; y++) {
-                auto const src{y * in_surface_width + source_left};
-                auto const dst{y * out_surface_width + rect_left};
-                for (u32 x = source_left; x < source_right; x += 8) {
+                const size_t src = static_cast<size_t>(y) * in_surface_width + source_left;
+                const size_t dst = static_cast<size_t>(y) * out_surface_width + rect_left;
+                for (u32 x = 0; x < work_width; x += 8) {
                     // clang-format off
                     // Prefetch the next iteration's memory
-                    _mm_prefetch((const char*)&slot_surface[src + x + 8], _MM_HINT_T0);
+                    if (x + 8 < work_width) {
+                        _mm_prefetch((const char*)&slot_surface[src + x + 8], _MM_HINT_T0);
+                    }
 
                     // Load in pixels
                     // p01 = [AA AA] [BB BB] [GG GG] [RR RR] [AA AA] [BB BB] [GG GG] [RR RR]
-                    auto p01 = _mm_load_si128((__m128i*)&slot_surface[src + x + 0]);
-                    auto p23 = _mm_load_si128((__m128i*)&slot_surface[src + x + 2]);
-                    auto p45 = _mm_load_si128((__m128i*)&slot_surface[src + x + 4]);
-                    auto p67 = _mm_load_si128((__m128i*)&slot_surface[src + x + 6]);
+                    auto p01 = _mm_loadu_si128((__m128i*)&slot_surface[src + x + 0]);
+                    auto p23 = _mm_loadu_si128((__m128i*)&slot_surface[src + x + 2]);
+                    auto p45 = _mm_loadu_si128((__m128i*)&slot_surface[src + x + 4]);
+                    auto p67 = _mm_loadu_si128((__m128i*)&slot_surface[src + x + 6]);
 
                     // Convert the 16-bit channels into 32-bit (unsigned), as the matrix values are
                     // 32-bit and to avoid overflow.
@@ -663,10 +698,10 @@ void Vic::Blend(const ConfigStruct& config, const SlotStruct& slot, VideoPixelFo
                     done3 = _mm_min_epu16(done3, clamp_max);
 
                     // Store the pixels to the output surface.
-                    _mm_store_si128((__m128i*)&output_surface[dst + x + 0], done0);
-                    _mm_store_si128((__m128i*)&output_surface[dst + x + 2], done1);
-                    _mm_store_si128((__m128i*)&output_surface[dst + x + 4], done2);
-                    _mm_store_si128((__m128i*)&output_surface[dst + x + 6], done3);
+                    _mm_storeu_si128((__m128i*)&output_surface[dst + x + 0], done0);
+                    _mm_storeu_si128((__m128i*)&output_surface[dst + x + 2], done1);
+                    _mm_storeu_si128((__m128i*)&output_surface[dst + x + 4], done2);
+                    _mm_storeu_si128((__m128i*)&output_surface[dst + x + 6], done3);
 
                 }
             }
@@ -711,9 +746,9 @@ void Vic::Blend(const ConfigStruct& config, const SlotStruct& slot, VideoPixelFo
                 return {r, g, b, s32(in_pixel.a)};
             };
             for (u32 y = source_top; y < source_bottom; y++) {
-                const auto src{y * in_surface_width + source_left};
-                const auto dst{y * out_surface_width + rect_left};
-                for (u32 x = source_left; x < source_right; x++) {
+                const size_t src = static_cast<size_t>(y) * in_surface_width + source_left;
+                const size_t dst = static_cast<size_t>(y) * out_surface_width + rect_left;
+                for (u32 x = 0; x < work_width; x++) {
                     auto [r, g, b, a] = MatMul(slot_surface[src + x]);
                     r = std::clamp(r, clamp_min, clamp_max);
                     g = std::clamp(g, clamp_min, clamp_max);
