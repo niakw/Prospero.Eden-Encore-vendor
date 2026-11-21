@@ -1977,30 +1977,43 @@ bool RasterizerVulkan::MustFlushRegion(DAddr addr, u64 size, VideoCommon::CacheT
 
 VideoCore::RasterizerDownloadArea RasterizerVulkan::GetFlushArea(DAddr addr, u64 size) {
     ::Eden::Performance::DiagnosticTimer guest_read_timer(::Eden::Performance::guest_cpu_read);
-    // A guest read cannot overlap a registered image when no page in this
-    // range has ever appeared in the image slot map. Skip the GPU-held mutex.
-    // Unknown/out-of-range/large ranges retain the original blocking path.
-    if (::Eden::ImagePages::NeverHeld(addr, size)) {
-        return VideoCore::RasterizerDownloadArea{
-            .start_address = Common::AlignDown(addr, Core::DEVICE_PAGESIZE),
-            .end_address = Common::AlignUp(addr + size, Core::DEVICE_PAGESIZE),
-            .preemtive = true,
-        };
-    }
-    {
-        ::Eden::Performance::GuestCacheLock(texture_cache.mutex, true);
-        std::lock_guard lock{texture_cache.mutex, std::adopt_lock};
-        auto area = texture_cache.GetFlushArea(addr, size);
-        if (area) {
-            return *area;
-        }
-    }
-    VideoCore::RasterizerDownloadArea new_area{
+    const VideoCore::RasterizerDownloadArea clean_area{
         .start_address = Common::AlignDown(addr, Core::DEVICE_PAGESIZE),
         .end_address = Common::AlignUp(addr + size, Core::DEVICE_PAGESIZE),
         .preemtive = true,
     };
-    return new_area;
+    // A clean/never-held texture page does not prove that a GPU-written
+    // storage buffer is current in guest memory. Query each cache independently:
+    // never-owned pages remain lock-free, and no two cache locks are nested.
+    std::optional<VideoCore::RasterizerDownloadArea> texture_area;
+    if (!::Eden::ImagePages::NeverHeld(addr, size)) {
+        ::Eden::Performance::GuestCacheLock texture_wait(texture_cache.mutex, true);
+        std::lock_guard lock{texture_cache.mutex, std::adopt_lock};
+        texture_area = texture_cache.GetFlushArea(addr, size);
+    }
+    if (texture_area && !texture_area->preemtive) {
+        // The existing GPU sync flushes both cache domains.
+        return *texture_area;
+    }
+    if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
+        ::Eden::Performance::GuestCacheLock buffer_wait(buffer_cache.mutex, true);
+        std::lock_guard lock{buffer_cache.mutex, std::adopt_lock};
+        if (buffer_cache.IsRegionGpuModified(
+                clean_area.start_address, clean_area.end_address - clean_area.start_address)) {
+            // GPU::OnCPURead must not return early for buffer-only GPU writes.
+            // Keep any texture-covered extent, including its sibling bytes.
+            return VideoCore::RasterizerDownloadArea{
+                .start_address = texture_area
+                    ? (std::min)(texture_area->start_address, clean_area.start_address)
+                    : clean_area.start_address,
+                .end_address = texture_area
+                    ? (std::max)(texture_area->end_address, clean_area.end_address)
+                    : clean_area.end_address,
+                .preemtive = false,
+            };
+        }
+    }
+    return texture_area.value_or(clean_area);
 }
 
 void RasterizerVulkan::InvalidateRegion(DAddr addr, u64 size, VideoCommon::CacheType which) {
