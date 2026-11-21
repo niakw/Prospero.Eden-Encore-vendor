@@ -13,9 +13,35 @@ body='Result ISelfController::Unknown240(u32 in_val) {\n    LOG_WARNING(Service_
 assert s.count(new)==1 and s.count(body)==1
 assert h.count("Result Unknown240(u32 in_val);")==1
 assert s.count('{2000, &ISelfController::GetGraphicsSupervisor')==1
+# NS2 SelfController cmd 2000 is the gateway to all GSV GPU sessions.
+# Failures before/after KSession registration must return an IPC error and
+# retire BOTH original endpoints instead of leaking the guest session quota.
+entry=s.split("void ISelfController::GetGraphicsSupervisor(HLERequestContext& ctx) {",1)[1].split(
+    "\n}\n\nResult ISelfController::Exit()",1)[0]
+for token in ("std::make_shared<IGraphicsSupervisor>", "std::make_shared<SessionRequestManager>",
+              "catch (const std::bad_alloc&)", "SCOPE_EXIT {",
+              "session->GetClientSession().Close(kernel);",
+              "session->GetServerSession().Close(kernel);",
+              "transferred_to_server = true;",
+              "ctx.AddCopyObject", "rb.PushCopyObjects(ctx, m_graphics_supervisor_session);"):
+    if token == "ctx.AddCopyObject": continue
+    assert token in entry, token
+assert entry.index("std::make_shared<IGraphicsSupervisor>") < entry.index(
+    "Kernel::KSession::Create(kernel)")
+assert entry.index("std::make_shared<SessionRequestManager>") < entry.index(
+    "reservation.Commit();")
+assert entry.index("SCOPE_EXIT {") < entry.index(
+    "server.RegisterSession(") < entry.index(
+    "transferred_to_server = true;") < entry.index(
+    "m_graphics_supervisor_session = &session->GetClientSession();")
+assert entry.count("catch (const std::bad_alloc&)") == 2
+assert entry.count("IPC::ResponseBuilder rb{ctx, 2, 1};") == 2
+assert entry.count("rb.PushCopyObjects(ctx, m_graphics_supervisor_session);") == 2
+assert '#include "common/scope_exit.h"' in s and "#include <new>" in s
+
 original=s.replace(new,old,1).replace(body,"",1)
 data=original.encode()
 sha=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
-assert sha=="ad2b043f972170651b61d2d33aea4082e95c47cf",sha
+assert sha=="09c510db1b30362fabff4bf06ff4a3d38fa118fe",sha
 assert "Result ISelfController::Unknown240" not in original
 print("R23_FW23_SELECTED_SELF_CONTROLLER_240_SOURCE_PASS graphics_supervisor_preserved=1")

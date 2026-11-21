@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include <array>
+#include <limits>
 #include <optional>
 #include <span>
 #include "common/common_types.h"
@@ -66,6 +68,88 @@ struct GpuMemoryRelease {
     u32 id;
     u32 notification;
 };
+struct GpuMemoryUserDebugLabel {
+    u32 id{};
+    std::array<u64, 2> value{};
+};
+struct GpuMemorySdkDebugLabel {
+    u32 id{};
+    u64 value{};
+};
+// nn::gpu::sdk uses worker TIPC 172/173 to annotate an existing
+// GpuMemoryHandle. These are metadata operations, never GPU submissions.
+inline constexpr std::optional<GpuMemoryUserDebugLabel> DecodeGpuMemoryUserDebugLabel(
+    std::span<const u32> packet) {
+    if (packet.size() != 7 || packet[0] != 0xbc || packet[1] != 5 || !packet[2])
+        return {};
+    return GpuMemoryUserDebugLabel{packet[2],
+        {u64{packet[3]} | (u64{packet[4]} << 32),
+         u64{packet[5]} | (u64{packet[6]} << 32)}};
+}
+inline constexpr std::optional<GpuMemorySdkDebugLabel> DecodeGpuMemorySdkDebugLabel(
+    std::span<const u32> packet) {
+    if (packet.size() != 5 || packet[0] != 0xbd || packet[1] != 3 || !packet[2])
+        return {};
+    return GpuMemorySdkDebugLabel{packet[2],
+        u64{packet[3]} | (u64{packet[4]} << 32)};
+}
+struct GpuSegmentUserDebugLabel {
+    u32 address_space{};
+    u64 address{};
+    u64 size{};
+    std::array<u64, 2> value{};
+};
+struct GpuSegmentSdkDebugLabel {
+    u32 address_space{};
+    u64 address{};
+    u64 size{};
+    u64 value{};
+};
+inline constexpr bool IsValidGpuSegmentDebugRange(u32 address_space, u64 address, u64 size) {
+    return address_space != 0 && size != 0 &&
+           address <= std::numeric_limits<u64>::max() - size;
+}
+// nn::gpu::sdk SetGpuSegment*DebugLabel writes request words 0xE1/0xE2.
+// ServiceFramework TIPC dispatch subtracts the 0x10 command envelope, so
+// the registered worker command IDs are 209/210. These are debug metadata
+// requests, not GPU submissions or mappings.
+inline constexpr std::optional<GpuSegmentUserDebugLabel>
+DecodeGpuSegmentUserDebugLabel(std::span<const u32> packet) {
+    if (packet.size() != 11 || packet[0] != 0xe1 || packet[1] != 9)
+        return {};
+    GpuSegmentUserDebugLabel result{
+        packet[2],
+        u64{packet[3]} | (u64{packet[4]} << 32),
+        u64{packet[5]} | (u64{packet[6]} << 32),
+        {u64{packet[7]} | (u64{packet[8]} << 32),
+         u64{packet[9]} | (u64{packet[10]} << 32)}};
+    return IsValidGpuSegmentDebugRange(result.address_space, result.address, result.size)
+        ? std::optional<GpuSegmentUserDebugLabel>{result} : std::nullopt;
+}
+inline constexpr std::optional<GpuSegmentSdkDebugLabel>
+DecodeGpuSegmentSdkDebugLabel(std::span<const u32> packet) {
+    if (packet.size() != 9 || packet[0] != 0xe2 || packet[1] != 7)
+        return {};
+    GpuSegmentSdkDebugLabel result{
+        packet[2],
+        u64{packet[3]} | (u64{packet[4]} << 32),
+        u64{packet[5]} | (u64{packet[6]} << 32),
+        u64{packet[7]} | (u64{packet[8]} << 32)};
+    return IsValidGpuSegmentDebugRange(result.address_space, result.address, result.size)
+        ? std::optional<GpuSegmentSdkDebugLabel>{result} : std::nullopt;
+}
+
+inline constexpr std::optional<u32> DecodeEnsureGpuMemoryComptags(
+    std::span<const u32> packet) {
+    // nn::gpu::sdk::EnsureGpuMemoryComptags: worker TIPC 171 carries only
+    // the live GpuMemoryHandle. Encore always selects an uncompressed
+    // fallback kind for compressed native requests, so no NVIDIA comptag
+    // storage is allocated by the backend.
+    if (packet.size() != 3 || packet[0] != 0xbb || packet[1] != 1 ||
+        packet[2] == 0)
+        return {};
+    return packet[2];
+}
 constexpr std::optional<GpuMemoryRelease> DecodeGpuMemoryRelease(
     std::span<const u32> packet) {
     if (packet.size() != 4 || packet[0] != 0x76 || packet[1] != 2 ||

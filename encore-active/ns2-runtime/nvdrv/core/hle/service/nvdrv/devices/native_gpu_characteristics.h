@@ -11,6 +11,10 @@
 
 namespace Service::Nvidia::Devices {
 
+// GA10F native Ampere profile: one GPC, six TPCs, two SMs per TPC.
+// Keep this shared between characteristics, TPC masks and VSMS_MAPPING.
+inline constexpr u32 NativeGpuTpcsPerGpc = 6;
+inline constexpr u32 NativeGpuSmsPerTpc = 2;
 inline constexpr u32 NativeGpuSubcontextCount = 64;
 
 inline constexpr size_t NativeGpuCharacteristicsSize = 0xd0;
@@ -37,6 +41,11 @@ inline std::array<u8, Size> MakeNativeGpuCharacteristics(
     // The GPU description and engine classes share the legacy prefix. The native
     // SDK consumes signed ioctl interface levels where the legacy ABI has topology.
     std::memcpy(result.data(), legacy.data(), 0x70);
+    // This field is at 0x20 in the common legacy-prefix layout. It must
+    // agree with the native TPC mask and virtual-SM enumeration; copying
+    // Maxwell's two TPCs made the three NVN2 GPU queries contradict.
+    const u32_le tpcs_per_gpc{NativeGpuTpcsPerGpc};
+    std::memcpy(result.data() + 0x20, &tpcs_per_gpc, sizeof(tpcs_per_gpc));
     // Select the SDK's native control ABI, whose normal mappings support
     // 4 KiB CPU/GPU aliases. Engine execution remains a separate implementation.
     const u32_le native_arch{0x170};

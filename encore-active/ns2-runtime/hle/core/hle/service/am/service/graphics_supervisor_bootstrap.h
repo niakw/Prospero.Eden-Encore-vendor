@@ -37,6 +37,19 @@ public:
         phase=Phase::Initialized;
         return Status::Success;
     }
+    Status InitializeTransferMemory(std::span<const U32> packet, bool owner_matches) {
+        const auto request=GraphicsSupervisorProtocol::DecodeBootstrapTransferMemory(packet);
+        if (!request) return Status::InvalidPacket;
+        if (!owner_matches) return Status::InvalidHandle;
+        if (phase!=Phase::Created) return Status::InvalidState;
+        if (request->applet_resource_user_id!=aruid)
+            return Status::InvalidArgument;
+        // GSV 1 does not advertise a GPU architecture or feature grant.
+        // Preserve the unknown profile, and leave real VA allocation to NVDRV.
+        profile=0;
+        phase=Phase::Initialized;
+        return Status::Success;
+    }
     Status BindProcess(std::span<const U32> packet, bool process_matches) {
         if (packet.size()<3 || packet[0]!=0x1b ||
             packet[1]!=0x80000000 || packet[2]!=2)
@@ -73,10 +86,29 @@ public:
         }
         return Status::Success;
     }
-    Status CanOpenGpuSession(std::span<const U32> packet, bool module_available) const {
-        if (packet.size()<4 || packet[0]!=0x201 || packet[1]!=2)
+    Status DestroyGpuContext(std::span<const U32> packet, bool resources_released) {
+        // TIPC 403 has no input/output; do not revoke a live VA/session.
+        if (packet.size()<2 || packet[0]!=16+403 || packet[1]!=0)
             return Status::InvalidPacket;
-        const U64 version = U64{packet[2]} | (U64{packet[3]} << 32);
+        if (phase!=Phase::Ready || !gpu_initialized || !resources_released)
+            return Status::InvalidState;
+        gpu_initialized=false;
+        gpu_ready=false;
+        return Status::Success;
+    }
+    Status CanOpenGpuSession(std::span<const U32> packet, bool module_available) const {
+        // Remote-memory 497 is the native SDK20+ form. The firmware-19
+        // 496 carries a COPY TransferMemory handle and an additional size.
+        // Its guest handle/owner/bounds are checked by the HLE dispatcher.
+        U64 version{};
+        if (packet.size() >= 4 && packet[0] == 16+497 && packet[1] == 2) {
+            version = U64{packet[2]} | (U64{packet[3]} << 32);
+        } else if (const auto transfer =
+                       GraphicsSupervisorProtocol::DecodeGpuTransferSession(packet)) {
+            version = transfer->version;
+        } else {
+            return Status::InvalidPacket;
+        }
         // Firmware 19.0.0 documents version 2; later SDK captures include
         // version 4 (Eglantine #574). Preserve both observed ABI versions.
         if (version != 2 && version != 4)

@@ -9,6 +9,14 @@
 #include <optional>
 
 namespace Service::Nvidia::Devices {
+// Legacy ALLOC_GPFIFO_EX[2] permits non-power-of-two entry counts because
+// nvgpu rounds its ring size up internally. It cannot allocate a zero-entry
+// ring, however, nor safely multiply an unbounded guest count for its ring.
+// These legacy rules intentionally differ from S2 CHANNEL_SETUP_BIND.
+[[nodiscard]] constexpr bool ValidNativeGpfifoLegacyAllocationCount(
+    std::uint32_t entries) {
+    return entries != 0 && entries <= (1U << 28);
+}
 // Guest CPU pointers are NOT the GPU virtual addresses used by the native
 // GMMU. Check all kickoff headers in their owning process's CPU map before
 // reading them. A zero-entry fence submission legitimately has no pointer.
@@ -49,4 +57,37 @@ struct NativeSubmissionPlan {
         native_count,
         (flags & 2U ? 2U : 0U) + (flags & 0x100U ? requested_fence_increment : 0U)};
 }
+// nvgpu channel SETUP_BIND (Switch 2 H:0x21) is not an unconditional
+// allocation acknowledgement. This host executes kernel-mode GPFIFO lists
+// through its real ChannelState/GMMU. User-mode USERD/doorbell submissions
+// need additional guest-mapped buffers and must fail closed until implemented.
+struct NativeKernelChannelSetupRequest {
+    std::uint32_t num_entries{};
+    std::uint32_t num_inflight_jobs{};
+    std::uint32_t flags{};
+    std::int32_t userd_fd{};
+    std::int32_t gpfifo_fd{};
+    std::uint64_t userd_offset{};
+    std::uint64_t gpfifo_offset{};
+};
+enum class NativeKernelChannelSetupStatus : std::uint8_t {
+    Valid, Invalid, Unsupported,
+};
+[[nodiscard]] constexpr NativeKernelChannelSetupStatus ValidateNativeKernelChannelSetup(
+    const NativeKernelChannelSetupRequest& request) {
+    // NVIDIA requires a power-of-two ring with at least four entries for
+    // kernel-mode submits; reject absurd/overflowed guest counts.
+    if (request.num_entries < 4 || request.num_entries > (1U << 28) ||
+        (request.num_entries & (request.num_entries - 1)) != 0)
+        return NativeKernelChannelSetupStatus::Invalid;
+    // The emulator's existing virtual-channel submit API has no user-mode
+    // doorbell nor kernel-side inflight-job budget; do not advertise either.
+    if (request.flags != 0 || request.num_inflight_jobs != 0 ||
+        (request.userd_fd != 0 && request.userd_fd != -1) ||
+        (request.gpfifo_fd != 0 && request.gpfifo_fd != -1) ||
+        request.userd_offset != 0 || request.gpfifo_offset != 0)
+        return NativeKernelChannelSetupStatus::Unsupported;
+    return NativeKernelChannelSetupStatus::Valid;
+}
+
 } // namespace Service::Nvidia::Devices

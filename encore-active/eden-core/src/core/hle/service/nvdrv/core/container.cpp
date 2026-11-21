@@ -119,18 +119,13 @@ SessionId Container::OpenSession(Kernel::KProcess* process) {
 }
 
 bool Container::RetainSession(SessionId id, const Kernel::KProcess* process) {
-    if (!process) {
-        return false;
-    }
+    if (!process) return false;
     const std::scoped_lock lock{impl->session_guard};
-    if (id.id >= impl->sessions.size()) {
-        return false;
-    }
+    if (id.id >= impl->sessions.size()) return false;
     auto& session = impl->sessions[id.id];
     if (!session.is_active || session.process != process || session.ref_count <= 0 ||
-        session.ref_count == std::numeric_limits<s32>::max()) {
+        session.ref_count == std::numeric_limits<s32>::max())
         return false;
-    }
     ++session.ref_count;
     return true;
 }

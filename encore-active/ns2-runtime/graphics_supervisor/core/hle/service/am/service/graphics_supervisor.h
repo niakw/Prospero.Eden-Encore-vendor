@@ -13,7 +13,7 @@
 #include "core/hle/service/am/service/graphics_supervisor_bootstrap.h"
 #include "core/hle/service/am/service/graphics_supervisor_protocol.h"
 #include "core/hle/service/am/service/native_image_layout.h"
-namespace Kernel { class KProcess; }
+namespace Kernel { class KProcess; class KTransferMemory; }
 namespace Service::Nvidia { class Module; class NVDRV; namespace Devices { class nvhost_as_gpu; } }
 namespace Service::AM {
 class IGpuSession;
@@ -48,6 +48,7 @@ private:
     [[nodiscard]] std::optional<VideoSurface> LookupVideoSurface(u32 image_id);
     [[nodiscard]] bool WriteVideoSurface(u32 image_id, const VideoSurface& expected,
                                          std::span<const u8> pixels);
+    void UnavailableVideoEncoder(HLERequestContext& ctx);
     void InitializeVideoCodecContext(HLERequestContext& ctx);
     void OpenVideoDecoderSession(HLERequestContext& ctx);
     void OpenVideoDecoderChildSession(HLERequestContext& ctx);
@@ -55,9 +56,12 @@ private:
     void BindProcess(HLERequestContext& ctx);
     void CompleteBootstrap(HLERequestContext& ctx);
     void InitializeGpuContext(HLERequestContext& ctx);
+    void DestroyGpuContext(HLERequestContext& ctx);
+    void CreateSyncptContext(HLERequestContext& ctx);
     void OpenSyncptSession(HLERequestContext& ctx);
     void AttachSyncptMemory(HLERequestContext& ctx);
     void OpenGpuSession(HLERequestContext& ctx);
+    void QueryDonatedTransferMemoryUsage(HLERequestContext& ctx);
     void OpenNvsrvSession(HLERequestContext& ctx);
     void InitializeFeatureContext(HLERequestContext& ctx);
     void OpenCameraSession(HLERequestContext& ctx);
@@ -65,8 +69,12 @@ private:
     void InitializeDisplayContext(HLERequestContext& ctx);
     void FinalizeDisplayContext(HLERequestContext& ctx);
     void OpenDisplaySession(HLERequestContext& ctx);
+    void BootNativeMemoryManagement(HLERequestContext& ctx);
+    void ConfigureGraphicsFrameContext(HLERequestContext& ctx);
+    void SetGraphicsFrameMode(HLERequestContext& ctx);
     void CreateNativeMemory(HLERequestContext& ctx);
     void DestroyNativeMemory(HLERequestContext& ctx);
+    void BindNativeTransferMemory(HLERequestContext& ctx);
     void BindNativeMemory(HLERequestContext& ctx);
     void BindNativeGpuMemory(HLERequestContext& ctx);
     // Caller owns m_native_memory_mutex; shared by TIPC 114 and 423.
@@ -79,6 +87,7 @@ private:
     void CalculateChatImagePoolSize(HLERequestContext& ctx);
     void RegisterGpuAddressSpace(HLERequestContext& ctx);
     // Upstream TIPC 911/912 and 426/427/428: native video pools only.
+    void CalculateDecoderImagePoolBuffer(HLERequestContext& ctx);
     void CreateVideoImagePool(HLERequestContext& ctx);
     void DestroyVideoImagePool(HLERequestContext& ctx);
     void MapVideoGpuImage(HLERequestContext& ctx);
@@ -91,7 +100,18 @@ private:
     GraphicsSupervisorBootstrap::State m_bootstrap;
     const u64 m_aruid;
     bool m_display_ready{};
+    std::mutex m_graphics_frame_mutex;
+    bool m_graphics_frame_created{};
+    bool m_graphics_frame_initialized{};
+    u32 m_graphics_frame_length{};
+    u32 m_graphics_frame_restart_mode{};
+    u32 m_graphics_frame_timeslice_mode{};
     std::vector<std::weak_ptr<IGpuSession>> m_gpu_sessions;
+    // TIPC 1 donates a real process-owned work buffer. Keep the kernel owner
+    // alive so TIPC 498 can report the exact donated capacity without
+    // pretending the HLE backend consumed storage it never suballocated.
+    Kernel::KTransferMemory* m_bootstrap_transfer_memory{};
+    u64 m_bootstrap_transfer_memory_size{};
     // TIPC 1402: an active INvDrv2User child is exclusive per GSV session.
     std::weak_ptr<Nvidia::NVDRV> m_nvsrv_session;
     // Shared because CoreTiming callbacks keep only weak references; shutdown
@@ -101,6 +121,10 @@ private:
     GraphicsSupervisorProtocol::NativeMemoryLedger m_native_memory;
     std::shared_ptr<Nvidia::Module> m_native_module;
     std::optional<std::size_t> m_native_memory_session;
+    // TIPC 113 retains the KTransferMemory itself as the page-stability
+    // owner. Unlike TIPC 114 this backing must never receive a second
+    // DeviceShared lock or UnlockForDeviceAddressSpace on destruction.
+    std::map<u32, Kernel::KTransferMemory*> m_native_transfer_backings;
     NativeImageLedger m_native_images;
     NativeVideoPoolLedger m_video_pools;
     // One guest-visible ID sequence across native 429 and video-pool 911.

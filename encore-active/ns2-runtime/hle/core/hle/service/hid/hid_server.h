@@ -6,6 +6,9 @@
 
 #pragma once
 
+#include <mutex>
+#include <unordered_map>
+
 #include "core/hle/service/cmif_types.h"
 #include "core/hle/service/service.h"
 #include "hid_core/hid_types.h"
@@ -36,6 +39,23 @@ public:
 
 private:
     void StubJcms(HLERequestContext& ctx);
+    // Switch 2 HID: process-scoped scene state, vibration and disconnected Nmouse.
+    Result SetSceneIdForPrivateApp(ClientAppletResourceUserId aruid, u64 scene_id);
+    Result GetSceneIdForPrivateApp(Out<u64> out_scene_id, ClientAppletResourceUserId aruid);
+    Result IsOunceVibrationDeviceMounted(Out<bool> out_is_mounted,
+                                         Core::HID::VibrationDeviceHandle vibration_device_handle,
+                                         ClientAppletResourceUserId aruid);
+    Result InitializeNmouse(u8 pointer_type, s32 width, s32 height,
+                            ClientAppletResourceUserId aruid, u64 t_mem_size,
+                            InCopyHandle<Kernel::KTransferMemory> t_mem);
+    Result FinalizeNmouse(ClientAppletResourceUserId aruid);
+    Result SetMergedNmouseSourceTypes(u32 source_types, ClientAppletResourceUserId aruid);
+    Result InitializeNmouse2(u32 pointer_type, s32 width, s32 height, u32 unknown,
+                             ClientAppletResourceUserId aruid, u64 t_mem_size,
+                             InCopyHandle<Kernel::KTransferMemory> t_mem);
+    Result SetNmousePointerRanges(s32 width, s32 height, ClientAppletResourceUserId aruid);
+    Result GetNmousePointerRanges(Out<s32> out_width, Out<s32> out_height,
+                                  ClientAppletResourceUserId aruid);
     Result CreateAppletResource(OutInterface<IAppletResource> out_applet_resource,
                                 ClientAppletResourceUserId aruid);
     Result ActivateDebugPad(ClientAppletResourceUserId aruid);
@@ -268,6 +288,15 @@ private:
 
     std::shared_ptr<ResourceManager> resource_manager;
     std::shared_ptr<HidFirmwareSettings> firmware_settings;
+    struct NmousePointerRanges {
+        s32 width{};
+        s32 height{};
+    };
+    // Per-applet state; guest service sessions may run concurrently.
+    std::mutex m_ns2_state_mutex;
+    std::unordered_map<u64, u64> m_ns2_scene_ids;
+    std::unordered_map<u64, NmousePointerRanges> m_ns2_nmouse_ranges;
+    std::unordered_map<u64, u32> m_ns2_merged_mouse_sources;
 };
 
 } // namespace Service::HID

@@ -580,6 +580,15 @@ struct System::Impl {
         Network::CancelPendingSocketOperations();
         kernel.SuspendEmulation(true);
         ::Eden::ReportStep("shutdown", "Completed kernel.SuspendEmulation(true)");
+        // GPU::Impl owns the Vulkan worker, scheduler, channel states and
+        // renderer; native NVDRV address spaces own the GMMU/NvMap backing
+        // those channel states reference. Once guest CPU cores are suspended,
+        // join and destroy the GPU BEFORE CloseServices can release the
+        // channel's address space. The old order could let the GPU worker or
+        // renderer touch already-unpinned guest memory during exit/relaunch.
+        // Keep Host1x and the NVDRV containers alive throughout GPU teardown.
+        gpu_core.reset();
+        ::Eden::ReportStep("shutdown", "Completed gpu_core.reset()");
         kernel.CloseServices();
         ::Eden::ReportStep("shutdown", "Completed kernel.CloseServices()");
         kernel.ShutdownCores();
@@ -591,8 +600,6 @@ struct System::Impl {
         core_timing.ClearPendingEvents();
         app_loader.reset();
         audio_core.reset();
-        gpu_core.reset();
-        ::Eden::ReportStep("shutdown", "Completed gpu_core.reset()");
         host1x_core.reset();
         perf_stats.reset();
         cpu_manager.Shutdown();

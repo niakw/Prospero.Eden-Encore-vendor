@@ -33,6 +33,11 @@ assert "EnableNativeTiling" not in pinned and "UsesNativeTiling" not in pinned
 shim_declarations = ("""    // Lichii 12125bc / NX2 #46: guest NVN reads Host1x syncpoint words
     // through a read-only GPU virtual shim; zero preserves NS1 behavior.
     void SetNativeSyncpointShim(GPUVAddr address);
+    // A channel may expose only an existing, initialized shim mapping,
+    // never a guessed GPU virtual address.
+    [[nodiscard]] GPUVAddr GetNativeSyncpointShim() const noexcept {
+        return native_syncpoint_shim.load(std::memory_order_acquire);
+    }
     static constexpr u32 NumShimSyncpoints = 192;
 
 """)
@@ -46,7 +51,8 @@ assert overlay == expected, "native-tiling MemoryManager drift beyond reviewed u
 assert overlay.count("bool native_tiling{};") == 1
 assert overlay.count("EnableNativeTiling()") == 1
 assert overlay.count("UsesNativeTiling() const") == 1
-for name in ("SetNativeSyncpointShim", "NumShimSyncpoints", "native_syncpoint_shim"):
+for name in ("SetNativeSyncpointShim", "GetNativeSyncpointShim",
+             "NumShimSyncpoints", "native_syncpoint_shim"):
     assert name in overlay and name not in pinned, name
 assert "EnqueueDeferredCPUWrite" not in overlay  # never activate experimental bridge
 

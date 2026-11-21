@@ -165,6 +165,25 @@ constexpr u8 DecodeBufferSlot(u32 packed) {
     return static_cast<u8>(packed);
 }
 
+// Firmware 19 GSV 1 boots from a process-owned TransferMemory work buffer.
+// The SDK supplies ARUID and buffer size; the process handle is authenticated
+// separately in GSV 11, and must never be inferred from untrusted raw words.
+struct BootstrapTransferMemoryRequest {
+    u32 copied_handle{};
+    u64 applet_resource_user_id{};
+    u64 size{};
+};
+[[nodiscard]] inline std::optional<BootstrapTransferMemoryRequest>
+DecodeBootstrapTransferMemory(std::span<const u32> packet) {
+    if (packet.size() < 8 || packet[0] != 16 + 1 ||
+        packet[1] != 0x80000004U || packet[2] != 2 || packet[3] == 0)
+        return {};
+    const u64 aruid = u64{packet[4]} | (u64{packet[5]} << 32);
+    const u64 size = u64{packet[6]} | (u64{packet[7]} << 32);
+    if (!size || (size & 0xfffU)) return {};
+    return BootstrapTransferMemoryRequest{packet[3], aruid, size};
+}
+
 struct BootstrapRequest {
     u32 process_handle;
     u64 applet_resource_user_id;
@@ -176,6 +195,37 @@ struct DisplayParameter261Request {
     u64 display_name;
     u32 value;
 };
+
+// Switch 2 VI2 31 and 32 refer to the same eight native event slots.
+// 32 carries one copied kernel handle before its slot; 31 is raw.
+inline std::optional<u32> DecodeVi2NativeEventSlot(
+    std::span<const u32> packet, u32 command) {
+    if (command == 31) {
+        if (packet.size() < 3 || packet[0] != 16 + 31 || packet[1] != 1 ||
+            packet[2] >= RequestGroupCount)
+            return {};
+        return packet[2];
+    }
+    if (command == 32) {
+        const auto request = DecodeRequestGroupEventDuplicate(packet);
+        if (!request || !request->copied_handle ||
+            request->group >= RequestGroupCount)
+            return {};
+        return request->group;
+    }
+    return {};
+}
+
+// VI2 261..272 (one default-display name and one native event slot).
+// Odd commands bind vsync/change notifications; even commands unbind.
+inline std::optional<DisplayParameter261Request> DecodeVi2DisplayEventBinding(
+    std::span<const u32> packet, u32 command) {
+    if (command < 261 || command > 272 || packet.size() < 5 ||
+        packet[0] != 16 + command || packet[1] != 3)
+        return {};
+    return DisplayParameter261Request{
+        u64{packet[2]} | (u64{packet[3]} << 32), packet[4]};
+}
 
 inline std::optional<DisplayParameter261Request> DecodeDisplayParameter261(
     std::span<const u32> packet) {
@@ -263,6 +313,49 @@ constexpr bool IsSupportedDisplaySession(u64 version) {
            version == 0x300030000ULL || version == 0x300040000ULL;
 }
 
+// GSV 115 is a capability negotiation, not a request to initialize a
+// backing allocation. Only the native NVDRV-backed memory pathway used by
+// GSV 111/114 is currently implemented; never grant unknown feature bits.
+// The firmware-19 TransferMemory forms share the real native GSV session
+// creation path. Validate the TIPC COPY descriptor and typed work-buffer
+// layout before any kernel object or NVDRV session becomes guest-visible.
+struct NvDrvTransferSessionRequest {
+    u32 copied_handle{};
+    u64 size{};
+    u8 mode{};
+};
+[[nodiscard]] constexpr std::optional<NvDrvTransferSessionRequest>
+DecodeNvDrvTransferSession(std::span<const u32> packet) noexcept {
+    if (packet.size() < 7 || packet[0] != 16 + 1401 ||
+        packet[1] != 0x80000003U || packet[2] != 2 || packet[3] == 0)
+        return {};
+    const u64 size = u64{packet[4]} | (u64{packet[5]} << 32);
+    if (size == 0 || (size & 0xfffU)) return {};
+    return NvDrvTransferSessionRequest{packet[3], size, static_cast<u8>(packet[6])};
+}
+
+struct GpuTransferSessionRequest {
+    u32 copied_handle{};
+    u64 version{};
+    u64 size{};
+};
+[[nodiscard]] constexpr std::optional<GpuTransferSessionRequest>
+DecodeGpuTransferSession(std::span<const u32> packet) noexcept {
+    if (packet.size() < 8 || packet[0] != 16 + 496 ||
+        packet[1] != 0x80000004U || packet[2] != 2 || packet[3] == 0)
+        return {};
+    const u64 version = u64{packet[4]} | (u64{packet[5]} << 32);
+    const u64 size = u64{packet[6]} | (u64{packet[7]} << 32);
+    if (size == 0 || (size & 0xfffU)) return {};
+    return GpuTransferSessionRequest{packet[3], version, size};
+}
+
+constexpr u64 NativeMemorySupportedFeatureMask = 0x2ULL;
+[[nodiscard]] constexpr u64 GrantNativeMemoryFeatures(u64 requested,
+                                                       bool nvdrv_available) noexcept {
+    return nvdrv_available ? (requested & NativeMemorySupportedFeatureMask) : 0;
+}
+
 constexpr u32 NativeGpuProfileForBootstrap(u64 flags) {
     switch (flags) {
     case 0x8000000000000005ULL: return 0x807;
@@ -277,7 +370,12 @@ inline bool IsLocalBootstrap(const BootstrapRequest& request) {
     // SDK version, the following three are reserved zero, and the final one
     // comes from GetInfo(InfoType 31/32). Do not reject the legitimate
     // kernel-provided last value as if it were a fourth reserved word.
-    return (request.flags == 0x8000000000000005ULL ||
+    // GSV 4 firmware 19.0.0 uses 0x8000...0001; 20.1.1+ uses
+    // 0x8000...0005. This is a protocol version, not a feature grant.
+    // Keep the old version's GPU profile unclassified, rather than
+    // claiming unverified hardware capabilities.
+    return (request.flags == 0x8000000000000001ULL ||
+            request.flags == 0x8000000000000005ULL ||
             request.flags == 0x8000000000000006ULL || request.flags == 0x8000000000000007ULL) &&
            request.parameters[0] == 0 && request.parameters[1] == 0 &&
            request.parameters[2] == 0;
@@ -321,8 +419,54 @@ inline constexpr std::optional<NativeParentBindRequest> DecodeNativeParentBind(
     return NativeParentBindRequest{packet[2], packet[7], address, size, offset};
 }
 
+inline constexpr bool IsGraphicsFrameContextCommand(std::span<const u32> packet,
+                                                           u32 command) {
+    return (command == 1101 || command == 1102) && packet.size() == 2 &&
+           packet[0] == 16 + command && packet[1] == 0;
+}
+struct GraphicsFrameSetting {
+    u32 command{};
+    u32 value{};
+};
+inline constexpr std::optional<GraphicsFrameSetting>
+DecodeGraphicsFrameSetting(std::span<const u32> packet, u32 command) {
+    if ((command != 1111 && command != 1112 && command != 1113) ||
+        packet.size() != 3 || packet[0] != 16 + command || packet[1] != 1)
+        return {};
+    const u32 value = packet[2];
+    if (command == 1111 &&
+        value != 0 && value != 286 && value != 316 && value != 376)
+        return {};
+    if (command == 1112 && value >= 3) return {};
+    if (command == 1113 && value >= 2) return {};
+    return GraphicsFrameSetting{command, value};
+}
+
+struct NativeTransferMemoryBindRequest {
+    u32 copied_handle{};
+    u32 memory{};
+    u64 size{};
+    u64 address{};
+};
+inline constexpr std::optional<NativeTransferMemoryBindRequest>
+DecodeNativeTransferMemoryBind(std::span<const u32> packet) {
+    // nn::gs::CreateNativeMemoryWithTransferMemory: TIPC 113, one COPY
+    // KTransferMemory descriptor followed by the NativeMemory handle,
+    // exact size and original owner address.
+    if (packet.size() != 9 || packet[0] != 0x81 ||
+        packet[1] != 0x80000005U || packet[2] != 2 ||
+        packet[3] == 0 || packet[4] == 0)
+        return {};
+    const u64 size = u64{packet[5]} | (u64{packet[6]} << 32);
+    const u64 address = u64{packet[7]} | (u64{packet[8]} << 32);
+    if (!size || !address || (size & 0xfffU) || (address & 0xfffU) ||
+        size > std::numeric_limits<u64>::max() - address)
+        return {};
+    return NativeTransferMemoryBindRequest{packet[3], packet[4], size, address};
+}
+
 // NS2 GSV native-memory descriptors, not host Vulkan allocations. Commands
-// 111/112/114 establish a bounded, owned resource before real GPU mapping.
+// 111/112/113/114 establish a bounded, owned resource before real GPU mapping.
 // Reject unknown handles, address wrapping, duplicate binds and exhaustion.
 enum class NativeMemoryStatus {
     Success, InvalidSize, InvalidAddress, InvalidHandle, AlreadyBound, OutOfResource,

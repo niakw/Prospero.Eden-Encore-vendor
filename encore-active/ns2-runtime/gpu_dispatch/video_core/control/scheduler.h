@@ -27,7 +27,8 @@ public:
     void Push(GPU& gpu, s32 channel, CommandList&& entries);
 
     void DeclareChannel(std::shared_ptr<ChannelState> new_channel);
-    // Retire only the exact channel generation after prior GPU work drained.
+    // Only the exact retired channel generation may be removed. The GPU
+    // worker has drained earlier submissions before calling this method.
     void RetireChannel(const ChannelState* old_channel);
 
     [[nodiscard]] bool HasPendingNativeChannels() const noexcept {

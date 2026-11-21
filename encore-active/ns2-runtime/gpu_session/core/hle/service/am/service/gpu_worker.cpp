@@ -155,6 +155,11 @@ IGpuWorker::IGpuWorker(Core::System& system_, std::shared_ptr<Nvidia::Module> mo
         {0, &IGpuWorker::Handshake, "Handshake"},
         {101, &IGpuWorker::CreateGpuAccessibleMemory, "CreateGpuAccessibleMemory"},
         {102, &IGpuWorker::DestroyGpuAccessibleMemory, "DestroyGpuAccessibleMemory"},
+        {171, &IGpuWorker::EnsureGpuMemoryComptags, "EnsureGpuMemoryComptags"},
+        {172, &IGpuWorker::SetGpuMemoryUserDebugLabel, "SetGpuMemoryUserDebugLabel"},
+        {173, &IGpuWorker::SetGpuMemorySdkDebugLabel, "SetGpuMemorySdkDebugLabel"},
+        {209, &IGpuWorker::SetGpuSegmentUserDebugLabel, "SetGpuSegmentUserDebugLabel"},
+        {210, &IGpuWorker::SetGpuSegmentSdkDebugLabel, "SetGpuSegmentSdkDebugLabel"},
         {211, &IGpuWorker::NormalMapGpuMemory4K, "NormalMapGpuMemory4K"},
         {212, &IGpuWorker::NormalModifyGpuMemory4K, "NormalModifyGpuMemory4K"},
         {213, &IGpuWorker::NormalUnmapGpuMemory4K, "NormalUnmapGpuMemory4K"},
@@ -172,9 +177,37 @@ IGpuWorker::~IGpuWorker() {
     // be referenced by already submitted compute/graphics work. The old
     // drain only handled dense 214 backing; a worker without dense regions
     // could retire a live command buffer or GPU-written SSBO prematurely.
-    if (!m_dense_regions.empty() || !m_mappings.Mappings().empty() ||
-        !m_memory.empty())
+    // On ordinary worker/FD close the GPU is still running: retire every
+    // previously submitted buffer before unmapping its GMMU/NvMap backing.
+    // At full emulator shutdown Core::ShutdownMainProcess stops and joins
+    // the GPU worker BEFORE CloseServices destroys this TIPC session. Never
+    // dereference System::GPU() then: its optional was already reset.
+    if (system.IsPoweredOn() && !system.IsShuttingDown() &&
+        (!m_dense_regions.empty() || !m_mappings.Mappings().empty() ||
+         !m_memory.empty()))
         system.GPU().WaitForIdle();
+    // A failed native 215/216 can poison a GMMU AFTER the original dense
+    // 214 backing was published. The worker must detect this on teardown:
+    // FreeHandle / CloseSession would otherwise unpin physical pages while
+    // some partial guest PTEs still point at them.
+    if (!m_quarantined_nv_session) {
+        for (const auto id : m_shared->address_spaces.OwnedIds()) {
+            if (!id) continue;
+            std::shared_ptr<Nvidia::Devices::nvhost_as_gpu> as;
+            {
+                const std::scoped_lock lock{m_shared->mutex};
+                as = m_shared->FindOwnedAddressSpace(*id);
+            }
+            if (as && as->IsNativeSparsePoisoned()) {
+                m_quarantined_nv_session = true;
+                break;
+            }
+        }
+    }
+    if (m_quarantined_nv_session)
+        LOG_ERROR(Service_AM, "NS2 poisoned GPU AS at worker teardown: quarantine all owned NVMap backing");
+
+    if (!m_quarantined_nv_session)
     for (const auto& [key, mapping] : m_mappings.Mappings()) {
         const auto dense = m_dense_regions.find({mapping.address_space, mapping.address});
         // The VA can already be released after a failed physical retirement.
@@ -193,9 +226,16 @@ IGpuWorker::~IGpuWorker() {
                       Nvidia::NvResult::Success)
             LOG_ERROR(Service_AM, "NS2 native GPU VA unmap failed as={} VA={:#x}",
                       mapping.address_space, mapping.address);
+        // A page-table OOM can poison the AS DURING this unmap. Stop before
+        // any owner is FreeHandle'd; the GPU must not see freed backing.
+        if (as && as->IsNativeSparsePoisoned()) {
+            m_quarantined_nv_session = true;
+            break;
+        }
     }
     // Identity maps are deliberately outside MappingLedger. Remove only those
     // owned by this worker before its NVMap handles are released.
+    if (!m_quarantined_nv_session)
     for (const u32 memory_id : m_memory) {
         const auto identity = std::find_if(
             m_shared->identity_gpu_mappings.begin(), m_shared->identity_gpu_mappings.end(),
@@ -210,14 +250,20 @@ IGpuWorker::~IGpuWorker() {
                     Nvidia::NvResult::Success)
                     LOG_ERROR(Service_AM, "NS2 identity GPU VA unmap failed as={} VA={:#x}",
                               as_id, identity->address);
+                if (as->IsNativeSparsePoisoned()) {
+                    m_quarantined_nv_session = true;
+                    break;
+                }
             }
             identity->RemoveSpace(as_id);
         }
+        if (m_quarantined_nv_session) break;
         m_shared->identity_gpu_mappings.erase(identity);
     }
 
     // The sparse reservations are gone: it is now safe to drop the NVMap pins,
     // unmap CPU aliases and close the page-group physical allocations.
+    if (!m_quarantined_nv_session)
     while (!m_dense_regions.empty()) {
         const auto key = m_dense_regions.begin()->first;
         if (!RetireGpuOnlyRegion(key.first, key.second)) {
@@ -231,6 +277,7 @@ IGpuWorker::~IGpuWorker() {
         }
     }
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
+    if (!m_quarantined_nv_session)
     for (const u32 id : m_memory) {
         if (const auto pending = m_pending_device_unlocks.find(id);
             pending != m_pending_device_unlocks.end()) {
@@ -254,8 +301,21 @@ IGpuWorker::~IGpuWorker() {
             }
         }
     }
-    if (m_nv_session)
+    if (m_quarantined_nv_session) {
+        // The poisoned AS still owns GPU PTEs. Retain every page-group
+        // backing and NVMap session until native AS/process teardown.
+        // Only this fail-closed path skips otherwise mandatory cleanup.
+        for (auto& [key, region] : m_dense_regions) {
+            (void)key;
+            (void)region.pages.release();
+        }
+        m_dense_regions.clear();
+    }
+    if (m_nv_session && !m_quarantined_nv_session)
         m_module->GetContainer().CloseSession(Nvidia::NvCore::SessionId{*m_nv_session});
+    if (m_nv_session && m_quarantined_nv_session)
+        LOG_ERROR(Service_AM,
+                  "NS2 poisoned GPU AS: retain NVDRV session and physical backing until process teardown");
     // GpuWorkerSharedState owns the opened GPU address-space FDs and its
     // final destructor unregisters this exact process epoch. Release our
     // reference NOW, while our KProcess Open is still held. Waiting for the
@@ -375,17 +435,39 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size,
         nvmap_oom = true;
     }
     bool committed = false;
+    std::shared_ptr<Nvidia::Devices::nvhost_as_gpu> mapping_as;
     if (status == Nvidia::NvResult::Success) {
         Nvidia::Devices::NativeSparseRemapEntry entry{};
         entry.flags = page_shift == 16 ? 0x2000U : 0x1000U;
         entry.handle = handle->id;
         entry.destination_pages = address >> page_shift;
         entry.pages = size >> page_shift;
-        const auto as = m_shared->FindOwnedAddressSpace(address_space);
-        committed = as && as->RemapNativeSparse(std::span{&entry, size_t{1}}) ==
-                               Nvidia::NvResult::Success;
+        mapping_as = m_shared->FindOwnedAddressSpace(address_space);
+        committed = mapping_as &&
+                    mapping_as->RemapNativeSparse(std::span{&entry, size_t{1}}) ==
+                        Nvidia::NvResult::Success;
     }
     if (!committed) {
+        // RemapNativeSparse may have mapped a PREFIX of guest GPU PTEs
+        // before running out of page-table memory. It then quarantines all
+        // backing pins and marks the AS poisoned. NvMap::FreeHandle(final
+        // dupe) forcibly unmaps pins, and UnmapPageGroup/Close would free
+        // physical pages still referenced by those partial GPU PTEs.
+        // Only in this poisoned case keep the NVMap owner, CPU alias and
+        // page-group backing until process / AS teardown. Never retry
+        // mapping on a poisoned address space or pretend 214 succeeded.
+        if (mapping_as && mapping_as->IsNativeSparsePoisoned()) {
+            LOG_ERROR(Service_AM,
+                      "NS2 dense sparse 214 remap poisoned GMMU: quarantine backing as={} VA={:#x} size={:#x}",
+                      address_space, address, size);
+            // NvCore::CloseSession performs UnmapAllHandles and clears all
+            // NvMap pins on the final duplicate. Preserve the session lease
+            // as well as the KPageGroup or the worker destructor would undo
+            // this quarantine while poisoned GPU PTEs are still reachable.
+            m_quarantined_nv_session = true;
+            (void)pages.release();
+            return Kernel::ResultOutOfResource;
+        }
         if (handle) {
             const auto id = handle->id;
             handle.reset();
@@ -644,57 +726,117 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
                 m_shared->address_spaces.Owns(request->address_space) &&
                 m_shared->devices.Get(request->device).has_value()) {
                 const u64 size = request->end - request->begin + 1;
+                const auto replaced =
+                    m_mappings.ExactSparse(request->address_space, request->begin);
                 GW::MappingLedger::Pending staged_ledger;
-                const auto preflight = m_mappings.PrepareSparse(
-                    request->address_space, request->device, request->begin, size,
-                    staged_ledger, request->page_shift);
+                // Lichii/MKW: the title grows a sparse region at the exact
+                // same start VA without a preceding 215. Preallocate the new
+                // ledger node while the old owner is still intact, but never
+                // permit replacement of an unrelated overlapping mapping.
+                const auto preflight = replaced
+                    ? m_mappings.PrepareSparseReplacingExact(
+                          request->address_space, request->device, request->begin,
+                          size, staged_ledger, request->page_shift)
+                    : m_mappings.PrepareSparse(
+                          request->address_space, request->device, request->begin,
+                          size, staged_ledger, request->page_shift);
                 result = TranslateMappingStatus(preflight);
                 if (preflight == GW::LedgerStatus::Success) {
                     result = Kernel::ResultInvalidState;
                     const auto as = m_shared->FindOwnedAddressSpace(
                         static_cast<Nvidia::DeviceFD>(request->address_space));
-                    const auto reserved = as
-                        ? as->ReserveNativeSparse4K(request->begin, size,
-                                                  request->page_shift)
-                        : Nvidia::NvResult::InvalidState;
-                    if (reserved == Nvidia::NvResult::InsufficientMemory)
-                        result = Kernel::ResultOutOfResource;
-                    if (reserved == Nvidia::NvResult::Success) {
-                        const auto committed = m_mappings.CommitPrepared(staged_ledger);
-                        if (committed == GW::LedgerStatus::Success) {
-                            // Mode 0 requests physical GPU-only render storage.
-                            // Mode 1 remains an explicitly unbacked sparse VA
-                            // until the guest submits physical 216 mappings.
-                            if (request->allocation_mode == 0) {
-                                result = BackGpuOnlyRegion(
-                                    request->address_space, request->begin, size,
-                                    request->page_shift);
-                                dense_backed = result.IsSuccess();
-                                if (!dense_backed) {
-                                    // Preserve the VA ledger if the backend rollback fails;
-                                    // otherwise a retry could overlap a still-live GMMU VA.
-                                    if (as->ReleaseNativeSparse4K(request->begin, size) ==
-                                            Nvidia::NvResult::Success) {
-                                        const auto released = m_mappings.RecordReleasedSparse(
-                                            request->address_space, request->begin, size);
-                                        if (released != GW::LedgerStatus::Success)
-                                            LOG_ERROR(Service_AM,
-                                                "NS2 sparse 214 ledger rollback failed as={} VA={:#x}",
-                                                request->address_space, request->begin);
-                                    } else {
-                                        LOG_ERROR(Service_AM,
-                                            "NS2 sparse 214 GMMU rollback failed as={} VA={:#x}",
-                                            request->address_space, request->begin);
-                                    }
-                                }
-                            } else {
-                                result = ResultSuccess;
+                    bool old_retired = !replaced.has_value();
+                    if (as && replaced) {
+                        auto dense = m_dense_regions.find(
+                            {request->address_space, request->begin});
+                        const bool physical = dense != m_dense_regions.end();
+                        const bool gmmu_already_released =
+                            physical && dense->second.gmmu_released;
+                        // Replacing 214 is destructive to the old PTEs and
+                        // possibly their NVMap pin. Drain old GPU users first,
+                        // just like an explicit 215.
+                        if (!gmmu_already_released) {
+                            BlockingBoundaryTrace trace{
+                                "214_replace_wait_idle", request->address_space,
+                                request->begin, replaced->size};
+                            system.GPU().WaitForIdle();
+                        }
+                        const auto release_result = gmmu_already_released
+                            ? Nvidia::NvResult::Success
+                            : as->ReleaseNativeSparse4K(
+                                  request->begin, replaced->size);
+                        if (release_result == Nvidia::NvResult::InsufficientMemory) {
+                            result = Kernel::ResultOutOfResource;
+                        } else if (release_result == Nvidia::NvResult::Success) {
+                            if (physical) dense->second.gmmu_released = true;
+                            const bool physical_retired =
+                                !physical || RetireGpuOnlyRegion(
+                                    request->address_space, request->begin);
+                            if (physical_retired) {
+                                const auto released =
+                                    m_mappings.RecordReleasedSparse(
+                                        request->address_space, request->begin,
+                                        replaced->size);
+                                result = TranslateMappingStatus(released);
+                                old_retired = released == GW::LedgerStatus::Success;
                             }
-                            if (result.IsSuccess())
-                                m_shared->events[request->notification]->Signal(kernel);
-                        } else {
-                            as->ReleaseNativeSparse4K(request->begin, size);
-                            result = TranslateMappingStatus(committed);
+                        }
+                    }
+                    if (as && old_retired) {
+                        // Retiring the predecessor can succeed while the new
+                        // reservation still fails. Never leak that prior
+                        // success into the 214 reply.
+                        result = Kernel::ResultInvalidState;
+                        const auto reserved = as->ReserveNativeSparse4K(
+                            request->begin, size, request->page_shift);
+                        if (reserved == Nvidia::NvResult::InsufficientMemory)
+                            result = Kernel::ResultOutOfResource;
+                        if (reserved == Nvidia::NvResult::Success) {
+                            const auto committed =
+                                m_mappings.CommitPrepared(staged_ledger);
+                            if (committed == GW::LedgerStatus::Success) {
+                                // Mode 0 requests physical GPU-only render storage.
+                                // Mode 1 remains an explicitly unbacked sparse VA
+                                // until the guest submits physical 216 mappings.
+                                if (request->allocation_mode == 0) {
+                                    result = BackGpuOnlyRegion(
+                                        request->address_space, request->begin, size,
+                                        request->page_shift);
+                                    dense_backed = result.IsSuccess();
+                                    if (!dense_backed) {
+                                        // Preserve the VA ledger if backend rollback
+                                        // fails; otherwise a retry could overlap a
+                                        // still-live GMMU VA.
+                                        if (as->ReleaseNativeSparse4K(
+                                                request->begin, size) ==
+                                                Nvidia::NvResult::Success) {
+                                            const auto released =
+                                                m_mappings.RecordReleasedSparse(
+                                                    request->address_space,
+                                                    request->begin, size);
+                                            if (released != GW::LedgerStatus::Success)
+                                                LOG_ERROR(
+                                                    Service_AM,
+                                                    "NS2 sparse 214 ledger rollback failed as={} VA={:#x}",
+                                                    request->address_space,
+                                                    request->begin);
+                                        } else {
+                                            LOG_ERROR(
+                                                Service_AM,
+                                                "NS2 sparse 214 GMMU rollback failed as={} VA={:#x}",
+                                                request->address_space,
+                                                request->begin);
+                                        }
+                                    }
+                                } else {
+                                    result = ResultSuccess;
+                                }
+                                if (result.IsSuccess())
+                                    m_shared->events[request->notification]->Signal(kernel);
+                            } else {
+                                as->ReleaseNativeSparse4K(request->begin, size);
+                                result = TranslateMappingStatus(committed);
+                            }
                         }
                     }
                 }
@@ -1102,6 +1244,7 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
         R_TRY(m_process->GetPageTable().UnlockForDeviceAddressSpace(
             pending->second.address, pending->second.size));
         m_pending_device_unlocks.erase(pending);
+        m_memory_debug_labels.erase(id);
         m_memory.erase(it);
         m_shared->events[notification]->Signal(kernel);
         return ResultSuccess;
@@ -1268,6 +1411,7 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
     R_TRY(m_process->GetPageTable().UnlockForDeviceAddressSpace(
         pending->second.address, pending->second.size));
     m_pending_device_unlocks.erase(pending);
+    m_memory_debug_labels.erase(id);
     m_memory.erase(it);
     m_shared->events[notification]->Signal(kernel);
     return ResultSuccess;
@@ -1297,6 +1441,161 @@ void IGpuWorker::DestroyGpuAccessibleMemory(HLERequestContext& ctx) {
     if (const auto release = DecodeGpuMemoryRelease(command)) {
         const std::scoped_lock lock{m_mutex, m_shared->mutex};
         result = ReleaseMemory(release->id, release->notification);
+    }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGpuWorker::EnsureGpuMemoryComptags(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<u32, 3> command{packet[0], packet[1], packet[2]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto id = DecodeEnsureGpuMemoryComptags(command)) {
+        const std::scoped_lock lock{m_mutex, m_shared->mutex};
+        const auto owned = std::find(m_memory.begin(), m_memory.end(), *id);
+        result = Kernel::ResultNotFound;
+        if (owned != m_memory.end()) {
+            // A handle being destructively released is not a valid comptag
+            // owner even though it remains in m_memory until the deferred
+            // page-table unlock completes.
+            result = Kernel::ResultBusy;
+            if (!m_pending_device_unlocks.contains(*id)) {
+                const auto handle = m_module->GetContainer().GetNvMapFile().GetHandle(*id);
+                // This backend never publishes NVIDIA compressed PTEs:
+                // SelectNativeMemoryKind returns the guest's uncompressed
+                // fallback. Therefore a live owned handle already satisfies
+                // the comptag requirement without allocating fake metadata.
+                result = handle ? ResultSuccess : Kernel::ResultInvalidState;
+            }
+        }
+    }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGpuWorker::SetGpuMemoryUserDebugLabel(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<u32, 7> command{
+        packet[0], packet[1], packet[2], packet[3],
+        packet[4], packet[5], packet[6]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto request = DecodeGpuMemoryUserDebugLabel(command)) {
+        const std::scoped_lock lock{m_mutex};
+        result = Kernel::ResultNotFound;
+        if (std::find(m_memory.begin(), m_memory.end(), request->id) != m_memory.end()) {
+            result = Kernel::ResultBusy;
+            if (!m_pending_device_unlocks.contains(request->id)) {
+                const auto handle = m_module->GetContainer().GetNvMapFile().GetHandle(request->id);
+                result = Kernel::ResultInvalidState;
+                if (handle) {
+                    try {
+                        auto [it, inserted] = m_memory_debug_labels.try_emplace(request->id);
+                        (void)inserted;
+                        it->second.user = request->value;
+                        result = ResultSuccess;
+                    } catch (const std::bad_alloc&) {
+                        result = Kernel::ResultOutOfResource;
+                    }
+                }
+            }
+        }
+    }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGpuWorker::SetGpuMemorySdkDebugLabel(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<u32, 5> command{
+        packet[0], packet[1], packet[2], packet[3], packet[4]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto request = DecodeGpuMemorySdkDebugLabel(command)) {
+        const std::scoped_lock lock{m_mutex};
+        result = Kernel::ResultNotFound;
+        if (std::find(m_memory.begin(), m_memory.end(), request->id) != m_memory.end()) {
+            result = Kernel::ResultBusy;
+            if (!m_pending_device_unlocks.contains(request->id)) {
+                const auto handle = m_module->GetContainer().GetNvMapFile().GetHandle(request->id);
+                result = Kernel::ResultInvalidState;
+                if (handle) {
+                    try {
+                        auto [it, inserted] = m_memory_debug_labels.try_emplace(request->id);
+                        (void)inserted;
+                        it->second.sdk = request->value;
+                        result = ResultSuccess;
+                    } catch (const std::bad_alloc&) {
+                        result = Kernel::ResultOutOfResource;
+                    }
+                }
+            }
+        }
+    }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGpuWorker::SetGpuSegmentUserDebugLabel(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<u32, 11> command{
+        packet[0], packet[1], packet[2], packet[3], packet[4], packet[5],
+        packet[6], packet[7], packet[8], packet[9], packet[10]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto request = DecodeGpuSegmentUserDebugLabel(command)) {
+        const std::scoped_lock lock{m_mutex, m_shared->mutex};
+        result = Kernel::ResultNotFound;
+        if (m_shared->FindOwnedAddressSpace(request->address_space)) {
+            const auto key = std::make_tuple(
+                request->address_space, request->address, request->size);
+            const auto existing = m_segment_debug_labels.find(key);
+            result = Kernel::ResultOutOfResource;
+            if (existing != m_segment_debug_labels.end() ||
+                m_segment_debug_labels.size() < GpuWorkerProtocol::MaxMappings) {
+                try {
+                    auto [it, inserted] = m_segment_debug_labels.try_emplace(key);
+                    (void)inserted;
+                    it->second.user = request->value;
+                    result = ResultSuccess;
+                } catch (const std::bad_alloc&) {
+                    result = Kernel::ResultOutOfResource;
+                }
+            }
+        }
+    }
+    TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGpuWorker::SetGpuSegmentSdkDebugLabel(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<u32, 9> command{
+        packet[0], packet[1], packet[2], packet[3], packet[4],
+        packet[5], packet[6], packet[7], packet[8]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto request = DecodeGpuSegmentSdkDebugLabel(command)) {
+        const std::scoped_lock lock{m_mutex, m_shared->mutex};
+        result = Kernel::ResultNotFound;
+        if (m_shared->FindOwnedAddressSpace(request->address_space)) {
+            const auto key = std::make_tuple(
+                request->address_space, request->address, request->size);
+            const auto existing = m_segment_debug_labels.find(key);
+            result = Kernel::ResultOutOfResource;
+            if (existing != m_segment_debug_labels.end() ||
+                m_segment_debug_labels.size() < GpuWorkerProtocol::MaxMappings) {
+                try {
+                    auto [it, inserted] = m_segment_debug_labels.try_emplace(key);
+                    (void)inserted;
+                    it->second.sdk = request->value;
+                    result = ResultSuccess;
+                } catch (const std::bad_alloc&) {
+                    result = Kernel::ResultOutOfResource;
+                }
+            }
+        }
     }
     TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     IPC::ResponseBuilder rb{ctx, 2};

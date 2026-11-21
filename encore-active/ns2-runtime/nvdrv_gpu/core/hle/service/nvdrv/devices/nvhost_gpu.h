@@ -56,6 +56,10 @@ public:
 
     void OnOpen(NvCore::SessionId session_id, DeviceFD fd) override;
     void OnClose(DeviceFD fd) override;
+    bool CanBindNativeTsgChannel(DeviceFD fd, NvCore::SessionId session) override;
+    NvResult SetNativeTsgChannelEnabled(DeviceFD fd, NvCore::SessionId session,
+                                        bool enabled) override;
+    bool IsGpuChannelDevice() const override { return true; }
 
     Kernel::KEvent* QueryEvent(u32 event_id) override;
 
@@ -80,6 +84,39 @@ private:
         s32_le nvmap_fd{};
     };
     static_assert(sizeof(IoctlSetNvmapFD) == 4, "IoctlSetNvmapFD is incorrect size");
+
+    struct IoctlChannelOpen {
+        s32_le runlist_id{};
+    };
+    static_assert(sizeof(IoctlChannelOpen) == 4, "IoctlChannelOpen ABI size");
+    // Switch 2 NVGPU_IOCTL_CHANNEL_SETUP_BIND (0xC0504821), 80-byte INOUT ABI.
+    // Unlike older Linux layouts, the final 40 bytes expose usermode GPU VAs
+    // and the hardware channel id, followed by only three reserved words.
+    struct IoctlChannelSetupBind {
+        u32_le num_gpfifo_entries{};
+        u32_le num_inflight_jobs{};
+        u32_le flags{};
+        s32_le userd_dmabuf_fd{};
+        s32_le gpfifo_dmabuf_fd{};
+        u32_le work_submit_token{};
+        u64_le userd_dmabuf_offset{};
+        u64_le gpfifo_dmabuf_offset{};
+        u64_le gpfifo_gpu_va{};
+        u64_le userd_gpu_va{};
+        u64_le usermode_mmio_gpu_va{};
+        u32_le hw_channel_id{};
+        std::array<u32_le, 3> reserved{};
+    };
+    static_assert(sizeof(IoctlChannelSetupBind) == 80, "IoctlChannelSetupBind ABI size");
+
+    // NVIDIA nvgpu UAPI: 0xC010481E, exactly 16 output bytes.
+    // The address must name the channel syncpoint's actual GMMU shim word.
+    struct IoctlGetUserSyncpoint {
+        u64_le gpu_va{};
+        u32_le syncpoint_id{};
+        u32_le syncpoint_max{};
+    };
+    static_assert(sizeof(IoctlGetUserSyncpoint) == 16);
 
     struct IoctlChannelSetTimeout {
         u32_le timeout{};
@@ -129,11 +166,25 @@ private:
     };
     static_assert(sizeof(IoctlEventIdControl) == 8, "IoctlEventIdControl is incorrect size");
 
+    struct IoctlNativeEventIdControl {
+        u32_le cmd{}; // 0=disable, 1=enable, 2=clear
+        u32_le id{};  // same ids as QueryEvent
+        u64_le reserved{}; // Ounce S2 wrapper sends zero
+    };
+    static_assert(sizeof(IoctlNativeEventIdControl) == 16,
+                  "IoctlNativeEventIdControl is incorrect size");
+
+    struct IoctlGetErrorInfo {
+        u32_le type{}; // 0=no_error, 1=mmu, 2=gr, 3=pbdma, 4=timeout
+        std::array<u32_le, 31> info{};
+    };
+    static_assert(sizeof(IoctlGetErrorInfo) == 128, "IoctlGetErrorInfo is incorrect size");
+
     struct IoctlGetErrorNotification {
         u64_le timestamp{};
         u32_le info32{};
         u16_le info16{};
-        u16_le status{}; // always 0xFFFF
+        u16_le status{}; // Switch ABI: always 0xFFFF
     };
     static_assert(sizeof(IoctlGetErrorNotification) == 16,
                   "IoctlGetErrorNotification is incorrect size");
@@ -185,12 +236,35 @@ private:
     std::array<std::optional<IoctlAllocObjCtx>, 6> ctxObjs{};
     u32_le channel_priority{};
     u32_le channel_timeslice{};
+    // Switch 2 H:0x1F scheduling policy selected by the guest. Configuration
+    // is persisted even though explicit hardware-style preempt remains unsupported.
+    u32 native_graphics_preemption_mode{};
+    u32 native_compute_preemption_mode{};
+    // Switch keeps channel error state inside the driver. H:0x0C only
+    // enables/disables it; H:0x16/H:0x17 return the current snapshots.
+    bool native_error_notifier_initialized{};
+    IoctlGetErrorInfo native_error_info{};
+    IoctlGetErrorNotification native_error_notification{};
+    u32 native_event_enable_mask{};
+    // Logical CCSR enable state for the authenticated NS2 channel. Direct
+    // H:0x0E/0x0F and TSG H:0x03/0x04 both update this one source of truth.
+    bool native_channel_enabled{};
+    // Enabling a channel/TSG is not GPFIFO allocation. The first native
+    // submit must follow a successful ALLOC_GPFIFO_EX[2] or SETUP_BIND.
+    bool native_gpfifo_configured{};
 
+    NvResult NativeChannelSetEnabled(DeviceFD fd, bool enabled);
+    NvResult ChannelOpen(IoctlChannelOpen& params, DeviceFD fd);
+    NvResult ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd);
+    NvResult GetUserSyncpoint(IoctlGetUserSyncpoint& params, DeviceFD fd);
     NvResult SetNVMAPfd(IoctlSetNvmapFD& params);
     NvResult SetClientData(IoctlClientData& params);
     NvResult GetClientData(IoctlClientData& params);
     NvResult ZCullBind(IoctlZCullBind& params);
-    NvResult SetErrorNotifier(IoctlSetErrorNotifier& params);
+    NvResult NativeEventIdControl(IoctlNativeEventIdControl& params, DeviceFD fd);
+    NvResult SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd);
+    NvResult GetErrorInfo(IoctlGetErrorInfo& params, DeviceFD fd);
+    NvResult GetErrorNotification(IoctlGetErrorNotification& params, DeviceFD fd);
     NvResult SetChannelPriority(IoctlChannelSetPriority& params);
     // Authenticate the exact FD before changing channel/engine state. Native
     // sessions may not share a GPU channel with another guest process.
@@ -224,6 +298,9 @@ private:
     ::Common::unordered_map<DeviceFD, NvCore::SessionId> sessions;
     u32 channel_syncpoint;
     u32 native_submit_logs{};
+    // An authenticated NS2 /dev/nvhost-gpu channel retains its selected
+    // logical runlist until this NVDRV device is closed.
+    std::optional<s32> native_runlist_id{};
     std::mutex channel_mutex;
 
     // Events

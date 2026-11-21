@@ -46,8 +46,6 @@ GpuWorkerSharedState::FindOwnedAddressSpace(std::uint32_t id) const {
 }
 
 GpuWorkerSharedState::~GpuWorkerSharedState() {
-    if (native_registered)
-        Nvidia::Devices::NativeGpuProcessRegistry::Instance().Unregister(native_process);
     // Worker clients can be moved to a different guest handle table. Kernel
     // events, live GPU address-space devices and NVDRV session therefore have
     // the lifetime of the last shared session/worker owner.
@@ -62,5 +60,12 @@ GpuWorkerSharedState::~GpuWorkerSharedState() {
     }
     if (nv_session)
         module->GetContainer().CloseSession(Nvidia::NvCore::SessionId{*nv_session});
+    // The GPU 497 process epoch stays authenticated while its last native
+    // AS FD and NvCore session retire. Dropping the ticket before Close()
+    // could demote the remaining native cleanup to Maxwell when 1402 has
+    // already been closed. The KProcess is still owned by IGpuSession until
+    // after the shared state destructor finishes.
+    if (native_registered)
+        Nvidia::Devices::NativeGpuProcessRegistry::Instance().Unregister(native_process);
 }
 } // namespace Service::AM

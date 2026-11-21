@@ -127,7 +127,19 @@ void LoopProcess(Core::System& system) {
 Module::Module(Core::System& system)
     : container{system.Host1x()}, service_context{system, "nvdrv"}, events_interface{*this} {
     nx2_stub_builder = [this, &system](DeviceFD fd, const std::string& name) {
-        auto device = std::make_shared<Devices::nx2_stub_device>(system, name);
+        auto device = std::make_shared<Devices::nx2_stub_device>(
+            system, name,
+            [this](NvCore::SessionId owner, DeviceFD channel_fd) {
+                const auto it = open_files.find(channel_fd);
+                return it != open_files.end() &&
+                       it->second->CanBindNativeTsgChannel(channel_fd, owner);
+            },
+            [this](NvCore::SessionId owner, DeviceFD channel_fd, bool enabled) {
+                const auto it = open_files.find(channel_fd);
+                if (it == open_files.end()) return NvResult::InvalidState;
+                return it->second->SetNativeTsgChannelEnabled(
+                    channel_fd, owner, enabled);
+            });
         open_files.emplace(fd, device);
         return std::static_pointer_cast<Devices::nvdevice>(device);
     };
@@ -141,6 +153,9 @@ Module::Module(Core::System& system)
     };
     builders["/dev/nvhost-ctrl-gpu"] = [this, &system](DeviceFD fd) {
         auto device = std::make_shared<Devices::nvhost_ctrl_gpu>(system, events_interface);
+        // The native owner queries this Container to distinguish the exact
+        // Switch 2 KProcess on its FD; legacy controller C++ ignores it.
+        device->SetNativeContainer(container);
         return open_files.emplace(fd, std::move(device)).first;
     };
     builders["/dev/nvmap"] = [this, &system](DeviceFD fd) {

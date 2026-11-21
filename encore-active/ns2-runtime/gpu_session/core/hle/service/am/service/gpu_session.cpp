@@ -52,6 +52,7 @@ IGpuSession::IGpuSession(Core::System& system_,
         {33, &IGpuSession::CreateAddressSpace, "CreateAddressSpace"},
         {41, &IGpuSession::CreateGraphicsDevice, "CreateGraphicsDevice"},
         {42, &IGpuSession::DestroyGraphicsDevice, "DestroyGraphicsDevice"},
+        {200, &IGpuSession::SynchronizeAddressSpace, "SynchronizeGpuAddressSpace"},
         // Newer NS2 SDK contract (Lichii nx2_gsv): 201=user, 202=GSV,
         // 203=full GPU VA range. Keeping the old shifted IDs makes NVN close
         // the GPU device and can surface later as a null guest branch.
@@ -205,26 +206,27 @@ void IGpuSession::AcquireWorker(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     const std::array<GP::U32, 2> command{packet[0], packet[1]};
     Result result = Kernel::ResultInvalidCombination;
-    Kernel::KClientSession* client{};
     if (GP::IsAcquireWorker(command)) {
         result = Kernel::ResultInvalidState;
         if (m_worker) {
-            client = m_worker;
-            client->Open(kernel);
-            // AddMoveObject can allocate its outgoing descriptor list.
-            // Stage the move BEFORE the success reply; roll back the
-            // independently opened KClientSession reference on OOM.
-            try {
-                ctx.AddMoveObject(client);
+            // libounce gsvGpuOpenWorker requests a HIPC MOVE descriptor for
+            // TIPC 22. Keep one service-owned KClientSession reference so the
+            // shared worker remains valid for teardown/repeated acquisition;
+            // WriteToOutgoingCommandBuffer consumes only the extra reference.
+            if (m_worker->Open(kernel))
                 result = ResultSuccess;
-            } catch (const std::bad_alloc&) {
-                client->Close(kernel);
-                result = Kernel::ResultOutOfResource;
-            }
         }
     }
-    // The moved client belongs to the IPC response only after its
-    // descriptor was successfully staged; error replies transfer nothing.
+    if (result.IsSuccess()) {
+        // AddMoveObject can allocate. Roll back its transfer reference while
+        // preserving the service-owned worker on a failed MOVE publication.
+        try {
+            ctx.AddMoveObject(m_worker);
+        } catch (const std::bad_alloc&) {
+            m_worker->Close(kernel);
+            result = Kernel::ResultOutOfResource;
+        }
+    }
     if (result.IsSuccess()) {
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(result.raw);
@@ -257,8 +259,8 @@ void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
         auto*& event = m_shared->events[*index];
         if (!event) {
             // Creating a kernel notification may allocate host event state.
-            // OOM must return a normal TIPC resource error with no COPY
-            // handle and no published half-created event.
+            // OOM must return a normal TIPC resource error with no handle and
+            // no published half-created event.
             try {
                 event = m_shared->event_context.CreateEvent("GpuNotification");
             } catch (const std::bad_alloc&) {
@@ -272,19 +274,23 @@ void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
             result = Kernel::ResultOutOfResource;
         }
     }
-    // GPU session cmd 12 returns a COPY handle, not a moved handle.
-    // Stage the outgoing object before writing a success descriptor.
-    // Its host vector can allocate; an OOM must return an ordinary error
-    // with zero COPY handles rather than leaving a success reply behind.
+    // libounce gsvGpuCreateSlotEvent requests a HIPC MOVE descriptor for
+    // TIPC 12. ServiceContext later closes its original readable reference;
+    // retain that owner and move an explicitly opened transfer reference.
+    if (result.IsSuccess() && !readable->Open(kernel))
+        result = Kernel::ResultInvalidState;
     if (result.IsSuccess()) {
+        // The event remains owned by the service. A failed MOVE publication
+        // must close only the extra readable-event transfer reference.
         try {
-            ctx.AddCopyObject(readable);
+            ctx.AddMoveObject(readable);
         } catch (const std::bad_alloc&) {
+            readable->Close(kernel);
             result = Kernel::ResultOutOfResource;
         }
     }
     if (result.IsSuccess()) {
-        IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(result.raw);
     } else {
         IPC::ResponseBuilder rb{ctx, 2};
@@ -473,6 +479,31 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
     rb.Push(id);
 }
 
+void IGpuSession::SynchronizeAddressSpace(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<GP::U32, 4> command{packet[0], packet[1], packet[2], packet[3]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto request = GP::DecodeSynchronizeAddressSpace(command)) {
+        const std::scoped_lock lock{m_shared->mutex};
+        result = Kernel::ResultNotFound;
+        if (m_shared->address_spaces.Owns(request->address_space)) {
+            result = Kernel::ResultInvalidState;
+            // Native worker map/unmap/remap transactions are synchronous:
+            // by the time this parent-session request is handled their GMMU
+            // mutation has either committed or returned an error. Completion
+            // therefore means signalling the SDK job event; a global GPU idle
+            // would serialize unrelated graphics work and is not required.
+            if (ResolveOpenedAddressSpace(request->address_space) &&
+                m_shared->events[request->notification]) {
+                m_shared->events[request->notification]->Signal(kernel);
+                result = ResultSuccess;
+            }
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
 void IGpuSession::GetUserPartition(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     const std::array<GP::U32, 3> command{packet[0], packet[1], packet[2]};
@@ -485,10 +516,12 @@ void IGpuSession::GetUserPartition(HLERequestContext& ctx) {
         if (m_shared->address_spaces.Owns(request->address_space) &&
             ResolveOpenedAddressSpace(request->address_space)) {
             // Lichii's current newer-SDK contract: the user partition is the
-            // process GPU VA interval. It is deliberately independent from
-            // the legacy GetVARegions ioctl shape.
+            // range published to NVN. Unlike the 1-TiB GMMU page-table capacity,
+            // the guest-visible user partition ends at 0xC000000000
+            // (768 GiB). Do not return the 1-TiB GMMU ceiling as the
+            // end/size: it advertises VA outside the proven NVN range.
             first = Nvidia::Devices::NativeNs2GpuVaStart;
-            size = Nvidia::Devices::NativeNs2GpuVaEnd - first;
+            size = Nvidia::Devices::NativeNs2GpuVaSmallSplit - first;
             result = ResultSuccess;
         } else if (m_shared->address_spaces.Owns(request->address_space)) {
             result = Kernel::ResultInvalidState;
@@ -530,27 +563,28 @@ void IGpuSession::GetVaRange(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     const std::array<GP::U32, 3> command{packet[0], packet[1], packet[2]};
     Result result = Kernel::ResultInvalidCombination;
-    u64 kind{};
-    u64 first{};
-    u64 size{};
+    // libounce gsvGpuGetVmUserRanges consumes:
+    //   u64 count; GsvGpuVaRange ranges[4] ({u64 first,u64 last}).
+    // Keep the unused three records zero and publish the one proven NVN
+    // user interval with an inclusive end.
+    std::array<u64_le, 9> payload{};
     if (const auto request = GP::DecodeAddressSpacePartition(command, 203)) {
         result = Kernel::ResultNotFound;
         const std::scoped_lock lock{m_shared->mutex};
         if (m_shared->address_spaces.Owns(request->address_space) &&
             ResolveOpenedAddressSpace(request->address_space)) {
-            kind = 1;
-            first = Nvidia::Devices::NativeNs2GpuVaStart;
-            size = Nvidia::Devices::NativeNs2GpuVaEnd - first;
+            payload[0] = 1;
+            payload[1] = Nvidia::Devices::NativeNs2GpuVaStart;
+            payload[2] = Nvidia::Devices::NativeNs2GpuVaSmallSplit - 1;
             result = ResultSuccess;
         } else if (m_shared->address_spaces.Owns(request->address_space)) {
             result = Kernel::ResultInvalidState;
         }
     }
-    IPC::ResponseBuilder rb{ctx, 8};
+    // Result word + 72-byte output payload = 19 TIPC words.
+    IPC::ResponseBuilder rb{ctx, 20};
     rb.Push(result.raw);
-    rb.Push(kind);
-    rb.Push(first);
-    rb.Push(size);
+    rb.PushRaw(payload);
 }
 
 void IGpuSession::CreateGraphicsDevice(HLERequestContext& ctx) {

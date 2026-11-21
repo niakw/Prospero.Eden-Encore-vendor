@@ -115,30 +115,32 @@ struct GPU::Impl {
 
     void ReleaseChannel(Control::ChannelState& to_release) {
 #if defined(PS5_NATIVE)
-        // The NVDRV close arrives on a service thread, but channel maps,
-        // rasterizer channel caches and parked native semaphore state are GPU
-        // worker-owned. Retire synchronously on that worker after older work.
+        // Queue retirement on the existing GPU worker. Only the worker
+        // reads/mutates the channels map: the NVDRV service thread must not
+        // race GPU::BindChannel while looking up a channel on FD close.
+        // The caller keeps to_release alive until this synchronous barrier
+        // completes. Verify the exact owner epoch on the worker side.
         const s32 channel_id = to_release.bind_id;
         const auto* expected = &to_release;
         const u64 fence = RequestSyncOperation([this, channel_id, expected] {
             const auto it = channels.find(channel_id);
-            if (it == channels.end() || it->second.get() != expected) {
-                return; // Never retire a newer owner after bind-id reuse.
-            }
+            if (it == channels.end() || it->second.get() != expected)
+                return; // An old FD cannot retire a reused channel ID.
             const auto owner = it->second;
             scheduler.RetireChannel(owner.get());
             if (current_channel == owner.get()) {
                 current_channel = nullptr;
                 bound_channel = -1;
             }
-            if (owner->initialized) {
+            if (owner->initialized)
                 renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);
-            }
             channels.erase(it);
         });
         gpu_thread.TickGPU(is_async);
         WaitForSyncOperation(fence);
 #else
+        // Host/non-PS5 scheduler has no native epoch-retirement API.
+        // Preserve its original behavior; no platform-wide ABI change.
         UNIMPLEMENTED();
 #endif
     }

@@ -46,6 +46,11 @@ public:
     // Lichii 12125bc / NX2 #46: guest NVN reads Host1x syncpoint words
     // through a read-only GPU virtual shim; zero preserves NS1 behavior.
     void SetNativeSyncpointShim(GPUVAddr address);
+    // A channel may expose only an existing, initialized shim mapping,
+    // never a guessed GPU virtual address.
+    [[nodiscard]] GPUVAddr GetNativeSyncpointShim() const noexcept {
+        return native_syncpoint_shim.load(std::memory_order_acquire);
+    }
     static constexpr u32 NumShimSyncpoints = 192;
 
     /// Switch 2 lays out block-linear surfaces with the console's GOB swizzle.

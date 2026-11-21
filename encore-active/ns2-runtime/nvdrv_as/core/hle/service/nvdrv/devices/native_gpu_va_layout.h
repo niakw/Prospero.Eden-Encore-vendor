@@ -38,7 +38,7 @@ struct NativeGpuVaPageLayout {
     std::uint32_t big_page_size) {
     constexpr std::uint64_t small_page_size = 0x1000;
     if (big_page_size != 0x10000 && big_page_size != 0x20000) return std::nullopt;
-    if (start == 0 || start >= split || split >= end ||
+    if (start == 0 || start >= split || split > end ||
         (start & (small_page_size - 1)) != 0 ||
         (split & (big_page_size - 1)) != 0 ||
         (end & (big_page_size - 1)) != 0)
