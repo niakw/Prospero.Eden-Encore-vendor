@@ -47,6 +47,29 @@ namespace Vulkan { class TextureCacheRuntime; }
 
 namespace VideoCommon {
 
+
+inline std::vector<ImageCopy> SplitLayeredImageCopies(std::span<const ImageCopy> copies) {
+    std::vector<ImageCopy> layer_copies;
+    layer_copies.reserve(copies.size());
+    for (const ImageCopy& copy : copies) {
+        const s32 num_layers = copy.dst_subresource.num_layers;
+        if (num_layers <= 1 || copy.src_subresource.num_layers != num_layers) {
+            layer_copies.push_back(copy);
+            continue;
+        }
+        for (s32 layer = 0; layer < num_layers; ++layer) {
+            ImageCopy single = copy;
+            single.dst_subresource.base_layer += layer;
+            single.src_subresource.base_layer += layer;
+            single.dst_subresource.num_layers = 1;
+            single.src_subresource.num_layers = 1;
+            layer_copies.push_back(single);
+        }
+    }
+    return layer_copies;
+}
+
+
 using Tegra::Texture::TICEntry;
 using Tegra::Texture::TSCEntry;
 using VideoCore::Surface::GetFormatType;
@@ -3932,7 +3955,7 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::vector<Imag
     if (runtime.ShouldReinterpret(dst, src)) {
         return runtime.ReinterpretImage(dst, src, copies);
     }
-    for (const ImageCopy& copy : copies) {
+    for (const ImageCopy& copy : SplitLayeredImageCopies(copies)) {
         UNIMPLEMENTED_IF(copy.dst_subresource.num_layers != 1);
         UNIMPLEMENTED_IF(copy.src_subresource.num_layers != 1);
         UNIMPLEMENTED_IF(copy.src_offset != Offset3D{});
