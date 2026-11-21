@@ -690,9 +690,13 @@ void MaxwellDMA::Launch() {
                 // memory, and the default GuestMemoryScoped fallback may keep
                 // a direct source pointer that memcpy overwrites prematurely.
                 const size_t count = regs.line_length_in;
-                if (count != 0 &&
-                    DmaSoftwareOverlap(memory_manager, regs.offset_in, count,
-                                       regs.offset_out, count)) {
+                // BufferCache::DMACopy already rejects physical overlap
+                // before queuing Vulkan transfers. Keep that accelerated
+                // disjoint-copy fast path ahead of any CPU GMMU scan.
+                if (!accelerate.BufferCopy(regs.offset_in, regs.offset_out, count)) {
+                    if (count != 0 &&
+                        DmaSoftwareOverlap(memory_manager, regs.offset_in, count,
+                                           regs.offset_out, count)) {
                     constexpr size_t MAX_ALIAS_BYTES = size_t{64} << 20;
                     if (count > MAX_ALIAS_BYTES ||
                         !memory_manager.IsFullyMappedRange(regs.offset_in, count) ||
@@ -707,12 +711,13 @@ void MaxwellDMA::Launch() {
                         memory_manager.ReadBlock(regs.offset_in, snapshot.data(), count);
                         memory_manager.WriteBlock(regs.offset_out, snapshot.data(), count);
                     }
-                } else if (!accelerate.BufferCopy(regs.offset_in, regs.offset_out, count)) {
-                    Tegra::Memory::GpuGuestMemoryScoped<
-                        u8, Tegra::Memory::GuestMemoryFlags::SafeReadCachedWrite>
-                        tmp_write_buffer(memory_manager, regs.offset_in, count,
-                                         &read_buffer);
-                    tmp_write_buffer.SetAddressAndSize(regs.offset_out, count);
+                    } else {
+                        Tegra::Memory::GpuGuestMemoryScoped<
+                            u8, Tegra::Memory::GuestMemoryFlags::SafeReadCachedWrite>
+                            tmp_write_buffer(memory_manager, regs.offset_in, count,
+                                             &read_buffer);
+                        tmp_write_buffer.SetAddressAndSize(regs.offset_out, count);
+                    }
                 }
             }
         }
