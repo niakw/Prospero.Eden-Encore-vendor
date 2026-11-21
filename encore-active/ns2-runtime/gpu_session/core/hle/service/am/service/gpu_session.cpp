@@ -205,28 +205,23 @@ void IGpuSession::AcquireWorker(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     const std::array<GP::U32, 2> command{packet[0], packet[1]};
     Result result = Kernel::ResultInvalidCombination;
-    Kernel::KClientSession* client{};
     if (GP::IsAcquireWorker(command)) {
         result = Kernel::ResultInvalidState;
         if (m_worker) {
-            client = m_worker;
-            client->Open(kernel);
-            // AddMoveObject can allocate its outgoing descriptor list.
-            // Stage the move BEFORE the success reply; roll back the
-            // independently opened KClientSession reference on OOM.
+            // nx2:gpu TIPC 22 returns a COPY client-session handle, not a
+            // MOVE descriptor. The session owner already retains the kernel
+            // reference, so opening an extra reference here would leak it.
+            // Keep the response fail-closed if staging the COPY fails.
             try {
-                ctx.AddMoveObject(client);
+                ctx.AddCopyObject(m_worker);
                 result = ResultSuccess;
             } catch (const std::bad_alloc&) {
-                client->Close(kernel);
                 result = Kernel::ResultOutOfResource;
             }
         }
     }
-    // The moved client belongs to the IPC response only after its
-    // descriptor was successfully staged; error replies transfer nothing.
     if (result.IsSuccess()) {
-        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+        IPC::ResponseBuilder rb{ctx, 2, 1, 0};
         rb.Push(result.raw);
     } else {
         IPC::ResponseBuilder rb{ctx, 2};
