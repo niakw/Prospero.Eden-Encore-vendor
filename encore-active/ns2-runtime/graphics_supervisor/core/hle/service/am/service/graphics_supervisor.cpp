@@ -1274,7 +1274,9 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {402, &IGraphicsSupervisor::InitializeGpuContext, "ActivateGpuContext"},
         {403, &IGraphicsSupervisor::DestroyGpuContext, "DestroyGpuContext"},
         {434, &IGraphicsSupervisor::RegisterGpuAddressSpace, "RegisterGpuAddressSpace"},
+        {496, &IGraphicsSupervisor::OpenGpuSession, "OpenGpuSessionWithTransferMemory"},
         {497, &IGraphicsSupervisor::OpenGpuSession, "OpenGpuSession"},
+        {1401, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSessionWithTransferMemory"},
         {1402, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSession"},
         {301, &IGraphicsSupervisor::InitializeDisplayContext, "InitializeDisplayContext"},
         {303, &IGraphicsSupervisor::FinalizeDisplayContext, "FinalizeDisplayContext"},
@@ -1670,7 +1672,21 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     Kernel::KClientSession* client{};
-    if (packet[0] == 16 + 1402 && packet[1] == 0) {
+    bool valid_request = packet[0] == 16 + 1402 && packet[1] == 0;
+    if (packet[0] == 16 + 1401) {
+        if (const auto request = GraphicsSupervisorProtocol::DecodeNvDrvTransferSession(
+                std::span<const u32>{packet, IPC::COMMAND_BUFFER_LENGTH})) {
+            const auto memory = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(
+                ctx.GetCopyHandle(0));
+            result = Kernel::ResultInvalidHandle;
+            if (!memory.IsNull() && memory->GetOwner() == m_process &&
+                request->copied_handle == ctx.GetCopyHandle(0)) {
+                result = Kernel::ResultInvalidSize;
+                valid_request = request->size <= memory->GetSize();
+            }
+        }
+    }
+    if (valid_request) {
         result = Kernel::ResultInvalidState;
         if (m_process && m_bootstrap.CurrentPhase() == GB::Phase::Ready) {
             // The firmware permits only one live 1402 user session and
@@ -1701,6 +1717,8 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
             }
         }
     }
+    // Both native 1401 and 1402 return a COPY descriptor; do not manufacture
+    // a session until a process-owned TransferMemory passes 1401 validation.
     // TIPC 1402 returns a COPY descriptor; fail-closed admission must never
     // publish a null handle. Preserve normal NVDRV/NS1 registration.
     if (result.IsError()) {
@@ -1719,6 +1737,24 @@ void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
     const auto source = system.ServiceManager().GetService<Nvidia::NVDRV>("nvdrv:s", true);
     const auto module = source ? source->GetModule() : nullptr;
     Result result = TranslateBootstrap(m_bootstrap.CanOpenGpuSession(packet, module != nullptr));
+    if (result.IsSuccess() && ctx.GetCommand() == 496) {
+        // A TransferMemory work buffer is borrowed for the legacy GPU
+        // session. HLE owns the real address spaces through NvCore, not the
+        // unused work-buffer storage. Never accept another process's memory.
+        const auto request = GraphicsSupervisorProtocol::DecodeGpuTransferSession(packet);
+        if (!request) {
+            result = Kernel::ResultInvalidCombination;
+        } else {
+            const auto memory = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(
+                ctx.GetCopyHandle(0));
+            result = Kernel::ResultInvalidHandle;
+            if (!memory.IsNull() && memory->GetOwner() == m_process &&
+                request->copied_handle == ctx.GetCopyHandle(0)) {
+                result = request->size <= memory->GetSize()
+                    ? ResultSuccess : Kernel::ResultInvalidSize;
+            }
+        }
+    }
     Kernel::KClientSession* client{};
     if (result.IsSuccess()) {
         try {

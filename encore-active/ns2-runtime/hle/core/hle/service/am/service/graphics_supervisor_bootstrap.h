@@ -84,9 +84,18 @@ public:
         return Status::Success;
     }
     Status CanOpenGpuSession(std::span<const U32> packet, bool module_available) const {
-        if (packet.size()<4 || packet[0]!=0x201 || packet[1]!=2)
+        // Remote-memory 497 is the native SDK20+ form. The firmware-19
+        // 496 carries a COPY TransferMemory handle and an additional size.
+        // Its guest handle/owner/bounds are checked by the HLE dispatcher.
+        U64 version{};
+        if (packet.size() >= 4 && packet[0] == 16+497 && packet[1] == 2) {
+            version = U64{packet[2]} | (U64{packet[3]} << 32);
+        } else if (const auto transfer =
+                       GraphicsSupervisorProtocol::DecodeGpuTransferSession(packet)) {
+            version = transfer->version;
+        } else {
             return Status::InvalidPacket;
-        const U64 version = U64{packet[2]} | (U64{packet[3]} << 32);
+        }
         // Firmware 19.0.0 documents version 2; later SDK captures include
         // version 4 (Eglantine #574). Preserve both observed ABI versions.
         if (version != 2 && version != 4)

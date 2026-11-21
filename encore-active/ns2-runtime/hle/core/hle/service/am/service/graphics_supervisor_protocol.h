@@ -266,6 +266,40 @@ constexpr bool IsSupportedDisplaySession(u64 version) {
 // GSV 115 is a capability negotiation, not a request to initialize a
 // backing allocation. Only the native NVDRV-backed memory pathway used by
 // GSV 111/114 is currently implemented; never grant unknown feature bits.
+// The firmware-19 TransferMemory forms share the real native GSV session
+// creation path. Validate the TIPC COPY descriptor and typed work-buffer
+// layout before any kernel object or NVDRV session becomes guest-visible.
+struct NvDrvTransferSessionRequest {
+    u32 copied_handle{};
+    u64 size{};
+    u8 mode{};
+};
+[[nodiscard]] constexpr std::optional<NvDrvTransferSessionRequest>
+DecodeNvDrvTransferSession(std::span<const u32> packet) noexcept {
+    if (packet.size() < 7 || packet[0] != 16 + 1401 ||
+        packet[1] != 0x80000003U || packet[2] != 2 || packet[3] == 0)
+        return {};
+    const u64 size = u64{packet[4]} | (u64{packet[5]} << 32);
+    if (size == 0 || (size & 0xfffU)) return {};
+    return NvDrvTransferSessionRequest{packet[3], size, static_cast<u8>(packet[6])};
+}
+
+struct GpuTransferSessionRequest {
+    u32 copied_handle{};
+    u64 version{};
+    u64 size{};
+};
+[[nodiscard]] constexpr std::optional<GpuTransferSessionRequest>
+DecodeGpuTransferSession(std::span<const u32> packet) noexcept {
+    if (packet.size() < 8 || packet[0] != 16 + 496 ||
+        packet[1] != 0x80000004U || packet[2] != 2 || packet[3] == 0)
+        return {};
+    const u64 version = u64{packet[4]} | (u64{packet[5]} << 32);
+    const u64 size = u64{packet[6]} | (u64{packet[7]} << 32);
+    if (size == 0 || (size & 0xfffU)) return {};
+    return GpuTransferSessionRequest{packet[3], version, size};
+}
+
 constexpr u64 NativeMemorySupportedFeatureMask = 0x2ULL;
 [[nodiscard]] constexpr u64 GrantNativeMemoryFeatures(u64 requested,
                                                        bool nvdrv_available) noexcept {
