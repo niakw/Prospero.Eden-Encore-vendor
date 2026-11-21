@@ -25,6 +25,38 @@
 
 namespace Service {
 
+[[nodiscard]] static bool IsSafeOptionalNoOp(std::string_view service_name,
+                                             std::string_view function_name) {
+    // not implemented yet on Encore: these commands only publish optional
+    // notifications/telemetry. Eden does not require their side effects for
+    // gameplay, so acknowledge them without inventing a larger subsystem.
+    if (service_name == "pdm:ntfy") {
+        return function_name == "NotifyAppletEvent" ||
+               function_name == "NotifyOperationModeChangeEvent" ||
+               function_name == "NotifyPowerStateChangeEvent" ||
+               function_name == "NotifyClearAllEvent" ||
+               function_name == "NotifyEventForDebug" ||
+               function_name == "SuspendUserAccountEventService" ||
+               function_name == "ResumeUserAccountEventService" ||
+               function_name == "NotifyLibraryAppletEvent";
+    }
+    if (service_name == "ILogger") {
+        return function_name == "TransmitHashedLog" || function_name == "DevNotify";
+    }
+    if (service_name == "erpt:c") {
+        return function_name == "SetInitialLaunchSettingsCompletionTime" ||
+               function_name == "ClearInitialLaunchSettingsCompletionTime" ||
+               function_name == "UpdatePowerOnTime" ||
+               function_name == "UpdateApplicationLaunchTime" ||
+               function_name == "ClearApplicationLaunchTime" ||
+               function_name == "RegisterRunningApplet" ||
+               function_name == "UnregisterRunningApplet" ||
+               function_name == "UpdateAppletSuspendedDuration" ||
+               function_name == "InvalidateForcedShutdownDetection";
+    }
+    return false;
+}
+
 /// @brief Creates a function string for logging, complete with the name (or header code, depending
 /// on what's passed in) the port name, and all the cmd_buf arguments.
 [[maybe_unused]] static std::string MakeFunctionString(std::string_view name, std::string_view port_name, const u32* cmd_buf) {
@@ -73,6 +105,16 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(HLERequestContext& ctx,
     for (int i = 1; i <= 8; ++i)
         fmt::format_to(std::back_inserter(buf), ", [{}]={:#x}", i, cmd_buf[i]);
     buf.push_back('}');
+
+    if (info != nullptr && IsSafeOptionalNoOp(service_name, function_name)) {
+        // not implemented yet on Encore: optional service with no guest-visible
+        // output contract needed by Eden. Deliberately succeed as a no-op.
+        LOG_WARNING(Service, "(STUBBED) optional no-op {}::{} ({})", service_name,
+                    ctx.GetCommand(), function_name);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+        return;
+    }
 
     system.GetReporter().SaveUnimplementedFunctionReport(ctx, ctx.GetCommand(), function_name, service_name);
     UNIMPLEMENTED_MSG("Unknown / unimplemented {}", fmt::to_string(buf));
