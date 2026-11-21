@@ -103,4 +103,21 @@ void Scheduler::DeclareChannel(std::shared_ptr<ChannelState> new_channel) {
     }
 }
 
+void Scheduler::RetireChannel(const ChannelState* old_channel) {
+    if (!old_channel) {
+        return;
+    }
+    // Match Push's epoch -> GPU -> pending lock hierarchy. A concurrent
+    // submission or parked-semaphore replay must never retain the old payload.
+    std::unique_lock epoch_lock(scheduling_guard);
+    const std::scoped_lock gpu_lock(gpu_submit_guard);
+    const std::scoped_lock pending_lock(pending_guard);
+    const auto it = channels.find(old_channel->bind_id);
+    if (it == channels.end() || it->second.get() != old_channel) {
+        return; // A reused bind id belongs to a newer channel generation.
+    }
+    std::erase(pending_native_channels, it->second);
+    channels.erase(it);
+}
+
 } // namespace Tegra::Control
