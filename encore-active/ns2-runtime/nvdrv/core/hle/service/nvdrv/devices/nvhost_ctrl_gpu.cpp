@@ -113,12 +113,27 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
         case 0x6:
             return WrapFixedInlOut(this, &nvhost_ctrl_gpu::GetTPCMasks3, input, output,
                                    inline_output);
-        case 0x13:
-            LOG_DEBUG(Service_NVDRV, "(STUBBED) called.");
-
-            // TODO (jarrodnorwell)
-
-            return NvResult::NotImplemented;
+        case 0x13: {
+            // Switch 2 NVGPU_GPU_IOCTL_VSMS_MAPPING (0xC0084713):
+            // two argument words and one {GPC, TPC} byte pair per virtual SM.
+            // The native characteristics currently expose one GPC and two
+            // TPCs, with two virtual SMs per TPC. Never leave the SDK's
+            // 0xC0C0 sentinel in the returned mapping or claim extra TPCs.
+            // The Switch 1 4-byte variant remains unsupported.
+            if (command.raw != 0xC0084713U) break;
+            constexpr size_t NativeVirtualSmCount = 4;
+            if (input.size() != 8 || output.size() != 8 ||
+                inline_output.size() < 2 ||
+                (inline_output.size() % 2) != 0 ||
+                inline_output.size() > NativeVirtualSmCount * 2)
+                return NvResult::BadParameter;
+            std::memcpy(output.data(), input.data(), 8);
+            for (size_t i = 0; i < inline_output.size() / 2; ++i) {
+                inline_output[i * 2] = 0; // GPC 0
+                inline_output[i * 2 + 1] = static_cast<u8>(i / 2); // TPC 0, 0, 1, 1
+            }
+            return NvResult::Success;
+        }
         default:
             break;
         }
