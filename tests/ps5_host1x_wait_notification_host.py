@@ -10,6 +10,8 @@ assert "DueActions" in HDR and "action_done_cv" in HDR
 assert "std::list<RegisteredAction>::iterator" not in HDR
 assert "guest_mirror(*mirrored_id" in SRC
 assert "wait_cv.notify_all();" in SRC
+assert "std::erase(due_actions, &due);" in SRC
+assert SRC.count("action_done_cv.notify_all();") >= 2
 assert SRC.index("wait_cv.notify_all();") < SRC.index("due.pending.splice")
 compiler=shutil.which("clang++") or shutil.which("c++")
 assert compiler
@@ -19,6 +21,7 @@ harness=r'''
 #include <chrono>
 #include <future>
 #include <thread>
+#include <stdexcept>
 #include "video_core/host1x/syncpoint_manager.h"
 using Tegra::Host1x::SyncpointManager;
 using namespace std::chrono_literals;
@@ -58,6 +61,28 @@ int main(){
   }
   {
     SyncpointManager m;
+    std::promise<void> entered, release;
+    auto entered_f=entered.get_future();
+    std::atomic<bool> caught{};
+    auto h=m.RegisterGuestAction(11,1,[&]{
+      entered.set_value();
+      release.get_future().wait();
+      throw std::runtime_error("injected syncpoint callback failure");
+    });
+    auto inc=std::async(std::launch::async,[&]{
+      try { m.IncrementGuest(11); }
+      catch (const std::runtime_error&) { caught=true; }
+    });
+    assert(entered_f.wait_for(2s)==std::future_status::ready);
+    auto cancel=std::async(std::launch::async,[&]{m.DeregisterGuestAction(11,h);});
+    assert(cancel.wait_for(100ms)==std::future_status::timeout);
+    release.set_value();
+    assert(inc.wait_for(2s)==std::future_status::ready); inc.get();
+    assert(cancel.wait_for(2s)==std::future_status::ready); cancel.get();
+    assert(caught.load());
+  }
+  {
+    SyncpointManager m;
     std::atomic<u32> mirrored{}, observed{};
     m.SetGuestMirror([&](u32 id,u32 value){
       assert(id==3); mirrored=value; observed=m.GetGuestSyncpointValue(id);
@@ -82,4 +107,4 @@ with tempfile.TemporaryDirectory(prefix="host1x-action-") as d:
                     str(ROOT/"encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp"),
                     str(t/"test.cpp"),"-o",str(exe)],check=True,timeout=60)
     subprocess.run([str(exe)],check=True,timeout=15)
-print("HOST1X_COUNTER_NOTIFY_PASS numeric_handles=1 running_cancel=1 guest_mirror=1")
+print("HOST1X_COUNTER_NOTIFY_PASS numeric_handles=1 running_cancel=1 throwing_action_cleanup=1 guest_mirror=1")
