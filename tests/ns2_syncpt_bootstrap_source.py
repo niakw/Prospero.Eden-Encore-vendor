@@ -307,6 +307,28 @@ assert 'container.CloseSession(session_id);' in nvcpp
 assert '{13, &NVDRV::SetGraphicsFirmwareMemoryMarginEnabled' in nvcpp
 
 
+# GSV 902/905/906 opens a creator session; its TIPC 1 creates the
+# actual decoder child. Both return session MOVE handles. A COPY header
+# with AddMoveObject leaves the guest reading a bogus handle slot, and an
+# allocation failure while queuing MOVE must close the creator reference.
+for method in ("OpenVideoDecoderSession", "OpenVideoDecoderChildSession"):
+    child=cpp.split(f"void IGraphicsSupervisor::{method}(HLERequestContext& ctx) {{",1)[1].split(
+        "\n}",1)[0]
+    for token in ("CreateMetadataSession(system, ctx,",
+                  "ctx.AddMoveObject(client);",
+                  "catch (const std::bad_alloc&)",
+                  "client->Close(system.Kernel());",
+                  "result = Kernel::ResultOutOfResource;",
+                  "IPC::ResponseBuilder rb{ctx, 2, 0, 1};",
+                  "IPC::ResponseBuilder rb{ctx, 2};"):
+        assert token in child,(method,token)
+    assert "IPC::ResponseBuilder rb{ctx, 2, 1, 0};" not in child
+    assert child.index("ctx.AddMoveObject(client);") < child.index(
+        "client->Close(system.Kernel());") < child.index(
+        "IPC::ResponseBuilder rb{ctx, 2, 0, 1};")
+    assert child.index("if (result.IsError()) {") < child.index(
+        "IPC::ResponseBuilder rb{ctx, 2, 0, 1};")
+
 # Lichii nx2 GSV 991 returns the real decoder pool backing size and
 # 8192-byte alignment. The query and GSV 911 must use the same layout.
 assert '{991, &IGraphicsSupervisor::CalculateDecoderImagePoolBuffer, "CalculateDecoderImagePoolBuffer"}' in cpp

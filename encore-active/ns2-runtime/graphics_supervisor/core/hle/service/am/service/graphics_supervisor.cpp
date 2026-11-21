@@ -2613,14 +2613,24 @@ void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
             }
         }
     }
+    // A decoder interface is a TIPC MOVE handle, not a COPY descriptor.
+    // Publish the creator reference only after the outgoing queue accepts
+    // it. On host OOM, close that reference and report no guest handle.
+    if (result.IsSuccess()) {
+        try {
+            ctx.AddMoveObject(client);
+        } catch (const std::bad_alloc&) {
+            client->Close(system.Kernel());
+            result = Kernel::ResultOutOfResource;
+        }
+    }
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
-    ctx.AddMoveObject(client);
 }
 
 void IGraphicsSupervisor::OpenVideoDecoderChildSession(HLERequestContext& ctx) {
@@ -2634,14 +2644,24 @@ void IGraphicsSupervisor::OpenVideoDecoderChildSession(HLERequestContext& ctx) {
     } catch (const std::bad_alloc&) {
         result = Kernel::ResultOutOfResource;
     }
+    // A decoder interface is a TIPC MOVE handle, not a COPY descriptor.
+    // Publish the creator reference only after the outgoing queue accepts
+    // it. On host OOM, close that reference and report no guest handle.
+    if (result.IsSuccess()) {
+        try {
+            ctx.AddMoveObject(client);
+        } catch (const std::bad_alloc&) {
+            client->Close(system.Kernel());
+            result = Kernel::ResultOutOfResource;
+        }
+    }
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
-    ctx.AddMoveObject(client);
 }
 
 // GSV 991 is the decoder-pool analogue of 1510/1291: reply with the
