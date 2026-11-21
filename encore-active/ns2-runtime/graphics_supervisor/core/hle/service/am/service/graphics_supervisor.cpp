@@ -1364,6 +1364,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {602, &IGraphicsSupervisor::OpenCameraSession, "OpenCameraContext"},
         {1201, &IGraphicsSupervisor::InitializeFeatureContext, "InitializeChatContext"},
         {1202, &IGraphicsSupervisor::OpenChatSession, "OpenChatSession"},
+        {991, &IGraphicsSupervisor::CalculateDecoderImagePoolBuffer, "CalculateDecoderImagePoolBuffer"},
         {911, &IGraphicsSupervisor::CreateVideoImagePool, "CreateVideoImagePool"},
         {1211, &IGraphicsSupervisor::CreateVideoImagePool, "CreateChatImagePool"},
         {912, &IGraphicsSupervisor::DestroyVideoImagePool, "DestroyVideoImagePool"},
@@ -2329,6 +2330,28 @@ void IGraphicsSupervisor::OpenVideoDecoderChildSession(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 2, 1, 0};
     rb.Push(result.raw);
     ctx.AddMoveObject(client);
+}
+
+// GSV 991 is the decoder-pool analogue of 1510/1291: reply with the
+// required backing size and alignment BEFORE the guest allocates memory.
+// Use the exact same validated pitch-linear layout that GSV 911 later
+// registers; otherwise a successful size query could lead to a short
+// allocation and out-of-range video writes on the GPU/decoder worker.
+void IGraphicsSupervisor::CalculateDecoderImagePoolBuffer(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const auto layout = (packet[0] == 16 + 991 && packet[1] == 17)
+        ? CalculateNativeVideoImageLayout(std::span<const u32>{packet + 2, 16}, packet[18])
+        : std::nullopt;
+    const Result result = layout ? ResultSuccess : Kernel::ResultInvalidCombination;
+    IPC::ResponseBuilder rb{ctx, 6};
+    rb.Push(result.raw);
+    rb.Push(layout ? static_cast<u32>(layout->total_bytes) : 0u);
+    rb.Push(layout ? static_cast<u32>(layout->total_bytes >> 32) : 0u);
+    // nn::codec::video::detail::ipc GSV 991: decoder backing alignment
+    // is 64 * 128. This is a requirement, not a fabricated GPU VA.
+    constexpr u64 DecoderPoolAlignment = 64ull * 128;
+    rb.Push(layout ? static_cast<u32>(DecoderPoolAlignment) : 0u);
+    rb.Push(0u);
 }
 
 void IGraphicsSupervisor::CreateVideoImagePool(HLERequestContext& ctx) {

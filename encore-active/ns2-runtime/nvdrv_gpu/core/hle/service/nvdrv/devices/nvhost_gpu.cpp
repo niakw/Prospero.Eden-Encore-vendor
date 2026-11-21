@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <array>
 #include <cstring>
 #include <atomic>
 #include <cstdio>
@@ -154,10 +155,14 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
                 return status;
             std::array<u32_le, 2> modes{};
             std::memcpy(modes.data(), input.data(), sizeof(modes));
-            // Both WFI modes are zero. The worker already preserves
-            // command ordering and only switches contexts at queue work
-            // boundaries. Nonzero modes require an actual preemption model.
-            if (modes[0] != 0 || modes[1] != 0)
+            // NVGPU encodes the WFI choice as BIT 0 (value 1), not
+            // the zero-valued NV2080 control enum. Zero means no explicit
+            // selection: keep this channel's existing WFI behaviour.
+            // CTA/GFXP/CILP cannot be acknowledged without a real
+            // mid-job preemption model and guest-visible fence semantics.
+            constexpr u32 NativeWfiBit = 1u;
+            if ((static_cast<u32>(modes[0]) & ~NativeWfiBit) != 0 ||
+                (static_cast<u32>(modes[1]) & ~NativeWfiBit) != 0)
                 return NvResult::NotImplemented;
             std::memcpy(output.data(), modes.data(), sizeof(modes));
             return NvResult::Success;

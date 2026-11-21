@@ -187,4 +187,19 @@ assert nvinitialize.index('session_id = nvdrv->GetContainer().OpenSession(proces
 assert 'container.CloseSession(session_id);' in nvcpp
 assert '{13, &NVDRV::SetGraphicsFirmwareMemoryMarginEnabled' in nvcpp
 
+
+# Lichii nx2 GSV 991 returns the real decoder pool backing size and
+# 8192-byte alignment. The query and GSV 911 must use the same layout.
+assert '{991, &IGraphicsSupervisor::CalculateDecoderImagePoolBuffer, "CalculateDecoderImagePoolBuffer"}' in cpp
+assert 'void CalculateDecoderImagePoolBuffer(HLERequestContext& ctx);' in hdr
+pool_query=cpp.split("void IGraphicsSupervisor::CalculateDecoderImagePoolBuffer(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
+for token in ("packet[0] == 16 + 991 && packet[1] == 17",
+              "CalculateNativeVideoImageLayout(std::span<const u32>{packet + 2, 16}, packet[18])",
+              "Kernel::ResultInvalidCombination", "IPC::ResponseBuilder rb{ctx, 6};",
+              "DecoderPoolAlignment = 64ull * 128", "layout->total_bytes"):
+    assert token in pool_query,token
+pool_create=cpp.split("void IGraphicsSupervisor::CreateVideoImagePool(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
+assert "CalculateNativeVideoImageLayout(preference, count)" in pool_create
+
+
 print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")

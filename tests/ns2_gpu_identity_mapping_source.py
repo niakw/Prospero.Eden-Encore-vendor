@@ -178,12 +178,22 @@ preempt=nvhost_cpp.split("case 0x1f: { // Switch 2 NVGPU_IOCTL_CHANNEL_SET_PREEM
     "case 0x20: // Switch 2 NVGPU_IOCTL_CHANNEL_OPEN",1)[0]
 for token in ("command.raw != 0xC008481FU", "input.size() != 8 || output.size() != 8",
               "const std::scoped_lock lock{channel_mutex};", "!UsesNativeAbi(fd)",
-              "ValidateChannelOwner(fd, program_id)", "std::array<u32_le, 2> modes{}",
-              "modes[0] != 0 || modes[1] != 0", "return NvResult::NotImplemented;",
+              "ValidateChannelOwner(fd, program_id)", "std::array<u32_le, 2> modes{}", "constexpr u32 NativeWfiBit = 1u;",
+              "modes[0]) & ~NativeWfiBit", "return NvResult::NotImplemented;",
               "std::memcpy(output.data(), modes.data(), sizeof(modes));"):
     assert token in preempt,token
 assert preempt.index("ValidateChannelOwner(fd, program_id)") < preempt.index(
-    "modes[0] != 0 || modes[1] != 0") < preempt.index(
+    "modes[0]) & ~NativeWfiBit") < preempt.index(
     "std::memcpy(output.data(), modes.data(), sizeof(modes));")
+
+
+# Linux nvgpu UAPI uses WFI bit0, not the zero-valued NV2080 enum.
+# Permit default/no-change or an explicit WFI flag, not CTA/GFXP/CILP.
+assert '#include <array>' in nvhost_cpp
+assert "(static_cast<u32>(modes[1]) & ~NativeWfiBit) != 0" in preempt
+assert preempt.index("constexpr u32 NativeWfiBit = 1u;") < preempt.index(
+    "modes[0]) & ~NativeWfiBit") < preempt.index(
+    "std::memcpy(output.data(), modes.data(), sizeof(modes));")
+
 
 print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")

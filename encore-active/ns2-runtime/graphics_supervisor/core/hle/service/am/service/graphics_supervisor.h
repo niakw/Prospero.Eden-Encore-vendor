@@ -82,6 +82,7 @@ private:
     void CalculateChatImagePoolSize(HLERequestContext& ctx);
     void RegisterGpuAddressSpace(HLERequestContext& ctx);
     // Upstream TIPC 911/912 and 426/427/428: native video pools only.
+    void CalculateDecoderImagePoolBuffer(HLERequestContext& ctx);
     void CreateVideoImagePool(HLERequestContext& ctx);
     void DestroyVideoImagePool(HLERequestContext& ctx);
     void MapVideoGpuImage(HLERequestContext& ctx);
