@@ -313,7 +313,6 @@ for token in ("std::upper_bound(", "std::prev(", "block->Unmapped()",
 assert allocator_cpp.count("blocks.erase(block_start_successor, block_end_successor);") >= 1
 assert "if (virt + size == current_linear_alloc_end)" in allocator_cpp
 
-print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")
 # Native GA10F GPU AS consolidation. This source-only contract captures
 # the reviewed pending 40-byte remap, real mapped VA owner, physical-page
 # alignment, failure-safe pin publication and GSV video image retirement.
@@ -400,3 +399,55 @@ assert _repeat.index("NativeGpuProcessRegistry::Instance().Contains(m_native_pro
     'ASSERT_MSG(false, "Cannot initialise an address space twice!");')
 
 
+# Preserve the public source contracts when the individual A:14 and A:0xD
+# remap ledgers are consolidated into one native sparse pin owner.
+_as_ioctl = _as_runtime.split(
+    "NvResult nvhost_as_gpu::Ioctl1(DeviceFD fd, Ioctl command,",1)[1].split(
+    "\nNvResult nvhost_as_gpu::Ioctl2(",1)[0]
+for marker in ("case 0xc: {", "command.raw != 0xC020410CU",
+               "static_assert(sizeof(NativeModify) == 32)",
+               "const auto status = ModifyNativeKind(",
+               "case 0xd: {",
+               "(command.raw & 0xC000FFFFU) != 0xC000410DU",
+               "sizeof(NativeSparseRemapEntry)",
+               "const auto status = RemapNativeSparse(entries);"):
+    assert marker in _as_ioctl,marker
+assert _as_ioctl.index("system.GPU().WaitForIdle();", _as_ioctl.index("case 0xc: {")) < (
+    _as_ioctl.index("const auto status = ModifyNativeKind("))
+assert _as_ioctl.index("system.GPU().WaitForIdle();", _as_ioctl.index("case 0xd: {")) < (
+    _as_ioctl.index("const auto status = RemapNativeSparse(entries);"))
+# Both legacy A:14 and native A:0xD must converge on the single
+# transaction protecting intermediate and final NvMap pins.
+_remap = _as_runtime.split(
+    "NvResult nvhost_as_gpu::RemapNativeSparse(",1)[1].split("\n}",1)[0]
+for marker in ("updated = native_sparse_mappings;",
+               "updated.Replace(*range);",
+               "mapping_map.lower_bound(range->address)",
+               "needed = retained;",
+               "newly_pinned.try_emplace(handle, DAddr{})",
+               "NativePinnedPhysicalSpan(pinned, range.source_offset, range.size)",
+               "native_sparse_pins.merge(newly_pinned);",
+               "gmmu->MapSparse(range.address, range.size, big_page_ranges[i]);",
+               "native_sparse_poisoned = true;",
+               "native_sparse_mappings = std::move(updated);",
+               "nvmap.UnpinHandle(it->first);"):
+    assert marker in _remap,marker
+assert _remap.index("updated = native_sparse_mappings;") < _remap.index(
+    "newly_pinned.try_emplace(handle, DAddr{})") < _remap.index(
+    "native_sparse_pins.merge(newly_pinned);") < _remap.index(
+    "native_sparse_mappings = std::move(updated);")
+# Big-page and 4K sparse allocations must share a type-correct
+# allocator and never publish an unsupported page size.
+_alloc = _as_runtime.split("NvResult nvhost_as_gpu::AllocateSpace(",1)[1].split(
+    "\n}",1)[0]
+for marker in ("const bool small_sparse =", 
+               "params.page_size != VM::YUZU_PAGESIZE &&",
+               "params.page_size != vm.big_page_size)",
+               "auto& allocator = big ? *vm.big_page_allocator : *vm.small_page_allocator;",
+               "allocation_map.try_emplace(",
+               "gmmu->MapSparse(address, size, big);"):
+    assert marker in _alloc,marker
+assert _alloc.index("params.page_size != vm.big_page_size)") < _alloc.index(
+    "auto& allocator = big ? *vm.big_page_allocator : *vm.small_page_allocator;")
+
+print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")
