@@ -3,7 +3,7 @@ from pathlib import Path
 import shutil, subprocess, tempfile
 ROOT=Path(__file__).resolve().parents[1]
 SRC=(ROOT/"encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp").read_text()
-HDR=(ROOT/"sources/eden/src/video_core/host1x/syncpoint_manager.h").read_text()
+HDR=(ROOT/"encore-active/eden-core/overrides/video_core/host1x/syncpoint_manager.h").read_text()
 assert "using ActionHandle = u64;" in HDR
 assert "GuestMirror" in HDR and "WithGuestValuesStable" in HDR
 assert "DueActions" in HDR and "action_done_cv" in HDR
@@ -103,7 +103,9 @@ with tempfile.TemporaryDirectory(prefix="host1x-action-") as d:
     exe=t/"run"
     subprocess.run([compiler,"-std=c++20","-O2","-Wall","-Wextra","-Werror","-pthread",
                     "-fsanitize=undefined","-fno-sanitize-recover=all",
-                    "-I",str(t),"-I",str(ROOT/"sources/eden/src"),
+                    "-I",str(t),
+                    "-I",str(ROOT/"encore-active/eden-core/overrides"),
+                    "-I",str(ROOT/"sources/eden/src"),
                     str(ROOT/"encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp"),
                     str(t/"test.cpp"),"-o",str(exe)],check=True,timeout=60)
     subprocess.run([str(exe)],check=True,timeout=15)
