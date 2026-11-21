@@ -217,10 +217,13 @@ struct GPU::Impl {
         while (!sync_requests.empty()) {
             auto request = std::move(sync_requests.front());
             sync_requests.pop_front();
-            sync_request_mutex.unlock();
+            // Keep the RAII lock's ownership state consistent if a GPU
+            // callback throws. Unlocking the raw mutex left lck owning an
+            // already-unlocked mutex during exception unwinding.
+            lck.unlock();
             request();
             current_sync_fence.fetch_add(1, std::memory_order_release);
-            sync_request_mutex.lock();
+            lck.lock();
             sync_request_cv.notify_all();
         }
     }
