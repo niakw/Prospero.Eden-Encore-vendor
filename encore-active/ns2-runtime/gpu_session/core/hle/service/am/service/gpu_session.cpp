@@ -209,21 +209,18 @@ void IGpuSession::AcquireWorker(HLERequestContext& ctx) {
     if (GP::IsAcquireWorker(command)) {
         result = Kernel::ResultInvalidState;
         if (m_worker) {
-            // nx2:gpu TIPC 22 returns a COPY client-session handle, not a
-            // MOVE descriptor. The session owner already retains the kernel
-            // reference, so opening an extra reference here would leak it.
-            // Keep the response fail-closed if staging the COPY fails.
-            try {
-                ctx.AddCopyObject(m_worker);
+            // libounce gsvGpuOpenWorker requests a HIPC MOVE descriptor for
+            // TIPC 22. Keep one service-owned KClientSession reference so the
+            // shared worker remains valid for teardown/repeated acquisition;
+            // WriteToOutgoingCommandBuffer consumes only the extra reference.
+            if (m_worker->Open(kernel))
                 result = ResultSuccess;
-            } catch (const std::bad_alloc&) {
-                result = Kernel::ResultOutOfResource;
-            }
         }
     }
     if (result.IsSuccess()) {
-        IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(result.raw);
+        ctx.AddMoveObject(m_worker);
     } else {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
@@ -253,8 +250,8 @@ void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
         auto*& event = m_shared->events[*index];
         if (!event) {
             // Creating a kernel notification may allocate host event state.
-            // OOM must return a normal TIPC resource error with no COPY
-            // handle and no published half-created event.
+            // OOM must return a normal TIPC resource error with no handle and
+            // no published half-created event.
             try {
                 event = m_shared->event_context.CreateEvent("GpuNotification");
             } catch (const std::bad_alloc&) {
@@ -268,20 +265,15 @@ void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
             result = Kernel::ResultOutOfResource;
         }
     }
-    // GPU session cmd 12 returns a COPY handle, not a moved handle.
-    // Stage the outgoing object before writing a success descriptor.
-    // Its host vector can allocate; an OOM must return an ordinary error
-    // with zero COPY handles rather than leaving a success reply behind.
+    // libounce gsvGpuCreateSlotEvent requests a HIPC MOVE descriptor for
+    // TIPC 12. ServiceContext later closes its original readable reference;
+    // retain that owner and move an explicitly opened transfer reference.
+    if (result.IsSuccess() && !readable->Open(kernel))
+        result = Kernel::ResultInvalidState;
     if (result.IsSuccess()) {
-        try {
-            ctx.AddCopyObject(readable);
-        } catch (const std::bad_alloc&) {
-            result = Kernel::ResultOutOfResource;
-        }
-    }
-    if (result.IsSuccess()) {
-        IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(result.raw);
+        ctx.AddMoveObject(readable);
     } else {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);

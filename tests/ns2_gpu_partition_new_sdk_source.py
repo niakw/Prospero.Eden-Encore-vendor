@@ -39,6 +39,35 @@ for owner, owner_hdr, klass in ((cpp,hdr,"IGpuSession"),(worker,worker_hdr,"IGpu
     assert "std::memset(cmdbuf, 0, sizeof(u32) * IPC::COMMAND_BUFFER_LENGTH);" in ipc
     assert "return ServiceFrameworkBase::HandleSyncRequest(session, ctx);" in owner
     assert "handlers_tipc.contains(ctx.GetCommand())" in owner
+# libounce current GSV ABI requests HIPC MOVE handles for GPU-main
+# command 12 (slot event) and command 22 (worker KClientSession). Retain one
+# service-owned reference because Encore still signals/closes these objects.
+get_event=cpp.split("void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {",1)[1].split(
+    "\n}\n\nstd::shared_ptr<Nvidia::Devices::nvhost_as_gpu>",1)[0]
+for needle in (
+    "if (result.IsSuccess() && !readable->Open(kernel))",
+    "IPC::ResponseBuilder rb{ctx, 2, 0, 1};",
+    "ctx.AddMoveObject(readable);",
+):
+    assert needle in get_event, needle
+assert "ctx.AddCopyObject(readable);" not in get_event
+assert "IPC::ResponseBuilder rb{ctx, 2, 1, 0};" not in get_event
+acquire=cpp.split("void IGpuSession::AcquireWorker(HLERequestContext& ctx) {",1)[1].split(
+    "\n}\n\nvoid IGpuSession::GetNotificationRange",1)[0]
+for needle in (
+    "if (m_worker->Open(kernel))",
+    "IPC::ResponseBuilder rb{ctx, 2, 0, 1};",
+    "ctx.AddMoveObject(m_worker);",
+):
+    assert needle in acquire, needle
+assert "ctx.AddCopyObject(m_worker)" not in acquire
+assert acquire.index("m_worker->Open(kernel)") < acquire.index("ctx.AddMoveObject(m_worker)")
+# HLE MOVE inserts the guest handle then consumes exactly one transferred ref.
+hle=(R/"sources/eden/src/core/hle/service/hle_ipc.cpp").read_text()
+assert "for (auto& object : outgoing_move_objects)" in hle
+assert "R_TRY(handle_table.Add(kernel, &handle, object));" in hle
+assert "object->Close(kernel);" in hle
+
 # GPU-session TIPC 200 is the SDK's address-space job barrier. The worker's
 # GMMU mutations are synchronous here, so completion signals the existing
 # notification event without draining unrelated graphics work.
