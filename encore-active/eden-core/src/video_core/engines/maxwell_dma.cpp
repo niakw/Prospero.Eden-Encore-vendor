@@ -286,6 +286,20 @@ void MaxwellDMA::Launch() {
         return;
     }
 
+    if (launch.multi_line_enable != 0 && launch.remap_enable != 0 &&
+        (launch.src_memory_layout != LaunchDMA::MemoryLayout::PITCH ||
+         launch.dst_memory_layout != LaunchDMA::MemoryLayout::PITCH)) {
+        // Tiled remaps are measured in components, not raw bytes. Never
+        // silently copy only LINE_LENGTH_IN bytes of a depth/stencil image.
+        memory_manager.FlushCaching();
+        if (!CopyBlockLinearRemap()) {
+            LOG_WARNING(Render_OpenGL, "Unsupported or oversized B0B5 tiled DMA remap");
+            AssertFailSoftImpl();
+        }
+        ReleaseSemaphore();
+        return;
+    }
+
     if (launch.multi_line_enable) {
         const bool is_src_pitch = launch.src_memory_layout == LaunchDMA::MemoryLayout::PITCH;
         const bool is_dst_pitch = launch.dst_memory_layout == LaunchDMA::MemoryLayout::PITCH;
@@ -401,6 +415,235 @@ void MaxwellDMA::Launch() {
     }
 
     ReleaseSemaphore();
+}
+
+bool MaxwellDMA::CopyBlockLinearRemap() {
+    using Swizzle = RemapConst::Swizzle;
+    const auto& remap = regs.remap_const;
+    const u32 component_size = remap.component_size_minus_one + 1;
+    const u32 src_count = remap.num_src_components_minus_one + 1;
+    const u32 dst_count = remap.num_dst_components_minus_one + 1;
+    const u64 src_bpp = static_cast<u64>(component_size) * src_count;
+    const u64 dst_bpp = static_cast<u64>(component_size) * dst_count;
+    const u32 blocks = regs.line_length_in;
+    const u32 rows = regs.line_count;
+    if (blocks == 0 || rows == 0) {
+        return true;
+    }
+
+    // These are exactly the element sizes implemented by the shared GOB
+    // subrectangle decoder. Do not pass an arbitrary bitfield to its
+    // ASSERT-only default path or to its unsigned 32-bit address math.
+    const auto supported_bpp = [](u64 size) {
+        return size == 1 || size == 2 || size == 3 || size == 4 ||
+               size == 6 || size == 8 || size == 12 || size == 16;
+    };
+    if (!supported_bpp(src_bpp) || !supported_bpp(dst_bpp)) {
+        return false;
+    }
+
+    bool needs_source = false;
+    bool needs_destination = false;
+    bool has_write = false;
+    std::array<Swizzle, 4> selectors{};
+    for (u32 i = 0; i < dst_count; ++i) {
+        selectors[i] = remap.GetComponent(i);
+        const auto value = static_cast<u32>(selectors[i]);
+        if (selectors[i] == Swizzle::NO_WRITE) {
+            needs_destination = true;
+        } else if (selectors[i] == Swizzle::CONST_A ||
+                   selectors[i] == Swizzle::CONST_B) {
+            has_write = true;
+        } else if (value < 4 && value < src_count) {
+            has_write = true;
+            needs_source = true;
+        } else {
+            return false;
+        }
+    }
+    if (!has_write) {
+        return true;
+    }
+
+    // Bound total temporary memory on the PS5. A failed admission must
+    // return without changing any source or destination guest bytes.
+    constexpr u64 MAX_BYTES = 16ULL << 20;
+    const u64 src_row_bytes = static_cast<u64>(blocks) * src_bpp;
+    const u64 dst_row_bytes = static_cast<u64>(blocks) * dst_bpp;
+    if (dst_row_bytes > MAX_BYTES / rows ||
+        (needs_source && src_row_bytes > MAX_BYTES / rows)) {
+        return false;
+    }
+    const bool src_tiled =
+        regs.launch_dma.src_memory_layout == LaunchDMA::MemoryLayout::BLOCKLINEAR;
+    const bool dst_tiled =
+        regs.launch_dma.dst_memory_layout == LaunchDMA::MemoryLayout::BLOCKLINEAR;
+
+    // Guard the decoder's u32 width/height/offset calculations BEFORE
+    // calling CalculateSize(), UnswizzleSubrect() or SwizzleSubrect().
+    const auto valid_image = [&](const DMA::Parameters& image, u64 bpp, GPUVAddr address,
+                                 size_t& byte_count) {
+        const u64 origin_x = image.origin.x.Value();
+        const u64 origin_y = image.origin.y.Value();
+        const u32 block_height = image.block_size.height.Value();
+        if (image.layer != 0 || image.depth != 1 ||
+            image.block_size.width != 0 || image.block_size.depth != 0 ||
+            block_height > 5 || image.width == 0 || image.height == 0 ||
+            origin_x > image.width || origin_y > image.height ||
+            blocks > image.width - origin_x ||
+            rows > image.height - origin_y) {
+            return false;
+        }
+        const u64 pixel_width = static_cast<u64>(image.width) * bpp;
+        const u64 padded_width = (pixel_width + 63) & ~u64{63};
+        const u64 gob_height = u64{8} << block_height;
+        const u64 padded_height =
+            (static_cast<u64>(image.height) + gob_height - 1) & ~(gob_height - 1);
+        const u64 bytes = padded_width * padded_height;
+        // Existing decoders address GOBs through u32 offsets and require
+        // a correctly allocated full image, including its tile padding.
+        if (padded_width == 0 || bytes > MAX_BYTES ||
+            bytes > (std::numeric_limits<u32>::max)() ||
+            address > (std::numeric_limits<u64>::max)() - bytes) {
+            return false;
+        }
+        byte_count = static_cast<size_t>(bytes);
+        return memory_manager.IsFullyMappedRange(address, byte_count);
+    };
+    const auto row_addr = [&](GPUVAddr base, s32 pitch, u32 row, size_t bytes,
+                              GPUVAddr& result) {
+        const u64 magnitude = pitch < 0 ? static_cast<u64>(-static_cast<s64>(pitch))
+                                        : static_cast<u64>(pitch);
+        const u64 delta = magnitude * row;
+        if (pitch < 0) {
+            if (delta > base) {
+                return false;
+            }
+            result = base - delta;
+        } else {
+            if (delta > (std::numeric_limits<u64>::max)() - base) {
+                return false;
+            }
+            result = base + delta;
+        }
+        return bytes <= (std::numeric_limits<u64>::max)() - result &&
+               memory_manager.IsFullyMappedRange(result, bytes);
+    };
+
+    size_t src_tiled_size{}, dst_tiled_size{};
+    if ((needs_source && src_tiled &&
+         !valid_image(regs.src_params, src_bpp, regs.offset_in, src_tiled_size)) ||
+        (dst_tiled &&
+         !valid_image(regs.dst_params, dst_bpp, regs.offset_out, dst_tiled_size))) {
+        return false;
+    }
+    // Perform a complete address preflight before any destination write.
+    GPUVAddr row_address{};
+    for (u32 row = 0; row < rows; ++row) {
+        if ((needs_source && !src_tiled &&
+             !row_addr(regs.offset_in, regs.pitch_in, row,
+                       static_cast<size_t>(src_row_bytes), row_address)) ||
+            (!dst_tiled &&
+             !row_addr(regs.offset_out, regs.pitch_out, row,
+                       static_cast<size_t>(dst_row_bytes), row_address))) {
+            return false;
+        }
+    }
+
+    std::vector<u8> linear_src;
+    if (needs_source) {
+        linear_src.resize(static_cast<size_t>(src_row_bytes * rows));
+        if (src_tiled) {
+            std::vector<u8> tiled_src(src_tiled_size);
+            memory_manager.ReadBlock(regs.offset_in, tiled_src.data(), tiled_src.size());
+            UnswizzleSubrect(linear_src, tiled_src, static_cast<u32>(src_bpp),
+                             regs.src_params.width, regs.src_params.height, 1,
+                             regs.src_params.origin.x.Value(), regs.src_params.origin.y.Value(),
+                             blocks, rows, regs.src_params.block_size.height.Value(), 0,
+                             static_cast<u32>(src_row_bytes));
+        } else {
+            for (u32 row = 0; row < rows; ++row) {
+                if (!row_addr(regs.offset_in, regs.pitch_in, row,
+                              static_cast<size_t>(src_row_bytes), row_address)) {
+                    return false;
+                }
+                memory_manager.ReadBlock(row_address,
+                    linear_src.data() + static_cast<size_t>(row * src_row_bytes),
+                    static_cast<size_t>(src_row_bytes));
+            }
+        }
+    }
+
+    std::vector<u8> linear_dst(static_cast<size_t>(dst_row_bytes * rows));
+    std::vector<u8> tiled_dst;
+    if (dst_tiled) {
+        // Preserve all GOB bytes outside the destination rectangle, even
+        // for a full four-component overwrite within that rectangle.
+        tiled_dst.resize(dst_tiled_size);
+        memory_manager.ReadBlock(regs.offset_out, tiled_dst.data(), tiled_dst.size());
+        if (needs_destination) {
+            UnswizzleSubrect(linear_dst, tiled_dst, static_cast<u32>(dst_bpp),
+                             regs.dst_params.width, regs.dst_params.height, 1,
+                             regs.dst_params.origin.x.Value(), regs.dst_params.origin.y.Value(),
+                             blocks, rows, regs.dst_params.block_size.height.Value(), 0,
+                             static_cast<u32>(dst_row_bytes));
+        }
+    } else if (needs_destination) {
+        for (u32 row = 0; row < rows; ++row) {
+            if (!row_addr(regs.offset_out, regs.pitch_out, row,
+                          static_cast<size_t>(dst_row_bytes), row_address)) {
+                return false;
+            }
+            memory_manager.ReadBlock(row_address,
+                linear_dst.data() + static_cast<size_t>(row * dst_row_bytes),
+                static_cast<size_t>(dst_row_bytes));
+        }
+    }
+
+    // All source bytes are snapshotted before the first destination write;
+    // overlapping src/dst GPU addresses cannot create read-after-write
+    // corruption, and NO_WRITE retains the original destination component.
+    for (u64 element = 0; element < static_cast<u64>(blocks) * rows; ++element) {
+        const u8* src = needs_source ? linear_src.data() + element * src_bpp : nullptr;
+        u8* dst = linear_dst.data() + element * dst_bpp;
+        for (u32 slot = 0; slot < dst_count; ++slot) {
+            const Swizzle selector = selectors[slot];
+            u8* target = dst + slot * component_size;
+            if (selector == Swizzle::NO_WRITE) {
+                continue;
+            }
+            if (static_cast<u32>(selector) < src_count) {
+                const u8* part = src + static_cast<u32>(selector) * component_size;
+                std::copy_n(part, component_size, target);
+            } else {
+                const u32 value = selector == Swizzle::CONST_A
+                                      ? remap.remap_consta_value
+                                      : remap.remap_constb_value;
+                for (u32 byte = 0; byte < component_size; ++byte) {
+                    target[byte] = static_cast<u8>(value >> (byte * 8));
+                }
+            }
+        }
+    }
+    if (dst_tiled) {
+        SwizzleSubrect(tiled_dst, linear_dst, static_cast<u32>(dst_bpp),
+                       regs.dst_params.width, regs.dst_params.height, 1,
+                       regs.dst_params.origin.x.Value(), regs.dst_params.origin.y.Value(),
+                       blocks, rows, regs.dst_params.block_size.height.Value(), 0,
+                       static_cast<u32>(dst_row_bytes));
+        memory_manager.WriteBlock(regs.offset_out, tiled_dst.data(), tiled_dst.size());
+    } else {
+        for (u32 row = 0; row < rows; ++row) {
+            if (!row_addr(regs.offset_out, regs.pitch_out, row,
+                          static_cast<size_t>(dst_row_bytes), row_address)) {
+                return false;
+            }
+            memory_manager.WriteBlock(row_address,
+                linear_dst.data() + static_cast<size_t>(row * dst_row_bytes),
+                static_cast<size_t>(dst_row_bytes));
+        }
+    }
+    return true;
 }
 
 void MaxwellDMA::CopyBlockLinearToPitch() {
