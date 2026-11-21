@@ -4050,14 +4050,26 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::vector<Imag
         const SubresourceExtent src_extent{.levels = 1, .layers = 1};
         const SubresourceRange dst_range{.base = dst_base, .extent = dst_extent};
         const SubresourceRange src_range{.base = src_base, .extent = src_extent};
-        PixelFormat dst_format = dst.info.format;
+        // X8_D24 aliases preserve raw 32-bit storage. When either side is depth-only
+        // X8_D24, view every 4-byte colour alias as ABGR8 so the Vulkan conversion
+        // shader sees the original low three depth bytes instead of colour semantics.
+        const auto alias_conversion_format = [](PixelFormat format, PixelFormat other_format) {
+            if (other_format == PixelFormat::X8_D24_UNORM &&
+                GetFormatType(format) == SurfaceType::ColorTexture &&
+                BytesPerBlock(format) == 4) {
+                return PixelFormat::A8B8G8R8_UNORM;
+            }
+            return format;
+        };
+        PixelFormat dst_format = alias_conversion_format(dst.info.format, src.info.format);
+        const PixelFormat src_format = alias_conversion_format(src.info.format, dst.info.format);
         if (GetFormatType(src.info.format) == SurfaceType::DepthStencil &&
             GetFormatType(dst_format) == SurfaceType::ColorTexture &&
             BytesPerBlock(dst_format) == 4) {
             dst_format = PixelFormat::A8B8G8R8_UNORM;
         }
         const ImageViewInfo dst_view_info(ImageViewType::e2D, dst_format, dst_range);
-        const ImageViewInfo src_view_info(ImageViewType::e2D, src.info.format, src_range);
+        const ImageViewInfo src_view_info(ImageViewType::e2D, src_format, src_range);
         const auto [dst_framebuffer_id, dst_view_id] = RenderTargetFromImage(dst_id, dst_view_info);
         Framebuffer* const dst_framebuffer = &slot_framebuffers[dst_framebuffer_id];
         const ImageViewId src_view_id = FindOrEmplaceImageView(src_id, src_view_info);
