@@ -147,6 +147,64 @@ SoftwareBlitEngine::~SoftwareBlitEngine() = default;
 
 bool SoftwareBlitEngine::Blit(Fermi2D::Surface& src, Fermi2D::Surface& dst,
                               Fermi2D::Config& config) {
+
+    // The Maxwell 2D guest can supply signed rectangles and arbitrary
+    // pitches. Never turn an empty/reversed region into a giant unsigned
+    // allocation or let a software fallback index outside the image.
+    // Keep this at the actual PS5 shipping blitter, not a generated variant.
+    if (config.src_x0 < 0 || config.src_y0 < 0 ||
+        config.dst_x0 < 0 || config.dst_y0 < 0 ||
+        config.src_x1 <= config.src_x0 || config.src_y1 <= config.src_y0 ||
+        config.dst_x1 <= config.dst_x0 || config.dst_y1 <= config.dst_y0 ||
+        static_cast<u64>(config.src_x1) > src.width ||
+        static_cast<u64>(config.src_y1) > src.height ||
+        static_cast<u64>(config.dst_x1) > dst.width ||
+        static_cast<u64>(config.dst_y1) > dst.height) {
+        return false;
+    }
+
+    constexpr u64 MAX_SOFTWARE_BLIT_BYTES = 256ULL << 20;
+    const u64 source_bpp = BytesPerBlock(PixelFormatFromRenderTargetFormat(src.format));
+    const u64 target_bpp = BytesPerBlock(PixelFormatFromRenderTargetFormat(dst.format));
+    const auto bounded_bytes = [](u64 width, u64 height, u64 bpp) {
+        return width != 0 && height != 0 && bpp != 0 &&
+               bpp <= MAX_SOFTWARE_BLIT_BYTES &&
+               width <= MAX_SOFTWARE_BLIT_BYTES / bpp &&
+               height <= MAX_SOFTWARE_BLIT_BYTES / (width * bpp);
+    };
+    const u64 source_width = static_cast<u64>(config.src_x1 - config.src_x0);
+    const u64 source_height = static_cast<u64>(config.src_y1 - config.src_y0);
+    const u64 target_width = static_cast<u64>(config.dst_x1 - config.dst_x0);
+    const u64 target_height = static_cast<u64>(config.dst_y1 - config.dst_y0);
+    if (!bounded_bytes(source_width, source_height, source_bpp) ||
+        !bounded_bytes(target_width, target_height, target_bpp)) {
+        return false;
+    }
+    // The conversion stage uses four f32 values per pixel, independent of
+    // the source format's packed byte size.
+    if ((src.format != dst.format || config.filter == Fermi2D::Filter::Bilinear) &&
+        (!bounded_bytes(source_width, source_height, 4 * sizeof(f32)) ||
+         !bounded_bytes(target_width, target_height, 4 * sizeof(f32)))) {
+        return false;
+    }
+    const auto bounded_surface = [&](const Fermi2D::Surface& surface, u64 bpp) {
+        if (!bounded_bytes(surface.width, surface.height, bpp) ||
+            surface.depth == 0 ||
+            surface.depth > MAX_SOFTWARE_BLIT_BYTES /
+                (static_cast<u64>(surface.width) * surface.height * bpp)) {
+            return false;
+        }
+        return surface.linear != Fermi2D::MemoryLayout::Pitch ||
+               bounded_bytes(surface.pitch, surface.height, 1);
+    };
+    if (!bounded_surface(src, source_bpp) || !bounded_surface(dst, target_bpp) ||
+        (src.linear == Fermi2D::MemoryLayout::Pitch &&
+         static_cast<u64>(config.src_x1) * source_bpp > src.pitch) ||
+        (dst.linear == Fermi2D::MemoryLayout::Pitch &&
+         static_cast<u64>(config.dst_x1) * target_bpp > dst.pitch)) {
+        return false;
+    }
+
     const auto get_surface_size = [](Fermi2D::Surface& surface, u32 bytes_per_pixel) {
         if (surface.linear == Fermi2D::MemoryLayout::BlockLinear) {
             return CalculateSize(true, bytes_per_pixel, surface.width, surface.height,
@@ -163,6 +221,10 @@ bool SoftwareBlitEngine::Blit(Fermi2D::Surface& src, Fermi2D::Surface& dst,
     const auto src_bytes_per_pixel = BytesPerBlock(PixelFormatFromRenderTargetFormat(src.format));
     const auto dst_bytes_per_pixel = BytesPerBlock(PixelFormatFromRenderTargetFormat(dst.format));
     const size_t src_size = get_surface_size(src, src_bytes_per_pixel);
+    const size_t dst_size = get_surface_size(dst, dst_bytes_per_pixel);
+    if (src_size > MAX_SOFTWARE_BLIT_BYTES || dst_size > MAX_SOFTWARE_BLIT_BYTES) {
+        return false;
+    }
 
     Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::SafeRead> tmp_buffer(
         memory_manager, src.Address(), src_size, &impl->tmp_buffer);
@@ -224,7 +286,6 @@ bool SoftwareBlitEngine::Blit(Fermi2D::Surface& src, Fermi2D::Surface& dst,
         impl->dst_buffer.swap(impl->src_buffer);
     }
 
-    const size_t dst_size = get_surface_size(dst, dst_bytes_per_pixel);
     Tegra::Memory::GpuGuestMemoryScoped<u8, Tegra::Memory::GuestMemoryFlags::SafeReadWrite>
         tmp_buffer2(memory_manager, dst.Address(), dst_size, &impl->tmp_buffer);
 
