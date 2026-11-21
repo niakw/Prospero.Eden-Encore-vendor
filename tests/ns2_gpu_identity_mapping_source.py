@@ -222,6 +222,30 @@ assert unmap.index("if (it == mapping_map.end()) {") < unmap.index(
     "auto const mapping = it->second;")
 assert "map_buffer_offsets.erase(offset_it);" in unmap
 
+# Native A:0x14 sparse big-page remap pins must be owned across a
+# whole ioctl, not leaked by historical per-entry PinHandle calls. GSV's
+# separate 4K sparse ledger must remain independent of these mappings.
+remap=as_cpp.split("NvResult nvhost_as_gpu::Remap(std::span<IoctlRemapEntry> entries) {",1)[1].split(
+    "\n}",1)[0]
+free_space=as_cpp.split("NvResult nvhost_as_gpu::FreeSpace(IoctlFreeSpace& params) {",1)[1].split(
+    "\n}",1)[0]
+header=ROOT.joinpath("encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+assert "NativeSparseMappingTable native_ioctl_remap_mappings;" in header
+assert "std::map<u32, DAddr> native_ioctl_remap_pins;" in header
+assert remap.index("updated = native_ioctl_remap_mappings;") < remap.index(
+    "freshly_pinned.try_emplace(handle_id, DAddr{})") < remap.index(
+    "NativePinnedPhysicalSpan(pinned, step.source, step.size)") < remap.index(
+    "gmmu->Map(step.address, pinned + step.source, step.size,") < remap.index(
+    "native_ioctl_remap_pins.merge(freshly_pinned)")
+for token in ("owner->process != m_native_process", "alloc->second.big_pages",
+              "mapping_map.lower_bound(address)", "rollback_new();",
+              "native_ioctl_remap_pins.erase(pin)"):
+    assert token in remap,token
+assert free_space.index("updated_remaps = native_ioctl_remap_mappings;") < free_space.index(
+    "gmmu->Unmap(params.offset, allocation.size)") < free_space.index(
+    "native_ioctl_remap_pins.erase(pin)")
+assert "for (const auto& [handle, address] : native_ioctl_remap_pins)" in as_cpp
+
 # Dynamic native GPU mappings reserve ceil(bytes/page) units; unmap
 # must return the same number even for a partially filled final page.
 unmap_bytes=unmap.split("if (!mapping.fixed) {",1)[1].split(
