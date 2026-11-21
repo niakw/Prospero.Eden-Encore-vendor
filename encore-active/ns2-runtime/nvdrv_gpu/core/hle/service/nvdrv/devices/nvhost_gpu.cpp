@@ -26,6 +26,9 @@
 #include "video_core/engines/puller.h"
 #include "video_core/gpu.h"
 #include "video_core/memory_manager.h"
+#ifdef PS5_NATIVE
+#include "gpu_failure.h"
+#endif
 // GPU pushbuffer and syncpoint method types come from dma_pusher.h.
 
 #ifdef PS5_NATIVE
@@ -76,7 +79,16 @@ nvhost_gpu::~nvhost_gpu() {
     // here while the ChannelState and NVDRV resources are still alive.
     if (!sessions.empty() && channel_state &&
         system.IsPoweredOn() && !system.IsShuttingDown()) {
-        system.GPU().ReleaseChannel(*channel_state);
+        try {
+            system.GPU().ReleaseChannel(*channel_state);
+        } catch (...) {
+#ifdef PS5_NATIVE
+            // Destructors must not terminate the host if the GPU worker has
+            // already failed. Preserve the fatal cause for the launcher while
+            // continuing deterministic NVDRV resource destruction.
+            ::Eden::RecordGpuFailure(std::current_exception());
+#endif
+        }
     }
     NativeGpuChannelRegistry::Instance().Unbind(channel_state.get());
     events_interface.FreeEvent(sm_exception_breakpoint_int_report_event);
@@ -196,7 +208,16 @@ void nvhost_gpu::OnClose(DeviceFD fd) {
     // before a later title can allocate another channel in this PS5 process.
     if (sessions.empty() && channel_state &&
         system.IsPoweredOn() && !system.IsShuttingDown()) {
-        system.GPU().ReleaseChannel(*channel_state);
+        try {
+            system.GPU().ReleaseChannel(*channel_state);
+        } catch (...) {
+#ifdef PS5_NATIVE
+            // Module::Close erases the FD only after OnClose returns. Do not
+            // strand the device when a failed GPU worker makes the sync wait
+            // throw; latch the failure and let the normal erase/destructor run.
+            ::Eden::RecordGpuFailure(std::current_exception());
+#endif
+        }
     }
 }
 
