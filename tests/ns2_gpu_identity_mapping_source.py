@@ -68,3 +68,52 @@ assert "catch (const std::bad_alloc&)" in open_gpu
 assert "result = Kernel::ResultOutOfResource;" in open_gpu
 
 print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap")
+
+
+# The shared PS5 scheduler/NVDRV owner also serves Maxwell/NS1. Closing the
+# guest GPU FD must retire the exact ChannelState instead of leaving its
+# DmaPusher/engine payload reachable until process-wide GPU destruction.
+scheduler_h=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.h").read_text()
+scheduler_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.cpp").read_text()
+gpu_cpp=(R/"encore-active/eden-core/src/video_core/gpu_vulkan.cpp").read_text()
+nvhost_cpp=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+assert "void RetireChannel(const ChannelState* old_channel);" in scheduler_h
+retire=scheduler_cpp.split("void Scheduler::RetireChannel(const ChannelState* old_channel) {",1)[1].split(
+    "\n}\n",1)[0]
+for needle in ("std::unique_lock epoch_lock(scheduling_guard);",
+               "std::scoped_lock gpu_lock(gpu_submit_guard);",
+               "std::scoped_lock pending_lock(pending_guard);",
+               "it->second.get() != old_channel",
+               "std::erase(pending_native_channels, it->second);",
+               "channels.erase(it);"):
+    assert needle in retire,needle
+
+release=gpu_cpp.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split(
+    "\n    /// Binds a renderer to the GPU.",1)[0]
+for needle in ("const s32 channel_id = to_release.bind_id;",
+               "const auto* expected = &to_release;",
+               "RequestSyncOperation([this, channel_id, expected]",
+               "scheduler.RetireChannel(owner.get());",
+               "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);",
+               "channels.erase(it);",
+               "gpu_thread.TickGPU(is_async);",
+               "WaitForSyncOperation(fence);"):
+    assert needle in release,needle
+assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
+    "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);") < release.index(
+    "channels.erase(it);")
+assert release.index("gpu_thread.TickGPU(is_async);") < release.index(
+    "WaitForSyncOperation(fence);")
+
+dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}\n",1)[0]
+for needle in ("channel_state && system.IsPoweredOn() && !system.IsShuttingDown()",
+               "system.GPU().ReleaseChannel(*channel_state);",
+               "NativeGpuChannelRegistry::Instance().Unbind(channel_state.get());",
+               "syncpoint_manager.FreeSyncpoint(channel_syncpoint);"):
+    assert needle in dtor,needle
+assert "channel_state->address_space_owner" not in dtor
+assert dtor.index("system.GPU().ReleaseChannel(*channel_state);") < dtor.index(
+    "NativeGpuChannelRegistry::Instance().Unbind(channel_state.get())") < dtor.index(
+    "syncpoint_manager.FreeSyncpoint(channel_syncpoint);")
+print("NS1_MAXWELL_CHANNEL_RETIRE_SOURCE_PASS exact_epoch=1 worker_order=1 "
+      "pending_wait_removed=1 rasterizer_release=1 ns1_fd_close=1 shutdown_guard=1")
