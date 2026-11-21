@@ -85,6 +85,40 @@ NvResult nvhost_nvdec_common::SetNVMAPfd(IoctlSetNvmapFD& params) {
 NvResult nvhost_nvdec_common::Submit(IoctlSubmit& params, std::span<u8> data, DeviceFD fd) {
     LOG_DEBUG(Service_NVDRV, "called NVDEC Submit, cmd_buffer_count={}", params.cmd_buffer_count);
 
+    // The ioctl descriptor counts are guest-controlled. The old function
+    // allocated vectors from them first, then silently continued if a
+    // SliceVectors read was truncated. Bound the complete packet before
+    // allocating a byte, accessing a session or advancing a syncpoint.
+    constexpr std::size_t MAX_NVDEC_SUBMIT_BYTES = 64ULL << 20;
+    if (data.size() > MAX_NVDEC_SUBMIT_BYTES ||
+        params.syncpoint_count > params.fence_count) {
+        return NvResult::InvalidState;
+    }
+    std::size_t packet_offset = 0;
+    const auto has_packet_bytes = [&](u64 count, std::size_t element_bytes) {
+        if (element_bytes == 0 ||
+            count > (data.size() - packet_offset) / element_bytes) {
+            return false;
+        }
+        packet_offset += static_cast<std::size_t>(count) * element_bytes;
+        return true;
+    };
+    if (!has_packet_bytes(params.cmd_buffer_count, sizeof(CommandBuffer)) ||
+        !has_packet_bytes(params.relocation_count, sizeof(Reloc)) ||
+        !has_packet_bytes(params.relocation_count, sizeof(u32)) ||
+        !has_packet_bytes(params.syncpoint_count, sizeof(SyncptIncr)) ||
+        !has_packet_bytes(params.fence_count, sizeof(u32))) {
+        return NvResult::InvalidState;
+    }
+    const auto session_it = sessions.find(fd);
+    if (session_it == sessions.end()) {
+        return NvResult::InvalidState;
+    }
+    auto* session = core.GetSession(session_it->second);
+    if (!session || !session->process) {
+        return NvResult::InvalidState;
+    }
+
     // Instantiate param buffers
     std::vector<CommandBuffer> command_buffers(params.cmd_buffer_count);
     std::vector<Reloc> relocs(params.relocation_count);
@@ -100,7 +134,26 @@ NvResult nvhost_nvdec_common::Submit(IoctlSubmit& params, std::span<u8> data, De
     offset += SliceVectors(data, syncpt_increments, params.syncpoint_count, offset);
     offset += SliceVectors(data, fence_thresholds, params.fence_count, offset);
 
-    auto* session = core.GetSession(sessions[fd]);
+    // Preflight command handles and word counts before changing fences.
+    // word_count is SIGNED: passing -1 to CpuGuestMemory creates a
+    // massive size_t span and may exhaust the PS5 host process.
+    constexpr u64 MAX_NVDEC_CMD_BYTES = 64ULL << 20;
+    for (const auto& cmd : command_buffers) {
+        const auto object = nvmap.GetHandle(cmd.memory_id);
+        if (!object || cmd.word_count < 0) {
+            return NvResult::InvalidState;
+        }
+        const u64 length = static_cast<u64>(cmd.word_count) *
+                           sizeof(Tegra::ChCommandHeader);
+        const u64 offset = static_cast<u64>(cmd.offset);
+        if (length > MAX_NVDEC_CMD_BYTES ||
+            offset > object->size || length > object->size - offset ||
+            object->address > (std::numeric_limits<u64>::max)() - offset ||
+            object->address + offset >
+                (std::numeric_limits<u64>::max)() - length) {
+            return NvResult::InvalidState;
+        }
+    }
 
     for (std::size_t i = 0; i < syncpt_increments.size(); i++) {
         const SyncptIncr& syncpt_incr = syncpt_increments[i];
