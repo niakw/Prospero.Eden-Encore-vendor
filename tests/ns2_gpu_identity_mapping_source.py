@@ -196,6 +196,25 @@ assert preempt.index("constexpr u32 NativeWfiBit = 1u;") < preempt.index(
     "std::memcpy(output.data(), modes.data(), sizeof(modes));")
 
 
+# Dynamic native GPU mappings reserve ceil(bytes/page) units; unmap
+# must return the same number even for a partially filled final page.
+unmap_bytes=unmap.split("if (!mapping.fixed) {",1)[1].split(
+    "// Sparse mappings shouldn't be fully unmapped",1)[0]
+for needle in (
+    "NativeGpuProcessRegistry::Instance().Contains(m_native_process)",
+    "Common::AlignUp(mapping.size,",
+    "mapping.big_page ? vm.big_page_size : VM::YUZU_PAGESIZE",
+    ": mapping.size;",
+    "rounded_size >> page_size_bits",
+):
+    assert needle in unmap_bytes, needle
+assert unmap_bytes.index("Common::AlignUp(mapping.size,") < unmap_bytes.index(
+    "allocator.Free(")
+for page in (0x1000,0x20000):
+    for size in (1,page-1,page,page+1,page*2-1,page*2):
+        assert (size+page-1)//page >= size//page
+        assert (size+page-1)//page == (size+page-1)//page
+
 # NS2 fixed GPU views must not overwrite pinned resources, and a
 # FreeSpace followed by UnmapBuffer must not dereference a retired map.
 map_ex=as_cpp.split("NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {",1)[1].split(
