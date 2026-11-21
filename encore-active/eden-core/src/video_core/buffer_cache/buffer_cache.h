@@ -319,6 +319,19 @@ bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 am
     if (!cpu_src_address || !cpu_dest_address) {
         return false;
     }
+    // vkCmdCopyBuffer forbids overlapping source and destination DEVICE
+    // memory (VUID-vkCmdCopyBuffer-pRegions-00117). Distinct GMMU virtual
+    // addresses can alias one physical allocation, and different VkBuffer
+    // handles do not make those overlapping memory accesses legal.
+    // Reject BEFORE dirty-range bookkeeping, ClearDownload, or GPU commands:
+    // MaxwellDMA will read the authoritative source and snapshot the alias.
+    // Compare distances rather than forming a potentially overflowing end.
+    const DAddr source = *cpu_src_address;
+    const DAddr destination = *cpu_dest_address;
+    if ((source <= destination && destination - source < amount) ||
+        (destination < source && source - destination < amount)) {
+        return false;
+    }
     const bool source_dirty = IsRegionRegistered(*cpu_src_address, amount);
     const bool dest_dirty = IsRegionRegistered(*cpu_dest_address, amount);
     if (!source_dirty && !dest_dirty) {
