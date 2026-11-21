@@ -39,16 +39,23 @@ nvhost_as_gpu::nvhost_as_gpu(Core::System& system_, Module& module_, NvCore::Con
       gmmu{} {}
 
 nvhost_as_gpu::~nvhost_as_gpu() {
-    // Closing an AS without explicit unmaps must not strand NvMap pins.
-    const std::scoped_lock lock{mutex};
-    for (const auto& [address, mapping] : mapping_map) {
-        nvmap.UnpinHandle(mapping.handle);
+    // Retire pins while this AS still owns the same retained NVDRV session.
+    {
+        const std::scoped_lock lock{mutex};
+        for (const auto& [address, mapping] : mapping_map) {
+            nvmap.UnpinHandle(mapping.handle);
+        }
+        mapping_map.clear();
+        for (const auto& [handle, address] : native_sparse_pins) {
+            nvmap.UnpinHandle(handle);
+        }
+        native_sparse_pins.clear();
     }
-    mapping_map.clear();
-    for (const auto& [handle, address] : native_sparse_pins) {
-        nvmap.UnpinHandle(handle);
+    // Final CloseSession may release the process/SMMU and must not run while
+    // the AS mutex is held.
+    if (m_channel_session_retained && m_nv_session) {
+        container.CloseSession(*m_nv_session);
     }
-    native_sparse_pins.clear();
     if (m_native_process) m_native_process->Close(system.Kernel());
 }
 
@@ -114,6 +121,7 @@ NvResult nvhost_as_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8> i
 
 void nvhost_as_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
     if (const auto* session = container.GetSession(session_id)) {
+        m_nv_session = session_id;
         m_native_process = session->process;
         if (m_native_process) m_native_process->Open(system.Kernel());
     }
@@ -968,6 +976,23 @@ NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {
     auto& channel = *gpu_channel_device->channel_state;
     if (channel.memory_manager && channel.memory_manager != gmmu.get())
         return NvResult::InvalidState;
+
+    // Maxwell uses the same raw GMMU binding as before, but a channel retained
+    // by the GPU worker/scheduler may outlive this AS descriptor's guest FD.
+    // Retain the exact AS object and exact already-open NvCore session; no
+    // extra ASID, mapping, guest VA or Ampere ioctl is created here.
+    auto owner = weak_from_this().lock();
+    if (!owner) {
+        return NvResult::InvalidState;
+    }
+    if (!m_channel_session_retained) {
+        if (!m_nv_session ||
+            !container.RetainSession(*m_nv_session, m_native_process)) {
+            return NvResult::InvalidState;
+        }
+        m_channel_session_retained = true;
+    }
+    channel.address_space_owner = std::move(owner);
     channel.memory_manager = gmmu.get();
     return NvResult::Success;
 }
