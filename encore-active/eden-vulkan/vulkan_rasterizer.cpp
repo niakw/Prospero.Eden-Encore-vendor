@@ -290,7 +290,7 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
       pipeline_cache(device_memory, device, scheduler, descriptor_pool, guest_descriptor_queue,
                      descriptor_buffer_ring, render_pass_cache, buffer_cache, texture_cache,
                      gpu.ShaderNotify()),
-      accelerate_dma(buffer_cache, texture_cache, scheduler),
+      accelerate_dma(buffer_cache, texture_cache, scheduler, gpu_memory),
       fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache, device, scheduler),
       wfi_event(device.GetLogical().CreateEvent()) {
     scheduler.SetQueryCache(query_cache);
@@ -2863,8 +2863,9 @@ void RasterizerVulkan::FlushWork() {
 }
 
 AccelerateDMA::AccelerateDMA(BufferCache& buffer_cache_, TextureCache& texture_cache_,
-                             Scheduler& scheduler_)
-    : buffer_cache{buffer_cache_}, texture_cache{texture_cache_}, scheduler{scheduler_} {}
+                             Scheduler& scheduler_, Tegra::MemoryManager* const& gpu_memory_)
+    : buffer_cache{buffer_cache_}, texture_cache{texture_cache_}, scheduler{scheduler_},
+      gpu_memory{gpu_memory_} {}
 
 bool AccelerateDMA::BufferClear(GPUVAddr src_address, u64 amount, u32 value) {
 #ifdef PS5_NATIVE
@@ -2917,6 +2918,18 @@ bool AccelerateDMA::DmaBufferImageCopy(const Tegra::DMA::ImageCopy& copy_info,
     }
 #endif
     std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
+#ifdef PS5_NATIVE
+    // ObtainBuffer translates only the first GPU VA into one CPU interval.
+    // A buffer spanning noncontiguous GMMU pages would upload/download
+    // unrelated physical memory. The normal MaxwellDMA CPU fallback
+    // supports a page-aware transfer for both image-copy directions.
+    // Test the channel currently bound to this rasterizer; no stale GMMU.
+    if (!gpu_memory ||
+        (!gpu_memory->IsGranularRange(buffer_operand.address, checked_bytes) &&
+         !gpu_memory->IsContinuousRange(buffer_operand.address, checked_bytes))) {
+        return false;
+    }
+#endif
     const auto image_id = texture_cache.DmaImageId(image_operand, IS_IMAGE_UPLOAD);
     if (image_id == VideoCommon::NULL_IMAGE_ID) {
         return false;
