@@ -82,8 +82,12 @@ as_bind=as_cpp.split("NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& para
 assert as_bind.index("const std::scoped_lock lock{mutex, gpu_channel_device->channel_mutex};") < as_bind.index(
     "auto owner = weak_from_this().lock();")
 assert as_bind.index("session->process != m_native_process") < as_bind.index(
+    "NativeGpuProcessRegistry::Instance().Contains(m_native_process)") < as_bind.index(
     "channel.address_space_owner = std::move(owner);") < as_bind.index(
     "channel.memory_manager = gmmu.get();")
+assert "#include \"core/hle/service/nvdrv/devices/native_gpu_process_registry.h\"" in as_cpp
+assert as_bind.index("if (NativeGpuProcessRegistry::Instance().Contains(m_native_process)) {") < as_bind.index(
+    "container.RetainSession(*m_nv_session, m_native_process)")
 assert "if (!owner) return NvResult::InvalidState;" in as_bind
 
 # The AS owner alone cannot prevent NvCore::CloseSession from unmapping

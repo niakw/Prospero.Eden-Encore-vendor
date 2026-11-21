@@ -16,6 +16,7 @@
 #include <vector>
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_kind.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_va_layout.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_allocation_range.h"
 #include "common/common_types.h"
@@ -985,25 +986,24 @@ NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {
     auto& channel = *gpu_channel_device->channel_state;
     if (channel.memory_manager && channel.memory_manager != gmmu.get())
         return NvResult::InvalidState;
-    // NVIDIA's AS/channel contract: closing the AS FD never invalidates a
-    // live channel's GMMU. The GPU scheduler can still hold ChannelState
-    // after both NVDRV device FDs are closed; a raw gmmu.get() alone was a
-    // use-after-free waiting for the next guest submission. Retain the real
-    // AS object (including its NvMap pin ledger) until all GPU channel
-    // payloads have retired. No ownership cycle: AS owns no channel.
-    auto owner = weak_from_this().lock();
-    if (!owner) return NvResult::InvalidState;
-    if (!m_channel_session_retained) {
-        // Holding the AS object alone is insufficient: a different NVDRV
-        // service can close this process's final session and UnmapAllHandles.
-        // Retain the exact, live AS session before publishing a channel
-        // pointer; no new ASID or guest GPU VA is allocated here.
-        if (!m_nv_session ||
-            !container.RetainSession(*m_nv_session, m_native_process))
-            return NvResult::InvalidState;
-        m_channel_session_retained = true;
+    // Only an authenticated Switch 2 GPU process enters the native
+    // address-space/channel lifetime protocol. The same AS ioctls also
+    // serve NS1/Maxwell; keep their original raw GMMU binding and FD-close
+    // semantics untouched (NS1 development belongs to a separate branch).
+    if (NativeGpuProcessRegistry::Instance().Contains(m_native_process)) {
+        // A GPU scheduler may retain ChannelState after the AS FD closes.
+        // Keep its real GMMU, NvMap pins and exact NvCore session alive until
+        // the native GPU worker retires the channel. No AS->channel cycle.
+        auto owner = weak_from_this().lock();
+        if (!owner) return NvResult::InvalidState;
+        if (!m_channel_session_retained) {
+            if (!m_nv_session ||
+                !container.RetainSession(*m_nv_session, m_native_process))
+                return NvResult::InvalidState;
+            m_channel_session_retained = true;
+        }
+        channel.address_space_owner = std::move(owner);
     }
-    channel.address_space_owner = std::move(owner);
     channel.memory_manager = gmmu.get();
     return NvResult::Success;
 }
