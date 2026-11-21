@@ -697,20 +697,20 @@ void MaxwellDMA::Launch() {
                     if (count != 0 &&
                         DmaSoftwareOverlap(memory_manager, regs.offset_in, count,
                                            regs.offset_out, count)) {
-                    constexpr size_t MAX_ALIAS_BYTES = size_t{64} << 20;
-                    if (count > MAX_ALIAS_BYTES ||
-                        !memory_manager.IsFullyMappedRange(regs.offset_in, count) ||
-                        !memory_manager.IsFullyMappedRange(regs.offset_out, count)) {
-                        LOG_WARNING(Render_OpenGL, "Unmapped or oversized 1D DMA alias");
-                        AssertFailSoftImpl();
-                    } else {
-                        // Read all authoritative source bytes before the first
-                        // CPU write; ReadBlock flushes GPU-owned buffer pages
-                        // and WriteBlock invalidates CPU-updated texture views.
-                        std::vector<u8> snapshot(count);
-                        memory_manager.ReadBlock(regs.offset_in, snapshot.data(), count);
-                        memory_manager.WriteBlock(regs.offset_out, snapshot.data(), count);
-                    }
+                        constexpr size_t MAX_ALIAS_BYTES = size_t{64} << 20;
+                        if (count > MAX_ALIAS_BYTES ||
+                            !memory_manager.IsFullyMappedRange(regs.offset_in, count) ||
+                            !memory_manager.IsFullyMappedRange(regs.offset_out, count)) {
+                            LOG_WARNING(Render_OpenGL, "Unmapped or oversized 1D DMA alias");
+                            AssertFailSoftImpl();
+                        } else {
+                            // Read all authoritative source bytes before the
+                            // first CPU write: flush GPU-owned source buffers
+                            // and invalidate CPU-updated destination textures.
+                            std::vector<u8> snapshot(count);
+                            memory_manager.ReadBlock(regs.offset_in, snapshot.data(), count);
+                            memory_manager.WriteBlock(regs.offset_out, snapshot.data(), count);
+                        }
                     } else {
                         Tegra::Memory::GpuGuestMemoryScoped<
                             u8, Tegra::Memory::GuestMemoryFlags::SafeReadCachedWrite>
