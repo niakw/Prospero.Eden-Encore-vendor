@@ -237,30 +237,35 @@ assert worker_destroy.index("system.GPU().WaitForIdle();") < worker_destroy.inde
     "for (const auto& [key, mapping] : m_mappings.Mappings())")
 
 
-# Switch 2 channel preemption-mode ioctl (SwitchBrew 0xC008481F) is
-# implemented only for WFI/WFI: the existing GPU worker schedules at
-# command boundaries, not mid-shader. Unsupported preemption must fail
-# closed, and an unrelated NS1 or foreign FD must not change ABI.
+# Switch 2 channel preemption-mode ioctl (SwitchBrew 0xC008481F).
+# NVIDIA common UAPI permits compute CTA (bit1), and OunceVK's actual
+# native 3D setup sends {graphics=0, compute=2} before first GPFIFO submit.
+# Store this policy, but keep unsupported GFXP/CILP values fail-closed.
 preempt=nvhost_cpp.split("case 0x1f: { // Switch 2 NVGPU_IOCTL_CHANNEL_SET_PREEMPTION_MODE",1)[1].split(
     "case 0x20: // Switch 2 NVGPU_IOCTL_CHANNEL_OPEN",1)[0]
 for token in ("command.raw != 0xC008481FU", "input.size() != 8 || output.size() != 8",
               "const std::scoped_lock lock{channel_mutex};", "!UsesNativeAbi(fd)",
-              "ValidateChannelOwner(fd, program_id)", "std::array<u32_le, 2> modes{}", "constexpr u32 NativeWfiBit = 1u;",
-              "modes[0]) & ~NativeWfiBit", "return NvResult::NotImplemented;",
+              "ValidateChannelOwner(fd, program_id)", "std::array<u32_le, 2> modes{}",
+              "constexpr u32 NativeWfiBit = 1u;", "constexpr u32 NativeComputeCtaBit = 2u;",
+              "compute_mode & ~(NativeWfiBit | NativeComputeCtaBit)",
+              "native_graphics_preemption_mode = graphics_mode",
+              "native_compute_preemption_mode = compute_mode",
+              "return NvResult::NotImplemented;",
               "std::memcpy(output.data(), modes.data(), sizeof(modes));"):
     assert token in preempt,token
+assert "u32 native_graphics_preemption_mode{};" in nvhost_hdr
+assert "u32 native_compute_preemption_mode{};" in nvhost_hdr
 assert preempt.index("ValidateChannelOwner(fd, program_id)") < preempt.index(
-    "modes[0]) & ~NativeWfiBit") < preempt.index(
+    "const u32 graphics_mode") < preempt.index(
+    "native_compute_preemption_mode = compute_mode") < preempt.index(
     "std::memcpy(output.data(), modes.data(), sizeof(modes));")
 
 
-# Linux nvgpu UAPI uses WFI bit0, not the zero-valued NV2080 enum.
-# Permit default/no-change or an explicit WFI flag, not CTA/GFXP/CILP.
+# Zero remains no-change; bit0 is WFI and compute bit1 is CTA. Other
+# graphics/compute bits are not silently accepted by Encore.
 assert '#include <array>' in nvhost_cpp
-assert "(static_cast<u32>(modes[1]) & ~NativeWfiBit) != 0" in preempt
-assert preempt.index("constexpr u32 NativeWfiBit = 1u;") < preempt.index(
-    "modes[0]) & ~NativeWfiBit") < preempt.index(
-    "std::memcpy(output.data(), modes.data(), sizeof(modes));")
+assert "(graphics_mode & ~NativeWfiBit) != 0" in preempt
+assert "(compute_mode & ~(NativeWfiBit | NativeComputeCtaBit)) != 0" in preempt
 
 
 # NS2 fixed GPU views must not overwrite pinned resources, and a

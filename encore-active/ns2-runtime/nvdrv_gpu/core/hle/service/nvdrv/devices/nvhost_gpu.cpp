@@ -165,15 +165,23 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
                 return status;
             std::array<u32_le, 2> modes{};
             std::memcpy(modes.data(), input.data(), sizeof(modes));
-            // NVGPU encodes the WFI choice as BIT 0 (value 1), not
-            // the zero-valued NV2080 control enum. Zero means no explicit
-            // selection: keep this channel's existing WFI behaviour.
-            // CTA/GFXP/CILP cannot be acknowledged without a real
-            // mid-job preemption model and guest-visible fence semantics.
+            // NVIDIA's common UAPI encodes graphics WFI as bit0, and
+            // compute WFI/CTA as bit0/bit1. OunceVK's native 3D setup uses
+            // {graphics=0, compute=2} before the first GPFIFO submission.
+            // Persisting the requested scheduling mode is a real configuration
+            // operation; it does NOT claim support for an explicit mid-job
+            // PREEMPT ioctl, which remains fail-closed elsewhere.
             constexpr u32 NativeWfiBit = 1u;
-            if ((static_cast<u32>(modes[0]) & ~NativeWfiBit) != 0 ||
-                (static_cast<u32>(modes[1]) & ~NativeWfiBit) != 0)
+            constexpr u32 NativeComputeCtaBit = 2u;
+            const u32 graphics_mode = static_cast<u32>(modes[0]);
+            const u32 compute_mode = static_cast<u32>(modes[1]);
+            if ((graphics_mode & ~NativeWfiBit) != 0 ||
+                (compute_mode & ~(NativeWfiBit | NativeComputeCtaBit)) != 0)
                 return NvResult::NotImplemented;
+            if (graphics_mode != 0)
+                native_graphics_preemption_mode = graphics_mode;
+            if (compute_mode != 0)
+                native_compute_preemption_mode = compute_mode;
             std::memcpy(output.data(), modes.data(), sizeof(modes));
             return NvResult::Success;
         }

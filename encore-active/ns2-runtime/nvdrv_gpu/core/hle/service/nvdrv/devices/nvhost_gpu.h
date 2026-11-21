@@ -220,6 +220,10 @@ private:
     std::array<std::optional<IoctlAllocObjCtx>, 6> ctxObjs{};
     u32_le channel_priority{};
     u32_le channel_timeslice{};
+    // Switch 2 H:0x1F scheduling policy selected by the guest. Configuration
+    // is persisted even though explicit hardware-style preempt remains unsupported.
+    u32 native_graphics_preemption_mode{};
+    u32 native_compute_preemption_mode{};
 
     NvResult ChannelOpen(IoctlChannelOpen& params, DeviceFD fd);
     NvResult ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd);
