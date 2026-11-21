@@ -1282,6 +1282,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {111, &IGraphicsSupervisor::CreateNativeMemory, "CreateNativeMemory"},
         {112, &IGraphicsSupervisor::DestroyNativeMemory, "DestroyNativeMemory"},
         {114, &IGraphicsSupervisor::BindNativeMemory, "BindNativeMemory"},
+        {115, &IGraphicsSupervisor::BootNativeMemoryManagement, "BootNativeMemoryManagement"},
         {423, &IGraphicsSupervisor::BindNativeGpuMemory, "BindNativeGpuMemory"},
         {429, &IGraphicsSupervisor::CreateNativeImage, "CreateNativeImage"},
         {430, &IGraphicsSupervisor::DestroyNativeImage, "DestroyNativeImage"},
@@ -1761,6 +1762,27 @@ static Result NativeMemoryError(GraphicsSupervisorProtocol::NativeMemoryStatus s
 static u64 NativeU64(const u32* packet, size_t word) {
     return u64{packet[word]} | (u64{packet[word + 1]} << 32);
 }
+void IGraphicsSupervisor::BootNativeMemoryManagement(HLERequestContext& ctx) {
+    // TIPC 115 exchanges an input u64 feature request for an output u64
+    // negotiated mask. Older SDKs call it after 204 and before GPU 497.
+    const auto* packet = ctx.CommandBuffer();
+    if (packet[0] != 16 + 115 || packet[1] != 2) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidCombination.raw);
+        return;
+    }
+    const auto service = system.ServiceManager().GetService<Nvidia::NVDRV>("nvdrv:s", true);
+    const auto module = service ? service->GetModule() : nullptr;
+    if (!m_process || m_bootstrap.CurrentPhase() != GB::Phase::Ready || !module) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidState.raw);
+        return;
+    }
+    const u64 requested = u64{packet[2]} | (u64{packet[3]} << 32);
+    const u64 granted = GraphicsSupervisorProtocol::GrantNativeMemoryFeatures(requested, true);
+    NativeTipcReplyWords(ctx, {static_cast<u32>(granted), static_cast<u32>(granted >> 32)});
+}
+
 void IGraphicsSupervisor::CreateNativeMemory(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;

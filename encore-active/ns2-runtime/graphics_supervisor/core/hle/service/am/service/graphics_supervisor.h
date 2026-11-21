@@ -67,6 +67,7 @@ private:
     void InitializeDisplayContext(HLERequestContext& ctx);
     void FinalizeDisplayContext(HLERequestContext& ctx);
     void OpenDisplaySession(HLERequestContext& ctx);
+    void BootNativeMemoryManagement(HLERequestContext& ctx);
     void CreateNativeMemory(HLERequestContext& ctx);
     void DestroyNativeMemory(HLERequestContext& ctx);
     void BindNativeMemory(HLERequestContext& ctx);

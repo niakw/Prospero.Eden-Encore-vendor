@@ -263,6 +263,15 @@ constexpr bool IsSupportedDisplaySession(u64 version) {
            version == 0x300030000ULL || version == 0x300040000ULL;
 }
 
+// GSV 115 is a capability negotiation, not a request to initialize a
+// backing allocation. Only the native NVDRV-backed memory pathway used by
+// GSV 111/114 is currently implemented; never grant unknown feature bits.
+constexpr u64 NativeMemorySupportedFeatureMask = 0x2ULL;
+[[nodiscard]] constexpr u64 GrantNativeMemoryFeatures(u64 requested,
+                                                       bool nvdrv_available) noexcept {
+    return nvdrv_available ? (requested & NativeMemorySupportedFeatureMask) : 0;
+}
+
 constexpr u32 NativeGpuProfileForBootstrap(u64 flags) {
     switch (flags) {
     case 0x8000000000000005ULL: return 0x807;
