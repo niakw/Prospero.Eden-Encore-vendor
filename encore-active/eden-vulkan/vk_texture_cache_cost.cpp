@@ -1412,8 +1412,19 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
     if (src_block_width == 0 || dst_block_width == 0) {
         return;
     }
-    const auto bpp_in = BytesPerBlock(src.info.format) / src_block_width;
-    const auto bpp_out = BytesPerBlock(dst.info.format) / dst_block_width;
+    // D32_FLOAT_S8_UINT and D32_FLOAT have the SAME 32-bit depth plane.
+    // A whole-image byte ratio would halve/double the width and corrupt
+    // Frostbite's depth-only copies. Copy only the depth plane via the
+    // existing Vulkan image -> buffer -> image transfer, never raw DS texels.
+    const bool mixed_d32_depth_plane =
+        (src.info.format == PixelFormat::D32_FLOAT_S8_UINT &&
+         dst.info.format == PixelFormat::D32_FLOAT) ||
+        (src.info.format == PixelFormat::D32_FLOAT &&
+         dst.info.format == PixelFormat::D32_FLOAT_S8_UINT);
+    const auto bpp_in = mixed_d32_depth_plane
+                            ? u32{4} : BytesPerBlock(src.info.format) / src_block_width;
+    const auto bpp_out = mixed_d32_depth_plane
+                             ? u32{4} : BytesPerBlock(dst.info.format) / dst_block_width;
     if (bpp_in == 0 || bpp_out == 0) {
         return;
     }
@@ -1510,7 +1521,7 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
         VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
     const bool src_both = src_aspect_mask == both_ds;
     const bool dst_both = dst_aspect_mask == both_ds;
-    if ((src_both || dst_both) &&
+    if ((src_both || dst_both) && !mixed_d32_depth_plane &&
         (!src_both || !dst_both || src.info.format != dst.info.format)) {
         return;
     }
