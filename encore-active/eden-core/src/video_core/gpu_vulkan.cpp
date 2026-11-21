@@ -178,9 +178,11 @@ struct GPU::Impl {
     template <typename Func>
     [[nodiscard]] u64 RequestSyncOperation(Func&& action) {
         std::unique_lock lck{sync_request_mutex};
-        const u64 fence = ++last_sync_fence;
+        // Publish a fence only AFTER the queue owns its callback. If
+        // allocating this node throws, no fence is skipped: subsequent waits
+        // must still be reachable by TickWork's completed-request counter.
         sync_requests.emplace_back(std::forward<Func>(action));
-        return fence;
+        return ++last_sync_fence;
     }
 
     /// Obtains current flush request fence id.
