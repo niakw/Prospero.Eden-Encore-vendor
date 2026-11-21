@@ -17,10 +17,16 @@ assert "return native_sparse_poisoned;" in poison
 dense=worker.split("Result IGpuWorker::BackGpuOnlyRegion(",1)[1].split(
     "bool IGpuWorker::RetireGpuOnlyRegion(",1)[0]
 assert "mapping_as->RemapNativeSparse(" in dense
+worker_cpp_destructor=worker.split("IGpuWorker::~IGpuWorker() {",1)[1].split(
+    "Result IGpuWorker::BackGpuOnlyRegion(",1)[0]
+assert "bool m_quarantined_nv_session{};" in worker_hdr
+assert "if (m_nv_session && !m_quarantined_nv_session)" in worker_cpp_destructor
+assert "if (m_nv_session && m_quarantined_nv_session)" in worker_cpp_destructor
 assert "mapping_as->IsNativeSparsePoisoned()" in dense
 quarantine=dense.split("if (mapping_as && mapping_as->IsNativeSparsePoisoned()) {",1)[1].split(
     "if (handle) {",1)[0]
-for token in ("(void)pages.release();", "return Kernel::ResultOutOfResource;"):
+for token in ("m_quarantined_nv_session = true;",
+              "(void)pages.release();", "return Kernel::ResultOutOfResource;"):
     assert token in quarantine,token
 assert dense.index("mapping_as->IsNativeSparsePoisoned()") < dense.index(
     "nvmap.FreeHandle(id, false)")

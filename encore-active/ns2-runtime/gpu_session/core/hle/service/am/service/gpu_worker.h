@@ -47,6 +47,10 @@ private:
     std::mutex m_mutex;
     std::shared_ptr<GpuWorkerSharedState> m_shared;
     std::optional<std::size_t> m_nv_session;
+    // Only set after a sparse GMMU batch has poisoned its AS. Closing this
+    // NvCore session normally invokes UnmapAllHandles and forcibly destroys
+    // live SMMU backing, even if the poisoned AS retained GPU PTEs.
+    bool m_quarantined_nv_session{};
     std::vector<u32> m_memory;
     struct MemoryDebugLabels {
         std::optional<std::array<u64, 2>> user;

@@ -265,8 +265,11 @@ IGpuWorker::~IGpuWorker() {
             }
         }
     }
-    if (m_nv_session)
+    if (m_nv_session && !m_quarantined_nv_session)
         m_module->GetContainer().CloseSession(Nvidia::NvCore::SessionId{*m_nv_session});
+    if (m_nv_session && m_quarantined_nv_session)
+        LOG_ERROR(Service_AM,
+                  "NS2 poisoned GPU AS: retain NVDRV session and physical backing until process teardown");
     // GpuWorkerSharedState owns the opened GPU address-space FDs and its
     // final destructor unregisters this exact process epoch. Release our
     // reference NOW, while our KProcess Open is still held. Waiting for the
@@ -411,6 +414,11 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size,
             LOG_ERROR(Service_AM,
                       "NS2 dense sparse 214 remap poisoned GMMU: quarantine backing as={} VA={:#x} size={:#x}",
                       address_space, address, size);
+            // NvCore::CloseSession performs UnmapAllHandles and clears all
+            // NvMap pins on the final duplicate. Preserve the session lease
+            // as well as the KPageGroup or the worker destructor would undo
+            // this quarantine while poisoned GPU PTEs are still reachable.
+            m_quarantined_nv_session = true;
             (void)pages.release();
             return Kernel::ResultOutOfResource;
         }
