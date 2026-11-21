@@ -712,6 +712,10 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
                         }
                     }
                     if (as && old_retired) {
+                        // Retiring the predecessor can succeed while the new
+                        // reservation still fails. Never leak that prior
+                        // success into the 214 reply.
+                        result = Kernel::ResultInvalidState;
                         const auto reserved = as->ReserveNativeSparse4K(
                             request->begin, size, request->page_shift);
                         if (reserved == Nvidia::NvResult::InsufficientMemory)
