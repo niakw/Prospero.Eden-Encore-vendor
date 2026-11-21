@@ -133,6 +133,12 @@ Module::Module(Core::System& system)
                 const auto it = open_files.find(channel_fd);
                 return it != open_files.end() &&
                        it->second->CanBindNativeTsgChannel(channel_fd, owner);
+            },
+            [this](NvCore::SessionId owner, DeviceFD channel_fd, bool enabled) {
+                const auto it = open_files.find(channel_fd);
+                if (it == open_files.end()) return NvResult::InvalidState;
+                return it->second->SetNativeTsgChannelEnabled(
+                    channel_fd, owner, enabled);
             });
         open_files.emplace(fd, device);
         return std::static_pointer_cast<Devices::nvdevice>(device);

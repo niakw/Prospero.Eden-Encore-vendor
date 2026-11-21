@@ -238,6 +238,47 @@ assert worker_destroy.index("system.GPU().WaitForIdle();") < worker_destroy.inde
     "for (const auto& [key, mapping] : m_mappings.Mappings())")
 
 
+# Channel/TSG enable is one native state. Ounce exposes H:0x0E..0x11;
+# NVIDIA TSG enable walks its channels and invokes the same channel enable.
+for raw,cmd,state,next_cmd in (
+    ("0x0000480EU","0xe","true","0xf"),
+    ("0x0000480FU","0xf","false","0x10"),
+):
+    route=nvhost_cpp.split("case "+cmd+":",1)[1].split("case "+next_cmd+":",1)[0]
+    assert "command.raw != "+raw in route
+    assert "!input.empty() || !output.empty()" in route
+    assert "NativeChannelSetEnabled(fd, "+state+")" in route
+for raw,cmd,next_cmd in (
+    ("0x00004810U","0x10","0x11"),
+    ("0x00004811U","0x11","0x12"),
+):
+    route=nvhost_cpp.split("case "+cmd+":",1)[1].split("case "+next_cmd+":",1)[0]
+    assert "command.raw != "+raw in route
+    assert "return NvResult::NotImplemented;" in route
+assert "bool native_channel_enabled{};" in nvhost_hdr
+assert "SetNativeTsgChannelEnabled(DeviceFD fd, NvCore::SessionId session" in nvhost_hdr
+set_direct=nvhost_cpp.split(
+    "NvResult nvhost_gpu::NativeChannelSetEnabled(DeviceFD fd, bool enabled) {",1
+)[1].split("\n}",1)[0]
+for token in ("const std::scoped_lock lock{channel_mutex}",
+              "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented",
+              "ValidateChannelOwner(fd, program_id)",
+              "native_channel_enabled = enabled"):
+    assert token in set_direct,token
+set_tsg=nvhost_cpp.split(
+    "NvResult nvhost_gpu::SetNativeTsgChannelEnabled(DeviceFD fd, NvCore::SessionId owner,",1
+)[1].split("\n}",1)[0]
+for token in ("channel->process != tsg->process",
+              "NativeGpuProcessRegistry::Instance().Contains(channel->process)",
+              "native_channel_enabled = enabled"):
+    assert token in set_tsg,token
+submit_impl=nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split(
+    "\n}",1)[0]
+assert "if (!native_channel_enabled)" in submit_impl
+assert "reason=channel-disabled" in submit_impl
+assert submit_impl.index("if (!native_channel_enabled)") < submit_impl.index(
+    "for (const auto& [other_fd, session_id] : sessions)")
+
 # Ounce S2 channel EventIdControl is input-only 0x40104812 and carries
 # {u32 cmd, u32 QueryEvent id, u64 zero}. The real setup path enables id=2.
 # Encore configures the three QueryEvent-backed KEvents and refuses ids 4..6

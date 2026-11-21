@@ -20,10 +20,14 @@ namespace Service::Nvidia::Devices {
 class nx2_stub_device final : public nvdevice {
 public:
     using TsgChannelVerifier = std::function<bool(NvCore::SessionId, DeviceFD)>;
+    using TsgChannelController =
+        std::function<NvResult(NvCore::SessionId, DeviceFD, bool)>;
     explicit nx2_stub_device(Core::System& system_, std::string name_,
-                             TsgChannelVerifier verify_channel_ = {})
+                             TsgChannelVerifier verify_channel_ = {},
+                             TsgChannelController control_channel_ = {})
         : nvdevice{system_}, name{std::move(name_)},
-          verify_channel{std::move(verify_channel_)} {}
+          verify_channel{std::move(verify_channel_)},
+          control_channel{std::move(control_channel_)} {}
     NvResult Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> input,
                     std::span<u8> output) override {
         return Stub(fd, command, input, output, {});
@@ -45,8 +49,10 @@ public:
     }
     void OnClose(DeviceFD) override {
 #ifdef PS5_NATIVE
+        (void)SetTsgEnabled(false);
         const std::scoped_lock lock{tsg_mutex};
         tsg_bindings.fill(std::nullopt);
+        tsg_enabled = false;
         tsg_interleave_level = 0;
         tsg_timeslice_us = 1024;
         tsg_owner.reset();
@@ -89,6 +95,46 @@ private:
                 return true;
         }
         return false;
+    }
+
+    NvResult SetTsgEnabled(bool enabled) {
+        const std::scoped_lock lock{tsg_mutex};
+        if (!tsg_owner || !verify_channel || !control_channel)
+            return NvResult::InvalidState;
+
+        std::array<DeviceFD, NativeGpuSubcontextCount> channels{};
+        size_t count{};
+        for (const auto& current : tsg_bindings) {
+            if (!current) continue;
+            if (!verify_channel(*tsg_owner, current->channel_fd))
+                return NvResult::InvalidState;
+            channels[count++] = current->channel_fd;
+        }
+
+        // NVIDIA treats an empty TSG enable as a no-op.
+        if (count == 0) {
+            tsg_enabled = enabled;
+            return NvResult::Success;
+        }
+
+        const bool previous_enabled = tsg_enabled;
+        size_t committed{};
+        for (; committed < count; ++committed) {
+            const auto result =
+                control_channel(*tsg_owner, channels[committed], enabled);
+            if (result != NvResult::Success) {
+                // Restore the prior TSG-visible state instead of assuming that
+                // every enable is paired with a preceding disable.
+                while (committed != 0) {
+                    --committed;
+                    (void)control_channel(*tsg_owner, channels[committed],
+                                          previous_enabled);
+                }
+                return result;
+            }
+        }
+        tsg_enabled = enabled;
+        return NvResult::Success;
     }
 
     NvResult ConfigureTsgScheduling(std::span<const u8> input,
@@ -147,11 +193,11 @@ private:
         case 0x8004540AU: // Ounce GET_TIMESLICE: output u32 microseconds
             return GetTsgTimeslice(output);
         case 0x00005403U: // ENABLE
-            // not implemented yet on Encore: requires real TSG/runlist enable state.
-            return NvResult::NotImplemented;
+            if (!input.empty() || !output.empty()) return NvResult::InvalidSize;
+            return SetTsgEnabled(true);
         case 0x00005404U: // DISABLE
-            // not implemented yet on Encore: requires real TSG/runlist disable state.
-            return NvResult::NotImplemented;
+            if (!input.empty() || !output.empty()) return NvResult::InvalidSize;
+            return SetTsgEnabled(false);
         case 0x00005405U: // PREEMPT
             // not implemented yet on Encore: requires a real GPU preemption boundary.
             return NvResult::NotImplemented;
@@ -179,8 +225,8 @@ private:
             return NvResult::BadParameter;
         }
         default:
-            // Enable, preempt, event control and post-bind runlist scheduling
-            // cannot be claimed until backed by real host GPU scheduling/events.
+            // Preempt, event control and post-bind runlist scheduling cannot
+            // be claimed until backed by real host GPU scheduling/events.
             return NvResult::NotImplemented;
         }
     }
@@ -203,11 +249,13 @@ private:
     }
     std::string name;
     TsgChannelVerifier verify_channel;
+    TsgChannelController control_channel;
 #ifdef PS5_NATIVE
     std::mutex tsg_mutex;
     std::optional<NvCore::SessionId> tsg_owner;
     std::array<std::optional<NativeTsgBinding>, NativeGpuSubcontextCount>
         tsg_bindings{};
+    bool tsg_enabled{};
     // Match nvgpu defaults until the Ounce setup ioctls override them before
     // channel binding. Values are retained as real TSG configuration state.
     u32 tsg_interleave_level{};

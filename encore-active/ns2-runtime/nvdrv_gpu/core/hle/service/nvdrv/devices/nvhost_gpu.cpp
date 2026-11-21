@@ -127,6 +127,22 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
             return WrapFixed(this, &nvhost_gpu::SetErrorNotifier, input, output, fd);
         case 0xd:
             return WrapFixed(this, &nvhost_gpu::SetChannelPriority, input, output);
+        case 0xe: // NVGPU_IOCTL_CHANNEL_ENABLE
+            if (command.raw != 0x0000480EU) break;
+            if (!input.empty() || !output.empty()) return NvResult::InvalidSize;
+            return NativeChannelSetEnabled(fd, true);
+        case 0xf: // NVGPU_IOCTL_CHANNEL_DISABLE
+            if (command.raw != 0x0000480FU) break;
+            if (!input.empty() || !output.empty()) return NvResult::InvalidSize;
+            return NativeChannelSetEnabled(fd, false);
+        case 0x10: // NVGPU_IOCTL_CHANNEL_PREEMPT
+            if (command.raw != 0x00004810U) break;
+            // not implemented yet on Encore: requires a real GPU preemption boundary.
+            return NvResult::NotImplemented;
+        case 0x11: // NVGPU_IOCTL_CHANNEL_FORCE_RESET
+            if (command.raw != 0x00004811U) break;
+            // not implemented yet on Encore: requires real queued-work cancellation/reset.
+            return NvResult::NotImplemented;
         case 0x12: { // Switch 2 NVGPU_IOCTL_CHANNEL_EVENT_ID_CONTROL
             if (command.raw != 0x40104812U) break;
             if (input.size() != sizeof(IoctlNativeEventIdControl) || !output.empty())
@@ -271,6 +287,9 @@ void nvhost_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
 }
 
 void nvhost_gpu::OnClose(DeviceFD fd) {
+    const std::scoped_lock lock{channel_mutex};
+    if (UsesNativeAbi(fd))
+        native_channel_enabled = false;
     sessions.erase(fd);
 }
 
@@ -283,6 +302,34 @@ bool nvhost_gpu::CanBindNativeTsgChannel(DeviceFD fd, NvCore::SessionId owner) {
     return channel && tsg && channel->process &&
            channel->process == tsg->process &&
            NativeGpuProcessRegistry::Instance().Contains(channel->process);
+}
+
+NvResult nvhost_gpu::SetNativeTsgChannelEnabled(DeviceFD fd, NvCore::SessionId owner,
+                                                bool enabled) {
+    const std::scoped_lock lock{channel_mutex};
+    const auto it = sessions.find(fd);
+    if (it == sessions.end()) return NvResult::InvalidState;
+    const auto* channel = core.GetSession(it->second);
+    const auto* tsg = core.GetSession(owner);
+    if (!channel || !tsg || !channel->process ||
+        channel->process != tsg->process ||
+        !NativeGpuProcessRegistry::Instance().Contains(channel->process) ||
+        !channel_state)
+        return NvResult::InvalidState;
+    native_channel_enabled = enabled;
+    return NvResult::Success;
+}
+
+NvResult nvhost_gpu::NativeChannelSetEnabled(DeviceFD fd, bool enabled) {
+    const std::scoped_lock lock{channel_mutex};
+    if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+    u64 program_id{};
+    if (const auto status = ValidateChannelOwner(fd, program_id);
+        status != NvResult::Success)
+        return status;
+    if (!channel_state) return NvResult::InvalidState;
+    native_channel_enabled = enabled;
+    return NvResult::Success;
 }
 
 NvResult nvhost_gpu::ChannelOpen(IoctlChannelOpen& params, DeviceFD fd) {
@@ -796,6 +843,15 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
             return NvResult::InvalidState;
         }
         native_owner = owner->process;
+        if (!native_channel_enabled) {
+#ifdef PS5_NATIVE
+            if (trace_impl)
+                std::fprintf(stderr,
+                             "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=channel-disabled\n",
+                             impl_trace_ticket);
+#endif
+            return NvResult::InvalidState;
+        }
         for (const auto& [other_fd, session_id] : sessions) {
             const auto* opened = core.GetSession(session_id);
             if (!opened || opened->process != native_owner) {

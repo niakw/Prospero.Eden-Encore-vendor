@@ -57,6 +57,8 @@ public:
     void OnOpen(NvCore::SessionId session_id, DeviceFD fd) override;
     void OnClose(DeviceFD fd) override;
     bool CanBindNativeTsgChannel(DeviceFD fd, NvCore::SessionId session) override;
+    NvResult SetNativeTsgChannelEnabled(DeviceFD fd, NvCore::SessionId session,
+                                        bool enabled) override;
     bool IsGpuChannelDevice() const override { return true; }
 
     Kernel::KEvent* QueryEvent(u32 event_id) override;
@@ -244,7 +246,11 @@ private:
     IoctlGetErrorInfo native_error_info{};
     IoctlGetErrorNotification native_error_notification{};
     u32 native_event_enable_mask{};
+    // Logical CCSR enable state for the authenticated NS2 channel. Direct
+    // H:0x0E/0x0F and TSG H:0x03/0x04 both update this one source of truth.
+    bool native_channel_enabled{};
 
+    NvResult NativeChannelSetEnabled(DeviceFD fd, bool enabled);
     NvResult ChannelOpen(IoctlChannelOpen& params, DeviceFD fd);
     NvResult ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd);
     NvResult GetUserSyncpoint(IoctlGetUserSyncpoint& params, DeviceFD fd);
