@@ -2323,6 +2323,22 @@ void RasterizerVulkan::AccelerateInlineToMemory(GPUVAddr address, size_t copy_si
         gpu_memory->WriteBlock(address, memory.data(), copy_size);
         return;
     }
+#ifdef PS5_NATIVE
+    // One GPU VA range can cross discontiguous device-memory pages. InlineMemory,
+    // texture invalidation and shader/query invalidation accept ONE CPU span:
+    // their first translated DAddr must never stand in for later GMMU pages.
+    // Single device-page writes keep the existing O(1) hot path. For fragmented
+    // but fully mapped spans, WriteBlock invalidates EACH translated physical
+    // segment before writing; it owns the same normal cache notifications.
+    if (!gpu_memory->IsGranularRange(address, copy_size) &&
+        !gpu_memory->IsContinuousRange(address, copy_size)) {
+        if (!gpu_memory->IsFullyMappedRange(address, copy_size)) {
+            return; // No partial writes into an invalid guest DMA mapping.
+        }
+        gpu_memory->WriteBlock(address, memory.data(), copy_size);
+        return;
+    }
+#endif
     gpu_memory->WriteBlockUnsafe(address, memory.data(), copy_size);
     // P0.3: an unregistered page has no buffer-backed GPU dirty bytes.
     // Unknown, large and previously owned spans retain the original lock.
