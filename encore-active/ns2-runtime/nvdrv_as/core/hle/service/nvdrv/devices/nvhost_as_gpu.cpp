@@ -1029,7 +1029,7 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
             const bool use_big_pages = fixed && fixed_alloc->second.big_pages && big_page;
             const auto [it, inserted] = mapping_map.try_emplace(
                 gpu_address, Mapping(params.handle, pinned + params.buffer_offset,
-                                     gpu_address, size, fixed, use_big_pages,
+                                     gpu_address, size, fixed, fixed ? use_big_pages : big_page,
                                      fixed && fixed_alloc->second.sparse));
             if (!inserted) {
                 duplicate = true;
