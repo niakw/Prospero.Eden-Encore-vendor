@@ -126,7 +126,8 @@ bool CopyPitchRemap(MemoryManager& memory, const MaxwellDMA::RemapConst& remap,
     u64 src_begin{}, src_end{}, dst_begin{}, dst_end{};
     const s32 actual_src_pitch = rows == 1 ? 0 : source_pitch;
     const s32 actual_dst_pitch = rows == 1 ? 0 : destination_pitch;
-    if (!envelope(source, actual_src_pitch, rows, src_row_bytes, src_begin, src_end) ||
+    if ((needs_source &&
+         !envelope(source, actual_src_pitch, rows, src_row_bytes, src_begin, src_end)) ||
         !envelope(destination, actual_dst_pitch, rows, dst_row_bytes, dst_begin, dst_end)) {
         return false;
     }
