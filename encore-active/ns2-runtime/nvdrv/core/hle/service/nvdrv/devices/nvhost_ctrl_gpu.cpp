@@ -50,6 +50,22 @@ NvResult nvhost_ctrl_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8>
                              UsesNativeAbi(fd));
         case 0x7:
             return WrapFixed(this, &nvhost_ctrl_gpu::FlushL2, input, output);
+        case 0x12: {
+            // Native NVGPU_GPU_IOCTL_NUM_VSMS (0x80084712). Linux nvgpu
+            // defines exactly {u32 num_vsms, u32 reserved}, output-only.
+            // The SDK requests this count before enumerating per-SM mappings.
+            // Match the six-TPC/two-SM GA10F profile and leave NS1's former
+            // unsupported behavior intact rather than inventing topology.
+            if (command.raw != 0x80084712U) break;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+            if (output.size() != 8 || (!input.empty() && input.size() != 8))
+                return NvResult::InvalidSize;
+            const std::array<u32_le, 2> result{
+                NativeGpuTpcsPerGpc * NativeGpuSmsPerTpc, 0U};
+            static_assert(sizeof(result) == 8);
+            std::memcpy(output.data(), result.data(), sizeof(result));
+            return NvResult::Success;
+        }
         case 0x14:
             return WrapFixed(this, &nvhost_ctrl_gpu::GetActiveSlotMask, input, output);
         case 0x15:
