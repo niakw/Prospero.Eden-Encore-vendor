@@ -621,6 +621,16 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
         }
     }
 
+    // A guest may request FENCE_WAIT with an arbitrary negative, out-of-
+    // range or released syncpoint ID. HasSyncpointExpired uses at() and
+    // asserts on unreserved IDs; never let an untrusted NVDRV ioctl reach
+    // that host assertion before GPU channel admission is complete.
+    // Keep the Maxwell/NS1 fence path untouched.
+    if (native && flags.fence_wait.Value() &&
+        !syncpoint_manager.IsSyncpointAllocated(
+            static_cast<u32>(params.fence.id)))
+        return NvResult::BadParameter;
+
     // Native FENCE_ACTION ACQUIRE is not yet scheduled by the Ampere
     // puller. If this input fence is unresolved, submitting its legacy
     // wait packet would kill the GPU worker after an apparently successful

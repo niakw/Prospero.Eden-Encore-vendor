@@ -35,6 +35,22 @@ assert 'NativeGpuChannelRegistry::Instance().Bind(' in text
 assert 'gpu.PushGPUEntries(bind_id, std::move(entries));' in text
 assert 'return SubmitGPFIFOImpl(params, std::move(entries), fd);' in text
 
+# A hostile NS2 FENCE_WAIT must not call HasSyncpointExpired/
+# IsFenceSignalled on an out-of-range or unreserved ID, since the
+# inherited manager uses an assertion/at() there. Admission must happen
+# before side effects and before the unresolved-wait check.
+submit = text.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split(
+    "\n}",1)[0]
+for marker in ("if (native && flags.fence_wait.Value() &&",
+               "syncpoint_manager.IsSyncpointAllocated(",
+               "static_cast<u32>(params.fence.id)",
+               "return NvResult::BadParameter;",
+               "!syncpoint_manager.IsFenceSignalled(params.fence)"):
+    assert marker in submit, marker
+assert submit.index("syncpoint_manager.IsSyncpointAllocated(") < submit.index(
+    "!syncpoint_manager.IsFenceSignalled(params.fence)") < submit.index(
+    "gpu.PushGPUEntries(")
+
 # No command words or guest buffers are persisted by the new trace strings.
 for forbidden in ("submitted_words", "command_word=", "guest_bytes=", "dump_pushbuffer"):
     assert forbidden not in "\n".join(
