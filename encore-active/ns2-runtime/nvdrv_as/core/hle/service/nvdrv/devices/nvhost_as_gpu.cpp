@@ -776,10 +776,17 @@ NvResult nvhost_as_gpu::NativeMappingModify(IoctlNativeMappingModify& params) {
         }
     }
 
-    // Sparse A:0x14 remaps have their own pin ledger. Preflight EVERY
-    // region, including partial splits, before modifying the first PTE.
-    // Do not touch GSV's independently owned 4K sparse remap ledger.
-    if (((address | size) & (vm.big_page_size - 1)) != 0)
+    // Both A:0x14 big-page and A:0x0D 4K/big-page sparse remaps
+    // use this NVDRV pin ledger; the GSV worker's 4K sparse table is
+    // deliberately separate. Refuse crossing reservation boundaries.
+    const auto allocation = NativeGpuAllocation::FindContaining(
+        allocation_map, address, size);
+    if (allocation == allocation_map.end() || !allocation->second.sparse ||
+        native_sparse_regions.contains(allocation->first))
+        return NvResult::BadValue;
+    const bool big_page = allocation->second.big_pages;
+    const u64 page = big_page ? vm.big_page_size : VM::YUZU_PAGESIZE;
+    if (((address | size) & (page - 1)) != 0)
         return NvResult::BadValue;
     const auto& ranges = native_ioctl_remap_mappings.Ranges();
     const u64 end = address + size;
@@ -811,7 +818,7 @@ NvResult nvhost_as_gpu::NativeMappingModify(IoctlNativeMappingModify& params) {
         const u64 length = std::min(end - cursor, range.size - delta);
         const auto pin = native_ioctl_remap_pins.find(range.handle);
         gmmu->Map(cursor, pin->second + range.source_offset + delta, length,
-                  static_cast<Tegra::PTEKind>(kind->backend), true);
+                  static_cast<Tegra::PTEKind>(kind->backend), big_page);
         cursor += length;
     }
     return NvResult::Success;
