@@ -31,10 +31,11 @@ release = worker.split("Result IGpuWorker::ReleaseMemory", 1)[1].split(
     "void IGpuWorker::CreateGpuAccessibleMemory", 1)[0]
 assert release.count("m_memory_debug_labels.erase(id);") == 2
 
-# Worker 225/226 are nn::gpu segment debug metadata, keyed to a live
-# process-owned GPU address-space handle. They must not create GPU mappings.
-for command, name in ((225, "SetGpuSegmentUserDebugLabel"),
-                      (226, "SetGpuSegmentSdkDebugLabel")):
+# Worker service IDs 209/210 correspond to SDK TIPC request words 0xE1/0xE2
+# (the TIPC service command envelope accounts for +0x10). Metadata remains
+# keyed to a live process-owned GPU address space and creates no GPU mapping.
+for command, name in ((209, "SetGpuSegmentUserDebugLabel"),
+                      (210, "SetGpuSegmentSdkDebugLabel")):
     assert f'{{{command}, &IGpuWorker::{name}, "{name}"}}' in worker
     assert f"void {name}(HLERequestContext& ctx);" in worker_hdr
     body=worker.split(f"void IGpuWorker::{name}(HLERequestContext& ctx) {{",1)[1].split(

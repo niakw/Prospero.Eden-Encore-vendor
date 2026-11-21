@@ -109,8 +109,10 @@ inline constexpr bool IsValidGpuSegmentDebugRange(u32 address_space, u64 address
     return address_space != 0 && size != 0 &&
            address <= std::numeric_limits<u64>::max() - size;
 }
-// nn::gpu::sdk SetGpuSegment*DebugLabel: worker TIPC 225/226.
-// These are debug metadata requests, not GPU submissions or mappings.
+// nn::gpu::sdk SetGpuSegment*DebugLabel writes request words 0xE1/0xE2.
+// ServiceFramework TIPC dispatch subtracts the 0x10 command envelope, so
+// the registered worker command IDs are 209/210. These are debug metadata
+// requests, not GPU submissions or mappings.
 inline constexpr std::optional<GpuSegmentUserDebugLabel>
 DecodeGpuSegmentUserDebugLabel(std::span<const u32> packet) {
     if (packet.size() != 11 || packet[0] != 0xe1 || packet[1] != 9)
