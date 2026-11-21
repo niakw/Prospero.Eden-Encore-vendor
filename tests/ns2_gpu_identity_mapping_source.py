@@ -300,4 +300,17 @@ for branch, use in ((native_info, "engine"), (native_vsms, "vsms")):
     assert branch.index("if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;") < branch.index(
         "return NvResult::Success;"), use
 
+
+# Shared native GPU VA allocator: upstream Lichii #1896/#1911 repairs
+# FIFO-free holes, fixed-block skipping, and last-block/limit exhaustion.
+allocator_cpp = (R/"sources/eden/src/common/address_space.inc").read_text()
+allocator_path = allocator_cpp.split("ALLOC_MEMBER(VaType)::Allocate(VaType size) {", 1)[1].split(
+    "ALLOC_MEMBER(void)::AllocateFixed(", 1)[0]
+for token in ("std::upper_bound(", "std::prev(", "block->Unmapped()",
+              "current_linear_alloc_end", "find_free(virt_start)",
+              "this->MapLocked(alloc_start, true, size, {});"):
+    assert token in allocator_path, token
+assert allocator_cpp.count("blocks.erase(block_start_successor, block_end_successor);") >= 1
+assert "if (virt + size == current_linear_alloc_end)" in allocator_cpp
+
 print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")
