@@ -1471,7 +1471,7 @@ void IGraphicsSupervisor::Initialize(HLERequestContext& ctx) {
     if (ctx.GetCommand() == 1) {
         const auto request = GraphicsSupervisorProtocol::DecodeBootstrapTransferMemory(packet);
         if (request) {
-            const auto memory = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(
+            auto memory = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(
                 ctx.GetCopyHandle(0));
             matches = !memory.IsNull() && memory->GetOwner() == m_process &&
                       request->copied_handle == ctx.GetCopyHandle(0);
@@ -1760,7 +1760,7 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
     if (packet[0] == 16 + 1401) {
         if (const auto request = GraphicsSupervisorProtocol::DecodeNvDrvTransferSession(
                 std::span<const u32>{packet, IPC::COMMAND_BUFFER_LENGTH})) {
-            const auto memory = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(
+            auto memory = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(
                 ctx.GetCopyHandle(0));
             result = Kernel::ResultInvalidHandle;
             if (!memory.IsNull() && memory->GetOwner() == m_process &&
@@ -1829,7 +1829,7 @@ void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
         if (!request) {
             result = Kernel::ResultInvalidCombination;
         } else {
-            const auto memory = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(
+            auto memory = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(
                 ctx.GetCopyHandle(0));
             result = Kernel::ResultInvalidHandle;
             if (!memory.IsNull() && memory->GetOwner() == m_process &&
