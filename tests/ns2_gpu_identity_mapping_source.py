@@ -126,10 +126,16 @@ for needle in ("std::unique_lock epoch_lock(scheduling_guard);",
                "channels.erase(it);"):
     assert needle in retire,needle
 release=gpu_cpp.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split("\n    }",1)[0]
-assert release.index("RequestSyncOperation([this, owner]") < release.index("gpu_thread.TickGPU(is_async);") < release.index("WaitForSyncOperation(fence);")
+assert "#if defined(PS5_NATIVE)" in release and "#else" in release
+assert release.index("RequestSyncOperation([this, channel_id, expected]") < release.index(
+    "gpu_thread.TickGPU(is_async);") < release.index("WaitForSyncOperation(fence);")
+assert release.index("const auto it = channels.find(channel_id);") < release.index(
+    "it->second.get() != expected") < release.index("const auto owner = it->second;")
 assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
     "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);") < release.index(
-    "channels.erase(owner->bind_id);")
+    "channels.erase(it);")
+assert release.index("channels.find(channel_id);") > release.index(
+    "RequestSyncOperation([this, channel_id, expected]")
 dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}",1)[0]
 for needle in ("channel_state->address_space_owner",
                "system.IsPoweredOn()", "!system.IsShuttingDown()",
