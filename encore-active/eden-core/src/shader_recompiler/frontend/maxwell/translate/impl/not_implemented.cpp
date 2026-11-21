@@ -116,6 +116,105 @@ void TranslateIMul(TranslatorVisitor& v, u64 insn, const IR::U32& src_b) {
     TranslateIMul(v, insn, src_b, imul.high != 0, imul.is_a_signed != 0,
                   imul.is_b_signed != 0, imul.cc != 0);
 }
+
+// NVIDIA PTX prmt.b32 specialized controls and envytools GM107 tab5bc0_0
+// use mode values 1..6 in bits 48..51. Values 7..15 are reserved.
+enum class PrmtMode : u32 {
+    Index = 0,
+    Forward4Extract = 1,
+    Backward4Extract = 2,
+    Replicate8 = 3,
+    EdgeClampLeft = 4,
+    EdgeClampRight = 5,
+    Replicate16 = 6,
+};
+
+constexpr u32 PrmtTableIndex(PrmtMode mode, u32 selector, u32 byte) {
+    switch (mode) {
+    case PrmtMode::Forward4Extract:
+        return (selector + byte) & 7;
+    case PrmtMode::Backward4Extract:
+        return (selector - byte) & 7;
+    case PrmtMode::Replicate8:
+        return selector;
+    case PrmtMode::EdgeClampLeft:
+        return selector > byte ? selector : byte;
+    case PrmtMode::EdgeClampRight:
+        return selector < byte ? selector : byte;
+    case PrmtMode::Replicate16:
+        return (byte & 1) + 2 * (selector & 1);
+    case PrmtMode::Index:
+        break;
+    }
+    return 8;
+}
+
+static_assert(PrmtTableIndex(PrmtMode::Forward4Extract, 1, 3) == 4);
+static_assert(PrmtTableIndex(PrmtMode::Backward4Extract, 0, 3) == 5);
+static_assert(PrmtTableIndex(PrmtMode::Replicate8, 2, 3) == 2);
+static_assert(PrmtTableIndex(PrmtMode::EdgeClampLeft, 1, 1) == 1);
+static_assert(PrmtTableIndex(PrmtMode::EdgeClampRight, 2, 3) == 2);
+static_assert(PrmtTableIndex(PrmtMode::Replicate16, 1, 2) == 2);
+
+IR::U32 PickPrmtByte(TranslatorVisitor& v, const IR::U32& a, const IR::U32& b,
+                     const IR::U32& index, const IR::U1& replicate_sign) {
+    const IR::U1 from_b{
+        v.ir.INotEqual(v.ir.BitwiseAnd(index, v.ir.Imm32(4)), v.ir.Imm32(0))};
+    const IR::U32 source{v.ir.Select(from_b, b, a)};
+    const IR::U32 offset{
+        v.ir.ShiftLeftLogical(v.ir.BitwiseAnd(index, v.ir.Imm32(3)), v.ir.Imm32(3))};
+    const IR::U32 value{
+        v.ir.BitFieldExtract(source, offset, v.ir.Imm32(8), false)};
+    const IR::U1 negative{
+        v.ir.INotEqual(v.ir.BitwiseAnd(value, v.ir.Imm32(0x80)), v.ir.Imm32(0))};
+    const IR::U32 sign_byte{
+        v.ir.Select(negative, v.ir.Imm32(0xff), v.ir.Imm32(0))};
+    return IR::U32{v.ir.Select(replicate_sign, sign_byte, value)};
+}
+
+void TranslatePrmt(TranslatorVisitor& v, u64 insn, const IR::U32& selector,
+                   const IR::U32& src_b) {
+    union {
+        u64 raw;
+        BitField<0, 8, IR::Reg> dest_reg;
+        BitField<8, 8, IR::Reg> src_reg_a;
+        BitField<48, 4, u64> mode;
+    } const prmt{insn};
+
+    const u32 raw_mode = static_cast<u32>(prmt.mode.Value());
+    if (raw_mode > static_cast<u32>(PrmtMode::Replicate16)) {
+        throw NotImplementedException("PRMT reserved mode {}", raw_mode);
+    }
+    const PrmtMode mode{static_cast<PrmtMode>(raw_mode)};
+    const IR::U32 src_a{v.X(prmt.src_reg_a)};
+    IR::U32 result{v.ir.Imm32(0)};
+    for (u32 byte = 0; byte < 4; ++byte) {
+        IR::U32 index;
+        IR::U1 replicate_sign{v.ir.Imm1(false)};
+        if (mode == PrmtMode::Index) {
+            const IR::U32 nibble{
+                v.ir.BitFieldExtract(selector, v.ir.Imm32(byte * 4), v.ir.Imm32(4), false)};
+            index = v.ir.BitwiseAnd(nibble, v.ir.Imm32(7));
+            replicate_sign =
+                v.ir.INotEqual(v.ir.BitwiseAnd(nibble, v.ir.Imm32(8)), v.ir.Imm32(0));
+        } else {
+            // Specialized PTX modes use only selector c[1:0].
+            const IR::U32 control{v.ir.BitwiseAnd(selector, v.ir.Imm32(3))};
+            index = v.ir.Imm32(PrmtTableIndex(mode, 3, byte));
+            for (u32 value = 0; value < 3; ++value) {
+                index = IR::U32{v.ir.Select(v.ir.IEqual(control, v.ir.Imm32(value)),
+                                            v.ir.Imm32(PrmtTableIndex(mode, value, byte)),
+                                            index)};
+            }
+        }
+        const IR::U32 picked{PickPrmtByte(v, src_a, src_b, index, replicate_sign)};
+        const IR::U32 shifted{
+            byte == 0 ? picked
+                      : IR::U32{v.ir.ShiftLeftLogical(picked, v.ir.Imm32(byte * 8))}};
+        result = v.ir.BitwiseOr(result, shifted);
+    }
+    v.X(prmt.dest_reg, result);
+}
 } // namespace
 
 void TranslatorVisitor::ATOMS_cas(u64) {
@@ -303,185 +402,19 @@ void TranslatorVisitor::PRET(u64) {
 }
 
 void TranslatorVisitor::PRMT_reg(u64 insn) {
-    // Maxwell SASS PRMT register selector opcode (0x5bc0).
-    // Dynamic selector is R[20:27]; A=R8, B=R39, mode[48:50].
-    const unsigned mode = static_cast<unsigned>((insn >> 48) & 7ULL);
-    if (mode != 0) {
-        static std::atomic<unsigned> unsupported_samples{0};
-        const unsigned sample = EdenGpuBoundedSample(unsupported_samples);
-        if (sample < 8)
-            std::fprintf(stderr, "EDEN_GPU_PRMT_REG_UNSUPPORTED raw=%016llx mode=%u sample=%u\n",
-                         static_cast<unsigned long long>(insn), mode, sample + 1);
-        ThrowNotImplemented(Opcode::PRMT_reg);
-    }
-
-    const IR::U32 a{GetReg8(insn)};
-    const IR::U32 b{GetReg39(insn)};
-    const IR::U32 selector{GetReg20(insn)};
-    IR::U32 result{ir.Imm32(0)};
-    for (unsigned i = 0; i < 4; ++i) {
-        const IR::U32 nibble{ir.BitwiseAnd(
-            ir.ShiftRightLogical(selector, ir.Imm32(i * 4u)), ir.Imm32(15))};
-        const IR::U1 from_b{ir.INotEqual(
-            ir.BitwiseAnd(nibble, ir.Imm32(4)), ir.Imm32(0))};
-        const IR::U32 source{ir.Select(from_b, b, a)};
-        const IR::U32 byte_shift{ir.ShiftLeftLogical(
-            ir.BitwiseAnd(nibble, ir.Imm32(3)), ir.Imm32(3))};
-        const IR::U32 selected_byte{ir.BitwiseAnd(
-            ir.ShiftRightLogical(source, byte_shift), ir.Imm32(255))};
-        const IR::U1 signed_replication{ir.INotEqual(
-            ir.BitwiseAnd(nibble, ir.Imm32(8)), ir.Imm32(0))};
-        const IR::U1 negative{ir.INotEqual(
-            ir.BitwiseAnd(selected_byte, ir.Imm32(128)), ir.Imm32(0))};
-        const IR::U32 replicated{ir.Select(negative, ir.Imm32(255), ir.Imm32(0))};
-        const IR::U32 byte{ir.Select(signed_replication, replicated, selected_byte)};
-        const IR::U32 shifted{i == 0 ? byte :
-            IR::U32{ir.ShiftLeftLogical(byte, ir.Imm32(i * 8u))}};
-        result = ir.BitwiseOr(result, shifted);
-    }
-    X(static_cast<IR::Reg>(insn & 255ULL), result);
-    static std::atomic<unsigned> successes{0};
-    const unsigned sample = EdenGpuBoundedSample(successes);
-    if (sample < 8)
-        std::fprintf(stderr, "EDEN_GPU_PRMT_REG_INDEX raw=%016llx sample=%u\n",
-                     static_cast<unsigned long long>(insn), sample + 1);
+    TranslatePrmt(*this, insn, GetReg20(insn), GetReg39(insn));
 }
 
 void TranslatorVisitor::PRMT_rc(u64 insn) {
-    // Upstream Lichii f6a8f513: PRMT R/C form uses a register selector
-    // and a constant-buffer second data source. Keep Encore's bounded
-    // diagnostics and support only the default/index mode, matching reg/imm.
-    const unsigned mode = static_cast<unsigned>((insn >> 48) & 7ULL);
-    if (mode != 0) {
-        static std::atomic<unsigned> unsupported_samples{0};
-        const unsigned sample = EdenGpuBoundedSample(unsupported_samples);
-        if (sample < 8)
-            std::fprintf(stderr, "EDEN_GPU_PRMT_RC_UNSUPPORTED raw=%016llx mode=%u sample=%u\n",
-                         static_cast<unsigned long long>(insn), mode, sample + 1);
-        ThrowNotImplemented(Opcode::PRMT_rc);
-    }
-
-    const IR::U32 a{GetReg8(insn)};
-    const IR::U32 b{GetCbuf(insn)};
-    const IR::U32 selector{GetReg39(insn)};
-    IR::U32 result{ir.Imm32(0)};
-    for (unsigned i = 0; i < 4; ++i) {
-        const IR::U32 nibble{ir.BitwiseAnd(
-            ir.ShiftRightLogical(selector, ir.Imm32(i * 4u)), ir.Imm32(15))};
-        const IR::U1 from_b{ir.INotEqual(
-            ir.BitwiseAnd(nibble, ir.Imm32(4)), ir.Imm32(0))};
-        const IR::U32 source{ir.Select(from_b, b, a)};
-        const IR::U32 byte_shift{ir.ShiftLeftLogical(
-            ir.BitwiseAnd(nibble, ir.Imm32(3)), ir.Imm32(3))};
-        const IR::U32 selected_byte{ir.BitwiseAnd(
-            ir.ShiftRightLogical(source, byte_shift), ir.Imm32(255))};
-        const IR::U1 signed_replication{ir.INotEqual(
-            ir.BitwiseAnd(nibble, ir.Imm32(8)), ir.Imm32(0))};
-        const IR::U1 negative{ir.INotEqual(
-            ir.BitwiseAnd(selected_byte, ir.Imm32(128)), ir.Imm32(0))};
-        const IR::U32 replicated{ir.Select(negative, ir.Imm32(255), ir.Imm32(0))};
-        const IR::U32 byte{ir.Select(signed_replication, replicated, selected_byte)};
-        const IR::U32 shifted{i == 0 ? byte :
-            IR::U32{ir.ShiftLeftLogical(byte, ir.Imm32(i * 8u))}};
-        result = ir.BitwiseOr(result, shifted);
-    }
-    X(static_cast<IR::Reg>(insn & 255ULL), result);
-
-    static std::atomic<unsigned> successes{0};
-    const unsigned sample = EdenGpuBoundedSample(successes);
-    if (sample < 8)
-        std::fprintf(stderr, "EDEN_GPU_PRMT_RC_INDEX raw=%016llx sample=%u\n",
-                     static_cast<unsigned long long>(insn), sample + 1);
+    TranslatePrmt(*this, insn, GetReg39(insn), GetCbuf(insn));
 }
 
 void TranslatorVisitor::PRMT_cr(u64 insn) {
-    // Upstream Lichii f6a8f513: PRMT C/R form reads its selector from
-    // constant memory and the second data source from the register operand.
-    const unsigned mode = static_cast<unsigned>((insn >> 48) & 7ULL);
-    if (mode != 0) {
-        static std::atomic<unsigned> unsupported_samples{0};
-        const unsigned sample = EdenGpuBoundedSample(unsupported_samples);
-        if (sample < 8)
-            std::fprintf(stderr, "EDEN_GPU_PRMT_CR_UNSUPPORTED raw=%016llx mode=%u sample=%u\n",
-                         static_cast<unsigned long long>(insn), mode, sample + 1);
-        ThrowNotImplemented(Opcode::PRMT_cr);
-    }
-
-    const IR::U32 a{GetReg8(insn)};
-    const IR::U32 b{GetReg39(insn)};
-    const IR::U32 selector{GetCbuf(insn)};
-    IR::U32 result{ir.Imm32(0)};
-    for (unsigned i = 0; i < 4; ++i) {
-        const IR::U32 nibble{ir.BitwiseAnd(
-            ir.ShiftRightLogical(selector, ir.Imm32(i * 4u)), ir.Imm32(15))};
-        const IR::U1 from_b{ir.INotEqual(
-            ir.BitwiseAnd(nibble, ir.Imm32(4)), ir.Imm32(0))};
-        const IR::U32 source{ir.Select(from_b, b, a)};
-        const IR::U32 byte_shift{ir.ShiftLeftLogical(
-            ir.BitwiseAnd(nibble, ir.Imm32(3)), ir.Imm32(3))};
-        const IR::U32 selected_byte{ir.BitwiseAnd(
-            ir.ShiftRightLogical(source, byte_shift), ir.Imm32(255))};
-        const IR::U1 signed_replication{ir.INotEqual(
-            ir.BitwiseAnd(nibble, ir.Imm32(8)), ir.Imm32(0))};
-        const IR::U1 negative{ir.INotEqual(
-            ir.BitwiseAnd(selected_byte, ir.Imm32(128)), ir.Imm32(0))};
-        const IR::U32 replicated{ir.Select(negative, ir.Imm32(255), ir.Imm32(0))};
-        const IR::U32 byte{ir.Select(signed_replication, replicated, selected_byte)};
-        const IR::U32 shifted{i == 0 ? byte :
-            IR::U32{ir.ShiftLeftLogical(byte, ir.Imm32(i * 8u))}};
-        result = ir.BitwiseOr(result, shifted);
-    }
-    X(static_cast<IR::Reg>(insn & 255ULL), result);
-
-    static std::atomic<unsigned> successes{0};
-    const unsigned sample = EdenGpuBoundedSample(successes);
-    if (sample < 8)
-        std::fprintf(stderr, "EDEN_GPU_PRMT_CR_INDEX raw=%016llx sample=%u\n",
-                     static_cast<unsigned long long>(insn), sample + 1);
+    TranslatePrmt(*this, insn, GetCbuf(insn), GetReg39(insn));
 }
 
 void TranslatorVisitor::PRMT_imm(u64 insn) {
-    // Maxwell SASS PRMT immediate (0x36c0) uses:
-    // A = R[8:15], B = R[39:46], selector = bits[20:35],
-    // mode = bits[48:50], D = R[0:7].
-    // Only mode 0 (index byte permutation) is translated here.
-    // Each nibble selects one of eight source bytes and its high bit
-    // requests *sign replication* of that byte, not its raw value.
-    const unsigned mode = static_cast<unsigned>((insn >> 48) & 7ULL);
-    if (mode != 0) {
-        static std::atomic<unsigned> unsupported_samples{0};
-        const unsigned index = EdenGpuBoundedSample(unsupported_samples);
-        if (index < 8)
-            std::fprintf(stderr, "EDEN_GPU_PRMT_IMM raw=%016llx mode=%u sample=%u\n",
-                         static_cast<unsigned long long>(insn), mode, index + 1);
-        ThrowNotImplemented(Opcode::PRMT_imm);
-    }
-
-    const unsigned selector = static_cast<unsigned>((insn >> 20) & 0xffffULL);
-    const IR::U32 a{GetReg8(insn)};
-    const IR::U32 b{GetReg39(insn)};
-    IR::U32 result{ir.Imm32(0)};
-    for (unsigned output_byte = 0; output_byte < 4; ++output_byte) {
-        const unsigned nibble = (selector >> (output_byte * 4)) & 15u;
-        const IR::U32 source = (nibble & 4u) ? b : a;
-        const unsigned src_offset = (nibble & 3u) * 8u;
-        // When nibble[3] is set, the NVIDIA byte sign bit
-        // becomes either 0x00 or 0xff in the output.
-        const IR::U32 extracted = (nibble & 8u)
-            ? ir.BitFieldExtract(source, ir.Imm32(src_offset + 7u), ir.Imm32(1), true)
-            : ir.BitFieldExtract(source, ir.Imm32(src_offset), ir.Imm32(8), false);
-        const IR::U32 value = ir.BitwiseAnd(extracted, ir.Imm32(255));
-        const IR::U32 shifted = output_byte == 0 ? value :
-            IR::U32{ir.ShiftLeftLogical(value, ir.Imm32(output_byte * 8u))};
-        result = ir.BitwiseOr(result, shifted);
-    }
-    X(static_cast<IR::Reg>(insn & 255ULL), result);
-
-    static std::atomic<unsigned> implemented_samples{0};
-    const unsigned implemented = EdenGpuBoundedSample(implemented_samples);
-    if (implemented < 8)
-        std::fprintf(stderr, "EDEN_GPU_PRMT_IMM_INDEX raw=%016llx selector=%04x sample=%u\n",
-                     static_cast<unsigned long long>(insn), selector, implemented + 1);
+    TranslatePrmt(*this, insn, GetImm20(insn), GetReg39(insn));
 }
 
 void TranslatorVisitor::R2B(u64) {
