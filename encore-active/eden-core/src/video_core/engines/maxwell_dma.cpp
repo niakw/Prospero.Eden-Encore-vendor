@@ -48,6 +48,146 @@ constexpr bool CanCoalescePitchDma(u64 source, u64 dest, u32 width, u32 rows,
     return true;
 }
 
+// Signed 2D pitch geometry and device-address overlap are shared by raw
+// and component-remapped DMA; both must protect source rows from later writes.
+constexpr bool PitchDmaEnvelope(GPUVAddr base, s32 pitch, u32 rows, u64 bytes,
+                                u64& begin, u64& end) noexcept {
+    if (rows == 0 || bytes == 0) return false;
+    const u64 magnitude = pitch < 0 ? static_cast<u64>(-static_cast<s64>(pitch))
+                                    : static_cast<u64>(pitch);
+    const u64 delta = magnitude * (rows - 1);
+    constexpr u64 MAX_ADDRESS = (std::numeric_limits<u64>::max)();
+    if (pitch < 0) {
+        if (delta > base || bytes > MAX_ADDRESS - base) return false;
+        begin = base - delta;
+        end = base + bytes;
+    } else {
+        if (delta > MAX_ADDRESS - base || bytes > MAX_ADDRESS - base - delta)
+            return false;
+        begin = base;
+        end = base + delta + bytes;
+    }
+    return true;
+}
+
+constexpr GPUVAddr PitchDmaRowAddress(GPUVAddr base, s32 pitch, u32 row) noexcept {
+    const u64 magnitude = pitch < 0 ? static_cast<u64>(-static_cast<s64>(pitch))
+                                    : static_cast<u64>(pitch);
+    const u64 delta = magnitude * row;
+    return pitch < 0 ? base - delta : base + delta;
+}
+
+bool PitchDmaPhysicalOverlap(MemoryManager& memory, GPUVAddr source,
+                             GPUVAddr destination, s32 src_pitch, s32 dst_pitch,
+                             u32 rows, u64 src_row_bytes, u64 dst_row_bytes,
+                             u64 src_begin, u64 src_end, u64 dst_begin, u64 dst_end) {
+    const auto intersects = [](u64 a, u64 ae, u64 b, u64 be) {
+        return a < be && b < ae;
+    };
+    constexpr u64 MAX_ADDRESS = (std::numeric_limits<u64>::max)();
+    constexpr u64 FAST_BYTES = u64{64} << 20;
+    const u64 src_span = src_end - src_begin;
+    const u64 dst_span = dst_end - dst_begin;
+    if (src_span <= FAST_BYTES && dst_span <= FAST_BYTES &&
+        memory.IsContinuousRange(src_begin, static_cast<size_t>(src_span)) &&
+        memory.IsContinuousRange(dst_begin, static_cast<size_t>(dst_span))) {
+        const auto a = memory.GpuToCpuAddress(src_begin);
+        const auto b = memory.GpuToCpuAddress(dst_begin);
+        if (!a || !b || *a > MAX_ADDRESS - src_span ||
+            *b > MAX_ADDRESS - dst_span) return true;
+        return intersects(*a, *a + src_span, *b, *b + dst_span);
+    }
+    using Interval = std::pair<u64, u64>;
+    constexpr u64 GPU_PAGE = 4096;
+    constexpr size_t MAX_PHYSICAL_SEGMENTS = 16384;
+    const auto collect = [&](GPUVAddr base, s32 pitch, u64 row_bytes,
+                             std::vector<Interval>& segments) {
+        for (u32 row = 0; row < rows; ++row) {
+            const GPUVAddr row_base = PitchDmaRowAddress(base, pitch, row);
+            for (u64 offset = 0; offset < row_bytes;) {
+                if (segments.size() == MAX_PHYSICAL_SEGMENTS) return false;
+                const GPUVAddr address = row_base + offset;
+                const u64 size = (std::min)(
+                    row_bytes - offset, GPU_PAGE - (address & (GPU_PAGE - 1)));
+                const auto physical = memory.GpuToCpuAddress(address);
+                if (!physical || *physical > MAX_ADDRESS - size) return false;
+                segments.emplace_back(*physical, *physical + size);
+                offset += size;
+            }
+        }
+        std::sort(segments.begin(), segments.end());
+        return true;
+    };
+    std::vector<Interval> first, second;
+    if (!collect(source, src_pitch, src_row_bytes, first) ||
+        !collect(destination, dst_pitch, dst_row_bytes, second)) {
+        return true; // An unknown mapping must not masquerade as disjoint.
+    }
+    size_t i = 0, j = 0;
+    while (i < first.size() && j < second.size()) {
+        const auto& a = first[i];
+        const auto& b = second[j];
+        if (intersects(a.first, a.second, b.first, b.second)) return true;
+        if (a.second <= b.second) ++i;
+        else ++j;
+    }
+    return false;
+}
+
+// MemoryManager::CopyBlock is an individual-row transfer, not a snapshot
+// of all rows. Aliased rows must be captured before the first write.
+bool CopyPitchDmaPlain(MemoryManager& memory, GPUVAddr source,
+                       GPUVAddr destination, s32 source_pitch,
+                       s32 destination_pitch, u32 row_bytes, u32 rows) {
+    if (row_bytes == 0 || rows == 0) return true;
+    const s32 src_pitch = rows == 1 ? 0 : source_pitch;
+    const s32 dst_pitch = rows == 1 ? 0 : destination_pitch;
+    u64 src_begin{}, src_end{}, dst_begin{}, dst_end{};
+    if (!PitchDmaEnvelope(source, src_pitch, rows, row_bytes, src_begin, src_end) ||
+        !PitchDmaEnvelope(destination, dst_pitch, rows, row_bytes, dst_begin, dst_end))
+        return false;
+    const bool virtual_overlap = src_begin < dst_end && dst_begin < src_end;
+    const bool overlap = virtual_overlap ||
+        PitchDmaPhysicalOverlap(memory, source, destination, src_pitch, dst_pitch,
+                                rows, row_bytes, row_bytes, src_begin, src_end,
+                                dst_begin, dst_end);
+    if (overlap) {
+        constexpr u64 MAX_ALIAS_BYTES = u64{64} << 20;
+        const u64 total_bytes = static_cast<u64>(row_bytes) * rows;
+        if (total_bytes > MAX_ALIAS_BYTES) return false;
+        // No partial destination writes on an unmapped later row.
+        for (u32 row = 0; row < rows; ++row) {
+            if (!memory.IsFullyMappedRange(PitchDmaRowAddress(source, src_pitch, row),
+                                           row_bytes) ||
+                !memory.IsFullyMappedRange(PitchDmaRowAddress(destination, dst_pitch, row),
+                                           row_bytes)) return false;
+        }
+        std::vector<u8> snapshot(static_cast<size_t>(total_bytes));
+        for (u32 row = 0; row < rows; ++row) {
+            memory.ReadBlock(PitchDmaRowAddress(source, src_pitch, row),
+                             snapshot.data() + static_cast<size_t>(row) * row_bytes,
+                             row_bytes);
+        }
+        for (u32 row = 0; row < rows; ++row) {
+            memory.WriteBlock(PitchDmaRowAddress(destination, dst_pitch, row),
+                              snapshot.data() + static_cast<size_t>(row) * row_bytes,
+                              row_bytes);
+        }
+        return true;
+    }
+    u64 contiguous_bytes{};
+    if (CanCoalescePitchDma(source, destination, row_bytes, rows, src_pitch,
+                            dst_pitch, contiguous_bytes)) {
+        memory.CopyBlock(destination, source, static_cast<size_t>(contiguous_bytes));
+    } else {
+        for (u32 row = 0; row < rows; ++row) {
+            memory.CopyBlock(PitchDmaRowAddress(destination, dst_pitch, row),
+                             PitchDmaRowAddress(source, src_pitch, row), row_bytes);
+        }
+    }
+    return true;
+}
+
 // Remapped DMA lengths are measured in pixels/blocks, NOT bytes. Component
 // width and per-pixel component counts are configured independently by the
 // B0B5 SET_REMAP_COMPONENTS register. Apply all four destination selectors;
@@ -108,122 +248,23 @@ bool CopyPitchRemap(MemoryManager& memory, const MaxwellDMA::RemapConst& remap,
         return false; // Do not OOM the PS5 on a guest-controlled DMA span.
     }
 
-    // Validate the full signed-pitch address envelopes before any writes.
-    const auto envelope = [](GPUVAddr base, s32 pitch, u32 row_count, u64 bytes,
-                             u64& begin, u64& end) {
-        const u64 magnitude = pitch < 0 ? static_cast<u64>(-static_cast<s64>(pitch))
-                                        : static_cast<u64>(pitch);
-        const u64 delta = magnitude * (row_count - 1);
-        constexpr u64 MAX_ADDRESS = (std::numeric_limits<u64>::max)();
-        if (pitch < 0) {
-            if (delta > base || bytes > MAX_ADDRESS - base) {
-                return false;
-            }
-            begin = base - delta;
-            end = base + bytes;
-        } else {
-            if (delta > MAX_ADDRESS - base ||
-                bytes > MAX_ADDRESS - base - delta) {
-                return false;
-            }
-            begin = base;
-            end = base + delta + bytes;
-        }
-        return true;
-    };
+    // Reuse the same signed-pitch/GMMU overlap model as ordinary 2D DMA.
     u64 src_begin{}, src_end{}, dst_begin{}, dst_end{};
     const s32 actual_src_pitch = rows == 1 ? 0 : source_pitch;
     const s32 actual_dst_pitch = rows == 1 ? 0 : destination_pitch;
     if ((needs_source &&
-         !envelope(source, actual_src_pitch, rows, src_row_bytes, src_begin, src_end)) ||
-        !envelope(destination, actual_dst_pitch, rows, dst_row_bytes, dst_begin, dst_end)) {
+         !PitchDmaEnvelope(source, actual_src_pitch, rows, src_row_bytes,
+                           src_begin, src_end)) ||
+        !PitchDmaEnvelope(destination, actual_dst_pitch, rows, dst_row_bytes,
+                          dst_begin, dst_end)) {
         return false;
     }
     const bool virtual_overlap = needs_source && src_begin < dst_end && dst_begin < src_end;
-    const auto row_address = [](GPUVAddr base, s32 pitch, u32 row) {
-        const u64 magnitude = pitch < 0 ? static_cast<u64>(-static_cast<s64>(pitch))
-                                        : static_cast<u64>(pitch);
-        const u64 delta = magnitude * row;
-        return pitch < 0 ? base - delta : base + delta;
-    };
-
-    // Different GPU virtual addresses may alias the same mapped backing
-    // pages. In that case copying output row zero can corrupt unread input
-    // row one even though the two virtual envelopes are disjoint.
-    const auto physical_overlap = [&]() {
-        if (!needs_source || virtual_overlap) {
-            return false;
-        }
-        const auto intersects = [](u64 begin_a, u64 end_a, u64 begin_b, u64 end_b) {
-            return begin_a < end_b && begin_b < end_a;
-        };
-        constexpr u64 MAX_ADDRESS = (std::numeric_limits<u64>::max)();
-        const u64 source_envelope = src_end - src_begin;
-        const u64 dest_envelope = dst_end - dst_begin;
-        // Coalesced, fully continuous GMMU intervals take two translations.
-        // Do not probe very large row-pitch gaps as if they were image bytes.
-        if (source_envelope <= MAX_CPU_REMAP_BYTES &&
-            dest_envelope <= MAX_CPU_REMAP_BYTES &&
-            memory.IsContinuousRange(src_begin, static_cast<size_t>(source_envelope)) &&
-            memory.IsContinuousRange(dst_begin, static_cast<size_t>(dest_envelope))) {
-            const auto a = memory.GpuToCpuAddress(src_begin);
-            const auto b = memory.GpuToCpuAddress(dst_begin);
-            if (!a || !b || *a > MAX_ADDRESS - source_envelope ||
-                *b > MAX_ADDRESS - dest_envelope) {
-                return true; // Unknown physical owner: snapshot.
-            }
-            return intersects(*a, *a + source_envelope, *b, *b + dest_envelope);
-        }
-        using Interval = std::pair<u64, u64>;
-        constexpr u64 GPU_PAGE = 4096;
-        // Bound the lookup work under fragmented mappings. Exceeding the
-        // budget is conservatively treated as an alias, never as disjoint.
-        constexpr size_t MAX_PHYSICAL_SEGMENTS = 16384;
-        const auto collect = [&](GPUVAddr base, s32 pitch, u64 row_bytes,
-                                 std::vector<Interval>& segments) {
-            for (u32 row = 0; row < rows; ++row) {
-                const GPUVAddr row_base = row_address(base, pitch, row);
-                for (u64 offset = 0; offset < row_bytes;) {
-                    if (segments.size() == MAX_PHYSICAL_SEGMENTS) {
-                        return false;
-                    }
-                    const GPUVAddr address = row_base + offset;
-                    const u64 size = (std::min)(row_bytes - offset,
-                                                GPU_PAGE - (address & (GPU_PAGE - 1)));
-                    const auto physical = memory.GpuToCpuAddress(address);
-                    if (!physical || *physical > MAX_ADDRESS - size) {
-                        return false;
-                    }
-                    segments.emplace_back(*physical, *physical + size);
-                    offset += size;
-                }
-            }
-            std::sort(segments.begin(), segments.end());
-            return true;
-        };
-        std::vector<Interval> source_segments;
-        std::vector<Interval> dest_segments;
-        if (!collect(source, actual_src_pitch, src_row_bytes, source_segments) ||
-            !collect(destination, actual_dst_pitch, dst_row_bytes, dest_segments)) {
-            return true; // Unknown mappings may alias.
-        }
-        size_t i = 0;
-        size_t j = 0;
-        while (i < source_segments.size() && j < dest_segments.size()) {
-            const auto& a = source_segments[i];
-            const auto& b = dest_segments[j];
-            if (intersects(a.first, a.second, b.first, b.second)) {
-                return true;
-            }
-            if (a.second <= b.second) {
-                ++i;
-            } else {
-                ++j;
-            }
-        }
-        return false;
-    }();
-    const bool overlap = virtual_overlap || physical_overlap;
+    const bool overlap = needs_source && (virtual_overlap ||
+        PitchDmaPhysicalOverlap(memory, source, destination,
+                                actual_src_pitch, actual_dst_pitch, rows,
+                                src_row_bytes, dst_row_bytes,
+                                src_begin, src_end, dst_begin, dst_end));
 
     // Common identity remaps remain a normal DMA block copy; never turn
     // every format-preserving upload into a CPU per-component loop.
@@ -236,8 +277,8 @@ bool CopyPitchRemap(MemoryManager& memory, const MaxwellDMA::RemapConst& remap,
             memory.CopyBlock(destination, source, static_cast<size_t>(contiguous_bytes));
         } else {
             for (u32 row = 0; row < rows; ++row) {
-                memory.CopyBlock(row_address(destination, actual_dst_pitch, row),
-                                 row_address(source, actual_src_pitch, row),
+                memory.CopyBlock(PitchDmaRowAddress(destination, actual_dst_pitch, row),
+                                 PitchDmaRowAddress(source, actual_src_pitch, row),
                                  static_cast<size_t>(src_row_bytes));
             }
         }
@@ -252,16 +293,16 @@ bool CopyPitchRemap(MemoryManager& memory, const MaxwellDMA::RemapConst& remap,
         // An unknown GMMU owner is never a reason to write a partial row.
         // Validate all source/destination mappings before any GPU write.
         for (u32 row = 0; row < rows; ++row) {
-            if (!memory.IsFullyMappedRange(row_address(source, actual_src_pitch, row),
+            if (!memory.IsFullyMappedRange(PitchDmaRowAddress(source, actual_src_pitch, row),
                                            static_cast<size_t>(src_row_bytes)) ||
-                !memory.IsFullyMappedRange(row_address(destination, actual_dst_pitch, row),
+                !memory.IsFullyMappedRange(PitchDmaRowAddress(destination, actual_dst_pitch, row),
                                            static_cast<size_t>(dst_row_bytes))) {
                 return false;
             }
         }
         snapshot.resize(static_cast<size_t>(src_row_bytes * rows));
         for (u32 row = 0; row < rows; ++row) {
-            memory.ReadBlock(row_address(source, actual_src_pitch, row),
+            memory.ReadBlock(PitchDmaRowAddress(source, actual_src_pitch, row),
                              snapshot.data() + static_cast<size_t>(src_row_bytes * row),
                              static_cast<size_t>(src_row_bytes));
         }
@@ -271,8 +312,8 @@ bool CopyPitchRemap(MemoryManager& memory, const MaxwellDMA::RemapConst& remap,
     source_scratch.resize_destructive(static_cast<size_t>(chunk_blocks * src_stride));
     destination_scratch.resize_destructive(static_cast<size_t>(chunk_blocks * dst_stride));
     for (u32 row = 0; row < rows; ++row) {
-        const u64 source_base = row_address(source, actual_src_pitch, row);
-        const u64 destination_base = row_address(destination, actual_dst_pitch, row);
+        const u64 source_base = PitchDmaRowAddress(source, actual_src_pitch, row);
+        const u64 destination_base = PitchDmaRowAddress(destination, actual_dst_pitch, row);
         for (u64 start = 0; start < blocks; start += chunk_blocks) {
             const u64 count = (std::min)(chunk_blocks, static_cast<u64>(blocks) - start);
             const size_t src_bytes = static_cast<size_t>(count * src_stride);
@@ -408,23 +449,11 @@ void MaxwellDMA::Launch() {
         }
 
         if (is_src_pitch && is_dst_pitch) {
-            u64 contiguous_bytes = 0;
-            if (CanCoalescePitchDma(regs.offset_in, regs.offset_out, regs.line_length_in,
-                                    regs.line_count, regs.pitch_in, regs.pitch_out,
-                                    contiguous_bytes)) {
-                // A single mapped copy/flush avoids a row-wise GPU memory walk.
-                memory_manager.CopyBlock(regs.offset_out, regs.offset_in,
-                                         static_cast<size_t>(contiguous_bytes));
-            } else {
-                // Retain exact row-by-row semantics for overlapping, gapped,
-                // negative-pitch or large transfers.
-                for (u32 line = 0; line < regs.line_count; ++line) {
-                    const GPUVAddr source_line =
-                        regs.offset_in + static_cast<size_t>(line) * regs.pitch_in;
-                    const GPUVAddr dest_line =
-                        regs.offset_out + static_cast<size_t>(line) * regs.pitch_out;
-                    memory_manager.CopyBlock(dest_line, source_line, regs.line_length_in);
-                }
+            if (!CopyPitchDmaPlain(memory_manager, regs.offset_in, regs.offset_out,
+                                   regs.pitch_in, regs.pitch_out, regs.line_length_in,
+                                   regs.line_count)) {
+                LOG_WARNING(Render_OpenGL, "Unmapped or oversized aliasing pitch DMA");
+                AssertFailSoftImpl();
             }
         } else {
             if (!is_src_pitch && is_dst_pitch) {
