@@ -253,6 +253,72 @@ void TranslatePrmt(TranslatorVisitor& v, u64 insn, const IR::U32& selector,
     }
     v.X(prmt.dest_reg, result);
 }
+enum class ImadSpType : u32 {
+    U32 = 0,
+    S32 = 1,
+    U24 = 2,
+    S24 = 3,
+    U16Lo = 4,
+    S16Lo = 5,
+    U16Hi = 6,
+    S16Hi = 7,
+};
+
+IR::U32 ExtractImadSp(TranslatorVisitor& v, const IR::U32& value, ImadSpType type) {
+    switch (type) {
+    case ImadSpType::U32:
+    case ImadSpType::S32:
+        return value;
+    case ImadSpType::U24:
+        return v.ir.BitFieldExtract(value, v.ir.Imm32(0), v.ir.Imm32(24), false);
+    case ImadSpType::S24:
+        return v.ir.BitFieldExtract(value, v.ir.Imm32(0), v.ir.Imm32(24), true);
+    case ImadSpType::U16Lo:
+        return v.ir.BitFieldExtract(value, v.ir.Imm32(0), v.ir.Imm32(16), false);
+    case ImadSpType::S16Lo:
+        return v.ir.BitFieldExtract(value, v.ir.Imm32(0), v.ir.Imm32(16), true);
+    case ImadSpType::U16Hi:
+        return v.ir.BitFieldExtract(value, v.ir.Imm32(16), v.ir.Imm32(16), false);
+    case ImadSpType::S16Hi:
+        return v.ir.BitFieldExtract(value, v.ir.Imm32(16), v.ir.Imm32(16), true);
+    }
+    throw NotImplementedException("Invalid IMADSP type");
+}
+
+void TranslateIMadSp(TranslatorVisitor& v, u64 insn, const IR::U32& src_b,
+                     const IR::U32& src_c) {
+    union {
+        u64 raw;
+        BitField<0, 8, IR::Reg> dest_reg;
+        BitField<8, 8, IR::Reg> src_reg_a;
+        BitField<47, 1, u64> cc;
+        BitField<48, 3, u64> a_type;
+        BitField<51, 2, u64> c_width;
+        BitField<53, 2, u64> b_type;
+    } const imadsp{insn};
+
+    // Envytools exposes .CC, but no reviewed Maxwell oracle establishes its
+    // flag contract. C width 3 is reserved in the qualified decoder corpus.
+    if (imadsp.cc != 0) {
+        throw NotImplementedException("IMADSP CC modifier");
+    }
+    if (imadsp.c_width == 3) {
+        throw NotImplementedException("IMADSP reserved C width");
+    }
+
+    const u32 a_type{static_cast<u32>(imadsp.a_type.Value())};
+    const u32 b_type{static_cast<u32>(imadsp.b_type.Value())};
+    const bool c_signed{(a_type & 1U) != 0 || (b_type & 1U) != 0};
+    const u32 c_type{static_cast<u32>(imadsp.c_width.Value()) * 2U +
+                     static_cast<u32>(c_signed)};
+
+    const IR::U32 a{ExtractImadSp(v, v.X(imadsp.src_reg_a),
+                                  static_cast<ImadSpType>(a_type))};
+    const IR::U32 b{ExtractImadSp(v, src_b, static_cast<ImadSpType>(b_type + 2U))};
+    const IR::U32 addend{ExtractImadSp(v, src_c, static_cast<ImadSpType>(c_type))};
+    v.X(imadsp.dest_reg, v.ir.IAdd(v.ir.IMul(a, b), addend));
+}
+
 } // namespace
 
 void TranslatorVisitor::ATOMS_cas(u64) {
@@ -388,20 +454,21 @@ void TranslatorVisitor::IMAD32I(u64 insn) {
     X(imad.dest_reg, ir.IAdd(product, addend));
 }
 
-void TranslatorVisitor::IMADSP_reg(u64) {
-    ThrowNotImplemented(Opcode::IMADSP_reg);
+void TranslatorVisitor::IMADSP_reg(u64 insn) {
+    TranslateIMadSp(*this, insn, GetReg20(insn), GetReg39(insn));
 }
 
-void TranslatorVisitor::IMADSP_rc(u64) {
-    ThrowNotImplemented(Opcode::IMADSP_rc);
+void TranslatorVisitor::IMADSP_rc(u64 insn) {
+    // 0x5280: B is register 39 and C is the constant-buffer operand.
+    TranslateIMadSp(*this, insn, GetReg39(insn), GetCbuf(insn));
 }
 
-void TranslatorVisitor::IMADSP_cr(u64) {
-    ThrowNotImplemented(Opcode::IMADSP_cr);
+void TranslatorVisitor::IMADSP_cr(u64 insn) {
+    TranslateIMadSp(*this, insn, GetCbuf(insn), GetReg39(insn));
 }
 
-void TranslatorVisitor::IMADSP_imm(u64) {
-    ThrowNotImplemented(Opcode::IMADSP_imm);
+void TranslatorVisitor::IMADSP_imm(u64 insn) {
+    TranslateIMadSp(*this, insn, GetImm20(insn), GetReg39(insn));
 }
 
 void TranslatorVisitor::IMUL_reg(u64 insn) {
