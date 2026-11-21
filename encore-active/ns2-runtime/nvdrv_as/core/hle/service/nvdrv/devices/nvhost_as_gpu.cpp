@@ -80,13 +80,8 @@ NvResult nvhost_as_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> i
         case 0x2:
             return WrapFixed(this, &nvhost_as_gpu::AllocateSpace, input, output);
         case 0x3:
-            // A native FreeSpace may release the last NVMap pin. Prior GPU
-            // submissions must finish before their physical pages retire.
-            // Wait outside the AS lock; the GPU worker may read its GMMU.
-            if (m_native_process &&
-                NativeGpuProcessRegistry::Instance().Contains(m_native_process) &&
-                system.IsPoweredOn() && !system.IsShuttingDown())
-                system.GPU().WaitForIdle();
+            // FreeSpace itself drains native GPU work before taking AS mutex,
+            // including when invoked directly outside the ioctl dispatcher.
             return WrapFixed(this, &nvhost_as_gpu::FreeSpace, input, output);
         case 0x4: {
             // NS2 NVGPU_AS_IOCTL_MAP_BUFFER (0xC0184104) is a 24-byte
@@ -127,10 +122,7 @@ NvResult nvhost_as_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> i
             return result;
         }
         case 0x5:
-            if (m_native_process &&
-                NativeGpuProcessRegistry::Instance().Contains(m_native_process) &&
-                system.IsPoweredOn() && !system.IsShuttingDown())
-                system.GPU().WaitForIdle();
+            // UnmapBuffer owns the one required native GPU idle barrier.
             return WrapFixed(this, &nvhost_as_gpu::UnmapBuffer, input, output);
         case 0x6:
             return WrapFixed(this, &nvhost_as_gpu::MapBufferEx, input, output);

@@ -343,6 +343,20 @@ assert "std::bad_alloc" in _native_gpu
 assert "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;" in _ctrl_gpu
 assert "system.GPU().WaitForIdle();" in _gsv
 
+# Exactly one native GPU idle drain for the retirement ioctls.
+# A:3/A:5 delegate to their own locking-aware method guards, instead
+# of issuing a second WaitForIdle before forwarding.
+_ioctl_as = _as_runtime.split("NvResult nvhost_as_gpu::Ioctl1(",1)[1].split(
+    "\nNvResult nvhost_as_gpu::Ioctl2(",1)[0]
+for cmd, next_cmd, fn in (("0x3", "0x4", "FreeSpace"),
+                          ("0x5", "0x6", "UnmapBuffer")):
+    part = _ioctl_as.split(f"case {cmd}:",1)[1].split(f"case {next_cmd}:",1)[0]
+    assert "system.GPU().WaitForIdle();" not in part,(cmd,"duplicate wait")
+    assert f"&nvhost_as_gpu::{fn}" in part,(cmd,fn)
+    method = _as_runtime.split(f"NvResult nvhost_as_gpu::{fn}(",1)[1].split(
+        "std::scoped_lock lock(mutex);",1)[0]
+    assert "system.GPU().WaitForIdle();" in method,(fn,"missing barrier")
+
 # A failed GMMU MapSparse followed by failed Unmap is a partially
 # committed GPU page table. Both native sparse allocator branches must
 # quarantine BEFORE returning, keeping the VA ledger/pins reserved.
