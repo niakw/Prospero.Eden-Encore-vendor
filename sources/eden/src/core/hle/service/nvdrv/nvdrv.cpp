@@ -127,7 +127,13 @@ void LoopProcess(Core::System& system) {
 Module::Module(Core::System& system)
     : container{system.Host1x()}, service_context{system, "nvdrv"}, events_interface{*this} {
     nx2_stub_builder = [this, &system](DeviceFD fd, const std::string& name) {
-        auto device = std::make_shared<Devices::nx2_stub_device>(system, name);
+        auto device = std::make_shared<Devices::nx2_stub_device>(
+            system, name,
+            [this](NvCore::SessionId owner, DeviceFD channel_fd) {
+                const auto it = open_files.find(channel_fd);
+                return it != open_files.end() &&
+                       it->second->CanBindNativeTsgChannel(channel_fd, owner);
+            });
         open_files.emplace(fd, device);
         return std::static_pointer_cast<Devices::nvdevice>(device);
     };

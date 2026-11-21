@@ -71,6 +71,10 @@ public:
      */
     virtual void OnClose(DeviceFD fd) = 0;
 
+    // A Switch 2 TSG may only bind an existing native GPU channel opened
+    // by the SAME KProcess. Non-channel NVDRV devices must reject this check.
+    virtual bool CanBindNativeTsgChannel(DeviceFD, NvCore::SessionId) { return false; }
+
     virtual Kernel::KEvent* QueryEvent(u32 event_id) {
         return nullptr;
     }

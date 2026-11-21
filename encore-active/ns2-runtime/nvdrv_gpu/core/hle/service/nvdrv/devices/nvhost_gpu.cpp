@@ -185,6 +185,17 @@ void nvhost_gpu::OnClose(DeviceFD fd) {
     sessions.erase(fd);
 }
 
+bool nvhost_gpu::CanBindNativeTsgChannel(DeviceFD fd, NvCore::SessionId owner) {
+    const std::scoped_lock lk{channel_mutex};
+    const auto it = sessions.find(fd);
+    if (it == sessions.end()) return false;
+    const auto* channel = core.GetSession(it->second);
+    const auto* tsg = core.GetSession(owner);
+    return channel && tsg && channel->process &&
+           channel->process == tsg->process &&
+           NativeGpuProcessRegistry::Instance().Contains(channel->process);
+}
+
 NvResult nvhost_gpu::SetNVMAPfd(IoctlSetNvmapFD& params) {
     LOG_DEBUG(Service_NVDRV, "called, fd={}", params.nvmap_fd);
 
