@@ -181,6 +181,12 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
             if (command.raw != 0x40044820U) break;
             if (input.size() != sizeof(IoctlChannelOpen)) return NvResult::InvalidSize;
             return WrapFixed(this, &nvhost_gpu::ChannelOpen, input, output, fd);
+        case 0x21: // Switch 2 NVGPU_IOCTL_CHANNEL_SETUP_BIND
+            if (command.raw != 0xC0504821U) break;
+            if (input.size() != sizeof(IoctlChannelSetupBind) ||
+                output.size() != sizeof(IoctlChannelSetupBind))
+                return NvResult::InvalidSize;
+            return WrapFixed(this, &nvhost_gpu::ChannelSetupBind, input, output, fd);
         default:
             break;
         }
@@ -270,6 +276,48 @@ NvResult nvhost_gpu::ChannelOpen(IoctlChannelOpen& params, DeviceFD fd) {
     // the existing virtual GPU queue already owns this ChannelState.
     channel_state->program_id = program_id;
     native_runlist_id = runlist_id;
+    return NvResult::Success;
+}
+
+NvResult nvhost_gpu::ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd) {
+    // Run the strict ABI/feature admission BEFORE touching the GPU queue,
+    // NVMap backing, process registry, or future synchronization state.
+    for (const auto reserved : params.reserved)
+        if (static_cast<u32>(reserved) != 0) return NvResult::BadParameter;
+    const NativeKernelChannelSetupRequest request{
+        static_cast<u32>(params.num_gpfifo_entries),
+        static_cast<u32>(params.num_inflight_jobs),
+        static_cast<u32>(params.flags),
+        static_cast<s32>(params.userd_dmabuf_fd),
+        static_cast<s32>(params.gpfifo_dmabuf_fd),
+        static_cast<u64>(params.userd_dmabuf_offset),
+        static_cast<u64>(params.gpfifo_dmabuf_offset)};
+    const auto admission = ValidateNativeKernelChannelSetup(request);
+    if (admission == NativeKernelChannelSetupStatus::Invalid)
+        return NvResult::BadParameter;
+    if (admission != NativeKernelChannelSetupStatus::Valid)
+        return NvResult::NotImplemented;
+
+    const std::scoped_lock lock{channel_mutex};
+    if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+    u64 program_id{};
+    if (const auto status = ValidateChannelOwner(fd, program_id);
+        status != NvResult::Success)
+        return status;
+    // CHANNEL_OPEN selected the authenticated logical runlist. A real GMMU
+    // must already be bound via nvhost-as-gpu before creating GPU state.
+    if (!channel_state || !channel_state->memory_manager ||
+        !native_runlist_id.has_value())
+        return NvResult::InvalidState;
+    if (channel_state->initialized) return NvResult::AlreadyAllocated;
+
+    // Kernel mode hands command lists to the existing software GPU queue,
+    // exactly as AllocGPFIFOEx2 does. No fake USERD/GPFIFO guest allocation
+    // and no doorbell token are returned. User mode was rejected above.
+    channel_state->program_id = program_id;
+    system.GPU().InitChannel(*channel_state, program_id);
+    if (!channel_state->initialized) return NvResult::InvalidState;
+    params.work_submit_token = 0;
     return NvResult::Success;
 }
 

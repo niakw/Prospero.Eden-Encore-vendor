@@ -51,6 +51,31 @@ assert submit.index("syncpoint_manager.IsSyncpointAllocated(") < submit.index(
     "!syncpoint_manager.IsFenceSignalled(params.fence)") < submit.index(
     "gpu.PushGPUEntries(")
 
+# Switch 2 0xC0504821 must bind a real initialized kernel-mode
+# channel, not return success for missing GMMU or USERD/doorbell buffers.
+hdr=(ROOT/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
+pure=(ROOT/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_submission.h").read_text()
+assert "static_assert(sizeof(IoctlChannelSetupBind) == 80" in hdr
+assert "NativeKernelChannelSetupStatus ValidateNativeKernelChannelSetup" in pure
+assert "num_entries < 4" in pure and "num_entries > (1U << 28)" in pure
+assert "request.flags != 0" in pure and "request.num_inflight_jobs != 0" in pure
+assert "case 0x21: // Switch 2 NVGPU_IOCTL_CHANNEL_SETUP_BIND" in text
+assert "command.raw != 0xC0504821U" in text
+bind=text.split("NvResult nvhost_gpu::ChannelSetupBind(",1)[1].split("\n}\n",1)[0]
+for needle in ("ValidateNativeKernelChannelSetup(request)",
+               "ValidateChannelOwner(fd, program_id)",
+               "native_runlist_id.has_value()",
+               "channel_state->memory_manager",
+               "system.GPU().InitChannel(*channel_state, program_id)",
+               "if (!channel_state->initialized) return NvResult::InvalidState;",
+               "params.work_submit_token = 0",
+               "return NvResult::NotImplemented"):
+    assert needle in bind, needle
+assert bind.index("ValidateNativeKernelChannelSetup(request)") < bind.index(
+    "system.GPU().InitChannel(*channel_state, program_id)")
+assert bind.index("ValidateChannelOwner(fd, program_id)") < bind.index(
+    "system.GPU().InitChannel(*channel_state, program_id)")
+
 # No command words or guest buffers are persisted by the new trace strings.
 for forbidden in ("submitted_words", "command_word=", "guest_bytes=", "dump_pushbuffer"):
     assert forbidden not in "\n".join(

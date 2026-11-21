@@ -87,6 +87,20 @@ private:
         s32_le runlist_id{};
     };
     static_assert(sizeof(IoctlChannelOpen) == 4, "IoctlChannelOpen ABI size");
+    // NVGPU_IOCTL_CHANNEL_SETUP_BIND (0xC0504821), NVIDIA nvgpu UAPI.
+    // The ioctl is INOUT 80 bytes, including nine trailing reserved words.
+    struct IoctlChannelSetupBind {
+        u32_le num_gpfifo_entries{};
+        u32_le num_inflight_jobs{};
+        u32_le flags{};
+        s32_le userd_dmabuf_fd{};
+        s32_le gpfifo_dmabuf_fd{};
+        u32_le work_submit_token{};
+        u64_le userd_dmabuf_offset{};
+        u64_le gpfifo_dmabuf_offset{};
+        std::array<u32_le, 9> reserved{};
+    };
+    static_assert(sizeof(IoctlChannelSetupBind) == 80, "IoctlChannelSetupBind ABI size");
 
     // NVIDIA nvgpu UAPI: 0xC010481E, exactly 16 output bytes.
     // The address must name the channel syncpoint's actual GMMU shim word.
@@ -203,6 +217,7 @@ private:
     u32_le channel_timeslice{};
 
     NvResult ChannelOpen(IoctlChannelOpen& params, DeviceFD fd);
+    NvResult ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd);
     NvResult GetUserSyncpoint(IoctlGetUserSyncpoint& params, DeviceFD fd);
     NvResult SetNVMAPfd(IoctlSetNvmapFD& params);
     NvResult SetClientData(IoctlClientData& params);
