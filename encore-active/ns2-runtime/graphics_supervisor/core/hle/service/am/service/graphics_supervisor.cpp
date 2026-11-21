@@ -530,6 +530,18 @@ public:
             // These are independent 60Hz vblank events, not the 11 notification.
             {31,&IVi2Session::VsyncEvent,"GetVsyncEvent"},
             {32,&IVi2Session::VsyncEvent,"GetDisplayVsyncEvent"},
+            {261,&IVi2Session::ConfigureNativeDisplayEvent,"BindDisplayVsyncEvent"},
+            {262,&IVi2Session::ConfigureNativeDisplayEvent,"UnbindDisplayVsyncEvent"},
+            {263,&IVi2Session::ConfigureNativeDisplayEvent,"BindDisplayRefreshRateEvent"},
+            {264,&IVi2Session::ConfigureNativeDisplayEvent,"UnbindDisplayRefreshRateEvent"},
+            {265,&IVi2Session::ConfigureNativeDisplayEvent,"BindDisplayHdrStatusEvent"},
+            {266,&IVi2Session::ConfigureNativeDisplayEvent,"UnbindDisplayHdrStatusEvent"},
+            {267,&IVi2Session::ConfigureNativeDisplayEvent,"BindDisplayHdrPaperWhiteEvent"},
+            {268,&IVi2Session::ConfigureNativeDisplayEvent,"UnbindDisplayHdrPaperWhiteEvent"},
+            {269,&IVi2Session::ConfigureNativeDisplayEvent,"BindDisplayBufferMaxResolutionEvent"},
+            {270,&IVi2Session::ConfigureNativeDisplayEvent,"UnbindDisplayBufferMaxResolutionEvent"},
+            {271,&IVi2Session::ConfigureNativeDisplayEvent,"BindDisplayModeCapabilityEvent"},
+            {272,&IVi2Session::ConfigureNativeDisplayEvent,"UnbindDisplayModeCapabilityEvent"},
             // Observed NVN2 VI2 request-group/display polling controls.
             // The upstream NX2 service acknowledges these without changing
             // display/producer state. Keep other unknown IDs fail-closed.
@@ -688,35 +700,53 @@ private:
         }
     }
     void VsyncEvent(HLERequestContext& ctx) {
-        // Native VI2 commands 31/32 return one readable kernel event. Both
-        // signal at vblank (not only after Present): SDK bootstrap can wait
-        // for two ticks before creating or submitting a single GPU buffer.
-        if (m_vsync_events.size() >= 32) {
+        // 31(u32 slot) creates/returns an indexed native event. 32(u32 slot,
+        // COPY handle) duplicates that SAME event, not another vblank source.
+        // Guests can wait on its handle before the first GPU submission.
+        const auto* packet = ctx.CommandBuffer();
+        const u32 command = ctx.GetCommand();
+        const auto slot = GraphicsSupervisorProtocol::DecodeVi2NativeEventSlot(
+            std::span<const u32>{packet, IPC::COMMAND_BUFFER_LENGTH}, command);
+        Result status = Kernel::ResultInvalidCombination;
+        if (slot && command == 32 &&
+            packet[3] != ctx.GetCopyHandle(0)) {
+            status = Kernel::ResultInvalidHandle;
+        } else if (slot) {
+            status = ResultSuccess;
+        }
+        if (status.IsError()) {
             IPC::ResponseBuilder rb{ctx, 2};
-            rb.Push(Kernel::ResultOutOfResource.raw);
+            rb.Push(status.raw);
             return;
         }
-        // Reserve both event registries before allocating a kernel event.
-        // Otherwise vector growth (or first timer scheduling) can throw
-        // after CreateEvent, leaking a kernel handle or publishing a pointer
-        // that the vblank callback might access after CloseEvent.
+        auto* event = m_native_events[*slot];
+        if (event) {
+            IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+            rb.Push(ResultSuccess.raw);
+            rb.PushCopyObjects(ctx, event->GetReadableEvent());
+            return;
+        }
+        // Reserve the owners and the callback list BEFORE creating a kernel
+        // event. Neither registry can allocate after publishing the pointer.
         try {
-            m_vsync_events.reserve(32);
+            m_vsync_events.reserve(GraphicsSupervisorProtocol::RequestGroupCount);
             const std::scoped_lock lock{m_vsync->mutex};
-            m_vsync->events.reserve(32);
+            m_vsync->events.reserve(GraphicsSupervisorProtocol::RequestGroupCount);
         } catch (const std::bad_alloc&) {
             IPC::ResponseBuilder rb{ctx, 2};
             rb.Push(Kernel::ResultOutOfResource.raw);
             return;
         }
-        auto* event = m_context.CreateEvent("NativeVi2Vsync");
+        try {
+            event = m_context.CreateEvent("NativeVi2Vsync");
+        } catch (const std::bad_alloc&) {
+            event = nullptr;
+        }
         if (!event) {
             IPC::ResponseBuilder rb{ctx, 2};
             rb.Push(Kernel::ResultOutOfResource.raw);
             return;
         }
-        // Both vectors are already provisioned, so appending a pointer
-        // cannot allocate. The timer callback sees only committed events.
         m_vsync_events.push_back(event);
         {
             const std::scoped_lock lock{m_vsync->mutex};
@@ -730,7 +760,7 @@ private:
                     "NativeVi2Vsync60Hz",
                     [state, &event_kernel](
                         s64, std::chrono::nanoseconds)
-                        ->std::optional<std::chrono::nanoseconds> {
+                        -> std::optional<std::chrono::nanoseconds> {
                         const std::scoped_lock lock{state->mutex};
                         for (auto* target : state->events)
                             target->Signal(event_kernel);
@@ -741,9 +771,6 @@ private:
                     period, period, new_timer);
                 m_vsync_timer = std::move(new_timer);
             } catch (const std::bad_alloc&) {
-                // Scheduling failed before the timer was published. Remove
-                // the pointer under the callback lock BEFORE closing the
-                // kernel event, preserving a retryable healthy VI2 session.
                 {
                     const std::scoped_lock lock{m_vsync->mutex};
                     m_vsync->events.pop_back();
@@ -755,13 +782,46 @@ private:
                 return;
             }
         }
-#ifdef PS5_NATIVE
-        std::fprintf(stderr, "EDEN_NS2_VI2_VSYNC cmd=%u registered=%zu hz=60\n",
-                     static_cast<unsigned>(ctx.GetCommand()), m_vsync_events.size());
-#endif
+        // Assign the stable indexed identity after every fallible operation.
+        m_native_events[*slot] = event;
         IPC::ResponseBuilder rb{ctx, 2, 1, 0};
         rb.Push(ResultSuccess.raw);
         rb.PushCopyObjects(ctx, event->GetReadableEvent());
+    }
+    void ConfigureNativeDisplayEvent(HLERequestContext& ctx) {
+        const u32 command = ctx.GetCommand();
+        const auto request = GraphicsSupervisorProtocol::DecodeVi2DisplayEventBinding(
+            std::span<const u32>{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH},
+            command);
+        Result result = Kernel::ResultInvalidCombination;
+        if (request && request->display_name == Default &&
+            request->value < m_native_events.size()) {
+            auto* event = m_native_events[request->value];
+            result = Kernel::ResultInvalidState;
+            if (event) {
+                {
+                    // CoreTiming reads only this list; bind/unbind under the
+                    // SAME lock as its callback and the VI2 session teardown.
+                    const std::scoped_lock lock{m_vsync->mutex};
+                    auto& active = m_vsync->events;
+                    if (command == 261) {
+                        if (std::find(active.begin(), active.end(), event) ==
+                            active.end())
+                            active.push_back(event); // reserved at event creation
+                    } else {
+                        std::erase(active, event);
+                    }
+                }
+                // Display capabilities are static in Encore. Signal a
+                // change binding exactly once so the SDK can re-query,
+                // but do not turn refresh/HDR status into 60Hz events.
+                if (command >= 263 && (command & 1))
+                    event->Signal(kernel);
+                result = ResultSuccess;
+            }
+        }
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
     }
     void Notifications(HLERequestContext& ctx) {
         Result result=Kernel::ResultInvalidSize;
@@ -1154,6 +1214,8 @@ private:
     };
     std::shared_ptr<VsyncState> m_vsync = std::make_shared<VsyncState>();
     std::vector<Kernel::KEvent*> m_vsync_events;
+    std::array<Kernel::KEvent*, GraphicsSupervisorProtocol::RequestGroupCount>
+        m_native_events{};
     std::shared_ptr<Core::Timing::EventType> m_vsync_timer;
     std::shared_ptr<Core::Timing::EventType> m_poll;
 };

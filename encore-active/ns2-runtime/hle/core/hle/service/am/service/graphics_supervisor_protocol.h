@@ -177,6 +177,37 @@ struct DisplayParameter261Request {
     u32 value;
 };
 
+// Switch 2 VI2 31 and 32 refer to the same eight native event slots.
+// 32 carries one copied kernel handle before its slot; 31 is raw.
+inline std::optional<u32> DecodeVi2NativeEventSlot(
+    std::span<const u32> packet, u32 command) {
+    if (command == 31) {
+        if (packet.size() < 3 || packet[0] != 16 + 31 || packet[1] != 1 ||
+            packet[2] >= RequestGroupCount)
+            return {};
+        return packet[2];
+    }
+    if (command == 32) {
+        const auto request = DecodeRequestGroupEventDuplicate(packet);
+        if (!request || !request->copied_handle ||
+            request->group >= RequestGroupCount)
+            return {};
+        return request->group;
+    }
+    return {};
+}
+
+// VI2 261..272 (one default-display name and one native event slot).
+// Odd commands bind vsync/change notifications; even commands unbind.
+inline std::optional<DisplayParameter261Request> DecodeVi2DisplayEventBinding(
+    std::span<const u32> packet, u32 command) {
+    if (command < 261 || command > 272 || packet.size() < 5 ||
+        packet[0] != 16 + command || packet[1] != 3)
+        return {};
+    return DisplayParameter261Request{
+        u64{packet[2]} | (u64{packet[3]} << 32), packet[4]};
+}
+
 inline std::optional<DisplayParameter261Request> DecodeDisplayParameter261(
     std::span<const u32> packet) {
     if (packet.size() < 5 || packet[0] != 0x115 || packet[1] != 3) {
