@@ -23,6 +23,7 @@
 #include "core/hle/service/nvdrv/core/nvmap.h"
 #include "core/hle/service/nvdrv/nvdrv.h"
 #include "core/hle/service/nvdrv/devices/nvhost_as_gpu.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
 #include "core/hle/kernel/k_memory_block.h"
 #include "core/hle/service/sm/sm.h"
 #include <span>
@@ -1784,15 +1785,38 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
                         system.ServiceManager().GetService<Nvidia::NVDRV>("nvdrv:s", true);
                     const auto module = service ? service->GetModule() : nullptr;
                     if (module) {
-                        auto handler = std::make_shared<Nvidia::NVDRV>(
+                        // 1402/1401 may precede GPU 497 in the native SDK's
+                        // initialization sequence. The NVDRV FDs must already
+                        // be authenticated as Ampere at their FIRST ioctl,
+                        // not wait for IGpuSession / GpuWorkerSharedState.
+                        // Hold one process-generation ticket for this exact
+                        // child KSession lifetime. Its custom deleter runs
+                        // *after* NVDRV::~NVDRV has closed the NvCore session.
+                        // Failed session publication and guest CloseHandle
+                        // use the very same rollback path; the parent GSV
+                        // only retains a weak handle, never a zombie owner.
+                        auto pending = std::make_unique<Nvidia::NVDRV>(
                             system, module, "nx2:nvsrv");
-                        if (handler->InitializeForProcess(m_process)) {
-                            // Keep the handler reachable through the kernel
-                            // session manager; weak tracking must not keep a
-                            // closed guest handle alive.
-                            result = CreateMetadataSession(system, ctx, handler, &client);
-                            if (result.IsSuccess())
-                                m_nvsrv_session = handler;
+                        auto& registry =
+                            Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+                        if (!registry.Register(m_process)) {
+                            result = Kernel::ResultOutOfResource;
+                        } else {
+                            // The shared_ptr raw-pointer constructor invokes
+                            // this deleter even if its control-block
+                            // allocation throws. No leaked process ticket.
+                            std::shared_ptr<Nvidia::NVDRV> handler{
+                                pending.release(),
+                                [native_process = m_process](Nvidia::NVDRV* child) noexcept {
+                                    delete child;
+                                    Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+                                        .Unregister(native_process);
+                                }};
+                            if (handler->InitializeForProcess(m_process)) {
+                                result = CreateMetadataSession(system, ctx, handler, &client);
+                                if (result.IsSuccess())
+                                    m_nvsrv_session = handler;
+                            }
                         }
                     }
                 } catch (const std::bad_alloc&) {

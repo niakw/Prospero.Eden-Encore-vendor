@@ -128,7 +128,7 @@ for needle in (
     'packet[0] == 16 + 1402 && packet[1] == 0',
     'm_bootstrap.CurrentPhase() == GB::Phase::Ready',
     'GetService<Nvidia::NVDRV>("nvdrv:s", true)',
-    'std::make_shared<Nvidia::NVDRV>(',
+    'std::make_unique<Nvidia::NVDRV>(',
     'system, module, "nx2:nvsrv"',
     'handler->InitializeForProcess(m_process)',
     'CreateMetadataSession(system, ctx,',
@@ -141,6 +141,33 @@ assert nvsrv.index('handler->InitializeForProcess(m_process)') < nvsrv.index(
     'CreateMetadataSession(system, ctx,')
 assert nvsrv.index('if (result.IsError()) {') < nvsrv.index(
     'IPC::ResponseBuilder rb{ctx, 2, 1, 0};')
+# Firmware boot can open native NvDrv2User (1402) BEFORE GPU session (497).
+# A process is therefore already native for the first NVDRV ioctl. Tie the
+# ticket to the actual child session lifetime, not GSV parent / program ID.
+assert '#include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"' in cpp
+for marker in (
+    'Nvidia::Devices::NativeGpuProcessRegistry::Instance();',
+    'registry.Register(m_process)',
+    'std::shared_ptr<Nvidia::NVDRV> handler{',
+    'pending.release()',
+    '[native_process = m_process](Nvidia::NVDRV* child) noexcept',
+    'delete child;',
+    '.Unregister(native_process);',
+):
+    assert marker in nvsrv,marker
+assert nvsrv.index('registry.Register(m_process)') < nvsrv.index(
+    'std::shared_ptr<Nvidia::NVDRV> handler{') < nvsrv.index(
+    'handler->InitializeForProcess(m_process)') < nvsrv.index(
+    'CreateMetadataSession(system, ctx, handler, &client)')
+assert nvsrv.index('delete child;') < nvsrv.index('.Unregister(native_process);')
+assert nvsrv.index('result = Kernel::ResultOutOfResource;') < nvsrv.index(
+    'std::shared_ptr<Nvidia::NVDRV> handler{')
+# The independent GPU session also keeps a ref to the same process-generation
+# key. After this child closes, 497 may remain live with no lost epoch.
+shared=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.cpp").read_text()
+registry=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
+assert "native_registered = Nvidia::Devices::NativeGpuProcessRegistry::Instance().Register(process);" in shared
+assert "if (--it->second.references == 0) owners.erase(it);" in registry
 # 1402 must reject a second active user session (firmware 0x200f3),
 # while a closed child must not be kept alive by the parent supervisor.
 assert 'std::weak_ptr<Nvidia::NVDRV> m_nvsrv_session;' in hdr
