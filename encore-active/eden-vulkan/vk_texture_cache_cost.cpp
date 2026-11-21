@@ -3721,7 +3721,7 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
                                     ImageView* depth_buffer, bool is_rescaled_) {
     boost::container::small_vector<VkImageView, NUM_RT * 2 + 2> attachments;
     RenderPassKey renderpass_key{};
-    s32 num_layers = 1;
+    s32 num_layers = (std::numeric_limits<s32>::max)();
     color_attachment_images.fill(VK_NULL_HANDLE);
     color_attachment_views.fill(VK_NULL_HANDLE);
     color_attachment_ranges.fill(VkImageSubresourceRange{});
@@ -3746,7 +3746,7 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
         color_attachment_views[index] = color_buffer->RenderTarget();
         color_attachment_ranges[index] = MakeSubresourceRange(color_buffer);
         renderpass_key.color_formats[index] = color_buffer->format;
-        num_layers = (std::max)(num_layers, color_buffer->range.extent.layers);
+        num_layers = (std::min)(num_layers, color_buffer->range.extent.layers);
         images[num_images] = color_buffer->ImageHandle();
         image_ranges[num_images] = MakeSubresourceRange(color_buffer);
         rt_map[index] = num_images;
@@ -3763,7 +3763,7 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
                                               : depth_buffer->size.height);
         attachments.push_back(depth_buffer->RenderTarget());
         renderpass_key.depth_format = depth_buffer->format;
-        num_layers = (std::max)(num_layers, depth_buffer->range.extent.layers);
+        num_layers = (std::min)(num_layers, depth_buffer->range.extent.layers);
         images[num_images] = depth_buffer->ImageHandle();
         const VkImageSubresourceRange subresource_range = MakeSubresourceRange(depth_buffer);
         image_ranges[num_images] = subresource_range;
@@ -3776,11 +3776,15 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
     } else {
         renderpass_key.depth_format = PixelFormat::Invalid;
     }
+    if (num_layers == (std::numeric_limits<s32>::max)()) {
+        num_layers = 1;
+    }
+    layers = static_cast<u32>((std::max)(num_layers, 1));
     if (IsMixedSamplesTarget(color_buffers, depth_buffer)) {
         const VkExtent2D extent{(std::min)(render_area.width, width),
                                 (std::min)(render_area.height, height)};
         CreateMixedSamplesFramebuffer(runtime, color_buffers, attachments, renderpass_key,
-                                      static_cast<u32>((std::max)(num_layers, 1)), extent);
+                                      layers, extent);
         return;
     }
     renderpass_key.samples = samples;
@@ -3804,7 +3808,6 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
     render_area.height = (std::min)(render_area.height, height);
 
     if (do_resolve_color) {
-        const u32 layers = static_cast<u32>((std::max)(num_layers, 1));
         for (size_t index = 0; index < NUM_RT; ++index) {
             const PixelFormat format = renderpass_key.color_formats[index];
             if (format == PixelFormat::Invalid) {
@@ -3820,7 +3823,6 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
     }
 
     if (do_resolve_depth_stencil) {
-        const u32 layers = static_cast<u32>((std::max)(num_layers, 1));
         const VkFormat vk_format =
             MaxwellToVK::SurfaceFormat(runtime.device, FormatType::Optimal, true,
                                        renderpass_key.depth_format)
@@ -3831,7 +3833,7 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
     }
 
     num_color_buffers = static_cast<u32>(num_colors);
-    CreateVkFramebuffer(runtime, attachments, static_cast<u32>((std::max)(num_layers, 1)));
+    CreateVkFramebuffer(runtime, attachments, layers);
 }
 
 void Framebuffer::CreateMixedSamplesFramebuffer(TextureCacheRuntime& runtime,
