@@ -129,3 +129,45 @@ assert dtor.index("system.GPU().ReleaseChannel(*channel_state);") < dtor.index(
 print("NS1_MAXWELL_CHANNEL_RETIRE_SOURCE_PASS exact_epoch=1 worker_order=1 "
       "pending_wait_removed=1 rasterizer_release=1 final_fd_close=1 "
       "destructor_fallback=1 shutdown_guard=1")
+
+
+# Maxwell/NS1 uses the same AS BindChannel owner. A raw MemoryManager pointer
+# cannot outlive an early AS-FD close, so retain the exact AS object and the
+# same existing NvCore session until ChannelState payload teardown completes.
+as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
+channel_h=(R/"sources/eden/src/video_core/control/channel_state.h").read_text()
+container_h=(R/"sources/eden/src/core/hle/service/nvdrv/core/container.h").read_text()
+container_cpp=(R/"encore-active/eden-core/src/core/hle/service/nvdrv/core/container.cpp").read_text()
+assert "public std::enable_shared_from_this<nvhost_as_gpu>" in as_h
+assert channel_h.index("std::shared_ptr<void> address_space_owner{};") < channel_h.index(
+    "std::optional<Payload> payload;")
+assert "bool RetainSession(SessionId id, const Kernel::KProcess* process);" in container_h
+retain=container_cpp.split(
+    "bool Container::RetainSession(SessionId id, const Kernel::KProcess* process) {",1)[1].split(
+    "\n}\n",1)[0]
+for token in ("session_guard", "impl->sessions.size()", "session.is_active",
+              "session.process != process", "session.ref_count <= 0",
+              "std::numeric_limits<s32>::max()", "++session.ref_count;"):
+    assert token in retain,token
+assert "std::optional<NvCore::SessionId> m_nv_session{};" in as_h
+assert "bool m_channel_session_retained{};" in as_h
+assert "m_nv_session = session_id;" in as_cpp
+as_bind=as_cpp.split("NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {",1)[1].split(
+    "\n}\n",1)[0]
+for token in ("auto owner = weak_from_this().lock();",
+              "container.RetainSession(*m_nv_session, m_native_process)",
+              "m_channel_session_retained = true;",
+              "channel.address_space_owner = std::move(owner);",
+              "channel.memory_manager = gmmu.get();"):
+    assert token in as_bind,token
+assert as_bind.index("container.RetainSession(*m_nv_session, m_native_process)") < as_bind.index(
+    "channel.address_space_owner = std::move(owner);") < as_bind.index(
+    "channel.memory_manager = gmmu.get();")
+as_dtor=as_cpp.split("nvhost_as_gpu::~nvhost_as_gpu() {",1)[1].split(
+    "\n}\n",1)[0]
+assert as_dtor.index("native_sparse_pins.clear();") < as_dtor.index(
+    "container.CloseSession(*m_nv_session);") < as_dtor.index(
+    "m_native_process->Close(system.Kernel());")
+print("NS1_MAXWELL_AS_LEASE_SOURCE_PASS owner_before_payload=1 exact_session=1 "
+      "pins_before_session_close=1 no_new_asid=1")
