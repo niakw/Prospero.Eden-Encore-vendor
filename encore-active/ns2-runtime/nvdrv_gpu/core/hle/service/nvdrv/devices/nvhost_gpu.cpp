@@ -28,6 +28,7 @@
 #include "video_core/control/channel_state.h"
 #include "video_core/engines/puller.h"
 #include "video_core/gpu.h"
+#include "video_core/host1x/host1x.h"
 #include "video_core/memory_manager.h"
 // GPU pushbuffer and syncpoint method types come from dma_pusher.h.
 
@@ -292,12 +293,17 @@ NvResult nvhost_gpu::GetUserSyncpoint(IoctlGetUserSyncpoint& params, DeviceFD fd
     if (!shim || shim > std::numeric_limits<GPUVAddr>::max() -
                              u64{channel_syncpoint} * sizeof(u32))
         return NvResult::InvalidState;
-    const NvFence fence = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
-    if (static_cast<u32>(fence.id) != channel_syncpoint)
-        return NvResult::InvalidState;
+    // NVIDIA's nvgpu_channel_get_user_syncpoint returns the CURRENT
+    // Host1x syncpoint read (syncpt_read_ext_check), not the projected
+    // counter_max of GetSyncpointFence(). That future fence value could
+    // make an NVN user channel wait for a GPU job it has not submitted.
+    // Match the very same guest-visible atomic word that GPU reads from
+    // the shim address returned below.
+    const u32 current = system.Host1x().GetSyncpointManager()
+                            .GetGuestSyncpointValue(channel_syncpoint);
     params.gpu_va = shim + u64{channel_syncpoint} * sizeof(u32);
     params.syncpoint_id = channel_syncpoint;
-    params.syncpoint_max = fence.value;
+    params.syncpoint_max = current;
     return NvResult::Success;
 }
 

@@ -47,10 +47,12 @@ sync=gpu.split("NvResult nvhost_gpu::GetUserSyncpoint(IoctlGetUserSyncpoint& par
 for token in ("UsesNativeAbi(fd)", "ValidateChannelOwner(fd, program_id)",
               "channel_state->memory_manager->GetNativeSyncpointShim()",
               "IsSyncpointAllocated(channel_syncpoint)",
-              "GetSyncpointFence(channel_syncpoint)",
+              "GetGuestSyncpointValue(channel_syncpoint)",
               "params.gpu_va = shim + u64{channel_syncpoint} * sizeof(u32);",
               "params.syncpoint_id = channel_syncpoint",
-              "params.syncpoint_max = fence.value"):
+              "params.syncpoint_max = current"):
     assert token in sync,token
+assert "GetSyncpointFence(channel_syncpoint)" not in sync
 assert sync.index("GetNativeSyncpointShim()") < sync.index("params.gpu_va = shim")
+assert sync.index("GetGuestSyncpointValue(channel_syncpoint)") < sync.index("params.syncpoint_max = current")
 print("NS2_SYNCPOINT_SHIM_SOURCE_PASS ioctl=0xB words=192 stride=4 physical_bytes=0 upstream=12125bc pinned_eden=immutable selected_header=native_tiling_production experimental_guest_bridge=separate")
