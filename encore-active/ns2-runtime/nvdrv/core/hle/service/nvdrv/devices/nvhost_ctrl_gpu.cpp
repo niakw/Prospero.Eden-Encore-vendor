@@ -127,7 +127,7 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
                 u32_le reserved;
             };
             static_assert(sizeof(NativeEngineInfo) == 16);
-            constexpr std::array<NativeEngineInfo, 2> engines{{
+            const std::array<NativeEngineInfo, 2> engines{{
                 {0, 0, 0, 0}, // NVGPU_ENGINE_GR, graphics runlist 0
                 {2, 0, 1, 0}, // NVGPU_ENGINE_ASYNC_COPY, copy runlist 1
             }};
@@ -143,8 +143,6 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
                 (static_cast<u32>(capacity) < needed ||
                  inline_output.size() < needed))
                 return NvResult::InvalidSize;
-            if (static_cast<u32>(capacity) == 0 && !inline_output.empty())
-                return NvResult::BadParameter;
             std::memcpy(output.data(), input.data(), 16);
             const u32_le required{needed};
             std::memcpy(output.data(), &required, sizeof(required));
