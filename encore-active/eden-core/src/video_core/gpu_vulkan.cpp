@@ -190,7 +190,19 @@ struct GPU::Impl {
 
     void WaitForSyncOperation(const u64 fence) {
         std::unique_lock lck{sync_request_mutex};
-        sync_request_cv.wait(lck, [this, fence] { return CurrentSyncRequestFence() >= fence; });
+        while (!shutting_down.load(std::memory_order_relaxed) &&
+               CurrentSyncRequestFence() < fence) {
+            // A failed GPU worker cannot advance this fence. Preserve the
+            // published exception for every waiter instead of hanging the
+            // launcher/guest-stop path indefinitely.
+            if (auto failure = ::Eden::PeekGpuFailure()) {
+                std::rethrow_exception(failure);
+            }
+            sync_request_cv.wait_for(lck, std::chrono::milliseconds(100));
+        }
+        if (auto failure = ::Eden::PeekGpuFailure()) {
+            std::rethrow_exception(failure);
+        }
     }
 
     void WaitForIdle() {
