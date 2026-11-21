@@ -286,8 +286,21 @@ for name,next_name in (("AllocGPFIFOEx","AllocGPFIFOEx2"),
                   "if (UsesNativeAbi(fd))",
                   "native_channel_enabled = true;"):
         assert token in alloc,(name,token)
-    assert alloc.index("system.GPU().InitChannel(*channel_state, program_id);") < alloc.index(
-        "native_channel_enabled = true;") < alloc.rindex(
+    # AS BindChannel can legally follow a successful GPFIFO allocation.
+    # The deferred branch must publish the NS2 logical runnable state even
+    # though physical InitChannel is still gated on a real GMMU.
+    deferred=alloc.split("if (!channel_state->memory_manager) {",1)[1].split(
+        "system.GPU().InitChannel(*channel_state, program_id);",1)[0]
+    for token in ("if (UsesNativeAbi(fd))",
+                  "native_channel_enabled = true;",
+                  "params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);",
+                  "return NvResult::Success;"):
+        assert token in deferred,(name,"deferred",token)
+    assert deferred.index("native_channel_enabled = true;") < deferred.index(
+        "params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);")
+    # The immediate (already-bound) branch remains runnable after real init.
+    immediate=alloc.split("system.GPU().InitChannel(*channel_state, program_id);",1)[1]
+    assert immediate.index("native_channel_enabled = true;") < immediate.index(
         "params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);")
 
 # CHANNEL_SETUP_BIND is a second native GPFIFO admission path. A

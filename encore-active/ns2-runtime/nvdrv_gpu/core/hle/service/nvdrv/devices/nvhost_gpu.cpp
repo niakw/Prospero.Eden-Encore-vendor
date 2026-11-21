@@ -645,6 +645,13 @@ NvResult nvhost_gpu::AllocGPFIFOEx(IoctlAllocGpfifoEx& params, DeviceFD fd) {
 
     // If address space is not yet bound, defer channel initialization.
     if (!channel_state->memory_manager) {
+        // This allocation succeeded before AS BindChannel installed the
+        // GMMU. Publish the native channel's logical enabled state now:
+        // otherwise its later first submit is rejected as disabled before
+        // SubmitGPFIFOImpl can perform the deferred InitChannel. The submit
+        // still requires a real bound GMMU and initialized scheduler.
+        if (UsesNativeAbi(fd))
+            native_channel_enabled = true;
         params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
         return NvResult::Success;
     }
@@ -683,6 +690,13 @@ NvResult nvhost_gpu::AllocGPFIFOEx2(IoctlAllocGpfifoEx& params, DeviceFD fd) {
 
     // If address space is not yet bound, defer channel initialization.
     if (!channel_state->memory_manager) {
+        // This allocation succeeded before AS BindChannel installed the
+        // GMMU. Publish the native channel's logical enabled state now:
+        // otherwise its later first submit is rejected as disabled before
+        // SubmitGPFIFOImpl can perform the deferred InitChannel. The submit
+        // still requires a real bound GMMU and initialized scheduler.
+        if (UsesNativeAbi(fd))
+            native_channel_enabled = true;
         params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
         return NvResult::Success;
     }
