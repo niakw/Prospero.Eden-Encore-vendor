@@ -4,6 +4,9 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
+#include <limits>
+
 #include "common/assert.h"
 #include "common/logging.h"
 #include "video_core/engines/fermi_2d.h"
@@ -65,7 +68,6 @@ void Fermi2D::Blit() {
     UNIMPLEMENTED_IF_MSG(regs.src.layer != 0, "Source layer is not zero");
     UNIMPLEMENTED_IF_MSG(regs.dst.layer != 0, "Destination layer is not zero");
     UNIMPLEMENTED_IF_MSG(regs.src.depth != 1, "Source depth is not one");
-    UNIMPLEMENTED_IF_MSG(regs.clip_enable != 0, "Clipped blit enabled");
 
     const auto& args = regs.pixels_from_memory;
     constexpr s64 null_derivative = 1ULL << 32;
@@ -95,6 +97,56 @@ void Fermi2D::Blit() {
         .src_x1 = static_cast<s32>((srcX + args.du_dx * args.dst_width) >> 32),
         .src_y1 = static_cast<s32>((srcY + args.dv_dy * args.dst_height) >> 32),
     };
+
+    // NVIDIA 2D CLIP_X/Y/W/H is a destination scissor, not a change to
+    // the source image origin. Restrict the destination while advancing the
+    // source coordinates with the guest's original signed 32.32 derivatives.
+    // This is shared Maxwell/Fermi2D semantics, independent of the title.
+    if (regs.clip_enable != 0) {
+        const s64 left = (std::max)(static_cast<s64>(args.dst_x0),
+                                     static_cast<s64>(regs.clip_x0));
+        const s64 top = (std::max)(static_cast<s64>(args.dst_y0),
+                                    static_cast<s64>(regs.clip_y0));
+        const s64 right = (std::min)(static_cast<s64>(args.dst_x0) + args.dst_width,
+                                      static_cast<s64>(regs.clip_x0) + regs.clip_width);
+        const s64 bottom = (std::min)(static_cast<s64>(args.dst_y0) + args.dst_height,
+                                       static_cast<s64>(regs.clip_y0) + regs.clip_height);
+        if (right <= left || bottom <= top) {
+            return; // Empty destination intersection: no memory writes.
+        }
+        // Avoid overflow in large/malformed guest rectangles. A 32.32 source
+        // coordinate must fit both signed 64-bit arithmetic and the existing
+        // signed 32-bit blit rect that consumes its integer component.
+        const auto clipped_source = [](s64 origin, s64 derivative, s64 offset,
+                                       s32& result) -> bool {
+            s64 scaled{};
+            s64 position{};
+            if (__builtin_mul_overflow(derivative, offset, &scaled) ||
+                __builtin_add_overflow(origin, scaled, &position)) {
+                return false;
+            }
+            const s64 integer = position >> 32;
+            if (integer < static_cast<s64>((std::numeric_limits<s32>::min)()) ||
+                integer > static_cast<s64>((std::numeric_limits<s32>::max)())) {
+                return false;
+            }
+            result = static_cast<s32>(integer);
+            return true;
+        };
+        if (right > (std::numeric_limits<s32>::max)() ||
+            bottom > (std::numeric_limits<s32>::max)() ||
+            !clipped_source(srcX, args.du_dx, left - args.dst_x0, config.src_x0) ||
+            !clipped_source(srcX, args.du_dx, right - args.dst_x0, config.src_x1) ||
+            !clipped_source(srcY, args.dv_dy, top - args.dst_y0, config.src_y0) ||
+            !clipped_source(srcY, args.dv_dy, bottom - args.dst_y0, config.src_y1)) {
+            AssertFailSoftImpl();
+            return; // Never reinterpret overflow as a valid guest image span.
+        }
+        config.dst_x0 = static_cast<s32>(left);
+        config.dst_x1 = static_cast<s32>(right);
+        config.dst_y0 = static_cast<s32>(top);
+        config.dst_y1 = static_cast<s32>(bottom);
+    }
 
     const auto need_align_to_pitch =
         bytes_per_pixel != 0 &&
