@@ -1013,8 +1013,8 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
     // Unsupported tile geometry is not a software copy permission. Eden\'s
     // soft assertions returned to this decoder and could corrupt guest bytes.
     if (regs.src_params.block_size.width != 0 ||
-        regs.src_params.block_size.depth != 0 ||
-        (regs.src_params.block_size.depth == 0 && regs.src_params.depth != 1)) {
+        regs.src_params.block_size.depth != 0 || regs.src_params.block_size.height > 5 ||
+        regs.src_params.layer != 0 || regs.src_params.depth != 1) {
         UNIMPLEMENTED_MSG("Unsupported source block-linear DMA geometry");
         return;
     }
@@ -1047,15 +1047,40 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
     const u32 depth = src_params.depth;
     const u32 block_height = src_params.block_size.height;
     const u32 block_depth = src_params.block_size.depth;
-    const size_t src_size =
-        CalculateSize(true, bytes_per_pixel, width, height, depth, block_height, block_depth);
-
-    const u64 dst_size_wide = static_cast<u64>(dst_operand.pitch) * regs.line_count;
-    if (dst_size_wide > static_cast<u64>(~u32{0})) {
-        LOG_WARNING(Render_OpenGL, "Oversized DMA linear destination");
+    // The decoder uses u32 padded GOB products. Admit the full source
+    // surface and destination stride with u64 before calling CalculateSize.
+    constexpr u64 MAX_SOFTWARE_TILED_DMA_BYTES = u64{64} << 20;
+    if (bytes_per_pixel == 0 || width == 0 || height == 0 ||
+        x_elements == 0 || regs.line_count == 0 ||
+        x_offset > width || x_elements > width - x_offset ||
+        src_params.origin.y.Value() > height ||
+        regs.line_count > height - src_params.origin.y.Value() ||
+        static_cast<u64>(x_elements) * bytes_per_pixel > dst_operand.pitch) {
+        LOG_WARNING(Render_OpenGL, "Invalid tiled-to-pitch DMA rectangle");
         return;
     }
+    const u64 aligned_width = (static_cast<u64>(width) * bytes_per_pixel + 63) & ~u64{63};
+    const u64 gob_height = u64{8} << block_height;
+    const u64 aligned_height = (static_cast<u64>(height) + gob_height - 1) &
+                               ~(gob_height - 1);
+    const u64 dst_size_wide = static_cast<u64>(dst_operand.pitch) * regs.line_count;
+    if (aligned_width == 0 || aligned_height == 0 ||
+        aligned_width > MAX_SOFTWARE_TILED_DMA_BYTES / aligned_height ||
+        dst_size_wide > MAX_SOFTWARE_TILED_DMA_BYTES) {
+        LOG_WARNING(Render_OpenGL, "Oversized tiled-to-pitch DMA software transfer");
+        return;
+    }
+    const size_t src_size =
+        CalculateSize(true, bytes_per_pixel, width, height, depth, block_height, block_depth);
     const size_t dst_size = static_cast<size_t>(dst_size_wide);
+    if (src_size != aligned_width * aligned_height ||
+        regs.offset_in > (std::numeric_limits<u64>::max)() - src_size ||
+        regs.offset_out > (std::numeric_limits<u64>::max)() - dst_size ||
+        !memory_manager.IsFullyMappedRange(regs.offset_in, src_size) ||
+        !memory_manager.IsFullyMappedRange(regs.offset_out, dst_size)) {
+        LOG_WARNING(Render_OpenGL, "Unmapped tiled-to-pitch DMA software transfer");
+        return;
+    }
 
     if (DmaSoftwareOverlap(memory_manager, src_operand.address, src_size,
                                 dst_operand.address, dst_size)) {
@@ -1115,7 +1140,10 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
     }
     // Keep an accelerator that explicitly supports this layout; the CPU
     // swizzler cannot decode a nonzero block width or destination layer.
-    if (regs.dst_params.block_size.width != 0 || regs.dst_params.layer != 0) {
+    if (regs.dst_params.block_size.width != 0 ||
+        regs.dst_params.block_size.depth != 0 ||
+        regs.dst_params.block_size.height > 5 ||
+        regs.dst_params.layer != 0 || regs.dst_params.depth != 1) {
         UNIMPLEMENTED_MSG("Unsupported destination block-linear DMA geometry");
         return;
     }
@@ -1142,14 +1170,41 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
     const u32 depth = dst_params.depth;
     const u32 block_height = dst_params.block_size.height;
     const u32 block_depth = dst_params.block_size.depth;
-    const size_t dst_size =
-        CalculateSize(true, bytes_per_pixel, width, height, depth, block_height, block_depth);
-    const u64 src_size_wide = static_cast<u64>(regs.pitch_in) * regs.line_count;
-    if (src_size_wide > static_cast<u64>(~u32{0})) {
-        LOG_WARNING(Render_OpenGL, "Oversized DMA linear source");
+    // The native tiled decoder uses u32 GOB extents. Compute a bounded
+    // whole-image envelope in u64 and validate the source stride first.
+    constexpr u64 MAX_SOFTWARE_TILED_DMA_BYTES = u64{64} << 20;
+    if (bytes_per_pixel == 0 || width == 0 || height == 0 ||
+        x_elements == 0 || regs.line_count == 0 || regs.pitch_in <= 0 ||
+        x_offset > width || x_elements > width - x_offset ||
+        dst_params.origin.y.Value() > height ||
+        regs.line_count > height - dst_params.origin.y.Value() ||
+        static_cast<u64>(x_elements) * bytes_per_pixel >
+            static_cast<u64>(regs.pitch_in)) {
+        LOG_WARNING(Render_OpenGL, "Invalid pitch-to-tiled DMA rectangle");
         return;
     }
+    const u64 aligned_width = (static_cast<u64>(width) * bytes_per_pixel + 63) & ~u64{63};
+    const u64 gob_height = u64{8} << block_height;
+    const u64 aligned_height = (static_cast<u64>(height) + gob_height - 1) &
+                               ~(gob_height - 1);
+    const u64 src_size_wide = static_cast<u64>(regs.pitch_in) * regs.line_count;
+    if (aligned_width == 0 || aligned_height == 0 ||
+        aligned_width > MAX_SOFTWARE_TILED_DMA_BYTES / aligned_height ||
+        src_size_wide > MAX_SOFTWARE_TILED_DMA_BYTES) {
+        LOG_WARNING(Render_OpenGL, "Oversized pitch-to-tiled DMA software transfer");
+        return;
+    }
+    const size_t dst_size =
+        CalculateSize(true, bytes_per_pixel, width, height, depth, block_height, block_depth);
     const size_t src_size = static_cast<size_t>(src_size_wide);
+    if (dst_size != aligned_width * aligned_height ||
+        regs.offset_in > (std::numeric_limits<u64>::max)() - src_size ||
+        regs.offset_out > (std::numeric_limits<u64>::max)() - dst_size ||
+        !memory_manager.IsFullyMappedRange(regs.offset_in, src_size) ||
+        !memory_manager.IsFullyMappedRange(regs.offset_out, dst_size)) {
+        LOG_WARNING(Render_OpenGL, "Unmapped pitch-to-tiled DMA software transfer");
+        return;
+    }
 
     GPUVAddr src_addr = regs.offset_in;
     GPUVAddr dst_addr = regs.offset_out;
