@@ -65,7 +65,8 @@ bool CopyPitchRemap(MemoryManager& memory, const MaxwellDMA::RemapConst& remap,
     // Both counts come from B0B5 two-bit fields. Assert the bounds in the
     // consuming C++ too: selector indexing must never depend on bitfield
     // inlining or guessed range analysis.
-    if (src_components == 0 || src_components > 4 ||
+    if (component_size == 0 || component_size > 4 ||
+        src_components == 0 || src_components > 4 ||
         dst_components == 0 || dst_components > 4) {
         return false;
     }
@@ -432,7 +433,8 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
     const u32 dst_count = remap.num_dst_components_minus_one + 1;
     // Real SET_REMAP_COMPONENTS fields are 2-bit counts; enforce the
     // four-selector ABI before indexing any destination slot.
-    if (src_count == 0 || src_count > 4 || dst_count == 0 || dst_count > 4) {
+    if (component_size == 0 || component_size > 4 ||
+        src_count == 0 || src_count > 4 || dst_count == 0 || dst_count > 4) {
         return false;
     }
     const u64 src_bpp = static_cast<u64>(component_size) * src_count;
