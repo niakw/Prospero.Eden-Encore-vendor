@@ -37,6 +37,19 @@ public:
         phase=Phase::Initialized;
         return Status::Success;
     }
+    Status InitializeTransferMemory(std::span<const U32> packet, bool owner_matches) {
+        const auto request=GraphicsSupervisorProtocol::DecodeBootstrapTransferMemory(packet);
+        if (!request) return Status::InvalidPacket;
+        if (!owner_matches) return Status::InvalidHandle;
+        if (phase!=Phase::Created) return Status::InvalidState;
+        if (request->applet_resource_user_id!=aruid)
+            return Status::InvalidArgument;
+        // GSV 1 does not advertise a GPU architecture or feature grant.
+        // Preserve the unknown profile, and leave real VA allocation to NVDRV.
+        profile=0;
+        phase=Phase::Initialized;
+        return Status::Success;
+    }
     Status BindProcess(std::span<const U32> packet, bool process_matches) {
         if (packet.size()<3 || packet[0]!=0x1b ||
             packet[1]!=0x80000000 || packet[2]!=2)

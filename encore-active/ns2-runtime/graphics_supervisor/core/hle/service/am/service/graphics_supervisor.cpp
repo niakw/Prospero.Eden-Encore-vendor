@@ -1326,6 +1326,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
       m_syncpt{std::make_shared<NativeSyncptState>(system_, process)} {
     m_process->Open(kernel);
     static const FunctionInfo functions[] = {
+        {1, &IGraphicsSupervisor::Initialize, "InitializeWithTransferMemory"},
         {4, &IGraphicsSupervisor::Initialize, "Initialize"},
         {11, &IGraphicsSupervisor::BindProcess, "BindProcess"},
         {101, &IGraphicsSupervisor::CompleteBootstrap, "CompleteBootstrap"},
@@ -1465,13 +1466,34 @@ Result IGraphicsSupervisor::HandleSyncRequest(Kernel::KServerSession& session,
 }
 void IGraphicsSupervisor::Initialize(HLERequestContext& ctx) {
     const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
-    const auto request = GraphicsSupervisorProtocol::DecodeBootstrap(packet);
     bool matches = false;
-    if (request) {
-        const auto process = ctx.GetObjectFromHandle<Kernel::KProcess>(request->process_handle);
-        matches = !process.IsNull() && process.GetPointerUnsafe() == m_process;
+    Result result = Kernel::ResultInvalidCombination;
+    if (ctx.GetCommand() == 1) {
+        const auto request = GraphicsSupervisorProtocol::DecodeBootstrapTransferMemory(packet);
+        if (request) {
+            const auto memory = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(
+                ctx.GetCopyHandle(0));
+            matches = !memory.IsNull() && memory->GetOwner() == m_process &&
+                      request->copied_handle == ctx.GetCopyHandle(0);
+            // Never admit a work-buffer allocation exceeding its real
+            // KTransferMemory backing; a malformed owner is not recoverable
+            // by pretending to have allocated GPU pages.
+            if (matches && request->size > memory->GetSize()) {
+                IPC::ResponseBuilder rb{ctx, 2};
+                rb.Push(Kernel::ResultInvalidSize.raw);
+                return;
+            }
+        }
+        result = TranslateBootstrap(m_bootstrap.InitializeTransferMemory(packet, matches));
+    } else {
+        const auto request = GraphicsSupervisorProtocol::DecodeBootstrap(packet);
+        if (request) {
+            const auto process = ctx.GetObjectFromHandle<Kernel::KProcess>(
+                request->process_handle);
+            matches = !process.IsNull() && process.GetPointerUnsafe() == m_process;
+        }
+        result = TranslateBootstrap(m_bootstrap.Initialize(packet, matches));
     }
-    const Result result = TranslateBootstrap(m_bootstrap.Initialize(packet, matches));
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
 }

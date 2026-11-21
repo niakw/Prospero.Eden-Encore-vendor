@@ -165,6 +165,25 @@ constexpr u8 DecodeBufferSlot(u32 packed) {
     return static_cast<u8>(packed);
 }
 
+// Firmware 19 GSV 1 boots from a process-owned TransferMemory work buffer.
+// The SDK supplies ARUID and buffer size; the process handle is authenticated
+// separately in GSV 11, and must never be inferred from untrusted raw words.
+struct BootstrapTransferMemoryRequest {
+    u32 copied_handle{};
+    u64 applet_resource_user_id{};
+    u64 size{};
+};
+[[nodiscard]] inline std::optional<BootstrapTransferMemoryRequest>
+DecodeBootstrapTransferMemory(std::span<const u32> packet) {
+    if (packet.size() < 8 || packet[0] != 16 + 1 ||
+        packet[1] != 0x80000004U || packet[2] != 2 || packet[3] == 0)
+        return {};
+    const u64 aruid = u64{packet[4]} | (u64{packet[5]} << 32);
+    const u64 size = u64{packet[6]} | (u64{packet[7]} << 32);
+    if (!size || (size & 0xfffU)) return {};
+    return BootstrapTransferMemoryRequest{packet[3], aruid, size};
+}
+
 struct BootstrapRequest {
     u32 process_handle;
     u64 applet_resource_user_id;
