@@ -272,6 +272,24 @@ for token in ("channel->process != tsg->process",
               "NativeGpuProcessRegistry::Instance().Contains(channel->process)",
               "native_channel_enabled = enabled"):
     assert token in set_tsg,token
+# Ampere setup-bind itself makes the channel runnable:
+# nvgpu_channel_setup_bind -> ga10b_channel_bind -> nvgpu_channel_enable.
+# Ounce relies on that and sends no explicit H:0x0E/TSG ENABLE before the
+# first submit. Both legacy GPFIFO alloc entry points must therefore publish
+# the native enabled state immediately after Encore's real InitChannel.
+for name,next_name in (("AllocGPFIFOEx","AllocGPFIFOEx2"),
+                       ("AllocGPFIFOEx2","GetObjectContextClassNumberIndex")):
+    alloc=nvhost_cpp.split("NvResult nvhost_gpu::"+name+"(",1)[1].split(
+        "NvResult nvhost_gpu::"+next_name if next_name=="AllocGPFIFOEx2" else
+        "s32_le nvhost_gpu::GetObjectContextClassNumberIndex",1)[0]
+    for token in ("system.GPU().InitChannel(*channel_state, program_id);",
+                  "if (UsesNativeAbi(fd))",
+                  "native_channel_enabled = true;"):
+        assert token in alloc,(name,token)
+    assert alloc.index("system.GPU().InitChannel(*channel_state, program_id);") < alloc.index(
+        "native_channel_enabled = true;") < alloc.index(
+        "params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);")
+
 submit_impl=nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split(
     "\n}",1)[0]
 assert "if (!native_channel_enabled)" in submit_impl

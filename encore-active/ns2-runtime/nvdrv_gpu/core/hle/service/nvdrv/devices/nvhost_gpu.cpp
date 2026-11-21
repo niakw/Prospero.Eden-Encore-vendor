@@ -644,6 +644,11 @@ NvResult nvhost_gpu::AllocGPFIFOEx(IoctlAllocGpfifoEx& params, DeviceFD fd) {
     }
 
     system.GPU().InitChannel(*channel_state, program_id);
+    // NVIDIA Ampere channel_setup_bind ends with ga10b_channel_bind(),
+    // which enables the channel. Ounce uses this implicit transition and
+    // does not issue H:0x0E/TSG ENABLE before its first GPFIFO2 submit.
+    if (UsesNativeAbi(fd))
+        native_channel_enabled = true;
 
     params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
 
@@ -677,6 +682,11 @@ NvResult nvhost_gpu::AllocGPFIFOEx2(IoctlAllocGpfifoEx& params, DeviceFD fd) {
     }
 
     system.GPU().InitChannel(*channel_state, program_id);
+    // NVIDIA Ampere channel_setup_bind ends with ga10b_channel_bind(),
+    // which enables the channel. Ounce uses this implicit transition and
+    // does not issue H:0x0E/TSG ENABLE before its first GPFIFO2 submit.
+    if (UsesNativeAbi(fd))
+        native_channel_enabled = true;
 
     params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
 
