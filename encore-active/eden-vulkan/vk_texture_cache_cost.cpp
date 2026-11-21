@@ -1570,7 +1570,11 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
         // Overestimate compressed formats safely. Combined D/S planes
         // allocate one conservative image-sized interval EACH: a D24S8
         // depth plane needs 4 B/texel and stencil needs 1 B/texel.
-        const size_t plane_bytes = pixels * img_bpp;
+        // Mixed D32S8/D32 transfers stage 32-bit depth only. Padding the
+        // plane to the packed 64-bit depth+stencil allocation doubles PS5
+        // scratch VRAM for a 1080p depth copy without moving more pixels.
+        const size_t plane_bytes = pixels *
+                                   (mixed_d32_depth_plane ? size_t{4} : img_bpp);
         const size_t padding = (alignment - scratch_used % alignment) % alignment;
         if (scratch_used > scratch_ceiling - padding) {
             return;
