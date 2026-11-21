@@ -956,7 +956,9 @@ NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {
     const auto base_device = module.GetDevice<nvdevice>(params.fd);
     if (!base_device || !base_device->IsGpuChannelDevice())
         return NvResult::BadParameter;
-    auto gpu_channel_device = module.GetDevice<nvhost_gpu>(params.fd);
+    // Keep the exact validated shared_ptr: looking up the same FD again
+    // could observe a different/recycled device if another service closes it.
+    auto gpu_channel_device = std::static_pointer_cast<nvhost_gpu>(base_device);
     if (!gpu_channel_device || !gpu_channel_device->channel_state)
         return NvResult::BadParameter;
     const std::scoped_lock lock{mutex, gpu_channel_device->channel_mutex};
