@@ -5,6 +5,28 @@ shared=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu
 worker=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp").read_text()
 worker_hdr=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.h").read_text()
 registration=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_memory_registration.h").read_text()
+# A 215/216 GMMU page-table OOM can poison an ALREADY-BACKED 214 AS.
+# The worker destructor must detect it before any NVMap release and must
+# skip both resident CPU alias retirement and NvCore CloseSession.
+teardown=worker.split("IGpuWorker::~IGpuWorker() {",1)[1].split(
+    "Result IGpuWorker::BackGpuOnlyRegion(",1)[0]
+for token in (
+    "for (const auto id : m_shared->address_spaces.OwnedIds())",
+    "as->IsNativeSparsePoisoned()",
+    "if (!m_quarantined_nv_session)\n    for (const auto& [key, mapping]",
+    "if (!m_quarantined_nv_session)\n    for (const u32 memory_id : m_memory)",
+    "if (!m_quarantined_nv_session)\n    while (!m_dense_regions.empty())",
+    "if (!m_quarantined_nv_session)\n    for (const u32 id : m_memory)",
+    "for (auto& [key, region] : m_dense_regions)",
+    "(void)region.pages.release();",
+    "if (m_nv_session && !m_quarantined_nv_session)",
+):
+    assert token in teardown,token
+assert teardown.index("as->IsNativeSparsePoisoned()") < teardown.index(
+    "for (const auto& [key, mapping]")
+assert teardown.index("for (auto& [key, region] : m_dense_regions)") < teardown.index(
+    "if (m_nv_session && !m_quarantined_nv_session)")
+
 native_as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
 native_as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
 # A partially OOM-committed GMMU must never lose its physical page backing.

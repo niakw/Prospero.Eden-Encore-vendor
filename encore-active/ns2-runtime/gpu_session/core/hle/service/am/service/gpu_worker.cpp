@@ -186,6 +186,28 @@ IGpuWorker::~IGpuWorker() {
         (!m_dense_regions.empty() || !m_mappings.Mappings().empty() ||
          !m_memory.empty()))
         system.GPU().WaitForIdle();
+    // A failed native 215/216 can poison a GMMU AFTER the original dense
+    // 214 backing was published. The worker must detect this on teardown:
+    // FreeHandle / CloseSession would otherwise unpin physical pages while
+    // some partial guest PTEs still point at them.
+    if (!m_quarantined_nv_session) {
+        for (const auto id : m_shared->address_spaces.OwnedIds()) {
+            if (!id) continue;
+            std::shared_ptr<Nvidia::Devices::nvhost_as_gpu> as;
+            {
+                const std::scoped_lock lock{m_shared->mutex};
+                as = m_shared->FindOwnedAddressSpace(*id);
+            }
+            if (as && as->IsNativeSparsePoisoned()) {
+                m_quarantined_nv_session = true;
+                break;
+            }
+        }
+    }
+    if (m_quarantined_nv_session)
+        LOG_ERROR(Service_AM, "NS2 poisoned GPU AS at worker teardown: quarantine all owned NVMap backing");
+
+    if (!m_quarantined_nv_session)
     for (const auto& [key, mapping] : m_mappings.Mappings()) {
         const auto dense = m_dense_regions.find({mapping.address_space, mapping.address});
         // The VA can already be released after a failed physical retirement.
@@ -204,9 +226,16 @@ IGpuWorker::~IGpuWorker() {
                       Nvidia::NvResult::Success)
             LOG_ERROR(Service_AM, "NS2 native GPU VA unmap failed as={} VA={:#x}",
                       mapping.address_space, mapping.address);
+        // A page-table OOM can poison the AS DURING this unmap. Stop before
+        // any owner is FreeHandle'd; the GPU must not see freed backing.
+        if (as && as->IsNativeSparsePoisoned()) {
+            m_quarantined_nv_session = true;
+            break;
+        }
     }
     // Identity maps are deliberately outside MappingLedger. Remove only those
     // owned by this worker before its NVMap handles are released.
+    if (!m_quarantined_nv_session)
     for (const u32 memory_id : m_memory) {
         const auto identity = std::find_if(
             m_shared->identity_gpu_mappings.begin(), m_shared->identity_gpu_mappings.end(),
@@ -221,14 +250,20 @@ IGpuWorker::~IGpuWorker() {
                     Nvidia::NvResult::Success)
                     LOG_ERROR(Service_AM, "NS2 identity GPU VA unmap failed as={} VA={:#x}",
                               as_id, identity->address);
+                if (as->IsNativeSparsePoisoned()) {
+                    m_quarantined_nv_session = true;
+                    break;
+                }
             }
             identity->RemoveSpace(as_id);
         }
+        if (m_quarantined_nv_session) break;
         m_shared->identity_gpu_mappings.erase(identity);
     }
 
     // The sparse reservations are gone: it is now safe to drop the NVMap pins,
     // unmap CPU aliases and close the page-group physical allocations.
+    if (!m_quarantined_nv_session)
     while (!m_dense_regions.empty()) {
         const auto key = m_dense_regions.begin()->first;
         if (!RetireGpuOnlyRegion(key.first, key.second)) {
@@ -242,6 +277,7 @@ IGpuWorker::~IGpuWorker() {
         }
     }
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
+    if (!m_quarantined_nv_session)
     for (const u32 id : m_memory) {
         if (const auto pending = m_pending_device_unlocks.find(id);
             pending != m_pending_device_unlocks.end()) {
@@ -264,6 +300,16 @@ IGpuWorker::~IGpuWorker() {
                 LOG_ERROR(Service_AM, "NS2 GPU memory unlock failed: {:#x}", result.raw);
             }
         }
+    }
+    if (m_quarantined_nv_session) {
+        // The poisoned AS still owns GPU PTEs. Retain every page-group
+        // backing and NVMap session until native AS/process teardown.
+        // Only this fail-closed path skips otherwise mandatory cleanup.
+        for (auto& [key, region] : m_dense_regions) {
+            (void)key;
+            (void)region.pages.release();
+        }
+        m_dense_regions.clear();
     }
     if (m_nv_session && !m_quarantined_nv_session)
         m_module->GetContainer().CloseSession(Nvidia::NvCore::SessionId{*m_nv_session});
