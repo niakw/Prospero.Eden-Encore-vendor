@@ -196,4 +196,36 @@ assert preempt.index("constexpr u32 NativeWfiBit = 1u;") < preempt.index(
     "std::memcpy(output.data(), modes.data(), sizeof(modes));")
 
 
+# Native NS2 sparse 4K ioctl allocates only guest GPU VA, never
+# unvalidated physical backing. Fixed overlaps and OOM are rejected before
+# publication; NS1 continues along the original small-sparse rejection.
+alloc=as_cpp.split("NvResult nvhost_as_gpu::AllocateSpace(IoctlAllocSpace& params) {",1)[1].split(
+    "\n}",1)[0]
+native_sparse=alloc.split("const bool small_sparse =",1)[1].split(
+    'UNIMPLEMENTED_MSG("Sparse small pages are not implemented!");',1)[0]
+for needle in (
+    "NativeGpuProcessRegistry::Instance().Contains(m_native_process)",
+    "params.pages == 0",
+    "allowed_flags",
+    "allocator.GetVAStart()",
+    "allocator.GetVALimit()",
+    "size > limit_va - address",
+    "allocation_map.lower_bound(address)",
+    "mapping_map.lower_bound(address)",
+    "allocator.AllocateFixed(first_page, params.pages)",
+    "allocator.Allocate(params.pages)",
+    "allocation_map.try_emplace(",
+    "gmmu->MapSparse(address, size, false);",
+    "catch (const std::bad_alloc&)",
+    "allocation_map.erase(address)",
+    "allocator.Free(first_page, params.pages)",
+):
+    assert needle in native_sparse, needle
+assert native_sparse.index("allocation_map.try_emplace(") < native_sparse.index(
+    "gmmu->MapSparse(address, size, false);")
+assert native_sparse.index("gmmu->MapSparse(address, size, false);") < native_sparse.index(
+    "params.offset = address;")
+assert alloc.index("const bool small_sparse =") < alloc.index(
+    'UNIMPLEMENTED_MSG("Sparse small pages are not implemented!");')
+
 print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")

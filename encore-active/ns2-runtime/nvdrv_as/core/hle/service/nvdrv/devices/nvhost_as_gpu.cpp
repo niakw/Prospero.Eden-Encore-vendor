@@ -665,6 +665,89 @@ NvResult nvhost_as_gpu::AllocateSpace(IoctlAllocSpace& params) {
         return NvResult::BadValue;
     }
 
+    // Native GA10F can reserve sparse 4-KiB GPU VA without backing physical
+    // pages. The original Maxwell ioctl below deliberately keeps its legacy
+    // unsupported-small-sparse contract; never select this path by Title ID.
+    const bool small_sparse =
+        params.page_size == VM::YUZU_PAGESIZE &&
+        ((params.flags & MappingFlags::Sparse) != MappingFlags::None);
+    if (small_sparse && m_native_process &&
+        NativeGpuProcessRegistry::Instance().Contains(m_native_process)) {
+        if (!gmmu || !vm.small_page_allocator || params.pages == 0)
+            return NvResult::BadValue;
+        constexpr u32 allowed_flags =
+            static_cast<u32>(MappingFlags::Fixed) | static_cast<u32>(MappingFlags::Sparse);
+        if ((static_cast<u32>(params.flags) & ~allowed_flags) != 0)
+            return NvResult::BadValue;
+
+        // All VA arithmetic is 64-bit; the actual allocator stores 4K page
+        // numbers in u32. A reservation never commits pages or pins NVMap.
+        auto& allocator = *vm.small_page_allocator;
+        const u64 first_va = static_cast<u64>(allocator.GetVAStart()) << VM::PAGE_SIZE_BITS;
+        const u64 limit_va = static_cast<u64>(allocator.GetVALimit()) << VM::PAGE_SIZE_BITS;
+        const u64 size = static_cast<u64>(params.pages) * VM::YUZU_PAGESIZE;
+        if (size > limit_va - first_va)
+            return NvResult::InsufficientMemory;
+        const bool fixed = (params.flags & MappingFlags::Fixed) != MappingFlags::None;
+        u64 address = fixed ? static_cast<u64>(params.offset) : 0;
+        if (fixed) {
+            if (address < first_va || address >= limit_va ||
+                (address & (VM::YUZU_PAGESIZE - 1)) != 0 ||
+                size > limit_va - address)
+                return NvResult::BadValue;
+            // FlatAllocator::AllocateFixed does not reject an overlapping
+            // reservation itself. An alias must not steal another guest VA,
+            // including existing fixed maps from MapBufferEx.
+            const auto reserved = allocation_map.lower_bound(address);
+            if ((reserved != allocation_map.end() &&
+                 reserved->first < address + size) ||
+                (reserved != allocation_map.begin() &&
+                 std::prev(reserved)->second.size >
+                     address - std::prev(reserved)->first))
+                return NvResult::BadValue;
+            const auto mapped = mapping_map.lower_bound(address);
+            if ((mapped != mapping_map.end() &&
+                 mapped->first < address + size) ||
+                (mapped != mapping_map.begin() &&
+                 std::prev(mapped)->second.size >
+                     address - std::prev(mapped)->first))
+                return NvResult::BadValue;
+        }
+
+        u32 first_page{};
+        bool reserved_pages = false;
+        bool tracked = false;
+        try {
+            if (fixed) {
+                first_page = static_cast<u32>(address >> VM::PAGE_SIZE_BITS);
+                allocator.AllocateFixed(first_page, params.pages);
+            } else {
+                first_page = allocator.Allocate(params.pages);
+                if (!first_page)
+                    return NvResult::InsufficientMemory;
+                address = static_cast<u64>(first_page) << VM::PAGE_SIZE_BITS;
+            }
+            reserved_pages = true;
+            const auto [it, inserted] = allocation_map.try_emplace(
+                address, Allocation{{}, size, VM::YUZU_PAGESIZE, true, false});
+            if (!inserted) {
+                allocator.Free(first_page, params.pages);
+                return NvResult::BadValue;
+            }
+            tracked = true;
+            // The last operation only marks GMMU pages Reserved, not
+            // Mapped. A later fixed MapBufferEx/worker sparse remap is
+            // responsible for real backing and the corresponding fence.
+            gmmu->MapSparse(address, size, false);
+        } catch (const std::bad_alloc&) {
+            if (tracked) allocation_map.erase(address);
+            if (reserved_pages) allocator.Free(first_page, params.pages);
+            return NvResult::InsufficientMemory;
+        }
+        params.offset = address;
+        return NvResult::Success;
+    }
+
     if (params.page_size != vm.big_page_size &&
         ((params.flags & MappingFlags::Sparse) != MappingFlags::None)) {
         UNIMPLEMENTED_MSG("Sparse small pages are not implemented!");
