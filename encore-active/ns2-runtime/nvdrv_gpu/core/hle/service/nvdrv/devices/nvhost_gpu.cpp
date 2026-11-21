@@ -638,6 +638,13 @@ NvResult nvhost_gpu::AllocGPFIFOEx(IoctlAllocGpfifoEx& params, DeviceFD fd) {
     if (const auto status = ValidateChannelOwner(fd, program_id);
         status != NvResult::Success)
         return status;
+    // Unlike S2 SETUP_BIND the legacy ring size need not be a power of two,
+    // but a zero/overflowed native ring is not an allocation. Reject before
+    // publishing the logical GPFIFO enable state or initializing the GPU.
+    if (UsesNativeAbi(fd) &&
+        !ValidNativeGpfifoLegacyAllocationCount(
+            static_cast<u32>(params.num_entries)))
+        return NvResult::BadParameter;
     if (channel_state->initialized) {
         LOG_DEBUG(Service_NVDRV, "Channel already initialized; AllocGPFIFOEx returning AlreadyAllocated");
         return NvResult::AlreadyAllocated;
@@ -689,6 +696,13 @@ NvResult nvhost_gpu::AllocGPFIFOEx2(IoctlAllocGpfifoEx& params, DeviceFD fd) {
     if (const auto status = ValidateChannelOwner(fd, program_id);
         status != NvResult::Success)
         return status;
+    // Unlike S2 SETUP_BIND the legacy ring size need not be a power of two,
+    // but a zero/overflowed native ring is not an allocation. Reject before
+    // publishing the logical GPFIFO enable state or initializing the GPU.
+    if (UsesNativeAbi(fd) &&
+        !ValidNativeGpfifoLegacyAllocationCount(
+            static_cast<u32>(params.num_entries)))
+        return NvResult::BadParameter;
     if (channel_state->initialized) {
         LOG_DEBUG(Service_NVDRV, "Channel already initialized; AllocGPFIFOEx2 returning AlreadyAllocated");
         return NvResult::AlreadyAllocated;

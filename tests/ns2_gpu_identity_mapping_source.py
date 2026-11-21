@@ -272,6 +272,12 @@ for token in ("channel->process != tsg->process",
               "NativeGpuProcessRegistry::Instance().Contains(channel->process)",
               "native_channel_enabled = enabled"):
     assert token in set_tsg,token
+# Native legacy ALLOC_GPFIFO_EX/EX2 cannot claim a configured channel from
+# zero entries or from a count unsafe for the nvgpu ring-sizing calculation.
+# Unlike S2 SETUP_BIND, the legacy ABI permits non-power-of-two counts.
+legacy_count=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_submission.h").read_text()
+assert "constexpr bool ValidNativeGpfifoLegacyAllocationCount(" in legacy_count
+assert "entries != 0 && entries <= (1U << 28)" in legacy_count
 # Ampere setup-bind itself makes the channel runnable:
 # nvgpu_channel_setup_bind -> ga10b_channel_bind -> nvgpu_channel_enable.
 # Ounce relies on that and sends no explicit H:0x0E/TSG ENABLE before the
@@ -286,6 +292,11 @@ for name,next_name in (("AllocGPFIFOEx","AllocGPFIFOEx2"),
                   "if (UsesNativeAbi(fd))",
                   "native_channel_enabled = true;"):
         assert token in alloc,(name,token)
+    assert "ValidNativeGpfifoLegacyAllocationCount(" in alloc
+    assert alloc.index("ValidNativeGpfifoLegacyAllocationCount(") < alloc.index(
+        "if (channel_state->initialized)")
+    assert alloc.index("ValidNativeGpfifoLegacyAllocationCount(") < alloc.index(
+        "channel_state->program_id = program_id;")
     # AS BindChannel can legally follow a successful GPFIFO allocation.
     # The deferred branch must publish the NS2 logical runnable state even
     # though physical InitChannel is still gated on a real GMMU.

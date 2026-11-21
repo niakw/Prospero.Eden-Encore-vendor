@@ -9,6 +9,14 @@
 #include <optional>
 
 namespace Service::Nvidia::Devices {
+// Legacy ALLOC_GPFIFO_EX[2] permits non-power-of-two entry counts because
+// nvgpu rounds its ring size up internally. It cannot allocate a zero-entry
+// ring, however, nor safely multiply an unbounded guest count for its ring.
+// These legacy rules intentionally differ from S2 CHANNEL_SETUP_BIND.
+[[nodiscard]] constexpr bool ValidNativeGpfifoLegacyAllocationCount(
+    std::uint32_t entries) {
+    return entries != 0 && entries <= (1U << 28);
+}
 // Guest CPU pointers are NOT the GPU virtual addresses used by the native
 // GMMU. Check all kickoff headers in their owning process's CPU map before
 // reading them. A zero-entry fence submission legitimately has no pointer.
