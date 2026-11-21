@@ -31,6 +31,7 @@
 #include "video_core/gpu.h"
 #include "core/hle/kernel/k_client_session.h"
 #include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_transfer_memory.h"
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_memory_block.h"
 #include "core/hle/kernel/k_scoped_resource_reservation.h"
@@ -1347,6 +1348,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {305, &IGraphicsSupervisor::OpenDisplaySession, "OpenDisplaySession"},
         {111, &IGraphicsSupervisor::CreateNativeMemory, "CreateNativeMemory"},
         {112, &IGraphicsSupervisor::DestroyNativeMemory, "DestroyNativeMemory"},
+        {113, &IGraphicsSupervisor::BindNativeTransferMemory, "CreateNativeMemoryWithTransferMemory"},
         {114, &IGraphicsSupervisor::BindNativeMemory, "BindNativeMemory"},
         {115, &IGraphicsSupervisor::BootNativeMemoryManagement, "BootNativeMemoryManagement"},
         {423, &IGraphicsSupervisor::BindNativeGpuMemory, "BindNativeGpuMemory"},
@@ -1423,7 +1425,14 @@ IGraphicsSupervisor::~IGraphicsSupervisor() {
             const auto info = nvmap.FreeHandle(id, false);
             if (!info || !info->can_unlock) return;
             freed.push_back(id);
-            if (info->address != 0) {
+            if (const auto transfer = m_native_transfer_backings.find(id);
+                transfer != m_native_transfer_backings.end()) {
+                // The TransferMemory object, not DeviceShared, owns page
+                // stability for TIPC 113. Retire NVMap first, then release
+                // the retained kernel object so its own lock can unwind.
+                transfer->second->Close(kernel);
+                m_native_transfer_backings.erase(transfer);
+            } else if (info->address != 0) {
                 const auto status = m_process->GetPageTable().UnlockForDeviceAddressSpace(
                     info->address, info->size);
                 if (status.IsError())
@@ -1450,6 +1459,15 @@ IGraphicsSupervisor::~IGraphicsSupervisor() {
             m_native_module->GetContainer().CloseSession(
                 Nvidia::NvCore::SessionId{*m_native_memory_session});
     }
+    // If an externally referenced NVMap could not be retired above, keep its
+    // TransferMemory ref deliberately open. Closing it here could unlock
+    // physical pages while that external GPU owner still references them.
+    for (const auto& [id, transfer] : m_native_transfer_backings) {
+        (void)transfer;
+        LOG_ERROR(Service_AM,
+                  "NS2 native TransferMemory backing quarantined at shutdown: {}", id);
+    }
+    m_native_transfer_backings.clear();
     m_process->Close(kernel);
 }
 Result IGraphicsSupervisor::HandleSyncRequest(Kernel::KServerSession& session,
@@ -2009,8 +2027,14 @@ void IGraphicsSupervisor::DestroyNativeMemory(HLERequestContext& ctx) {
                         const auto removed = m_native_memory.Destroy(packet[2]);
                         result = NativeMemoryError(removed);
                         if (result.IsSuccess() && record->bound) {
-                            result = m_process->GetPageTable().UnlockForDeviceAddressSpace(
-                                freed->address, freed->size);
+                            if (const auto transfer = m_native_transfer_backings.find(packet[2]);
+                                transfer != m_native_transfer_backings.end()) {
+                                transfer->second->Close(kernel);
+                                m_native_transfer_backings.erase(transfer);
+                            } else {
+                                result = m_process->GetPageTable().UnlockForDeviceAddressSpace(
+                                    freed->address, freed->size);
+                            }
                         }
                         // Parent pin/duplicate are retained only while the
                         // child's NVMap and its page-table lock remain alive.
@@ -2027,6 +2051,121 @@ void IGraphicsSupervisor::DestroyNativeMemory(HLERequestContext& ctx) {
     }
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
+}
+
+void IGraphicsSupervisor::BindNativeTransferMemory(HLERequestContext& ctx) {
+    const std::array<u32, 9> packet{
+        ctx.CommandBuffer()[0], ctx.CommandBuffer()[1], ctx.CommandBuffer()[2],
+        ctx.CommandBuffer()[3], ctx.CommandBuffer()[4], ctx.CommandBuffer()[5],
+        ctx.CommandBuffer()[6], ctx.CommandBuffer()[7], ctx.CommandBuffer()[8]};
+    const auto request = GraphicsSupervisorProtocol::DecodeNativeTransferMemoryBind(packet);
+    Result result = Kernel::ResultInvalidCombination;
+    if (!request) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
+    }
+
+    const u32 copy_handle = ctx.GetCopyHandle(0);
+    auto transfer = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(copy_handle);
+    result = Kernel::ResultInvalidHandle;
+    if (transfer.IsNull() || request->copied_handle != copy_handle ||
+        transfer->GetOwner() != m_process) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
+    }
+    if (GetInteger(transfer->GetSourceAddress()) != request->address ||
+        transfer->GetSize() != request->size) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidSize.raw);
+        return;
+    }
+
+    const std::scoped_lock lock{m_native_memory_mutex};
+    result = Kernel::ResultInvalidState;
+    if (!m_bootstrap.GpuContextReady() || !m_native_module ||
+        m_native_transfer_backings.contains(request->memory)) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
+    }
+    const auto validated =
+        m_native_memory.ValidateBind(request->memory, request->address, request->size);
+    if (validated != GraphicsSupervisorProtocol::NativeMemoryStatus::Success) {
+        result = NativeMemoryError(validated);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
+    }
+
+    auto& container = m_native_module->GetContainer();
+    auto& nvmap = container.GetNvMapFile();
+    auto handle = nvmap.GetHandle(request->memory);
+    if (!handle || handle->allocated) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidState.raw);
+        return;
+    }
+    if (!m_native_memory_session) {
+        try {
+            m_native_memory_session = container.OpenSession(m_process).id;
+        } catch (const std::bad_alloc&) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultOutOfResource.raw);
+            return;
+        }
+    }
+
+    // Reserve the persistent owner node before publishing any NVMap state.
+    // Once Handle::Alloc succeeds, NativeMemoryLedger::Bind cannot allocate
+    // and cannot fail because the same mutex protects the validated record.
+    decltype(m_native_transfer_backings)::iterator retained;
+    try {
+        const auto [it, inserted] =
+            m_native_transfer_backings.try_emplace(request->memory, nullptr);
+        if (!inserted) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidState.raw);
+            return;
+        }
+        retained = it;
+    } catch (const std::bad_alloc&) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultOutOfResource.raw);
+        return;
+    }
+
+    transfer->Open(kernel);
+    retained->second = transfer.GetPointerUnsafe();
+    const auto allocated = handle->Alloc(
+        {}, Kernel::PageSize, 0, request->address,
+        Nvidia::NvCore::SessionId{*m_native_memory_session});
+    if (allocated != Nvidia::NvResult::Success) {
+        retained->second->Close(kernel);
+        m_native_transfer_backings.erase(retained);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(allocated == Nvidia::NvResult::InsufficientMemory
+                    ? Kernel::ResultOutOfResource.raw
+                    : Kernel::ResultInvalidState.raw);
+        return;
+    }
+
+    const auto bound =
+        m_native_memory.Bind(request->memory, request->address, request->size);
+    if (bound != GraphicsSupervisorProtocol::NativeMemoryStatus::Success) {
+        // Unreachable after ValidateBind under m_native_memory_mutex. Do not
+        // drop the TransferMemory ref if that invariant is ever violated:
+        // Handle::Alloc has already published an address consumed by SMMU.
+        LOG_CRITICAL(Service_AM,
+                     "NS2 TIPC 113 ledger changed after validated NVMap bind id={}",
+                     request->memory);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidState.raw);
+        return;
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess.raw);
 }
 
 Result IGraphicsSupervisor::BindNativeMemoryBacking(

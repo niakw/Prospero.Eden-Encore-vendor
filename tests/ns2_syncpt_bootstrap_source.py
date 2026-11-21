@@ -15,6 +15,37 @@ for marker in (
 ):
     assert marker in cpp, marker
 assert "NativeSyncptState" in hdr
+# Native memory command 113 consumes a real process-owned TransferMemory.
+# It must retain that kernel object instead of trying to stack a second
+# DeviceShared lock on pages already locked by KTransferMemory.
+proto=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/graphics_supervisor_protocol.h").read_text()
+assert '{113, &IGraphicsSupervisor::BindNativeTransferMemory, "CreateNativeMemoryWithTransferMemory"}' in cpp
+assert 'void BindNativeTransferMemory(HLERequestContext& ctx);' in hdr
+for needle in ("packet.size() != 9", "packet[0] != 0x81",
+               "packet[1] != 0x80000005U", "packet[2] != 2",
+               "packet[3] == 0", "packet[4] == 0"):
+    assert needle in proto, needle
+bind113=cpp.split("void IGraphicsSupervisor::BindNativeTransferMemory(HLERequestContext& ctx) {",1)[1].split(
+    "\n}\n\nResult IGraphicsSupervisor::BindNativeMemoryBacking",1)[0]
+for needle in (
+    "request->copied_handle != copy_handle",
+    "transfer->GetOwner() != m_process",
+    "GetInteger(transfer->GetSourceAddress()) != request->address",
+    "transfer->GetSize() != request->size",
+    "m_native_memory.ValidateBind(request->memory",
+    "m_native_transfer_backings.try_emplace(request->memory, nullptr)",
+    "transfer->Open(kernel);",
+    "handle->Alloc(",
+    "m_native_memory.Bind(request->memory",
+):
+    assert needle in bind113, needle
+assert "LockForMapDeviceAddressSpace" not in bind113
+assert "UnlockForDeviceAddressSpace" not in bind113
+assert "std::map<u32, Kernel::KTransferMemory*> m_native_transfer_backings;" in hdr
+destroy=cpp.split("void IGraphicsSupervisor::DestroyNativeMemory(HLERequestContext& ctx) {",1)[1].split(
+    "\n}\n\nvoid IGraphicsSupervisor::BindNativeTransferMemory",1)[0]
+assert "m_native_transfer_backings.find(packet[2])" in destroy
+assert "transfer->second->Close(kernel);" in destroy
 # Native GSV child replies are one COPY descriptor (not MOVE) on the wire:
 # Lichii nx2 ReturnRawSession uses ResponseBuilder(ctx, 2, 1, 0).
 # Internally the original KSession client reference must be transferred to
@@ -202,4 +233,4 @@ pool_create=cpp.split("void IGraphicsSupervisor::CreateVideoImagePool(HLERequest
 assert "CalculateNativeVideoImageLayout(preference, count)" in pool_create
 
 
-print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")
+print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS native_memory=113-transfer-owner supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")

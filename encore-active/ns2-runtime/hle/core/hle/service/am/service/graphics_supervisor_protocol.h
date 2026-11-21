@@ -419,8 +419,31 @@ inline constexpr std::optional<NativeParentBindRequest> DecodeNativeParentBind(
     return NativeParentBindRequest{packet[2], packet[7], address, size, offset};
 }
 
+struct NativeTransferMemoryBindRequest {
+    u32 copied_handle{};
+    u32 memory{};
+    u64 size{};
+    u64 address{};
+};
+inline constexpr std::optional<NativeTransferMemoryBindRequest>
+DecodeNativeTransferMemoryBind(std::span<const u32> packet) {
+    // nn::gs::CreateNativeMemoryWithTransferMemory: TIPC 113, one COPY
+    // KTransferMemory descriptor followed by the NativeMemory handle,
+    // exact size and original owner address.
+    if (packet.size() != 9 || packet[0] != 0x81 ||
+        packet[1] != 0x80000005U || packet[2] != 2 ||
+        packet[3] == 0 || packet[4] == 0)
+        return {};
+    const u64 size = u64{packet[5]} | (u64{packet[6]} << 32);
+    const u64 address = u64{packet[7]} | (u64{packet[8]} << 32);
+    if (!size || !address || (size & 0xfffU) || (address & 0xfffU) ||
+        size > std::numeric_limits<u64>::max() - address)
+        return {};
+    return NativeTransferMemoryBindRequest{packet[3], packet[4], size, address};
+}
+
 // NS2 GSV native-memory descriptors, not host Vulkan allocations. Commands
-// 111/112/114 establish a bounded, owned resource before real GPU mapping.
+// 111/112/113/114 establish a bounded, owned resource before real GPU mapping.
 // Reject unknown handles, address wrapping, duplicate binds and exhaustion.
 enum class NativeMemoryStatus {
     Success, InvalidSize, InvalidAddress, InvalidHandle, AlreadyBound, OutOfResource,
