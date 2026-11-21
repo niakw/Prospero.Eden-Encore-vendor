@@ -133,6 +133,20 @@ assert '#include "gpu_failure.h"' in nvhost_cpp
 print("NS1_NVDRV_CLOSE_EXCEPTION_SAFE_PASS final_fd=1 destructor_noexcept=1 "
       "failure_latched=1 module_erase_reachable=1")
 
+# Module::Open publishes builder-owned devices before device-specific OnOpen.
+# A thrown OnOpen must erase that published FD for both known and stub devices.
+open_body=module_cpp.split(
+    "DeviceFD Module::Open(const std::string& device_name, NvCore::SessionId session_id) {",1)[1].split(
+    "\n}\n\nNvResult Module::Ioctl1",1)[0]
+assert open_body.count("device->OnOpen(session_id, fd);") == 2
+assert open_body.count("catch (...) {") >= 2
+assert open_body.count("open_files.erase(fd);") >= 2
+for fragment in open_body.split("device->OnOpen(session_id, fd);")[1:]:
+    assert "open_files.erase(fd);" in fragment.split("return fd;",1)[0]
+print("NS1_NVDRV_OPEN_ROLLBACK_SOURCE_PASS known_device=1 stub_device=1 "
+      "failed_onopen_unpublished=1")
+
+
 
 
 on_close=nvhost_cpp.split("void nvhost_gpu::OnClose(DeviceFD fd) {",1)[1].split("\n}\n",1)[0]
