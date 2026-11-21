@@ -71,6 +71,12 @@ nvhost_gpu::nvhost_gpu(Core::System& system_, EventInterface& events_interface_,
 }
 
 nvhost_gpu::~nvhost_gpu() {
+    // The unified PS5 NVDRV owner serves both Maxwell/NS1 and Ampere/NS2.
+    // Close the exact GPU channel while its ChannelState, syncpoint and NvMap
+    // state are still alive. Global shutdown already owns GPU teardown.
+    if (channel_state && system.IsPoweredOn() && !system.IsShuttingDown()) {
+        system.GPU().ReleaseChannel(*channel_state);
+    }
     NativeGpuChannelRegistry::Instance().Unbind(channel_state.get());
     events_interface.FreeEvent(sm_exception_breakpoint_int_report_event);
     events_interface.FreeEvent(sm_exception_breakpoint_pause_report_event);
