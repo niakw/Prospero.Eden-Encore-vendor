@@ -68,6 +68,8 @@ private:
     void FinalizeDisplayContext(HLERequestContext& ctx);
     void OpenDisplaySession(HLERequestContext& ctx);
     void BootNativeMemoryManagement(HLERequestContext& ctx);
+    void ConfigureGraphicsFrameContext(HLERequestContext& ctx);
+    void SetGraphicsFrameMode(HLERequestContext& ctx);
     void CreateNativeMemory(HLERequestContext& ctx);
     void DestroyNativeMemory(HLERequestContext& ctx);
     void BindNativeTransferMemory(HLERequestContext& ctx);
@@ -96,6 +98,12 @@ private:
     GraphicsSupervisorBootstrap::State m_bootstrap;
     const u64 m_aruid;
     bool m_display_ready{};
+    std::mutex m_graphics_frame_mutex;
+    bool m_graphics_frame_created{};
+    bool m_graphics_frame_initialized{};
+    u32 m_graphics_frame_length{};
+    u32 m_graphics_frame_restart_mode{};
+    u32 m_graphics_frame_timeslice_mode{};
     std::vector<std::weak_ptr<IGpuSession>> m_gpu_sessions;
     // TIPC 1402: an active INvDrv2User child is exclusive per GSV session.
     std::weak_ptr<Nvidia::NVDRV> m_nvsrv_session;

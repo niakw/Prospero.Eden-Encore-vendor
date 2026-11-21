@@ -15,6 +15,41 @@ for marker in (
 ):
     assert marker in cpp, marker
 assert "NativeSyncptState" in hdr
+# The standard nn::gs boot runs graphics-frame management before the
+# GPU worker boot. Commands 1101/1102 are an ordered context state, while
+# 1111-1113 admit only SDK-defined policy values after initialization.
+for marker in (
+    '{1101, &IGraphicsSupervisor::ConfigureGraphicsFrameContext, "CreateGraphicsFrameContext"}',
+    '{1102, &IGraphicsSupervisor::ConfigureGraphicsFrameContext, "InitializeGraphicsFrameContext"}',
+    '{1111, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameLengthMode"}',
+    '{1112, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameRestartMode"}',
+    '{1113, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameGpuTimesliceMode"}',
+):
+    assert marker in cpp, marker
+for needle in (
+    "IsGraphicsFrameContextCommand(command, command_id)",
+    "m_bootstrap.CurrentPhase() == GB::Phase::Ready",
+    "command_id == 1101 && !m_graphics_frame_created",
+    "command_id == 1102 && m_graphics_frame_created",
+    "!m_graphics_frame_initialized",
+    "DecodeGraphicsFrameSetting(command, command_id)",
+    "if (m_graphics_frame_initialized)",
+    "m_graphics_frame_length = setting->value",
+    "m_graphics_frame_restart_mode = setting->value",
+    "m_graphics_frame_timeslice_mode = setting->value",
+):
+    assert needle in cpp, needle
+for needle in (
+    "command == 1101 || command == 1102",
+    "value != 0 && value != 286 && value != 316 && value != 376",
+    "command == 1112 && value >= 3",
+    "command == 1113 && value >= 2",
+):
+    assert needle in proto, needle
+frame_handler=cpp.split("void IGraphicsSupervisor::SetGraphicsFrameMode(HLERequestContext& ctx) {",1)[1].split(
+    "\n}\n\nvoid IGraphicsSupervisor::CreateNativeMemory",1)[0]
+assert "WaitForIdle" not in frame_handler
+
 # Native memory command 113 consumes a real process-owned TransferMemory.
 # It must retain that kernel object instead of trying to stack a second
 # DeviceShared lock on pages already locked by KTransferMemory.
@@ -233,4 +268,4 @@ pool_create=cpp.split("void IGraphicsSupervisor::CreateVideoImagePool(HLERequest
 assert "CalculateNativeVideoImageLayout(preference, count)" in pool_create
 
 
-print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS native_memory=113-transfer-owner supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")
+print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS graphics_frame=1101,1102,1111,1112,1113 native_memory=113-transfer-owner supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")

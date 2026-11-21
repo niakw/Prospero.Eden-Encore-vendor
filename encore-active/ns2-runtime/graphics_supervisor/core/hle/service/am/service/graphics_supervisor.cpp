@@ -1377,6 +1377,11 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {428, &IGraphicsSupervisor::QueryVideoGpuImage, "QueryNativeGpuImage"},
         {435, &IGraphicsSupervisor::CalculateNativeImageSize, "CalculateNativeImageSize"},
         {1291, &IGraphicsSupervisor::CalculateChatImagePoolSize, "CalculateChatImagePoolSize"},
+        {1101, &IGraphicsSupervisor::ConfigureGraphicsFrameContext, "CreateGraphicsFrameContext"},
+        {1102, &IGraphicsSupervisor::ConfigureGraphicsFrameContext, "InitializeGraphicsFrameContext"},
+        {1111, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameLengthMode"},
+        {1112, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameRestartMode"},
+        {1113, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameGpuTimesliceMode"},
         {1510, &IGraphicsSupervisor::CalculateNativeImageRequirements, "CalculateRequirements"},
     };
     RegisterHandlersTipc(functions);
@@ -1950,6 +1955,63 @@ void IGraphicsSupervisor::BootNativeMemoryManagement(HLERequestContext& ctx) {
     const u64 requested = u64{packet[2]} | (u64{packet[3]} << 32);
     const u64 granted = GraphicsSupervisorProtocol::GrantNativeMemoryFeatures(requested, true);
     NativeTipcReplyWords(ctx, {static_cast<u32>(granted), static_cast<u32>(granted >> 32)});
+}
+
+void IGraphicsSupervisor::ConfigureGraphicsFrameContext(HLERequestContext& ctx) {
+    const u32 command_id = ctx.GetCommand();
+    const std::array<u32, 2> command{ctx.CommandBuffer()[0], ctx.CommandBuffer()[1]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (GraphicsSupervisorProtocol::IsGraphicsFrameContextCommand(command, command_id)) {
+        const std::scoped_lock lock{m_graphics_frame_mutex};
+        result = Kernel::ResultInvalidState;
+        if (m_bootstrap.CurrentPhase() == GB::Phase::Ready) {
+            if (command_id == 1101 && !m_graphics_frame_created) {
+                m_graphics_frame_created = true;
+                result = ResultSuccess;
+            } else if (command_id == 1102 && m_graphics_frame_created &&
+                       !m_graphics_frame_initialized) {
+                m_graphics_frame_initialized = true;
+                result = ResultSuccess;
+            }
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+void IGraphicsSupervisor::SetGraphicsFrameMode(HLERequestContext& ctx) {
+    const u32 command_id = ctx.GetCommand();
+    const std::array<u32, 3> command{
+        ctx.CommandBuffer()[0], ctx.CommandBuffer()[1], ctx.CommandBuffer()[2]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto setting =
+            GraphicsSupervisorProtocol::DecodeGraphicsFrameSetting(command, command_id)) {
+        const std::scoped_lock lock{m_graphics_frame_mutex};
+        result = Kernel::ResultInvalidState;
+        if (m_graphics_frame_initialized) {
+            switch (setting->command) {
+            case 1111:
+                m_graphics_frame_length = setting->value;
+                break;
+            case 1112:
+                m_graphics_frame_restart_mode = setting->value;
+                break;
+            case 1113:
+                m_graphics_frame_timeslice_mode = setting->value;
+                break;
+            default:
+                IPC::ResponseBuilder rb{ctx, 2};
+                rb.Push(Kernel::ResultInvalidCombination.raw);
+                return;
+            }
+            // These are GSV scheduling policy records. VI2 owns actual
+            // presentation cadence on this host; accepting the negotiated
+            // values must not invent a GPU drain or alter unrelated queues.
+            result = ResultSuccess;
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
 }
 
 void IGraphicsSupervisor::CreateNativeMemory(HLERequestContext& ctx) {

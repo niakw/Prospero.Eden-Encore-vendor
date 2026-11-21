@@ -419,6 +419,29 @@ inline constexpr std::optional<NativeParentBindRequest> DecodeNativeParentBind(
     return NativeParentBindRequest{packet[2], packet[7], address, size, offset};
 }
 
+inline constexpr bool IsGraphicsFrameContextCommand(std::span<const u32> packet,
+                                                           u32 command) {
+    return (command == 1101 || command == 1102) && packet.size() == 2 &&
+           packet[0] == 16 + command && packet[1] == 0;
+}
+struct GraphicsFrameSetting {
+    u32 command{};
+    u32 value{};
+};
+inline constexpr std::optional<GraphicsFrameSetting>
+DecodeGraphicsFrameSetting(std::span<const u32> packet, u32 command) {
+    if ((command != 1111 && command != 1112 && command != 1113) ||
+        packet.size() != 3 || packet[0] != 16 + command || packet[1] != 1)
+        return {};
+    const u32 value = packet[2];
+    if (command == 1111 &&
+        value != 0 && value != 286 && value != 316 && value != 376)
+        return {};
+    if (command == 1112 && value >= 3) return {};
+    if (command == 1113 && value >= 2) return {};
+    return GraphicsFrameSetting{command, value};
+}
+
 struct NativeTransferMemoryBindRequest {
     u32 copied_handle{};
     u32 memory{};
