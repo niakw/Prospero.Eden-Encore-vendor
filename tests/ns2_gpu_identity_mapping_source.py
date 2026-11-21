@@ -61,6 +61,14 @@ assert reg_replay.index("as->UnmapNative4K(begin, size)") < reg_replay.index(
 shared_cpp=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.cpp").read_text()
 assert "native_registered = Nvidia::Devices::NativeGpuProcessRegistry::Instance().Register(process);" in shared_cpp
 assert "if (!native_registered)\n        throw std::bad_alloc{};" in shared_cpp
+# The GPU 497 reference must be dropped only AFTER its last GPU address
+# space and NvCore session have been closed. The separate 1402 owner can
+# already have closed without invalidating this process generation.
+shared_destroy=shared_cpp.split("GpuWorkerSharedState::~GpuWorkerSharedState() {",1)[1].split(
+    "\n}",1)[0]
+assert shared_destroy.index("module->Close(static_cast<Nvidia::DeviceFD>(*fd));") < shared_destroy.index(
+    "module->GetContainer().CloseSession(Nvidia::NvCore::SessionId{*nv_session});") < shared_destroy.index(
+    "NativeGpuProcessRegistry::Instance().Unregister(native_process);")
 gsv=(R/"encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
 open_gpu=gsv.split("void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {", 1)[1].split("\n}", 1)[0]
 assert "std::make_shared<IGpuSession>(system, module, m_process)" in open_gpu
