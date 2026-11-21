@@ -399,12 +399,82 @@ void MaxwellDMA::Launch() {
                     linear_base > MAX_ADDRESS - length) {
                     AssertFailSoftImpl();
                 } else {
-                    // Bits 4..8 alone are permuted; physical copy footprints
-                    // remain inside 512-byte windows around the tiled stream.
-                    // Source/destination spans may alias even for different VAs.
-                    const bool may_alias = length != 0 &&
+                    // B0B5 permutes only address bits 4..8 inside each
+                    // 512-byte region. GPU VAs can map the same device pages
+                    // without overlapping as virtual intervals; an address-
+                    // only alias check corrupts unread source in that case.
+                    const auto mapped_ranges_overlap =
+                        [&](GPUVAddr first, u64 first_size, GPUVAddr second,
+                            u64 second_size) -> bool {
+                        const auto intersects = [](u64 a, u64 a_end,
+                                                   u64 b, u64 b_end) {
+                            return a < b_end && b < a_end;
+                        };
+                        if (memory_manager.IsContinuousRange(first,
+                                static_cast<size_t>(first_size)) &&
+                            memory_manager.IsContinuousRange(second,
+                                static_cast<size_t>(second_size))) {
+                            const auto a = memory_manager.GpuToCpuAddress(first);
+                            const auto b = memory_manager.GpuToCpuAddress(second);
+                            if (!a || !b ||
+                                *a > MAX_ADDRESS - first_size ||
+                                *b > MAX_ADDRESS - second_size) {
+                                return true; // Unknown physical owner: snapshot.
+                            }
+                            return intersects(*a, *a + first_size,
+                                              *b, *b + second_size);
+                        }
+                        using Interval = std::pair<u64, u64>;
+                        const auto collect = [&](GPUVAddr base, u64 bytes,
+                                                 std::vector<Interval>& out) {
+                            constexpr u64 GPU_PAGE = 4096;
+                            for (u64 offset = 0; offset < bytes;) {
+                                const GPUVAddr address = base + offset;
+                                const u64 count = (std::min)(
+                                    bytes - offset,
+                                    GPU_PAGE - (address & (GPU_PAGE - 1)));
+                                const auto physical = memory_manager.GpuToCpuAddress(address);
+                                if (!physical || *physical > MAX_ADDRESS - count) {
+                                    return false;
+                                }
+                                out.emplace_back(*physical, *physical + count);
+                                offset += count;
+                            }
+                            std::sort(out.begin(), out.end());
+                            return true;
+                        };
+                        std::vector<Interval> first_segments;
+                        std::vector<Interval> second_segments;
+                        if (!collect(first, first_size, first_segments) ||
+                            !collect(second, second_size, second_segments)) {
+                            return true; // Unmapped/unknown pages may alias.
+                        }
+                        size_t i = 0;
+                        size_t j = 0;
+                        while (i < first_segments.size() && j < second_segments.size()) {
+                            const auto& a = first_segments[i];
+                            const auto& b = second_segments[j];
+                            if (intersects(a.first, a.second, b.first, b.second)) {
+                                return true;
+                            }
+                            if (a.second <= b.second) {
+                                ++i;
+                            } else {
+                                ++j;
+                            }
+                        }
+                        return false;
+                    };
+                    const bool virtual_alias = length != 0 &&
                         linear_base <= ((tiled_base + length - 1) | u64{0x1ff}) &&
                         linear_base + length - 1 >= (tiled_base & ~u64{0x1ff});
+                    const u64 tiled_begin = tiled_base & ~u64{0x1ff};
+                    const u64 tiled_end = length == 0 ? tiled_begin :
+                        ((tiled_base + length - 1) | u64{0x1ff});
+                    const bool may_alias = length != 0 &&
+                        (virtual_alias ||
+                         mapped_ranges_overlap(tiled_begin,
+                             tiled_end - tiled_begin + 1, linear_base, length));
                     constexpr u64 MAX_ALIAS_SNAPSHOT = u64{16} << 20;
                     if (may_alias && length > MAX_ALIAS_SNAPSHOT) {
                         LOG_WARNING(Render_OpenGL, "Oversized overlapping 1D tiled DMA");
