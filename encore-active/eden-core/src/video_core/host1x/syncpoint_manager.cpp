@@ -79,6 +79,23 @@ void SyncpointManager::WaitHost(u32 id, u32 expected) {
     Wait(syncpoints_host[id], wait_host_cv, expected);
 }
 
+void SyncpointManager::WaitHost(u32 id, u32 expected, std::stop_token stop) {
+    if (id >= NUM_MAX_SYNCPOINTS || stop.stop_requested()) return;
+    // std::condition_variable cannot wait directly on a stop_token.
+    // Register a wakeup for this worker only. The callback takes the SAME
+    // mutex as the predicate/wait transition: without it, a stop between
+    // predicate evaluation and wait() can be lost and deadlock Shutdown().
+    std::stop_callback on_stop(stop, [this] {
+        std::scoped_lock lock(guard);
+        wait_host_cv.notify_all();
+    });
+    std::unique_lock lock(guard);
+    wait_host_cv.wait(lock, [this, id, expected, &stop] {
+        return stop.stop_requested() ||
+               syncpoints_host[id].load(std::memory_order_acquire) >= expected;
+    });
+}
+
 void SyncpointManager::Increment(std::atomic<u32>& syncpoint, std::condition_variable& wait_cv,
                                  std::list<RegisteredAction>& action_storage,
                                  std::optional<u32> mirrored_id) {

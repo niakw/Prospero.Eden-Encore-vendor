@@ -117,7 +117,8 @@ void CDmaPusher::ExecuteCommand(u32 method, u32 arg) {
     switch (current_class) {
     case ChClassId::Control:
         LOG_TRACE(Service_NVDRV, "Class {} method {:#x} arg {:#x}", u32(current_class), method, arg);
-        host_processor.ProcessMethod(host1x, Host1x::Control::Method(method), arg);
+        host_processor.ProcessMethod(host1x, Host1x::Control::Method(method), arg,
+                                     thread.get_stop_token());
         break;
     default:
         // Submission headers carry a 12-bit method, but THI exposes
