@@ -3780,9 +3780,20 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
         num_layers = 1;
     }
     layers = static_cast<u32>((std::max)(num_layers, 1));
+    // Vulkan framebuffer dimensions are device limits, not guest clip limits.
+    // Attachment-less draws can retain a 32768x32768 surface clip even when
+    // the host only exposes 16384. Clamp every framebuffer before creation.
+    const auto clamp_extent = [&runtime](VkExtent2D extent) {
+        extent.width =
+            (std::max)(1U, (std::min)(extent.width, runtime.device.GetMaxFramebufferWidth()));
+        extent.height =
+            (std::max)(1U, (std::min)(extent.height, runtime.device.GetMaxFramebufferHeight()));
+        return extent;
+    };
+    layers = (std::max)(1U, (std::min)(layers, runtime.device.GetMaxFramebufferLayers()));
     if (IsMixedSamplesTarget(color_buffers, depth_buffer)) {
-        const VkExtent2D extent{(std::min)(render_area.width, width),
-                                (std::min)(render_area.height, height)};
+        const VkExtent2D extent = clamp_extent(
+            {(std::min)(render_area.width, width), (std::min)(render_area.height, height)});
         CreateMixedSamplesFramebuffer(runtime, color_buffers, attachments, renderpass_key,
                                       layers, extent);
         return;
@@ -3806,6 +3817,7 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
     UseRenderPass(runtime, renderpass_key);
     render_area.width = (std::min)(render_area.width, width);
     render_area.height = (std::min)(render_area.height, height);
+    render_area = clamp_extent(render_area);
 
     if (do_resolve_color) {
         for (size_t index = 0; index < NUM_RT; ++index) {
