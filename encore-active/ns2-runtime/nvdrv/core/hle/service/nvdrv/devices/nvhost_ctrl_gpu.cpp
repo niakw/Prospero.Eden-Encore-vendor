@@ -135,21 +135,21 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
                 {2, 0, 1, 0}, // NVGPU_ENGINE_ASYNC_COPY, copy runlist 1
             }};
             constexpr u32 needed = sizeof(engines);
-            // The first request has capacity zero and returns the required
-            // number of bytes. Never advertise an incomplete engine table,
-            // or write any partial output on malformed buffers.
+            // Query the full required size even when the caller's first
+            // capacity is nonzero but smaller than the descriptor table.
+            // Per the upstream NvRm two-phase ABI, only the inline copy is
+            // omitted in that case; it is not an ioctl error.
             if (input.size() != 16 || output.size() != 16)
                 return NvResult::InvalidSize;
             u32_le capacity{};
             std::memcpy(&capacity, input.data(), sizeof(capacity));
-            if (static_cast<u32>(capacity) != 0 &&
-                (static_cast<u32>(capacity) < needed ||
-                 inline_output.size() < needed))
+            if (static_cast<u32>(capacity) >= needed &&
+                inline_output.size() < needed)
                 return NvResult::InvalidSize;
             std::memcpy(output.data(), input.data(), 16);
             const u32_le required{needed};
             std::memcpy(output.data(), &required, sizeof(required));
-            if (static_cast<u32>(capacity) != 0)
+            if (static_cast<u32>(capacity) >= needed)
                 std::memcpy(inline_output.data(), engines.data(), needed);
             return NvResult::Success;
         }
