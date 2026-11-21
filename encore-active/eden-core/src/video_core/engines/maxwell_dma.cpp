@@ -399,20 +399,66 @@ void MaxwellDMA::Launch() {
                     linear_base > MAX_ADDRESS - length) {
                     AssertFailSoftImpl();
                 } else {
-                    read_buffer.resize_destructive(16);
-                    for (u64 offset = 0; offset < length;) {
-                        const GPUVAddr tiled_address = tiled_base + offset;
-                        const size_t count = static_cast<size_t>(
-                            (std::min)(length - offset, u64{16} - (tiled_address & u64{15})));
-                        const GPUVAddr mapped_address =
-                            convert_linear_2_blocklinear_addr(tiled_address);
-                        const GPUVAddr source = src_tiled ? mapped_address : linear_base + offset;
-                        const GPUVAddr destination = src_tiled ? linear_base + offset : mapped_address;
-                        Tegra::Memory::GpuGuestMemoryScoped<
-                            u8, Tegra::Memory::GuestMemoryFlags::SafeReadCachedWrite>
-                            transfer(memory_manager, source, count, &read_buffer);
-                        transfer.SetAddressAndSize(destination, count);
-                        offset += count;
+                    // Bits 4..8 alone are permuted; physical copy footprints
+                    // remain inside 512-byte windows around the tiled stream.
+                    // Source/destination spans may alias even for different VAs.
+                    const bool may_alias = length != 0 &&
+                        linear_base <= ((tiled_base + length - 1) | u64{0x1ff}) &&
+                        linear_base + length - 1 >= (tiled_base & ~u64{0x1ff});
+                    constexpr u64 MAX_ALIAS_SNAPSHOT = u64{16} << 20;
+                    if (may_alias && length > MAX_ALIAS_SNAPSHOT) {
+                        LOG_WARNING(Render_OpenGL, "Oversized overlapping 1D tiled DMA");
+                        AssertFailSoftImpl();
+                    } else if (may_alias) {
+                        // Snapshot all source bytes before the first cached
+                        // write; the next microtile may overlap the first
+                        // destination when guest addresses alias.
+                        std::vector<u8> snapshot(static_cast<size_t>(length));
+                        bool mapped = true;
+                        for (u64 offset = 0; offset < length;) {
+                            const GPUVAddr tile = tiled_base + offset;
+                            const size_t count = static_cast<size_t>(
+                                (std::min)(length - offset, u64{16} - (tile & u64{15})));
+                            const GPUVAddr permuted = convert_linear_2_blocklinear_addr(tile);
+                            const GPUVAddr source = src_tiled ? permuted : linear_base + offset;
+                            const GPUVAddr destination = src_tiled ? linear_base + offset : permuted;
+                            if (!memory_manager.IsFullyMappedRange(source, count) ||
+                                !memory_manager.IsFullyMappedRange(destination, count)) {
+                                mapped = false;
+                                break;
+                            }
+                            memory_manager.ReadBlock(source, snapshot.data() + offset, count);
+                            offset += count;
+                        }
+                        if (!mapped) {
+                            AssertFailSoftImpl(); // No partial destination writes.
+                        } else {
+                            for (u64 offset = 0; offset < length;) {
+                                const GPUVAddr tile = tiled_base + offset;
+                                const size_t count = static_cast<size_t>(
+                                    (std::min)(length - offset, u64{16} - (tile & u64{15})));
+                                const GPUVAddr permuted = convert_linear_2_blocklinear_addr(tile);
+                                const GPUVAddr destination = src_tiled ? linear_base + offset : permuted;
+                                memory_manager.WriteBlockCached(destination,
+                                                                snapshot.data() + offset, count);
+                                offset += count;
+                            }
+                        }
+                    } else {
+                        read_buffer.resize_destructive(16);
+                        for (u64 offset = 0; offset < length;) {
+                            const GPUVAddr tile = tiled_base + offset;
+                            const size_t count = static_cast<size_t>(
+                                (std::min)(length - offset, u64{16} - (tile & u64{15})));
+                            const GPUVAddr permuted = convert_linear_2_blocklinear_addr(tile);
+                            const GPUVAddr source = src_tiled ? permuted : linear_base + offset;
+                            const GPUVAddr destination = src_tiled ? linear_base + offset : permuted;
+                            Tegra::Memory::GpuGuestMemoryScoped<
+                                u8, Tegra::Memory::GuestMemoryFlags::SafeReadCachedWrite>
+                                transfer(memory_manager, source, count, &read_buffer);
+                            transfer.SetAddressAndSize(destination, count);
+                            offset += count;
+                        }
                     }
                 }
             } else {
