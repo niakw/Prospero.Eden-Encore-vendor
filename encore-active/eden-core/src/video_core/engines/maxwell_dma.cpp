@@ -385,30 +385,35 @@ void MaxwellDMA::Launch() {
             const auto dst_kind = memory_manager.GetPageKind(regs.offset_out);
             const bool is_src_pitch = IsPitchKind(src_kind);
             const bool is_dst_pitch = IsPitchKind(dst_kind);
-            if (!is_src_pitch && is_dst_pitch) {
-                UNIMPLEMENTED_IF(regs.line_length_in % 16 != 0);
-                UNIMPLEMENTED_IF(regs.offset_in % 16 != 0);
-                UNIMPLEMENTED_IF(regs.offset_out % 16 != 0);
-                read_buffer.resize_destructive(16);
-                for (u32 offset = 0; offset < regs.line_length_in; offset += 16) {
-                    Tegra::Memory::GpuGuestMemoryScoped<
-                        u8, Tegra::Memory::GuestMemoryFlags::SafeReadCachedWrite>
-                        tmp_write_buffer(memory_manager,
-                                         convert_linear_2_blocklinear_addr(regs.offset_in + offset),
-                                         16, &read_buffer);
-                    tmp_write_buffer.SetAddressAndSize(regs.offset_out + offset, 16);
-                }
-            } else if (is_src_pitch && !is_dst_pitch) {
-                UNIMPLEMENTED_IF(regs.line_length_in % 16 != 0);
-                UNIMPLEMENTED_IF(regs.offset_in % 16 != 0);
-                UNIMPLEMENTED_IF(regs.offset_out % 16 != 0);
-                read_buffer.resize_destructive(16);
-                for (u32 offset = 0; offset < regs.line_length_in; offset += 16) {
-                    Tegra::Memory::GpuGuestMemoryScoped<
-                        u8, Tegra::Memory::GuestMemoryFlags::SafeReadCachedWrite>
-                        tmp_write_buffer(memory_manager, regs.offset_in + offset, 16, &read_buffer);
-                    tmp_write_buffer.SetAddressAndSize(
-                        convert_linear_2_blocklinear_addr(regs.offset_out + offset), 16);
+            if (is_src_pitch != is_dst_pitch) {
+                // The B0B5 1D layout permutation preserves the low four address
+                // bits. A copy is contiguous only up to the next 16-byte
+                // microtile boundary; a final short chunk must never write a
+                // full 16 bytes beyond LINE_LENGTH_IN.
+                const bool src_tiled = !is_src_pitch;
+                const GPUVAddr tiled_base = src_tiled ? regs.offset_in : regs.offset_out;
+                const GPUVAddr linear_base = src_tiled ? regs.offset_out : regs.offset_in;
+                const u64 length = regs.line_length_in;
+                constexpr u64 MAX_ADDRESS = (std::numeric_limits<u64>::max)();
+                if (tiled_base > MAX_ADDRESS - length ||
+                    linear_base > MAX_ADDRESS - length) {
+                    AssertFailSoftImpl();
+                } else {
+                    read_buffer.resize_destructive(16);
+                    for (u64 offset = 0; offset < length;) {
+                        const GPUVAddr tiled_address = tiled_base + offset;
+                        const size_t count = static_cast<size_t>(
+                            (std::min)(length - offset, 16ULL - (tiled_address & 15ULL)));
+                        const GPUVAddr mapped_address =
+                            convert_linear_2_blocklinear_addr(tiled_address);
+                        const GPUVAddr source = src_tiled ? mapped_address : linear_base + offset;
+                        const GPUVAddr destination = src_tiled ? linear_base + offset : mapped_address;
+                        Tegra::Memory::GpuGuestMemoryScoped<
+                            u8, Tegra::Memory::GuestMemoryFlags::SafeReadCachedWrite>
+                            transfer(memory_manager, source, count, &read_buffer);
+                        transfer.SetAddressAndSize(destination, count);
+                        offset += count;
+                    }
                 }
             } else {
                 if (!accelerate.BufferCopy(regs.offset_in, regs.offset_out, regs.line_length_in)) {
