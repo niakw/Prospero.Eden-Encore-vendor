@@ -479,7 +479,7 @@ void Vic::ReadInterlacedY8__V8U8_N420(const SlotStruct& slot, std::span<const Pl
         slot_surface.resize(out_luma_width * out_luma_height);
 
         auto const in_luma_width = (std::min)(frame->GetWidth(), s32(out_luma_width));
-        [[maybe_unused]] auto const in_luma_height = (std::min)(frame->GetHeight(), s32(out_luma_height));
+        auto const in_luma_height = (std::min)(frame->GetHeight(), s32(out_luma_height));
         auto const in_luma_stride{frame->GetStride(0)};
 
         [[maybe_unused]] auto const in_chroma_width = (frame->GetWidth() + 1) / 2;
@@ -499,7 +499,10 @@ void Vic::ReadInterlacedY8__V8U8_N420(const SlotStruct& slot, std::span<const Pl
 
         auto DecodeBobField = [&]() {
             auto const alpha = u16(slot.config.planar_alpha.Value());
-            for (s32 y = s32(top_field == false); y < in_chroma_height * 2; y += 2) {
+            // Luma reads use row y. For odd decoded heights, chroma_height*2
+            // reaches one row past the decoded luma plane on the bottom field.
+            // in_luma_height also caps the copy to the guest slot's height.
+            for (s32 y = s32(top_field == false); y < in_luma_height; y += 2) {
                 auto const src_luma{y * in_luma_stride};
                 auto const src_chroma{(y / 2) * in_chroma_stride};
                 auto const dst{y * out_luma_stride};
