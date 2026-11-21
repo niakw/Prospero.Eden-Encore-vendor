@@ -436,7 +436,7 @@ void TranslatorVisitor::PLONGJMP(u64) {
 }
 
 void TranslatorVisitor::PRET(u64) {
-    ThrowNotImplemented(Opcode::PRET);
+    // CFG already records the supported direct PRET return token.
 }
 
 void TranslatorVisitor::PRMT_reg(u64 insn) {
