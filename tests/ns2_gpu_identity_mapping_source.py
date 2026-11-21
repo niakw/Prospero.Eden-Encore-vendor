@@ -196,6 +196,32 @@ assert preempt.index("constexpr u32 NativeWfiBit = 1u;") < preempt.index(
     "std::memcpy(output.data(), modes.data(), sizeof(modes));")
 
 
+# NS2 fixed GPU views must not overwrite pinned resources, and a
+# FreeSpace followed by UnmapBuffer must not dereference a retired map.
+map_ex=as_cpp.split("NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {",1)[1].split(
+    "\n}",1)[0]
+free_map=as_cpp.split("bool nvhost_as_gpu::FreeMappingLocked(u64 offset) noexcept {",1)[1].split(
+    "\n}",1)[0]
+unmap=as_cpp.split("NvResult nvhost_as_gpu::UnmapBuffer(IoctlUnmapBuffer& params) {",1)[1].split(
+    "\n}",1)[0]
+for needle in (
+    "NativeGpuProcessRegistry::Instance().Contains(m_native_process)",
+    "container.GetSession(handle->session_id)",
+    "!handle->allocated || !owner || owner->process != m_native_process",
+    "mapping_map.lower_bound(address)",
+    "std::prev(next)->second.size > address - std::prev(next)->first",
+):
+    assert needle in map_ex, needle
+assert map_ex.index("mapping_map.lower_bound(address)") < map_ex.index(
+    "const DAddr pinned = nvmap.PinHandle")
+assert "map_buffer_offsets.erase(offset);" in free_map
+assert free_map.index("mapping_map.erase(offset);") < free_map.index(
+    "map_buffer_offsets.erase(offset);")
+assert "if (it == mapping_map.end()) {" in unmap
+assert unmap.index("if (it == mapping_map.end()) {") < unmap.index(
+    "auto const mapping = it->second;")
+assert "map_buffer_offsets.erase(offset_it);" in unmap
+
 # Native NS2 sparse 4K ioctl allocates only guest GPU VA, never
 # unvalidated physical backing. Fixed overlaps and OOM are rejected before
 # publication; NS1 continues along the original small-sparse rejection.

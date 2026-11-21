@@ -806,6 +806,10 @@ bool nvhost_as_gpu::FreeMappingLocked(u64 offset) noexcept {
             gmmu->Unmap(offset, mapping.size);
         }
         mapping_map.erase(offset);
+        // FreeSpace also retires the UnmapBuffer ioctl lookup. Leaving the
+        // old offset in map_buffer_offsets would make a later guest unmap
+        // dereference mapping_map.end() after the NVMap pin was released.
+        map_buffer_offsets.erase(offset);
         return true;
     }
     return false;
@@ -942,6 +946,16 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
     if (!handle) {
         return NvResult::BadValue;
     }
+    // An authenticated NS2 GPU AS may only bind actually allocated NVMap
+    // backing from its KProcess. An unrelated FD may expose a numeric
+    // handle with the same value, but must not create an alias into it.
+    const bool native =
+        m_native_process && NativeGpuProcessRegistry::Instance().Contains(m_native_process);
+    if (native) {
+        const auto* owner = container.GetSession(handle->session_id);
+        if (!handle->allocated || !owner || owner->process != m_native_process)
+            return NvResult::BadValue;
+    }
 
     const u64 size{params.mapping_size ? params.mapping_size : handle->orig_size};
     if (!NativeGpuAllocation::ContainsSubrange(handle->orig_size,
@@ -956,6 +970,17 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
         if (fixed_alloc == allocation_map.end()) {
             LOG_WARNING(Service_NVDRV, "Fixed GPU map outside allocation: {:#x}", params.offset);
             return NvResult::BadValue;
+        }
+        if (native) {
+            // A fixed map without the Remap flag may not replace a live GPU
+            // view. insert_or_assign would forget its NVMap pin and leave
+            // queued texture/compute work pointing at re-used pages.
+            const u64 address = static_cast<u64>(params.offset);
+            const auto next = mapping_map.lower_bound(address);
+            if ((next != mapping_map.end() && next->first < address + size) ||
+                (next != mapping_map.begin() &&
+                 std::prev(next)->second.size > address - std::prev(next)->first))
+                return NvResult::BadValue;
         }
     }
     const DAddr pinned = nvmap.PinHandle(params.handle, false);
@@ -1012,6 +1037,13 @@ NvResult nvhost_as_gpu::UnmapBuffer(IoctlUnmapBuffer& params) {
         }
 
         auto const it = mapping_map.find(params.offset);
+        // A stale unmap token is never a valid mapping. In particular a
+        // FreeSpace/UnmapBuffer race must not dereference end() or free a
+        // different allocation whose VA was re-used.
+        if (it == mapping_map.end()) {
+            map_buffer_offsets.erase(offset_it);
+            return NvResult::BadValue;
+        }
         auto const mapping = it->second;
         if (!mapping.fixed) {
             auto& allocator{mapping.big_page ? *vm.big_page_allocator : *vm.small_page_allocator};
