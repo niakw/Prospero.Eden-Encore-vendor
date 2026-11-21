@@ -52,6 +52,7 @@ IGpuSession::IGpuSession(Core::System& system_,
         {33, &IGpuSession::CreateAddressSpace, "CreateAddressSpace"},
         {41, &IGpuSession::CreateGraphicsDevice, "CreateGraphicsDevice"},
         {42, &IGpuSession::DestroyGraphicsDevice, "DestroyGraphicsDevice"},
+        {200, &IGpuSession::SynchronizeAddressSpace, "SynchronizeGpuAddressSpace"},
         // Newer NS2 SDK contract (Lichii nx2_gsv): 201=user, 202=GSV,
         // 203=full GPU VA range. Keeping the old shifted IDs makes NVN close
         // the GPU device and can surface later as a null guest branch.
@@ -466,6 +467,31 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(result.raw);
     rb.Push(id);
+}
+
+void IGpuSession::SynchronizeAddressSpace(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    const std::array<GP::U32, 4> command{packet[0], packet[1], packet[2], packet[3]};
+    Result result = Kernel::ResultInvalidCombination;
+    if (const auto request = GP::DecodeSynchronizeAddressSpace(command)) {
+        const std::scoped_lock lock{m_shared->mutex};
+        result = Kernel::ResultNotFound;
+        if (m_shared->address_spaces.Owns(request->address_space)) {
+            result = Kernel::ResultInvalidState;
+            // Native worker map/unmap/remap transactions are synchronous:
+            // by the time this parent-session request is handled their GMMU
+            // mutation has either committed or returned an error. Completion
+            // therefore means signalling the SDK job event; a global GPU idle
+            // would serialize unrelated graphics work and is not required.
+            if (ResolveOpenedAddressSpace(request->address_space) &&
+                m_shared->events[request->notification]) {
+                m_shared->events[request->notification]->Signal(kernel);
+                result = ResultSuccess;
+            }
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
 }
 
 void IGpuSession::GetUserPartition(HLERequestContext& ctx) {

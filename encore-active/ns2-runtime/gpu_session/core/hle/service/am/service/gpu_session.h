@@ -33,6 +33,7 @@ private:
     void GetNotificationRange(HLERequestContext& ctx);
     void GetNotificationEvent(HLERequestContext& ctx);
     void CreateAddressSpace(HLERequestContext& ctx);
+    void SynchronizeAddressSpace(HLERequestContext& ctx);
     void GetUserPartition(HLERequestContext& ctx);
     void GetGsvPartition(HLERequestContext& ctx);
     void GetVaRange(HLERequestContext& ctx);

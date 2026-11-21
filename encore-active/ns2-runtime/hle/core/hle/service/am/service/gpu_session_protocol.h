@@ -40,6 +40,10 @@ struct PartitionRequest {
     U32 address_space{};
     U32 command{};
 };
+struct SynchronizeAddressSpaceRequest {
+    U32 address_space{};
+    U32 notification{};
+};
 constexpr U64 ReadPair(U32 lo, U32 hi) {
     return U64{lo} | (U64{hi} << 32);
 }
@@ -165,6 +169,15 @@ inline constexpr std::optional<PartitionRequest> DecodeAddressSpacePartition(
         return std::nullopt;
     }
     return PartitionRequest{packet[2], command};
+}
+inline constexpr std::optional<SynchronizeAddressSpaceRequest>
+DecodeSynchronizeAddressSpace(std::span<const U32> packet) {
+    // nn::gpu::sdk::SynchronizeGpuAddressSpace uses TIPC 200 with the
+    // address-space handle and a previously created job-event ID.
+    if (packet.size() != 4 || packet[0] != 0xd8 || packet[1] != 2 ||
+        packet[2] == 0 || packet[3] >= MaxNotificationEvents)
+        return {};
+    return SynchronizeAddressSpaceRequest{packet[2], packet[3]};
 }
 inline constexpr bool IsAcquireWorker(std::span<const U32> packet) {
     return packet.size() == 2 && packet[0] == 0x26 && packet[1] == 0;
