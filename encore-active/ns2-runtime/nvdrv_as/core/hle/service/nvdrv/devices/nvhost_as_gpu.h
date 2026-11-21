@@ -50,7 +50,8 @@ enum class MappingFlags : u32 {
 };
 DECLARE_ENUM_FLAG_OPERATORS(MappingFlags);
 
-class nvhost_as_gpu final : public nvdevice {
+class nvhost_as_gpu final : public nvdevice,
+                            public std::enable_shared_from_this<nvhost_as_gpu> {
 public:
     explicit nvhost_as_gpu(Core::System& system_, Module& module, NvCore::Container& core);
     ~nvhost_as_gpu() override;
@@ -223,6 +224,10 @@ private:
     std::map<u64, Allocation> allocation_map;
     std::mutex mutex; //!< Locks all AS operations
     Kernel::KProcess* m_native_process{};
+    // A bound Maxwell channel can outlive the AS FD. Keep the same NVDRV
+    // session alive until the final ChannelState drops this AS owner.
+    std::optional<NvCore::SessionId> m_nv_session{};
+    bool m_channel_session_retained{};
 
     struct VM {
         static constexpr u32 YUZU_PAGESIZE{0x1000};
