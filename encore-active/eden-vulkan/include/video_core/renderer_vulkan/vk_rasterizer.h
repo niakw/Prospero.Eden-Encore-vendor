@@ -267,7 +267,6 @@ private:
     AccelerateDMA accelerate_dma;
     FenceManager fence_manager;
 
-    vk::Event wfi_event;
 
 #ifdef PS5_NATIVE
     // Cached once per native rasterizer, never queried on each hot-path QMD.
