@@ -299,6 +299,30 @@ assert native_sparse.index("gmmu->MapSparse(address, size, false);") < native_sp
 assert alloc.index("const bool small_sparse =") < alloc.index(
     'UNIMPLEMENTED_MSG("Sparse small pages are not implemented!");')
 
+# GA10F sparse large-page reservation must use its own VA allocator,
+# reject fixed collisions and publish CPU ownership before touching GMMU.
+# A:0x14 consumes these allocations without changing the 4K GSV owner.
+big_sparse=alloc.split("const bool big_sparse =",1)[1].split(
+    'UNIMPLEMENTED_MSG("Sparse small pages are not implemented!");',1)[0]
+for token in ("params.page_size == vm.big_page_size",
+              "NativeGpuProcessRegistry::Instance().Contains(m_native_process)",
+              "vm.big_page_allocator", "allowed_flags", "limit_va - address",
+              "allocation_map.lower_bound(address)", "mapping_map.lower_bound(address)",
+              "allocator.AllocateFixed(first_page, params.pages)",
+              "allocation_map.try_emplace(",
+              "Allocation{{}, size, vm.big_page_size, true, true}",
+              "gmmu->MapSparse(address, size, true)",
+              "allocation_map.erase(address);",
+              "allocator.Free(first_page, params.pages);"):
+    assert token in big_sparse,token
+assert big_sparse.index("allocation_map.try_emplace(") < big_sparse.index(
+    "gmmu->MapSparse(address, size, true)") < big_sparse.index(
+    "params.offset = address;")
+assert alloc.index("const bool small_sparse =") < alloc.index(
+    "const bool big_sparse =") < alloc.index(
+    'UNIMPLEMENTED_MSG("Sparse small pages are not implemented!");')
+
+
 # GetVARegions1/3 serialize 64-bit byte offsets from u32 page indexes.
 # The old u32-first shift wrapped the 16-GiB GA10F big-page region to 0.
 va_regions=as_cpp.split("void nvhost_as_gpu::GetVARegionsImpl(IoctlGetVaRegions& params) {",1)[1].split(
