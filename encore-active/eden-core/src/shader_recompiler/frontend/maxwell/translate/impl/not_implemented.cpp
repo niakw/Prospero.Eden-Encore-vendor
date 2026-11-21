@@ -322,8 +322,33 @@ void TranslatorVisitor::IMAD_imm(u64 insn) {
     TranslateIMad(*this, insn, GetImm20(insn), GetReg39(insn));
 }
 
-void TranslatorVisitor::IMAD32I(u64) {
-    ThrowNotImplemented(Opcode::IMAD32I);
+void TranslatorVisitor::IMAD32I(u64 insn) {
+    // GM107 IMAD32I: D = A * imm32 + old(D). The low word is independent
+    // of signedness; HI uses bits 54/57 as the A/B signed-type selectors.
+    // Negating A or the addend and publishing condition codes remain
+    // fail-closed until their exact arithmetic flag contracts are covered.
+    union {
+        u64 raw;
+        BitField<0, 8, IR::Reg> dest_reg;
+        BitField<8, 8, IR::Reg> src_reg_a;
+        BitField<52, 1, u64> cc;
+        BitField<53, 1, u64> high;
+        BitField<54, 1, u64> is_a_signed;
+        BitField<55, 1, u64> negate_addend;
+        BitField<56, 1, u64> negate_a;
+        BitField<57, 1, u64> is_b_signed;
+    } const imad{insn};
+
+    if (imad.cc != 0 || imad.negate_addend != 0 || imad.negate_a != 0) {
+        throw NotImplementedException("IMAD32I CC/NEG modifiers");
+    }
+    const IR::U32 src_a{X(imad.src_reg_a)};
+    const IR::U32 src_b{GetImm32(insn)};
+    const IR::U32 product{
+        imad.high != 0
+            ? MultiplyHigh(*this, src_a, src_b, imad.is_a_signed != 0, imad.is_b_signed != 0)
+            : ir.IMul(src_a, src_b)};
+    X(imad.dest_reg, ir.IAdd(product, X(imad.dest_reg)));
 }
 
 void TranslatorVisitor::IMADSP_reg(u64) {
