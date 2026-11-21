@@ -351,35 +351,51 @@ void MaxwellDMA::Launch() {
         const bool is_const_a_dst = regs.remap_const.dst_x == RemapConst::Swizzle::CONST_A;
         if (regs.launch_dma.remap_enable != 0 && is_const_a_dst) {
             const u32 component_size = regs.remap_const.component_size_minus_one + 1;
-            // NVIDIA B0B5 SET_REMAP_COMPONENTS allows 1..4 bytes per component.
-            // The old u32 fill followed by a shorter 1/2-byte copy produced
-            // 00-padded words instead of contiguous CONST_A components.
             ASSERT(component_size >= 1 && component_size <= 4);
-            if (component_size == 4) {
-                accelerate.BufferClear(regs.offset_out, regs.line_length_in, regs.remap_const.remap_consta_value);
-            }
-            const size_t byte_count = static_cast<size_t>(regs.line_length_in) * component_size;
-            read_buffer.resize_destructive(byte_count);
-            u8* const bytes = read_buffer.data();
-            if (component_size == 4) {
-                // Retain the original optimized bulk fill for ordinary u32 clears.
-                std::ranges::fill(std::span<u32>(reinterpret_cast<u32*>(bytes), regs.line_length_in),
-                                  regs.remap_const.remap_consta_value);
-            } else {
-                const u32 value = regs.remap_const.remap_consta_value;
-                for (u32 element = 0; element < regs.line_length_in; ++element) {
-                    const size_t base = static_cast<size_t>(element) * component_size;
-                    for (u32 byte = 0; byte < component_size; ++byte) {
-                        bytes[base + byte] = static_cast<u8>(value >> (byte * 8));
+            const u64 byte_count = static_cast<u64>(regs.line_length_in) * component_size;
+            if (byte_count != 0) {
+                // A guest-controlled clear can span GiBs. Validate its whole
+                // GMMU destination before ANY accelerated or CPU write, and
+                // bound temporary memory independently of LINE_LENGTH_IN.
+                if (byte_count > (std::numeric_limits<size_t>::max)() ||
+                    !memory_manager.IsFullyMappedRange(regs.offset_out,
+                                                       static_cast<size_t>(byte_count))) {
+                    LOG_WARNING(Render_OpenGL, "Unmapped or oversized CONST_A DMA clear");
+                    AssertFailSoftImpl();
+                } else {
+                    if (component_size == 4) {
+                        accelerate.BufferClear(regs.offset_out, regs.line_length_in,
+                                               regs.remap_const.remap_consta_value);
+                    }
+                    // A normal guest write notifies the TextureCache and
+                    // BufferCache. WriteBlockUnsafe left cached textures stale,
+                    // even though it wrote the right bytes to CPU backing.
+                    constexpr size_t SCRATCH_BYTES = 64 * 1024;
+                    const size_t chunk_elements = SCRATCH_BYTES / component_size;
+                    const size_t chunk_bytes = chunk_elements * component_size;
+                    read_buffer.resize_destructive(chunk_bytes);
+                    u8* const bytes = read_buffer.data();
+                    const u32 value = regs.remap_const.remap_consta_value;
+                    if (component_size == 4) {
+                        std::ranges::fill(
+                            std::span<u32>(reinterpret_cast<u32*>(bytes), chunk_elements),
+                            value);
+                    } else {
+                        for (size_t element = 0; element < chunk_elements; ++element) {
+                            const size_t base = element * component_size;
+                            for (u32 byte = 0; byte < component_size; ++byte) {
+                                bytes[base + byte] = static_cast<u8>(value >> (byte * 8));
+                            }
+                        }
+                    }
+                    for (u64 offset = 0; offset < byte_count;) {
+                        const size_t count = static_cast<size_t>(
+                            (std::min)(byte_count - offset, static_cast<u64>(chunk_bytes)));
+                        memory_manager.WriteBlock(regs.offset_out + offset, bytes, count);
+                        offset += count;
                     }
                 }
             }
-            // CONST_A also modifies textures and shader-visible CPU pages.
-            // WriteBlockUnsafe bypasses RasterizerVulkan::InvalidateRegion,
-            // leaving TextureCache/BufferCache with old pixels after the clear.
-            // BufferClear above may accelerate u32 fills, but guest memory
-            // must still publish its CPU copy through normal cache ownership.
-            memory_manager.WriteBlock(regs.offset_out, bytes, byte_count);
         } else {
             memory_manager.FlushCaching();
             const auto convert_linear_2_blocklinear_addr = [](u64 address) {
