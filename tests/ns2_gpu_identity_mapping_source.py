@@ -5,6 +5,26 @@ shared=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu
 worker=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp").read_text()
 worker_hdr=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.h").read_text()
 registration=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_memory_registration.h").read_text()
+native_as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+native_as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
+# A partially OOM-committed GMMU must never lose its physical page backing.
+# Native NvMap FreeHandle(final dupe) can unmap pins; the selected GPU-only
+# backing owner must quarantine the CPU alias + KPageGroup in this rare case.
+assert "[[nodiscard]] bool IsNativeSparsePoisoned();" in native_as_h
+poison=native_as_cpp.split("bool nvhost_as_gpu::IsNativeSparsePoisoned() {",1)[1].split("\n}",1)[0]
+assert "std::scoped_lock lock{mutex};" in poison
+assert "return native_sparse_poisoned;" in poison
+dense=worker.split("Result IGpuWorker::BackGpuOnlyRegion(",1)[1].split(
+    "bool IGpuWorker::RetireGpuOnlyRegion(",1)[0]
+assert "mapping_as->RemapNativeSparse(" in dense
+assert "mapping_as->IsNativeSparsePoisoned()" in dense
+quarantine=dense.split("if (mapping_as && mapping_as->IsNativeSparsePoisoned()) {",1)[1].split(
+    "if (handle) {",1)[0]
+for token in ("(void)pages.release();", "return Kernel::ResultOutOfResource;"):
+    assert token in quarantine,token
+assert dense.index("mapping_as->IsNativeSparsePoisoned()") < dense.index(
+    "nvmap.FreeHandle(id, false)")
+
 worker_protocol=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_worker_protocol.h").read_text()
 # MKW recreates sparse region 214 at the exact same start VA while
 # growing its extent. Encore must retire that exact predecessor like a 215

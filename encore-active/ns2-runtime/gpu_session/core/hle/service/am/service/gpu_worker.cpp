@@ -386,17 +386,34 @@ Result IGpuWorker::BackGpuOnlyRegion(u32 address_space, u64 address, u64 size,
         nvmap_oom = true;
     }
     bool committed = false;
+    std::shared_ptr<Nvidia::Devices::nvhost_as_gpu> mapping_as;
     if (status == Nvidia::NvResult::Success) {
         Nvidia::Devices::NativeSparseRemapEntry entry{};
         entry.flags = page_shift == 16 ? 0x2000U : 0x1000U;
         entry.handle = handle->id;
         entry.destination_pages = address >> page_shift;
         entry.pages = size >> page_shift;
-        const auto as = m_shared->FindOwnedAddressSpace(address_space);
-        committed = as && as->RemapNativeSparse(std::span{&entry, size_t{1}}) ==
-                               Nvidia::NvResult::Success;
+        mapping_as = m_shared->FindOwnedAddressSpace(address_space);
+        committed = mapping_as &&
+                    mapping_as->RemapNativeSparse(std::span{&entry, size_t{1}}) ==
+                        Nvidia::NvResult::Success;
     }
     if (!committed) {
+        // RemapNativeSparse may have mapped a PREFIX of guest GPU PTEs
+        // before running out of page-table memory. It then quarantines all
+        // backing pins and marks the AS poisoned. NvMap::FreeHandle(final
+        // dupe) forcibly unmaps pins, and UnmapPageGroup/Close would free
+        // physical pages still referenced by those partial GPU PTEs.
+        // Only in this poisoned case keep the NVMap owner, CPU alias and
+        // page-group backing until process / AS teardown. Never retry
+        // mapping on a poisoned address space or pretend 214 succeeded.
+        if (mapping_as && mapping_as->IsNativeSparsePoisoned()) {
+            LOG_ERROR(Service_AM,
+                      "NS2 dense sparse 214 remap poisoned GMMU: quarantine backing as={} VA={:#x} size={:#x}",
+                      address_space, address, size);
+            (void)pages.release();
+            return Kernel::ResultOutOfResource;
+        }
         if (handle) {
             const auto id = handle->id;
             handle.reset();

@@ -617,6 +617,11 @@ NvResult nvhost_as_gpu::ReserveNativeSparse4K(u64 address, u64 size, u8 page_shi
 // Validate the COMPLETE batch, prepare new pins and mapping-table ownership,
 // then modify GMMU pages in order. No guest page-table change occurs before
 // all errors that can be reported have been checked.
+bool nvhost_as_gpu::IsNativeSparsePoisoned() {
+    const std::scoped_lock lock{mutex};
+    return native_sparse_poisoned;
+}
+
 NvResult nvhost_as_gpu::RemapNativeSparse(std::span<const NativeSparseRemapEntry> entries) {
     if (!m_native_process || entries.empty() || entries.size() > 256)
         return NvResult::BadParameter;

@@ -75,6 +75,9 @@ public:
     NvResult ReserveNativeSparse4K(u64 address, u64 size, u8 page_shift = 12);
     NvResult ReleaseNativeSparse4K(u64 address, u64 size);
     NvResult RemapNativeSparse(std::span<const NativeSparseRemapEntry> entries);
+    // A failed GMMU batch may have left partially updated PTEs. The GPU-only
+    // 214 backing owner must not FreeHandle / unmap its CPU alias in that case.
+    [[nodiscard]] bool IsNativeSparsePoisoned();
     // Lichii #1199 equivalent: snapshot every sparse GPU range that still
     // references a guest memory handle before TIPC 102 destroys that memory.
     // Read-only and transactional: allocation failure leaves GMMU/pins intact.
