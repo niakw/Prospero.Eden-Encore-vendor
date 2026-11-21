@@ -136,7 +136,7 @@ bool PitchDmaPhysicalOverlap(MemoryManager& memory, GPUVAddr source,
 
 // A tiled software conversion may read directly from guest pages while
 // writing the same physical pages under another GPU virtual address.
-bool DmaTiledSoftwareOverlap(MemoryManager& memory, GPUVAddr src, size_t src_bytes,
+bool DmaSoftwareOverlap(MemoryManager& memory, GPUVAddr src, size_t src_bytes,
                              GPUVAddr dst, size_t dst_bytes) {
     if (src_bytes == 0 || dst_bytes == 0) return false;
     constexpr u64 MAX_ADDRESS = (std::numeric_limits<u64>::max)();
@@ -685,12 +685,34 @@ void MaxwellDMA::Launch() {
                     }
                 }
             } else {
-                if (!accelerate.BufferCopy(regs.offset_in, regs.offset_out, regs.line_length_in)) {
+                // A one-dimensional B0B5 copy can alias the SAME device pages
+                // under different GPU VAs. Vulkan cannot copy overlapping
+                // memory, and the default GuestMemoryScoped fallback may keep
+                // a direct source pointer that memcpy overwrites prematurely.
+                const size_t count = regs.line_length_in;
+                if (count != 0 &&
+                    DmaSoftwareOverlap(memory_manager, regs.offset_in, count,
+                                       regs.offset_out, count)) {
+                    constexpr size_t MAX_ALIAS_BYTES = size_t{64} << 20;
+                    if (count > MAX_ALIAS_BYTES ||
+                        !memory_manager.IsFullyMappedRange(regs.offset_in, count) ||
+                        !memory_manager.IsFullyMappedRange(regs.offset_out, count)) {
+                        LOG_WARNING(Render_OpenGL, "Unmapped or oversized 1D DMA alias");
+                        AssertFailSoftImpl();
+                    } else {
+                        // Read all authoritative source bytes before the first
+                        // CPU write; ReadBlock flushes GPU-owned buffer pages
+                        // and WriteBlock invalidates CPU-updated texture views.
+                        std::vector<u8> snapshot(count);
+                        memory_manager.ReadBlock(regs.offset_in, snapshot.data(), count);
+                        memory_manager.WriteBlock(regs.offset_out, snapshot.data(), count);
+                    }
+                } else if (!accelerate.BufferCopy(regs.offset_in, regs.offset_out, count)) {
                     Tegra::Memory::GpuGuestMemoryScoped<
                         u8, Tegra::Memory::GuestMemoryFlags::SafeReadCachedWrite>
-                        tmp_write_buffer(memory_manager, regs.offset_in, regs.line_length_in,
+                        tmp_write_buffer(memory_manager, regs.offset_in, count,
                                          &read_buffer);
-                    tmp_write_buffer.SetAddressAndSize(regs.offset_out, regs.line_length_in);
+                    tmp_write_buffer.SetAddressAndSize(regs.offset_out, count);
                 }
             }
         }
@@ -1014,7 +1036,7 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
     }
     const size_t dst_size = static_cast<size_t>(dst_size_wide);
 
-    if (DmaTiledSoftwareOverlap(memory_manager, src_operand.address, src_size,
+    if (DmaSoftwareOverlap(memory_manager, src_operand.address, src_size,
                                 dst_operand.address, dst_size)) {
         constexpr size_t MAX_TILED_ALIAS_BYTES = size_t{64} << 20;
         if (src_size == 0 || dst_size == 0 ||
@@ -1107,7 +1129,7 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
 
     GPUVAddr src_addr = regs.offset_in;
     GPUVAddr dst_addr = regs.offset_out;
-    if (DmaTiledSoftwareOverlap(memory_manager, src_addr, src_size, dst_addr, dst_size)) {
+    if (DmaSoftwareOverlap(memory_manager, src_addr, src_size, dst_addr, dst_size)) {
         constexpr size_t MAX_TILED_ALIAS_BYTES = size_t{64} << 20;
         if (src_size == 0 || dst_size == 0 ||
             src_size > MAX_TILED_ALIAS_BYTES ||
