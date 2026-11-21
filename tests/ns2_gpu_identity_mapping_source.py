@@ -345,7 +345,7 @@ for marker in ("NativeGpuProcessRegistry::Instance().Contains(m_native_process)"
                "range.source_offset + delta", "return NvResult::NotSupported;"):
     assert marker in modify,marker
 assert modify.index("SelectNativeMemoryKind(") < modify.index("gmmu->Map(address,")
-assert modify.index("while (cursor < end) {") < modify.index("cursor = address;") < modify.index(
+assert modify.index("while (cursor < end) {") < modify.index("\n    cursor = address;") < modify.index(
     "gmmu->Map(cursor,")
 assert modify.index("native_ioctl_remap_pins.find(range.handle)") < modify.index(
     "cursor = address;")
