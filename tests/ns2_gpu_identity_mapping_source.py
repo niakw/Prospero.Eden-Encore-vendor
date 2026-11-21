@@ -113,6 +113,27 @@ assert "current_channel = nullptr;" in release
 assert "bound_channel = -1;" in release
 print("NS1_PREBIND_GPU_CLOSE_SOURCE_PASS initialized_pointer=1 unbound_close=1")
 
+# Final-FD retirement must never prevent Module::Close from erasing the FD,
+# and the destructor fallback must remain noexcept in practice. A failed GPU
+# worker is already a latched fatal condition; record it and continue cleanup.
+module_cpp=(R/"sources/eden/src/core/hle/service/nvdrv/nvdrv.cpp").read_text()
+on_close=nvhost_cpp.split("void nvhost_gpu::OnClose(DeviceFD fd) {",1)[1].split("\n}\n",1)[0]
+dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}\n",1)[0]
+for block in (on_close,dtor):
+    assert "try {" in block
+    assert "system.GPU().ReleaseChannel(*channel_state);" in block
+    assert "catch (...) {" in block
+    assert "::Eden::RecordGpuFailure(std::current_exception());" in block
+assert on_close.index("sessions.erase(fd);") < on_close.index("try {")
+close_body=module_cpp.split("NvResult Module::Close(DeviceFD fd) {",1)[1].split(
+    "\n}\n",1)[0]
+assert close_body.index("itr->second->OnClose(fd);") < close_body.index(
+    "open_files.erase(itr);")
+assert '#include "gpu_failure.h"' in nvhost_cpp
+print("NS1_NVDRV_CLOSE_EXCEPTION_SAFE_PASS final_fd=1 destructor_noexcept=1 "
+      "failure_latched=1 module_erase_reachable=1")
+
+
 
 on_close=nvhost_cpp.split("void nvhost_gpu::OnClose(DeviceFD fd) {",1)[1].split("\n}\n",1)[0]
 for needle in ("sessions.erase(fd);",
