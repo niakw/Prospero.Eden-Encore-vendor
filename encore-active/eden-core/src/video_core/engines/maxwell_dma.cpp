@@ -374,7 +374,12 @@ void MaxwellDMA::Launch() {
                     }
                 }
             }
-            memory_manager.WriteBlockUnsafe(regs.offset_out, bytes, byte_count);
+            // CONST_A also modifies textures and shader-visible CPU pages.
+            // WriteBlockUnsafe bypasses RasterizerVulkan::InvalidateRegion,
+            // leaving TextureCache/BufferCache with old pixels after the clear.
+            // BufferClear above may accelerate u32 fills, but guest memory
+            // must still publish its CPU copy through normal cache ownership.
+            memory_manager.WriteBlock(regs.offset_out, bytes, byte_count);
         } else {
             memory_manager.FlushCaching();
             const auto convert_linear_2_blocklinear_addr = [](u64 address) {
