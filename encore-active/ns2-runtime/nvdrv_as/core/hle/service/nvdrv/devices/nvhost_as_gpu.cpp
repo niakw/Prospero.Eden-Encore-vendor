@@ -983,6 +983,88 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
                 return NvResult::BadValue;
         }
     }
+    // Switch 2 only: commit all CPU-side owners before publishing a GPU
+    // page-table mapping. The legacy path below deliberately stays unchanged.
+    // An OOM in vector/map/set bookkeeping must never strand a NvMap pin,
+    // allocator reservation, or live GMMU mapping with no retirement owner.
+    if (native) {
+        const bool fixed = (params.flags & MappingFlags::Fixed) != MappingFlags::None;
+        if (params.buffer_offset < 0 || (fixed && params.offset < 0) || size == 0)
+            return NvResult::BadValue;
+        const bool big_page = Common::IsAligned(handle->align, vm.big_page_size);
+        if (!big_page && !Common::IsAligned(handle->align, VM::YUZU_PAGESIZE))
+            return NvResult::BadValue;
+        const u32 page_size = big_page ? vm.big_page_size : VM::YUZU_PAGESIZE;
+        const u32 page_bits = big_page ? vm.big_page_size_bits : VM::PAGE_SIZE_BITS;
+        const u64 page_count = size / page_size + u64{size % page_size != 0};
+        if (page_count == 0 || page_count > std::numeric_limits<u32>::max())
+            return NvResult::InsufficientMemory;
+        const u64 mapped_size = page_count * page_size;
+        auto& allocator = big_page ? *vm.big_page_allocator : *vm.small_page_allocator;
+        u32 first_page{};
+        u64 gpu_address = fixed ? static_cast<u64>(params.offset) : 0;
+        if (!fixed) {
+            try {
+                first_page = allocator.Allocate(static_cast<u32>(page_count));
+            } catch (const std::bad_alloc&) {
+                return NvResult::InsufficientMemory;
+            }
+            if (!first_page)
+                return NvResult::InsufficientMemory;
+            gpu_address = static_cast<u64>(first_page) << page_bits;
+        }
+        const DAddr pinned = nvmap.PinHandle(params.handle, false);
+        if (!NativePinnedPhysicalSpan(pinned, params.buffer_offset, size)) {
+            if (pinned) nvmap.UnpinHandle(params.handle);
+            if (!fixed) allocator.Free(first_page, static_cast<u32>(page_count));
+            return NvResult::InsufficientMemory;
+        }
+
+        bool recorded_mapping = false;
+        bool recorded_fixed = false;
+        bool recorded_offset = false;
+        bool duplicate = false;
+        bool out_of_memory = false;
+        try {
+            const bool use_big_pages = fixed && fixed_alloc->second.big_pages && big_page;
+            const auto [it, inserted] = mapping_map.try_emplace(
+                gpu_address, Mapping(params.handle, pinned + params.buffer_offset,
+                                     gpu_address, size, fixed, use_big_pages,
+                                     fixed && fixed_alloc->second.sparse));
+            if (!inserted) {
+                duplicate = true;
+            } else {
+                recorded_mapping = true;
+                if (fixed) {
+                    fixed_alloc->second.mappings.push_back(gpu_address);
+                    recorded_fixed = true;
+                }
+                const auto [offset_it, offset_inserted] = map_buffer_offsets.insert(
+                    static_cast<s64>(gpu_address));
+                if (!offset_inserted) duplicate = true;
+                else recorded_offset = true;
+            }
+        } catch (const std::bad_alloc&) {
+            out_of_memory = true;
+        }
+        if (duplicate || out_of_memory) {
+            if (recorded_offset) map_buffer_offsets.erase(static_cast<s64>(gpu_address));
+            if (recorded_fixed) fixed_alloc->second.mappings.pop_back();
+            if (recorded_mapping) mapping_map.erase(gpu_address);
+            nvmap.UnpinHandle(params.handle);
+            if (!fixed) allocator.Free(first_page, static_cast<u32>(page_count));
+            return out_of_memory ? NvResult::InsufficientMemory : NvResult::BadValue;
+        }
+        // All potentially allocating owner-table mutations succeeded.
+        const bool use_big_pages = fixed && fixed_alloc->second.big_pages && big_page;
+        gmmu->Map(gpu_address, pinned + params.buffer_offset,
+                  fixed ? size : mapped_size,
+                  static_cast<Tegra::PTEKind>(params.kind),
+                  fixed ? use_big_pages : big_page);
+        params.offset = gpu_address;
+        return NvResult::Success;
+    }
+
     const DAddr pinned = nvmap.PinHandle(params.handle, false);
     if (!NativePinnedPhysicalSpan(pinned, params.buffer_offset, size)) {
         if (pinned) nvmap.UnpinHandle(params.handle);
