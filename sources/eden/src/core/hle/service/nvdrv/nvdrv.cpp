@@ -291,7 +291,15 @@ NvResult Module::Close(DeviceFD fd) {
         return NvResult::NotImplemented;
     }
 
-    itr->second->OnClose(fd);
+    try {
+        itr->second->OnClose(fd);
+    } catch (...) {
+        // Never leave a published FD behind if device-specific teardown
+        // reports a fatal host error. The exception still propagates, but the
+        // shared module no longer retains the failed device into a relaunch.
+        open_files.erase(itr);
+        throw;
+    }
 
     open_files.erase(itr);
 
