@@ -88,6 +88,10 @@ for needle in ("std::unique_lock epoch_lock(scheduling_guard);",
                "channels.erase(it);"):
     assert needle in retire,needle
 
+# Early NVDRV FD close can arrive before any GPU bind; never compare an
+# indeterminate current_channel pointer against the retiring owner.
+assert "Tegra::Control::ChannelState* current_channel{};" in gpu_cpp
+assert "s32 bound_channel{-1};" in gpu_cpp
 release=gpu_cpp.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split(
     "\n    /// Binds a renderer to the GPU.",1)[0]
 for needle in ("const s32 channel_id = to_release.bind_id;",
@@ -104,6 +108,11 @@ assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
     "channels.erase(it);")
 assert release.index("gpu_thread.TickGPU(is_async);") < release.index(
     "WaitForSyncOperation(fence);")
+assert "if (current_channel == owner.get()) {" in release
+assert "current_channel = nullptr;" in release
+assert "bound_channel = -1;" in release
+print("NS1_PREBIND_GPU_CLOSE_SOURCE_PASS initialized_pointer=1 unbound_close=1")
+
 
 on_close=nvhost_cpp.split("void nvhost_gpu::OnClose(DeviceFD fd) {",1)[1].split("\n}\n",1)[0]
 for needle in ("sessions.erase(fd);",
