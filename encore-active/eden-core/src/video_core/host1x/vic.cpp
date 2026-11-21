@@ -67,6 +67,39 @@ static bool HasSSE41() {
 #endif
 }
 
+// VIC output plane strides and GOB allocations originate in guest state.
+// Check the entire padded backing in u64 BEFORE CalculateSize() (which still
+// multiplies intermediate GOB dimensions as u32), allocation, or guest writes.
+bool CheckedVicPlane(u32 width, u32 height, u32 bytes_per_pixel, bool tiled,
+                     u32 block_height) noexcept {
+    constexpr u64 MAX_PLANE_BYTES = 256ULL << 20;
+    if (width == 0 || height == 0 || bytes_per_pixel == 0) {
+        return false;
+    }
+    const u64 row_bytes = static_cast<u64>(width) * bytes_per_pixel;
+    const u64 pitch = (row_bytes + 15) & ~u64{15};
+    if (pitch == 0 || pitch > MAX_PLANE_BYTES / height) {
+        return false;
+    }
+    if (!tiled) {
+        return true;
+    }
+    if (block_height > 5) {
+        return false;
+    }
+    const u64 aligned_width = (row_bytes + 63) & ~u64{63};
+    const u64 gob_height = u64{8} << block_height;
+    const u64 aligned_height = (static_cast<u64>(height) + gob_height - 1) &
+                               ~(gob_height - 1);
+    if (aligned_width == 0 || aligned_height == 0 ||
+        aligned_width > MAX_PLANE_BYTES / aligned_height) {
+        return false;
+    }
+    const u64 padded_bytes = aligned_width * aligned_height;
+    return Texture::CalculateSize(true, bytes_per_pixel, width, height, 1,
+                                  block_height, 0) == padded_bytes;
+}
+
 void SwizzleSurface(std::span<u8> output, u32 out_stride, std::span<const u8> input, u32 in_stride, u32 height) noexcept {
     //// Taken from https://github.com/averne/FFmpeg/blob/nvtegra/libavutil/hwcontext_nvtegra.c#L949
     /// Can only handle block height == 1.
@@ -788,6 +821,19 @@ void Vic::WriteY8__V8U8_N420(const OutputSurfaceConfig& output_surface_config) n
     surface_width = (std::min)(surface_width, out_luma_width);
     surface_height = (std::min)(surface_height, out_luma_height);
 
+    const bool tiled = output_surface_config.out_block_kind == BlkKind::Generic_16Bx2;
+    const u32 block_height = u32(output_surface_config.out_block_height);
+    if ((output_surface_config.out_block_kind != BlkKind::Pitch && !tiled) ||
+        !CheckedVicPlane(out_luma_width, out_luma_height, 1, tiled, block_height) ||
+        !CheckedVicPlane(out_chroma_width, out_chroma_height, 2, tiled, block_height) ||
+        // The 4:2:0 chroma plane must hold one UV pair per two luma
+        // pixels, including the final pixel of an odd-width surface.
+        out_chroma_stride < (static_cast<u64>(surface_width) + 1) / 2 * 2 ||
+        out_chroma_height < (static_cast<u64>(surface_height) + 1) / 2) {
+        LOG_WARNING(HW_GPU, "Rejecting invalid VIC YUV420 output geometry");
+        return;
+    }
+
     auto Decode = [&](u8* out_luma, u8* out_chroma) {
         if (COMPILED_HAS_SSE41 && HasSSE41() && surface_width % 16 == 0) {
 #if COMPILED_HAS_SSE41
@@ -933,11 +979,20 @@ void Vic::WriteY8__V8U8_N420(const OutputSurfaceConfig& output_surface_config) n
                 auto const dst_luma = y * out_luma_stride;
                 auto const src_chroma = y * surface_stride;
                 auto const dst_chroma = (y / 2) * out_chroma_stride;
-                for (size_t x = 0; x < surface_width; x += 2) {
+                size_t x = 0;
+                for (; x + 1 < surface_width; x += 2) {
                     out_luma[dst_luma + x + 0] = u8(output_surface[src_luma + x + 0].r >> 2);
                     out_luma[dst_luma + x + 1] = u8(output_surface[src_luma + x + 1].r >> 2);
                     out_chroma[dst_chroma + x + 0] = u8(output_surface[src_chroma + x].g >> 2);
                     out_chroma[dst_chroma + x + 1] = u8(output_surface[src_chroma + x].b >> 2);
+                }
+                if (x < surface_width) {
+                    // NVIDIA VIC supports odd luma widths: one trailing
+                    // luma sample still needs its own interleaved UV pair.
+                    out_luma[dst_luma + x] = u8(output_surface[src_luma + x].r >> 2);
+                    out_chroma[dst_chroma + x] = u8(output_surface[src_chroma + x].g >> 2);
+                    out_chroma[dst_chroma + x + 1] =
+                        u8(output_surface[src_chroma + x].b >> 2);
                 }
             }
         }
@@ -965,12 +1020,20 @@ void Vic::WriteY8__V8U8_N420(const OutputSurfaceConfig& output_surface_config) n
 
         Tegra::Memory::GpuGuestMemoryScoped<u8, Core::Memory::GuestMemoryFlags::SafeWrite> out_luma(host1x.gmmu_manager, regs.output_surface.luma.Address(), out_luma_swizzle_size, &swizzle_scratch);
         Tegra::Memory::GpuGuestMemoryScoped<u8, Core::Memory::GuestMemoryFlags::SafeWrite> out_chroma(host1x.gmmu_manager, regs.output_surface.chroma_u.Address(), out_chroma_swizzle_size, &swizzle_scratch);
-        if (block_height == 1) {
+        // The fast 16Bx2 y+=2 swizzler always accesses y+1; for odd
+        // heights use the generic decoder, which admits padded GOB rows.
+        if (block_height == 1 && (out_luma_height & 1) == 0 &&
+            (out_chroma_height & 1) == 0) {
             SwizzleSurface(out_luma, out_luma_stride, luma_scratch, out_luma_stride, out_luma_height);
             SwizzleSurface(out_chroma, out_chroma_stride, chroma_scratch, out_chroma_stride, out_chroma_height);
         } else {
-            Texture::SwizzleTexture(out_luma, luma_scratch, BytesPerPixel, out_luma_width, out_luma_height, 1, block_height, 0, 1);
-            Texture::SwizzleTexture(out_chroma, chroma_scratch, BytesPerPixel, out_chroma_width, out_chroma_height, 1, block_height, 0, 1);
+            // GOB chroma pixels are interleaved UV (two bytes each).
+            // The original call used BPP=1 despite sizing the same
+            // surface at BPP=2, truncating alternate U/V samples.
+            Texture::SwizzleTexture(out_luma, luma_scratch, BytesPerPixel,
+                                    out_luma_width, out_luma_height, 1, block_height, 0, 4);
+            Texture::SwizzleTexture(out_chroma, chroma_scratch, BytesPerPixel * 2,
+                                    out_chroma_width, out_chroma_height, 1, block_height, 0, 3);
         }
     } break;
     case BlkKind::Pitch: {
@@ -1015,6 +1078,15 @@ void Vic::WriteABGR(const OutputSurfaceConfig& output_surface_config, VideoPixel
 
     surface_width = (std::min)(surface_width, out_luma_width);
     surface_height = (std::min)(surface_height, out_luma_height);
+
+    const bool tiled = output_surface_config.out_block_kind == BlkKind::Generic_16Bx2;
+    const u32 block_height = u32(output_surface_config.out_block_height);
+    if ((output_surface_config.out_block_kind != BlkKind::Pitch && !tiled) ||
+        !CheckedVicPlane(out_luma_width, out_luma_height, BytesPerPixel,
+                         tiled, block_height)) {
+        LOG_WARNING(HW_GPU, "Rejecting invalid VIC ABGR output geometry");
+        return;
+    }
 
     auto Decode = [&](u8* out, Pixel const* inp) {
         if (COMPILED_HAS_SSE41 && HasSSE41() && surface_width % 16 == 0) {
@@ -1129,10 +1201,13 @@ void Vic::WriteABGR(const OutputSurfaceConfig& output_surface_config, VideoPixel
         Decode(luma_scratch.data(), output_surface.data());
 
         Tegra::Memory::GpuGuestMemoryScoped<u8, Core::Memory::GuestMemoryFlags::SafeWrite> out_luma(host1x.gmmu_manager, regs.output_surface.luma.Address(), out_swizzle_size, &swizzle_scratch);
-        if (block_height == 1) {
+        if (block_height == 1 && (out_luma_height & 1) == 0) {
             SwizzleSurface(out_luma, out_luma_stride, luma_scratch, out_luma_stride, out_luma_height);
         } else {
-            Texture::SwizzleTexture(out_luma, luma_scratch, BytesPerPixel, out_luma_width, out_luma_height, 1, block_height, 0, 1);
+            // The generic decoder's stride_alignment is log2(pixels).
+            // The scratch rows are 16-byte aligned: 4 bytes/pixel => 4 pixels.
+            Texture::SwizzleTexture(out_luma, luma_scratch, BytesPerPixel,
+                                    out_luma_width, out_luma_height, 1, block_height, 0, 2);
         }
     } break;
     case BlkKind::Pitch: {
