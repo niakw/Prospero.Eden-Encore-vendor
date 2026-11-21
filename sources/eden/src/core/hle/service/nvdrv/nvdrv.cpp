@@ -146,7 +146,7 @@ Module::Module(Core::System& system)
         return open_files.emplace(fd, std::move(device)).first;
     };
     builders["/dev/nvhost-ctrl-gpu"] = [this, &system](DeviceFD fd) {
-        auto device = std::make_shared<Devices::nvhost_ctrl_gpu>(system, events_interface);
+        auto device = std::make_shared<Devices::nvhost_ctrl_gpu>(system, events_interface, container);
         return open_files.emplace(fd, std::move(device)).first;
     };
     builders["/dev/nvmap"] = [this, &system](DeviceFD fd) {

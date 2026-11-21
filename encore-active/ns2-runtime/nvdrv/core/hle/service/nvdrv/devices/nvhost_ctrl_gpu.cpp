@@ -12,13 +12,16 @@
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/hle/service/nvdrv/devices/ioctl_serialization.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
+#include "core/hle/service/nvdrv/core/container.h"
 #include "core/hle/service/nvdrv/devices/nvhost_ctrl_gpu.h"
 #include "core/hle/service/nvdrv/nvdrv.h"
 
 namespace Service::Nvidia::Devices {
 
-nvhost_ctrl_gpu::nvhost_ctrl_gpu(Core::System& system_, EventInterface& events_interface_)
-    : nvdevice{system_}, events_interface{events_interface_} {
+nvhost_ctrl_gpu::nvhost_ctrl_gpu(Core::System& system_, EventInterface& events_interface_,
+                                 NvCore::Container& core_)
+    : nvdevice{system_}, events_interface{events_interface_}, core{core_} {
     error_notifier_event = events_interface.CreateEvent("CtrlGpuErrorNotifier");
     unknown_event = events_interface.CreateEvent("CtrlGpuUnknownEvent");
 }
@@ -44,7 +47,8 @@ NvResult nvhost_ctrl_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8>
         case 0x5:
             return WrapFixed(this, &nvhost_ctrl_gpu::GetCharacteristics1, input, output);
         case 0x6:
-            return WrapFixed(this, &nvhost_ctrl_gpu::GetTPCMasks1, input, output);
+            return WrapFixed(this, &nvhost_ctrl_gpu::GetTPCMasks1, input, output,
+                             UsesNativeAbi(fd));
         case 0x7:
             return WrapFixed(this, &nvhost_ctrl_gpu::FlushL2, input, output);
         case 0x14:
@@ -113,7 +117,7 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
         }
         case 0x6:
             return WrapFixedInlOut(this, &nvhost_ctrl_gpu::GetTPCMasks3, input, output,
-                                   inline_output);
+                                   inline_output, UsesNativeAbi(fd));
         case 0x1f: {
             // Switch 2 GET_ENGINE_INFO (0xC010471F) is a two-phase
             // size query followed by an inline array of 16-byte engine
@@ -153,12 +157,13 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
         case 0x13: {
             // Switch 2 NVGPU_GPU_IOCTL_VSMS_MAPPING (0xC0084713):
             // two argument words and one {GPC, TPC} byte pair per virtual SM.
-            // The native characteristics currently expose one GPC and two
-            // TPCs, with two virtual SMs per TPC. Never leave the SDK's
-            // 0xC0C0 sentinel in the returned mapping or claim extra TPCs.
+            // GA10F advertises six TPCs (twelve virtual SMs). Bound the
+            // inline mapping to the exact same profile returned by the
+            // native characteristics and GetTPCMasks3 reply.
             // The Switch 1 4-byte variant remains unsupported.
             if (command.raw != 0xC0084713U) break;
-            constexpr size_t NativeVirtualSmCount = 4;
+            constexpr size_t NativeVirtualSmCount =
+                NativeGpuTpcsPerGpc * NativeGpuSmsPerTpc;
             if (input.size() != 8 || output.size() != 8 ||
                 inline_output.size() < 2 ||
                 (inline_output.size() % 2) != 0 ||
@@ -167,7 +172,7 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
             std::memcpy(output.data(), input.data(), 8);
             for (size_t i = 0; i < inline_output.size() / 2; ++i) {
                 inline_output[i * 2] = 0; // GPC 0
-                inline_output[i * 2 + 1] = static_cast<u8>(i / 2); // TPC 0, 0, 1, 1
+                inline_output[i * 2 + 1] = static_cast<u8>(i / NativeGpuSmsPerTpc);
             }
             return NvResult::Success;
         }
@@ -183,8 +188,20 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
     return NvResult::NotImplemented;
 }
 
-void nvhost_ctrl_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {}
-void nvhost_ctrl_gpu::OnClose(DeviceFD fd) {}
+void nvhost_ctrl_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
+    sessions.insert_or_assign(fd, session_id);
+}
+void nvhost_ctrl_gpu::OnClose(DeviceFD fd) {
+    sessions.erase(fd);
+}
+
+bool nvhost_ctrl_gpu::UsesNativeAbi(DeviceFD fd) const {
+    const auto it = sessions.find(fd);
+    if (it == sessions.end()) return false;
+    const auto* session = core.GetSession(it->second);
+    return session && session->process &&
+           NativeGpuProcessRegistry::Instance().Contains(session->process);
+}
 
 NvResult nvhost_ctrl_gpu::GetCharacteristics1(IoctlCharacteristics& params) {
     LOG_DEBUG(Service_NVDRV, "called");
@@ -275,18 +292,18 @@ NvResult nvhost_ctrl_gpu::GetCharacteristics3(
     return NvResult::Success;
 }
 
-NvResult nvhost_ctrl_gpu::GetTPCMasks1(IoctlGpuGetTpcMasksArgs& params) {
+NvResult nvhost_ctrl_gpu::GetTPCMasks1(IoctlGpuGetTpcMasksArgs& params, bool native) {
     LOG_DEBUG(Service_NVDRV, "called, mask_buffer_size={:#x}", params.mask_buffer_size);
     if (params.mask_buffer_size != 0) {
-        params.tcp_mask = 3;
+        params.tcp_mask = native ? ((u32{1} << NativeGpuTpcsPerGpc) - 1U) : 3U;
     }
     return NvResult::Success;
 }
 
-NvResult nvhost_ctrl_gpu::GetTPCMasks3(IoctlGpuGetTpcMasksArgs& params, std::span<u32> tpc_mask) {
+NvResult nvhost_ctrl_gpu::GetTPCMasks3(IoctlGpuGetTpcMasksArgs& params, std::span<u32> tpc_mask, bool native) {
     LOG_DEBUG(Service_NVDRV, "called, mask_buffer_size={:#x}", params.mask_buffer_size);
     if (params.mask_buffer_size != 0) {
-        params.tcp_mask = 3;
+        params.tcp_mask = native ? ((u32{1} << NativeGpuTpcsPerGpc) - 1U) : 3U;
     }
     if (!tpc_mask.empty()) {
         tpc_mask.front() = params.tcp_mask;

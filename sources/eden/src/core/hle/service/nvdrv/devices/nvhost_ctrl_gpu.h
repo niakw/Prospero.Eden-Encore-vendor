@@ -7,6 +7,7 @@
 #pragma once
 
 #include <vector>
+#include "common/container/unordered_map.h"
 
 #include "common/common_funcs.h"
 #include "common/common_types.h"
@@ -15,13 +16,15 @@
 
 namespace Service::Nvidia {
 class EventInterface;
+namespace NvCore { class Container; }
 }
 
 namespace Service::Nvidia::Devices {
 
 class nvhost_ctrl_gpu final : public nvdevice {
 public:
-    explicit nvhost_ctrl_gpu(Core::System& system_, EventInterface& events_interface_);
+    explicit nvhost_ctrl_gpu(Core::System& system_, EventInterface& events_interface_,
+                             NvCore::Container& core);
     ~nvhost_ctrl_gpu() override;
 
     NvResult Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> input,
@@ -193,8 +196,10 @@ private:
     NvResult GetCharacteristics3(IoctlCharacteristics& params,
                                  std::span<IoctlGpuCharacteristics> gpu_characteristics);
 
-    NvResult GetTPCMasks1(IoctlGpuGetTpcMasksArgs& params);
-    NvResult GetTPCMasks3(IoctlGpuGetTpcMasksArgs& params, std::span<u32> tpc_mask);
+    NvResult GetTPCMasks1(IoctlGpuGetTpcMasksArgs& params, bool native);
+    NvResult GetTPCMasks3(IoctlGpuGetTpcMasksArgs& params, std::span<u32> tpc_mask,
+                          bool native);
+    [[nodiscard]] bool UsesNativeAbi(DeviceFD fd) const;
 
     NvResult GetActiveSlotMask(IoctlActiveSlotMask& params);
     NvResult PmuGetGpuLoad(IoctlPmuGetLoad& params);
@@ -206,6 +211,8 @@ private:
     NvResult GetGpuTime(IoctlGetGpuTime& params);
 
     EventInterface& events_interface;
+    NvCore::Container& core;
+    ::Common::unordered_map<DeviceFD, NvCore::SessionId> sessions;
 
     // Events
     Kernel::KEvent* error_notifier_event;
