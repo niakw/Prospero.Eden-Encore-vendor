@@ -63,7 +63,7 @@ class StateTracker;
 class AccelerateDMA : public Tegra::Engines::AccelerateDMAInterface {
 public:
     explicit AccelerateDMA(BufferCache& buffer_cache, TextureCache& texture_cache,
-                           Scheduler& scheduler);
+                           Scheduler& scheduler, Tegra::MemoryManager* const& gpu_memory);
 
     bool BufferCopy(GPUVAddr start_address, GPUVAddr end_address, u64 amount) override;
 
@@ -84,6 +84,9 @@ private:
     BufferCache& buffer_cache;
     TextureCache& texture_cache;
     Scheduler& scheduler;
+    // The GPU address space changes on channel binds. Reference the
+    // rasterizer's active pointer, not a stale construction-time channel.
+    Tegra::MemoryManager* const& gpu_memory;
 };
 
 class RasterizerVulkan final : public VideoCore::RasterizerInterface,
