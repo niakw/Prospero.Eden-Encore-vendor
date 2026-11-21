@@ -34,4 +34,23 @@ block=asc.split("NvResult nvhost_as_gpu::Nx2GetSyncpointShimInfo",1)[1].split(
     "NvResult nvhost_as_gpu::AllocAsEx",1)[0]
 for forbidden in ("PinHandle(", "Allocate(", "MapNative4K(", "sceKernelAllocate", "512_MiB"):
     assert forbidden not in block,forbidden
+gpu=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+gpuh=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
+for h in (mmh,native):
+    assert "GPUVAddr GetNativeSyncpointShim() const noexcept" in h
+    assert "native_syncpoint_shim.load(std::memory_order_acquire)" in h
+assert "struct IoctlGetUserSyncpoint {" in gpuh
+assert "static_assert(sizeof(IoctlGetUserSyncpoint) == 16);" in gpuh
+assert "case 0x1e: { // Switch 2 NVGPU_IOCTL_CHANNEL_GET_USER_SYNCPOINT" in gpu
+assert "command.raw != 0xC010481EU" in gpu
+sync=gpu.split("NvResult nvhost_gpu::GetUserSyncpoint(IoctlGetUserSyncpoint& params, DeviceFD fd) {",1)[1].split("\n}",1)[0]
+for token in ("UsesNativeAbi(fd)", "ValidateChannelOwner(fd, program_id)",
+              "channel_state->memory_manager->GetNativeSyncpointShim()",
+              "IsSyncpointAllocated(channel_syncpoint)",
+              "GetSyncpointFence(channel_syncpoint)",
+              "params.gpu_va = shim + u64{channel_syncpoint} * sizeof(u32);",
+              "params.syncpoint_id = channel_syncpoint",
+              "params.syncpoint_max = fence.value"):
+    assert token in sync,token
+assert sync.index("GetNativeSyncpointShim()") < sync.index("params.gpu_va = shim")
 print("NS2_SYNCPOINT_SHIM_SOURCE_PASS ioctl=0xB words=192 stride=4 physical_bytes=0 upstream=12125bc pinned_eden=immutable selected_header=native_tiling_production experimental_guest_bridge=separate")

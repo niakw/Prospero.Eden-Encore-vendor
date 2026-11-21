@@ -140,6 +140,13 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
         }
         case 0x1d:
             return WrapFixed(this, &nvhost_gpu::ChannelSetTimeslice, input, output);
+        case 0x1e: { // Switch 2 NVGPU_IOCTL_CHANNEL_GET_USER_SYNCPOINT
+            if (command.raw != 0xC010481EU) break;
+            if (output.size() != sizeof(IoctlGetUserSyncpoint) ||
+                (!input.empty() && input.size() != sizeof(IoctlGetUserSyncpoint)))
+                return NvResult::InvalidSize;
+            return WrapFixed(this, &nvhost_gpu::GetUserSyncpoint, input, output, fd);
+        }
         case 0x1f: { // Switch 2 NVGPU_IOCTL_CHANNEL_SET_PREEMPTION_MODE
             // The guest provides two little-endian u32 preemption modes.
             // Encore's serialized GPU worker supports Wait-For-Idle only;
@@ -261,6 +268,35 @@ NvResult nvhost_gpu::ChannelOpen(IoctlChannelOpen& params, DeviceFD fd) {
     // the existing virtual GPU queue already owns this ChannelState.
     channel_state->program_id = program_id;
     native_runlist_id = runlist_id;
+    return NvResult::Success;
+}
+
+NvResult nvhost_gpu::GetUserSyncpoint(IoctlGetUserSyncpoint& params, DeviceFD fd) {
+    const std::scoped_lock lock{channel_mutex};
+    if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+    u64 program_id{};
+    if (const auto status = ValidateChannelOwner(fd, program_id);
+        status != NvResult::Success)
+        return status;
+    if (!channel_state || !channel_state->memory_manager ||
+        channel_syncpoint == 0 ||
+        channel_syncpoint >= Tegra::MemoryManager::NumShimSyncpoints ||
+        !syncpoint_manager.IsSyncpointAllocated(channel_syncpoint))
+        return NvResult::InvalidState;
+
+    // The AS ioctl A:0xB must have already installed a real, readable
+    // syncpoint shim in the exact GMMU bound to this channel. Never return
+    // an invented GPU VA: NVN subsequently dereferences this address.
+    const GPUVAddr shim = channel_state->memory_manager->GetNativeSyncpointShim();
+    if (!shim || shim > std::numeric_limits<GPUVAddr>::max() -
+                             u64{channel_syncpoint} * sizeof(u32))
+        return NvResult::InvalidState;
+    const NvFence fence = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
+    if (static_cast<u32>(fence.id) != channel_syncpoint)
+        return NvResult::InvalidState;
+    params.gpu_va = shim + u64{channel_syncpoint} * sizeof(u32);
+    params.syncpoint_id = channel_syncpoint;
+    params.syncpoint_max = fence.value;
     return NvResult::Success;
 }
 

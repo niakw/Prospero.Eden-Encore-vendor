@@ -88,6 +88,15 @@ private:
     };
     static_assert(sizeof(IoctlChannelOpen) == 4, "IoctlChannelOpen ABI size");
 
+    // NVIDIA nvgpu UAPI: 0xC010481E, exactly 16 output bytes.
+    // The address must name the channel syncpoint's actual GMMU shim word.
+    struct IoctlGetUserSyncpoint {
+        u64_le gpu_va{};
+        u32_le syncpoint_id{};
+        u32_le syncpoint_max{};
+    };
+    static_assert(sizeof(IoctlGetUserSyncpoint) == 16);
+
     struct IoctlChannelSetTimeout {
         u32_le timeout{};
     };
@@ -194,6 +203,7 @@ private:
     u32_le channel_timeslice{};
 
     NvResult ChannelOpen(IoctlChannelOpen& params, DeviceFD fd);
+    NvResult GetUserSyncpoint(IoctlGetUserSyncpoint& params, DeviceFD fd);
     NvResult SetNVMAPfd(IoctlSetNvmapFD& params);
     NvResult SetClientData(IoctlClientData& params);
     NvResult GetClientData(IoctlClientData& params);

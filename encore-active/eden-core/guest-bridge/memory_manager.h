@@ -47,6 +47,11 @@ public:
     // Lichii 12125bc / NX2 blocker #46: NVN reads Host1x syncpoints
     // through a read-only GPU virtual shim. Zero leaves NS1 unchanged.
     void SetNativeSyncpointShim(GPUVAddr address);
+    // A channel may expose only an existing, initialized shim mapping,
+    // never a guessed GPU virtual address.
+    [[nodiscard]] GPUVAddr GetNativeSyncpointShim() const noexcept {
+        return native_syncpoint_shim.load(std::memory_order_acquire);
+    }
     static constexpr u32 NumShimSyncpoints = 192;
 
     static constexpr bool HAS_FLUSH_INVALIDATION = true;
