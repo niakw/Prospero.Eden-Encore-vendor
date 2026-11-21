@@ -172,8 +172,14 @@ IGpuWorker::~IGpuWorker() {
     // be referenced by already submitted compute/graphics work. The old
     // drain only handled dense 214 backing; a worker without dense regions
     // could retire a live command buffer or GPU-written SSBO prematurely.
-    if (!m_dense_regions.empty() || !m_mappings.Mappings().empty() ||
-        !m_memory.empty())
+    // On ordinary worker/FD close the GPU is still running: retire every
+    // previously submitted buffer before unmapping its GMMU/NvMap backing.
+    // At full emulator shutdown Core::ShutdownMainProcess stops and joins
+    // the GPU worker BEFORE CloseServices destroys this TIPC session. Never
+    // dereference System::GPU() then: its optional was already reset.
+    if (system.IsPoweredOn() && !system.IsShuttingDown() &&
+        (!m_dense_regions.empty() || !m_mappings.Mappings().empty() ||
+         !m_memory.empty()))
         system.GPU().WaitForIdle();
     for (const auto& [key, mapping] : m_mappings.Mappings()) {
         const auto dense = m_dense_regions.find({mapping.address_space, mapping.address});

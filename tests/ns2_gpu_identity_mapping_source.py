@@ -148,4 +148,15 @@ for needle in ("channel_state->address_space_owner",
 assert dtor.index("system.GPU().ReleaseChannel(*channel_state)") < dtor.index(
     "NativeGpuChannelRegistry::Instance().Unbind(channel_state.get())")
 
-print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker")
+# The actual core shutdown retires GPU before kernel.CloseServices. Native
+# worker destruction may occur inside that CloseServices call: never use the
+# stopped GPU optional, while ordinary guest FD close still drains the queue.
+worker_destroy=worker.split("IGpuWorker::~IGpuWorker() {",1)[1].split("\n}",1)[0]
+core_shutdown=(R/"encore-active/ns2-runtime/process/core/core.cpp").read_text().split(
+    "void ShutdownMainProcess() {",1)[1].split("\n    bool IsShuttingDown()",1)[0]
+assert core_shutdown.index("gpu_core.reset();") < core_shutdown.index("kernel.CloseServices();")
+assert "system.IsPoweredOn() && !system.IsShuttingDown()" in worker_destroy
+assert worker_destroy.index("system.IsPoweredOn() && !system.IsShuttingDown()") < worker_destroy.index(
+    "system.GPU().WaitForIdle();") < worker_destroy.index("m_mappings.Mappings())")
+
+print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")
