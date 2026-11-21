@@ -102,8 +102,8 @@ void Fermi2D::Blit() {
             UNIMPLEMENTED_MSG("Unsupported layered Fermi2D surface or operation");
             return;
         }
-    } else if (regs.src.depth != 1) {
-        UNIMPLEMENTED_MSG("Source depth is not one");
+    } else if (regs.src.depth == 0 || regs.dst.depth == 0) {
+        UNIMPLEMENTED_MSG("Invalid zero-depth Fermi2D surface");
         return;
     }
 
@@ -295,6 +295,14 @@ void Fermi2D::Blit() {
         return;
     }
     if (!rasterizer->AccelerateSurfaceCopy(src, regs.dst, config)) {
+        // A block-linear volume copy names one depth slice by the surface
+        // address. The software blitter still assumes a single decoded slice
+        // and must never receive a depth>1 fallback: TextureCache either
+        // resolves the cached 3D slices or the command is rejected unchanged.
+        if (src.depth != 1 || regs.dst.depth != 1) {
+            UNIMPLEMENTED_MSG("Unresolved Fermi2D volume-slice copy");
+            return;
+        }
         sw_blitter->Blit(src, regs.dst, config);
     }
 }
