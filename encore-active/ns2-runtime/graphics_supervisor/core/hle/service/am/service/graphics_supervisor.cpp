@@ -1382,6 +1382,12 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
 IGraphicsSupervisor::~IGraphicsSupervisor() {
     if (m_syncpt) m_syncpt->Shutdown();
     m_syncpt.reset();
+    // Video GMMU mappings and their NVMap pins can outlive the last
+    // supervisor reference. Retire prior GPU readers BEFORE the native
+    // memory mutex and before any of those pins are dropped. During system
+    // shutdown the GPU worker has already been stopped.
+    if (m_native_module && system.IsPoweredOn() && !system.IsShuttingDown())
+        system.GPU().WaitForIdle();
     // Release the real NVMap backing and page-table locks before the native
     // NVDRV session and the application KProcess lose their final owner.
     const std::scoped_lock lock{m_native_memory_mutex};
@@ -2589,22 +2595,46 @@ void IGraphicsSupervisor::UnmapVideoGpuImage(HLERequestContext& ctx) {
     Result result = Kernel::ResultInvalidCombination;
     if (packet[0] == 0x1bb && packet[1] == 6) {
         const auto as = FindRegisteredGpuAddressSpace(packet[3]);
-        const std::scoped_lock lock{m_native_memory_mutex};
-        result = Kernel::ResultNotFound;
         const auto key = std::make_pair(packet[3], packet[2]);
-        const auto it = m_video_mappings.find(key);
         const u64 address = NativeU64(packet, 4);
         const u64 end = NativeU64(packet, 6);
+        // Only a final image reference can unmap the GMMU and release its
+        // physical NVMap pin. The prior GPU queue MUST retire first; waiting
+        // with m_native_memory_mutex held can deadlock presentation callbacks.
+        // Capture the ownership shape under the lock, then revalidate after
+        // the drain so a second unmap cannot drop an unretired pin.
+        bool may_retire = false;
+        if (as) {
+            const std::scoped_lock preflight{m_native_memory_mutex};
+            const auto it = m_video_mappings.find(key);
+            may_retire = it != m_video_mappings.end() &&
+                it->second.address_space == as && it->second.address == address &&
+                it->second.size > 0 && end >= address &&
+                end - address == it->second.size - 1 &&
+                it->second.references == 1;
+        }
+        if (may_retire && system.IsPoweredOn() && !system.IsShuttingDown())
+            system.GPU().WaitForIdle();
+
+        const std::scoped_lock lock{m_native_memory_mutex};
+        result = Kernel::ResultNotFound;
+        const auto it = m_video_mappings.find(key);
         if (as && it != m_video_mappings.end() &&
             it->second.address_space == as && it->second.address == address &&
             it->second.size > 0 && end >= address &&
             end - address == it->second.size - 1) {
             result = ResultSuccess;
             if (it->second.references == 1) {
-                result = it->second.address_space->UnmapNative4K(
-                    address, it->second.size) == Nvidia::NvResult::Success
-                    ? ResultSuccess : Kernel::ResultInvalidState;
-                if (result.IsSuccess()) m_video_mappings.erase(it);
+                if (!may_retire && system.IsPoweredOn() && !system.IsShuttingDown()) {
+                    // Another request dropped the count to one during
+                    // preflight. Retry rather than release without a drain.
+                    result = Kernel::ResultInvalidState;
+                } else {
+                    result = it->second.address_space->UnmapNative4K(
+                        address, it->second.size) == Nvidia::NvResult::Success
+                        ? ResultSuccess : Kernel::ResultInvalidState;
+                    if (result.IsSuccess()) m_video_mappings.erase(it);
+                }
             } else {
                 --it->second.references;
             }

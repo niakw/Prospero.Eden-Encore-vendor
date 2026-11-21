@@ -75,9 +75,6 @@ public:
     NvResult ReserveNativeSparse4K(u64 address, u64 size, u8 page_shift = 12);
     NvResult ReleaseNativeSparse4K(u64 address, u64 size);
     NvResult RemapNativeSparse(std::span<const NativeSparseRemapEntry> entries);
-    // Native NVDRV A:0x0D remaps allocations from AllocateSpace, not the
-    // GSV worker's separately owned native_sparse_regions 4K reservations.
-    NvResult RemapNativeIoctl(std::span<const NativeSparseRemapEntry> entries);
     // Lichii #1199 equivalent: snapshot every sparse GPU range that still
     // references a guest memory handle before TIPC 102 destroys that memory.
     // Read-only and transactional: allocation failure leaves GMMU/pins intact.
@@ -221,10 +218,10 @@ private:
     std::map<u64, NativeSparseRegion> native_sparse_regions;
     NativeSparseMappingTable native_sparse_mappings;
     std::map<u32, DAddr> native_sparse_pins;
-    // GPU AS ioctl A:0x14 sparse big-page ownership stays separate from
-    // the GSV/worker's 4K native sparse-remap lifetime.
-    NativeSparseMappingTable native_ioctl_remap_mappings;
-    std::map<u32, DAddr> native_ioctl_remap_pins;
+    // If a GMMU page allocation fails mid-batch, preserve all physical
+    // backing until the owning GPU address space is retired. Subsequent
+    // sparse mutations fail closed instead of unpinning a live partial PTE.
+    bool native_sparse_poisoned{};
     std::map<u64, Mapping> mapping_map;
     //!< Holds allocations created by AllocSpace from
     //!< which fixed buffers can be mapped into
@@ -260,18 +257,10 @@ private:
 
         bool initialised{};
     } vm;
+    // Each NVDRV address-space descriptor owns its real GMMU. Separate
+    // views may have equivalent VA limits but cannot alias page tables
+    // without a shared, synchronised allocator and a validated ABI.
     std::unique_ptr<Tegra::MemoryManager> gmmu;
-
-    struct IoctlNativeMappingModify {
-        s16_le compressed_kind{};
-        s16_le uncompressed_kind{};
-        u32_le padding{}; // ABI alignment, not an input field.
-        u64_le buffer_offset{};
-        u64_le buffer_size{};
-        u64_le map_address{};
-    };
-    static_assert(sizeof(IoctlNativeMappingModify) == 32);
-    NvResult NativeMappingModify(IoctlNativeMappingModify& params);
 
     struct IoctlNx2SyncpointShimInfo {
         u64_le address{};

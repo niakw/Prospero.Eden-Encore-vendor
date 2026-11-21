@@ -222,30 +222,6 @@ assert unmap.index("if (it == mapping_map.end()) {") < unmap.index(
     "auto const mapping = it->second;")
 assert "map_buffer_offsets.erase(offset_it);" in unmap
 
-# Native A:0x14 sparse big-page remap pins must be owned across a
-# whole ioctl, not leaked by historical per-entry PinHandle calls. GSV's
-# separate 4K sparse ledger must remain independent of these mappings.
-remap=as_cpp.split("NvResult nvhost_as_gpu::Remap(std::span<IoctlRemapEntry> entries) {",1)[1].split(
-    "\n}",1)[0]
-free_space=as_cpp.split("NvResult nvhost_as_gpu::FreeSpace(IoctlFreeSpace& params) {",1)[1].split(
-    "\n}",1)[0]
-header=R.joinpath("encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
-assert "NativeSparseMappingTable native_ioctl_remap_mappings;" in header
-assert "std::map<u32, DAddr> native_ioctl_remap_pins;" in header
-assert remap.index("updated = native_ioctl_remap_mappings;") < remap.index(
-    "freshly_pinned.try_emplace(handle_id, DAddr{})") < remap.index(
-    "NativePinnedPhysicalSpan(pinned, step.source, step.size)") < remap.index(
-    "gmmu->Map(step.address, pinned + step.source, step.size,") < remap.index(
-    "native_ioctl_remap_pins.merge(freshly_pinned)")
-for token in ("owner->process != m_native_process", "alloc->second.big_pages",
-              "mapping_map.lower_bound(address)", "rollback_new();",
-              "native_ioctl_remap_pins.erase(pin)"):
-    assert token in remap,token
-assert free_space.index("updated_remaps = native_ioctl_remap_mappings;") < free_space.index(
-    "gmmu->Unmap(params.offset, allocation.size)") < free_space.index(
-    "native_ioctl_remap_pins.erase(pin)")
-assert "for (const auto& [handle, address] : native_ioctl_remap_pins)" in as_cpp
-
 # Dynamic native GPU mappings reserve ceil(bytes/page) units; unmap
 # must return the same number even for a partially filled final page.
 unmap_bytes=unmap.split("if (!mapping.fixed) {",1)[1].split(
@@ -299,99 +275,6 @@ assert native_sparse.index("gmmu->MapSparse(address, size, false);") < native_sp
 assert alloc.index("const bool small_sparse =") < alloc.index(
     'UNIMPLEMENTED_MSG("Sparse small pages are not implemented!");')
 
-# GA10F sparse large-page reservation must use its own VA allocator,
-# reject fixed collisions and publish CPU ownership before touching GMMU.
-# A:0x14 consumes these allocations without changing the 4K GSV owner.
-big_sparse=alloc.split("const bool big_sparse =",1)[1].split(
-    'UNIMPLEMENTED_MSG("Sparse small pages are not implemented!");',1)[0]
-for token in ("params.page_size == vm.big_page_size",
-              "NativeGpuProcessRegistry::Instance().Contains(m_native_process)",
-              "vm.big_page_allocator", "allowed_flags", "limit_va - address",
-              "allocation_map.lower_bound(address)", "mapping_map.lower_bound(address)",
-              "allocator.AllocateFixed(first_page, params.pages)",
-              "allocation_map.try_emplace(",
-              "Allocation{{}, size, vm.big_page_size, true, true}",
-              "gmmu->MapSparse(address, size, true)",
-              "allocation_map.erase(address);",
-              "allocator.Free(first_page, params.pages);"):
-    assert token in big_sparse,token
-assert big_sparse.index("allocation_map.try_emplace(") < big_sparse.index(
-    "gmmu->MapSparse(address, size, true)") < big_sparse.index(
-    "params.offset = address;")
-assert alloc.index("const bool small_sparse =") < alloc.index(
-    "const bool big_sparse =") < alloc.index(
-    'UNIMPLEMENTED_MSG("Sparse small pages are not implemented!");')
-
-
-# Native /dev/nvhost-as-gpu MAPPING_MODIFY is the documented 32-byte
-# GA10F kind-change ABI. Its direct and sparse paths must validate the
-# entire owner/pin span before publishing any changed GPU page table.
-as_ioctl=as_cpp.split("NvResult nvhost_as_gpu::Ioctl1(DeviceFD fd, Ioctl command,",1)[1].split(
-    "\n}",1)[0]
-modify=as_cpp.split("NvResult nvhost_as_gpu::NativeMappingModify(IoctlNativeMappingModify& params) {",1)[1].split(
-    "\n}",1)[0]
-for marker in ("struct IoctlNativeMappingModify {",
-               "static_assert(sizeof(IoctlNativeMappingModify) == 32);",
-               "NvResult NativeMappingModify(IoctlNativeMappingModify& params);"):
-    assert marker in as_h,marker
-assert "case 0xc: // Switch 2 NVGPU_AS_IOCTL_MAPPING_MODIFY" in as_ioctl
-assert "command.raw != 0xC020410CU" in as_ioctl
-assert "WrapFixed(this, &nvhost_as_gpu::NativeMappingModify" in as_ioctl
-for marker in ("NativeGpuProcessRegistry::Instance().Contains(m_native_process)",
-               "SelectNativeMemoryKind(", "mapping_map.upper_bound(address)",
-               "NativePinnedPhysicalSpan(view.ptr, delta, size)",
-               "native_ioctl_remap_mappings.Ranges()",
-               "native_ioctl_remap_pins.find(range.handle)",
-               "range.source_offset + delta", "return NvResult::NotSupported;"):
-    assert marker in modify,marker
-assert modify.index("SelectNativeMemoryKind(") < modify.index("gmmu->Map(address,")
-assert modify.index("while (cursor < end) {") < modify.index("\n    cursor = address;") < modify.index(
-    "gmmu->Map(cursor,")
-assert modify.index("native_ioctl_remap_pins.find(range.handle)") < modify.index(
-    "cursor = address;")
-
-
-# Switch 2 A:0x0D is a variable-size array of 40-byte remap records,
-# not the legacy A:0x14 20-byte ioctl and not GSV's separate 4K owner.
-# The guest-owned NVDRV VA reservation and retained pins are checked
-# before the first sparse GMMU update, including multi-entry batches.
-native_remap=as_cpp.split("NvResult nvhost_as_gpu::RemapNativeIoctl(std::span<const NativeSparseRemapEntry> entries) {",1)[1].split(
-    "\n}",1)[0]
-assert "NvResult RemapNativeIoctl(std::span<const NativeSparseRemapEntry> entries);" in as_h
-for marker in ("case 0xd: { // NS2 NVGPU_AS_IOCTL_REMAP",
-               "(command.raw & 0xC000FFFFU) != 0xC000410DU",
-               "input.size() % EntrySize != 0",
-               "input.size() / EntrySize > 256",
-               "std::memcpy(entries.data(), input.data(), input.size());",
-               "const NvResult result = RemapNativeIoctl(entries);"):
-    assert marker in as_ioctl, marker
-for marker in ("DecodeNativeSparseRemap(entry)",
-               "NativeGpuAllocation::FindContaining(",
-               "native_sparse_regions.contains(allocation->first)",
-               "allocation->second.big_pages",
-               "SelectNativeMemoryKind(",
-               "session->process != m_native_process",
-               "mapping_map.lower_bound(range->address)",
-               "updated = native_ioctl_remap_mappings",
-               "freshly_pinned.try_emplace(handle_id, DAddr{})",
-               "NativePinnedPhysicalSpan(pinned, step.range.source_offset",
-               "gmmu->MapSparse(range.address, range.size, step.big_page)",
-               "native_ioctl_remap_pins.merge(freshly_pinned)",
-               "nvmap.UnpinHandle(it->first)"):
-    assert marker in native_remap, marker
-assert native_remap.index("updated = native_ioctl_remap_mappings") < native_remap.index(
-    "freshly_pinned.try_emplace(handle_id, DAddr{})") < native_remap.index(
-    "NativePinnedPhysicalSpan(pinned, step.range.source_offset") < native_remap.index(
-    "gmmu->MapSparse(range.address, range.size, step.big_page)")
-for marker in ("NativeGpuAllocation::FindContaining(",
-               "native_sparse_regions.contains(allocation->first)",
-               "const bool big_page = allocation->second.big_pages;",
-               "static_cast<Tegra::PTEKind>(kind->backend), big_page"):
-    assert marker in modify, marker
-assert modify.index("native_sparse_regions.contains(allocation->first)") < modify.index(
-    "const auto& ranges = native_ioctl_remap_mappings.Ranges()")
-
-
 # GetVARegions1/3 serialize 64-bit byte offsets from u32 page indexes.
 # The old u32-first shift wrapped the 16-GiB GA10F big-page region to 0.
 va_regions=as_cpp.split("void nvhost_as_gpu::GetVARegionsImpl(IoctlGetVaRegions& params) {",1)[1].split(
@@ -431,3 +314,32 @@ assert allocator_cpp.count("blocks.erase(block_start_successor, block_end_succes
 assert "if (virt + size == current_linear_alloc_end)" in allocator_cpp
 
 print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")
+# Native GA10F GPU AS consolidation. This source-only contract captures
+# the reviewed pending 40-byte remap, real mapped VA owner, physical-page
+# alignment, failure-safe pin publication and GSV video image retirement.
+# It must not be mistaken for an actual native PS5 build or guest frame.
+from pathlib import Path as _Path
+_as_runtime = (_Path(__file__).resolve().parents[1] /
+    "encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
+_as_header = (_Path(__file__).resolve().parents[1] /
+    "encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+_va_layout = (_Path(__file__).resolve().parents[1] /
+    "encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/native_gpu_va_layout.h").read_text()
+_native_gpu = (_Path(__file__).resolve().parents[1] /
+    "encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+_ctrl_gpu = (_Path(__file__).resolve().parents[1] /
+    "encore-active/ns2-runtime/nvdrv/core/hle/service/nvdrv/devices/nvhost_ctrl_gpu.cpp").read_text()
+_gsv = (_Path(__file__).resolve().parents[1] /
+    "encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
+for marker in ("case 0x4: {", "case 0x7: {", "case 0xa: {",
+               "case 0xc: {", "case 0xd: {",
+               "native_sparse_pins.merge(newly_pinned);",
+               "if ((u32{entry.flags} & 0x7000U) == 0)",
+               "native_sparse_poisoned = true;",
+               "system.GPU().WaitForIdle();"):
+    assert marker in _as_runtime, marker
+assert "bool native_sparse_poisoned{};" in _as_header
+assert "split > end" in _va_layout
+assert "std::bad_alloc" in _native_gpu
+assert "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;" in _ctrl_gpu
+assert "system.GPU().WaitForIdle();" in _gsv

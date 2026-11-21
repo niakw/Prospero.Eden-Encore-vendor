@@ -117,6 +117,10 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
         case 0x5: {
             // Research-only: exact native ioctl IDs. Legacy ioctl remains untouched.
             if (command.raw == 0xc0e04705U || command.raw == 0xc0e84705U) {
+                // This is the native extended layout, not the Maxwell
+                // fixed-layout ioctl. A mixed-FD device must never answer
+                // a foreign process with Switch 2 GPU characteristics.
+                if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
                 IoctlCharacteristics legacy{};
                 GetCharacteristics3(legacy, {});
                 const std::span<const u8, 0xa0> legacy_bytes{

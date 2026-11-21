@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstring>
+#include <new>
 #include <atomic>
 #include <cstdio>
 #include "common/assert.h"
@@ -812,7 +813,14 @@ NvResult nvhost_gpu::SubmitGPFIFOBase1(IoctlSubmitGpfifo& params,
         return NvResult::InvalidSize;
     }
 
-    Tegra::CommandList entries(params.num_entries);
+    Tegra::CommandList entries;
+    try {
+        // Size the guest command list before any fence is reserved; a host
+        // OOM must return NVDRV InsufficientMemory, not unwind through IPC.
+        entries.command_lists.resize(params.num_entries);
+    } catch (const std::bad_alloc&) {
+        return NvResult::InsufficientMemory;
+    }
     // A zero-entry submission can still carry a syncpoint fence. Never
     // hand a null vector pointer to guest ReadBlock or libc memcpy(0).
     if (params.num_entries != 0) {
@@ -851,7 +859,14 @@ NvResult nvhost_gpu::SubmitGPFIFOBase2(IoctlSubmitGpfifo& params,
         return NvResult::InvalidSize;
     }
 
-    Tegra::CommandList entries(params.num_entries);
+    Tegra::CommandList entries;
+    try {
+        // Size the guest command list before any fence is reserved; a host
+        // OOM must return NVDRV InsufficientMemory, not unwind through IPC.
+        entries.command_lists.resize(params.num_entries);
+    } catch (const std::bad_alloc&) {
+        return NvResult::InsufficientMemory;
+    }
     // Ioctl2 H:0x1b may carry a fence-only zero-entry submit, just like
     // Ioctl H:0x1b/H:0x8. A zero-length memcpy on null vector/span data
     // pointers is not guaranteed valid by the C/C++ memory contract.
