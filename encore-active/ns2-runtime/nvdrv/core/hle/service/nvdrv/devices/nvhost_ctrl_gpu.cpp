@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <array>
 #include <cstring>
 #include "core/hle/service/nvdrv/devices/native_characteristics_ioctl.h"
 #include "common/assert.h"
@@ -113,6 +114,44 @@ NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8>
         case 0x6:
             return WrapFixedInlOut(this, &nvhost_ctrl_gpu::GetTPCMasks3, input, output,
                                    inline_output);
+        case 0x1f: {
+            // Switch 2 GET_ENGINE_INFO (0xC010471F) is a two-phase
+            // size query followed by an inline array of 16-byte engine
+            // descriptors. NvRm selects runlist IDs from this reply before
+            // opening a GPU channel. No host runlist is scheduled here.
+            if (command.raw != 0xC010471FU) break;
+            struct NativeEngineInfo {
+                u32_le engine_id;
+                u32_le instance;
+                s32_le runlist_id;
+                u32_le reserved;
+            };
+            static_assert(sizeof(NativeEngineInfo) == 16);
+            constexpr std::array<NativeEngineInfo, 2> engines{{
+                {0, 0, 0, 0}, // NVGPU_ENGINE_GR, graphics runlist 0
+                {2, 0, 1, 0}, // NVGPU_ENGINE_ASYNC_COPY, copy runlist 1
+            }};
+            constexpr u32 needed = sizeof(engines);
+            // The first request has capacity zero and returns the required
+            // number of bytes. Never advertise an incomplete engine table,
+            // or write any partial output on malformed buffers.
+            if (input.size() != 16 || output.size() != 16)
+                return NvResult::InvalidSize;
+            u32_le capacity{};
+            std::memcpy(&capacity, input.data(), sizeof(capacity));
+            if (static_cast<u32>(capacity) != 0 &&
+                (static_cast<u32>(capacity) < needed ||
+                 inline_output.size() < needed))
+                return NvResult::InvalidSize;
+            if (static_cast<u32>(capacity) == 0 && !inline_output.empty())
+                return NvResult::BadParameter;
+            std::memcpy(output.data(), input.data(), 16);
+            const u32_le required{needed};
+            std::memcpy(output.data(), &required, sizeof(required));
+            if (static_cast<u32>(capacity) != 0)
+                std::memcpy(inline_output.data(), engines.data(), needed);
+            return NvResult::Success;
+        }
         case 0x13: {
             // Switch 2 NVGPU_GPU_IOCTL_VSMS_MAPPING (0xC0084713):
             // two argument words and one {GPC, TPC} byte pair per virtual SM.
