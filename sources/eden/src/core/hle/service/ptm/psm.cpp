@@ -190,17 +190,23 @@ void PSM::OpenSession(HLERequestContext& ctx) {
 }
 
 void PSM::GetBatteryVoltageState(HLERequestContext& ctx) {
-    LOG_DEBUG(Service_PTM, "(stubbed)");
+    // BatteryVoltageState::Normal == 3. Returning 0 incorrectly tells the guest to shut down.
+    constexpr u32 normal_voltage_state = 3;
+    LOG_DEBUG(Service_PTM, "Returning stable battery voltage state Normal");
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
-    rb.PushRaw<u32>(0); //
+    rb.PushRaw<u32>(normal_voltage_state);
 }
 
 void PSM::GetBatteryAgePercentage(HLERequestContext& ctx) {
-    LOG_DEBUG(Service_PTM, "(stubbed)");
-    IPC::ResponseBuilder rb{ctx, 3};
+    // A PS5 host has no Switch battery-health gauge. Model a healthy full-life battery; this API
+    // is expressed as a percentage, so 100.0 is the neutral value (not 1.0).
+    constexpr f64 battery_age_percentage = 100.0;
+    LOG_DEBUG(Service_PTM, "Returning synthetic battery age percentage={}",
+              battery_age_percentage);
+    IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(ResultSuccess);
-    rb.PushRaw<f64>(1.f);
+    rb.PushRaw<f64>(battery_age_percentage);
 }
 
 struct BatteryChargeInfoFields {

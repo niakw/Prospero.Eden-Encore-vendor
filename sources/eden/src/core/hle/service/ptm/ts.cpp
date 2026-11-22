@@ -61,7 +61,10 @@ void TS::GetTemperature(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const auto location{rp.PopEnum<Location>()};
 
+    // Do not expose PS5 host thermals as Switch sensor readings. Use stable nominal guest values.
     const s32 temperature = location == Location::Internal ? 35 : 20;
+    LOG_DEBUG(Service_PTM, "Returning synthetic thermal reading location={} temperature={}C",
+              static_cast<u8>(location), temperature);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
@@ -73,6 +76,8 @@ void TS::GetTemperatureMilliC(HLERequestContext& ctx) {
     const auto location{rp.PopEnum<Location>()};
 
     const s32 temperature = location == Location::Internal ? 35000 : 20000;
+    LOG_DEBUG(Service_PTM, "Returning synthetic thermal reading location={} temperature={}mC",
+              static_cast<u8>(location), temperature);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);

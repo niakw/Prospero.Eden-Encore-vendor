@@ -64,14 +64,32 @@ private:
     };
 
     void SaveCurrentSetting(HLERequestContext& ctx) {
-        LOG_WARNING(Service_LBL, "(STUBBED) called");
+        saved_current_brightness = current_brightness;
+        saved_ambient_light_value = ambient_light_value;
+        saved_current_vr_brightness = current_vr_brightness;
+        saved_dimming = dimming;
+        saved_backlight_enabled = backlight_enabled;
+        saved_auto_brightness = auto_brightness;
+        saved_vr_mode_enabled = vr_mode_enabled;
+        has_saved_setting = true;
+        LOG_DEBUG(Service_LBL, "Saved local backlight settings");
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
 
     void LoadCurrentSetting(HLERequestContext& ctx) {
-        LOG_WARNING(Service_LBL, "(STUBBED) called");
+        if (has_saved_setting) {
+            current_brightness = saved_current_brightness;
+            ambient_light_value = saved_ambient_light_value;
+            current_vr_brightness = saved_current_vr_brightness;
+            dimming = saved_dimming;
+            backlight_enabled = saved_backlight_enabled;
+            auto_brightness = saved_auto_brightness;
+            vr_mode_enabled = saved_vr_mode_enabled;
+            update_instantly = true;
+        }
+        LOG_DEBUG(Service_LBL, "Loaded local backlight settings, has_saved={}", has_saved_setting);
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
@@ -263,11 +281,12 @@ private:
     }
 
     void IsAmbientLightSensorAvailable(HLERequestContext& ctx) {
-        LOG_WARNING(Service_LBL, "(STUBBED) called");
+        // PS5 does not provide a Switch ambient-light sensor to the guest. Keep the synthetic
+        // Set/GetAmbientLightSensorValue path available, but report physical sensor absence.
+        LOG_DEBUG(Service_LBL, "Ambient-light sensor unavailable on this host");
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
-        // TODO(ogniK): Only return true if there's no device error
-        rb.Push(true);
+        rb.Push(false);
     }
 
     void SetCurrentBrightnessSettingForVrMode(HLERequestContext& ctx) {
@@ -344,6 +363,15 @@ private:
     bool update_instantly = false;
     bool auto_brightness = false;
     bool auto_brightness_supported = true; // TODO(ogniK): Move to system settings
+
+    bool has_saved_setting = false;
+    float saved_current_brightness = 1.0f;
+    float saved_ambient_light_value = 0.0f;
+    float saved_current_vr_brightness = 1.0f;
+    bool saved_dimming = true;
+    bool saved_backlight_enabled = true;
+    bool saved_auto_brightness = false;
+    bool saved_vr_mode_enabled = false;
 };
 
 void LoopProcess(Core::System& system) {

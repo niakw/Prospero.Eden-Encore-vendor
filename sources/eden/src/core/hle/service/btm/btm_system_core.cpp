@@ -58,12 +58,13 @@ IBtmSystemCore::~IBtmSystemCore() {
 }
 
 Result IBtmSystemCore::StartGamepadPairing() {
-    LOG_WARNING(Service_BTM, "(STUBBED) called");
+    // Encore does not expose Switch Bluetooth gamepad discovery/pairing on PS5.
+    LOG_DEBUG(Service_BTM, "Gamepad pairing start ignored (no Switch Bluetooth pairing backend)");
     R_SUCCEED();
 }
 
 Result IBtmSystemCore::CancelGamepadPairing() {
-    LOG_WARNING(Service_BTM, "(STUBBED) called");
+    LOG_DEBUG(Service_BTM, "Gamepad pairing cancel ignored (no pairing operation pending)");
     R_SUCCEED();
 }
 
@@ -86,7 +87,7 @@ Result IBtmSystemCore::IsRadioEnabled(Out<bool> out_is_enabled) {
 
 Result IBtmSystemCore::AcquireRadioEvent(Out<bool> out_is_valid,
                                          OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_BTM, "(STUBBED) called");
+    LOG_DEBUG(Service_BTM, "Returning live Bluetooth radio event");
 
     *out_is_valid = true;
     *out_event = &radio_event->GetReadableEvent();
