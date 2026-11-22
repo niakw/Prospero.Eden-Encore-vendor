@@ -366,6 +366,9 @@ private:
     VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
     u32 num_color_buffers = 0;
     u32 num_images = 0;
+    // The shared Vulkan framebuffer code stores the selected attachment layers.
+    // Match the PS5-selected NS2 ASTC header without changing its active ABI.
+    u32 layers = 1;
     std::array<VkImage, 9> images{};
     std::array<VkImageSubresourceRange, 9> image_ranges{};
     std::array<VkImage, NUM_RT> color_attachment_images{};
