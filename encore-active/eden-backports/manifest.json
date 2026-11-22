@@ -437,8 +437,8 @@
     },
     "src/core/hle/service/filesystem/fsp/fs_i_filesystem.cpp": {
       "upstream": "6ee3e82a87d01ad6ea8726d3a9a8facddc3ab527b0c347e2de24bed74e920415",
-      "active": "178d45027c3281c1907b6cb52f23544c1fe89845dbcd5b331862ac9dd3d257a3",
-      "bytes": 9939
+      "active": "dd240bbf995f9d14c803fc5ac38106f5880bd258247c3d022c387332a1f4ce29",
+      "bytes": 10214
     },
     "src/core/hle/service/filesystem/fsp/fs_i_file.h": {
       "upstream": "a68ebaa84c87e542384797778e5cabe294f13ed76ec9aaa4904e36b117b79efb",

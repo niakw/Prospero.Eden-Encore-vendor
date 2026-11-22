@@ -148,8 +148,11 @@ Result IFileSystem::GetEntryType(
 }
 
 Result IFileSystem::Commit() {
-    LOG_WARNING(Service_FS, "(STUBBED) called");
+    LOG_DEBUG(Service_FS, "called, host-directory backend is already synchronous");
 
+    // Encore's VFS mutations are applied directly to the host-directory backend.
+    // Fsa::IFileSystem::DoCommit is intentionally unimplemented, so forwarding
+    // here would turn an already-durable write into a guest-visible failure.
     R_SUCCEED();
 }
 

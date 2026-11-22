@@ -3,10 +3,15 @@
 
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "core/file_sys/vfs/vfs.h"
 #include "core/hle/service/service.h"
 
 namespace Service::FileSystem {
+
+class IFileSystem;
 
 class IMultiCommitManager final : public ServiceFramework<IMultiCommitManager> {
 public:
@@ -17,7 +22,8 @@ private:
     Result Add(std::shared_ptr<IFileSystem> filesystem);
     Result Commit();
 
-    FileSys::VirtualFile backend;
+    static constexpr std::size_t MaxFileSystems = 10;
+    std::vector<std::shared_ptr<IFileSystem>> filesystems;
 };
 
 } // namespace Service::FileSystem
