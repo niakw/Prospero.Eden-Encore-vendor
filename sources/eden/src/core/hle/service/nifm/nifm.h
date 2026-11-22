@@ -49,6 +49,7 @@ private:
     void GetScanDataV2(HLERequestContext& ctx);
     void ConfirmSystemAvailability(HLERequestContext& ctx);
     void SetBackgroundRequestEnabled(HLERequestContext& ctx);
+    void GetCurrentAccessPointOld(HLERequestContext& ctx);
     void GetCurrentAccessPoint(HLERequestContext& ctx);
     void GetScanDataV3(HLERequestContext& ctx);
 

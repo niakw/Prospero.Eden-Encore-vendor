@@ -1166,6 +1166,28 @@ void IGeneralService::SetBackgroundRequestEnabled(HLERequestContext& ctx) {
     rb.Push(ResultSuccess);
 }
 
+void IGeneralService::GetCurrentAccessPointOld(HLERequestContext& ctx) {
+    Network::RefreshFromHost();
+
+    const auto& st = Network::EmuNetState::Get();
+    AccessPointDataOld access_point_info{};
+
+    if (st.connected && st.via_wifi) {
+        access_point_info.ssid_len =
+            static_cast<u8>(std::min<std::size_t>(std::strlen(st.ssid),
+                                                  sizeof(access_point_info.ssid)));
+        access_point_info.strength = st.bars;
+        access_point_info.is_connectable = 1;
+        access_point_info.is_available = 1;
+        std::memcpy(access_point_info.ssid, st.ssid, access_point_info.ssid_len);
+    }
+
+    ctx.WriteBuffer(access_point_info);
+
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
 void IGeneralService::GetCurrentAccessPoint(HLERequestContext& ctx) {
     Network::RefreshFromHost();
 
@@ -1207,7 +1229,7 @@ IGeneralService::IGeneralService(Core::System& system_)
         {10, &IGeneralService::RemoveNetworkProfile, "RemoveNetworkProfile"},
         {11, &IGeneralService::GetScanData, "GetScanDataOld"},
         {12, &IGeneralService::GetCurrentIpAddress, "GetCurrentIpAddress"},
-        {13, nullptr, "GetCurrentAccessPointOld"},
+        {13, &IGeneralService::GetCurrentAccessPointOld, "GetCurrentAccessPointOld"},
         {14, &IGeneralService::CreateTemporaryNetworkProfile, "CreateTemporaryNetworkProfile"},
         {15, &IGeneralService::GetCurrentIpConfigInfo, "GetCurrentIpConfigInfo"},
         {16, &IGeneralService::SetWirelessCommunicationEnabled, "SetWirelessCommunicationEnabled"},
