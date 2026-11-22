@@ -290,9 +290,8 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
       pipeline_cache(device_memory, device, scheduler, descriptor_pool, guest_descriptor_queue,
                      descriptor_buffer_ring, render_pass_cache, buffer_cache, texture_cache,
                      gpu.ShaderNotify()),
-      accelerate_dma(buffer_cache, texture_cache, scheduler),
-      fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache, device, scheduler),
-      wfi_event(device.GetLogical().CreateEvent()) {
+      accelerate_dma(buffer_cache, texture_cache, scheduler, gpu_memory),
+      fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache, device, scheduler) {
     scheduler.SetQueryCache(query_cache);
     buffer_cache.SetPendingCpuWrites(
         [this](const std::function<void(DAddr, size_t)>& callback) {
@@ -1045,6 +1044,15 @@ void RasterizerVulkan::Clear(u32 layer_count) {
     texture_cache.UpdateRenderTargets(true);
     const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
     const VkExtent2D render_area = framebuffer->RenderArea();
+    const u32 framebuffer_layers = framebuffer->Layers();
+    const u32 clear_base_layer = regs.clear_surface.layer;
+    if (layer_count == 0 || clear_base_layer >= framebuffer_layers) {
+        return;
+    }
+    const u32 clear_layer_count =
+        (std::min)(layer_count, framebuffer_layers - clear_base_layer);
+    const bool clear_covers_all_layers =
+        clear_base_layer == 0 && clear_layer_count == framebuffer_layers;
 
     constexpr bool ENABLE_DEFERRED_CLEAR = true;
     const bool color_full_channels = regs.clear_surface.R && regs.clear_surface.G &&
@@ -1070,8 +1078,8 @@ void RasterizerVulkan::Clear(u32 layer_count) {
     VkClearRect clear_rect{
         .rect = regs.clear_control.use_scissor ? GetScissorState(regs, 0, up_scale, down_shift)
                                                : default_scissor,
-        .baseArrayLayer = regs.clear_surface.layer,
-        .layerCount = layer_count,
+        .baseArrayLayer = clear_base_layer,
+        .layerCount = clear_layer_count,
     };
     const auto clamp_rect_to_render_area = [render_area](VkRect2D& rect) -> bool {
         const auto clamp_axis = [](s32& offset, u32& extent, u32 limit) {
@@ -1121,7 +1129,7 @@ void RasterizerVulkan::Clear(u32 layer_count) {
         clear_rect.rect.extent.width >= render_area.width &&
         clear_rect.rect.extent.height >= render_area.height;
     const bool can_defer_clear = ENABLE_DEFERRED_CLEAR && !regs.zpass_pixel_count_enable && (!regs.clear_control.use_scissor || clear_covers_render_area) &&
-                                 regs.clear_surface.layer == 0 &&
+                                 clear_covers_all_layers &&
                                  !scheduler.IsRenderPassActive() &&
                                  (!use_color || color_full_channels) && ds_deferrable;
     if (!can_defer_clear) {
@@ -1159,7 +1167,8 @@ void RasterizerVulkan::Clear(u32 layer_count) {
             const bool exact_single_colour =
                 requested != 0 && (requested == 2 || requested == 4 ||
                                    requested == 8 || requested == 16) &&
-                can_defer_clear && !ds_used && layer_count == 1 &&
+                can_defer_clear && !ds_used && clear_layer_count == 1 &&
+                framebuffer_layers == 1 &&
                 color_attachment == 0 && framebuffer->NumColorBuffers() == 1 &&
                 framebuffer->NumImages() == 1 &&
                 framebuffer->Samples() == VK_SAMPLE_COUNT_1_BIT &&
@@ -2361,30 +2370,43 @@ bool RasterizerVulkan::MustFlushRegion(DAddr addr, u64 size, VideoCommon::CacheT
 
 VideoCore::RasterizerDownloadArea RasterizerVulkan::GetFlushArea(DAddr addr, u64 size) {
     ::Eden::Performance::DiagnosticTimer guest_read_timer(::Eden::Performance::guest_cpu_read);
-    // A guest read cannot overlap a registered image when no page in this
-    // range has ever appeared in the image slot map. Skip the GPU-held mutex.
-    // Unknown/out-of-range/large ranges retain the original blocking path.
-    if (::Eden::ImagePages::NeverHeld(addr, size)) {
-        return VideoCore::RasterizerDownloadArea{
-            .start_address = Common::AlignDown(addr, Core::DEVICE_PAGESIZE),
-            .end_address = Common::AlignUp(addr + size, Core::DEVICE_PAGESIZE),
-            .preemtive = true,
-        };
-    }
-    {
-        ::Eden::Performance::GuestCacheLock(texture_cache.mutex, true);
-        std::lock_guard lock{texture_cache.mutex, std::adopt_lock};
-        auto area = texture_cache.GetFlushArea(addr, size);
-        if (area) {
-            return *area;
-        }
-    }
-    VideoCore::RasterizerDownloadArea new_area{
+    const VideoCore::RasterizerDownloadArea clean_area{
         .start_address = Common::AlignDown(addr, Core::DEVICE_PAGESIZE),
         .end_address = Common::AlignUp(addr + size, Core::DEVICE_PAGESIZE),
         .preemtive = true,
     };
-    return new_area;
+    // A clean/never-held texture page does not prove that a GPU-written
+    // storage buffer is current in guest memory. Query each cache independently:
+    // never-owned pages remain lock-free, and no two cache locks are nested.
+    std::optional<VideoCore::RasterizerDownloadArea> texture_area;
+    if (!::Eden::ImagePages::NeverHeld(addr, size)) {
+        ::Eden::Performance::GuestCacheLock(texture_cache.mutex, true);
+        std::lock_guard lock{texture_cache.mutex, std::adopt_lock};
+        texture_area = texture_cache.GetFlushArea(addr, size);
+    }
+    if (texture_area && !texture_area->preemtive) {
+        // The existing GPU sync flushes both cache domains.
+        return *texture_area;
+    }
+    if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
+        ::Eden::Performance::GuestCacheLock(buffer_cache.mutex, false);
+        std::lock_guard lock{buffer_cache.mutex, std::adopt_lock};
+        if (buffer_cache.IsRegionGpuModified(
+                clean_area.start_address, clean_area.end_address - clean_area.start_address)) {
+            // GPU::OnCPURead must not return early for buffer-only GPU writes.
+            // Keep any texture-covered extent, including its sibling bytes.
+            return VideoCore::RasterizerDownloadArea{
+                .start_address = texture_area
+                    ? (std::min)(texture_area->start_address, clean_area.start_address)
+                    : clean_area.start_address,
+                .end_address = texture_area
+                    ? (std::max)(texture_area->end_address, clean_area.end_address)
+                    : clean_area.end_address,
+                .preemtive = false,
+            };
+        }
+    }
+    return texture_area.value_or(clean_area);
 }
 
 void RasterizerVulkan::InvalidateRegion(DAddr addr, u64 size, VideoCommon::CacheType which) {
@@ -2661,9 +2683,18 @@ void RasterizerVulkan::WaitForIdle() {
     query_cache.NotifyWFI();
 
     scheduler.RequestOutsideRenderPassOperationContext();
-    scheduler.Record([event = *wfi_event, flags](vk::CommandBuffer cmdbuf) {
-        cmdbuf.SetEvent(event, flags);
-        cmdbuf.WaitEvents(event, flags, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, {}, {}, {});
+    scheduler.Record([flags](vk::CommandBuffer cmdbuf) {
+        // A reusable event that is never reset only orders its first signal and, without a
+        // memory barrier, does not make earlier GPU writes visible to subsequent commands.
+        // A pipeline barrier expresses both the execution dependency and the guest WFI memory
+        // visibility on every invocation. Adapted from Lichii #295 / 73bcdc059d.
+        static constexpr VkMemoryBarrier WFI_BARRIER{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+            .pNext = nullptr,
+            .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
+        };
+        cmdbuf.PipelineBarrier(flags, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, WFI_BARRIER);
     });
     fence_manager.SignalOrdering();
 }
@@ -2771,6 +2802,22 @@ void RasterizerVulkan::AccelerateInlineToMemory(GPUVAddr address, size_t copy_si
         gpu_memory->WriteBlock(address, memory.data(), copy_size);
         return;
     }
+#ifdef PS5_NATIVE
+    // One GPU VA range can cross discontiguous device-memory pages. InlineMemory,
+    // texture invalidation and shader/query invalidation accept ONE CPU span:
+    // their first translated DAddr must never stand in for later GMMU pages.
+    // Single device-page writes keep the existing O(1) hot path. For fragmented
+    // but fully mapped spans, WriteBlock invalidates EACH translated physical
+    // segment before writing; it owns the same normal cache notifications.
+    if (!gpu_memory->IsGranularRange(address, copy_size) &&
+        !gpu_memory->IsContinuousRange(address, copy_size)) {
+        if (!gpu_memory->IsFullyMappedRange(address, copy_size)) {
+            return; // No partial writes into an invalid guest DMA mapping.
+        }
+        gpu_memory->WriteBlock(address, memory.data(), copy_size);
+        return;
+    }
+#endif
     gpu_memory->WriteBlockUnsafe(address, memory.data(), copy_size);
     // P0.3: an unregistered page has no buffer-backed GPU dirty bytes.
     // Unknown, large and previously owned spans retain the original lock.
@@ -2863,8 +2910,9 @@ void RasterizerVulkan::FlushWork() {
 }
 
 AccelerateDMA::AccelerateDMA(BufferCache& buffer_cache_, TextureCache& texture_cache_,
-                             Scheduler& scheduler_)
-    : buffer_cache{buffer_cache_}, texture_cache{texture_cache_}, scheduler{scheduler_} {}
+                             Scheduler& scheduler_, Tegra::MemoryManager* const& gpu_memory_)
+    : buffer_cache{buffer_cache_}, texture_cache{texture_cache_}, scheduler{scheduler_},
+      gpu_memory{gpu_memory_} {}
 
 bool AccelerateDMA::BufferClear(GPUVAddr src_address, u64 amount, u32 value) {
 #ifdef PS5_NATIVE
@@ -2892,13 +2940,22 @@ bool AccelerateDMA::BufferCopy(GPUVAddr src_address, GPUVAddr dest_address, u64 
     // rather than uploading stale CPU bytes over GPU-owned image contents.
     std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
     bool copied_gpu_bytes = false;
-    if (!buffer_cache.DMACopy(src_address, dest_address, amount, &copied_gpu_bytes)) {
+    boost::container::small_vector<std::pair<DAddr, size_t>, 4> gpu_written_dest;
+    if (!buffer_cache.DMACopy(src_address, dest_address, amount, &copied_gpu_bytes,
+                              &gpu_written_dest)) {
         return false;
     }
-    if (!copied_gpu_bytes &&
-        !texture_cache.IsGpuMemoryGpuModified(src_address, amount) &&
-        !texture_cache.IsGpuMemoryGpuModified(dest_address, amount)) {
-        texture_cache.WriteGpuMemory(dest_address, amount);
+    if (gpu_memory && gpu_memory->UsesNativeTiling()) {
+        // GPU-50 is an NS1 Maxwell coherency fix. Keep the separately owned
+        // native-tiling/NS2 policy byte-for-byte equivalent to its old guard.
+        if (!copied_gpu_bytes &&
+            !texture_cache.IsGpuMemoryGpuModified(src_address, amount) &&
+            !texture_cache.IsGpuMemoryGpuModified(dest_address, amount)) {
+            texture_cache.WriteGpuMemory(dest_address, amount);
+        }
+    } else {
+        texture_cache.WriteDmaCopy(src_address, dest_address, static_cast<size_t>(amount),
+                                   gpu_written_dest);
     }
     return true;
 }
@@ -2917,6 +2974,18 @@ bool AccelerateDMA::DmaBufferImageCopy(const Tegra::DMA::ImageCopy& copy_info,
     }
 #endif
     std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
+#ifdef PS5_NATIVE
+    // ObtainBuffer translates only the first GPU VA into one CPU interval.
+    // A buffer spanning noncontiguous GMMU pages would upload/download
+    // unrelated physical memory. The normal MaxwellDMA CPU fallback
+    // supports a page-aware transfer for both image-copy directions.
+    // Test the channel currently bound to this rasterizer; no stale GMMU.
+    if (!gpu_memory ||
+        (!gpu_memory->IsGranularRange(buffer_operand.address, checked_bytes) &&
+         !gpu_memory->IsContinuousRange(buffer_operand.address, checked_bytes))) {
+        return false;
+    }
+#endif
     const auto image_id = texture_cache.DmaImageId(image_operand, IS_IMAGE_UPLOAD);
     if (image_id == VideoCommon::NULL_IMAGE_ID) {
         return false;
@@ -3039,7 +3108,9 @@ void RasterizerVulkan::UpdateDynamicStates() {
     }
 
     if (device.IsExtExtendedDynamicState3BlendingSupported()) {
-        UpdateBlending(regs);
+        // prepared_pipeline is set only for a real guest draw. DrawTexture leaves it null,
+        // so its raw blit keeps the full write mask and avoids a cold pipeline lookup.
+        UpdateBlending(regs, prepared_pipeline);
     } else if (device.IsExtColorWriteEnableSupported()) {
         UpdateColorWriteEnable(regs);
     }
@@ -3710,12 +3781,16 @@ void RasterizerVulkan::UpdateLogicOp(Tegra::Engines::Maxwell3D::Regs& regs) {
     scheduler.Record([op](vk::CommandBuffer cmdbuf) { cmdbuf.SetLogicOpEXT(op); });
 }
 
-void RasterizerVulkan::UpdateBlending(Tegra::Engines::Maxwell3D::Regs& regs) {
-    if (!state_tracker.TouchBlending()) {
+void RasterizerVulkan::UpdateBlending(Tegra::Engines::Maxwell3D::Regs& regs,
+                                      const GraphicsPipeline* pipeline) {
+    const u32 color_output_mask = pipeline ? pipeline->ColorOutputMask() : ~0U;
+    const bool color_output_changed = color_output_mask != last_color_output_mask;
+    if (!state_tracker.TouchBlending() && !color_output_changed) {
         return;
     }
 
-    if (state_tracker.TouchColorMask()) {
+    if (state_tracker.TouchColorMask() || color_output_changed) {
+        last_color_output_mask = color_output_mask;
         std::array<VkColorComponentFlags, Maxwell::NumRenderTargets> setup_masks{};
         for (size_t index = 0; index < Maxwell::NumRenderTargets; index++) {
             const auto& mask = regs.color_mask[regs.color_mask_common ? 0 : index];
@@ -3732,6 +3807,7 @@ void RasterizerVulkan::UpdateBlending(Tegra::Engines::Maxwell3D::Regs& regs) {
             if (mask.A) {
                 current |= VK_COLOR_COMPONENT_A_BIT;
             }
+            current &= (color_output_mask >> (index * 4)) & 0xF;
         }
         scheduler.Record([setup_masks](vk::CommandBuffer cmdbuf) {
             cmdbuf.SetColorWriteMaskEXT(0, setup_masks);

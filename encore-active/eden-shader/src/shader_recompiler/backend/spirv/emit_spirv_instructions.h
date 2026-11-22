@@ -83,6 +83,7 @@ Id EmitWorkgroupId(EmitContext& ctx);
 Id EmitLocalInvocationId(EmitContext& ctx);
 Id EmitInvocationId(EmitContext& ctx);
 Id EmitInvocationInfo(EmitContext& ctx);
+Id EmitSampleMask(EmitContext& ctx);
 Id EmitSampleId(EmitContext& ctx);
 Id EmitIsHelperInvocation(EmitContext& ctx);
 Id EmitSR_WScaleFactorXY(EmitContext& ctx);
@@ -348,6 +349,7 @@ Id EmitSharedAtomicAnd32(EmitContext& ctx, Id pointer_offset, Id value);
 Id EmitSharedAtomicOr32(EmitContext& ctx, Id pointer_offset, Id value);
 Id EmitSharedAtomicXor32(EmitContext& ctx, Id pointer_offset, Id value);
 Id EmitSharedAtomicExchange32(EmitContext& ctx, Id pointer_offset, Id value);
+Id EmitSharedAtomicCompareExchange32(EmitContext& ctx, Id pointer_offset, Id comparator, Id value);
 Id EmitSharedAtomicExchange64(EmitContext& ctx, Id pointer_offset, Id value);
 Id EmitSharedAtomicExchange32x2(EmitContext& ctx, Id pointer_offset, Id value);
 Id EmitStorageAtomicIAdd32(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset,

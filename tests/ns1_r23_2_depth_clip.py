@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """R23 #2: exact 7 active Vulkan source owners, native PS5 depth clip truth table."""
 from pathlib import Path
-from native_msaa_handle_receipt import restore_pre_rebind
+from native_msaa_handle_receipt import restore_pre_rebind, restore_integrated_rasterizer, INTEGRATED_RASTERIZER, GUEST_CACHE_LOCK_SUCCESSOR
 import hashlib
 import os
 import subprocess
@@ -31,7 +31,20 @@ for name,expected in files.items():
         normalized=text.replace(fixed,indexed,1).encode()
         normalized_sha=hashlib.sha1(b"blob "+str(len(normalized)).encode()+bytes([0])+normalized).hexdigest()
         assert normalized_sha==expected,(name,actual,normalized_sha,expected)
-    elif name=="vk_graphics_pipeline_cost.cpp" and actual=="bae8f3c36fc4e595e9b630ca55cc50496468e173":
+    elif name=="vk_graphics_pipeline_cost.cpp" and actual=="df36d210d04411b87e1fdad7fbd0689b1e4d3488":
+        # Integrated color-component mask successor. Seal both exact additions,
+        # reverse them only on the audit copy, then reuse the qualified FC27 owner.
+        text=v.decode()
+        color_mask="    // Maxwell leaves render-target components not written by the fragment shader untouched.\n    // Vulkan otherwise permits undefined values there, which is visible on AMD/RADV.\n    for (size_t rt = 0; rt < Maxwell::NumRenderTargets; ++rt) {\n        color_output_mask |= u32{stage_infos[NUM_STAGES - 1].frag_color_components[rt]}\n                             << (rt * 4);\n    }\n"
+        apply_mask="        write_mask &= ColorOutputMask(index);\n"
+        assert text.count(color_mask)==text.count(apply_mask)==1
+        prior=text.replace(color_mask,"",1).replace(apply_mask,"",1).encode()
+        prior_sha=hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()
+        assert prior_sha=="f3c82781675b6979a8be96a333184e048ef57f81",(name,actual,prior_sha)
+        assert text.count("const u32 second_offset{desc.secondary_cbuf_offset};")==1
+        assert "desc.secondary_cbuf_offset + index_offset" not in text
+        assert "color_output_mask" in text and "ColorOutputMask(index)" in text
+    elif name=="vk_graphics_pipeline_cost.cpp" and actual in {"bae8f3c36fc4e595e9b630ca55cc50496468e173","f3c82781675b6979a8be96a333184e048ef57f81"}:
         # The live FC27 owner extends the earlier exact-attribute binding
         # with an optional bounded graphics transition hint graph. Its exact
         # full-source SHA is pinned, and the separate FC27 transition harness
@@ -61,13 +74,13 @@ for name,expected in files.items():
         # before checking the historical source blob.
         post_teardown = "RasterizerVulkan::~RasterizerVulkan() {\n    // QueryCache has a shorter lifetime than BufferCache. BufferCache::~\n    // triggers a final scheduler.Finish() AFTER QueryCache is destroyed.\n    // Drain outstanding queries while alive, then revoke the borrowed pointer\n    // to prevent the shutdown path from reading freed QueryCache storage.\n    scheduler.WaitWorker();\n    scheduler.Finish();\n    scheduler.ClearQueryCache();\n}"
         pre_teardown = "RasterizerVulkan::~RasterizerVulkan() {\n    scheduler.WaitWorker();\n    scheduler.Finish();\n}"
-        if actual=="71d097b9a83028dfad9370792c905bb3bfccfd5a":
+        if actual in {"71d097b9a83028dfad9370792c905bb3bfccfd5a", INTEGRATED_RASTERIZER, GUEST_CACHE_LOCK_SUCCESSOR}:
             # This byte-sealed runtime successor includes reviewed frame/CPU
             # invalidation optimizations and the anti-regression rollback of
             # deferred page protection (#194). Do not attempt to reverse it
             # through a two-commit-only MSAA helper. The engine Vulkan oracle
             # reconstructs the exact historic R23 predecessor separately.
-            source=v.decode("utf-8")
+            source=restore_integrated_rasterizer(v.decode("utf-8"))
             assert source.count(post_teardown)==1
             assert "MaxwellDepthClampClip(regs, device.IsExtDepthClipEnableSupported()).clamp" in source
             assert "buffer_cache.ClaimCpuWrites(sequences);" in source

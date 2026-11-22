@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <optional>
 #include "common/container/unordered_map.h"
@@ -269,15 +270,31 @@ bool IsStorageImageOpcode(IR::Opcode opcode) {
 }
 
 u32 DynamicSampledTextureArrayCount(const TextureInstVector& to_replace) {
-    u32 count{};
+    // Count DISTINCT sampled descriptor arrays, not shader sample instructions.
+    // Descriptors::Add(TextureDescriptor) merges repeated uses of an identical
+    // array. Counting each instruction used to divide the descriptor budget by
+    // the number of samples, then clamp valid dynamic indices to a wrong slot.
+    // Mirror that descriptor identity, excluding the flags Add combines with OR.
+    using ArrayKey = std::array<u32, 11>;
+    boost::container::small_vector<ArrayKey, 16> arrays;
     for (const TextureInst& inst : to_replace) {
         const auto flags{inst.inst->Flags<IR::TextureInstInfo>()};
-        if (inst.cbuf.count > 1 && !IsStorageImageOpcode(IndexedInstruction(*inst.inst)) &&
-            flags.type != TextureType::Buffer) {
-            ++count;
+        if (inst.cbuf.count <= 1 || IsStorageImageOpcode(IndexedInstruction(*inst.inst)) ||
+            flags.type == TextureType::Buffer) {
+            continue;
+        }
+        const auto& cbuf = inst.cbuf;
+        const ArrayKey key{
+            static_cast<u32>(flags.type.Value()), flags.is_depth != 0 ? 1U : 0U,
+            cbuf.has_secondary ? 1U : 0U, cbuf.index, cbuf.offset, cbuf.shift_left,
+            cbuf.secondary_index, cbuf.secondary_offset, cbuf.secondary_shift_left,
+            cbuf.count, DynamicDescriptorSizeShift(cbuf.dynamic_offset),
+        };
+        if (std::ranges::find(arrays, key) == arrays.end()) {
+            arrays.push_back(key);
         }
     }
-    return count;
+    return static_cast<u32>(arrays.size());
 }
 
 bool IsBindless(const IR::Inst& inst) {
@@ -958,7 +975,9 @@ void TexturePass(Environment& env, IR::Program& program, const HostTranslateInfo
                 });
             } else {
                 count = std::min(count, sampled_dynamic_cap);
-                const bool is_integer{is_texture_pixel_format_integer(cbuf)};
+                // Depth-compare sampling returns floating-point values in Vulkan even when the
+                // TIC format itself is integer or unknown. Never build an integer sampled image.
+                const bool is_integer{flags.is_depth == 0 && is_texture_pixel_format_integer(cbuf)};
                 index = descriptors.Add(TextureDescriptor{
                     .type = flags.type,
                     .is_depth = flags.is_depth != 0,

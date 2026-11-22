@@ -10,6 +10,9 @@
 #include <tuple>
 #include <stdint.h>
 
+// VIC surfaces can have odd pixel strides or guest-mapped plane addresses
+// that are only naturally (not 16-byte) aligned. SSE reads/writes below
+// intentionally use _mm_loadu/_mm_storeu on all decoded and output spans.
 #if defined(ARCHITECTURE_x86_64)
 #include <immintrin.h>
 #endif
@@ -67,6 +70,39 @@ static bool HasSSE41() {
 #endif
 }
 
+// VIC output plane strides and GOB allocations originate in guest state.
+// Check the entire padded backing in u64 BEFORE CalculateSize() (which still
+// multiplies intermediate GOB dimensions as u32), allocation, or guest writes.
+bool CheckedVicPlane(u32 width, u32 height, u32 bytes_per_pixel, bool tiled,
+                     u32 block_height) noexcept {
+    constexpr u64 MAX_PLANE_BYTES = 256ULL << 20;
+    if (width == 0 || height == 0 || bytes_per_pixel == 0) {
+        return false;
+    }
+    const u64 row_bytes = static_cast<u64>(width) * bytes_per_pixel;
+    const u64 pitch = (row_bytes + 15) & ~u64{15};
+    if (pitch == 0 || pitch > MAX_PLANE_BYTES / height) {
+        return false;
+    }
+    if (!tiled) {
+        return true;
+    }
+    if (block_height > 5) {
+        return false;
+    }
+    const u64 aligned_width = (row_bytes + 63) & ~u64{63};
+    const u64 gob_height = u64{8} << block_height;
+    const u64 aligned_height = (static_cast<u64>(height) + gob_height - 1) &
+                               ~(gob_height - 1);
+    if (aligned_width == 0 || aligned_height == 0 ||
+        aligned_width > MAX_PLANE_BYTES / aligned_height) {
+        return false;
+    }
+    const u64 padded_bytes = aligned_width * aligned_height;
+    return Texture::CalculateSize(true, bytes_per_pixel, width, height, 1,
+                                  block_height, 0) == padded_bytes;
+}
+
 void SwizzleSurface(std::span<u8> output, u32 out_stride, std::span<const u8> input, u32 in_stride, u32 height) noexcept {
     //// Taken from https://github.com/averne/FFmpeg/blob/nvtegra/libavutil/hwcontext_nvtegra.c#L949
     /// Can only handle block height == 1.
@@ -98,11 +134,20 @@ Vic::Vic(Host1x& host1x_, s32 id_, u32 syncpt) noexcept
 }
 
 Vic::~Vic() noexcept {
+    // The CDMA worker may still execute VIC ProcessMethod/Execute. Its
+    // base-class jthread otherwise joins after derived buffers die.
+    Shutdown();
     LOG_INFO(HW_GPU, "Destroying vic {}", id);
     host1x.frame_queue.Close(id);
 }
 
 void Vic::ProcessMethod(u32 method, u32 arg) noexcept {
+    // Reject guest methods outside the real register file before indexing.
+    // Soft assertions do not stop execution on every release configuration.
+    if (method >= VicRegisters::NUM_REGS) {
+        ASSERT_MSG(false, "Invalid VIC method {:#x}", method);
+        return;
+    }
     LOG_TRACE(HW_GPU, "Vic {} method {:#x}", id, u32(method));
     regs.reg_array[method] = arg;
     switch (Method(method * sizeof(u32))) {
@@ -118,15 +163,34 @@ void Vic::Execute() noexcept {
     ConfigStruct config{};
     host1x.gmmu_manager.ReadBlock(regs.config_struct_offset.Address(), &config, sizeof(ConfigStruct));
 
-    auto output_width = config.output_surface_config.out_surface_width + 1;
-    auto output_height = config.output_surface_config.out_surface_height + 1;
-    output_surface.resize(output_width * output_height);
+    const u32 output_width = config.output_surface_config.out_surface_width + 1;
+    const u32 output_height = config.output_surface_config.out_surface_height + 1;
+    // A guest VIC command can request a huge scratch allocation inside
+    // noexcept Execute(). Bound the complete pixel extent before resize.
+    constexpr u64 MAX_VIC_SURFACE_BYTES = 256ULL << 20;
+    constexpr u64 MAX_VIC_PIXELS = MAX_VIC_SURFACE_BYTES / sizeof(Pixel);
+    const u64 output_pixels = static_cast<u64>(output_width) * output_height;
+    if (output_pixels == 0 || output_pixels > MAX_VIC_PIXELS) {
+        LOG_WARNING(HW_GPU, "Rejecting oversized VIC output {}x{}", output_width, output_height);
+        return;
+    }
+    output_surface.resize(static_cast<size_t>(output_pixels));
 
     bool decoded_this_execute = false;
     if (Settings::values.nvdec_emulation.GetValue() != Settings::NvdecEmulation::Off) {
         bool decoded_frame = false;
         for (size_t i = 0; i < config.slot_structs.size(); i++) {
             if (auto& slot_config = config.slot_structs[i]; slot_config.config.slot_enable) {
+                const u64 slot_width = slot_config.surface_config.slot_surface_width + 1;
+                const u64 slot_height = slot_config.surface_config.slot_surface_height + 1;
+                const auto frame_format = slot_config.config.frame_format.Value();
+                const u64 fields = frame_format == DxvhadFrameFormat::TopField ||
+                                   frame_format == DxvhadFrameFormat::BottomField ? 2 : 1;
+                if (slot_width * slot_height * fields > MAX_VIC_PIXELS) {
+                    LOG_WARNING(HW_GPU, "Rejecting oversized VIC slot {}: {}x{} fields={}",
+                                i, slot_width, slot_height, fields);
+                    continue;
+                }
                 auto const luma_offset = regs.surfaces[i][SurfaceIndex::Current].luma.Address();
                 if (nvdec_id == -1)
                     nvdec_id = host1x.frame_queue.VicFindNvdecFdFromOffset(luma_offset);
@@ -156,7 +220,7 @@ void Vic::Execute() noexcept {
                         break;
                     default:
                         UNIMPLEMENTED_MSG("Unimplemented slot pixel format {}", u32(slot_config.surface_config.slot_pixel_format.Value()));
-                        break;
+                        continue; // No decoded pixels to blend.
                     }
                     Blend(config, slot_config, config.output_surface_config.out_pixel_format);
                     decoded_frame = true;
@@ -235,6 +299,12 @@ void Vic::ReadProgressiveY8__V8U8_N420(const SlotStruct& slot, std::span<const P
         out_luma_height, out_luma_stride);
 
     slot_surface.resize_destructive(out_luma_width * out_luma_height);
+    // ScratchBuffer does not initialize reused storage. A decoded FFmpeg frame can
+    // be narrower or shorter than the guest slot: clear only the pixels the
+    // decode loops will not overwrite, preventing stale pixels reaching VIC output.
+    if (in_luma_width < s32(out_luma_width) || in_luma_height < s32(out_luma_height)) {
+        std::fill(slot_surface.begin(), slot_surface.end(), Pixel{});
+    }
     if (COMPILED_HAS_SSE41 && HasSSE41() && in_luma_width % 16 == 0) {
 #if COMPILED_HAS_SSE41
         auto const alpha_linear = u16(slot.config.planar_alpha.Value());
@@ -278,7 +348,7 @@ void Vic::ReadProgressiveY8__V8U8_N420(const SlotStruct& slot, std::span<const P
 
                     // Chroma is already interleaved in semiplanar format, just load 16 bytes
                     // chroma = VV UU VV UU VV UU VV UU VV UU VV UU VV UU VV UU
-                    chroma = _mm_load_si128((__m128i*)&chroma_u_buffer[src_chroma + x]);
+                    chroma = _mm_loadu_si128((__m128i*)&chroma_u_buffer[src_chroma + x]);
                 }
 
                 // Convert the low 8 bytes of 8-bit luma into 16-bit luma
@@ -361,14 +431,14 @@ void Vic::ReadProgressiveY8__V8U8_N420(const SlotStruct& slot, std::span<const P
 
                 // Store out the pixels. One pixel is now 8 bytes, so each store is 2 pixels.
                 // [AA AA] [VV VV] [UU UU] [LL LL] [AA AA] [VV VV] [UU UU] [LL LL]
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 0], yuv01);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 2], yuv23);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 4], yuv45);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 6], yuv67);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 8], yuv89);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 10], yuv1011);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 12], yuv1213);
-                _mm_store_si128((__m128i*)&slot_surface[dst + x + 14], yuv1415);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 0], yuv01);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 2], yuv23);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 4], yuv45);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 6], yuv67);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 8], yuv89);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 10], yuv1011);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 12], yuv1213);
+                _mm_storeu_si128((__m128i*)&slot_surface[dst + x + 14], yuv1415);
             }
             for (; x < in_luma_width; x++) {
                 slot_surface[dst + x].r = u16(luma_buffer[src_luma + x] << 2);
@@ -415,7 +485,12 @@ void Vic::ReadInterlacedY8__V8U8_N420(const SlotStruct& slot, std::span<const Pl
         slot_surface.resize(out_luma_width * out_luma_height);
 
         auto const in_luma_width = (std::min)(frame->GetWidth(), s32(out_luma_width));
-        [[maybe_unused]] auto const in_luma_height = (std::min)(frame->GetHeight(), s32(out_luma_height));
+        auto const in_luma_height = (std::min)(frame->GetHeight(), s32(out_luma_height));
+        // Bob copies a complete slot row even when FFmpeg supplied fewer pixels.
+        // Initialize the uncovered region only for a partial decoded surface.
+        if (in_luma_width < s32(out_luma_width) || in_luma_height < s32(out_luma_height)) {
+            std::fill(slot_surface.begin(), slot_surface.end(), Pixel{});
+        }
         auto const in_luma_stride{frame->GetStride(0)};
 
         [[maybe_unused]] auto const in_chroma_width = (frame->GetWidth() + 1) / 2;
@@ -435,7 +510,10 @@ void Vic::ReadInterlacedY8__V8U8_N420(const SlotStruct& slot, std::span<const Pl
 
         auto DecodeBobField = [&]() {
             auto const alpha = u16(slot.config.planar_alpha.Value());
-            for (s32 y = s32(top_field == false); y < in_chroma_height * 2; y += 2) {
+            // Luma reads use row y. For odd decoded heights, chroma_height*2
+            // reaches one row past the decoded luma plane on the bottom field.
+            // in_luma_height also caps the copy to the guest slot's height.
+            for (s32 y = s32(top_field == false); y < in_luma_height; y += 2) {
                 auto const src_luma{y * in_luma_stride};
                 auto const src_chroma{(y / 2) * in_chroma_stride};
                 auto const dst{y * out_luma_stride};
@@ -531,9 +609,17 @@ void Vic::Blend(const ConfigStruct& config, const SlotStruct& slot, VideoPixelFo
 
     source_bottom = (std::min)(source_bottom, out_surface_height);
     source_right = (std::min)(source_right, out_surface_width);
-
-    [[maybe_unused]] auto const work_width = u32((std::max)(0, s32(source_right) - s32(source_left)));
-    [[maybe_unused]] auto const work_height = u32((std::max)(0, s32(source_bottom) - s32(source_top)));
+    // The decoded slot can be smaller than the output. Check the actual
+    // ScratchBuffer extent before either SIMD/scalar path touches pixels.
+    source_bottom = (std::min)(source_bottom,
+                               static_cast<u32>(slot_surface.size() / in_surface_width));
+    source_right = (std::min)(source_right, in_surface_width);
+    if (source_left >= source_right || source_top >= source_bottom ||
+        rect_left >= rect_right || rect_top >= rect_bottom) {
+        return;
+    }
+    const u32 work_width = source_right - source_left;
+    const u32 work_height = source_bottom - source_top;
 
     // TODO Alpha blending. No games I've seen use more than a single surface or supply an alpha
     // below max, so it's ignored for now.
@@ -591,19 +677,21 @@ void Vic::Blend(const ConfigStruct& config, const SlotStruct& slot, VideoPixelFo
             };
 
             for (u32 y = source_top; y < source_bottom; y++) {
-                auto const src{y * in_surface_width + source_left};
-                auto const dst{y * out_surface_width + rect_left};
-                for (u32 x = source_left; x < source_right; x += 8) {
+                const size_t src = static_cast<size_t>(y) * in_surface_width + source_left;
+                const size_t dst = static_cast<size_t>(y) * out_surface_width + rect_left;
+                for (u32 x = 0; x < work_width; x += 8) {
                     // clang-format off
                     // Prefetch the next iteration's memory
-                    _mm_prefetch((const char*)&slot_surface[src + x + 8], _MM_HINT_T0);
+                    if (x + 8 < work_width) {
+                        _mm_prefetch((const char*)&slot_surface[src + x + 8], _MM_HINT_T0);
+                    }
 
                     // Load in pixels
                     // p01 = [AA AA] [BB BB] [GG GG] [RR RR] [AA AA] [BB BB] [GG GG] [RR RR]
-                    auto p01 = _mm_load_si128((__m128i*)&slot_surface[src + x + 0]);
-                    auto p23 = _mm_load_si128((__m128i*)&slot_surface[src + x + 2]);
-                    auto p45 = _mm_load_si128((__m128i*)&slot_surface[src + x + 4]);
-                    auto p67 = _mm_load_si128((__m128i*)&slot_surface[src + x + 6]);
+                    auto p01 = _mm_loadu_si128((__m128i*)&slot_surface[src + x + 0]);
+                    auto p23 = _mm_loadu_si128((__m128i*)&slot_surface[src + x + 2]);
+                    auto p45 = _mm_loadu_si128((__m128i*)&slot_surface[src + x + 4]);
+                    auto p67 = _mm_loadu_si128((__m128i*)&slot_surface[src + x + 6]);
 
                     // Convert the 16-bit channels into 32-bit (unsigned), as the matrix values are
                     // 32-bit and to avoid overflow.
@@ -663,10 +751,10 @@ void Vic::Blend(const ConfigStruct& config, const SlotStruct& slot, VideoPixelFo
                     done3 = _mm_min_epu16(done3, clamp_max);
 
                     // Store the pixels to the output surface.
-                    _mm_store_si128((__m128i*)&output_surface[dst + x + 0], done0);
-                    _mm_store_si128((__m128i*)&output_surface[dst + x + 2], done1);
-                    _mm_store_si128((__m128i*)&output_surface[dst + x + 4], done2);
-                    _mm_store_si128((__m128i*)&output_surface[dst + x + 6], done3);
+                    _mm_storeu_si128((__m128i*)&output_surface[dst + x + 0], done0);
+                    _mm_storeu_si128((__m128i*)&output_surface[dst + x + 2], done1);
+                    _mm_storeu_si128((__m128i*)&output_surface[dst + x + 4], done2);
+                    _mm_storeu_si128((__m128i*)&output_surface[dst + x + 6], done3);
 
                 }
             }
@@ -711,9 +799,9 @@ void Vic::Blend(const ConfigStruct& config, const SlotStruct& slot, VideoPixelFo
                 return {r, g, b, s32(in_pixel.a)};
             };
             for (u32 y = source_top; y < source_bottom; y++) {
-                const auto src{y * in_surface_width + source_left};
-                const auto dst{y * out_surface_width + rect_left};
-                for (u32 x = source_left; x < source_right; x++) {
+                const size_t src = static_cast<size_t>(y) * in_surface_width + source_left;
+                const size_t dst = static_cast<size_t>(y) * out_surface_width + rect_left;
+                for (u32 x = 0; x < work_width; x++) {
                     auto [r, g, b, a] = MatMul(slot_surface[src + x]);
                     r = std::clamp(r, clamp_min, clamp_max);
                     g = std::clamp(g, clamp_min, clamp_max);
@@ -753,6 +841,19 @@ void Vic::WriteY8__V8U8_N420(const OutputSurfaceConfig& output_surface_config) n
     surface_width = (std::min)(surface_width, out_luma_width);
     surface_height = (std::min)(surface_height, out_luma_height);
 
+    const bool tiled = output_surface_config.out_block_kind == BlkKind::Generic_16Bx2;
+    const u32 block_height = u32(output_surface_config.out_block_height);
+    if ((output_surface_config.out_block_kind != BlkKind::Pitch && !tiled) ||
+        !CheckedVicPlane(out_luma_width, out_luma_height, 1, tiled, block_height) ||
+        !CheckedVicPlane(out_chroma_width, out_chroma_height, 2, tiled, block_height) ||
+        // The 4:2:0 chroma plane must hold one UV pair per two luma
+        // pixels, including the final pixel of an odd-width surface.
+        out_chroma_stride < (static_cast<u64>(surface_width) + 1) / 2 * 2 ||
+        out_chroma_height < (static_cast<u64>(surface_height) + 1) / 2) {
+        LOG_WARNING(HW_GPU, "Rejecting invalid VIC YUV420 output geometry");
+        return;
+    }
+
     auto Decode = [&](u8* out_luma, u8* out_chroma) {
         if (COMPILED_HAS_SSE41 && HasSSE41() && surface_width % 16 == 0) {
 #if COMPILED_HAS_SSE41
@@ -771,14 +872,14 @@ void Vic::WriteY8__V8U8_N420(const OutputSurfaceConfig& output_surface_config) n
                     _mm_prefetch((const char*)&output_surface[src + x + 24], _MM_HINT_T0);
 
                     // Load the 64-bit pixels, 2 per variable.
-                    auto pixel01 = _mm_load_si128((__m128i*)&output_surface[src + x + 0]);
-                    auto pixel23 = _mm_load_si128((__m128i*)&output_surface[src + x + 2]);
-                    auto pixel45 = _mm_load_si128((__m128i*)&output_surface[src + x + 4]);
-                    auto pixel67 = _mm_load_si128((__m128i*)&output_surface[src + x + 6]);
-                    auto pixel89 = _mm_load_si128((__m128i*)&output_surface[src + x + 8]);
-                    auto pixel1011 = _mm_load_si128((__m128i*)&output_surface[src + x + 10]);
-                    auto pixel1213 = _mm_load_si128((__m128i*)&output_surface[src + x + 12]);
-                    auto pixel1415 = _mm_load_si128((__m128i*)&output_surface[src + x + 14]);
+                    auto pixel01 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 0]);
+                    auto pixel23 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 2]);
+                    auto pixel45 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 4]);
+                    auto pixel67 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 6]);
+                    auto pixel89 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 8]);
+                    auto pixel1011 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 10]);
+                    auto pixel1213 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 12]);
+                    auto pixel1415 = _mm_loadu_si128((__m128i*)&output_surface[src + x + 14]);
 
                     // Split out the luma of each pixel using the luma_mask above.
                     // pixel01 = [AA2 AA2] [VV2 VV2] [UU2 UU2] [LL2 LL2] [AA1 AA1] [VV1 VV1] [UU1 UU1] [LL1 LL1]
@@ -824,7 +925,7 @@ void Vic::WriteY8__V8U8_N420(const OutputSurfaceConfig& output_surface_config) n
                     auto luma = _mm_packus_epi16(luma_lo, luma_hi);
 
                     // Store the 16 bytes of luma
-                    _mm_store_si128((__m128i*)&out_luma[dst_luma + x], luma);
+                    _mm_storeu_si128((__m128i*)&out_luma[dst_luma + x], luma);
 
                     if (y % 2 == 0) {
                         // Chroma, done every other line as it's half the height of luma.
@@ -877,7 +978,7 @@ void Vic::WriteY8__V8U8_N420(const OutputSurfaceConfig& output_surface_config) n
                         auto chroma = _mm_packus_epi16(chroma_lo, chroma_hi);
 
                         // Store the 16 bytes of chroma.
-                        _mm_store_si128((__m128i*)&out_chroma[dst_chroma + x + 0], chroma);
+                        _mm_storeu_si128((__m128i*)&out_chroma[dst_chroma + x + 0], chroma);
                     }
 
                     // clang-format on
@@ -898,11 +999,20 @@ void Vic::WriteY8__V8U8_N420(const OutputSurfaceConfig& output_surface_config) n
                 auto const dst_luma = y * out_luma_stride;
                 auto const src_chroma = y * surface_stride;
                 auto const dst_chroma = (y / 2) * out_chroma_stride;
-                for (size_t x = 0; x < surface_width; x += 2) {
+                size_t x = 0;
+                for (; x + 1 < surface_width; x += 2) {
                     out_luma[dst_luma + x + 0] = u8(output_surface[src_luma + x + 0].r >> 2);
                     out_luma[dst_luma + x + 1] = u8(output_surface[src_luma + x + 1].r >> 2);
                     out_chroma[dst_chroma + x + 0] = u8(output_surface[src_chroma + x].g >> 2);
                     out_chroma[dst_chroma + x + 1] = u8(output_surface[src_chroma + x].b >> 2);
+                }
+                if (x < surface_width) {
+                    // NVIDIA VIC supports odd luma widths: one trailing
+                    // luma sample still needs its own interleaved UV pair.
+                    out_luma[dst_luma + x] = u8(output_surface[src_luma + x].r >> 2);
+                    out_chroma[dst_chroma + x] = u8(output_surface[src_chroma + x].g >> 2);
+                    out_chroma[dst_chroma + x + 1] =
+                        u8(output_surface[src_chroma + x].b >> 2);
                 }
             }
         }
@@ -930,12 +1040,20 @@ void Vic::WriteY8__V8U8_N420(const OutputSurfaceConfig& output_surface_config) n
 
         Tegra::Memory::GpuGuestMemoryScoped<u8, Core::Memory::GuestMemoryFlags::SafeWrite> out_luma(host1x.gmmu_manager, regs.output_surface.luma.Address(), out_luma_swizzle_size, &swizzle_scratch);
         Tegra::Memory::GpuGuestMemoryScoped<u8, Core::Memory::GuestMemoryFlags::SafeWrite> out_chroma(host1x.gmmu_manager, regs.output_surface.chroma_u.Address(), out_chroma_swizzle_size, &swizzle_scratch);
-        if (block_height == 1) {
+        // The fast 16Bx2 y+=2 swizzler always accesses y+1; for odd
+        // heights use the generic decoder, which admits padded GOB rows.
+        if (block_height == 1 && (out_luma_height & 1) == 0 &&
+            (out_chroma_height & 1) == 0) {
             SwizzleSurface(out_luma, out_luma_stride, luma_scratch, out_luma_stride, out_luma_height);
             SwizzleSurface(out_chroma, out_chroma_stride, chroma_scratch, out_chroma_stride, out_chroma_height);
         } else {
-            Texture::SwizzleTexture(out_luma, luma_scratch, BytesPerPixel, out_luma_width, out_luma_height, 1, block_height, 0, 1);
-            Texture::SwizzleTexture(out_chroma, chroma_scratch, BytesPerPixel, out_chroma_width, out_chroma_height, 1, block_height, 0, 1);
+            // GOB chroma pixels are interleaved UV (two bytes each).
+            // The original call used BPP=1 despite sizing the same
+            // surface at BPP=2, truncating alternate U/V samples.
+            Texture::SwizzleTexture(out_luma, luma_scratch, BytesPerPixel,
+                                    out_luma_width, out_luma_height, 1, block_height, 0, 4);
+            Texture::SwizzleTexture(out_chroma, chroma_scratch, BytesPerPixel * 2,
+                                    out_chroma_width, out_chroma_height, 1, block_height, 0, 3);
         }
     } break;
     case BlkKind::Pitch: {
@@ -981,6 +1099,15 @@ void Vic::WriteABGR(const OutputSurfaceConfig& output_surface_config, VideoPixel
     surface_width = (std::min)(surface_width, out_luma_width);
     surface_height = (std::min)(surface_height, out_luma_height);
 
+    const bool tiled = output_surface_config.out_block_kind == BlkKind::Generic_16Bx2;
+    const u32 block_height = u32(output_surface_config.out_block_height);
+    if ((output_surface_config.out_block_kind != BlkKind::Pitch && !tiled) ||
+        !CheckedVicPlane(out_luma_width, out_luma_height, BytesPerPixel,
+                         tiled, block_height)) {
+        LOG_WARNING(HW_GPU, "Rejecting invalid VIC ABGR output geometry");
+        return;
+    }
+
     auto Decode = [&](u8* out, Pixel const* inp) {
         if (COMPILED_HAS_SSE41 && HasSSE41() && surface_width % 16 == 0) {
 #if COMPILED_HAS_SSE41
@@ -996,14 +1123,14 @@ void Vic::WriteABGR(const OutputSurfaceConfig& output_surface_config, VideoPixel
 
                     // Load the pixels, 16-bit channels, 8 bytes per pixel, e.g
                     // pixel01 = [AA AA BB BB GG GG RR RR AA AA BB BB GG GG RR RR
-                    auto pixel01 = _mm_load_si128((__m128i*)&inp[src + x + 0]);
-                    auto pixel23 = _mm_load_si128((__m128i*)&inp[src + x + 2]);
-                    auto pixel45 = _mm_load_si128((__m128i*)&inp[src + x + 4]);
-                    auto pixel67 = _mm_load_si128((__m128i*)&inp[src + x + 6]);
-                    auto pixel89 = _mm_load_si128((__m128i*)&inp[src + x + 8]);
-                    auto pixel1011 = _mm_load_si128((__m128i*)&inp[src + x + 10]);
-                    auto pixel1213 = _mm_load_si128((__m128i*)&inp[src + x + 12]);
-                    auto pixel1415 = _mm_load_si128((__m128i*)&inp[src + x + 14]);
+                    auto pixel01 = _mm_loadu_si128((__m128i*)&inp[src + x + 0]);
+                    auto pixel23 = _mm_loadu_si128((__m128i*)&inp[src + x + 2]);
+                    auto pixel45 = _mm_loadu_si128((__m128i*)&inp[src + x + 4]);
+                    auto pixel67 = _mm_loadu_si128((__m128i*)&inp[src + x + 6]);
+                    auto pixel89 = _mm_loadu_si128((__m128i*)&inp[src + x + 8]);
+                    auto pixel1011 = _mm_loadu_si128((__m128i*)&inp[src + x + 10]);
+                    auto pixel1213 = _mm_loadu_si128((__m128i*)&inp[src + x + 12]);
+                    auto pixel1415 = _mm_loadu_si128((__m128i*)&inp[src + x + 14]);
 
                     // Right-shift the channels by 16 to un-do the left shift on read and bring the range
                     // back to 8-bit.
@@ -1040,10 +1167,10 @@ void Vic::WriteABGR(const OutputSurfaceConfig& output_surface_config, VideoPixel
                     }
 
                     // Store the pixels
-                    _mm_store_si128((__m128i*)&out[dst + x * 4 + 0], pixels0_lo);
-                    _mm_store_si128((__m128i*)&out[dst + x * 4 + 16], pixels0_hi);
-                    _mm_store_si128((__m128i*)&out[dst + x * 4 + 32], pixels1_lo);
-                    _mm_store_si128((__m128i*)&out[dst + x * 4 + 48], pixels1_hi);
+                    _mm_storeu_si128((__m128i*)&out[dst + x * 4 + 0], pixels0_lo);
+                    _mm_storeu_si128((__m128i*)&out[dst + x * 4 + 16], pixels0_hi);
+                    _mm_storeu_si128((__m128i*)&out[dst + x * 4 + 32], pixels1_lo);
+                    _mm_storeu_si128((__m128i*)&out[dst + x * 4 + 48], pixels1_hi);
                 }
                 for (; x < surface_width; x++) {
                     if (format == VideoPixelFormat::A8R8G8B8) {
@@ -1094,10 +1221,13 @@ void Vic::WriteABGR(const OutputSurfaceConfig& output_surface_config, VideoPixel
         Decode(luma_scratch.data(), output_surface.data());
 
         Tegra::Memory::GpuGuestMemoryScoped<u8, Core::Memory::GuestMemoryFlags::SafeWrite> out_luma(host1x.gmmu_manager, regs.output_surface.luma.Address(), out_swizzle_size, &swizzle_scratch);
-        if (block_height == 1) {
+        if (block_height == 1 && (out_luma_height & 1) == 0) {
             SwizzleSurface(out_luma, out_luma_stride, luma_scratch, out_luma_stride, out_luma_height);
         } else {
-            Texture::SwizzleTexture(out_luma, luma_scratch, BytesPerPixel, out_luma_width, out_luma_height, 1, block_height, 0, 1);
+            // The generic decoder's stride_alignment is log2(pixels).
+            // The scratch rows are 16-byte aligned: 4 bytes/pixel => 4 pixels.
+            Texture::SwizzleTexture(out_luma, luma_scratch, BytesPerPixel,
+                                    out_luma_width, out_luma_height, 1, block_height, 0, 2);
         }
     } break;
     case BlkKind::Pitch: {

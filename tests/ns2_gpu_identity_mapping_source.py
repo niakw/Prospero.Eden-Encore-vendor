@@ -228,8 +228,8 @@ assert "result = Kernel::ResultOutOfResource;" in open_gpu
 
 # An AS FD can close while its scheduler channel still has queued work.
 # Keep a strong AS/GMMU lease in ChannelState through GPU payload teardown.
-# The generic Maxwell channel leaves this lease empty; there is no
-# additional GPU mapping, synthetic VA or per-game admission.
+# Maxwell/NS1 and Ampere/NS2 both require the exact bound AS lease;
+# it does not allocate another GPU VA, synthetic mapping or ASID.
 channel_h=(R/"sources/eden/src/video_core/control/channel_state.h").read_text()
 as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
 as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
@@ -241,13 +241,13 @@ as_bind=as_cpp.split("NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& para
 assert as_bind.index("const std::scoped_lock lock{mutex, gpu_channel_device->channel_mutex};") < as_bind.index(
     "auto owner = weak_from_this().lock();")
 assert as_bind.index("session->process != m_native_process") < as_bind.index(
-    "NativeGpuProcessRegistry::Instance().Contains(m_native_process)") < as_bind.index(
+    "auto owner = weak_from_this().lock();") < as_bind.index(
     "channel.address_space_owner = std::move(owner);") < as_bind.index(
     "channel.memory_manager = gmmu.get();")
 assert "#include \"core/hle/service/nvdrv/devices/native_gpu_process_registry.h\"" in as_cpp
-assert as_bind.index("if (NativeGpuProcessRegistry::Instance().Contains(m_native_process)) {") < as_bind.index(
+assert as_bind.index("if (!m_channel_session_retained)") < as_bind.index(
     "container.RetainSession(*m_nv_session, m_native_process)")
-assert "if (!owner) return NvResult::InvalidState;" in as_bind
+assert "if (!owner) {" in as_bind
 
 # The AS owner alone cannot prevent NvCore::CloseSession from unmapping
 # every NVMap handle. The actual PS5-selected Container must hold a checked
@@ -302,7 +302,7 @@ assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
 assert release.index("channels.find(channel_id);") > release.index(
     "RequestSyncOperation([this, channel_id, expected]")
 dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}",1)[0]
-for needle in ("channel_state->address_space_owner",
+for needle in ("!sessions.empty() && channel_state",
                "system.IsPoweredOn()", "!system.IsShuttingDown()",
                "system.GPU().ReleaseChannel(*channel_state)"):
     assert needle in dtor,needle
@@ -879,3 +879,154 @@ assert _alloc.index("params.page_size != vm.big_page_size)") < _alloc.index(
     "auto& allocator = big ? *vm.big_page_allocator : *vm.small_page_allocator;")
 
 print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")
+
+
+# The shared PS5 scheduler/NVDRV owner also serves Maxwell/NS1. Closing the
+# guest GPU FD must retire the exact ChannelState instead of leaving its
+# DmaPusher/engine payload reachable until process-wide GPU destruction.
+scheduler_h=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.h").read_text()
+scheduler_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.cpp").read_text()
+gpu_cpp=(R/"encore-active/eden-core/src/video_core/gpu_vulkan.cpp").read_text()
+nvhost_cpp=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+assert "void RetireChannel(const ChannelState* old_channel);" in scheduler_h
+retire=scheduler_cpp.split("void Scheduler::RetireChannel(const ChannelState* old_channel) {",1)[1].split(
+    "\n}\n",1)[0]
+for needle in ("std::unique_lock epoch_lock(scheduling_guard);",
+               "std::scoped_lock gpu_lock(gpu_submit_guard);",
+               "std::scoped_lock pending_lock(pending_guard);",
+               "it->second.get() != old_channel",
+               "std::erase(pending_native_channels, it->second);",
+               "channels.erase(it);"):
+    assert needle in retire,needle
+
+# Early NVDRV FD close can arrive before any GPU bind; never compare an
+# indeterminate current_channel pointer against the retiring owner.
+assert "Tegra::Control::ChannelState* current_channel{};" in gpu_cpp
+assert "s32 bound_channel{-1};" in gpu_cpp
+release=gpu_cpp.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split(
+    "\n    /// Binds a renderer to the GPU.",1)[0]
+for needle in ("const s32 channel_id = to_release.bind_id;",
+               "const auto* expected = &to_release;",
+               "RequestSyncOperation([this, channel_id, expected]",
+               "scheduler.RetireChannel(owner.get());",
+               "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);",
+               "channels.erase(it);",
+               "gpu_thread.TickGPU(is_async);",
+               "WaitForSyncOperation(fence);"):
+    assert needle in release,needle
+assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
+    "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);") < release.index(
+    "channels.erase(it);")
+assert release.index("gpu_thread.TickGPU(is_async);") < release.index(
+    "WaitForSyncOperation(fence);")
+assert "if (current_channel == owner.get()) {" in release
+assert "current_channel = nullptr;" in release
+assert "bound_channel = -1;" in release
+print("NS1_PREBIND_GPU_CLOSE_SOURCE_PASS initialized_pointer=1 unbound_close=1")
+
+# Final-FD retirement must never prevent Module::Close from erasing the FD,
+# and the destructor fallback must remain noexcept in practice. A failed GPU
+# worker is already a latched fatal condition; record it and continue cleanup.
+module_cpp=(R/"sources/eden/src/core/hle/service/nvdrv/nvdrv.cpp").read_text()
+on_close=nvhost_cpp.split("void nvhost_gpu::OnClose(DeviceFD fd) {",1)[1].split("\n}\n",1)[0]
+dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}\n",1)[0]
+for block in (on_close,dtor):
+    assert "try {" in block
+    assert "system.GPU().ReleaseChannel(*channel_state);" in block
+    assert "catch (...) {" in block
+    assert "::Eden::RecordGpuFailure(std::current_exception());" in block
+assert on_close.index("sessions.erase(fd);") < on_close.index("try {")
+close_body=module_cpp.split("NvResult Module::Close(DeviceFD fd) {",1)[1].split(
+    "\n}\n",1)[0]
+assert close_body.index("try {") < close_body.index("itr->second->OnClose(fd);")
+assert close_body.count("open_files.erase(itr);") >= 2
+catch_tail=close_body.split("catch (...) {",1)[1]
+assert catch_tail.index("open_files.erase(itr);") < catch_tail.index("throw;")
+assert close_body.index("itr->second->OnClose(fd);") < close_body.rindex(
+    "open_files.erase(itr);")
+assert '#include "gpu_failure.h"' in nvhost_cpp
+print("NS1_NVDRV_CLOSE_EXCEPTION_SAFE_PASS final_fd=1 destructor_noexcept=1 "
+      "failure_latched=1 module_erase_reachable=1 generic_close_rollback=1")
+
+# Module::Open publishes builder-owned devices before device-specific OnOpen.
+# A thrown OnOpen must erase that published FD for both known and stub devices.
+open_body=module_cpp.split(
+    "DeviceFD Module::Open(const std::string& device_name, NvCore::SessionId session_id) {",1)[1].split(
+    "\n}\n\nNvResult Module::Ioctl1",1)[0]
+assert open_body.count("device->OnOpen(session_id, fd);") == 2
+assert open_body.count("catch (...) {") >= 2
+assert open_body.count("open_files.erase(fd);") >= 2
+for fragment in open_body.split("device->OnOpen(session_id, fd);")[1:]:
+    assert "open_files.erase(fd);" in fragment.split("return fd;",1)[0]
+print("NS1_NVDRV_OPEN_ROLLBACK_SOURCE_PASS known_device=1 stub_device=1 "
+      "failed_onopen_unpublished=1")
+
+
+
+
+on_close=nvhost_cpp.split("void nvhost_gpu::OnClose(DeviceFD fd) {",1)[1].split("\n}\n",1)[0]
+for needle in ("sessions.erase(fd);",
+               "sessions.empty() && channel_state",
+               "system.IsPoweredOn() && !system.IsShuttingDown()",
+               "system.GPU().ReleaseChannel(*channel_state);"):
+    assert needle in on_close,needle
+assert on_close.index("sessions.erase(fd);") < on_close.index(
+    "sessions.empty() && channel_state") < on_close.index(
+    "system.GPU().ReleaseChannel(*channel_state);")
+
+dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}\n",1)[0]
+for needle in ("!sessions.empty() && channel_state",
+               "system.IsPoweredOn() && !system.IsShuttingDown()",
+               "system.GPU().ReleaseChannel(*channel_state);",
+               "NativeGpuChannelRegistry::Instance().Unbind(channel_state.get());",
+               "syncpoint_manager.FreeSyncpoint(channel_syncpoint);"):
+    assert needle in dtor,needle
+assert "channel_state->address_space_owner" not in dtor
+assert dtor.index("system.GPU().ReleaseChannel(*channel_state);") < dtor.index(
+    "NativeGpuChannelRegistry::Instance().Unbind(channel_state.get())") < dtor.index(
+    "syncpoint_manager.FreeSyncpoint(channel_syncpoint);")
+print("NS1_MAXWELL_CHANNEL_RETIRE_SOURCE_PASS exact_epoch=1 worker_order=1 "
+      "pending_wait_removed=1 rasterizer_release=1 final_fd_close=1 "
+      "destructor_fallback=1 shutdown_guard=1")
+
+
+# Maxwell/NS1 uses the same AS BindChannel owner. A raw MemoryManager pointer
+# cannot outlive an early AS-FD close, so retain the exact AS object and the
+# same existing NvCore session until ChannelState payload teardown completes.
+as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
+channel_h=(R/"sources/eden/src/video_core/control/channel_state.h").read_text()
+container_h=(R/"sources/eden/src/core/hle/service/nvdrv/core/container.h").read_text()
+container_cpp=(R/"encore-active/eden-core/src/core/hle/service/nvdrv/core/container.cpp").read_text()
+assert "public std::enable_shared_from_this<nvhost_as_gpu>" in as_h
+assert channel_h.index("std::shared_ptr<void> address_space_owner{};") < channel_h.index(
+    "std::optional<Payload> payload;")
+assert "bool RetainSession(SessionId id, const Kernel::KProcess* process);" in container_h
+retain=container_cpp.split(
+    "bool Container::RetainSession(SessionId id, const Kernel::KProcess* process) {",1)[1].split(
+    "\n}\n",1)[0]
+for token in ("session_guard", "impl->sessions.size()", "session.is_active",
+              "session.process != process", "session.ref_count <= 0",
+              "std::numeric_limits<s32>::max()", "++session.ref_count;"):
+    assert token in retain,token
+assert "std::optional<NvCore::SessionId> m_nv_session{};" in as_h
+assert "bool m_channel_session_retained{};" in as_h
+assert "m_nv_session = session_id;" in as_cpp
+as_bind=as_cpp.split("NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {",1)[1].split(
+    "\n}\n",1)[0]
+for token in ("auto owner = weak_from_this().lock();",
+              "container.RetainSession(*m_nv_session, m_native_process)",
+              "m_channel_session_retained = true;",
+              "channel.address_space_owner = std::move(owner);",
+              "channel.memory_manager = gmmu.get();"):
+    assert token in as_bind,token
+assert as_bind.index("container.RetainSession(*m_nv_session, m_native_process)") < as_bind.index(
+    "channel.address_space_owner = std::move(owner);") < as_bind.index(
+    "channel.memory_manager = gmmu.get();")
+as_dtor=as_cpp.split("nvhost_as_gpu::~nvhost_as_gpu() {",1)[1].split(
+    "\n}\n",1)[0]
+assert as_dtor.index("native_sparse_pins.clear();") < as_dtor.index(
+    "container.CloseSession(*m_nv_session);") < as_dtor.index(
+    "m_native_process->Close(system.Kernel());")
+print("NS1_MAXWELL_AS_LEASE_SOURCE_PASS owner_before_payload=1 exact_session=1 "
+      "pins_before_session_close=1 no_new_asid=1")

@@ -397,6 +397,10 @@ U32 IREmitter::InvocationInfo() {
     return Inst<U32>(Opcode::InvocationInfo);
 }
 
+U32 IREmitter::SampleMask() {
+    return Inst<U32>(Opcode::SampleMask);
+}
+
 U32 IREmitter::SampleId() {
     return Inst<U32>(Opcode::SampleId);
 }
@@ -1429,6 +1433,11 @@ U32U64 IREmitter::SharedAtomicExchange(const U32& pointer_offset, const U32U64& 
     default:
         ThrowInvalidType(pointer_offset.Type());
     }
+}
+
+U32 IREmitter::SharedAtomicCompareExchange(const U32& pointer_offset, const U32& comparator,
+                                           const U32& value) {
+    return Inst<U32>(Opcode::SharedAtomicCompareExchange32, pointer_offset, comparator, value);
 }
 
 U32U64 IREmitter::GlobalAtomicIAdd(const U64& pointer_offset, const U32U64& value) {

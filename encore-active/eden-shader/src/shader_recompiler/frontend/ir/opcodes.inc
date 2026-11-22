@@ -68,6 +68,7 @@ OPCODE(WorkgroupId,                                         U32x3,              
 OPCODE(LocalInvocationId,                                   U32x3,                                                                                          )
 OPCODE(InvocationId,                                        U32,                                                                                            )
 OPCODE(InvocationInfo,                                      U32,                                                                                            )
+OPCODE(SampleMask,                                          U32,                                                                                            )
 OPCODE(SampleId,                                            U32,                                                                                            )
 OPCODE(IsHelperInvocation,                                  U1,                                                                                             )
 OPCODE(SR_WScaleFactorXY,                                   U32,                                                                                            )
@@ -352,6 +353,7 @@ OPCODE(SharedAtomicAnd32,                                   U32,            U32,
 OPCODE(SharedAtomicOr32,                                    U32,            U32,            U32,                                                            )
 OPCODE(SharedAtomicXor32,                                   U32,            U32,            U32,                                                            )
 OPCODE(SharedAtomicExchange32,                              U32,            U32,            U32,                                                            )
+OPCODE(SharedAtomicCompareExchange32,                       U32,            U32,            U32,            U32,                                            )
 OPCODE(SharedAtomicExchange64,                              U64,            U32,            U64,                                                            )
 OPCODE(SharedAtomicExchange32x2,                            U32x2,          U32,            U32x2,                                                          )
 

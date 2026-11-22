@@ -28,6 +28,18 @@ if const_blob=="9cbdcbffe4117f9bc7957a69d15e6a277fcfe12b":
     restored=current.replace("            if (count == 0) {\n                return 0U;\n            }\n            const u32 mask{count == 32 ? ~0U : (1U << count) - 1};\n            return (base >> shift) & mask;\n","            return (base >> shift) & ((1U << count) - 1);\n",1).encode()
     assert hashlib.sha1(b"blob "+str(len(restored)).encode()+bytes([0])+restored).hexdigest()=="ce074980d021e14c80b76b4acb1372791c106b5f"
 cache_blob=blob(CACHE)
+if cache_blob=="a0e2a45b9b0f080b739d97abb92e9485a0063f73":
+    selected=CACHE.read_text()
+    reverse = (
+        ("        // Vulkan requires signed/unsigned fragment outputs to match the\n        // attachment's numeric class. Previously this was enabled only on\n        // MoltenVK: native PS5 RADV would emit floats for integer targets,\n        // making color writes poison/undefined (Vulkan shader interfaces).\n        // Keep the existing desktop policy; fix the PS5 renderer's ABI.\n        const bool require_typed_fragment_outputs =\n#ifdef PS5_NATIVE\n            true;\n#else\n            device.IsMoltenVK();\n#endif\n        if (require_typed_fragment_outputs) {", "        if (device.IsMoltenVK()) {"),
+    )
+    for newer, earlier in reverse:
+        assert newer in selected, "Unexpected CACHE source change"
+        selected=selected.replace(newer, earlier, 1)
+    data=selected.encode("utf-8")
+    previous=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
+    assert previous=="cfac496d574010b8121611c8616d38bf7cdcbc41", ("Unexpected source predecessor",previous)
+    cache_blob="cfac496d574010b8121611c8616d38bf7cdcbc41"
 assert cache_blob in {
     "be5d48abd44996502b0829a6e0501d130a151455",
     "e10c4893c03da57dce7f607d3e0af46d62e343f1",

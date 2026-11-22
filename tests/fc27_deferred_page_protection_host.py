@@ -6,6 +6,7 @@ Do not re-enable deferred cached-page untracking without a PS5-safe scheduler
 ownership gate matching upstream Lichii #1518 and console visual evidence.
 """
 from pathlib import Path
+from native_msaa_handle_receipt import restore_integrated_rasterizer, INTEGRATED_RASTERIZER, GUEST_CACHE_LOCK_SUCCESSOR
 import hashlib
 import os
 import shutil
@@ -21,9 +22,15 @@ def blob(path):
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
 # Current maintained runtime owners. The CPU-write rollback still requires
 # synchronous protection even though DMA clean-image invalidation was added.
-assert blob(R)=="71d097b9a83028dfad9370792c905bb3bfccfd5a"
+assert blob(R)==GUEST_CACHE_LOCK_SUCCESSOR
+assert hashlib.sha1(b"blob "+str(len(restore_integrated_rasterizer(R.read_text()).encode())).encode()+b"\x00"+restore_integrated_rasterizer(R.read_text()).encode()).hexdigest()=="71d097b9a83028dfad9370792c905bb3bfccfd5a"
 assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
-assert blob(T)=="c797eb9e3f4432b6ba19fe8a17a7289b23b75864"
+# The selected NS1/NS2 TextureCache now includes 10 independently reviewed
+# safety and DMA source changes; this full file SHA remains a fail-closed
+# inventory, not a silent acceptance of a changed historic contract.
+assert blob(T)=="5b3db278f70b560a098a2a479d3ee98e78b987f2"
+for selected_guard in ("SplitLayeredImageCopies(copies)", "index > table.current_limit || index >= table.descriptors.size()", "constexpr u32 MaxDescriptorTableLimit = (1U << 21) - 1;", "TextureCache<P>::WriteDmaCopy(", "gpu_written_dest", "copy_ns1_volume_slice", "if (!gpu_memory || gpu_memory->UsesNativeTiling()", "alias_conversion_format", "PixelFormat::X8_D24_UNORM", "bool upload_completed = false;", "kMaxCompletedDecodesPerTick = 4"):
+    assert selected_guard in T.read_text(), ("FC27/NS2 active texture guard lost",selected_guard)
 # Selected NS1/NS2 TextureCache must retain the causal native protections.
 texture_selected=T.read_text()
 for needle in ("bool upload_completed = false;", "std::try_to_lock",

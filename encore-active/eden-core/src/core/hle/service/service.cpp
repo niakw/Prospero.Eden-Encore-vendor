@@ -17,12 +17,57 @@
 #include "core/hle/ipc.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/kernel.h"
+#include "core/hle/kernel/svc_results.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/service.h"
 #include "core/hle/service/sm/sm.h"
 #include "core/reporter.h"
 
 namespace Service {
+
+[[nodiscard]] static bool IsSafeOptionalNoOp(std::string_view service_name,
+                                             std::string_view function_name) {
+    // not implemented yet on Encore: these commands only publish optional
+    // notifications/telemetry. Eden does not require their side effects for
+    // gameplay, so acknowledge them without inventing a larger subsystem.
+    if (service_name == "pdm:ntfy") {
+        return function_name == "NotifyAppletEvent" ||
+               function_name == "NotifyOperationModeChangeEvent" ||
+               function_name == "NotifyPowerStateChangeEvent" ||
+               function_name == "NotifyClearAllEvent" ||
+               function_name == "NotifyEventForDebug" ||
+               function_name == "SuspendUserAccountEventService" ||
+               function_name == "ResumeUserAccountEventService" ||
+               function_name == "NotifyLibraryAppletEvent";
+    }
+    if (service_name == "ILogger") {
+        return function_name == "TransmitHashedLog" || function_name == "DevNotify";
+    }
+    if (service_name == "erpt:c") {
+        return function_name == "SetInitialLaunchSettingsCompletionTime" ||
+               function_name == "ClearInitialLaunchSettingsCompletionTime" ||
+               function_name == "UpdatePowerOnTime" ||
+               function_name == "UpdateApplicationLaunchTime" ||
+               function_name == "ClearApplicationLaunchTime" ||
+               function_name == "RegisterRunningApplet" ||
+               function_name == "UnregisterRunningApplet" ||
+               function_name == "UpdateAppletSuspendedDuration" ||
+               function_name == "InvalidateForcedShutdownDetection";
+    }
+    if (service_name == "eupld:c") {
+        return function_name == "SetUrl" || function_name == "ImportCrt" ||
+               function_name == "ImportPki" || function_name == "SetAutoUpload";
+    }
+    if (service_name == "ICommonStateGetter") {
+        return function_name == "AllowToEnterSleep" ||
+               function_name == "DisallowToEnterSleep";
+    }
+    if (service_name == "ISelfController") {
+        return function_name == "SetDesirableKeyboardLayout" ||
+               function_name == "ReportMultimediaError";
+    }
+    return false;
+}
 
 /// @brief Creates a function string for logging, complete with the name (or header code, depending
 /// on what's passed in) the port name, and all the cmd_buf arguments.
@@ -73,12 +118,29 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(HLERequestContext& ctx,
         fmt::format_to(std::back_inserter(buf), ", [{}]={:#x}", i, cmd_buf[i]);
     buf.push_back('}');
 
+    if (info != nullptr && IsSafeOptionalNoOp(service_name, function_name)) {
+        // not implemented yet on Encore: optional service with no guest-visible
+        // output contract needed by Eden. Deliberately succeed as a no-op.
+        LOG_WARNING(Service, "(STUBBED) optional no-op {}::{} ({})", service_name,
+                    ctx.GetCommand(), function_name);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+        return;
+    }
+
     system.GetReporter().SaveUnimplementedFunctionReport(ctx, ctx.GetCommand(), function_name, service_name);
     UNIMPLEMENTED_MSG("Unknown / unimplemented {}", fmt::to_string(buf));
     if (Settings::values.use_auto_stub) {
         LOG_WARNING(Service, "Using auto stub fallback!");
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
+    } else if (info != nullptr) {
+        // not implemented yet on Encore: this command ID is known, but no handler contract exists.
+        // Fail closed instead of leaving request words in the outgoing IPC buffer or faking success.
+        LOG_WARNING(Service, "Known command has no Encore implementation: {}::{} ({})", service_name,
+                    ctx.GetCommand(), function_name);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultNotImplemented);
     }
 }
 

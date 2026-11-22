@@ -180,9 +180,11 @@ struct GPU::Impl {
     template <typename Func>
     [[nodiscard]] u64 RequestSyncOperation(Func&& action) {
         std::unique_lock lck{sync_request_mutex};
-        const u64 fence = ++last_sync_fence;
+        // Publish a fence only AFTER the queue owns its callback. If
+        // allocating this node throws, no fence is skipped: subsequent waits
+        // must still be reachable by TickWork's completed-request counter.
         sync_requests.emplace_back(std::forward<Func>(action));
-        return fence;
+        return ++last_sync_fence;
     }
 
     /// Obtains current flush request fence id.
@@ -192,7 +194,19 @@ struct GPU::Impl {
 
     void WaitForSyncOperation(const u64 fence) {
         std::unique_lock lck{sync_request_mutex};
-        sync_request_cv.wait(lck, [this, fence] { return CurrentSyncRequestFence() >= fence; });
+        while (!shutting_down.load(std::memory_order_relaxed) &&
+               CurrentSyncRequestFence() < fence) {
+            // A failed GPU worker cannot advance this fence. Preserve the
+            // published exception for every waiter instead of hanging the
+            // launcher/guest-stop path indefinitely.
+            if (auto failure = ::Eden::PeekGpuFailure()) {
+                std::rethrow_exception(failure);
+            }
+            sync_request_cv.wait_for(lck, std::chrono::milliseconds(100));
+        }
+        if (auto failure = ::Eden::PeekGpuFailure()) {
+            std::rethrow_exception(failure);
+        }
     }
 
     void WaitForIdle() {
@@ -207,10 +221,13 @@ struct GPU::Impl {
         while (!sync_requests.empty()) {
             auto request = std::move(sync_requests.front());
             sync_requests.pop_front();
-            sync_request_mutex.unlock();
+            // Keep the RAII lock's ownership state consistent if a GPU
+            // callback throws. Unlocking the raw mutex left lck owning an
+            // already-unlocked mutex during exception unwinding.
+            lck.unlock();
             request();
             current_sync_fence.fetch_add(1, std::memory_order_release);
-            sync_request_mutex.lock();
+            lck.lock();
             sync_request_cv.notify_all();
         }
     }
@@ -279,7 +296,7 @@ struct GPU::Impl {
             return raster_area;
         }
         raster_area.preemtive = true;
-        const u64 fence = RequestSyncOperation([this, &raster_area]() {
+        const u64 fence = RequestSyncOperation([this, raster_area]() {
             renderer->ReadRasterizer()->FlushRegion(raster_area.start_address, raster_area.end_address - raster_area.start_address);
         });
         gpu_thread.TickGPU(is_async);
@@ -397,7 +414,9 @@ struct GPU::Impl {
 
     Tegra::Control::Scheduler scheduler;
     ::Common::unordered_map<s32, std::shared_ptr<Tegra::Control::ChannelState>> channels;
-    Tegra::Control::ChannelState* current_channel;
+    // A guest may close an NVDRV GPU FD before its first successful bind.
+    // ReleaseChannel compares this pointer even for an uninitialized owner.
+    Tegra::Control::ChannelState* current_channel{};
     s32 bound_channel{-1};
 
     std::deque<size_t> free_swap_counters;

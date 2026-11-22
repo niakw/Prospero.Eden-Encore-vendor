@@ -125,6 +125,14 @@ public:
         return fragment_has_color0_output;
     }
 
+    [[nodiscard]] VkColorComponentFlags ColorOutputMask(size_t render_target) const noexcept {
+        return (color_output_mask >> (render_target * 4)) & 0xF;
+    }
+
+    [[nodiscard]] u32 ColorOutputMask() const noexcept {
+        return color_output_mask;
+    }
+
     bool UsesExtendedDynamicState() const noexcept {
         return key.state.extended_dynamic_state != 0;
     }
@@ -297,6 +305,7 @@ private:
     std::array<size_t, NUM_STAGES> stage_sampled_view_counts{};
     std::array<size_t, NUM_STAGES> stage_storage_view_counts{};
     bool fragment_has_color0_output{};
+    u32 color_output_mask{};
 
     vk::DescriptorSetLayout descriptor_set_layout;
     DescriptorAllocator descriptor_allocator;

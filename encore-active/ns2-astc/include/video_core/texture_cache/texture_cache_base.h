@@ -270,6 +270,11 @@ public:
     /// Invalidate cached images after a DMA copy whose bytes are already in guest memory.
     void WriteGpuMemory(GPUVAddr gpu_addr, size_t size);
 
+    /// Mark only DMA destination images whose complete copied bytes are already guest-current.
+    /// gpu_written_dest are destination subranges copied from GPU-owned BufferCache bytes.
+    void WriteDmaCopy(GPUVAddr src_addr, GPUVAddr dest_addr, size_t size,
+                      std::span<const std::pair<DAddr, size_t>> gpu_written_dest);
+
     /// True when a GPU range includes a newer GPU-owned image (or unknown mapping).
     [[nodiscard]] bool IsGpuMemoryGpuModified(GPUVAddr gpu_addr, size_t size);
 
