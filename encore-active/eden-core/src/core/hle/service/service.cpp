@@ -134,10 +134,11 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(HLERequestContext& ctx,
         LOG_WARNING(Service, "Using auto stub fallback!");
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
-    } else if (info != nullptr) {
-        // not implemented yet on Encore: this command ID is known, but no handler contract exists.
-        // Fail closed instead of leaving request words in the outgoing IPC buffer or faking success.
-        LOG_WARNING(Service, "Known command has no Encore implementation: {}::{} ({})", service_name,
+    } else {
+        // Unknown IDs need a complete IPC reply too. Previously, only known
+        // IDs with null handlers were fail-closed; an unregistered NS2 command
+        // could fall through without building any response at all.
+        LOG_WARNING(Service, "Unsupported IPC command: {}::{} ({})", service_name,
                     ctx.GetCommand(), function_name);
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(Kernel::ResultNotImplemented);

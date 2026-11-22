@@ -13,6 +13,32 @@ pins={
 for path,expect in pins.items():
  data=(root/path).read_bytes()
  got=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
+ if path=="src/core/hle/service/service.cpp" and got=="e2d52974d419b9ed4089da8baed104dd1dbd282d":
+  # NS2 unknown IPC IDs now produce a fail-closed reply. Reconstruct only
+  # that exact successor on an audit copy before the frozen NS1 R23 proof.
+  new="""    } else {
+        // Unknown IDs need a complete IPC reply too. Previously, only known
+        // IDs with null handlers were fail-closed; an unregistered NS2 command
+        // could fall through without building any response at all.
+        LOG_WARNING(Service, "Unsupported IPC command: {}::{} ({})", service_name,
+                    ctx.GetCommand(), function_name);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultNotImplemented);
+    }"""
+  old="""    } else if (info != nullptr) {
+        // not implemented yet on Encore: this command ID is known, but no handler contract exists.
+        // Fail closed instead of leaving request words in the outgoing IPC buffer or faking success.
+        LOG_WARNING(Service, "Known command has no Encore implementation: {}::{} ({})", service_name,
+                    ctx.GetCommand(), function_name);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultNotImplemented);
+    }"""
+  text=data.decode()
+  assert text.count(new)==1
+  text=text.replace(new,old,1)
+  data=text.encode()
+  got=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
+  assert got=="be358b0db916b14ab3e92b22a67ec56505b3d86e",got
  if path=="src/core/hle/service/service.cpp" and got=="be358b0db916b14ab3e92b22a67ec56505b3d86e":
   # Exact four reviewed NS1 service-side safety deltas, not a generic success stub.
   text=data.decode()
