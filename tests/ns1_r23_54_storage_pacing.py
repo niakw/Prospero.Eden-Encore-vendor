@@ -13,6 +13,83 @@ pins={
 for path,expect in pins.items():
  data=(root/path).read_bytes()
  got=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
+ if path=="include/core/hle/service/service.h" and got=="b871694b3b865465ec8e08e358d6799449092498":
+  text=data.decode()
+  for target,previous in (
+   ("#include <mutex>\\n#include <memory>","#include <mutex>"),
+   ("class KServerSession;\\nclass KEvent;","class KServerSession;"),
+   ("namespace Service {\\n\\nnamespace KernelHelpers {\\nclass ServiceContext;\\n}\\n\\nnamespace FileSystem",
+    "namespace Service {\\n\\nnamespace FileSystem"),
+  ):
+   target=target.replace("\\n","\\n")
+   previous=previous.replace("\\n","\\n")
+   assert text.count(target)==1
+   text=text.replace(target,previous,1)
+  new="""    [[nodiscard]] virtual std::unique_lock<std::mutex> LockService() noexcept {
+        return std::unique_lock{lock_service};
+    }
+
+    // Lichii's deliberately-shaped NS2 placeholder replies.
+    // This is not a generic successful handler for NS1/system callers.
+    void StubReplyZeroed(HLERequestContext& ctx);
+    void StubReplyEvent(HLERequestContext& ctx);
+    void StubReplyInterface(HLERequestContext& ctx);
+
+private:
+    bool StubAllowed(HLERequestContext& ctx);
+    Kernel::KEvent* stub_event{};
+    std::unique_ptr<KernelHelpers::ServiceContext> stub_context;
+
+private:"""
+  previous="""    [[nodiscard]] virtual std::unique_lock<std::mutex> LockService() noexcept {
+        return std::unique_lock{lock_service};
+    }
+private:"""
+  assert text.count(new)==1
+  text=text.replace(new,previous,1)
+  data=text.encode()
+  got=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
+  assert got=="1b4f515b541617b6b8f134ff21570f7fbdce910f",got
+ if path=="src/core/hle/service/service.cpp" and got=="e388765fb2cf372adc01c2c3ec174955659ccc2a":
+  # The Lichii typed stubs change only the exact source graph below.
+  # Reconstruct the predecessor on an audit copy before frozen NS1 checks.
+  text=data.decode()
+  for newest,previous in (
+   ("#include <thread>\\n#include <set>\\n#include <mutex>\\n#include <string>","#include <thread>"),
+   ("#include \\"core/hle/kernel/k_process.h\\"\\n#include \\"core/hle/kernel/k_thread.h\\"\\n#include \\"core/hle/kernel/k_event.h\\"",
+    "#include \\"core/hle/kernel/k_process.h\\""),
+   ("#include \\"core/hle/service/ipc_helpers.h\\"\\n#include \\"core/hle/service/kernel_helpers.h\\"\\n#include \\"core/hle/service/nx2_stub_interface.h\\"",
+    "#include \\"core/hle/service/ipc_helpers.h\\""),
+  ):
+   newest=newest.replace("\\n","\\n")
+   previous=previous.replace("\\n","\\n")
+   assert text.count(newest)==1
+   text=text.replace(newest,previous,1)
+  first=text.index("\\nnamespace {\\n\\nconstexpr u32 Nx2StubWords = 32;".replace("\\n","\\n"))
+  last=text.index("\\nvoid ServiceFrameworkBase::RegisterHandlersBase(".replace("\\n","\\n"),first)
+  assert first<last
+  text=text[:first]+text[last:]
+  newest="""ServiceFrameworkBase::~ServiceFrameworkBase() {
+    // Wait for requests and retire the per-service placeholder event.
+    const auto guard = ServiceFrameworkBase::LockService();
+    if (stub_event) {
+        stub_context->CloseEvent(stub_event);
+    }
+}"""
+  previous="""ServiceFrameworkBase::~ServiceFrameworkBase() {
+    // Wait for other threads to release access before destroying
+    const auto guard = ServiceFrameworkBase::LockService();
+}"""
+  assert text.count(newest)==1
+  text=text.replace(newest,previous,1)
+  start=text.index("void ServiceFrameworkBase::ReportUnimplementedFunction(")
+  stop=text.index("\\nvoid ServiceFrameworkBase::InvokeRequest(".replace("\\n","\\n"),start)
+  assert stop>start
+  baseline="void ServiceFrameworkBase::ReportUnimplementedFunction(HLERequestContext& ctx,\n                                                       const FunctionInfoBase* info) {\n    auto cmd_buf = ctx.CommandBuffer();\n    std::string function_name = info == nullptr ? \"<unknown>\" : info->name;\n\n    fmt::memory_buffer buf;\n    fmt::format_to(std::back_inserter(buf), \"function '{}({})': port='{}' cmd_buf={{[0]={:#x}\", ctx.GetCommand(), function_name, service_name, cmd_buf[0]);\n    for (int i = 1; i <= 8; ++i)\n        fmt::format_to(std::back_inserter(buf), \", [{}]={:#x}\", i, cmd_buf[i]);\n    buf.push_back('}');\n\n    if (info != nullptr && IsSafeOptionalNoOp(service_name, function_name)) {\n        // not implemented yet on Encore: optional service with no guest-visible\n        // output contract needed by Eden. Deliberately succeed as a no-op.\n        LOG_WARNING(Service, \"(STUBBED) optional no-op {}::{} ({})\", service_name,\n                    ctx.GetCommand(), function_name);\n        IPC::ResponseBuilder rb{ctx, 2};\n        rb.Push(ResultSuccess);\n        return;\n    }\n\n    system.GetReporter().SaveUnimplementedFunctionReport(ctx, ctx.GetCommand(), function_name, service_name);\n    UNIMPLEMENTED_MSG(\"Unknown / unimplemented {}\", fmt::to_string(buf));\n    if (Settings::values.use_auto_stub) {\n        LOG_WARNING(Service, \"Using auto stub fallback!\");\n        IPC::ResponseBuilder rb{ctx, 2};\n        rb.Push(ResultSuccess);\n    } else {\n        // Unknown IDs need a complete IPC reply too. Previously, only known\n        // IDs with null handlers were fail-closed; an unregistered NS2 command\n        // could fall through without building any response at all.\n        LOG_WARNING(Service, \"Unsupported IPC command: {}::{} ({})\", service_name,\n                    ctx.GetCommand(), function_name);\n        IPC::ResponseBuilder rb{ctx, 2};\n        rb.Push(Kernel::ResultNotImplemented);\n    }\n}\n"
+  text=text[:start]+baseline+text[stop:]
+  data=text.encode()
+  got=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
+  assert got=="e2d52974d419b9ed4089da8baed104dd1dbd282d",got
  if path=="src/core/hle/service/service.cpp" and got=="e2d52974d419b9ed4089da8baed104dd1dbd282d":
   # NS2 unknown IPC IDs now produce a fail-closed reply. Reconstruct only
   # that exact successor on an audit copy before the frozen NS1 R23 proof.
