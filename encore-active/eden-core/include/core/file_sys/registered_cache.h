@@ -203,6 +203,8 @@ public:
     std::vector<NcaID> ListContentIds() const;
     std::optional<std::pair<NcaID, u8>> GetRightsId(const NcaID& id) const;
     const CNMT* GetContentMeta(u64 title_id) const;
+    std::optional<NcaID> GetMetaNcaId(u64 title_id) const;
+    std::vector<const CNMT*> ListContentMetas() const;
     bool ReferencesContent(const NcaID& id) const;
 
 private:

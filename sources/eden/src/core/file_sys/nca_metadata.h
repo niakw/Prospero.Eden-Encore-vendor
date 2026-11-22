@@ -95,6 +95,7 @@ public:
     ~CNMT();
 
     const CNMTHeader& GetHeader() const;
+    const std::vector<u8>& GetExtendedHeader() const;
     u64 GetTitleID() const;
     u32 GetTitleVersion() const;
     TitleType GetType() const;
@@ -108,6 +109,7 @@ public:
 private:
     CNMTHeader header;
     OptionalHeader opt_header;
+    std::vector<u8> extended_header;
     std::vector<ContentRecord> content_records;
     std::vector<MetaRecord> meta_records;
 

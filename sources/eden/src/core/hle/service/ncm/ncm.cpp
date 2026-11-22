@@ -571,17 +571,25 @@ public:
         // clang-format off
         static const FunctionInfo functions[] = {
             {0, &IContentMetaDatabase::Set, "Set"},
+            {1, &IContentMetaDatabase::Get, "Get"},
             {2, &IContentMetaDatabase::Remove, "Remove"},
             {3, &IContentMetaDatabase::GetContentIdByType, "GetContentIdByType"},
             {4, &IContentMetaDatabase::ListContentInfo, "ListContentInfo"},
+            {5, &IContentMetaDatabase::List, "List"},
+            {6, &IContentMetaDatabase::GetLatestContentMetaKey, "GetLatestContentMetaKey"},
+            {7, &IContentMetaDatabase::ListApplication, "ListApplication"},
             {8, &IContentMetaDatabase::Has, "Has"},
             {9, &IContentMetaDatabase::HasAll, "HasAll"},
+            {10, &IContentMetaDatabase::GetSize, "GetSize"},
+            {11, &IContentMetaDatabase::GetRequiredSystemVersion, "GetRequiredSystemVersion"},
+            {12, &IContentMetaDatabase::GetPatchContentMetaId, "GetPatchContentMetaId"},
             {13, &IContentMetaDatabase::DisableForcibly, "DisableForcibly"},
             {14, &IContentMetaDatabase::LookupOrphanContent, "LookupOrphanContent"},
             {15, &IContentMetaDatabase::Commit, "Commit"},
             {16, &IContentMetaDatabase::HasContent, "HasContent"},
             {17, &IContentMetaDatabase::ListContentMetaInfo, "ListContentMetaInfo"},
             {18, &IContentMetaDatabase::GetAttributes, "GetAttributes"},
+            {19, &IContentMetaDatabase::GetRequiredApplicationVersion, "GetRequiredApplicationVersion"},
             {20, &IContentMetaDatabase::GetContentIdByTypeAndIdOffset, "GetContentIdByTypeAndIdOffset"},
         };
         // clang-format on
@@ -618,6 +626,36 @@ private:
     };
     static_assert(sizeof(ContentMetaInfo) == 0x10);
 
+    struct ContentMetaHeader {
+        u16 extended_header_size{};
+        u16 content_count{};
+        u16 content_meta_count{};
+        u8 attributes{};
+        u8 platform{};
+    };
+    static_assert(sizeof(ContentMetaHeader) == 0x8);
+
+    struct ApplicationContentMetaKey {
+        ContentMetaKey key{};
+        u64 application_id{};
+    };
+    static_assert(sizeof(ApplicationContentMetaKey) == 0x18);
+
+    struct ListRequest {
+        u8 meta_type{};
+        u8 install_type{};
+        std::array<u8, 6> padding{};
+        u64 application_id{};
+        u64 min_id{};
+        u64 max_id{};
+    };
+    static_assert(sizeof(ListRequest) == 0x20);
+
+    struct PendingMeta {
+        ContentMetaKey key{};
+        std::vector<u8> value;
+    };
+
     struct GetContentIdRequest {
         u8 type{};
         std::array<u8, 7> padding{};
@@ -646,9 +684,46 @@ private:
     };
     static_assert(sizeof(GetContentIdOffsetRequest) == 0x18);
 
+    static bool SameKey(const ContentMetaKey& lhs, const ContentMetaKey& rhs) {
+        return lhs.id == rhs.id && lhs.version == rhs.version && lhs.type == rhs.type &&
+               lhs.install_type == rhs.install_type;
+    }
+
+    static bool KeyLess(const ContentMetaKey& lhs, const ContentMetaKey& rhs) {
+        if (lhs.id != rhs.id) {
+            return lhs.id < rhs.id;
+        }
+        if (lhs.version != rhs.version) {
+            return lhs.version < rhs.version;
+        }
+        if (lhs.type != rhs.type) {
+            return static_cast<u8>(lhs.type) < static_cast<u8>(rhs.type);
+        }
+        return lhs.install_type < rhs.install_type;
+    }
+
+    static ContentMetaKey KeyFromCnmt(const FileSys::CNMT& cnmt) {
+        const auto& header = cnmt.GetHeader();
+        return ContentMetaKey{cnmt.GetTitleID(), cnmt.GetTitleVersion(), cnmt.GetType(),
+                              header.reserved2[1], {}};
+    }
+
     static bool MatchesKey(const FileSys::CNMT& cnmt, const ContentMetaKey& key) {
-        return key.install_type == 0 && cnmt.GetTitleID() == key.id &&
-               cnmt.GetTitleVersion() == key.version && cnmt.GetType() == key.type;
+        return SameKey(KeyFromCnmt(cnmt), key);
+    }
+
+    PendingMeta* FindPending(const ContentMetaKey& key) {
+        const auto it = std::find_if(entries.begin(), entries.end(), [&key](const PendingMeta& e) {
+            return SameKey(e.key, key);
+        });
+        return it == entries.end() ? nullptr : &*it;
+    }
+
+    const PendingMeta* FindPending(const ContentMetaKey& key) const {
+        const auto it = std::find_if(entries.begin(), entries.end(), [&key](const PendingMeta& e) {
+            return SameKey(e.key, key);
+        });
+        return it == entries.end() ? nullptr : &*it;
     }
 
     const FileSys::CNMT* FindRegisteredMeta(const ContentMetaKey& key) const {
@@ -661,12 +736,150 @@ private:
     }
 
     bool HasKey(const ContentMetaKey& key) const {
-        const bool pending =
-            std::find_if(entries.begin(), entries.end(), [&key](const ContentMetaKey& entry) {
-                return entry.id == key.id && entry.version == key.version &&
-                       entry.type == key.type && entry.install_type == key.install_type;
-            }) != entries.end();
-        return pending || FindRegisteredMeta(key) != nullptr;
+        return FindPending(key) != nullptr || FindRegisteredMeta(key) != nullptr;
+    }
+
+    std::vector<ContentMetaKey> ListKeys() const {
+        std::vector<ContentMetaKey> keys;
+        keys.reserve(entries.size() + 16);
+        for (const auto& entry : entries) {
+            keys.push_back(entry.key);
+        }
+        if (auto* const cache =
+                system.GetFileSystemController().GetRegisteredCacheForStorage(storage);
+            cache != nullptr) {
+            for (const auto* const cnmt : cache->ListContentMetas()) {
+                if (cnmt != nullptr) {
+                    keys.push_back(KeyFromCnmt(*cnmt));
+                }
+            }
+        }
+        std::sort(keys.begin(), keys.end(), KeyLess);
+        keys.erase(std::unique(keys.begin(), keys.end(), SameKey), keys.end());
+        return keys;
+    }
+
+    static std::optional<u64> ReadExtendedU64(const std::vector<u8>& value,
+                                               std::size_t offset) {
+        if (value.size() < sizeof(ContentMetaHeader)) {
+            return std::nullopt;
+        }
+        ContentMetaHeader header{};
+        std::memcpy(&header, value.data(), sizeof(header));
+        if (offset + sizeof(u64) > header.extended_header_size ||
+            sizeof(ContentMetaHeader) + offset + sizeof(u64) > value.size()) {
+            return std::nullopt;
+        }
+        u64 result{};
+        std::memcpy(&result, value.data() + sizeof(ContentMetaHeader) + offset, sizeof(result));
+        return result;
+    }
+
+    static std::optional<u32> ReadExtendedU32(const std::vector<u8>& value,
+                                               std::size_t offset) {
+        if (value.size() < sizeof(ContentMetaHeader)) {
+            return std::nullopt;
+        }
+        ContentMetaHeader header{};
+        std::memcpy(&header, value.data(), sizeof(header));
+        if (offset + sizeof(u32) > header.extended_header_size ||
+            sizeof(ContentMetaHeader) + offset + sizeof(u32) > value.size()) {
+            return std::nullopt;
+        }
+        u32 result{};
+        std::memcpy(&result, value.data() + sizeof(ContentMetaHeader) + offset, sizeof(result));
+        return result;
+    }
+
+    static std::optional<u64> GetApplicationId(const ContentMetaKey& key,
+                                                const std::vector<u8>& value) {
+        switch (key.type) {
+        case FileSys::TitleType::Application:
+            return key.id;
+        case FileSys::TitleType::Update:
+        case FileSys::TitleType::AOC:
+        case FileSys::TitleType::DeltaTitle:
+            return ReadExtendedU64(value, 0);
+        default:
+            return std::nullopt;
+        }
+    }
+
+    std::optional<std::vector<u8>> BuildRegisteredValue(const ContentMetaKey& key) const {
+        auto* const cache = system.GetFileSystemController().GetRegisteredCacheForStorage(storage);
+        const auto* const cnmt = FindRegisteredMeta(key);
+        if (cache == nullptr || cnmt == nullptr) {
+            return std::nullopt;
+        }
+
+        const auto meta_id = cache->GetMetaNcaId(key.id);
+        if (!meta_id.has_value()) {
+            return std::nullopt;
+        }
+        const auto meta_size = cache->Size(*meta_id);
+        if (!meta_size.has_value() || *meta_size > 0xFFFFFFFFFFULL) {
+            return std::nullopt;
+        }
+
+        const auto& extended = cnmt->GetExtendedHeader();
+        const auto& records = cnmt->GetContentRecords();
+        const auto& meta_records = cnmt->GetMetaRecords();
+        if (extended.size() > std::numeric_limits<u16>::max() ||
+            meta_records.size() > std::numeric_limits<u16>::max()) {
+            return std::nullopt;
+        }
+
+        std::vector<ContentInfo> infos;
+        infos.reserve(records.size() + 1);
+        ContentInfo meta_info{};
+        meta_info.content_id = *meta_id;
+        meta_info.size_low = static_cast<u32>(*meta_size);
+        meta_info.size_high = static_cast<u8>(*meta_size >> 32);
+        meta_info.type = FileSys::ContentRecordType::Meta;
+        infos.push_back(meta_info);
+        for (const auto& record : records) {
+            if (key.type == FileSys::TitleType::Update &&
+                record.type == FileSys::ContentRecordType::DeltaFragment) {
+                continue;
+            }
+            infos.push_back(ConvertContentInfo(record));
+        }
+        if (infos.size() > std::numeric_limits<u16>::max()) {
+            return std::nullopt;
+        }
+
+        const ContentMetaHeader normal_header{
+            static_cast<u16>(extended.size()), static_cast<u16>(infos.size()),
+            static_cast<u16>(meta_records.size()), cnmt->GetHeader().attributes,
+            cnmt->GetHeader().reserved};
+
+        const auto total_size =
+            sizeof(ContentMetaHeader) + extended.size() + infos.size() * sizeof(ContentInfo) +
+            meta_records.size() * sizeof(ContentMetaInfo);
+        std::vector<u8> value(total_size);
+        std::size_t offset = 0;
+        const auto append = [&value, &offset](const void* src, std::size_t size) {
+            if (size != 0) {
+                std::memcpy(value.data() + offset, src, size);
+            }
+            offset += size;
+        };
+        append(&normal_header, sizeof(normal_header));
+        append(extended.data(), extended.size());
+        append(infos.data(), infos.size() * sizeof(ContentInfo));
+        for (const auto& record : meta_records) {
+            const ContentMetaInfo info{record.title_id, record.title_version, record.type,
+                                       record.install_byte, {}};
+            append(&info, sizeof(info));
+        }
+        return value;
+    }
+
+    std::optional<std::vector<u8>> GetValue(const ContentMetaKey& key) const {
+        if (const auto* const pending = FindPending(key); pending != nullptr) {
+            return pending->value;
+        }
+        return BuildRegisteredValue(key);
     }
 
     static ContentInfo ConvertContentInfo(const FileSys::ContentRecord& record) {
@@ -686,13 +899,12 @@ private:
     void Set(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto key = rp.PopRaw<ContentMetaKey>();
+        auto value = ctx.ReadBufferCopy();
 
-        const auto entry_matches = [&key](const ContentMetaKey& entry) {
-            return entry.id == key.id && entry.version == key.version && entry.type == key.type &&
-                   entry.install_type == key.install_type;
-        };
-        if (std::find_if(entries.begin(), entries.end(), entry_matches) == entries.end()) {
-            entries.push_back(key);
+        if (auto* const existing = FindPending(key); existing != nullptr) {
+            existing->value = std::move(value);
+        } else {
+            entries.push_back(PendingMeta{key, std::move(value)});
         }
 
         LOG_DEBUG(Service_NCM,
@@ -704,13 +916,26 @@ private:
         rb.Push(ResultSuccess);
     }
 
+    void Get(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto key = rp.PopRaw<ContentMetaKey>();
+        const auto value = GetValue(key);
+        const bool valid = value.has_value() && ctx.GetWriteBufferSize() >= value->size();
+        if (valid && !value->empty()) {
+            ctx.WriteBuffer(*value);
+        }
+
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(valid ? ResultSuccess : ResultUnknown);
+        rb.Push(valid ? static_cast<u64>(value->size()) : u64{0});
+    }
+
     void Remove(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto key = rp.PopRaw<ContentMetaKey>();
 
-        std::erase_if(entries, [&key](const ContentMetaKey& entry) {
-            return entry.id == key.id && entry.version == key.version && entry.type == key.type &&
-                   entry.install_type == key.install_type;
+        std::erase_if(entries, [&key](const PendingMeta& entry) {
+            return SameKey(entry.key, key);
         });
 
         LOG_DEBUG(Service_NCM, "called, storage_id={}, title_id={:016X}, version={}, type={}",
@@ -768,6 +993,97 @@ private:
         rb.Push(static_cast<s32>(copied));
     }
 
+    void List(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto request = rp.PopRaw<ListRequest>();
+        const auto keys = ListKeys();
+        const auto max_entries = ctx.GetWriteBufferSize() / sizeof(ContentMetaKey);
+        std::vector<ContentMetaKey> out;
+        std::size_t total = 0;
+        for (const auto& key : keys) {
+            if ((request.meta_type != 0 && static_cast<u8>(key.type) != request.meta_type) ||
+                key.id < request.min_id || key.id > request.max_id ||
+                (request.install_type != 7 && key.install_type != request.install_type)) {
+                continue;
+            }
+            if (request.application_id != 0) {
+                const auto value = GetValue(key);
+                if (!value.has_value()) {
+                    continue;
+                }
+                const auto owner = GetApplicationId(key, *value);
+                if (owner.has_value() && *owner != request.application_id) {
+                    continue;
+                }
+            }
+            ++total;
+            if (out.size() < max_entries) {
+                out.push_back(key);
+            }
+        }
+        if (!out.empty()) {
+            ctx.WriteBuffer(out);
+        }
+
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(ResultSuccess);
+        rb.Push(static_cast<s32>((std::min)(total,
+            static_cast<std::size_t>((std::numeric_limits<s32>::max)()))));
+        rb.Push(static_cast<s32>(out.size()));
+    }
+
+    void GetLatestContentMetaKey(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto id = rp.Pop<u64>();
+        const auto keys = ListKeys();
+        std::optional<ContentMetaKey> found{};
+        for (const auto& key : keys) {
+            if (key.id == id && key.install_type == 0 &&
+                (!found.has_value() || KeyLess(*found, key))) {
+                found = key;
+            }
+        }
+
+        IPC::ResponseBuilder rb{ctx, 6};
+        rb.Push(found.has_value() ? ResultSuccess : ResultUnknown);
+        rb.PushRaw(found.value_or(ContentMetaKey{}));
+    }
+
+    void ListApplication(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto meta_type = rp.Pop<u8>();
+        const auto keys = ListKeys();
+        const auto max_entries = ctx.GetWriteBufferSize() / sizeof(ApplicationContentMetaKey);
+        std::vector<ApplicationContentMetaKey> out;
+        std::size_t total = 0;
+        for (const auto& key : keys) {
+            if (meta_type != 0 && static_cast<u8>(key.type) != meta_type) {
+                continue;
+            }
+            const auto value = GetValue(key);
+            if (!value.has_value()) {
+                continue;
+            }
+            const auto owner = GetApplicationId(key, *value);
+            if (!owner.has_value()) {
+                continue;
+            }
+            ++total;
+            if (out.size() < max_entries) {
+                out.push_back(ApplicationContentMetaKey{key, *owner});
+            }
+        }
+        if (!out.empty()) {
+            ctx.WriteBuffer(out);
+        }
+
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(ResultSuccess);
+        rb.Push(static_cast<s32>((std::min)(total,
+            static_cast<std::size_t>((std::numeric_limits<s32>::max)()))));
+        rb.Push(static_cast<s32>(out.size()));
+    }
+
     void Has(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto key = rp.PopRaw<ContentMetaKey>();
@@ -794,6 +1110,50 @@ private:
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
         rb.Push(has_all);
+    }
+
+    void GetSize(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto key = rp.PopRaw<ContentMetaKey>();
+        const auto value = GetValue(key);
+
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(value.has_value() ? ResultSuccess : ResultUnknown);
+        rb.Push(value.has_value() ? static_cast<u64>(value->size()) : u64{0});
+    }
+
+    void GetRequiredSystemVersion(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto key = rp.PopRaw<ContentMetaKey>();
+        const auto value = GetValue(key);
+        const auto version =
+            value.has_value() &&
+                    (key.type == FileSys::TitleType::Application ||
+                     key.type == FileSys::TitleType::Update)
+                ? ReadExtendedU32(*value, 8)
+                : std::optional<u32>{};
+
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(version.has_value() ? ResultSuccess : ResultUnknown);
+        rb.Push(version.value_or(0));
+    }
+
+    void GetPatchContentMetaId(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto key = rp.PopRaw<ContentMetaKey>();
+        const auto value = GetValue(key);
+        std::optional<u64> patch_id{};
+        if (value.has_value()) {
+            if (key.type == FileSys::TitleType::Application) {
+                patch_id = ReadExtendedU64(*value, 0);
+            } else if (key.type == FileSys::TitleType::AOC) {
+                patch_id = ReadExtendedU64(*value, 16);
+            }
+        }
+
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(patch_id.has_value() ? ResultSuccess : ResultUnknown);
+        rb.Push(patch_id.value_or(0));
     }
 
     void DisableForcibly(HLERequestContext& ctx) {
@@ -882,6 +1242,24 @@ private:
         rb.Push(cnmt != nullptr ? cnmt->GetHeader().attributes : u8{0});
     }
 
+    void GetRequiredApplicationVersion(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto key = rp.PopRaw<ContentMetaKey>();
+        const auto value = GetValue(key);
+        std::optional<u32> version{};
+        if (value.has_value()) {
+            if (key.type == FileSys::TitleType::Application) {
+                version = ReadExtendedU32(*value, 12);
+            } else if (key.type == FileSys::TitleType::AOC) {
+                version = ReadExtendedU32(*value, 8);
+            }
+        }
+
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(version.has_value() ? ResultSuccess : ResultUnknown);
+        rb.Push(version.value_or(0));
+    }
+
     void GetContentIdByTypeAndIdOffset(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto request = rp.PopRaw<GetContentIdOffsetRequest>();
@@ -917,7 +1295,7 @@ private:
     }
 
     FileSys::StorageId storage;
-    std::vector<ContentMetaKey> entries;
+    std::vector<PendingMeta> entries;
 };
 
 class LR final : public ServiceFramework<LR> {

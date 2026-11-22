@@ -1129,6 +1129,28 @@ const CNMT* RegisteredCache::GetContentMeta(u64 title_id) const {
     return nullptr;
 }
 
+std::optional<NcaID> RegisteredCache::GetMetaNcaId(u64 title_id) const {
+    if (const auto it = meta_id.find(title_id); it != meta_id.end()) {
+        return it->second;
+    }
+    return std::nullopt;
+}
+
+std::vector<const CNMT*> RegisteredCache::ListContentMetas() const {
+    std::vector<const CNMT*> out;
+    out.reserve(meta.size() + yuzu_meta.size());
+    for (const auto& [title_id, cnmt] : meta) {
+        (void)title_id;
+        out.push_back(&cnmt);
+    }
+    for (const auto& [title_id, cnmt] : yuzu_meta) {
+        if (meta.find(title_id) == meta.end()) {
+            out.push_back(&cnmt);
+        }
+    }
+    return out;
+}
+
 bool RegisteredCache::ReferencesContent(const NcaID& id) const {
     const auto contains = [&id](const auto& database) {
         for (const auto& [title_id, cnmt] : database) {
