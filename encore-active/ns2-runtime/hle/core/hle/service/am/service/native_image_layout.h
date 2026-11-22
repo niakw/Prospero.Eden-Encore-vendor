@@ -6,6 +6,7 @@
 #include <optional>
 #include <limits>
 #include <array>
+#include <bitset>
 #include <algorithm>
 #include <map>
 #include <vector>
@@ -210,6 +211,11 @@ struct NativeVideoPoolRecord {
     u32 backing{};
     u32 packed_dimensions{};
     NativeVideoImageLayout layout{};
+    // Decoder 912 retires image handles individually. Keep allocation range
+    // ownership until the last live member retires; chat 1212 still removes
+    // the complete pool by its first handle.
+    std::bitset<1024> active_images{};
+    u32 remaining{};
 };
 struct NativeVideoImageView {
     u32 backing{};
@@ -244,8 +250,10 @@ public:
             const u64 x = existing.first_id, y = x + existing.count;
             if (a < y && x < b) return false;
         }
-        m_pools.emplace(first, NativeVideoPoolRecord{first, count, backing,
-                                                      dimensions, layout});
+        NativeVideoPoolRecord record{first, count, backing, dimensions, layout};
+        for (u32 i = 0; i < count; ++i) record.active_images.set(i);
+        record.remaining = count;
+        m_pools.emplace(first, record);
         m_count += count;
         return true;
     }
@@ -253,7 +261,9 @@ public:
         for (const auto& [_, pool] : m_pools) {
             if (image < pool.first_id || image - pool.first_id >= pool.count)
                 continue;
-            const u64 offset = u64{image - pool.first_id} * pool.layout.image_stride;
+            const u32 index = image - pool.first_id;
+            if (!pool.active_images.test(index)) return {};
+            const u64 offset = u64{index} * pool.layout.image_stride;
             if (offset > std::numeric_limits<u32>::max()) return {};
             return NativeVideoImageView{
                 pool.backing, pool.packed_dimensions, offset, pool.layout.image_bytes,
@@ -270,7 +280,9 @@ public:
         for (const auto& [_, pool] : m_pools) {
             if (image < pool.first_id || image - pool.first_id >= pool.count)
                 continue;
-            const u64 offset = u64{image - pool.first_id} * pool.layout.image_stride;
+            const u32 index = image - pool.first_id;
+            if (!pool.active_images.test(index)) return {};
+            const u64 offset = u64{index} * pool.layout.image_stride;
             if (!pool.layout.row_bytes || offset > std::numeric_limits<u32>::max())
                 return {};
             std::array<u32, 32> words{};
@@ -293,10 +305,36 @@ public:
         return it == m_pools.end() ? std::nullopt :
                std::optional<NativeVideoPoolRecord>{it->second};
     }
+    [[nodiscard]] std::optional<NativeVideoPoolRecord> GetByImage(u32 image) const {
+        for (const auto& [_, pool] : m_pools) {
+            if (image < pool.first_id || image - pool.first_id >= pool.count)
+                continue;
+            const u32 index = image - pool.first_id;
+            if (!pool.active_images.test(index)) return {};
+            return pool;
+        }
+        return {};
+    }
+    [[nodiscard]] bool RetireImage(u32 image) {
+        for (auto it = m_pools.begin(); it != m_pools.end(); ++it) {
+            auto& pool = it->second;
+            if (image < pool.first_id || image - pool.first_id >= pool.count)
+                continue;
+            const u32 index = image - pool.first_id;
+            if (!pool.active_images.test(index) || pool.remaining == 0)
+                return false;
+            pool.active_images.reset(index);
+            --pool.remaining;
+            --m_count;
+            if (pool.remaining == 0) m_pools.erase(it);
+            return true;
+        }
+        return false;
+    }
     [[nodiscard]] bool Remove(u32 first) {
         const auto it = m_pools.find(first);
         if (it == m_pools.end()) return false;
-        m_count -= it->second.count;
+        m_count -= it->second.remaining;
         m_pools.erase(it);
         return true;
     }

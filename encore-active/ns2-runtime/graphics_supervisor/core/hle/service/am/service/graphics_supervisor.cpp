@@ -2893,24 +2893,40 @@ void IGraphicsSupervisor::DestroyVideoImagePool(HLERequestContext& ctx) {
     if (packet[0] == expected_header && packet[1] == 1) {
         const std::scoped_lock lock{m_native_memory_mutex};
         result = Kernel::ResultNotFound;
-        const auto pool = m_video_pools.Get(packet[2]);
+        // Decoder 912 retires one image handle at a time. GameChat 1212
+        // destroys the complete pool by the base handle, then its SDK drops
+        // the native memory separately.
+        const auto pool = chat_pool ? m_video_pools.Get(packet[2])
+                                    : m_video_pools.GetByImage(packet[2]);
         if (pool && m_native_module) {
             result = Kernel::ResultBusy;
             bool mapped = false;
             for (const auto& [key, mapping] : m_video_mappings) {
                 const u32 image = key.second;
-                if (image >= pool->first_id &&
-                    image - pool->first_id < pool->count) {
+                const bool affected = chat_pool
+                    ? image >= pool->first_id && image - pool->first_id < pool->count
+                    : image == packet[2];
+                if (affected) {
                     mapped = true;
                     break;
                 }
             }
             if (!mapped) {
-                auto& nvmap = m_native_module->GetContainer().GetNvMapFile();
-                nvmap.UnpinHandle(pool->backing);
-                const auto freed = nvmap.FreeHandle(pool->backing, true);
-                result = freed && m_video_pools.Remove(pool->first_id)
-                    ? ResultSuccess : Kernel::ResultInvalidState;
+                // Keep the shared NVMap duplicate/pin alive while any decoder
+                // image from this pool remains. The final 912, or the one-shot
+                // 1212 pool teardown, releases it exactly once.
+                if (!chat_pool && pool->remaining > 1) {
+                    result = m_video_pools.RetireImage(packet[2])
+                        ? ResultSuccess : Kernel::ResultInvalidState;
+                } else {
+                    auto& nvmap = m_native_module->GetContainer().GetNvMapFile();
+                    nvmap.UnpinHandle(pool->backing);
+                    const auto freed = nvmap.FreeHandle(pool->backing, true);
+                    const bool retired = freed &&
+                        (chat_pool ? m_video_pools.Remove(pool->first_id)
+                                   : m_video_pools.RetireImage(packet[2]));
+                    result = retired ? ResultSuccess : Kernel::ResultInvalidState;
+                }
             }
         }
     }
