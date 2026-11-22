@@ -149,6 +149,18 @@ public:
     Result SetUsb30HostEnableFlag(bool value);
     Result GetUsb30DeviceEnableFlag(Out<bool> out_value);
     Result SetUsb30DeviceEnableFlag(bool value);
+    Result GetConsoleSixAxisSensorAccelerationBias(Out<Common::Vec<f32, 3>> out_value);
+    Result SetConsoleSixAxisSensorAccelerationBias(const Common::Vec<f32, 3>& value);
+    Result GetConsoleSixAxisSensorAngularVelocityBias(Out<Common::Vec<f32, 3>> out_value);
+    Result SetConsoleSixAxisSensorAngularVelocityBias(const Common::Vec<f32, 3>& value);
+    Result GetConsoleSixAxisSensorAccelerationGain(Out<std::array<u8, 0x24>> out_value);
+    Result SetConsoleSixAxisSensorAccelerationGain(const std::array<u8, 0x24>& value);
+    Result GetConsoleSixAxisSensorAngularVelocityGain(Out<std::array<u8, 0x24>> out_value);
+    Result SetConsoleSixAxisSensorAngularVelocityGain(const std::array<u8, 0x24>& value);
+    Result GetConsoleSixAxisSensorAngularVelocityTimeBias(Out<Common::Vec<f32, 3>> out_value);
+    Result SetConsoleSixAxisSensorAngularVelocityTimeBias(const Common::Vec<f32, 3>& value);
+    Result GetConsoleSixAxisSensorAngularAcceleration(Out<std::array<u8, 0x24>> out_value);
+    Result SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value);
     Result GetRequiresRunRepairTimeReviser(Out<bool> out_value);
     Result SetRequiresRunRepairTimeReviser(bool value);
     Result GetHearingProtectionSafeguardFlag(Out<bool> out_value);

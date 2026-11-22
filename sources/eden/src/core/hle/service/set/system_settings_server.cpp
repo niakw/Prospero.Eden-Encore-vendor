@@ -243,14 +243,14 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {125, C<&ISystemSettingsServer::SetErrorReportSharePermission>, "SetErrorReportSharePermission"},
         {126, C<&ISystemSettingsServer::GetAppletLaunchFlags>, "GetAppletLaunchFlags"},
         {127, C<&ISystemSettingsServer::SetAppletLaunchFlags>, "SetAppletLaunchFlags"},
-        {128, nullptr, "GetConsoleSixAxisSensorAccelerationBias"},
-        {129, nullptr, "SetConsoleSixAxisSensorAccelerationBias"},
-        {130, nullptr, "GetConsoleSixAxisSensorAngularVelocityBias"},
-        {131, nullptr, "SetConsoleSixAxisSensorAngularVelocityBias"},
-        {132, nullptr, "GetConsoleSixAxisSensorAccelerationGain"},
-        {133, nullptr, "SetConsoleSixAxisSensorAccelerationGain"},
-        {134, nullptr, "GetConsoleSixAxisSensorAngularVelocityGain"},
-        {135, nullptr, "SetConsoleSixAxisSensorAngularVelocityGain"},
+        {128, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAccelerationBias>, "GetConsoleSixAxisSensorAccelerationBias"},
+        {129, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAccelerationBias>, "SetConsoleSixAxisSensorAccelerationBias"},
+        {130, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityBias>, "GetConsoleSixAxisSensorAngularVelocityBias"},
+        {131, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityBias>, "SetConsoleSixAxisSensorAngularVelocityBias"},
+        {132, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAccelerationGain>, "GetConsoleSixAxisSensorAccelerationGain"},
+        {133, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAccelerationGain>, "SetConsoleSixAxisSensorAccelerationGain"},
+        {134, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityGain>, "GetConsoleSixAxisSensorAngularVelocityGain"},
+        {135, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityGain>, "SetConsoleSixAxisSensorAngularVelocityGain"},
         {136, C<&ISystemSettingsServer::GetKeyboardLayout>, "GetKeyboardLayout"},
         {137, C<&ISystemSettingsServer::SetKeyboardLayout>, "SetKeyboardLayout"},
         {138, C<&ISystemSettingsServer::GetWebInspectorFlag>, "GetWebInspectorFlag"},
@@ -260,10 +260,10 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {142, C<&ISystemSettingsServer::SetRequiresRunRepairTimeReviser>, "SetRequiresRunRepairTimeReviser"},
         {143, nullptr, "SetBlePairingSettings"},
         {144, nullptr, "GetBlePairingSettings"},
-        {145, nullptr, "GetConsoleSixAxisSensorAngularVelocityTimeBias"},
-        {146, nullptr, "SetConsoleSixAxisSensorAngularVelocityTimeBias"},
-        {147, nullptr, "GetConsoleSixAxisSensorAngularAcceleration"},
-        {148, nullptr, "SetConsoleSixAxisSensorAngularAcceleration"},
+        {145, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityTimeBias>, "GetConsoleSixAxisSensorAngularVelocityTimeBias"},
+        {146, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityTimeBias>, "SetConsoleSixAxisSensorAngularVelocityTimeBias"},
+        {147, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration>, "GetConsoleSixAxisSensorAngularAcceleration"},
+        {148, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration>, "SetConsoleSixAxisSensorAngularAcceleration"},
         {149, C<&ISystemSettingsServer::GetRebootlessSystemUpdateVersion>, "GetRebootlessSystemUpdateVersion"},
         {150, C<&ISystemSettingsServer::GetDeviceTimeZoneLocationUpdatedTime>, "GetDeviceTimeZoneLocationUpdatedTime"},
         {151, C<&ISystemSettingsServer::SetDeviceTimeZoneLocationUpdatedTime>, "SetDeviceTimeZoneLocationUpdatedTime"},
@@ -1318,6 +1318,72 @@ Result ISystemSettingsServer::GetUsb30DeviceEnableFlag(Out<bool> out_value) {
 
 Result ISystemSettingsServer::SetUsb30DeviceEnableFlag(bool value) {
     m_system_settings.usb_30_device_enable_flag = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetConsoleSixAxisSensorAccelerationBias(Out<Common::Vec<f32, 3>> out_value) {
+    *out_value = m_system_settings.console_six_axis_sensor_acceleration_bias;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetConsoleSixAxisSensorAccelerationBias(const Common::Vec<f32, 3>& value) {
+    m_system_settings.console_six_axis_sensor_acceleration_bias = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityBias(Out<Common::Vec<f32, 3>> out_value) {
+    *out_value = m_system_settings.console_six_axis_sensor_angular_velocity_bias;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityBias(const Common::Vec<f32, 3>& value) {
+    m_system_settings.console_six_axis_sensor_angular_velocity_bias = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetConsoleSixAxisSensorAccelerationGain(Out<std::array<u8, 0x24>> out_value) {
+    *out_value = m_system_settings.console_six_axis_sensor_acceleration_gain;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetConsoleSixAxisSensorAccelerationGain(const std::array<u8, 0x24>& value) {
+    m_system_settings.console_six_axis_sensor_acceleration_gain = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityGain(Out<std::array<u8, 0x24>> out_value) {
+    *out_value = m_system_settings.console_six_axis_sensor_angular_velocity_gain;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityGain(const std::array<u8, 0x24>& value) {
+    m_system_settings.console_six_axis_sensor_angular_velocity_gain = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityTimeBias(Out<Common::Vec<f32, 3>> out_value) {
+    *out_value = m_system_settings.console_six_axis_sensor_angular_velocity_time_bias;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityTimeBias(const Common::Vec<f32, 3>& value) {
+    m_system_settings.console_six_axis_sensor_angular_velocity_time_bias = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration(Out<std::array<u8, 0x24>> out_value) {
+    *out_value = m_system_settings.console_six_axis_sensor_angular_velocity_acceleration;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value) {
+    m_system_settings.console_six_axis_sensor_angular_velocity_acceleration = value;
     SetSaveNeeded();
     R_SUCCEED();
 }
