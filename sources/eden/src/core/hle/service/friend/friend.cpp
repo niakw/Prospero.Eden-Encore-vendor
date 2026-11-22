@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <array>
 #include <queue>
 #include "common/logging.h"
 #include "common/uuid.h"
@@ -188,9 +189,8 @@ private:
     }
 
     void Cancel(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_Friend, "(STUBBED) called.");
-
-        // TODO (jarrodnorwell)
+        // Encore has no remote friends operation queue. Cancellation is an acknowledged no-op.
+        LOG_DEBUG(Service_Friend, "Friend-service cancel ignored (no remote operation pending)");
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
@@ -202,14 +202,15 @@ private:
         const auto uuid = rp.PopRaw<Common::UUID>();
         [[maybe_unused]] const auto filter = rp.PopRaw<SizedFriendFilter>();
         const auto pid = rp.Pop<u64>();
-        LOG_WARNING(Service_Friend, "(STUBBED) called, offset={}, uuid=0x{}, pid={}", friend_offset,
-                    uuid.RawString(), pid);
+        LOG_DEBUG(Service_Friend,
+                  "Returning empty friend list, offset={}, uuid=0x{}, pid={}", friend_offset,
+                  uuid.RawString(), pid);
 
+        // No Nintendo friends backend is connected. A zero count means the output array contains
+        // no entries, so there is intentionally no buffer payload to write.
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
-
-        rb.Push<u32>(0); // Friend count
-        // TODO(ogniK): Return a buffer of u64s which are the "NetworkServiceAccountId"
+        rb.Push<u32>(0);
     }
 
     void CheckFriendListAvailability(HLERequestContext& ctx) {
@@ -224,12 +225,11 @@ private:
     }
 
     void GetBlockedUserListIds(HLERequestContext& ctx) {
-        // This is safe to stub, as there should be no adverse consequences from reporting no
-        // blocked users.
-        LOG_WARNING(Service_Friend, "(STUBBED) called");
+        // No remote social backend is exposed, therefore no blocked-user records can exist.
+        LOG_DEBUG(Service_Friend, "Returning empty blocked-user list");
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
-        rb.Push<u32>(0); // Indicates there are no blocked users
+        rb.Push<u32>(0);
     }
 
     void CheckBlockedUserListAvailability(HLERequestContext& ctx) {
@@ -244,15 +244,15 @@ private:
     }
 
     void DeclareCloseOnlinePlaySession(HLERequestContext& ctx) {
-        // Stub used by Splatoon 2
-        LOG_WARNING(Service_Friend, "(STUBBED) called");
+        // Online-play presence is not published to Nintendo services by Encore.
+        LOG_DEBUG(Service_Friend, "Close-online-play-session ignored (offline social backend)");
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
 
     void UpdateUserPresence(HLERequestContext& ctx) {
-        // Stub used by Retro City Rampage
-        LOG_WARNING(Service_Friend, "(STUBBED) called");
+        // Presence publication is intentionally local-only; there is no Nintendo friends backend.
+        LOG_DEBUG(Service_Friend, "User-presence publication ignored (offline social backend)");
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
@@ -262,33 +262,38 @@ private:
         const auto local_play = rp.Pop<bool>();
         const auto uuid = rp.PopRaw<Common::UUID>();
 
-        LOG_WARNING(Service_Friend, "(STUBBED) called, local_play={}, uuid=0x{}", local_play,
-                    uuid.RawString());
+        // nn::friends::PlayHistoryRegistrationKey is a 0x40-byte output buffer. Without an
+        // authenticated Nintendo friends backend there is no registration key to issue, so return
+        // the ABI-correct all-zero value rather than leaving guest memory untouched.
+        const std::array<u8, 0x40> registration_key{};
+        ctx.WriteBuffer(registration_key);
+        LOG_DEBUG(Service_Friend,
+                  "Returning empty play-history registration key, local_play={}, uuid=0x{}",
+                  local_play, uuid.RawString());
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
 
     void GetFriendCount(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_Friend, "(STUBBED) called");
+        LOG_DEBUG(Service_Friend, "Returning friend count 0 (offline social backend)");
 
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
-        rb.Push(0);
+        rb.Push<s32>(0);
     }
 
     void GetNewlyFriendCount(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_Friend, "(STUBBED) called");
+        LOG_DEBUG(Service_Friend, "Returning newly-friend count 0 (offline social backend)");
 
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
-        rb.Push(0);
+        rb.Push<s32>(0);
     }
 
     void RequestSyncFriendList(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_Friend, "(STUBBED) called.");
-
-        // TODO (jarrodnorwell)
+        // There is no remote friend list to synchronize in Encore.
+        LOG_DEBUG(Service_Friend, "Friend-list sync ignored (offline social backend)");
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
@@ -306,12 +311,12 @@ private:
         IPC::RequestParser rp{ctx};
         [[maybe_unused]] const auto uuid = rp.PopRaw<Common::UUID>();
 
-        LOG_DEBUG(Service_Friend, "(STUBBED) called");
+        LOG_DEBUG(Service_Friend, "Returning received-friend-request counts 0/0");
 
         IPC::ResponseBuilder rb{ctx, 4};
         rb.Push(ResultSuccess);
-        rb.Push(0);
-        rb.Push(0);
+        rb.Push<s32>(0);
+        rb.Push<s32>(0);
     }
 
     void GetUserPresenceView(HLERequestContext& ctx) {
@@ -327,10 +332,16 @@ private:
     }
 
     void GetPlayHistoryStatistics(HLERequestContext& ctx) {
-        LOG_ERROR(Service_Friend, "(STUBBED) called, check in out");
+        IPC::RequestParser rp{ctx};
+        [[maybe_unused]] const auto uuid = rp.PopRaw<Common::UUID>();
 
-        IPC::ResponseBuilder rb{ctx, 2};
+        // PlayHistoryStatistics is a 0x10-byte (u128) raw output. No online play history exists
+        // without a friends backend, so report the ABI-correct zero statistics object.
+        const u128 statistics{};
+        IPC::ResponseBuilder rb{ctx, 6};
         rb.Push(ResultSuccess);
+        rb.PushRaw(statistics);
+        LOG_DEBUG(Service_Friend, "Returning empty play-history statistics");
     }
 
     void LoadUserSetting(HLERequestContext& ctx) {
@@ -353,18 +364,19 @@ private:
     }
 
     void RequestListSummaryOverlayNotification(HLERequestContext& ctx) {
-        LOG_INFO(Service_Friend, "(STUBBED) called");
+        // No Horizon friends overlay is displayed by Encore; acknowledge the optional request.
+        LOG_DEBUG(Service_Friend, "Friend-list overlay notification ignored");
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
 
     void GetReceivedFriendInvitationCountCache(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_Friend, "(STUBBED) called, check in out");
+        LOG_DEBUG(Service_Friend, "Returning invitation count cache 0 (offline social backend)");
 
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
-        rb.Push(0);
+        rb.Push<s32>(0);
     }
 
     KernelHelpers::ServiceContext service_context;
