@@ -31,6 +31,9 @@ public:
                                                     ApplicationLanguage application_language);
     Result ListApplicationRecord(OutArray<ApplicationRecord, BufferAttr_HipcMapAlias> out_records,
                                  Out<s32> out_count, s32 offset);
+    Result GenerateApplicationRecordCount(Out<s32> out_count);
+    Result GetApplicationRecord(Out<ApplicationRecord> out_record, u64 application_id);
+    Result HasApplicationRecord(Out<bool> out_has_record, u64 application_id);
     Result GetApplicationRecordUpdateSystemEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result GetGameCardMountFailureEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result GetGameCardWakenReadyEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
