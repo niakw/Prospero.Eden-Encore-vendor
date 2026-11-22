@@ -17,7 +17,7 @@ IAppletCommonFunctions::IAppletCommonFunctions(Core::System& system_,
     : ServiceFramework{system_, "IAppletCommonFunctions"}, applet{std::move(applet_)} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, nullptr, "SetTerminateResult"},
+        {0, D<&IAppletCommonFunctions::SetTerminateResult>, "SetTerminateResult"},
         {10, nullptr, "ReadThemeStorage"},
         {11, nullptr, "WriteThemeStorage"},
         {20, nullptr, "PushToAppletBoundChannel"},
@@ -26,7 +26,7 @@ IAppletCommonFunctions::IAppletCommonFunctions(Core::System& system_,
         {42, D<&IAppletCommonFunctions::SetDisplayMagnification>, "SetDisplayMagnification"},
         {50, D<&IAppletCommonFunctions::SetHomeButtonDoubleClickEnabled>, "SetHomeButtonDoubleClickEnabled"},
         {51, D<&IAppletCommonFunctions::GetHomeButtonDoubleClickEnabled>, "GetHomeButtonDoubleClickEnabled"},
-        {52, nullptr, "IsHomeButtonShortPressedBlocked"},
+        {52, D<&IAppletCommonFunctions::IsHomeButtonShortPressedBlocked>, "IsHomeButtonShortPressedBlocked"},
         {60, nullptr, "IsVrModeCurtainRequired"},
         {61, nullptr, "IsSleepRequiredByHighTemperature"},
         {62, nullptr, "IsSleepRequiredByLowBattery"},
@@ -49,6 +49,13 @@ IAppletCommonFunctions::IAppletCommonFunctions(Core::System& system_,
 
 IAppletCommonFunctions::~IAppletCommonFunctions() = default;
 
+Result IAppletCommonFunctions::SetTerminateResult(Result terminate_result) {
+    LOG_DEBUG(Service_AM, "called, result={:#x}", terminate_result.GetInnerValue());
+    std::scoped_lock lk{applet->lock};
+    applet->terminate_result = terminate_result;
+    R_SUCCEED();
+}
+
 Result IAppletCommonFunctions::SetHomeButtonDoubleClickEnabled(
     bool home_button_double_click_enabled) {
     LOG_DEBUG(Service_AM, "called, home_button_double_click_enabled={}",
@@ -63,6 +70,14 @@ Result IAppletCommonFunctions::GetHomeButtonDoubleClickEnabled(
     LOG_DEBUG(Service_AM, "called");
     std::scoped_lock lk{applet->lock};
     *out_home_button_double_click_enabled = applet->home_button_double_click_enabled;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::IsHomeButtonShortPressedBlocked(
+    Out<bool> out_is_home_button_short_pressed_blocked) {
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{applet->lock};
+    *out_is_home_button_short_pressed_blocked = applet->home_button_short_pressed_blocked;
     R_SUCCEED();
 }
 
