@@ -83,7 +83,9 @@ ISelfController::ISelfController(Core::System& system_, std::shared_ptr<Applet> 
         {240, D<&ISelfController::Unknown240>, "Unknown240"},
         {1000, nullptr, "GetDebugStorageChannel"},
         {2000, &ISelfController::GetGraphicsSupervisor, "GetGraphicsSupervisor"},
-        {2400, D<&ISelfController::Unknown240>, "Unknown2400"}, // NS2 u32 input, no output
+        {2400, &ISelfController::StubReplyZeroedNx2, "Unknown2400"},
+        {2401, &ISelfController::StubReplyZeroedNx2, "Unknown2401"},
+        {2402, &ISelfController::StubReplyZeroedNx2, "Unknown2402"},
     };
     // clang-format on
 
@@ -98,6 +100,20 @@ ISelfController::~ISelfController() {
     if (m_graphics_supervisor_session) m_graphics_supervisor_session->Close(kernel);
     std::scoped_lock lk{m_applet->lock};
     m_applet->display_layer_manager.Finalize();
+}
+
+// Lichii currently uses StubReplyZeroed for these Switch 2 commands.
+// A success header alone can leave request words visible to guest callers
+// expecting output. Fill the documented 32 placeholder words explicitly;
+// never manufacture an event/session handle or change unrelated commands.
+void ISelfController::StubReplyZeroedNx2(HLERequestContext& ctx) {
+    LOG_WARNING(Service_AM, "(STUBBED) NS2 SelfController command {}", ctx.GetCommand());
+    constexpr u32 ZeroWords = 32;
+    IPC::ResponseBuilder rb{ctx, 2 + ZeroWords};
+    rb.Push(ResultSuccess.raw);
+    for (u32 i = 0; i < ZeroWords; ++i) {
+        rb.Push<u32>(0);
+    }
 }
 
 // NS2-only command 2000: preserve a real kernel copy handle and its lifetime.
