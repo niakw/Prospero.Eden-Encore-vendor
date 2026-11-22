@@ -79,6 +79,7 @@ private:
     Result GetFriendInvitationStorageChannelEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result TryPopFromFriendInvitationStorageChannel(Out<SharedPointer<IStorage>> out_storage);
     Result GetNotificationStorageChannelEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result TryPopFromNotificationStorageChannel(Out<SharedPointer<IStorage>> out_storage);
     Result GetHealthWarningDisappearedSystemEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result CreateApplicationAndRequestToStart(u64 application_id);
     Result GetUnknownEvent210(OutCopyHandle<Kernel::KReadableEvent> out_event);

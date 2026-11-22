@@ -47,8 +47,8 @@ IApplicationAccessor::IApplicationAccessor(Core::System& system_, std::shared_pt
         {150, D<&IApplicationAccessor::ReportApplicationExitTimeout>, "ReportApplicationExitTimeout"},
         {160, nullptr, "SetApplicationAttribute"},
         {170, nullptr, "HasSaveDataAccessPermission"},
-        {180, nullptr, "PushToFriendInvitationStorageChannel"},
-        {190, nullptr, "PushToNotificationStorageChannel"},
+        {180, D<&IApplicationAccessor::PushToFriendInvitationStorageChannel>, "PushToFriendInvitationStorageChannel"},
+        {190, D<&IApplicationAccessor::PushToNotificationStorageChannel>, "PushToNotificationStorageChannel"},
         {200, nullptr, "RequestApplicationSoftReset"},
         {201, nullptr, "RestartApplicationTimer"},
     };
@@ -212,6 +212,32 @@ Result IApplicationAccessor::CheckRightsEnvironmentAvailable(Out<bool> out_is_av
 Result IApplicationAccessor::GetNsRightsEnvironmentHandle(Out<u64> out_handle) {
     LOG_WARNING(Service_AM, "(STUBBED) called");
     *out_handle = 0xdeadbeef;
+    R_SUCCEED();
+}
+
+Result IApplicationAccessor::PushToFriendInvitationStorageChannel(
+    SharedPointer<IStorage> storage) {
+    LOG_DEBUG(Service_AM, "called");
+
+    {
+        std::scoped_lock lk{m_applet->lock};
+        m_applet->friend_invitation_storage_channel.push_back(storage->GetData());
+    }
+    m_applet->friend_invitation_storage_channel_event.Signal(system.Kernel());
+
+    R_SUCCEED();
+}
+
+Result IApplicationAccessor::PushToNotificationStorageChannel(
+    SharedPointer<IStorage> storage) {
+    LOG_DEBUG(Service_AM, "called");
+
+    {
+        std::scoped_lock lk{m_applet->lock};
+        m_applet->notification_storage_channel.push_back(storage->GetData());
+    }
+    m_applet->notification_storage_channel_event.Signal(system.Kernel());
+
     R_SUCCEED();
 }
 

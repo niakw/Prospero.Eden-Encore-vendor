@@ -107,7 +107,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {140, D<&IApplicationFunctions::GetFriendInvitationStorageChannelEvent>, "GetFriendInvitationStorageChannelEvent"},
         {141, D<&IApplicationFunctions::TryPopFromFriendInvitationStorageChannel>, "TryPopFromFriendInvitationStorageChannel"},
         {150, D<&IApplicationFunctions::GetNotificationStorageChannelEvent>, "GetNotificationStorageChannelEvent"},
-        {151, nullptr, "TryPopFromNotificationStorageChannel"},
+        {151, D<&IApplicationFunctions::TryPopFromNotificationStorageChannel>, "TryPopFromNotificationStorageChannel"},
         {160, D<&IApplicationFunctions::GetHealthWarningDisappearedSystemEvent>, "GetHealthWarningDisappearedSystemEvent"},
         {170, nullptr, "SetHdcpAuthenticationActivated"},
         {180, nullptr, "GetLaunchRequiredVersion"},
@@ -543,6 +543,22 @@ Result IApplicationFunctions::GetNotificationStorageChannelEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_DEBUG(Service_AM, "called");
     *out_event = m_applet->notification_storage_channel_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::TryPopFromNotificationStorageChannel(
+    Out<SharedPointer<IStorage>> out_storage) {
+    LOG_DEBUG(Service_AM, "called");
+
+    std::scoped_lock lk{m_applet->lock};
+    auto& channel = m_applet->notification_storage_channel;
+    if (channel.empty()) {
+        R_THROW(AM::ResultNoDataInChannel);
+    }
+
+    auto data = std::move(channel.back());
+    channel.pop_back();
+    *out_storage = std::make_shared<IStorage>(system, std::move(data));
     R_SUCCEED();
 }
 
