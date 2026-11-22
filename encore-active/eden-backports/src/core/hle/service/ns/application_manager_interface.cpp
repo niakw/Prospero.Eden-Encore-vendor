@@ -647,14 +647,32 @@ Result IApplicationManagerInterface::GetGameCardMountFailureEvent(
 
 Result IApplicationManagerInterface::GetGameCardWakenReadyEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
+    LOG_DEBUG(Service_NS, "called; game-card wake-ready producer is not modeled");
     *out_event = gamecard_waken_ready_event.GetHandle();
     R_SUCCEED();
 }
 
 Result IApplicationManagerInterface::IsGameCardApplicationRunning(Out<bool> out_is_running) {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
+    LOG_DEBUG(Service_NS, "called");
     *out_is_running = false;
+
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    if (window_system == nullptr) {
+        R_SUCCEED();
+    }
+
+    const auto applet = window_system->GetMainApplet();
+    if (applet == nullptr) {
+        R_SUCCEED();
+    }
+
+    auto* const gamecard_contents = system.GetFileSystemController().GetGameCardContents();
+    if (gamecard_contents == nullptr) {
+        R_SUCCEED();
+    }
+
+    *out_is_running =
+        gamecard_contents->HasEntry(applet->program_id, FileSys::ContentRecordType::Program);
     R_SUCCEED();
 }
 

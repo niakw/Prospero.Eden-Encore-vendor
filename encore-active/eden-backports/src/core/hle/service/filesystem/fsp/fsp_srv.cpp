@@ -245,8 +245,7 @@ Result FSP_SRV::SetCurrentProcess(ClientProcessId pid) {
 
 Result FSP_SRV::OpenFileSystemWithPatch(OutInterface<IFileSystem> out_interface,
                                         FileSystemProxyType type, u64 open_program_id) {
-    LOG_ERROR(Service_FS, "(STUBBED) called with type={}, program_id={:016X}", type,
-              open_program_id);
+    LOG_DEBUG(Service_FS, "called with type={}, program_id={:016X}", type, open_program_id);
 
     // A missing or unsupported manual RomFS is a guest FS error, not a reason
     // to terminate the entire PS5 emulator process with ASSERT().
@@ -771,8 +770,7 @@ Result FSP_SRV::GetProgramIndexForAccessLog(Out<u32> out_program_index,
 }
 
 Result FSP_SRV::FlushAccessLogOnSdCard() {
-    LOG_DEBUG(Service_FS, "(STUBBED) called");
-
+    LOG_DEBUG(Service_FS, "called; no buffered SD access-log sink is modeled");
     R_SUCCEED();
 }
 
