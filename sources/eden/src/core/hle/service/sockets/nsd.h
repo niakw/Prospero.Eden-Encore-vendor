@@ -25,6 +25,8 @@ private:
     void ResolveEx(HLERequestContext& ctx);
     void GetEnvironmentIdentifier(HLERequestContext& ctx);
     void GetApplicationServerEnvironmentType(HLERequestContext& ctx);
+
+    bool change_environment_identifier_disabled{};
 };
 
 } // namespace Service::Sockets

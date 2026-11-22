@@ -82,9 +82,10 @@ static Result ResolveCommon(const std::string& fqdn_in, std::array<char, 0x100>&
 
 void NSD::SetChangeEnvironmentIdentifierDisabled(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
-    const bool disabled = rp.Pop<bool>();
+    change_environment_identifier_disabled = rp.Pop<bool>();
 
-    LOG_WARNING(Service, "(STUBBED) called, disabled={}", disabled);
+    LOG_DEBUG(Service, "called, change_environment_identifier_disabled={}",
+              change_environment_identifier_disabled);
 
     IPC::ResponseBuilder rb{ctx, 1};
     rb.Push(ResultSuccess);
@@ -120,9 +121,12 @@ void NSD::ResolveEx(HLERequestContext& ctx) {
 }
 
 void NSD::GetEnvironmentIdentifier(HLERequestContext& ctx) {
+    // Nintendo production environment switching is intentionally disabled; use the stable local
+    // production-style identifier already expected by Eden's pass-through resolver.
     constexpr EnvironmentIdentifier lp1 = {
         .identifier = {'l', 'p', '1', '\0', '\0', '\0', '\0', '\0'}};
     ctx.WriteBuffer(lp1);
+    LOG_DEBUG(Service, "Returning synthetic NSD environment identifier lp1");
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);

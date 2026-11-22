@@ -98,12 +98,14 @@ public:
 
 private:
     Result ListenTo(u32 program_id) {
-        LOG_WARNING(Service_NPNS, "(STUBBED) called, program_id={}", program_id);
+        // Encore has no Nintendo push backend. Accept the subscription request locally so guest
+        // software can continue, but do not pretend a remote subscription was created.
+        LOG_DEBUG(Service_NPNS, "Push subscription accepted locally, program_id={}", program_id);
         R_SUCCEED();
     }
 
     Result GetReceiveEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
-        LOG_WARNING(Service_NPNS, "(STUBBED) called");
+        LOG_DEBUG(Service_NPNS, "Returning live push-notification receive event");
 
         *out_event = get_receive_event.GetHandle();
         R_SUCCEED();
@@ -118,8 +120,10 @@ private:
     }
 
     Result GetState(Out<u32> out_state) {
-        LOG_WARNING(Service_NPNS, "(STUBBED) called");
+        // No persistent Nintendo push connection is established by Encore. Keep the neutral
+        // disconnected state explicit instead of presenting a fabricated online session.
         *out_state = 0;
+        LOG_DEBUG(Service_NPNS, "Returning offline push-notification state={}", *out_state);
         R_SUCCEED();
     }
 

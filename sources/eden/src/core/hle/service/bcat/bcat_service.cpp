@@ -110,7 +110,9 @@ Result IBcatService::SetPassphrase(u64 application_id,
 }
 
 Result IBcatService::RegisterSystemApplicationDeliveryTasks() {
-    LOG_WARNING(Service_BCAT, "(STUBBED) called");
+    // Encore synchronizes BCAT only on explicit requests and has no Horizon background delivery
+    // scheduler for system applications. Registration is therefore an intentional no-op.
+    LOG_DEBUG(Service_BCAT, "System application delivery-task registration ignored");
     R_SUCCEED();
 }
 
