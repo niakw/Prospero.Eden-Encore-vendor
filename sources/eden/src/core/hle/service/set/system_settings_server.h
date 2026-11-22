@@ -163,6 +163,21 @@ public:
     Result SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value);
     Result GetThemeId(Out<std::array<u64, 0x10>> out_value, s32 type);
     Result SetThemeId(s32 type, const std::array<u64, 0x10>& value);
+    Result SetBluetoothDevicesSettings(
+        InArray<std::array<u8, 0x200>, BufferAttr_HipcMapAlias> settings);
+    Result GetBluetoothDevicesSettings(
+        Out<s32> out_count,
+        OutArray<std::array<u8, 0x200>, BufferAttr_HipcMapAlias> out_settings);
+    Result GetNxControllerSettings(
+        Out<s32> out_count,
+        OutArray<std::array<u8, 0x29>, BufferAttr_HipcMapAlias> out_settings);
+    Result SetNxControllerSettings(
+        InArray<std::array<u8, 0x29>, BufferAttr_HipcMapAlias> settings);
+    Result GetNxControllerSettingsEx(
+        Out<s32> out_count,
+        OutArray<std::array<u8, 0x42C>, BufferAttr_HipcMapAlias> out_settings);
+    Result SetNxControllerSettingsEx(
+        InArray<std::array<u8, 0x42C>, BufferAttr_HipcMapAlias> settings);
     Result GetBacklightSettingsEx(Out<std::array<u8, 0x2C>> out_settings);
     Result SetBacklightSettingsEx(const std::array<u8, 0x2C>& settings);
     Result GetEdid(

@@ -128,8 +128,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {8, C<&ISystemSettingsServer::SetLockScreenFlag>, "SetLockScreenFlag"},
         {9, nullptr, "GetBacklightSettings"},
         {10, nullptr, "SetBacklightSettings"},
-        {11, nullptr, "SetBluetoothDevicesSettings"},
-        {12, nullptr, "GetBluetoothDevicesSettings"},
+        {11, C<&ISystemSettingsServer::SetBluetoothDevicesSettings>, "SetBluetoothDevicesSettings"},
+        {12, C<&ISystemSettingsServer::GetBluetoothDevicesSettings>, "GetBluetoothDevicesSettings"},
         {13, C<&ISystemSettingsServer::GetExternalSteadyClockSourceId>, "GetExternalSteadyClockSourceId"},
         {14, C<&ISystemSettingsServer::SetExternalSteadyClockSourceId>, "SetExternalSteadyClockSourceId"},
         {15, C<&ISystemSettingsServer::GetUserSystemClockContext>, "GetUserSystemClockContext"},
@@ -212,8 +212,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {94, nullptr, "GetFatalDirtyFlags"},
         {95, C<&ISystemSettingsServer::GetAutoUpdateEnableFlag>, "GetAutoUpdateEnableFlag"},
         {96, C<&ISystemSettingsServer::SetAutoUpdateEnableFlag>, "SetAutoUpdateEnableFlag"},
-        {97, nullptr, "GetNxControllerSettings"},
-        {98, nullptr, "SetNxControllerSettings"},
+        {97, C<&ISystemSettingsServer::GetNxControllerSettings>, "GetNxControllerSettings"},
+        {98, C<&ISystemSettingsServer::SetNxControllerSettings>, "SetNxControllerSettings"},
         {99, C<&ISystemSettingsServer::GetBatteryPercentageFlag>, "GetBatteryPercentageFlag"},
         {100, C<&ISystemSettingsServer::SetBatteryPercentageFlag>, "SetBatteryPercentageFlag"},
         {101, C<&ISystemSettingsServer::GetExternalRtcResetFlag>, "GetExternalRtcResetFlag"},
@@ -320,8 +320,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {202, C<&ISystemSettingsServer::SetFieldTestingFlag>, "SetFieldTestingFlag"},
         {203, C<&ISystemSettingsServer::GetPanelCrcMode>, "GetPanelCrcMode"},
         {204, C<&ISystemSettingsServer::SetPanelCrcMode>, "SetPanelCrcMode"},
-        {205, nullptr, "GetNxControllerSettingsEx"},
-        {206, nullptr, "SetNxControllerSettingsEx"},
+        {205, C<&ISystemSettingsServer::GetNxControllerSettingsEx>, "GetNxControllerSettingsEx"},
+        {206, C<&ISystemSettingsServer::SetNxControllerSettingsEx>, "SetNxControllerSettingsEx"},
         {207, C<&ISystemSettingsServer::GetHearingProtectionSafeguardFlag>, "GetHearingProtectionSafeguardFlag"},
         {208, C<&ISystemSettingsServer::SetHearingProtectionSafeguardFlag>, "SetHearingProtectionSafeguardFlag"},
         {209, C<&ISystemSettingsServer::GetHearingProtectionSafeguardRemainingTime>, "GetHearingProtectionSafeguardRemainingTime"},
@@ -1384,6 +1384,92 @@ Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration(Out<std
 
 Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value) {
     m_system_settings.console_six_axis_sensor_angular_velocity_acceleration = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetBluetoothDevicesSettings(
+    InArray<std::array<u8, 0x200>, BufferAttr_HipcMapAlias> settings) {
+    R_UNLESS(settings.size() <= m_system_settings.bluetooth_device_settings_first_10.size(),
+             ResultUnknown);
+    const u32 count = static_cast<u32>(settings.size());
+    std::memcpy(m_system_settings.bluetooth_device_settings_count.data(), &count, sizeof(count));
+    std::memcpy(m_system_settings.bluetooth_device_settings_first_10.data(), settings.data(),
+                settings.size() * sizeof(settings[0]));
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetBluetoothDevicesSettings(
+    Out<s32> out_count,
+    OutArray<std::array<u8, 0x200>, BufferAttr_HipcMapAlias> out_settings) {
+    u32 stored_count{};
+    std::memcpy(&stored_count, m_system_settings.bluetooth_device_settings_count.data(),
+                sizeof(stored_count));
+    const auto count = (std::min)(
+        static_cast<std::size_t>(stored_count),
+        (std::min)(m_system_settings.bluetooth_device_settings_first_10.size(),
+                   out_settings.size()));
+    *out_count = static_cast<s32>(count);
+    std::memcpy(out_settings.data(), m_system_settings.bluetooth_device_settings_first_10.data(),
+                count * sizeof(out_settings[0]));
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetNxControllerSettings(
+    Out<s32> out_count,
+    OutArray<std::array<u8, 0x29>, BufferAttr_HipcMapAlias> out_settings) {
+    const auto count = (std::min)(
+        static_cast<std::size_t>(m_system_settings.nx_controller_settings_count),
+        (std::min)(m_system_settings.nx_controller_legacy_settings.size(), out_settings.size()));
+    *out_count = static_cast<s32>(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        std::memcpy(out_settings[i].data(), m_system_settings.nx_controller_legacy_settings[i].data(),
+                    out_settings[i].size());
+    }
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetNxControllerSettings(
+    InArray<std::array<u8, 0x29>, BufferAttr_HipcMapAlias> settings) {
+    R_UNLESS(settings.size() <= m_system_settings.nx_controller_legacy_settings.size(),
+             ResultUnknown);
+    m_system_settings.nx_controller_settings_count = static_cast<u32>(settings.size());
+    for (std::size_t i = 0; i < settings.size(); ++i) {
+        m_system_settings.nx_controller_legacy_settings[i].fill(0);
+        std::memcpy(m_system_settings.nx_controller_legacy_settings[i].data(), settings[i].data(),
+                    settings[i].size());
+    }
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetNxControllerSettingsEx(
+    Out<s32> out_count,
+    OutArray<std::array<u8, 0x42C>, BufferAttr_HipcMapAlias> out_settings) {
+    const auto count = (std::min)(
+        static_cast<std::size_t>(m_system_settings.nx_controller_settings_count),
+        (std::min)(m_system_settings.nx_controller_settings_data_from_offset_30.size(),
+                   out_settings.size()));
+    *out_count = static_cast<s32>(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        std::memcpy(out_settings[i].data(),
+                    m_system_settings.nx_controller_settings_data_from_offset_30[i].data(),
+                    out_settings[i].size());
+    }
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetNxControllerSettingsEx(
+    InArray<std::array<u8, 0x42C>, BufferAttr_HipcMapAlias> settings) {
+    R_UNLESS(settings.size() <= m_system_settings.nx_controller_settings_data_from_offset_30.size(),
+             ResultUnknown);
+    m_system_settings.nx_controller_settings_count = static_cast<u32>(settings.size());
+    for (std::size_t i = 0; i < settings.size(); ++i) {
+        m_system_settings.nx_controller_settings_data_from_offset_30[i].fill(0);
+        std::memcpy(m_system_settings.nx_controller_settings_data_from_offset_30[i].data(),
+                    settings[i].data(), settings[i].size());
+    }
     SetSaveNeeded();
     R_SUCCEED();
 }
