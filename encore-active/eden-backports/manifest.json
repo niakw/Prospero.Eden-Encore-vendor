@@ -141,8 +141,8 @@
       "upstream": "f00dc0513314346fe519ea094c4ca9e649e934fb7a24d0fd1bac36d55d3d86aa"
     },
     "src/core/hle/service/am/service/self_controller.h": {
-      "active": "cb4891f0000ba2b66a2ef72b19d60e780fc26124ea46dd5865c6ad3b6f3297ae",
-      "bytes": 3372,
+      "active": "4be7a374a74825889e8ebf6f05772f73aa33271439f09a3d86a1e44d98ee306d",
+      "bytes": 3484,
       "upstream": "f57bc1a19ca97805bb0a525c2d0eff2ce8c65b192c7643add3583d28726bbe72"
     },
     "src/core/hle/service/audio/audio.cpp": {
