@@ -253,7 +253,7 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {135, nullptr, "SetConsoleSixAxisSensorAngularVelocityGain"},
         {136, C<&ISystemSettingsServer::GetKeyboardLayout>, "GetKeyboardLayout"},
         {137, C<&ISystemSettingsServer::SetKeyboardLayout>, "SetKeyboardLayout"},
-        {138, nullptr, "GetWebInspectorFlag"},
+        {138, C<&ISystemSettingsServer::GetWebInspectorFlag>, "GetWebInspectorFlag"},
         {139, nullptr, "GetAllowedSslHosts"},
         {140, nullptr, "GetHostFsMountPoint"},
         {141, nullptr, "GetRequiresRunRepairTimeReviser"},
@@ -286,22 +286,22 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {168, nullptr, "GetThemeId"},
         {169, nullptr, "SetThemeId"},
         {170, C<&ISystemSettingsServer::GetChineseTraditionalInputMethod>, "GetChineseTraditionalInputMethod"},
-        {171, nullptr, "SetChineseTraditionalInputMethod"},
-        {172, nullptr, "GetPtmCycleCountReliability"},
-        {173, nullptr, "SetPtmCycleCountReliability"},
+        {171, C<&ISystemSettingsServer::SetChineseTraditionalInputMethod>, "SetChineseTraditionalInputMethod"},
+        {172, C<&ISystemSettingsServer::GetPtmCycleCountReliability>, "GetPtmCycleCountReliability"},
+        {173, C<&ISystemSettingsServer::SetPtmCycleCountReliability>, "SetPtmCycleCountReliability"},
         {174, C<&ISystemSettingsServer::GetHomeMenuScheme>, "GetHomeMenuScheme"},
-        {175, nullptr, "GetThemeSettings"},
-        {176, nullptr, "SetThemeSettings"},
+        {175, C<&ISystemSettingsServer::GetThemeSettings>, "GetThemeSettings"},
+        {176, C<&ISystemSettingsServer::SetThemeSettings>, "SetThemeSettings"},
         {177, nullptr, "GetThemeKey"},
         {178, nullptr, "SetThemeKey"},
-        {179, nullptr, "GetZoomFlag"},
-        {180, nullptr, "SetZoomFlag"},
+        {179, C<&ISystemSettingsServer::GetZoomFlag>, "GetZoomFlag"},
+        {180, C<&ISystemSettingsServer::SetZoomFlag>, "SetZoomFlag"},
         {181, nullptr, "GetT"},
         {182, nullptr, "SetT"},
         {183, C<&ISystemSettingsServer::GetPlatformRegion>, "GetPlatformRegion"},
         {184, C<&ISystemSettingsServer::SetPlatformRegion>, "SetPlatformRegion"},
         {185, C<&ISystemSettingsServer::GetHomeMenuSchemeModel>, "GetHomeMenuSchemeModel"},
-        {186, nullptr, "GetMemoryUsageRateFlag"},
+        {186, C<&ISystemSettingsServer::GetMemoryUsageRateFlag>, "GetMemoryUsageRateFlag"},
         {187, C<&ISystemSettingsServer::GetTouchScreenMode>, "GetTouchScreenMode"},
         {188, C<&ISystemSettingsServer::SetTouchScreenMode>, "SetTouchScreenMode"},
         {189, nullptr, "GetButtonConfigSettingsFull"},
@@ -317,7 +317,7 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {199, nullptr, "GetButtonConfigRegisteredSettings"},
         {200, nullptr, "SetButtonConfigRegisteredSettings"},
         {201, C<&ISystemSettingsServer::GetFieldTestingFlag>, "GetFieldTestingFlag"},
-        {202, nullptr, "SetFieldTestingFlag"},
+        {202, C<&ISystemSettingsServer::SetFieldTestingFlag>, "SetFieldTestingFlag"},
         {203, C<&ISystemSettingsServer::GetPanelCrcMode>, "GetPanelCrcMode"},
         {204, C<&ISystemSettingsServer::SetPanelCrcMode>, "SetPanelCrcMode"},
         {205, nullptr, "GetNxControllerSettingsEx"},
@@ -1318,6 +1318,61 @@ Result ISystemSettingsServer::GetUsb30DeviceEnableFlag(Out<bool> out_value) {
 
 Result ISystemSettingsServer::SetUsb30DeviceEnableFlag(bool value) {
     m_system_settings.usb_30_device_enable_flag = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetWebInspectorFlag(Out<bool> out_value) {
+    *out_value = m_system_settings.web_inspector_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetChineseTraditionalInputMethod(ChineseTraditionalInputMethod value) {
+    m_system_settings.chinese_traditional_input_method = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetPtmCycleCountReliability(Out<u32> out_value) {
+    *out_value = m_device_settings.ptm_cycle_count_reliability;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetPtmCycleCountReliability(u32 value) {
+    m_device_settings.ptm_cycle_count_reliability = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetThemeSettings(Out<std::array<u8, 0x8>> out_value) {
+    *out_value = m_system_settings.theme_settings;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetThemeSettings(const std::array<u8, 0x8>& value) {
+    m_system_settings.theme_settings = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetZoomFlag(Out<bool> out_value) {
+    *out_value = m_system_settings.zoom_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetZoomFlag(bool value) {
+    m_system_settings.zoom_flag = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetMemoryUsageRateFlag(Out<bool> out_value) {
+    *out_value = m_system_settings.memory_usage_rate_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetFieldTestingFlag(bool value) {
+    m_system_settings.field_testing_flag = value;
     SetSaveNeeded();
     R_SUCCEED();
 }

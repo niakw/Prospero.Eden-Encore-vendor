@@ -149,6 +149,16 @@ public:
     Result SetUsb30HostEnableFlag(bool value);
     Result GetUsb30DeviceEnableFlag(Out<bool> out_value);
     Result SetUsb30DeviceEnableFlag(bool value);
+    Result GetWebInspectorFlag(Out<bool> out_value);
+    Result SetChineseTraditionalInputMethod(ChineseTraditionalInputMethod value);
+    Result GetPtmCycleCountReliability(Out<u32> out_value);
+    Result SetPtmCycleCountReliability(u32 value);
+    Result GetThemeSettings(Out<std::array<u8, 0x8>> out_value);
+    Result SetThemeSettings(const std::array<u8, 0x8>& value);
+    Result GetZoomFlag(Out<bool> out_value);
+    Result SetZoomFlag(bool value);
+    Result GetMemoryUsageRateFlag(Out<bool> out_value);
+    Result SetFieldTestingFlag(bool value);
     Result GetUsb30EnableFlag(Out<bool> out_usb30_enable_flag);
     Result SetUsb30EnableFlag(bool usb30_enable_flag);
     Result GetNfcEnableFlag(Out<bool> out_nfc_enable_flag);
