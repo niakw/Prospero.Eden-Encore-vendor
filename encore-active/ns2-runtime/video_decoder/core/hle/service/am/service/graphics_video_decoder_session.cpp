@@ -56,6 +56,10 @@ IGraphicsVideoDecoderSession::IGraphicsVideoDecoderSession(
         {200, &IGraphicsVideoDecoderSession::Initialize, "Initialize"},
         {201, &IGraphicsVideoDecoderSession::Initialize, "InitializeWithFlag"},
         {202, &IGraphicsVideoDecoderSession::Initialize, "InitializeWithVersion"},
+        // SwitchBrew 210 requests remote-backed decoder initialization. Encore's
+        // decoder owns a real KTransferMemory; remote-memory ABI is not supported.
+        {210, &IGraphicsVideoDecoderSession::RejectRemoteMemoryInitialization,
+         "InitializeVideoDecoderWithRemoteMemory"},
         {207, &IGraphicsVideoDecoderSession::Stop, "Stop"},
         {212, &IGraphicsVideoDecoderSession::UnregisterBuffer, "UnregisterOutputImage"},
         {213, &IGraphicsVideoDecoderSession::GetOutputInfo, "GetOutputInfo"},
@@ -95,6 +99,11 @@ Result IGraphicsVideoDecoderSession::HandleSyncRequest(
 void IGraphicsVideoDecoderSession::Acknowledge(HLERequestContext& ctx, Result result) {
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
+}
+
+void IGraphicsVideoDecoderSession::RejectRemoteMemoryInitialization(HLERequestContext& ctx) {
+    // not implemented yet on Encore: do not claim successful remote-backed decoding.
+    Acknowledge(ctx, Kernel::ResultNotImplemented);
 }
 
 void IGraphicsVideoDecoderSession::CreateDecoderService(HLERequestContext& ctx) {
