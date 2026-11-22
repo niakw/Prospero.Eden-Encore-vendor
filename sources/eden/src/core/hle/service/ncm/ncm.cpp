@@ -119,12 +119,16 @@ public:
             {12, &IContentStorage::GetContentCount, "GetContentCount"},
             {13, &IContentStorage::ListContentId, "ListContentId"},
             {14, &IContentStorage::GetSizeFromContentId, "GetSizeFromContentId"},
+            {15, &IContentStorage::DisableForcibly, "DisableForcibly"},
             {17, &IContentStorage::SetPlaceHolderSize, "SetPlaceHolderSize"},
             {19, &IContentStorage::GetRightsIdFromPlaceHolderId, "GetRightsIdFromPlaceHolderId"},
             {20, &IContentStorage::GetRightsIdFromContentId, "GetRightsIdFromContentId"},
+            {22, &IContentStorage::GetFreeSpaceSize, "GetFreeSpaceSize"},
+            {23, &IContentStorage::GetTotalSpaceSize, "GetTotalSpaceSize"},
             {24, &IContentStorage::FlushPlaceHolder, "FlushPlaceHolder"},
             {25, &IContentStorage::GetSizeFromPlaceHolderId, "GetSizeFromPlaceHolderId"},
             {26, &IContentStorage::RepairInvalidFileAttribute, "RepairInvalidFileAttribute"},
+            {27, &IContentStorage::GetRightsIdFromPlaceHolderIdWithCache, "GetRightsIdFromPlaceHolderIdWithCache"},
         };
         // clang-format on
 
@@ -381,6 +385,13 @@ private:
         rb.Push(static_cast<u32>(copied));
     }
 
+    void DisableForcibly(HLERequestContext& ctx) {
+        // This service object does not maintain a separate enabled/disabled backing state.
+        // Closing or reopening the IPC object is therefore sufficient for Encore.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
     void SetPlaceHolderSize(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto placeholder_id = rp.PopRaw<FileSys::NcaID>();
@@ -434,12 +445,47 @@ private:
         rb.PushRaw(out);
     }
 
+    void GetFreeSpaceSize(HLERequestContext& ctx) {
+        const auto size = system.GetFileSystemController().GetFreeSpaceSize(storage);
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(ResultSuccess);
+        rb.Push(size);
+    }
+
+    void GetTotalSpaceSize(HLERequestContext& ctx) {
+        const auto size = system.GetFileSystemController().GetTotalSpaceSize(storage);
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(ResultSuccess);
+        rb.Push(size);
+    }
+
     void FlushPlaceHolder(HLERequestContext& ctx) {
         // Eden VFS writes are synchronous and expose no delayed flush primitive.
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
 
+
+    void GetRightsIdFromPlaceHolderIdWithCache(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto placeholder_id = rp.PopRaw<FileSys::NcaID>();
+        [[maybe_unused]] const auto cache_content_id = rp.PopRaw<FileSys::NcaID>();
+        [[maybe_unused]] const auto attr = rp.Pop<u8>();
+        auto* const placeholder_cache =
+            system.GetFileSystemController().GetPlaceholderCacheForStorage(storage);
+        const auto rights = placeholder_cache != nullptr
+                                ? placeholder_cache->GetRightsIDWithKeyGeneration(placeholder_id)
+                                : std::optional<std::pair<FileSys::NcaID, u8>>{};
+
+        NcmRightsId out{};
+        if (rights.has_value()) {
+            out.rights_id = rights->first;
+            out.key_generation = rights->second;
+        }
+        IPC::ResponseBuilder rb{ctx, 2 + (sizeof(NcmRightsId) + 3) / sizeof(u32)};
+        rb.Push(rights.has_value() ? ResultSuccess : ResultUnknown);
+        rb.PushRaw(out);
+    }
 
     void RepairInvalidFileAttribute(HLERequestContext& ctx) {
         // The VFS layer does not model the Horizon invalid-file-attribute bit.
