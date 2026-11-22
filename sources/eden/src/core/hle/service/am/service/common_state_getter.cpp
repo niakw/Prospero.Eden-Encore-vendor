@@ -258,8 +258,10 @@ Result ICommonStateGetter::EndVrModeEx() {
 
 Result ICommonStateGetter::IsInControllerFirmwareUpdateSection(
     Out<bool> out_is_in_controller_firmware_update_section) {
-    LOG_INFO(Service_AM, "called");
-    *out_is_in_controller_firmware_update_section = false;
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{m_applet->lock};
+    *out_is_in_controller_firmware_update_section =
+        m_applet->controller_firmware_update_section;
     R_SUCCEED();
 }
 

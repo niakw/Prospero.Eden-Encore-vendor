@@ -43,6 +43,8 @@ private:
     Result SetRestartMessageEnabled(bool enabled);
     Result SetScreenShotAppletIdentityInfo(AppletIdentityInfo screen_shot_applet_identity_info);
     Result SetOutOfFocusSuspendingEnabled(bool enabled);
+    Result SetControllerFirmwareUpdateSection(bool enabled);
+    Result SetDesirableKeyboardLayout(u32 layout);
     Result SetAlbumImageOrientation(Capture::AlbumImageOrientation album_image_orientation);
     Result IsSystemBufferSharingEnabled();
     Result GetSystemSharedBufferHandle(Out<u64> out_buffer_id);

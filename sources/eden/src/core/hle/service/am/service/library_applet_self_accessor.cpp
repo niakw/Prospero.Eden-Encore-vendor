@@ -250,8 +250,13 @@ Result ILibraryAppletSelfAccessor::GetCallerAppletIdentityInfoStack(
 }
 
 Result ILibraryAppletSelfAccessor::GetDesirableKeyboardLayout(Out<u32> out_desirable_layout) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_desirable_layout = 0;
+    LOG_DEBUG(Service_AM, "called");
+
+    const auto main_applet = GetMainApplet(system);
+    R_UNLESS(main_applet != nullptr, AM::ResultApplicationRecordNotFound);
+
+    std::scoped_lock lk{main_applet->lock};
+    *out_desirable_layout = main_applet->desirable_keyboard_layout;
     R_SUCCEED();
 }
 

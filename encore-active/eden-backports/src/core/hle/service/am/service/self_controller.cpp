@@ -36,10 +36,10 @@ ISelfController::ISelfController(Core::System& system_, std::shared_ptr<Applet> 
         {14, D<&ISelfController::SetRestartMessageEnabled>, "SetRestartMessageEnabled"},
         {15, D<&ISelfController::SetScreenShotAppletIdentityInfo>, "SetScreenShotAppletIdentityInfo"},
         {16, D<&ISelfController::SetOutOfFocusSuspendingEnabled>, "SetOutOfFocusSuspendingEnabled"},
-        {17, nullptr, "SetControllerFirmwareUpdateSection"},
+        {17, D<&ISelfController::SetControllerFirmwareUpdateSection>, "SetControllerFirmwareUpdateSection"},
         {18, nullptr, "SetRequiresCaptureButtonShortPressedMessage"},
         {19, D<&ISelfController::SetAlbumImageOrientation>, "SetAlbumImageOrientation"},
-        {20, nullptr, "SetDesirableKeyboardLayout"},
+        {20, D<&ISelfController::SetDesirableKeyboardLayout>, "SetDesirableKeyboardLayout"},
         {21, nullptr, "GetScreenShotProgramId"},
         {40, D<&ISelfController::CreateManagedDisplayLayer>, "CreateManagedDisplayLayer"},
         {41, D<&ISelfController::IsSystemBufferSharingEnabled>, "IsSystemBufferSharingEnabled"},
@@ -222,6 +222,20 @@ Result ISelfController::SetOutOfFocusSuspendingEnabled(bool enabled) {
     m_applet->lifecycle_manager.SetOutOfFocusSuspendingEnabled(enabled);
     m_applet->UpdateSuspensionStateLocked(false);
 
+    R_SUCCEED();
+}
+
+Result ISelfController::SetControllerFirmwareUpdateSection(bool enabled) {
+    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->controller_firmware_update_section = enabled;
+    R_SUCCEED();
+}
+
+Result ISelfController::SetDesirableKeyboardLayout(u32 layout) {
+    LOG_DEBUG(Service_AM, "called, layout={}", layout);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->desirable_keyboard_layout = layout;
     R_SUCCEED();
 }
 

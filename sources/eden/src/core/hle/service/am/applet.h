@@ -119,6 +119,8 @@ struct Applet {
     s32 fatal_section_count{};
     Capture::AlbumImageOrientation album_image_orientation{};
     bool handles_request_to_display{};
+    bool controller_firmware_update_section{};
+    u32 desirable_keyboard_layout{};
     ScreenshotPermission screenshot_permission{};
     IdleTimeDetectionExtension idle_time_detection_extension{};
     bool auto_sleep_disabled{};
