@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """R23 #58: exact maintained shader CFG methods with diamond/Phi host fixture."""
 from pathlib import Path
+from native_msaa_handle_receipt import verified_depth_compare_sha
 import hashlib
 import os
 import subprocess
@@ -11,7 +12,7 @@ names={
 }
 for path,expected in names.items():
  b=(r/path).read_bytes()
- sha=hashlib.sha1(b"blob "+str(len(b)).encode()+bytes([0])+b).hexdigest()
+ sha=verified_depth_compare_sha(r/path)
  assert sha in expected,(path,sha,expected)
 header=r/"include/shader_recompiler/frontend/ir/breadth_first_search.h"
 raw=header.read_bytes()

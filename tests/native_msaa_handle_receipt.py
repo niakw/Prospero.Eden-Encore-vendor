@@ -47,3 +47,21 @@ def restore_pre_rebind(source):
     restored=source.replace(AFTER,BEFORE,1)
     assert blob(restored.encode())==OLD
     return restored
+
+# The selected FC27 texture owner adds one reviewed Vulkan depth-compare type fix.
+# Replay its exact one-hunk inverse before accepting the historic R23 receipt.
+def verified_depth_compare_sha(path):
+    raw=path.read_bytes()
+    actual=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
+    if actual != "4301e9dbc19c4e07e7c24af23177cf5fa2142f1a":
+        return actual
+    newer="                // Depth-compare sampling returns floating-point values in Vulkan even when the\n                // TIC format itself is integer or unknown. Never build an integer sampled image.\n                const bool is_integer{flags.is_depth == 0 && is_texture_pixel_format_integer(cbuf)};"
+    prior="                const bool is_integer{is_texture_pixel_format_integer(cbuf)};"
+    selected=raw.decode("utf-8")
+    assert selected.count(newer)==1 and prior not in selected
+    historical=selected.replace(newer,prior,1).encode("utf-8")
+    previous=hashlib.sha1(b"blob "+str(len(historical)).encode()+bytes([0])+historical
+    ).hexdigest()
+    assert previous=="30c9a612a88fa6cd832a40ad0f717b4944db45a1", ("Unexpected depth-compare predecessor drift",previous)
+    return previous
+

@@ -10,6 +10,7 @@ This test proves the selected Encore owners implement only that behavior.
 It is source/host proof, not a PS5 visual pass.
 """
 from pathlib import Path
+from native_msaa_handle_receipt import verified_depth_compare_sha
 import hashlib
 import os
 import subprocess
@@ -29,7 +30,7 @@ def blob(path: Path)->str:
 # Known successor of the original FC27 texture-table owner: vendor cb10b809
 # adds only Lichii #1914's found-bit descriptor bound. Its dedicated host test
 # validates that helper; retain the FC27 fixed-sampler contract below.
-assert blob(TEX)=="30c9a612a88fa6cd832a40ad0f717b4944db45a1"
+assert verified_depth_compare_sha(TEX)=="30c9a612a88fa6cd832a40ad0f717b4944db45a1"
 gfx_blob=blob(GFX)
 assert gfx_blob in {"efa8fd4d73c111655fced67fe7dd1e6b7c0178ba","526aa16b22ba3918c29ce85c884d606dcfd185a1","2834a18fe7638749ec83cc8f5feb1fcde6c71a9a",
                     "bae8f3c36fc4e595e9b630ca55cc50496468e173","f3c82781675b6979a8be96a333184e048ef57f81"} 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """NS1 R23 #35: 8 maintained source owner receipts and real draw-run method ASan."""
 from pathlib import Path
-from native_msaa_handle_receipt import restore_pre_rebind
+from native_msaa_handle_receipt import restore_pre_rebind, verified_depth_compare_sha
 import hashlib
 import os
 import re
@@ -22,7 +22,7 @@ EXPECTED={
 # Reviewed FC27 successor: pin each complete changed production blob
 # while retaining the immutable historical R23 oracle for unchanged owners.
 CURRENT_ATTRIBUTE_SOURCE={
-  "encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp": "30c9a612a88fa6cd832a40ad0f717b4944db45a1",
+  "encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp": "4301e9dbc19c4e07e7c24af23177cf5fa2142f1a",
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h": "cc53133dd516e2d1d245326866ab3ce0c852b36b",
   "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp": "f3c82781675b6979a8be96a333184e048ef57f81",
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h": "6467fd4d704de6b77deb7e6cba4b8e33f70f5a08",
@@ -49,6 +49,8 @@ for path,sha in EXPECTED.items():
  if path in CURRENT_ATTRIBUTE_SOURCE:
   current=gitblob(ROOT/path)
   assert current==CURRENT_ATTRIBUTE_SOURCE[path], ("FC27 maintained successor drift",path)
+  if path.endswith("/texture_pass.cpp"):
+   assert verified_depth_compare_sha(ROOT/path)=="30c9a612a88fa6cd832a40ad0f717b4944db45a1"
   if path in BOUNDED_GRAPHICS_REVERSE:
    new_sha, old_sha, new_hunk, old_hunk = BOUNDED_GRAPHICS_REVERSE[path]
    assert current == new_sha and raw.decode("utf-8").count(new_hunk) == 1
