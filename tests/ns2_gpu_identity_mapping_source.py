@@ -303,7 +303,7 @@ assert release.index("channels.find(channel_id);") > release.index(
     "RequestSyncOperation([this, channel_id, expected]")
 dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}",1)[0]
 for needle in ("!sessions.empty() && channel_state",
-               "system.IsPoweredOn()" "!system.IsShuttingDown()",
+               "system.IsPoweredOn()", "!system.IsShuttingDown()",
                "system.GPU().ReleaseChannel(*channel_state)"):
     assert needle in dtor,needle
 assert dtor.index("system.GPU().ReleaseChannel(*channel_state)") < dtor.index(
