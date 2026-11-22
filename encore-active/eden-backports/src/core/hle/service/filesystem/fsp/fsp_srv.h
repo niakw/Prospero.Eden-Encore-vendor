@@ -6,7 +6,9 @@
 
 #pragma once
 
+#include <array>
 #include <memory>
+#include <vector>
 #include "core/file_sys/fs_save_data_types.h"
 #include "core/hle/service/cmif_types.h"
 #include "core/hle/service/filesystem/fsp/fsp_types.h"
@@ -32,17 +34,19 @@ class ISaveDataTransferProhibiter;
 class IStorage;
 class IMultiCommitManager;
 
-enum class AccessLogVersion : u32 {
-    V7_0_0 = 2,
-
-    Latest = V7_0_0,
-};
-
 enum class AccessLogMode : u32 {
     None,
     Log,
     SdCard,
 };
+
+struct ProgramIndexMapInfo {
+    u64 program_id{};
+    u64 main_program_id{};
+    u8 program_index{};
+    std::array<u8, 0xF> reserved{};
+};
+static_assert(sizeof(ProgramIndexMapInfo) == 0x20);
 
 class FSP_SRV final : public ServiceFramework<FSP_SRV> {
 public:
@@ -106,9 +110,11 @@ private:
     Result SetGlobalAccessLogMode(AccessLogMode access_log_mode_);
     Result GetGlobalAccessLogMode(Out<AccessLogMode> out_access_log_mode);
     Result OutputAccessLogToSdCard(InBuffer<BufferAttr_HipcMapAlias> log_message_buffer);
+    Result RegisterProgramIndexMapInfo(InBuffer<BufferAttr_HipcMapAlias> map_info_buffer,
+                                       s32 program_count);
     Result FlushAccessLogOnSdCard();
-    Result GetProgramIndexForAccessLog(Out<AccessLogVersion> out_access_log_version,
-                                       Out<u32> out_access_log_program_index);
+    Result GetProgramIndexForAccessLog(Out<u32> out_program_index,
+                                       Out<u32> out_program_count);
     Result OpenMultiCommitManager(OutInterface<IMultiCommitManager> out_interface);
     Result ExtendSaveDataFileSystem(FileSys::SaveDataSpaceId space_id, u64 save_data_id,
                                     s64 available_size, s64 journal_size);
@@ -120,7 +126,7 @@ private:
 
     FileSys::VirtualFile romfs;
     u64 current_process_id = 0;
-    u32 access_log_program_index = 0;
+    std::vector<ProgramIndexMapInfo> program_index_map;
     AccessLogMode access_log_mode = AccessLogMode::None;
     u64 program_id = 0;
     std::shared_ptr<SaveDataController> save_data_controller;

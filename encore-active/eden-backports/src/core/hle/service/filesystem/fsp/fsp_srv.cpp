@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <cinttypes>
 #include <cstring>
 #include <iterator>
@@ -195,7 +196,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {710, nullptr, "ResolveAccessFailure"},
         {720, nullptr, "AbandonAccessFailure"},
         {800, nullptr, "GetAndClearFileSystemProxyErrorInfo"},
-        {810, nullptr, "RegisterProgramIndexMapInfo"},
+        {810, D<&FSP_SRV::RegisterProgramIndexMapInfo>, "RegisterProgramIndexMapInfo"},
         {820, nullptr, "GetContentStorageInfoIndex"},
         {830, nullptr, "EncryptStreamPlaySaveData"},
         {831, nullptr, "DecryptStreamPlaySaveData"},
@@ -569,7 +570,12 @@ Result FSP_SRV::ReadSaveDataFileSystemExtraDataBySaveDataSpaceId(
 
 Result FSP_SRV::OpenSaveDataTransferProhibiter(
     OutInterface<ISaveDataTransferProhibiter> out_prohibiter, u64 id) {
-    LOG_WARNING(Service_FS, "(STUBBED) called, id={:016X}", id);
+    LOG_DEBUG(Service_FS,
+              "called, id={:016X}; save-data transfer is not implemented, prohibiter is a no-op token",
+              id);
+
+    // Encore has no save-data transfer manager. There is therefore no transfer
+    // operation for this lifetime token to block; do not add dormant lock state.
     *out_prohibiter = std::make_shared<ISaveDataTransferProhibiter>(system);
     R_SUCCEED();
 }
@@ -721,13 +727,46 @@ Result FSP_SRV::OutputAccessLogToSdCard(InBuffer<BufferAttr_HipcMapAlias> log_me
     R_SUCCEED();
 }
 
-Result FSP_SRV::GetProgramIndexForAccessLog(Out<AccessLogVersion> out_access_log_version,
-                                            Out<u32> out_access_log_program_index) {
-    LOG_DEBUG(Service_FS, "(STUBBED) called");
+Result FSP_SRV::RegisterProgramIndexMapInfo(
+    InBuffer<BufferAttr_HipcMapAlias> map_info_buffer, s32 program_count) {
+    LOG_DEBUG(Service_FS, "called, program_count={}, buffer_size={}", program_count,
+              map_info_buffer.size());
 
-    *out_access_log_version = AccessLogVersion::Latest;
-    *out_access_log_program_index = access_log_program_index;
+    R_UNLESS(program_count >= 0, FileSys::ResultInvalidArgument);
+    if (program_count == 0) {
+        R_SUCCEED();
+    }
 
+    const auto count = static_cast<std::size_t>(program_count);
+    R_UNLESS(count <= map_info_buffer.size() / sizeof(ProgramIndexMapInfo),
+             FileSys::ResultInvalidSize);
+
+    program_index_map.resize(count);
+    std::memcpy(program_index_map.data(), map_info_buffer.data(),
+                count * sizeof(ProgramIndexMapInfo));
+    R_SUCCEED();
+}
+
+Result FSP_SRV::GetProgramIndexForAccessLog(Out<u32> out_program_index,
+                                            Out<u32> out_program_count) {
+    LOG_DEBUG(Service_FS, "called, program_id={:016X}, registered_programs={}", program_id,
+              program_index_map.size());
+
+    u32 index = 0;
+    if (const auto it =
+            std::find_if(program_index_map.begin(), program_index_map.end(),
+                         [this](const ProgramIndexMapInfo& info) {
+                             return info.program_id == program_id;
+                         });
+        it != program_index_map.end()) {
+        index = it->program_index;
+    }
+
+    R_UNLESS(program_index_map.size() <=
+                 static_cast<std::size_t>((std::numeric_limits<u32>::max)()),
+             ResultUnknown);
+    *out_program_index = index;
+    *out_program_count = static_cast<u32>(program_index_map.size());
     R_SUCCEED();
 }
 
