@@ -156,8 +156,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {38, C<&ISystemSettingsServer::GetSettingsItemValue>, "GetSettingsItemValue"},
         {39, C<&ISystemSettingsServer::GetTvSettings>, "GetTvSettings"},
         {40, C<&ISystemSettingsServer::SetTvSettings>, "SetTvSettings"},
-        {41, nullptr, "GetEdid"},
-        {42, nullptr, "SetEdid"},
+        {41, C<&ISystemSettingsServer::GetEdid>, "GetEdid"},
+        {42, C<&ISystemSettingsServer::SetEdid>, "SetEdid"},
         {43, C<&ISystemSettingsServer::GetAudioOutputMode>, "GetAudioOutputMode"},
         {44, C<&ISystemSettingsServer::SetAudioOutputMode>, "SetAudioOutputMode"},
         {45, C<&ISystemSettingsServer::GetSpeakerAutoMuteFlag>, "GetSpeakerAutoMuteFlag"},
@@ -254,8 +254,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {136, C<&ISystemSettingsServer::GetKeyboardLayout>, "GetKeyboardLayout"},
         {137, C<&ISystemSettingsServer::SetKeyboardLayout>, "SetKeyboardLayout"},
         {138, C<&ISystemSettingsServer::GetWebInspectorFlag>, "GetWebInspectorFlag"},
-        {139, nullptr, "GetAllowedSslHosts"},
-        {140, nullptr, "GetHostFsMountPoint"},
+        {139, C<&ISystemSettingsServer::GetAllowedSslHosts>, "GetAllowedSslHosts"},
+        {140, C<&ISystemSettingsServer::GetHostFsMountPoint>, "GetHostFsMountPoint"},
         {141, C<&ISystemSettingsServer::GetRequiresRunRepairTimeReviser>, "GetRequiresRunRepairTimeReviser"},
         {142, C<&ISystemSettingsServer::SetRequiresRunRepairTimeReviser>, "SetRequiresRunRepairTimeReviser"},
         {143, C<&ISystemSettingsServer::SetBlePairingSettings>, "SetBlePairingSettings"},
@@ -1385,6 +1385,35 @@ Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration(Out<std
 Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value) {
     m_system_settings.console_six_axis_sensor_angular_velocity_acceleration = value;
     SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetEdid(
+    OutLargeData<std::array<u8, 0x100>, BufferAttr_HipcPointer> out_edid) {
+    *out_edid = m_system_settings.edid;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetEdid(
+    InLargeData<std::array<u8, 0x100>, BufferAttr_HipcPointer> edid) {
+    m_system_settings.edid = *edid;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetAllowedSslHosts(
+    Out<s32> out_count,
+    OutArray<std::array<u8, 0x100>, BufferAttr_HipcMapAlias> out_hosts) {
+    const auto count = (std::min)(m_system_settings.allowed_ssl_hosts.size(), out_hosts.size());
+    *out_count = static_cast<s32>(count);
+    std::memcpy(out_hosts.data(), m_system_settings.allowed_ssl_hosts.data(),
+                count * sizeof(out_hosts[0]));
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetHostFsMountPoint(
+    OutLargeData<std::array<u8, 0x100>, BufferAttr_HipcMapAlias> out_mount_point) {
+    *out_mount_point = m_system_settings.host_fs_mount_point;
     R_SUCCEED();
 }
 

@@ -163,6 +163,15 @@ public:
     Result SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value);
     Result GetThemeId(Out<std::array<u64, 0x10>> out_value, s32 type);
     Result SetThemeId(s32 type, const std::array<u64, 0x10>& value);
+    Result GetEdid(
+        OutLargeData<std::array<u8, 0x100>, BufferAttr_HipcPointer> out_edid);
+    Result SetEdid(
+        InLargeData<std::array<u8, 0x100>, BufferAttr_HipcPointer> edid);
+    Result GetAllowedSslHosts(
+        Out<s32> out_count,
+        OutArray<std::array<u8, 0x100>, BufferAttr_HipcMapAlias> out_hosts);
+    Result GetHostFsMountPoint(
+        OutLargeData<std::array<u8, 0x100>, BufferAttr_HipcMapAlias> out_mount_point);
     Result GetInRepairProcessEnableFlag(Out<bool> out_value);
     Result SetInRepairProcessEnableFlag(bool value);
     Result GetServiceDiscoveryControlSettings(Out<u32> out_value);
