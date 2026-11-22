@@ -119,6 +119,22 @@ struct DnsSetting {
 };
 static_assert(sizeof(DnsSetting) == 0x9, "DnsSetting has incorrect size.");
 
+// This is nn::nifm::detail::sf::AccessPointDataOld (command 11 on >= 4.0.0,
+// and AccessPointData on older firmware). The ABI remains 0x34 bytes.
+struct AccessPointDataOld {
+    u8 ssid_len;
+    char ssid[0x20];
+    u8 unk_pad[11];
+    u8 strength;
+    u8 unknown_2d;
+    u16 channel;
+    u8 authentication;
+    u8 encryption;
+    u8 is_connectable;
+    u8 is_available;
+};
+static_assert(sizeof(AccessPointDataOld) == 0x34, "AccessPointDataOld has incorrect size.");
+
 // This is nn::nifm::detail::sf::AccessPointData (for >= 19.0.0)
 struct AccessPointDataV3 {
     u8 ssid_len;     // Length of SSID
@@ -782,10 +798,40 @@ void IGeneralService::RemoveNetworkProfile(HLERequestContext& ctx) {
 }
 
 void IGeneralService::GetScanData(HLERequestContext& ctx) {
-    LOG_INFO(Service_NIFM, "GetScanData called");
+    LOG_DEBUG(Service_NIFM, "GetScanDataOld called");
+
+    std::scoped_lock lk{g_scan_mtx};
+    const auto& scans = g_last_scan_results;
+
+    const std::size_t guest_bytes = ctx.GetWriteBufferSize();
+    const std::size_t max_rows = guest_bytes / sizeof(AccessPointDataOld);
+    const std::size_t rows_copy = std::min<std::size_t>(scans.size(), max_rows);
+
+    std::vector<AccessPointDataOld> rows(rows_copy);
+    const auto to_bars = [](u8 q) {
+        return static_cast<u8>((q + 16) / 33);
+    };
+
+    for (std::size_t i = 0; i < rows_copy; ++i) {
+        const auto& scan = scans[i];
+        auto& ap = rows[i];
+
+        ap.ssid_len = std::min<u8>(scan.ssid_len, sizeof(ap.ssid));
+        std::memcpy(ap.ssid, scan.ssid, ap.ssid_len);
+        ap.strength = to_bars(scan.quality);
+        // The current host scanner does not expose channel/auth/cipher yet.
+        // Keep those ABI fields zero rather than synthesizing Nintendo values.
+        ap.is_connectable = (scan.flags & 1) != 0 ? 1 : 0;
+        ap.is_available = 1;
+    }
+
+    if (rows_copy != 0) {
+        ctx.WriteBuffer(rows.data(), rows_copy * sizeof(AccessPointDataOld));
+    }
+
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
-    rb.Push(0);
+    rb.Push(static_cast<u32>(scans.size()));
 }
 
 void IGeneralService::GetScanDataV2(HLERequestContext& ctx) {
