@@ -12,6 +12,7 @@
 namespace Service::AM {
 
 struct Applet;
+class IStorage;
 
 class IAppletCommonFunctions final : public ServiceFramework<IAppletCommonFunctions> {
 public:
@@ -20,6 +21,8 @@ public:
 
 private:
     Result SetTerminateResult(Result terminate_result);
+    Result PushToAppletBoundChannel(SharedPointer<IStorage> storage);
+    Result TryPopFromAppletBoundChannel(Out<SharedPointer<IStorage>> out_storage);
     Result SetHomeButtonDoubleClickEnabled(bool home_button_double_click_enabled);
     Result GetHomeButtonDoubleClickEnabled(Out<bool> out_home_button_double_click_enabled);
     Result IsHomeButtonShortPressedBlocked(Out<bool> out_is_home_button_short_pressed_blocked);

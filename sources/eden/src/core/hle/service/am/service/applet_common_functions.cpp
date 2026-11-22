@@ -8,6 +8,7 @@
 #include "core/file_sys/common_funcs.h"
 #include "core/hle/service/am/applet.h"
 #include "core/hle/service/am/service/applet_common_functions.h"
+#include "core/hle/service/am/service/storage.h"
 #include "core/hle/service/cmif_serialization.h"
 
 namespace Service::AM {
@@ -20,8 +21,8 @@ IAppletCommonFunctions::IAppletCommonFunctions(Core::System& system_,
         {0, D<&IAppletCommonFunctions::SetTerminateResult>, "SetTerminateResult"},
         {10, nullptr, "ReadThemeStorage"},
         {11, nullptr, "WriteThemeStorage"},
-        {20, nullptr, "PushToAppletBoundChannel"},
-        {21, nullptr, "TryPopFromAppletBoundChannel"},
+        {20, D<&IAppletCommonFunctions::PushToAppletBoundChannel>, "PushToAppletBoundChannel"},
+        {21, D<&IAppletCommonFunctions::TryPopFromAppletBoundChannel>, "TryPopFromAppletBoundChannel"},
         {40, nullptr, "GetDisplayLogicalResolution"},
         {42, D<&IAppletCommonFunctions::SetDisplayMagnification>, "SetDisplayMagnification"},
         {50, D<&IAppletCommonFunctions::SetHomeButtonDoubleClickEnabled>, "SetHomeButtonDoubleClickEnabled"},
@@ -53,6 +54,29 @@ Result IAppletCommonFunctions::SetTerminateResult(Result terminate_result) {
     LOG_DEBUG(Service_AM, "called, result={:#x}", terminate_result.GetInnerValue());
     std::scoped_lock lk{applet->lock};
     applet->terminate_result = terminate_result;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::PushToAppletBoundChannel(SharedPointer<IStorage> storage) {
+    LOG_DEBUG(Service_AM, "called");
+
+    std::scoped_lock lk{applet->lock};
+    applet->applet_bound_channel.push_back(storage->GetData());
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::TryPopFromAppletBoundChannel(
+    Out<SharedPointer<IStorage>> out_storage) {
+    LOG_DEBUG(Service_AM, "called");
+
+    std::scoped_lock lk{applet->lock};
+    if (applet->applet_bound_channel.empty()) {
+        R_THROW(AM::ResultNoDataInChannel);
+    }
+
+    auto data = std::move(applet->applet_bound_channel.back());
+    applet->applet_bound_channel.pop_back();
+    *out_storage = std::make_shared<IStorage>(system, std::move(data));
     R_SUCCEED();
 }
 
