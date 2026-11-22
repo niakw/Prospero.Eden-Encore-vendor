@@ -2,6 +2,7 @@
 """NS1 #18 coherent four-owner TIR mixed-sample scratch/resolve source contract."""
 from pathlib import Path
 import hashlib
+from native_msaa_handle_receipt import restore_integrated_vk_texture_except_blit
 import os
 import subprocess
 import tempfile
@@ -16,6 +17,9 @@ files={
 for name,expected in files.items():
  raw=(r/name).read_bytes()
  sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
+ if name.endswith("/vk_texture_cache_cost.cpp") and sha=="e9191238ccddd94aa22570eba501fb05fff5b207":
+  raw=restore_integrated_vk_texture_except_blit(raw.decode()).encode()
+  sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
  if name.endswith("fixed_pipeline_state.cpp"):
   text=raw.decode()
   assert "MaxwellDepthClampClip" in text and "regs.tir_mode == Maxwell::TIRMode::RasterNTargetM" in text,(name,"lost EDS3/TIR")
