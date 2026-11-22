@@ -396,7 +396,7 @@ Result IApplicationFunctions::InitializeGamePlayRecording(
 }
 
 Result IApplicationFunctions::SetMediaPlaybackStateForApplication(bool enabled) {
-    LOG_WARNING(Service_AM, "(stubbed) {}", enabled);
+    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
     std::scoped_lock lk{m_applet->lock};
     m_applet->media_playback_state = enabled;
     R_SUCCEED();
@@ -501,7 +501,7 @@ Result IApplicationFunctions::UnpopToUserChannel(SharedPointer<IStorage> storage
 }
 
 Result IApplicationFunctions::GetPreviousProgramIndex(Out<s32> out_previous_program_index) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
     *out_previous_program_index = m_applet->previous_program_index;
     R_SUCCEED();
 }

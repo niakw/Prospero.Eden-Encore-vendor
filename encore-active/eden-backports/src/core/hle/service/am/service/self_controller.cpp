@@ -150,9 +150,9 @@ Result ISelfController::LeaveFatalSection() {
 
 Result ISelfController::GetLibraryAppletLaunchableEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-
-    m_applet->library_applet_launchable_event.Signal(system.Kernel());
+    LOG_DEBUG(Service_AM, "called");
+    // Opening the handle must not make the applet launchable by itself.
+    // ILibraryAppletCreator signals this event when creation actually succeeds.
     *out_event = m_applet->library_applet_launchable_event.GetHandle();
 
     R_SUCCEED();
@@ -286,7 +286,9 @@ Result ISelfController::ApproveToDisplay() {
 }
 
 Result ISelfController::SetMediaPlaybackState(bool state) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, state={}", state);
+    LOG_DEBUG(Service_AM, "called, state={}", state);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->media_playback_state = state;
     R_SUCCEED();
 }
 
@@ -297,7 +299,7 @@ Result ISelfController::OverrideAutoSleepTimeAndDimmingTime(s32 a, s32 b, s32 c,
 
 Result ISelfController::SetIdleTimeDetectionExtension(
     IdleTimeDetectionExtension idle_time_detection_extension) {
-    LOG_DEBUG(Service_AM, "(STUBBED) called extension={}", idle_time_detection_extension);
+    LOG_DEBUG(Service_AM, "called, extension={}", idle_time_detection_extension);
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->idle_time_detection_extension = idle_time_detection_extension;
@@ -307,7 +309,7 @@ Result ISelfController::SetIdleTimeDetectionExtension(
 
 Result ISelfController::GetIdleTimeDetectionExtension(
     Out<IdleTimeDetectionExtension> out_idle_time_detection_extension) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     *out_idle_time_detection_extension = m_applet->idle_time_detection_extension;

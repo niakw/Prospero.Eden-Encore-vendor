@@ -123,22 +123,22 @@ Result ICommonStateGetter::GetCurrentFocusState(Out<FocusState> out_focus_state)
 }
 
 Result ICommonStateGetter::RequestToAcquireSleepLock() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called; sleep lock is acquired immediately");
 
-    // Sleep lock is acquired immediately.
+    // Encore has no separate host sleep arbiter; acquisition is immediate.
     m_applet->sleep_lock_event.Signal(system.Kernel());
     R_SUCCEED();
 }
 
 Result ICommonStateGetter::ReleaseSleepLock() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     m_applet->sleep_lock_event.Clear(system.Kernel());
     R_SUCCEED();
 }
 
 Result ICommonStateGetter::ReleaseSleepLockTransiently() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called; transient reacquire is not modeled");
 
     m_applet->sleep_lock_event.Clear(system.Kernel());
     R_SUCCEED();
@@ -226,14 +226,14 @@ Result ICommonStateGetter::SetLcdBacklighOffEnabled(bool is_lcd_backlight_off_en
 }
 
 Result ICommonStateGetter::BeginVrModeEx() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
     std::scoped_lock lk{m_applet->lock};
     m_applet->vr_mode_enabled = true;
     R_SUCCEED();
 }
 
 Result ICommonStateGetter::EndVrModeEx() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
     std::scoped_lock lk{m_applet->lock};
     m_applet->vr_mode_enabled = false;
     R_SUCCEED();
