@@ -136,8 +136,8 @@
       "upstream": "28c43db660b3d302a7a89633fe9ac8b78b3011244354ba2635b0572cb08a41fd"
     },
     "src/core/hle/service/am/service/self_controller.cpp": {
-      "active": "11c18fb42addb67563c109dab784352b0ff79c31581e59e6162f9fa22678abf3",
-      "bytes": 16462,
+      "active": "72394e743e8135f06e22341ef405544c2f3f0544df7e54133b26cddf973734d2",
+      "bytes": 16542,
       "upstream": "f00dc0513314346fe519ea094c4ca9e649e934fb7a24d0fd1bac36d55d3d86aa"
     },
     "src/core/hle/service/am/service/self_controller.h": {

@@ -131,8 +131,23 @@ Result IApplicationAccessor::SetUsers(bool enable,
 
 Result IApplicationAccessor::GetCurrentLibraryApplet(
     Out<SharedPointer<ILibraryAppletAccessor>> out_accessor) {
-    LOG_INFO(Service_AM, "(STUBBED) called");
-    *out_accessor = nullptr;
+    LOG_DEBUG(Service_AM, "called");
+
+    std::shared_ptr<Applet> current_applet;
+    {
+        std::scoped_lock lk{m_applet->lock};
+        if (!m_applet->child_applets.empty()) {
+            current_applet = m_applet->child_applets.back();
+        }
+    }
+
+    if (current_applet == nullptr) {
+        *out_accessor = nullptr;
+        R_SUCCEED();
+    }
+
+    *out_accessor = std::make_shared<ILibraryAppletAccessor>(
+        system, current_applet->caller_applet_broker, current_applet);
     R_SUCCEED();
 }
 

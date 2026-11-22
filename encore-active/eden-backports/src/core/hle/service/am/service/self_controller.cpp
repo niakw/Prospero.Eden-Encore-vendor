@@ -276,7 +276,9 @@ Result ISelfController::CreateManagedDisplaySeparableLayer(Out<u64> out_layer_id
 }
 
 Result ISelfController::SetHandlesRequestToDisplay(bool enable) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, enable={}", enable);
+    LOG_DEBUG(Service_AM, "called, enable={}", enable);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->handles_request_to_display = enable;
     R_SUCCEED();
 }
 
