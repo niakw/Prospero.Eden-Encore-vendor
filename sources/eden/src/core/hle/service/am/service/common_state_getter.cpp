@@ -60,8 +60,8 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {67, nullptr, "CancelCpuBoostMode"},
         {68, D<&ICommonStateGetter::GetBuiltInDisplayType>, "GetBuiltInDisplayType"},
         {80, D<&ICommonStateGetter::PerformSystemButtonPressingIfInFocus>, "PerformSystemButtonPressingIfInFocus"},
-        {90, nullptr, "SetPerformanceConfigurationChangedNotification"},
-        {91, nullptr, "GetCurrentPerformanceConfiguration"},
+        {90, D<&ICommonStateGetter::SetPerformanceConfigurationChangedNotification>, "SetPerformanceConfigurationChangedNotification"},
+        {91, D<&ICommonStateGetter::GetCurrentPerformanceConfiguration>, "GetCurrentPerformanceConfiguration"},
         {100, D<&ICommonStateGetter::SetHandlingHomeButtonShortPressedEnabled>, "SetHandlingHomeButtonShortPressedEnabled"},
         {110, nullptr, "OpenMyGpuErrorHandler"},
         {120, D<&ICommonStateGetter::GetAppletLaunchedHistory>, "GetAppletLaunchedHistory"}, //13.0.0+
@@ -195,6 +195,23 @@ Result ICommonStateGetter::GetOperationMode(Out<OperationMode> out_operation_mod
 Result ICommonStateGetter::GetPerformanceMode(Out<APM::PerformanceMode> out_performance_mode) {
     LOG_DEBUG(Service_AM, "called");
     *out_performance_mode = system.GetAPMController().GetCurrentPerformanceMode();
+    R_SUCCEED();
+}
+
+Result ICommonStateGetter::SetPerformanceConfigurationChangedNotification(bool enabled) {
+    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->lifecycle_manager.SetPerformanceModeChangedNotificationEnabled(system.Kernel(),
+                                                                             enabled);
+    R_SUCCEED();
+}
+
+Result ICommonStateGetter::GetCurrentPerformanceConfiguration(
+    Out<APM::PerformanceConfiguration> out_performance_configuration) {
+    LOG_DEBUG(Service_AM, "called");
+    auto& controller = system.GetAPMController();
+    *out_performance_configuration =
+        controller.GetCurrentPerformanceConfiguration(controller.GetCurrentPerformanceMode());
     R_SUCCEED();
 }
 
