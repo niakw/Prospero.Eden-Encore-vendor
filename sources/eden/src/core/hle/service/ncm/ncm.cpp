@@ -107,9 +107,13 @@ public:
             {0, &IContentStorage::GeneratePlaceHolderId, "GeneratePlaceHolderId"},
             {1, &IContentStorage::CreatePlaceHolder, "CreatePlaceHolder"},
             {2, &IContentStorage::DeletePlaceHolder, "DeletePlaceHolder"},
+            {3, &IContentStorage::HasPlaceHolder, "HasPlaceHolder"},
             {4, &IContentStorage::WritePlaceHolder, "WritePlaceHolder"},
             {5, &IContentStorage::Register, "Register"},
             {6, &IContentStorage::Delete, "Delete"},
+            {10, &IContentStorage::CleanupAllPlaceHolder, "CleanupAllPlaceHolder"},
+            {17, &IContentStorage::SetPlaceHolderSize, "SetPlaceHolderSize"},
+            {25, &IContentStorage::GetSizeFromPlaceHolderId, "GetSizeFromPlaceHolderId"},
         };
         // clang-format on
 
@@ -175,6 +179,17 @@ private:
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(succeeded ? ResultSuccess : ResultUnknown);
+    }
+
+    void HasPlaceHolder(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto placeholder_id = rp.PopRaw<FileSys::NcaID>();
+        auto* const placeholder_cache =
+            system.GetFileSystemController().GetPlaceholderCacheForStorage(storage);
+
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(placeholder_cache != nullptr ? ResultSuccess : ResultUnknown);
+        rb.Push(placeholder_cache != nullptr && placeholder_cache->Exists(placeholder_id));
     }
 
     void WritePlaceHolder(HLERequestContext& ctx) {
@@ -250,6 +265,41 @@ private:
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(succeeded ? ResultSuccess : ResultUnknown);
+    }
+
+    void CleanupAllPlaceHolder(HLERequestContext& ctx) {
+        auto* const placeholder_cache =
+            system.GetFileSystemController().GetPlaceholderCacheForStorage(storage);
+        const bool succeeded = placeholder_cache != nullptr && placeholder_cache->CleanAll();
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(succeeded ? ResultSuccess : ResultUnknown);
+    }
+
+    void SetPlaceHolderSize(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto placeholder_id = rp.PopRaw<FileSys::NcaID>();
+        const auto size = rp.Pop<s64>();
+        auto* const placeholder_cache =
+            system.GetFileSystemController().GetPlaceholderCacheForStorage(storage);
+        const bool succeeded =
+            placeholder_cache != nullptr && size >= 0 &&
+            placeholder_cache->SetSize(placeholder_id, static_cast<u64>(size));
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(succeeded ? ResultSuccess : ResultUnknown);
+    }
+
+    void GetSizeFromPlaceHolderId(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto placeholder_id = rp.PopRaw<FileSys::NcaID>();
+        auto* const placeholder_cache =
+            system.GetFileSystemController().GetPlaceholderCacheForStorage(storage);
+        const bool exists =
+            placeholder_cache != nullptr && placeholder_cache->Exists(placeholder_id);
+
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(exists ? ResultSuccess : ResultUnknown);
+        rb.Push(exists ? placeholder_cache->Size(placeholder_id) : u64{0});
     }
 
     FileSys::StorageId storage;
