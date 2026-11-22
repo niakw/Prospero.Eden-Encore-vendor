@@ -113,6 +113,7 @@ public:
             {5, &IContentStorage::Register, "Register"},
             {6, &IContentStorage::Delete, "Delete"},
             {10, &IContentStorage::CleanupAllPlaceHolder, "CleanupAllPlaceHolder"},
+            {11, &IContentStorage::ListPlaceHolder, "ListPlaceHolder"},
             {17, &IContentStorage::SetPlaceHolderSize, "SetPlaceHolderSize"},
             {19, &IContentStorage::GetRightsIdFromPlaceHolderId, "GetRightsIdFromPlaceHolderId"},
             {25, &IContentStorage::GetSizeFromPlaceHolderId, "GetSizeFromPlaceHolderId"},
@@ -275,6 +276,28 @@ private:
         const bool succeeded = placeholder_cache != nullptr && placeholder_cache->CleanAll();
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(succeeded ? ResultSuccess : ResultUnknown);
+    }
+
+    void ListPlaceHolder(HLERequestContext& ctx) {
+        auto* const placeholder_cache =
+            system.GetFileSystemController().GetPlaceholderCacheForStorage(storage);
+
+        if (placeholder_cache == nullptr) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultUnknown);
+            return;
+        }
+
+        const auto placeholders = placeholder_cache->List();
+        const auto max_entries = ctx.GetWriteBufferSize() / sizeof(FileSys::NcaID);
+        const auto copied = std::min(placeholders.size(), max_entries);
+        if (copied != 0) {
+            ctx.WriteBuffer(placeholders.data(), copied * sizeof(FileSys::NcaID));
+        }
+
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push(static_cast<u32>(copied));
     }
 
     void SetPlaceHolderSize(HLERequestContext& ctx) {
