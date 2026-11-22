@@ -28,11 +28,11 @@ IDownloadTaskInterface::IDownloadTaskInterface(Core::System& system_)
 IDownloadTaskInterface::~IDownloadTaskInterface() = default;
 
 Result IDownloadTaskInterface::EnableAutoCommit() {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
+    LOG_DEBUG(Service_NS, "called; no NS download-task backend is modeled");
     R_SUCCEED();
 }
 Result IDownloadTaskInterface::DisableAutoCommit() {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
+    LOG_DEBUG(Service_NS, "called; no NS download-task backend is modeled");
     R_SUCCEED();
 }
 

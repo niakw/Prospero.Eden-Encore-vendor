@@ -39,7 +39,7 @@ ISystemUpdateInterface::~ISystemUpdateInterface() = default;
 
 Result ISystemUpdateInterface::GetBackgroundNetworkUpdateState(
     Out<BackgroundNetworkUpdateState> out_background_network_update_state) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_NS, "called; background system-update transport is not modeled");
     *out_background_network_update_state = BackgroundNetworkUpdateState::None;
     R_SUCCEED();
 }
@@ -53,7 +53,7 @@ Result ISystemUpdateInterface::OpenSystemUpdateControl(
 
 Result ISystemUpdateInterface::GetSystemUpdateNotificationEventForContentDelivery(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
+    LOG_DEBUG(Service_NS, "called; content-delivery update producer is not modeled");
     *out_event = update_notification_event.GetHandle();
     R_SUCCEED();
 }
