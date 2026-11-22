@@ -32,7 +32,22 @@ previous = active.replace(src_new, src_old, 1).replace(dst_new, dst_old, 1)
 previous_blob = hashlib.sha1(
     b"blob " + str(len(previous.encode())).encode() + b"\0" + previous.encode()
 ).hexdigest()
-assert previous_blob == "51f84857fdbbda43fbc84e079dda758e30dc5957", previous_blob
+# Since the original #2121 receipt, the selected PS5 owner also gained
+# independent fail-closed geometry/allocation hardening. Native tiling remains
+# exactly two arguments on top of that reviewed generation.
+assert hashlib.sha1(
+    b"blob " + str(len(active.encode())).encode() + b"\0" + active.encode()
+).hexdigest() == "212648a456594522345b3b7724449006a54b492b"
+assert previous_blob == "342d983353406f49f8f312f3fdb012c1012ebf16", previous_blob
+for safety in (
+    "MAX_SOFTWARE_BLIT_BYTES = 256ULL << 20",
+    "checked_surface_size",
+    "std::optional<size_t>",
+    "surface.block_height > 5",
+    "src.Address() > ~u64{0} - *src_size",
+    "dst.Address() > ~u64{0} - *dst_size",
+):
+    assert safety in previous, ("software blitter safety predecessor drift", safety)
 
 blit = active.split("bool SoftwareBlitEngine::Blit(", 1)[1]
 source_branch = blit.split("if (src.linear == Fermi2D::MemoryLayout::BlockLinear)", 1)[1].split(
