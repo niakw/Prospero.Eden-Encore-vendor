@@ -136,6 +136,14 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
             return WrapFixedVariable<GpfifoInlineEntries>(
                 this, &nvhost_gpu::SubmitGPFIFOBase1, input, output, fd, false);
         }
+        case 0x19: { // NVGPU_IOCTL_CHANNEL_SUBMIT_GPFIFO_RETRY
+            // SwitchBrew: identical IPC and fence contract to H:0x08.
+            // Size in the ioctl opcode is variable; check direction/group/ID
+            // while leaving actual payload bounds to WrapFixedVariable.
+            if ((command.raw & 0xC000FFFFU) != 0xC0004819U) break;
+            return WrapFixedVariable<GpfifoInlineEntries>(
+                this, &nvhost_gpu::SubmitGPFIFOBase1, input, output, fd, false);
+        }
         case 0x9:
             return WrapFixed(this, &nvhost_gpu::AllocateObjectContext, input, output, fd);
         case 0xb:
@@ -288,6 +296,15 @@ NvResult nvhost_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> inpu
                              "EDEN_NS2_GPFIFO_ROUTE ticket=%u route=ioctl2-kickoff input=%zu inline=%zu output=%zu\n",
                              ticket, input.size(), inline_input.size(), output.size());
 #endif
+            return WrapFixedInlIn<GpfifoInlineEntries>(
+                this, &nvhost_gpu::SubmitGPFIFOBase2, input, inline_input,
+                output, fd);
+        }
+        case 0x1c: { // NVGPU_IOCTL_CHANNEL_SUBMIT_GPFIFO2_RETRY
+            // Same Ioctl2 inline entries and fence semantics as H:0x1b.
+            // Keep the real FD-owner, GPFIFO, OOM and syncpoint checks in
+            // SubmitGPFIFOBase2/SubmitGPFIFOImpl, never fake a retry fence.
+            if (command.raw != 0xC018481CU) break;
             return WrapFixedInlIn<GpfifoInlineEntries>(
                 this, &nvhost_gpu::SubmitGPFIFOBase2, input, inline_input,
                 output, fd);
