@@ -41,7 +41,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, D<&IApplicationManagerInterface::ListApplicationRecord>, "ListApplicationRecord"},
-        {1, nullptr, "GenerateApplicationRecordCount"},
+        {1, D<&IApplicationManagerInterface::GenerateApplicationRecordCount>, "GenerateApplicationRecordCount"},
         {2, D<&IApplicationManagerInterface::GetApplicationRecordUpdateSystemEvent>, "GetApplicationRecordUpdateSystemEvent"},
         {3, nullptr, "GetApplicationViewDeprecated"},
         {4, D<&IApplicationManagerInterface::DeleteApplicationEntity>, "DeleteApplicationEntity"},
@@ -204,7 +204,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {800, nullptr, "RequestVersionList"},
         {801, nullptr, "ListVersionList"},
         {802, nullptr, "RequestVersionListData"},
-        {900, nullptr, "GetApplicationRecord"},
+        {900, D<&IApplicationManagerInterface::GetApplicationRecord>, "GetApplicationRecord"},
         {901, nullptr, "GetApplicationRecordProperty"},
         {902, nullptr, "EnableApplicationAutoUpdate"},
         {903, nullptr, "DisableApplicationAutoUpdate"},
@@ -214,7 +214,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {907, nullptr, "WithdrawApplicationUpdateRequest"},
         {908, nullptr, "ListApplicationRecordInstalledContentMeta"},
         {909, nullptr, "WithdrawCleanupAddOnContentsWithNoRightsRecommendation"},
-        {910, nullptr, "HasApplicationRecord"},
+        {910, D<&IApplicationManagerInterface::HasApplicationRecord>, "HasApplicationRecord"},
         {911, nullptr, "SetPreInstalledApplication"},
         {912, nullptr, "ClearPreInstalledApplicationFlag"},
         {913, nullptr, "ListAllApplicationRecord"},
@@ -625,6 +625,51 @@ Result IApplicationManagerInterface::ListApplicationRecord(
     }
 
     *out_count = static_cast<s32>(i);
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::GenerateApplicationRecordCount(Out<s32> out_count) {
+    LOG_DEBUG(Service_NS, "called");
+    const auto& cache = system.GetContentProviderUnion();
+    const auto installed_games = cache.ListEntriesFilterOrigin(
+        std::nullopt, FileSys::TitleType::Application, FileSys::ContentRecordType::Program);
+
+    s32 count = 0;
+    for (const auto& [slot, game] : installed_games) {
+        if (game.title_id == 0 || game.title_id < 0x0100000000001FFFull) {
+            continue;
+        }
+        if ((game.title_id & 0xFFF) != 0) {
+            continue;
+        }
+        ++count;
+    }
+
+    *out_count = count;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::GetApplicationRecord(Out<ApplicationRecord> out_record,
+                                                          u64 application_id) {
+    LOG_DEBUG(Service_NS, "called, application_id={:016X}", application_id);
+    const auto& cache = system.GetContentProviderUnion();
+
+    ApplicationRecord record{};
+    record.application_id = application_id;
+    record.last_event = cache.HasEntry(application_id, FileSys::ContentRecordType::Program)
+                            ? ApplicationEvent::Installed
+                            : ApplicationEvent::Archived;
+    record.attributes = 0;
+    record.last_updated = Core::LaunchTimestampCache::GetLaunchTimestamp(application_id);
+    *out_record = record;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::HasApplicationRecord(Out<bool> out_has_record,
+                                                          u64 application_id) {
+    LOG_DEBUG(Service_NS, "called, application_id={:016X}", application_id);
+    *out_has_record =
+        system.GetContentProviderUnion().HasEntry(application_id, FileSys::ContentRecordType::Program);
     R_SUCCEED();
 }
 
