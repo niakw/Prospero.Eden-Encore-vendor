@@ -802,7 +802,7 @@ void IHidSystemServer::AcquireJoyDetachOnBluetoothOffEventHandle(HLERequestConte
 void IHidSystemServer::IsUsbFullKeyControllerEnabled(HLERequestContext& ctx) {
     const bool is_enabled = false;
 
-    LOG_WARNING(Service_HID, "(STUBBED) called, is_enabled={}", is_enabled);
+    LOG_DEBUG(Service_HID, "called, is_enabled={}; USB full-key backend is not modeled", is_enabled);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
@@ -813,7 +813,7 @@ void IHidSystemServer::EnableUsbFullKeyController(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const auto is_enabled{rp.Pop<bool>()};
 
-    LOG_WARNING(Service_HID, "(STUBBED) called, is_enabled={}", is_enabled);
+    LOG_DEBUG(Service_HID, "called, is_enabled={}; USB full-key backend is not modeled", is_enabled);
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
@@ -822,8 +822,9 @@ void IHidSystemServer::EnableUsbFullKeyController(HLERequestContext& ctx) {
 void IHidSystemServer::IsHandheldButtonPressedOnConsoleMode(HLERequestContext& ctx) {
     const bool button_pressed = false;
 
-    LOG_DEBUG(Service_HID, "(STUBBED) called, is_enabled={}",
-              button_pressed); // Spams a lot when controller applet is open
+    LOG_DEBUG(Service_HID,
+              "called, button_pressed={}; no physical handheld-console button is exposed",
+              button_pressed);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
@@ -831,42 +832,42 @@ void IHidSystemServer::IsHandheldButtonPressedOnConsoleMode(HLERequestContext& c
 }
 
 void IHidSystemServer::InitializeFirmwareUpdate(HLERequestContext& ctx) {
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    LOG_DEBUG(Service_HID, "called; controller firmware update is not modeled");
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
 }
 
 void IHidSystemServer::CheckFirmwareUpdateRequired(HLERequestContext& ctx) {
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    LOG_DEBUG(Service_HID, "called; controller firmware update is not modeled");
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
 }
 
 void IHidSystemServer::SetFirmwareHotfixUpdateSkipEnabled(HLERequestContext& ctx) {
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    LOG_DEBUG(Service_HID, "called; controller firmware update is not modeled");
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
 }
 
 void IHidSystemServer::InitializeUsbFirmwareUpdate(HLERequestContext& ctx) {
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    LOG_DEBUG(Service_HID, "called; controller firmware update is not modeled");
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
 }
 
 void IHidSystemServer::FinalizeUsbFirmwareUpdate(HLERequestContext& ctx) {
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    LOG_DEBUG(Service_HID, "called; controller firmware update is not modeled");
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
 }
 
 void IHidSystemServer::CheckUsbFirmwareUpdateRequired(HLERequestContext& ctx) {
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    LOG_DEBUG(Service_HID, "called; controller firmware update is not modeled");
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);

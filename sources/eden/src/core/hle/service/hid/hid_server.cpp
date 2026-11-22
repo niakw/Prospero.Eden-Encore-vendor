@@ -1184,7 +1184,7 @@ Result IHidServer::ResetSevenSixAxisSensorTimestamp(ClientAppletResourceUserId a
 
 Result IHidServer::IsUsbFullKeyControllerEnabled(Out<bool> out_is_enabled,
                                                  ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    LOG_DEBUG(Service_HID, "called; USB full-key controller backend is not modeled");
 
     *out_is_enabled = false;
     R_SUCCEED();
@@ -1435,7 +1435,7 @@ Result IHidServer::SetNpadCommunicationMode(ClientAppletResourceUserId aruid,
     LOG_DEBUG(Service_HID, "called, applet_resource_user_id={}, communication_mode={}", aruid.pid,
               communication_mode);
 
-    // This function has been stubbed since 2.0.0+
+    // Horizon itself treats this command as a no-op from 2.0.0 onward.
     R_SUCCEED();
 }
 
@@ -1443,7 +1443,7 @@ Result IHidServer::GetNpadCommunicationMode(Out<NpadCommunicationMode> out_commu
                                             ClientAppletResourceUserId aruid) {
     LOG_DEBUG(Service_HID, "called, applet_resource_user_id={}", aruid.pid);
 
-    // This function has been stubbed since 2.0.0+
+    // Horizon itself returns the default mode from this no-op command since 2.0.0.
     *out_communication_mode = NpadCommunicationMode::Default;
     R_SUCCEED();
 }
@@ -1465,8 +1465,9 @@ Result IHidServer::SetTouchScreenConfiguration(
 Result IHidServer::IsFirmwareUpdateNeededForNotification(Out<bool> out_is_firmware_update_needed,
                                                          s32 unknown,
                                                          ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_HID, "(STUBBED) called, unknown={}, applet_resource_user_id={}", unknown,
-                aruid.pid);
+    LOG_DEBUG(Service_HID,
+              "called, unknown={}, applet_resource_user_id={}; controller firmware updater is not modeled",
+              unknown, aruid.pid);
 
     *out_is_firmware_update_needed = false;
     R_SUCCEED();
