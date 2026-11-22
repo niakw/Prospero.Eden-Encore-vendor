@@ -1833,10 +1833,12 @@ void IGraphicsSupervisor::InitializeFeatureContext(HLERequestContext& ctx) {
 }
 
 void IGraphicsSupervisor::OpenCameraSession(HLERequestContext& ctx) {
-    // 602: no input, one MOVE CameraSession. Never serialize the MOVE handle
-    // under a COPY descriptor; never publish a null handle on OOM.
+    // Lichii/SDK observation: 602 carries u64 camera-context version 1 and
+    // returns one MOVE CameraSession. Never serialize it as COPY or accept
+    // a guessed zero-input shape.
     const auto* packet = ctx.CommandBuffer();
-    if (packet[0] != 16 + 602 || packet[1] != 0) {
+    const u64 version = u64{packet[2]} | (u64{packet[3]} << 32);
+    if (packet[0] != 16 + 602 || packet[1] != 2 || version != 1) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(Kernel::ResultInvalidCombination.raw);
         return;
