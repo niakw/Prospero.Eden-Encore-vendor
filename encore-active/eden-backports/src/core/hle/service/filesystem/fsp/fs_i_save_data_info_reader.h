@@ -16,6 +16,8 @@ class SaveDataController;
 class ISaveDataInfoReader final : public ServiceFramework<ISaveDataInfoReader> {
 public:
     explicit ISaveDataInfoReader(Core::System& system_,
+                                 std::shared_ptr<SaveDataController> save_data_controller_);
+    explicit ISaveDataInfoReader(Core::System& system_,
                                  std::shared_ptr<SaveDataController> save_data_controller_,
                                  FileSys::SaveDataSpaceId space, bool cache_only = false,
                                  u64 cache_program_id = 0);

@@ -75,6 +75,7 @@ private:
     Result OpenReadOnlySaveDataFileSystem(OutInterface<IFileSystem> out_interface,
                                           FileSys::SaveDataSpaceId space_id,
                                           FileSys::SaveDataAttribute attribute);
+    Result OpenSaveDataInfoReader(OutInterface<ISaveDataInfoReader> out_interface);
     Result OpenSaveDataInfoReaderBySaveDataSpaceId(OutInterface<ISaveDataInfoReader> out_interface,
                                                    FileSys::SaveDataSpaceId space);
     Result OpenSaveDataInfoReaderOnlyCacheStorage(OutInterface<ISaveDataInfoReader> out_interface);

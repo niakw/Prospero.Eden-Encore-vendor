@@ -12,6 +12,23 @@
 
 namespace Service::FileSystem {
 
+ISaveDataInfoReader::ISaveDataInfoReader(
+    Core::System& system_, std::shared_ptr<SaveDataController> save_data_controller_)
+    : ServiceFramework{system_, "ISaveDataInfoReader"},
+      save_data_controller{std::move(save_data_controller_)} {
+    static const FunctionInfo functions[] = {
+        {0, D<&ISaveDataInfoReader::ReadSaveDataInfo>, "ReadSaveDataInfo"},
+    };
+    RegisterHandlers(functions);
+
+    // Encore currently has three distinct backing save-data spaces. SdUser is
+    // collapsed onto User by SaveDataFactory, while SdSystem/ProperSystem/SafeMode
+    // have no backing path and must not be probed (their factory path asserts).
+    FindAllSaves(FileSys::SaveDataSpaceId::System);
+    FindAllSaves(FileSys::SaveDataSpaceId::User);
+    FindAllSaves(FileSys::SaveDataSpaceId::Temporary);
+}
+
 ISaveDataInfoReader::ISaveDataInfoReader(Core::System& system_,
                                          std::shared_ptr<SaveDataController> save_data_controller_,
                                          FileSys::SaveDataSpaceId space, bool cache_only,

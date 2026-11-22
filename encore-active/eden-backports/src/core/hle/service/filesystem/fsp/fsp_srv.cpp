@@ -129,7 +129,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {57, D<&FSP_SRV::ReadSaveDataFileSystemExtraDataBySaveDataSpaceId>, "ReadSaveDataFileSystemExtraDataBySaveDataSpaceId"},
         {58, D<&FSP_SRV::ReadSaveDataFileSystemExtraData>, "ReadSaveDataFileSystemExtraData"},
         {59, D<&FSP_SRV::WriteSaveDataFileSystemExtraData>, "WriteSaveDataFileSystemExtraData"},
-        {60, nullptr, "OpenSaveDataInfoReader"},
+        {60, D<&FSP_SRV::OpenSaveDataInfoReader>, "OpenSaveDataInfoReader"},
         {61, D<&FSP_SRV::OpenSaveDataInfoReaderBySaveDataSpaceId>, "OpenSaveDataInfoReaderBySaveDataSpaceId"},
         {62, D<&FSP_SRV::OpenSaveDataInfoReaderOnlyCacheStorage>, "OpenSaveDataInfoReaderOnlyCacheStorage"},
         {64, nullptr, "OpenSaveDataInternalStorageFileSystem"},
@@ -427,6 +427,12 @@ Result FSP_SRV::OpenReadOnlySaveDataFileSystem(OutInterface<IFileSystem> out_int
 
     *out_interface = std::make_shared<IFileSystem>(
         system, std::move(dir), SizeGetter::FromStorageId(fsc, id), true);
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenSaveDataInfoReader(OutInterface<ISaveDataInfoReader> out_interface) {
+    LOG_DEBUG(Service_FS, "called; enumerating all save-data spaces represented by Encore");
+    *out_interface = std::make_shared<ISaveDataInfoReader>(system, save_data_controller);
     R_SUCCEED();
 }
 
