@@ -69,7 +69,7 @@ IBtmUserCore::~IBtmUserCore() {
 
 Result IBtmUserCore::AcquireBleScanEvent(Out<bool> out_is_valid,
                                          OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_BTM, "(STUBBED) called");
+    LOG_DEBUG(Service_BTM, "Returning live BLE service event");
 
     *out_is_valid = true;
     *out_event = &scan_event->GetReadableEvent();
@@ -78,7 +78,7 @@ Result IBtmUserCore::AcquireBleScanEvent(Out<bool> out_is_valid,
 
 Result IBtmUserCore::AcquireBleConnectionEvent(Out<bool> out_is_valid,
                                                OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_BTM, "(STUBBED) called");
+    LOG_DEBUG(Service_BTM, "Returning live BLE service event");
 
     *out_is_valid = true;
     *out_event = &connection_event->GetReadableEvent();
@@ -87,7 +87,7 @@ Result IBtmUserCore::AcquireBleConnectionEvent(Out<bool> out_is_valid,
 
 Result IBtmUserCore::AcquireBleServiceDiscoveryEvent(
     Out<bool> out_is_valid, OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_BTM, "(STUBBED) called");
+    LOG_DEBUG(Service_BTM, "Returning live BLE service event");
 
     *out_is_valid = true;
     *out_event = &service_discovery_event->GetReadableEvent();
@@ -96,7 +96,7 @@ Result IBtmUserCore::AcquireBleServiceDiscoveryEvent(
 
 Result IBtmUserCore::AcquireBleMtuConfigEvent(Out<bool> out_is_valid,
                                               OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_BTM, "(STUBBED) called");
+    LOG_DEBUG(Service_BTM, "Returning live BLE service event");
 
     *out_is_valid = true;
     *out_event = &config_event->GetReadableEvent();

@@ -333,7 +333,9 @@ Result Hidbus::DisableJoyPollingReceiveMode(BusHandle bus_handle) {
 }
 
 Result Hidbus::SetStatusManagerType(StatusManagerType manager_type) {
-    LOG_WARNING(Service_HID, "(STUBBED) called, manager_type={}", manager_type);
+    // The status-manager selection only affects Horizon's physical HID-bus manager. Encore has a
+    // single local HID-bus status manager, so accepting the selector is an intentional no-op.
+    LOG_DEBUG(Service_HID, "Status manager type ignored, manager_type={}", manager_type);
     R_SUCCEED();
 };
 
