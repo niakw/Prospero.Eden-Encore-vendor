@@ -195,8 +195,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {77, C<&ISystemSettingsServer::GetDeviceNickName>, "GetDeviceNickName"},
         {78, C<&ISystemSettingsServer::SetDeviceNickName>, "SetDeviceNickName"},
         {79, C<&ISystemSettingsServer::GetProductModel>, "GetProductModel"},
-        {80, nullptr, "GetLdnChannel"},
-        {81, nullptr, "SetLdnChannel"},
+        {80, C<&ISystemSettingsServer::GetLdnChannel>, "GetLdnChannel"},
+        {81, C<&ISystemSettingsServer::SetLdnChannel>, "SetLdnChannel"},
         {82, nullptr, "AcquireTelemetryDirtyFlagEventHandle"},
         {83, nullptr, "GetTelemetryDirtyFlags"},
         {84, nullptr, "GetPtmBatteryLot"},
@@ -216,24 +216,24 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {98, nullptr, "SetNxControllerSettings"},
         {99, C<&ISystemSettingsServer::GetBatteryPercentageFlag>, "GetBatteryPercentageFlag"},
         {100, C<&ISystemSettingsServer::SetBatteryPercentageFlag>, "SetBatteryPercentageFlag"},
-        {101, nullptr, "GetExternalRtcResetFlag"},
-        {102, nullptr, "SetExternalRtcResetFlag"},
-        {103, nullptr, "GetUsbFullKeyEnableFlag"},
-        {104, nullptr, "SetUsbFullKeyEnableFlag"},
+        {101, C<&ISystemSettingsServer::GetExternalRtcResetFlag>, "GetExternalRtcResetFlag"},
+        {102, C<&ISystemSettingsServer::SetExternalRtcResetFlag>, "SetExternalRtcResetFlag"},
+        {103, C<&ISystemSettingsServer::GetUsbFullKeyEnableFlag>, "GetUsbFullKeyEnableFlag"},
+        {104, C<&ISystemSettingsServer::SetUsbFullKeyEnableFlag>, "SetUsbFullKeyEnableFlag"},
         {105, C<&ISystemSettingsServer::SetExternalSteadyClockInternalOffset>, "SetExternalSteadyClockInternalOffset"},
         {106, C<&ISystemSettingsServer::GetExternalSteadyClockInternalOffset>, "GetExternalSteadyClockInternalOffset"},
         {107, nullptr, "GetBacklightSettingsEx"},
         {108, nullptr, "SetBacklightSettingsEx"},
-        {109, nullptr, "GetHeadphoneVolumeWarningCount"},
-        {110, nullptr, "SetHeadphoneVolumeWarningCount"},
-        {111, nullptr, "GetBluetoothAfhEnableFlag"},
-        {112, nullptr, "SetBluetoothAfhEnableFlag"},
-        {113, nullptr, "GetBluetoothBoostEnableFlag"},
-        {114, nullptr, "SetBluetoothBoostEnableFlag"},
+        {109, C<&ISystemSettingsServer::GetHeadphoneVolumeWarningCount>, "GetHeadphoneVolumeWarningCount"},
+        {110, C<&ISystemSettingsServer::SetHeadphoneVolumeWarningCount>, "SetHeadphoneVolumeWarningCount"},
+        {111, C<&ISystemSettingsServer::GetBluetoothAfhEnableFlag>, "GetBluetoothAfhEnableFlag"},
+        {112, C<&ISystemSettingsServer::SetBluetoothAfhEnableFlag>, "SetBluetoothAfhEnableFlag"},
+        {113, C<&ISystemSettingsServer::GetBluetoothBoostEnableFlag>, "GetBluetoothBoostEnableFlag"},
+        {114, C<&ISystemSettingsServer::SetBluetoothBoostEnableFlag>, "SetBluetoothBoostEnableFlag"},
         {115, nullptr, "GetInRepairProcessEnableFlag"},
         {116, nullptr, "SetInRepairProcessEnableFlag"},
-        {117, nullptr, "GetHeadphoneVolumeUpdateFlag"},
-        {118, nullptr, "SetHeadphoneVolumeUpdateFlag"},
+        {117, C<&ISystemSettingsServer::GetHeadphoneVolumeUpdateFlag>, "GetHeadphoneVolumeUpdateFlag"},
+        {118, C<&ISystemSettingsServer::SetHeadphoneVolumeUpdateFlag>, "SetHeadphoneVolumeUpdateFlag"},
         {119, nullptr, "NeedsToUpdateHeadphoneVolume"},
         {120, C<&ISystemSettingsServer::GetPushNotificationActivityModeOnSleep>, "GetPushNotificationActivityModeOnSleep"},
         {121, C<&ISystemSettingsServer::SetPushNotificationActivityModeOnSleep>, "SetPushNotificationActivityModeOnSleep"},
@@ -271,8 +271,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {153, C<&ISystemSettingsServer::SetUserSystemClockAutomaticCorrectionUpdatedTime>, "SetUserSystemClockAutomaticCorrectionUpdatedTime"},
         {154, nullptr, "GetAccountOnlineStorageSettings"},
         {155, nullptr, "SetAccountOnlineStorageSettings"},
-        {156, nullptr, "GetPctlReadyFlag"},
-        {157, nullptr, "SetPctlReadyFlag"},
+        {156, C<&ISystemSettingsServer::GetPctlReadyFlag>, "GetPctlReadyFlag"},
+        {157, C<&ISystemSettingsServer::SetPctlReadyFlag>, "SetPctlReadyFlag"},
         {158, nullptr, "GetAnalogStickUserCalibrationL"},
         {159, nullptr, "SetAnalogStickUserCalibrationL"},
         {160, nullptr, "GetAnalogStickUserCalibrationR"},
@@ -1095,6 +1095,110 @@ Result ISystemSettingsServer::GetAutomaticApplicationDownloadFlag(Out<bool> out_
 Result ISystemSettingsServer::SetAutomaticApplicationDownloadFlag(bool flag) {
     LOG_INFO(Service_SET, "called {}", flag);
     m_system_settings.automatic_application_download_flag = flag;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetLdnChannel(Out<s32> out_value) {
+    LOG_DEBUG(Service_SET, "GetLdnChannel called");
+    *out_value = m_system_settings.ldn_channel;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetLdnChannel(s32 value) {
+    LOG_DEBUG(Service_SET, "SetLdnChannel called");
+    m_system_settings.ldn_channel = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetExternalRtcResetFlag(Out<bool> out_value) {
+    LOG_DEBUG(Service_SET, "GetExternalRtcResetFlag called");
+    *out_value = m_system_settings.external_rtc_reset_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetExternalRtcResetFlag(bool value) {
+    LOG_DEBUG(Service_SET, "SetExternalRtcResetFlag called");
+    m_system_settings.external_rtc_reset_flag = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetUsbFullKeyEnableFlag(Out<bool> out_value) {
+    LOG_DEBUG(Service_SET, "GetUsbFullKeyEnableFlag called");
+    *out_value = m_system_settings.usb_full_key_enable_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetUsbFullKeyEnableFlag(bool value) {
+    LOG_DEBUG(Service_SET, "SetUsbFullKeyEnableFlag called");
+    m_system_settings.usb_full_key_enable_flag = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetHeadphoneVolumeWarningCount(Out<s32> out_value) {
+    LOG_DEBUG(Service_SET, "GetHeadphoneVolumeWarningCount called");
+    *out_value = m_system_settings.headphone_volume_warning_count;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetHeadphoneVolumeWarningCount(s32 value) {
+    LOG_DEBUG(Service_SET, "SetHeadphoneVolumeWarningCount called");
+    m_system_settings.headphone_volume_warning_count = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetBluetoothAfhEnableFlag(Out<bool> out_value) {
+    LOG_DEBUG(Service_SET, "GetBluetoothAfhEnableFlag called");
+    *out_value = m_system_settings.bluetooth_afh_enable_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetBluetoothAfhEnableFlag(bool value) {
+    LOG_DEBUG(Service_SET, "SetBluetoothAfhEnableFlag called");
+    m_system_settings.bluetooth_afh_enable_flag = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetBluetoothBoostEnableFlag(Out<bool> out_value) {
+    LOG_DEBUG(Service_SET, "GetBluetoothBoostEnableFlag called");
+    *out_value = m_system_settings.bluetooth_boost_enable_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetBluetoothBoostEnableFlag(bool value) {
+    LOG_DEBUG(Service_SET, "SetBluetoothBoostEnableFlag called");
+    m_system_settings.bluetooth_boost_enable_flag = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetHeadphoneVolumeUpdateFlag(Out<bool> out_value) {
+    LOG_DEBUG(Service_SET, "GetHeadphoneVolumeUpdateFlag called");
+    *out_value = m_system_settings.heaphone_volume_update_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetHeadphoneVolumeUpdateFlag(bool value) {
+    LOG_DEBUG(Service_SET, "SetHeadphoneVolumeUpdateFlag called");
+    m_system_settings.heaphone_volume_update_flag = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetPctlReadyFlag(Out<bool> out_value) {
+    LOG_DEBUG(Service_SET, "GetPctlReadyFlag called");
+    *out_value = m_system_settings.pctl_ready_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetPctlReadyFlag(bool value) {
+    LOG_DEBUG(Service_SET, "SetPctlReadyFlag called");
+    m_system_settings.pctl_ready_flag = value;
     SetSaveNeeded();
     R_SUCCEED();
 }
