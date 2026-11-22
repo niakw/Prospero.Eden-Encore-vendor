@@ -244,6 +244,7 @@ constexpr Result ResultNetworkCommunicationDisabled{ErrorModule::NIFM, 1111};
 
 static std::mutex g_scan_mtx;
 static std::vector<Network::ScanData> g_last_scan_results;
+static std::atomic<u32> g_accepted_foreground_requests{0};
 static std::mutex g_profile_mtx;
 static std::optional<PendingProfile> g_pending_profile;
 
@@ -395,6 +396,12 @@ public:
     }
 
     ~IRequest() override {
+        {
+            std::scoped_lock lk{state_lock};
+            if (state == RequestState::Accepted) {
+                g_accepted_foreground_requests.fetch_sub(1, std::memory_order_relaxed);
+            }
+        }
         service_context.CloseEvent(event1);
         service_context.CloseEvent(event2);
     }
@@ -530,6 +537,17 @@ private:
 
     void UpdateState(RequestState new_state) {
         LOG_DEBUG(Service_NIFM, "state {} -> {}", state, new_state);
+
+        const bool was_accepted = state == RequestState::Accepted;
+        const bool is_accepted = new_state == RequestState::Accepted;
+        if (was_accepted != is_accepted) {
+            if (is_accepted) {
+                g_accepted_foreground_requests.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                g_accepted_foreground_requests.fetch_sub(1, std::memory_order_relaxed);
+            }
+        }
+
         state = new_state;
         event1->Signal(system.Kernel());
     }
@@ -1065,9 +1083,10 @@ void IGeneralService::IsAnyInternetRequestAccepted(HLERequestContext& ctx) {
 }
 
 void IGeneralService::IsAnyForegroundRequestAccepted(HLERequestContext& ctx) {
-    const bool is_accepted{};
+    const bool is_accepted =
+        g_accepted_foreground_requests.load(std::memory_order_relaxed) != 0;
 
-    LOG_WARNING(Service_NIFM, "(STUBBED) called, is_accepted={}", is_accepted);
+    LOG_DEBUG(Service_NIFM, "called, is_accepted={}", is_accepted);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
