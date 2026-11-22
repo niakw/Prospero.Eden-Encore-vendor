@@ -363,8 +363,9 @@ for token in ("channel->process != tsg->process",
 legacy_count=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_submission.h").read_text()
 assert "constexpr bool ValidNativeGpfifoLegacyAllocationCount(" in legacy_count
 assert "entries != 0 && entries <= (1U << 28)" in legacy_count
-# Recent Lichii/upstream GPFIFO hot-path optimization: only the three
-# native GPU submit wrappers opt into 512 inline headers. All other NVDRV
+# Recent Lichii/upstream GPFIFO hot-path optimization: the five native
+# GPU submit dispatch routes (ordinary/kickoff plus S2 retry aliases) opt into
+# 512 inline headers. All other NVDRV
 # wrappers keep InputCapacity=0, while the copied CommandList avoids a
 # redundant zero fill before every header is overwritten.
 for token in ("using IoctlInputBuffer = std::conditional_t<",
@@ -376,11 +377,13 @@ for token in ("using IoctlInputBuffer = std::conditional_t<",
               "WrapGeneric<FixedArg, Null, InlInVarArg, Null, InputCapacity>"):
     assert token in ioctl_serialization,token
 assert "constexpr size_t GpfifoInlineEntries = 512;" in nvhost_cpp
-assert nvhost_cpp.count("WrapFixedVariable<GpfifoInlineEntries>(") == 2
-assert nvhost_cpp.count("WrapFixedInlIn<GpfifoInlineEntries>(") == 1
+assert nvhost_cpp.count("WrapFixedVariable<GpfifoInlineEntries>(") == 3
+assert nvhost_cpp.count("WrapFixedInlIn<GpfifoInlineEntries>(") == 2
 assert nvhost_cpp.count(
     "entries.command_lists.resize(params.num_entries, boost::container::default_init);"
 ) == 2
+for retry_opcode in ("0xC0004819U", "0xC018481CU"):
+    assert retry_opcode in nvhost_cpp, retry_opcode
 
 # Ampere setup-bind itself makes the channel runnable:
 # nvgpu_channel_setup_bind -> ga10b_channel_bind -> nvgpu_channel_enable.
