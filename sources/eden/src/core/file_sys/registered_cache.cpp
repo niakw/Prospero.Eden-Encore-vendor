@@ -457,6 +457,22 @@ std::optional<std::array<u8, 0x10>> PlaceholderCache::GetRightsID(const NcaID& i
     return rights_id;
 }
 
+std::optional<std::pair<NcaID, u8>> PlaceholderCache::GetRightsIDWithKeyGeneration(
+    const NcaID& id) const {
+    const auto path = GetRelativePathFromNcaID(id, false, true, false);
+    const auto file = dir->GetFileRelative(path);
+    if (file == nullptr) {
+        return std::nullopt;
+    }
+
+    NCA nca{file};
+    if (nca.GetStatus() != Loader::ResultStatus::Success &&
+        nca.GetStatus() != Loader::ResultStatus::ErrorMissingBKTRBaseRomFS) {
+        return std::nullopt;
+    }
+    return std::pair{NcaID{nca.GetRightsId()}, nca.GetKeyGeneration()};
+}
+
 u64 PlaceholderCache::Size(const NcaID& id) const {
     const auto path = GetRelativePathFromNcaID(id, false, true, false);
     const auto file = dir->GetFileRelative(path);

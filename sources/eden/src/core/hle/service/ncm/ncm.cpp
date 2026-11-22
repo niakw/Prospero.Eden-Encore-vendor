@@ -401,19 +401,17 @@ private:
         [[maybe_unused]] const auto attr = rp.Pop<u8>();
         auto* const placeholder_cache =
             system.GetFileSystemController().GetPlaceholderCacheForStorage(storage);
-        const auto rights_id = placeholder_cache != nullptr
-                                   ? placeholder_cache->GetRightsID(placeholder_id)
-                                   : std::optional<FileSys::NcaID>{};
+        const auto rights = placeholder_cache != nullptr
+                                ? placeholder_cache->GetRightsIDWithKeyGeneration(placeholder_id)
+                                : std::optional<std::pair<FileSys::NcaID, u8>>{};
 
-        // PlaceholderCache does not preserve key generation yet; keep the known
-        // rights ID and return a zero key generation rather than truncating the
-        // modern HOS 3+ output structure.
         NcmRightsId out{};
-        if (rights_id.has_value()) {
-            out.rights_id = *rights_id;
+        if (rights.has_value()) {
+            out.rights_id = rights->first;
+            out.key_generation = rights->second;
         }
         IPC::ResponseBuilder rb{ctx, 2 + (sizeof(NcmRightsId) + 3) / sizeof(u32)};
-        rb.Push(rights_id.has_value() ? ResultSuccess : ResultUnknown);
+        rb.Push(rights.has_value() ? ResultSuccess : ResultUnknown);
         rb.PushRaw(out);
     }
 

@@ -118,6 +118,7 @@ public:
     bool Register(RegisteredCache* cache, const NcaID& placeholder, const NcaID& install) const;
     bool CleanAll() const;
     std::optional<std::array<u8, 0x10>> GetRightsID(const NcaID& id) const;
+    std::optional<std::pair<NcaID, u8>> GetRightsIDWithKeyGeneration(const NcaID& id) const;
     u64 Size(const NcaID& id) const;
     bool SetSize(const NcaID& id, u64 new_size) const;
     std::vector<NcaID> List() const;
