@@ -32,11 +32,36 @@ def blob(path: Path)->str:
 # validates that helper; retain the FC27 fixed-sampler contract below.
 assert verified_depth_compare_sha(TEX)=="30c9a612a88fa6cd832a40ad0f717b4944db45a1"
 gfx_blob=blob(GFX)
+if gfx_blob=="df36d210d04411b87e1fdad7fbd0689b1e4d3488":
+    selected=GFX.read_text()
+    reverse = (
+        ("    // Maxwell leaves render-target components not written by the fragment shader untouched.\n    // Vulkan otherwise permits undefined values there, which is visible on AMD/RADV.\n    for (size_t rt = 0; rt < Maxwell::NumRenderTargets; ++rt) {\n        color_output_mask |= u32{stage_infos[NUM_STAGES - 1].frag_color_components[rt]}\n                             << (rt * 4);\n    }\n", ""),
+        ("        write_mask &= ColorOutputMask(index);\n", ""),
+    )
+    for newer, earlier in reverse:
+        assert newer in selected, "Unexpected GFX source change"
+        selected=selected.replace(newer, earlier, 1)
+    data=selected.encode("utf-8")
+    previous=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
+    assert previous=="f3c82781675b6979a8be96a333184e048ef57f81", ("Unexpected source predecessor",previous)
+    gfx_blob="f3c82781675b6979a8be96a333184e048ef57f81"
 assert gfx_blob in {"efa8fd4d73c111655fced67fe7dd1e6b7c0178ba","526aa16b22ba3918c29ce85c884d606dcfd185a1","2834a18fe7638749ec83cc8f5feb1fcde6c71a9a",
                     "bae8f3c36fc4e595e9b630ca55cc50496468e173","f3c82781675b6979a8be96a333184e048ef57f81"} 
 cmp_blob=blob(CMP)
 assert cmp_blob in {"7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2","7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600","bb9552866e26e502839eed646be9af6ea0a0db0a"} 
 cache_blob=blob(CACHE)
+if cache_blob=="a0e2a45b9b0f080b739d97abb92e9485a0063f73":
+    selected=CACHE.read_text()
+    reverse = (
+        ("        // Vulkan requires signed/unsigned fragment outputs to match the\n        // attachment's numeric class. Previously this was enabled only on\n        // MoltenVK: native PS5 RADV would emit floats for integer targets,\n        // making color writes poison/undefined (Vulkan shader interfaces).\n        // Keep the existing desktop policy; fix the PS5 renderer's ABI.\n        const bool require_typed_fragment_outputs =\n#ifdef PS5_NATIVE\n            true;\n#else\n            device.IsMoltenVK();\n#endif\n        if (require_typed_fragment_outputs) {", "        if (device.IsMoltenVK()) {"),
+    )
+    for newer, earlier in reverse:
+        assert newer in selected, "Unexpected CACHE source change"
+        selected=selected.replace(newer, earlier, 1)
+    data=selected.encode("utf-8")
+    previous=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
+    assert previous=="cfac496d574010b8121611c8616d38bf7cdcbc41", ("Unexpected source predecessor",previous)
+    cache_blob="cfac496d574010b8121611c8616d38bf7cdcbc41"
 assert cache_blob in {
     "be5d48abd44996502b0829a6e0501d130a151455",
     "e10c4893c03da57dce7f607d3e0af46d62e343f1",
@@ -126,7 +151,21 @@ def method(text,marker):
 
 if gfx_blob in {"bae8f3c36fc4e595e9b630ca55cc50496468e173","f3c82781675b6979a8be96a333184e048ef57f81"}:
     selected_header=GFX_HEADER.read_text()
-    assert blob(GFX_HEADER)=="cc53133dd516e2d1d245326866ab3ce0c852b36b"
+    header_blob=blob(GFX_HEADER)
+    if header_blob=="c1ed0200afd3666056dfe0ef60705015a923dac7":
+        selected=GFX_HEADER.read_text()
+        reverse = (
+            ("    [[nodiscard]] VkColorComponentFlags ColorOutputMask(size_t render_target) const noexcept {\n        return (color_output_mask >> (render_target * 4)) & 0xF;\n    }\n\n    [[nodiscard]] u32 ColorOutputMask() const noexcept {\n        return color_output_mask;\n    }\n\n", ""),
+            ("    u32 color_output_mask{};\n", ""),
+        )
+        for newer, earlier in reverse:
+            assert newer in selected, "Unexpected GFX_HEADER source change"
+            selected=selected.replace(newer, earlier, 1)
+        data=selected.encode("utf-8")
+        previous=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
+        assert previous=="cc53133dd516e2d1d245326866ab3ce0c852b36b", ("Unexpected source predecessor",previous)
+        header_blob="cc53133dd516e2d1d245326866ab3ce0c852b36b"
+    assert header_blob=="cc53133dd516e2d1d245326866ab3ce0c852b36b"
     transition_next=method(selected_header,
         "GraphicsPipeline* Next(const GraphicsPipelineCacheKey& current_key) noexcept")
     transition_add=method(gfx,"void GraphicsPipeline::AddTransition(")
