@@ -50,6 +50,56 @@ inline std::optional<NativeImageRequirements> CalculateNativeImageRequirements(
     return NativeImageRequirements{image_size * count, 4096};
 }
 
+// Feature-image pool requirements used by the common GSV server template
+// (391/691/1291/1691 in Lichii). This is sizing only: it does not create,
+// map or publish an image. Lichii observes preference format 1=RGBA8,
+// 4=RGB10A2 and 5=RGBA16F; MKW camera traces also use 0x38 as a four-byte
+// block-linear format. Unknown formats fail closed instead of guessing Bpp.
+inline std::optional<NativeImageRequirements> CalculateFeatureImageRequirements(
+    std::span<const u32> preference, u32 requested_count) {
+    if (preference.size() != 16) return std::nullopt;
+
+    u64 bytes_per_pixel{};
+    switch (preference[6]) {
+    case 1:    // RGBA8
+    case 4:    // RGB10A2
+    case 0x38: // observed MKW GameChat camera format
+        bytes_per_pixel = 4;
+        break;
+    case 5:    // RGBA16F
+        bytes_per_pixel = 8;
+        break;
+    default:
+        return std::nullopt;
+    }
+
+    const u64 width = (preference[2] & 0xffffU) + 1;
+    const u64 height = (preference[2] >> 16) + 1;
+    const u64 minimum_gobs = (width * bytes_per_pixel + 63) / 64;
+    u32 block_log2 = preference[4];
+    u64 pitch{};
+    if (block_log2 <= 8 && preference[5] >= minimum_gobs &&
+        preference[5] <= 4096) {
+        pitch = u64{preference[5]} * 64;
+    } else {
+        block_log2 = 7;
+        pitch = (width * bytes_per_pixel + 63) & ~u64{63};
+    }
+
+    const u64 block_rows = u64{1} << block_log2;
+    if (height > std::numeric_limits<u64>::max() - (block_rows - 1))
+        return std::nullopt;
+    const u64 aligned_height = (height + block_rows - 1) & ~(block_rows - 1);
+    if (pitch == 0 || aligned_height > std::numeric_limits<u64>::max() / pitch)
+        return std::nullopt;
+    const u64 image_size = pitch * aligned_height;
+    const u64 count = std::max<u64>(requested_count, 1);
+    if (image_size == 0 || image_size > std::numeric_limits<u64>::max() / count)
+        return std::nullopt;
+    const u64 alignment = std::max<u64>(4096, 64 * block_rows);
+    return NativeImageRequirements{image_size * count, alignment};
+}
+
 // 429/430 maintain real NVMap-backed image reference ownership. The ledger
 // does not allocate VkImage, translate shaders or present any guest frame.
 struct NativeImageRecord {

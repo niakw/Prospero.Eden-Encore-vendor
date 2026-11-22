@@ -85,7 +85,7 @@ private:
     void ConfigureNativeWindowImagePool(HLERequestContext& ctx);
     void CalculateNativeImageSize(HLERequestContext& ctx);
     void CalculateNativeImageRequirements(HLERequestContext& ctx);
-    void CalculateChatImagePoolSize(HLERequestContext& ctx);
+    void CalculateFeatureImagePoolRequirements(HLERequestContext& ctx);
     void RegisterGpuAddressSpace(HLERequestContext& ctx);
     // Upstream TIPC 911/912 and 426/427/428: native video pools only.
     void CalculateDecoderImagePoolBuffer(HLERequestContext& ctx);

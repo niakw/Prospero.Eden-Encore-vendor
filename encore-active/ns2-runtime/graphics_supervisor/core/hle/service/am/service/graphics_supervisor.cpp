@@ -1387,7 +1387,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {315, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "CreateNativeWindowAliasImagePool"},
         // SwitchBrew 391 is the 16-word image preference + count size/alignment query.
         // Reuse the validated native layout calculator; unsupported formats fail closed.
-        {391, &IGraphicsSupervisor::CalculateNativeImageRequirements, "CalculateRequiredBufferMemory"},
+        {391, &IGraphicsSupervisor::CalculateFeatureImagePoolRequirements, "CalculateRequiredBufferMemory"},
         {901, &IGraphicsSupervisor::InitializeVideoCodecContext, "InitializeVideoDecoderContext"},
         {1001, &IGraphicsSupervisor::UnavailableVideoEncoder, "CreateVideoEncoderContext"},
         {902, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSession"},
@@ -1408,13 +1408,15 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {427, &IGraphicsSupervisor::UnmapVideoGpuImage, "UnmapNativeGpuImage"},
         {428, &IGraphicsSupervisor::QueryVideoGpuImage, "QueryNativeGpuImage"},
         {435, &IGraphicsSupervisor::CalculateNativeImageSize, "CalculateNativeImageSize"},
-        {1291, &IGraphicsSupervisor::CalculateChatImagePoolSize, "CalculateChatImagePoolSize"},
+        {1291, &IGraphicsSupervisor::CalculateFeatureImagePoolRequirements, "CalculateChatImagePoolSize"},
         {1101, &IGraphicsSupervisor::ConfigureGraphicsFrameContext, "CreateGraphicsFrameContext"},
         {1102, &IGraphicsSupervisor::ConfigureGraphicsFrameContext, "InitializeGraphicsFrameContext"},
         {1111, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameLengthMode"},
         {1112, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameRestartMode"},
         {1113, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameGpuTimesliceMode"},
         {1510, &IGraphicsSupervisor::CalculateNativeImageRequirements, "CalculateRequirements"},
+        // Same feature-image sizing server template as 391/691/1291.
+        {1691, &IGraphicsSupervisor::CalculateFeatureImagePoolRequirements, "CalculateFeatureImagePoolSize"},
         // Known optional SwitchBrew commands without a supported Encore backend.
         // Each ID has an explicit fail-closed TIPC handler; never fake Success.
         {187, &IGraphicsSupervisor::UnavailableDocumentedFeature, "QueryNativeMemoryNvsNvRmMemIdForDebug"},
@@ -1469,7 +1471,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {667, &IGraphicsSupervisor::UnavailableDocumentedFeature, "SetHostDrivenAeRegion"},
         // Camera 691 shares the image-pool requirements query layout; Encore supports only
         // proven chat-camera image formats, and rejects unknown layouts.
-        {691, &IGraphicsSupervisor::CalculateChatImagePoolSize, "CalculateImageArraySize"},
+        {691, &IGraphicsSupervisor::CalculateFeatureImagePoolRequirements, "CalculateImageArraySize"},
         {903, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyVideoDecoderContext"},
         {904, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeVideoDecoderContextForSystem"},
         {921, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeDecoderAliasImagePool"},
@@ -3222,22 +3224,19 @@ void IGraphicsSupervisor::DestroyNativeImage(HLERequestContext& ctx) {
 }
 
 
-void IGraphicsSupervisor::CalculateChatImagePoolSize(HLERequestContext& ctx) {
+void IGraphicsSupervisor::CalculateFeatureImagePoolRequirements(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     const std::span<const u32> preference{packet + 2, 16};
-    const u32 count = packet[18];
-    const auto layout =
-        packet[1] == 17 ? CalculateChatCameraImageLayout(preference, count) : std::nullopt;
-    const Result result = layout ? ResultSuccess : Kernel::ResultInvalidCombination;
+    const auto request = packet[1] == 17
+        ? CalculateFeatureImageRequirements(preference, packet[18])
+        : std::nullopt;
+    const Result result = request ? ResultSuccess : Kernel::ResultInvalidCombination;
     IPC::ResponseBuilder rb{ctx, 6};
     rb.Push(result.raw);
-    rb.Push(layout ? static_cast<u32>(layout->total_bytes) : 0u);
-    rb.Push(layout ? static_cast<u32>(layout->total_bytes >> 32) : 0u);
-    // Keep malformed guest block-height values from reaching a host shift.
-    const u32 block_log2 = preference[4] <= 8 ? preference[4] : 7;
-    const u64 alignment = layout ? std::max<u64>(4096, 64ULL << block_log2) : 0;
-    rb.Push(static_cast<u32>(alignment));
-    rb.Push(static_cast<u32>(alignment >> 32));
+    rb.Push(request ? static_cast<u32>(request->size) : 0u);
+    rb.Push(request ? static_cast<u32>(request->size >> 32) : 0u);
+    rb.Push(request ? static_cast<u32>(request->alignment) : 0u);
+    rb.Push(request ? static_cast<u32>(request->alignment >> 32) : 0u);
 }
 
 static std::optional<NativeImageRequirements> ParseNativeImageRequest(HLERequestContext& ctx) {
