@@ -113,7 +113,7 @@ namespace Service::AM {
     }
 
     Result IOverlayFunctions::SetAutoSleepTimeAndDimmingTimeEnabled(bool enabled) {
-        LOG_WARNING(Service_AM, "(STUBBED) called, enabled={}", enabled);
+        LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
         std::scoped_lock lk{m_applet->lock};
         m_applet->auto_sleep_disabled = !enabled;
         R_SUCCEED();

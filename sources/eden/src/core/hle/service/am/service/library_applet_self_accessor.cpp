@@ -4,13 +4,16 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "core/core.h"
 #include "core/core_timing.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/registered_cache.h"
 #include "core/hle/service/acc/profile_manager.h"
 #include "core/hle/service/am/applet_data_broker.h"
+#include "core/hle/service/am/am_results.h"
 #include "core/hle/service/am/applet_manager.h"
+#include "core/hle/service/am/window_system.h"
 #include "core/hle/service/am/frontend/applets.h"
 #include "core/hle/service/am/service/library_applet_self_accessor.h"
 #include "core/hle/service/am/service/storage.h"
@@ -38,6 +41,14 @@ AppletIdentityInfo GetCallerIdentity(Applet& applet) {
             .application_id = 0x0100000000001000ull,
         };
     }
+}
+
+std::shared_ptr<Applet> GetMainApplet(Core::System& system) {
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    if (window_system == nullptr) {
+        return {};
+    }
+    return window_system->GetMainApplet();
 }
 
 } // namespace
@@ -139,10 +150,13 @@ Result ILibraryAppletSelfAccessor::GetLibraryAppletInfo(
 
 Result ILibraryAppletSelfAccessor::GetMainAppletIdentityInfo(
     Out<AppletIdentityInfo> out_identity_info) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
+    const auto main_applet = GetMainApplet(system);
+    R_UNLESS(main_applet != nullptr, AM::ResultApplicationRecordNotFound);
+
     *out_identity_info = {
-        .applet_id = AppletId::QLaunch,
-        .application_id = 0x0100000000001000ull,
+        .applet_id = main_applet->applet_id,
+        .application_id = main_applet->program_id,
     };
     R_SUCCEED();
 }
@@ -156,13 +170,13 @@ Result ILibraryAppletSelfAccessor::CanUseApplicationCore(Out<bool> out_can_use_a
 
 Result ILibraryAppletSelfAccessor::GetMainAppletApplicationControlProperty(
     OutLargeData<std::array<u8, 0x4000>, BufferAttr_HipcMapAlias> out_nacp) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
-    // TODO: this should be the main applet, not the caller applet
-    const auto application = GetCallerIdentity(*m_applet);
+    const auto main_applet = GetMainApplet(system);
+    R_UNLESS(main_applet != nullptr, AM::ResultApplicationRecordNotFound);
+
     std::vector<u8> nacp;
-    const auto result =
-        system.GetARPManager().GetControlProperty(&nacp, application.application_id);
+    const auto result = system.GetARPManager().GetControlProperty(&nacp, main_applet->program_id);
 
     if (R_SUCCEEDED(result)) {
         std::memcpy(out_nacp->data(), nacp.data(), (std::min)(nacp.size(), out_nacp->size()));
@@ -172,8 +186,29 @@ Result ILibraryAppletSelfAccessor::GetMainAppletApplicationControlProperty(
 }
 
 Result ILibraryAppletSelfAccessor::GetMainAppletStorageId(Out<FileSys::StorageId> out_storage_id) {
-    LOG_INFO(Service_AM, "(STUBBED) called");
-    *out_storage_id = FileSys::StorageId::NandUser;
+    LOG_DEBUG(Service_AM, "called");
+    const auto main_applet = GetMainApplet(system);
+    R_UNLESS(main_applet != nullptr, AM::ResultApplicationRecordNotFound);
+
+    const auto program_id = main_applet->program_id;
+    auto& fsc = system.GetFileSystemController();
+    const auto has_program = [program_id](const auto* cache) {
+        return cache != nullptr &&
+               cache->HasEntry(program_id, FileSys::ContentRecordType::Program);
+    };
+
+    if (has_program(fsc.GetGameCardContents())) {
+        *out_storage_id = FileSys::StorageId::GameCard;
+    } else if (has_program(fsc.GetSDMCContents())) {
+        *out_storage_id = FileSys::StorageId::SdCard;
+    } else if (has_program(fsc.GetUserNANDContents())) {
+        *out_storage_id = FileSys::StorageId::NandUser;
+    } else if (has_program(fsc.GetSystemNANDContents())) {
+        *out_storage_id = FileSys::StorageId::NandSystem;
+    } else {
+        R_THROW(AM::ResultApplicationRecordNotFound);
+    }
+
     R_SUCCEED();
 }
 
@@ -280,12 +315,11 @@ Result ILibraryAppletSelfAccessor::GetMainAppletApplicationDesiredLanguage(
 }
 
 Result ILibraryAppletSelfAccessor::GetCurrentApplicationId(Out<u64> out_application_id) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
+    const auto main_applet = GetMainApplet(system);
+    R_UNLESS(main_applet != nullptr, AM::ResultApplicationRecordNotFound);
 
-    // TODO: this should be the main applet, not the caller applet
-    const auto main_applet = GetCallerIdentity(*m_applet);
-    *out_application_id = main_applet.application_id;
-
+    *out_application_id = main_applet->program_id;
     R_SUCCEED();
 }
 
