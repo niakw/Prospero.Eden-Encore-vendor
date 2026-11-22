@@ -7,6 +7,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <chrono>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <string>
 #include <fmt/ranges.h>
 #include <string_view>
 #include <thread>
@@ -16,9 +20,11 @@
 #include "core/core.h"
 #include "core/hle/ipc.h"
 #include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_event.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/svc_results.h"
 #include "core/hle/service/ipc_helpers.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 #include "core/hle/service/sm/sm.h"
 #include "core/reporter.h"
@@ -91,6 +97,58 @@ ServiceFrameworkBase::ServiceFrameworkBase(Core::System& system_, const char* se
 ServiceFrameworkBase::~ServiceFrameworkBase() {
     // Wait for other threads to release access before destroying
     const auto guard = ServiceFrameworkBase::LockService();
+    if (stub_event) {
+        stub_context->CloseEvent(stub_event);
+    }
+}
+
+namespace {
+constexpr u32 StubZeroedWords = 32;
+void PushStubZeroes(IPC::ResponseBuilder& rb) {
+    for (u32 i = 0; i < StubZeroedWords; ++i) rb.Push<u32>(0);
+}
+// Explicit NS2 AM getters return this placeholder interface instead of
+// an invalid null object; its unknown requests receive zeroed words.
+class INx2PlaceholderInterface final : public ServiceFramework<INx2PlaceholderInterface> {
+public:
+    explicit INx2PlaceholderInterface(Core::System& system, const char* name)
+        : ServiceFramework{system, name} {}
+};
+const char* InternPlaceholderName(std::string_view owner, u32 command) {
+    static std::mutex names_mutex;
+    static std::deque<std::string> names;
+    const auto label = fmt::format("nx2:{}::{}", owner, command);
+    std::scoped_lock lock{names_mutex};
+    for (const auto& name : names) {
+        if (name == label) return name.c_str();
+    }
+    return names.emplace_back(label).c_str();
+}
+} // namespace
+
+void ServiceFrameworkBase::StubReplyZeroed(HLERequestContext& ctx) {
+    LOG_WARNING(Service, "(STUBBED) NS2 {}::{} -> zero reply", service_name, ctx.GetCommand());
+    IPC::ResponseBuilder rb{ctx, 2 + StubZeroedWords};
+    rb.Push(ResultSuccess);
+    PushStubZeroes(rb);
+}
+void ServiceFrameworkBase::StubReplyEvent(HLERequestContext& ctx) {
+    if (!stub_event) {
+        stub_context = std::make_unique<KernelHelpers::ServiceContext>(system, service_name);
+        stub_event = stub_context->CreateEvent(fmt::format("{}:StubEvent", service_name));
+    }
+    LOG_WARNING(Service, "(STUBBED) NS2 {}::{} -> unsignaled event", service_name, ctx.GetCommand());
+    IPC::ResponseBuilder rb{ctx, 2 + StubZeroedWords, 1, 0};
+    rb.Push(ResultSuccess);
+    PushStubZeroes(rb);
+    rb.PushCopyObjects(ctx, stub_event->GetReadableEvent());
+}
+void ServiceFrameworkBase::StubReplyInterface(HLERequestContext& ctx) {
+    const char* name = InternPlaceholderName(service_name, ctx.GetCommand());
+    LOG_WARNING(Service, "(STUBBED) NS2 {}::{} -> interface {}", service_name, ctx.GetCommand(), name);
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(ResultSuccess);
+    rb.PushIpcInterface<INx2PlaceholderInterface>(ctx, system, name);
 }
 
 void ServiceFrameworkBase::RegisterHandlersBase(const FunctionInfoBase* functions, std::size_t n) {
@@ -109,6 +167,12 @@ void ServiceFrameworkBase::RegisterHandlersBaseTipc(const FunctionInfoBase* func
 
 void ServiceFrameworkBase::ReportUnimplementedFunction(HLERequestContext& ctx,
                                                        const FunctionInfoBase* info) {
+    // Only interfaces created by an explicit NS2 stub getter may use
+    // this zero-filled unknown-command fallback; all real services stay closed.
+    if (std::string_view{service_name}.starts_with("nx2:")) {
+        StubReplyZeroed(ctx);
+        return;
+    }
     auto cmd_buf = ctx.CommandBuffer();
     std::string function_name = info == nullptr ? "<unknown>" : info->name;
 
