@@ -24,8 +24,8 @@ EXPECTED={
 CURRENT_ATTRIBUTE_SOURCE={
   "encore-active/eden-shader/src/shader_recompiler/shader_info.h": "b0ec194089a0ec9ebb0ff46461f4607c3a7ba889",
   "encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp": "4301e9dbc19c4e07e7c24af23177cf5fa2142f1a",
-  "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h": "cc53133dd516e2d1d245326866ab3ce0c852b36b",
-  "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp": "f3c82781675b6979a8be96a333184e048ef57f81",
+  "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h": "c1ed0200afd3666056dfe0ef60705015a923dac7",
+  "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp": "df36d210d04411b87e1fdad7fbd0689b1e4d3488",
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h": "6467fd4d704de6b77deb7e6cba4b8e33f70f5a08",
   "encore-active/eden-vulkan/vulkan_rasterizer.cpp": INTEGRATED_RASTERIZER,
 }
@@ -67,8 +67,22 @@ for path,sha in EXPECTED.items():
    assert hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()=="71d097b9a83028dfad9370792c905bb3bfccfd5a"
   if path in BOUNDED_GRAPHICS_REVERSE:
    new_sha, old_sha, new_hunk, old_hunk = BOUNDED_GRAPHICS_REVERSE[path]
-   assert current == new_sha and raw.decode("utf-8").count(new_hunk) == 1
-   prior_text = raw.decode("utf-8").replace(new_hunk, old_hunk, 1)
+   current_text=raw.decode("utf-8")
+   if path.endswith("/vk_graphics_pipeline_cost.cpp"):
+    assert current_text.count("    // Maxwell leaves render-target components not written by the fragment shader untouched.\n    // Vulkan otherwise permits undefined values there, which is visible on AMD/RADV.\n    for (size_t rt = 0; rt < Maxwell::NumRenderTargets; ++rt) {\n        color_output_mask |= u32{stage_infos[NUM_STAGES - 1].frag_color_components[rt]}\n                             << (rt * 4);\n    }\n")==1
+    current_text=current_text.replace("    // Maxwell leaves render-target components not written by the fragment shader untouched.\n    // Vulkan otherwise permits undefined values there, which is visible on AMD/RADV.\n    for (size_t rt = 0; rt < Maxwell::NumRenderTargets; ++rt) {\n        color_output_mask |= u32{stage_infos[NUM_STAGES - 1].frag_color_components[rt]}\n                             << (rt * 4);\n    }\n", "", 1)
+    assert current_text.count("        write_mask &= ColorOutputMask(index);\n")==1
+    current_text=current_text.replace("        write_mask &= ColorOutputMask(index);\n", "", 1)
+   elif path.endswith("/vk_graphics_pipeline.h"):
+    assert current_text.count("    [[nodiscard]] VkColorComponentFlags ColorOutputMask(size_t render_target) const noexcept {\n        return (color_output_mask >> (render_target * 4)) & 0xF;\n    }\n\n    [[nodiscard]] u32 ColorOutputMask() const noexcept {\n        return color_output_mask;\n    }\n\n")==1
+    current_text=current_text.replace("    [[nodiscard]] VkColorComponentFlags ColorOutputMask(size_t render_target) const noexcept {\n        return (color_output_mask >> (render_target * 4)) & 0xF;\n    }\n\n    [[nodiscard]] u32 ColorOutputMask() const noexcept {\n        return color_output_mask;\n    }\n\n", "", 1)
+    assert current_text.count("    u32 color_output_mask{};\n")==1
+    current_text=current_text.replace("    u32 color_output_mask{};\n", "", 1)
+   data=current_text.encode("utf-8")
+   digest=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
+   assert digest==new_sha, ("Integrated color-output ABI mismatch",path,digest,new_sha)
+   assert current_text.count(new_hunk)==1
+   prior_text=current_text.replace(new_hunk,old_hunk,1)
    if path.endswith("/vk_graphics_pipeline_cost.cpp"):
     # Reverse the independent build-task lifetime fix on the audit COPY.
     lifetime_new = ("    // The build callback publishes is_built before it returns. Cache teardown\n"
@@ -84,13 +98,19 @@ for path,sha in EXPECTED.items():
    assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==old_sha, ("FC27 graphics hint predecessor drift", path)
    assert "kNativeTransitionHintLimit = 64" in raw.decode("utf-8") or "next_transition_replacement" in raw.decode("utf-8")
   continue
- if path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path)=="cfac496d574010b8121611c8616d38bf7cdcbc41":
+ if path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path) in {"cfac496d574010b8121611c8616d38bf7cdcbc41","a0e2a45b9b0f080b739d97abb92e9485a0063f73"}:
   # Reviewed newest-32 native prewarm overlay. The complete current shader
   # owner is cryptographically pinned; the engine's Vulkan/R23 audit separately
   # reverses its entire exact LoadDiskResources hunk to the historical blob.
   # This older attribute-handle test should still reject unknown sources,
   # but must not mistake a bounded shader reader change for an ABI change.
   selected=raw.decode("utf-8")
+  if gitblob(ROOT/path)=="a0e2a45b9b0f080b739d97abb92e9485a0063f73":
+   newer="        // Vulkan requires signed/unsigned fragment outputs to match the\n        // attachment's numeric class. Previously this was enabled only on\n        // MoltenVK: native PS5 RADV would emit floats for integer targets,\n        // making color writes poison/undefined (Vulkan shader interfaces).\n        // Keep the existing desktop policy; fix the PS5 renderer's ABI.\n        const bool require_typed_fragment_outputs =\n#ifdef PS5_NATIVE\n            true;\n#else\n            device.IsMoltenVK();\n#endif\n        if (require_typed_fragment_outputs) {"
+   older="        if (device.IsMoltenVK()) {"
+   assert selected.count(newer)==1
+   predecessor=selected.replace(newer,older,1).encode()
+   assert hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()=="cfac496d574010b8121611c8616d38bf7cdcbc41"
   assert "constexpr u32 CACHE_VERSION = 21;" in selected
   assert "kStartupPrewarmPipelines = 32;" in selected
   assert "kRecentShaderCacheScanLimit = 64ULL << 20;" in selected
