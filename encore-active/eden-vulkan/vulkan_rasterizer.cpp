@@ -2380,7 +2380,7 @@ VideoCore::RasterizerDownloadArea RasterizerVulkan::GetFlushArea(DAddr addr, u64
     // never-owned pages remain lock-free, and no two cache locks are nested.
     std::optional<VideoCore::RasterizerDownloadArea> texture_area;
     if (!::Eden::ImagePages::NeverHeld(addr, size)) {
-        ::Eden::Performance::GuestCacheLock texture_wait(texture_cache.mutex, true);
+        ::Eden::Performance::GuestCacheLock(texture_cache.mutex, true);
         std::lock_guard lock{texture_cache.mutex, std::adopt_lock};
         texture_area = texture_cache.GetFlushArea(addr, size);
     }
@@ -2389,7 +2389,7 @@ VideoCore::RasterizerDownloadArea RasterizerVulkan::GetFlushArea(DAddr addr, u64
         return *texture_area;
     }
     if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
-        ::Eden::Performance::GuestCacheLock buffer_wait(buffer_cache.mutex, true);
+        ::Eden::Performance::GuestCacheLock(buffer_cache.mutex, false);
         std::lock_guard lock{buffer_cache.mutex, std::adopt_lock};
         if (buffer_cache.IsRegionGpuModified(
                 clean_area.start_address, clean_area.end_address - clean_area.start_address)) {
