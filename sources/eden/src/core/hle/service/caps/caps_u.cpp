@@ -31,6 +31,12 @@ IAlbumApplicationService::IAlbumApplicationService(Core::System& system_,
         {142, C<&IAlbumApplicationService::GetAlbumFileList3AaeAruid>, "GetAlbumFileList3AaeAruid"},
         {143, nullptr, "GetAlbumFileList4AaeUidAruid"},
         {144, nullptr, "GetAllAlbumFileList3AaeAruid"},
+        // No movie-read stream is created by the PS5 album backend.
+        {2001, nullptr, "OpenAlbumMovieReadStream"},
+        {2002, nullptr, "CloseAlbumMovieReadStream"},
+        {2003, nullptr, "GetAlbumMovieReadStreamMovieDataSize"},
+        {2004, nullptr, "ReadMovieDataFromAlbumMovieReadStream"},
+        {2005, nullptr, "GetAlbumMovieReadStreamBrokenReason"},
         {60002, nullptr, "OpenAccessorSessionForApplication"},
     };
     // clang-format on

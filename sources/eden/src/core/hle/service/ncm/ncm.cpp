@@ -483,7 +483,7 @@ public:
             {10, nullptr, "InactivateContentStorage"},
             {11, nullptr, "ActivateContentMetaDatabase"},
             {12, nullptr, "InactivateContentMetaDatabase"},
-            {13, nullptr, "InvalidateRightsIdCache"},
+            {13, &NCM::InvalidateRightsIdCache, "InvalidateRightsIdCache"},
             {14, nullptr, "GetMemoryReport"},
             {15, nullptr, "ActivateFsContentStorage"},
         };
@@ -493,6 +493,13 @@ public:
     }
 
 private:
+    void InvalidateRightsIdCache(HLERequestContext& ctx) {
+        // PlaceholderCache::GetRightsID reads and parses the NCA on every call.
+        // Encore has no memoized NCM rights-ID cache to invalidate.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
     void OpenContentStorage(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto storage_id = rp.PopEnum<FileSys::StorageId>();
