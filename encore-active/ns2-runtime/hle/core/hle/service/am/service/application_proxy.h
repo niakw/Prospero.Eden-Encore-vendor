@@ -32,6 +32,7 @@ public:
     ~IApplicationProxy();
 
 private:
+    void GetNx2Interface(HLERequestContext& ctx);
     Result GetPerformanceFunctions(Out<SharedPointer<IPerformanceFunctions>> out_functions);
     Result GetAudioController(Out<SharedPointer<IAudioController>> out_audio_controller);
     Result GetDisplayController(Out<SharedPointer<IDisplayController>> out_display_controller);

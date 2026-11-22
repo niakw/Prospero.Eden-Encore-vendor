@@ -15,6 +15,7 @@
 #include "core/hle/service/am/service/self_controller.h"
 #include "core/hle/service/am/service/window_controller.h"
 #include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/nx2_stub_interface.h"
 
 namespace Service::AM {
 
@@ -35,7 +36,11 @@ IApplicationProxy::IApplicationProxy(Core::System& system_, std::shared_ptr<Appl
         {20, D<&IApplicationProxy::GetApplicationFunctions>, "GetApplicationFunctions"},
         // nn::am::service::IPerformanceFunctions is requested at NS2 startup.
         {40, D<&IApplicationProxy::GetPerformanceFunctions>, "GetPerformanceFunctions"},
+        {50, &IApplicationProxy::GetNx2Interface, "Nx2Getter50"},
         {60, D<&IApplicationProxy::GetGraphicsScalingParametersFunctions>, "GetGraphicsScalingParametersFunctions"},
+        {70, &IApplicationProxy::GetNx2Interface, "Nx2Getter70"},
+        {80, &IApplicationProxy::GetNx2Interface, "Nx2Getter80"},
+        {90, &IApplicationProxy::GetNx2Interface, "Nx2Getter90"},
         {1000, D<&IApplicationProxy::GetDebugFunctions>, "GetDebugFunctions"},
     };
     // clang-format on
@@ -44,6 +49,11 @@ IApplicationProxy::IApplicationProxy(Core::System& system_, std::shared_ptr<Appl
 }
 
 IApplicationProxy::~IApplicationProxy() = default;
+   
+void IApplicationProxy::GetNx2Interface(HLERequestContext& ctx) {
+    ReturnNx2StubInterface(system, ctx, "IApplicationProxy");
+}
+
 
 Result IApplicationProxy::GetPerformanceFunctions(
     Out<SharedPointer<IPerformanceFunctions>> out_functions) {

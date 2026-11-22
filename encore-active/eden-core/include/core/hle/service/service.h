@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <mutex>
+#include <memory>
 #include "common/container/unordered_map.h"
 #include "common/common_types.h"
 #include "core/hle/service/hle_ipc.h"
@@ -21,10 +22,15 @@ class System;
 
 namespace Kernel {
 class KServerSession;
+class KEvent;
 class ServiceThread;
 } // namespace Kernel
 
 namespace Service {
+
+namespace KernelHelpers {
+class ServiceContext;
+}
 
 namespace FileSystem {
 class FileSystemController;
@@ -77,6 +83,18 @@ protected:
     [[nodiscard]] virtual std::unique_lock<std::mutex> LockService() noexcept {
         return std::unique_lock{lock_service};
     }
+
+    // Lichii's deliberately-shaped NS2 placeholder replies.
+    // This is not a generic successful handler for NS1/system callers.
+    void StubReplyZeroed(HLERequestContext& ctx);
+    void StubReplyEvent(HLERequestContext& ctx);
+    void StubReplyInterface(HLERequestContext& ctx);
+
+private:
+    bool StubAllowed(HLERequestContext& ctx);
+    Kernel::KEvent* stub_event{};
+    std::unique_ptr<KernelHelpers::ServiceContext> stub_context;
+
 private:
     template <typename T>
     friend class ServiceFramework;
