@@ -83,6 +83,7 @@ ISelfController::ISelfController(Core::System& system_, std::shared_ptr<Applet> 
         {240, D<&ISelfController::Unknown240>, "Unknown240"},
         {1000, nullptr, "GetDebugStorageChannel"},
         {2000, &ISelfController::GetGraphicsSupervisor, "GetGraphicsSupervisor"},
+        {2400, D<&ISelfController::Unknown240>, "Unknown2400"}, // NS2 u32 input, no output
     };
     // clang-format on
 

@@ -11,6 +11,9 @@ old='        {230, D<&ISelfController::Unknown230>, "Unknown230"},'
 new=old+'\n        {240, D<&ISelfController::Unknown240>, "Unknown240"},'
 body='Result ISelfController::Unknown240(u32 in_val) {\n    LOG_WARNING(Service_AM, "(STUBBED) called, in_val={}", in_val);\n\n    R_SUCCEED();\n}\n\n'
 assert s.count(new)==1 and s.count(body)==1
+ns2_2400 = '        {2400, D<&ISelfController::Unknown240>, "Unknown2400"}, // NS2 u32 input, no output'
+assert s.count(ns2_2400)==1
+assert s.index(ns2_2400) > s.index('{2000, &ISelfController::GetGraphicsSupervisor')
 assert h.count("Result Unknown240(u32 in_val);")==1
 assert s.count('{2000, &ISelfController::GetGraphicsSupervisor')==1
 # NS2 SelfController cmd 2000 is the gateway to all GSV GPU sessions.
@@ -39,7 +42,7 @@ assert entry.count("IPC::ResponseBuilder rb{ctx, 2, 1};") == 2
 assert entry.count("rb.PushCopyObjects(ctx, m_graphics_supervisor_session);") == 2
 assert '#include "common/scope_exit.h"' in s and "#include <new>" in s
 
-original=s.replace(new,old,1).replace(body,"",1)
+original=s.replace("\n"+ns2_2400,"",1).replace(new,old,1).replace(body,"",1)
 data=original.encode()
 sha=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
 assert sha=="09c510db1b30362fabff4bf06ff4a3d38fa118fe",sha
