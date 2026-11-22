@@ -55,6 +55,7 @@ private:
     };
     void CreateDecoderService(HLERequestContext& ctx);
     void Initialize(HLERequestContext& ctx);
+    void RejectRemoteMemoryInitialization(HLERequestContext& ctx);
     void Configure(HLERequestContext& ctx);
     void Start(HLERequestContext& ctx);
     void Stop(HLERequestContext& ctx);
