@@ -1177,6 +1177,45 @@ void IGeneralService::GetSsidListVersion(HLERequestContext& ctx) {
 }
 
 
+void IGeneralService::SetExclusiveClient(HLERequestContext& ctx) {
+    const auto buffer = ctx.ReadBuffer();
+    if (buffer.size() < sizeof(u32)) {
+        LOG_ERROR(Service_NIFM, "ClientId input buffer too small: {}", buffer.size());
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultInvalidInput);
+        return;
+    }
+
+    u32 requested_client_id{};
+    std::memcpy(&requested_client_id, buffer.data(), sizeof(requested_client_id));
+    exclusive_client_id.store(requested_client_id, std::memory_order_relaxed);
+
+    LOG_DEBUG(Service_NIFM, "called, client_id={}", requested_client_id);
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void IGeneralService::Shutdown(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_NIFM, "called; no separate NIFM daemon is owned by Encore");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void IGeneralService::SetAcceptableNetworkTypeFlag(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const auto flag = rp.Pop<u32>();
+    acceptable_network_type_flag.store(flag, std::memory_order_relaxed);
+
+    LOG_DEBUG(Service_NIFM, "called, flag={:#x}", flag);
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void IGeneralService::GetAcceptableNetworkTypeFlag(HLERequestContext& ctx) {
+    const auto flag = acceptable_network_type_flag.load(std::memory_order_relaxed);
+
+    LOG_DEBUG(Service_NIFM, "called, flag={:#x}", flag);
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.Push(flag);
+}
+
 void IGeneralService::GetDefaultIpSetting(HLERequestContext& ctx) {
     LOG_DEBUG(Service_NIFM, "called");
 
@@ -1345,7 +1384,7 @@ IGeneralService::IGeneralService(Core::System& system_)
         {23, &IGeneralService::PutToSleep, "PutToSleep"},
         {24, &IGeneralService::WakeUp, "WakeUp"},
         {25, &IGeneralService::GetSsidListVersion, "GetSsidListVersion"},
-        {26, nullptr, "SetExclusiveClient"},
+        {26, &IGeneralService::SetExclusiveClient, "SetExclusiveClient"},
         {27, &IGeneralService::GetDefaultIpSetting, "GetDefaultIpSetting"},
         {28, &IGeneralService::SetDefaultIpSetting, "SetDefaultIpSetting"},
         {29, &IGeneralService::SetWirelessCommunicationEnabled, "SetWirelessCommunicationEnabledForTest"},
@@ -1356,11 +1395,11 @@ IGeneralService::IGeneralService(Core::System& system_)
         {34, &IGeneralService::SetBackgroundRequestEnabled, "SetBackgroundRequestEnabled"}, // 4.0.0+
         {35, &IGeneralService::GetScanDataV2, "GetScanData"},
         {36, &IGeneralService::GetCurrentAccessPoint, "GetCurrentAccessPoint"},
-        {37, nullptr, "Shutdown"},
+        {37, &IGeneralService::Shutdown, "Shutdown"},
         {38, nullptr, "GetAllowedChannels"},
         {39, nullptr, "NotifyApplicationSuspended"},
-        {40, nullptr, "SetAcceptableNetworkTypeFlag"},
-        {41, nullptr, "GetAcceptableNetworkTypeFlag"},
+        {40, &IGeneralService::SetAcceptableNetworkTypeFlag, "SetAcceptableNetworkTypeFlag"},
+        {41, &IGeneralService::GetAcceptableNetworkTypeFlag, "GetAcceptableNetworkTypeFlag"},
         {42, nullptr, "NotifyConnectionStateChanged"},
         {43, nullptr, "SetWowlDelayedWakeTime"},
         {44, &IGeneralService::IsWiredConnectionAvailable, "IsWiredConnectionAvailable"}, // 18.0.0+

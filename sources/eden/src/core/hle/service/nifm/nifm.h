@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -49,6 +51,7 @@ private:
     void PutToSleep(HLERequestContext& ctx);
     void WakeUp(HLERequestContext& ctx);
     void GetSsidListVersion(HLERequestContext& ctx);
+    void SetExclusiveClient(HLERequestContext& ctx);
     void GetDefaultIpSetting(HLERequestContext& ctx);
     void SetDefaultIpSetting(HLERequestContext& ctx);
     void GetScanDataV2(HLERequestContext& ctx);
@@ -56,9 +59,14 @@ private:
     void SetBackgroundRequestEnabled(HLERequestContext& ctx);
     void GetCurrentAccessPointOld(HLERequestContext& ctx);
     void GetCurrentAccessPoint(HLERequestContext& ctx);
+    void Shutdown(HLERequestContext& ctx);
+    void SetAcceptableNetworkTypeFlag(HLERequestContext& ctx);
+    void GetAcceptableNetworkTypeFlag(HLERequestContext& ctx);
     void GetScanDataV3(HLERequestContext& ctx);
 
     u32 client_id{};
+    std::atomic<u32> exclusive_client_id{0};
+    std::atomic<u32> acceptable_network_type_flag{0};
 };
 
 } // namespace Service::NIFM
