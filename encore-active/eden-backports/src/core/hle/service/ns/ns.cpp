@@ -61,7 +61,8 @@ public:
     ~IVulnerabilityManagerInterface() override = default;
 
     Result NeedsUpdateVulnerability(Out<bool> out_needs_update_vulnerability) {
-        LOG_WARNING(Service_NS, "(STUBBED)");
+        LOG_DEBUG(Service_NS, "called");
+        // No safe-system-version vulnerability database is emulated.
         *out_needs_update_vulnerability = false;
         R_SUCCEED();
     }

@@ -237,7 +237,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {1002, nullptr, "RequestVerifyAddOnContentsRights"},
         {1003, nullptr, "RequestVerifyApplication"},
         {1004, nullptr, "CorruptContentForDebug"},
-        {1200, nullptr, "NeedsUpdateVulnerability"},
+        {1200, D<&IApplicationManagerInterface::NeedsUpdateVulnerability>, "NeedsUpdateVulnerability"},
         {1300, D<&IApplicationManagerInterface::IsAnyApplicationEntityInstalled>, "IsAnyApplicationEntityInstalled"},
         {1301, nullptr, "DeleteApplicationContentEntities"},
         {1302, nullptr, "CleanupUnrecordedApplicationEntity"},
@@ -656,6 +656,15 @@ Result IApplicationManagerInterface::IsGameCardApplicationRunning(Out<bool> out_
 Result IApplicationManagerInterface::Unknown936(Out<u64> out_result) {
     LOG_WARNING(Service_NS, "(STUBBED) called.");
     *out_result = 0;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::NeedsUpdateVulnerability(
+    Out<bool> out_needs_update_vulnerability) {
+    LOG_DEBUG(Service_NS, "called");
+    // Encore does not model Nintendo's safe-system-version vulnerability list.
+    // With no forced-vulnerability state present, no system update is required.
+    *out_needs_update_vulnerability = false;
     R_SUCCEED();
 }
 
