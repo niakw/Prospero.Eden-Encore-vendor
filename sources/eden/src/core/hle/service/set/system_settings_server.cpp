@@ -283,8 +283,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {165, C<&ISystemSettingsServer::SetUsb30HostEnableFlag>, "SetUsb30HostEnableFlag"},
         {166, C<&ISystemSettingsServer::GetUsb30DeviceEnableFlag>, "GetUsb30DeviceEnableFlag"},
         {167, C<&ISystemSettingsServer::SetUsb30DeviceEnableFlag>, "SetUsb30DeviceEnableFlag"},
-        {168, nullptr, "GetThemeId"},
-        {169, nullptr, "SetThemeId"},
+        {168, C<&ISystemSettingsServer::GetThemeId>, "GetThemeId"},
+        {169, C<&ISystemSettingsServer::SetThemeId>, "SetThemeId"},
         {170, C<&ISystemSettingsServer::GetChineseTraditionalInputMethod>, "GetChineseTraditionalInputMethod"},
         {171, C<&ISystemSettingsServer::SetChineseTraditionalInputMethod>, "SetChineseTraditionalInputMethod"},
         {172, C<&ISystemSettingsServer::GetPtmCycleCountReliability>, "GetPtmCycleCountReliability"},
@@ -1384,6 +1384,23 @@ Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration(Out<std
 
 Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value) {
     m_system_settings.console_six_axis_sensor_angular_velocity_acceleration = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetThemeId(Out<std::array<u8, 0x80>> out_value, s32 type) {
+    R_UNLESS(type == 0 || type == 1, ResultUnknown);
+    *out_value = type == 0 ? m_system_settings.theme_id_type0 : m_system_settings.theme_id_type1;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetThemeId(s32 type, const std::array<u8, 0x80>& value) {
+    R_UNLESS(type == 0 || type == 1, ResultUnknown);
+    if (type == 0) {
+        m_system_settings.theme_id_type0 = value;
+    } else {
+        m_system_settings.theme_id_type1 = value;
+    }
     SetSaveNeeded();
     R_SUCCEED();
 }
