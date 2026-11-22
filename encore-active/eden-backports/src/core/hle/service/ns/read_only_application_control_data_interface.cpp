@@ -136,8 +136,8 @@ IReadOnlyApplicationControlDataInterface::IReadOnlyApplicationControlDataInterfa
         {0, D<&IReadOnlyApplicationControlDataInterface::GetApplicationControlData>, "GetApplicationControlData"},
         {1, D<&IReadOnlyApplicationControlDataInterface::GetApplicationDesiredLanguage>, "GetApplicationDesiredLanguage"},
         {2, D<&IReadOnlyApplicationControlDataInterface::ConvertApplicationLanguageToLanguageCode>, "ConvertApplicationLanguageToLanguageCode"},
-        {3, nullptr, "ConvertLanguageCodeToApplicationLanguage"},
-        {4, nullptr, "SelectApplicationDesiredLanguage"},
+        {3, D<&IReadOnlyApplicationControlDataInterface::ConvertLanguageCodeToApplicationLanguage>, "ConvertLanguageCodeToApplicationLanguage"},
+        {4, D<&IReadOnlyApplicationControlDataInterface::SelectApplicationDesiredLanguage>, "SelectApplicationDesiredLanguage"},
         {5, D<&IReadOnlyApplicationControlDataInterface::GetApplicationControlData2>, "GetApplicationControlData"},
         {10, &IReadOnlyApplicationControlDataInterface::ListApplicationIcon, "ListApplicationIcon"},
         {13, &IReadOnlyApplicationControlDataInterface::ListApplicationTitle, "ListApplicationTitle"},
@@ -231,6 +231,25 @@ Result IReadOnlyApplicationControlDataInterface::ConvertApplicationLanguageToLan
 
     *out_language_code = static_cast<u64>(*language_code);
     R_SUCCEED();
+}
+
+Result IReadOnlyApplicationControlDataInterface::ConvertLanguageCodeToApplicationLanguage(
+    Out<ApplicationLanguage> out_application_language, u64 language_code) {
+    const auto application_language =
+        ConvertToApplicationLanguage(static_cast<Set::LanguageCode>(language_code));
+    if (application_language == std::nullopt) {
+        LOG_ERROR(Service_NS, "Application language not found! language_code={:016X}",
+                  language_code);
+        R_THROW(Service::NS::ResultApplicationLanguageNotFound);
+    }
+
+    *out_application_language = *application_language;
+    R_SUCCEED();
+}
+
+Result IReadOnlyApplicationControlDataInterface::SelectApplicationDesiredLanguage(
+    Out<ApplicationLanguage> out_desired_language, u32 supported_languages) {
+    R_RETURN(GetApplicationDesiredLanguage(out_desired_language, supported_languages));
 }
 
 Result IReadOnlyApplicationControlDataInterface::GetApplicationControlData2(

@@ -32,6 +32,8 @@ public:
                                          u32 supported_languages);
     Result ConvertApplicationLanguageToLanguageCode(Out<u64> out_language_code,
                                                     ApplicationLanguage application_language);
+    Result ConvertLanguageCodeToApplicationLanguage(
+        Out<ApplicationLanguage> out_application_language, u64 language_code);
     Result ListApplicationRecord(OutArray<ApplicationRecord, BufferAttr_HipcMapAlias> out_records,
                                  Out<s32> out_count, s32 offset);
     Result GenerateApplicationRecordCount(Out<s32> out_count);

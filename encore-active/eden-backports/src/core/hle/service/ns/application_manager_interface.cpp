@@ -86,7 +86,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {57, D<&IApplicationManagerInterface::ClearApplicationTerminateResult>, "ClearApplicationTerminateResult"},
         {58, nullptr, "GetLastSdCardMountUnexpectedResult"},
         {59, D<&IApplicationManagerInterface::ConvertApplicationLanguageToLanguageCode>, "ConvertApplicationLanguageToLanguageCode"},
-        {60, nullptr, "ConvertLanguageCodeToApplicationLanguage"},
+        {60, D<&IApplicationManagerInterface::ConvertLanguageCodeToApplicationLanguage>, "ConvertLanguageCodeToApplicationLanguage"},
         {61, nullptr, "GetBackgroundDownloadStressTaskInfo"},
         {62, nullptr, "GetGameCardStopper"},
         {63, D<&IApplicationManagerInterface::IsSystemProgramInstalled>, "IsSystemProgramInstalled"},
@@ -589,6 +589,13 @@ Result IApplicationManagerInterface::ConvertApplicationLanguageToLanguageCode(
     R_RETURN(
         IReadOnlyApplicationControlDataInterface(system).ConvertApplicationLanguageToLanguageCode(
             out_language_code, application_language));
+}
+
+Result IApplicationManagerInterface::ConvertLanguageCodeToApplicationLanguage(
+    Out<ApplicationLanguage> out_application_language, u64 language_code) {
+    LOG_DEBUG(Service_NS, "called");
+    R_RETURN(IReadOnlyApplicationControlDataInterface(system).ConvertLanguageCodeToApplicationLanguage(
+        out_application_language, language_code));
 }
 
 Result IApplicationManagerInterface::ListApplicationRecord(
