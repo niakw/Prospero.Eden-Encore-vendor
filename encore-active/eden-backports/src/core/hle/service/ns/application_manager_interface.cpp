@@ -661,8 +661,16 @@ Result IApplicationManagerInterface::Unknown936(Out<u64> out_result) {
 
 Result IApplicationManagerInterface::IsAnyApplicationEntityInstalled(
     Out<bool> out_is_any_application_entity_installed) {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
-    *out_is_any_application_entity_installed = true;
+    LOG_DEBUG(Service_NS, "called");
+    const auto& cache = system.GetContentProviderUnion();
+    const auto installed = cache.ListEntriesFilterOrigin(
+        std::nullopt, FileSys::TitleType::Application, FileSys::ContentRecordType::Program);
+
+    *out_is_any_application_entity_installed =
+        std::any_of(installed.begin(), installed.end(), [](const auto& entry) {
+            const auto title_id = entry.second.title_id;
+            return title_id >= 0x0100000000001FFFULL && (title_id & 0xFFF) == 0;
+        });
     R_SUCCEED();
 }
 

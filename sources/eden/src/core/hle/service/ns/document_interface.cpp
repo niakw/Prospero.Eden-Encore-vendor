@@ -30,7 +30,7 @@ Result IDocumentInterface::ResolveApplicationContentPath(ContentPath content_pat
 
 Result IDocumentInterface::GetRunningApplicationProgramId(Out<u64> out_program_id,
                                                           u64 caller_program_id) {
-    LOG_WARNING(Service_NS, "(STUBBED) called, caller_program_id={:016X}", caller_program_id);
+    LOG_DEBUG(Service_NS, "called, caller_program_id={:016X}", caller_program_id);
     *out_program_id = system.GetApplicationProcessProgramID();
     R_SUCCEED();
 }
