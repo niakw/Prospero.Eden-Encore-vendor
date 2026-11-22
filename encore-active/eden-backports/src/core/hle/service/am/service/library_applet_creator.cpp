@@ -6,6 +6,7 @@
 
 #include "common/settings.h"
 #include "core/hle/kernel/k_transfer_memory.h"
+#include "core/hle/service/am/am_results.h"
 #include "core/hle/service/am/applet_data_broker.h"
 #include "core/hle/service/am/applet_manager.h"
 #include "core/hle/service/am/frontend/applets.h"
@@ -166,8 +167,8 @@ ILibraryAppletCreator::ILibraryAppletCreator(Core::System& system_, std::shared_
       m_window_system{window_system}, m_applet{std::move(applet)} {
     static const FunctionInfo functions[] = {
         {0, D<&ILibraryAppletCreator::CreateLibraryApplet>, "CreateLibraryApplet"},
-        {1, nullptr, "TerminateAllLibraryApplets"},
-        {2, nullptr, "AreAnyLibraryAppletsLeft"},
+        {1, D<&ILibraryAppletCreator::TerminateAllLibraryApplets>, "TerminateAllLibraryApplets"},
+        {2, D<&ILibraryAppletCreator::AreAnyLibraryAppletsLeft>, "AreAnyLibraryAppletsLeft"},
         {3, D<&ILibraryAppletCreator::CreateLibraryAppletEx>, "CreateLibraryAppletEx"},
         {10, D<&ILibraryAppletCreator::CreateStorage>, "CreateStorage"},
         {11, D<&ILibraryAppletCreator::CreateTransferMemoryStorage>, "CreateTransferMemoryStorage"},
@@ -177,6 +178,31 @@ ILibraryAppletCreator::ILibraryAppletCreator(Core::System& system_, std::shared_
 }
 
 ILibraryAppletCreator::~ILibraryAppletCreator() = default;
+
+Result ILibraryAppletCreator::TerminateAllLibraryApplets() {
+    LOG_INFO(Service_AM, "called");
+
+    std::vector<std::shared_ptr<Applet>> child_applets;
+    {
+        std::scoped_lock lk{m_applet->lock};
+        child_applets.assign(m_applet->child_applets.begin(), m_applet->child_applets.end());
+    }
+
+    for (const auto& child_applet : child_applets) {
+        child_applet->process->Terminate();
+        std::scoped_lock lk{child_applet->lock};
+        child_applet->terminate_result = AM::ResultLibraryAppletTerminated;
+    }
+
+    R_SUCCEED();
+}
+
+Result ILibraryAppletCreator::AreAnyLibraryAppletsLeft(Out<bool> out_is_any_left) {
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{m_applet->lock};
+    *out_is_any_left = !m_applet->child_applets.empty();
+    R_SUCCEED();
+}
 
 Result ILibraryAppletCreator::CreateLibraryApplet(
     Out<SharedPointer<ILibraryAppletAccessor>> out_library_applet_accessor, AppletId applet_id,

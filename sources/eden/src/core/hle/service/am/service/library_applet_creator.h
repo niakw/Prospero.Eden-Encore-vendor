@@ -24,6 +24,8 @@ public:
     ~ILibraryAppletCreator() override;
 
 private:
+    Result TerminateAllLibraryApplets();
+    Result AreAnyLibraryAppletsLeft(Out<bool> out_is_any_left);
     Result CreateLibraryApplet(
         Out<SharedPointer<ILibraryAppletAccessor>> out_library_applet_accessor, AppletId applet_id,
         LibraryAppletMode library_applet_mode);
