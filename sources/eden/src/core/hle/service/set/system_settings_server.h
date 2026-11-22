@@ -149,6 +149,12 @@ public:
     Result SetUsb30HostEnableFlag(bool value);
     Result GetUsb30DeviceEnableFlag(Out<bool> out_value);
     Result SetUsb30DeviceEnableFlag(bool value);
+    Result GetRequiresRunRepairTimeReviser(Out<bool> out_value);
+    Result SetRequiresRunRepairTimeReviser(bool value);
+    Result GetHearingProtectionSafeguardFlag(Out<bool> out_value);
+    Result SetHearingProtectionSafeguardFlag(bool value);
+    Result GetHearingProtectionSafeguardRemainingTime(Out<s64> out_value);
+    Result SetHearingProtectionSafeguardRemainingTime(s64 value);
     Result GetWebInspectorFlag(Out<bool> out_value);
     Result SetChineseTraditionalInputMethod(ChineseTraditionalInputMethod value);
     Result GetPtmCycleCountReliability(Out<u32> out_value);

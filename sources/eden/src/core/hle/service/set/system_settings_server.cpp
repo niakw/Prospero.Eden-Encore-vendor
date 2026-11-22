@@ -256,8 +256,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {138, C<&ISystemSettingsServer::GetWebInspectorFlag>, "GetWebInspectorFlag"},
         {139, nullptr, "GetAllowedSslHosts"},
         {140, nullptr, "GetHostFsMountPoint"},
-        {141, nullptr, "GetRequiresRunRepairTimeReviser"},
-        {142, nullptr, "SetRequiresRunRepairTimeReviser"},
+        {141, C<&ISystemSettingsServer::GetRequiresRunRepairTimeReviser>, "GetRequiresRunRepairTimeReviser"},
+        {142, C<&ISystemSettingsServer::SetRequiresRunRepairTimeReviser>, "SetRequiresRunRepairTimeReviser"},
         {143, nullptr, "SetBlePairingSettings"},
         {144, nullptr, "GetBlePairingSettings"},
         {145, nullptr, "GetConsoleSixAxisSensorAngularVelocityTimeBias"},
@@ -322,10 +322,10 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {204, C<&ISystemSettingsServer::SetPanelCrcMode>, "SetPanelCrcMode"},
         {205, nullptr, "GetNxControllerSettingsEx"},
         {206, nullptr, "SetNxControllerSettingsEx"},
-        {207, nullptr, "GetHearingProtectionSafeguardFlag"},
-        {208, nullptr, "SetHearingProtectionSafeguardFlag"},
-        {209, nullptr, "GetHearingProtectionSafeguardRemainingTime"},
-        {210, nullptr, "SetHearingProtectionSafeguardRemainingTime"},
+        {207, C<&ISystemSettingsServer::GetHearingProtectionSafeguardFlag>, "GetHearingProtectionSafeguardFlag"},
+        {208, C<&ISystemSettingsServer::SetHearingProtectionSafeguardFlag>, "SetHearingProtectionSafeguardFlag"},
+        {209, C<&ISystemSettingsServer::GetHearingProtectionSafeguardRemainingTime>, "GetHearingProtectionSafeguardRemainingTime"},
+        {210, C<&ISystemSettingsServer::SetHearingProtectionSafeguardRemainingTime>, "SetHearingProtectionSafeguardRemainingTime"},
         {221, nullptr, "GetForceMonauralOutputFlag"}, //17.0.0+
         {222, nullptr, "SetForceMonauralOutputFlag"}, //17.0.0+
         {251, nullptr, "GetAccountIdentificationSettings"}, //18.0.0+
@@ -1318,6 +1318,39 @@ Result ISystemSettingsServer::GetUsb30DeviceEnableFlag(Out<bool> out_value) {
 
 Result ISystemSettingsServer::SetUsb30DeviceEnableFlag(bool value) {
     m_system_settings.usb_30_device_enable_flag = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetRequiresRunRepairTimeReviser(Out<bool> out_value) {
+    *out_value = m_system_settings.requires_run_repair_time_reviser;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetRequiresRunRepairTimeReviser(bool value) {
+    m_system_settings.requires_run_repair_time_reviser = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetHearingProtectionSafeguardFlag(Out<bool> out_value) {
+    *out_value = m_system_settings.hearing_protection_safeguard_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetHearingProtectionSafeguardFlag(bool value) {
+    m_system_settings.hearing_protection_safeguard_flag = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetHearingProtectionSafeguardRemainingTime(Out<s64> out_value) {
+    *out_value = m_system_settings.hearing_protection_safeguard_remaining_time;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetHearingProtectionSafeguardRemainingTime(s64 value) {
+    m_system_settings.hearing_protection_safeguard_remaining_time = value;
     SetSaveNeeded();
     R_SUCCEED();
 }
