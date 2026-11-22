@@ -312,7 +312,7 @@ Result IApplicationFunctions::GetCacheStorageMax(Out<u32> out_cache_storage_inde
 }
 
 Result IApplicationFunctions::BeginBlockingHomeButtonShortAndLongPressed(s64 unused) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->home_button_long_pressed_blocked = true;
@@ -322,7 +322,7 @@ Result IApplicationFunctions::BeginBlockingHomeButtonShortAndLongPressed(s64 unu
 }
 
 Result IApplicationFunctions::EndBlockingHomeButtonShortAndLongPressed() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->home_button_long_pressed_blocked = false;
@@ -332,7 +332,7 @@ Result IApplicationFunctions::EndBlockingHomeButtonShortAndLongPressed() {
 }
 
 Result IApplicationFunctions::BeginBlockingHomeButton(s64 timeout_ns) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, timeout_ns={}", timeout_ns);
+    LOG_DEBUG(Service_AM, "called, timeout_ns={} (automatic timeout not modeled)", timeout_ns);
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->home_button_long_pressed_blocked = true;
@@ -343,7 +343,7 @@ Result IApplicationFunctions::BeginBlockingHomeButton(s64 timeout_ns) {
 }
 
 Result IApplicationFunctions::EndBlockingHomeButton() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->home_button_long_pressed_blocked = false;
