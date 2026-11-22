@@ -7,6 +7,7 @@
 #include <cinttypes>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -631,20 +632,32 @@ Result FSP_SRV::FlushAccessLogOnSdCard() {
 
 Result FSP_SRV::ExtendSaveDataFileSystem(FileSys::SaveDataSpaceId space_id, u64 save_data_id,
                                          s64 available_size, s64 journal_size) {
-    // We don't have an index of save data ids, so we can't implement this.
+    // No save-data-id index exists in Encore. Never claim an extension that was not applied.
     LOG_WARNING(Service_FS,
-                "(STUBBED) called, space_id={}, save_data_id={:016X}, available_size={:#x}, "
+                "unresolved save id, space_id={}, save_data_id={:016X}, available_size={:#x}, "
                 "journal_size={:#x}",
                 space_id, save_data_id, available_size, journal_size);
-    R_SUCCEED();
+    R_RETURN(FileSys::ResultTargetNotFound);
 }
 
-Result FSP_SRV::GetCacheStorageSize(s32 index, Out<s64> out_data_size, Out<s64> out_journal_size) {
-    LOG_WARNING(Service_FS, "(STUBBED) called with index={}", index);
+Result FSP_SRV::GetCacheStorageSize(s32 index, Out<s64> out_data_size,
+                                    Out<s64> out_journal_size) {
+    LOG_DEBUG(Service_FS, "called with index={}, program_id={:016X}", index, program_id);
 
-    *out_data_size = 0;
-    *out_journal_size = 0;
+    R_UNLESS(index == 0, FileSys::ResultTargetNotFound);
+    FileSys::VirtualDir save_root{};
+    R_TRY(save_data_controller->OpenSaveDataSpace(&save_root, FileSys::SaveDataSpaceId::User));
+    const auto cache_dir =
+        save_root->GetDirectoryRelative(fmt::format("save/cache/{:016X}", program_id));
+    R_UNLESS(cache_dir != nullptr, FileSys::ResultTargetNotFound);
 
+    const auto size =
+        save_data_controller->ReadSaveDataSize(FileSys::SaveDataType::Cache, program_id, u128{});
+    R_UNLESS(size.normal <= static_cast<u64>((std::numeric_limits<s64>::max)()) &&
+                 size.journal <= static_cast<u64>((std::numeric_limits<s64>::max)()),
+             ResultUnknown);
+    *out_data_size = static_cast<s64>(size.normal);
+    *out_journal_size = static_cast<s64>(size.journal);
     R_SUCCEED();
 }
 
