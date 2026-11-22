@@ -89,6 +89,7 @@ private:
     u64 program_id{};
     // TODO: this is raw
     PlayTimerSettings raw_play_timer_settings{};
+    bool play_timer_running{};
 
     KernelHelpers::ServiceContext service_context;
     Event synchronization_event;

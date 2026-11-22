@@ -246,41 +246,49 @@ Result IParentalControlService::CheckFreeCommunicationPermission() {
 
 Result IParentalControlService::ConfirmLaunchApplicationPermission(
     InBuffer<BufferAttr_HipcPointer> restriction_bitset, u64 nacp_flag, u64 application_id) {
-    LOG_WARNING(Service_PCTL, "(STUBBED) called, nacp_flag={:#x} application_id={:016X}", nacp_flag,
-                application_id);
+    // Encore does not expose the Horizon parental-confirmation UI. With no configured local
+    // restriction backend, allow launch rather than blocking guest startup on an unavailable UI.
+    LOG_DEBUG(Service_PCTL,
+              "Launch permission accepted locally, nacp_flag={:#x} application_id={:016X}",
+              nacp_flag, application_id);
     R_SUCCEED();
 }
 
 Result IParentalControlService::ConfirmResumeApplicationPermission(
     InBuffer<BufferAttr_HipcPointer> restriction_bitset, u64 nacp_flag, u64 application_id) {
-    LOG_WARNING(Service_PCTL, "(STUBBED) called, nacp_flag={:#x} application_id={:016X}", nacp_flag,
-                application_id);
+    // Same policy as launch: there is no interactive parental-confirmation UI to satisfy.
+    LOG_DEBUG(Service_PCTL,
+              "Resume permission accepted locally, nacp_flag={:#x} application_id={:016X}",
+              nacp_flag, application_id);
     R_SUCCEED();
 }
 
 Result IParentalControlService::ConfirmSnsPostPermission() {
-    LOG_WARNING(Service_PCTL, "(STUBBED) called");
-    R_THROW(PCTL::ResultNoFreeCommunication);
+    // Do not unconditionally reject SNS posting when no parental-control backend/PIN is configured.
+    // The emulator has no Horizon confirmation UI, so use the same permissive local policy as free
+    // communication rather than inventing a restriction.
+    LOG_DEBUG(Service_PCTL, "SNS-post permission accepted by local parental-control policy");
+    R_SUCCEED();
 }
 
 Result IParentalControlService::ConfirmSystemSettingsPermission() {
-    LOG_WARNING(Service_PCTL, "(STUBBED) called");
+    // No parental-control system-settings confirmation UI is exposed by Encore.
+    LOG_DEBUG(Service_PCTL, "System-settings permission accepted locally");
     R_SUCCEED();
 }
 
 Result IParentalControlService::IsRestrictionTemporaryUnlocked(
     Out<bool> out_is_temporary_unlocked) {
-    *out_is_temporary_unlocked = false;
-    LOG_WARNING(Service_PCTL, "(STUBBED) called, is_temporary_unlocked={}",
-                *out_is_temporary_unlocked);
+    *out_is_temporary_unlocked = states.temporary_unlocked;
+    LOG_DEBUG(Service_PCTL, "called, is_temporary_unlocked={}", *out_is_temporary_unlocked);
     R_SUCCEED();
 }
 
 Result IParentalControlService::IsRestrictedSystemSettingsEntered(
     Out<bool> out_is_restricted_system_settings_entered) {
+    // Encore has no restricted-settings UI/session state to enter.
     *out_is_restricted_system_settings_entered = false;
-    LOG_WARNING(Service_PCTL, "(STUBBED) called, is_temporary_unlocked={}",
-                *out_is_restricted_system_settings_entered);
+    LOG_DEBUG(Service_PCTL, "Restricted system settings are not entered");
     R_SUCCEED();
 }
 
@@ -319,8 +327,9 @@ Result IParentalControlService::IsRestrictionEnabled(Out<bool> out_restriction_e
 }
 
 Result IParentalControlService::GetSafetyLevel(Out<u32> out_safety_level) {
+    // No configured parental safety level is persisted by Encore.
     *out_safety_level = 0;
-    LOG_WARNING(Service_PCTL, "(STUBBED) called, safety_level={}", *out_safety_level);
+    LOG_DEBUG(Service_PCTL, "Returning unrestricted safety level={}", *out_safety_level);
     R_SUCCEED();
 }
 
@@ -331,8 +340,10 @@ Result IParentalControlService::GetCurrentSettings(Out<RestrictionSettings> out_
 }
 
 Result IParentalControlService::GetFreeCommunicationApplicationListCount(Out<s32> out_count) {
-    *out_count = 4;
-    LOG_WARNING(Service_PCTL, "(STUBBED) called, count={}", *out_count);
+    // No whitelist is persisted. Returning four fabricated entries made callers expect records
+    // that could never be listed; an empty list is the ABI-consistent local state.
+    *out_count = 0;
+    LOG_DEBUG(Service_PCTL, "Returning empty free-communication application list");
     R_SUCCEED();
 }
 
@@ -364,14 +375,20 @@ Result IParentalControlService::IsStereoVisionPermitted(Out<bool> out_is_permitt
 }
 
 Result IParentalControlService::GetPinCodeLength(Out<s32> out_length) {
-    *out_length = 0;
-    LOG_WARNING(Service_PCTL, "(STUBBED) called, length={}", *out_length);
+    s32 length = 0;
+    while (length < static_cast<s32>(pin_code.size()) &&
+           pin_code[static_cast<std::size_t>(length)] != '\0') {
+        ++length;
+    }
+    *out_length = length;
+    LOG_DEBUG(Service_PCTL, "called, length={}", *out_length);
     R_SUCCEED();
 }
 
 Result IParentalControlService::IsPairingActive(Out<bool> out_is_pairing_active) {
+    // Nintendo parental-device pairing is not implemented or persisted by Encore.
     *out_is_pairing_active = false;
-    LOG_WARNING(Service_PCTL, "(STUBBED) called, is_pairing_active={}", *out_is_pairing_active);
+    LOG_DEBUG(Service_PCTL, "Parental-control pairing inactive");
     R_SUCCEED();
 }
 
@@ -383,30 +400,35 @@ Result IParentalControlService::GetSynchronizationEvent(
 }
 
 Result IParentalControlService::StartPlayTimer() {
-    LOG_WARNING(Service_PCTL, "(STUBBED) called");
+    play_timer_running = true;
+    LOG_DEBUG(Service_PCTL, "Play timer started (elapsed-time accounting not modeled)");
     R_SUCCEED();
 }
 
 Result IParentalControlService::StopPlayTimer() {
-    LOG_WARNING(Service_PCTL, "(STUBBED) called");
+    play_timer_running = false;
+    LOG_DEBUG(Service_PCTL, "Play timer stopped");
     R_SUCCEED();
 }
 
 Result IParentalControlService::IsPlayTimerEnabled(Out<bool> out_is_play_timer_enabled) {
-    *out_is_play_timer_enabled = false;
-    LOG_WARNING(Service_PCTL, "(STUBBED) called, enabled={}", *out_is_play_timer_enabled);
+    *out_is_play_timer_enabled = play_timer_running;
+    LOG_DEBUG(Service_PCTL, "called, enabled={}", *out_is_play_timer_enabled);
     R_SUCCEED();
 }
 
 Result IParentalControlService::GetPlayTimerRemainingTime(Out<s32> out_remaining_time) {
-    LOG_WARNING(Service_PCTL, "(STUBBED) called");
+    // Encore tracks timer lifecycle but not Horizon's wall-clock accounting/configuration.
     *out_remaining_time = std::numeric_limits<s32>::max();
+    LOG_DEBUG(Service_PCTL, "Returning unrestricted remaining time, running={}",
+              play_timer_running);
     R_SUCCEED();
 }
 
 Result IParentalControlService::IsRestrictedByPlayTimer(Out<bool> out_is_restricted_by_play_timer) {
+    // No elapsed-time budget is modeled, therefore Encore must not fabricate a timer restriction.
     *out_is_restricted_by_play_timer = false;
-    LOG_WARNING(Service_PCTL, "(STUBBED) called, restricted={}", *out_is_restricted_by_play_timer);
+    LOG_DEBUG(Service_PCTL, "called, restricted={}", *out_is_restricted_by_play_timer);
     R_SUCCEED();
 }
 
