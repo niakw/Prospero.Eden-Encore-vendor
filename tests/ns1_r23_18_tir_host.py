@@ -155,6 +155,13 @@ for name,expected in files.items():
    part=part.replace(new,old,1)
   prior=(text[:lo]+part+text[hi:]).encode()
   assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==expected
+ elif name=="encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_texture_cache.h" and sha=="ecdadfd6b699d1d4ec58be58f7e37287c1986717":
+  # Normalize exactly one new layer-state declaration on the audit copy.
+  new="    u32 num_images = 0;\n    u32 layers = 1;\n"
+  old="    u32 num_images = 0;\n"
+  assert raw.decode().count(new)==1
+  prior=raw.decode().replace(new,old,1).encode()
+  assert hashlib.sha1(b"blob "+str(len(prior)).encode()+b"\x00"+prior).hexdigest()==expected
  else:
   assert sha==expected,(name,sha)
  print("R23_18_FULL_SOURCE_OWNER_PASS",name)
@@ -171,7 +178,8 @@ unified=(r/"encore-active/ns2-astc/include/video_core/renderer_vulkan/vk_texture
 layers_method="    [[nodiscard]] u32 Layers() const noexcept {\n        return layers;\n    }\n\n"
 layers_member="    u32 layers = 1;\n"
 assert unified.count(layers_method)==unified.count(layers_member)==1
-historical_unified=unified.replace(layers_method,"",1).replace(layers_member,"",1)
+# Both headers share storage; only the PS5 ASTC header adds Layers().
+historical_unified=unified.replace(layers_method,"",1)
 assert historical_unified==h, "vk_texture_cache headers diverged beyond active Layers ABI"
 for symbol in ("GetOrCreateTirColorScratch", "tir_color_scratch",
                "RetireGpuImageView", "RetireGpuImage(", "pending_retired_views",
