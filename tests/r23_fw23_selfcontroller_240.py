@@ -7,6 +7,27 @@ file=r/"ns2-runtime/self_controller/core/hle/service/am/service/self_controller.
 header=r/"eden-backports/src/core/hle/service/am/service/self_controller.h"
 s=file.read_text()
 h=header.read_text()
+# Lichii structural AM cmd-table successor; validate real selected slots
+# and reconstruct the exact proven FW23 predecessor for frozen SHA tests.
+blob=lambda raw: hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
+if blob(s.encode()) == "4c0e972bb42d5f628d2ad70c4a3f974b67cfc616":
+    for cmd in (22, 23, 24, 73, 200, 210, 211, 220, 221, 2100, 2200, 2300):
+        assert f'{{{cmd}, &ISelfController::StubReplyZeroed, "Unknown{cmd}"}}' in s
+    for previous, current in (
+        ("        {17, nullptr, \"SetControllerFirmwareUpdateSection\"},\n        {18, nullptr, \"SetRequiresCaptureButtonShortPressedMessage\"},\n", "        {17, &ISelfController::StubReplyZeroed, \"SetControllerFirmwareUpdateSection\"},\n        {18, &ISelfController::StubReplyZeroed, \"SetRequiresCaptureButtonShortPressedMessage\"},\n"),
+        ("        {20, nullptr, \"SetDesirableKeyboardLayout\"},\n        {21, nullptr, \"GetScreenShotProgramId\"},\n", "        {20, &ISelfController::StubReplyZeroed, \"SetDesirableKeyboardLayout\"},\n        {21, &ISelfController::StubReplyZeroed, \"GetScreenShotProgramId\"},\n"),
+        ("        {45, nullptr, \"SetManagedDisplayLayerSeparationMode\"},\n        {46, nullptr, \"SetRecordingLayerCompositionEnabled\"},\n", "        {45, &ISelfController::StubReplyZeroed, \"SetManagedDisplayLayerSeparationMode\"},\n        {46, &ISelfController::StubReplyZeroed, \"SetRecordingLayerCompositionEnabled\"},\n"),
+        ("        {64, nullptr, \"SetInputDetectionSourceSet\"},\n", "        {64, &ISelfController::StubReplyZeroed, \"SetInputDetectionSourceSet\"},\n"),
+        ("        {66, nullptr, \"GetCurrentIlluminance\"},\n", "        {66, &ISelfController::StubReplyZeroed, \"GetCurrentIlluminance\"},\n"),
+        ("        {70, nullptr, \"ReportMultimediaError\"},\n        {71, nullptr, \"GetCurrentIlluminanceEx\"},\n", "        {70, &ISelfController::StubReplyZeroed, \"ReportMultimediaError\"},\n        {71, &ISelfController::StubReplyZeroed, \"GetCurrentIlluminanceEx\"},\n"),
+        ("        {80, nullptr, \"SetWirelessPriorityMode\"},\n", "        {80, &ISelfController::StubReplyZeroed, \"SetWirelessPriorityMode\"},\n"),
+        ("        {110, nullptr, \"SetApplicationAlbumUserData\"},\n", "        {110, &ISelfController::StubReplyZeroed, \"SetApplicationAlbumUserData\"},\n"),
+        ("        {1000, nullptr, \"GetDebugStorageChannel\"},\n", "        {1000, &ISelfController::StubReplyInterface, \"GetDebugStorageChannel\"},\n"),
+        ("", "        {22, &ISelfController::StubReplyZeroed, \"Unknown22\"},\n        {23, &ISelfController::StubReplyZeroed, \"Unknown23\"},\n        {24, &ISelfController::StubReplyZeroed, \"Unknown24\"},\n        {73, &ISelfController::StubReplyZeroed, \"Unknown73\"},\n        {200, &ISelfController::StubReplyZeroed, \"Unknown200\"},\n        {210, &ISelfController::StubReplyZeroed, \"Unknown210\"},\n        {211, &ISelfController::StubReplyZeroed, \"Unknown211\"},\n        {220, &ISelfController::StubReplyZeroed, \"Unknown220\"},\n        {221, &ISelfController::StubReplyZeroed, \"Unknown221\"},\n        {2100, &ISelfController::StubReplyZeroed, \"Unknown2100\"},\n        {2200, &ISelfController::StubReplyZeroed, \"Unknown2200\"},\n        {2300, &ISelfController::StubReplyZeroed, \"Unknown2300\"},\n"),
+    ):
+        assert s.count(current)==1, ("Unexpected NS2 SelfController table", current[:80])
+        s=s.replace(current,previous,1)
+    assert blob(s.encode())=="7783c917d8b2f2e8d26c091d5507964fcf9d44dd"
 old='        {230, D<&ISelfController::Unknown230>, "Unknown230"},'
 new=old+'\n        {240, D<&ISelfController::Unknown240>, "Unknown240"},'
 body='Result ISelfController::Unknown240(u32 in_val) {\n    LOG_WARNING(Service_AM, "(STUBBED) called, in_val={}", in_val);\n\n    R_SUCCEED();\n}\n\n'
