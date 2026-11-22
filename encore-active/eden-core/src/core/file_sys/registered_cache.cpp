@@ -449,6 +449,33 @@ bool PlaceholderCache::Register(RegisteredCache* cache, const NcaID& placeholder
     return Delete(placeholder);
 }
 
+bool PlaceholderCache::Revert(RegisteredCache* cache, const NcaID& placeholder,
+                              const NcaID& old_content, const NcaID& new_content) const {
+    if (cache == nullptr || cache->GetFileAtID(new_content) != nullptr || Exists(placeholder)) {
+        return false;
+    }
+
+    const auto source = cache->GetFileAtID(old_content);
+    if (source == nullptr || !Create(placeholder, source->GetSize())) {
+        return false;
+    }
+
+    const auto path = GetRelativePathFromNcaID(placeholder, false, true, false);
+    const auto destination = dir->GetFileRelative(path);
+    if (destination == nullptr ||
+        !VfsRawCopy(source, destination, VFS_RC_LARGE_COPY_BLOCK)) {
+        Delete(placeholder);
+        return false;
+    }
+
+    if (!cache->Delete(old_content)) {
+        Delete(placeholder);
+        return false;
+    }
+    cache->Refresh();
+    return true;
+}
+
 bool PlaceholderCache::CleanAll() const {
     return dir->GetParentDirectory()->CleanSubdirectoryRecursive(dir->GetName());
 }
@@ -1068,6 +1095,24 @@ std::optional<u64> RegisteredCache::Size(const NcaID& id) const {
         return std::nullopt;
     }
     return static_cast<u64>(file->GetSize());
+}
+
+std::optional<std::vector<u8>> RegisteredCache::ReadContent(const NcaID& id, u64 offset,
+                                                            std::size_t size) const {
+    const auto file = GetFileAtID(id);
+    if (file == nullptr || offset > file->GetSize()) {
+        return std::nullopt;
+    }
+    const auto start = static_cast<std::size_t>(offset);
+    if (size > file->GetSize() - start) {
+        return std::nullopt;
+    }
+
+    std::vector<u8> data(size);
+    if (size != 0 && file->Read(data.data(), size, start) != size) {
+        return std::nullopt;
+    }
+    return data;
 }
 
 std::vector<NcaID> RegisteredCache::ListContentIds() const {

@@ -120,9 +120,12 @@ public:
             {13, &IContentStorage::ListContentId, "ListContentId"},
             {14, &IContentStorage::GetSizeFromContentId, "GetSizeFromContentId"},
             {15, &IContentStorage::DisableForcibly, "DisableForcibly"},
+            {16, &IContentStorage::RevertToPlaceHolder, "RevertToPlaceHolder"},
             {17, &IContentStorage::SetPlaceHolderSize, "SetPlaceHolderSize"},
+            {18, &IContentStorage::ReadContentIdFile, "ReadContentIdFile"},
             {19, &IContentStorage::GetRightsIdFromPlaceHolderId, "GetRightsIdFromPlaceHolderId"},
             {20, &IContentStorage::GetRightsIdFromContentId, "GetRightsIdFromContentId"},
+            {21, &IContentStorage::WriteContentForDebug, "WriteContentForDebug"},
             {22, &IContentStorage::GetFreeSpaceSize, "GetFreeSpaceSize"},
             {23, &IContentStorage::GetTotalSpaceSize, "GetTotalSpaceSize"},
             {24, &IContentStorage::FlushPlaceHolder, "FlushPlaceHolder"},
@@ -392,6 +395,50 @@ private:
         rb.Push(ResultSuccess);
     }
 
+    void RevertToPlaceHolder(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        FileSys::NcaID placeholder_id{};
+        FileSys::NcaID old_content_id{};
+        FileSys::NcaID new_content_id{};
+        if constexpr (HLE::ApiVersion::HOS_VERSION_MAJOR >= 16) {
+            placeholder_id = rp.PopRaw<FileSys::NcaID>();
+            old_content_id = rp.PopRaw<FileSys::NcaID>();
+            new_content_id = rp.PopRaw<FileSys::NcaID>();
+        } else {
+            old_content_id = rp.PopRaw<FileSys::NcaID>();
+            new_content_id = rp.PopRaw<FileSys::NcaID>();
+            placeholder_id = rp.PopRaw<FileSys::NcaID>();
+        }
+
+        auto& fsc = system.GetFileSystemController();
+        auto* const placeholder_cache = fsc.GetPlaceholderCacheForStorage(storage);
+        auto* const registered_cache = fsc.GetRegisteredCacheForStorage(storage);
+        const bool succeeded =
+            placeholder_cache != nullptr && registered_cache != nullptr &&
+            placeholder_cache->Revert(registered_cache, placeholder_id, old_content_id,
+                                      new_content_id);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(succeeded ? ResultSuccess : ResultUnknown);
+    }
+
+    void ReadContentIdFile(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto content_id = rp.PopRaw<FileSys::NcaID>();
+        const auto offset = rp.Pop<s64>();
+        auto* const registered_cache =
+            system.GetFileSystemController().GetRegisteredCacheForStorage(storage);
+        const auto data =
+            registered_cache != nullptr && offset >= 0
+                ? registered_cache->ReadContent(content_id, static_cast<u64>(offset),
+                                                ctx.GetWriteBufferSize())
+                : std::optional<std::vector<u8>>{};
+        if (data.has_value() && !data->empty()) {
+            ctx.WriteBuffer(*data);
+        }
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(data.has_value() ? ResultSuccess : ResultUnknown);
+    }
+
     void SetPlaceHolderSize(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto placeholder_id = rp.PopRaw<FileSys::NcaID>();
@@ -443,6 +490,12 @@ private:
         IPC::ResponseBuilder rb{ctx, 2 + (sizeof(NcmRightsId) + 3) / sizeof(u32)};
         rb.Push(rights.has_value() ? ResultSuccess : ResultUnknown);
         rb.PushRaw(out);
+    }
+
+    void WriteContentForDebug(HLERequestContext& ctx) {
+        LOG_WARNING(Service_NCM, "WriteContentForDebug rejected: development-hardware-only command");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
     }
 
     void GetFreeSpaceSize(HLERequestContext& ctx) {
