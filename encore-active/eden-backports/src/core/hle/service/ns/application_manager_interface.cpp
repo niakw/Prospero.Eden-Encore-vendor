@@ -5,6 +5,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/file_sys/control_metadata.h"
+#include "core/core.h"
+#include "core/hle/service/am/am_results.h"
+#include "core/hle/service/am/applet.h"
+#include "core/hle/service/am/applet_manager.h"
+#include "core/hle/service/am/window_system.h"
 #include "core/file_sys/nca_metadata.h"
 #include "core/file_sys/registered_cache.h"
 #include "core/hle/service/cmif_serialization.h"
@@ -635,7 +640,7 @@ Result IApplicationManagerInterface::GetApplicationRecordUpdateSystemEvent(
 
 Result IApplicationManagerInterface::GetGameCardMountFailureEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
+    LOG_DEBUG(Service_NS, "called; game-card mount-failure producer is not modeled");
     *out_event = gamecard_mount_failure_event.GetHandle();
     R_SUCCEED();
 }
@@ -807,7 +812,7 @@ Result IApplicationManagerInterface::CheckSdCardMountStatus() {
 
 Result IApplicationManagerInterface::GetSdCardMountStatusChangedEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
+    LOG_DEBUG(Service_NS, "called; SD mount-change producer is not modeled");
     *out_event = sd_card_mount_status_event.GetHandle();
     R_SUCCEED();
 }
@@ -824,13 +829,15 @@ Result IApplicationManagerInterface::GetFreeSpaceSize(Out<s64> out_free_space_si
 
 Result IApplicationManagerInterface::GetGameCardUpdateDetectionEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
+    LOG_DEBUG(Service_NS, "called; game-card update producer is not modeled");
     *out_event = gamecard_update_detection_event.GetHandle();
     R_SUCCEED();
 }
 
 Result IApplicationManagerInterface::ResumeAll() {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
+    LOG_DEBUG(Service_NS, "called; no NS-owned suspended-application set is modeled");
+    // Application suspension/resume is owned by the AM lifecycle/process layer.
+    // NS has no separate suspended set in Encore to resume here.
     R_SUCCEED();
 }
 
@@ -851,7 +858,16 @@ Result IApplicationManagerInterface::GetStorageSize(Out<s64> out_total_space_siz
 }
 
 Result IApplicationManagerInterface::TouchApplication(u64 application_id) {
-    LOG_WARNING(Service_NS, "(STUBBED) called. application_id={:016X}", application_id);
+    LOG_DEBUG(Service_NS, "called, application_id={:016X}", application_id);
+
+    const auto& cache = system.GetContentProviderUnion();
+    const auto installed = cache.ListEntriesFilterOrigin(
+        std::nullopt, FileSys::TitleType::Application, FileSys::ContentRecordType::Program,
+        application_id);
+    R_UNLESS(!installed.empty(), AM::ResultApplicationRecordNotFound);
+
+    // Encore does not persist NS "last touched" record metadata yet. Validate
+    // the application record instead of returning success for arbitrary IDs.
     R_SUCCEED();
 }
 
@@ -877,8 +893,16 @@ Result IApplicationManagerInterface::CheckApplicationLaunchVersion(u64 applicati
 
 Result IApplicationManagerInterface::GetApplicationTerminateResult(Out<Result> out_result,
                                                                    u64 application_id) {
-    LOG_WARNING(Service_NS, "(STUBBED) called. application_id={:016X}", application_id);
-    *out_result = ResultSuccess;
+    LOG_DEBUG(Service_NS, "called, application_id={:016X}", application_id);
+
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, AM::ResultApplicationRecordNotFound);
+    const auto applet = window_system->GetMainApplet();
+    R_UNLESS(applet != nullptr && applet->program_id == application_id,
+             AM::ResultApplicationRecordNotFound);
+
+    std::scoped_lock lk{applet->lock};
+    *out_result = applet->terminate_result;
     R_SUCCEED();
 }
 
