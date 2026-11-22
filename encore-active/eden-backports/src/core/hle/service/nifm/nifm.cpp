@@ -384,10 +384,17 @@ public:
     }
 
 private:
-    void Submit(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_NIFM, "(STUBBED) called");
+    [[nodiscard]] bool HasConnection() const {
+        return !Eden::Encore::kGuestNetworkOffline &&
+               Network::GetHostIPv4Address().has_value() &&
+               !Settings::values.airplane_mode.GetValue();
+    }
 
-        if (state == RequestState::NotSubmitted) {
+    void Submit(HLERequestContext& ctx) {
+        LOG_DEBUG(Service_NIFM, "called");
+
+        std::scoped_lock lk{state_lock};
+        if (state != RequestState::Accepted) {
             UpdateState(RequestState::OnHold);
         }
 
@@ -396,11 +403,22 @@ private:
     }
 
     void GetRequestState(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_NIFM, "(STUBBED) called");
+        LOG_DEBUG(Service_NIFM, "called");
+
+        RequestState reported_state;
+        {
+            std::scoped_lock lk{state_lock};
+            reported_state = state;
+            if (state == RequestState::OnHold) {
+                // Match hardware timing closely enough for guests which poll only the state:
+                // expose OnHold once, then resolve and signal the state-change event.
+                UpdateState(HasConnection() ? RequestState::Accepted : RequestState::Invalid);
+            }
+        }
 
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
-        rb.PushEnum(state);
+        rb.PushEnum(reported_state);
     }
 
     void SetRequirementPreset(HLERequestContext& ctx) {
@@ -428,34 +446,33 @@ private:
     }
 
     void GetResult(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_NIFM, "(STUBBED) called");
+        LOG_DEBUG(Service_NIFM, "called");
 
-        const auto result = [this] {
-            const auto has_connection = !Eden::Encore::kGuestNetworkOffline &&
-                                        Network::GetHostIPv4Address().has_value() &&
-                                        !Settings::values.airplane_mode.GetValue();
+        Result result;
+        {
+            std::scoped_lock lk{state_lock};
+            const auto has_connection = HasConnection();
             switch (state) {
             case RequestState::NotSubmitted:
-                return has_connection ? ResultSuccess : ResultNetworkCommunicationDisabled;
+                result = has_connection ? ResultSuccess : ResultNetworkCommunicationDisabled;
+                break;
             case RequestState::OnHold:
-                if (has_connection) {
-                    UpdateState(RequestState::Accepted);
-                } else {
-                    UpdateState(RequestState::Invalid);
-                }
-                return ResultPendingConnection;
+                UpdateState(has_connection ? RequestState::Accepted : RequestState::Invalid);
+                result = ResultPendingConnection;
+                break;
             case RequestState::Accepted:
             default:
-                return ResultSuccess;
+                result = ResultSuccess;
+                break;
             }
-        }();
+        }
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result);
     }
 
     void GetSystemEventReadableHandles(HLERequestContext& ctx) {
-        LOG_WARNING(Service_NIFM, "(STUBBED) called");
+        LOG_DEBUG(Service_NIFM, "called");
 
         IPC::ResponseBuilder rb{ctx, 2, 2};
         rb.Push(ResultSuccess);
@@ -463,7 +480,12 @@ private:
     }
 
     void Cancel(HLERequestContext& ctx) {
-        LOG_WARNING(Service_NIFM, "(STUBBED) called");
+        LOG_DEBUG(Service_NIFM, "called");
+
+        {
+            std::scoped_lock lk{state_lock};
+            UpdateState(RequestState::NotSubmitted);
+        }
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
@@ -491,13 +513,14 @@ private:
     }
 
     void UpdateState(RequestState new_state) {
-        LOG_DEBUG(Service_NIFM, "(STUBBED) called");
+        LOG_DEBUG(Service_NIFM, "state {} -> {}", state, new_state);
         state = new_state;
         event1->Signal(system.Kernel());
     }
 
     KernelHelpers::ServiceContext service_context;
 
+    std::mutex state_lock;
     RequestState state;
 
     Kernel::KEvent* event1;
