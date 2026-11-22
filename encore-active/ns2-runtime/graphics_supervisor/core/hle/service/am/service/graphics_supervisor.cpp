@@ -182,6 +182,31 @@ static std::optional<NativeVideoImageLayout> CalculateChatCameraImageLayout(
     };
 }
 
+// Lichii GSV 1121 returns a MOVE gpu_time service session, not a zeroed
+// placeholder handle. Keep the native child session alive for SDK startup;
+// unsupported timing requests report an explicit HIPC error.
+class INativeGpuTimeSession final : public ServiceFramework<INativeGpuTimeSession> {
+public:
+    explicit INativeGpuTimeSession(Core::System& sys)
+        : ServiceFramework{sys, "nx2:gpu_time"} {
+        static const FunctionInfo functions[] = {
+            {0, &INativeGpuTimeSession::Handshake, "Handshake"},
+            {11, &INativeGpuTimeSession::QueryApplicationGpuTimeSpan,
+             "QueryApplicationGpuTimeSpan"},
+        };
+        RegisterHandlersTipc(functions);
+    }
+private:
+    void Handshake(HLERequestContext& ctx) {
+        const auto* p = ctx.CommandBuffer();
+        NativeTipcReplyWords(ctx, {p[2], p[3]});
+    }
+    void QueryApplicationGpuTimeSpan(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported.raw);
+    }
+};
+
 class INativeSyncptSession final : public ServiceFramework<INativeSyncptSession> {
 public:
     explicit INativeSyncptSession(Core::System& system_)
@@ -1580,7 +1605,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {861, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetFeatureCpuImageDescriptor861"},
         {891, &IGraphicsSupervisor::CalculateFeatureImagePoolRequirements, "CalculateFeatureImagePoolSize891"},
         {1091, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown1091"},
-        {1121, &IGraphicsSupervisor::UnavailableDocumentedFeature, "OpenGpuTimeSession"},
+        {1121, &IGraphicsSupervisor::OpenGpuTimeSession, "OpenGpuTimeSession"},
         {1503, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CheckPermission1503"},
         {1601, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CheckPermission1601"},
         {1602, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown1602"},
@@ -1910,6 +1935,40 @@ void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
     // AddMoveObject may allocate after CreateMetadataSession published a
     // live KClientSession. On host OOM release its creator reference rather
     // than leaking a service session or throwing through the IPC handler.
+    if (result.IsSuccess()) {
+        try {
+            ctx.AddMoveObject(client);
+        } catch (const std::bad_alloc&) {
+            client->Close(system.Kernel());
+            result = Kernel::ResultOutOfResource;
+        }
+    }
+    if (result.IsError()) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
+    }
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(result.raw);
+}
+
+// The GPU-time query itself is not available on PS5, but the SDK needs a
+// valid child session at GSV 1121 before it can proceed with graphics setup.
+void IGraphicsSupervisor::OpenGpuTimeSession(HLERequestContext& ctx) {
+    const auto* p = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    Kernel::KClientSession* client{};
+    if (p[0] == 16 + 1121 && p[1] == 0) {
+        result = Kernel::ResultInvalidState;
+        if (m_process != nullptr) {
+            try {
+                auto handler = std::make_shared<INativeGpuTimeSession>(system);
+                result = CreateMetadataSession(system, ctx, std::move(handler), &client);
+            } catch (const std::bad_alloc&) {
+                result = Kernel::ResultOutOfResource;
+            }
+        }
+    }
     if (result.IsSuccess()) {
         try {
             ctx.AddMoveObject(client);

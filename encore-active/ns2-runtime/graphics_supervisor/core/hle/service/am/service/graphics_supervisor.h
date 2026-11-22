@@ -70,6 +70,7 @@ private:
     void InitializeDisplayContext(HLERequestContext& ctx);
     void FinalizeDisplayContext(HLERequestContext& ctx);
     void OpenDisplaySession(HLERequestContext& ctx);
+    void OpenGpuTimeSession(HLERequestContext& ctx);
     void BootNativeMemoryManagement(HLERequestContext& ctx);
     void ConfigureGraphicsFrameContext(HLERequestContext& ctx);
     void SetGraphicsFrameMode(HLERequestContext& ctx);

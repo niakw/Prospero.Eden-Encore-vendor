@@ -401,4 +401,17 @@ gsv_rejection = cpp.split(
 )[1].split("\n}", 1)[0]
 assert "rb.Push(Kernel::ResultNotImplemented.raw);" in gsv_rejection
 
+# Lichii GSV 1121 is a MOVE gpu_time child, not a zeroed success.
+assert '{1121, &IGraphicsSupervisor::OpenGpuTimeSession, "OpenGpuTimeSession"}' in cpp
+assert "class INativeGpuTimeSession final" in cpp
+assert '{0, &INativeGpuTimeSession::Handshake, "Handshake"}' in cpp
+assert "QueryApplicationGpuTimeSpan" in cpp
+gpu_time = cpp.split("void IGraphicsSupervisor::OpenGpuTimeSession(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
+for evidence in ("p[0] == 16 + 1121", "CreateMetadataSession(system, ctx,",
+                 "ctx.AddMoveObject(client)", "IPC::ResponseBuilder rb{ctx, 2, 0, 1}",
+                 "client->Close(system.Kernel())"):
+    assert evidence in gpu_time, evidence
+assert "rb.Push(IPC::ResultNotSupported.raw);" in cpp
+assert "void OpenGpuTimeSession(HLERequestContext& ctx);" in hdr
+
 print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS graphics_frame=1101,1102,1111,1112,1113 native_memory=113-transfer-owner donated_usage=498 supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")
