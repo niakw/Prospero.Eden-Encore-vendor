@@ -37,6 +37,10 @@ IApplicationProxy::IApplicationProxy(Core::System& system_, std::shared_ptr<Appl
         {40, D<&IApplicationProxy::GetPerformanceFunctions>, "GetPerformanceFunctions"},
         {60, D<&IApplicationProxy::GetGraphicsScalingParametersFunctions>, "GetGraphicsScalingParametersFunctions"},
         {1000, D<&IApplicationProxy::GetDebugFunctions>, "GetDebugFunctions"},
+        {50, &IApplicationProxy::StubReplyInterface, "Nx2Getter50"},
+        {70, &IApplicationProxy::StubReplyInterface, "Nx2Getter70"},
+        {80, &IApplicationProxy::StubReplyInterface, "Nx2Getter80"},
+        {90, &IApplicationProxy::StubReplyInterface, "Nx2Getter90"},
     };
     // clang-format on
 
