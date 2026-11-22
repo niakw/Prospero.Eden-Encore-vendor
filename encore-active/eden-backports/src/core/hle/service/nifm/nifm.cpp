@@ -24,6 +24,7 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <unordered_map>
 #include "common/container/unordered_map.h"
 #include <common/settings.h>
 
@@ -246,7 +247,37 @@ static std::mutex g_scan_mtx;
 static std::vector<Network::ScanData> g_last_scan_results;
 static std::atomic<u32> g_next_client_id{1};
 static std::atomic<u32> g_accepted_foreground_requests{0};
+static std::mutex g_accepted_requests_mtx;
+static std::unordered_map<u32, u32> g_accepted_requests_by_client;
 static std::mutex g_profile_mtx;
+
+void AdjustAcceptedRequestForClient(u32 client_id, bool accepted) {
+    std::scoped_lock lk{g_accepted_requests_mtx};
+    auto it = g_accepted_requests_by_client.find(client_id);
+    if (accepted) {
+        if (it == g_accepted_requests_by_client.end()) {
+            g_accepted_requests_by_client.emplace(client_id, 1);
+        } else {
+            ++it->second;
+        }
+        return;
+    }
+
+    if (it == g_accepted_requests_by_client.end()) {
+        return;
+    }
+    if (it->second <= 1) {
+        g_accepted_requests_by_client.erase(it);
+    } else {
+        --it->second;
+    }
+}
+
+[[nodiscard]] bool HasAcceptedRequestForClient(u32 client_id) {
+    std::scoped_lock lk{g_accepted_requests_mtx};
+    const auto it = g_accepted_requests_by_client.find(client_id);
+    return it != g_accepted_requests_by_client.end() && it->second != 0;
+}
 static std::optional<PendingProfile> g_pending_profile;
 
 class IScanRequest final : public ServiceFramework<IScanRequest> {
@@ -359,8 +390,9 @@ private:
 
 class IRequest final : public ServiceFramework<IRequest> {
 public:
-    explicit IRequest(Core::System& system_)
-        : ServiceFramework{system_, "IRequest"}, service_context{system_, "IRequest"} {
+    explicit IRequest(Core::System& system_, u32 client_id_)
+        : ServiceFramework{system_, "IRequest"}, service_context{system_, "IRequest"},
+          client_id{client_id_} {
         static const FunctionInfo functions[] = {
             {0, &IRequest::GetRequestState, "GetRequestState"},
             {1, &IRequest::GetResult, "GetResult"},
@@ -401,6 +433,7 @@ public:
             std::scoped_lock lk{state_lock};
             if (state == RequestState::Accepted) {
                 g_accepted_foreground_requests.fetch_sub(1, std::memory_order_relaxed);
+                AdjustAcceptedRequestForClient(client_id, false);
             }
         }
         service_context.CloseEvent(event1);
@@ -544,8 +577,10 @@ private:
         if (was_accepted != is_accepted) {
             if (is_accepted) {
                 g_accepted_foreground_requests.fetch_add(1, std::memory_order_relaxed);
+                AdjustAcceptedRequestForClient(client_id, true);
             } else {
                 g_accepted_foreground_requests.fetch_sub(1, std::memory_order_relaxed);
+                AdjustAcceptedRequestForClient(client_id, false);
             }
         }
 
@@ -557,6 +592,7 @@ private:
 
     std::mutex state_lock;
     RequestState state;
+    u32 client_id{};
 
     Kernel::KEvent* event1;
     Kernel::KEvent* event2;
@@ -603,7 +639,7 @@ void IGeneralService::CreateRequest(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
 
     rb.Push(ResultSuccess);
-    rb.PushIpcInterface<IRequest>(ctx, system);
+    rb.PushIpcInterface<IRequest>(ctx, system, client_id);
 }
 
 void IGeneralService::GetCurrentNetworkProfile(HLERequestContext& ctx) {
@@ -1072,16 +1108,23 @@ void IGeneralService::IsEthernetCommunicationEnabled(HLERequestContext& ctx) {
 }
 
 void IGeneralService::IsAnyInternetRequestAccepted(HLERequestContext& ctx) {
-    LOG_ERROR(Service_NIFM, "(STUBBED) called");
+    const auto buffer = ctx.ReadBuffer();
+    if (buffer.size() < sizeof(u32)) {
+        LOG_ERROR(Service_NIFM, "ClientId input buffer too small: {}", buffer.size());
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultInvalidInput);
+        return;
+    }
+
+    u32 requested_client_id{};
+    std::memcpy(&requested_client_id, buffer.data(), sizeof(requested_client_id));
+    const bool is_accepted = HasAcceptedRequestForClient(requested_client_id);
+
+    LOG_DEBUG(Service_NIFM, "called, client_id={}, is_accepted={}", requested_client_id,
+              is_accepted);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
-    if (!Eden::Encore::kGuestNetworkOffline && Network::GetHostIPv4Address().has_value() &&
-        !Settings::values.airplane_mode.GetValue()) {
-        rb.Push<u8>(1);
-    } else {
-        rb.Push<u8>(0);
-    }
+    rb.Push<u8>(is_accepted);
 }
 
 void IGeneralService::IsAnyForegroundRequestAccepted(HLERequestContext& ctx) {
