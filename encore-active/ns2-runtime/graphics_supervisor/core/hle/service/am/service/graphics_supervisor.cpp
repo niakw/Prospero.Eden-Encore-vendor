@@ -1360,6 +1360,14 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {498, &IGraphicsSupervisor::QueryDonatedTransferMemoryUsage, "TryQueryDonatedTransferMemoryUsage"},
         {1401, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSessionWithTransferMemory"},
         {1402, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSession"},
+        // Known TIPC contracts without a safe completed implementation:
+        // 1411 exposes NVDRV transfer-memory accounting, not GSV boot-buffer
+        // accounting (498); do not manufacture three zero usage counters.
+        {1411, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetNvDrv2UserTransferMemoryUsage"},
+        // 1501/1502 initialize inter-module image sharing. Until image
+        // ownership and backing semantics are available, fail closed.
+        {1501, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateInterModuleImageContext"},
+        {1502, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeInterModuleImageContext"},
         {301, &IGraphicsSupervisor::InitializeDisplayContext, "InitializeDisplayContext"},
         {303, &IGraphicsSupervisor::FinalizeDisplayContext, "FinalizeDisplayContext"},
         {305, &IGraphicsSupervisor::OpenDisplaySession, "OpenDisplaySession"},
