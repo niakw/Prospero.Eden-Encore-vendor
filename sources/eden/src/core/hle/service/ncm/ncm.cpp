@@ -1376,8 +1376,8 @@ public:
     explicit NCM(Core::System& system_) : ServiceFramework{system_, "ncm"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "CreateContentStorage"},
-            {1, nullptr, "CreateContentMetaDatabase"},
+            {0, &NCM::CreateContentStorageNoOp, "CreateContentStorage"},
+            {1, &NCM::CreateContentMetaDatabaseNoOp, "CreateContentMetaDatabase"},
             {2, &NCM::VerifyContentStorage, "VerifyContentStorage"},
             {3, &NCM::VerifyContentMetaDatabase, "VerifyContentMetaDatabase"},
             {4, &NCM::OpenContentStorage, "OpenContentStorage"},
@@ -1399,6 +1399,30 @@ public:
     }
 
 private:
+    void CreateContentStorageNoOp(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto storage_id = rp.PopEnum<FileSys::StorageId>();
+        auto& fsc = system.GetFileSystemController();
+        const bool provisioned = fsc.GetRegisteredCacheForStorage(storage_id) != nullptr &&
+                                 fsc.GetPlaceholderCacheForStorage(storage_id) != nullptr;
+        // FileSystemController provisions Encore's content-storage backends at
+        // startup. If the requested storage already exists, the HOS Create
+        // post-condition is satisfied without rebuilding host directories.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(provisioned ? ResultSuccess : ResultUnknown);
+    }
+
+    void CreateContentMetaDatabaseNoOp(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto storage_id = rp.PopEnum<FileSys::StorageId>();
+        const bool provisioned =
+            system.GetFileSystemController().GetRegisteredCacheForStorage(storage_id) != nullptr;
+        // The registered cache is the backing database used by Encore's
+        // IContentMetaDatabase. It is likewise provisioned before NCM starts.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(provisioned ? ResultSuccess : ResultUnknown);
+    }
+
     void VerifyContentStorage(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto storage_id = rp.PopEnum<FileSys::StorageId>();
