@@ -155,7 +155,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {120, nullptr, "OpenCloudBackupWorkStorageFileSystem"},
         {130, nullptr, "OpenCustomStorageFileSystem"},
         {200, D<&FSP_SRV::OpenDataStorageByCurrentProcess>, "OpenDataStorageByCurrentProcess"},
-        {201, nullptr, "OpenDataStorageByProgramId"},
+        {201, D<&FSP_SRV::OpenDataStorageByProgramId>, "OpenDataStorageByProgramId"},
         {202, D<&FSP_SRV::OpenDataStorageByDataId>, "OpenDataStorageByDataId"},
         {203, D<&FSP_SRV::OpenPatchDataStorageByCurrentProcess>, "OpenPatchDataStorageByCurrentProcess"},
         {204, nullptr, "OpenDataFileSystemByProgramIndex"},
@@ -621,6 +621,12 @@ Result FSP_SRV::OpenDataStorageByCurrentProcess(OutInterface<IStorage> out_inter
     *out_interface = std::make_shared<IStorage>(system, romfs);
 
     R_SUCCEED();
+}
+
+Result FSP_SRV::OpenDataStorageByProgramId(OutInterface<IStorage> out_interface,
+                                             FileSys::StorageId storage_id, u64 title_id) {
+    LOG_DEBUG(Service_FS, "called with storage_id={:02X}, title_id={:016X}", storage_id, title_id);
+    R_RETURN(OpenDataStorageByDataId(out_interface, storage_id, 0, title_id));
 }
 
 Result FSP_SRV::OpenDataStorageByDataId(OutInterface<IStorage> out_interface,
