@@ -222,8 +222,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {104, C<&ISystemSettingsServer::SetUsbFullKeyEnableFlag>, "SetUsbFullKeyEnableFlag"},
         {105, C<&ISystemSettingsServer::SetExternalSteadyClockInternalOffset>, "SetExternalSteadyClockInternalOffset"},
         {106, C<&ISystemSettingsServer::GetExternalSteadyClockInternalOffset>, "GetExternalSteadyClockInternalOffset"},
-        {107, nullptr, "GetBacklightSettingsEx"},
-        {108, nullptr, "SetBacklightSettingsEx"},
+        {107, C<&ISystemSettingsServer::GetBacklightSettingsEx>, "GetBacklightSettingsEx"},
+        {108, C<&ISystemSettingsServer::SetBacklightSettingsEx>, "SetBacklightSettingsEx"},
         {109, C<&ISystemSettingsServer::GetHeadphoneVolumeWarningCount>, "GetHeadphoneVolumeWarningCount"},
         {110, C<&ISystemSettingsServer::SetHeadphoneVolumeWarningCount>, "SetHeadphoneVolumeWarningCount"},
         {111, C<&ISystemSettingsServer::GetBluetoothAfhEnableFlag>, "GetBluetoothAfhEnableFlag"},
@@ -1384,6 +1384,19 @@ Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration(Out<std
 
 Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value) {
     m_system_settings.console_six_axis_sensor_angular_velocity_acceleration = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetBacklightSettingsEx(
+    Out<std::array<u8, 0x2C>> out_settings) {
+    *out_settings = m_system_settings.backlight_settings_mixed_up;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetBacklightSettingsEx(
+    const std::array<u8, 0x2C>& settings) {
+    m_system_settings.backlight_settings_mixed_up = settings;
     SetSaveNeeded();
     R_SUCCEED();
 }

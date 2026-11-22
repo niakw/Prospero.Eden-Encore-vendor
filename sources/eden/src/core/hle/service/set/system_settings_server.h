@@ -163,6 +163,8 @@ public:
     Result SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value);
     Result GetThemeId(Out<std::array<u64, 0x10>> out_value, s32 type);
     Result SetThemeId(s32 type, const std::array<u64, 0x10>& value);
+    Result GetBacklightSettingsEx(Out<std::array<u8, 0x2C>> out_settings);
+    Result SetBacklightSettingsEx(const std::array<u8, 0x2C>& settings);
     Result GetEdid(
         OutLargeData<std::array<u8, 0x100>, BufferAttr_HipcPointer> out_edid);
     Result SetEdid(
