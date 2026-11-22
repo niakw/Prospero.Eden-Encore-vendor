@@ -56,27 +56,26 @@ assert entry.count("IPC::ResponseBuilder rb{ctx, 2, 1};") == 2
 assert entry.count("rb.PushCopyObjects(ctx, m_graphics_supervisor_session);") == 2
 assert '#include "common/scope_exit.h"' in s and "#include <new>" in s
 
-# Qualify the current NS2 Lichii AM command-table successor, then undo
-# ONLY its reviewed table additions on an audit copy. The actual runtime is
-# never modified and the frozen NS1/R23 #240 provenance stays checked.
+# Review the current Lichii command table, then reverse its exact entries
+# on an audit-only copy so the original R23 #240 handler stays pinned.
 import re
 legacy = s
 added = (22, 23, 24, 73, 200, 210, 211, 220, 221, 2100, 2200, 2300)
 for command in added:
-    regex = re.compile(r'^        \\{' + str(command) +
+    regex = re.compile(r'^        \{' + str(command) +
                        r', &ISelfController::StubReplyZeroed, "Unknown' +
-                       str(command) + r'"\\},\\n', re.M)
+                       str(command) + r'"\},\n', re.M)
     legacy, count = regex.subn('', legacy)
     assert count == 1, ('new cmd', command, count)
 zeroed = (17, 18, 20, 21, 45, 46, 64, 66, 70, 71, 80, 110)
 for command in zeroed:
-    regex = re.compile(r'(\\{' + str(command) +
-                       r', )&ISelfController::StubReplyZeroed(, "[^"]+"\\})')
-    legacy, count = regex.subn(r'\\1nullptr\\2', legacy)
+    regex = re.compile(r'(\{' + str(command) +
+                       r', )&ISelfController::StubReplyZeroed(, "[^"]+"\})')
+    legacy, count = regex.subn(r'\1nullptr\2', legacy)
     assert count == 1, ('former null', command, count)
 legacy, count = re.subn(
-    r'(\\{1000, )&ISelfController::StubReplyInterface(, "GetDebugStorageChannel"\\})',
-    r'\\1nullptr\\2', legacy)
+    r'(\{1000, )&ISelfController::StubReplyInterface(, "GetDebugStorageChannel"\})',
+    r'\1nullptr\2', legacy)
 assert count == 1, ('former null', 1000, count)
 
 new_method = '// Lichii currently uses StubReplyZeroed for these Switch 2 commands.\\n'
