@@ -163,9 +163,16 @@ fixed=(r/"encore-active/eden-vulkan/fixed_pipeline_state.cpp").read_text()
 cost=(r/"encore-active/eden-vulkan/vk_texture_cache_cost.cpp").read_text()
 h=(r/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_texture_cache.h").read_text()
 cache=(r/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h").read_text()
-# Both native header owners must match, retaining TIR and GPU retirement.
+# PS5 CMake puts ns2-astc first for video_core. Its active framebuffer ABI
+# adds only the reviewed layer count/accessor used by bounded clears/copies.
+# Strip exactly those two additions on this audit copy and require every
+# other byte to match the shadow Vulkan header.
 unified=(r/"encore-active/ns2-astc/include/video_core/renderer_vulkan/vk_texture_cache.h").read_text()
-assert h==unified
+layers_method="    [[nodiscard]] u32 Layers() const noexcept {\n        return layers;\n    }\n\n"
+layers_member="    u32 layers = 1;\n"
+assert unified.count(layers_method)==unified.count(layers_member)==1
+historical_unified=unified.replace(layers_method,"",1).replace(layers_member,"",1)
+assert historical_unified==h, "vk_texture_cache headers diverged beyond active Layers ABI"
 for symbol in ("GetOrCreateTirColorScratch", "tir_color_scratch",
                "RetireGpuImageView", "RetireGpuImage(", "pending_retired_views",
                "AccelerateImageUploadLayers", "StorageImageLayerView"):
