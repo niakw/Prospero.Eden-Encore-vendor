@@ -381,4 +381,24 @@ assert "Kernel::ResultNotImplemented.raw" in stub
 assert "ctx.AddMoveObject" not in stub
 assert "void UnavailableVideoEncoder(HLERequestContext& ctx);" in hdr
 
+# Lichii nx2 graphics-session table parity: every named ID is either
+# implemented by a real owner or explicitly rejected, never a fake Success.
+known_lichii_gsv_ids = (
+    5, 120, 121, 122, 123, 124, 125, 126, 131, 133,
+    311, 312, 321, 361, 424, 425, 436,
+    461, 462, 463, 464, 465, 466, 467, 468, 494,
+    801, 802, 803, 811, 812, 813, 814, 861, 891,
+    1091, 1121, 1503, 1601, 1602, 1603, 1611, 1612
+)
+gsv_ctor = cpp.split("IGraphicsSupervisor::IGraphicsSupervisor(", 1)[1].split(
+    "RegisterHandlersTipc(functions);", 1)[0]
+for cmd in known_lichii_gsv_ids:
+    owner = ("CalculateFeatureImagePoolRequirements" if cmd == 891
+             else "UnavailableDocumentedFeature")
+    assert f"{{{cmd}, &IGraphicsSupervisor::{owner}," in gsv_ctor, cmd
+gsv_rejection = cpp.split(
+    "void IGraphicsSupervisor::UnavailableDocumentedFeature(HLERequestContext& ctx) {", 1
+)[1].split("\n}", 1)[0]
+assert "rb.Push(Kernel::ResultNotImplemented.raw);" in gsv_rejection
+
 print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS graphics_frame=1101,1102,1111,1112,1113 native_memory=113-transfer-owner donated_usage=498 supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")
