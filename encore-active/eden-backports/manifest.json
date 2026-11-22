@@ -429,6 +429,26 @@
       "upstream": "67a75240764eea738894edeb7b8763f2871a0b6ad04efbb19eb32f475d33be59",
       "active": "b88b7c63d692fe6d4f8e829c30b5c509d4a54a0223aa4b671a5fe4a7668ffa5c",
       "bytes": 2046
+    },
+    "src/core/hle/service/filesystem/fsp/fs_i_filesystem.h": {
+      "upstream": "71d7ac4e6543bffd1f0445383e508692f8f018668728f1420e0696847cccb0ec",
+      "active": "d56eb36fd2df4dbf680f8f0d144fa245e26aab41b972ed8ebf8b806e0c382bd5",
+      "bytes": 3138
+    },
+    "src/core/hle/service/filesystem/fsp/fs_i_filesystem.cpp": {
+      "upstream": "6ee3e82a87d01ad6ea8726d3a9a8facddc3ab527b0c347e2de24bed74e920415",
+      "active": "178d45027c3281c1907b6cb52f23544c1fe89845dbcd5b331862ac9dd3d257a3",
+      "bytes": 9939
+    },
+    "src/core/hle/service/filesystem/fsp/fs_i_file.h": {
+      "upstream": "a68ebaa84c87e542384797778e5cabe294f13ed76ec9aaa4904e36b117b79efb",
+      "active": "a97a11e05886b07035fcba4828624f485be1142fc33f85e0e1bfc8753daa6a6f",
+      "bytes": 1111
+    },
+    "src/core/hle/service/filesystem/fsp/fs_i_file.cpp": {
+      "upstream": "a9476e48235b6318b9f45083e69fafa9b605382f897b2190f1973c97b584e072",
+      "active": "1735eb8bc8035b1b27c1ca397f020f5f481ef8963aea5b52afcb1f4469823c67",
+      "bytes": 2373
     }
   },
   "excluded_experimental": [
