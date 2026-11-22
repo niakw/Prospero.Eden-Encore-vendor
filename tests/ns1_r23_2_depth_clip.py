@@ -31,6 +31,19 @@ for name,expected in files.items():
         normalized=text.replace(fixed,indexed,1).encode()
         normalized_sha=hashlib.sha1(b"blob "+str(len(normalized)).encode()+bytes([0])+normalized).hexdigest()
         assert normalized_sha==expected,(name,actual,normalized_sha,expected)
+    elif name=="vk_graphics_pipeline_cost.cpp" and actual=="df36d210d04411b87e1fdad7fbd0689b1e4d3488":
+        # Integrated color-component mask successor. Seal both exact additions,
+        # reverse them only on the audit copy, then reuse the qualified FC27 owner.
+        text=v.decode()
+        color_mask="    // Maxwell leaves render-target components not written by the fragment shader untouched.\n    // Vulkan otherwise permits undefined values there, which is visible on AMD/RADV.\n    for (size_t rt = 0; rt < Maxwell::NumRenderTargets; ++rt) {\n        color_output_mask |= u32{stage_infos[NUM_STAGES - 1].frag_color_components[rt]}\n                             << (rt * 4);\n    }\n"
+        apply_mask="        write_mask &= ColorOutputMask(index);\n"
+        assert text.count(color_mask)==text.count(apply_mask)==1
+        prior=text.replace(color_mask,"",1).replace(apply_mask,"",1).encode()
+        prior_sha=hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()
+        assert prior_sha=="f3c82781675b6979a8be96a333184e048ef57f81",(name,actual,prior_sha)
+        assert text.count("const u32 second_offset{desc.secondary_cbuf_offset};")==1
+        assert "desc.secondary_cbuf_offset + index_offset" not in text
+        assert "color_output_mask" in text and "ColorOutputMask(index)" in text
     elif name=="vk_graphics_pipeline_cost.cpp" and actual in {"bae8f3c36fc4e595e9b630ca55cc50496468e173","f3c82781675b6979a8be96a333184e048ef57f81"}:
         # The live FC27 owner extends the earlier exact-attribute binding
         # with an optional bounded graphics transition hint graph. Its exact
