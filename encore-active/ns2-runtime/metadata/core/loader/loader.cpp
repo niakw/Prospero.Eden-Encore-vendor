@@ -28,6 +28,7 @@
 #include "core/loader/nro.h"
 #include "core/loader/nso.h"
 #include "core/loader/nsp.h"
+#include "core/loader/nx.h"
 #include "core/loader/xci.h"
 #include "core/loader/ns2_content_formats.h"
 
@@ -122,11 +123,21 @@ bool HasApplicationProgramContent(const std::shared_ptr<FileSys::NSP>& nsp) {
 } // namespace
 
 FileType IdentifyFile(FileSys::VirtualFile file) {
-    // Standalone ExeFS/main must precede generic NSO identification.
-    if (const auto romdir_type =
-            IdentifyFileLoader<AppLoader_DeconstructedRomDirectory>(file)) {
-        return *romdir_type;
-    } else if (const auto nsp_type = IdentifyFileLoader<AppLoader_NSP>(file)) {
+    if (!file) {
+        return FileType::Unknown;
+    }
+    // An extracted ExeFS/main must outrank generic NSO identification,
+    // but only that exact basename can own a deconstructed title directory.
+    if (file->GetName() == "main") {
+        if (const auto romdir_type =
+                IdentifyFileLoader<AppLoader_DeconstructedRomDirectory>(file)) {
+            return *romdir_type;
+        }
+    }
+    if (const auto nx_type = IdentifyFileLoader<AppLoader_NX>(file)) {
+        return *nx_type;
+    }
+    if (const auto nsp_type = IdentifyFileLoader<AppLoader_NSP>(file)) {
         return *nsp_type;
     } else if (const auto xci_type = IdentifyFileLoader<AppLoader_XCI>(file)) {
         return *xci_type;
@@ -146,7 +157,7 @@ FileType IdentifyFile(FileSys::VirtualFile file) {
 }
 
 bool IsContainerType(FileType type) {
-    return type == FileType::NSP || type == FileType::XCI;
+    return type == FileType::NSP || type == FileType::XCI || type == FileType::NX;
 }
 
 bool IsBootableGameContainer(FileSys::VirtualFile file, FileType type, u64 program_id,
@@ -163,6 +174,9 @@ bool IsBootableGameContainer(FileSys::VirtualFile file, FileType type, u64 progr
         return false;
     }
 
+    if (type == FileType::NX) {
+        return AppLoader_NX::IsBootable(file);
+    }
     return HasApplicationProgramContent(OpenContainerAsNsp(file, type, program_id, program_index));
 }
 
@@ -183,10 +197,14 @@ FileType GuessFromFilename(const std::string& name) {
         return FileType::NAX;
     case Eden::NS2::Content::Kind::XCI:
     case Eden::NS2::Content::Kind::XCZ:
+    case Eden::NS2::Content::Kind::DXCI:
         return FileType::XCI;
     case Eden::NS2::Content::Kind::NSP:
     case Eden::NS2::Content::Kind::NSZ:
+    case Eden::NS2::Content::Kind::DNSP:
         return FileType::NSP;
+    case Eden::NS2::Content::Kind::NX:
+        return FileType::NX;
     case Eden::NS2::Content::Kind::KIP:
         return FileType::KIP;
     case Eden::NS2::Content::Kind::NPDMMetadata:
@@ -199,6 +217,8 @@ FileType GuessFromFilename(const std::string& name) {
 
 std::string GetFileTypeString(FileType type) {
     switch (type) {
+    case FileType::NX:
+        return "NX";
     case FileType::NRO:
         return "NRO";
     case FileType::NSO:
@@ -318,6 +338,10 @@ static std::unique_ptr<AppLoader> GetFileLoader(Core::System& system, FileSys::V
                                                 FileType type, u64 program_id,
                                                 std::size_t program_index) {
     switch (type) {
+    // NX format can contain Switch 1 and Switch 2 program snapshots.
+    case FileType::NX:
+        return std::make_unique<AppLoader_NX>(system, std::move(file), program_id, program_index);
+
     // NX NSO file format.
     case FileType::NSO:
         return std::make_unique<AppLoader_NSO>(std::move(file));
@@ -372,13 +396,12 @@ std::unique_ptr<AppLoader> GetLoader(Core::System& system, FileSys::VirtualFile 
 
     FileType type = IdentifyFile(file);
     const auto filename_kind = Eden::NS2::Content::IdentifyName(file->GetName());
-    // The first-generation loader enum has no distinct NSZ/XCZ variant.
-    // For compressed aliases, the underlying PFS0/XCI parser must really
-    // recognize the content before selecting a loader. A .xcz may hold a
-    // PFS0-shaped NSP; the successful magic probe always wins over its name.
+    // The shared loader enum has no distinct compressed/decrypted NSP/XCI aliases.
+    // NSZ/XCZ, DNSP/DXCI and NX must pass a real content signature probe.
+    // A recognized PFS0/XCI magic takes priority over a misleading suffix.
     if (type == FileType::Unknown &&
         !Eden::NS2::Content::MayFallbackByName(filename_kind)) {
-        LOG_WARNING(Loader, "Compressed container {} has no recognized PFS0/XCI contents; "
+        LOG_WARNING(Loader, "Container {} has no recognized format contents; "
                             "refusing extension-only loader fallback", file->GetName());
         return nullptr;
     }
