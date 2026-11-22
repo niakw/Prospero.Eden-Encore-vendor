@@ -28,6 +28,8 @@ public:
                                      Out<u32> out_actual_size,
                                      ApplicationControlSource application_control_source,
                                      u64 application_id);
+    Result GetGameCardAttachmentInfo(Out<bool> out_is_attached);
+    Result IsGameCardInserted(Out<bool> out_is_inserted);
     Result GetApplicationDesiredLanguage(Out<ApplicationLanguage> out_desired_language,
                                          u32 supported_languages);
     Result ConvertApplicationLanguageToLanguageCode(Out<u64> out_language_code,
