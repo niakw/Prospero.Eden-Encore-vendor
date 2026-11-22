@@ -26,7 +26,7 @@ CURRENT_ATTRIBUTE_SOURCE={
   "encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp": "4301e9dbc19c4e07e7c24af23177cf5fa2142f1a",
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h": "c1ed0200afd3666056dfe0ef60705015a923dac7",
   "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp": "df36d210d04411b87e1fdad7fbd0689b1e4d3488",
-  "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h": "6467fd4d704de6b77deb7e6cba4b8e33f70f5a08",
+  "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h": "6e0bf7ab2a3a2147f9db0c630070db30d9b35d56",
   "encore-active/eden-vulkan/vulkan_rasterizer.cpp": INTEGRATED_RASTERIZER,
 }
 # Two byte-sealed PS5-only transition-hint changes sit on TOP of the
@@ -50,6 +50,22 @@ for path,sha in EXPECTED.items():
  if path in CURRENT_ATTRIBUTE_SOURCE:
   current=gitblob(ROOT/path)
   assert current==CURRENT_ATTRIBUTE_SOURCE[path], ("FC27 maintained successor drift",path)
+  if path.endswith("/vk_rasterizer.h"):
+   selected=raw.decode()
+   lines=selected.split("\n")
+   inverse=(
+    (65, ["                           Scheduler& scheduler, Tegra::MemoryManager* const& gpu_memory);","","    bool BufferCopy(GPUVAddr start_address, GPUVAddr end_address, u64 amount) override;",""], ["                           Scheduler& scheduler);","","    bool BufferCopy(GPUVAddr start_address, GPUVAddr end_address, u64 amount) override;",""]),
+    (86, ["    // The GPU address space changes on channel binds. Reference the","    // rasterizer's active pointer, not a stale construction-time channel.","    Tegra::MemoryManager* const& gpu_memory;","};","","class RasterizerVulkan final : public VideoCore::RasterizerInterface,"], ["};","","class RasterizerVulkan final : public VideoCore::RasterizerInterface,"]),
+    (222, ["    void UpdateBlending(Tegra::Engines::Maxwell3D::Regs& regs,","                        const GraphicsPipeline* pipeline);","    void UpdateColorWriteEnable(Tegra::Engines::Maxwell3D::Regs& regs);","","    void UpdateVertexInput(Tegra::Engines::Maxwell3D::Regs& regs);"], ["    void UpdateBlending(Tegra::Engines::Maxwell3D::Regs& regs);","    void UpdateColorWriteEnable(Tegra::Engines::Maxwell3D::Regs& regs);","","    void UpdateVertexInput(Tegra::Engines::Maxwell3D::Regs& regs);"]),
+    (269, ["","#ifdef PS5_NATIVE","    // Cached once per native rasterizer, never queried on each hot-path QMD."], ["    vk::Event wfi_event;","","#ifdef PS5_NATIVE","    // Cached once per native rasterizer, never queried on each hot-path QMD."]),
+    (280, ["    u32 last_color_output_mask{};","    bool mesh_draw{}; ///< the draw being prepared uses a task/mesh pipeline","};",""], ["    bool mesh_draw{}; ///< the draw being prepared uses a task/mesh pipeline","};",""]),
+   )
+   for index,new,prior in reversed(inverse):
+    assert lines[index:index+len(new)]==new, "Integrated rasterizer header hunk drift"
+    lines[index:index+len(new)]=prior
+   predecessor="\n".join(lines).encode()
+   digest=hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()
+   assert digest=="6467fd4d704de6b77deb7e6cba4b8e33f70f5a08", ("Rasterizer header predecessor drift",digest)
   if path.endswith("/shader_info.h"):
    old_source=raw.decode()
    assert old_source.count("    bool uses_sample_mask{};\n")==1
