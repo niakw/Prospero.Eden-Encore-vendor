@@ -22,6 +22,7 @@ EXPECTED={
 # Reviewed FC27 successor: pin each complete changed production blob
 # while retaining the immutable historical R23 oracle for unchanged owners.
 CURRENT_ATTRIBUTE_SOURCE={
+  "encore-active/eden-shader/src/shader_recompiler/shader_info.h": "b0ec194089a0ec9ebb0ff46461f4607c3a7ba889",
   "encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp": "4301e9dbc19c4e07e7c24af23177cf5fa2142f1a",
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h": "cc53133dd516e2d1d245326866ab3ce0c852b36b",
   "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp": "f3c82781675b6979a8be96a333184e048ef57f81",
@@ -49,6 +50,14 @@ for path,sha in EXPECTED.items():
  if path in CURRENT_ATTRIBUTE_SOURCE:
   current=gitblob(ROOT/path)
   assert current==CURRENT_ATTRIBUTE_SOURCE[path], ("FC27 maintained successor drift",path)
+  if path.endswith("/shader_info.h"):
+   old_source=raw.decode()
+   assert old_source.count("    bool uses_sample_mask{};\n")==1
+   old_source=old_source.replace("    bool uses_sample_mask{};\n", "", 1)
+   assert old_source.count("    /// Components (bit 0 = R ... bit 3 = A) of each render target the fragment shader writes.\n    std::array<u8, 8> frag_color_components{};\n")==1
+   old_source=old_source.replace("    /// Components (bit 0 = R ... bit 3 = A) of each render target the fragment shader writes.\n    std::array<u8, 8> frag_color_components{};\n", "", 1)
+   data=old_source.encode()
+   assert hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()=="d847e7485a9657a6a016354fd70fb423112857ff"
   if path.endswith("/texture_pass.cpp"):
    assert verified_depth_compare_sha(ROOT/path)=="30c9a612a88fa6cd832a40ad0f717b4944db45a1"
   if path.endswith("/vulkan_rasterizer.cpp"):
