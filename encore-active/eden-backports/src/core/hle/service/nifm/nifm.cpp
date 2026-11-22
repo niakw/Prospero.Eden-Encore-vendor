@@ -250,6 +250,8 @@ static std::atomic<u32> g_accepted_foreground_requests{0};
 static std::mutex g_accepted_requests_mtx;
 static std::unordered_map<u32, u32> g_accepted_requests_by_client;
 static std::mutex g_profile_mtx;
+static std::mutex g_default_ip_setting_mtx;
+static std::optional<IpSettingData> g_default_ip_setting;
 
 void AdjustAcceptedRequestForClient(u32 client_id, bool accepted) {
     std::scoped_lock lk{g_accepted_requests_mtx};
@@ -1148,6 +1150,81 @@ void IGeneralService::GetSsidListVersion(HLERequestContext& ctx) {
     rb.Push(ssid_list_version);
 }
 
+
+void IGeneralService::GetDefaultIpSetting(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_NIFM, "called");
+
+    if (ctx.GetWriteBufferSize() < sizeof(IpSettingData)) {
+        LOG_ERROR(Service_NIFM, "Default IP output buffer too small: {}", ctx.GetWriteBufferSize());
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultInvalidInput);
+        return;
+    }
+
+    IpSettingData setting{};
+    bool have_saved_setting = false;
+    {
+        std::scoped_lock lk{g_default_ip_setting_mtx};
+        if (g_default_ip_setting.has_value()) {
+            setting = *g_default_ip_setting;
+            have_saved_setting = true;
+        }
+    }
+
+    if (!have_saved_setting) {
+        Network::RefreshFromHost();
+        const auto& st = Network::EmuNetState::Get();
+
+        setting.ip_address_setting.is_automatic = true;
+        setting.dns_setting.is_automatic = true;
+        setting.proxy_setting.is_enabled = false;
+        setting.mtu = 1500;
+
+        if (st.connected) {
+            setting.ip_address_setting.ip_address = st.ip;
+            setting.ip_address_setting.subnet_mask = st.mask;
+            setting.ip_address_setting.default_gateway = st.gw;
+            setting.dns_setting.primary_dns = {1, 1, 1, 1};
+            setting.dns_setting.secondary_dns = {8, 8, 8, 8};
+        }
+
+        if (auto room_member = Network::GetRoomMember().lock();
+            room_member && room_member->IsConnected()) {
+            setting.ip_address_setting.ip_address = room_member->GetFakeIpAddress();
+        }
+
+        std::scoped_lock lk{g_default_ip_setting_mtx};
+        if (!g_default_ip_setting.has_value()) {
+            g_default_ip_setting = setting;
+        } else {
+            setting = *g_default_ip_setting;
+        }
+    }
+
+    ctx.WriteBuffer(setting);
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void IGeneralService::SetDefaultIpSetting(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_NIFM, "called");
+
+    if (!ctx.CanReadBuffer(0) || ctx.GetReadBufferSize() < sizeof(IpSettingData)) {
+        LOG_ERROR(Service_NIFM, "Default IP input buffer too small: {}", ctx.GetReadBufferSize());
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultInvalidInput);
+        return;
+    }
+
+    const auto data = ctx.ReadBufferCopy(0);
+    IpSettingData setting{};
+    std::memcpy(&setting, data.data(), sizeof(setting));
+
+    {
+        std::scoped_lock lk{g_default_ip_setting_mtx};
+        g_default_ip_setting = setting;
+    }
+
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
 void IGeneralService::ConfirmSystemAvailability(HLERequestContext& ctx) {
     LOG_DEBUG(Service_NIFM, "(STUBBED) called.");
 
@@ -1243,8 +1320,8 @@ IGeneralService::IGeneralService(Core::System& system_)
         {24, nullptr, "WakeUp"},
         {25, &IGeneralService::GetSsidListVersion, "GetSsidListVersion"},
         {26, nullptr, "SetExclusiveClient"},
-        {27, nullptr, "GetDefaultIpSetting"},
-        {28, nullptr, "SetDefaultIpSetting"},
+        {27, &IGeneralService::GetDefaultIpSetting, "GetDefaultIpSetting"},
+        {28, &IGeneralService::SetDefaultIpSetting, "SetDefaultIpSetting"},
         {29, nullptr, "SetWirelessCommunicationEnabledForTest"},
         {30, nullptr, "SetEthernetCommunicationEnabledForTest"},
         {31, nullptr, "GetTelemetorySystemEventReadableHandle"},

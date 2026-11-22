@@ -46,6 +46,8 @@ private:
     void IsAnyInternetRequestAccepted(HLERequestContext& ctx);
     void IsAnyForegroundRequestAccepted(HLERequestContext& ctx);
     void GetSsidListVersion(HLERequestContext& ctx);
+    void GetDefaultIpSetting(HLERequestContext& ctx);
+    void SetDefaultIpSetting(HLERequestContext& ctx);
     void GetScanDataV2(HLERequestContext& ctx);
     void ConfirmSystemAvailability(HLERequestContext& ctx);
     void SetBackgroundRequestEnabled(HLERequestContext& ctx);
