@@ -60,6 +60,7 @@
 #include "core/hle/service/sm/sm.h"
 #include "core/internal_network/network.h"
 #include "core/loader/loader.h"
+#include "core/loader/nx.h"
 #include "core/loader/ns2_svc_trace.h"
 #include "nup_v1_native_vfs.h"
 #include "nup_v1_native_content.h"
@@ -184,6 +185,12 @@ namespace {
             constexpr std::size_t MaxNupNpdmBytes = 4U * 1024U * 1024U;
             return npdm && npdm->GetSize() > 0 &&
                    npdm->GetSize() <= MaxNupNpdmBytes && check_npdm(npdm);
+        }
+        // NX carries the program platform in the verified catalog; select the
+        // matching NS2 guest layout before allocating any process memory.
+        if (Loader::AppLoader_NX::IdentifyType(file) == Loader::FileType::NX) {
+            const auto nx_program = Loader::AppLoader_NX::ReadProgramPlatform(file, program_id);
+            return nx_program && nx_program->platform == 2;
         }
         switch (Loader::IdentifyFile(file)) {
         case Loader::FileType::XCI: {
