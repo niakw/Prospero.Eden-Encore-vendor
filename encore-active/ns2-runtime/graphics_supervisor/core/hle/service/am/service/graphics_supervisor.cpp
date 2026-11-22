@@ -1822,12 +1822,25 @@ void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
 }
 
 void IGraphicsSupervisor::InitializeFeatureContext(HLERequestContext& ctx) {
-    // 601/1201 are the camera/GameChat admission calls. The SDK only
-    // consumes the result before requesting the corresponding session.
-    NativeTipcReplyWords(ctx, {});
+    // SwitchBrew GSV 601/1201: no request parameters or return objects.
+    // Do not acknowledge malformed IPC as a successful feature admission.
+    const u32 command = ctx.GetCommand();
+    const auto* packet = ctx.CommandBuffer();
+    const bool valid = (command == 601 || command == 1201) &&
+                       packet[0] == 16 + command && packet[1] == 0;
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(valid ? ResultSuccess.raw : Kernel::ResultInvalidCombination.raw);
 }
 
 void IGraphicsSupervisor::OpenCameraSession(HLERequestContext& ctx) {
+    // 602: no input, one MOVE CameraSession. Never serialize the MOVE handle
+    // under a COPY descriptor; never publish a null handle on OOM.
+    const auto* packet = ctx.CommandBuffer();
+    if (packet[0] != 16 + 602 || packet[1] != 0) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidCombination.raw);
+        return;
+    }
     Kernel::KClientSession* client{};
     Result result = Kernel::ResultOutOfResource;
     try {
@@ -1836,17 +1849,32 @@ void IGraphicsSupervisor::OpenCameraSession(HLERequestContext& ctx) {
     } catch (const std::bad_alloc&) {
         result = Kernel::ResultOutOfResource;
     }
+    if (result.IsSuccess()) {
+        try {
+            ctx.AddMoveObject(client);
+        } catch (const std::bad_alloc&) {
+            // Session publication failed: release its untransferred creator ref.
+            client->Close(system.Kernel());
+            result = Kernel::ResultOutOfResource;
+        }
+    }
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
-    ctx.AddMoveObject(client);
 }
 
 void IGraphicsSupervisor::OpenChatSession(HLERequestContext& ctx) {
+    // 1202: GameChat initialization needs one real MOVE session, not a COPY.
+    const auto* packet = ctx.CommandBuffer();
+    if (packet[0] != 16 + 1202 || packet[1] != 0) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidCombination.raw);
+        return;
+    }
     Kernel::KClientSession* client{};
     Result result = Kernel::ResultOutOfResource;
     try {
@@ -1855,14 +1883,21 @@ void IGraphicsSupervisor::OpenChatSession(HLERequestContext& ctx) {
     } catch (const std::bad_alloc&) {
         result = Kernel::ResultOutOfResource;
     }
+    if (result.IsSuccess()) {
+        try {
+            ctx.AddMoveObject(client);
+        } catch (const std::bad_alloc&) {
+            client->Close(system.Kernel());
+            result = Kernel::ResultOutOfResource;
+        }
+    }
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
-    ctx.AddMoveObject(client);
 }
 
 void IGraphicsSupervisor::CreateSyncptContext(HLERequestContext& ctx) {
