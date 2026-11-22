@@ -82,8 +82,8 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {53, nullptr, "DisableApplicationAutoDelete"},
         {54, nullptr, "EnableApplicationAutoDelete"},
         {55, D<&IApplicationManagerInterface::GetApplicationDesiredLanguage>, "GetApplicationDesiredLanguage"},
-        {56, nullptr, "SetApplicationTerminateResult"},
-        {57, nullptr, "ClearApplicationTerminateResult"},
+        {56, D<&IApplicationManagerInterface::SetApplicationTerminateResult>, "SetApplicationTerminateResult"},
+        {57, D<&IApplicationManagerInterface::ClearApplicationTerminateResult>, "ClearApplicationTerminateResult"},
         {58, nullptr, "GetLastSdCardMountUnexpectedResult"},
         {59, D<&IApplicationManagerInterface::ConvertApplicationLanguageToLanguageCode>, "ConvertApplicationLanguageToLanguageCode"},
         {60, nullptr, "ConvertLanguageCodeToApplicationLanguage"},
@@ -961,6 +961,37 @@ Result IApplicationManagerInterface::CheckApplicationLaunchVersion(u64 applicati
 
     // Encore does not emulate Nintendo's pushed launch-version list; titles are
     // allowed to launch with the locally installed content version.
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::SetApplicationTerminateResult(Result terminate_result, u32 pad,
+                                                                   u64 application_id) {
+    LOG_DEBUG(Service_NS, "called, application_id={:016X}, result={:#x}", application_id,
+              terminate_result.GetInnerValue());
+    static_cast<void>(pad);
+
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, AM::ResultApplicationRecordNotFound);
+    const auto applet = window_system->GetMainApplet();
+    R_UNLESS(applet != nullptr && applet->program_id == application_id,
+             AM::ResultApplicationRecordNotFound);
+
+    std::scoped_lock lk{applet->lock};
+    applet->terminate_result = terminate_result;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::ClearApplicationTerminateResult(u64 application_id) {
+    LOG_DEBUG(Service_NS, "called, application_id={:016X}", application_id);
+
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, AM::ResultApplicationRecordNotFound);
+    const auto applet = window_system->GetMainApplet();
+    R_UNLESS(applet != nullptr && applet->program_id == application_id,
+             AM::ResultApplicationRecordNotFound);
+
+    std::scoped_lock lk{applet->lock};
+    applet->terminate_result = ResultSuccess;
     R_SUCCEED();
 }
 

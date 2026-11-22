@@ -22,6 +22,8 @@ public:
 
     Result UnregisterNetworkServiceAccountWithUserSaveDataDeletion(Common::UUID user_id);
     Result IsSystemProgramInstalled(Out<bool> out_is_installed, u64 program_id);
+    Result SetApplicationTerminateResult(Result terminate_result, u32 pad, u64 application_id);
+    Result ClearApplicationTerminateResult(u64 application_id);
     Result GetApplicationControlData(OutBuffer<BufferAttr_HipcMapAlias> out_buffer,
                                      Out<u32> out_actual_size,
                                      ApplicationControlSource application_control_source,
