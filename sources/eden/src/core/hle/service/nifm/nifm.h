@@ -43,6 +43,7 @@ private:
     void GetInternetConnectionStatus(HLERequestContext& ctx);
     void SetEthernetCommunicationEnabled(HLERequestContext& ctx);
     void IsEthernetCommunicationEnabled(HLERequestContext& ctx);
+    void IsWiredConnectionAvailable(HLERequestContext& ctx);
     void IsAnyInternetRequestAccepted(HLERequestContext& ctx);
     void IsAnyForegroundRequestAccepted(HLERequestContext& ctx);
     void GetSsidListVersion(HLERequestContext& ctx);

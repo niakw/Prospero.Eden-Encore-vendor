@@ -973,7 +973,7 @@ void IGeneralService::GetScanDataV3(HLERequestContext& ctx) {
 }
 
 void IGeneralService::GetCurrentIpAddress(HLERequestContext& ctx) {
-    LOG_WARNING(Service_NIFM, "(STUBBED) called");
+    LOG_DEBUG(Service_NIFM, "called");
 
     auto ipv4 = Network::GetHostIPv4Address();
     if (!ipv4) {
@@ -1097,16 +1097,30 @@ void IGeneralService::SetEthernetCommunicationEnabled(HLERequestContext& ctx) {
 }
 
 void IGeneralService::IsEthernetCommunicationEnabled(HLERequestContext& ctx) {
-    LOG_WARNING(Service_NIFM, "(STUBBED) called");
+    const bool enabled =
+        !Eden::Encore::kGuestNetworkOffline &&
+        Network::EmuNetState::Get().ethernet_enabled.load(std::memory_order_relaxed);
+
+    LOG_DEBUG(Service_NIFM, "called, enabled={}", enabled);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
-    if (!Eden::Encore::kGuestNetworkOffline && Network::GetHostIPv4Address().has_value() &&
-        !Settings::values.airplane_mode.GetValue()) {
-        rb.Push<u8>(1);
-    } else {
-        rb.Push<u8>(0);
-    }
+    rb.Push<u8>(enabled);
+}
+
+void IGeneralService::IsWiredConnectionAvailable(HLERequestContext& ctx) {
+    Network::RefreshFromHost();
+    const auto& st = Network::EmuNetState::Get();
+
+    const bool available =
+        !Eden::Encore::kGuestNetworkOffline && st.connected && !st.via_wifi &&
+        st.ethernet_enabled.load(std::memory_order_relaxed);
+
+    LOG_DEBUG(Service_NIFM, "called, available={}", available);
+
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.Push<u8>(available);
 }
 
 void IGeneralService::IsAnyInternetRequestAccepted(HLERequestContext& ctx) {
@@ -1322,8 +1336,8 @@ IGeneralService::IGeneralService(Core::System& system_)
         {26, nullptr, "SetExclusiveClient"},
         {27, &IGeneralService::GetDefaultIpSetting, "GetDefaultIpSetting"},
         {28, &IGeneralService::SetDefaultIpSetting, "SetDefaultIpSetting"},
-        {29, nullptr, "SetWirelessCommunicationEnabledForTest"},
-        {30, nullptr, "SetEthernetCommunicationEnabledForTest"},
+        {29, &IGeneralService::SetWirelessCommunicationEnabled, "SetWirelessCommunicationEnabledForTest"},
+        {30, &IGeneralService::SetEthernetCommunicationEnabled, "SetEthernetCommunicationEnabledForTest"},
         {31, nullptr, "GetTelemetorySystemEventReadableHandle"},
         {32, nullptr, "GetTelemetryInfo"},
         {33, &IGeneralService::ConfirmSystemAvailability, "ConfirmSystemAvailability"}, // 2.0.0+
@@ -1337,7 +1351,7 @@ IGeneralService::IGeneralService(Core::System& system_)
         {41, nullptr, "GetAcceptableNetworkTypeFlag"},
         {42, nullptr, "NotifyConnectionStateChanged"},
         {43, nullptr, "SetWowlDelayedWakeTime"},
-        {44, nullptr, "IsWiredConnectionAvailable"}, // 18.0.0+
+        {44, &IGeneralService::IsWiredConnectionAvailable, "IsWiredConnectionAvailable"}, // 18.0.0+
         {45, nullptr, "IsNetworkEmulationFeatureEnabled"}, // 18.0.0+
         {46, nullptr, "SelectActiveNetworkEmulationProfileIdForDebug"}, // 18.0.0+
         {47, &IGeneralService::GetScanDataV3, "GetScanData"}, // 19.0.0+
