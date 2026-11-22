@@ -244,6 +244,7 @@ constexpr Result ResultNetworkCommunicationDisabled{ErrorModule::NIFM, 1111};
 
 static std::mutex g_scan_mtx;
 static std::vector<Network::ScanData> g_last_scan_results;
+static std::atomic<u32> g_next_client_id{1};
 static std::atomic<u32> g_accepted_foreground_requests{0};
 static std::mutex g_profile_mtx;
 static std::optional<PendingProfile> g_pending_profile;
@@ -578,12 +579,13 @@ public:
 };
 
 void IGeneralService::GetClientId(HLERequestContext& ctx) {
-    static constexpr u32 client_id = 1;
-    LOG_WARNING(Service_NIFM, "(STUBBED) called");
+    LOG_DEBUG(Service_NIFM, "called, client_id={}", client_id);
 
-    IPC::ResponseBuilder rb{ctx, 4};
+    // nn::nifm::ClientId is a 4-byte object written through a type-0x1A output buffer.
+    ctx.WriteBuffer(client_id);
+
+    IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
-    rb.Push<u64>(client_id); // Client ID needs to be non zero otherwise it's considered invalid
 }
 
 void IGeneralService::CreateScanRequest(HLERequestContext& ctx) {
@@ -1143,7 +1145,11 @@ void IGeneralService::GetCurrentAccessPoint(HLERequestContext& ctx) {
 }
 
 IGeneralService::IGeneralService(Core::System& system_)
-    : ServiceFramework{system_, "IGeneralService"} {
+    : ServiceFramework{system_, "IGeneralService"},
+      client_id{g_next_client_id.fetch_add(1, std::memory_order_relaxed)} {
+    if (client_id == 0) {
+        client_id = g_next_client_id.fetch_add(1, std::memory_order_relaxed);
+    }
     // clang-format off
 
     static const FunctionInfo functions[] = {

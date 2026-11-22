@@ -51,6 +51,8 @@ private:
     void SetBackgroundRequestEnabled(HLERequestContext& ctx);
     void GetCurrentAccessPoint(HLERequestContext& ctx);
     void GetScanDataV3(HLERequestContext& ctx);
+
+    u32 client_id{};
 };
 
 } // namespace Service::NIFM
