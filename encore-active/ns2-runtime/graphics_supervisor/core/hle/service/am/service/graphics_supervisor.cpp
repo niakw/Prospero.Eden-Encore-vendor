@@ -3173,10 +3173,9 @@ void IGraphicsSupervisor::ConfigureNativeWindowImagePool(HLERequestContext& ctx)
         const std::scoped_lock lock{m_native_memory_mutex};
         result = Kernel::ResultNotFound;
         if (m_native_images.Get(packet[2])) {
-            result = Kernel::ResultNotImplemented;
-            if (!create || packet[3] == 1)
-                result = m_native_images.ConfigureWindowPool(packet[2], create)
-                    ? ResultSuccess : Kernel::ResultInvalidState;
+            const u32 count = create ? packet[3] : 0;
+            result = m_native_images.ConfigureWindowPool(packet[2], count, create)
+                ? ResultSuccess : Kernel::ResultInvalidState;
         }
     }
     IPC::ResponseBuilder rb{ctx, 2};

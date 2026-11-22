@@ -56,6 +56,10 @@ struct NativeImageRecord {
     u32 backing{};
     u64 size{};
     std::array<u32, 16> preference{};
+    // 315(first,count) owns a whole alias group; only the first record stores
+    // the group length. Every member still carries window_pool=true so 430
+    // cannot destroy an aliased image behind VI2.
+    u32 window_pool_count{};
     bool window_pool{};
 };
 class NativeImageLedger {
@@ -83,15 +87,58 @@ public:
         if (it == m_images.end()) return {};
         return it->second;
     }
-    [[nodiscard]] bool ConfigureWindowPool(u32 id, bool enabled) {
-        const auto it = m_images.find(id);
-        if (it == m_images.end() || it->second.window_pool == enabled) return false;
-        it->second.window_pool = enabled;
+    [[nodiscard]] bool ConfigureWindowPool(u32 first, u32 count, bool enabled) {
+        const auto first_it = m_images.find(first);
+        if (first_it == m_images.end()) return false;
+        if (enabled) {
+            if (!count || count > MaxEntries ||
+                first > std::numeric_limits<u32>::max() - (count - 1) ||
+                first_it->second.window_pool || first_it->second.window_pool_count)
+                return false;
+            // Validate the whole group first so a missing/aliased middle image
+            // cannot leave a partially-published window pool.
+            for (u32 i = 0; i < count; ++i) {
+                const auto it = m_images.find(first + i);
+                if (it == m_images.end() || it->second.window_pool ||
+                    it->second.window_pool_count)
+                    return false;
+            }
+            for (u32 i = 0; i < count; ++i) {
+                auto& record = m_images.find(first + i)->second;
+                record.window_pool = true;
+                record.window_pool_count = 0;
+            }
+            first_it->second.window_pool_count = count;
+            return true;
+        }
+
+        // 314 carries only the first image ID. Retire exactly the group
+        // recorded by 315; never infer a length from adjacent numeric IDs.
+        if (count != 0 || !first_it->second.window_pool ||
+            first_it->second.window_pool_count == 0)
+            return false;
+        const u32 stored_count = first_it->second.window_pool_count;
+        if (stored_count > MaxEntries ||
+            first > std::numeric_limits<u32>::max() - (stored_count - 1))
+            return false;
+        for (u32 i = 0; i < stored_count; ++i) {
+            const auto it = m_images.find(first + i);
+            if (it == m_images.end() || !it->second.window_pool ||
+                (i != 0 && it->second.window_pool_count != 0))
+                return false;
+        }
+        for (u32 i = 0; i < stored_count; ++i) {
+            auto& record = m_images.find(first + i)->second;
+            record.window_pool = false;
+            record.window_pool_count = 0;
+        }
         return true;
     }
     [[nodiscard]] bool Destroy(u32 id) {
         const auto it = m_images.find(id);
-        if (it == m_images.end() || it->second.window_pool) return false;
+        if (it == m_images.end() || it->second.window_pool ||
+            it->second.window_pool_count)
+            return false;
         m_images.erase(it);
         return true;
     }
