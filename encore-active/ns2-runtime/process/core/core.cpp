@@ -61,6 +61,7 @@
 #include "core/internal_network/network.h"
 #include "core/loader/loader.h"
 #include "core/loader/ns2_svc_trace.h"
+#include "nup_v1_native_vfs.h"
 #include "core/memory.h"
 #include "core/memory/cheat_engine.h"
 #include "core/perf_stats.h"
@@ -168,6 +169,20 @@ namespace {
                  "EDEN_NS2_PREKERNEL_PROBE file=1 directory={} extracted_npdm={}",
                  int(bool(directory)), int(bool(extracted)));
         if (extracted) return check_npdm(extracted);
+        // NUP is a first-class NS1/NS2 container, but IdentifyFile() in the
+        // pinned vendor loader does not know it. The NUP bridge is selected
+        // by the native CMake graph and validates the same effective ExeFS.
+        // Probe its bounded main.npdm BEFORE allocating guest kernel memory,
+        // rather than silently using the smaller NS1 layout for an NS2 title.
+        if (Eden::NupV1::Native::HasNupV1Header(file)) {
+            const auto mount = Eden::NupV1::Native::Mount::Open(file);
+            const auto exefs = mount ? mount->Effective(Eden::NupV1::ContentView::ExeFS)
+                                     : FileSys::VirtualDir{};
+            const auto npdm = exefs ? exefs->GetFile("main.npdm") : nullptr;
+            constexpr std::size_t MaxNupNpdmBytes = 4U * 1024U * 1024U;
+            return npdm && npdm->GetSize() > 0 &&
+                   npdm->GetSize() <= MaxNupNpdmBytes && check_npdm(npdm);
+        }
         switch (Loader::IdentifyFile(file)) {
         case Loader::FileType::XCI: {
             FileSys::XCI xci{file, program_id, program_index};
