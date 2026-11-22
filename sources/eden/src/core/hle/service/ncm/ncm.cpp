@@ -1378,17 +1378,17 @@ public:
         static const FunctionInfo functions[] = {
             {0, nullptr, "CreateContentStorage"},
             {1, nullptr, "CreateContentMetaDatabase"},
-            {2, nullptr, "VerifyContentStorage"},
-            {3, nullptr, "VerifyContentMetaDatabase"},
+            {2, &NCM::VerifyContentStorage, "VerifyContentStorage"},
+            {3, &NCM::VerifyContentMetaDatabase, "VerifyContentMetaDatabase"},
             {4, &NCM::OpenContentStorage, "OpenContentStorage"},
             {5, &NCM::OpenContentMetaDatabase, "OpenContentMetaDatabase"},
-            {6, nullptr, "CloseContentStorageForcibly"},
-            {7, nullptr, "CloseContentMetaDatabaseForcibly"},
+            {6, &NCM::ContentStorageLifecycleNoOp, "CloseContentStorageForcibly"},
+            {7, &NCM::ContentMetaDatabaseLifecycleNoOp, "CloseContentMetaDatabaseForcibly"},
             {8, nullptr, "CleanupContentMetaDatabase"},
-            {9, nullptr, "ActivateContentStorage"},
-            {10, nullptr, "InactivateContentStorage"},
-            {11, nullptr, "ActivateContentMetaDatabase"},
-            {12, nullptr, "InactivateContentMetaDatabase"},
+            {9, &NCM::ContentStorageLifecycleNoOp, "ActivateContentStorage"},
+            {10, &NCM::ContentStorageLifecycleNoOp, "InactivateContentStorage"},
+            {11, &NCM::ContentMetaDatabaseLifecycleNoOp, "ActivateContentMetaDatabase"},
+            {12, &NCM::ContentMetaDatabaseLifecycleNoOp, "InactivateContentMetaDatabase"},
             {13, &NCM::InvalidateRightsIdCache, "InvalidateRightsIdCache"},
             {14, nullptr, "GetMemoryReport"},
             {15, nullptr, "ActivateFsContentStorage"},
@@ -1399,6 +1399,50 @@ public:
     }
 
 private:
+    void VerifyContentStorage(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto storage_id = rp.PopEnum<FileSys::StorageId>();
+        auto& fsc = system.GetFileSystemController();
+        const bool available = fsc.GetRegisteredCacheForStorage(storage_id) != nullptr &&
+                               fsc.GetPlaceholderCacheForStorage(storage_id) != nullptr;
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(available ? ResultSuccess : ResultUnknown);
+    }
+
+    void VerifyContentMetaDatabase(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto storage_id = rp.PopEnum<FileSys::StorageId>();
+        const bool available =
+            system.GetFileSystemController().GetRegisteredCacheForStorage(storage_id) != nullptr;
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(available ? ResultSuccess : ResultUnknown);
+    }
+
+    void ContentStorageLifecycleNoOp(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto storage_id = rp.PopEnum<FileSys::StorageId>();
+        auto& fsc = system.GetFileSystemController();
+        const bool available = fsc.GetRegisteredCacheForStorage(storage_id) != nullptr &&
+                               fsc.GetPlaceholderCacheForStorage(storage_id) != nullptr;
+        // Encore owns these caches for the whole emulation session. There is no
+        // separate NCM daemon activation state to toggle or forcibly close.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(available ? ResultSuccess : ResultUnknown);
+    }
+
+    void ContentMetaDatabaseLifecycleNoOp(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto storage_id = rp.PopEnum<FileSys::StorageId>();
+        const bool available =
+            system.GetFileSystemController().GetRegisteredCacheForStorage(storage_id) != nullptr;
+        // Same ownership model as ContentStorage: the cache remains live while
+        // FileSystemController is alive, so lifecycle transitions are neutral.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(available ? ResultSuccess : ResultUnknown);
+    }
+
     void InvalidateRightsIdCache(HLERequestContext& ctx) {
         // PlaceholderCache::GetRightsID reads and parses the NCA on every call.
         // Encore has no memoized NCM rights-ID cache to invalidate.
