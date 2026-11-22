@@ -8,6 +8,7 @@
 #include <cstring>
 #include <iterator>
 #include <limits>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -524,7 +525,7 @@ Result FSP_SRV::ReadSaveDataFileSystemExtraData(OutBuffer<BufferAttr_HipcMapAlia
     // LibHac resolves static (signed-negative) IDs from System and ordinary IDs
     // from the User indexer. Eden has no indexer, so resolve against the real
     // directory scan; SdUser is a fallback for non-static saves.
-    const bool is_static = static_cast<s64>(save_data_id) < 0;
+    const bool is_static = (save_data_id & (u64{1} << 63)) != 0;
     auto match = FindDirectorySaveById(system, save_data_controller,
                                        is_static ? FileSys::SaveDataSpaceId::System
                                                  : FileSys::SaveDataSpaceId::User,
