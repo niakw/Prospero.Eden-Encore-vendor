@@ -625,11 +625,11 @@ Result IApplicationManagerInterface::ListApplicationRecord(
 
 Result IApplicationManagerInterface::GetApplicationRecordUpdateSystemEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
+    LOG_DEBUG(Service_NS, "called");
 
-    record_update_system_event.Signal(system.Kernel());
+    // The handle itself is passive. Mutating application-record operations
+    // signal this event when the underlying record set actually changes.
     *out_event = record_update_system_event.GetHandle();
-
     R_SUCCEED();
 }
 
@@ -849,14 +849,20 @@ Result IApplicationManagerInterface::TouchApplication(u64 application_id) {
 Result IApplicationManagerInterface::IsApplicationUpdateRequested(Out<bool> out_update_required,
                                                                   Out<u32> out_update_version,
                                                                   u64 application_id) {
-    LOG_WARNING(Service_NS, "(STUBBED) called. application_id={:016X}", application_id);
+    LOG_DEBUG(Service_NS, "called, application_id={:016X}", application_id);
+
+    // Encore has no NS network/version-list request state. Match the emulator
+    // contract used upstream: no outstanding application-update request.
     *out_update_required = false;
     *out_update_version = 0;
     R_SUCCEED();
 }
 
 Result IApplicationManagerInterface::CheckApplicationLaunchVersion(u64 application_id) {
-    LOG_WARNING(Service_NS, "(STUBBED) called. application_id={:016X}", application_id);
+    LOG_DEBUG(Service_NS, "called, application_id={:016X}", application_id);
+
+    // Encore does not emulate Nintendo's pushed launch-version list; titles are
+    // allowed to launch with the locally installed content version.
     R_SUCCEED();
 }
 
