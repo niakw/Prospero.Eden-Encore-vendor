@@ -42,6 +42,15 @@ private:
     // Switch 2 HID: process-scoped scene state, vibration and disconnected Nmouse.
     Result SetSceneIdForPrivateApp(ClientAppletResourceUserId aruid, u64 scene_id);
     Result GetSceneIdForPrivateApp(Out<u64> out_scene_id, ClientAppletResourceUserId aruid);
+    // Switch 2 sends vibration every frame with 214: pointer buffers of device handles and values
+    // like 206, but the aruid is raw data after an unknown u64 instead of a sent process id.
+    Result SendNx2VibrationValues(
+        u64 unknown, AppletResourceUserId aruid,
+        InArray<Core::HID::VibrationDeviceHandle, BufferAttr_HipcPointer> vibration_handles,
+        InArray<Core::HID::VibrationValue, BufferAttr_HipcPointer> vibration_values);
+    // 213: one handle and value with a mode, sent per controller every frame by Kirby Air Riders.
+    // Its layout is only known from guesses, so the raw bytes are decoded in the handler.
+    Result SendVibrationValueInMode(std::array<u8, 0x18> raw, ClientAppletResourceUserId aruid);
     Result IsOunceVibrationDeviceMounted(Out<bool> out_is_mounted,
                                          Core::HID::VibrationDeviceHandle vibration_device_handle,
                                          ClientAppletResourceUserId aruid);
