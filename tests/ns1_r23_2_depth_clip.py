@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """R23 #2: exact 7 active Vulkan source owners, native PS5 depth clip truth table."""
 from pathlib import Path
-from native_msaa_handle_receipt import restore_pre_rebind
+from native_msaa_handle_receipt import restore_pre_rebind, restore_integrated_rasterizer, INTEGRATED_RASTERIZER
 import hashlib
 import os
 import subprocess
@@ -61,13 +61,13 @@ for name,expected in files.items():
         # before checking the historical source blob.
         post_teardown = "RasterizerVulkan::~RasterizerVulkan() {\n    // QueryCache has a shorter lifetime than BufferCache. BufferCache::~\n    // triggers a final scheduler.Finish() AFTER QueryCache is destroyed.\n    // Drain outstanding queries while alive, then revoke the borrowed pointer\n    // to prevent the shutdown path from reading freed QueryCache storage.\n    scheduler.WaitWorker();\n    scheduler.Finish();\n    scheduler.ClearQueryCache();\n}"
         pre_teardown = "RasterizerVulkan::~RasterizerVulkan() {\n    scheduler.WaitWorker();\n    scheduler.Finish();\n}"
-        if actual=="71d097b9a83028dfad9370792c905bb3bfccfd5a":
+        if actual in {"71d097b9a83028dfad9370792c905bb3bfccfd5a", INTEGRATED_RASTERIZER}:
             # This byte-sealed runtime successor includes reviewed frame/CPU
             # invalidation optimizations and the anti-regression rollback of
             # deferred page protection (#194). Do not attempt to reverse it
             # through a two-commit-only MSAA helper. The engine Vulkan oracle
             # reconstructs the exact historic R23 predecessor separately.
-            source=v.decode("utf-8")
+            source=restore_integrated_rasterizer(v.decode("utf-8"))
             assert source.count(post_teardown)==1
             assert "MaxwellDepthClampClip(regs, device.IsExtDepthClipEnableSupported()).clamp" in source
             assert "buffer_cache.ClaimCpuWrites(sequences);" in source

@@ -3,7 +3,7 @@
 Ordinary desktop C++ mock fixture only; no PS5 build, assets or GPU driver.
 """
 from pathlib import Path
-from native_msaa_handle_receipt import CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE, NEW, OLD, restore_pre_rebind
+from native_msaa_handle_receipt import CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE, NEW, OLD, restore_pre_rebind, restore_integrated_rasterizer, INTEGRATED_RASTERIZER
 import hashlib
 import os
 import subprocess
@@ -17,9 +17,11 @@ def git_blob(raw):
 # It is separately byte-sealed by the engine's original Vulkan R23 oracle.
 CURRENT_FC27_RASTERIZER="71d097b9a83028dfad9370792c905bb3bfccfd5a"
 selected=git_blob(src)
-assert selected in {NEW, CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE, CURRENT_FC27_RASTERIZER}
+assert selected in {NEW, CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE, CURRENT_FC27_RASTERIZER, INTEGRATED_RASTERIZER}
+if selected==INTEGRATED_RASTERIZER:
+    assert git_blob(restore_integrated_rasterizer(src.decode()).encode())==CURRENT_FC27_RASTERIZER
 text=src.decode()
-if selected==CURRENT_FC27_RASTERIZER:
+if selected in {CURRENT_FC27_RASTERIZER, INTEGRATED_RASTERIZER}:
     assert "attribute_handle_source = pipeline->AttributeHandleSource();" in text
     assert "attribute_handle_source.reset();" in text
     assert "void RasterizerVulkan::OnCacheInvalidations(" in text
