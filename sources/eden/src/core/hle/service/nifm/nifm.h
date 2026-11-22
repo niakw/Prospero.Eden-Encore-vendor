@@ -46,6 +46,8 @@ private:
     void IsWiredConnectionAvailable(HLERequestContext& ctx);
     void IsAnyInternetRequestAccepted(HLERequestContext& ctx);
     void IsAnyForegroundRequestAccepted(HLERequestContext& ctx);
+    void PutToSleep(HLERequestContext& ctx);
+    void WakeUp(HLERequestContext& ctx);
     void GetSsidListVersion(HLERequestContext& ctx);
     void GetDefaultIpSetting(HLERequestContext& ctx);
     void SetDefaultIpSetting(HLERequestContext& ctx);

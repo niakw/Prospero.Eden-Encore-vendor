@@ -1154,6 +1154,18 @@ void IGeneralService::IsAnyForegroundRequestAccepted(HLERequestContext& ctx) {
     rb.Push<u8>(is_accepted);
 }
 
+void IGeneralService::PutToSleep(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_NIFM, "called; Encore has no separate NIFM daemon power state");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void IGeneralService::WakeUp(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_NIFM, "called; Encore has no separate NIFM daemon power state");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
 void IGeneralService::GetSsidListVersion(HLERequestContext& ctx) {
     LOG_WARNING(Service_NIFM, "(STUBBED) called");
 
@@ -1330,8 +1342,8 @@ IGeneralService::IGeneralService(Core::System& system_)
         {20, &IGeneralService::IsEthernetCommunicationEnabled, "IsEthernetCommunicationEnabled"},
         {21, &IGeneralService::IsAnyInternetRequestAccepted, "IsAnyInternetRequestAccepted"},
         {22, &IGeneralService::IsAnyForegroundRequestAccepted, "IsAnyForegroundRequestAccepted"},
-        {23, nullptr, "PutToSleep"},
-        {24, nullptr, "WakeUp"},
+        {23, &IGeneralService::PutToSleep, "PutToSleep"},
+        {24, &IGeneralService::WakeUp, "WakeUp"},
         {25, &IGeneralService::GetSsidListVersion, "GetSsidListVersion"},
         {26, nullptr, "SetExclusiveClient"},
         {27, &IGeneralService::GetDefaultIpSetting, "GetDefaultIpSetting"},
