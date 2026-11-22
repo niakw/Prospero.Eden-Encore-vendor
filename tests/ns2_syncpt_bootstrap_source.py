@@ -225,6 +225,14 @@ assert gpu_open.index("m_gpu_sessions.reserve(m_gpu_sessions.size() + 1);") < gp
 # invent a success timestamp on an unconsumed QueueBuffer.
 vi2 = cpp[vi2_begin:cpp.index("class INativeChatGsvSession final", vi2_begin)]
 assert '{53,&IVi2Session::GetRecordedTimestamps,"GetRecordedTimestamps"}' in vi2
+# All known Lichii nx2 VI2 IDs must have a named dispatch. Unknown
+# firmware semantics stay fail-closed: no copied request or fake Success.
+opaque_vi2_ids = (13, 107, 108, 113, 230, 231, 232, 301, 302,
+                  353, 354, 355, 356, 358, 359)
+for command in opaque_vi2_ids:
+    assert f"{{{command},&IVi2Session::Unsupported," in vi2, command
+unsupported = vi2.split("void Unsupported(HLERequestContext& ctx) {", 1)[1].split("\n    }", 1)[0]
+assert "rb.Push(Kernel::ResultNotImplemented.raw);" in unsupported
 history = vi2.split("void GetRecordedTimestamps(HLERequestContext& ctx) {",1)[1].split("\n    }",1)[0]
 for evidence in ("recorder = p[5]", "W(p, 6) & 0x1f", "W(p, 8)",
                  "NativeTipcReplyWords(ctx, {0, 0, 1})",

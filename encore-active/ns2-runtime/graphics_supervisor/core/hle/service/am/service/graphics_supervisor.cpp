@@ -588,6 +588,24 @@ public:
             {111,&IVi2Session::OpenEndpoint,"OpenEndpoint"},
             {112,&IVi2Session::CloseEndpoint,"CloseEndpoint"},
             {106,&IVi2Session::MaxResolution,"GetBufferMaxResolution"},
+            // Lichii's S2 VI2 table also exposes these firmware command IDs
+            // as zero-reply stubs. Keep them *explicit* for structural parity,
+            // but do not claim success without an ABI/effect contract.
+            {13,&IVi2Session::Unsupported,"Unknown13"},
+            {107,&IVi2Session::Unsupported,"Unknown107"},
+            {108,&IVi2Session::Unsupported,"Unknown108"},
+            {113,&IVi2Session::Unsupported,"Unknown113"},
+            {230,&IVi2Session::Unsupported,"Unknown230"},
+            {231,&IVi2Session::Unsupported,"Unknown231"},
+            {232,&IVi2Session::Unsupported,"Unknown232"},
+            {301,&IVi2Session::Unsupported,"Unknown301"},
+            {302,&IVi2Session::Unsupported,"Unknown302"},
+            {353,&IVi2Session::Unsupported,"Unknown353"},
+            {354,&IVi2Session::Unsupported,"Unknown354"},
+            {355,&IVi2Session::Unsupported,"Unknown355"},
+            {356,&IVi2Session::Unsupported,"Unknown356"},
+            {358,&IVi2Session::Unsupported,"Unknown358"},
+            {359,&IVi2Session::Unsupported,"Unknown359"},
         };
         RegisterHandlersTipc(f);
     }
@@ -627,6 +645,10 @@ public:
         return system.IsPoweredOn()?ctx.WriteToOutgoingCommandBuffer():ResultSuccess;
     }
 private:
+    void Unsupported(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultNotImplemented.raw);
+    }
     void Handshake(HLERequestContext& ctx) {
         // NS2 SDK VI2 initialization requires the exact incoming u64 token
         // to be echoed. The raw TIPC reply clears the request command buffer,
