@@ -103,6 +103,18 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
         switch (command.cmd) {
         case 0x3:
             return WrapFixed(this, &nvhost_gpu::GetWaitbase, input, output);
+        case 0x4: // NVHOST_IOCTL_CHANNEL_GET_MODMUTEX
+            if (command.raw != 0xC0080004U) break;
+            // not implemented yet on Encore: no real GPU module-mutex owner.
+            return NvResult::NotImplemented;
+        case 0x7: // NVHOST_IOCTL_CHANNEL_SET_SUBMIT_TIMEOUT
+            if (command.raw != 0x40040007U) break;
+            // not implemented yet on Encore: do not promise a scheduler timeout.
+            return NvResult::NotImplemented;
+        case 0x23: // NVHOST_IOCTL_CHANNEL_GET_CLK_RATE
+            if (command.raw != 0xC0080023U) break;
+            // not implemented yet on Encore: no native guest GPU clock source.
+            return NvResult::NotImplemented;
         default:
             break;
         }
@@ -147,6 +159,10 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
         case 0x11: // NVGPU_IOCTL_CHANNEL_FORCE_RESET
             if (command.raw != 0x00004811U) break;
             // not implemented yet on Encore: requires real queued-work cancellation/reset.
+            return NvResult::NotImplemented;
+        case 0x13: // NVGPU_IOCTL_CHANNEL_CYCLE_STATS_SNAPSHOT
+            if (command.raw != 0xC0104813U) break;
+            // not implemented yet on Encore: no real GPU cycle-statistics snapshot.
             return NvResult::NotImplemented;
         case 0x12: { // Switch 2 NVGPU_IOCTL_CHANNEL_EVENT_ID_CONTROL
             if (command.raw != 0x40104812U) break;
