@@ -62,7 +62,7 @@ ILibraryAppletAccessor::ILibraryAppletAccessor(Core::System& system_,
         {20, D<&ILibraryAppletAccessor::RequestExit>, "RequestExit"},
         {25, D<&ILibraryAppletAccessor::Terminate>, "Terminate"},
         {30, D<&ILibraryAppletAccessor::GetResult>, "GetResult"},
-        {50, nullptr, "SetOutOfFocusApplicationSuspendingEnabled"},
+        {50, D<&ILibraryAppletAccessor::SetOutOfFocusApplicationSuspendingEnabled>, "SetOutOfFocusApplicationSuspendingEnabled"},
         {60, D<&ILibraryAppletAccessor::PresetLibraryAppletGpuTimeSliceZero>, "PresetLibraryAppletGpuTimeSliceZero"}, //10.0.0+
         {80, nullptr, "RequestForLibraryAppletToGetForeground"}, //19.0.0+
         {81, nullptr, "GetCurrentChildLibraryApplet"}, //19.0.0+
@@ -105,6 +105,13 @@ Result ILibraryAppletAccessor::GetResult() {
     LOG_DEBUG(Service_AM, "called");
     std::scoped_lock lk{m_applet->lock};
     R_RETURN(m_applet->terminate_result);
+}
+
+Result ILibraryAppletAccessor::SetOutOfFocusApplicationSuspendingEnabled(bool enabled) {
+    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->lifecycle_manager.SetOutOfFocusSuspendingEnabled(enabled);
+    R_SUCCEED();
 }
 
 Result ILibraryAppletAccessor::PresetLibraryAppletGpuTimeSliceZero() {

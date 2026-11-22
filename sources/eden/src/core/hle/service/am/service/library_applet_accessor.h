@@ -30,6 +30,7 @@ private:
     Result GetAppletStateChangedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result IsCompleted(Out<bool> out_is_completed);
     Result GetResult();
+    Result SetOutOfFocusApplicationSuspendingEnabled(bool enabled);
     Result PresetLibraryAppletGpuTimeSliceZero();
     Result Start();
     Result RequestExit();
