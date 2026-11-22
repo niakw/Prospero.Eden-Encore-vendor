@@ -89,7 +89,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {60, nullptr, "ConvertLanguageCodeToApplicationLanguage"},
         {61, nullptr, "GetBackgroundDownloadStressTaskInfo"},
         {62, nullptr, "GetGameCardStopper"},
-        {63, nullptr, "IsSystemProgramInstalled"},
+        {63, D<&IApplicationManagerInterface::IsSystemProgramInstalled>, "IsSystemProgramInstalled"},
         {64, nullptr, "StartApplyDeltaTask"},
         {65, nullptr, "GetRequestServerStopper"},
         {66, nullptr, "GetBackgroundApplyDeltaStressTaskInfo"},
@@ -564,6 +564,16 @@ Result IApplicationManagerInterface::GetApplicationControlData(
     LOG_DEBUG(Service_NS, "called");
     R_RETURN(IReadOnlyApplicationControlDataInterface(system).GetApplicationControlData(
         out_buffer, out_actual_size, application_control_source, application_id));
+}
+
+Result IApplicationManagerInterface::IsSystemProgramInstalled(Out<bool> out_is_installed,
+                                                               u64 program_id) {
+    LOG_DEBUG(Service_NS, "called, program_id={:016X}", program_id);
+    const auto* const system_cache = system.GetFileSystemController().GetSystemNANDContents();
+    *out_is_installed =
+        system_cache != nullptr &&
+        system_cache->HasEntry(program_id, FileSys::ContentRecordType::Program);
+    R_SUCCEED();
 }
 
 Result IApplicationManagerInterface::GetApplicationDesiredLanguage(

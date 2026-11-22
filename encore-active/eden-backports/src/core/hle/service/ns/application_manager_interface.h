@@ -21,6 +21,7 @@ public:
     ~IApplicationManagerInterface() override;
 
     Result UnregisterNetworkServiceAccountWithUserSaveDataDeletion(Common::UUID user_id);
+    Result IsSystemProgramInstalled(Out<bool> out_is_installed, u64 program_id);
     Result GetApplicationControlData(OutBuffer<BufferAttr_HipcMapAlias> out_buffer,
                                      Out<u32> out_actual_size,
                                      ApplicationControlSource application_control_source,
