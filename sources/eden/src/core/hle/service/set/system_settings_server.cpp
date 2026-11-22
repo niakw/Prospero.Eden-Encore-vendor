@@ -164,10 +164,10 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {46, C<&ISystemSettingsServer::SetSpeakerAutoMuteFlag>, "SetSpeakerAutoMuteFlag"},
         {47, C<&ISystemSettingsServer::GetQuestFlag>, "GetQuestFlag"},
         {48, C<&ISystemSettingsServer::SetQuestFlag>, "SetQuestFlag"},
-        {49, nullptr, "GetDataDeletionSettings"},
-        {50, nullptr, "SetDataDeletionSettings"},
-        {51, nullptr, "GetInitialSystemAppletProgramId"},
-        {52, nullptr, "GetOverlayDispProgramId"},
+        {49, C<&ISystemSettingsServer::GetDataDeletionSettings>, "GetDataDeletionSettings"},
+        {50, C<&ISystemSettingsServer::SetDataDeletionSettings>, "SetDataDeletionSettings"},
+        {51, C<&ISystemSettingsServer::GetInitialSystemAppletProgramId>, "GetInitialSystemAppletProgramId"},
+        {52, C<&ISystemSettingsServer::GetOverlayDispProgramId>, "GetOverlayDispProgramId"},
         {53, C<&ISystemSettingsServer::GetDeviceTimeZoneLocationName>, "GetDeviceTimeZoneLocationName"},
         {54, C<&ISystemSettingsServer::SetDeviceTimeZoneLocationName>, "SetDeviceTimeZoneLocationName"},
         {55, nullptr, "GetWirelessCertificationFileSize"},
@@ -199,15 +199,15 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {81, C<&ISystemSettingsServer::SetLdnChannel>, "SetLdnChannel"},
         {82, nullptr, "AcquireTelemetryDirtyFlagEventHandle"},
         {83, nullptr, "GetTelemetryDirtyFlags"},
-        {84, nullptr, "GetPtmBatteryLot"},
-        {85, nullptr, "SetPtmBatteryLot"},
-        {86, nullptr, "GetPtmFuelGaugeParameter"},
-        {87, nullptr, "SetPtmFuelGaugeParameter"},
+        {84, C<&ISystemSettingsServer::GetPtmBatteryLot>, "GetPtmBatteryLot"},
+        {85, C<&ISystemSettingsServer::SetPtmBatteryLot>, "SetPtmBatteryLot"},
+        {86, C<&ISystemSettingsServer::GetPtmFuelGaugeParameter>, "GetPtmFuelGaugeParameter"},
+        {87, C<&ISystemSettingsServer::SetPtmFuelGaugeParameter>, "SetPtmFuelGaugeParameter"},
         {88, C<&ISystemSettingsServer::GetBluetoothEnableFlag>, "GetBluetoothEnableFlag"},
         {89, C<&ISystemSettingsServer::SetBluetoothEnableFlag>, "SetBluetoothEnableFlag"},
         {90, C<&ISystemSettingsServer::GetMiiAuthorId>, "GetMiiAuthorId"},
-        {91, nullptr, "SetShutdownRtcValue"},
-        {92, nullptr, "GetShutdownRtcValue"},
+        {91, C<&ISystemSettingsServer::SetShutdownRtcValue>, "SetShutdownRtcValue"},
+        {92, C<&ISystemSettingsServer::GetShutdownRtcValue>, "GetShutdownRtcValue"},
         {93, nullptr, "AcquireFatalDirtyFlagEventHandle"},
         {94, nullptr, "GetFatalDirtyFlags"},
         {95, C<&ISystemSettingsServer::GetAutoUpdateEnableFlag>, "GetAutoUpdateEnableFlag"},
@@ -1200,6 +1200,70 @@ Result ISystemSettingsServer::SetPctlReadyFlag(bool value) {
     LOG_DEBUG(Service_SET, "SetPctlReadyFlag called");
     m_system_settings.pctl_ready_flag = value;
     SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetDataDeletionSettings(
+    Out<std::array<u8, 0x8>> out_settings) {
+    *out_settings = m_system_settings.data_deletion_settings;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetDataDeletionSettings(
+    const std::array<u8, 0x8>& settings) {
+    m_system_settings.data_deletion_settings = settings;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetInitialSystemAppletProgramId(Out<u64> out_program_id) {
+    u64 id{};
+    std::memcpy(&id, m_system_settings.initial_system_applet_program_id.data(), sizeof(id));
+    *out_program_id = id;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetOverlayDispProgramId(Out<u64> out_program_id) {
+    u64 id{};
+    std::memcpy(&id, m_system_settings.overlay_disp_program_id.data(), sizeof(id));
+    *out_program_id = id;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetPtmBatteryLot(Out<BatteryLot> out_lot) {
+    std::memcpy(out_lot->lot_number.data(), m_device_settings.ptm_battery_lot.data(),
+                m_device_settings.ptm_battery_lot.size());
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetPtmBatteryLot(const BatteryLot& lot) {
+    std::memcpy(m_device_settings.ptm_battery_lot.data(), lot.lot_number.data(),
+                m_device_settings.ptm_battery_lot.size());
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetPtmFuelGaugeParameter(
+    Out<std::array<u8, 0x18>> out_parameter) {
+    *out_parameter = m_device_settings.ptm_fuel_gauge_parameter;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetPtmFuelGaugeParameter(
+    const std::array<u8, 0x18>& parameter) {
+    m_device_settings.ptm_fuel_gauge_parameter = parameter;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetShutdownRtcValue(s64 value) {
+    m_private_settings.shutdown_rtc_value = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetShutdownRtcValue(Out<s64> out_value) {
+    *out_value = m_private_settings.shutdown_rtc_value;
     R_SUCCEED();
 }
 

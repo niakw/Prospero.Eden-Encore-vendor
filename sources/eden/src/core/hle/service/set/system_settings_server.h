@@ -129,6 +129,16 @@ public:
     Result SetHeadphoneVolumeUpdateFlag(bool value);
     Result GetPctlReadyFlag(Out<bool> out_value);
     Result SetPctlReadyFlag(bool value);
+    Result GetDataDeletionSettings(Out<std::array<u8, 0x8>> out_settings);
+    Result SetDataDeletionSettings(const std::array<u8, 0x8>& settings);
+    Result GetInitialSystemAppletProgramId(Out<u64> out_program_id);
+    Result GetOverlayDispProgramId(Out<u64> out_program_id);
+    Result GetPtmBatteryLot(Out<BatteryLot> out_lot);
+    Result SetPtmBatteryLot(const BatteryLot& lot);
+    Result GetPtmFuelGaugeParameter(Out<std::array<u8, 0x18>> out_parameter);
+    Result SetPtmFuelGaugeParameter(const std::array<u8, 0x18>& parameter);
+    Result SetShutdownRtcValue(s64 value);
+    Result GetShutdownRtcValue(Out<s64> out_value);
     Result GetUsb30EnableFlag(Out<bool> out_usb30_enable_flag);
     Result SetUsb30EnableFlag(bool usb30_enable_flag);
     Result GetNfcEnableFlag(Out<bool> out_nfc_enable_flag);
