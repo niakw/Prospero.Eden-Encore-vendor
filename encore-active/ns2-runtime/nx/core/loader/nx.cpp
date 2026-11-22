@@ -812,8 +812,13 @@ void AppLoader_NX::RegisterContent(FileSys::ManualContentProvider& provider) con
             LOG_WARNING(Loader, "NX add-on {:016X} has no romfs folder", *title_id);
             continue;
         }
-        provider.AddEntry(FileSys::TitleType::AOC, FileSys::ContentRecordType::Data, *title_id,
-                          FileSys::BuildAddOnContentNca(*title_id, FileSys::CreateRomFS(romfs)));
+        const auto image = FileSys::CreateRomFS(romfs);
+        const auto nca = image ? FileSys::BuildAddOnContentNca(*title_id, image) : nullptr;
+        if (!nca) {
+            LOG_WARNING(Loader, "NX add-on {:016X} cannot construct a valid RomFS NCA", *title_id);
+            continue;
+        }
+        provider.AddEntry(FileSys::TitleType::AOC, FileSys::ContentRecordType::Data, *title_id, nca);
     }
 }
 

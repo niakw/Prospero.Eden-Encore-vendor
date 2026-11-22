@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <limits>
 #include <vector>
 #include <openssl/evp.h>
 #include "common/alignment.h"
@@ -72,8 +73,20 @@ VirtualFile BuildPartitionFile(std::string name, const std::vector<VirtualFile>&
 }
 
 VirtualFile BuildAddOnContentNca(u64 title_id, VirtualFile romfs) {
+    // A malformed or unavailable NX add-on must never be dereferenced or
+    // registered as a valid content NCA. CreateRomFS() can return null.
+    if (!romfs) {
+        return nullptr;
+    }
     const u64 romfs_size = romfs->GetSize();
-    const u64 section_size = Common::AlignUp(romfs_size, NcaHeader::SectorSize);
+    constexpr u64 sector = NcaHeader::SectorSize;
+    if (romfs_size > std::numeric_limits<u64>::max() - (sector - 1)) {
+        return nullptr;
+    }
+    const u64 section_size = Common::AlignUp(romfs_size, sector);
+    if (section_size > std::numeric_limits<u64>::max() - HeaderSize) {
+        return nullptr;
+    }
 
     NcaFsHeader fs{};
     fs.version = 2;
