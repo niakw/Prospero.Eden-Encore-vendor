@@ -386,8 +386,18 @@ Result FSP_SRV::FindSaveDataWithFilter(Out<s64> out_count,
                                        OutBuffer<BufferAttr_HipcMapAlias> out_buffer,
                                        FileSys::SaveDataSpaceId space_id,
                                        FileSys::SaveDataFilter filter) {
-    LOG_WARNING(Service_FS, "(STUBBED) called");
-    R_THROW(FileSys::ResultTargetNotFound);
+    LOG_DEBUG(Service_FS, "called, space_id={}, {}", space_id, filter.attribute.DebugInfo());
+    R_UNLESS(out_buffer.size() == sizeof(ISaveDataInfoReader::SaveDataInfo),
+             FileSys::ResultInvalidArgument);
+
+    const auto reader =
+        std::make_shared<ISaveDataInfoReader>(system, save_data_controller, space_id);
+    const auto match = reader->FindSaveDataInfo(filter, program_id);
+    *out_count = match.has_value() ? 1 : 0;
+    if (match.has_value()) {
+        std::memcpy(out_buffer.data(), &*match, sizeof(*match));
+    }
+    R_SUCCEED();
 }
 
 Result FSP_SRV::WriteSaveDataFileSystemExtraData(InBuffer<BufferAttr_HipcMapAlias> buffer,

@@ -68,6 +68,39 @@ Result ISaveDataInfoReader::ReadSaveDataInfo(
     R_SUCCEED();
 }
 
+std::optional<ISaveDataInfoReader::SaveDataInfo> ISaveDataInfoReader::FindSaveDataInfo(
+    const FileSys::SaveDataFilter& filter, u64 current_program_id) const {
+    const auto requested_program_id =
+        filter.attribute.program_id == 0 ? current_program_id : filter.attribute.program_id;
+    const auto matches = [&](const SaveDataInfo& entry) {
+        if (filter.use_program_id && static_cast<u64>(entry.title_id) != requested_program_id) {
+            return false;
+        }
+        if (filter.use_save_data_type && entry.type != filter.attribute.type) {
+            return false;
+        }
+        if (filter.use_user_id &&
+            std::memcmp(entry.user_id.data(), filter.attribute.user_id.data(),
+                        entry.user_id.size()) != 0) {
+            return false;
+        }
+        if (filter.use_save_data_id &&
+            static_cast<u64>(entry.save_id) != filter.attribute.system_save_data_id) {
+            return false;
+        }
+        if (filter.use_index && static_cast<u16>(entry.index) != filter.attribute.index) {
+            return false;
+        }
+        if (filter.rank == FileSys::SaveDataRank::Primary &&
+            entry.rank == FileSys::SaveDataRank::Secondary) {
+            return false;
+        }
+        return true;
+    };
+    const auto it = std::find_if(info.begin(), info.end(), matches);
+    return it == info.end() ? std::nullopt : std::optional<SaveDataInfo>{*it};
+}
+
 void ISaveDataInfoReader::FindAllSaves(FileSys::SaveDataSpaceId space) {
     FileSys::VirtualDir save_root{};
     const auto result = save_data_controller->OpenSaveDataSpace(&save_root, space);
@@ -83,6 +116,9 @@ void ISaveDataInfoReader::FindAllSaves(FileSys::SaveDataSpaceId space) {
         } else if (space == FileSys::SaveDataSpaceId::Temporary) {
             FindTemporaryStorageSaves(space, type);
         }
+    }
+    if (space == FileSys::SaveDataSpaceId::User || space == FileSys::SaveDataSpaceId::SdUser) {
+        FindCacheStorageSaves(space, 0);
     }
 }
 
@@ -156,7 +192,7 @@ void ISaveDataInfoReader::FindCacheStorageSaves(FileSys::SaveDataSpaceId space, 
             continue;
         }
         const auto title_id = stoull_be(title_dir->GetName());
-        if (title_id != program_id) {
+        if (program_id != 0 && title_id != program_id) {
             continue;
         }
         info.emplace_back(SaveDataInfo{

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <optional>
 #include <vector>
 #include "common/common_types.h"
 #include "core/hle/service/cmif_types.h"
@@ -37,6 +38,8 @@ public:
 
     Result ReadSaveDataInfo(Out<u64> out_count,
                             OutArray<SaveDataInfo, BufferAttr_HipcMapAlias> out_entries);
+    std::optional<SaveDataInfo> FindSaveDataInfo(const FileSys::SaveDataFilter& filter,
+                                                 u64 current_program_id) const;
 
 private:
     void FindAllSaves(FileSys::SaveDataSpaceId space);
