@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <mutex>
 #include "common/container/unordered_map.h"
 #include "common/common_types.h"
@@ -20,11 +21,14 @@ class System;
 }
 
 namespace Kernel {
+class KEvent;
 class KServerSession;
 class ServiceThread;
 } // namespace Kernel
 
 namespace Service {
+
+namespace KernelHelpers { class ServiceContext; }
 
 namespace FileSystem {
 class FileSystemController;
@@ -77,6 +81,12 @@ protected:
     [[nodiscard]] virtual std::unique_lock<std::mutex> LockService() noexcept {
         return std::unique_lock{lock_service};
     }
+
+    // Lichii NS2 structural reply shapes. Only explicitly registered
+    // commands reach these methods; unknown services remain fail-closed.
+    void StubReplyZeroed(HLERequestContext& ctx);
+    void StubReplyEvent(HLERequestContext& ctx);
+    void StubReplyInterface(HLERequestContext& ctx);
 private:
     template <typename T>
     friend class ServiceFramework;
@@ -114,6 +124,10 @@ protected:
     /// Flag to store if a port was already create/installed to detect multiple install attempts,
     /// which is not supported.
     bool service_registered = false;
+    // Lazy service-owned event, with the normal kernel resource lifetime.
+    Kernel::KEvent* stub_event{};
+    std::unique_ptr<KernelHelpers::ServiceContext> stub_context;
+
 };
 
 /**
