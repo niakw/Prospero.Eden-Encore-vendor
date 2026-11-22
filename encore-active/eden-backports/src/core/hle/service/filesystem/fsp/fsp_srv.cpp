@@ -304,10 +304,11 @@ Result FSP_SRV::CreateSaveDataFileSystemWithCreationInfo2(
 }
 
 Result FSP_SRV::IsExFatSupported(Out<bool> out_is_supported) {
-    LOG_WARNING(Service_FS, "(STUBBED) called");
+    LOG_DEBUG(Service_FS, "called");
 
-    *out_is_supported = true;
-
+    // The virtual host-directory SD backend does not expose a FAT/exFAT
+    // formatter distinction. LibHac uses the same conservative fallback.
+    *out_is_supported = false;
     R_SUCCEED();
 }
 
@@ -679,10 +680,10 @@ Result FSP_SRV::OpenDataStorageWithProgramIndex(OutInterface<IStorage> out_inter
 }
 
 Result FSP_SRV::IsSdCardAccessible(Out<bool> out_is_accessible) {
-    LOG_DEBUG(Service_FS, "(STUBBED) called");
+    LOG_DEBUG(Service_FS, "called");
 
-    *out_is_accessible = true;
-
+    FileSys::VirtualDir sdmc{};
+    *out_is_accessible = fsc.OpenSDMC(&sdmc) == ResultSuccess && sdmc != nullptr;
     R_SUCCEED();
 }
 
