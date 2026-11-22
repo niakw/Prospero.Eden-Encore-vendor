@@ -139,6 +139,16 @@ public:
     Result SetPtmFuelGaugeParameter(const std::array<u8, 0x18>& parameter);
     Result SetShutdownRtcValue(s64 value);
     Result GetShutdownRtcValue(Out<s64> out_value);
+    Result GetAnalogStickUserCalibrationL(Out<std::array<u8, 0x10>> out_value);
+    Result SetAnalogStickUserCalibrationL(const std::array<u8, 0x10>& value);
+    Result GetAnalogStickUserCalibrationR(Out<std::array<u8, 0x10>> out_value);
+    Result SetAnalogStickUserCalibrationR(const std::array<u8, 0x10>& value);
+    Result GetPtmBatteryVersion(Out<u8> out_value);
+    Result SetPtmBatteryVersion(u8 value);
+    Result GetUsb30HostEnableFlag(Out<bool> out_value);
+    Result SetUsb30HostEnableFlag(bool value);
+    Result GetUsb30DeviceEnableFlag(Out<bool> out_value);
+    Result SetUsb30DeviceEnableFlag(bool value);
     Result GetUsb30EnableFlag(Out<bool> out_usb30_enable_flag);
     Result SetUsb30EnableFlag(bool usb30_enable_flag);
     Result GetNfcEnableFlag(Out<bool> out_nfc_enable_flag);

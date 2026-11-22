@@ -273,16 +273,16 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {155, nullptr, "SetAccountOnlineStorageSettings"},
         {156, C<&ISystemSettingsServer::GetPctlReadyFlag>, "GetPctlReadyFlag"},
         {157, C<&ISystemSettingsServer::SetPctlReadyFlag>, "SetPctlReadyFlag"},
-        {158, nullptr, "GetAnalogStickUserCalibrationL"},
-        {159, nullptr, "SetAnalogStickUserCalibrationL"},
-        {160, nullptr, "GetAnalogStickUserCalibrationR"},
-        {161, nullptr, "SetAnalogStickUserCalibrationR"},
-        {162, nullptr, "GetPtmBatteryVersion"},
-        {163, nullptr, "SetPtmBatteryVersion"},
-        {164, nullptr, "GetUsb30HostEnableFlag"},
-        {165, nullptr, "SetUsb30HostEnableFlag"},
-        {166, nullptr, "GetUsb30DeviceEnableFlag"},
-        {167, nullptr, "SetUsb30DeviceEnableFlag"},
+        {158, C<&ISystemSettingsServer::GetAnalogStickUserCalibrationL>, "GetAnalogStickUserCalibrationL"},
+        {159, C<&ISystemSettingsServer::SetAnalogStickUserCalibrationL>, "SetAnalogStickUserCalibrationL"},
+        {160, C<&ISystemSettingsServer::GetAnalogStickUserCalibrationR>, "GetAnalogStickUserCalibrationR"},
+        {161, C<&ISystemSettingsServer::SetAnalogStickUserCalibrationR>, "SetAnalogStickUserCalibrationR"},
+        {162, C<&ISystemSettingsServer::GetPtmBatteryVersion>, "GetPtmBatteryVersion"},
+        {163, C<&ISystemSettingsServer::SetPtmBatteryVersion>, "SetPtmBatteryVersion"},
+        {164, C<&ISystemSettingsServer::GetUsb30HostEnableFlag>, "GetUsb30HostEnableFlag"},
+        {165, C<&ISystemSettingsServer::SetUsb30HostEnableFlag>, "SetUsb30HostEnableFlag"},
+        {166, C<&ISystemSettingsServer::GetUsb30DeviceEnableFlag>, "GetUsb30DeviceEnableFlag"},
+        {167, C<&ISystemSettingsServer::SetUsb30DeviceEnableFlag>, "SetUsb30DeviceEnableFlag"},
         {168, nullptr, "GetThemeId"},
         {169, nullptr, "SetThemeId"},
         {170, C<&ISystemSettingsServer::GetChineseTraditionalInputMethod>, "GetChineseTraditionalInputMethod"},
@@ -1264,6 +1264,61 @@ Result ISystemSettingsServer::SetShutdownRtcValue(s64 value) {
 
 Result ISystemSettingsServer::GetShutdownRtcValue(Out<s64> out_value) {
     *out_value = m_private_settings.shutdown_rtc_value;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetAnalogStickUserCalibrationL(Out<std::array<u8, 0x10>> out_value) {
+    *out_value = m_system_settings.analog_stick_user_calibration_left;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetAnalogStickUserCalibrationL(const std::array<u8, 0x10>& value) {
+    m_system_settings.analog_stick_user_calibration_left = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetAnalogStickUserCalibrationR(Out<std::array<u8, 0x10>> out_value) {
+    *out_value = m_system_settings.analog_stick_user_calibration_right;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetAnalogStickUserCalibrationR(const std::array<u8, 0x10>& value) {
+    m_system_settings.analog_stick_user_calibration_right = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetPtmBatteryVersion(Out<u8> out_value) {
+    *out_value = m_device_settings.ptm_battery_version;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetPtmBatteryVersion(u8 value) {
+    m_device_settings.ptm_battery_version = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetUsb30HostEnableFlag(Out<bool> out_value) {
+    *out_value = m_system_settings.usb_30_host_enable_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetUsb30HostEnableFlag(bool value) {
+    m_system_settings.usb_30_host_enable_flag = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetUsb30DeviceEnableFlag(Out<bool> out_value) {
+    *out_value = m_system_settings.usb_30_device_enable_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetUsb30DeviceEnableFlag(bool value) {
+    m_system_settings.usb_30_device_enable_flag = value;
+    SetSaveNeeded();
     R_SUCCEED();
 }
 
