@@ -1530,7 +1530,9 @@ Result ISystemSettingsServer::SetEdid(
 Result ISystemSettingsServer::GetAllowedSslHosts(
     Out<s32> out_count,
     OutArray<std::array<u8, 0x100>, BufferAttr_HipcMapAlias> out_hosts) {
-    const auto count = (std::min)(m_system_settings.allowed_ssl_hosts.size(), out_hosts.size());
+    const auto count = (std::min)(
+        static_cast<std::size_t>(m_system_settings.allowed_ssl_host_count),
+        (std::min)(m_system_settings.allowed_ssl_hosts.size(), out_hosts.size()));
     *out_count = static_cast<s32>(count);
     std::memcpy(out_hosts.data(), m_system_settings.allowed_ssl_hosts.data(),
                 count * sizeof(out_hosts[0]));
