@@ -521,8 +521,9 @@ NvResult nvhost_gpu::ZCullBind(IoctlZCullBind& params) {
 NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, DeviceFD fd) {
     // Ounce's S2 channel wrapper serializes {cmd, event_id, u64 zero} into
     // 0x40104812. Nintendo documents these ids as the same ones returned by
-    // QueryEvent. Encore owns real KEvents for ids 1..3 only; do not claim
-    // CILP/semaphore events (4..6) until their producers exist.
+    // QueryEvent. SwitchBrew exposes exactly ids 1..3 for /dev/nvhost-gpu:
+    // breakpoint-int, breakpoint-pause and error-notifier. Keep undocumented
+    // native QueryEvent extensions outside this ioctl contract.
     const std::scoped_lock lock{channel_mutex};
     if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
 
@@ -533,7 +534,7 @@ NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, Dev
 
     const u32 cmd = static_cast<u32>(params.cmd);
     const u32 event_id = static_cast<u32>(params.id);
-    if (cmd > 2 || event_id == 0 || event_id > 6)
+    if (cmd > 2 || event_id == 0 || event_id > 3)
         return NvResult::BadParameter;
     if (static_cast<u64>(params.reserved) != 0)
         return NvResult::NotImplemented;
@@ -550,7 +551,8 @@ NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, Dev
         event = error_notifier_event;
         break;
     default:
-        return NvResult::NotImplemented;
+        // Rejected by the public QueryEvent-id bound above.
+        return NvResult::BadParameter;
     }
 
     const u32 bit = 1u << event_id;

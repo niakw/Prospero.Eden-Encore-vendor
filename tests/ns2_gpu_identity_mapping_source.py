@@ -456,8 +456,8 @@ assert submit_impl.index("if (!native_channel_enabled)") < submit_impl.index(
 
 # Ounce S2 channel EventIdControl is input-only 0x40104812 and carries
 # {u32 cmd, u32 QueryEvent id, u64 zero}. The real setup path enables id=2.
-# Encore configures the three QueryEvent-backed KEvents and refuses ids 4..6
-# until their CILP/semaphore producers exist.
+# SwitchBrew exposes exactly the three /dev/nvhost-gpu QueryEvent ids 1..3.
+# EventIdControl rejects all other ids rather than inventing extra producers.
 assert "struct IoctlNativeEventIdControl" in nvhost_hdr
 assert "u64_le reserved{}; // Ounce S2 wrapper sends zero" in nvhost_hdr
 assert 'static_assert(sizeof(IoctlNativeEventIdControl) == 16' in nvhost_hdr
@@ -475,7 +475,7 @@ event_ctrl=nvhost_cpp.split(
     "NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, DeviceFD fd) {",1
 )[1].split("\n}",1)[0]
 for token in ("ValidateChannelOwner(fd, program_id)",
-              "cmd > 2 || event_id == 0 || event_id > 6",
+              "cmd > 2 || event_id == 0 || event_id > 3",
               "static_cast<u64>(params.reserved) != 0",
               "case 1:", "sm_exception_breakpoint_int_report_event",
               "case 2:", "sm_exception_breakpoint_pause_report_event",
@@ -484,7 +484,7 @@ for token in ("ValidateChannelOwner(fd, program_id)",
               "native_event_enable_mask |= bit",
               "GetReadableEvent().Clear(system.Kernel())"):
     assert token in event_ctrl,token
-assert "default:\n        return NvResult::NotImplemented;" in event_ctrl
+assert "default:\n        // Rejected by the public QueryEvent-id bound above.\n        return NvResult::BadParameter;" in event_ctrl
 assert event_ctrl.index("case 2:") < event_ctrl.index(
     "sm_exception_breakpoint_pause_report_event")
 assert event_ctrl.count("return NvResult::Success;") == 1
