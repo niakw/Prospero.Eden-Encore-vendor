@@ -1881,6 +1881,14 @@ void IGraphicsSupervisor::CreateSyncptContext(HLERequestContext& ctx) {
 }
 
 void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {
+    // SwitchBrew GSV 202 has no input and returns one MOVE SyncptSession.
+    // Reject malformed TIPC before allocating a session or publishing a handle.
+    const auto* packet = ctx.CommandBuffer();
+    if (packet[0] != 16 + 202 || packet[1] != 0) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidCombination.raw);
+        return;
+    }
     Kernel::KClientSession* client{};
     Result result = Kernel::ResultOutOfResource;
     try {
