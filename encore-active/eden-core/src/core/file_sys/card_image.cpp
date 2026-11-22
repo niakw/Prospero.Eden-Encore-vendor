@@ -10,6 +10,7 @@
 
 #include <fmt/ostream.h>
 
+#include "common/string_util.h"
 #include "common/logging.h"
 #include "core/crypto/key_manager.h"
 #include "core/file_sys/card_image.h"
@@ -337,7 +338,14 @@ Loader::ResultStatus XCI::TryReadHeader() {
         }
 
         // Ensure the header magic matches. If it doesn't, this isn't a card image header.
-        if (header.magic != Common::MakeMagic('H', 'E', 'A', 'D')) {
+        // NxEmu DXCI keeps the XCI/HFS0 layout but changes HEAD -> DXCI.
+        // Admit that decrypted variant only with the matching extension; do
+        // not relax ordinary encrypted game-card validation.
+        const auto name = Common::ToLower(file->GetName());
+        const bool decrypted_card = name.ends_with(".dxci") &&
+            header.magic == Common::MakeMagic('D', 'X', 'C', 'I');
+        if (header.magic != Common::MakeMagic('H', 'E', 'A', 'D') &&
+            !decrypted_card) {
             return Loader::ResultStatus::ErrorBadXCIHeader;
         }
 
