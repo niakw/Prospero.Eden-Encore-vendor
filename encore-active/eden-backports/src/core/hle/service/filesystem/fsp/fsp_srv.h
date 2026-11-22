@@ -99,8 +99,7 @@ private:
     Result OpenDataStorageByCurrentProcess(OutInterface<IStorage> out_interface);
     Result OpenDataStorageByDataId(OutInterface<IStorage> out_interface,
                                    FileSys::StorageId storage_id, u32 unknown, u64 title_id);
-    Result OpenPatchDataStorageByCurrentProcess(OutInterface<IStorage> out_interface,
-                                                FileSys::StorageId storage_id, u64 title_id);
+    Result OpenPatchDataStorageByCurrentProcess(OutInterface<IStorage> out_interface);
     Result OpenDataStorageWithProgramIndex(OutInterface<IStorage> out_interface, u8 program_index);
     Result IsSdCardAccessible(Out<bool> out_is_accessible);
     Result DisableAutoSaveDataCreation();

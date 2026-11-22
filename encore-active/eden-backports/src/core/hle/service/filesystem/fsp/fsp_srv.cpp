@@ -373,10 +373,10 @@ Result FSP_SRV::OpenSaveDataInfoReaderBySaveDataSpaceId(
 
 Result FSP_SRV::OpenSaveDataInfoReaderOnlyCacheStorage(
     OutInterface<ISaveDataInfoReader> out_interface) {
-    LOG_WARNING(Service_FS, "(STUBBED) called");
+    LOG_DEBUG(Service_FS, "called, program_id={:016X}", program_id);
 
-    *out_interface = std::make_shared<ISaveDataInfoReader>(system, save_data_controller,
-                                                           FileSys::SaveDataSpaceId::Temporary);
+    *out_interface = std::make_shared<ISaveDataInfoReader>(
+        system, save_data_controller, FileSys::SaveDataSpaceId::User, true, program_id);
 
     R_SUCCEED();
 }
@@ -543,12 +543,14 @@ Result FSP_SRV::OpenDataStorageByDataId(OutInterface<IStorage> out_interface,
     R_SUCCEED();
 }
 
-Result FSP_SRV::OpenPatchDataStorageByCurrentProcess(OutInterface<IStorage> out_interface,
-                                                     FileSys::StorageId storage_id, u64 title_id) {
-    LOG_WARNING(Service_FS, "(STUBBED) called with storage_id={:02X}, title_id={:016X}", storage_id,
-                title_id);
+Result FSP_SRV::OpenPatchDataStorageByCurrentProcess(OutInterface<IStorage> out_interface) {
+    LOG_DEBUG(Service_FS, "called");
 
-    R_RETURN(FileSys::ResultTargetNotFound);
+    auto patched_romfs = romfs_controller->OpenRomFSCurrentProcess();
+    R_UNLESS(patched_romfs != nullptr, FileSys::ResultTargetNotFound);
+
+    *out_interface = std::make_shared<IStorage>(system, std::move(patched_romfs));
+    R_SUCCEED();
 }
 
 Result FSP_SRV::OpenDataStorageWithProgramIndex(OutInterface<IStorage> out_interface,
