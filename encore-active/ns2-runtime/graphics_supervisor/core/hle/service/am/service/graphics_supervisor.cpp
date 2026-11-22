@@ -1400,6 +1400,74 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {1112, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameRestartMode"},
         {1113, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameGpuTimesliceMode"},
         {1510, &IGraphicsSupervisor::CalculateNativeImageRequirements, "CalculateRequirements"},
+        // Known optional SwitchBrew commands without a supported Encore backend.
+        // Each ID has an explicit fail-closed TIPC handler; never fake Success.
+        {187, &IGraphicsSupervisor::UnavailableDocumentedFeature, "QueryNativeMemoryNvsNvRmMemIdForDebug"},
+        {211, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateDebugSyncDevice"},
+        {212, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyDebugSyncDevice"},
+        {213, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateDebugSyncCounter"},
+        {214, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyDebugSyncCounter"},
+        {215, &IGraphicsSupervisor::UnavailableDocumentedFeature, "ReportDebugSyncCounterValue"},
+        {493, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateUserlandDebuggerSession"},
+        {603, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyCameraContext"},
+        {612, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyOutputBufferPool"},
+        {613, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateAliasOutputBufferPool"},
+        {614, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyAliasOutputBufferPool"},
+        {615, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateOutputBufferPool"},
+        {616, &IGraphicsSupervisor::UnavailableDocumentedFeature, "ReadFrameDataAsync"},
+        {620, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeB"},
+        {621, &IGraphicsSupervisor::UnavailableDocumentedFeature, "FinalizeB"},
+        {622, &IGraphicsSupervisor::UnavailableDocumentedFeature, "ListCameras"},
+        {623, &IGraphicsSupervisor::UnavailableDocumentedFeature, "OpenCamera"},
+        {624, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CloseCamera"},
+        {626, &IGraphicsSupervisor::UnavailableDocumentedFeature, "ListSensorMode"},
+        {627, &IGraphicsSupervisor::UnavailableDocumentedFeature, "SetSensorMode"},
+        {628, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAvailableStreams"},
+        {629, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetRequiredWorkBufferSize"},
+        {630, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateStream"},
+        {632, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetReadDoneEvent"},
+        {633, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetStreamOutputSize"},
+        {634, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyStream"},
+        {636, &IGraphicsSupervisor::UnavailableDocumentedFeature, "ReadFrameDataAsync"},
+        {637, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAttachedEvent"},
+        {638, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetDetachedEvent"},
+        {639, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetFrameInfo"},
+        {640, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetFrameInfo2"},
+        {641, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetConnectionChangedEvent"},
+        {650, &IGraphicsSupervisor::UnavailableDocumentedFeature, "SetPictureQualityConfig"},
+        {651, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetPictureQualityConfig"},
+        {652, &IGraphicsSupervisor::UnavailableDocumentedFeature, "SetDigitalWindow"},
+        {653, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetDigitalWindow"},
+        {654, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetDigitalWindowCapability"},
+        {655, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetSupportedFunctions"},
+        {656, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetSupportedDebugFunctions"},
+        {657, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetCameraPrivacyCoverStatus"},
+        {658, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetCameraDeviceTemperature"},
+        {659, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetDeviceUniqueId"},
+        {660, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetSensorMode"},
+        {661, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetStride"},
+        {662, &IGraphicsSupervisor::UnavailableDocumentedFeature, "UnlinkSensor"},
+        {663, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetDeviceModel"},
+        {664, &IGraphicsSupervisor::UnavailableDocumentedFeature, "SetRawSensorMode"},
+        {665, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAccessAllowed"},
+        {666, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetHostDrivenAeRegion"},
+        {667, &IGraphicsSupervisor::UnavailableDocumentedFeature, "SetHostDrivenAeRegion"},
+        {691, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CalculateImageArraySize"},
+        {903, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyVideoDecoderContext"},
+        {904, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeVideoDecoderContextForSystem"},
+        {921, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeDecoderAliasImagePool"},
+        {922, &IGraphicsSupervisor::UnavailableDocumentedFeature, "FinalizeDecoderAliasImagePool"},
+        {1003, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyVideoEncoderContext"},
+        {1004, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeVideoEncoderContextForSystem"},
+        {1011, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeEncoderImagePool"},
+        {1012, &IGraphicsSupervisor::UnavailableDocumentedFeature, "FinalizeEncoderImagePool"},
+        {1021, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeEncoderAliasImagePool"},
+        {1022, &IGraphicsSupervisor::UnavailableDocumentedFeature, "FinalizeEncoderAliasImagePool"},
+        {1203, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyChatContext"},
+        {1301, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateAdrawContext"},
+        {1302, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeAdrawContext"},
+        {1325, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAdrawFrameBufferHandle"},
+        {1326, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAdrawImageHandle"},
     };
     RegisterHandlersTipc(functions);
 }
@@ -2567,6 +2635,16 @@ bool IGraphicsSupervisor::WriteVideoSurface(
 // aliases. Eden has no NS2 encoder backend; avoid granting a decoder
 // session or advertising encoder support without an implementation.
 void IGraphicsSupervisor::UnavailableVideoEncoder(HLERequestContext& ctx) {
+    // not implemented yet on Encore
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(Kernel::ResultNotImplemented.raw);
+}
+
+// Documented but unsupported optional services (debug, camera, encoder, Adraw,
+// and system-only decoder pathways). A single fail-closed handler is sufficient:
+// distinct function table entries keep every command ID and name explicit.
+// Do not read undocumented request payloads, create guest objects or return Success.
+void IGraphicsSupervisor::UnavailableDocumentedFeature(HLERequestContext& ctx) {
     // not implemented yet on Encore
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(Kernel::ResultNotImplemented.raw);
