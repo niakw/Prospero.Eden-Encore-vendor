@@ -190,9 +190,9 @@ FileType GuessFromFilename(const std::string& name) {
         return FileType::NCA;
     else if (extension == "nax")
         return FileType::NAX;
-    else if (extension == "xci" || extension == "xcz")
+    else if (extension == "xci" || extension == "xcz" || extension == "dxci")
         return FileType::XCI;
-    else if (extension == "nsp" || extension == "nsz")
+    else if (extension == "nsp" || extension == "nsz" || extension == "dnsp")
         return FileType::NSP;
     else if (extension == "kip")
         return FileType::KIP;
