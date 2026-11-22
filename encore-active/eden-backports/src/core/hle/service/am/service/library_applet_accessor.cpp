@@ -74,7 +74,7 @@ ILibraryAppletAccessor::ILibraryAppletAccessor(Core::System& system_,
         {104, D<&ILibraryAppletAccessor::PopInteractiveOutData>, "PopInteractiveOutData"},
         {105, D<&ILibraryAppletAccessor::GetPopOutDataEvent>, "GetPopOutDataEvent"},
         {106, D<&ILibraryAppletAccessor::GetPopInteractiveOutDataEvent>, "GetPopInteractiveOutDataEvent"},
-        {110, nullptr, "NeedsToExitProcess"},
+        {110, D<&ILibraryAppletAccessor::NeedsToExitProcess>, "NeedsToExitProcess"},
         {120, D<&ILibraryAppletAccessor::GetLibraryAppletInfo>, "GetLibraryAppletInfo"},
         {150, nullptr, "RequestForAppletToGetForeground"},
         {160, D<&ILibraryAppletAccessor::GetIndirectLayerConsumerHandle>, "GetIndirectLayerConsumerHandle"}, //2.0.0+
@@ -222,6 +222,13 @@ Result ILibraryAppletAccessor::GetIndirectLayerConsumerHandle(Out<u64> out_handl
     // We require a non-zero handle to be valid. Using 0xdeadbeef allows us to trace if this is
     // actually used anywhere
     *out_handle = 0xdeadbeef;
+    R_SUCCEED();
+}
+
+Result ILibraryAppletAccessor::NeedsToExitProcess(Out<bool> out_needs_to_exit_process) {
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{m_applet->lock};
+    *out_needs_to_exit_process = m_applet->lifecycle_manager.GetExitRequested();
     R_SUCCEED();
 }
 
