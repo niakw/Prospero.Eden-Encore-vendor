@@ -15,6 +15,20 @@ def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
         return source
     # NUP pre-kernel selection is a verified post-#1932/#1952 runtime fix.
     # Undo its exact bytes on the audit copy, not the active C++ source.
+    # The same source-selected NUP ExeFS view is needed before kernel init.
+    raw_current = source.encode()
+    current_digest = hashlib.sha1(
+        b"blob " + str(len(raw_current)).encode() + b"\0" + raw_current).hexdigest()
+    assert current_digest == "a2721a630b8b32222ff586ea2db19ee726d4d5b9", current_digest
+    new_exefs = """            const auto exefs = mount
+                ? Eden::NupV1::Native::ContentSet(mount).ExeFS()
+                : FileSys::VirtualDir{};"""
+    old_exefs = """            const auto exefs = mount ? mount->Effective(Eden::NupV1::ContentView::ExeFS)
+                                     : FileSys::VirtualDir{};"""
+    assert source.count(new_exefs) == 1
+    source = source.replace(new_exefs, old_exefs, 1)
+    assert source.count('#include "nup_v1_native_content.h"\n') == 1
+    source = source.replace('#include "nup_v1_native_content.h"\n', "", 1)
     raw = source.encode()
     current_sha = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
     assert current_sha == "f37b975a0e251aa3f027b261f61d02fbf8506912", current_sha
