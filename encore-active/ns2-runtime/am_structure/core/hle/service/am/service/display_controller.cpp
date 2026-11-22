@@ -35,6 +35,7 @@ IDisplayController::IDisplayController(Core::System& system_, std::shared_ptr<Ap
         {16, &IDisplayController::StubReplyEvent, "AcquireLastApplicationCaptureBufferEx"},
         {17, &IDisplayController::StubReplyEvent, "AcquireLastForegroundCaptureBufferEx"},
         {18, &IDisplayController::StubReplyEvent, "AcquireCallerAppletCaptureBufferEx"},
+        {19, &IDisplayController::StubReplyZeroed, "Unknown19"},
         {20, D<&IDisplayController::ClearCaptureBuffer>, "ClearCaptureBuffer"},
         {21, &IDisplayController::StubReplyZeroed, "ClearAppletTransitionBuffer"},
         {22, D<&IDisplayController::AcquireLastApplicationCaptureSharedBuffer>, "AcquireLastApplicationCaptureSharedBuffer"},
@@ -44,7 +45,6 @@ IDisplayController::IDisplayController(Core::System& system_, std::shared_ptr<Ap
         {26, D<&IDisplayController::AcquireCallerAppletCaptureSharedBuffer>, "AcquireCallerAppletCaptureSharedBuffer"},
         {27, D<&IDisplayController::ReleaseCallerAppletCaptureSharedBuffer>, "ReleaseCallerAppletCaptureSharedBuffer"},
         {28, &IDisplayController::StubReplyZeroed, "TakeScreenShotOfOwnLayerEx"},
-        {19, &IDisplayController::StubReplyZeroed, "Unknown19"},
     };
     // clang-format on
 

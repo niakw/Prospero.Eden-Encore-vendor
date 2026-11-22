@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/hle/result.h"
@@ -92,6 +91,13 @@ Result IApplicationAccessor::GetResult() {
     R_RETURN(m_applet->terminate_result);
 }
 
+Result IApplicationAccessor::IsCompleted(Out<bool> out_is_completed) {
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{m_applet->lock};
+    *out_is_completed = m_applet->is_completed;
+    R_SUCCEED();
+}
+
 Result IApplicationAccessor::GetAppletStateChangedEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_INFO(Service_AM, "called");
@@ -138,37 +144,6 @@ Result IApplicationAccessor::GetCurrentLibraryApplet(
     R_SUCCEED();
 }
 
-Result IApplicationAccessor::RequestForApplicationToGetForeground() {
-    LOG_INFO(Service_AM, "called");
-    m_window_system.RequestApplicationToGetForeground();
-    R_SUCCEED();
-}
-
-Result IApplicationAccessor::CheckRightsEnvironmentAvailable(Out<bool> out_is_available) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_is_available = true;
-    R_SUCCEED();
-}
-
-Result IApplicationAccessor::GetNsRightsEnvironmentHandle(Out<u64> out_handle) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_handle = 0xdeadbeef;
-    R_SUCCEED();
-}
-
-Result IApplicationAccessor::ReportApplicationExitTimeout() {
-    LOG_ERROR(Service_AM, "called");
-    R_SUCCEED();
-}
-
-Result IApplicationAccessor::IsCompleted(Out<bool> out_is_completed) {
-    LOG_DEBUG(Service_AM, "called");
-    std::scoped_lock lk{m_applet->lock};
-    *out_is_completed = m_applet->is_completed;
-    R_SUCCEED();
-}
-
-
 Result IApplicationAccessor::TerminateAllLibraryApplets() {
     LOG_INFO(Service_AM, "called");
     std::list<std::shared_ptr<Applet>> child_applets;
@@ -189,7 +164,6 @@ Result IApplicationAccessor::TerminateAllLibraryApplets() {
     R_SUCCEED();
 }
 
-
 Result IApplicationAccessor::AreAnyLibraryAppletsLeft(Out<bool> out_is_any_left) {
     LOG_DEBUG(Service_AM, "called");
     std::scoped_lock lk{m_applet->lock};
@@ -197,13 +171,11 @@ Result IApplicationAccessor::AreAnyLibraryAppletsLeft(Out<bool> out_is_any_left)
     R_SUCCEED();
 }
 
-
 Result IApplicationAccessor::GetApplicationId(Out<u64> out_application_id) {
     LOG_DEBUG(Service_AM, "called");
     *out_application_id = m_applet->program_id;
     R_SUCCEED();
 }
-
 
 Result IApplicationAccessor::GetApplicationLaunchProperty(
     Out<Glue::ApplicationLaunchProperty> out_launch_property) {
@@ -212,7 +184,6 @@ Result IApplicationAccessor::GetApplicationLaunchProperty(
                                                       m_applet->program_id));
 }
 
-
 Result IApplicationAccessor::GetDesirableUids(
     Out<s32> out_count, OutArray<Common::UUID, BufferAttr_HipcMapAlias> out_user_ids) {
     LOG_DEBUG(Service_AM, "(STUBBED) called");
@@ -220,18 +191,39 @@ Result IApplicationAccessor::GetDesirableUids(
     R_SUCCEED();
 }
 
-
 Result IApplicationAccessor::SetApplicationAttribute(
     InBuffer<BufferAttr_HipcMapAlias> attribute) {
     LOG_WARNING(Service_AM, "(STUBBED) called, size={}", attribute.size());
     R_SUCCEED();
 }
 
-
 Result IApplicationAccessor::HasSaveDataAccessPermission(Out<bool> out_has_permission,
                                                          u64 application_id) {
     LOG_DEBUG(Service_AM, "(STUBBED) called, application_id={:016X}", application_id);
     *out_has_permission = true;
+    R_SUCCEED();
+}
+
+Result IApplicationAccessor::RequestForApplicationToGetForeground() {
+    LOG_INFO(Service_AM, "called");
+    m_window_system.RequestApplicationToGetForeground();
+    R_SUCCEED();
+}
+
+Result IApplicationAccessor::CheckRightsEnvironmentAvailable(Out<bool> out_is_available) {
+    LOG_WARNING(Service_AM, "(STUBBED) called");
+    *out_is_available = true;
+    R_SUCCEED();
+}
+
+Result IApplicationAccessor::GetNsRightsEnvironmentHandle(Out<u64> out_handle) {
+    LOG_WARNING(Service_AM, "(STUBBED) called");
+    *out_handle = 0xdeadbeef;
+    R_SUCCEED();
+}
+
+Result IApplicationAccessor::ReportApplicationExitTimeout() {
+    LOG_ERROR(Service_AM, "called");
     R_SUCCEED();
 }
 

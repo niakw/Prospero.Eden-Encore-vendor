@@ -82,6 +82,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
     : ServiceFramework{system_, "IApplicationFunctions"}, m_applet{std::move(applet)} {
     // clang-format off
     static const FunctionInfo functions[] = {
+        {0, &IApplicationFunctions::StubReplyZeroed, "Unknown0"},
         {1, D<&IApplicationFunctions::PopLaunchParameter>, "PopLaunchParameter"},
         {10, &IApplicationFunctions::StubReplyZeroed, "CreateApplicationAndPushAndRequestToStart"},
         {11, &IApplicationFunctions::StubReplyZeroed, "CreateApplicationAndPushAndRequestToStartForQuest"},
@@ -124,6 +125,8 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {102, D<&IApplicationFunctions::SetApplicationCopyrightVisibility>, "SetApplicationCopyrightVisibility"},
         {110, D<&IApplicationFunctions::QueryApplicationPlayStatistics>, "QueryApplicationPlayStatistics"},
         {111, D<&IApplicationFunctions::QueryApplicationPlayStatisticsByUid>, "QueryApplicationPlayStatisticsByUid"},
+        {112, &IApplicationFunctions::StubReplyZeroed, "Unknown112"},
+        {113, &IApplicationFunctions::StubReplyZeroed, "Unknown113"},
         {120, D<&IApplicationFunctions::ExecuteProgram>, "ExecuteProgram"},
         {121, D<&IApplicationFunctions::ClearUserChannel>, "ClearUserChannel"},
         {122, D<&IApplicationFunctions::UnpopToUserChannel>, "UnpopToUserChannel"},
@@ -143,6 +146,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {200, &IApplicationFunctions::StubReplyZeroed, "GetLastApplicationExitReason"},
         {210, D<&IApplicationFunctions::GetUnknownEvent210>, "Unknown210"},
         {220, &IApplicationFunctions::StubReplyZeroed, "Unknown220"}, // [20.0.0+]
+        {230, &IApplicationFunctions::StubReplyZeroed, "Unknown230"},
         {300, &IApplicationFunctions::StubReplyInterface, "CreateMovieWriter"}, // [19.0.0+]
         {310, &IApplicationFunctions::StubReplyZeroed, "Unknown310"}, // [20.0.0+]
         {320, D<&IApplicationFunctions::GetScreenShotAndContinuousRecordingInitiallyEnabled>,
@@ -154,10 +158,6 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {500, &IApplicationFunctions::StubReplyEvent, "StartContinuousRecordingFlushForDebug"},
         {1000, &IApplicationFunctions::StubReplyInterface, "CreateMovieMaker"},
         {1001, D<&IApplicationFunctions::PrepareForJit>, "PrepareForJit"},
-        {0, &IApplicationFunctions::StubReplyZeroed, "Unknown0"},
-        {112, &IApplicationFunctions::StubReplyZeroed, "Unknown112"},
-        {113, &IApplicationFunctions::StubReplyZeroed, "Unknown113"},
-        {230, &IApplicationFunctions::StubReplyZeroed, "Unknown230"},
         {2000, &IApplicationFunctions::StubReplyZeroed, "Unknown2000"},
     };
     // clang-format on

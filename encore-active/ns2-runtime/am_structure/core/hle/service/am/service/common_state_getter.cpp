@@ -68,6 +68,8 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {130, D<&ICommonStateGetter::EnableStartupLogoDisappearedMessage>, "EnableStartupLogoDisappearedMessage"}, //21.0.0+
         {200, D<&ICommonStateGetter::GetOperationModeSystemInfo>, "GetOperationModeSystemInfo"},
         {300, D<&ICommonStateGetter::GetSettingsPlatformRegion>, "GetSettingsPlatformRegion"},
+        {310, &ICommonStateGetter::StubReplyZeroed, "Unknown310"},
+        {320, &ICommonStateGetter::StubReplyZeroed, "Unknown320"},
         {400, &ICommonStateGetter::StubReplyZeroed, "ActivateMigrationService"},
         {401, &ICommonStateGetter::StubReplyZeroed, "DeactivateMigrationService"},
         {500, &ICommonStateGetter::StubReplyZeroed, "DisableSleepTillShutdown"},
@@ -77,6 +79,8 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {600, &ICommonStateGetter::StubReplyZeroed, "SetHidInputMagnificationForApplication"}, //20.0.0+
         {610, D<&ICommonStateGetter::Unknown610>, "Unknown610"}, //21.0.0+
         {611, D<&ICommonStateGetter::Unknown611>, "Unknown611"}, //22.0.0+
+        {650, &ICommonStateGetter::StubReplyZeroed, "Unknown650"},
+        {651, &ICommonStateGetter::StubReplyZeroed, "Unknown651"},
         {900, D<&ICommonStateGetter::SetRequestExitToLibraryAppletAtExecuteNextProgramEnabled>, "SetRequestExitToLibraryAppletAtExecuteNextProgramEnabled"}, //11.0.0+
         {910, &ICommonStateGetter::StubReplyZeroed, "GetLaunchRequiredTick"}, //17.0.0+
         {1000, D<&ICommonStateGetter::BeginVrMode3d>, "BeginVrMode3d"}, //19.0.0+
@@ -85,10 +89,6 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {1003, D<&ICommonStateGetter::GetVrLaboGoggleViewport>, "GetVrLaboGoggleViewport"}, //21.0.0+
         {1004, D<&ICommonStateGetter::GetPanelPhysicalSizeForSpecificTitle>, "GetPanelPhysicalSizeForSpecificTitle"}, //21.0.0+
         {1005, D<&ICommonStateGetter::GetPanelResolutionForSpecificTitle>, "GetPanelResolutionForSpecificTitle"}, //21.0.0+
-        {310, &ICommonStateGetter::StubReplyZeroed, "Unknown310"},
-        {320, &ICommonStateGetter::StubReplyZeroed, "Unknown320"},
-        {650, &ICommonStateGetter::StubReplyZeroed, "Unknown650"},
-        {651, &ICommonStateGetter::StubReplyZeroed, "Unknown651"},
         {2000, &ICommonStateGetter::StubReplyZeroed, "Unknown2000"},
         {2010, &ICommonStateGetter::StubReplyZeroed, "Unknown2010"},
     };
