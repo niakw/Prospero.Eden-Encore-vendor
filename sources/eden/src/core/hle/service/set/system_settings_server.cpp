@@ -1388,19 +1388,21 @@ Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration(const s
     R_SUCCEED();
 }
 
-Result ISystemSettingsServer::GetThemeId(Out<std::array<u8, 0x80>> out_value, s32 type) {
+Result ISystemSettingsServer::GetThemeId(Out<std::array<u64, 0x10>> out_value, s32 type) {
+    // The HOS ThemeId carries 16 u64s, not a byte-aligned IPC array.
     R_UNLESS(type == 0 || type == 1, ResultUnknown);
-    *out_value = type == 0 ? m_system_settings.theme_id_type0 : m_system_settings.theme_id_type1;
+    const auto& source = type == 0 ? m_system_settings.theme_id_type0
+                                    : m_system_settings.theme_id_type1;
+    std::memcpy(out_value->data(), source.data(), source.size());
     R_SUCCEED();
 }
 
-Result ISystemSettingsServer::SetThemeId(s32 type, const std::array<u8, 0x80>& value) {
+Result ISystemSettingsServer::SetThemeId(s32 type, const std::array<u64, 0x10>& value) {
+    // Following the s32 selector, this aligned type starts at HIPC raw offset 8.
     R_UNLESS(type == 0 || type == 1, ResultUnknown);
-    if (type == 0) {
-        m_system_settings.theme_id_type0 = value;
-    } else {
-        m_system_settings.theme_id_type1 = value;
-    }
+    auto& target = type == 0 ? m_system_settings.theme_id_type0
+                             : m_system_settings.theme_id_type1;
+    std::memcpy(target.data(), value.data(), target.size());
     SetSaveNeeded();
     R_SUCCEED();
 }

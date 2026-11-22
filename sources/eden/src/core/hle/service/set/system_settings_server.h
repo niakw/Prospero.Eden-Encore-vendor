@@ -161,8 +161,8 @@ public:
     Result SetConsoleSixAxisSensorAngularVelocityTimeBias(const Common::Vec<f32, 3>& value);
     Result GetConsoleSixAxisSensorAngularAcceleration(Out<std::array<u8, 0x24>> out_value);
     Result SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value);
-    Result GetThemeId(Out<std::array<u8, 0x80>> out_value, s32 type);
-    Result SetThemeId(s32 type, const std::array<u8, 0x80>& value);
+    Result GetThemeId(Out<std::array<u64, 0x10>> out_value, s32 type);
+    Result SetThemeId(s32 type, const std::array<u64, 0x10>& value);
     Result GetRequiresRunRepairTimeReviser(Out<bool> out_value);
     Result SetRequiresRunRepairTimeReviser(bool value);
     Result GetHearingProtectionSafeguardFlag(Out<bool> out_value);
