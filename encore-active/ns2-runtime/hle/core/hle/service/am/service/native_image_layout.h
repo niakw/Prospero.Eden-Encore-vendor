@@ -6,6 +6,7 @@
 #include <optional>
 #include <limits>
 #include <array>
+#include <bitset>
 #include <algorithm>
 #include <map>
 #include <vector>
@@ -49,6 +50,56 @@ inline std::optional<NativeImageRequirements> CalculateNativeImageRequirements(
     return NativeImageRequirements{image_size * count, 4096};
 }
 
+// Feature-image pool requirements used by the common GSV server template
+// (391/691/1291/1691 in Lichii). This is sizing only: it does not create,
+// map or publish an image. Lichii observes preference format 1=RGBA8,
+// 4=RGB10A2 and 5=RGBA16F; MKW camera traces also use 0x38 as a four-byte
+// block-linear format. Unknown formats fail closed instead of guessing Bpp.
+inline std::optional<NativeImageRequirements> CalculateFeatureImageRequirements(
+    std::span<const u32> preference, u32 requested_count) {
+    if (preference.size() != 16) return std::nullopt;
+
+    u64 bytes_per_pixel{};
+    switch (preference[6]) {
+    case 1:    // RGBA8
+    case 4:    // RGB10A2
+    case 0x38: // observed MKW GameChat camera format
+        bytes_per_pixel = 4;
+        break;
+    case 5:    // RGBA16F
+        bytes_per_pixel = 8;
+        break;
+    default:
+        return std::nullopt;
+    }
+
+    const u64 width = (preference[2] & 0xffffU) + 1;
+    const u64 height = (preference[2] >> 16) + 1;
+    const u64 minimum_gobs = (width * bytes_per_pixel + 63) / 64;
+    u32 block_log2 = preference[4];
+    u64 pitch{};
+    if (block_log2 <= 8 && preference[5] >= minimum_gobs &&
+        preference[5] <= 4096) {
+        pitch = u64{preference[5]} * 64;
+    } else {
+        block_log2 = 7;
+        pitch = (width * bytes_per_pixel + 63) & ~u64{63};
+    }
+
+    const u64 block_rows = u64{1} << block_log2;
+    if (height > std::numeric_limits<u64>::max() - (block_rows - 1))
+        return std::nullopt;
+    const u64 aligned_height = (height + block_rows - 1) & ~(block_rows - 1);
+    if (pitch == 0 || aligned_height > std::numeric_limits<u64>::max() / pitch)
+        return std::nullopt;
+    const u64 image_size = pitch * aligned_height;
+    const u64 count = std::max<u64>(requested_count, 1);
+    if (image_size == 0 || image_size > std::numeric_limits<u64>::max() / count)
+        return std::nullopt;
+    const u64 alignment = std::max<u64>(4096, 64 * block_rows);
+    return NativeImageRequirements{image_size * count, alignment};
+}
+
 // 429/430 maintain real NVMap-backed image reference ownership. The ledger
 // does not allocate VkImage, translate shaders or present any guest frame.
 struct NativeImageRecord {
@@ -56,6 +107,10 @@ struct NativeImageRecord {
     u32 backing{};
     u64 size{};
     std::array<u32, 16> preference{};
+    // 315(first,count) owns a whole alias group; only the first record stores
+    // the group length. Every member still carries window_pool=true so 430
+    // cannot destroy an aliased image behind VI2.
+    u32 window_pool_count{};
     bool window_pool{};
 };
 class NativeImageLedger {
@@ -83,15 +138,58 @@ public:
         if (it == m_images.end()) return {};
         return it->second;
     }
-    [[nodiscard]] bool ConfigureWindowPool(u32 id, bool enabled) {
-        const auto it = m_images.find(id);
-        if (it == m_images.end() || it->second.window_pool == enabled) return false;
-        it->second.window_pool = enabled;
+    [[nodiscard]] bool ConfigureWindowPool(u32 first, u32 count, bool enabled) {
+        const auto first_it = m_images.find(first);
+        if (first_it == m_images.end()) return false;
+        if (enabled) {
+            if (!count || count > MaxEntries ||
+                first > std::numeric_limits<u32>::max() - (count - 1) ||
+                first_it->second.window_pool || first_it->second.window_pool_count)
+                return false;
+            // Validate the whole group first so a missing/aliased middle image
+            // cannot leave a partially-published window pool.
+            for (u32 i = 0; i < count; ++i) {
+                const auto it = m_images.find(first + i);
+                if (it == m_images.end() || it->second.window_pool ||
+                    it->second.window_pool_count)
+                    return false;
+            }
+            for (u32 i = 0; i < count; ++i) {
+                auto& record = m_images.find(first + i)->second;
+                record.window_pool = true;
+                record.window_pool_count = 0;
+            }
+            first_it->second.window_pool_count = count;
+            return true;
+        }
+
+        // 314 carries only the first image ID. Retire exactly the group
+        // recorded by 315; never infer a length from adjacent numeric IDs.
+        if (count != 0 || !first_it->second.window_pool ||
+            first_it->second.window_pool_count == 0)
+            return false;
+        const u32 stored_count = first_it->second.window_pool_count;
+        if (stored_count > MaxEntries ||
+            first > std::numeric_limits<u32>::max() - (stored_count - 1))
+            return false;
+        for (u32 i = 0; i < stored_count; ++i) {
+            const auto it = m_images.find(first + i);
+            if (it == m_images.end() || !it->second.window_pool ||
+                (i != 0 && it->second.window_pool_count != 0))
+                return false;
+        }
+        for (u32 i = 0; i < stored_count; ++i) {
+            auto& record = m_images.find(first + i)->second;
+            record.window_pool = false;
+            record.window_pool_count = 0;
+        }
         return true;
     }
     [[nodiscard]] bool Destroy(u32 id) {
         const auto it = m_images.find(id);
-        if (it == m_images.end() || it->second.window_pool) return false;
+        if (it == m_images.end() || it->second.window_pool ||
+            it->second.window_pool_count)
+            return false;
         m_images.erase(it);
         return true;
     }
@@ -163,6 +261,11 @@ struct NativeVideoPoolRecord {
     u32 backing{};
     u32 packed_dimensions{};
     NativeVideoImageLayout layout{};
+    // Decoder 912 retires image handles individually. Keep allocation range
+    // ownership until the last live member retires; chat 1212 still removes
+    // the complete pool by its first handle.
+    std::bitset<1024> active_images{};
+    u32 remaining{};
 };
 struct NativeVideoImageView {
     u32 backing{};
@@ -197,8 +300,10 @@ public:
             const u64 x = existing.first_id, y = x + existing.count;
             if (a < y && x < b) return false;
         }
-        m_pools.emplace(first, NativeVideoPoolRecord{first, count, backing,
-                                                      dimensions, layout});
+        NativeVideoPoolRecord record{first, count, backing, dimensions, layout};
+        for (u32 i = 0; i < count; ++i) record.active_images.set(i);
+        record.remaining = count;
+        m_pools.emplace(first, record);
         m_count += count;
         return true;
     }
@@ -206,7 +311,9 @@ public:
         for (const auto& [_, pool] : m_pools) {
             if (image < pool.first_id || image - pool.first_id >= pool.count)
                 continue;
-            const u64 offset = u64{image - pool.first_id} * pool.layout.image_stride;
+            const u32 index = image - pool.first_id;
+            if (!pool.active_images.test(index)) return {};
+            const u64 offset = u64{index} * pool.layout.image_stride;
             if (offset > std::numeric_limits<u32>::max()) return {};
             return NativeVideoImageView{
                 pool.backing, pool.packed_dimensions, offset, pool.layout.image_bytes,
@@ -223,7 +330,9 @@ public:
         for (const auto& [_, pool] : m_pools) {
             if (image < pool.first_id || image - pool.first_id >= pool.count)
                 continue;
-            const u64 offset = u64{image - pool.first_id} * pool.layout.image_stride;
+            const u32 index = image - pool.first_id;
+            if (!pool.active_images.test(index)) return {};
+            const u64 offset = u64{index} * pool.layout.image_stride;
             if (!pool.layout.row_bytes || offset > std::numeric_limits<u32>::max())
                 return {};
             std::array<u32, 32> words{};
@@ -246,10 +355,36 @@ public:
         return it == m_pools.end() ? std::nullopt :
                std::optional<NativeVideoPoolRecord>{it->second};
     }
+    [[nodiscard]] std::optional<NativeVideoPoolRecord> GetByImage(u32 image) const {
+        for (const auto& [_, pool] : m_pools) {
+            if (image < pool.first_id || image - pool.first_id >= pool.count)
+                continue;
+            const u32 index = image - pool.first_id;
+            if (!pool.active_images.test(index)) return {};
+            return pool;
+        }
+        return {};
+    }
+    [[nodiscard]] bool RetireImage(u32 image) {
+        for (auto it = m_pools.begin(); it != m_pools.end(); ++it) {
+            auto& pool = it->second;
+            if (image < pool.first_id || image - pool.first_id >= pool.count)
+                continue;
+            const u32 index = image - pool.first_id;
+            if (!pool.active_images.test(index) || pool.remaining == 0)
+                return false;
+            pool.active_images.reset(index);
+            --pool.remaining;
+            --m_count;
+            if (pool.remaining == 0) m_pools.erase(it);
+            return true;
+        }
+        return false;
+    }
     [[nodiscard]] bool Remove(u32 first) {
         const auto it = m_pools.find(first);
         if (it == m_pools.end()) return false;
-        m_count -= it->second.count;
+        m_count -= it->second.remaining;
         m_pools.erase(it);
         return true;
     }

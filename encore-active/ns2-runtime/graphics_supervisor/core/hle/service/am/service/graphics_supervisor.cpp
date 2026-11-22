@@ -189,7 +189,7 @@ public:
         static const FunctionInfo f[] = {
             {0, &INativeSyncptSession::Handshake, "Handshake"},
             {1, &INativeSyncptSession::GetCount, "GetCount"},
-            {21, &INativeSyncptSession::Zero, "Unknown21"},
+            {21, &INativeSyncptSession::Unknown21, "Unknown21"},
             {22, &INativeSyncptSession::GetSlotEvent, "GetSlotEvent"},
             {103, &INativeSyncptSession::QueryCounter, "QueryCounter"},
             {201, &INativeSyncptSession::RequestSlotEvent, "RequestSlotEvent"},
@@ -251,8 +251,12 @@ private:
     void GetCount(HLERequestContext& ctx) {
         NativeTipcReplyWords(ctx, {32});
     }
-    void Zero(HLERequestContext& ctx) {
-        NativeTipcReplyWords(ctx, {0});
+    void Unknown21(HLERequestContext& ctx) {
+        // SwitchBrew lists SyncptSession command 21 but still publishes no
+        // name, input layout or output contract. Never manufacture success
+        // or read a guessed payload until that ABI is known.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultNotImplemented.raw);
     }
     void QueryCounter(HLERequestContext& ctx) {
         const u32 syncpoint = ~ctx.CommandBuffer()[2];
@@ -1360,6 +1364,14 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {498, &IGraphicsSupervisor::QueryDonatedTransferMemoryUsage, "TryQueryDonatedTransferMemoryUsage"},
         {1401, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSessionWithTransferMemory"},
         {1402, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSession"},
+        // Known TIPC contracts without a safe completed implementation:
+        // 1411 exposes NVDRV transfer-memory accounting, not GSV boot-buffer
+        // accounting (498); do not manufacture three zero usage counters.
+        {1411, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetNvDrv2UserTransferMemoryUsage"},
+        // 1501/1502 initialize inter-module image sharing. Until image
+        // ownership and backing semantics are available, fail closed.
+        {1501, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateInterModuleImageContext"},
+        {1502, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeInterModuleImageContext"},
         {301, &IGraphicsSupervisor::InitializeDisplayContext, "InitializeDisplayContext"},
         {303, &IGraphicsSupervisor::FinalizeDisplayContext, "FinalizeDisplayContext"},
         {305, &IGraphicsSupervisor::OpenDisplaySession, "OpenDisplaySession"},
@@ -1373,6 +1385,9 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {430, &IGraphicsSupervisor::DestroyNativeImage, "DestroyNativeImage"},
         {314, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "DestroyNativeWindowAliasImagePool"},
         {315, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "CreateNativeWindowAliasImagePool"},
+        // SwitchBrew 391 is the 16-word image preference + count size/alignment query.
+        // Reuse the validated native layout calculator; unsupported formats fail closed.
+        {391, &IGraphicsSupervisor::CalculateFeatureImagePoolRequirements, "CalculateRequiredBufferMemory"},
         {901, &IGraphicsSupervisor::InitializeVideoCodecContext, "InitializeVideoDecoderContext"},
         {1001, &IGraphicsSupervisor::UnavailableVideoEncoder, "CreateVideoEncoderContext"},
         {902, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSession"},
@@ -1393,13 +1408,85 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {427, &IGraphicsSupervisor::UnmapVideoGpuImage, "UnmapNativeGpuImage"},
         {428, &IGraphicsSupervisor::QueryVideoGpuImage, "QueryNativeGpuImage"},
         {435, &IGraphicsSupervisor::CalculateNativeImageSize, "CalculateNativeImageSize"},
-        {1291, &IGraphicsSupervisor::CalculateChatImagePoolSize, "CalculateChatImagePoolSize"},
+        {1291, &IGraphicsSupervisor::CalculateFeatureImagePoolRequirements, "CalculateChatImagePoolSize"},
         {1101, &IGraphicsSupervisor::ConfigureGraphicsFrameContext, "CreateGraphicsFrameContext"},
         {1102, &IGraphicsSupervisor::ConfigureGraphicsFrameContext, "InitializeGraphicsFrameContext"},
         {1111, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameLengthMode"},
         {1112, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameRestartMode"},
         {1113, &IGraphicsSupervisor::SetGraphicsFrameMode, "SetGraphicsFrameGpuTimesliceMode"},
         {1510, &IGraphicsSupervisor::CalculateNativeImageRequirements, "CalculateRequirements"},
+        // Same feature-image sizing server template as 391/691/1291.
+        {1691, &IGraphicsSupervisor::CalculateFeatureImagePoolRequirements, "CalculateFeatureImagePoolSize"},
+        // Known optional SwitchBrew commands without a supported Encore backend.
+        // Each ID has an explicit fail-closed TIPC handler; never fake Success.
+        {187, &IGraphicsSupervisor::UnavailableDocumentedFeature, "QueryNativeMemoryNvsNvRmMemIdForDebug"},
+        {211, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateDebugSyncDevice"},
+        {212, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyDebugSyncDevice"},
+        {213, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateDebugSyncCounter"},
+        {214, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyDebugSyncCounter"},
+        {215, &IGraphicsSupervisor::UnavailableDocumentedFeature, "ReportDebugSyncCounterValue"},
+        {493, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateUserlandDebuggerSession"},
+        {603, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyCameraContext"},
+        {612, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyOutputBufferPool"},
+        {613, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateAliasOutputBufferPool"},
+        {614, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyAliasOutputBufferPool"},
+        {615, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateOutputBufferPool"},
+        {616, &IGraphicsSupervisor::UnavailableDocumentedFeature, "ReadFrameDataAsync"},
+        {620, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeB"},
+        {621, &IGraphicsSupervisor::UnavailableDocumentedFeature, "FinalizeB"},
+        {622, &IGraphicsSupervisor::UnavailableDocumentedFeature, "ListCameras"},
+        {623, &IGraphicsSupervisor::UnavailableDocumentedFeature, "OpenCamera"},
+        {624, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CloseCamera"},
+        {626, &IGraphicsSupervisor::UnavailableDocumentedFeature, "ListSensorMode"},
+        {627, &IGraphicsSupervisor::UnavailableDocumentedFeature, "SetSensorMode"},
+        {628, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAvailableStreams"},
+        {629, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetRequiredWorkBufferSize"},
+        {630, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateStream"},
+        {632, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetReadDoneEvent"},
+        {633, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetStreamOutputSize"},
+        {634, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyStream"},
+        {636, &IGraphicsSupervisor::UnavailableDocumentedFeature, "ReadFrameDataAsync"},
+        {637, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAttachedEvent"},
+        {638, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetDetachedEvent"},
+        {639, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetFrameInfo"},
+        {640, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetFrameInfo2"},
+        {641, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetConnectionChangedEvent"},
+        {650, &IGraphicsSupervisor::UnavailableDocumentedFeature, "SetPictureQualityConfig"},
+        {651, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetPictureQualityConfig"},
+        {652, &IGraphicsSupervisor::UnavailableDocumentedFeature, "SetDigitalWindow"},
+        {653, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetDigitalWindow"},
+        {654, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetDigitalWindowCapability"},
+        {655, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetSupportedFunctions"},
+        {656, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetSupportedDebugFunctions"},
+        {657, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetCameraPrivacyCoverStatus"},
+        {658, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetCameraDeviceTemperature"},
+        {659, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetDeviceUniqueId"},
+        {660, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetSensorMode"},
+        {661, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetStride"},
+        {662, &IGraphicsSupervisor::UnavailableDocumentedFeature, "UnlinkSensor"},
+        {663, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetDeviceModel"},
+        {664, &IGraphicsSupervisor::UnavailableDocumentedFeature, "SetRawSensorMode"},
+        {665, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAccessAllowed"},
+        {666, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetHostDrivenAeRegion"},
+        {667, &IGraphicsSupervisor::UnavailableDocumentedFeature, "SetHostDrivenAeRegion"},
+        // Camera 691 shares the image-pool requirements query layout; Encore supports only
+        // proven chat-camera image formats, and rejects unknown layouts.
+        {691, &IGraphicsSupervisor::CalculateFeatureImagePoolRequirements, "CalculateImageArraySize"},
+        {903, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyVideoDecoderContext"},
+        {904, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeVideoDecoderContextForSystem"},
+        {921, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeDecoderAliasImagePool"},
+        {922, &IGraphicsSupervisor::UnavailableDocumentedFeature, "FinalizeDecoderAliasImagePool"},
+        {1003, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyVideoEncoderContext"},
+        {1004, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeVideoEncoderContextForSystem"},
+        {1011, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeEncoderImagePool"},
+        {1012, &IGraphicsSupervisor::UnavailableDocumentedFeature, "FinalizeEncoderImagePool"},
+        {1021, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeEncoderAliasImagePool"},
+        {1022, &IGraphicsSupervisor::UnavailableDocumentedFeature, "FinalizeEncoderAliasImagePool"},
+        {1203, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyChatContext"},
+        {1301, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateAdrawContext"},
+        {1302, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeAdrawContext"},
+        {1325, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAdrawFrameBufferHandle"},
+        {1326, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAdrawImageHandle"},
     };
     RegisterHandlersTipc(functions);
 }
@@ -1741,12 +1828,27 @@ void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
 }
 
 void IGraphicsSupervisor::InitializeFeatureContext(HLERequestContext& ctx) {
-    // 601/1201 are the camera/GameChat admission calls. The SDK only
-    // consumes the result before requesting the corresponding session.
-    NativeTipcReplyWords(ctx, {});
+    // SwitchBrew GSV 601/1201: no request parameters or return objects.
+    // Do not acknowledge malformed IPC as a successful feature admission.
+    const u32 command = ctx.GetCommand();
+    const auto* packet = ctx.CommandBuffer();
+    const bool valid = (command == 601 || command == 1201) &&
+                       packet[0] == 16 + command && packet[1] == 0;
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(valid ? ResultSuccess.raw : Kernel::ResultInvalidCombination.raw);
 }
 
 void IGraphicsSupervisor::OpenCameraSession(HLERequestContext& ctx) {
+    // Lichii/SDK observation: 602 carries u64 camera-context version 1 and
+    // returns one MOVE CameraSession. Never serialize it as COPY or accept
+    // a guessed zero-input shape.
+    const auto* packet = ctx.CommandBuffer();
+    const u64 version = u64{packet[2]} | (u64{packet[3]} << 32);
+    if (packet[0] != 16 + 602 || packet[1] != 2 || version != 1) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidCombination.raw);
+        return;
+    }
     Kernel::KClientSession* client{};
     Result result = Kernel::ResultOutOfResource;
     try {
@@ -1755,17 +1857,32 @@ void IGraphicsSupervisor::OpenCameraSession(HLERequestContext& ctx) {
     } catch (const std::bad_alloc&) {
         result = Kernel::ResultOutOfResource;
     }
+    if (result.IsSuccess()) {
+        try {
+            ctx.AddMoveObject(client);
+        } catch (const std::bad_alloc&) {
+            // Session publication failed: release its untransferred creator ref.
+            client->Close(system.Kernel());
+            result = Kernel::ResultOutOfResource;
+        }
+    }
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
-    ctx.AddMoveObject(client);
 }
 
 void IGraphicsSupervisor::OpenChatSession(HLERequestContext& ctx) {
+    // 1202: GameChat initialization needs one real MOVE session, not a COPY.
+    const auto* packet = ctx.CommandBuffer();
+    if (packet[0] != 16 + 1202 || packet[1] != 0) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidCombination.raw);
+        return;
+    }
     Kernel::KClientSession* client{};
     Result result = Kernel::ResultOutOfResource;
     try {
@@ -1774,14 +1891,21 @@ void IGraphicsSupervisor::OpenChatSession(HLERequestContext& ctx) {
     } catch (const std::bad_alloc&) {
         result = Kernel::ResultOutOfResource;
     }
+    if (result.IsSuccess()) {
+        try {
+            ctx.AddMoveObject(client);
+        } catch (const std::bad_alloc&) {
+            client->Close(system.Kernel());
+            result = Kernel::ResultOutOfResource;
+        }
+    }
     if (result.IsError()) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result.raw);
         return;
     }
-    IPC::ResponseBuilder rb{ctx, 2, 1, 0};
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
-    ctx.AddMoveObject(client);
 }
 
 void IGraphicsSupervisor::CreateSyncptContext(HLERequestContext& ctx) {
@@ -1800,6 +1924,14 @@ void IGraphicsSupervisor::CreateSyncptContext(HLERequestContext& ctx) {
 }
 
 void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {
+    // SwitchBrew GSV 202 has no input and returns one MOVE SyncptSession.
+    // Reject malformed TIPC before allocating a session or publishing a handle.
+    const auto* packet = ctx.CommandBuffer();
+    if (packet[0] != 16 + 202 || packet[1] != 0) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidCombination.raw);
+        return;
+    }
     Kernel::KClientSession* client{};
     Result result = Kernel::ResultOutOfResource;
     try {
@@ -2572,6 +2704,16 @@ void IGraphicsSupervisor::UnavailableVideoEncoder(HLERequestContext& ctx) {
     rb.Push(Kernel::ResultNotImplemented.raw);
 }
 
+// Documented but unsupported optional services (debug, camera, encoder, Adraw,
+// and system-only decoder pathways). A single fail-closed handler is sufficient:
+// distinct function table entries keep every command ID and name explicit.
+// Do not read undocumented request payloads, create guest objects or return Success.
+void IGraphicsSupervisor::UnavailableDocumentedFeature(HLERequestContext& ctx) {
+    // not implemented yet on Encore
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(Kernel::ResultNotImplemented.raw);
+}
+
 void IGraphicsSupervisor::InitializeVideoCodecContext(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     const u32 command = ctx.GetCommand();
@@ -2599,7 +2741,8 @@ void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
     // library version. Reject malformed TIPC lengths before creating a
     // kernel session or reserving a service handle.
     const bool shape = cmd == 902 ? w[1] == 0 :
-                       cmd == 905 ? w[1] == 1 : cmd == 906 && w[1] == 3;
+                       cmd == 905 ? (w[1] == 1 && w[2] <= 0xffU) :
+                       cmd == 906 && w[1] == 3;
     if (w[0] == cmd + 0x10 && shape) {
         result = Kernel::ResultInvalidState;
         if (m_process && m_bootstrap.GpuContextReady()) {
@@ -2756,24 +2899,40 @@ void IGraphicsSupervisor::DestroyVideoImagePool(HLERequestContext& ctx) {
     if (packet[0] == expected_header && packet[1] == 1) {
         const std::scoped_lock lock{m_native_memory_mutex};
         result = Kernel::ResultNotFound;
-        const auto pool = m_video_pools.Get(packet[2]);
+        // Decoder 912 retires one image handle at a time. GameChat 1212
+        // destroys the complete pool by the base handle, then its SDK drops
+        // the native memory separately.
+        const auto pool = chat_pool ? m_video_pools.Get(packet[2])
+                                    : m_video_pools.GetByImage(packet[2]);
         if (pool && m_native_module) {
             result = Kernel::ResultBusy;
             bool mapped = false;
             for (const auto& [key, mapping] : m_video_mappings) {
                 const u32 image = key.second;
-                if (image >= pool->first_id &&
-                    image - pool->first_id < pool->count) {
+                const bool affected = chat_pool
+                    ? image >= pool->first_id && image - pool->first_id < pool->count
+                    : image == packet[2];
+                if (affected) {
                     mapped = true;
                     break;
                 }
             }
             if (!mapped) {
-                auto& nvmap = m_native_module->GetContainer().GetNvMapFile();
-                nvmap.UnpinHandle(pool->backing);
-                const auto freed = nvmap.FreeHandle(pool->backing, true);
-                result = freed && m_video_pools.Remove(pool->first_id)
-                    ? ResultSuccess : Kernel::ResultInvalidState;
+                // Keep the shared NVMap duplicate/pin alive while any decoder
+                // image from this pool remains. The final 912, or the one-shot
+                // 1212 pool teardown, releases it exactly once.
+                if (!chat_pool && pool->remaining > 1) {
+                    result = m_video_pools.RetireImage(packet[2])
+                        ? ResultSuccess : Kernel::ResultInvalidState;
+                } else {
+                    auto& nvmap = m_native_module->GetContainer().GetNvMapFile();
+                    nvmap.UnpinHandle(pool->backing);
+                    const auto freed = nvmap.FreeHandle(pool->backing, true);
+                    const bool retired = freed &&
+                        (chat_pool ? m_video_pools.Remove(pool->first_id)
+                                   : m_video_pools.RetireImage(packet[2]));
+                    result = retired ? ResultSuccess : Kernel::ResultInvalidState;
+                }
             }
         }
     }
@@ -3036,10 +3195,9 @@ void IGraphicsSupervisor::ConfigureNativeWindowImagePool(HLERequestContext& ctx)
         const std::scoped_lock lock{m_native_memory_mutex};
         result = Kernel::ResultNotFound;
         if (m_native_images.Get(packet[2])) {
-            result = Kernel::ResultNotImplemented;
-            if (!create || packet[3] == 1)
-                result = m_native_images.ConfigureWindowPool(packet[2], create)
-                    ? ResultSuccess : Kernel::ResultInvalidState;
+            const u32 count = create ? packet[3] : 0;
+            result = m_native_images.ConfigureWindowPool(packet[2], count, create)
+                ? ResultSuccess : Kernel::ResultInvalidState;
         }
     }
     IPC::ResponseBuilder rb{ctx, 2};
@@ -3066,22 +3224,19 @@ void IGraphicsSupervisor::DestroyNativeImage(HLERequestContext& ctx) {
 }
 
 
-void IGraphicsSupervisor::CalculateChatImagePoolSize(HLERequestContext& ctx) {
+void IGraphicsSupervisor::CalculateFeatureImagePoolRequirements(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     const std::span<const u32> preference{packet + 2, 16};
-    const u32 count = packet[18];
-    const auto layout =
-        packet[1] == 17 ? CalculateChatCameraImageLayout(preference, count) : std::nullopt;
-    const Result result = layout ? ResultSuccess : Kernel::ResultInvalidCombination;
+    const auto request = packet[1] == 17
+        ? CalculateFeatureImageRequirements(preference, packet[18])
+        : std::nullopt;
+    const Result result = request ? ResultSuccess : Kernel::ResultInvalidCombination;
     IPC::ResponseBuilder rb{ctx, 6};
     rb.Push(result.raw);
-    rb.Push(layout ? static_cast<u32>(layout->total_bytes) : 0u);
-    rb.Push(layout ? static_cast<u32>(layout->total_bytes >> 32) : 0u);
-    // Keep malformed guest block-height values from reaching a host shift.
-    const u32 block_log2 = preference[4] <= 8 ? preference[4] : 7;
-    const u64 alignment = layout ? std::max<u64>(4096, 64ULL << block_log2) : 0;
-    rb.Push(static_cast<u32>(alignment));
-    rb.Push(static_cast<u32>(alignment >> 32));
+    rb.Push(request ? static_cast<u32>(request->size) : 0u);
+    rb.Push(request ? static_cast<u32>(request->size >> 32) : 0u);
+    rb.Push(request ? static_cast<u32>(request->alignment) : 0u);
+    rb.Push(request ? static_cast<u32>(request->alignment >> 32) : 0u);
 }
 
 static std::optional<NativeImageRequirements> ParseNativeImageRequest(HLERequestContext& ctx) {

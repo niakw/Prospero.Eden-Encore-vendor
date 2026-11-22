@@ -113,6 +113,18 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
         switch (command.cmd) {
         case 0x3:
             return WrapFixed(this, &nvhost_gpu::GetWaitbase, input, output);
+        case 0x4: // NVHOST_IOCTL_CHANNEL_GET_MODMUTEX
+            if (command.raw != 0xC0080004U) break;
+            // not implemented yet on Encore: no real GPU module-mutex owner.
+            return NvResult::NotImplemented;
+        case 0x7: // NVHOST_IOCTL_CHANNEL_SET_SUBMIT_TIMEOUT
+            if (command.raw != 0x40040007U) break;
+            // not implemented yet on Encore: do not promise a scheduler timeout.
+            return NvResult::NotImplemented;
+        case 0x23: // NVHOST_IOCTL_CHANNEL_GET_CLK_RATE
+            if (command.raw != 0xC0080023U) break;
+            // not implemented yet on Encore: no native guest GPU clock source.
+            return NvResult::NotImplemented;
         default:
             break;
         }
@@ -131,6 +143,14 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
                              "EDEN_NS2_GPFIFO_ROUTE ticket=%u route=ioctl1-submit input=%zu output=%zu\n",
                              ticket, input.size(), output.size());
 #endif
+            return WrapFixedVariable<GpfifoInlineEntries>(
+                this, &nvhost_gpu::SubmitGPFIFOBase1, input, output, fd, false);
+        }
+        case 0x19: { // NVGPU_IOCTL_CHANNEL_SUBMIT_GPFIFO_RETRY
+            // SwitchBrew: identical IPC and fence contract to H:0x08.
+            // Size in the ioctl opcode is variable; check direction/group/ID
+            // while leaving actual payload bounds to WrapFixedVariable.
+            if ((command.raw & 0xC000FFFFU) != 0xC0004819U) break;
             return WrapFixedVariable<GpfifoInlineEntries>(
                 this, &nvhost_gpu::SubmitGPFIFOBase1, input, output, fd, false);
         }
@@ -157,6 +177,10 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
         case 0x11: // NVGPU_IOCTL_CHANNEL_FORCE_RESET
             if (command.raw != 0x00004811U) break;
             // not implemented yet on Encore: requires real queued-work cancellation/reset.
+            return NvResult::NotImplemented;
+        case 0x13: // NVGPU_IOCTL_CHANNEL_CYCLE_STATS_SNAPSHOT
+            if (command.raw != 0xC0104813U) break;
+            // not implemented yet on Encore: no real GPU cycle-statistics snapshot.
             return NvResult::NotImplemented;
         case 0x12: { // Switch 2 NVGPU_IOCTL_CHANNEL_EVENT_ID_CONTROL
             if (command.raw != 0x40104812U) break;
@@ -282,6 +306,15 @@ NvResult nvhost_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> inpu
                              "EDEN_NS2_GPFIFO_ROUTE ticket=%u route=ioctl2-kickoff input=%zu inline=%zu output=%zu\n",
                              ticket, input.size(), inline_input.size(), output.size());
 #endif
+            return WrapFixedInlIn<GpfifoInlineEntries>(
+                this, &nvhost_gpu::SubmitGPFIFOBase2, input, inline_input,
+                output, fd);
+        }
+        case 0x1c: { // NVGPU_IOCTL_CHANNEL_SUBMIT_GPFIFO2_RETRY
+            // Same Ioctl2 inline entries and fence semantics as H:0x1b.
+            // Keep the real FD-owner, GPFIFO, OOM and syncpoint checks in
+            // SubmitGPFIFOBase2/SubmitGPFIFOImpl, never fake a retry fence.
+            if (command.raw != 0xC018481CU) break;
             return WrapFixedInlIn<GpfifoInlineEntries>(
                 this, &nvhost_gpu::SubmitGPFIFOBase2, input, inline_input,
                 output, fd);
@@ -515,8 +548,9 @@ NvResult nvhost_gpu::ZCullBind(IoctlZCullBind& params) {
 NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, DeviceFD fd) {
     // Ounce's S2 channel wrapper serializes {cmd, event_id, u64 zero} into
     // 0x40104812. Nintendo documents these ids as the same ones returned by
-    // QueryEvent. Encore owns real KEvents for ids 1..3 only; do not claim
-    // CILP/semaphore events (4..6) until their producers exist.
+    // QueryEvent. SwitchBrew exposes exactly ids 1..3 for /dev/nvhost-gpu:
+    // breakpoint-int, breakpoint-pause and error-notifier. Keep undocumented
+    // native QueryEvent extensions outside this ioctl contract.
     const std::scoped_lock lock{channel_mutex};
     if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
 
@@ -527,7 +561,7 @@ NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, Dev
 
     const u32 cmd = static_cast<u32>(params.cmd);
     const u32 event_id = static_cast<u32>(params.id);
-    if (cmd > 2 || event_id == 0 || event_id > 6)
+    if (cmd > 2 || event_id == 0 || event_id > 3)
         return NvResult::BadParameter;
     if (static_cast<u64>(params.reserved) != 0)
         return NvResult::NotImplemented;
@@ -544,7 +578,8 @@ NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, Dev
         event = error_notifier_event;
         break;
     default:
-        return NvResult::NotImplemented;
+        // Rejected by the public QueryEvent-id bound above.
+        return NvResult::BadParameter;
     }
 
     const u32 bit = 1u << event_id;
