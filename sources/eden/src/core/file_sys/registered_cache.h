@@ -200,6 +200,8 @@ public:
                                                std::size_t size) const;
     std::vector<NcaID> ListContentIds() const;
     std::optional<std::pair<NcaID, u8>> GetRightsId(const NcaID& id) const;
+    const CNMT* GetContentMeta(u64 title_id) const;
+    bool ReferencesContent(const NcaID& id) const;
 
 private:
     template <typename T>

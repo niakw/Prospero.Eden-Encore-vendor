@@ -1119,6 +1119,31 @@ std::optional<std::pair<NcaID, u8>> RegisteredCache::GetRightsId(const NcaID& id
     return std::pair{NcaID{nca.GetRightsId()}, nca.GetKeyGeneration()};
 }
 
+const CNMT* RegisteredCache::GetContentMeta(u64 title_id) const {
+    if (const auto it = meta.find(title_id); it != meta.end()) {
+        return &it->second;
+    }
+    if (const auto it = yuzu_meta.find(title_id); it != yuzu_meta.end()) {
+        return &it->second;
+    }
+    return nullptr;
+}
+
+bool RegisteredCache::ReferencesContent(const NcaID& id) const {
+    const auto contains = [&id](const auto& database) {
+        for (const auto& [title_id, cnmt] : database) {
+            (void)title_id;
+            const auto& records = cnmt.GetContentRecords();
+            if (std::any_of(records.begin(), records.end(),
+                            [&id](const ContentRecord& record) { return record.nca_id == id; })) {
+                return true;
+            }
+        }
+        return false;
+    };
+    return contains(meta) || contains(yuzu_meta);
+}
+
 InstallResult RegisteredCache::RawInstallNCA(const NCA& nca, const VfsCopyFunction& copy,
                                              bool overwrite_if_exists,
                                              std::optional<NcaID> override_id) {

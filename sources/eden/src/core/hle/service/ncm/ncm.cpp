@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -571,8 +572,17 @@ public:
         static const FunctionInfo functions[] = {
             {0, &IContentMetaDatabase::Set, "Set"},
             {2, &IContentMetaDatabase::Remove, "Remove"},
+            {3, &IContentMetaDatabase::GetContentIdByType, "GetContentIdByType"},
+            {4, &IContentMetaDatabase::ListContentInfo, "ListContentInfo"},
             {8, &IContentMetaDatabase::Has, "Has"},
+            {9, &IContentMetaDatabase::HasAll, "HasAll"},
+            {13, &IContentMetaDatabase::DisableForcibly, "DisableForcibly"},
+            {14, &IContentMetaDatabase::LookupOrphanContent, "LookupOrphanContent"},
             {15, &IContentMetaDatabase::Commit, "Commit"},
+            {16, &IContentMetaDatabase::HasContent, "HasContent"},
+            {17, &IContentMetaDatabase::ListContentMetaInfo, "ListContentMetaInfo"},
+            {18, &IContentMetaDatabase::GetAttributes, "GetAttributes"},
+            {20, &IContentMetaDatabase::GetContentIdByTypeAndIdOffset, "GetContentIdByTypeAndIdOffset"},
         };
         // clang-format on
 
@@ -588,6 +598,90 @@ private:
         std::array<u8, 2> padding;
     };
     static_assert(sizeof(ContentMetaKey) == 0x10);
+
+    struct ContentInfo {
+        FileSys::NcaID content_id{};
+        u32 size_low{};
+        u8 size_high{};
+        u8 attributes{};
+        FileSys::ContentRecordType type{};
+        u8 id_offset{};
+    };
+    static_assert(sizeof(ContentInfo) == 0x18);
+
+    struct ContentMetaInfo {
+        u64 id{};
+        u32 version{};
+        FileSys::TitleType type{};
+        u8 attributes{};
+        std::array<u8, 2> padding{};
+    };
+    static_assert(sizeof(ContentMetaInfo) == 0x10);
+
+    struct GetContentIdRequest {
+        u8 type{};
+        std::array<u8, 7> padding{};
+        ContentMetaKey key{};
+    };
+    static_assert(sizeof(GetContentIdRequest) == 0x18);
+
+    struct ListInfoRequest {
+        s32 offset{};
+        u32 padding{};
+        ContentMetaKey key{};
+    };
+    static_assert(sizeof(ListInfoRequest) == 0x18);
+
+    struct HasContentRequest {
+        FileSys::NcaID content_id{};
+        ContentMetaKey key{};
+    };
+    static_assert(sizeof(HasContentRequest) == 0x20);
+
+    struct GetContentIdOffsetRequest {
+        u8 type{};
+        u8 id_offset{};
+        std::array<u8, 6> padding{};
+        ContentMetaKey key{};
+    };
+    static_assert(sizeof(GetContentIdOffsetRequest) == 0x18);
+
+    static bool MatchesKey(const FileSys::CNMT& cnmt, const ContentMetaKey& key) {
+        return key.install_type == 0 && cnmt.GetTitleID() == key.id &&
+               cnmt.GetTitleVersion() == key.version && cnmt.GetType() == key.type;
+    }
+
+    const FileSys::CNMT* FindRegisteredMeta(const ContentMetaKey& key) const {
+        auto* const cache = system.GetFileSystemController().GetRegisteredCacheForStorage(storage);
+        if (cache == nullptr) {
+            return nullptr;
+        }
+        const auto* const cnmt = cache->GetContentMeta(key.id);
+        return cnmt != nullptr && MatchesKey(*cnmt, key) ? cnmt : nullptr;
+    }
+
+    bool HasKey(const ContentMetaKey& key) const {
+        const bool pending =
+            std::find_if(entries.begin(), entries.end(), [&key](const ContentMetaKey& entry) {
+                return entry.id == key.id && entry.version == key.version &&
+                       entry.type == key.type && entry.install_type == key.install_type;
+            }) != entries.end();
+        return pending || FindRegisteredMeta(key) != nullptr;
+    }
+
+    static ContentInfo ConvertContentInfo(const FileSys::ContentRecord& record) {
+        ContentInfo info{};
+        info.content_id = record.nca_id;
+        info.size_low = static_cast<u32>(record.size[0]) |
+                        (static_cast<u32>(record.size[1]) << 8) |
+                        (static_cast<u32>(record.size[2]) << 16) |
+                        (static_cast<u32>(record.size[3]) << 24);
+        info.size_high = record.size[4];
+        info.attributes = record.size[5];
+        info.type = record.type;
+        info.id_offset = record.id_offset;
+        return info;
+    }
 
     void Set(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
@@ -626,29 +720,187 @@ private:
         rb.Push(ResultSuccess);
     }
 
+    void GetContentIdByType(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto request = rp.PopRaw<GetContentIdRequest>();
+        const auto* const cnmt = FindRegisteredMeta(request.key);
+        std::optional<FileSys::NcaID> found{};
+        if (cnmt != nullptr) {
+            const auto type = static_cast<FileSys::ContentRecordType>(request.type);
+            const auto& records = cnmt->GetContentRecords();
+            const auto it = std::find_if(records.begin(), records.end(), [type](const auto& record) {
+                return record.type == type && record.id_offset == 0;
+            });
+            if (it != records.end()) {
+                found = it->nca_id;
+            }
+        }
+        IPC::ResponseBuilder rb{ctx, 6};
+        rb.Push(found.has_value() ? ResultSuccess : ResultUnknown);
+        rb.PushRaw(found.value_or(FileSys::NcaID{}));
+    }
+
+    void ListContentInfo(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto request = rp.PopRaw<ListInfoRequest>();
+        const auto* const cnmt = request.offset >= 0 ? FindRegisteredMeta(request.key) : nullptr;
+        if (cnmt == nullptr) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultUnknown);
+            return;
+        }
+
+        const auto& records = cnmt->GetContentRecords();
+        const auto start = static_cast<std::size_t>(request.offset);
+        const auto available = start < records.size() ? records.size() - start : 0;
+        const auto max_entries = ctx.GetWriteBufferSize() / sizeof(ContentInfo);
+        const auto copied = std::min(available, max_entries);
+        std::vector<ContentInfo> out;
+        out.reserve(copied);
+        for (std::size_t index = 0; index < copied; ++index) {
+            out.push_back(ConvertContentInfo(records[start + index]));
+        }
+        if (!out.empty()) {
+            ctx.WriteBuffer(out);
+        }
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push(static_cast<s32>(copied));
+    }
+
     void Has(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto key = rp.PopRaw<ContentMetaKey>();
 
-        const bool has_pending =
-            std::find_if(entries.begin(), entries.end(), [&key](const ContentMetaKey& entry) {
-                return entry.id == key.id && entry.version == key.version &&
-                       entry.type == key.type && entry.install_type == key.install_type;
-            }) != entries.end();
-
-        auto* const registered_cache =
-            system.GetFileSystemController().GetRegisteredCacheForStorage(storage);
-        const bool has_registered =
-            registered_cache != nullptr &&
-            registered_cache->HasEntry(key.id, FileSys::ContentRecordType::Meta);
+        const bool has = HasKey(key);
 
         LOG_DEBUG(Service_NCM, "called, storage_id={}, title_id={:016X}, version={}, type={}, has={}",
-                  static_cast<u32>(storage), key.id, key.version, static_cast<u8>(key.type),
-                  has_pending || has_registered);
+                  static_cast<u32>(storage), key.id, key.version, static_cast<u8>(key.type), has);
 
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
-        rb.Push(has_pending || has_registered);
+        rb.Push(has);
+    }
+
+    void HasAll(HLERequestContext& ctx) {
+        const auto data = ctx.ReadBuffer();
+        bool has_all = data.size() % sizeof(ContentMetaKey) == 0;
+        for (std::size_t offset = 0; has_all && offset < data.size();
+             offset += sizeof(ContentMetaKey)) {
+            ContentMetaKey key{};
+            std::memcpy(&key, data.data() + offset, sizeof(key));
+            has_all = HasKey(key);
+        }
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push(has_all);
+    }
+
+    void DisableForcibly(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void LookupOrphanContent(HLERequestContext& ctx) {
+        const auto data = ctx.ReadBuffer();
+        auto* const cache = system.GetFileSystemController().GetRegisteredCacheForStorage(storage);
+        if (cache == nullptr || data.size() % sizeof(FileSys::NcaID) != 0) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultUnknown);
+            return;
+        }
+        const auto count = data.size() / sizeof(FileSys::NcaID);
+        if (ctx.GetWriteBufferSize() < count) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultUnknown);
+            return;
+        }
+        std::vector<u8> orphaned(count, 1);
+        for (std::size_t index = 0; index < count; ++index) {
+            FileSys::NcaID id{};
+            std::memcpy(&id, data.data() + index * sizeof(id), sizeof(id));
+            orphaned[index] = cache->ReferencesContent(id) ? 0 : 1;
+        }
+        if (!orphaned.empty()) {
+            ctx.WriteBuffer(orphaned);
+        }
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void HasContent(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto request = rp.PopRaw<HasContentRequest>();
+        const auto* const cnmt = FindRegisteredMeta(request.key);
+        bool found = false;
+        if (cnmt != nullptr) {
+            const auto& records = cnmt->GetContentRecords();
+            found = std::any_of(records.begin(), records.end(), [&request](const auto& record) {
+                return record.nca_id == request.content_id;
+            });
+        }
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(cnmt != nullptr ? ResultSuccess : ResultUnknown);
+        rb.Push(found);
+    }
+
+    void ListContentMetaInfo(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto request = rp.PopRaw<ListInfoRequest>();
+        const auto* const cnmt = request.offset >= 0 ? FindRegisteredMeta(request.key) : nullptr;
+        if (cnmt == nullptr) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultUnknown);
+            return;
+        }
+        const auto& records = cnmt->GetMetaRecords();
+        const auto start = static_cast<std::size_t>(request.offset);
+        const auto available = start < records.size() ? records.size() - start : 0;
+        const auto max_entries = ctx.GetWriteBufferSize() / sizeof(ContentMetaInfo);
+        const auto copied = std::min(available, max_entries);
+        std::vector<ContentMetaInfo> out;
+        out.reserve(copied);
+        for (std::size_t index = 0; index < copied; ++index) {
+            const auto& record = records[start + index];
+            out.push_back(ContentMetaInfo{record.title_id, record.title_version, record.type,
+                                          record.install_byte, {}});
+        }
+        if (!out.empty()) {
+            ctx.WriteBuffer(out);
+        }
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push(static_cast<s32>(copied));
+    }
+
+    void GetAttributes(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto key = rp.PopRaw<ContentMetaKey>();
+        const auto* const cnmt = FindRegisteredMeta(key);
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(cnmt != nullptr ? ResultSuccess : ResultUnknown);
+        rb.Push(cnmt != nullptr ? cnmt->GetHeader().attributes : u8{0});
+    }
+
+    void GetContentIdByTypeAndIdOffset(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto request = rp.PopRaw<GetContentIdOffsetRequest>();
+        const auto* const cnmt = FindRegisteredMeta(request.key);
+        std::optional<FileSys::NcaID> found{};
+        if (cnmt != nullptr) {
+            const auto type = static_cast<FileSys::ContentRecordType>(request.type);
+            const auto& records = cnmt->GetContentRecords();
+            const auto it =
+                std::find_if(records.begin(), records.end(), [&request, type](const auto& record) {
+                    return record.type == type && record.id_offset == request.id_offset;
+                });
+            if (it != records.end()) {
+                found = it->nca_id;
+            }
+        }
+        IPC::ResponseBuilder rb{ctx, 6};
+        rb.Push(found.has_value() ? ResultSuccess : ResultUnknown);
+        rb.PushRaw(found.value_or(FileSys::NcaID{}));
     }
 
     void Commit(HLERequestContext& ctx) {
