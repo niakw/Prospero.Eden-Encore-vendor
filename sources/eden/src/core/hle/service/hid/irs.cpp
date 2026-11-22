@@ -62,12 +62,15 @@ IRS::IRS(Core::System& system_) : ServiceFramework{system_, "irs"} {
 IRS::~IRS() = default;
 
 Result IRS::ActivateIrsensor(ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_IRS, "(STUBBED) called, applet_resource_user_id={}", aruid.pid);
+    // Encore does not expose physical Joy-Con IR-camera hardware. Activation is therefore an
+    // intentional no-op: the emulated IRS shared-memory/service ABI remains available to titles.
+    LOG_DEBUG(Service_IRS, "IR-camera activation ignored, applet_resource_user_id={}", aruid.pid);
     R_SUCCEED();
 }
 
 Result IRS::DeactivateIrsensor(ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_IRS, "(STUBBED) called, applet_resource_user_id={}", aruid.pid);
+    // No physical IR-camera resource is owned by Encore, so there is nothing to release.
+    LOG_DEBUG(Service_IRS, "IR-camera deactivation ignored, applet_resource_user_id={}", aruid.pid);
     R_SUCCEED();
 }
 
@@ -238,14 +241,15 @@ Result IRS::RunPointingProcessor(
 
 Result IRS::SuspendImageProcessor(Core::IrSensor::IrCameraHandle camera_handle,
                                   ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_IRS,
-                "(STUBBED) called, npad_type={}, npad_id={}, applet_resource_user_id={}",
-                camera_handle.npad_type, camera_handle.npad_id, aruid.pid);
+    LOG_DEBUG(Service_IRS,
+              "IR image-processor suspend ignored, npad_type={}, npad_id={}, "
+              "applet_resource_user_id={}",
+              camera_handle.npad_type, camera_handle.npad_id, aruid.pid);
 
     R_TRY(IsIrCameraHandleValid(camera_handle));
 
-    // TODO: Suspend image processor
-
+    // Encore has no physical IRS capture thread to suspend. Processor state remains intact so a
+    // later resume/run call can continue using the emulated shared-memory state.
     R_SUCCEED();
 }
 
@@ -268,15 +272,15 @@ Result IRS::CheckFirmwareVersion(Core::IrSensor::IrCameraHandle camera_handle,
 Result IRS::SetFunctionLevel(Core::IrSensor::IrCameraHandle camera_handle,
                              Core::IrSensor::PackedFunctionLevel function_level,
                              ClientAppletResourceUserId aruid) {
-    LOG_WARNING(
-        Service_IRS,
-        "(STUBBED) called, npad_type={}, npad_id={}, function_level={}, applet_resource_user_id={}",
-        camera_handle.npad_type, camera_handle.npad_id, function_level.function_level, aruid.pid);
+    LOG_DEBUG(Service_IRS,
+              "IR function level ignored, npad_type={}, npad_id={}, function_level={}, "
+              "applet_resource_user_id={}",
+              camera_handle.npad_type, camera_handle.npad_id, function_level.function_level,
+              aruid.pid);
 
     R_TRY(IsIrCameraHandleValid(camera_handle));
 
-    // TODO: Set Function level
-
+    // Function-level negotiation controls physical MCU features that Encore does not expose.
     R_SUCCEED();
 }
 
@@ -345,8 +349,11 @@ Result IRS::StopImageProcessorAsync(Core::IrSensor::IrCameraHandle camera_handle
 
 Result IRS::ActivateIrsensorWithFunctionLevel(Core::IrSensor::PackedFunctionLevel function_level,
                                               ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_IRS, "(STUBBED) called, function_level={}, applet_resource_user_id={}",
-                function_level.function_level, aruid.pid);
+    // Same intentional no-op as ActivateIrsensor: the requested physical MCU function level has
+    // no PS5 equivalent, while the IRS service ABI must remain callable by guest software.
+    LOG_DEBUG(Service_IRS, "IR-camera activation level ignored, function_level={}, "
+                           "applet_resource_user_id={}",
+              function_level.function_level, aruid.pid);
     R_SUCCEED();
 }
 

@@ -110,7 +110,7 @@ private:
     void MakeProcessor(const Core::IrSensor::IrCameraHandle& handle,
                        Core::IrSensor::DeviceFormat& device_state) {
         const auto index = static_cast<std::size_t>(handle.npad_id);
-        if (index > sizeof(processors)) {
+        if (index >= processors.size()) {
             LOG_CRITICAL(Service_IRS, "Invalid index {}", index);
             return;
         }
@@ -121,7 +121,7 @@ private:
     void MakeProcessorWithCoreContext(const Core::IrSensor::IrCameraHandle& handle,
                                       Core::IrSensor::DeviceFormat& device_state) {
         const auto index = static_cast<std::size_t>(handle.npad_id);
-        if (index > sizeof(processors)) {
+        if (index >= processors.size()) {
             LOG_CRITICAL(Service_IRS, "Invalid index {}", index);
             return;
         }
@@ -137,7 +137,7 @@ private:
     template <typename T>
     T& GetProcessor(const Core::IrSensor::IrCameraHandle& handle) {
         const auto index = static_cast<std::size_t>(handle.npad_id);
-        if (index > sizeof(processors)) {
+        if (index >= processors.size()) {
             LOG_CRITICAL(Service_IRS, "Invalid index {}", index);
             return static_cast<T&>(*processors[0]);
         }
@@ -147,7 +147,7 @@ private:
     template <typename T>
     const T& GetProcessor(const Core::IrSensor::IrCameraHandle& handle) const {
         const auto index = static_cast<std::size_t>(handle.npad_id);
-        if (index > sizeof(processors)) {
+        if (index >= processors.size()) {
             LOG_CRITICAL(Service_IRS, "Invalid index {}", index);
             return static_cast<T&>(*processors[0]);
         }
