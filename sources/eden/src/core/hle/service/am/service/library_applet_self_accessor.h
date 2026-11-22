@@ -57,6 +57,9 @@ private:
     Result PushInteractiveOutData(SharedPointer<IStorage> storage);
     Result GetPopInDataEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result GetPopInteractiveInDataEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result PopExtraStorage(Out<SharedPointer<IStorage>> out_storage);
+    Result GetPopExtraStorageEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result UnpopExtraStorage(SharedPointer<IStorage> storage);
     Result GetLibraryAppletInfo(Out<LibraryAppletInfo> out_library_applet_info);
     Result GetMainAppletIdentityInfo(Out<AppletIdentityInfo> out_identity_info);
     Result CanUseApplicationCore(Out<bool> out_can_use_application_core);

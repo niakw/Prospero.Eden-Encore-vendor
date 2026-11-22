@@ -75,10 +75,10 @@ ILibraryAppletSelfAccessor::ILibraryAppletSelfAccessor(Core::System& system_,
         {17, D<&ILibraryAppletSelfAccessor::GetCallerAppletIdentityInfoStack>, "GetCallerAppletIdentityInfoStack"},
         {18, nullptr, "GetNextReturnDestinationAppletIdentityInfo"},
         {19, D<&ILibraryAppletSelfAccessor::GetDesirableKeyboardLayout>, "GetDesirableKeyboardLayout"},
-        {20, nullptr, "PopExtraStorage"},
-        {25, nullptr, "GetPopExtraStorageEvent"},
+        {20, D<&ILibraryAppletSelfAccessor::PopExtraStorage>, "PopExtraStorage"},
+        {25, D<&ILibraryAppletSelfAccessor::GetPopExtraStorageEvent>, "GetPopExtraStorageEvent"},
         {30, D<&ILibraryAppletSelfAccessor::UnpopInData>, "UnpopInData"},
-        {31, nullptr, "UnpopExtraStorage"},
+        {31, D<&ILibraryAppletSelfAccessor::UnpopExtraStorage>, "UnpopExtraStorage"},
         {40, nullptr, "GetIndirectLayerProducerHandle"},
         {50, D<&ILibraryAppletSelfAccessor::ReportVisibleError>, "ReportVisibleError"},
         {51, D<&ILibraryAppletSelfAccessor::ReportVisibleErrorWithErrorContext>, "ReportVisibleErrorWithErrorContext"},
@@ -135,6 +135,24 @@ Result ILibraryAppletSelfAccessor::GetPopInteractiveInDataEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_INFO(Service_AM, "called");
     *out_event = m_broker->GetInteractiveInData().GetEvent();
+    R_SUCCEED();
+}
+
+Result ILibraryAppletSelfAccessor::PopExtraStorage(Out<SharedPointer<IStorage>> out_storage) {
+    LOG_INFO(Service_AM, "called");
+    R_RETURN(m_broker->GetExtraStorage().Pop(system.Kernel(), out_storage));
+}
+
+Result ILibraryAppletSelfAccessor::GetPopExtraStorageEvent(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    LOG_INFO(Service_AM, "called");
+    *out_event = m_broker->GetExtraStorage().GetEvent();
+    R_SUCCEED();
+}
+
+Result ILibraryAppletSelfAccessor::UnpopExtraStorage(SharedPointer<IStorage> storage) {
+    LOG_INFO(Service_AM, "called");
+    m_broker->GetExtraStorage().Unpop(system.Kernel(), storage);
     R_SUCCEED();
 }
 

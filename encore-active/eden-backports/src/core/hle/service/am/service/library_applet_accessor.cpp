@@ -69,7 +69,7 @@ ILibraryAppletAccessor::ILibraryAppletAccessor(Core::System& system_,
         {90, D<&ILibraryAppletAccessor::Unknown90>, "Unknown90"}, //20.0.0+
         {100, D<&ILibraryAppletAccessor::PushInData>, "PushInData"},
         {101, D<&ILibraryAppletAccessor::PopOutData>, "PopOutData"},
-        {102, nullptr, "PushExtraStorage"},
+        {102, D<&ILibraryAppletAccessor::PushExtraStorage>, "PushExtraStorage"},
         {103, D<&ILibraryAppletAccessor::PushInteractiveInData>, "PushInteractiveInData"},
         {104, D<&ILibraryAppletAccessor::PopInteractiveOutData>, "PopInteractiveOutData"},
         {105, D<&ILibraryAppletAccessor::GetPopOutDataEvent>, "GetPopOutDataEvent"},
@@ -188,6 +188,12 @@ Result ILibraryAppletAccessor::PopOutData(Out<SharedPointer<IStorage>> out_stora
         }
     }
 
+    R_SUCCEED();
+}
+
+Result ILibraryAppletAccessor::PushExtraStorage(SharedPointer<IStorage> storage) {
+    LOG_DEBUG(Service_AM, "called");
+    m_broker->GetExtraStorage().Push(system.Kernel(), storage);
     R_SUCCEED();
 }
 

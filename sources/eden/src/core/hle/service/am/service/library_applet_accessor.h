@@ -38,6 +38,7 @@ private:
     Result Unknown90();
     Result PushInData(SharedPointer<IStorage> storage);
     Result PopOutData(Out<SharedPointer<IStorage>> out_storage);
+    Result PushExtraStorage(SharedPointer<IStorage> storage);
     Result PushInteractiveInData(SharedPointer<IStorage> storage);
     Result PopInteractiveOutData(Out<SharedPointer<IStorage>> out_storage);
     Result GetPopOutDataEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
