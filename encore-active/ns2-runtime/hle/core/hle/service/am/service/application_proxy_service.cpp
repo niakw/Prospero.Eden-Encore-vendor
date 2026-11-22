@@ -21,6 +21,7 @@ IApplicationProxyService::IApplicationProxyService(Core::System& system_,
         // request as command 0 (Switchbrew / Lichii nx2).
         {10, D<&IApplicationProxyService::OpenApplicationProxyWithFlags>,
          "OpenApplicationProxy2"},
+        {2000, &IApplicationProxyService::StubReplyInterface, "Unknown2000"},
     };
     RegisterHandlers(functions);
 }
