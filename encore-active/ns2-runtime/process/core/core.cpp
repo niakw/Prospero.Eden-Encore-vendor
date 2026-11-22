@@ -591,11 +591,16 @@ struct System::Impl {
         ::Eden::ReportStep("shutdown", "Completed gpu_core.reset()");
         kernel.CloseServices();
         ::Eden::ReportStep("shutdown", "Completed kernel.CloseServices()");
-        kernel.ShutdownCores();
-        ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");
+        // NVDRV's nvhost_as_gpu destructor can unpin NVMap pages and release
+        // its retained KProcess reference. Release those service owners while
+        // the process and scheduler are still alive; ShutdownCores terminates
+        // the guest processes and must come AFTER this cleanup. The GPU worker
+        // was joined above, so no GPU task can reuse the retired mappings.
         services.reset();
         ::Eden::ReportStep("shutdown", "Completed services.reset()");
         service_manager.reset();
+        kernel.ShutdownCores();
+        ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");
         fs_controller.Reset();
         core_timing.ClearPendingEvents();
         app_loader.reset();
