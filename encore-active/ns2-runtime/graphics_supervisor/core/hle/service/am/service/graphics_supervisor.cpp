@@ -1373,6 +1373,9 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {430, &IGraphicsSupervisor::DestroyNativeImage, "DestroyNativeImage"},
         {314, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "DestroyNativeWindowAliasImagePool"},
         {315, &IGraphicsSupervisor::ConfigureNativeWindowImagePool, "CreateNativeWindowAliasImagePool"},
+        // SwitchBrew 391 is the 16-word image preference + count size/alignment query.
+        // Reuse the validated native layout calculator; unsupported formats fail closed.
+        {391, &IGraphicsSupervisor::CalculateNativeImageRequirements, "CalculateRequiredBufferMemory"},
         {901, &IGraphicsSupervisor::InitializeVideoCodecContext, "InitializeVideoDecoderContext"},
         {1001, &IGraphicsSupervisor::UnavailableVideoEncoder, "CreateVideoEncoderContext"},
         {902, &IGraphicsSupervisor::OpenVideoDecoderSession, "OpenVideoDecoderSession"},
@@ -1452,7 +1455,9 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {665, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAccessAllowed"},
         {666, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetHostDrivenAeRegion"},
         {667, &IGraphicsSupervisor::UnavailableDocumentedFeature, "SetHostDrivenAeRegion"},
-        {691, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CalculateImageArraySize"},
+        // Camera 691 shares the image-pool requirements query layout; Encore supports only
+        // proven chat-camera image formats, and rejects unknown layouts.
+        {691, &IGraphicsSupervisor::CalculateChatImagePoolSize, "CalculateImageArraySize"},
         {903, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyVideoDecoderContext"},
         {904, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeVideoDecoderContextForSystem"},
         {921, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeDecoderAliasImagePool"},
