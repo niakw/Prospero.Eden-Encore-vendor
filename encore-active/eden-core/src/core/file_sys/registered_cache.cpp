@@ -1042,6 +1042,39 @@ bool RegisteredCache::Delete(const NcaID& id) const {
     return true;
 }
 
+bool RegisteredCache::Exists(const NcaID& id) const {
+    return GetFileAtID(id) != nullptr;
+}
+
+std::optional<u64> RegisteredCache::Size(const NcaID& id) const {
+    const auto file = GetFileAtID(id);
+    if (file == nullptr) {
+        return std::nullopt;
+    }
+    return static_cast<u64>(file->GetSize());
+}
+
+std::vector<NcaID> RegisteredCache::ListContentIds() const {
+    auto ids = AccumulateFiles();
+    std::sort(ids.begin(), ids.end());
+    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+    return ids;
+}
+
+std::optional<std::pair<NcaID, u8>> RegisteredCache::GetRightsId(const NcaID& id) const {
+    const auto file = GetFileAtID(id);
+    if (file == nullptr) {
+        return std::nullopt;
+    }
+
+    NCA nca{parser(file, id)};
+    if (nca.GetStatus() != Loader::ResultStatus::Success &&
+        nca.GetStatus() != Loader::ResultStatus::ErrorMissingBKTRBaseRomFS) {
+        return std::nullopt;
+    }
+    return std::pair{NcaID{nca.GetRightsId()}, nca.GetKeyGeneration()};
+}
+
 InstallResult RegisteredCache::RawInstallNCA(const NCA& nca, const VfsCopyFunction& copy,
                                              bool overwrite_if_exists,
                                              std::optional<NcaID> override_id) {

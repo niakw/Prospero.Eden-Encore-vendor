@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -112,11 +113,18 @@ public:
             {4, &IContentStorage::WritePlaceHolder, "WritePlaceHolder"},
             {5, &IContentStorage::Register, "Register"},
             {6, &IContentStorage::Delete, "Delete"},
+            {7, &IContentStorage::Has, "Has"},
             {10, &IContentStorage::CleanupAllPlaceHolder, "CleanupAllPlaceHolder"},
             {11, &IContentStorage::ListPlaceHolder, "ListPlaceHolder"},
+            {12, &IContentStorage::GetContentCount, "GetContentCount"},
+            {13, &IContentStorage::ListContentId, "ListContentId"},
+            {14, &IContentStorage::GetSizeFromContentId, "GetSizeFromContentId"},
             {17, &IContentStorage::SetPlaceHolderSize, "SetPlaceHolderSize"},
             {19, &IContentStorage::GetRightsIdFromPlaceHolderId, "GetRightsIdFromPlaceHolderId"},
+            {20, &IContentStorage::GetRightsIdFromContentId, "GetRightsIdFromContentId"},
+            {24, &IContentStorage::FlushPlaceHolder, "FlushPlaceHolder"},
             {25, &IContentStorage::GetSizeFromPlaceHolderId, "GetSizeFromPlaceHolderId"},
+            {26, &IContentStorage::RepairInvalidFileAttribute, "RepairInvalidFileAttribute"},
         };
         // clang-format on
 
@@ -270,6 +278,79 @@ private:
         rb.Push(succeeded ? ResultSuccess : ResultUnknown);
     }
 
+    struct NcmRightsId {
+        FileSys::NcaID rights_id{};
+        u8 key_generation{};
+        std::array<u8, 7> padding{};
+    };
+    static_assert(sizeof(NcmRightsId) == 0x18);
+
+    void Has(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto content_id = rp.PopRaw<FileSys::NcaID>();
+        auto* const registered_cache =
+            system.GetFileSystemController().GetRegisteredCacheForStorage(storage);
+
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(registered_cache != nullptr ? ResultSuccess : ResultUnknown);
+        rb.Push(registered_cache != nullptr && registered_cache->Exists(content_id));
+    }
+
+    void GetContentCount(HLERequestContext& ctx) {
+        auto* const registered_cache =
+            system.GetFileSystemController().GetRegisteredCacheForStorage(storage);
+        if (registered_cache == nullptr) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultUnknown);
+            return;
+        }
+        const auto ids = registered_cache->ListContentIds();
+        const auto count = std::min<std::size_t>(
+            ids.size(), static_cast<std::size_t>((std::numeric_limits<s32>::max)()));
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push(static_cast<s32>(count));
+    }
+
+    void ListContentId(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto start_offset = rp.Pop<s32>();
+        auto* const registered_cache =
+            system.GetFileSystemController().GetRegisteredCacheForStorage(storage);
+        if (registered_cache == nullptr || start_offset < 0) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultUnknown);
+            return;
+        }
+
+        const auto ids = registered_cache->ListContentIds();
+        const auto start = static_cast<std::size_t>(start_offset);
+        const auto available = start < ids.size() ? ids.size() - start : 0;
+        const auto max_entries = ctx.GetWriteBufferSize() / sizeof(FileSys::NcaID);
+        const auto copied = std::min(available, max_entries);
+        if (copied != 0) {
+            ctx.WriteBuffer(ids.data() + start, copied * sizeof(FileSys::NcaID));
+        }
+
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push(static_cast<s32>(std::min<std::size_t>(
+            copied, static_cast<std::size_t>((std::numeric_limits<s32>::max)()))));
+    }
+
+    void GetSizeFromContentId(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto content_id = rp.PopRaw<FileSys::NcaID>();
+        auto* const registered_cache =
+            system.GetFileSystemController().GetRegisteredCacheForStorage(storage);
+        const auto size = registered_cache != nullptr ? registered_cache->Size(content_id)
+                                                      : std::optional<u64>{};
+
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(size.has_value() ? ResultSuccess : ResultUnknown);
+        rb.Push(size.value_or(0));
+    }
+
     void CleanupAllPlaceHolder(HLERequestContext& ctx) {
         auto* const placeholder_cache =
             system.GetFileSystemController().GetPlaceholderCacheForStorage(storage);
@@ -317,15 +398,56 @@ private:
     void GetRightsIdFromPlaceHolderId(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto placeholder_id = rp.PopRaw<FileSys::NcaID>();
+        [[maybe_unused]] const auto attr = rp.Pop<u8>();
         auto* const placeholder_cache =
             system.GetFileSystemController().GetPlaceholderCacheForStorage(storage);
         const auto rights_id = placeholder_cache != nullptr
                                    ? placeholder_cache->GetRightsID(placeholder_id)
                                    : std::optional<FileSys::NcaID>{};
 
-        IPC::ResponseBuilder rb{ctx, 6};
+        // PlaceholderCache does not preserve key generation yet; keep the known
+        // rights ID and return a zero key generation rather than truncating the
+        // modern HOS 3+ output structure.
+        NcmRightsId out{};
+        if (rights_id.has_value()) {
+            out.rights_id = *rights_id;
+        }
+        IPC::ResponseBuilder rb{ctx, 2 + (sizeof(NcmRightsId) + 3) / sizeof(u32)};
         rb.Push(rights_id.has_value() ? ResultSuccess : ResultUnknown);
-        rb.PushRaw(rights_id.value_or(FileSys::NcaID{}));
+        rb.PushRaw(out);
+    }
+
+    void GetRightsIdFromContentId(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto content_id = rp.PopRaw<FileSys::NcaID>();
+        [[maybe_unused]] const auto attr = rp.Pop<u8>();
+        auto* const registered_cache =
+            system.GetFileSystemController().GetRegisteredCacheForStorage(storage);
+        const auto rights = registered_cache != nullptr ? registered_cache->GetRightsId(content_id)
+                                                        : std::optional<std::pair<FileSys::NcaID, u8>>{};
+
+        NcmRightsId out{};
+        if (rights.has_value()) {
+            out.rights_id = rights->first;
+            out.key_generation = rights->second;
+        }
+        IPC::ResponseBuilder rb{ctx, 2 + (sizeof(NcmRightsId) + 3) / sizeof(u32)};
+        rb.Push(rights.has_value() ? ResultSuccess : ResultUnknown);
+        rb.PushRaw(out);
+    }
+
+    void FlushPlaceHolder(HLERequestContext& ctx) {
+        // Eden VFS writes are synchronous and expose no delayed flush primitive.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+
+    void RepairInvalidFileAttribute(HLERequestContext& ctx) {
+        // The VFS layer does not model the Horizon invalid-file-attribute bit.
+        // There is therefore no represented attribute state to repair.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
     }
 
     void GetSizeFromPlaceHolderId(HLERequestContext& ctx) {

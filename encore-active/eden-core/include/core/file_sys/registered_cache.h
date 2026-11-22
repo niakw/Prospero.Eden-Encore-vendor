@@ -192,6 +192,12 @@ public:
     bool RemoveExistingEntry(u64 title_id) const;
     bool Delete(const NcaID& id) const;
 
+    // Direct NCA-id accessors used by the NCM IContentStorage service.
+    bool Exists(const NcaID& id) const;
+    std::optional<u64> Size(const NcaID& id) const;
+    std::vector<NcaID> ListContentIds() const;
+    std::optional<std::pair<NcaID, u8>> GetRightsId(const NcaID& id) const;
+
 private:
     template <typename T>
     void IterateAllMetadata(std::vector<T>& out,
