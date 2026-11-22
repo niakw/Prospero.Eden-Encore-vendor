@@ -169,6 +169,16 @@ public:
     Result SetServiceDiscoveryControlSettings(u32 value);
     Result GetThemeKey(Out<std::array<u8, 0x10>> out_value);
     Result SetThemeKey(const std::array<u8, 0x10>& value);
+    Result SetBlePairingSettings(
+        InArray<std::array<u8, 0x80>, BufferAttr_HipcMapAlias> settings);
+    Result GetBlePairingSettings(
+        Out<s32> out_count,
+        OutArray<std::array<u8, 0x80>, BufferAttr_HipcMapAlias> out_settings);
+    Result GetAccountOnlineStorageSettings(
+        Out<s32> out_count,
+        OutArray<std::array<u8, 0x40>, BufferAttr_HipcMapAlias> out_settings);
+    Result SetAccountOnlineStorageSettings(
+        InArray<std::array<u8, 0x40>, BufferAttr_HipcMapAlias> settings);
     Result GetRequiresRunRepairTimeReviser(Out<bool> out_value);
     Result SetRequiresRunRepairTimeReviser(bool value);
     Result GetHearingProtectionSafeguardFlag(Out<bool> out_value);

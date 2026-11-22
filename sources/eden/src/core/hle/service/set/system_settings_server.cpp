@@ -258,8 +258,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {140, nullptr, "GetHostFsMountPoint"},
         {141, C<&ISystemSettingsServer::GetRequiresRunRepairTimeReviser>, "GetRequiresRunRepairTimeReviser"},
         {142, C<&ISystemSettingsServer::SetRequiresRunRepairTimeReviser>, "SetRequiresRunRepairTimeReviser"},
-        {143, nullptr, "SetBlePairingSettings"},
-        {144, nullptr, "GetBlePairingSettings"},
+        {143, C<&ISystemSettingsServer::SetBlePairingSettings>, "SetBlePairingSettings"},
+        {144, C<&ISystemSettingsServer::GetBlePairingSettings>, "GetBlePairingSettings"},
         {145, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityTimeBias>, "GetConsoleSixAxisSensorAngularVelocityTimeBias"},
         {146, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityTimeBias>, "SetConsoleSixAxisSensorAngularVelocityTimeBias"},
         {147, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration>, "GetConsoleSixAxisSensorAngularAcceleration"},
@@ -269,8 +269,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {151, C<&ISystemSettingsServer::SetDeviceTimeZoneLocationUpdatedTime>, "SetDeviceTimeZoneLocationUpdatedTime"},
         {152, C<&ISystemSettingsServer::GetUserSystemClockAutomaticCorrectionUpdatedTime>, "GetUserSystemClockAutomaticCorrectionUpdatedTime"},
         {153, C<&ISystemSettingsServer::SetUserSystemClockAutomaticCorrectionUpdatedTime>, "SetUserSystemClockAutomaticCorrectionUpdatedTime"},
-        {154, nullptr, "GetAccountOnlineStorageSettings"},
-        {155, nullptr, "SetAccountOnlineStorageSettings"},
+        {154, C<&ISystemSettingsServer::GetAccountOnlineStorageSettings>, "GetAccountOnlineStorageSettings"},
+        {155, C<&ISystemSettingsServer::SetAccountOnlineStorageSettings>, "SetAccountOnlineStorageSettings"},
         {156, C<&ISystemSettingsServer::GetPctlReadyFlag>, "GetPctlReadyFlag"},
         {157, C<&ISystemSettingsServer::SetPctlReadyFlag>, "SetPctlReadyFlag"},
         {158, C<&ISystemSettingsServer::GetAnalogStickUserCalibrationL>, "GetAnalogStickUserCalibrationL"},
@@ -1384,6 +1384,51 @@ Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration(Out<std
 
 Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value) {
     m_system_settings.console_six_axis_sensor_angular_velocity_acceleration = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetBlePairingSettings(
+    InArray<std::array<u8, 0x80>, BufferAttr_HipcMapAlias> settings) {
+    R_UNLESS(settings.size() <= m_system_settings.ble_pairing_settings.size(), ResultUnknown);
+    m_system_settings.ble_pairing_settings_count = static_cast<u32>(settings.size());
+    std::memcpy(m_system_settings.ble_pairing_settings.data(), settings.data(),
+                settings.size() * sizeof(settings[0]));
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetBlePairingSettings(
+    Out<s32> out_count,
+    OutArray<std::array<u8, 0x80>, BufferAttr_HipcMapAlias> out_settings) {
+    const auto count = (std::min)(
+        static_cast<std::size_t>(m_system_settings.ble_pairing_settings_count),
+        (std::min)(m_system_settings.ble_pairing_settings.size(), out_settings.size()));
+    *out_count = static_cast<s32>(count);
+    std::memcpy(out_settings.data(), m_system_settings.ble_pairing_settings.data(),
+                count * sizeof(out_settings[0]));
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetAccountOnlineStorageSettings(
+    Out<s32> out_count,
+    OutArray<std::array<u8, 0x40>, BufferAttr_HipcMapAlias> out_settings) {
+    const auto count = (std::min)(
+        static_cast<std::size_t>(m_system_settings.account_online_storage_settings_count),
+        (std::min)(m_system_settings.account_online_storage_settings.size(), out_settings.size()));
+    *out_count = static_cast<s32>(count);
+    std::memcpy(out_settings.data(), m_system_settings.account_online_storage_settings.data(),
+                count * sizeof(out_settings[0]));
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetAccountOnlineStorageSettings(
+    InArray<std::array<u8, 0x40>, BufferAttr_HipcMapAlias> settings) {
+    R_UNLESS(settings.size() <= m_system_settings.account_online_storage_settings.size(),
+             ResultUnknown);
+    m_system_settings.account_online_storage_settings_count = static_cast<u32>(settings.size());
+    std::memcpy(m_system_settings.account_online_storage_settings.data(), settings.data(),
+                settings.size() * sizeof(settings[0]));
     SetSaveNeeded();
     R_SUCCEED();
 }
