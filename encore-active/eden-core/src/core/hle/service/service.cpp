@@ -107,7 +107,7 @@ namespace {
 
 constexpr u32 Nx2StubWords = 32;
 
-bool IsNx2PlaceholderCaller(const Service::HLERequestContext& ctx,
+bool IsNx2PlaceholderCaller(Service::HLERequestContext& ctx,
                             std::string_view service_name) {
     if (service_name.starts_with(Nx2StubPrefix)) {
         return true;
