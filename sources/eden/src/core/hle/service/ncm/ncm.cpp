@@ -1326,14 +1326,48 @@ public:
     explicit LR(Core::System& system_) : ServiceFramework{system_, "lr"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "OpenLocationResolver"},
-            {1, nullptr, "OpenRegisteredLocationResolver"},
-            {2, nullptr, "RefreshLocationResolver"},
-            {3, nullptr, "OpenAddOnContentLocationResolver"},
+            {0, &LR::OpenLocationResolver, "OpenLocationResolver"},
+            {1, &LR::OpenRegisteredLocationResolver, "OpenRegisteredLocationResolver"},
+            {2, &LR::RefreshLocationResolver, "RefreshLocationResolver"},
+            {3, &LR::OpenAddOnContentLocationResolver, "OpenAddOnContentLocationResolver"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
+    }
+
+private:
+    void OpenLocationResolver(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto storage_id = rp.PopEnum<FileSys::StorageId>();
+
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+        rb.Push(ResultSuccess);
+        rb.PushIpcInterface<ILocationResolver>(ctx, system, storage_id);
+    }
+
+    void OpenRegisteredLocationResolver(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+        rb.Push(ResultSuccess);
+        rb.PushIpcInterface<IRegisteredLocationResolver>(ctx, system);
+    }
+
+    void RefreshLocationResolver(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto storage_id = rp.PopEnum<FileSys::StorageId>();
+        // Location resolvers are currently stateless objects in Encore. There is no
+        // cached redirection table to invalidate at manager scope, so refresh is a
+        // documented no-op rather than a fabricated path mutation.
+        LOG_DEBUG(Service_NCM, "Location resolver refresh, storage_id={}",
+                  static_cast<u32>(storage_id));
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void OpenAddOnContentLocationResolver(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+        rb.Push(ResultSuccess);
+        rb.PushIpcInterface<IAddOnContentLocationResolver>(ctx, system);
     }
 };
 
