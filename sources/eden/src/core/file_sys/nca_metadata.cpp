@@ -20,7 +20,9 @@ CNMT::CNMT(VirtualFile file) {
     }
 
     const auto extended_size = static_cast<std::size_t>(header.table_offset);
-    if (extended_size > file->GetSize() - (std::min)(file->GetSize(), sizeof(CNMTHeader))) {
+    const auto file_size = file->GetSize();
+    if (file_size < sizeof(CNMTHeader) ||
+        extended_size > file_size - sizeof(CNMTHeader)) {
         LOG_WARNING(Loader, "Invalid CNMT extended header size {}.", extended_size);
         return;
     }
