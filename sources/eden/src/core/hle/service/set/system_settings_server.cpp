@@ -119,8 +119,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, C<&ISystemSettingsServer::SetLanguageCode>, "SetLanguageCode"},
-        {1, nullptr, "SetNetworkSettings"},
-        {2, nullptr, "GetNetworkSettings"},
+        {1, C<&ISystemSettingsServer::SetNetworkSettings>, "SetNetworkSettings"},
+        {2, C<&ISystemSettingsServer::GetNetworkSettings>, "GetNetworkSettings"},
         {3, C<&ISystemSettingsServer::GetFirmwareVersion>, "GetFirmwareVersion"},
         {4, C<&ISystemSettingsServer::GetFirmwareVersion2>, "GetFirmwareVersion2"},
         {5, nullptr, "GetFirmwareVersionDigest"},
@@ -1385,6 +1385,33 @@ Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration(Out<std
 Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value) {
     m_system_settings.console_six_axis_sensor_angular_velocity_acceleration = value;
     SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetNetworkSettings(
+    InArray<std::array<u8, 0x1B0>, BufferAttr_HipcMapAlias> settings) {
+    R_UNLESS(settings.size() <= m_system_settings.network_settings_1B0.size(), ResultUnknown);
+    m_system_settings.network_setting_count = static_cast<u32>(settings.size());
+    for (std::size_t i = 0; i < settings.size(); ++i) {
+        m_system_settings.network_settings_1B0[i].fill(0);
+        std::memcpy(m_system_settings.network_settings_1B0[i].data(), settings[i].data(),
+                    settings[i].size());
+    }
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetNetworkSettings(
+    Out<s32> out_count,
+    OutArray<std::array<u8, 0x1B0>, BufferAttr_HipcMapAlias> out_settings) {
+    const auto count = (std::min)(
+        static_cast<std::size_t>(m_system_settings.network_setting_count),
+        (std::min)(m_system_settings.network_settings_1B0.size(), out_settings.size()));
+    *out_count = static_cast<s32>(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        std::memcpy(out_settings[i].data(), m_system_settings.network_settings_1B0[i].data(),
+                    out_settings[i].size());
+    }
     R_SUCCEED();
 }
 
