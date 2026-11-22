@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <utility>
 #include <vector>
 
 #include "common/algorithm.h"
@@ -496,7 +497,7 @@ void MaxwellDMA::Launch() {
                 // A guest-controlled clear can span GiBs. Validate its whole
                 // GMMU destination before ANY accelerated or CPU write, and
                 // bound temporary memory independently of LINE_LENGTH_IN.
-                if (byte_count > (std::numeric_limits<size_t>::max)() ||
+                if (!std::in_range<size_t>(byte_count) ||
                     !memory_manager.IsFullyMappedRange(regs.offset_out,
                                                        static_cast<size_t>(byte_count))) {
                     LOG_WARNING(Render_OpenGL, "Unmapped or oversized CONST_A DMA clear");
