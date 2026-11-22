@@ -2735,7 +2735,8 @@ void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
     // library version. Reject malformed TIPC lengths before creating a
     // kernel session or reserving a service handle.
     const bool shape = cmd == 902 ? w[1] == 0 :
-                       cmd == 905 ? w[1] == 1 : cmd == 906 && w[1] == 3;
+                       cmd == 905 ? (w[1] == 1 && w[2] <= 0xffU) :
+                       cmd == 906 && w[1] == 3;
     if (w[0] == cmd + 0x10 && shape) {
         result = Kernel::ResultInvalidState;
         if (m_process && m_bootstrap.GpuContextReady()) {
