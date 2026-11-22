@@ -13,6 +13,19 @@ ROOT = Path(__file__).resolve().parents[1]
 def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     if relative != "encore-active/ns2-runtime/process/core/core.cpp":
         return source
+    # NUP pre-kernel selection is a verified post-#1932/#1952 runtime fix.
+    # Undo its exact bytes on the audit copy, not the active C++ source.
+    raw = source.encode()
+    current_sha = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\\0" + raw).hexdigest()
+    assert current_sha == "f37b975a0e251aa3f027b261f61d02fbf8506912", current_sha
+    assert source.count('#include "nup_v1_native_vfs.h"\\n') == 1
+    source = source.replace('#include "nup_v1_native_vfs.h"\\n', "", 1)
+    nup_block = "        // NUP is a first-class NS1/NS2 container, but IdentifyFile() in the\n        // pinned vendor loader does not know it. The NUP bridge is selected\n        // by the native CMake graph and validates the same effective ExeFS.\n        // Probe its bounded main.npdm BEFORE allocating guest kernel memory,\n        // rather than silently using the smaller NS1 layout for an NS2 title.\n        if (Eden::NupV1::Native::HasNupV1Header(file)) {\n            const auto mount = Eden::NupV1::Native::Mount::Open(file);\n            const auto exefs = mount ? mount->Effective(Eden::NupV1::ContentView::ExeFS)\n                                     : FileSys::VirtualDir{};\n            const auto npdm = exefs ? exefs->GetFile(\"main.npdm\") : nullptr;\n            constexpr std::size_t MaxNupNpdmBytes = 4U * 1024U * 1024U;\n            return npdm && npdm->GetSize() > 0 &&\n                   npdm->GetSize() <= MaxNupNpdmBytes && check_npdm(npdm);\n        }\n"
+    assert source.count(nup_block) == 1
+    source = source.replace(nup_block, "", 1)
+    old_raw = source.encode()
+    old_sha = hashlib.sha1(b"blob " + str(len(old_raw)).encode() + b"\\0" + old_raw).hexdigest()
+    assert old_sha == "0110907a727b5d0ed15286298f851b59b30f1eb6", old_sha
     # The release PS5 Core::System must retire NVDRV-owned AS/pins and
     # KProcess references before ShutdownCores ends the guest process.
     # Reconstruct the qualified predecessor only for historical SHA checks.
