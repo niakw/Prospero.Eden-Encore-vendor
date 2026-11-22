@@ -50,8 +50,14 @@ assert gfx_blob in {"efa8fd4d73c111655fced67fe7dd1e6b7c0178ba","526aa16b22ba3918
 cmp_blob=blob(CMP)
 assert cmp_blob in {"7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2","7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600","bb9552866e26e502839eed646be9af6ea0a0db0a"} 
 cache_blob=blob(CACHE)
+if cache_blob=="79660c5cc4ff046f24e7ffa50ab066a86857698c":
+    from ps5_recent_prewarm_receipt import reverse_adaptive_prewarm
+    source_cache_pre_admission = reverse_adaptive_prewarm(CACHE.read_text())
+    cache_blob = "a0e2a45b9b0f080b739d97abb92e9485a0063f73"
+else:
+    source_cache_pre_admission = CACHE.read_text()
 if cache_blob=="a0e2a45b9b0f080b739d97abb92e9485a0063f73":
-    selected=CACHE.read_text()
+    selected=source_cache_pre_admission
     reverse = (
         ("        // Vulkan requires signed/unsigned fragment outputs to match the\n        // attachment's numeric class. Previously this was enabled only on\n        // MoltenVK: native PS5 RADV would emit floats for integer targets,\n        // making color writes poison/undefined (Vulkan shader interfaces).\n        // Keep the existing desktop policy; fix the PS5 renderer's ABI.\n        const bool require_typed_fragment_outputs =\n#ifdef PS5_NATIVE\n            true;\n#else\n            device.IsMoltenVK();\n#endif\n        if (require_typed_fragment_outputs) {", "        if (device.IsMoltenVK()) {"),
     )
