@@ -62,6 +62,7 @@
 #include "core/loader/loader.h"
 #include "core/loader/ns2_svc_trace.h"
 #include "nup_v1_native_vfs.h"
+#include "nup_v1_native_content.h"
 #include "core/memory.h"
 #include "core/memory/cheat_engine.h"
 #include "core/perf_stats.h"
@@ -176,8 +177,9 @@ namespace {
         // rather than silently using the smaller NS1 layout for an NS2 title.
         if (Eden::NupV1::Native::HasNupV1Header(file)) {
             const auto mount = Eden::NupV1::Native::Mount::Open(file);
-            const auto exefs = mount ? mount->Effective(Eden::NupV1::ContentView::ExeFS)
-                                     : FileSys::VirtualDir{};
+            const auto exefs = mount
+                ? Eden::NupV1::Native::ContentSet(mount).ExeFS()
+                : FileSys::VirtualDir{};
             const auto npdm = exefs ? exefs->GetFile("main.npdm") : nullptr;
             constexpr std::size_t MaxNupNpdmBytes = 4U * 1024U * 1024U;
             return npdm && npdm->GetSize() > 0 &&
