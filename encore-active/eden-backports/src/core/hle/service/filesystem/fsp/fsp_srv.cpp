@@ -205,15 +205,17 @@ Result FSP_SRV::OpenFileSystemWithPatch(OutInterface<IFileSystem> out_interface,
     LOG_ERROR(Service_FS, "(STUBBED) called with type={}, program_id={:016X}", type,
               open_program_id);
 
-    // FIXME: many issues with this
-    ASSERT(type == FileSystemProxyType::Manual);
+    // A missing or unsupported manual RomFS is a guest FS error, not a reason
+    // to terminate the entire PS5 emulator process with ASSERT().
+    R_UNLESS(type == FileSystemProxyType::Manual, FileSys::ResultNotImplemented);
+    R_UNLESS(romfs_controller != nullptr, FileSys::ResultTargetNotFound);
+
     const auto manual_romfs = romfs_controller->OpenPatchedRomFS(
         open_program_id, FileSys::ContentRecordType::HtmlDocument);
-
-    ASSERT(manual_romfs != nullptr);
+    R_UNLESS(manual_romfs != nullptr, FileSys::ResultTargetNotFound);
 
     const auto extracted_romfs = FileSys::ExtractRomFS(manual_romfs);
-    ASSERT(extracted_romfs != nullptr);
+    R_UNLESS(extracted_romfs != nullptr, FileSys::ResultTargetNotFound);
 
     *out_interface = std::make_shared<IFileSystem>(
         system, extracted_romfs, SizeGetter::FromStorageId(fsc, FileSys::StorageId::NandUser));
