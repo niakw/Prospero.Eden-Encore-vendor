@@ -106,16 +106,18 @@ private:
     }
 
     void RequestImmediateTransmission(HLERequestContext& ctx) {
-        LOG_WARNING(Service_PREPO, "(STUBBED) called");
+        // Encore stores play reports locally and has no Nintendo telemetry transport. Treat an
+        // immediate-transmission request as an acknowledged no-op instead of pretending to upload.
+        LOG_DEBUG(Service_PREPO, "Immediate telemetry transmission ignored (local reporter only)");
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
 
     void GetTransmissionStatus(HLERequestContext& ctx) {
-        LOG_WARNING(Service_PREPO, "(STUBBED) called");
-
+        // No remote transport exists in Encore; the neutral idle/not-transmitting state is stable.
         constexpr s32 status = 0;
+        LOG_DEBUG(Service_PREPO, "Returning local-only transmission status={}", status);
 
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
@@ -123,9 +125,10 @@ private:
     }
 
     void GetSystemSessionId(HLERequestContext& ctx) {
-        LOG_WARNING(Service_PREPO, "(STUBBED) called");
-
+        // A Nintendo telemetry session is never created; zero is the stable "no session" value.
         constexpr u64 system_session_id = 0;
+        LOG_DEBUG(Service_PREPO, "Returning local-only system session id={}", system_session_id);
+
         IPC::ResponseBuilder rb{ctx, 4};
         rb.Push(ResultSuccess);
         rb.Push(system_session_id);
@@ -140,6 +143,9 @@ private:
 
         LOG_DEBUG(Service_PREPO, "called, title_id={:016X}, data1_size={:016X}, data2_size={:016X}",
                   title_id, data1.size(), data2.size());
+
+        const auto& reporter{system.GetReporter()};
+        reporter.SavePlayReport(Core::Reporter::PlayReportType::System, title_id, {data1, data2});
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
