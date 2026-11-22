@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <array>
 #include <deque>
 #include <mutex>
 #include <stack>
@@ -102,6 +103,7 @@ struct Applet {
     std::vector<std::vector<u8>> friend_invitation_storage_channel{};
     std::vector<std::vector<u8>> notification_storage_channel{};
     std::vector<std::vector<u8>> applet_bound_channel{};
+    std::array<u8, 0x400> theme_storage{};
 
     // Context Stack
     std::stack<SharedPointer<IStorage>> context_stack{};

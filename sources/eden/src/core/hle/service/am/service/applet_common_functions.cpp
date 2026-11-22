@@ -4,6 +4,9 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
+#include <cstring>
+
 #include "core/core.h"
 #include "core/file_sys/common_funcs.h"
 #include "core/hle/service/am/applet.h"
@@ -19,8 +22,8 @@ IAppletCommonFunctions::IAppletCommonFunctions(Core::System& system_,
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, D<&IAppletCommonFunctions::SetTerminateResult>, "SetTerminateResult"},
-        {10, nullptr, "ReadThemeStorage"},
-        {11, nullptr, "WriteThemeStorage"},
+        {10, D<&IAppletCommonFunctions::ReadThemeStorage>, "ReadThemeStorage"},
+        {11, D<&IAppletCommonFunctions::WriteThemeStorage>, "WriteThemeStorage"},
         {20, D<&IAppletCommonFunctions::PushToAppletBoundChannel>, "PushToAppletBoundChannel"},
         {21, D<&IAppletCommonFunctions::TryPopFromAppletBoundChannel>, "TryPopFromAppletBoundChannel"},
         {40, nullptr, "GetDisplayLogicalResolution"},
@@ -54,6 +57,41 @@ Result IAppletCommonFunctions::SetTerminateResult(Result terminate_result) {
     LOG_DEBUG(Service_AM, "called, result={:#x}", terminate_result.GetInnerValue());
     std::scoped_lock lk{applet->lock};
     applet->terminate_result = terminate_result;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::ReadThemeStorage(
+    Out<u64> out_transfer_size, u64 offset,
+    OutBuffer<BufferAttr_HipcAutoSelect> out_buffer) {
+    LOG_DEBUG(Service_AM, "called, offset={} size={}", offset, out_buffer.size());
+
+    std::scoped_lock lk{applet->lock};
+    if (offset >= applet->theme_storage.size()) {
+        *out_transfer_size = 0;
+        R_SUCCEED();
+    }
+
+    const auto start = static_cast<std::size_t>(offset);
+    const auto transfer_size =
+        (std::min)(out_buffer.size(), applet->theme_storage.size() - start);
+    std::memcpy(out_buffer.data(), applet->theme_storage.data() + start, transfer_size);
+    *out_transfer_size = static_cast<u64>(transfer_size);
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::WriteThemeStorage(
+    u64 offset, InBuffer<BufferAttr_HipcAutoSelect> buffer) {
+    LOG_DEBUG(Service_AM, "called, offset={} size={}", offset, buffer.size());
+
+    std::scoped_lock lk{applet->lock};
+    if (offset >= applet->theme_storage.size()) {
+        R_SUCCEED();
+    }
+
+    const auto start = static_cast<std::size_t>(offset);
+    const auto transfer_size =
+        (std::min)(buffer.size(), applet->theme_storage.size() - start);
+    std::memcpy(applet->theme_storage.data() + start, buffer.data(), transfer_size);
     R_SUCCEED();
 }
 
