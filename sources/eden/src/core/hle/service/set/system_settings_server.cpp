@@ -884,11 +884,10 @@ Result ISystemSettingsServer::SetQuestFlag(QuestFlag quest_flag) {
 
 Result ISystemSettingsServer::GetRebootlessSystemUpdateVersion(
     Out<RebootlessSystemUpdateVersion> out_rebootless_system_update) {
-    LOG_INFO(Service_SET, "(STUBBED) called");
-
-    out_rebootless_system_update->version = 0;
+    // Encore does not install Horizon rebootless-update packages. Report the explicit empty state.
+    *out_rebootless_system_update = {};
     strcpy(out_rebootless_system_update->display_version, "0.0.0");
-
+    LOG_DEBUG(Service_SET, "No rebootless system update installed");
     R_SUCCEED();
 }
 
@@ -1196,9 +1195,9 @@ Result ISystemSettingsServer::SetDeviceNickName(
 }
 
 Result ISystemSettingsServer::GetProductModel(Out<u32> out_product_model) {
-    // Most certainly should be 1 -- definitely should not be 2, but it's worth tinkering with anyways
-    u32 const product_model = 1;
-    LOG_WARNING(Service_SET, "(STUBBED) called, product_model={}", product_model);
+    // Encore presents the guest with a stable retail Switch-compatible product model.
+    constexpr u32 product_model = 1;
+    LOG_DEBUG(Service_SET, "Returning synthetic product_model={}", product_model);
     *out_product_model = product_model;
     R_SUCCEED();
 }
@@ -1393,8 +1392,7 @@ Result ISystemSettingsServer::GetChineseTraditionalInputMethod(
 }
 
 Result ISystemSettingsServer::GetHomeMenuScheme(Out<HomeMenuScheme> out_home_menu_scheme) {
-    LOG_DEBUG(Service_SET, "(STUBBED) called");
-
+    // No Horizon HOME-menu theme database is emulated; provide one stable default palette.
     *out_home_menu_scheme = {
         .main = 0xFF323232,
         .back = 0xFF323232,
@@ -1402,25 +1400,35 @@ Result ISystemSettingsServer::GetHomeMenuScheme(Out<HomeMenuScheme> out_home_men
         .bezel = 0xFFFFFFFF,
         .extra = 0xFF000000,
     };
+    LOG_DEBUG(Service_SET, "Returning synthetic default HOME-menu scheme");
     R_SUCCEED();
 }
 
 Result ISystemSettingsServer::GetPlatformRegion(Out<PlatformRegion> out_platform_region) {
-    LOG_WARNING(Service_SET, "(STUBBED) called");
-
-    *out_platform_region = PlatformRegion::Global;
+    const auto stored = static_cast<PlatformRegion>(m_private_settings.platform_region);
+    if (stored != PlatformRegion::Global && stored != PlatformRegion::Terra) {
+        m_private_settings.platform_region = static_cast<s32>(PlatformRegion::Global);
+        SetSaveNeeded();
+    }
+    *out_platform_region = static_cast<PlatformRegion>(m_private_settings.platform_region);
+    LOG_DEBUG(Service_SET, "called, platform_region={}", *out_platform_region);
     R_SUCCEED();
 }
 
 Result ISystemSettingsServer::SetPlatformRegion(PlatformRegion platform_region) {
-    LOG_WARNING(Service_SET, "(STUBBED) called");
+    if (platform_region != PlatformRegion::Global && platform_region != PlatformRegion::Terra) {
+        platform_region = PlatformRegion::Global;
+    }
+    m_private_settings.platform_region = static_cast<s32>(platform_region);
+    SetSaveNeeded();
+    LOG_DEBUG(Service_SET, "called, platform_region={}", platform_region);
     R_SUCCEED();
 }
 
 Result ISystemSettingsServer::GetHomeMenuSchemeModel(Out<u32> out_home_menu_scheme_model) {
-    LOG_WARNING(Service_SET, "(STUBBED) called");
-
+    // Mirrors the synthetic default scheme above; no model-specific HOME theme is exposed.
     *out_home_menu_scheme_model = 0;
+    LOG_DEBUG(Service_SET, "Returning default HOME-menu scheme model=0");
     R_SUCCEED();
 }
 

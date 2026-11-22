@@ -608,17 +608,16 @@ private:
         rb.PushIpcInterface<IEnsureNetworkClockAvailabilityService>(ctx, system);
     }
 
-    // TODO(ogniK): Do we need these?
     void SuspendAutonomicTimeCorrection(HLERequestContext& ctx) {
-        LOG_WARNING(Service_NIM, "(STUBBED) called");
-
+        // Network-clock availability tasks complete synchronously in Encore, so there is no
+        // autonomous correction worker to suspend.
+        LOG_DEBUG(Service_NIM, "Autonomic time-correction suspend acknowledged (no worker)");
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
 
     void ResumeAutonomicTimeCorrection(HLERequestContext& ctx) {
-        LOG_WARNING(Service_NIM, "(STUBBED) called");
-
+        LOG_DEBUG(Service_NIM, "Autonomic time-correction resume acknowledged (no worker)");
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
