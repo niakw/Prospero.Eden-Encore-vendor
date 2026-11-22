@@ -115,6 +115,8 @@ public:
             {5, &IContentStorage::Register, "Register"},
             {6, &IContentStorage::Delete, "Delete"},
             {7, &IContentStorage::Has, "Has"},
+            {8, &IContentStorage::GetPath, "GetPath"},
+            {9, &IContentStorage::GetPlaceHolderPath, "GetPlaceHolderPath"},
             {10, &IContentStorage::CleanupAllPlaceHolder, "CleanupAllPlaceHolder"},
             {11, &IContentStorage::ListPlaceHolder, "ListPlaceHolder"},
             {12, &IContentStorage::GetContentCount, "GetContentCount"},
@@ -357,6 +359,27 @@ private:
         IPC::ResponseBuilder rb{ctx, 4};
         rb.Push(size.has_value() ? ResultSuccess : ResultUnknown);
         rb.Push(size.value_or(0));
+    }
+
+    void GetPath(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        [[maybe_unused]] const auto content_id = rp.PopRaw<FileSys::NcaID>();
+        // Horizon returns a fixed-size fs-common path. Exposing Encore's host
+        // VFS path would leak a host implementation detail and is not ABI-correct.
+        LOG_WARNING(Service_NCM, "GetPath rejected: no Horizon fs-common mount path is modeled");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
+    void GetPlaceHolderPath(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        [[maybe_unused]] const auto placeholder_id = rp.PopRaw<FileSys::NcaID>();
+        // Same contract as GetPath: never substitute a PS5 host path for the
+        // guest-visible 0x300-byte fs-common path.
+        LOG_WARNING(Service_NCM,
+                    "GetPlaceHolderPath rejected: no Horizon fs-common mount path is modeled");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
     }
 
     void CleanupAllPlaceHolder(HLERequestContext& ctx) {
