@@ -529,6 +529,8 @@ class IVi2Session final : public ServiceFramework<IVi2Session> {
         std::optional<u64> layer;
         u64 available{0x7fff};
         std::array<std::optional<s32>,15> queued{};
+        // Publish VI2 history only when the compositor releases a frame.
+        std::array<u8,15> recorders{};
         std::array<u32,15> images{};
         std::array<std::shared_ptr<Nvidia::Module>,15> queued_modules{};
         // Retain buffer pins through the real producer's Free->DetachNext
@@ -546,6 +548,7 @@ public:
             {1,&IVi2Session::Limit,"GetNotificationLimit"},
             {3,&IVi2Session::Limit,"GetSessionLimit"},
             {5,&IVi2Session::Limit,"GetRequestGroupLimit"},
+            {53,&IVi2Session::GetRecordedTimestamps,"GetRecordedTimestamps"},
             {11,&IVi2Session::Event,"GetNotificationEvent"},
             {21,&IVi2Session::Notifications,"GetNotifications"},
             // NVN2 waits on command 32 before its first GPU submission.
@@ -699,6 +702,28 @@ private:
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(result.raw);
         rb.Push<u32>(result.IsSuccess() ? available : 0u);
+    }
+    void GetRecordedTimestamps(HLERequestContext& ctx) {
+        // Lichii nx2 VI2 53: B output, u32 recorder, u64 checkpoints,
+        // u64 maximum count. Pending until a real compositor release.
+        const auto* p = ctx.CommandBuffer();
+        const u32 recorder = p[5];
+        const u64 checkpoints = W(p, 6) & 0x1f;
+        const u64 max_count = W(p, 8);
+        if (recorder >= m_recorded_ticks.size() || !m_recorded_ticks[recorder]) {
+            NativeTipcReplyWords(ctx, {0, 0, 1});
+            return;
+        }
+        std::array<u64, 5> ticks{};
+        std::size_t count = 0;
+        for (u32 bit = 0; bit < 5 && count < max_count; ++bit) {
+            if (checkpoints & (u64{1} << bit))
+                ticks[count++] = *m_recorded_ticks[recorder];
+        }
+        const std::size_t requested = std::min(
+            count * sizeof(u64), ctx.GetWriteBufferSize(0));
+        const std::size_t written = ctx.WriteBufferB(ticks.data(), requested, 0);
+        NativeTipcReplyWords(ctx, {static_cast<u32>(written), 0, 0});
     }
     void Event(HLERequestContext& ctx) {
         const auto* p=ctx.CommandBuffer();
@@ -1075,6 +1100,11 @@ private:
                     }
                 }
                 if (!done) continue;
+                // Retire recorders only after a fence-complete producer release.
+                const u32 recorder = c.recorders[slot];
+                if (recorder > 0 && recorder <= m_recorded_ticks.size())
+                    m_recorded_ticks[recorder - 1] = system.CoreTiming().GetClockTicks();
+                c.recorders[slot] = 0;
                 c.queued[slot].reset();
                 c.images[slot]=0;
                 c.queued_modules[slot].reset();
@@ -1185,6 +1215,7 @@ private:
                                         if(c->producer->QueueBuffer(idx,input,&output)==
                                             android::Status::NoError){
                                             c->queued[slot]=idx;c->images[slot]=p[5];
+                                            c->recorders[slot]=static_cast<u8>(p[18] & 0xf);
                                             c->queued_modules[slot]=img->module;
                                             c->retained[slot]=buffer;
                                             c->available&=~(u64{1}<<slot);result=ResultSuccess;
@@ -1238,6 +1269,7 @@ private:
     std::vector<Kernel::KEvent*> m_vsync_events;
     std::array<Kernel::KEvent*, GraphicsSupervisorProtocol::RequestGroupCount>
         m_native_events{};
+    std::array<std::optional<u64>, 15> m_recorded_ticks{};
     std::shared_ptr<Core::Timing::EventType> m_vsync_timer;
     std::shared_ptr<Core::Timing::EventType> m_poll;
 };

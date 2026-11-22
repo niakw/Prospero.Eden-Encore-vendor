@@ -221,6 +221,22 @@ assert gpu_open.index("m_gpu_sessions.reserve(m_gpu_sessions.size() + 1);") < gp
 # A real default VI display exists. Native VI2 capacity commands 1 and 3
 # must not report zero, which prevents some NS2 clients from opening a
 # display/notification endpoint. Lichii nx2:vi2 returns 1,1,7 for 1,3,5.
+# Native VI2 command 53 must record compositor-released buffers, not
+# invent a success timestamp on an unconsumed QueueBuffer.
+vi2 = cpp[vi2_begin:cpp.index("class INativeChatGsvSession final", vi2_begin)]
+assert '{53,&IVi2Session::GetRecordedTimestamps,"GetRecordedTimestamps"}' in vi2
+history = vi2.split("void GetRecordedTimestamps(HLERequestContext& ctx) {",1)[1].split("\n    }",1)[0]
+for evidence in ("recorder = p[5]", "W(p, 6) & 0x1f", "W(p, 8)",
+                 "NativeTipcReplyWords(ctx, {0, 0, 1})",
+                 "ctx.WriteBufferB(ticks.data(), requested, 0)"):
+    assert evidence in history, evidence
+release = vi2.split("void Release() {",1)[1].split("void Present(HLERequestContext& ctx) {",1)[0]
+present = vi2.split("void Present(HLERequestContext& ctx) {",1)[1]
+assert "m_recorded_ticks[recorder - 1] = system.CoreTiming().GetClockTicks()" in release
+assert "c.recorders[slot] = 0;" in release
+assert "c->recorders[slot]=static_cast<u8>(p[18] & 0xf);" in present
+assert "std::array<std::optional<u64>, 15> m_recorded_ticks{};" in vi2
+
 vi2_capacity = cpp[vi2_begin:].split("void Limit(HLERequestContext& ctx) {",1)[1].split(
     "\n    }",1)[0]
 for check in ("const u32 command = ctx.GetCommand();",
