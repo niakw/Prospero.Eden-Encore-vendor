@@ -48,6 +48,46 @@
 
 namespace Service::FileSystem {
 
+namespace {
+
+std::optional<ISaveDataInfoReader::SaveDataInfo> FindDirectorySaveById(
+    Core::System& system, const std::shared_ptr<SaveDataController>& controller,
+    FileSys::SaveDataSpaceId space_id, u64 save_data_id) {
+    if (save_data_id == 0) {
+        return std::nullopt;
+    }
+    FileSys::SaveDataFilter filter{};
+    filter.use_save_data_id = true;
+    filter.rank = FileSys::SaveDataRank::Secondary;
+    filter.attribute.system_save_data_id = save_data_id;
+    const ISaveDataInfoReader reader{system, controller, space_id};
+    return reader.FindSaveDataInfo(filter, 0);
+}
+
+std::optional<ISaveDataInfoReader::SaveDataInfo> FindDirectorySaveByAttribute(
+    Core::System& system, const std::shared_ptr<SaveDataController>& controller,
+    FileSys::SaveDataSpaceId space_id, const FileSys::SaveDataAttribute& attribute,
+    u64 current_program_id) {
+    FileSys::SaveDataFilter filter{};
+    filter.attribute = attribute;
+    filter.use_save_data_type = true;
+    filter.use_user_id = true;
+    filter.use_index = true;
+    filter.use_save_data_id = attribute.system_save_data_id != 0;
+    filter.use_program_id =
+        attribute.program_id != 0 || attribute.type == FileSys::SaveDataType::Account ||
+        attribute.type == FileSys::SaveDataType::Device ||
+        attribute.type == FileSys::SaveDataType::Cache ||
+        attribute.type == FileSys::SaveDataType::Temporary ||
+        attribute.type == FileSys::SaveDataType::Bcat;
+    filter.rank = attribute.rank;
+
+    const ISaveDataInfoReader reader{system, controller, space_id};
+    return reader.FindSaveDataInfo(filter, current_program_id);
+}
+
+} // namespace
+
 FSP_SRV::FSP_SRV(Core::System& system_)
     : ServiceFramework{system_, "fsp-srv"}, fsc{system.GetFileSystemController()},
       content_provider{system.GetContentProvider()}, reporter{system.GetReporter()} {
@@ -428,45 +468,72 @@ Result FSP_SRV::FindSaveDataWithFilter(Out<s64> out_count,
 Result FSP_SRV::WriteSaveDataFileSystemExtraData(InBuffer<BufferAttr_HipcMapAlias> buffer,
                                                  FileSys::SaveDataSpaceId space_id,
                                                  u64 save_data_id) {
-    LOG_WARNING(Service_FS, "(STUBBED) called, space_id={}, save_data_id={:016X}", space_id,
-                save_data_id);
+    LOG_DEBUG(Service_FS, "called, directory-save semantics, space_id={}, save_data_id={:016X}",
+              space_id, save_data_id);
+    R_UNLESS(buffer.size() == sizeof(FileSys::SaveDataExtraData), FileSys::ResultInvalidArgument);
+    R_UNLESS(FindDirectorySaveById(system, save_data_controller, space_id, save_data_id).has_value(),
+             FileSys::ResultTargetNotFound);
+
+    // Eden stores saves as host directories. LibHac's directory-save backend has
+    // no physical ExtraData accessor and treats a validated write as a no-op.
     R_SUCCEED();
 }
 
 Result FSP_SRV::WriteSaveDataFileSystemExtraDataWithMaskBySaveDataAttribute(
     InBuffer<BufferAttr_HipcMapAlias> buffer, InBuffer<BufferAttr_HipcMapAlias> mask_buffer,
     FileSys::SaveDataSpaceId space_id, FileSys::SaveDataAttribute attribute) {
-    LOG_WARNING(Service_FS,
-                "(STUBBED) called, space_id={}, attribute.program_id={:016X}\n"
-                "attribute.user_id={:016X}{:016X}, attribute.save_id={:016X}\n"
-                "attribute.type={}, attribute.rank={}, attribute.index={}",
-                space_id, attribute.program_id, attribute.user_id[1], attribute.user_id[0],
-                attribute.system_save_data_id, attribute.type, attribute.rank, attribute.index);
+    LOG_DEBUG(Service_FS, "called, directory-save semantics, space_id={}, {}", space_id,
+              attribute.DebugInfo());
+    R_UNLESS(buffer.size() == sizeof(FileSys::SaveDataExtraData) &&
+                 mask_buffer.size() == sizeof(FileSys::SaveDataExtraData),
+             FileSys::ResultInvalidArgument);
+    R_UNLESS(FindDirectorySaveByAttribute(system, save_data_controller, space_id, attribute,
+                                          program_id)
+                 .has_value(),
+             FileSys::ResultTargetNotFound);
+
+    // LibHac's host-directory save implementation has no physical ExtraData
+    // accessor; after validating the target, masked writes are intentionally no-op.
     R_SUCCEED();
 }
 
 Result FSP_SRV::ReadSaveDataFileSystemExtraDataWithMaskBySaveDataAttribute(
     FileSys::SaveDataSpaceId space_id, FileSys::SaveDataAttribute attribute,
     InBuffer<BufferAttr_HipcMapAlias> mask_buffer, OutBuffer<BufferAttr_HipcMapAlias> out_buffer) {
-    // Stub this to None for now, backend needs an impl to read/write the SaveDataExtraData
-    // In an earlier version of the code, this was returned as an out argument, but this is not
-    // correct
-    [[maybe_unused]] constexpr auto flags = static_cast<u32>(FileSys::SaveDataFlags::None);
+    LOG_DEBUG(Service_FS, "called, directory-save semantics, space_id={}, {}", space_id,
+              attribute.DebugInfo());
+    R_UNLESS(mask_buffer.size() == sizeof(FileSys::SaveDataExtraData) &&
+                 out_buffer.size() == sizeof(FileSys::SaveDataExtraData),
+             FileSys::ResultInvalidArgument);
+    R_UNLESS(FindDirectorySaveByAttribute(system, save_data_controller, space_id, attribute,
+                                          program_id)
+                 .has_value(),
+             FileSys::ResultTargetNotFound);
 
-    LOG_WARNING(Service_FS,
-                "(STUBBED) called, flags={}, space_id={}, attribute.program_id={:016X}\n"
-                "attribute.user_id={:016X}{:016X}, attribute.save_id={:016X}\n"
-                "attribute.type={}, attribute.rank={}, attribute.index={}",
-                flags, space_id, attribute.program_id, attribute.user_id[1], attribute.user_id[0],
-                attribute.system_save_data_id, attribute.type, attribute.rank, attribute.index);
-
+    // Directory saves have default ExtraData in LibHac; masking an all-zero
+    // structure remains all zero.
+    std::memset(out_buffer.data(), 0, out_buffer.size());
     R_SUCCEED();
 }
 
 Result FSP_SRV::ReadSaveDataFileSystemExtraData(OutBuffer<BufferAttr_HipcMapAlias> out_buffer,
                                                 u64 save_data_id) {
-    // Stub, backend needs an impl to read/write the SaveDataExtraData
-    LOG_WARNING(Service_FS, "(STUBBED) called, save_data_id={:016X}", save_data_id);
+    LOG_DEBUG(Service_FS, "called, directory-save semantics, save_data_id={:016X}", save_data_id);
+    R_UNLESS(out_buffer.size() == sizeof(FileSys::SaveDataExtraData), FileSys::ResultInvalidArgument);
+
+    // LibHac resolves static (signed-negative) IDs from System and ordinary IDs
+    // from the User indexer. Eden has no indexer, so resolve against the real
+    // directory scan; SdUser is a fallback for non-static saves.
+    const bool is_static = static_cast<s64>(save_data_id) < 0;
+    auto match = FindDirectorySaveById(system, save_data_controller,
+                                       is_static ? FileSys::SaveDataSpaceId::System
+                                                 : FileSys::SaveDataSpaceId::User,
+                                       save_data_id);
+    if (!match.has_value() && !is_static) {
+        match = FindDirectorySaveById(system, save_data_controller, FileSys::SaveDataSpaceId::SdUser,
+                                      save_data_id);
+    }
+    R_UNLESS(match.has_value(), FileSys::ResultTargetNotFound);
     std::memset(out_buffer.data(), 0, out_buffer.size());
     R_SUCCEED();
 }
@@ -474,13 +541,14 @@ Result FSP_SRV::ReadSaveDataFileSystemExtraData(OutBuffer<BufferAttr_HipcMapAlia
 Result FSP_SRV::ReadSaveDataFileSystemExtraDataBySaveDataAttribute(
     OutBuffer<BufferAttr_HipcMapAlias> out_buffer, FileSys::SaveDataSpaceId space_id,
     FileSys::SaveDataAttribute attribute) {
-    // Stub, backend needs an impl to read/write the SaveDataExtraData
-    LOG_WARNING(Service_FS,
-                "(STUBBED) called, space_id={}, attribute.program_id={:016X}\n"
-                "attribute.user_id={:016X}{:016X}, attribute.save_id={:016X}\n"
-                "attribute.type={}, attribute.rank={}, attribute.index={}",
-                space_id, attribute.program_id, attribute.user_id[1], attribute.user_id[0],
-                attribute.system_save_data_id, attribute.type, attribute.rank, attribute.index);
+    LOG_DEBUG(Service_FS, "called, directory-save semantics, space_id={}, {}", space_id,
+              attribute.DebugInfo());
+    R_UNLESS(out_buffer.size() == sizeof(FileSys::SaveDataExtraData), FileSys::ResultInvalidArgument);
+    R_UNLESS(FindDirectorySaveByAttribute(system, save_data_controller, space_id, attribute,
+                                          program_id)
+                 .has_value(),
+             FileSys::ResultTargetNotFound);
+
     std::memset(out_buffer.data(), 0, out_buffer.size());
     R_SUCCEED();
 }
@@ -488,9 +556,11 @@ Result FSP_SRV::ReadSaveDataFileSystemExtraDataBySaveDataAttribute(
 Result FSP_SRV::ReadSaveDataFileSystemExtraDataBySaveDataSpaceId(
     OutBuffer<BufferAttr_HipcMapAlias> out_buffer, FileSys::SaveDataSpaceId space_id,
     u64 save_data_id) {
-    // Stub, backend needs an impl to read/write the SaveDataExtraData
-    LOG_WARNING(Service_FS, "(STUBBED) called, space_id={}, save_data_id={:016X}", space_id,
-                save_data_id);
+    LOG_DEBUG(Service_FS, "called, directory-save semantics, space_id={}, save_data_id={:016X}",
+              space_id, save_data_id);
+    R_UNLESS(out_buffer.size() == sizeof(FileSys::SaveDataExtraData), FileSys::ResultInvalidArgument);
+    R_UNLESS(FindDirectorySaveById(system, save_data_controller, space_id, save_data_id).has_value(),
+             FileSys::ResultTargetNotFound);
     std::memset(out_buffer.data(), 0, out_buffer.size());
     R_SUCCEED();
 }
