@@ -50,6 +50,15 @@ NvResult nvhost_ctrl_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8>
                              UsesNativeAbi(fd));
         case 0x7:
             return WrapFixed(this, &nvhost_ctrl_gpu::FlushL2, input, output);
+        case 0x10: // Switch 2 NVGPU_GPU_IOCTL_WAIT_FOR_PAUSE
+            if (command.raw != 0xC0084710U) break;
+            // not implemented yet on Encore: no real GPU pause/ack boundary.
+            // Never report a paused hardware GPU while work remains pending.
+            return NvResult::NotImplemented;
+        case 0x1e: // Switch 2 NVGPU_GPU_IOCTL_SET_DETERMINISTIC_OPTS
+            if (command.raw != 0xC010471EU) break;
+            // not implemented yet on Encore: no deterministic GPU schedule.
+            return NvResult::NotImplemented;
         case 0x12: {
             // Native NVGPU_GPU_IOCTL_NUM_VSMS (0x80084712). Linux nvgpu
             // defines exactly {u32 num_vsms, u32 reserved}, output-only.
