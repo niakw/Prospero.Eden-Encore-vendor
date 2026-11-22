@@ -6,7 +6,7 @@ Do not re-enable deferred cached-page untracking without a PS5-safe scheduler
 ownership gate matching upstream Lichii #1518 and console visual evidence.
 """
 from pathlib import Path
-from native_msaa_handle_receipt import restore_integrated_rasterizer, INTEGRATED_RASTERIZER
+from native_msaa_handle_receipt import restore_integrated_rasterizer, INTEGRATED_RASTERIZER, GUEST_CACHE_LOCK_SUCCESSOR
 import hashlib
 import os
 import shutil
@@ -22,7 +22,7 @@ def blob(path):
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
 # Current maintained runtime owners. The CPU-write rollback still requires
 # synchronous protection even though DMA clean-image invalidation was added.
-assert blob(R)==INTEGRATED_RASTERIZER
+assert blob(R)==GUEST_CACHE_LOCK_SUCCESSOR
 assert hashlib.sha1(b"blob "+str(len(restore_integrated_rasterizer(R.read_text()).encode())).encode()+b"\x00"+restore_integrated_rasterizer(R.read_text()).encode()).hexdigest()=="71d097b9a83028dfad9370792c905bb3bfccfd5a"
 assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
 # The selected NS1/NS2 TextureCache now includes 10 independently reviewed

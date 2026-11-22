@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """NS1 R23 #35: 8 maintained source owner receipts and real draw-run method ASan."""
 from pathlib import Path
-from native_msaa_handle_receipt import restore_pre_rebind, verified_depth_compare_sha, restore_integrated_rasterizer, INTEGRATED_RASTERIZER
+from native_msaa_handle_receipt import restore_pre_rebind, verified_depth_compare_sha, restore_integrated_rasterizer, INTEGRATED_RASTERIZER, GUEST_CACHE_LOCK_SUCCESSOR
 import hashlib
 import os
 import re
@@ -27,7 +27,7 @@ CURRENT_ATTRIBUTE_SOURCE={
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h": "c1ed0200afd3666056dfe0ef60705015a923dac7",
   "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp": "df36d210d04411b87e1fdad7fbd0689b1e4d3488",
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h": "6e0bf7ab2a3a2147f9db0c630070db30d9b35d56",
-  "encore-active/eden-vulkan/vulkan_rasterizer.cpp": INTEGRATED_RASTERIZER,
+  "encore-active/eden-vulkan/vulkan_rasterizer.cpp": GUEST_CACHE_LOCK_SUCCESSOR,
 }
 # Two byte-sealed PS5-only transition-hint changes sit on TOP of the
 # original FC27 attribute-handle successor. Reconstruct its exact existing
@@ -78,7 +78,7 @@ for path,sha in EXPECTED.items():
    assert verified_depth_compare_sha(ROOT/path)=="30c9a612a88fa6cd832a40ad0f717b4944db45a1"
   if path.endswith("/vulkan_rasterizer.cpp"):
    restored=restore_integrated_rasterizer(raw.decode())
-   assert gitblob(ROOT/path)==INTEGRATED_RASTERIZER
+   assert gitblob(ROOT/path)==GUEST_CACHE_LOCK_SUCCESSOR
    data=restored.encode()
    assert hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()=="71d097b9a83028dfad9370792c905bb3bfccfd5a"
   if path in BOUNDED_GRAPHICS_REVERSE:

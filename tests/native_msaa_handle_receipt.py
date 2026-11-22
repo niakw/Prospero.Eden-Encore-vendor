@@ -70,7 +70,34 @@ def verified_depth_compare_sha(path):
 # Integrated NS1/NS2 GPU owner: all 16 exact reviewed hunks, including
 # DMA aliasing, WFI ordering, buffer-only dirty reads and color masks.
 INTEGRATED_RASTERIZER="0633e3cf41c615f46791d3943ff40ac22399b047"
+GUEST_CACHE_LOCK_SUCCESSOR="f67815618d25657dcf64a87944b0c0bc5c2d8993"
 PRE_INTEGRATED_RASTERIZER="71d097b9a83028dfad9370792c905bb3bfccfd5a"
+
+def restore_guest_cache_lock_successor(source):
+    if blob(source.encode("utf-8"))==INTEGRATED_RASTERIZER:
+        return source
+    digest=blob(source.encode("utf-8"))
+    assert digest==GUEST_CACHE_LOCK_SUCCESSOR, ("Unreviewed cache-lock owner",digest)
+    start="VideoCore::RasterizerDownloadArea RasterizerVulkan::GetFlushArea("
+    end="\nvoid RasterizerVulkan::InvalidateRegion("
+    assert source.count(start)==source.count(end)==1
+    i=source.index(start)
+    j=source.index(end,i)
+    body=source[i:j]
+    for selected, predecessor in (
+        ("::Eden::Performance::GuestCacheLock(texture_cache.mutex, true);",
+         "::Eden::Performance::GuestCacheLock texture_wait(texture_cache.mutex, true);"),
+        ("::Eden::Performance::GuestCacheLock(buffer_cache.mutex, false);",
+         "::Eden::Performance::GuestCacheLock buffer_wait(buffer_cache.mutex, true);"),
+    ):
+        assert body.count(selected)==1 and predecessor not in body
+        body=body.replace(selected, predecessor, 1)
+    assert body.count("std::lock_guard lock{texture_cache.mutex, std::adopt_lock};")==1
+    assert body.count("std::lock_guard lock{buffer_cache.mutex, std::adopt_lock};")==1
+    restored=source[:i]+body+source[j:]
+    assert blob(restored.encode("utf-8"))==INTEGRATED_RASTERIZER, (
+        "Unexpected GuestCacheLock predecessor",blob(restored.encode("utf-8")))
+    return restored
 _RASTERIZER_NS1_NS2_REVERSE = (
     (292, ["      accelerate_dma(buffer_cache, texture_cache, scheduler, gpu_memory),","      fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache, device, scheduler) {","    scheduler.SetQueryCache(query_cache);","    buffer_cache.SetPendingCpuWrites(","        [this](const std::function<void(DAddr, size_t)>& callback) {"], ["      accelerate_dma(buffer_cache, texture_cache, scheduler),","      fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache, device, scheduler),","      wfi_event(device.GetLogical().CreateEvent()) {","    scheduler.SetQueryCache(query_cache);","    buffer_cache.SetPendingCpuWrites(","        [this](const std::function<void(DAddr, size_t)>& callback) {"]),
     (1046, ["    const u32 framebuffer_layers = framebuffer->Layers();","    const u32 clear_base_layer = regs.clear_surface.layer;","    if (layer_count == 0 || clear_base_layer >= framebuffer_layers) {","        return;","    }","    const u32 clear_layer_count =","        (std::min)(layer_count, framebuffer_layers - clear_base_layer);","    const bool clear_covers_all_layers =","        clear_base_layer == 0 && clear_layer_count == framebuffer_layers;","","    constexpr bool ENABLE_DEFERRED_CLEAR = true;","    const bool color_full_channels = regs.clear_surface.R && regs.clear_surface.G &&"], ["","    constexpr bool ENABLE_DEFERRED_CLEAR = true;","    const bool color_full_channels = regs.clear_surface.R && regs.clear_surface.G &&"]),
@@ -90,6 +117,8 @@ _RASTERIZER_NS1_NS2_REVERSE = (
     (3809, ["            current &= (color_output_mask >> (index * 4)) & 0xF;","        }","        scheduler.Record([setup_masks](vk::CommandBuffer cmdbuf) {","            cmdbuf.SetColorWriteMaskEXT(0, setup_masks);"], ["        }","        scheduler.Record([setup_masks](vk::CommandBuffer cmdbuf) {","            cmdbuf.SetColorWriteMaskEXT(0, setup_masks);"]),
 )
 def restore_integrated_rasterizer(source):
+    if blob(source.encode("utf-8"))==GUEST_CACHE_LOCK_SUCCESSOR:
+        source=restore_guest_cache_lock_successor(source)
     digest=blob(source.encode("utf-8"))
     if digest==PRE_INTEGRATED_RASTERIZER:
         return source
