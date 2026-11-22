@@ -89,16 +89,21 @@ std::shared_ptr<FileSys::NSP> OpenContainerAsNsp(FileSys::VirtualFile file, File
 
     if (type == FileType::XCI) {
         FileSys::XCI xci{file, program_id, program_index};
-        if (xci.GetStatus() != ResultStatus::Success) {
-            return nullptr;
+        if (xci.GetStatus() == ResultStatus::Success) {
+            auto secure_nsp = xci.GetSecurePartitionNSP();
+            if (secure_nsp && secure_nsp->GetStatus() == ResultStatus::Success) {
+                return secure_nsp;
+            }
         }
-
-        auto secure_nsp = xci.GetSecurePartitionNSP();
-        if (secure_nsp == nullptr || secure_nsp->GetStatus() != ResultStatus::Success) {
-            return nullptr;
+        // Lichii: some XCZ dumps are PFS0-shaped compressed packages,
+        // not XCI/HFS0 cards. Try the existing NSP+NCZ parser, only for XCZ.
+        const auto extension = Common::ToLower(
+            std::string(Common::FS::GetExtensionFromFilename(file->GetName())));
+        if (extension == "xcz") {
+            auto nsp = std::make_shared<FileSys::NSP>(file, program_id, program_index);
+            if (nsp->GetStatus() == ResultStatus::Success) return nsp;
         }
-
-        return secure_nsp;
+        return nullptr;
     }
 
     return nullptr;
