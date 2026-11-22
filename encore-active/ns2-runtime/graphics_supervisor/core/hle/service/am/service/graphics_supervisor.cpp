@@ -189,7 +189,7 @@ public:
         static const FunctionInfo f[] = {
             {0, &INativeSyncptSession::Handshake, "Handshake"},
             {1, &INativeSyncptSession::GetCount, "GetCount"},
-            {21, &INativeSyncptSession::Zero, "Unknown21"},
+            {21, &INativeSyncptSession::Unknown21, "Unknown21"},
             {22, &INativeSyncptSession::GetSlotEvent, "GetSlotEvent"},
             {103, &INativeSyncptSession::QueryCounter, "QueryCounter"},
             {201, &INativeSyncptSession::RequestSlotEvent, "RequestSlotEvent"},
@@ -251,8 +251,12 @@ private:
     void GetCount(HLERequestContext& ctx) {
         NativeTipcReplyWords(ctx, {32});
     }
-    void Zero(HLERequestContext& ctx) {
-        NativeTipcReplyWords(ctx, {0});
+    void Unknown21(HLERequestContext& ctx) {
+        // SwitchBrew lists SyncptSession command 21 but still publishes no
+        // name, input layout or output contract. Never manufacture success
+        // or read a guessed payload until that ABI is known.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultNotImplemented.raw);
     }
     void QueryCounter(HLERequestContext& ctx) {
         const u32 syncpoint = ~ctx.CommandBuffer()[2];
