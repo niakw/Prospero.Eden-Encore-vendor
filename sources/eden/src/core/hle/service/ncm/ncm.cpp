@@ -113,6 +113,7 @@ public:
             {6, &IContentStorage::Delete, "Delete"},
             {10, &IContentStorage::CleanupAllPlaceHolder, "CleanupAllPlaceHolder"},
             {17, &IContentStorage::SetPlaceHolderSize, "SetPlaceHolderSize"},
+            {19, &IContentStorage::GetRightsIdFromPlaceHolderId, "GetRightsIdFromPlaceHolderId"},
             {25, &IContentStorage::GetSizeFromPlaceHolderId, "GetSizeFromPlaceHolderId"},
         };
         // clang-format on
@@ -287,6 +288,20 @@ private:
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(succeeded ? ResultSuccess : ResultUnknown);
+    }
+
+    void GetRightsIdFromPlaceHolderId(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto placeholder_id = rp.PopRaw<FileSys::NcaID>();
+        auto* const placeholder_cache =
+            system.GetFileSystemController().GetPlaceholderCacheForStorage(storage);
+        const auto rights_id = placeholder_cache != nullptr
+                                   ? placeholder_cache->GetRightsID(placeholder_id)
+                                   : std::optional<FileSys::NcaID>{};
+
+        IPC::ResponseBuilder rb{ctx, 6};
+        rb.Push(rights_id.has_value() ? ResultSuccess : ResultUnknown);
+        rb.PushRaw(rights_id.value_or(FileSys::NcaID{}));
     }
 
     void GetSizeFromPlaceHolderId(HLERequestContext& ctx) {
