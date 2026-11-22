@@ -163,6 +163,12 @@ public:
     Result SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value);
     Result GetThemeId(Out<std::array<u64, 0x10>> out_value, s32 type);
     Result SetThemeId(s32 type, const std::array<u64, 0x10>& value);
+    Result GetInRepairProcessEnableFlag(Out<bool> out_value);
+    Result SetInRepairProcessEnableFlag(bool value);
+    Result GetServiceDiscoveryControlSettings(Out<u32> out_value);
+    Result SetServiceDiscoveryControlSettings(u32 value);
+    Result GetThemeKey(Out<std::array<u8, 0x10>> out_value);
+    Result SetThemeKey(const std::array<u8, 0x10>& value);
     Result GetRequiresRunRepairTimeReviser(Out<bool> out_value);
     Result SetRequiresRunRepairTimeReviser(bool value);
     Result GetHearingProtectionSafeguardFlag(Out<bool> out_value);

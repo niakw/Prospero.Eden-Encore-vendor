@@ -230,15 +230,15 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {112, C<&ISystemSettingsServer::SetBluetoothAfhEnableFlag>, "SetBluetoothAfhEnableFlag"},
         {113, C<&ISystemSettingsServer::GetBluetoothBoostEnableFlag>, "GetBluetoothBoostEnableFlag"},
         {114, C<&ISystemSettingsServer::SetBluetoothBoostEnableFlag>, "SetBluetoothBoostEnableFlag"},
-        {115, nullptr, "GetInRepairProcessEnableFlag"},
-        {116, nullptr, "SetInRepairProcessEnableFlag"},
+        {115, C<&ISystemSettingsServer::GetInRepairProcessEnableFlag>, "GetInRepairProcessEnableFlag"},
+        {116, C<&ISystemSettingsServer::SetInRepairProcessEnableFlag>, "SetInRepairProcessEnableFlag"},
         {117, C<&ISystemSettingsServer::GetHeadphoneVolumeUpdateFlag>, "GetHeadphoneVolumeUpdateFlag"},
         {118, C<&ISystemSettingsServer::SetHeadphoneVolumeUpdateFlag>, "SetHeadphoneVolumeUpdateFlag"},
         {119, nullptr, "NeedsToUpdateHeadphoneVolume"},
         {120, C<&ISystemSettingsServer::GetPushNotificationActivityModeOnSleep>, "GetPushNotificationActivityModeOnSleep"},
         {121, C<&ISystemSettingsServer::SetPushNotificationActivityModeOnSleep>, "SetPushNotificationActivityModeOnSleep"},
-        {122, nullptr, "GetServiceDiscoveryControlSettings"},
-        {123, nullptr, "SetServiceDiscoveryControlSettings"},
+        {122, C<&ISystemSettingsServer::GetServiceDiscoveryControlSettings>, "GetServiceDiscoveryControlSettings"},
+        {123, C<&ISystemSettingsServer::SetServiceDiscoveryControlSettings>, "SetServiceDiscoveryControlSettings"},
         {124, C<&ISystemSettingsServer::GetErrorReportSharePermission>, "GetErrorReportSharePermission"},
         {125, C<&ISystemSettingsServer::SetErrorReportSharePermission>, "SetErrorReportSharePermission"},
         {126, C<&ISystemSettingsServer::GetAppletLaunchFlags>, "GetAppletLaunchFlags"},
@@ -292,8 +292,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {174, C<&ISystemSettingsServer::GetHomeMenuScheme>, "GetHomeMenuScheme"},
         {175, C<&ISystemSettingsServer::GetThemeSettings>, "GetThemeSettings"},
         {176, C<&ISystemSettingsServer::SetThemeSettings>, "SetThemeSettings"},
-        {177, nullptr, "GetThemeKey"},
-        {178, nullptr, "SetThemeKey"},
+        {177, C<&ISystemSettingsServer::GetThemeKey>, "GetThemeKey"},
+        {178, C<&ISystemSettingsServer::SetThemeKey>, "SetThemeKey"},
         {179, C<&ISystemSettingsServer::GetZoomFlag>, "GetZoomFlag"},
         {180, C<&ISystemSettingsServer::SetZoomFlag>, "SetZoomFlag"},
         {181, nullptr, "GetT"},
@@ -1384,6 +1384,39 @@ Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration(Out<std
 
 Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value) {
     m_system_settings.console_six_axis_sensor_angular_velocity_acceleration = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetInRepairProcessEnableFlag(Out<bool> out_value) {
+    *out_value = m_appln_settings.in_repair_process_enable_flag;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetInRepairProcessEnableFlag(bool value) {
+    m_appln_settings.in_repair_process_enable_flag = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetServiceDiscoveryControlSettings(Out<u32> out_value) {
+    *out_value = m_appln_settings.service_discovery_control_settings;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetServiceDiscoveryControlSettings(u32 value) {
+    m_appln_settings.service_discovery_control_settings = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetThemeKey(Out<std::array<u8, 0x10>> out_value) {
+    *out_value = m_system_settings.theme_key;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetThemeKey(const std::array<u8, 0x10>& value) {
+    m_system_settings.theme_key = value;
     SetSaveNeeded();
     R_SUCCEED();
 }
