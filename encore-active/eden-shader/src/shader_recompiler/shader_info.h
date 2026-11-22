@@ -267,6 +267,7 @@ struct Info {
     bool uses_local_invocation_id{};
     bool uses_invocation_id{};
     bool uses_invocation_info{};
+    bool uses_sample_mask{};
     bool uses_sample_id{};
     bool uses_is_helper_invocation{};
     bool uses_subgroup_invocation_id{};
@@ -284,6 +285,8 @@ struct Info {
     bool loads_indexed_attributes{};
 
     std::array<bool, 8> stores_frag_color{};
+    /// Components (bit 0 = R ... bit 3 = A) of each render target the fragment shader writes.
+    std::array<u8, 8> frag_color_components{};
     bool stores_sample_mask{};
     bool stores_frag_depth{};
 

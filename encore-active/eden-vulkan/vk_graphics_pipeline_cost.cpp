@@ -410,6 +410,12 @@ GraphicsPipeline::GraphicsPipeline(
         }
     }
     fragment_has_color0_output = stage_infos[NUM_STAGES - 1].stores_frag_color[0];
+    // Maxwell leaves render-target components not written by the fragment shader untouched.
+    // Vulkan otherwise permits undefined values there, which is visible on AMD/RADV.
+    for (size_t rt = 0; rt < Maxwell::NumRenderTargets; ++rt) {
+        color_output_mask |= u32{stage_infos[NUM_STAGES - 1].frag_color_components[rt]}
+                             << (rt * 4);
+    }
 
     DescriptorLayoutBuilder builder{MakeBuilder(device, stage_infos)};
     uses_push_descriptor = builder.CanUsePushDescriptor();
@@ -524,8 +530,12 @@ void GraphicsPipeline::RunBuild() {
     if (build_claimed.exchange(true, std::memory_order_acq_rel)) {
         return;
     }
-    build_task();
+    // The build callback publishes is_built before it returns. Cache teardown
+    // may then destroy this pipeline; never access its members afterward.
+    // Transfer ownership while this instance is still guaranteed alive.
+    auto task = std::move(build_task);
     build_task = nullptr;
+    task();
 }
 
 void GraphicsPipeline::AddTransition(GraphicsPipeline* transition) {
@@ -1566,6 +1576,7 @@ void GraphicsPipeline::MakePipeline(VkRenderPass render_pass, VkPipelineCreateFl
         for (size_t i = 0; i < mask_table.size(); ++i) {
             write_mask |= mask[i] ? mask_table[i] : 0;
         }
+        write_mask &= ColorOutputMask(index);
         cb_attachments.push_back({
             .blendEnable = blend.enable != 0,
             .srcColorBlendFactor = MaxwellToVK::BlendFactor(blend.SourceRGBFactor()),

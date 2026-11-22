@@ -416,7 +416,18 @@ Shader::RuntimeInfo MakeRuntimeInfo(std::span<const Shader::IR::Program> program
 
         info.dual_source_blend = key.state.attachment0_dual_source_blend != 0;
 
-        if (device.IsMoltenVK()) {
+        // Vulkan requires signed/unsigned fragment outputs to match the
+        // attachment's numeric class. Previously this was enabled only on
+        // MoltenVK: native PS5 RADV would emit floats for integer targets,
+        // making color writes poison/undefined (Vulkan shader interfaces).
+        // Keep the existing desktop policy; fix the PS5 renderer's ABI.
+        const bool require_typed_fragment_outputs =
+#ifdef PS5_NATIVE
+            true;
+#else
+            device.IsMoltenVK();
+#endif
+        if (require_typed_fragment_outputs) {
             for (size_t i = 0; i < 8; ++i) {
                 const auto format = static_cast<Tegra::RenderTargetFormat>(key.state.color_formats[i]);
                 const auto pixel_format = VideoCore::Surface::PixelFormatFromRenderTargetFormat(format);

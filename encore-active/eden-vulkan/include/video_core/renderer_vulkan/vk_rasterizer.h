@@ -63,7 +63,7 @@ class StateTracker;
 class AccelerateDMA : public Tegra::Engines::AccelerateDMAInterface {
 public:
     explicit AccelerateDMA(BufferCache& buffer_cache, TextureCache& texture_cache,
-                           Scheduler& scheduler);
+                           Scheduler& scheduler, Tegra::MemoryManager* const& gpu_memory);
 
     bool BufferCopy(GPUVAddr start_address, GPUVAddr end_address, u64 amount) override;
 
@@ -84,6 +84,9 @@ private:
     BufferCache& buffer_cache;
     TextureCache& texture_cache;
     Scheduler& scheduler;
+    // The GPU address space changes on channel binds. Reference the
+    // rasterizer's active pointer, not a stale construction-time channel.
+    Tegra::MemoryManager* const& gpu_memory;
 };
 
 class RasterizerVulkan final : public VideoCore::RasterizerInterface,
@@ -217,7 +220,8 @@ private:
     void UpdateStencilOp(Tegra::Engines::Maxwell3D::Regs& regs);
     void UpdateStencilTestEnable(Tegra::Engines::Maxwell3D::Regs& regs);
     void UpdateLogicOp(Tegra::Engines::Maxwell3D::Regs& regs);
-    void UpdateBlending(Tegra::Engines::Maxwell3D::Regs& regs);
+    void UpdateBlending(Tegra::Engines::Maxwell3D::Regs& regs,
+                        const GraphicsPipeline* pipeline);
     void UpdateColorWriteEnable(Tegra::Engines::Maxwell3D::Regs& regs);
 
     void UpdateVertexInput(Tegra::Engines::Maxwell3D::Regs& regs);
@@ -263,7 +267,6 @@ private:
     AccelerateDMA accelerate_dma;
     FenceManager fence_manager;
 
-    vk::Event wfi_event;
 
 #ifdef PS5_NATIVE
     // Cached once per native rasterizer, never queried on each hot-path QMD.
@@ -275,6 +278,7 @@ private:
     boost::container::static_vector<VkSampler, MAX_TEXTURES> sampler_handles;
 
     u32 draw_counter = 0;
+    u32 last_color_output_mask{};
     bool mesh_draw{}; ///< the draw being prepared uses a task/mesh pipeline
 };
 

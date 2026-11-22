@@ -209,7 +209,15 @@ DeviceFD Module::Open(const std::string& device_name, NvCore::SessionId session_
         LOG_WARNING(Service_NVDRV, "Opening unknown device {} as a Switch 2 stub", device_name);
         const DeviceFD fd = next_fd++;
         auto device = nx2_stub_builder(fd, device_name);
-        device->OnOpen(session_id, fd);
+        try {
+            device->OnOpen(session_id, fd);
+        } catch (...) {
+            // The builder publishes the device before OnOpen. Roll it back if
+            // session/process setup throws so a failed launch cannot retain an
+            // unreachable NVDRV device in the shared module.
+            open_files.erase(fd);
+            throw;
+        }
         return fd;
     }
     if (it == builders.end()) {
@@ -221,7 +229,15 @@ DeviceFD Module::Open(const std::string& device_name, NvCore::SessionId session_
     auto& builder = it->second;
     auto device = builder(fd)->second;
 
-    device->OnOpen(session_id, fd);
+    try {
+        device->OnOpen(session_id, fd);
+    } catch (...) {
+        // Known builders also publish before device-specific OnOpen. Preserve
+        // the map's strong ownership invariant when an allocation or process
+        // lease fails during launch.
+        open_files.erase(fd);
+        throw;
+    }
 
     return fd;
 }
@@ -290,7 +306,15 @@ NvResult Module::Close(DeviceFD fd) {
         return NvResult::NotImplemented;
     }
 
-    itr->second->OnClose(fd);
+    try {
+        itr->second->OnClose(fd);
+    } catch (...) {
+        // Never leave a published FD behind if device-specific teardown
+        // reports a fatal host error. The exception still propagates, but the
+        // shared module no longer retains the failed device into a relaunch.
+        open_files.erase(itr);
+        throw;
+    }
 
     open_files.erase(itr);
 

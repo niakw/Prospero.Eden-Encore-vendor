@@ -61,7 +61,15 @@ for path,expected in files.items():
   else:
    assert actual==expected
  elif path.endswith("spirv_emit_context.h"):
-  assert actual=="844a118358c874b0666aebda116c1d6a0c9a8ceb"
+  if actual=="1d4046906b39e929b66af460c8a19e29805ed165":
+   selected=d.decode()
+   new="    Id input_sample_mask{};\n"
+   assert selected.count(new)==1
+   predecessor=selected.replace(new,"",1).encode()
+   digest=hashlib.sha1(b"blob "+str(len(predecessor)).encode()+bytes([0])+predecessor).hexdigest()
+   assert digest=="844a118358c874b0666aebda116c1d6a0c9a8ceb", ("SPIR-V mesh/sample-mask ABI reverse", digest)
+  else:
+   assert actual=="844a118358c874b0666aebda116c1d6a0c9a8ceb"
   source=d.decode()
   for symbol in ("MeshInfo mesh_info", "DefineMesh(const IR::Program& program)",
                  "input_tess_level_outer", "input_tess_level_inner",

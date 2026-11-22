@@ -24,7 +24,20 @@ def blob(path: Path) -> str:
     raw=path.read_bytes()
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
 
-assert blob(PASS)=="41ad0f5cef1e070e552b43ea49648d5e74f10bad"
+pass_blob=blob(PASS)
+if pass_blob=="602d45b4d2ad872b138d62ce05f379b5e1103602":
+    selected=PASS.read_text()
+    reverse = (
+        ("    case IR::Opcode::GlobalAtomicExchange32:\n    case IR::Opcode::GlobalAtomicCompareExchange32:\n    case IR::Opcode::GlobalAtomicIAdd64:\n", "    case IR::Opcode::GlobalAtomicExchange32:\n    case IR::Opcode::GlobalAtomicIAdd64:\n"),
+    )
+    for newer, earlier in reverse:
+        assert newer in selected, "Unexpected PASS source change"
+        selected=selected.replace(newer, earlier, 1)
+    data=selected.encode("utf-8")
+    previous=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()
+    assert previous=="41ad0f5cef1e070e552b43ea49648d5e74f10bad", ("Unexpected source predecessor",previous)
+    pass_blob="41ad0f5cef1e070e552b43ea49648d5e74f10bad"
+assert pass_blob=="41ad0f5cef1e070e552b43ea49648d5e74f10bad"
 assert blob(BFS)=="fa5e7572ef99bba3db17154c63f60dddba7a87c6"
 assert blob(PINNED)=="4ce1ff6c19c4937855d4460a515aec6a8a1e07e0"
 src=PASS.read_text()

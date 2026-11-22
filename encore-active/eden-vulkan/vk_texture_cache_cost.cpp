@@ -1412,8 +1412,19 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
     if (src_block_width == 0 || dst_block_width == 0) {
         return;
     }
-    const auto bpp_in = BytesPerBlock(src.info.format) / src_block_width;
-    const auto bpp_out = BytesPerBlock(dst.info.format) / dst_block_width;
+    // D32_FLOAT_S8_UINT and D32_FLOAT have the SAME 32-bit depth plane.
+    // A whole-image byte ratio would halve/double the width and corrupt
+    // Frostbite's depth-only copies. Copy only the depth plane via the
+    // existing Vulkan image -> buffer -> image transfer, never raw DS texels.
+    const bool mixed_d32_depth_plane =
+        (src.info.format == PixelFormat::D32_FLOAT_S8_UINT &&
+         dst.info.format == PixelFormat::D32_FLOAT) ||
+        (src.info.format == PixelFormat::D32_FLOAT &&
+         dst.info.format == PixelFormat::D32_FLOAT_S8_UINT);
+    const auto bpp_in = mixed_d32_depth_plane
+                            ? u32{4} : BytesPerBlock(src.info.format) / src_block_width;
+    const auto bpp_out = mixed_d32_depth_plane
+                             ? u32{4} : BytesPerBlock(dst.info.format) / dst_block_width;
     if (bpp_in == 0 || bpp_out == 0) {
         return;
     }
@@ -1510,7 +1521,7 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
         VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
     const bool src_both = src_aspect_mask == both_ds;
     const bool dst_both = dst_aspect_mask == both_ds;
-    if ((src_both || dst_both) &&
+    if ((src_both || dst_both) && !mixed_d32_depth_plane &&
         (!src_both || !dst_both || src.info.format != dst.info.format)) {
         return;
     }
@@ -1559,7 +1570,11 @@ void TextureCacheRuntime::ReinterpretImage(Image& dst, Image& src,
         // Overestimate compressed formats safely. Combined D/S planes
         // allocate one conservative image-sized interval EACH: a D24S8
         // depth plane needs 4 B/texel and stencil needs 1 B/texel.
-        const size_t plane_bytes = pixels * img_bpp;
+        // Mixed D32S8/D32 transfers stage 32-bit depth only. Padding the
+        // plane to the packed 64-bit depth+stencil allocation doubles PS5
+        // scratch VRAM for a 1080p depth copy without moving more pixels.
+        const size_t plane_bytes = pixels *
+                                   (mixed_d32_depth_plane ? size_t{4} : img_bpp);
         const size_t padding = (alignment - scratch_used % alignment) % alignment;
         if (scratch_used > scratch_ceiling - padding) {
             return;
@@ -1896,6 +1911,9 @@ void TextureCacheRuntime::ConvertImage(Framebuffer* dst, ImageView& dst_view, Im
         }
         break;
     case PixelFormat::A8B8G8R8_UNORM:
+        if (src_view.format == PixelFormat::X8_D24_UNORM) {
+            return blit_image_helper.ConvertX8D24ToABGR8(dst, src_view);
+        }
         if (src_view.format == PixelFormat::S8_UINT_D24_UNORM) {
             return blit_image_helper.ConvertD24S8ToABGR8(dst, src_view);
         }
@@ -1914,6 +1932,11 @@ void TextureCacheRuntime::ConvertImage(Framebuffer* dst, ImageView& dst_view, Im
     case PixelFormat::D16_UNORM:
         if (src_view.format == PixelFormat::R16_UNORM) {
             return blit_image_helper.ConvertR16ToD16(dst, src_view);
+        }
+        break;
+    case PixelFormat::X8_D24_UNORM:
+        if (src_view.format == PixelFormat::A8B8G8R8_UNORM) {
+            return blit_image_helper.ConvertABGR8ToX8D24(dst, src_view);
         }
         break;
     case PixelFormat::S8_UINT_D24_UNORM:
@@ -3706,7 +3729,7 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
                                     ImageView* depth_buffer, bool is_rescaled_) {
     boost::container::small_vector<VkImageView, NUM_RT * 2 + 2> attachments;
     RenderPassKey renderpass_key{};
-    s32 num_layers = 1;
+    s32 num_layers = (std::numeric_limits<s32>::max)();
     color_attachment_images.fill(VK_NULL_HANDLE);
     color_attachment_views.fill(VK_NULL_HANDLE);
     color_attachment_ranges.fill(VkImageSubresourceRange{});
@@ -3731,7 +3754,7 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
         color_attachment_views[index] = color_buffer->RenderTarget();
         color_attachment_ranges[index] = MakeSubresourceRange(color_buffer);
         renderpass_key.color_formats[index] = color_buffer->format;
-        num_layers = (std::max)(num_layers, color_buffer->range.extent.layers);
+        num_layers = (std::min)(num_layers, color_buffer->range.extent.layers);
         images[num_images] = color_buffer->ImageHandle();
         image_ranges[num_images] = MakeSubresourceRange(color_buffer);
         rt_map[index] = num_images;
@@ -3748,7 +3771,7 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
                                               : depth_buffer->size.height);
         attachments.push_back(depth_buffer->RenderTarget());
         renderpass_key.depth_format = depth_buffer->format;
-        num_layers = (std::max)(num_layers, depth_buffer->range.extent.layers);
+        num_layers = (std::min)(num_layers, depth_buffer->range.extent.layers);
         images[num_images] = depth_buffer->ImageHandle();
         const VkImageSubresourceRange subresource_range = MakeSubresourceRange(depth_buffer);
         image_ranges[num_images] = subresource_range;
@@ -3761,11 +3784,26 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
     } else {
         renderpass_key.depth_format = PixelFormat::Invalid;
     }
+    if (num_layers == (std::numeric_limits<s32>::max)()) {
+        num_layers = 1;
+    }
+    layers = static_cast<u32>((std::max)(num_layers, 1));
+    // Vulkan framebuffer dimensions are device limits, not guest clip limits.
+    // Attachment-less draws can retain a 32768x32768 surface clip even when
+    // the host only exposes 16384. Clamp every framebuffer before creation.
+    const auto clamp_extent = [&runtime](VkExtent2D extent) {
+        extent.width =
+            (std::max)(1U, (std::min)(extent.width, runtime.device.GetMaxFramebufferWidth()));
+        extent.height =
+            (std::max)(1U, (std::min)(extent.height, runtime.device.GetMaxFramebufferHeight()));
+        return extent;
+    };
+    layers = (std::max)(1U, (std::min)(layers, runtime.device.GetMaxFramebufferLayers()));
     if (IsMixedSamplesTarget(color_buffers, depth_buffer)) {
-        const VkExtent2D extent{(std::min)(render_area.width, width),
-                                (std::min)(render_area.height, height)};
+        const VkExtent2D extent = clamp_extent(
+            {(std::min)(render_area.width, width), (std::min)(render_area.height, height)});
         CreateMixedSamplesFramebuffer(runtime, color_buffers, attachments, renderpass_key,
-                                      static_cast<u32>((std::max)(num_layers, 1)), extent);
+                                      layers, extent);
         return;
     }
     renderpass_key.samples = samples;
@@ -3787,9 +3825,9 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
     UseRenderPass(runtime, renderpass_key);
     render_area.width = (std::min)(render_area.width, width);
     render_area.height = (std::min)(render_area.height, height);
+    render_area = clamp_extent(render_area);
 
     if (do_resolve_color) {
-        const u32 layers = static_cast<u32>((std::max)(num_layers, 1));
         for (size_t index = 0; index < NUM_RT; ++index) {
             const PixelFormat format = renderpass_key.color_formats[index];
             if (format == PixelFormat::Invalid) {
@@ -3805,7 +3843,6 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
     }
 
     if (do_resolve_depth_stencil) {
-        const u32 layers = static_cast<u32>((std::max)(num_layers, 1));
         const VkFormat vk_format =
             MaxwellToVK::SurfaceFormat(runtime.device, FormatType::Optimal, true,
                                        renderpass_key.depth_format)
@@ -3816,7 +3853,7 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
     }
 
     num_color_buffers = static_cast<u32>(num_colors);
-    CreateVkFramebuffer(runtime, attachments, static_cast<u32>((std::max)(num_layers, 1)));
+    CreateVkFramebuffer(runtime, attachments, layers);
 }
 
 void Framebuffer::CreateMixedSamplesFramebuffer(TextureCacheRuntime& runtime,

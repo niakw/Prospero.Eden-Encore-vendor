@@ -752,6 +752,26 @@ def run() -> None:
                 retired_member = "    std::vector<std::pair<u64, vk::Buffer>> retired_buffers;\n"
                 assert historical.count(retired_member) == 1
                 historical = historical.replace(retired_member, "", 1)
+        if path == CORE and hashlib.sha1(
+            b"blob " + str(len(live.encode())).encode() + bytes([0]) + live.encode()
+        ).hexdigest() == "6bbbae48f3c45fa5fd68d82940f5c5c508cbfd7b":
+            # Four audited NS1 DMACopy/underflow hunks coexist with NS2 R2.
+            # Reverse them in the audit copy only, and require byte-for-byte
+            # parity with the NS2 main source before accepting the old R2 gate.
+            ns1_reverse = (
+                ("bool BufferCache<P>::DMACopy(\n    GPUVAddr src_address, GPUVAddr dest_address, u64 amount, bool* gpu_written,\n    boost::container::small_vector<std::pair<DAddr, size_t>, 4>* gpu_written_dest) {\n    if (gpu_written_dest) {\n        gpu_written_dest->clear();\n    }\n", "bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount,\n                             bool* gpu_written) {\n"),
+                ("    // vkCmdCopyBuffer forbids overlapping source and destination DEVICE\n    // memory (VUID-vkCmdCopyBuffer-pRegions-00117). Distinct GMMU virtual\n    // addresses can alias one physical allocation, and different VkBuffer\n    // handles do not make those overlapping memory accesses legal.\n    // Reject BEFORE dirty-range bookkeeping, ClearDownload, or GPU commands:\n    // MaxwellDMA will read the authoritative source and snapshot the alias.\n    // Compare distances rather than forming a potentially overflowing end.\n    const DAddr source = *cpu_src_address;\n    const DAddr destination = *cpu_dest_address;\n    if ((source <= destination && destination - source < amount) ||\n        (destination < source && source - destination < amount)) {\n        return false;\n    }\n", ""),
+                ("    if (gpu_written_dest) {\n        *gpu_written_dest = tmp_intervals;\n    }\n", ""),
+                ("        // A stream near the start of physical memory may begin before\n        // min_page. Subtraction in the original test then wraps around and\n        // turns an ordinary backward leap into a huge invalid GPU buffer.\n        // Never move begin forwards past the range we already own.\n        if (begin <= min_page || add_value > begin - min_page) {\n            begin = (std::min)(begin, min_page);\n", "        if (add_value > begin - min_page) {\n            begin = min_page;\n"),
+            )
+            for maintained, earlier in ns1_reverse:
+                assert historical.count(maintained) == 1, "Unexpected integrated BufferCache hunk"
+                historical = historical.replace(maintained, earlier, 1)
+            data = historical.encode()
+            assert hashlib.sha1(
+                b"blob " + str(len(data)).encode() + bytes([0]) + data
+            ).hexdigest() == "41239f19b9e16741d49e31145c504e0086b1095e", "NS1/NS2 BufferCache reverse parity failed"
+
         if path == CORE:
             # The R2 historical owner is still immutable in SOURCE_BLOBS.
             # Current PS5 buffer_cache.h has subsequently gained CPU sibling
@@ -761,7 +781,7 @@ def run() -> None:
             # source. Pin ALL current bytes and keep the important R2 and
             # FC27 runtime safety invariants. Unexpected drift remains red.
             current = hashlib.sha1(
-                b"blob " + str(len(live.encode())).encode() + bytes([0]) + live.encode()
+                b"blob " + str(len(historical.encode())).encode() + bytes([0]) + historical.encode()
             ).hexdigest()
             if current == "41239f19b9e16741d49e31145c504e0086b1095e":
                 assert live.count("page_has_gpu_writes") >= 3

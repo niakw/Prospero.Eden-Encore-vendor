@@ -2216,24 +2216,22 @@ NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {
     auto& channel = *gpu_channel_device->channel_state;
     if (channel.memory_manager && channel.memory_manager != gmmu.get())
         return NvResult::InvalidState;
-    // Only an authenticated Switch 2 GPU process enters the native
-    // address-space/channel lifetime protocol. The same AS ioctls also
-    // serve NS1/Maxwell; keep their original raw GMMU binding and FD-close
-    // semantics untouched (NS1 development belongs to a separate branch).
-    if (NativeGpuProcessRegistry::Instance().Contains(m_native_process)) {
-        // A GPU scheduler may retain ChannelState after the AS FD closes.
-        // Keep its real GMMU, NvMap pins and exact NvCore session alive until
-        // the native GPU worker retires the channel. No AS->channel cycle.
-        auto owner = weak_from_this().lock();
-        if (!owner) return NvResult::InvalidState;
-        if (!m_channel_session_retained) {
-            if (!m_nv_session ||
-                !container.RetainSession(*m_nv_session, m_native_process))
-                return NvResult::InvalidState;
-            m_channel_session_retained = true;
-        }
-        channel.address_space_owner = std::move(owner);
+    // Maxwell uses the same raw GMMU binding as before, but a channel retained
+    // by the GPU worker/scheduler may outlive this AS descriptor's guest FD.
+    // Retain the exact AS object and exact already-open NvCore session; no
+    // extra ASID, mapping, guest VA or Ampere ioctl is created here.
+    auto owner = weak_from_this().lock();
+    if (!owner) {
+        return NvResult::InvalidState;
     }
+    if (!m_channel_session_retained) {
+        if (!m_nv_session ||
+            !container.RetainSession(*m_nv_session, m_native_process)) {
+            return NvResult::InvalidState;
+        }
+        m_channel_session_retained = true;
+    }
+    channel.address_space_owner = std::move(owner);
     channel.memory_manager = gmmu.get();
     return NvResult::Success;
 }

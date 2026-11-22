@@ -292,6 +292,10 @@ public:
         return num_images;
     }
 
+    [[nodiscard]] u32 Layers() const noexcept {
+        return layers;
+    }
+
     // The maintained Vulkan framebuffer owner records exact guest attachment
     // handles during CreateFramebuffer. Expose the same bounded, immutable
     // attachment identity here even when the NS2 ASTC overlay is selected.
@@ -366,6 +370,7 @@ private:
     VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
     u32 num_color_buffers = 0;
     u32 num_images = 0;
+    u32 layers = 1;
     std::array<VkImage, 9> images{};
     std::array<VkImageSubresourceRange, 9> image_ranges{};
     std::array<VkImage, NUM_RT> color_attachment_images{};

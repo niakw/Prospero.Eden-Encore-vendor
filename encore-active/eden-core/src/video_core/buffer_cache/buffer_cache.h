@@ -292,8 +292,12 @@ void BufferCache<P>::ClearDownload(DAddr device_addr, u64 size) {
 }
 
 template <class P>
-bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount,
-                             bool* gpu_written) {
+bool BufferCache<P>::DMACopy(
+    GPUVAddr src_address, GPUVAddr dest_address, u64 amount, bool* gpu_written,
+    boost::container::small_vector<std::pair<DAddr, size_t>, 4>* gpu_written_dest) {
+    if (gpu_written_dest) {
+        gpu_written_dest->clear();
+    }
     // FindBuffer and SynchronizeBuffer accept u32 byte spans. Never truncate
     // a wider DMA request: the caller can take its ordinary software path.
     // Reject empty copies before dirty-range bookkeeping as well.
@@ -317,6 +321,19 @@ bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 am
     const std::optional<DAddr> cpu_src_address = gpu_memory->GpuToCpuAddress(src_address);
     const std::optional<DAddr> cpu_dest_address = gpu_memory->GpuToCpuAddress(dest_address);
     if (!cpu_src_address || !cpu_dest_address) {
+        return false;
+    }
+    // vkCmdCopyBuffer forbids overlapping source and destination DEVICE
+    // memory (VUID-vkCmdCopyBuffer-pRegions-00117). Distinct GMMU virtual
+    // addresses can alias one physical allocation, and different VkBuffer
+    // handles do not make those overlapping memory accesses legal.
+    // Reject BEFORE dirty-range bookkeeping, ClearDownload, or GPU commands:
+    // MaxwellDMA will read the authoritative source and snapshot the alias.
+    // Compare distances rather than forming a potentially overflowing end.
+    const DAddr source = *cpu_src_address;
+    const DAddr destination = *cpu_dest_address;
+    if ((source <= destination && destination - source < amount) ||
+        (destination < source && source - destination < amount)) {
         return false;
     }
     const bool source_dirty = IsRegionRegistered(*cpu_src_address, amount);
@@ -358,6 +375,9 @@ bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 am
     const bool has_new_downloads = tmp_intervals.size() != 0;
     if (gpu_written) {
         *gpu_written = has_new_downloads;
+    }
+    if (gpu_written_dest) {
+        *gpu_written_dest = tmp_intervals;
     }
     for (const auto& pair : tmp_intervals) {
         gpu_modified_ranges.Add(pair.first, pair.second);
@@ -1827,8 +1847,12 @@ typename BufferCache<P>::OverlapResult BufferCache<P>::ResolveOverlaps(DAddr dev
     bool has_stream_leap = false;
     auto expand_begin = [&](DAddr add_value) {
         static constexpr DAddr min_page = CACHING_PAGESIZE + Core::DEVICE_PAGESIZE;
-        if (add_value > begin - min_page) {
-            begin = min_page;
+        // A stream near the start of physical memory may begin before
+        // min_page. Subtraction in the original test then wraps around and
+        // turns an ordinary backward leap into a huge invalid GPU buffer.
+        // Never move begin forwards past the range we already own.
+        if (begin <= min_page || add_value > begin - min_page) {
+            begin = (std::min)(begin, min_page);
             device_addr = Core::DEVICE_PAGESIZE;
             return;
         }

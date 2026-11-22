@@ -13,6 +13,8 @@
 #include "common/settings.h"
 #include "core/core.h"
 #include "video_core/dma_pusher.h"
+#include "video_core/engines/kepler_compute.h"
+#include "video_core/engines/kepler_memory.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/gpu.h"
 #include "video_core/guest_memory.h"
@@ -27,6 +29,20 @@ namespace Tegra {
 
 constexpr u32 MacroRegistersStart = 0xE00;
 constexpr u32 ComputeInline = 0x6D;
+
+// Kepler registers are smaller than the GPU method field. Reject malformed
+// writes BEFORE enqueueing them into EngineInterface::method_sink, whose
+// ConsumeSinkImpl would otherwise index regs.reg_array out of bounds.
+[[nodiscard]] constexpr bool IsKeplerRegisterMethodValid(Engines::EngineTypes engine, u32 method) {
+    switch (engine) {
+    case Engines::EngineTypes::KeplerCompute:
+        return method < Engines::KeplerCompute::Regs::NUM_REGS;
+    case Engines::EngineTypes::KeplerMemory:
+        return method < Engines::KeplerMemory::Regs::NUM_REGS;
+    default:
+        return true;
+    }
+}
 
 DmaPusher::DmaPusher(Core::System& system_, MemoryManager& memory_manager_, Control::ChannelState& channel_state_)
     : system{system_}
@@ -354,6 +370,11 @@ void DmaPusher::CallMethod(u32 argument) {
 #endif
             return;
         }
+        if (!IsKeplerRegisterMethodValid(subchannel_type[dma_state.subchannel], dma_state.method)) {
+            LOG_ERROR(HW_GPU, "Invalid Kepler GPU method {:#x} on subchannel {}",
+                      dma_state.method, dma_state.subchannel);
+            return;
+        }
         if (!subchannel->execution_mask[dma_state.method]) {
             subchannel->method_sink.emplace_back(dma_state.method, argument);
         } else {
@@ -384,6 +405,11 @@ void DmaPusher::CallMultiMethod(const u32* base_start, u32 num_methods) {
                 throw std::runtime_error("Native GPFIFO method on unbound subchannel");
             }
 #endif
+            return;
+        }
+        if (!IsKeplerRegisterMethodValid(subchannel_type[dma_state.subchannel], dma_state.method)) {
+            LOG_ERROR(HW_GPU, "Invalid Kepler multi-method {:#x} on subchannel {}",
+                      dma_state.method, dma_state.subchannel);
             return;
         }
         subchannel->ConsumeSink(system);

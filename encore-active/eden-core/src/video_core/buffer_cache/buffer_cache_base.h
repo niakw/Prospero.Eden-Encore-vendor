@@ -324,9 +324,10 @@ public:
     void PopAsyncBuffers();
 
     /// Optionally report whether the copied source contains GPU-owned buffer bytes.
-    /// A caller must not re-upload the destination texture from stale guest memory.
-    bool DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount,
-                 bool* gpu_written = nullptr);
+    /// gpu_written_dest names the exact destination subranges whose newest bytes stay GPU-owned.
+    bool DMACopy(
+        GPUVAddr src_address, GPUVAddr dest_address, u64 amount, bool* gpu_written = nullptr,
+        boost::container::small_vector<std::pair<DAddr, size_t>, 4>* gpu_written_dest = nullptr);
 
     bool DMAClear(GPUVAddr src_address, u64 amount, u32 value);
 

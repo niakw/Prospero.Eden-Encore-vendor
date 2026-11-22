@@ -31,6 +31,9 @@
 #include "video_core/gpu.h"
 #include "video_core/host1x/host1x.h"
 #include "video_core/memory_manager.h"
+#ifdef PS5_NATIVE
+#include "gpu_failure.h"
+#endif
 // GPU pushbuffer and syncpoint method types come from dma_pusher.h.
 
 #ifdef PS5_NATIVE
@@ -80,14 +83,21 @@ nvhost_gpu::nvhost_gpu(Core::System& system_, EventInterface& events_interface_,
 }
 
 nvhost_gpu::~nvhost_gpu() {
-    // Guest close: retire the exact bound channel on the GPU worker BEFORE
-    // its syncpoint, rasterizer state and GMMU-backed NvMap pins are freed.
-    // Global shutdown destroys GPU before NVDRV services, so the worker is
-    // no longer available then; GPU::Impl teardown already drains it.
-    // Empty leases are Maxwell/NS1 channels and stay on their old path.
-    if (channel_state && channel_state->address_space_owner &&
+    // Normal guest close retires the channel from OnClose when its last FD
+    // disappears. If teardown bypassed OnClose, preserve the same ordering
+    // here while the ChannelState and NVDRV resources are still alive.
+    if (!sessions.empty() && channel_state &&
         system.IsPoweredOn() && !system.IsShuttingDown()) {
-        system.GPU().ReleaseChannel(*channel_state);
+        try {
+            system.GPU().ReleaseChannel(*channel_state);
+        } catch (...) {
+#ifdef PS5_NATIVE
+            // Destructors must not terminate the host if the GPU worker has
+            // already failed. Preserve the fatal cause for the launcher while
+            // continuing deterministic NVDRV resource destruction.
+            ::Eden::RecordGpuFailure(std::current_exception());
+#endif
+        }
     }
     NativeGpuChannelRegistry::Instance().Unbind(channel_state.get());
     events_interface.FreeEvent(sm_exception_breakpoint_int_report_event);
@@ -300,6 +310,23 @@ void nvhost_gpu::OnClose(DeviceFD fd) {
         native_gpfifo_configured = false;
     }
     sessions.erase(fd);
+    // One shared ChannelState backs this nvhost-gpu device owner. Do not
+    // retire it while another guest FD still references the same device.
+    // Once the final FD closes, release Maxwell/NS1 (and native NS2) state
+    // before a later title can allocate another channel in this PS5 process.
+    if (sessions.empty() && channel_state &&
+        system.IsPoweredOn() && !system.IsShuttingDown()) {
+        try {
+            system.GPU().ReleaseChannel(*channel_state);
+        } catch (...) {
+#ifdef PS5_NATIVE
+            // Module::Close erases the FD only after OnClose returns. Do not
+            // strand the device when a failed GPU worker makes the sync wait
+            // throw; latch the failure and let the normal erase/destructor run.
+            ::Eden::RecordGpuFailure(std::current_exception());
+#endif
+        }
+    }
 }
 
 bool nvhost_gpu::CanBindNativeTsgChannel(DeviceFD fd, NvCore::SessionId owner) {
