@@ -95,7 +95,10 @@
 
 #ifdef PS5_NATIVE
 namespace VideoCommon {
-void SetShaderTexturePoolPreflushedForThread(bool preflushed) noexcept;
+void SetShaderTranslationSnapshotForThread(
+    GPUVAddr texture_base, u32 texture_limit, const u8* texture_data,
+    const u8* const* cbuf_data, const u32* cbuf_sizes, size_t cbuf_count) noexcept;
+void ClearShaderTranslationSnapshotForThread() noexcept;
 }
 #endif
 
@@ -1886,6 +1889,119 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     // joins them so EDEN_VULKAN_SHADER_MISS keeps the pre-parallel accounting.
     std::array<::Eden::Performance::ShaderMissStageCosts, Maxwell::MaxShaderProgram>
         parallel_stage_costs{};
+
+    // Worker translation must never traverse the live guest GMMU. Snapshot
+    // every guest byte that CFG/IR may consult while still on the GPU owner:
+    // shader code is already copied by GetGraphicsEnvironments/SetCachedSize,
+    // and this block captures the TIC pool plus enabled per-stage CBUFs.
+    constexpr u32 DisabledSnapshotCbuf = (std::numeric_limits<u32>::max)();
+    constexpr u64 MaxTextureSnapshotBytes = u64{4} << 20;
+    constexpr u64 MaxCbufSnapshotBytes =
+        u64{Maxwell::MaxShaderStage} * Maxwell::MaxConstBuffers *
+        Maxwell::MaxConstBufferSize;
+    constexpr u64 MaxShaderSnapshotBytes =
+        MaxTextureSnapshotBytes + MaxCbufSnapshotBytes;
+    std::vector<u8> parallel_texture_snapshot;
+    std::array<std::array<std::vector<u8>, Maxwell::MaxConstBuffers>,
+               Maxwell::MaxShaderStage>
+        parallel_cbuf_storage{};
+    std::array<std::array<const u8*, Maxwell::MaxConstBuffers>,
+               Maxwell::MaxShaderStage>
+        parallel_cbuf_ptrs{};
+    std::array<std::array<u32, Maxwell::MaxConstBuffers>,
+               Maxwell::MaxShaderStage>
+        parallel_cbuf_sizes{};
+    for (auto& sizes : parallel_cbuf_sizes) {
+        sizes.fill(DisabledSnapshotCbuf);
+    }
+
+    const auto& snapshot_tex_header = maxwell3d->regs.tex_header;
+    const GPUVAddr snapshot_texture_base = snapshot_tex_header.Address();
+    const u32 snapshot_texture_limit = static_cast<u32>(snapshot_tex_header.limit);
+    const u64 snapshot_texture_bytes =
+        (u64{snapshot_texture_limit} + 1) * sizeof(Tegra::Texture::TICEntry);
+
+    if (parallel_translate_stages) {
+        bool snapshot_ok =
+            snapshot_texture_bytes <= MaxTextureSnapshotBytes &&
+            snapshot_texture_base <=
+                (std::numeric_limits<GPUVAddr>::max)() - (snapshot_texture_bytes - 1) &&
+            gpu_memory->IsWithinGPUAddressRange(
+                snapshot_texture_base + snapshot_texture_bytes - 1);
+        u64 snapshot_bytes = snapshot_texture_bytes;
+        std::array<bool, Maxwell::MaxShaderStage> stage_needed{};
+        for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
+            if (key.unique_hashes[index] == 0) {
+                continue;
+            }
+            const size_t physical_stage = index <= 1 ? 0 : index - 1;
+            stage_needed[physical_stage] = true;
+        }
+
+        for (size_t stage = 0; snapshot_ok && stage < Maxwell::MaxShaderStage; ++stage) {
+            if (!stage_needed[stage]) {
+                continue;
+            }
+            const auto& cbufs = maxwell3d->state.shader_stages[stage].const_buffers;
+            for (size_t bank = 0; bank < Maxwell::MaxConstBuffers; ++bank) {
+                const auto& cbuf = cbufs[bank];
+                if (!cbuf.enabled) {
+                    continue;
+                }
+                if (cbuf.size > Maxwell::MaxConstBufferSize ||
+                    snapshot_bytes > MaxShaderSnapshotBytes - cbuf.size) {
+                    snapshot_ok = false;
+                    break;
+                }
+                parallel_cbuf_sizes[stage][bank] = cbuf.size;
+                snapshot_bytes += cbuf.size;
+                if (cbuf.size == 0) {
+                    continue;
+                }
+                const u64 last_offset = u64{cbuf.size} - 1;
+                if (cbuf.address >
+                        (std::numeric_limits<GPUVAddr>::max)() - last_offset ||
+                    !gpu_memory->IsFullyMappedRange(cbuf.address, cbuf.size)) {
+                    snapshot_ok = false;
+                    break;
+                }
+            }
+        }
+
+        if (snapshot_ok) {
+            try {
+                parallel_texture_snapshot.resize(
+                    static_cast<size_t>(snapshot_texture_bytes));
+                // Normal owner-thread reads preserve GPU-written descriptor/
+                // uniform bytes before workers are allowed to consume them.
+                gpu_memory->ReadBlock(snapshot_texture_base,
+                                      parallel_texture_snapshot.data(),
+                                      parallel_texture_snapshot.size());
+                for (size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
+                    if (!stage_needed[stage]) {
+                        continue;
+                    }
+                    const auto& cbufs =
+                        maxwell3d->state.shader_stages[stage].const_buffers;
+                    for (size_t bank = 0; bank < Maxwell::MaxConstBuffers; ++bank) {
+                        const u32 bytes = parallel_cbuf_sizes[stage][bank];
+                        if (bytes == DisabledSnapshotCbuf || bytes == 0) {
+                            continue;
+                        }
+                        auto& storage = parallel_cbuf_storage[stage][bank];
+                        storage.resize(bytes);
+                        gpu_memory->ReadBlock(cbufs[bank].address, storage.data(),
+                                              storage.size());
+                        parallel_cbuf_ptrs[stage][bank] = storage.data();
+                    }
+                }
+            } catch (const std::bad_alloc&) {
+                snapshot_ok = false;
+            }
+        }
+        parallel_translate_stages = snapshot_ok;
+    }
+
     if (parallel_translate_stages) {
         size_t parallel_env_index{};
         for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
@@ -1898,9 +2014,13 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
             parallel_pools[index] = std::make_unique<ShaderPools>();
             ShaderPools* const stage_pools = parallel_pools[index].get();
             const bool exits_to_dispatcher = index == 0;
+            const size_t physical_stage = index <= 1 ? 0 : index - 1;
             shader_translation_workers.QueueWork(
                 [this, env, stage_pools, cfg_offset, exits_to_dispatcher, index,
-                 &parallel_programs, &parallel_errors, &parallel_stage_costs] {
+                 physical_stage, snapshot_texture_base, snapshot_texture_limit,
+                 &parallel_texture_snapshot, &parallel_cbuf_ptrs,
+                 &parallel_cbuf_sizes, &parallel_programs, &parallel_errors,
+                 &parallel_stage_costs] {
                     struct ShaderMissStageScope {
                         ::Eden::Performance::ShaderMissStageCosts* previous{
                             ::Eden::Performance::shader_miss_stage_active};
@@ -1912,14 +2032,24 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
                             ::Eden::Performance::shader_miss_stage_active = previous;
                         }
                     } shader_miss_stage_scope{&parallel_stage_costs[index]};
-                    struct PreflushedTexturePoolScope {
-                        PreflushedTexturePoolScope() {
-                            VideoCommon::SetShaderTexturePoolPreflushedForThread(true);
+                    struct ImmutableGuestSnapshotScope {
+                        ImmutableGuestSnapshotScope(
+                            GPUVAddr texture_base, u32 texture_limit,
+                            const std::vector<u8>& texture,
+                            const std::array<const u8*, Maxwell::MaxConstBuffers>& cbuf_data,
+                            const std::array<u32, Maxwell::MaxConstBuffers>& cbuf_sizes) {
+                            VideoCommon::SetShaderTranslationSnapshotForThread(
+                                texture_base, texture_limit, texture.data(),
+                                cbuf_data.data(), cbuf_sizes.data(),
+                                Maxwell::MaxConstBuffers);
                         }
-                        ~PreflushedTexturePoolScope() {
-                            VideoCommon::SetShaderTexturePoolPreflushedForThread(false);
+                        ~ImmutableGuestSnapshotScope() {
+                            VideoCommon::ClearShaderTranslationSnapshotForThread();
                         }
-                    } texture_pool_scope;
+                    } immutable_snapshot_scope{
+                        snapshot_texture_base, snapshot_texture_limit,
+                        parallel_texture_snapshot, parallel_cbuf_ptrs[physical_stage],
+                        parallel_cbuf_sizes[physical_stage]};
                     try {
                         ::Eden::Performance::CachePhaseTimer cfg_stage_cost{
                             ::Eden::Performance::CachePhase::ShaderCfg,
@@ -1946,8 +2076,9 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
                     }
                 });
         }
-        // The GPU owner intentionally waits here. While it waits, the TIC pool
-        // that it flushed cannot be made GPU-dirty by a later draw/dispatch.
+        // The GPU owner intentionally waits here. Workers see only immutable
+        // host snapshots plus each environment's already-copied shader code;
+        // no worker traverses the live GMMU/PTE table.
         shader_translation_workers.WaitForRequests();
         if (auto* const owner_stage_costs =
                 ::Eden::Performance::shader_miss_stage_active) {
@@ -2346,9 +2477,8 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
             pool_base <= std::numeric_limits<GPUVAddr>::max() - last_offset) {
             const GPUVAddr pool_last = pool_base + last_offset;
             if (gpu_memory->IsWithinGPUAddressRange(pool_last)) {
-                // Flush once on the GPU owner. Translation workers use only
-                // ReadBlockUnsafe for TICs until this owner joins them.
-                gpu_memory->FlushRegion(pool_base, pool_bytes);
+                // Full TIC/CBUF byte snapshots are built inside
+                // CreateGraphicsPipeline on the GPU owner before queueing work.
                 parallel_translate_stages = true;
             }
         }
