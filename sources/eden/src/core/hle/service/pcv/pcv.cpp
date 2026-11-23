@@ -106,14 +106,14 @@ private:
     void SetClockRate(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         clock_rate = rp.Pop<u32>();
-        LOG_DEBUG(Service_PCV, "(STUBBED) called, clock_rate={}", clock_rate);
+        LOG_DEBUG(Service_PCV, "called, clock_rate={}", clock_rate);
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
 
     void GetClockRate(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_PCV, "(STUBBED) called");
+        LOG_DEBUG(Service_PCV, "called, clock_rate={}", clock_rate);
 
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);

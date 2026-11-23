@@ -177,7 +177,7 @@ public:
 
 private:
     void CreateAccessorInterface(HLERequestContext& ctx) {
-        LOG_WARNING(Service_NIM, "(STUBBED) called");
+        LOG_DEBUG(Service_NIM, "called");
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(ResultSuccess);
         rb.PushIpcInterface<IShopServiceAccessor>(ctx, system);
@@ -438,7 +438,7 @@ public:
 
 private:
     void CreateServerInterface(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_NIM, "(STUBBED) called");
+        LOG_DEBUG(Service_NIM, "called");
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(ResultSuccess);
         rb.PushIpcInterface<IShopServiceAccessServer>(ctx, system);

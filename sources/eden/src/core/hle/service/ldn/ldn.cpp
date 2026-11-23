@@ -135,7 +135,7 @@ public:
 private:
     Result CreateNetworkService(OutInterface<ISfService> out_interface, u32 input,
                                 u64 reserved_input) {
-        LOG_WARNING(Service_LDN, "(STUBBED) called reserved_input={} input={}", reserved_input,
+        LOG_DEBUG(Service_LDN, "called reserved_input={} input={}", reserved_input,
                     input);
 
         *out_interface = std::make_shared<ISfService>(system);
@@ -144,7 +144,7 @@ private:
 
     Result CreateNetworkServiceMonitor(OutInterface<ISfServiceMonitor> out_interface,
                                        u64 reserved_input) {
-        LOG_WARNING(Service_LDN, "(STUBBED) called reserved_input={}", reserved_input);
+        LOG_DEBUG(Service_LDN, "called reserved_input={}", reserved_input);
 
         *out_interface = std::make_shared<ISfServiceMonitor>(system);
         R_SUCCEED();

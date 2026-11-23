@@ -118,7 +118,7 @@ Result IAlbumAccessorService::GetAlbumFileListEx0(
 }
 
 Result IAlbumAccessorService::GetAutoSavingStorage(Out<bool> out_is_autosaving) {
-    LOG_WARNING(Service_Capture, "(STUBBED) called");
+    LOG_DEBUG(Service_Capture, "called");
 
     const Result result = manager->GetAutoSavingStorage(*out_is_autosaving);
     R_RETURN(TranslateResult(result));
