@@ -1881,6 +1881,11 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     std::array<std::unique_ptr<Shader::IR::Program>, Maxwell::MaxShaderProgram>
         parallel_programs{};
     std::array<std::exception_ptr, Maxwell::MaxShaderProgram> parallel_errors{};
+    // CachePhaseTimer's per-key shader attribution is intentionally thread-local.
+    // Give every stage worker a private accumulator, then merge after the owner
+    // joins them so EDEN_VULKAN_SHADER_MISS keeps the pre-parallel accounting.
+    std::array<::Eden::Performance::ShaderMissStageCosts, Maxwell::MaxShaderProgram>
+        parallel_stage_costs{};
     if (parallel_translate_stages) {
         size_t parallel_env_index{};
         for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
@@ -1895,7 +1900,18 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
             const bool exits_to_dispatcher = index == 0;
             shader_translation_workers.QueueWork(
                 [this, env, stage_pools, cfg_offset, exits_to_dispatcher, index,
-                 &parallel_programs, &parallel_errors] {
+                 &parallel_programs, &parallel_errors, &parallel_stage_costs] {
+                    struct ShaderMissStageScope {
+                        ::Eden::Performance::ShaderMissStageCosts* previous{
+                            ::Eden::Performance::shader_miss_stage_active};
+                        explicit ShaderMissStageScope(
+                            ::Eden::Performance::ShaderMissStageCosts* current) noexcept {
+                            ::Eden::Performance::shader_miss_stage_active = current;
+                        }
+                        ~ShaderMissStageScope() {
+                            ::Eden::Performance::shader_miss_stage_active = previous;
+                        }
+                    } shader_miss_stage_scope{&parallel_stage_costs[index]};
                     struct PreflushedTexturePoolScope {
                         PreflushedTexturePoolScope() {
                             VideoCommon::SetShaderTexturePoolPreflushedForThread(true);
@@ -1933,6 +1949,19 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
         // The GPU owner intentionally waits here. While it waits, the TIC pool
         // that it flushed cannot be made GPU-dirty by a later draw/dispatch.
         shader_translation_workers.WaitForRequests();
+        if (auto* const owner_stage_costs =
+                ::Eden::Performance::shader_miss_stage_active) {
+            for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
+                if (key.unique_hashes[index] == 0) {
+                    continue;
+                }
+                // These are CPU-work totals, matching the former serial keyed
+                // timers. The enclosing miss cpu_ns remains the elapsed critical
+                // path and therefore reflects the parallel overlap.
+                owner_stage_costs->cfg_ns += parallel_stage_costs[index].cfg_ns;
+                owner_stage_costs->ir_ns += parallel_stage_costs[index].ir_ns;
+            }
+        }
         for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
             if (parallel_errors[index]) {
                 std::rethrow_exception(parallel_errors[index]);
