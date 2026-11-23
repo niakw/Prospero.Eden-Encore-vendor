@@ -35,7 +35,7 @@ ISystemLocalCommunicationService::ISystemLocalCommunicationService(Core::System&
         {101, D<&ISystemLocalCommunicationService::GetNetworkInfoLatestUpdate>, "GetNetworkInfoLatestUpdate"},
         {102, D<&ISystemLocalCommunicationService::Scan>, "Scan"},
         {103, D<&ISystemLocalCommunicationService::ScanPrivate>, "ScanPrivate"},
-        {104, nullptr, "SetWirelessControllerRestriction"},
+        {104, D<&ISystemLocalCommunicationService::SetWirelessControllerRestriction>, "SetWirelessControllerRestriction"},
         {200, D<&ISystemLocalCommunicationService::OpenAccessPoint>, "OpenAccessPoint"},
         {201, D<&ISystemLocalCommunicationService::CloseAccessPoint>, "CloseAccessPoint"},
         {202, D<&ISystemLocalCommunicationService::CreateNetwork>, "CreateNetwork"},
@@ -43,9 +43,9 @@ ISystemLocalCommunicationService::ISystemLocalCommunicationService(Core::System&
         {204, D<&ISystemLocalCommunicationService::DestroyNetwork>, "DestroyNetwork"},
         {205, nullptr, "Reject"},
         {206, D<&ISystemLocalCommunicationService::SetAdvertiseData>, "SetAdvertiseData"},
-        {207, nullptr, "SetStationAcceptPolicy"},
-        {208, nullptr, "AddAcceptFilterEntry"},
-        {209, nullptr, "ClearAcceptFilter"},
+        {207, D<&ISystemLocalCommunicationService::SetStationAcceptPolicy>, "SetStationAcceptPolicy"},
+        {208, D<&ISystemLocalCommunicationService::AddAcceptFilterEntry>, "AddAcceptFilterEntry"},
+        {209, D<&ISystemLocalCommunicationService::ClearAcceptFilter>, "ClearAcceptFilter"},
         {300, D<&ISystemLocalCommunicationService::OpenStation>, "OpenStation"},
         {301, D<&ISystemLocalCommunicationService::CloseStation>, "CloseStation"},
         {302, D<&ISystemLocalCommunicationService::Connect>, "Connect"},
@@ -53,8 +53,8 @@ ISystemLocalCommunicationService::ISystemLocalCommunicationService(Core::System&
         {304, D<&ISystemLocalCommunicationService::Disconnect>, "Disconnect"},
         {400, D<&ISystemLocalCommunicationService::InitializeSystem>, "InitializeSystem"},
         {401, D<&ISystemLocalCommunicationService::FinalizeSystem>, "FinalizeSystem"},
-        {402, nullptr, "SetOperationMode"},
-        {403, C<&ISystemLocalCommunicationService::InitializeSystem2>, "InitializeSystem2"},
+        {402, D<&ISystemLocalCommunicationService::SetOperationMode>, "SetOperationMode"},
+        {403, D<&ISystemLocalCommunicationService::InitializeSystem2>, "InitializeSystem2"},
     };
     // clang-format on
     RegisterHandlers(functions);
@@ -150,6 +150,14 @@ Result ISystemLocalCommunicationService::ScanPrivate(
     R_RETURN(lan_discovery.Scan(out_network_info, *network_count, scan_filter));
 }
 
+Result ISystemLocalCommunicationService::SetWirelessControllerRestriction(
+    WirelessControllerRestriction wireless_restriction) {
+    // ldn_mitm treats this Horizon radio-policy hint as a compatibility no-op. Encore does not
+    // switch PS5 host WLAN/Bluetooth policy from guest software.
+    LOG_DEBUG(Service_LDN, "called, restriction={}", wireless_restriction);
+    R_SUCCEED();
+}
+
 Result ISystemLocalCommunicationService::OpenAccessPoint() {
     R_RETURN(lan_discovery.OpenAccessPoint());
 }
@@ -177,6 +185,22 @@ Result ISystemLocalCommunicationService::DestroyNetwork() {
 Result ISystemLocalCommunicationService::SetAdvertiseData(
     InBuffer<BufferAttr_HipcAutoSelect> buffer_data) {
     R_RETURN(lan_discovery.SetAdvertiseData(buffer_data));
+}
+
+Result ISystemLocalCommunicationService::SetStationAcceptPolicy(AcceptPolicy accept_policy) {
+    // Match ldn_mitm compatibility behavior until LANDiscovery exposes host-side admission policy.
+    LOG_DEBUG(Service_LDN, "called, policy={}", accept_policy);
+    R_SUCCEED();
+}
+
+Result ISystemLocalCommunicationService::AddAcceptFilterEntry(MacAddress mac_address) {
+    LOG_DEBUG(Service_LDN, "called (compatibility no-op)");
+    R_SUCCEED();
+}
+
+Result ISystemLocalCommunicationService::ClearAcceptFilter() {
+    LOG_DEBUG(Service_LDN, "called (compatibility no-op)");
+    R_SUCCEED();
 }
 
 Result ISystemLocalCommunicationService::OpenStation() {
@@ -222,9 +246,16 @@ Result ISystemLocalCommunicationService::FinalizeSystem() {
     R_RETURN(lan_discovery.Finalize());
 }
 
-Result ISystemLocalCommunicationService::InitializeSystem2() {
-    LOG_WARNING(Service_LDN, "(STUBBED) called; ABI parameters are not represented by this Eden interface");
+Result ISystemLocalCommunicationService::SetOperationMode(u32 mode) {
+    // Horizon's LDN operation mode has no PS5 host radio-policy equivalent. Recompia/ldn_mitm
+    // accept it without side effects; preserve that compatibility contract.
+    LOG_DEBUG(Service_LDN, "called, mode={}", mode);
     R_SUCCEED();
+}
+
+Result ISystemLocalCommunicationService::InitializeSystem2(u32 version, ClientProcessId aruid) {
+    LOG_INFO(Service_LDN, "called, version={}, process_id={}", version, aruid.pid);
+    R_RETURN(InitializeSystem(aruid));
 }
 
 void ISystemLocalCommunicationService::OnLDNPacketReceived(const Network::LDNPacket& packet) {

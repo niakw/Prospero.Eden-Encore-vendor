@@ -48,7 +48,7 @@ IUserLocalCommunicationService::IUserLocalCommunicationService(Core::System& sys
             {206, D<&IUserLocalCommunicationService::SetAdvertiseData>, "SetAdvertiseData"},
             {207, D<&IUserLocalCommunicationService::SetStationAcceptPolicy>, "SetStationAcceptPolicy"},
             {208, D<&IUserLocalCommunicationService::AddAcceptFilterEntry>, "AddAcceptFilterEntry"},
-            {209, nullptr, "ClearAcceptFilter"},
+            {209, D<&IUserLocalCommunicationService::ClearAcceptFilter>, "ClearAcceptFilter"},
             {300, D<&IUserLocalCommunicationService::OpenStation>, "OpenStation"},
             {301, D<&IUserLocalCommunicationService::CloseStation>, "CloseStation"},
             {302, D<&IUserLocalCommunicationService::Connect>, "Connect"},
@@ -196,7 +196,8 @@ Result IUserLocalCommunicationService::SetProtocol(u32 protocol) {
 
 Result IUserLocalCommunicationService::SetWirelessControllerRestriction(
     WirelessControllerRestriction wireless_restriction) {
-    LOG_WARNING(Service_LDN, "(STUBBED) called");
+    LOG_DEBUG(Service_LDN, "called, restriction={}", wireless_restriction);
+    // Compatibility no-op: guest LDN must not change the PS5 host radio policy.
     R_SUCCEED();
 }
 
@@ -242,12 +243,18 @@ Result IUserLocalCommunicationService::SetAdvertiseData(
 }
 
 Result IUserLocalCommunicationService::SetStationAcceptPolicy(AcceptPolicy accept_policy) {
-    LOG_WARNING(Service_LDN, "(STUBBED) called");
+    LOG_DEBUG(Service_LDN, "called, policy={}", accept_policy);
+    // Match ldn_mitm's compatibility contract until LANDiscovery exposes admission filtering.
     R_SUCCEED();
 }
 
 Result IUserLocalCommunicationService::AddAcceptFilterEntry(MacAddress mac_address) {
-    LOG_WARNING(Service_LDN, "(STUBBED) called");
+    LOG_DEBUG(Service_LDN, "called (compatibility no-op)");
+    R_SUCCEED();
+}
+
+Result IUserLocalCommunicationService::ClearAcceptFilter() {
+    LOG_DEBUG(Service_LDN, "called (compatibility no-op)");
     R_SUCCEED();
 }
 

@@ -36,6 +36,7 @@ private:
                 OutArray<NetworkInfo, BufferAttr_HipcAutoSelect> out_network_info);
     Result ScanPrivate(Out<s16> network_count, WifiChannel channel, const ScanFilter& scan_filter,
                        OutArray<NetworkInfo, BufferAttr_HipcAutoSelect> out_network_info);
+    Result SetWirelessControllerRestriction(WirelessControllerRestriction wireless_restriction);
     Result OpenAccessPoint();
     Result CloseAccessPoint();
     Result CreateNetwork(const CreateNetworkConfig& create_config);
@@ -43,6 +44,9 @@ private:
                                 InArray<AddressEntry, BufferAttr_HipcPointer> address_list);
     Result DestroyNetwork();
     Result SetAdvertiseData(InBuffer<BufferAttr_HipcAutoSelect> buffer_data);
+    Result SetStationAcceptPolicy(AcceptPolicy accept_policy);
+    Result AddAcceptFilterEntry(MacAddress mac_address);
+    Result ClearAcceptFilter();
     Result OpenStation();
     Result CloseStation();
     Result Connect(const ConnectNetworkData& connect_data,
@@ -50,7 +54,8 @@ private:
     Result Disconnect();
     Result InitializeSystem(ClientProcessId aruid);
     Result FinalizeSystem();
-    Result InitializeSystem2();
+    Result SetOperationMode(u32 mode);
+    Result InitializeSystem2(u32 version, ClientProcessId aruid);
 
     void OnLDNPacketReceived(const Network::LDNPacket& packet);
     void OnEventFired();

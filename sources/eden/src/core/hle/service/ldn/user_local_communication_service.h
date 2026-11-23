@@ -69,6 +69,7 @@ private:
     Result SetStationAcceptPolicy(AcceptPolicy accept_policy);
 
     Result AddAcceptFilterEntry(MacAddress mac_address);
+    Result ClearAcceptFilter();
 
     Result OpenStation();
 
