@@ -15,15 +15,15 @@ namespace Service::AM {
         {0, D<&IOverlayFunctions::BeginToWatchShortHomeButtonMessage>, "BeginToWatchShortHomeButtonMessage"},
         {1, D<&IOverlayFunctions::EndToWatchShortHomeButtonMessage>, "EndToWatchShortHomeButtonMessage"},
         {2, D<&IOverlayFunctions::GetApplicationIdForLogo>, "GetApplicationIdForLogo"},
-        {3, nullptr, "SetGpuTimeSliceBoost"},
+        {3, D<&IOverlayFunctions::SetGpuTimeSliceBoost>, "SetGpuTimeSliceBoost"},
         {4, D<&IOverlayFunctions::SetAutoSleepTimeAndDimmingTimeEnabled>, "SetAutoSleepTimeAndDimmingTimeEnabled"},
         {5, nullptr, "TerminateApplicationAndSetReason"},
-        {6, nullptr, "SetScreenShotPermissionGlobally"},
+        {6, D<&IOverlayFunctions::SetScreenShotPermissionGlobally>, "SetScreenShotPermissionGlobally"},
         {10, nullptr, "StartShutdownSequenceForOverlay"},
         {11, nullptr, "StartRebootSequenceForOverlay"},
         {20, D<&IOverlayFunctions::SetHandlingHomeButtonShortPressedEnabled>, "SetHandlingHomeButtonShortPressedEnabled"},
         {21, D<&IOverlayFunctions::SetHandlingTouchScreenInputEnabled>, "SetHandlingTouchScreenInputEnabled"},
-        {30, nullptr, "SetHealthWarningShowingState"},
+        {30, D<&IOverlayFunctions::SetHealthWarningShowingState>, "SetHealthWarningShowingState"},
         {31, D<&IOverlayFunctions::IsHealthWarningRequired>, "IsHealthWarningRequired"},
         {40, nullptr, "GetApplicationNintendoLogo"},
         {41, nullptr, "GetApplicationStartupMovie"},
@@ -109,6 +109,32 @@ namespace Service::AM {
         }
         LOG_DEBUG(Service_AM, "application_id={:016X} (fallback)", id);
         *out_application_id = id;
+        R_SUCCEED();
+    }
+
+    Result IOverlayFunctions::SetGpuTimeSliceBoost(u64 value) {
+        // Horizon's GPU time-slice request targets the Switch scheduler. Encore's guest GPU work
+        // is scheduled by the PS5 host/RADV path and must not alter host scheduling policy.
+        LOG_DEBUG(Service_AM, "called, value={} (host GPU scheduler unchanged)", value);
+        R_SUCCEED();
+    }
+
+    Result IOverlayFunctions::SetScreenShotPermissionGlobally(bool enabled) {
+        LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
+        std::scoped_lock lk{m_applet->lock};
+        m_applet->screenshot_permission =
+            enabled ? ScreenshotPermission::Enable : ScreenshotPermission::Disable;
+        R_SUCCEED();
+    }
+
+    Result IOverlayFunctions::SetHealthWarningShowingState(bool showing) {
+        // Encore has no PS5-host health-warning overlay corresponding to Horizon's warning UI.
+        // When the guest reports the warning hidden, signal the existing disappearance event so
+        // waiters can continue instead of blocking on an unrendered warning.
+        LOG_DEBUG(Service_AM, "called, showing={}", showing);
+        if (!showing) {
+            m_applet->health_warning_disappeared_system_event.Signal();
+        }
         R_SUCCEED();
     }
 
