@@ -39,9 +39,9 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1011, D<&IParentalControlService::RevertRestrictedSystemSettingsEntered>, "RevertRestrictedSystemSettingsEntered"},
         {1012, nullptr, "GetRestrictedFeatures"},
         {1013, D<&IParentalControlService::ConfirmStereoVisionPermission>, "ConfirmStereoVisionPermission"},
-        {1014, nullptr, "ConfirmPlayableApplicationVideoOld"},
-        {1015, nullptr, "ConfirmPlayableApplicationVideo"},
-        {1016, nullptr, "ConfirmShowNewsPermission"},
+        {1014, &IParentalControlService::ConfirmPlayableApplicationVideoOld, "ConfirmPlayableApplicationVideoOld"},
+        {1015, &IParentalControlService::ConfirmPlayableApplicationVideo, "ConfirmPlayableApplicationVideo"},
+        {1016, &IParentalControlService::ConfirmShowNewsPermission, "ConfirmShowNewsPermission"},
         {1017, D<&IParentalControlService::EndFreeCommunication>, "EndFreeCommunication"},
         {1018, D<&IParentalControlService::IsFreeCommunicationAvailable>, "IsFreeCommunicationAvailable"},
         {1019, D<&IParentalControlService::ConfirmLaunchApplicationPermission>, "ConfirmLaunchApplicationPermission"},
@@ -58,22 +58,22 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1038, D<&IParentalControlService::SetDefaultRatingOrganization>, "SetDefaultRatingOrganization"},
         {1039, D<&IParentalControlService::GetFreeCommunicationApplicationListCount>, "GetFreeCommunicationApplicationListCount"},
         {1042, D<&IParentalControlService::AddToFreeCommunicationApplicationList>, "AddToFreeCommunicationApplicationList"},
-        {1043, nullptr, "DeleteSettings"},
+        {1043, D<&IParentalControlService::DeleteSettings>, "DeleteSettings"},
         {1044, D<&IParentalControlService::GetFreeCommunicationApplicationList>, "GetFreeCommunicationApplicationList"},
         {1045, D<&IParentalControlService::UpdateFreeCommunicationApplicationList>, "UpdateFreeCommunicationApplicationList"},
-        {1046, nullptr, "DisableFeaturesForReset"},
-        {1047, nullptr, "NotifyApplicationDownloadStarted"},
-        {1048, nullptr, "NotifyNetworkProfileCreated"},
+        {1046, D<&IParentalControlService::DisableFeaturesForReset>, "DisableFeaturesForReset"},
+        {1047, &IParentalControlService::NotifyApplicationDownloadStarted, "NotifyApplicationDownloadStarted"},
+        {1048, &IParentalControlService::NotifyNetworkProfileCreated, "NotifyNetworkProfileCreated"},
         {1049, D<&IParentalControlService::ResetFreeCommunicationApplicationList>, "ResetFreeCommunicationApplicationList"},
         {1050, D<&IParentalControlService::AddToFreeCommunicationApplicationList>, "AddToFreeCommunicationApplicationList"}, //20.0.0+
-        {1051, nullptr, "NotifyApplicationDownloadStarted"}, //20.0.0+
+        {1051, &IParentalControlService::NotifyApplicationDownloadStarted, "NotifyApplicationDownloadStarted"}, //20.0.0+
         {1061, D<&IParentalControlService::ConfirmStereoVisionRestrictionConfigurable>, "ConfirmStereoVisionRestrictionConfigurable"},
         {1062, D<&IParentalControlService::GetStereoVisionRestriction>, "GetStereoVisionRestriction"},
         {1063, D<&IParentalControlService::SetStereoVisionRestriction>, "SetStereoVisionRestriction"},
         {1064, D<&IParentalControlService::ResetConfirmedStereoVisionPermission>, "ResetConfirmedStereoVisionPermission"},
         {1065, D<&IParentalControlService::IsStereoVisionPermitted>, "IsStereoVisionPermitted"},
         {1201, D<&IParentalControlService::UnlockRestrictionTemporarily>, "UnlockRestrictionTemporarily"},
-        {1202, nullptr, "UnlockSystemSettingsRestriction"},
+        {1202, D<&IParentalControlService::UnlockSystemSettingsRestriction>, "UnlockSystemSettingsRestriction"},
         {1203, D<&IParentalControlService::SetPinCode>, "SetPinCode"},
         {1204, nullptr, "GenerateInquiryCode"},
         {1205, nullptr, "CheckMasterKey"},
@@ -99,14 +99,14 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1458, D<&IParentalControlService::IsPlayTimerAlarmDisabled>, "IsPlayTimerAlarmDisabled"},
         {1459, D<&IParentalControlService::GetPlayTimerRemainingTimeDisplayInfo>, "GetPlayTimerRemainingTimeDisplayInfo"},
         {1460, D<&IParentalControlService::Unknown1460>, "Unknown1460"},
-        {1471, nullptr, "NotifyWrongPinCodeInputManyTimes"},
-        {1472, nullptr, "CancelNetworkRequest"},
+        {1471, &IParentalControlService::NotifyWrongPinCodeInputManyTimes, "NotifyWrongPinCodeInputManyTimes"},
+        {1472, &IParentalControlService::CancelNetworkRequest, "CancelNetworkRequest"},
         {1473, D<&IParentalControlService::GetUnlinkedEvent>, "GetUnlinkedEvent"},
         {1474, D<&IParentalControlService::ClearUnlinkedEvent>, "ClearUnlinkedEvent"},
         {1475, nullptr, "GetExtendedPlayTimerEvent"}, // 18.0.0+
-        {1601, nullptr, "DisableAllFeatures"},
-        {1602, nullptr, "PostEnableAllFeatures"},
-        {1603, nullptr, "IsAllFeaturesDisabled"},
+        {1601, D<&IParentalControlService::DisableAllFeatures>, "DisableAllFeatures"},
+        {1602, D<&IParentalControlService::PostEnableAllFeatures>, "PostEnableAllFeatures"},
+        {1603, D<&IParentalControlService::IsAllFeaturesDisabled>, "IsAllFeaturesDisabled"},
         {1901, D<&IParentalControlService::DeleteFromFreeCommunicationApplicationListForDebug>, "DeleteFromFreeCommunicationApplicationListForDebug"},
         {1902, D<&IParentalControlService::ClearFreeCommunicationApplicationListForDebug>, "ClearFreeCommunicationApplicationListForDebug"},
         {1903, D<&IParentalControlService::RejectDebugOnlyCommand>, "GetExemptApplicationListCountForDebug"},
@@ -115,7 +115,7 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1906, D<&IParentalControlService::RejectDebugOnlyCommand>, "AddToExemptApplicationListForDebug"},
         {1907, D<&IParentalControlService::RejectDebugOnlyCommand>, "DeleteFromExemptApplicationListForDebug"},
         {1908, D<&IParentalControlService::RejectDebugOnlyCommand>, "ClearExemptApplicationListForDebug"},
-        {1941, nullptr, "DeletePairing"},
+        {1941, D<&IParentalControlService::DeletePairing>, "DeletePairing"},
         {1951, D<&IParentalControlService::RejectDebugOnlyCommand>, "SetPlayTimerSettingsForDebug"},
         {1952, nullptr, "GetPlayTimerSpentTimeForTest"},
         {1953, D<&IParentalControlService::RejectDebugOnlyCommand>, "SetPlayTimerAlarmDisabledForDebug"},
@@ -328,6 +328,24 @@ Result IParentalControlService::ConfirmStereoVisionPermission() {
     R_SUCCEED();
 }
 
+void IParentalControlService::ConfirmPlayableApplicationVideoOld(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_PCTL, "Playable-application video permission accepted by local policy");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void IParentalControlService::ConfirmPlayableApplicationVideo(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_PCTL, "Playable-application video permission accepted by local policy");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void IParentalControlService::ConfirmShowNewsPermission(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_PCTL, "News permission accepted by local policy");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
 Result IParentalControlService::EndFreeCommunication() {
     LOG_WARNING(Service_PCTL, "(STUBBED) called");
     R_SUCCEED();
@@ -481,6 +499,38 @@ Result IParentalControlService::ClearFreeCommunicationApplicationListForDebug() 
     R_SUCCEED();
 }
 
+Result IParentalControlService::DeleteSettings() {
+    settings = {};
+    restriction_settings = {};
+    default_rating_organization = 0;
+    free_communication_application_list.clear();
+    pin_code.fill('\0');
+    states.temporary_unlocked = false;
+    states.restricted_system_settings_entered = false;
+    pin_code_changed_event.Signal(system.Kernel());
+    synchronization_event.Signal(system.Kernel());
+    LOG_DEBUG(Service_PCTL, "Local parental-control settings reset");
+    R_SUCCEED();
+}
+
+Result IParentalControlService::DisableFeaturesForReset() {
+    settings.disabled = true;
+    LOG_DEBUG(Service_PCTL, "Parental-control feature effects disabled for reset");
+    R_SUCCEED();
+}
+
+void IParentalControlService::NotifyApplicationDownloadStarted(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_PCTL, "Application-download notification acknowledged");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void IParentalControlService::NotifyNetworkProfileCreated(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_PCTL, "Network-profile notification acknowledged");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
 Result IParentalControlService::ConfirmStereoVisionRestrictionConfigurable() {
     LOG_DEBUG(Service_PCTL, "called");
 
@@ -522,6 +572,13 @@ Result IParentalControlService::UnlockRestrictionTemporarily(
 
     states.temporary_unlocked = true;
     LOG_DEBUG(Service_PCTL, "Temporary restriction unlock enabled");
+    R_SUCCEED();
+}
+
+Result IParentalControlService::UnlockSystemSettingsRestriction() {
+    states.temporary_unlocked = true;
+    states.restricted_system_settings_entered = true;
+    LOG_DEBUG(Service_PCTL, "System-settings restriction unlocked for current service state");
     R_SUCCEED();
 }
 
@@ -675,6 +732,42 @@ Result IParentalControlService::GetUnlinkedEvent(OutCopyHandle<Kernel::KReadable
 Result IParentalControlService::ClearUnlinkedEvent() {
     unlinked_event.Clear(system.Kernel());
     LOG_DEBUG(Service_PCTL, "Unlinked event cleared");
+    R_SUCCEED();
+}
+
+void IParentalControlService::NotifyWrongPinCodeInputManyTimes(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_PCTL, "Wrong-PIN repetition notification acknowledged");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void IParentalControlService::CancelNetworkRequest(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_PCTL, "No parental-control network request is active; cancel acknowledged");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+Result IParentalControlService::DisableAllFeatures() {
+    settings.disabled = true;
+    LOG_DEBUG(Service_PCTL, "All parental-control feature effects disabled");
+    R_SUCCEED();
+}
+
+Result IParentalControlService::PostEnableAllFeatures() {
+    settings.disabled = false;
+    LOG_DEBUG(Service_PCTL, "All parental-control feature effects enabled");
+    R_SUCCEED();
+}
+
+Result IParentalControlService::IsAllFeaturesDisabled(Out<bool> out_is_disabled) {
+    *out_is_disabled = settings.disabled;
+    LOG_DEBUG(Service_PCTL, "called, disabled={}", *out_is_disabled);
+    R_SUCCEED();
+}
+
+Result IParentalControlService::DeletePairing() {
+    unlinked_event.Signal(system.Kernel());
+    LOG_DEBUG(Service_PCTL, "Local pairing state cleared");
     R_SUCCEED();
 }
 

@@ -43,6 +43,9 @@ private:
     Result RevertRestrictedSystemSettingsEntered();
     Result IsRestrictedSystemSettingsEntered(Out<bool> out_is_restricted_system_settings_entered);
     Result ConfirmStereoVisionPermission();
+    void ConfirmPlayableApplicationVideoOld(HLERequestContext& ctx);
+    void ConfirmPlayableApplicationVideo(HLERequestContext& ctx);
+    void ConfirmShowNewsPermission(HLERequestContext& ctx);
     Result EndFreeCommunication();
     Result IsFreeCommunicationAvailable();
     Result IsRestrictionEnabled(Out<bool> out_restriction_enabled);
@@ -52,6 +55,10 @@ private:
     Result GetDefaultRatingOrganization(Out<u32> out_rating_organization);
     Result SetDefaultRatingOrganization(u32 rating_organization);
     Result GetFreeCommunicationApplicationListCount(Out<s32> out_count);
+    Result DeleteSettings();
+    Result DisableFeaturesForReset();
+    void NotifyApplicationDownloadStarted(HLERequestContext& ctx);
+    void NotifyNetworkProfileCreated(HLERequestContext& ctx);
     Result AddToFreeCommunicationApplicationList(u64 application_id);
     Result GetFreeCommunicationApplicationList(
         Out<u32> out_count,
@@ -64,6 +71,7 @@ private:
     Result ConfirmStereoVisionRestrictionConfigurable();
     Result IsStereoVisionPermitted(Out<bool> out_is_permitted);
     Result UnlockRestrictionTemporarily(InArray<char, BufferAttr_HipcPointer> pin_code_buffer);
+    Result UnlockSystemSettingsRestriction();
     Result SetPinCode(InArray<char, BufferAttr_HipcPointer> pin_code_buffer);
     Result GetPinCodeLength(Out<s32> out_length);
     Result GetPinCodeChangedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
@@ -83,6 +91,12 @@ private:
     Result Unknown1460(u8 in_unk, Out<PlayTimerRemainingTimeDisplayInfo> out_display_info);
     Result GetUnlinkedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result ClearUnlinkedEvent();
+    void NotifyWrongPinCodeInputManyTimes(HLERequestContext& ctx);
+    void CancelNetworkRequest(HLERequestContext& ctx);
+    Result DisableAllFeatures();
+    Result PostEnableAllFeatures();
+    Result IsAllFeaturesDisabled(Out<bool> out_is_disabled);
+    Result DeletePairing();
     Result GetStereoVisionRestriction(Out<bool> out_stereo_vision_restriction);
     Result SetStereoVisionRestriction(bool stereo_vision_restriction);
     Result ResetConfirmedStereoVisionPermission();
