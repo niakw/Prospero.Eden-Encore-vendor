@@ -13,6 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     if relative != "encore-active/ns2-runtime/process/core/core.cpp":
         return source
+    # PS5 FC27 23/11 host-service lifetime successor: wake SM waiters,
+    # stop server loops and join retained host workers before ShutdownCores.
+    # Undo only in this provenance copy before replaying older shutdown SHAs.
+    host_lifetime_after = "        gpu_core.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed gpu_core.reset()\");\n        if (service_manager) {\n            service_manager->Close();\n            ::Eden::ReportStep(\"shutdown\", \"Completed service_manager.Close()\");\n        }\n        kernel.CloseServices();\n        ::Eden::ReportStep(\"shutdown\", \"Completed kernel.CloseServices()\");\n        // Services owns the audio/VI host jthreads. Join them while their\n        // dummy KThreads still have a live kernel/scheduler to Close() into.\n        // Server managers have already stopped, so NVDRV owners can release\n        // their mappings without racing the destroyed GPU worker.\n        services.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed services.reset()\");\n        kernel.ShutdownCores();"
+    host_lifetime_before = "        gpu_core.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed gpu_core.reset()\");\n        kernel.CloseServices();\n        ::Eden::ReportStep(\"shutdown\", \"Completed kernel.CloseServices()\");\n        // NVDRV's nvhost_as_gpu destructor can unpin NVMap pages and release\n        // its retained KProcess reference. Release those service owners while\n        // the process and scheduler are still alive; ShutdownCores terminates\n        // the guest processes and must come AFTER this cleanup. The GPU worker\n        // was joined above, so no GPU task can reuse the retired mappings.\n        services.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed services.reset()\");\n        // A process finishing shutdown can still consult the SM owner.\n        // NVDRV services have already released their guest AS/page pins;\n        // retain the service manager itself until all kernel cores retire.\n        kernel.ShutdownCores();"
+    assert source.count(host_lifetime_after) == 1, ("host-service lifetime", relative)
+    source = source.replace(host_lifetime_after, host_lifetime_before, 1)
+
     # PS5 FC27 23/11: keep the SM owner alive until KProcess termination.
     # Reverse only on the provenance copy, never on the compiled C++ owner.
     after_service = (
@@ -120,6 +128,32 @@ def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
         "gpu_core.reset();") < shutdown.index("kernel.CloseServices();")
     assert shutdown.index("gpu_core.reset();") < shutdown.index("services.reset();")
     return source.replace(early, legacy, 1).replace(late, old_late, 1)
+# Current PS5 host-service lifetime contract, independent of historical replay.
+active_core = (ROOT / "encore-active/ns2-runtime/process/core/core.cpp").read_text()
+active_shutdown = active_core.split("    void ShutdownMainProcess() {", 1)[1].split(
+    "\n    bool IsShuttingDown()", 1)[0]
+assert active_shutdown.index("service_manager->Close();") < active_shutdown.index(
+    "kernel.CloseServices();") < active_shutdown.index("services.reset();") < active_shutdown.index(
+    "kernel.ShutdownCores();")
+sm_header = (ROOT / "encore-active/eden-core/src/core/hle/service/sm/sm.h").read_text()
+sm_source = (ROOT / "encore-active/eden-core/src/core/hle/service/sm/sm.cpp").read_text()
+services_header = (ROOT / "encore-active/eden-core/src/core/hle/service/services.h").read_text()
+services_source = (ROOT / "encore-active/eden-core/src/core/hle/service/services.cpp").read_text()
+vi_source = (ROOT / "encore-active/eden-core/src/core/hle/service/vi/vi.cpp").read_text()
+server_header = (ROOT / "encore-active/eden-core/src/core/hle/service/server_manager.h").read_text()
+server_source = (ROOT / "encore-active/eden-core/src/core/hle/service/server_manager.cpp").read_text()
+assert "bool WaitForService(const std::string& name);" in sm_header
+assert "void Close();" in sm_header and "std::condition_variable waiters_changed;" in sm_header
+assert "waiters_changed.wait(l" in sm_source and "closing = true;" in sm_source
+assert "std::jthread audio_worker;" in services_header and "std::jthread vi_worker;" in services_header
+assert 'audio_worker = kernel.RunOnHostCoreProcess("audio"' in services_source
+assert 'kernel.RunOnHostCoreProcess("audio"' not in services_source.split("audio_worker =", 1)[0]
+assert "vi_worker =" in services_source
+assert 'WaitForService("dispdrv")' in vi_source and 'WaitForService("nvdrv:s")' in vi_source
+assert "void SkipLoop();" in server_header and "m_loop_skipped" in server_header
+assert "void ServerManager::SkipLoop()" in server_source
+print("PS5_HOST_SERVICE_SHUTDOWN_LIFETIME_SOURCE_PASS waiters=closed workers=joinable")
+
 cores = {
     "encore-active/eden-core/src/core/core_standard.cpp":
         "2085b5e5751669e9d3885e80c95cab8bf28dd24e",

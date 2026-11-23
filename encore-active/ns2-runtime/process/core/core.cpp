@@ -613,18 +613,18 @@ struct System::Impl {
         // Keep Host1x and the NVDRV containers alive throughout GPU teardown.
         gpu_core.reset();
         ::Eden::ReportStep("shutdown", "Completed gpu_core.reset()");
+        if (service_manager) {
+            service_manager->Close();
+            ::Eden::ReportStep("shutdown", "Completed service_manager.Close()");
+        }
         kernel.CloseServices();
         ::Eden::ReportStep("shutdown", "Completed kernel.CloseServices()");
-        // NVDRV's nvhost_as_gpu destructor can unpin NVMap pages and release
-        // its retained KProcess reference. Release those service owners while
-        // the process and scheduler are still alive; ShutdownCores terminates
-        // the guest processes and must come AFTER this cleanup. The GPU worker
-        // was joined above, so no GPU task can reuse the retired mappings.
+        // Services owns the audio/VI host jthreads. Join them while their
+        // dummy KThreads still have a live kernel/scheduler to Close() into.
+        // Server managers have already stopped, so NVDRV owners can release
+        // their mappings without racing the destroyed GPU worker.
         services.reset();
         ::Eden::ReportStep("shutdown", "Completed services.reset()");
-        // A process finishing shutdown can still consult the SM owner.
-        // NVDRV services have already released their guest AS/page pins;
-        // retain the service manager itself until all kernel cores retire.
         kernel.ShutdownCores();
         ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");
         service_manager.reset();

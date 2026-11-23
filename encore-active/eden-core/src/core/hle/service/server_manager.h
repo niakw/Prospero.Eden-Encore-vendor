@@ -49,6 +49,7 @@ public:
 
     void RequestStop();
     Result LoopProcess();
+    void SkipLoop();
     void StartAdditionalHostThreads(const char* name, size_t num_threads);
 
     static void RunServer(std::unique_ptr<ServerManager>&& server);
@@ -93,6 +94,7 @@ private:
     Common::Event m_stopped{};
     std::vector<std::jthread> m_threads{};
     std::stop_source m_stop_source{};
+    bool m_loop_skipped{};
 };
 
 } // namespace Service

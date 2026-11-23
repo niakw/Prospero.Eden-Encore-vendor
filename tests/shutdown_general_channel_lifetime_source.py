@@ -13,6 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     if relative != "encore-active/ns2-runtime/process/core/core.cpp":
         return source
+    # PS5 FC27 23/11 host-service lifetime successor: wake SM waiters,
+    # stop server loops and join retained host workers before ShutdownCores.
+    # Undo only in this provenance copy before replaying older shutdown SHAs.
+    host_lifetime_after = "        gpu_core.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed gpu_core.reset()\");\n        if (service_manager) {\n            service_manager->Close();\n            ::Eden::ReportStep(\"shutdown\", \"Completed service_manager.Close()\");\n        }\n        kernel.CloseServices();\n        ::Eden::ReportStep(\"shutdown\", \"Completed kernel.CloseServices()\");\n        // Services owns the audio/VI host jthreads. Join them while their\n        // dummy KThreads still have a live kernel/scheduler to Close() into.\n        // Server managers have already stopped, so NVDRV owners can release\n        // their mappings without racing the destroyed GPU worker.\n        services.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed services.reset()\");\n        kernel.ShutdownCores();"
+    host_lifetime_before = "        gpu_core.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed gpu_core.reset()\");\n        kernel.CloseServices();\n        ::Eden::ReportStep(\"shutdown\", \"Completed kernel.CloseServices()\");\n        // NVDRV's nvhost_as_gpu destructor can unpin NVMap pages and release\n        // its retained KProcess reference. Release those service owners while\n        // the process and scheduler are still alive; ShutdownCores terminates\n        // the guest processes and must come AFTER this cleanup. The GPU worker\n        // was joined above, so no GPU task can reuse the retired mappings.\n        services.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed services.reset()\");\n        // A process finishing shutdown can still consult the SM owner.\n        // NVDRV services have already released their guest AS/page pins;\n        // retain the service manager itself until all kernel cores retire.\n        kernel.ShutdownCores();"
+    assert source.count(host_lifetime_after) == 1, ("host-service lifetime", relative)
+    source = source.replace(host_lifetime_after, host_lifetime_before, 1)
+
     # PS5 FC27 23/11: keep the SM owner alive until KProcess termination.
     # Reverse only on the provenance copy, never on the compiled C++ owner.
     after_service = (
