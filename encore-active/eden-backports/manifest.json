@@ -96,13 +96,13 @@
       "upstream": "76b12e3a425e6f60d4982348ea8bbe17e109b3d06341362191b1545cb6ae112c"
     },
     "src/core/hle/service/acc/acc.cpp": {
-      "active": "e3fad6c300b5ca3796fd02bce3cfce4045310a35d2560fdd0a3fc6eb2fba9d4b",
-      "bytes": 72170,
+      "active": "6cba91d0cb494a72f1ca82c6eb2e610c9ea78a57009e593e32d488a81e2a1597",
+      "bytes": 75824,
       "upstream": "95857946c85c42721f123d4e591d880a57e2cfd9bc74ec995741e633975af02b"
     },
     "src/core/hle/service/acc/acc.h": {
-      "active": "398cbf148e44e5584474f9a6f117e6cfef0686eef9ac2132584cd6cf530fefb7",
-      "bytes": 3272,
+      "active": "a1ed7ea87bad018fa947009aeee3d3148c52301396a0fa0fcb9716fe4f712e61",
+      "bytes": 3461,
       "upstream": "f3d96d4fe580f4686b5263d6643bc173f7a617fa086895f0124f0b3e0669dadf"
     },
     "src/core/hle/service/am/display_layer_manager.cpp": {

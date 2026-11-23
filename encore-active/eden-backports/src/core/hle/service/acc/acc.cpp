@@ -39,6 +39,12 @@ static std::filesystem::path GetImagePath(const Common::UUID& uuid) {
            fmt::format("system/save/8000000000000010/su/avators/{}.jpg", uuid.FormattedString());
 }
 
+static std::filesystem::path GetSaveDataThumbnailPath(const Common::UUID& uuid, u64 tid) {
+    return Common::FS::GetEdenPath(Common::FS::EdenPath::NANDDir) /
+           fmt::format("system/save/8000000000000010/su/thumbnails/{}/{:016X}.bin",
+                       uuid.FormattedString(), tid);
+}
+
 static void JPGToMemory(void* context, void* data, int len) {
     std::vector<u8>* jpg_image = static_cast<std::vector<u8>*>(context);
     unsigned char* jpg = static_cast<unsigned char*>(data);
@@ -1183,21 +1189,121 @@ void Module::Interface::StoreSaveDataThumbnail(HLERequestContext& ctx, const Com
         return;
     }
 
-    if (uuid.IsInvalid()) {
+    if (uuid.IsInvalid() || !profile_manager->UserExists(uuid)) {
         LOG_ERROR(Service_ACC, "User ID is not valid!");
         rb.Push(Account::ResultInvalidUserId);
         return;
     }
-    const auto thumbnail_size = ctx.GetReadBufferSize();
-    if (thumbnail_size != THUMBNAIL_SIZE) {
-        LOG_ERROR(Service_ACC, "Buffer size is empty! size={:X} expecting {:X}", thumbnail_size,
+
+    const auto thumbnail_data = ctx.ReadBuffer();
+    if (thumbnail_data.size() != THUMBNAIL_SIZE) {
+        LOG_ERROR(Service_ACC, "Thumbnail buffer size={:X}, expected {:X}", thumbnail_data.size(),
                   THUMBNAIL_SIZE);
         rb.Push(Account::ResultInvalidArrayLength);
         return;
     }
 
-    // TODO(ogniK): Construct save data thumbnail
+    const auto path = GetSaveDataThumbnailPath(uuid, tid);
+    if (!Common::FS::CreateDirs(path.parent_path())) {
+        LOG_ERROR(Service_ACC, "Failed to create save-data thumbnail directory");
+        rb.Push(Account::ResultAccountUpdateFailed);
+        return;
+    }
+
+    Common::FS::IOFile thumbnail(path, Common::FS::FileAccessMode::Write,
+                                 Common::FS::FileType::BinaryFile);
+    if (!thumbnail.IsOpen() || !thumbnail.SetSize(thumbnail_data.size()) ||
+        thumbnail.Write(thumbnail_data) != thumbnail_data.size()) {
+        LOG_ERROR(Service_ACC, "Failed to persist save-data thumbnail");
+        rb.Push(Account::ResultAccountUpdateFailed);
+        return;
+    }
+
     rb.Push(ResultSuccess);
+}
+
+void Module::Interface::ClearSaveDataThumbnail(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const auto uuid = rp.PopRaw<Common::UUID>();
+    const auto tid = rp.Pop<u64_le>();
+
+    IPC::ResponseBuilder rb{ctx, 2};
+    if (tid == 0) {
+        rb.Push(Account::ResultInvalidApplication);
+        return;
+    }
+    if (uuid.IsInvalid() || !profile_manager->UserExists(uuid)) {
+        rb.Push(Account::ResultInvalidUserId);
+        return;
+    }
+
+    const auto path = GetSaveDataThumbnailPath(uuid, tid);
+    if (Common::FS::Exists(path) && !Common::FS::RemoveFile(path)) {
+        LOG_ERROR(Service_ACC, "Failed to clear save-data thumbnail");
+        rb.Push(Account::ResultAccountUpdateFailed);
+        return;
+    }
+    rb.Push(ResultSuccess);
+}
+
+void Module::Interface::LoadSaveDataThumbnail(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const auto uuid = rp.PopRaw<Common::UUID>();
+    const auto tid = rp.Pop<u64_le>();
+
+    IPC::ResponseBuilder rb{ctx, 3};
+    if (tid == 0) {
+        rb.Push(Account::ResultInvalidApplication);
+        return;
+    }
+    if (uuid.IsInvalid() || !profile_manager->UserExists(uuid)) {
+        rb.Push(Account::ResultInvalidUserId);
+        return;
+    }
+
+    const auto path = GetSaveDataThumbnailPath(uuid, tid);
+    if (!Common::FS::Exists(path)) {
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
+        return;
+    }
+
+    Common::FS::IOFile thumbnail(path, Common::FS::FileAccessMode::Read,
+                                 Common::FS::FileType::BinaryFile);
+    if (!thumbnail.IsOpen() || thumbnail.GetSize() != THUMBNAIL_SIZE ||
+        ctx.GetWriteBufferSize() < THUMBNAIL_SIZE) {
+        rb.Push(Account::ResultInvalidArrayLength);
+        return;
+    }
+
+    std::vector<u8> data(THUMBNAIL_SIZE);
+    if (thumbnail.Read(data) != data.size()) {
+        rb.Push(Account::ResultAccountUpdateFailed);
+        return;
+    }
+
+    ctx.WriteBuffer(data);
+    rb.Push(ResultSuccess);
+    rb.Push(static_cast<u32>(data.size()));
+}
+
+void Module::Interface::GetSaveDataThumbnailExistence(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const auto uuid = rp.PopRaw<Common::UUID>();
+    const auto tid = rp.Pop<u64_le>();
+
+    IPC::ResponseBuilder rb{ctx, 3};
+    if (tid == 0) {
+        rb.Push(Account::ResultInvalidApplication);
+        return;
+    }
+    if (uuid.IsInvalid() || !profile_manager->UserExists(uuid)) {
+        rb.Push(Account::ResultInvalidUserId);
+        return;
+    }
+
+    rb.Push(ResultSuccess);
+    rb.Push(Common::FS::Exists(GetSaveDataThumbnailPath(uuid, tid)));
 }
 
 void Module::Interface::TrySelectUserWithoutInteractionDeprecated(HLERequestContext& ctx) {
@@ -1298,9 +1404,9 @@ public:
             {105, nullptr, "CheckNetworkServiceAvailabilityAsync"},
             {106, nullptr, "GetProfileSyncNotifier"},
             {110, &ACC_SU::StoreSaveDataThumbnailSystem, "StoreSaveDataThumbnail"},
-            {111, nullptr, "ClearSaveDataThumbnail"},
-            {112, nullptr, "LoadSaveDataThumbnail"},
-            {113, nullptr, "GetSaveDataThumbnailExistence"},
+            {111, &ACC_SU::ClearSaveDataThumbnail, "ClearSaveDataThumbnail"},
+            {112, &ACC_SU::LoadSaveDataThumbnail, "LoadSaveDataThumbnail"},
+            {113, &ACC_SU::GetSaveDataThumbnailExistence, "GetSaveDataThumbnailExistence"},
             {120, nullptr, "ListOpenUsersInApplication"},
             {130, nullptr, "ActivateOpenContextRetention"},
             {140, &ACC_SU::ListQualifiedUsers, "ListQualifiedUsers"},
