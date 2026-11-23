@@ -381,7 +381,10 @@ Result ISelfController::IsAutoSleepDisabled(Out<bool> out_is_auto_sleep_disabled
 }
 
 Result ISelfController::IsIlluminanceAvailable(Out<bool> out_is_illuminance_available) {
-    LOG_WARNING(Service_AM, "(stubbed)");
+    LOG_DEBUG(Service_AM, "called");
+
+    // No ambient-light sensor is exposed by the PS5 host integration. Report that capability
+    // accurately so guests do not attempt GetCurrentIlluminance/GetCurrentIlluminanceEx.
     *out_is_illuminance_available = false;
     R_SUCCEED();
 }
