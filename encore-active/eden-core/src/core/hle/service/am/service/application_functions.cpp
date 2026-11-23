@@ -391,7 +391,11 @@ Result IApplicationFunctions::IsGamePlayRecordingSupported(
 
 Result IApplicationFunctions::InitializeGamePlayRecording(
     u64 transfer_memory_size, InCopyHandle<Kernel::KTransferMemory> transfer_memory_handle) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    // IsGamePlayRecordingSupported exposes the applet capability, which remains disabled when
+    // Encore has no Horizon gameplay-recording backend. Keep the command compatible with titles
+    // which call it unconditionally, but do not claim or map a host recording buffer.
+    LOG_DEBUG(Service_AM, "called, recording unsupported, transfer_memory_size={:#x}",
+              transfer_memory_size);
     R_SUCCEED();
 }
 
