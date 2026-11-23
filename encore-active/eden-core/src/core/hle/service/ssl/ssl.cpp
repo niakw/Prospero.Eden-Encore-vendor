@@ -87,7 +87,7 @@ public:
             {3, D<&ISslConnection::SetIoMode>, "SetIoMode"},
             {4, D<&ISslConnection::GetSocketDescriptor>, "GetSocketDescriptor"},
             {5, D<&ISslConnection::GetHostName>, "GetHostName"},
-            {6, nullptr, "GetVerifyOption"},
+            {6, D<&ISslConnection::GetVerifyOption>, "GetVerifyOption"},
             {7, D<&ISslConnection::GetIoMode>, "GetIoMode"},
             {8, D<&ISslConnection::DoHandshake>, "DoHandshake"},
             {9, &ISslConnection::DoHandshakeGetServerCert, "DoHandshakeGetServerCert"},
@@ -130,17 +130,11 @@ public:
     ~ISslConnection() {
         shared_data->connection_count--;
         if (fd_to_close.has_value()) {
-            const s32 fd = *fd_to_close;
-            if (!do_not_close_socket) {
-                LOG_ERROR(Service_SSL,
-                          "do_not_close_socket was changed after setting socket; is this right?");
-            } else {
-                auto bsd = system.ServiceManager().GetService<Service::Sockets::BSD_USA>("bsd:u");
-                if (bsd) {
-                    auto err = bsd->CloseImpl(fd);
-                    if (err != Service::Sockets::Errno::SUCCESS) {
-                        LOG_ERROR(Service_SSL, "Failed to close duplicated socket: {}", err);
-                    }
+            auto bsd = system.ServiceManager().GetService<Service::Sockets::BSD_USA>("bsd:u");
+            if (bsd) {
+                const auto err = bsd->CloseImpl(*fd_to_close);
+                if (err != Service::Sockets::Errno::SUCCESS) {
+                    LOG_ERROR(Service_SSL, "Failed to close duplicated socket: {}", err);
                 }
             }
         }
@@ -198,11 +192,15 @@ private:
                 fd_to_close = dup_fd;
             auto const sock = bsd->GetSocket(dup_fd);
             if (!sock.has_value()) {
+                (void)bsd->CloseImpl(dup_fd);
                 LOG_ERROR(Service_SSL, "invalid socket fd {} after duplication", dup_fd);
                 return ResultInvalidSocket;
             }
-            socket = std::move(*sock);
-            backend->SetSocket(std::move(socket));
+            input_fd = in_fd;
+            socket = *sock;
+            // Keep our shared_ptr as well: SetIoMode and status getters need
+            // the same live socket after the backend takes its own reference.
+            backend->SetSocket(socket);
             return ResultSuccess;
         }
         LOG_ERROR(Service_SSL, "Failed to duplicate socket with fd {}", in_fd);
@@ -213,7 +211,11 @@ private:
         auto const hostname = Common::StringFromBuffer(buf);
         LOG_DEBUG(Service_SSL, "called. hostname={}", hostname);
         ASSERT(!did_handshake);
-        return backend->SetHostName(hostname.c_str());
+        const Result result = backend->SetHostName(hostname.c_str());
+        if (result.IsSuccess()) {
+            host_name = hostname;
+        }
+        return result;
     }
 
     Result SetVerifyOption(u32 option) {
@@ -232,24 +234,34 @@ private:
         const Network::Errno error = socket->SetNonBlock(non_block);
         if (error != Network::Errno::SUCCESS) {
             LOG_ERROR(Service_SSL, "Failed to set native socket non-block flag to {}", non_block);
+            return ResultInternalError;
         }
+        io_mode = mode;
         R_SUCCEED();
     }
 
     Result GetSocketDescriptor(Out<u32> out_fd) {
-        LOG_WARNING(Service_SSL, "(STUBBED)");
-        *out_fd = socket->GetFD();
+        R_UNLESS(input_fd.has_value(), ResultNoSocket);
+        *out_fd = static_cast<u32>(*input_fd);
         R_SUCCEED();
     }
 
     Result GetHostName(OutBuffer<BufferAttr_HipcMapAlias> data, Out<u32> out_size) {
-        LOG_WARNING(Service_SSL, "(STUBBED)");
-        ASSERT(!did_handshake);
-        return backend->GetHostName(std::span<u8>{data.begin(), data.end()}, out_size);
+        const auto write_size = (std::min)(host_name.size(), data.size());
+        if (write_size != 0) {
+            std::memcpy(data.data(), host_name.data(), write_size);
+        }
+        *out_size = static_cast<u32>(host_name.size());
+        R_SUCCEED();
+    }
+
+    Result GetVerifyOption(Out<u32> out_option) {
+        *out_option = verify_option;
+        R_SUCCEED();
     }
 
     Result GetIoMode(Out<u32> out_mode) {
-        LOG_WARNING(Service_SSL, "(STUBBED)");
+        *out_mode = static_cast<u32>(io_mode);
         R_SUCCEED();
     }
 
@@ -436,9 +448,12 @@ private:
     std::shared_ptr<SslContextSharedData> shared_data;
     std::unique_ptr<SSLConnectionBackend> backend;
     std::optional<int> fd_to_close;
+    std::optional<s32> input_fd;
     std::shared_ptr<Network::SocketBase> socket;
+    std::string host_name;
     std::vector<u8> next_alpn_proto;
     u32 verify_option = 0;
+    IoMode io_mode = IoMode::Blocking;
 
     bool do_not_close_socket = false;
     bool get_server_cert_chain = false;
