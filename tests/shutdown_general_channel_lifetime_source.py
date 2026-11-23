@@ -13,6 +13,12 @@ ROOT = Path(__file__).resolve().parents[1]
 def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     if relative != "encore-active/ns2-runtime/process/core/core.cpp":
         return source
+    # New FC27 candidate releases SM-owned NVDRV handlers before KProcess
+    # shutdown. Strip only this additive candidate from the historical
+    # provenance reconstruction, not from the compiled source itself.
+    post_join_handler_retire = "        // SM's factories can keep NVDRV devices alive after their server\n        // threads have joined. Drop those strong owners before KProcess\n        // retirement, but retain the SM object/ports until ShutdownCores.\n        if (service_manager) {\n            service_manager->ReleaseRegisteredHandlersForShutdown();\n            ::Eden::ReportStep(\"shutdown\", \"Completed service_manager.ReleaseRegisteredHandlersForShutdown()\");\n        }\n"
+    assert source.count(post_join_handler_retire) == 1, ("SM/ NVDRV lifetime", relative)
+    source = source.replace(post_join_handler_retire, "", 1)
     # PS5 FC27 23/11 host-service lifetime successor: wake SM waiters,
     # stop server loops and join retained host workers before ShutdownCores.
     # Undo only in this provenance copy before replaying older shutdown SHAs.

@@ -55,6 +55,25 @@ void ServiceManager::Close() {
     waiters_changed.wait(l, [this] { return service_waiters == 0; });
 }
 
+void ServiceManager::ReleaseRegisteredHandlersForShutdown() {
+    // Closing/waking host service waiters and joining their work happens first.
+    // Keep SM itself and its kernel-owned ports alive until process shutdown,
+    // but retire factories (NVDRV included) while KProcess/Host1x still exist.
+    decltype(registered_services) retired;
+    {
+        std::unique_lock l{lock};
+        if (!closing || service_waiters != 0) {
+            LOG_ERROR(Service_SM, "Refusing to retire service handlers before SM close");
+            return;
+        }
+        retired.swap(registered_services);
+    }
+    // A factory may own an NVDRV handler -> module -> nvhost_as_gpu. The latter
+    // calls KProcess::Close and must never run after ShutdownCores. Destroy
+    // OUTSIDE SM's lock because final release can re-enter service cleanup.
+    retired.clear();
+}
+
 ServiceManager::~ServiceManager() {
     for (auto& [name, port] : service_ports) {
         port->Close(kernel);

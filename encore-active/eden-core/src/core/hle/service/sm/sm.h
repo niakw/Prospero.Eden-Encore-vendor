@@ -106,6 +106,9 @@ public:
 
     bool WaitForService(const std::string& name);
     void Close();
+    // Drop service-owned guest/device references before guest KProcesses retire.
+    // Does not destroy SM ports or the SM object itself.
+    void ReleaseRegisteredHandlersForShutdown();
 
     void SetDeferralEvent(Kernel::KEvent* deferral_event_) {
         deferral_event = deferral_event_;
