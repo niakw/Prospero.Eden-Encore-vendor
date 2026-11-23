@@ -1167,9 +1167,10 @@ void IGeneralService::WakeUp(HLERequestContext& ctx) {
 }
 
 void IGeneralService::GetSsidListVersion(HLERequestContext& ctx) {
-    LOG_WARNING(Service_NIFM, "(STUBBED) called");
-
+    // Encore does not maintain Horizon's persistent SSID list. Version zero represents
+    // the intentionally empty local list and is stable for the lifetime of the service.
     constexpr u32 ssid_list_version = 0;
+    LOG_DEBUG(Service_NIFM, "called, local_ssid_list_version={}", ssid_list_version);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
@@ -1291,18 +1292,21 @@ void IGeneralService::SetDefaultIpSetting(HLERequestContext& ctx) {
 }
 
 void IGeneralService::ConfirmSystemAvailability(HLERequestContext& ctx) {
-    LOG_DEBUG(Service_NIFM, "(STUBBED) called.");
-
-    // TODO (jarrodnorwell)
+    // The service object itself is Encore's availability boundary. There is no separate
+    // Nintendo NIFM system daemon to confirm after this interface has been created.
+    LOG_DEBUG(Service_NIFM, "called; NIFM service is locally available");
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
 }
 
 void IGeneralService::SetBackgroundRequestEnabled(HLERequestContext& ctx) {
-    LOG_WARNING(Service_NIFM, "(STUBBED) called.");
+    IPC::RequestParser rp{ctx};
+    const bool enabled = rp.Pop<bool>();
 
-    // TODO (jarrodnorwell)
+    // Requests are evaluated synchronously by Encore; no autonomous NIFM background daemon
+    // exists whose scheduling could be enabled or disabled.
+    LOG_DEBUG(Service_NIFM, "called, enabled={} (no separate background daemon)", enabled);
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
