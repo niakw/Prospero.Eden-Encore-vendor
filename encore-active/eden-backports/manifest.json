@@ -311,8 +311,8 @@
       "upstream": "004e86b418c9124a815d1811a730a0421bc741fb880bbc4488b100646a8c5f9a"
     },
     "src/core/hle/service/sockets/bsd.h": {
-      "active": "880db6f78d342244a29142f16a0e3158eba8ba60ae46bbfd5c75327af67a0197",
-      "bytes": 6589,
+      "active": "412ebcec57d71107e43e7171d409c23c91d1588e750a1f325015c74746f80cc3",
+      "bytes": 6702,
       "upstream": "b391fb3745d9d041e8c8041a08035ea67f407d371d47b682aa256197f672bf89"
     },
     "src/core/hle/service/sockets/encore_guest_network_policy.h": {

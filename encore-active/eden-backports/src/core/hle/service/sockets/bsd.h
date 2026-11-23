@@ -197,6 +197,10 @@ class BSDCFG final : public ServiceFramework<BSDCFG> {
 public:
     explicit BSDCFG(Core::System& system_, const char *name);
     ~BSDCFG() override;
+
+private:
+    void HostNetworkNoop(HLERequestContext& ctx);
+    void HostNetworkNoopU32(HLERequestContext& ctx);
 };
 
 class BSD_NU final : public ServiceFramework<BSD_NU> {

@@ -1431,19 +1431,19 @@ BSDCFG::BSDCFG(Core::System& system_, const char *name)
     : ServiceFramework{system_, name} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, nullptr, "SetIfUp"},
-        {1, nullptr, "SetIfUpWithEvent"},
-        {2, nullptr, "CancelIf"},
-        {3, nullptr, "SetIfDown"},
-        {4, nullptr, "GetIfState"},
-        {5, nullptr, "DhcpRenew"},
-        {6, nullptr, "AddStaticArpEntry"},
-        {7, nullptr, "RemoveArpEntry"},
-        {8, nullptr, "LookupArpEntry"},
-        {9, nullptr, "LookupArpEntry2"},
-        {10, nullptr, "ClearArpEntries"},
-        {11, nullptr, "ClearArpEntries2"},
-        {12, nullptr, "PrintArpEntries"},
+        {0, &BSDCFG::HostNetworkNoop, "SetIfUp"},
+        {1, &BSDCFG::HostNetworkNoop, "SetIfUpWithEvent"},
+        {2, &BSDCFG::HostNetworkNoop, "CancelIf"},
+        {3, &BSDCFG::HostNetworkNoop, "SetIfDown"},
+        {4, &BSDCFG::HostNetworkNoop, "GetIfState"},
+        {5, &BSDCFG::HostNetworkNoopU32, "DhcpRenew"},
+        {6, &BSDCFG::HostNetworkNoop, "AddStaticArpEntry"},
+        {7, &BSDCFG::HostNetworkNoopU32, "RemoveArpEntry"},
+        {8, &BSDCFG::HostNetworkNoop, "LookupArpEntry"},
+        {9, &BSDCFG::HostNetworkNoopU32, "LookupArpEntry2"},
+        {10, &BSDCFG::HostNetworkNoop, "ClearArpEntries"},
+        {11, &BSDCFG::HostNetworkNoop, "ClearArpEntries2"},
+        {12, &BSDCFG::HostNetworkNoop, "PrintArpEntries"},
         {13, nullptr, "Unknown13"},
         {14, nullptr, "Unknown14"},
         {15, nullptr, "Unknown15"},
@@ -1451,6 +1451,19 @@ BSDCFG::BSDCFG(Core::System& system_, const char *name)
     // clang-format on
 
     RegisterHandlers(functions);
+}
+
+void BSDCFG::HostNetworkNoop(HLERequestContext& ctx) {
+    LOG_DEBUG(Service, "bsdcfg host-network control acknowledged without mutating host interface");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void BSDCFG::HostNetworkNoopU32(HLERequestContext& ctx) {
+    LOG_DEBUG(Service, "bsdcfg host-network query acknowledged with zero status");
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.Push<u32>(0);
 }
 
 BSDCFG::~BSDCFG() = default;
