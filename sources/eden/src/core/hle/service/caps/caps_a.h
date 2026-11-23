@@ -40,6 +40,25 @@ private:
     Result ResetAlbumMountStatus(AlbumStorage storage);
     Result RefreshAlbumCache(AlbumStorage storage);
 
+    Result LoadAlbumScreenShotImage(
+        Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
+        OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
+        OutArray<u8, BufferAttr_HipcMapAlias> out_buffer);
+    Result LoadAlbumScreenShotThumbnailImage(
+        Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
+        OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
+        OutArray<u8, BufferAttr_HipcMapAlias> out_buffer);
+    Result LoadAlbumScreenShotImageEx(
+        Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
+        const ScreenShotDecodeOption& decoder_options,
+        OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
+        OutArray<u8, BufferAttr_HipcMapAlias> out_buffer);
+    Result LoadAlbumScreenShotThumbnailImageEx(
+        Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
+        const ScreenShotDecodeOption& decoder_options,
+        OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
+        OutArray<u8, BufferAttr_HipcMapAlias> out_buffer);
+
     Result GetAlbumFileList(Out<u64> out_count, AlbumStorage storage,
                             OutArray<AlbumEntry, BufferAttr_HipcMapAlias> out_entries);
 

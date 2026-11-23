@@ -27,11 +27,11 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
         {6, nullptr, "GetAlbumUsage"},
         {7, D<&IAlbumAccessorService::GetAlbumFileSize>, "GetAlbumFileSize"},
         {8, nullptr, "LoadAlbumFileThumbnail"},
-        {9, nullptr, "LoadAlbumScreenShotImage"},
-        {10, nullptr, "LoadAlbumScreenShotThumbnailImage"},
+        {9, D<&IAlbumAccessorService::LoadAlbumScreenShotImage>, "LoadAlbumScreenShotImage"},
+        {10, D<&IAlbumAccessorService::LoadAlbumScreenShotThumbnailImage>, "LoadAlbumScreenShotThumbnailImage"},
         {11, nullptr, "GetAlbumEntryFromApplicationAlbumEntry"},
-        {12, nullptr, "LoadAlbumScreenShotImageEx"},
-        {13, nullptr, "LoadAlbumScreenShotThumbnailImageEx"},
+        {12, D<&IAlbumAccessorService::LoadAlbumScreenShotImageEx>, "LoadAlbumScreenShotImageEx"},
+        {13, D<&IAlbumAccessorService::LoadAlbumScreenShotThumbnailImageEx>, "LoadAlbumScreenShotThumbnailImageEx"},
         {14, nullptr, "LoadAlbumScreenShotImageEx0"},
         {15, nullptr, "GetAlbumUsage3"},
         {16, D<&IAlbumAccessorService::GetAlbumMountResult>, "GetAlbumMountResult"},
@@ -102,6 +102,56 @@ Result IAlbumAccessorService::ResetAlbumMountStatus(AlbumStorage storage) {
 
 Result IAlbumAccessorService::RefreshAlbumCache(AlbumStorage storage) {
     R_RETURN(TranslateResult(manager->RefreshAlbumCache(storage)));
+}
+
+Result IAlbumAccessorService::LoadAlbumScreenShotImage(
+    Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
+    OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
+    OutArray<u8, BufferAttr_HipcMapAlias> out_buffer) {
+    LoadAlbumScreenShotImageOutput output{};
+    const Result result =
+        manager->LoadAlbumScreenShotImage(output, out_image, file_id, ScreenShotDecodeOption{});
+    *out_width = static_cast<u64>(output.width);
+    *out_height = static_cast<u64>(output.height);
+    R_RETURN(TranslateResult(result));
+}
+
+Result IAlbumAccessorService::LoadAlbumScreenShotThumbnailImage(
+    Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
+    OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
+    OutArray<u8, BufferAttr_HipcMapAlias> out_buffer) {
+    LoadAlbumScreenShotImageOutput output{};
+    const Result result =
+        manager->LoadAlbumScreenShotThumbnail(output, out_image, file_id, ScreenShotDecodeOption{});
+    *out_width = static_cast<u64>(output.width);
+    *out_height = static_cast<u64>(output.height);
+    R_RETURN(TranslateResult(result));
+}
+
+Result IAlbumAccessorService::LoadAlbumScreenShotImageEx(
+    Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
+    const ScreenShotDecodeOption& decoder_options,
+    OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
+    OutArray<u8, BufferAttr_HipcMapAlias> out_buffer) {
+    LoadAlbumScreenShotImageOutput output{};
+    const Result result =
+        manager->LoadAlbumScreenShotImage(output, out_image, file_id, decoder_options);
+    *out_width = static_cast<u64>(output.width);
+    *out_height = static_cast<u64>(output.height);
+    R_RETURN(TranslateResult(result));
+}
+
+Result IAlbumAccessorService::LoadAlbumScreenShotThumbnailImageEx(
+    Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
+    const ScreenShotDecodeOption& decoder_options,
+    OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
+    OutArray<u8, BufferAttr_HipcMapAlias> out_buffer) {
+    LoadAlbumScreenShotImageOutput output{};
+    const Result result =
+        manager->LoadAlbumScreenShotThumbnail(output, out_image, file_id, decoder_options);
+    *out_width = static_cast<u64>(output.width);
+    *out_height = static_cast<u64>(output.height);
+    R_RETURN(TranslateResult(result));
 }
 
 Result IAlbumAccessorService::GetAlbumFileList(
