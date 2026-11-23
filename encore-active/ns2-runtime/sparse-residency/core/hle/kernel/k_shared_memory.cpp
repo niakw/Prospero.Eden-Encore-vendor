@@ -17,12 +17,9 @@
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
 #include <cstdio>
 #include <new>
-// The NS2 guest address range is reserved before title startup, but physical
-// backing remains sparse. Kernel-owned shared memory bypasses process PTE
-// hooks, so commit it explicitly before its direct initialization writes.
-extern "C" bool EdenNs2CommitGuestBacking(const void* backing_base,
-                                          std::size_t offset,
-                                          std::size_t bytes) noexcept;
+// Kernel shared memory bypasses process PTE hooks. The maintained
+// HostMemory::ClearBackingRegion owns both direct-memory admission and
+// zeroing: never precommit the same range a second time here.
 #endif
 
 namespace Kernel {
@@ -59,52 +56,61 @@ Result KSharedMemory::Initialize(KernelCore& kernel, Core::DeviceMemory& device_
 
     //! Insert the result into our page group.
     m_page_group.emplace(kernel, std::addressof(kernel.GetSystemSystemResource().GetBlockInfoManager()));
-    m_page_group->AddBlock(m_physical_address, num_pages);
-
-    // Commit our reservation.
-    memory_reservation.Commit();
-
-    // Set our resource limit.
-    m_resource_limit = reslimit;
-    m_resource_limit->Open(kernel);
-
-    // Mark initialized.
-    m_is_initialized = true;
+    const Result add_result = m_page_group->AddBlock(m_physical_address, num_pages);
+    if (R_FAILED(add_result)) {
+        // AllocateAndOpenContinuous already took guest page references.
+        // AddBlock may fail to allocate its descriptor: return those pages
+        // explicitly before the uncommitted resource reservation unwinds.
+        kernel.MemoryManager().Close(m_physical_address, num_pages);
+        m_page_group.reset();
+        m_physical_address = 0;
+        R_RETURN(add_result);
+    }
 
     // Clear all pages in the memory. In the PS5 sparse NS2 layout the
     // physical address exists in a reserved VA range but may have NO backing:
     // writing here without committing it crashes in InitializeHackSharedMemory
     // before a game reaches its first GPU command.
-    for (const auto& block : *m_page_group) {
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
-        const auto physical = GetInteger(block.GetAddress());
-        if (physical < Core::DramMemoryMap::Base ||
-            !EdenNs2CommitGuestBacking(
-                m_device_memory->buffer.BackingBasePointer(),
-                physical - Core::DramMemoryMap::Base, block.GetSize())) {
-            throw std::bad_alloc{};
-        }
+    try {
 #endif
+        for (const auto& block : *m_page_group) {
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
-        // DeviceMemory::buffer is the *actual* HostMemory sparse owner. Its
-        // ClearBackingRegion checks the 12 GiB range, commits all touched
-        // physical granules, and only then writes. The external pre-admission
-        // above is not sufficient evidence that a guest pointer is writable.
-        // Avoid the raw GetPointer()+memset path observed in the NS2
-        // boot fault; console validation will determine whether it was causal.
-        const auto offset = GetInteger(block.GetAddress()) - Core::DramMemoryMap::Base;
-        if (block.GetSize() >= (1u << 20))
-            std::fprintf(stderr, "EDEN_NS2_SHARED_CLEAR begin offset=%zu bytes=%zu\n",
-                         static_cast<std::size_t>(offset), block.GetSize());
-        m_device_memory->buffer.ClearBackingRegion(offset, block.GetSize(), 0);
-        if (block.GetSize() >= (1u << 20))
-            std::fprintf(stderr, "EDEN_NS2_SHARED_CLEAR done offset=%zu bytes=%zu\n",
-                         static_cast<std::size_t>(offset), block.GetSize());
+            const auto physical = GetInteger(block.GetAddress());
+            if (physical < Core::DramMemoryMap::Base)
+                throw std::bad_alloc{}; // invalid sparse DRAM physical address
+            const auto offset = physical - Core::DramMemoryMap::Base;
+            if (block.GetSize() >= (1u << 20))
+                std::fprintf(stderr, "EDEN_NS2_SHARED_CLEAR begin offset=%zu bytes=%zu\n",
+                             static_cast<std::size_t>(offset), block.GetSize());
+            // Precommit and zero exactly once through the native owner.
+            // A failed admission must be caught before this shared memory
+            // becomes initialized, mapped, or charged as a live resource.
+            m_device_memory->buffer.ClearBackingRegion(offset, block.GetSize(), 0);
+            if (block.GetSize() >= (1u << 20))
+                std::fprintf(stderr, "EDEN_NS2_SHARED_CLEAR done offset=%zu bytes=%zu\n",
+                             static_cast<std::size_t>(offset), block.GetSize());
 #else
-        std::memset(m_device_memory->GetPointer<void>(block.GetAddress()), 0, block.GetSize());
+            std::memset(m_device_memory->GetPointer<void>(block.GetAddress()), 0, block.GetSize());
 #endif
+        }
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+    } catch (const std::bad_alloc&) {
+        // KPageGroup owns the references opened by AllocateAndOpenContinuous.
+        // No guest PTE/IPC handle has been published, so close them and let
+        // the still-uncommitted KScopedResourceReservation refund its limit.
+        m_page_group->CloseAndReset(kernel);
+        m_page_group.reset();
+        m_physical_address = 0;
+        R_THROW(ResultOutOfMemory);
     }
+#endif
 
+    // Publish only AFTER the entire sparse memory was admitted and cleared.
+    memory_reservation.Commit();
+    m_resource_limit = reslimit;
+    m_resource_limit->Open(kernel);
+    m_is_initialized = true;
     R_SUCCEED();
 }
 

@@ -35,4 +35,18 @@ assert alloc.index("CommitKernelDirectGuestRange(m_system, block.GetAddress()") 
     "manager.ProcessOptimizedAllocation(") < alloc.index("manager.TrackOptimizedAllocation(")
 assert "any_new |= manager.ProcessOptimizedAllocation(" in alloc
 
+# Shared-memory initialization is a third raw guest writer and can
+# fail when the sparse physical budget is full. It must remain unexposed
+# until the clear succeeds, and return its opened guest pages on OOM.
+shared = (root / "encore-active/ns2-runtime/sparse-residency/core/hle/kernel/k_shared_memory.cpp").read_text()
+init = shared.split("Result KSharedMemory::Initialize(", 1)[1].split(
+    "void KSharedMemory::Finalize(", 1)[0]
+assert "EdenNs2CommitGuestBacking(" not in shared  # ClearBackingRegion admits itself
+assert init.index("m_page_group->AddBlock(") < init.index("buffer.ClearBackingRegion(")
+assert init.index("buffer.ClearBackingRegion(") < init.index("memory_reservation.Commit();")
+assert init.index("catch (const std::bad_alloc&)") < init.index("m_is_initialized = true;")
+assert "m_page_group->CloseAndReset(kernel);" in init
+assert "kernel.MemoryManager().Close(m_physical_address, num_pages);" in init
+assert "R_THROW(ResultOutOfMemory);" in init
+
 print("NS2_KERNEL_SLAB_DIRECT_PHYSICAL_PRECOMMIT_OK writers=2")
