@@ -50,7 +50,8 @@ assert gfx_blob in {"efa8fd4d73c111655fced67fe7dd1e6b7c0178ba","526aa16b22ba3918
 cmp_blob=blob(CMP)
 assert cmp_blob in {"7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2","7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600","bb9552866e26e502839eed646be9af6ea0a0db0a"} 
 cache_blob=blob(CACHE)
-if cache_blob in {"d222fb5565cdf8db30c6d3d464f107ff26a042c8",
+if cache_blob in {"b28a190e92ca80b0385148a0b558828353326f12",
+                  "d222fb5565cdf8db30c6d3d464f107ff26a042c8",
                   "79660c5cc4ff046f24e7ffa50ab066a86857698c"}:
     from ps5_recent_prewarm_receipt import reverse_adaptive_prewarm
     source_cache_pre_admission = reverse_adaptive_prewarm(CACHE.read_text())
