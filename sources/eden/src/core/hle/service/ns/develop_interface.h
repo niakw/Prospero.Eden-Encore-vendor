@@ -11,6 +11,9 @@ class IDevelopInterface final : public ServiceFramework<IDevelopInterface> {
 public:
     explicit IDevelopInterface(Core::System& system_);
     ~IDevelopInterface() override;
+
+private:
+    void RejectUnsupportedDevelopCommand(HLERequestContext& ctx);
 };
 
 } // namespace Service::NS

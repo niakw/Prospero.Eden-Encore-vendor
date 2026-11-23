@@ -16,6 +16,9 @@ class IBtmDebug final : public ServiceFramework<IBtmDebug> {
 public:
     explicit IBtmDebug(Core::System& system_);
     ~IBtmDebug() override;
+
+private:
+    void RejectUnsupportedDebugCommand(HLERequestContext& ctx);
 };
 
 } // namespace Service::BTM
