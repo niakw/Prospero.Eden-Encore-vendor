@@ -88,7 +88,7 @@ Result ServiceManager::RegisterService(Kernel::KServerPort** out_server_port, st
     }
 
     auto* port = Kernel::KPort::Create(kernel);
-    port->Initialize(kernel, ServerSessionCountMax, false, 0);
+    port->Initialize(kernel, max_sessions, false, 0);
 
     // Register the port.
     Kernel::KPort::Register(kernel, port);

@@ -145,6 +145,7 @@ server_source = (ROOT / "encore-active/eden-core/src/core/hle/service/server_man
 assert "bool WaitForService(const std::string& name);" in sm_header
 assert "void Close();" in sm_header and "std::condition_variable waiters_changed;" in sm_header
 assert "waiters_changed.wait(l" in sm_source and "closing = true;" in sm_source
+assert "port->Initialize(kernel, max_sessions, false, 0);" in sm_source
 assert "std::jthread audio_worker;" in services_header and "std::jthread vi_worker;" in services_header
 assert 'audio_worker = kernel.RunOnHostCoreProcess("audio"' in services_source
 assert 'kernel.RunOnHostCoreProcess("audio"' not in services_source.split("audio_worker =", 1)[0]
