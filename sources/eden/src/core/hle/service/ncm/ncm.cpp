@@ -1384,14 +1384,14 @@ public:
             {5, &NCM::OpenContentMetaDatabase, "OpenContentMetaDatabase"},
             {6, &NCM::ContentStorageLifecycleNoOp, "CloseContentStorageForcibly"},
             {7, &NCM::ContentMetaDatabaseLifecycleNoOp, "CloseContentMetaDatabaseForcibly"},
-            {8, nullptr, "CleanupContentMetaDatabase"},
+            {8, &NCM::CleanupContentMetaDatabase, "CleanupContentMetaDatabase"},
             {9, &NCM::ContentStorageLifecycleNoOp, "ActivateContentStorage"},
             {10, &NCM::ContentStorageLifecycleNoOp, "InactivateContentStorage"},
             {11, &NCM::ContentMetaDatabaseLifecycleNoOp, "ActivateContentMetaDatabase"},
             {12, &NCM::ContentMetaDatabaseLifecycleNoOp, "InactivateContentMetaDatabase"},
             {13, &NCM::InvalidateRightsIdCache, "InvalidateRightsIdCache"},
             {14, nullptr, "GetMemoryReport"},
-            {15, nullptr, "ActivateFsContentStorage"},
+            {15, &NCM::ActivateFsContentStorage, "ActivateFsContentStorage"},
         };
         // clang-format on
 
@@ -1399,6 +1399,51 @@ public:
     }
 
 private:
+    void CleanupContentMetaDatabase(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto storage_id = rp.PopEnum<FileSys::StorageId>();
+        // IContentMetaDatabase reads the live RegisteredCache directly. Encore has
+        // no separate stale NCM metadata table to compact, so cleanup is complete
+        // when the requested backing cache actually exists.
+        const bool available =
+            system.GetFileSystemController().GetRegisteredCacheForStorage(storage_id) != nullptr;
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(available ? ResultSuccess : ResultUnknown);
+    }
+
+    void ActivateFsContentStorage(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const u32 fs_storage_id = rp.Pop<u32>();
+
+        // FsContentStorageId: System=0, User=1, SdCard=2, System0=3 (16.0.0+).
+        // These backends are provisioned before NCM starts; activation is therefore
+        // a conditional no-op after proving the corresponding RegisteredCache exists.
+        FileSys::StorageId storage_id{};
+        switch (fs_storage_id) {
+        case 0:
+        case 3:
+            storage_id = FileSys::StorageId::NandSystem;
+            break;
+        case 1:
+            storage_id = FileSys::StorageId::NandUser;
+            break;
+        case 2:
+            storage_id = FileSys::StorageId::SdCard;
+            break;
+        default: {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultUnknown);
+            return;
+        }
+        }
+
+        const bool available =
+            system.GetFileSystemController().GetRegisteredCacheForStorage(storage_id) != nullptr;
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(available ? ResultSuccess : ResultUnknown);
+    }
+
     void CreateContentStorageNoOp(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto storage_id = rp.PopEnum<FileSys::StorageId>();
