@@ -1041,6 +1041,7 @@ void Module::Interface::InitializeApplicationInfoV2(HLERequestContext& ctx) {
 void Module::Interface::BeginUserRegistration(HLERequestContext& ctx) {
     const auto user_id = Common::UUID::MakeRandom();
     profile_manager->CreateNewUser(user_id, "Eden");
+    pending_registration_user = user_id;
 
     LOG_INFO(Service_ACC, "called, uuid={}", user_id.FormattedString());
 
@@ -1056,9 +1057,35 @@ void Module::Interface::CompleteUserRegistration(HLERequestContext& ctx) {
     LOG_INFO(Service_ACC, "called, uuid={}", user_id.FormattedString());
 
     profile_manager->WriteUserSaveFile();
+    if (pending_registration_user && *pending_registration_user == user_id) {
+        pending_registration_user.reset();
+    }
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
+}
+
+void Module::Interface::CancelUserRegistration(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const Common::UUID user_id = rp.PopRaw<Common::UUID>();
+
+    LOG_INFO(Service_ACC, "called, uuid={}", user_id.FormattedString());
+
+    // BeginUserRegistration creates the candidate profile in memory before it is persisted.
+    // Only remove that exact pending profile: an arbitrary UUID must never delete a committed user.
+    if (pending_registration_user && *pending_registration_user == user_id) {
+        profile_manager->RemoveUser(user_id);
+        pending_registration_user.reset();
+    }
+
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void Module::Interface::CompleteUserRegistrationForcibly(HLERequestContext& ctx) {
+    // Encore does not model the policy checks bypassed by the "forcibly" variant, so completion is
+    // identical to the normal path while preserving the documented 0x10 UUID ABI.
+    CompleteUserRegistration(ctx);
 }
 
 void Module::Interface::DeleteUser(HLERequestContext& ctx) {
@@ -1423,11 +1450,11 @@ public:
             {191, nullptr, "ActivateOpenContextHolder"},
             {200, &ACC_SU::BeginUserRegistration, "BeginUserRegistration"},
             {201, &ACC_SU::CompleteUserRegistration, "CompleteUserRegistration"},
-            {202, nullptr, "CancelUserRegistration"},
+            {202, &ACC_SU::CancelUserRegistration, "CancelUserRegistration"},
             {203, &ACC_SU::DeleteUser, "DeleteUser"},
             {204, &ACC_SU::SetUserPosition, "SetUserPosition"},
             {205, &ACC_SU::GetProfileEditor, "GetProfileEditor"},
-            {206, nullptr, "CompleteUserRegistrationForcibly"},
+            {206, &ACC_SU::CompleteUserRegistrationForcibly, "CompleteUserRegistrationForcibly"},
             {210, nullptr, "CreateFloatingRegistrationRequest"},
             {211, nullptr, "CreateProcedureToRegisterUserWithNintendoAccount"},
             {212, nullptr, "ResumeProcedureToRegisterUserWithNintendoAccount"},
@@ -1623,13 +1650,13 @@ public:
             { 152, nullptr, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
             { 170, nullptr, "GetNasOp2MembershipStateChangeNotifier"},
             { 191, nullptr, "UpdateNotificationReceiverInfo"},
-            { 200, nullptr, "BeginUserRegistration"},
-            { 201, nullptr, "CompleteUserRegistration"},
-            { 202, nullptr, "CancelUserRegistration"},
-            { 203, nullptr, "DeleteUser"},
-            { 204, nullptr, "SetUserPosition"},
-            { 205, nullptr, "GetProfileEditor"},
-            { 206, nullptr, "CompleteUserRegistrationForcibly"},
+            { 200, &ACC_E::BeginUserRegistration, "BeginUserRegistration"},
+            { 201, &ACC_E::CompleteUserRegistration, "CompleteUserRegistration"},
+            { 202, &ACC_E::CancelUserRegistration, "CancelUserRegistration"},
+            { 203, &ACC_E::DeleteUser, "DeleteUser"},
+            { 204, &ACC_E::SetUserPosition, "SetUserPosition"},
+            { 205, &ACC_E::GetProfileEditor, "GetProfileEditor"},
+            { 206, &ACC_E::CompleteUserRegistrationForcibly, "CompleteUserRegistrationForcibly"},
             { 210, nullptr, "CreateFloatingRegistrationRequest"},
             { 211, nullptr, "CreateProcedureToRegisterUserWithNintendoAccount"},
             { 212, nullptr, "ResumeProcedureToRegisterUserWithNintendoAccount"},

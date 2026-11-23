@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "common/uuid.h"
 #include "core/hle/service/glue/glue_manager.h"
 #include "core/hle/service/service.h"
@@ -39,6 +41,8 @@ public:
         void InitializeApplicationInfoV2(HLERequestContext& ctx);
         void BeginUserRegistration(HLERequestContext& ctx);
         void CompleteUserRegistration(HLERequestContext& ctx);
+        void CancelUserRegistration(HLERequestContext& ctx);
+        void CompleteUserRegistrationForcibly(HLERequestContext& ctx);
         void DeleteUser(HLERequestContext& ctx);
         void SetUserPosition(HLERequestContext& ctx);
         void GetProfileEditor(HLERequestContext& ctx);
@@ -75,6 +79,7 @@ public:
         };
 
         ApplicationInfo application_info{};
+        std::optional<Common::UUID> pending_registration_user;
 
     protected:
         std::shared_ptr<Module> module;
