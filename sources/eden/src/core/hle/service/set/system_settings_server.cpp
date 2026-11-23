@@ -304,18 +304,18 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {186, C<&ISystemSettingsServer::GetMemoryUsageRateFlag>, "GetMemoryUsageRateFlag"},
         {187, C<&ISystemSettingsServer::GetTouchScreenMode>, "GetTouchScreenMode"},
         {188, C<&ISystemSettingsServer::SetTouchScreenMode>, "SetTouchScreenMode"},
-        {189, nullptr, "GetButtonConfigSettingsFull"},
-        {190, nullptr, "SetButtonConfigSettingsFull"},
-        {191, nullptr, "GetButtonConfigSettingsEmbedded"},
-        {192, nullptr, "SetButtonConfigSettingsEmbedded"},
-        {193, nullptr, "GetButtonConfigSettingsLeft"},
-        {194, nullptr, "SetButtonConfigSettingsLeft"},
-        {195, nullptr, "GetButtonConfigSettingsRight"},
-        {196, nullptr, "SetButtonConfigSettingsRight"},
-        {197, nullptr, "GetButtonConfigRegisteredSettingsEmbedded"},
-        {198, nullptr, "SetButtonConfigRegisteredSettingsEmbedded"},
-        {199, nullptr, "GetButtonConfigRegisteredSettings"},
-        {200, nullptr, "SetButtonConfigRegisteredSettings"},
+        {189, C<&ISystemSettingsServer::GetButtonConfigSettingsFull>, "GetButtonConfigSettingsFull"},
+        {190, C<&ISystemSettingsServer::SetButtonConfigSettingsFull>, "SetButtonConfigSettingsFull"},
+        {191, C<&ISystemSettingsServer::GetButtonConfigSettingsEmbedded>, "GetButtonConfigSettingsEmbedded"},
+        {192, C<&ISystemSettingsServer::SetButtonConfigSettingsEmbedded>, "SetButtonConfigSettingsEmbedded"},
+        {193, C<&ISystemSettingsServer::GetButtonConfigSettingsLeft>, "GetButtonConfigSettingsLeft"},
+        {194, C<&ISystemSettingsServer::SetButtonConfigSettingsLeft>, "SetButtonConfigSettingsLeft"},
+        {195, C<&ISystemSettingsServer::GetButtonConfigSettingsRight>, "GetButtonConfigSettingsRight"},
+        {196, C<&ISystemSettingsServer::SetButtonConfigSettingsRight>, "SetButtonConfigSettingsRight"},
+        {197, C<&ISystemSettingsServer::GetButtonConfigRegisteredSettingsEmbedded>, "GetButtonConfigRegisteredSettingsEmbedded"},
+        {198, C<&ISystemSettingsServer::SetButtonConfigRegisteredSettingsEmbedded>, "SetButtonConfigRegisteredSettingsEmbedded"},
+        {199, C<&ISystemSettingsServer::GetButtonConfigRegisteredSettings>, "GetButtonConfigRegisteredSettings"},
+        {200, C<&ISystemSettingsServer::SetButtonConfigRegisteredSettings>, "SetButtonConfigRegisteredSettings"},
         {201, C<&ISystemSettingsServer::GetFieldTestingFlag>, "GetFieldTestingFlag"},
         {202, C<&ISystemSettingsServer::SetFieldTestingFlag>, "SetFieldTestingFlag"},
         {203, C<&ISystemSettingsServer::GetPanelCrcMode>, "GetPanelCrcMode"},
@@ -1384,6 +1384,134 @@ Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration(Out<std
 
 Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value) {
     m_system_settings.console_six_axis_sensor_angular_velocity_acceleration = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetButtonConfigSettingsFull(
+    Out<s32> out_count,
+    OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings) {
+    const auto count = (std::min)(
+        static_cast<std::size_t>(m_system_settings.button_config_settings_count),
+        (std::min)(m_system_settings.button_config_settings.size(), out_settings.size()));
+    *out_count = static_cast<s32>(count);
+    std::memcpy(out_settings.data(), m_system_settings.button_config_settings.data(),
+                count * sizeof(out_settings[0]));
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetButtonConfigSettingsFull(
+    InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings) {
+    R_UNLESS(settings.size() <= m_system_settings.button_config_settings.size(), ResultUnknown);
+    m_system_settings.button_config_settings_count = static_cast<u32>(settings.size());
+    std::memcpy(m_system_settings.button_config_settings.data(), settings.data(),
+                settings.size() * sizeof(settings[0]));
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetButtonConfigSettingsEmbedded(
+    Out<s32> out_count,
+    OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings) {
+    const auto count = (std::min)(
+        static_cast<std::size_t>(m_system_settings.button_config_settings_embedded_count),
+        (std::min)(m_system_settings.button_config_settings_embedded.size(), out_settings.size()));
+    *out_count = static_cast<s32>(count);
+    std::memcpy(out_settings.data(), m_system_settings.button_config_settings_embedded.data(),
+                count * sizeof(out_settings[0]));
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetButtonConfigSettingsEmbedded(
+    InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings) {
+    R_UNLESS(settings.size() <= m_system_settings.button_config_settings_embedded.size(),
+             ResultUnknown);
+    m_system_settings.button_config_settings_embedded_count = static_cast<u32>(settings.size());
+    std::memcpy(m_system_settings.button_config_settings_embedded.data(), settings.data(),
+                settings.size() * sizeof(settings[0]));
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetButtonConfigSettingsLeft(
+    Out<s32> out_count,
+    OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings) {
+    const auto count = (std::min)(
+        static_cast<std::size_t>(m_system_settings.button_config_settings_left_count),
+        (std::min)(m_system_settings.button_config_settings_left.size(), out_settings.size()));
+    *out_count = static_cast<s32>(count);
+    std::memcpy(out_settings.data(), m_system_settings.button_config_settings_left.data(),
+                count * sizeof(out_settings[0]));
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetButtonConfigSettingsLeft(
+    InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings) {
+    R_UNLESS(settings.size() <= m_system_settings.button_config_settings_left.size(),
+             ResultUnknown);
+    m_system_settings.button_config_settings_left_count = static_cast<u32>(settings.size());
+    std::memcpy(m_system_settings.button_config_settings_left.data(), settings.data(),
+                settings.size() * sizeof(settings[0]));
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetButtonConfigSettingsRight(
+    Out<s32> out_count,
+    OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings) {
+    const auto count = (std::min)(
+        static_cast<std::size_t>(m_system_settings.button_config_settings_right_count),
+        (std::min)(m_system_settings.button_config_settings_right.size(), out_settings.size()));
+    *out_count = static_cast<s32>(count);
+    std::memcpy(out_settings.data(), m_system_settings.button_config_settings_right.data(),
+                count * sizeof(out_settings[0]));
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetButtonConfigSettingsRight(
+    InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings) {
+    R_UNLESS(settings.size() <= m_system_settings.button_config_settings_right.size(),
+             ResultUnknown);
+    m_system_settings.button_config_settings_right_count = static_cast<u32>(settings.size());
+    std::memcpy(m_system_settings.button_config_settings_right.data(), settings.data(),
+                settings.size() * sizeof(settings[0]));
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetButtonConfigRegisteredSettingsEmbedded(
+    OutLargeData<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> out_settings) {
+    *out_settings = m_system_settings.button_config_registered_settings_embedded;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetButtonConfigRegisteredSettingsEmbedded(
+    InLargeData<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> settings) {
+    m_system_settings.button_config_registered_settings_embedded = *settings;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetButtonConfigRegisteredSettings(
+    Out<s32> out_count,
+    OutArray<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> out_settings) {
+    const auto count = (std::min)(
+        static_cast<std::size_t>(m_system_settings.button_config_registered_settings_count),
+        (std::min)(m_system_settings.button_config_registered_settings.size(),
+                   out_settings.size()));
+    *out_count = static_cast<s32>(count);
+    std::memcpy(out_settings.data(), m_system_settings.button_config_registered_settings.data(),
+                count * sizeof(out_settings[0]));
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetButtonConfigRegisteredSettings(
+    InArray<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> settings) {
+    R_UNLESS(settings.size() <= m_system_settings.button_config_registered_settings.size(),
+             ResultUnknown);
+    m_system_settings.button_config_registered_settings_count = static_cast<u32>(settings.size());
+    std::memcpy(m_system_settings.button_config_registered_settings.data(), settings.data(),
+                settings.size() * sizeof(settings[0]));
     SetSaveNeeded();
     R_SUCCEED();
 }

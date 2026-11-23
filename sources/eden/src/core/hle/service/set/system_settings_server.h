@@ -165,6 +165,35 @@ public:
     Result SetThemeId(s32 type, const std::array<u64, 0x10>& value);
     Result SetNetworkSettings(
         InArray<std::array<u8, 0x1B0>, BufferAttr_HipcMapAlias> settings);
+    Result GetButtonConfigSettingsFull(
+        Out<s32> out_count,
+        OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings);
+    Result SetButtonConfigSettingsFull(
+        InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings);
+    Result GetButtonConfigSettingsEmbedded(
+        Out<s32> out_count,
+        OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings);
+    Result SetButtonConfigSettingsEmbedded(
+        InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings);
+    Result GetButtonConfigSettingsLeft(
+        Out<s32> out_count,
+        OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings);
+    Result SetButtonConfigSettingsLeft(
+        InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings);
+    Result GetButtonConfigSettingsRight(
+        Out<s32> out_count,
+        OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings);
+    Result SetButtonConfigSettingsRight(
+        InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings);
+    Result GetButtonConfigRegisteredSettingsEmbedded(
+        OutLargeData<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> out_settings);
+    Result SetButtonConfigRegisteredSettingsEmbedded(
+        InLargeData<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> settings);
+    Result GetButtonConfigRegisteredSettings(
+        Out<s32> out_count,
+        OutArray<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> out_settings);
+    Result SetButtonConfigRegisteredSettings(
+        InArray<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> settings);
     Result GetNetworkSettings(
         Out<s32> out_count,
         OutArray<std::array<u8, 0x1B0>, BufferAttr_HipcMapAlias> out_settings);
