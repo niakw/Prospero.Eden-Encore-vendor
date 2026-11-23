@@ -64,11 +64,22 @@ private:
     Result ReportUserIsActive();
     Result SetAutoSleepDisabled(bool is_auto_sleep_disabled);
     Result IsAutoSleepDisabled(Out<bool> out_is_auto_sleep_disabled);
+    Result SetInputDetectionSourceSet(u32 input_detection_source_set);
+    Result GetCurrentIlluminance(Out<f32> out_illuminance);
     Result IsIlluminanceAvailable(Out<bool> out_is_illuminance_available);
+    void ReportMultimediaError(HLERequestContext& ctx);
+    struct CurrentIlluminanceEx {
+        u32 over_limit{};
+        f32 illuminance{};
+    };
+    static_assert(sizeof(CurrentIlluminanceEx) == 0x8);
+    Result GetCurrentIlluminanceEx(Out<CurrentIlluminanceEx> out_illuminance);
     Result SetInputDetectionPolicy(InputDetectionPolicy input_detection_policy);
+    Result SetWirelessPriorityMode(u32 wireless_priority_mode);
     Result GetAccumulatedSuspendedTickValue(Out<u64> out_accumulated_suspended_tick_value);
     Result GetAccumulatedSuspendedTickChangedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result SetAlbumImageTakenNotificationEnabled(bool enabled);
+    void SetApplicationAlbumUserData(HLERequestContext& ctx);
     Result SaveCurrentScreenshot(Capture::AlbumReportOption album_report_option);
     Result SetRecordVolumeMuted(bool muted);
     Result Unknown230(u32 in_val, Out<u16> out_val);
@@ -76,6 +87,9 @@ private:
 
     Kernel::KProcess* const m_process;
     const std::shared_ptr<Applet> m_applet;
+    u32 m_input_detection_source_set{};
+    InputDetectionPolicy m_input_detection_policy{};
+    u32 m_wireless_priority_mode{};
 };
 
 } // namespace Service::AM
