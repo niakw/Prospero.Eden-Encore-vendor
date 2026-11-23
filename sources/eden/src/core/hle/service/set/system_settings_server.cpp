@@ -39,14 +39,15 @@ struct SettingsHeader {
 };
 
 
-FileSys::VirtualFile ResolveWirelessCertificationFile(Core::System& system) {
+Result ResolveWirelessCertificationFile(FileSys::VirtualFile* out_file, Core::System& system) {
     FileSys::VirtualDir calibration_file;
-    const Result result = system.GetFileSystemController().OpenBISPartition(
-        &calibration_file, FileSys::BisPartitionId::CalibrationFile);
-    if (result.IsFailure() || !calibration_file) {
-        return {};
-    }
-    return calibration_file->GetFileRelative("Certifications/WirelessCertification.png");
+    R_TRY(system.GetFileSystemController().OpenBISPartition(
+        &calibration_file, FileSys::BisPartitionId::CalibrationFile));
+    R_UNLESS(calibration_file, FileSys::ResultPartitionNotFound);
+
+    *out_file = calibration_file->GetFileRelative("Certifications/WirelessCertification.png");
+    R_UNLESS(*out_file, FileSys::ResultPathNotFound);
+    R_SUCCEED();
 }
 
 void SyncGlobalLanguageFromCode(LanguageCode language_code) {
@@ -964,16 +965,16 @@ Result ISystemSettingsServer::SetDeviceTimeZoneLocationName(
 
 
 Result ISystemSettingsServer::GetWirelessCertificationFileSize(Out<u64> out_size) {
-    const auto file = ResolveWirelessCertificationFile(m_system);
-    R_UNLESS(file, FileSys::ResultPathNotFound);
+    FileSys::VirtualFile file;
+    R_TRY(ResolveWirelessCertificationFile(&file, m_system));
     *out_size = static_cast<u64>(file->GetSize());
     R_SUCCEED();
 }
 
 Result ISystemSettingsServer::GetWirelessCertificationFile(
     Out<u64> out_size, OutBuffer<BufferAttr_HipcMapAlias> out_file) {
-    const auto file = ResolveWirelessCertificationFile(m_system);
-    R_UNLESS(file, FileSys::ResultPathNotFound);
+    FileSys::VirtualFile file;
+    R_TRY(ResolveWirelessCertificationFile(&file, m_system));
 
     const auto file_size = file->GetSize();
     R_UNLESS(out_file.size() >= file_size, FileSys::ResultOutOfRange);
