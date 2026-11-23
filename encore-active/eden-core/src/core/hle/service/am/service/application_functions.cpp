@@ -101,7 +101,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {121, D<&IApplicationFunctions::ClearUserChannel>, "ClearUserChannel"},
         {122, D<&IApplicationFunctions::UnpopToUserChannel>, "UnpopToUserChannel"},
         {123, D<&IApplicationFunctions::GetPreviousProgramIndex>, "GetPreviousProgramIndex"},
-        {124, nullptr, "EnableApplicationAllThreadDumpOnCrash"},
+        {124, D<&IApplicationFunctions::EnableApplicationAllThreadDumpOnCrash>, "EnableApplicationAllThreadDumpOnCrash"},
         {130, D<&IApplicationFunctions::GetGpuErrorDetectedSystemEvent>, "GetGpuErrorDetectedSystemEvent"},
         {131, nullptr, "SetDelayTimeToAbortOnGpuError"},
         {140, D<&IApplicationFunctions::GetFriendInvitationStorageChannelEvent>, "GetFriendInvitationStorageChannelEvent"},
@@ -109,7 +109,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {150, D<&IApplicationFunctions::GetNotificationStorageChannelEvent>, "GetNotificationStorageChannelEvent"},
         {151, D<&IApplicationFunctions::TryPopFromNotificationStorageChannel>, "TryPopFromNotificationStorageChannel"},
         {160, D<&IApplicationFunctions::GetHealthWarningDisappearedSystemEvent>, "GetHealthWarningDisappearedSystemEvent"},
-        {170, nullptr, "SetHdcpAuthenticationActivated"},
+        {170, D<&IApplicationFunctions::SetHdcpAuthenticationActivated>, "SetHdcpAuthenticationActivated"},
         {180, nullptr, "GetLaunchRequiredVersion"},
         {181, nullptr, "UpgradeLaunchRequiredVersion"},
         {190, nullptr, "SendServerMaintenanceOverlayNotification"},
@@ -510,6 +510,13 @@ Result IApplicationFunctions::GetPreviousProgramIndex(Out<s32> out_previous_prog
     R_SUCCEED();
 }
 
+Result IApplicationFunctions::EnableApplicationAllThreadDumpOnCrash(bool enabled) {
+    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->all_thread_dump_on_crash_enabled = enabled;
+    R_SUCCEED();
+}
+
 Result IApplicationFunctions::GetGpuErrorDetectedSystemEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_DEBUG(Service_AM, "called");
@@ -570,6 +577,13 @@ Result IApplicationFunctions::GetHealthWarningDisappearedSystemEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_DEBUG(Service_AM, "called");
     *out_event = m_applet->health_warning_disappeared_system_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::SetHdcpAuthenticationActivated(bool activated) {
+    LOG_DEBUG(Service_AM, "called, activated={}", activated);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->hdcp_authentication_activated = activated;
     R_SUCCEED();
 }
 

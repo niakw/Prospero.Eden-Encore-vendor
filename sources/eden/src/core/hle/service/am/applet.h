@@ -86,8 +86,11 @@ struct Applet {
     bool game_play_recording_supported{};
     bool media_playback_state{};
     GamePlayRecordingState game_play_recording_state{GamePlayRecordingState::Disabled};
+    bool game_movie_resource_reserved{};
     bool jit_service_launched{};
     bool application_crash_report_enabled{};
+    bool all_thread_dump_on_crash_enabled{};
+    bool hdcp_authentication_activated{};
 
     // Common state
     bool sleep_lock_enabled{};
