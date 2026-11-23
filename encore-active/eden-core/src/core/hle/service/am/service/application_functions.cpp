@@ -384,7 +384,7 @@ Result IApplicationFunctions::GetPseudoDeviceId(Out<Common::UUID> out_pseudo_dev
 
 Result IApplicationFunctions::IsGamePlayRecordingSupported(
     Out<bool> out_is_game_play_recording_supported) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
     *out_is_game_play_recording_supported = m_applet->game_play_recording_supported;
     R_SUCCEED();
 }
@@ -404,7 +404,7 @@ Result IApplicationFunctions::SetMediaPlaybackStateForApplication(bool enabled) 
 
 Result IApplicationFunctions::SetGamePlayRecordingState(
     GamePlayRecordingState game_play_recording_state) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->game_play_recording_state = game_play_recording_state;
@@ -413,7 +413,7 @@ Result IApplicationFunctions::SetGamePlayRecordingState(
 }
 
 Result IApplicationFunctions::EnableApplicationCrashReport(bool enabled) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->application_crash_report_enabled = enabled;
@@ -508,7 +508,7 @@ Result IApplicationFunctions::GetPreviousProgramIndex(Out<s32> out_previous_prog
 
 Result IApplicationFunctions::GetGpuErrorDetectedSystemEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
     *out_event = m_applet->gpu_error_detected_event.GetHandle();
     R_SUCCEED();
 }
@@ -583,7 +583,7 @@ Result IApplicationFunctions::Unknown330(Out<u8> out) {
 }
 
 Result IApplicationFunctions::PrepareForJit() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->jit_service_launched = true;

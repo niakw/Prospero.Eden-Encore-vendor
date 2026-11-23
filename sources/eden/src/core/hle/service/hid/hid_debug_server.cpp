@@ -16,6 +16,7 @@
 #include "hid_core/resources/digitizer/digitizer.h"
 #include "hid_core/resources/keyboard/keyboard.h"
 #include "hid_core/resources/mouse/mouse.h"
+#include "hid_core/resources/npad/npad.h"
 #include "hid_core/resources/six_axis/console_six_axis.h"
 #include "hid_core/resources/six_axis/seven_six_axis.h"
 #include "hid_core/resources/system_buttons/capture_button.h"
@@ -57,7 +58,7 @@ IHidDebugServer::IHidDebugServer(Core::System& system_, std::shared_ptr<Resource
         {51, nullptr, "SetXpadAutoPilotState"},
         {52, nullptr, "UnsetXpadAutoPilotState"},
         {53, nullptr, "DeactivateJoyXpad"},
-        {60, nullptr, "ClearNpadSystemCommonPolicy"},
+        {60, C<&IHidDebugServer::ClearNpadSystemCommonPolicy>, "ClearNpadSystemCommonPolicy"},
         {61, nullptr, "DeactivateNpad"},
         {62, nullptr, "ForceDisconnectNpad"},
         {91, C<&IHidDebugServer::DeactivateGesture>, "DeactivateGesture"},
@@ -190,7 +191,7 @@ IHidDebugServer::IHidDebugServer(Core::System& system_, std::shared_ptr<Resource
         {2000, C<&IHidDebugServer::DeactivateDigitizer>, "DeactivateDigitizer"},
         {2001, nullptr, "SetDigitizerAutoPilotState"},
         {2002, nullptr, "UnsetDigitizerAutoPilotState"},
-        {3000, nullptr, "ReloadFirmwareDebugSettings"},
+        {3000, C<&IHidDebugServer::ReloadFirmwareDebugSettings>, "ReloadFirmwareDebugSettings"},
     };
     // clang-format on
 
@@ -214,6 +215,17 @@ Result IHidDebugServer::DeactivateMouse() {
 Result IHidDebugServer::DeactivateKeyboard() {
     LOG_INFO(Service_HID, "called");
     GetResourceManager()->GetKeyboard()->DeactivateController();
+    R_SUCCEED();
+}
+
+Result IHidDebugServer::ClearNpadSystemCommonPolicy(ClientAppletResourceUserId aruid) {
+    LOG_INFO(Service_HID, "called, applet_resource_user_id={}", aruid.pid);
+    R_RETURN(GetResourceManager()->GetNpad()->ClearNpadSystemCommonPolicy(system.Kernel(), aruid.pid));
+}
+
+Result IHidDebugServer::ReloadFirmwareDebugSettings() {
+    LOG_INFO(Service_HID, "called");
+    firmware_settings->Reload();
     R_SUCCEED();
 }
 

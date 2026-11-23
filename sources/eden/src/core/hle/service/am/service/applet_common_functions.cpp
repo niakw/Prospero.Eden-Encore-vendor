@@ -144,7 +144,7 @@ Result IAppletCommonFunctions::IsHomeButtonShortPressedBlocked(
 }
 
 Result IAppletCommonFunctions::SetDisplayMagnification(f32 x, f32 y, f32 width, f32 height) {
-    LOG_DEBUG(Service_AM, "(STUBBED) called, x={}, y={}, width={}, height={}", x, y, width,
+    LOG_DEBUG(Service_AM, "called, x={}, y={}, width={}, height={}", x, y, width,
                 height);
     std::scoped_lock lk{applet->lock};
     applet->display_magnification = Common::Rectangle<f32>{x, y, x + width, y + height};

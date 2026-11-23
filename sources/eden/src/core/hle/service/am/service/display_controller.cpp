@@ -85,7 +85,9 @@ Result IDisplayController::AcquireLastForegroundCaptureSharedBuffer(
 }
 
 Result IDisplayController::ReleaseLastForegroundCaptureSharedBuffer() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called; capture acquisition is synchronous and holds no persistent ownership");
+    // Encore's capture path copies the requested snapshot under SharedBufferManager::m_guard and
+    // releases that guard before Acquire* returns, so there is no persistent acquisition to release.
     R_SUCCEED();
 }
 
@@ -97,7 +99,9 @@ Result IDisplayController::AcquireCallerAppletCaptureSharedBuffer(
 }
 
 Result IDisplayController::ReleaseCallerAppletCaptureSharedBuffer() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called; capture acquisition is synchronous and holds no persistent ownership");
+    // Encore's capture path copies the requested snapshot under SharedBufferManager::m_guard and
+    // releases that guard before Acquire* returns, so there is no persistent acquisition to release.
     R_SUCCEED();
 }
 
@@ -109,7 +113,9 @@ Result IDisplayController::AcquireLastApplicationCaptureSharedBuffer(
 }
 
 Result IDisplayController::ReleaseLastApplicationCaptureSharedBuffer() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called; capture acquisition is synchronous and holds no persistent ownership");
+    // Encore's capture path copies the requested snapshot under SharedBufferManager::m_guard and
+    // releases that guard before Acquire* returns, so there is no persistent acquisition to release.
     R_SUCCEED();
 }
 

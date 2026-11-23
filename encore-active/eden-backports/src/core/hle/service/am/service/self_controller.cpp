@@ -207,7 +207,7 @@ Result ISelfController::SetRestartMessageEnabled(bool enabled) {
 
 Result ISelfController::SetScreenShotAppletIdentityInfo(
     AppletIdentityInfo screen_shot_applet_identity_info) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->screen_shot_identity = screen_shot_applet_identity_info;
@@ -241,7 +241,7 @@ Result ISelfController::SetDesirableKeyboardLayout(u32 layout) {
 
 Result ISelfController::SetAlbumImageOrientation(
     Capture::AlbumImageOrientation album_image_orientation) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, orientation={}", album_image_orientation);
+    LOG_DEBUG(Service_AM, "called, orientation={}", album_image_orientation);
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->album_image_orientation = album_image_orientation;
@@ -399,11 +399,10 @@ Result ISelfController::GetAccumulatedSuspendedTickChangedEvent(
 }
 
 Result ISelfController::SetAlbumImageTakenNotificationEnabled(bool enabled) {
-    LOG_WARNING(Service_AM, "(STUBBED) called. enabled={}", enabled);
+    LOG_DEBUG(Service_AM, "called. enabled={}", enabled);
 
-    // This service call sets an internal flag whether a notification is shown when an image is
-    // captured. Currently we do not support capturing images via the capture button, so this can be
-    // stubbed for now.
+    // Preserve the guest-visible notification preference even though capture-button notifications
+    // are not surfaced by the current frontend.
     std::scoped_lock lk{m_applet->lock};
     m_applet->album_image_taken_notification_enabled = enabled;
 

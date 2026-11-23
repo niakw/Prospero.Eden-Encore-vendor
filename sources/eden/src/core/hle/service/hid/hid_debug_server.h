@@ -25,6 +25,8 @@ private:
     Result DeactivateDebugPad();
     Result DeactivateMouse();
     Result DeactivateKeyboard();
+    Result ClearNpadSystemCommonPolicy(ClientAppletResourceUserId aruid);
+    Result ReloadFirmwareDebugSettings();
     Result DeactivateHomeButton();
     Result DeactivateSleepButton();
     Result DeactivateCaptureButton();
