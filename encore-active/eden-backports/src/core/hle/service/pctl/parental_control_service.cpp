@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <chrono>
 
 #include "core/core.h"
@@ -377,13 +378,17 @@ Result IParentalControlService::IsStereoVisionPermitted(Out<bool> out_is_permitt
 
 Result IParentalControlService::SetPinCode(
     InArray<char, BufferAttr_HipcPointer> pin_code_buffer) {
-    R_UNLESS(pin_code_buffer.size() <= pin_code.size(), PCTL::ResultInvalidArgument);
+    const auto copy_size = (std::min)(pin_code_buffer.size(), pin_code.size());
+    if (pin_code_buffer.size() > pin_code.size()) {
+        LOG_WARNING(Service_PCTL, "PIN buffer exceeds local 8-byte state; truncating {} -> {}",
+                    pin_code_buffer.size(), copy_size);
+    }
 
     pin_code.fill('\0');
-    std::copy(pin_code_buffer.begin(), pin_code_buffer.end(), pin_code.begin());
+    std::copy_n(pin_code_buffer.begin(), copy_size, pin_code.begin());
     pin_code_changed_event.Signal(system.Kernel());
 
-    LOG_DEBUG(Service_PCTL, "PIN updated, length={}", pin_code_buffer.size());
+    LOG_DEBUG(Service_PCTL, "PIN updated, stored_length={}", copy_size);
     R_SUCCEED();
 }
 
