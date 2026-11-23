@@ -449,11 +449,40 @@ Result KMemoryManager::AllocateForProcess(KPageGroup* out, size_t num_pages, u32
             }
         }
     } else {
-        // Set all the allocated memory.
-        for (const auto& block : *out) {
-            m_system.DeviceMemory().buffer.ClearBackingRegion(GetInteger(block.GetAddress()) -
-                                                                  Core::DramMemoryMap::Base,
-                                                              block.GetSize(), fill_pattern);
+        // No guest PTE has been published for this newly allocated group.
+        // The native sparse backing may refuse a physical commit even when
+        // the guest physical page heap found a free range. Surface that as
+        // a normal guest OOM instead of terminating the CPUCore host thread.
+        try {
+            for (const auto& block : *out) {
+                m_system.DeviceMemory().buffer.ClearBackingRegion(GetInteger(block.GetAddress()) -
+                                                                      Core::DramMemoryMap::Base,
+                                                                  block.GetSize(), fill_pattern);
+            }
+        } catch (const std::bad_alloc&) {
+            // AllocatePageGroupImpl handed us unreferenced physical pages;
+            // AllocateForProcess has NOT called OpenFirst. Return every
+            // segment to its owning pool, including blocks spanning managers.
+            // Do not Close() (refcount is still zero), and release block
+            // descriptors only after returning the guest page-heap ranges.
+            for (const auto& block : *out) {
+                KPhysicalAddress address = block.GetAddress();
+                size_t remaining_pages = block.GetNumPages();
+                while (remaining_pages != 0) {
+                    auto& manager = this->GetManager(address);
+                    const size_t pages = (std::min)(
+                        remaining_pages, manager.GetPageOffsetToEnd(address));
+                    {
+                        KScopedLightLock lk(
+                            m_pool_locks[static_cast<size_t>(manager.GetPool())]);
+                        manager.Free(address, pages);
+                    }
+                    address += pages * PageSize;
+                    remaining_pages -= pages;
+                }
+            }
+            out->Finalize();
+            R_THROW(ResultOutOfMemory);
         }
     }
 
