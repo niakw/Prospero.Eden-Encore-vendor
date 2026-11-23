@@ -408,7 +408,7 @@ public:
             {9, &IRequest::SetNetworkProfileId, "SetNetworkProfileId"},
             {10, nullptr, "SetRejectable"},
             {11, &IRequest::SetConnectionConfirmationOption, "SetConnectionConfirmationOption"},
-            {12, nullptr, "SetPersistent"},
+            {12, &IRequest::SetPersistent, "SetPersistent"},
             {13, nullptr, "SetInstant"},
             {14, nullptr, "SetSustainable"},
             {15, nullptr, "SetRawPriority"},
@@ -468,11 +468,20 @@ private:
         RequestState reported_state;
         {
             std::scoped_lock lk{state_lock};
+            const auto has_connection = HasConnection();
+            if (state == RequestState::Accepted && !has_connection) {
+                UpdateState(persistent ? RequestState::OnHold : RequestState::Invalid);
+            }
+
             reported_state = state;
             if (state == RequestState::OnHold) {
-                // Match hardware timing closely enough for guests which poll only the state:
-                // expose OnHold once, then resolve and signal the state-change event.
-                UpdateState(HasConnection() ? RequestState::Accepted : RequestState::Invalid);
+                // Persistent requests remain OnHold while connectivity is absent and
+                // become Accepted again once the host network returns.
+                if (has_connection) {
+                    UpdateState(RequestState::Accepted);
+                } else if (!persistent) {
+                    UpdateState(RequestState::Invalid);
+                }
             }
         }
 
@@ -526,12 +535,20 @@ private:
         {
             std::scoped_lock lk{state_lock};
             const auto has_connection = HasConnection();
+            if (state == RequestState::Accepted && !has_connection) {
+                UpdateState(persistent ? RequestState::OnHold : RequestState::Invalid);
+            }
+
             switch (state) {
             case RequestState::NotSubmitted:
                 result = has_connection ? ResultSuccess : ResultNetworkCommunicationDisabled;
                 break;
             case RequestState::OnHold:
-                UpdateState(has_connection ? RequestState::Accepted : RequestState::Invalid);
+                if (has_connection) {
+                    UpdateState(RequestState::Accepted);
+                } else if (!persistent) {
+                    UpdateState(RequestState::Invalid);
+                }
                 result = ResultPendingConnection;
                 break;
             case RequestState::Accepted:
@@ -560,6 +577,15 @@ private:
             std::scoped_lock lk{state_lock};
             UpdateState(RequestState::NotSubmitted);
         }
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void SetPersistent(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        persistent = rp.Pop<u8>() != 0;
+        LOG_DEBUG(Service_NIFM, "persistent={}", persistent);
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
@@ -612,6 +638,7 @@ private:
     u32 client_id{};
     std::optional<u128> network_profile_id;
     std::array<u8, 0x24> requirement{};
+    bool persistent{};
 
     Kernel::KEvent* event1;
     Kernel::KEvent* event2;

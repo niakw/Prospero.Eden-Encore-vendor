@@ -13,7 +13,7 @@ files={
  "encore-active/eden-core/include/core/hle/service/ipc_helpers.h":"a266b1a05cf0b20b7cad6d70f9b16dfec503cf7c",
  "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp":"647e2499f82de4ac921e6ab709c8a67d4f2f10cc",
  "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.h":"4599b92b022b18439014288b43c0c3ecb93f0eb7",
- "encore-active/eden-backports/src/core/hle/service/nifm/nifm.cpp":"a870df7e563b51077abe38e5476b73e7a91e480b",
+ "encore-active/eden-backports/src/core/hle/service/nifm/nifm.cpp":"1bea7c9ba353181fb7f0b7c23fbbc2435360b50b",
 }
 for file,expected in files.items():
  d=(ROOT/file).read_bytes()
@@ -57,6 +57,13 @@ assert 'PopRaw<std::array<u8, 0x24>>()' in requirement_set
 requirement_get=nifm.split("void GetRequirement(HLERequestContext& ctx)",1)[1].split("void SetRequirementPreset",1)[0]
 assert 'ResponseBuilder rb{ctx, 11}' in requirement_get
 assert 'rb.PushRaw(requirement)' in requirement_get
+assert '{12, &IRequest::SetPersistent, "SetPersistent"}' in nifm
+persistent=nifm.split("void SetPersistent(HLERequestContext& ctx)",1)[1].split("void SetConnectionConfirmationOption",1)[0]
+assert 'persistent = rp.Pop<u8>() != 0' in persistent
+request_state=nifm.split("void GetRequestState(HLERequestContext& ctx)",1)[1].split("void SetRequirement(",1)[0]
+assert 'persistent ? RequestState::OnHold : RequestState::Invalid' in request_state
+request_result=nifm.split("void GetResult(HLERequestContext& ctx)",1)[1].split("void GetSystemEventReadableHandles",1)[0]
+assert 'else if (!persistent)' in request_result
 assert "constexpr Result ResultNotSupported{ErrorModule::HIPC, 1};" in ipch
 assert "static_assert(sizeof(Uid) == 0x10)" in profile
 test=r"""
