@@ -64,6 +64,8 @@ public:
     Result SetUserSystemClockContext(const Service::PSC::Time::SystemClockContext& clock_context);
     Result GetAccountSettings(Out<AccountSettings> out_account_settings);
     Result SetAccountSettings(AccountSettings account_settings);
+    Result GetAudioVolume(Out<std::array<u8, 0x8>> out_volume, u32 device);
+    Result SetAudioVolume(u32 device, const std::array<u8, 0x8>& volume);
     Result GetEulaVersions(Out<s32> out_count,
                            OutArray<EulaVersion, BufferAttr_HipcMapAlias> out_eula_versions);
     Result SetEulaVersions(InArray<EulaVersion, BufferAttr_HipcMapAlias> eula_versions);

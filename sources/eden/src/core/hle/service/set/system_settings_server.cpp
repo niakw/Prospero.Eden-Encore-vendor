@@ -136,8 +136,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {16, C<&ISystemSettingsServer::SetUserSystemClockContext>, "SetUserSystemClockContext"},
         {17, C<&ISystemSettingsServer::GetAccountSettings>, "GetAccountSettings"},
         {18, C<&ISystemSettingsServer::SetAccountSettings>, "SetAccountSettings"},
-        {19, nullptr, "GetAudioVolume"},
-        {20, nullptr, "SetAudioVolume"},
+        {19, C<&ISystemSettingsServer::GetAudioVolume>, "GetAudioVolume"},
+        {20, C<&ISystemSettingsServer::SetAudioVolume>, "SetAudioVolume"},
         {21, C<&ISystemSettingsServer::GetEulaVersions>, "GetEulaVersions"},
         {22, C<&ISystemSettingsServer::SetEulaVersions>, "SetEulaVersions"},
         {23, C<&ISystemSettingsServer::GetColorSetId>, "GetColorSetId"},
@@ -560,6 +560,43 @@ Result ISystemSettingsServer::SetAccountSettings(AccountSettings account_setting
     LOG_INFO(Service_SET, "called, account_settings_flags={}", account_settings.flags);
 
     m_system_settings.account_settings = account_settings;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetAudioVolume(Out<std::array<u8, 0x8>> out_volume,
+                                                  u32 device) {
+    switch (device) {
+    case 0:
+        *out_volume = m_system_settings.audio_volume_type0;
+        break;
+    case 1:
+        *out_volume = m_system_settings.audio_volume_type1;
+        break;
+    case 2:
+        *out_volume = m_system_settings.audio_volume_type2;
+        break;
+    default:
+        R_THROW(ResultUnknown);
+    }
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetAudioVolume(u32 device,
+                                                  const std::array<u8, 0x8>& volume) {
+    switch (device) {
+    case 0:
+        m_system_settings.audio_volume_type0 = volume;
+        break;
+    case 1:
+        m_system_settings.audio_volume_type1 = volume;
+        break;
+    case 2:
+        m_system_settings.audio_volume_type2 = volume;
+        break;
+    default:
+        R_THROW(ResultUnknown);
+    }
     SetSaveNeeded();
     R_SUCCEED();
 }
