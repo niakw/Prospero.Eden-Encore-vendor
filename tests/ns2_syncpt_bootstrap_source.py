@@ -394,6 +394,7 @@ gsv_ctor = cpp.split("IGraphicsSupervisor::IGraphicsSupervisor(", 1)[1].split(
     "RegisterHandlersTipc(functions);", 1)[0]
 for cmd in known_lichii_gsv_ids:
     owner = ("CalculateFeatureImagePoolRequirements" if cmd == 891
+             else "OpenGpuTimeSession" if cmd == 1121
              else "UnavailableDocumentedFeature")
     assert f"{{{cmd}, &IGraphicsSupervisor::{owner}," in gsv_ctor, cmd
 gsv_rejection = cpp.split(
