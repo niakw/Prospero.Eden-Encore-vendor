@@ -97,6 +97,7 @@
 namespace VideoCommon {
 void SetShaderTranslationSnapshotForThread(
     GPUVAddr texture_base, u32 texture_limit, const u8* texture_data,
+    bool via_header_index, u32 viewport_transform_state,
     const u8* const* cbuf_data, const u32* cbuf_sizes, size_t cbuf_count) noexcept;
 void ClearShaderTranslationSnapshotForThread() noexcept;
 }
@@ -1918,8 +1919,24 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     const auto& snapshot_tex_header = maxwell3d->regs.tex_header;
     const GPUVAddr snapshot_texture_base = snapshot_tex_header.Address();
     const u32 snapshot_texture_limit = static_cast<u32>(snapshot_tex_header.limit);
+    const bool snapshot_via_header_index =
+        maxwell3d->regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding;
+    const u32 snapshot_viewport_transform_state =
+        maxwell3d->regs.viewport_scale_offset_enabled;
     const u64 snapshot_texture_bytes =
         (u64{snapshot_texture_limit} + 1) * sizeof(Tegra::Texture::TICEntry);
+
+    if (parallel_translate_stages) {
+        for (Shader::Environment* const env : envs) {
+            // HLE replacement lookup still belongs to Maxwell3D::replace_table.
+            // Keep those rare shaders on the GPU owner until that table has an
+            // immutable per-environment representation too.
+            if (env->HasHLEMacroState()) {
+                parallel_translate_stages = false;
+                break;
+            }
+        }
+    }
 
     if (parallel_translate_stages) {
         bool snapshot_ok =
@@ -2018,6 +2035,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
             shader_translation_workers.QueueWork(
                 [this, env, stage_pools, cfg_offset, exits_to_dispatcher, index,
                  physical_stage, snapshot_texture_base, snapshot_texture_limit,
+                 snapshot_via_header_index, snapshot_viewport_transform_state,
                  &parallel_texture_snapshot, &parallel_cbuf_ptrs,
                  &parallel_cbuf_sizes, &parallel_programs, &parallel_errors,
                  &parallel_stage_costs] {
@@ -2035,11 +2053,13 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
                     struct ImmutableGuestSnapshotScope {
                         ImmutableGuestSnapshotScope(
                             GPUVAddr texture_base, u32 texture_limit,
-                            const std::vector<u8>& texture,
+                            const std::vector<u8>& texture, bool via_header_index,
+                            u32 viewport_transform_state,
                             const std::array<const u8*, Maxwell::MaxConstBuffers>& cbuf_data,
                             const std::array<u32, Maxwell::MaxConstBuffers>& cbuf_sizes) {
                             VideoCommon::SetShaderTranslationSnapshotForThread(
                                 texture_base, texture_limit, texture.data(),
+                                via_header_index, viewport_transform_state,
                                 cbuf_data.data(), cbuf_sizes.data(),
                                 Maxwell::MaxConstBuffers);
                         }
@@ -2048,7 +2068,9 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
                         }
                     } immutable_snapshot_scope{
                         snapshot_texture_base, snapshot_texture_limit,
-                        parallel_texture_snapshot, parallel_cbuf_ptrs[physical_stage],
+                        parallel_texture_snapshot, snapshot_via_header_index,
+                        snapshot_viewport_transform_state,
+                        parallel_cbuf_ptrs[physical_stage],
                         parallel_cbuf_sizes[physical_stage]};
                     try {
                         ::Eden::Performance::CachePhaseTimer cfg_stage_cost{

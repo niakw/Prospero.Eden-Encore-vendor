@@ -55,6 +55,8 @@ struct ShaderTranslationSnapshotView {
     GPUVAddr texture_base{};
     u32 texture_limit{};
     const u8* texture_data{};
+    bool via_header_index{};
+    u32 viewport_transform_state{};
     const u8* const* cbuf_data{};
     const u32* cbuf_sizes{};
     size_t cbuf_count{};
@@ -68,11 +70,14 @@ thread_local ShaderTranslationSnapshotView shader_translation_snapshot{};
 
 void SetShaderTranslationSnapshotForThread(
     GPUVAddr texture_base, u32 texture_limit, const u8* texture_data,
+    bool via_header_index, u32 viewport_transform_state,
     const u8* const* cbuf_data, const u32* cbuf_sizes, size_t cbuf_count) noexcept {
     shader_translation_snapshot = {
         .texture_base = texture_base,
         .texture_limit = texture_limit,
         .texture_data = texture_data,
+        .via_header_index = via_header_index,
+        .viewport_transform_state = viewport_transform_state,
         .cbuf_data = cbuf_data,
         .cbuf_sizes = cbuf_sizes,
         .cbuf_count = cbuf_count,
@@ -554,6 +559,16 @@ std::optional<Shader::ReplaceConstant> GraphicsEnvironment::GetReplaceConstBuffe
 }
 
 Shader::TextureType GraphicsEnvironment::ReadTextureType(u32 handle) {
+#ifdef PS5_NATIVE
+    if (shader_translation_snapshot.active) {
+        auto entry = ReadTextureInfo(shader_translation_snapshot.texture_base,
+                                     shader_translation_snapshot.texture_limit,
+                                     shader_translation_snapshot.via_header_index, handle);
+        const Shader::TextureType result{ConvertTextureType(entry)};
+        texture_types.emplace(handle, result);
+        return result;
+    }
+#endif
     const auto& regs{maxwell3d->regs};
     const bool via_header_index{regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding};
     auto entry =
@@ -564,6 +579,16 @@ Shader::TextureType GraphicsEnvironment::ReadTextureType(u32 handle) {
 }
 
 Shader::TexturePixelFormat GraphicsEnvironment::ReadTexturePixelFormat(u32 handle) {
+#ifdef PS5_NATIVE
+    if (shader_translation_snapshot.active) {
+        auto entry = ReadTextureInfo(shader_translation_snapshot.texture_base,
+                                     shader_translation_snapshot.texture_limit,
+                                     shader_translation_snapshot.via_header_index, handle);
+        const Shader::TexturePixelFormat result(ConvertTexturePixelFormat(entry));
+        texture_pixel_formats.emplace(handle, result);
+        return result;
+    }
+#endif
     const auto& regs{maxwell3d->regs};
     const bool via_header_index{regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding};
     auto entry =
@@ -579,6 +604,12 @@ bool GraphicsEnvironment::IsTexturePixelFormatInteger(u32 handle) {
 }
 
 u32 GraphicsEnvironment::ReadViewportTransformState() {
+#ifdef PS5_NATIVE
+    if (shader_translation_snapshot.active) {
+        viewport_transform_state = shader_translation_snapshot.viewport_transform_state;
+        return viewport_transform_state;
+    }
+#endif
     const auto& regs{maxwell3d->regs};
     viewport_transform_state = regs.viewport_scale_offset_enabled;
     return viewport_transform_state;
