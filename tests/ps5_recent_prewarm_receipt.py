@@ -3,6 +3,21 @@
 import hashlib
 
 NONE_RT_BLOB = "d222fb5565cdf8db30c6d3d464f107ff26a042c8"
+PARALLEL_TRANSLATION_METRIC_BLOB = "52470b6160f6049801d963960adf6952c79a45cf"
+PARALLEL_TRANSLATION_METRIC_REVERSES = [
+    [
+        "    std::array<std::exception_ptr, Maxwell::MaxShaderProgram> parallel_errors{};\n    // CachePhaseTimer's per-key shader attribution is intentionally thread-local.\n    // Give every stage worker a private accumulator, then merge after the owner\n    // joins them so EDEN_VULKAN_SHADER_MISS keeps the pre-parallel accounting.\n    std::array<::Eden::Performance::ShaderMissStageCosts, Maxwell::MaxShaderProgram>\n        parallel_stage_costs{};\n    if (parallel_translate_stages) {",
+        "    std::array<std::exception_ptr, Maxwell::MaxShaderProgram> parallel_errors{};\n    if (parallel_translate_stages) {"
+    ],
+    [
+        "                [this, env, stage_pools, cfg_offset, exits_to_dispatcher, index,\n                 &parallel_programs, &parallel_errors, &parallel_stage_costs] {\n                    struct ShaderMissStageScope {\n                        ::Eden::Performance::ShaderMissStageCosts* previous{\n                            ::Eden::Performance::shader_miss_stage_active};\n                        explicit ShaderMissStageScope(\n                            ::Eden::Performance::ShaderMissStageCosts* current) noexcept {\n                            ::Eden::Performance::shader_miss_stage_active = current;\n                        }\n                        ~ShaderMissStageScope() {\n                            ::Eden::Performance::shader_miss_stage_active = previous;\n                        }\n                    } shader_miss_stage_scope{&parallel_stage_costs[index]};\n                    struct PreflushedTexturePoolScope {",
+        "                [this, env, stage_pools, cfg_offset, exits_to_dispatcher, index,\n                 &parallel_programs, &parallel_errors] {\n                    struct PreflushedTexturePoolScope {"
+    ],
+    [
+        "        shader_translation_workers.WaitForRequests();\n        if (auto* const owner_stage_costs =\n                ::Eden::Performance::shader_miss_stage_active) {\n            for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {\n                if (key.unique_hashes[index] == 0) {\n                    continue;\n                }\n                // These are CPU-work totals, matching the former serial keyed\n                // timers. The enclosing miss cpu_ns remains the elapsed critical\n                // path and therefore reflects the parallel overlap.\n                owner_stage_costs->cfg_ns += parallel_stage_costs[index].cfg_ns;\n                owner_stage_costs->ir_ns += parallel_stage_costs[index].ir_ns;\n            }\n        }\n        for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {",
+        "        shader_translation_workers.WaitForRequests();\n        for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {"
+    ]
+]
 PARALLEL_TRANSLATION_BLOB = "b28a190e92ca80b0385148a0b558828353326f12"
 PARALLEL_TRANSLATION_REVERSES = [
     [
@@ -63,6 +78,13 @@ def git_blob(text: str) -> str:
 
 def normalize_parallel_translation(text: str) -> str:
     current = git_blob(text)
+    if current == PARALLEL_TRANSLATION_METRIC_BLOB:
+        for newer, earlier in PARALLEL_TRANSLATION_METRIC_REVERSES:
+            assert text.count(newer) == 1, ("Changed parallel timing owner", newer[:90])
+            text = text.replace(newer, earlier, 1)
+        assert git_blob(text) == PARALLEL_TRANSLATION_BLOB, (
+            "Parallel timing predecessor drift")
+        current = PARALLEL_TRANSLATION_BLOB
     if current == PARALLEL_TRANSLATION_BLOB:
         for newer, earlier in PARALLEL_TRANSLATION_REVERSES:
             assert text.count(newer) == 1, ("Changed parallel translation owner", newer[:90])
