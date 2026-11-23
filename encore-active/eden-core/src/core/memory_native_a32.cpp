@@ -435,7 +435,23 @@ struct Memory::Impl {
         [addr, size](const std::size_t offset, const std::size_t copy_amount, const Common::ProcessAddress current_vaddr) {
             if (::Eden::Performance::ShouldLogUnmappedAccess()) LOG_ERROR(HW_Memory, "Unmapped @ {:#016x} (start address = {:#016x}, size = {})", GetInteger(current_vaddr), GetInteger(addr), size);
         },
-        [=](const std::size_t offset, const std::size_t copy_amount, u8* const ptr) {
+        [&](const std::size_t offset, const std::size_t copy_amount, u8* const ptr) {
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+            // A normal guest-memory ZERO page may still alias the shared
+            // read-only NS2 zero owner. Writing zero through libc would fault
+            // and promote it to a private 2 MiB block for no semantic change.
+            // Route only NS2 direct-backing zeros through HostMemory, whose
+            // sparse owner clears resident bytes and leaves ZERO chunks shared.
+            if (Kernel::Board::Nintendo::Nx::KSystemControl::Init::GetIntendedMemorySize() ==
+                    (12ull << 30) &&
+                IsDirectBackingAlias(reinterpret_cast<std::uintptr_t>(ptr), copy_amount)) {
+                const auto backing = reinterpret_cast<std::uintptr_t>(
+                    system.DeviceMemory().buffer.BackingBasePointer());
+                system.DeviceMemory().buffer.ClearBackingRegion(
+                    reinterpret_cast<std::uintptr_t>(ptr) - backing, copy_amount, 0);
+                return;
+            }
+#endif
             std::memset(ptr, 0, copy_amount);
         },
         [&](const Common::ProcessAddress current_vaddr, const std::size_t offset, const std::size_t copy_amount, u8* const ptr) {
