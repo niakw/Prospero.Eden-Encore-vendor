@@ -32,11 +32,11 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1004, D<&IParentalControlService::ConfirmSnsPostPermission>, "ConfirmSnsPostPermission"},
         {1005, D<&IParentalControlService::ConfirmSystemSettingsPermission>, "ConfirmSystemSettingsPermission"},
         {1006, D<&IParentalControlService::IsRestrictionTemporaryUnlocked>, "IsRestrictionTemporaryUnlocked"},
-        {1007, nullptr, "RevertRestrictionTemporaryUnlocked"},
-        {1008, nullptr, "EnterRestrictedSystemSettings"},
-        {1009, nullptr, "LeaveRestrictedSystemSettings"},
+        {1007, D<&IParentalControlService::RevertRestrictionTemporaryUnlocked>, "RevertRestrictionTemporaryUnlocked"},
+        {1008, D<&IParentalControlService::EnterRestrictedSystemSettings>, "EnterRestrictedSystemSettings"},
+        {1009, D<&IParentalControlService::LeaveRestrictedSystemSettings>, "LeaveRestrictedSystemSettings"},
         {1010, D<&IParentalControlService::IsRestrictedSystemSettingsEntered>, "IsRestrictedSystemSettingsEntered"},
-        {1011, nullptr, "RevertRestrictedSystemSettingsEntered"},
+        {1011, D<&IParentalControlService::RevertRestrictedSystemSettingsEntered>, "RevertRestrictedSystemSettingsEntered"},
         {1012, nullptr, "GetRestrictedFeatures"},
         {1013, D<&IParentalControlService::ConfirmStereoVisionPermission>, "ConfirmStereoVisionPermission"},
         {1014, nullptr, "ConfirmPlayableApplicationVideoOld"},
@@ -72,7 +72,7 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1063, D<&IParentalControlService::SetStereoVisionRestriction>, "SetStereoVisionRestriction"},
         {1064, D<&IParentalControlService::ResetConfirmedStereoVisionPermission>, "ResetConfirmedStereoVisionPermission"},
         {1065, D<&IParentalControlService::IsStereoVisionPermitted>, "IsStereoVisionPermitted"},
-        {1201, nullptr, "UnlockRestrictionTemporarily"},
+        {1201, D<&IParentalControlService::UnlockRestrictionTemporarily>, "UnlockRestrictionTemporarily"},
         {1202, nullptr, "UnlockSystemSettingsRestriction"},
         {1203, D<&IParentalControlService::SetPinCode>, "SetPinCode"},
         {1204, nullptr, "GenerateInquiryCode"},
@@ -102,7 +102,7 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1471, nullptr, "NotifyWrongPinCodeInputManyTimes"},
         {1472, nullptr, "CancelNetworkRequest"},
         {1473, D<&IParentalControlService::GetUnlinkedEvent>, "GetUnlinkedEvent"},
-        {1474, nullptr, "ClearUnlinkedEvent"},
+        {1474, D<&IParentalControlService::ClearUnlinkedEvent>, "ClearUnlinkedEvent"},
         {1475, nullptr, "GetExtendedPlayTimerEvent"}, // 18.0.0+
         {1601, nullptr, "DisableAllFeatures"},
         {1602, nullptr, "PostEnableAllFeatures"},
@@ -286,11 +286,34 @@ Result IParentalControlService::IsRestrictionTemporaryUnlocked(
     R_SUCCEED();
 }
 
+Result IParentalControlService::RevertRestrictionTemporaryUnlocked() {
+    states.temporary_unlocked = false;
+    LOG_DEBUG(Service_PCTL, "Temporary restriction unlock reverted");
+    R_SUCCEED();
+}
+
+Result IParentalControlService::EnterRestrictedSystemSettings() {
+    states.restricted_system_settings_entered = true;
+    LOG_DEBUG(Service_PCTL, "Entered restricted system-settings session");
+    R_SUCCEED();
+}
+
+Result IParentalControlService::LeaveRestrictedSystemSettings() {
+    states.restricted_system_settings_entered = false;
+    LOG_DEBUG(Service_PCTL, "Left restricted system-settings session");
+    R_SUCCEED();
+}
+
 Result IParentalControlService::IsRestrictedSystemSettingsEntered(
     Out<bool> out_is_restricted_system_settings_entered) {
-    // Encore has no restricted-settings UI/session state to enter.
-    *out_is_restricted_system_settings_entered = false;
-    LOG_DEBUG(Service_PCTL, "Restricted system settings are not entered");
+    *out_is_restricted_system_settings_entered = states.restricted_system_settings_entered;
+    LOG_DEBUG(Service_PCTL, "called, entered={}", *out_is_restricted_system_settings_entered);
+    R_SUCCEED();
+}
+
+Result IParentalControlService::RevertRestrictedSystemSettingsEntered() {
+    states.restricted_system_settings_entered = false;
+    LOG_DEBUG(Service_PCTL, "Restricted system-settings state reverted");
     R_SUCCEED();
 }
 
@@ -374,6 +397,23 @@ Result IParentalControlService::IsStereoVisionPermitted(Out<bool> out_is_permitt
         *out_is_permitted = true;
         R_SUCCEED();
     }
+}
+
+Result IParentalControlService::UnlockRestrictionTemporarily(
+    InArray<char, BufferAttr_HipcPointer> pin_code_buffer) {
+    std::size_t stored_length = 0;
+    while (stored_length < pin_code.size() && pin_code[stored_length] != '\0') {
+        ++stored_length;
+    }
+
+    const bool matches =
+        pin_code_buffer.size() == stored_length &&
+        std::equal(pin_code_buffer.begin(), pin_code_buffer.end(), pin_code.begin());
+    R_UNLESS(matches, PCTL::ResultInvalidPin);
+
+    states.temporary_unlocked = true;
+    LOG_DEBUG(Service_PCTL, "Temporary restriction unlock enabled");
+    R_SUCCEED();
 }
 
 Result IParentalControlService::SetPinCode(
@@ -520,6 +560,12 @@ Result IParentalControlService::Unknown1460(u8 in_unk, Out<PlayTimerRemainingTim
 Result IParentalControlService::GetUnlinkedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_INFO(Service_PCTL, "called");
     *out_event = unlinked_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result IParentalControlService::ClearUnlinkedEvent() {
+    unlinked_event.Clear(system.Kernel());
+    LOG_DEBUG(Service_PCTL, "Unlinked event cleared");
     R_SUCCEED();
 }
 

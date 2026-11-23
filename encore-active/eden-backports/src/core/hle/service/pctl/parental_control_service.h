@@ -34,6 +34,10 @@ private:
     Result ConfirmSnsPostPermission();
     Result ConfirmSystemSettingsPermission();
     Result IsRestrictionTemporaryUnlocked(Out<bool> out_is_temporary_unlocked);
+    Result RevertRestrictionTemporaryUnlocked();
+    Result EnterRestrictedSystemSettings();
+    Result LeaveRestrictedSystemSettings();
+    Result RevertRestrictedSystemSettingsEntered();
     Result IsRestrictedSystemSettingsEntered(Out<bool> out_is_restricted_system_settings_entered);
     Result ConfirmStereoVisionPermission();
     Result EndFreeCommunication();
@@ -44,6 +48,7 @@ private:
     Result GetFreeCommunicationApplicationListCount(Out<s32> out_count);
     Result ConfirmStereoVisionRestrictionConfigurable();
     Result IsStereoVisionPermitted(Out<bool> out_is_permitted);
+    Result UnlockRestrictionTemporarily(InArray<char, BufferAttr_HipcPointer> pin_code_buffer);
     Result SetPinCode(InArray<char, BufferAttr_HipcPointer> pin_code_buffer);
     Result GetPinCodeLength(Out<s32> out_length);
     Result GetPinCodeChangedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
@@ -62,6 +67,7 @@ private:
     Result GetPlayTimerRemainingTimeDisplayInfo(Out<PlayTimerRemainingTimeDisplayInfo> out_display_info);
     Result Unknown1460(u8 in_unk, Out<PlayTimerRemainingTimeDisplayInfo> out_display_info);
     Result GetUnlinkedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result ClearUnlinkedEvent();
     Result GetStereoVisionRestriction(Out<bool> out_stereo_vision_restriction);
     Result SetStereoVisionRestriction(bool stereo_vision_restriction);
     Result ResetConfirmedStereoVisionPermission();
@@ -75,6 +81,7 @@ private:
         bool launch_time_valid{};
         bool is_suspended{};
         bool temporary_unlocked{};
+        bool restricted_system_settings_entered{};
         bool free_communication{};
         bool stereo_vision{};
     };
