@@ -33,12 +33,12 @@ public:
             {10110, &IFriendService::GetFriendProfileImage, "GetFriendProfileImage"},
             {10111, nullptr, "GetFriendProfileImageWithImageSize"}, // 18.0.0+
             {10120, &IFriendService::CheckFriendListAvailability, "CheckFriendListAvailability"},
-            {10121, nullptr, "EnsureFriendListAvailable"},
+            {10121, &IFriendService::EnsureFriendListAvailable, "EnsureFriendListAvailable"},
             {10200, nullptr, "SendFriendRequestForApplication"},
             {10211, nullptr, "AddFacedFriendRequestForApplication"},
             {10400, &IFriendService::GetBlockedUserListIds, "GetBlockedUserListIds"},
             {10420, &IFriendService::CheckBlockedUserListAvailability, "CheckBlockedUserListAvailability"},
-            {10421, nullptr, "EnsureBlockedUserListAvailable"},
+            {10421, &IFriendService::EnsureBlockedUserListAvailable, "EnsureBlockedUserListAvailable"},
             {10500, &IFriendService::GetProfileList, "GetProfileList"},
             {10501, nullptr, "GetProfileListV2"}, // 18.0.0+
             {10600, &IFriendService::DeclareOpenOnlinePlaySession, "DeclareOpenOnlinePlaySession"},
@@ -63,7 +63,7 @@ public:
             {20111, nullptr, "LoadFriendSettingV2"}, // 22.0.0+
             {20200, &IFriendService::GetReceivedFriendRequestCount, "GetReceivedFriendRequestCount"},
             {20201, &IFriendService::GetFriendRequestListV1, "GetFriendRequestListV1"},
-            {20202, nullptr, "GetFriendRequestListV2"}, // 20.0.0+
+            {20202, &IFriendService::GetFriendRequestListV2, "GetFriendRequestListV2"}, // 20.0.0+
             {20203, nullptr, "GetFriendRequestReceivedNotificationCount"}, // 22.0.0+
             {20300, &IFriendService::GetFriendCandidateList, "GetFriendCandidateList"},
             {20301, &IFriendService::GetNintendoNetworkIdInfo, "GetNintendoNetworkIdInfo"},
@@ -72,7 +72,7 @@ public:
             {20304, nullptr, "GetSnsAccountFriendList"}, // 5.0.0-19.0.1
             {20400, &IFriendService::GetBlockedUserListV1, "GetBlockedUserListV1"},
             {20401, &IFriendService::SyncBlockedUserList, "SyncBlockedUserList"},
-            {20402, nullptr, "GetBlockedUserListV2"}, // 20.0.0+
+            {20402, &IFriendService::GetBlockedUserListV2, "GetBlockedUserListV2"}, // 20.0.0+
             {20500, nullptr, "GetProfileExtraListV1"},
             {20501, &IFriendService::GetRelationship, "GetRelationship"},
             {20502, nullptr, "GetProfileExtraListV2"}, // 19.0.0+
@@ -80,7 +80,7 @@ public:
             {20601, &IFriendService::GetUserPresenceView, "GetUserPresenceViewV2"}, // 19.0.0+
             {20700, &IFriendService::GetPlayHistoryListV1, "GetPlayHistoryListV1"},
             {20701, &IFriendService::GetPlayHistoryStatistics, "GetPlayHistoryStatistics"},
-            {20702, nullptr, "GetPlayHistoryListV2"}, // 19.0.0+
+            {20702, &IFriendService::GetPlayHistoryListV2, "GetPlayHistoryListV2"}, // 19.0.0+
             {20800, &IFriendService::LoadUserSetting, "LoadUserSettingV1"},
             {20801, &IFriendService::SyncUserSetting, "SyncUserSetting"},
             {20802, &IFriendService::LoadUserSetting, "LoadUserSettingV2"}, // 19.0.0+
@@ -88,7 +88,7 @@ public:
             {21000, &IFriendService::GetExternalApplicationCatalog, "GetExternalApplicationCatalog"},
             {22000, &IFriendService::GetReceivedFriendInvitationListV1, "GetReceivedFriendInvitationListV1"},
             {22001, nullptr, "GetReceivedFriendInvitationDetailedInfoV1"},
-            {22002, nullptr, "GetReceivedFriendInvitationListV2"}, // 19.0.0+
+            {22002, &IFriendService::GetReceivedFriendInvitationListV2, "GetReceivedFriendInvitationListV2"}, // 19.0.0+
             {22003, nullptr, "GetReceivedFriendInvitationDetailedInfoV2"}, // 19.0.0+
             {22010, &IFriendService::GetReceivedFriendInvitationCountCache, "GetReceivedFriendInvitationCountCache"},
             {30100, &IFriendService::DropFriendNewlyFlags, "DropFriendNewlyFlags"},
@@ -654,6 +654,68 @@ private:
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
         rb.Push<s32>(0);
+    }
+
+    void EnsureFriendListAvailable(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto uuid = rp.PopRaw<Common::UUID>();
+        LOG_DEBUG(Service_Friend, "Friend list is locally available for uuid=0x{}",
+                  uuid.RawString());
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void EnsureBlockedUserListAvailable(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto uuid = rp.PopRaw<Common::UUID>();
+        LOG_DEBUG(Service_Friend, "Blocked-user list is locally available for uuid=0x{}",
+                  uuid.RawString());
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetFriendRequestListV2(HLERequestContext& ctx) {
+        if (ctx.CanWriteBuffer()) {
+            std::vector<u8> requests(ctx.GetWriteBufferSize());
+            ctx.WriteBuffer(requests);
+        }
+        LOG_DEBUG(Service_Friend, "Returning empty Friend request list V2");
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
+    }
+
+    void GetBlockedUserListV2(HLERequestContext& ctx) {
+        if (ctx.CanWriteBuffer()) {
+            std::vector<u8> blocked(ctx.GetWriteBufferSize());
+            ctx.WriteBuffer(blocked);
+        }
+        LOG_DEBUG(Service_Friend, "Returning empty blocked-user list V2");
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
+    }
+
+    void GetPlayHistoryListV2(HLERequestContext& ctx) {
+        if (ctx.CanWriteBuffer()) {
+            std::vector<u8> history(ctx.GetWriteBufferSize());
+            ctx.WriteBuffer(history);
+        }
+        LOG_DEBUG(Service_Friend, "Returning empty play-history list V2");
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
+    }
+
+    void GetReceivedFriendInvitationListV2(HLERequestContext& ctx) {
+        if (ctx.CanWriteBuffer()) {
+            std::vector<u8> invitations(ctx.GetWriteBufferSize());
+            ctx.WriteBuffer(invitations);
+        }
+        LOG_DEBUG(Service_Friend, "Returning empty received invitation list V2");
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
     }
 
     void DropFriendNewlyFlags(HLERequestContext& ctx) {
