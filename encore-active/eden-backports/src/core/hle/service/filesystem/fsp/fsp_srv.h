@@ -10,6 +10,7 @@
 #include <memory>
 #include <vector>
 #include "core/file_sys/fs_save_data_types.h"
+#include "core/file_sys/fssrv/fssrv_sf_path.h"
 #include "core/hle/service/cmif_types.h"
 #include "core/hle/service/filesystem/fsp/fsp_types.h"
 #include "core/hle/service/service.h"
@@ -67,6 +68,11 @@ private:
                                               u8 program_index);
     Result OpenFileSystemWithPatch(OutInterface<IFileSystem> out_interface,
                                    FileSystemProxyType type, u64 open_program_id);
+    Result OpenBisFileSystem(
+        OutInterface<IFileSystem> out_interface, FileSys::BisPartitionId partition_id,
+        InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
+    Result OpenBisStorage(OutInterface<IStorage> out_interface,
+                          FileSys::BisPartitionId partition_id);
     Result InvalidateBisCache();
     Result GetFreeSpaceSizeForSaveData(Out<s64> out_free_space_size,
                                        FileSys::SaveDataSpaceId space_id);

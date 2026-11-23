@@ -22,6 +22,7 @@
 #include "common/string_util.h"
 #include "core/core.h"
 #include "core/crypto/key_manager.h"
+#include "core/file_sys/bis_factory.h"
 #include "core/file_sys/content_archive.h"
 #include "core/file_sys/errors.h"
 #include "core/file_sys/fs_directory.h"
@@ -104,8 +105,8 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {7, D<&FSP_SRV::OpenFileSystemWithPatch>, "OpenFileSystemWithPatch"},
         {8, nullptr, "OpenFileSystemWithId"},
         {9, D<&FSP_SRV::OpenDataFileSystemByProgramId>, "OpenDataFileSystemByProgramId"},
-        {11, nullptr, "OpenBisFileSystem"},
-        {12, nullptr, "OpenBisStorage"},
+        {11, D<&FSP_SRV::OpenBisFileSystem>, "OpenBisFileSystem"},
+        {12, D<&FSP_SRV::OpenBisStorage>, "OpenBisStorage"},
         {13, D<&FSP_SRV::InvalidateBisCache>, "InvalidateBisCache"},
         {17, nullptr, "OpenHostFileSystem"},
         {18, D<&FSP_SRV::OpenSdCardFileSystem>, "OpenSdCardFileSystem"},
@@ -265,6 +266,34 @@ Result FSP_SRV::OpenFileSystemWithPatch(OutInterface<IFileSystem> out_interface,
     *out_interface = std::make_shared<IFileSystem>(
         system, extracted_romfs, SizeGetter::FromStorageId(fsc, FileSys::StorageId::NandUser));
 
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenBisFileSystem(
+    OutInterface<IFileSystem> out_interface, FileSys::BisPartitionId partition_id,
+    InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path) {
+    LOG_DEBUG(Service_FS, "called, partition_id={}, path={}", partition_id, path->str);
+
+    FileSys::VirtualDir bis_dir{};
+    R_TRY(fsc.OpenBISPartition(&bis_dir, partition_id));
+
+    const auto storage_id =
+        partition_id == FileSys::BisPartitionId::User ||
+                partition_id == FileSys::BisPartitionId::UserDataRoot
+            ? FileSys::StorageId::NandUser
+            : FileSys::StorageId::NandSystem;
+    *out_interface =
+        std::make_shared<IFileSystem>(system, bis_dir, SizeGetter::FromStorageId(fsc, storage_id));
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenBisStorage(OutInterface<IStorage> out_interface,
+                               FileSys::BisPartitionId partition_id) {
+    LOG_DEBUG(Service_FS, "called, partition_id={}", partition_id);
+
+    FileSys::VirtualFile bis_storage{};
+    R_TRY(fsc.OpenBISPartitionStorage(&bis_storage, partition_id));
+    *out_interface = std::make_shared<IStorage>(system, std::move(bis_storage));
     R_SUCCEED();
 }
 
