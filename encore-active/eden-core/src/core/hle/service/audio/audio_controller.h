@@ -44,6 +44,13 @@ private:
     Result SetTargetVolume(Set::AudioOutputModeTarget target, s32 target_volume);
     Result IsTargetMute(Out<bool> out_is_target_muted, Set::AudioOutputModeTarget target);
     Result SetTargetMute(bool is_muted, Set::AudioOutputModeTarget target);
+    Result SetDefaultTarget(Set::AudioOutputModeTarget target, u64 fade_in_ns, u64 fade_out_ns);
+    Result GetDefaultTarget(Out<Set::AudioOutputModeTarget> out_default_target);
+    Result SetOutputTarget(Set::AudioOutputModeTarget target);
+    Result SetInputTargetForceEnabled(bool enabled);
+    Result GetAudioOutputTargetForPlayReport(Out<Set::AudioOutputModeTarget> out_target);
+    Result SetSystemOutputMasterVolume(f32 volume);
+    Result GetSystemOutputMasterVolume(Out<f32> out_volume);
     Result GetActiveOutputTarget(Out<Set::AudioOutputModeTarget> out_active_target);
     Result GetAudioOutputMode(Out<Set::AudioOutputMode> out_output_mode,
                               Set::AudioOutputModeTarget target);
@@ -71,6 +78,11 @@ private:
     std::array<s32, 6> m_target_volumes{{15, 15, 15, 15, 15, 15}};
     std::array<bool, 6> m_target_muted{{false, false, false, false, false, false}};
     Set::AudioOutputModeTarget m_active_target{Set::AudioOutputModeTarget::Speaker};
+    Set::AudioOutputModeTarget m_default_target{Set::AudioOutputModeTarget::Speaker};
+    u64 m_default_fade_in_ns{};
+    u64 m_default_fade_out_ns{};
+    bool m_input_target_force_enabled{};
+    f32 m_system_output_master_volume{1.0f};
 };
 
 } // namespace Service::Audio
