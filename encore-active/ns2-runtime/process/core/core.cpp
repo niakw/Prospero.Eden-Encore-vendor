@@ -640,6 +640,11 @@ struct System::Impl {
         }
         kernel.CloseServices();
         ::Eden::ReportStep("shutdown", "Completed kernel.CloseServices()");
+        // AM may never have taken the frontend-created application if the
+        // title was closed while services were still starting. Drop it now,
+        // after service loops stopped and before KProcess/kernel teardown.
+        applet_manager.DropPendingProcess();
+        ::Eden::ReportStep("shutdown", "Completed applet_manager.DropPendingProcess()");
         // Services owns the audio/VI host jthreads. Join them while their
         // dummy KThreads still have a live kernel/scheduler to Close() into.
         // Server managers have already stopped, so NVDRV owners can release
