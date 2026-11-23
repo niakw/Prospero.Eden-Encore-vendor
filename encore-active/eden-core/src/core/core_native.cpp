@@ -438,19 +438,34 @@ struct System::Impl {
         Network::CancelPendingSocketOperations();
         kernel.SuspendEmulation(true);
         ::Eden::ReportStep("shutdown", "Completed kernel.SuspendEmulation(true)");
+        // Join/destroy the GPU while NVDRV address spaces and Host1x are
+        // still alive. Closing services first can retire mappings that the
+        // renderer/scheduler worker still references during teardown.
+        gpu_core.reset();
+        ::Eden::ReportStep("shutdown", "Completed gpu_core.reset()");
+        if (service_manager) {
+            service_manager->Close();
+            ::Eden::ReportStep("shutdown", "Completed service_manager.Close()");
+        }
         kernel.CloseServices();
         ::Eden::ReportStep("shutdown", "Completed kernel.CloseServices()");
-        kernel.ShutdownCores();
-        ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");
+        // Services owns host jthreads (audio/VI among them). Join them before
+        // KProcess/core retirement so their dummy KThreads can still Close().
         services.reset();
         ::Eden::ReportStep("shutdown", "Completed services.reset()");
+        // SM factories can keep NVDRV/device owners alive after server loops
+        // have stopped. Release those strong owners before ShutdownCores().
+        if (service_manager) {
+            service_manager->ReleaseRegisteredHandlersForShutdown();
+            ::Eden::ReportStep("shutdown", "Completed service_manager.ReleaseRegisteredHandlersForShutdown()");
+        }
+        kernel.ShutdownCores();
+        ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");
         service_manager.reset();
         fs_controller.Reset();
         core_timing.ClearPendingEvents();
         app_loader.reset();
         audio_core.reset();
-        gpu_core.reset();
-        ::Eden::ReportStep("shutdown", "Completed gpu_core.reset()");
         host1x_core.reset();
         perf_stats.reset();
         cpu_manager.Shutdown();
