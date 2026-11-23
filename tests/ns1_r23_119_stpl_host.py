@@ -8,9 +8,11 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 files={
  "encore-active/eden-backports/src/core/hle/service/ngc/ngc.cpp":"b5128e3a4509a9060058457c04980b7e6c922865",
- "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp":"6efa3b5360139429b3520777880b0d75297f3ddf",
+ "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp":"54f7d65f8487e5d86c0126ec312e29b403932d03",
  "encore-active/eden-core/include/core/hle/service/acc/profile_manager.h":"81688175c2b96b509a9108cc1e69b12391d2127f",
  "encore-active/eden-core/include/core/hle/service/ipc_helpers.h":"a266b1a05cf0b20b7cad6d70f9b16dfec503cf7c",
+ "encore-active/eden-backports/src/core/crypto/key_manager.cpp":"bb253fcecbcda9a4bc2ea6fbba4b41903d72d411",
+ "encore-active/eden-backports/src/core/crypto/key_manager.h":"e633f122d3c363258e7dd05f3ec5b075cd7ac246",
  "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp":"647e2499f82de4ac921e6ab709c8a67d4f2f10cc",
  "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.h":"4599b92b022b18439014288b43c0c3ecb93f0eb7",
  "encore-active/eden-backports/src/core/hle/service/nifm/nifm.cpp":"30a259b7b1d9a2816f6f3c6e525878e68b05c918",
@@ -22,6 +24,8 @@ for file,expected in files.items():
  assert sha==expected,(file,sha)
 ngc=(ROOT/"encore-active/eden-backports/src/core/hle/service/ngc/ngc.cpp").read_text()
 fsp=(ROOT/"encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp").read_text()
+keys=(ROOT/"encore-active/eden-backports/src/core/crypto/key_manager.cpp").read_text()
+keyh=(ROOT/"encore-active/eden-backports/src/core/crypto/key_manager.h").read_text()
 reader=(ROOT/"encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp").read_text()
 nifm=(ROOT/"encore-active/eden-backports/src/core/hle/service/nifm/nifm.cpp").read_text()
 ipch=(ROOT/"encore-active/eden-core/include/core/hle/service/ipc_helpers.h").read_text()
@@ -55,6 +59,15 @@ assert '{606, D<&FSP_SRV::GetRightsId>, "GetRightsId"}' in fsp
 rights=fsp.split("Result FSP_SRV::GetRightsId(",1)[1].split("Result FSP_SRV::SetSdCardAccessibility",1)[0]
 assert 'OpenBaseNca(program_id_, storage_id, FileSys::ContentRecordType::Program)' in rights
 assert 'nca->GetRightsId()' in rights
+for cmd,name in ((607,"RegisterExternalKey"),(608,"UnregisterAllExternalKey"),(617,"UnregisterExternalKey")):
+ assert f'{{{cmd}, D<&FSP_SRV::{name}>, "{name}"}}' in fsp
+assert 'RegisterExternalTitleKey(rights_id, access_key)' in fsp
+assert 'ClearExternalTitleKeys()' in fsp
+assert 'UnregisterExternalTitleKey(rights_id)' in fsp
+assert 'external_title_keys.find(index)' in keys
+assert 'external->second' in keys
+assert 'external_title_keys.clear()' in keys
+assert 'RegisterExternalTitleKey' in keyh and 'UnregisterExternalTitleKey' in keyh
 assert '{5, &IRequest::SetRequirement, "SetRequirement"}' in nifm
 assert '{19, &IRequest::GetRequirement, "GetRequirement"}' in nifm
 requirement_set=nifm.split("void SetRequirement(HLERequestContext& ctx)",1)[1].split("void GetRequirement",1)[0]

@@ -21,6 +21,7 @@
 #include "common/settings.h"
 #include "common/string_util.h"
 #include "core/core.h"
+#include "core/crypto/key_manager.h"
 #include "core/file_sys/content_archive.h"
 #include "core/file_sys/errors.h"
 #include "core/file_sys/fs_directory.h"
@@ -51,6 +52,8 @@
 namespace Service::FileSystem {
 
 namespace {
+
+constexpr Result ResultNcaExternalKeyInconsistent{ErrorModule::FS, 6452};
 
 std::optional<ISaveDataInfoReader::SaveDataInfo> FindDirectorySaveById(
     Core::System& system, const std::shared_ptr<SaveDataController>& controller,
@@ -175,8 +178,8 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {604, nullptr, "CreatePaddingFile"},
         {605, nullptr, "DeleteAllPaddingFiles"},
         {606, D<&FSP_SRV::GetRightsId>, "GetRightsId"},
-        {607, nullptr, "RegisterExternalKey"},
-        {608, nullptr, "UnregisterAllExternalKey"},
+        {607, D<&FSP_SRV::RegisterExternalKey>, "RegisterExternalKey"},
+        {608, D<&FSP_SRV::UnregisterAllExternalKey>, "UnregisterAllExternalKey"},
         {609, nullptr, "GetRightsIdByPath"},
         {610, nullptr, "GetRightsIdAndKeyGenerationByPath"},
         {611, nullptr, "SetCurrentPosixTimeWithTimeDifference"},
@@ -185,7 +188,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {614, nullptr, "CorruptSaveDataFileSystemBySaveDataSpaceId"},
         {615, nullptr, "QuerySaveDataInternalStorageTotalSize"},
         {616, nullptr, "GetSaveDataCommitId"},
-        {617, nullptr, "UnregisterExternalKey"},
+        {617, D<&FSP_SRV::UnregisterExternalKey>, "UnregisterExternalKey"},
         {620, nullptr, "SetSdCardEncryptionSeed"},
         {630, D<&FSP_SRV::SetSdCardAccessibility>, "SetSdCardAccessibility"},
         {631, D<&FSP_SRV::IsSdCardAccessible>, "IsSdCardAccessible"},
@@ -819,6 +822,31 @@ Result FSP_SRV::GetRightsId(Out<FspRightsId> out_rights_id,
     R_UNLESS(nca != nullptr, FileSys::ResultTargetNotFound);
 
     *out_rights_id = nca->GetRightsId();
+    R_SUCCEED();
+}
+
+Result FSP_SRV::RegisterExternalKey(FspRightsId rights_id, FspAccessKey access_key) {
+    LOG_DEBUG(Service_FS, "called");
+
+    const bool registered =
+        Core::Crypto::KeyManager::Instance().RegisterExternalTitleKey(rights_id, access_key);
+    R_UNLESS(registered, ResultNcaExternalKeyInconsistent);
+    R_SUCCEED();
+}
+
+Result FSP_SRV::UnregisterAllExternalKey() {
+    LOG_DEBUG(Service_FS, "called");
+
+    Core::Crypto::KeyManager::Instance().ClearExternalTitleKeys();
+    R_SUCCEED();
+}
+
+Result FSP_SRV::UnregisterExternalKey(FspRightsId rights_id) {
+    LOG_DEBUG(Service_FS, "called");
+
+    // Horizon treats unregister as idempotent for callers. Removing a missing
+    // transient key therefore leaves persistent title.keys untouched.
+    Core::Crypto::KeyManager::Instance().UnregisterExternalTitleKey(rights_id);
     R_SUCCEED();
 }
 

@@ -166,13 +166,13 @@
       "upstream": "dc9e0214fab5197a3ef369cd5e5a864f294b93dd5a020887fbdac3339ee0243c"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.cpp": {
-      "active": "96e7735bae3460dc615831b4cb260bb8ae424e134674f7608f61afa3046bcfac",
-      "bytes": 44137,
+      "active": "7f373d479be371cdb4b72fbfbb022830903c8c1dc1d4dd53903479ba4864c530",
+      "bytes": 45178,
       "upstream": "2017a14e3450768f421448326f809d439414cc385f927511382b940c64e44e84"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.h": {
-      "active": "5e5c723abebf1fd8c94f9feb505366ae5de1d5aeb513e747902ed97cc0e17ba9",
-      "bytes": 8369,
+      "active": "29522ca951fa2342f35d2b7aebe0864321d5c1efe42c662fb7a3d74ca0b85086",
+      "bytes": 8633,
       "upstream": "394d7fd76564e2a7b50225a6263ab8377a6e4fa6cdfcfd1b7d51ba1e0bf39293"
     },
     "src/core/hle/service/glue/arp.cpp": {
@@ -449,6 +449,16 @@
       "upstream": "a9476e48235b6318b9f45083e69fafa9b605382f897b2190f1973c97b584e072",
       "active": "1735eb8bc8035b1b27c1ca397f020f5f481ef8963aea5b52afcb1f4469823c67",
       "bytes": 2373
+    },
+    "src/core/crypto/key_manager.h": {
+      "upstream": "1ce8f16842ad2e85bc0fa8a50e7b959e6437822f49821f99ea409c460c510b63",
+      "active": "26fa641ca74b1462fd3f42be80e06712127e2a1bd6eafbd56182efba395682dd",
+      "bytes": 10613
+    },
+    "src/core/crypto/key_manager.cpp": {
+      "upstream": "54554b43592aa7e71ad920d25862d4d6a42ed0e29bcf3f35abc7f8de31941afc",
+      "active": "b177b95a6e6c1d2d43004d77478a64695a03d5b983f895ca99427b56e3af9bd8",
+      "bytes": 47575
     }
   },
   "excluded_experimental": [
