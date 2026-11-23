@@ -55,8 +55,12 @@ assert cache_blob in {
     "dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56",
     "e3910d11f33376097a90858118ba276f7e02cb70",
     "cfac496d574010b8121611c8616d38bf7cdcbc41",
+    # Immutable guest snapshot successor used by the shipping parallel
+    # translation owner. Exact blob admission only; semantic checks below
+    # still cover fallback, teardown and bounded FC27 prewarm.
+    "ad07512d129667a617b49b448d898c5756c99025",
 }, cache_blob
-if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41"}:
+if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41","ad07512d129667a617b49b448d898c5756c99025"}:
     selected=CACHE.read_text()
     assert "fragment_shuffle_fallback[index] = true;" in selected
     assert "EmitSPIRV(emit_profile, runtime_info, program, binding)" in selected
@@ -64,12 +68,13 @@ if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48a
     if cache_blob in {"dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41"}:
         assert "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx" in selected
         assert "fallback_witness <= 8" in selected
-        if cache_blob in {"e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41"}:
+        if cache_blob in {"e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41","ad07512d129667a617b49b448d898c5756c99025"}:
             # Successor changed only the reviewed PS5 pipeline teardown sequence.
             # The exact source blob above prevents accidentally accepting further drift.
             assert "workers.WaitForRequests();" in selected
             assert selected.index("workers.WaitForRequests();") < selected.index("serialization_thread.WaitForRequests();")
-if cache_blob=="cfac496d574010b8121611c8616d38bf7cdcbc41":
+if cache_blob in {"cfac496d574010b8121611c8616d38bf7cdcbc41",
+                  "ad07512d129667a617b49b448d898c5756c99025"}:
     # Only the reviewed native cache-admission policy changed after e3910d;
     # preserve the graphics shader fallback and shutdown drain contracts.
     selected=CACHE.read_text()
