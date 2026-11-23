@@ -320,7 +320,8 @@ Result IHidServer::AcquireXpadIdEventHandle(OutCopyHandle<Kernel::KReadableEvent
 Result IHidServer::ReleaseXpadIdEventHandle(ClientAppletResourceUserId aruid) {
     LOG_DEBUG(Service_HID, "called, applet_resource_user_id={}", aruid.pid);
 
-    // This function has been stubbed since 10.0.0+
+    // Horizon 10.0.0+ keeps this command as an intentional compatibility no-op.
+    // Encore targets HOS 23.x here, so success without state mutation is the contract.
     R_SUCCEED();
 }
 

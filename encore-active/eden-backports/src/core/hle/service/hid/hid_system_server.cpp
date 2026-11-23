@@ -722,13 +722,13 @@ void IHidSystemServer::EndPermitVibrationSession(HLERequestContext& ctx) {
 }
 
 void IHidSystemServer::IsJoyConRailEnabled(HLERequestContext& ctx) {
-    const bool is_attached = true;
+    const bool is_enabled = firmware_settings->IsRailEnabled();
 
-    LOG_WARNING(Service_HID, "(STUBBED) called, is_attached={}", is_attached);
+    LOG_DEBUG(Service_HID, "called, is_enabled={}", is_enabled);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
-    rb.Push(is_attached);
+    rb.Push(is_enabled);
 }
 
 void IHidSystemServer::IsJoyConAttachedOnAllRail(HLERequestContext& ctx) {
@@ -742,15 +742,15 @@ void IHidSystemServer::IsJoyConAttachedOnAllRail(HLERequestContext& ctx) {
 }
 
 void IHidSystemServer::AcquireConnectionTriggerTimeoutEvent(HLERequestContext& ctx) {
-    LOG_INFO(Service_AM, "(STUBBED) called");
+    LOG_INFO(Service_HID, "called");
 
     IPC::ResponseBuilder rb{ctx, 2, 1};
     rb.Push(ResultSuccess);
-    rb.PushCopyObjects(ctx, acquire_device_registered_event->GetReadableEvent());
+    rb.PushCopyObjects(ctx, acquire_connection_trigger_timeout_event->GetReadableEvent());
 }
 
 void IHidSystemServer::AcquireDeviceRegisteredEventForControllerSupport(HLERequestContext& ctx) {
-    LOG_INFO(Service_HID, "(STUBBED) called");
+    LOG_INFO(Service_HID, "called");
 
     IPC::ResponseBuilder rb{ctx, 2, 1};
     rb.Push(ResultSuccess);
@@ -776,7 +776,7 @@ void IHidSystemServer::GetRegisteredDevices(HLERequestContext& ctx) {
 }
 
 void IHidSystemServer::AcquireUniquePadConnectionEventHandle(HLERequestContext& ctx) {
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    LOG_INFO(Service_HID, "called");
 
     IPC::ResponseBuilder rb{ctx, 2, 1};
     rb.PushCopyObjects(ctx, unique_pad_connection_event->GetReadableEvent());
