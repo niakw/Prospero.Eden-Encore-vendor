@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -171,6 +172,25 @@ bool DmaPusher::Step() {
             return false;
 #endif
         }
+
+        const bool native_channel =
+            Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &channel_state);
+        if (native_channel && command_resume_offset == 0) {
+            // A regular method payload may continue at split_method_end while
+            // NVN2 calls a different, non-contiguous command buffer first.
+            // Only park when that expected continuation is present later in
+            // this same submission; macro payloads retain their existing path.
+            const bool park_call =
+                dma_state.method_count != 0 &&
+                dma_state.method < MacroRegistersStart &&
+                header.addr != split_method_end &&
+                header.size != dma_state.method_count &&
+                SplitResumesLater(command_list, dma_pushbuffer_subindex + 1);
+            if (park_call || !parked_methods.empty()) {
+                ResolveSplitMethod(header.addr, park_call);
+            }
+        }
 #endif
         if (subchannels[dma_state.subchannel] && dma_state.method_count) {
             const auto engine = subchannel_type[dma_state.subchannel];
@@ -221,9 +241,23 @@ bool DmaPusher::Step() {
         // entry now would wrongly acknowledge unexecuted guest commands.
         return false;
     }
+    if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+            &channel_state) &&
+        dma_state.method_count != 0) {
+        split_method_end = header.addr + static_cast<GPUVAddr>(header.size) * sizeof(u32);
+    }
     command_resume_offset = 0;
 #endif
     if (++dma_pushbuffer_subindex >= command_list_size) {
+#ifdef PS5_NATIVE
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &channel_state)) {
+            // A parked method is valid only inside the submission that split
+            // it. Ring addresses repeat; retaining it could consume a later
+            // frame's command header as stale register data.
+            parked_methods.clear();
+        }
+#endif
         dma_pushbuffer.pop();
         dma_pushbuffer_subindex = 0;
     } else {
@@ -335,6 +369,62 @@ void DmaPusher::ProcessCommands(std::span<const CommandHeader> commands) {
         }
 #endif
     }
+}
+
+// NVN2 may split one register-write payload across GPFIFO entries while a
+// different command buffer runs in between. Park only that authenticated
+// native call boundary, then restore the exact unfinished method at the
+// contiguous resume address. NS1 never calls this path.
+void DmaPusher::ResolveSplitMethod(GPUVAddr entry_address, bool park) {
+    const auto continued = std::find_if(
+        parked_methods.begin(), parked_methods.end(),
+        [entry_address](const ParkedMethod& candidate) {
+            return candidate.resume_address == entry_address;
+        });
+    const bool can_park =
+        park || (continued != parked_methods.end() && dma_state.method < MacroRegistersStart);
+
+    ParkedMethod resume{};
+    const bool has_resume = continued != parked_methods.end();
+    if (has_resume) {
+        resume = *continued;
+        parked_methods.erase(continued);
+    }
+
+    if (can_park && dma_state.method_count != 0 && entry_address != split_method_end) {
+        if (parked_methods.size() == MaxParkedMethods) {
+            parked_methods.erase(parked_methods.begin());
+        }
+        parked_methods.push_back(ParkedMethod{
+            .method = dma_state.method,
+            .subchannel = dma_state.subchannel,
+            .method_count = dma_state.method_count,
+            .non_incrementing = dma_state.non_incrementing,
+            .increment_once = dma_increment_once,
+            .resume_address = split_method_end,
+        });
+        dma_state.method_count = 0;
+        dma_increment_once = false;
+    }
+
+    if (has_resume && dma_state.method_count == 0) {
+        dma_state.method = resume.method;
+        dma_state.subchannel = resume.subchannel;
+        dma_state.method_count = resume.method_count;
+        dma_state.non_incrementing = resume.non_incrementing;
+        dma_increment_once = resume.increment_once;
+        split_method_end = entry_address;
+    }
+}
+
+bool DmaPusher::SplitResumesLater(const CommandList& list, std::size_t from) const {
+    for (std::size_t i = from; i < list.command_lists.size(); ++i) {
+        if (list.command_lists[i].size > 0 &&
+            list.command_lists[i].addr == split_method_end) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void DmaPusher::SetState(const CommandHeader& command_header) {

@@ -156,6 +156,24 @@ private:
     // when their individual TUs do not define PS5_NATIVE.
     std::size_t command_resume_offset{};
 
+    // NVN2 can interrupt a register write with a non-contiguous called GPFIFO
+    // entry, then resume the unfinished write at the address immediately
+    // following the split entry. Keep that method state aside while the call
+    // runs so its command header is never consumed as stale method data.
+    struct ParkedMethod {
+        u32 method;
+        u32 subchannel;
+        u32 method_count;
+        bool non_incrementing;
+        bool increment_once;
+        GPUVAddr resume_address;
+    };
+    static constexpr std::size_t MaxParkedMethods = 16;
+    void ResolveSplitMethod(GPUVAddr entry_address, bool park);
+    [[nodiscard]] bool SplitResumesLater(const CommandList& list, std::size_t from) const;
+    std::vector<ParkedMethod> parked_methods;
+    GPUVAddr split_method_end{};
+
     void SetState(const CommandHeader& command_header);
 
     void CallMethod(u32 argument);
