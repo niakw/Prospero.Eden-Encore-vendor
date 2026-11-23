@@ -20,11 +20,12 @@ proxy_text=proxy_owner.read_text()
 assert proxy_text.count('{0, D<&IApplicationProxyService::OpenApplicationProxy>')==1
 assert proxy_text.count('{10, D<&IApplicationProxyService::OpenApplicationProxyWithFlags>')==1
 assert 'Result IApplicationProxyService::OpenApplicationProxyWithFlags(' in proxy_text
-assert 'R_UNLESS(flags == 0 || flags == 2, ResultUnknown)' in proxy_text
+assert 'R_UNLESS(flags == 0 || flags == 2, ResultUnknown)' not in proxy_text
+assert '(void)version;' in proxy_text
 assert 'R_RETURN(OpenApplicationProxy(out_application_proxy, pid, process_handle))' in proxy_text
 proxy_header=(ACTIVE/"am/service/application_proxy_service.h").read_text()
 assert 'Result OpenApplicationProxyWithFlags(' in proxy_header
-assert 'u32 flags, ClientProcessId pid' in proxy_header
+assert 'u32 version, ClientProcessId pid' in proxy_header
 assert blob(BASE/"am/service/application_proxy_service.h")=="e5f4ea345bdb7a50da8586d6347feae5851d47f6"
 assert 'if (const auto applet = this->GetAppletFromProcessId(pid))' in proxy_text
 # SwitchBrew AM appletOE: official users retry 0x19280 (AM 201) when
