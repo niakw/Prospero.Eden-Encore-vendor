@@ -304,6 +304,8 @@ public:
     Result GetHomeMenuScheme(Out<HomeMenuScheme> out_home_menu_scheme);
     Result GetHomeMenuSchemeModel(Out<u32> out_home_menu_scheme_model);
     Result GetTouchScreenMode(Out<TouchScreenMode> out_touch_screen_mode);
+    Result GetT(Out<bool> out_is_terra);
+    Result SetT(bool is_terra);
     Result GetPlatformRegion(Out<PlatformRegion> out_platform_region);
     Result SetPlatformRegion(PlatformRegion platform_region);
     Result SetTouchScreenMode(TouchScreenMode touch_screen_mode);

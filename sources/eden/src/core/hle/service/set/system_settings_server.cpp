@@ -296,8 +296,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {178, C<&ISystemSettingsServer::SetThemeKey>, "SetThemeKey"},
         {179, C<&ISystemSettingsServer::GetZoomFlag>, "GetZoomFlag"},
         {180, C<&ISystemSettingsServer::SetZoomFlag>, "SetZoomFlag"},
-        {181, nullptr, "GetT"},
-        {182, nullptr, "SetT"},
+        {181, C<&ISystemSettingsServer::GetT>, "GetT"},
+        {182, C<&ISystemSettingsServer::SetT>, "SetT"},
         {183, C<&ISystemSettingsServer::GetPlatformRegion>, "GetPlatformRegion"},
         {184, C<&ISystemSettingsServer::SetPlatformRegion>, "SetPlatformRegion"},
         {185, C<&ISystemSettingsServer::GetHomeMenuSchemeModel>, "GetHomeMenuSchemeModel"},
@@ -2179,6 +2179,24 @@ Result ISystemSettingsServer::GetHomeMenuScheme(Out<HomeMenuScheme> out_home_men
         .extra = 0xFF000000,
     };
     LOG_DEBUG(Service_SET, "Returning synthetic default HOME-menu scheme");
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetT(Out<bool> out_is_terra) {
+    auto region = static_cast<PlatformRegion>(m_private_settings.platform_region);
+    if (region != PlatformRegion::Global && region != PlatformRegion::Terra) {
+        region = PlatformRegion::Global;
+        m_private_settings.platform_region = static_cast<s32>(region);
+        SetSaveNeeded();
+    }
+    *out_is_terra = region == PlatformRegion::Terra;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetT(bool is_terra) {
+    m_private_settings.platform_region =
+        static_cast<s32>(is_terra ? PlatformRegion::Terra : PlatformRegion::Global);
+    SetSaveNeeded();
     R_SUCCEED();
 }
 
