@@ -9,7 +9,7 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 DIR=ROOT/"encore-active/eden-core/src/core/hle/service/ssl"
 EXPECTED={
- "ssl.cpp":"ee4f8dbbe0edecb3059c142ff8355e5a3bae717d",
+ "ssl.cpp":"ab0e1f36684db1a9d875b4ec000203cbe17b218a",
  "ssl_backend.h":"ef6bf8f9def5f80544e75c180ac72275a0325cc9",
  "ssl_backend_openssl.cpp":"71ce86365b9ff511f8a2fe550afd7d5db957e5c5",
 }
@@ -26,6 +26,13 @@ for name in ("Peek","SetRenegotiationMode","GetRenegotiationMode"):
  assert name+"(" in service and name+"(" in header and name+"(" in backend,name
 assert "{20, D<&ISslConnection::SetRenegotiationMode>" in service
 assert "{21, D<&ISslConnection::GetRenegotiationMode>" in service
+assert 'explicit ISslContext(Core::System& system_, SslVersion version, bool for_system = false)' in service
+assert '{100, &ISslContext::CreateConnection, "CreateConnectionEx"}' in service
+assert '{0, &ISslServiceForSystem::CreateContext, "CreateContext"}' in service
+assert '{100, &ISslServiceForSystem::CreateContext, "CreateContextForSystem"}' in service
+system_create=service.split("class ISslServiceForSystem",1)[1].split("Result GetContextCount",1)[0]
+assert 'rb.PushIpcInterface<ISslContext>(ctx, system, parameters.ssl_version,' in system_create
+assert 'ctx.GetCommand() == 100' in system_create
 assert "SSL_pending(ssl)" in backend
 
 start="    Result Peek(size_t* out_size, std::span<u8> data) override {"

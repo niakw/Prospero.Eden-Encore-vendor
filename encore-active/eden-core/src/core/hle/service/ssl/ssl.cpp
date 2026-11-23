@@ -464,9 +464,9 @@ private:
 
 class ISslContext final : public ServiceFramework<ISslContext> {
 public:
-    explicit ISslContext(Core::System& system_, SslVersion version)
-        : ServiceFramework{system_, "ISslContext"}, ssl_version{version},
-          shared_data{std::make_shared<SslContextSharedData>()} {
+    explicit ISslContext(Core::System& system_, SslVersion version, bool for_system = false)
+        : ServiceFramework{system_, for_system ? "ISslContextForSystem" : "ISslContext"},
+          ssl_version{version}, shared_data{std::make_shared<SslContextSharedData>()} {
         static const FunctionInfo functions[] = {
             {0, &ISslContext::SetOption, "SetOption"},
             {1, &ISslContext::GetOption, "GetOption"},
@@ -484,6 +484,12 @@ public:
             {13, nullptr, "GeneratePrivateKeyAndCert"},
         };
         RegisterHandlers(functions);
+        if (for_system) {
+            static const FunctionInfo system_functions[] = {
+                {100, &ISslContext::CreateConnection, "CreateConnectionEx"},
+            };
+            RegisterHandlers(system_functions);
+        }
     }
 
 private:
@@ -651,7 +657,7 @@ class ISslServiceForSystem final : public ServiceFramework<ISslServiceForSystem>
         explicit ISslServiceForSystem(Core::System& system_) : ServiceFramework{system_, "ssl:s"} {
             // clang-format off
             static const FunctionInfo functions[] = {
-                {0, D<&ISslServiceForSystem::CreateContext>, "CreateContext"},
+                {0, &ISslServiceForSystem::CreateContext, "CreateContext"},
                 {1, D<&ISslServiceForSystem::GetContextCount>, "GetContextCount"},
                 {2, D<&ISslServiceForSystem::GetCertificates>, "GetCertificates"},
                 {3, D<&ISslServiceForSystem::GetCertificateBufSize>, "GetCertificateBufSize"},
@@ -661,7 +667,7 @@ class ISslServiceForSystem final : public ServiceFramework<ISslServiceForSystem>
                 {7, D<&ISslServiceForSystem::SetDebugOption>, "SetDebugOption"},
                 {8, D<&ISslServiceForSystem::GetDebugOption>, "GetDebugOption"},
                 {9, D<&ISslServiceForSystem::ClearTls12FallbackFlag>, "ClearTls12FallbackFlag"},
-                {100, D<&ISslServiceForSystem::CreateContextForSystem>, "CreateContextForSystem"},
+                {100, &ISslServiceForSystem::CreateContext, "CreateContextForSystem"},
                 {101, D<&ISslServiceForSystem::SetThreadCoreMask>, "SetThreadCoreMask"},
                 {102, D<&ISslServiceForSystem::GetThreadCoreMask>, "GetThreadCoreMask"},
                 {103, D<&ISslServiceForSystem::VerifySignature>, "VerifySignature"}
@@ -671,12 +677,23 @@ class ISslServiceForSystem final : public ServiceFramework<ISslServiceForSystem>
             RegisterHandlers(functions);
         };
 
-        Result CreateContext() {
-            LOG_DEBUG(Service_SSL, "(STUBBED) called.");
+        void CreateContext(HLERequestContext& ctx) {
+            struct Parameters {
+                SslVersion ssl_version;
+                INSERT_PADDING_BYTES(0x4);
+                u64 pid_placeholder;
+            };
+            static_assert(sizeof(Parameters) == 0x10, "Parameters is an invalid size");
 
-            // TODO (jarrodnorwell)
+            IPC::RequestParser rp{ctx};
+            const auto parameters = rp.PopRaw<Parameters>();
+            LOG_WARNING(Service_SSL, "called, command={}, api_version={}", ctx.GetCommand(),
+                        parameters.ssl_version.api_version);
 
-            return ResultSuccess;
+            IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+            rb.Push(ResultSuccess);
+            rb.PushIpcInterface<ISslContext>(ctx, system, parameters.ssl_version,
+                                             ctx.GetCommand() == 100);
         };
 
         Result GetContextCount() {
@@ -744,14 +761,6 @@ class ISslServiceForSystem final : public ServiceFramework<ISslServiceForSystem>
         };
 
         Result ClearTls12FallbackFlag() {
-            LOG_DEBUG(Service_SSL, "(STUBBED) called.");
-
-            // TODO (jarrodnorwell)
-
-            return ResultSuccess;
-        };
-
-        Result CreateContextForSystem() {
             LOG_DEBUG(Service_SSL, "(STUBBED) called.");
 
             // TODO (jarrodnorwell)
