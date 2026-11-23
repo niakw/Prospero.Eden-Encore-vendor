@@ -45,6 +45,10 @@ private:
     Result GetHdcpAuthenticationStateChangeEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result GetOperationMode(Out<OperationMode> out_operation_mode);
     Result GetPerformanceMode(Out<APM::PerformanceMode> out_performance_mode);
+    Result GetCradleStatus(Out<u8> out_status);
+    Result GetCradleFwVersion(Out<u32> out_version0, Out<u32> out_version1,
+                              Out<u32> out_version2, Out<u32> out_version3);
+    Result SetTvPowerStateMatchingMode(u32 mode);
     Result SetPerformanceConfigurationChangedNotification(bool enabled);
     Result GetCurrentPerformanceConfiguration(
         Out<APM::PerformanceConfiguration> out_performance_configuration);
