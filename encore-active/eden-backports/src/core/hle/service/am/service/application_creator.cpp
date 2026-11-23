@@ -59,7 +59,7 @@ IApplicationCreator::IApplicationCreator(Core::System& system_, WindowSystem& wi
         {0, D<&IApplicationCreator::CreateApplication>, "CreateApplication"},
         {1, nullptr, "PopLaunchRequestedApplication"},
         {10, D<&IApplicationCreator::CreateSystemApplication>, "CreateSystemApplication"},
-        {100, nullptr, "PopFloatingApplicationForDevelopment"},
+        {100, D<&IApplicationCreator::RejectDebugOnlyCommand>, "PopFloatingApplicationForDevelopment"},
     };
     // clang-format on
 
@@ -67,6 +67,11 @@ IApplicationCreator::IApplicationCreator(Core::System& system_, WindowSystem& wi
 }
 
 IApplicationCreator::~IApplicationCreator() = default;
+
+Result IApplicationCreator::RejectDebugOnlyCommand() {
+    LOG_WARNING(Service_AM, "Rejected application-creator development command on release runtime");
+    R_RETURN(ResultUnknown);
+}
 
 Result IApplicationCreator::CreateApplication(
     Out<SharedPointer<IApplicationAccessor>> out_application_accessor, u64 application_id) {
