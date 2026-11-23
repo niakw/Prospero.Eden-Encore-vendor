@@ -39,15 +39,15 @@ public:
             {10400, &IFriendService::GetBlockedUserListIds, "GetBlockedUserListIds"},
             {10420, &IFriendService::CheckBlockedUserListAvailability, "CheckBlockedUserListAvailability"},
             {10421, nullptr, "EnsureBlockedUserListAvailable"},
-            {10500, nullptr, "GetProfileList"},
+            {10500, &IFriendService::GetProfileList, "GetProfileList"},
             {10501, nullptr, "GetProfileListV2"}, // 18.0.0+
             {10600, &IFriendService::DeclareOpenOnlinePlaySession, "DeclareOpenOnlinePlaySession"},
             {10601, &IFriendService::DeclareCloseOnlinePlaySession, "DeclareCloseOnlinePlaySession"},
             {10610, &IFriendService::UpdateUserPresence, "UpdateUserPresence"},
             {10700, &IFriendService::GetPlayHistoryRegistrationKey, "GetPlayHistoryRegistrationKey"},
-            {10701, nullptr, "GetPlayHistoryRegistrationKeyWithNetworkServiceAccountId"},
+            {10701, &IFriendService::GetPlayHistoryRegistrationKeyWithNetworkServiceAccountId, "GetPlayHistoryRegistrationKeyWithNetworkServiceAccountId"},
             {10702, nullptr, "AddPlayHistory"},
-            {11000, nullptr, "GetProfileImageUrl"},
+            {11000, &IFriendService::GetProfileImageUrl, "GetProfileImageUrl"},
             {11001, nullptr, "GetProfileImageUrlV2"}, // 18.0.0+
             {20100, &IFriendService::GetFriendCount, "GetFriendCount"},
             {20101, &IFriendService::GetNewlyFriendCount, "GetNewlyFriendCount"},
@@ -258,6 +258,53 @@ private:
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
         rb.Push(true);
+    }
+
+
+    void GetProfileList(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto uuid = rp.PopRaw<Common::UUID>();
+
+        // ProfileImpl is returned through a MapAlias output array for the NSAIDs
+        // provided in the Pointer input buffer. Without a social backend every requested
+        // profile is invalid/default, so initialize the complete output buffer to zero.
+        std::vector<u8> profiles(ctx.GetWriteBufferSize());
+        ctx.WriteBuffer(profiles);
+        LOG_DEBUG(Service_Friend, "Returning default offline profile list, uuid=0x{}, bytes={}",
+                  uuid.RawString(), profiles.size());
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetPlayHistoryRegistrationKeyWithNetworkServiceAccountId(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto local_play = rp.Pop<bool>();
+        const auto friend_id = rp.Pop<u64>();
+
+        const std::array<u8, 0x40> registration_key{};
+        ctx.WriteBuffer(registration_key);
+        LOG_DEBUG(Service_Friend,
+                  "Returning empty play-history key for NSAID, local_play={}, friend_id={:016X}",
+                  local_play, friend_id);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetProfileImageUrl(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        [[maybe_unused]] const auto input_url = rp.PopRaw<std::array<u8, 0xA0>>();
+        const auto image_size = rp.Pop<u32>();
+
+        // nn::friends::Url is exactly 0xA0 bytes. No remote profile image exists in
+        // offline mode, so return the default/empty URL as Ryujinx does.
+        const std::array<u8, 0xA0> output_url{};
+        LOG_DEBUG(Service_Friend, "Returning empty profile-image URL, image_size={}", image_size);
+
+        IPC::ResponseBuilder rb{ctx, 42};
+        rb.Push(ResultSuccess);
+        rb.PushRaw(output_url);
     }
 
     void DeclareOpenOnlinePlaySession(HLERequestContext& ctx) {
