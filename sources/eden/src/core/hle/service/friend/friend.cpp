@@ -30,7 +30,7 @@ public:
             {10100, &IFriendService::GetFriendListIds, "GetFriendListIds"},
             {10101, &IFriendService::GetFriendList, "GetFriendList"},
             {10102, nullptr, "UpdateFriendInfo"},
-            {10110, nullptr, "GetFriendProfileImage"},
+            {10110, &IFriendService::GetFriendProfileImage, "GetFriendProfileImage"},
             {10111, nullptr, "GetFriendProfileImageWithImageSize"}, // 18.0.0+
             {10120, &IFriendService::CheckFriendListAvailability, "CheckFriendListAvailability"},
             {10121, nullptr, "EnsureFriendListAvailable"},
@@ -66,7 +66,7 @@ public:
             {20202, nullptr, "GetFriendRequestListV2"}, // 20.0.0+
             {20203, nullptr, "GetFriendRequestReceivedNotificationCount"}, // 22.0.0+
             {20300, &IFriendService::GetFriendCandidateList, "GetFriendCandidateList"},
-            {20301, nullptr, "GetNintendoNetworkIdInfo"},
+            {20301, &IFriendService::GetNintendoNetworkIdInfo, "GetNintendoNetworkIdInfo"},
             {20302, nullptr, "GetSnsAccountLinkage"}, // 5.0.0-19.0.1
             {20303, nullptr, "GetSnsAccountProfile"}, // 5.0.0-19.0.1
             {20304, nullptr, "GetSnsAccountFriendList"}, // 5.0.0-19.0.1
@@ -85,7 +85,7 @@ public:
             {20801, &IFriendService::SyncUserSetting, "SyncUserSetting"},
             {20802, &IFriendService::LoadUserSetting, "LoadUserSettingV2"}, // 19.0.0+
             {20900, &IFriendService::RequestListSummaryOverlayNotification, "RequestListSummaryOverlayNotification"},
-            {21000, nullptr, "GetExternalApplicationCatalog"},
+            {21000, &IFriendService::GetExternalApplicationCatalog, "GetExternalApplicationCatalog"},
             {22000, nullptr, "GetReceivedFriendInvitationListV1"},
             {22001, nullptr, "GetReceivedFriendInvitationDetailedInfoV1"},
             {22002, nullptr, "GetReceivedFriendInvitationListV2"}, // 19.0.0+
@@ -211,6 +211,61 @@ private:
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
         rb.Push<u32>(0);
+    }
+
+
+    void GetFriendProfileImage(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto uuid = rp.PopRaw<Common::UUID>();
+        const auto friend_id = rp.Pop<u64>();
+
+        // No remote profile image exists. A zero size makes the MapAlias output buffer
+        // contain no valid image bytes.
+        LOG_DEBUG(Service_Friend,
+                  "Returning empty friend profile image, uuid=0x{}, friend_id={:016X}",
+                  uuid.RawString(), friend_id);
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
+    }
+
+    void GetNintendoNetworkIdInfo(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto offset = rp.Pop<u32>();
+        const auto uuid = rp.PopRaw<Common::UUID>();
+
+        // User info is a fixed 0x38 Pointer output; the second output is a MapAlias list.
+        // Offline mode has no Nintendo Network ID data, so initialize both and return count 0.
+        const std::array<u8, 0x38> user_info{};
+        ctx.WriteBuffer(user_info, 0);
+        if (ctx.CanWriteBuffer(1)) {
+            std::vector<u8> friend_info(ctx.GetWriteBufferSize(1));
+            ctx.WriteBuffer(friend_info, 1);
+        }
+
+        LOG_DEBUG(Service_Friend,
+                  "Returning empty Nintendo Network ID info, offset={}, uuid=0x{}",
+                  offset, uuid.RawString());
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
+    }
+
+    void GetExternalApplicationCatalog(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto language_code = rp.Pop<u64>();
+        [[maybe_unused]] const auto catalog_id = rp.PopRaw<std::array<u8, 0x10>>();
+
+        // ExternalApplicationCatalog is a fixed 0x4B8 Pointer output. There is no
+        // Nintendo friends catalog backend, so return the default object.
+        const std::array<u8, 0x4B8> catalog{};
+        ctx.WriteBuffer(catalog);
+        LOG_DEBUG(Service_Friend,
+                  "Returning empty external application catalog, language_code={:016X}",
+                  language_code);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
     }
 
     void GetFriendList(HLERequestContext& ctx) {
