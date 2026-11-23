@@ -21,7 +21,7 @@ assert active.count("m_system.Exit();") == 1
 # Treat only this small Lichii addition as a permitted delta from the
 # previously qualified PS5 R23 #97 source: protects foreground/overlay NS1.
 prior = active.replace(once, old, 1).encode()
-assert hashlib.sha1(b"blob " + str(len(prior)).encode() + b"\\0" + prior).hexdigest() == (
+assert hashlib.sha1(b"blob " + str(len(prior)).encode() + b"\0" + prior).hexdigest() == (
     "c4852c64bdcd491e9c7293db8a7e2dc055f78f5f")
 # Exercise the actual statement lifted from the maintained C++ in a minimal
 # host harness; a new WindowSystem must be able to exit on its own.
