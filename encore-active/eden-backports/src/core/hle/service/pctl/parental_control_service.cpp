@@ -20,7 +20,8 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
     : ServiceFramework{system_, "IParentalControlService"}, capability{capability_},
       program_id{program_id_},
       service_context{system_, "IParentalControlService"}, synchronization_event{service_context},
-      unlinked_event{service_context}, request_suspension_event{service_context} {
+      unlinked_event{service_context}, pin_code_changed_event{service_context},
+      request_suspension_event{service_context} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {1, D<&IParentalControlService::Initialize>, "Initialize"},
@@ -72,12 +73,12 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1065, D<&IParentalControlService::IsStereoVisionPermitted>, "IsStereoVisionPermitted"},
         {1201, nullptr, "UnlockRestrictionTemporarily"},
         {1202, nullptr, "UnlockSystemSettingsRestriction"},
-        {1203, nullptr, "SetPinCode"},
+        {1203, D<&IParentalControlService::SetPinCode>, "SetPinCode"},
         {1204, nullptr, "GenerateInquiryCode"},
         {1205, nullptr, "CheckMasterKey"},
         {1206, D<&IParentalControlService::GetPinCodeLength>, "GetPinCodeLength"},
-        {1207, nullptr, "GetPinCodeChangedEvent"},
-        {1208, nullptr, "GetPinCode"},
+        {1207, D<&IParentalControlService::GetPinCodeChangedEvent>, "GetPinCodeChangedEvent"},
+        {1208, D<&IParentalControlService::GetPinCode>, "GetPinCode"},
         {1403, D<&IParentalControlService::IsPairingActive>, "IsPairingActive"},
         {1406, nullptr, "GetSettingsLastUpdated"},
         {1411, nullptr, "GetPairingAccountInfo"},
@@ -374,6 +375,18 @@ Result IParentalControlService::IsStereoVisionPermitted(Out<bool> out_is_permitt
     }
 }
 
+Result IParentalControlService::SetPinCode(
+    InArray<char, BufferAttr_HipcPointer> pin_code_buffer) {
+    R_UNLESS(pin_code_buffer.size() <= pin_code.size(), PCTL::ResultInvalidArgument);
+
+    pin_code.fill('\0');
+    std::copy(pin_code_buffer.begin(), pin_code_buffer.end(), pin_code.begin());
+    pin_code_changed_event.Signal(system.Kernel());
+
+    LOG_DEBUG(Service_PCTL, "PIN updated, length={}", pin_code_buffer.size());
+    R_SUCCEED();
+}
+
 Result IParentalControlService::GetPinCodeLength(Out<s32> out_length) {
     s32 length = 0;
     while (length < static_cast<s32>(pin_code.size()) &&
@@ -382,6 +395,28 @@ Result IParentalControlService::GetPinCodeLength(Out<s32> out_length) {
     }
     *out_length = length;
     LOG_DEBUG(Service_PCTL, "called, length={}", *out_length);
+    R_SUCCEED();
+}
+
+Result IParentalControlService::GetPinCodeChangedEvent(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    *out_event = pin_code_changed_event.GetHandle();
+    LOG_DEBUG(Service_PCTL, "called");
+    R_SUCCEED();
+}
+
+Result IParentalControlService::GetPinCode(
+    Out<s32> out_length, OutArray<char, BufferAttr_HipcPointer> out_pin_code) {
+    std::size_t length = 0;
+    while (length < pin_code.size() && pin_code[length] != '\0') {
+        ++length;
+    }
+
+    const auto copy_size = (std::min)(length, out_pin_code.size());
+    std::copy_n(pin_code.begin(), copy_size, out_pin_code.begin());
+    *out_length = static_cast<s32>(copy_size);
+
+    LOG_DEBUG(Service_PCTL, "called, stored_length={}, returned_length={}", length, copy_size);
     R_SUCCEED();
 }
 

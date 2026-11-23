@@ -44,7 +44,11 @@ private:
     Result GetFreeCommunicationApplicationListCount(Out<s32> out_count);
     Result ConfirmStereoVisionRestrictionConfigurable();
     Result IsStereoVisionPermitted(Out<bool> out_is_permitted);
+    Result SetPinCode(InArray<char, BufferAttr_HipcPointer> pin_code_buffer);
     Result GetPinCodeLength(Out<s32> out_length);
+    Result GetPinCodeChangedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result GetPinCode(Out<s32> out_length,
+                      OutArray<char, BufferAttr_HipcPointer> out_pin_code);
     Result IsPairingActive(Out<bool> out_is_pairing_active);
     Result GetSynchronizationEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result StartPlayTimer();
@@ -94,6 +98,7 @@ private:
     KernelHelpers::ServiceContext service_context;
     Event synchronization_event;
     Event unlinked_event;
+    Event pin_code_changed_event;
     Event request_suspension_event;
 };
 
