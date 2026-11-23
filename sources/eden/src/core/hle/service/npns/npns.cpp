@@ -156,7 +156,7 @@ public:
         // clang-format off
         static const FunctionInfo functions[] = {
             {1, nullptr, "ListenAll"},
-            {2, nullptr, "ListenTo"},
+            {2, C<&INpnsUser::ListenTo>, "ListenTo"},
             {3, nullptr, "Receive"},
             {4, nullptr, "ReceiveRaw"},
             {5, C<&INpnsUser::GetReceiveEvent>, "GetReceiveEvent"},
@@ -168,7 +168,7 @@ public:
             {26, nullptr, "ListenToMyApplicationId"},
             {101, nullptr, "Suspend"},
             {102, nullptr, "Resume"},
-            {103, nullptr, "GetState"},
+            {103, C<&INpnsUser::GetState>, "GetState"},
             {104, nullptr, "GetStatistics"},
             {111, nullptr, "GetJid"},
             {120, nullptr, "CreateNotificationReceiver"},
@@ -183,6 +183,17 @@ public:
     }
 
 private:
+    Result ListenTo(u32 program_id) {
+        LOG_DEBUG(Service_NPNS, "User push subscription accepted locally, program_id={}", program_id);
+        R_SUCCEED();
+    }
+
+    Result GetState(Out<u32> out_state) {
+        *out_state = 0;
+        LOG_DEBUG(Service_NPNS, "Returning offline user push-notification state");
+        R_SUCCEED();
+    }
+
     Result ListenToByName(InBuffer<BufferAttr_HipcMapAlias> name_buffer) {
         const std::string name(reinterpret_cast<const char*>(name_buffer.data()), name_buffer.size());
         LOG_DEBUG(Service_NPNS, "called, name={}", name);

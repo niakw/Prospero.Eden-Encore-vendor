@@ -124,9 +124,9 @@ public:
             {30501, nullptr, "GetProfileExtraFromFriendCodeV2"}, // 19.0.0+
             {30700, &IFriendService::DeletePlayHistory, "DeletePlayHistory"},
             {30701, nullptr, "AddPlayHistoryWithApplication"}, // 19.0.0+
-            {30810, nullptr, "ChangePresencePermission"},
-            {30811, nullptr, "ChangeFriendRequestReception"},
-            {30812, nullptr, "ChangePlayLogPermission"},
+            {30810, &IFriendService::ChangePresencePermission, "ChangePresencePermission"},
+            {30811, &IFriendService::ChangeFriendRequestReception, "ChangeFriendRequestReception"},
+            {30812, &IFriendService::ChangePlayLogPermission, "ChangePlayLogPermission"},
             {30820, nullptr, "IssueFriendCode"},
             {30830, &IFriendService::ClearPlayLog, "ClearPlayLog"},
             {30900, nullptr, "SendFriendInvitationV1"},
@@ -177,6 +177,23 @@ private:
         u8 unk_x48[0x7B8];
     };
     static_assert(sizeof(FriendsUserSetting) == 0x800, "FriendsUserSetting is an invalid size");
+
+    struct LocalUserSetting {
+        Common::UUID uuid{};
+        u32 presence_permission{2};
+        u32 play_log_permission{5};
+        u64 friend_request_reception{1};
+    };
+
+    LocalUserSetting& GetLocalUserSetting(const Common::UUID& uuid) {
+        for (auto& setting : local_user_settings) {
+            if (setting.uuid == uuid) {
+                return setting;
+            }
+        }
+        local_user_settings.push_back(LocalUserSetting{.uuid = uuid});
+        return local_user_settings.back();
+    }
 
     void GetCompletionEvent(HLERequestContext& ctx) {
         LOG_DEBUG(Service_Friend, "called");
@@ -624,17 +641,64 @@ private:
     void LoadUserSetting(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto uuid = rp.PopRaw<Common::UUID>();
-
-        LOG_WARNING(Service_Friend, "(STUBBED) called");
+        const auto& local = GetLocalUserSetting(uuid);
 
         FriendsUserSetting setting{};
         setting.uuid = uuid;
-        setting.presence_permission = 2;
-        setting.play_log_permission = 5;
-        setting.friend_request_reception = 1;
+        setting.presence_permission = local.presence_permission;
+        setting.play_log_permission = local.play_log_permission;
+        setting.friend_request_reception = local.friend_request_reception;
         setting.friend_code_next_issuable_time = 99999999999;
         strcpy(setting.friend_code, "0000-0000-0000");
         ctx.WriteBuffer(setting);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void ChangePresencePermission(HLERequestContext& ctx) {
+        struct Parameters {
+            Common::UUID uuid;
+            s32 permission;
+            INSERT_PADDING_WORDS(1);
+        };
+        static_assert(sizeof(Parameters) == 0x18);
+
+        IPC::RequestParser rp{ctx};
+        const auto params = rp.PopRaw<Parameters>();
+        GetLocalUserSetting(params.uuid).presence_permission = static_cast<u32>(params.permission);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void ChangeFriendRequestReception(HLERequestContext& ctx) {
+        struct Parameters {
+            Common::UUID uuid;
+            u8 reception;
+            INSERT_PADDING_BYTES(7);
+        };
+        static_assert(sizeof(Parameters) == 0x18);
+
+        IPC::RequestParser rp{ctx};
+        const auto params = rp.PopRaw<Parameters>();
+        GetLocalUserSetting(params.uuid).friend_request_reception = params.reception != 0;
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void ChangePlayLogPermission(HLERequestContext& ctx) {
+        struct Parameters {
+            Common::UUID uuid;
+            s32 permission;
+            INSERT_PADDING_WORDS(1);
+        };
+        static_assert(sizeof(Parameters) == 0x18);
+
+        IPC::RequestParser rp{ctx};
+        const auto params = rp.PopRaw<Parameters>();
+        GetLocalUserSetting(params.uuid).play_log_permission = static_cast<u32>(params.permission);
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
@@ -787,6 +851,7 @@ private:
     }
 
     KernelHelpers::ServiceContext service_context;
+    std::vector<LocalUserSetting> local_user_settings;
 
     Kernel::KEvent* completion_event;
 };
