@@ -33,6 +33,18 @@ private:
         OutArray<std::array<u8, 0x3>, BufferAttr_HipcPointer> out_codes);
     Result GetSerialNumber(Out<std::array<u8, 0x18>> out_value);
     Result GetBatteryLot(Out<std::array<u8, 0x18>> out_value);
+    Result GetSpeakerParameter(Out<std::array<u8, 0x5A>> out_value);
+    Result GetLcdVendorId(Out<u32> out_value);
+    Result GetUsbTypeCPowerSourceCircuitVersion(Out<u8> out_value);
+    Result GetAnalogStickModuleTypeL(Out<u8> out_value);
+    Result GetAnalogStickModelParameterL(Out<std::array<u8, 0x12>> out_value);
+    Result GetAnalogStickFactoryCalibrationL(Out<std::array<u8, 0x9>> out_value);
+    Result GetAnalogStickModuleTypeR(Out<u8> out_value);
+    Result GetAnalogStickModelParameterR(Out<std::array<u8, 0x12>> out_value);
+    Result GetAnalogStickFactoryCalibrationR(Out<std::array<u8, 0x9>> out_value);
+    Result GetConsoleSixAxisSensorModuleType(Out<u8> out_value);
+    Result GetConsoleSixAxisSensorHorizontalOffset(Out<std::array<u8, 0x6>> out_value);
+    Result GetBatteryVersion(Out<u8> out_value);
 };
 
 } // namespace Service::Set

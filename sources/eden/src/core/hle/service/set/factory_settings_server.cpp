@@ -40,6 +40,14 @@ Result ReadCalibrationBytes(Core::System& system, std::size_t offset, std::span<
     R_SUCCEED();
 }
 
+template <typename T>
+Result ReadCalibrationValue(Core::System& system, std::size_t offset, Out<T> out) {
+    static_assert(std::is_trivially_copyable_v<T>);
+    R_RETURN(ReadCalibrationBytes(
+        system, offset,
+        std::span<u8>{reinterpret_cast<u8*>(out.Get()), sizeof(T)}));
+}
+
 template <std::size_t N>
 Result ReadCalibrationField(Core::System& system, std::size_t offset, Out<std::array<u8, N>> out) {
     R_RETURN(ReadCalibrationBytes(system, offset, std::span<u8>{out->data(), out->size()}));
@@ -73,8 +81,8 @@ IFactorySettingsServer::IFactorySettingsServer(Core::System& system_)
         {19, nullptr, "GetGameCardCertificate"},
         {20, nullptr, "GetEciDeviceKey"},
         {21, nullptr, "GetEticketDeviceKey"},
-        {22, nullptr, "GetSpeakerParameter"},
-        {23, nullptr, "GetLcdVendorId"},
+        {22, C<&IFactorySettingsServer::GetSpeakerParameter>, "GetSpeakerParameter"},
+        {23, C<&IFactorySettingsServer::GetLcdVendorId>, "GetLcdVendorId"},
         {24, nullptr, "GetEciDeviceCertificate2"},
         {25, nullptr, "GetEciDeviceKey2"},
         {26, nullptr, "GetAmiiboKey"},
@@ -83,16 +91,16 @@ IFactorySettingsServer::IFactorySettingsServer(Core::System& system_)
         {29, nullptr, "GetAmiiboEcqvBlsKey"},
         {30, nullptr, "GetAmiiboEcqvBlsCertificate"},
         {31, nullptr, "GetAmiiboEcqvBlsRootCertificate"},
-        {32, nullptr, "GetUsbTypeCPowerSourceCircuitVersion"},
-        {33, nullptr, "GetAnalogStickModuleTypeL"},
-        {34, nullptr, "GetAnalogStickModelParameterL"},
-        {35, nullptr, "GetAnalogStickFactoryCalibrationL"},
-        {36, nullptr, "GetAnalogStickModuleTypeR"},
-        {37, nullptr, "GetAnalogStickModelParameterR"},
-        {38, nullptr, "GetAnalogStickFactoryCalibrationR"},
-        {39, nullptr, "GetConsoleSixAxisSensorModuleType"},
-        {40, nullptr, "GetConsoleSixAxisSensorHorizontalOffset"},
-        {41, nullptr, "GetBatteryVersion"},
+        {32, C<&IFactorySettingsServer::GetUsbTypeCPowerSourceCircuitVersion>, "GetUsbTypeCPowerSourceCircuitVersion"},
+        {33, C<&IFactorySettingsServer::GetAnalogStickModuleTypeL>, "GetAnalogStickModuleTypeL"},
+        {34, C<&IFactorySettingsServer::GetAnalogStickModelParameterL>, "GetAnalogStickModelParameterL"},
+        {35, C<&IFactorySettingsServer::GetAnalogStickFactoryCalibrationL>, "GetAnalogStickFactoryCalibrationL"},
+        {36, C<&IFactorySettingsServer::GetAnalogStickModuleTypeR>, "GetAnalogStickModuleTypeR"},
+        {37, C<&IFactorySettingsServer::GetAnalogStickModelParameterR>, "GetAnalogStickModelParameterR"},
+        {38, C<&IFactorySettingsServer::GetAnalogStickFactoryCalibrationR>, "GetAnalogStickFactoryCalibrationR"},
+        {39, C<&IFactorySettingsServer::GetConsoleSixAxisSensorModuleType>, "GetConsoleSixAxisSensorModuleType"},
+        {40, C<&IFactorySettingsServer::GetConsoleSixAxisSensorHorizontalOffset>, "GetConsoleSixAxisSensorHorizontalOffset"},
+        {41, C<&IFactorySettingsServer::GetBatteryVersion>, "GetBatteryVersion"},
         {42, nullptr, "GetDeviceId"},
         {43, nullptr, "GetConsoleSixAxisSensorMountType"},
     };
@@ -163,6 +171,60 @@ Result IFactorySettingsServer::GetSerialNumber(Out<std::array<u8, 0x18>> out_val
 
 Result IFactorySettingsServer::GetBatteryLot(Out<std::array<u8, 0x18>> out_value) {
     R_RETURN(ReadCalibrationField(system, 0x2CE0, out_value));
+}
+
+
+Result IFactorySettingsServer::GetSpeakerParameter(Out<std::array<u8, 0x5A>> out_value) {
+    R_RETURN(ReadCalibrationField(system, 0x2D00, out_value));
+}
+
+Result IFactorySettingsServer::GetLcdVendorId(Out<u32> out_value) {
+    R_RETURN(ReadCalibrationValue(system, 0x3D60, out_value));
+}
+
+Result IFactorySettingsServer::GetUsbTypeCPowerSourceCircuitVersion(Out<u8> out_value) {
+    R_RETURN(ReadCalibrationValue(system, 0x4210, out_value));
+}
+
+Result IFactorySettingsServer::GetAnalogStickModuleTypeL(Out<u8> out_value) {
+    R_RETURN(ReadCalibrationValue(system, 0x4270, out_value));
+}
+
+Result IFactorySettingsServer::GetAnalogStickModelParameterL(
+    Out<std::array<u8, 0x12>> out_value) {
+    R_RETURN(ReadCalibrationField(system, 0x4280, out_value));
+}
+
+Result IFactorySettingsServer::GetAnalogStickFactoryCalibrationL(
+    Out<std::array<u8, 0x9>> out_value) {
+    R_RETURN(ReadCalibrationField(system, 0x42A0, out_value));
+}
+
+Result IFactorySettingsServer::GetAnalogStickModuleTypeR(Out<u8> out_value) {
+    R_RETURN(ReadCalibrationValue(system, 0x42B0, out_value));
+}
+
+Result IFactorySettingsServer::GetAnalogStickModelParameterR(
+    Out<std::array<u8, 0x12>> out_value) {
+    R_RETURN(ReadCalibrationField(system, 0x42C0, out_value));
+}
+
+Result IFactorySettingsServer::GetAnalogStickFactoryCalibrationR(
+    Out<std::array<u8, 0x9>> out_value) {
+    R_RETURN(ReadCalibrationField(system, 0x42E0, out_value));
+}
+
+Result IFactorySettingsServer::GetConsoleSixAxisSensorModuleType(Out<u8> out_value) {
+    R_RETURN(ReadCalibrationValue(system, 0x42F0, out_value));
+}
+
+Result IFactorySettingsServer::GetConsoleSixAxisSensorHorizontalOffset(
+    Out<std::array<u8, 0x6>> out_value) {
+    R_RETURN(ReadCalibrationField(system, 0x4300, out_value));
+}
+
+Result IFactorySettingsServer::GetBatteryVersion(Out<u8> out_value) {
+    R_RETURN(ReadCalibrationValue(system, 0x4310, out_value));
 }
 
 IFactorySettingsServer::~IFactorySettingsServer() = default;
