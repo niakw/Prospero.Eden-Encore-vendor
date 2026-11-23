@@ -701,11 +701,59 @@ void Puller::CallNative3D(DmaPusher& pusher, u32 method,
         const auto commit = [&](u32 addr, u32 value) {
             engine.CallMethod(pusher.system, addr, value, true);
         };
+        const auto mme_dma_effect =
+            [&](u32 address, u32 count, std::vector<u32>& fifo,
+                Tegra::NativeAmpereMacroState::DataRam& dram,
+                const auto& staged_read) -> bool {
+                constexpr u32 MemAddressA = 0x154;
+                constexpr u32 MemAddressB = 0x155;
+                constexpr u32 DataRamAddress = 0x156;
+                constexpr u32 DmaRead = 0x157;
+                constexpr u32 DmaReadFifoed = 0x158;
+                if (address != DmaRead && address != DmaReadFifoed)
+                    return true;
+
+                // C7xx Ampere MME uses a 17-bit upper address field. Bound the
+                // transfer to the interpreter's FIFO limit and reject holes;
+                // ReadBlock performs the required cache flush before CPU reads.
+                if (count > Tegra::NativeAmpereMacroState::MaxFifo)
+                    return false;
+                const GPUVAddr source =
+                    (GPUVAddr{staged_read(MemAddressA) & 0x1ffffU} << 32) |
+                    staged_read(MemAddressB);
+                const std::size_t words = count;
+                const std::size_t bytes = words * sizeof(u32);
+                const std::size_t ram = staged_read(DataRamAddress);
+                if (address == DmaReadFifoed) {
+                    if (words > Tegra::NativeAmpereMacroState::MaxFifo - fifo.size())
+                        return false;
+                } else if (ram > dram.size() || words > dram.size() - ram) {
+                    return false;
+                }
+                if (bytes == 0)
+                    return true;
+                if (!pusher.memory_manager.IsFullyMappedRange(source, bytes))
+                    return false;
+
+                std::array<u32, Tegra::NativeAmpereMacroState::MaxFifo> data{};
+                pusher.memory_manager.ReadBlock(source, data.data(), bytes);
+                // A concurrent unmap/remap must not turn a validated native MME
+                // read into a silent zero/foreign-page fetch.
+                if (!pusher.memory_manager.IsFullyMappedRange(source, bytes))
+                    return false;
+                if (address == DmaReadFifoed) {
+                    fifo.insert(fifo.end(), data.begin(), data.begin() + words);
+                } else {
+                    std::copy_n(data.begin(), words, dram.begin() + ram);
+                }
+                return true;
+            };
         Tegra::NativeAmpereMacroState::Result outcome{};
         try {
-            outcome = native_3d->ExecuteStaged(
+            outcome = native_3d->ExecuteStagedWithEffects(
                 native_macro_method, std::span<const u32>{native_parameters},
-                read, allowed, commit, [&] { return !bad_read; });
+                read, allowed, mme_dma_effect, commit,
+                [&] { return !bad_read; });
         } catch (...) {
             // A method commit may already have reached the GPU. Retire
             // this native channel, never resume its partially applied MME.

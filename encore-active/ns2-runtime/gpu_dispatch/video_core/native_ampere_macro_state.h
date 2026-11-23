@@ -58,30 +58,27 @@ public:
     [[nodiscard]] Result Execute(Word macro_method,
                                  std::span<const Word> parameters,
                                  Read read, Emit emit) {
-        if(macro_method<0xe00 || macro_method>=0xf00 ||
-           (macro_method&1u)!=0u) return {false,0,0,"invalid macro method"};
-        const auto index=std::size_t{(macro_method-0xe00u)>>1};
-        if(index>=positions.size() || !bound[index])
-            return {false,0,0,"unbound macro entry"};
-        const auto start=positions[index];
-        if(std::size_t{start}*3+2>=uploaded)
-            return {false,start,0,"instruction outside uploaded RAM"};
-        if(parameters.size()>MaxFifo)
-            return {false,start,0,"native macro FIFO limit exceeded"};
-        std::vector<Word> fifo{parameters.begin(),parameters.end()};
-        interpreter.active_dram=active_dram;
-        return interpreter.Execute(
-            std::span<const Word>{code.data(),uploaded},start,fifo,read,emit);
+        return ExecuteWithMutableFifo(
+            macro_method, parameters, read,
+            [&](Word address, Word value, std::vector<Word>&) {
+                return emit(address, value);
+            });
     }
+
     // Stage an entire guest MME invocation before publishing GPU methods.
     // A rejected late register read, invalid emit, or missing terminator
     // must not leave the first half of a draw/PCAS command live. Reads of
     // earlier emitted registers see the pending value, never stale hardware
     // state. The channel DRAM is restored if the interpreter rejects.
-    template<class Read, class Allowed, class Commit, class Valid>
-    [[nodiscard]] Result ExecuteStaged(
+    //
+    // Some TU104 methods (notably MME_DMA_READ[_FIFOED]) affect the MME's
+    // private DRAM/load FIFO while the macro is still executing. The effects
+    // overload exposes only those temporary objects to the caller; published
+    // GPU register writes remain staged until the full invocation validates.
+    template<class Read, class Allowed, class Effect, class Commit, class Valid>
+    [[nodiscard]] Result ExecuteStagedWithEffects(
         Word macro_method, std::span<const Word> parameters,
-        Read read, Allowed allowed, Commit commit, Valid valid) {
+        Read read, Allowed allowed, Effect effect, Commit commit, Valid valid) {
         static constexpr std::size_t MaxPendingMethods = 65536;
         const auto old_dram = *active_dram;
         std::vector<std::pair<Word, Word>> pending;
@@ -91,17 +88,19 @@ public:
                 return it->second;
             return read(address);
         };
-        const auto stage_emit = [&](Word address, Word value) -> bool {
+        const auto stage_emit = [&](Word address, Word value,
+                                    std::vector<Word>& fifo) -> bool {
             if (pending.size() >= MaxPendingMethods || !allowed(address, value))
                 return false;
             pending.emplace_back(address, value);
             shadow[address] = value;
-            return true;
+            return effect(address, value, fifo, *active_dram, stage_read);
         };
         Result result{};
         bool validation_ok{};
         try {
-            result = Execute(macro_method, parameters, stage_read, stage_emit);
+            result = ExecuteWithMutableFifo(
+                macro_method, parameters, stage_read, stage_emit);
             // Validation is part of staging. If the channel epoch or a
             // register-read validator throws, restore MME DRAM before the
             // caller rejects the invocation; no methods have been committed.
@@ -130,8 +129,43 @@ public:
         }
         return result;
     }
+
+    template<class Read, class Allowed, class Commit, class Valid>
+    [[nodiscard]] Result ExecuteStaged(
+        Word macro_method, std::span<const Word> parameters,
+        Read read, Allowed allowed, Commit commit, Valid valid) {
+        const auto no_effect = [](Word, Word, std::vector<Word>&,
+                                  DataRam&, const auto&) { return true; };
+        return ExecuteStagedWithEffects(
+            macro_method, parameters, read, allowed, no_effect, commit, valid);
+    }
+
     [[nodiscard]] std::size_t UploadedWords() const {return uploaded;}
 private:
+    template<class Read, class Emit>
+    [[nodiscard]] Result ExecuteWithMutableFifo(
+        Word macro_method, std::span<const Word> parameters,
+        Read read, Emit emit) {
+        if(macro_method<0xe00 || macro_method>=0xf00 ||
+           (macro_method&1u)!=0u) return {false,0,0,"invalid macro method"};
+        const auto index=std::size_t{(macro_method-0xe00u)>>1};
+        if(index>=positions.size() || !bound[index])
+            return {false,0,0,"unbound macro entry"};
+        const auto start=positions[index];
+        if(std::size_t{start}*3+2>=uploaded)
+            return {false,start,0,"instruction outside uploaded RAM"};
+        if(parameters.size()>MaxFifo)
+            return {false,start,0,"native macro FIFO limit exceeded"};
+        std::vector<Word> fifo;
+        fifo.reserve(MaxFifo);
+        fifo.insert(fifo.end(), parameters.begin(), parameters.end());
+        interpreter.active_dram=active_dram;
+        return interpreter.Execute(
+            std::span<const Word>{code.data(),uploaded}, start, fifo, read,
+            [&](Word address, Word value) {
+                return emit(address, value, fifo);
+            });
+    }
     std::array<Word,MaxCodeWords> code{};
     std::size_t write_offset{};
     std::size_t uploaded{};
