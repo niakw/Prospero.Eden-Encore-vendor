@@ -49,4 +49,16 @@ assert "m_page_group->CloseAndReset(kernel);" in init
 assert "kernel.MemoryManager().Close(m_physical_address, num_pages);" in init
 assert "R_THROW(ResultOutOfMemory);" in init
 
+# Demand-zero optimized allocations: zero fill uses HostMemory clear and
+# must not precommit the entire page group. Nonzero fill still preflights.
+kernel = (root / "encore-active/ns2-runtime/sparse-residency/core/hle/kernel/k_memory_manager.cpp").read_text()
+alloc = kernel.split("Result KMemoryManager::AllocateForProcess(", 1)[1].split(
+    "size_t KMemoryManager::Impl::Initialize(", 1)[0]
+optimized = kernel.split("bool KMemoryManager::Impl::ProcessOptimizedAllocation", 1)[1].split(
+    "size_t KMemoryManager::Impl::CalculateManagementOverheadSize", 1)[0]
+assert "if (optimized && fill_pattern != 0)" in alloc
+assert "device_memory.buffer.ClearBackingRegion(" in optimized
+assert optimized.index("ClearBackingRegion(") < optimized.index("return any_new;")
+assert "CommitKernelDirectGuestRange(kernel.System(), block, num_pages * PageSize);" not in optimized
+
 print("NS2_KERNEL_SLAB_DIRECT_PHYSICAL_PRECOMMIT_OK writers=2")

@@ -392,7 +392,7 @@ Result KMemoryManager::AllocateForProcess(KPageGroup* out, size_t num_pages, u32
     }
 
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
-    if (optimized) {
+    if (optimized && fill_pattern != 0) {
         // Unlike the unoptimized ClearBackingRegion path, optimized fills
         // dereference raw DeviceMemory pointers and can raise bad_alloc in
         // CommitKernelDirectGuestRange. Precommit the WHOLE page group before
@@ -611,16 +611,6 @@ void KMemoryManager::Impl::TrackOptimizedAllocation(KernelCore& kernel, KPhysica
 
 bool KMemoryManager::Impl::ProcessOptimizedAllocation(KernelCore& kernel, KPhysicalAddress block,
                                                       size_t num_pages, u8 fill_pattern) {
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
-    // The optimized fast fill uses raw DeviceMemory pointers, not
-    // HostMemory::ClearBackingRegion or a process PTE. Commit the range
-    // before ANY pointer is dereferenced, including at 12GiB DRAM end.
-    if (num_pages > 0) {
-        if (num_pages > std::numeric_limits<size_t>::max() / PageSize)
-            throw std::bad_alloc{};
-        CommitKernelDirectGuestRange(kernel.System(), block, num_pages * PageSize);
-    }
-#endif
     auto& device_memory = kernel.System().DeviceMemory();
     auto optimize_pa = KPageTable::GetHeapPhysicalAddress(kernel, m_management_region);
     auto* optimize_map = device_memory.GetPointer<u64>(optimize_pa);
@@ -640,9 +630,20 @@ bool KMemoryManager::Impl::ProcessOptimizedAllocation(KernelCore& kernel, KPhysi
             // If not, it's new.
             any_new = true;
 
-            // Fill the page.
+            // Fill through HostMemory so a zero page can remain on the
+            // shared read-only ZERO owner without taking a private 2 MiB block.
+            // Nonzero fills were preflighted above and therefore cannot
+            // partially publish an optimized bitmap on sparse OOM.
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+            const auto page = GetInteger(m_heap.GetAddress()) + offset * PageSize;
+            if (page < Core::DramMemoryMap::Base)
+                throw std::bad_alloc{};
+            device_memory.buffer.ClearBackingRegion(
+                page - Core::DramMemoryMap::Base, PageSize, fill_pattern);
+#else
             auto* ptr = device_memory.GetPointer<u8>(m_heap.GetAddress());
             std::memset(ptr + offset * PageSize, fill_pattern, PageSize);
+#endif
         }
 
         offset++;

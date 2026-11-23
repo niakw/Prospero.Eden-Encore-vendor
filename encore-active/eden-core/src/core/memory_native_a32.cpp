@@ -45,9 +45,9 @@
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
 // PS5-only experiment. The engine owns the 12 GiB reserved guest VA;
 // admission must succeed before a guest page table publishes that PA.
-extern "C" bool EdenNs2CommitGuestBacking(const void* backing_base,
-                                          std::size_t offset,
-                                          std::size_t bytes) noexcept;
+extern "C" bool EdenNs2EnsureGuestBackingReadable(const void* backing_base,
+                                                    std::size_t offset,
+                                                    std::size_t bytes) noexcept;
 #endif
 
 namespace Core::Memory {
@@ -102,10 +102,10 @@ struct Memory::Impl {
         ASSERT_MSG(target >= DramMemoryMap::Base, "Out of bounds target: {:016X}",
                    GetInteger(target));
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
-        // The guest PTE contains a direct pointer into HostMemory. Commit
-        // the exact backing chunks BEFORE publishing it, including the
-        // case where the kernel maps memory on behalf of a GPU process.
-        if (!EdenNs2CommitGuestBacking(
+        // PTE publication only needs readable backing. Untouched NS2
+        // chunks already alias the shared read-only zero block; the first
+        // CPU write promotes its 2 MiB owner through the native fault path.
+        if (!EdenNs2EnsureGuestBackingReadable(
                 system.DeviceMemory().buffer.BackingBasePointer(),
                 GetInteger(target) - DramMemoryMap::Base, size)) {
             throw std::bad_alloc{};
