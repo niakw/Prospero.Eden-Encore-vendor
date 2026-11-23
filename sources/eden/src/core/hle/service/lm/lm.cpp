@@ -11,6 +11,7 @@
 #include <boost/container_hash/hash.hpp>
 #include "common/logging.h"
 #include "core/core.h"
+#include "core/hle/kernel/svc_results.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/lm/lm.h"
 #include "core/hle/service/server_manager.h"
@@ -363,12 +364,20 @@ public:
         : ServiceFramework{system_, "lm:get"}
     {
         static const FunctionInfo functions[] = {
-            {0, nullptr, "StartLogging"},
-            {1, nullptr, "StopLogging"},
-            {2, nullptr, "GetLog"},
-            {100, nullptr, "CreateDevNotificationReceiver"},
+            {0, &LM_GET::RejectUnsupportedGetterCommand, "StartLogging"},
+            {1, &LM_GET::RejectUnsupportedGetterCommand, "StopLogging"},
+            {2, &LM_GET::RejectUnsupportedGetterCommand, "GetLog"},
+            {100, &LM_GET::RejectUnsupportedGetterCommand, "CreateDevNotificationReceiver"},
         };
         RegisterHandlers(functions);
+    }
+
+private:
+    void RejectUnsupportedGetterCommand(HLERequestContext& ctx) {
+        LOG_DEBUG(Service_LM, "Rejecting unsupported lm:get command {}", ctx.GetCommand());
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultNotImplemented);
     }
 };
 
