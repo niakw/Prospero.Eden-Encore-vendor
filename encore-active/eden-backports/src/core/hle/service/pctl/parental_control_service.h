@@ -46,6 +46,8 @@ private:
     Result GetSafetyLevel(Out<u32> out_safety_level);
     Result GetCurrentSettings(Out<RestrictionSettings> out_settings);
     Result SetCustomSafetyLevelSettings(const RestrictionSettings& settings);
+    Result GetDefaultRatingOrganization(Out<u32> out_rating_organization);
+    Result SetDefaultRatingOrganization(u32 rating_organization);
     Result GetFreeCommunicationApplicationListCount(Out<s32> out_count);
     Result GetFreeCommunicationApplicationList(
         Out<u32> out_count,
@@ -99,6 +101,7 @@ private:
     States states{};
     ParentalControlSettings settings{};
     RestrictionSettings restriction_settings{};
+    u32 default_rating_organization{};
     std::array<char, 8> pin_code{};
     Capability capability{};
     u64 program_id{};

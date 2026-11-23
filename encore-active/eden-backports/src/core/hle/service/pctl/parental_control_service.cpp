@@ -54,8 +54,8 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1034, nullptr, "GetSafetyLevelSettings"},
         {1035, D<&IParentalControlService::GetCurrentSettings>, "GetCurrentSettings"},
         {1036, D<&IParentalControlService::SetCustomSafetyLevelSettings>, "SetCustomSafetyLevelSettings"},
-        {1037, nullptr, "GetDefaultRatingOrganization"},
-        {1038, nullptr, "SetDefaultRatingOrganization"},
+        {1037, D<&IParentalControlService::GetDefaultRatingOrganization>, "GetDefaultRatingOrganization"},
+        {1038, D<&IParentalControlService::SetDefaultRatingOrganization>, "SetDefaultRatingOrganization"},
         {1039, D<&IParentalControlService::GetFreeCommunicationApplicationListCount>, "GetFreeCommunicationApplicationListCount"},
         {1042, nullptr, "AddToFreeCommunicationApplicationList"},
         {1043, nullptr, "DeleteSettings"},
@@ -371,6 +371,19 @@ Result IParentalControlService::SetCustomSafetyLevelSettings(
               "Custom restrictions updated: rating_age={}, sns={}, free_communication={}",
               restriction_settings.rating_age, restriction_settings.sns_post_restriction,
               restriction_settings.free_communication_restriction);
+    R_SUCCEED();
+}
+
+Result IParentalControlService::GetDefaultRatingOrganization(
+    Out<u32> out_rating_organization) {
+    *out_rating_organization = default_rating_organization;
+    LOG_DEBUG(Service_PCTL, "called, organization={}", *out_rating_organization);
+    R_SUCCEED();
+}
+
+Result IParentalControlService::SetDefaultRatingOrganization(u32 rating_organization) {
+    default_rating_organization = rating_organization;
+    LOG_DEBUG(Service_PCTL, "called, organization={}", default_rating_organization);
     R_SUCCEED();
 }
 
