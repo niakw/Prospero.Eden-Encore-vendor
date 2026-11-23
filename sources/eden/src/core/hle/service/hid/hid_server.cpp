@@ -74,12 +74,12 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {70, C<&IHidServer::SetSixAxisSensorFusionParameters>, "SetSixAxisSensorFusionParameters"},
         {71, C<&IHidServer::GetSixAxisSensorFusionParameters>, "GetSixAxisSensorFusionParameters"},
         {72, C<&IHidServer::ResetSixAxisSensorFusionParameters>, "ResetSixAxisSensorFusionParameters"},
-        {73, nullptr, "SetAccelerometerParameters"},
-        {74, nullptr, "GetAccelerometerParameters"},
-        {75, nullptr, "ResetAccelerometerParameters"},
-        {76, nullptr, "SetAccelerometerPlayMode"},
-        {77, nullptr, "GetAccelerometerPlayMode"},
-        {78, nullptr, "ResetAccelerometerPlayMode"},
+        {73, C<&IHidServer::SetAccelerometerParameters>, "SetAccelerometerParameters"},
+        {74, C<&IHidServer::GetAccelerometerParameters>, "GetAccelerometerParameters"},
+        {75, C<&IHidServer::ResetAccelerometerParameters>, "ResetAccelerometerParameters"},
+        {76, C<&IHidServer::SetAccelerometerPlayMode>, "SetAccelerometerPlayMode"},
+        {77, C<&IHidServer::GetAccelerometerPlayMode>, "GetAccelerometerPlayMode"},
+        {78, C<&IHidServer::ResetAccelerometerPlayMode>, "ResetAccelerometerPlayMode"},
         {79, C<&IHidServer::SetGyroscopeZeroDriftMode>, "SetGyroscopeZeroDriftMode"},
         {80, C<&IHidServer::GetGyroscopeZeroDriftMode>, "GetGyroscopeZeroDriftMode"},
         {81, C<&IHidServer::ResetGyroscopeZeroDriftMode>, "ResetGyroscopeZeroDriftMode"},
@@ -140,8 +140,8 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {305, C<&IHidServer::StopSevenSixAxisSensor>, "StopSevenSixAxisSensor"},
         {306, C<&IHidServer::InitializeSevenSixAxisSensor>, "InitializeSevenSixAxisSensor"},
         {307, C<&IHidServer::FinalizeSevenSixAxisSensor>, "FinalizeSevenSixAxisSensor"},
-        {308, nullptr, "SetSevenSixAxisSensorFusionStrength"},
-        {309, nullptr, "GetSevenSixAxisSensorFusionStrength"},
+        {308, C<&IHidServer::SetSevenSixAxisSensorFusionStrength>, "SetSevenSixAxisSensorFusionStrength"},
+        {309, C<&IHidServer::GetSevenSixAxisSensorFusionStrength>, "GetSevenSixAxisSensorFusionStrength"},
         {310, C<&IHidServer::ResetSevenSixAxisSensorTimestamp>, "ResetSevenSixAxisSensorTimestamp"},
         {320, nullptr, "EnableNpadImu"}, //21.0.0+
         {321, nullptr, "DisableNpadImu"}, //21.0.0+
@@ -502,6 +502,71 @@ Result IHidServer::ResetSixAxisSensorFusionParameters(Core::HID::SixAxisSensorHa
     R_TRY(GetResourceManager()->GetSixAxis()->SetSixAxisFusionParameters(sixaxis_handle,
                                                                          fusion_parameters));
     R_RETURN(GetResourceManager()->GetSixAxis()->SetSixAxisFusionEnabled(sixaxis_handle, true));
+}
+
+Result IHidServer::SetAccelerometerParameters(
+    Core::HID::SixAxisSensorHandle sixaxis_handle, AccelerometerParameters parameters,
+    ClientAppletResourceUserId aruid) {
+    LOG_DEBUG(Service_HID,
+              "called, npad_type={}, npad_id={}, device_index={}, x={}, y={}, "
+              "applet_resource_user_id={}",
+              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
+              parameters.x, parameters.y, aruid.pid);
+    accelerometer_parameters = parameters;
+    R_SUCCEED();
+}
+
+Result IHidServer::GetAccelerometerParameters(
+    Out<AccelerometerParameters> out_parameters, Core::HID::SixAxisSensorHandle sixaxis_handle,
+    ClientAppletResourceUserId aruid) {
+    LOG_DEBUG(Service_HID,
+              "called, npad_type={}, npad_id={}, device_index={}, applet_resource_user_id={}",
+              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
+              aruid.pid);
+    *out_parameters = accelerometer_parameters;
+    R_SUCCEED();
+}
+
+Result IHidServer::ResetAccelerometerParameters(Core::HID::SixAxisSensorHandle sixaxis_handle,
+                                                ClientAppletResourceUserId aruid) {
+    LOG_DEBUG(Service_HID,
+              "called, npad_type={}, npad_id={}, device_index={}, applet_resource_user_id={}",
+              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
+              aruid.pid);
+    accelerometer_parameters = {};
+    R_SUCCEED();
+}
+
+Result IHidServer::SetAccelerometerPlayMode(Core::HID::SixAxisSensorHandle sixaxis_handle,
+                                            u32 play_mode, ClientAppletResourceUserId aruid) {
+    LOG_DEBUG(Service_HID,
+              "called, npad_type={}, npad_id={}, device_index={}, play_mode={}, "
+              "applet_resource_user_id={}",
+              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
+              play_mode, aruid.pid);
+    accelerometer_play_mode = play_mode;
+    R_SUCCEED();
+}
+
+Result IHidServer::GetAccelerometerPlayMode(Out<u32> out_play_mode,
+                                            Core::HID::SixAxisSensorHandle sixaxis_handle,
+                                            ClientAppletResourceUserId aruid) {
+    LOG_DEBUG(Service_HID,
+              "called, npad_type={}, npad_id={}, device_index={}, applet_resource_user_id={}",
+              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
+              aruid.pid);
+    *out_play_mode = accelerometer_play_mode;
+    R_SUCCEED();
+}
+
+Result IHidServer::ResetAccelerometerPlayMode(Core::HID::SixAxisSensorHandle sixaxis_handle,
+                                              ClientAppletResourceUserId aruid) {
+    LOG_DEBUG(Service_HID,
+              "called, npad_type={}, npad_id={}, device_index={}, applet_resource_user_id={}",
+              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
+              aruid.pid);
+    accelerometer_play_mode = 0;
+    R_SUCCEED();
 }
 
 Result IHidServer::SetGyroscopeZeroDriftMode(Core::HID::SixAxisSensorHandle sixaxis_handle,
@@ -1173,6 +1238,21 @@ Result IHidServer::InitializeSevenSixAxisSensor(ClientAppletResourceUserId aruid
 Result IHidServer::FinalizeSevenSixAxisSensor(ClientAppletResourceUserId aruid) {
     LOG_WARNING(Service_HID, "(STUBBED) called, applet_resource_user_id={}", aruid.pid);
 
+    R_SUCCEED();
+}
+
+Result IHidServer::SetSevenSixAxisSensorFusionStrength(
+    f32 strength, ClientAppletResourceUserId aruid) {
+    LOG_DEBUG(Service_HID, "called, strength={}, applet_resource_user_id={}", strength, aruid.pid);
+    seven_six_axis_sensor_fusion_strength = strength;
+    R_SUCCEED();
+}
+
+Result IHidServer::GetSevenSixAxisSensorFusionStrength(
+    Out<f32> out_strength, ClientAppletResourceUserId aruid) {
+    *out_strength = seven_six_axis_sensor_fusion_strength;
+    LOG_DEBUG(Service_HID, "called, strength={}, applet_resource_user_id={}", *out_strength,
+              aruid.pid);
     R_SUCCEED();
 }
 

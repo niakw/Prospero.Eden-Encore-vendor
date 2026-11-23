@@ -77,6 +77,28 @@ private:
         Core::HID::SixAxisSensorHandle sixaxis_handle, ClientAppletResourceUserId aruid);
     Result ResetSixAxisSensorFusionParameters(Core::HID::SixAxisSensorHandle sixaxis_handle,
                                               ClientAppletResourceUserId aruid);
+
+    struct AccelerometerParameters {
+        f32 x{};
+        f32 y{};
+    };
+    static_assert(sizeof(AccelerometerParameters) == 0x8);
+
+    Result SetAccelerometerParameters(Core::HID::SixAxisSensorHandle sixaxis_handle,
+                                      AccelerometerParameters parameters,
+                                      ClientAppletResourceUserId aruid);
+    Result GetAccelerometerParameters(Out<AccelerometerParameters> out_parameters,
+                                      Core::HID::SixAxisSensorHandle sixaxis_handle,
+                                      ClientAppletResourceUserId aruid);
+    Result ResetAccelerometerParameters(Core::HID::SixAxisSensorHandle sixaxis_handle,
+                                        ClientAppletResourceUserId aruid);
+    Result SetAccelerometerPlayMode(Core::HID::SixAxisSensorHandle sixaxis_handle, u32 play_mode,
+                                    ClientAppletResourceUserId aruid);
+    Result GetAccelerometerPlayMode(Out<u32> out_play_mode,
+                                    Core::HID::SixAxisSensorHandle sixaxis_handle,
+                                    ClientAppletResourceUserId aruid);
+    Result ResetAccelerometerPlayMode(Core::HID::SixAxisSensorHandle sixaxis_handle,
+                                      ClientAppletResourceUserId aruid);
     Result SetGyroscopeZeroDriftMode(Core::HID::SixAxisSensorHandle sixaxis_handle,
                                      Core::HID::GyroscopeZeroDriftMode drift_mode,
                                      ClientAppletResourceUserId aruid);
@@ -202,6 +224,9 @@ private:
                                         InCopyHandle<Kernel::KTransferMemory> t_mem_1,
                                         InCopyHandle<Kernel::KTransferMemory> t_mem_2);
     Result FinalizeSevenSixAxisSensor(ClientAppletResourceUserId aruid);
+    Result SetSevenSixAxisSensorFusionStrength(f32 strength, ClientAppletResourceUserId aruid);
+    Result GetSevenSixAxisSensorFusionStrength(Out<f32> out_strength,
+                                               ClientAppletResourceUserId aruid);
     Result ResetSevenSixAxisSensorTimestamp(ClientAppletResourceUserId aruid);
     Result IsUsbFullKeyControllerEnabled(Out<bool> out_is_enabled);
     Result EnableUsbFullKeyController(bool is_enabled);
@@ -279,6 +304,9 @@ private:
 
     std::shared_ptr<ResourceManager> resource_manager;
     std::shared_ptr<HidFirmwareSettings> firmware_settings;
+    AccelerometerParameters accelerometer_parameters{};
+    u32 accelerometer_play_mode{};
+    f32 seven_six_axis_sensor_fusion_strength{};
     bool usb_full_key_controller_enabled{};
 };
 
