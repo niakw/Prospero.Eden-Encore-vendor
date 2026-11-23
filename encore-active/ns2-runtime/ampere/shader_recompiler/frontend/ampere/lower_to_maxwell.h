@@ -3534,12 +3534,20 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                  data | (u64{insn.Bits(24, 8)} << 8) | (u64{insn.Bits(40, 24)} << 20) | (u64{4} << 48));
             break;
         }
-        case 0x883: { // UP2UR with UP0 selected and a zero merge source.
-            if (dest >= 63 || insn.Bits(24, 8) != 63 ||
-                native_predicate != 7 || insn.words[1] != 1 || insn.words[2] != 0x08000000)
-                return fail(index, "native uniform predicate-to-register mode");
-            emit(0x3828000000070000ULL | uniform_register(static_cast<u32>(dest)) | (u64{239} << 8) | (u64{6} << 20));
-            emit(0x0400000000070000ULL | uniform_register(static_cast<u32>(dest)) | (uniform_register(static_cast<u32>(dest)) << 8) | (u64{1} << 20));
+        case 0x883: { // UP2UR UR, UPR, URZ, mask: bit k of the result is UPk (R239 bit 6-k).
+            const u32 target = uniform_register(insn.Bits(16, 8)), mask = insn.words[1];
+            if (target == ~0U || insn.Bits(24, 8) != 63 || native_predicate != 7 ||
+                insn.words[2] != 0x08000000 || mask > 0x7f)
+                return fail(index, "native uniform predicate move mode");
+            if (target == 255) break;
+            mov_imm(target, 0);
+            for (u32 k = 0; k < 7; ++k) {
+                if (!((mask >> k) & 1)) continue;
+                emit(0x3800000000070000ULL | 250 | (u64{239} << 8) |
+                     (u64{(6 - k) | (1U << 8)} << 20));
+                emit(0x36f0000000070000ULL | target | (u64{250} << 8) |
+                     (u64{k | (1U << 8)} << 20) | (u64{target} << 39));
+            }
             break;
         }
         case 0x803: { // P2R PR, register merge source, immediate mask
