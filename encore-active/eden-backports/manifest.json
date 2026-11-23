@@ -346,9 +346,9 @@
       "upstream": "96952882443b02647637b6f768a580c55535d1145296959f0d83a78a6fd225ad"
     },
     "src/hid_core/resources/npad/npad.cpp": {
-      "active": "2fb949cfba02906fe37584f06c070a66b7b66539b833ac71c7982f6d042247c2",
-      "bytes": 60986,
-      "upstream": "ce0d89d407df136c8b9807af34fec71e48a612c0798cbf5e272ce9ceb8bf0073"
+      "active": "fc6c2112d6db7451b9d65072781e048b9bae32755aceea57f3209d25c7a9a121",
+      "bytes": 63262,
+      "upstream": "04079c74931260bcceb23325a796060af766a981959b3c230d1ad2c5276c5b8b"
     },
     "src/video_core/buffer_cache/buffer_cache_base.h": {
       "active": "7f37352a159bc80ac9c1ba10d6f34a52794a1985cffc8cc81506a5dc660891a9",

@@ -203,8 +203,20 @@ private:
                                         InCopyHandle<Kernel::KTransferMemory> t_mem_2);
     Result FinalizeSevenSixAxisSensor(ClientAppletResourceUserId aruid);
     Result ResetSevenSixAxisSensorTimestamp(ClientAppletResourceUserId aruid);
-    Result IsUsbFullKeyControllerEnabled(Out<bool> out_is_enabled,
-                                         ClientAppletResourceUserId aruid);
+    Result IsUsbFullKeyControllerEnabled(Out<bool> out_is_enabled);
+    Result EnableUsbFullKeyController(bool is_enabled);
+    Result IsUsbFullKeyControllerConnected(Out<bool> out_is_connected,
+                                           Core::HID::NpadIdType npad_id);
+    Result HasBattery(Out<bool> out_has_battery, Core::HID::NpadIdType npad_id);
+    Result HasLeftRightBattery(Out<bool> out_has_left_battery,
+                               Out<bool> out_has_right_battery,
+                               Core::HID::NpadIdType npad_id);
+    Result GetNpadInterfaceType(Out<Core::HID::NpadInterfaceType> out_interface_type,
+                                Core::HID::NpadIdType npad_id);
+    Result GetNpadLeftRightInterfaceType(
+        Out<Core::HID::NpadInterfaceType> out_left_interface_type,
+        Out<Core::HID::NpadInterfaceType> out_right_interface_type,
+        Core::HID::NpadIdType npad_id);
     Result GetPalmaConnectionHandle(Out<Palma::PalmaConnectionHandle> out_handle,
                                     Core::HID::NpadIdType npad_id,
                                     ClientAppletResourceUserId aruid);
@@ -267,6 +279,7 @@ private:
 
     std::shared_ptr<ResourceManager> resource_manager;
     std::shared_ptr<HidFirmwareSettings> firmware_settings;
+    bool usb_full_key_controller_enabled{};
 };
 
 } // namespace Service::HID

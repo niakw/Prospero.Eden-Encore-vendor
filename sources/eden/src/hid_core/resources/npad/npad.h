@@ -144,6 +144,16 @@ public:
     Result AssigningSingleOnSlSrPress(u64 aruid, bool is_enabled);
 
     Result GetLastActiveNpad(Core::HID::NpadIdType& out_npad_id) const;
+    Result IsUsbFullKeyControllerConnected(Core::HID::NpadIdType npad_id,
+                                           bool& out_is_connected);
+    Result HasBattery(Core::HID::NpadIdType npad_id, bool& out_has_battery);
+    Result HasLeftRightBattery(Core::HID::NpadIdType npad_id, bool& out_has_left_battery,
+                               bool& out_has_right_battery);
+    Result GetNpadInterfaceType(Core::HID::NpadIdType npad_id,
+                                Core::HID::NpadInterfaceType& out_interface_type);
+    Result GetNpadLeftRightInterfaceType(
+        Core::HID::NpadIdType npad_id, Core::HID::NpadInterfaceType& out_left_interface_type,
+        Core::HID::NpadInterfaceType& out_right_interface_type);
 
     NpadVibration* GetVibrationHandler();
     std::vector<NpadVibrationBase*> GetAllVibrationDevices();

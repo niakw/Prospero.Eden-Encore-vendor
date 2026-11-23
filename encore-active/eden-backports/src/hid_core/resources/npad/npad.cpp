@@ -1293,6 +1293,71 @@ Result NPad::GetLastActiveNpad(Core::HID::NpadIdType& out_npad_id) const {
     return ResultSuccess;
 }
 
+Result NPad::IsUsbFullKeyControllerConnected(Core::HID::NpadIdType npad_id,
+                                                  bool& out_is_connected) {
+    std::scoped_lock lock{mutex};
+    if (!IsNpadIdValid(npad_id)) {
+        return ResultInvalidNpadId;
+    }
+
+    const auto interface_type =
+        abstracted_pads[NpadIdTypeToIndex(npad_id)].GetAbstractPropertiesHandler()->
+            GetFullkeyInterfaceType();
+    out_is_connected = interface_type == Core::HID::NpadInterfaceType::Usb;
+    return ResultSuccess;
+}
+
+Result NPad::HasBattery(Core::HID::NpadIdType npad_id, bool& out_has_battery) {
+    std::scoped_lock lock{mutex};
+    if (!IsNpadIdValid(npad_id)) {
+        return ResultInvalidNpadId;
+    }
+
+    out_has_battery =
+        abstracted_pads[NpadIdTypeToIndex(npad_id)].GetAbstractBatteryHandler()->HasBattery();
+    return ResultSuccess;
+}
+
+Result NPad::HasLeftRightBattery(Core::HID::NpadIdType npad_id, bool& out_has_left_battery,
+                                 bool& out_has_right_battery) {
+    std::scoped_lock lock{mutex};
+    if (!IsNpadIdValid(npad_id)) {
+        return ResultInvalidNpadId;
+    }
+
+    abstracted_pads[NpadIdTypeToIndex(npad_id)]
+        .GetAbstractBatteryHandler()
+        ->HasLeftRightBattery(out_has_left_battery, out_has_right_battery);
+    return ResultSuccess;
+}
+
+Result NPad::GetNpadInterfaceType(Core::HID::NpadIdType npad_id,
+                                  Core::HID::NpadInterfaceType& out_interface_type) {
+    std::scoped_lock lock{mutex};
+    if (!IsNpadIdValid(npad_id)) {
+        return ResultInvalidNpadId;
+    }
+
+    out_interface_type =
+        abstracted_pads[NpadIdTypeToIndex(npad_id)].GetAbstractPropertiesHandler()->
+            GetNpadInterfaceType();
+    return ResultSuccess;
+}
+
+Result NPad::GetNpadLeftRightInterfaceType(
+    Core::HID::NpadIdType npad_id, Core::HID::NpadInterfaceType& out_left_interface_type,
+    Core::HID::NpadInterfaceType& out_right_interface_type) {
+    std::scoped_lock lock{mutex};
+    if (!IsNpadIdValid(npad_id)) {
+        return ResultInvalidNpadId;
+    }
+
+    abstracted_pads[NpadIdTypeToIndex(npad_id)]
+        .GetAbstractPropertiesHandler()
+        ->GetNpadLeftRightInterfaceType(out_left_interface_type, out_right_interface_type);
+    return ResultSuccess;
+}
+
 NpadVibration* NPad::GetVibrationHandler() {
     return &vibration_handler;
 }

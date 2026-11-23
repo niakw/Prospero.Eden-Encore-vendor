@@ -146,12 +146,12 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {320, nullptr, "EnableNpadImu"}, //21.0.0+
         {321, nullptr, "DisableNpadImu"}, //21.0.0+
         {400, C<&IHidServer::IsUsbFullKeyControllerEnabled>, "IsUsbFullKeyControllerEnabled"},
-        {401, nullptr, "EnableUsbFullKeyController"},
-        {402, nullptr, "IsUsbFullKeyControllerConnected"},
-        {403, nullptr, "HasBattery"},
-        {404, nullptr, "HasLeftRightBattery"},
-        {405, nullptr, "GetNpadInterfaceType"},
-        {406, nullptr, "GetNpadLeftRightInterfaceType"},
+        {401, C<&IHidServer::EnableUsbFullKeyController>, "EnableUsbFullKeyController"},
+        {402, C<&IHidServer::IsUsbFullKeyControllerConnected>, "IsUsbFullKeyControllerConnected"},
+        {403, C<&IHidServer::HasBattery>, "HasBattery"},
+        {404, C<&IHidServer::HasLeftRightBattery>, "HasLeftRightBattery"},
+        {405, C<&IHidServer::GetNpadInterfaceType>, "GetNpadInterfaceType"},
+        {406, C<&IHidServer::GetNpadLeftRightInterfaceType>, "GetNpadLeftRightInterfaceType"},
         {407, nullptr, "GetNpadOfHighestBatteryLevel"},
         {408, nullptr, "GetNpadOfHighestBatteryLevelForJoyRight"},
         {500, C<&IHidServer::GetPalmaConnectionHandle>, "GetPalmaConnectionHandle"},
@@ -1183,12 +1183,59 @@ Result IHidServer::ResetSevenSixAxisSensorTimestamp(ClientAppletResourceUserId a
     R_SUCCEED();
 }
 
-Result IHidServer::IsUsbFullKeyControllerEnabled(Out<bool> out_is_enabled,
-                                                 ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID, "called; USB full-key controller backend is not modeled");
+Result IHidServer::IsUsbFullKeyControllerEnabled(Out<bool> out_is_enabled) {
+    LOG_DEBUG(Service_HID, "called, enabled={}", usb_full_key_controller_enabled);
 
-    *out_is_enabled = false;
+    *out_is_enabled = usb_full_key_controller_enabled;
     R_SUCCEED();
+}
+
+Result IHidServer::EnableUsbFullKeyController(bool is_enabled) {
+    LOG_DEBUG(Service_HID, "called, is_enabled={}", is_enabled);
+
+    usb_full_key_controller_enabled = is_enabled;
+    R_SUCCEED();
+}
+
+Result IHidServer::IsUsbFullKeyControllerConnected(Out<bool> out_is_connected,
+                                                    Core::HID::NpadIdType npad_id) {
+    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
+
+    R_RETURN(GetResourceManager()->GetNpad()->IsUsbFullKeyControllerConnected(
+        npad_id, *out_is_connected));
+}
+
+Result IHidServer::HasBattery(Out<bool> out_has_battery, Core::HID::NpadIdType npad_id) {
+    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
+
+    R_RETURN(GetResourceManager()->GetNpad()->HasBattery(npad_id, *out_has_battery));
+}
+
+Result IHidServer::HasLeftRightBattery(Out<bool> out_has_left_battery,
+                                       Out<bool> out_has_right_battery,
+                                       Core::HID::NpadIdType npad_id) {
+    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
+
+    R_RETURN(GetResourceManager()->GetNpad()->HasLeftRightBattery(
+        npad_id, *out_has_left_battery, *out_has_right_battery));
+}
+
+Result IHidServer::GetNpadInterfaceType(
+    Out<Core::HID::NpadInterfaceType> out_interface_type, Core::HID::NpadIdType npad_id) {
+    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
+
+    R_RETURN(GetResourceManager()->GetNpad()->GetNpadInterfaceType(
+        npad_id, *out_interface_type));
+}
+
+Result IHidServer::GetNpadLeftRightInterfaceType(
+    Out<Core::HID::NpadInterfaceType> out_left_interface_type,
+    Out<Core::HID::NpadInterfaceType> out_right_interface_type,
+    Core::HID::NpadIdType npad_id) {
+    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
+
+    R_RETURN(GetResourceManager()->GetNpad()->GetNpadLeftRightInterfaceType(
+        npad_id, *out_left_interface_type, *out_right_interface_type));
 }
 
 Result IHidServer::GetPalmaConnectionHandle(Out<Palma::PalmaConnectionHandle> out_handle,
