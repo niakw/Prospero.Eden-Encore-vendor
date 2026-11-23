@@ -28,6 +28,7 @@ public:
     Result HandleSyncRequest(Kernel::KServerSession& session, HLERequestContext& ctx) override;
 private:
     void Handshake(HLERequestContext& ctx);
+    void RejectOpaqueNx2Command(HLERequestContext& ctx);
     void RequestWorker(HLERequestContext& ctx);
     void AcquireWorker(HLERequestContext& ctx);
     void GetNotificationRange(HLERequestContext& ctx);

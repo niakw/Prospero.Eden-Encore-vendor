@@ -39,6 +39,23 @@ for owner, owner_hdr, klass in ((cpp,hdr,"IGpuSession"),(worker,worker_hdr,"IGpu
     assert "std::memset(cmdbuf, 0, sizeof(u32) * IPC::COMMAND_BUFFER_LENGTH);" in ipc
     assert "return ServiceFrameworkBase::HandleSyncRequest(session, ctx);" in owner
     assert "handlers_tipc.contains(ctx.GetCommand())" in owner
+# Lichii nx2 INx2GpuSession declares nine opaque commands as zeroed
+# stubs. Encore must recognize their exact IDs in the native TIPC table,
+# but keep the response fail-closed until their payload ABI is known.
+opaque_ids = (23, 24, 25, 34, 51, 8001, 8002, 8003, 8004)
+for cmd in opaque_ids:
+    marker = f'{{{cmd}, &IGpuSession::RejectOpaqueNx2Command, "Unknown{cmd}"}}'
+    assert cpp.count(marker) == 1, marker
+assert "void RejectOpaqueNx2Command(HLERequestContext& ctx);" in hdr
+opaque_body = cpp.split(
+    "void IGpuSession::RejectOpaqueNx2Command(HLERequestContext& ctx) {",1
+)[1].split("\n}",1)[0]
+assert "IPC::ResponseBuilder rb{ctx, 2};" in opaque_body
+assert "rb.Push(Kernel::ResultNotImplemented.raw);" in opaque_body
+assert "ResultSuccess" not in opaque_body
+assert "ctx.CommandBuffer()" not in opaque_body
+assert "ctx.AddMoveObject(" not in opaque_body
+
 # libounce current GSV ABI requests HIPC MOVE handles for GPU-main
 # command 12 (slot event) and command 22 (worker KClientSession). Retain one
 # service-owned reference because Encore still signals/closes these objects.

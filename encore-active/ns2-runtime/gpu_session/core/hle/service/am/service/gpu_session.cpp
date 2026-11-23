@@ -49,6 +49,18 @@ IGpuSession::IGpuSession(Core::System& system_,
         {12, &IGpuSession::GetNotificationEvent, "GetNotificationEvent"},
         {21, &IGpuSession::RequestWorker, "RequestWorker"},
         {22, &IGpuSession::AcquireWorker, "AcquireWorker"},
+        // Lichii nx2 documents these IDs as unknown zero-reply stubs.
+        // Name them explicitly for structural parity, but fail closed:
+        // their ABI/side effects are not known and must not be faked.
+        {23, &IGpuSession::RejectOpaqueNx2Command, "Unknown23"},
+        {24, &IGpuSession::RejectOpaqueNx2Command, "Unknown24"},
+        {25, &IGpuSession::RejectOpaqueNx2Command, "Unknown25"},
+        {34, &IGpuSession::RejectOpaqueNx2Command, "Unknown34"},
+        {51, &IGpuSession::RejectOpaqueNx2Command, "Unknown51"},
+        {8001, &IGpuSession::RejectOpaqueNx2Command, "Unknown8001"},
+        {8002, &IGpuSession::RejectOpaqueNx2Command, "Unknown8002"},
+        {8003, &IGpuSession::RejectOpaqueNx2Command, "Unknown8003"},
+        {8004, &IGpuSession::RejectOpaqueNx2Command, "Unknown8004"},
         {33, &IGpuSession::CreateAddressSpace, "CreateAddressSpace"},
         {41, &IGpuSession::CreateGraphicsDevice, "CreateGraphicsDevice"},
         {42, &IGpuSession::DestroyGraphicsDevice, "DestroyGraphicsDevice"},
@@ -85,6 +97,14 @@ void IGpuSession::Handshake(HLERequestContext& ctx) {
     rb.PushRaw<u32>(ResultSuccess.raw);
     rb.PushRaw<u32>(token_lo);
     rb.PushRaw<u32>(token_hi);
+}
+
+void IGpuSession::RejectOpaqueNx2Command(HLERequestContext& ctx) {
+    // These nine documented Lichii command IDs have no verified ABI.
+    // Keep explicit TIPC routing without reading untrusted payload words
+    // or reporting synthetic success / allocating guest-visible objects.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(Kernel::ResultNotImplemented.raw);
 }
 
 Result IGpuSession::HandleSyncRequest(Kernel::KServerSession& session,
