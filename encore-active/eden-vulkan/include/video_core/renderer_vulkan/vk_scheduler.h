@@ -19,6 +19,7 @@
 #include "common/common_types.h"
 #include "common/polyfill_thread.h"
 #include "common/settings.h"
+#include "video_core/renderer_vulkan/frame_pacer.h"
 #include "video_core/renderer_vulkan/vk_master_semaphore.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 
@@ -246,7 +247,8 @@ public:
     }
 
     /// Waits for the given GPU tick, optionally pacing frames.
-    void Wait(u64 tick, double target_fps = 0.0) {
+    /// Generated presents share one game-frame pacing slot.
+    void Wait(u64 tick, double target_fps = 0.0, u32 game_frame_presents = 1) {
         if (tick > 0) {
             if (tick >= master_semaphore->CurrentTick()) {
                 Flush();
@@ -254,28 +256,17 @@ public:
             master_semaphore->Wait(tick);
         }
         if (Settings::values.use_speed_limit.GetValue() && target_fps > 0.0) {
-            auto now = std::chrono::steady_clock::now();
-            if (last_target_fps != target_fps) {
-                frame_interval = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(1.0 / target_fps));
-                max_frame_count = static_cast<int>(0.1 * target_fps);
-                last_target_fps = target_fps;
-                frame_counter = 0;
-                start_time = now;
-            }
-            frame_counter++;
-            auto target_time = start_time + frame_interval * frame_counter;
-            if (target_time >= now) {
+            const auto now = std::chrono::steady_clock::now();
+            if (const auto paced = frame_pacer.Next(now, target_fps, game_frame_presents)) {
+                const auto target_time = *paced;
                 constexpr auto spin_tail = std::chrono::milliseconds(1);
-                auto sleep_time = target_time - now;
+                const auto sleep_time = target_time - now;
                 if (sleep_time > spin_tail * 2) {
                     std::this_thread::sleep_for(sleep_time - spin_tail);
                 }
                 while (std::chrono::steady_clock::now() < target_time) {
                     std::this_thread::yield();
                 }
-            } else if (frame_counter > max_frame_count) {
-                frame_counter = 0;
-                start_time = now;
             }
         }
     }
@@ -464,11 +455,7 @@ private:
     bool worker_in_flight{};
     std::jthread worker_thread;
 
-    std::chrono::steady_clock::duration frame_interval{};
-    std::chrono::steady_clock::time_point start_time{};
-    double last_target_fps{};
-    u64 max_frame_count{};
-    u64 frame_counter{};
+    FramePacer frame_pacer;
 };
 
 } // namespace Vulkan

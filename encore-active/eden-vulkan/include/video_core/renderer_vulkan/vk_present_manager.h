@@ -38,6 +38,8 @@ struct Frame {
     vk::CommandBuffer cmdbuf;
     vk::Semaphore render_ready;
     vk::Fence present_done;
+    /// One real present plus any synthetic presents produced from the same guest frame.
+    u32 game_frame_presents{1};
 };
 
 class PresentManager {

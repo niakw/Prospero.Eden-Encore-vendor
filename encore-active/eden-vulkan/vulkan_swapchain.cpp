@@ -159,7 +159,7 @@ void Swapchain::Create(
     resource_ticks.resize(image_count);
 }
 
-bool Swapchain::AcquireNextImage() {
+bool Swapchain::AcquireNextImage(u32 game_frame_presents) {
 #ifdef PS5_NATIVE
     constexpr u64 kAcquireSliceNs = 250'000'000ULL;
     constexpr u32 kMaxAcquireTimeouts = 40;
@@ -200,22 +200,22 @@ bool Swapchain::AcquireNextImage() {
         break;
     }
 
-    const auto wait_with_frame_pacing = [this] {
+    const auto wait_with_frame_pacing = [this, game_frame_presents] {
     switch (Settings::values.frame_pacing_mode.GetValue()) {
     case Settings::FramePacingMode::Target_Auto:
         { auto timer = Eden::Performance::VulkanTimer(9); scheduler.Wait(resource_ticks[image_index]); }
         break;
     case Settings::FramePacingMode::Target_30:
-        { auto timer = Eden::Performance::VulkanTimer(9); scheduler.Wait(resource_ticks[image_index], 30.0); }
+        { auto timer = Eden::Performance::VulkanTimer(9); scheduler.Wait(resource_ticks[image_index], 30.0, game_frame_presents); }
         break;
     case Settings::FramePacingMode::Target_60:
-        { auto timer = Eden::Performance::VulkanTimer(9); scheduler.Wait(resource_ticks[image_index], 60.0); }
+        { auto timer = Eden::Performance::VulkanTimer(9); scheduler.Wait(resource_ticks[image_index], 60.0, game_frame_presents); }
         break;
     case Settings::FramePacingMode::Target_90:
-        { auto timer = Eden::Performance::VulkanTimer(9); scheduler.Wait(resource_ticks[image_index], 90.0); }
+        { auto timer = Eden::Performance::VulkanTimer(9); scheduler.Wait(resource_ticks[image_index], 90.0, game_frame_presents); }
         break;
     case Settings::FramePacingMode::Target_120:
-        { auto timer = Eden::Performance::VulkanTimer(9); scheduler.Wait(resource_ticks[image_index], 120.0); }
+        { auto timer = Eden::Performance::VulkanTimer(9); scheduler.Wait(resource_ticks[image_index], 120.0, game_frame_presents); }
         break;
     }
     };
