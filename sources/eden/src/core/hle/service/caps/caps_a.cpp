@@ -18,14 +18,14 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
     : ServiceFramework{system_, "caps:a"}, manager{album_manager} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, nullptr, "GetAlbumFileCount"},
+        {0, D<&IAlbumAccessorService::GetAlbumFileCount>, "GetAlbumFileCount"},
         {1, C<&IAlbumAccessorService::GetAlbumFileList>, "GetAlbumFileList"},
         {2, nullptr, "LoadAlbumFile"},
         {3, C<&IAlbumAccessorService::DeleteAlbumFile>, "DeleteAlbumFile"},
         {4, nullptr, "StorageCopyAlbumFile"},
         {5, C<&IAlbumAccessorService::IsAlbumMounted>, "IsAlbumMounted"},
         {6, nullptr, "GetAlbumUsage"},
-        {7, nullptr, "GetAlbumFileSize"},
+        {7, D<&IAlbumAccessorService::GetAlbumFileSize>, "GetAlbumFileSize"},
         {8, nullptr, "LoadAlbumFileThumbnail"},
         {9, nullptr, "LoadAlbumScreenShotImage"},
         {10, nullptr, "LoadAlbumScreenShotThumbnailImage"},
@@ -34,11 +34,11 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
         {13, nullptr, "LoadAlbumScreenShotThumbnailImageEx"},
         {14, nullptr, "LoadAlbumScreenShotImageEx0"},
         {15, nullptr, "GetAlbumUsage3"},
-        {16, nullptr, "GetAlbumMountResult"},
+        {16, D<&IAlbumAccessorService::GetAlbumMountResult>, "GetAlbumMountResult"},
         {17, nullptr, "GetAlbumUsage16"},
         {18, C<&IAlbumAccessorService::Unknown18>, "Unknown18"},
         {19, nullptr, "Unknown19"},
-        {100, nullptr, "GetAlbumFileCountEx0"},
+        {100, D<&IAlbumAccessorService::GetAlbumFileCountEx0>, "GetAlbumFileCountEx0"},
         {101, C<&IAlbumAccessorService::GetAlbumFileListEx0>, "GetAlbumFileListEx0"},
         {202, nullptr, "SaveEditedScreenShot"},
         {301, nullptr, "GetLastThumbnail"},
@@ -57,9 +57,9 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
         {2006, nullptr, "GetAlbumMovieReadStreamImageDataSize"},
         {2007, nullptr, "ReadImageDataFromAlbumMovieReadStream"},
         {2008, nullptr, "ReadFileAttributeFromAlbumMovieReadStream"},
-        {8001, nullptr, "ForceAlbumUnmounted"},
-        {8002, nullptr, "ResetAlbumMountStatus"},
-        {8011, nullptr, "RefreshAlbumCache"},
+        {8001, D<&IAlbumAccessorService::ForceAlbumUnmounted>, "ForceAlbumUnmounted"},
+        {8002, D<&IAlbumAccessorService::ResetAlbumMountStatus>, "ResetAlbumMountStatus"},
+        {8011, D<&IAlbumAccessorService::RefreshAlbumCache>, "RefreshAlbumCache"},
         {8012, nullptr, "GetAlbumCache"},
         {8013, nullptr, "GetAlbumCacheEx"},
         {8021, nullptr, "GetAlbumEntryFromApplicationAlbumEntryAruid"},
@@ -74,6 +74,35 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
 }
 
 IAlbumAccessorService::~IAlbumAccessorService() = default;
+
+Result IAlbumAccessorService::GetAlbumFileCount(Out<u64> out_count, AlbumStorage storage) {
+    R_RETURN(TranslateResult(manager->GetAlbumFileCount(*out_count, storage, 0)));
+}
+
+Result IAlbumAccessorService::GetAlbumFileSize(Out<u64> out_size, const AlbumFileId& file_id) {
+    R_RETURN(TranslateResult(manager->GetAlbumFileSize(*out_size, file_id)));
+}
+
+Result IAlbumAccessorService::GetAlbumMountResult(AlbumStorage storage) {
+    R_RETURN(TranslateResult(manager->GetAlbumMountResult(storage)));
+}
+
+Result IAlbumAccessorService::GetAlbumFileCountEx0(
+    Out<u64> out_count, const AlbumFileCountEx0Input& input) {
+    R_RETURN(TranslateResult(manager->GetAlbumFileCount(*out_count, input.storage, input.flags)));
+}
+
+Result IAlbumAccessorService::ForceAlbumUnmounted(AlbumStorage storage) {
+    R_RETURN(TranslateResult(manager->SetAlbumStorageAvailable(storage, false)));
+}
+
+Result IAlbumAccessorService::ResetAlbumMountStatus(AlbumStorage storage) {
+    R_RETURN(TranslateResult(manager->SetAlbumStorageAvailable(storage, true)));
+}
+
+Result IAlbumAccessorService::RefreshAlbumCache(AlbumStorage storage) {
+    R_RETURN(TranslateResult(manager->RefreshAlbumCache(storage)));
+}
 
 Result IAlbumAccessorService::GetAlbumFileList(
     Out<u64> out_count, AlbumStorage storage,

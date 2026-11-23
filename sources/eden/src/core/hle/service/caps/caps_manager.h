@@ -45,6 +45,10 @@ public:
 
     Result DeleteAlbumFile(const AlbumFileId& file_id);
     Result IsAlbumMounted(AlbumStorage storage);
+    Result GetAlbumFileCount(u64& out_count, AlbumStorage storage, u8 flags) const;
+    Result GetAlbumFileSize(u64& out_size, const AlbumFileId& file_id) const;
+    Result GetAlbumMountResult(AlbumStorage storage) const;
+    Result RefreshAlbumCache(AlbumStorage storage);
     Result GetAlbumFileList(std::span<AlbumEntry> out_entries, u64& out_entries_count,
                             AlbumStorage storage, u8 flags) const;
     Result GetAlbumFileList(std::span<ApplicationAlbumFileEntry> out_entries,

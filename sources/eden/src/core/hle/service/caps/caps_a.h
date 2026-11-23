@@ -24,6 +24,22 @@ public:
     ~IAlbumAccessorService() override;
 
 private:
+    struct AlbumFileCountEx0Input {
+        AlbumStorage storage{};
+        std::array<u8, 7> pad0{};
+        u8 flags{};
+        std::array<u8, 7> pad1{};
+    };
+    static_assert(sizeof(AlbumFileCountEx0Input) == 0x10);
+
+    Result GetAlbumFileCount(Out<u64> out_count, AlbumStorage storage);
+    Result GetAlbumFileSize(Out<u64> out_size, const AlbumFileId& file_id);
+    Result GetAlbumMountResult(AlbumStorage storage);
+    Result GetAlbumFileCountEx0(Out<u64> out_count, const AlbumFileCountEx0Input& input);
+    Result ForceAlbumUnmounted(AlbumStorage storage);
+    Result ResetAlbumMountStatus(AlbumStorage storage);
+    Result RefreshAlbumCache(AlbumStorage storage);
+
     Result GetAlbumFileList(Out<u64> out_count, AlbumStorage storage,
                             OutArray<AlbumEntry, BufferAttr_HipcMapAlias> out_entries);
 
