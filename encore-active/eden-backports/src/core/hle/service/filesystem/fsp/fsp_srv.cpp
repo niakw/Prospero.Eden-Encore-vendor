@@ -118,7 +118,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {30, nullptr, "OpenGameCardStorage"},
         {31, nullptr, "OpenGameCardFileSystem"},
         {32, D<&FSP_SRV::ExtendSaveDataFileSystem>, "ExtendSaveDataFileSystem"},
-        {33, nullptr, "DeleteCacheStorage"},
+        {33, D<&FSP_SRV::DeleteCacheStorage>, "DeleteCacheStorage"},
         {34, D<&FSP_SRV::GetCacheStorageSize>, "GetCacheStorageSize"},
         {35, D<&FSP_SRV::CreateSaveDataFileSystemWithHashSalt>, "CreateSaveDataFileSystemWithHashSalt"},
         {36, nullptr, "OpenHostFileSystemWithOption"},
@@ -887,6 +887,26 @@ Result FSP_SRV::ExtendSaveDataFileSystem(FileSys::SaveDataSpaceId space_id, u64 
                 "journal_size={:#x}",
                 space_id, save_data_id, available_size, journal_size);
     R_RETURN(FileSys::ResultTargetNotFound);
+}
+
+Result FSP_SRV::DeleteCacheStorage(u16 index) {
+    LOG_DEBUG(Service_FS, "called with index={}, program_id={:016X}", index, program_id);
+
+    // Encore currently exposes one cache-storage slot per program, matching
+    // GetCacheStorageSize's existing index-0 contract.
+    R_UNLESS(index == 0, FileSys::ResultTargetNotFound);
+
+    FileSys::VirtualDir save_root{};
+    R_TRY(save_data_controller->OpenSaveDataSpace(&save_root, FileSys::SaveDataSpaceId::User));
+
+    const auto cache_root = save_root->GetDirectoryRelative("save/cache");
+    R_UNLESS(cache_root != nullptr, FileSys::ResultTargetNotFound);
+
+    const auto cache_name = fmt::format("{:016X}", program_id);
+    R_UNLESS(cache_root->GetSubdirectory(cache_name) != nullptr, FileSys::ResultTargetNotFound);
+    R_UNLESS(cache_root->DeleteSubdirectoryRecursive(cache_name), ResultUnknown);
+
+    R_SUCCEED();
 }
 
 Result FSP_SRV::GetCacheStorageSize(s32 index, Out<s64> out_data_size,
