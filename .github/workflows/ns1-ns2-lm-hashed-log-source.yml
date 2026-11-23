@@ -1,0 +1,20 @@
+name: NS2 ILogger hashed log parity with preserved NS1 (host)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'encore-active/ns2-runtime/hle/core/hle/service/lm/lm.cpp'
+      - 'tests/ns1_ns2_lm_hashed_log_reply_source.py'
+      - '.github/workflows/ns1-ns2-lm-hashed-log-source.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bounded-lm-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -B tests/ns1_ns2_lm_hashed_log_reply_source.py

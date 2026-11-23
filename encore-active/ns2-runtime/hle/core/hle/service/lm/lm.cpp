@@ -10,6 +10,8 @@
 #include "common/container/unordered_map.h"
 #include <boost/container_hash/hash.hpp>
 #include "common/logging.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_thread.h"
 #include "core/core.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/lm/lm.h"
@@ -91,7 +93,7 @@ public:
         static const FunctionInfo functions[] = {
             {0, &ILogger::Log, "Log"},
             {1, &ILogger::SetDestination, "SetDestination"},
-            {2, nullptr, "TransmitHashedLog"}, //20.0.0+
+            {2, &ILogger::TransmitHashedLog, "TransmitHashedLog"}, //20.0.0+
             {3, &ILogger::StubReplyZeroed, "DevNotify"}, //20.0.0+
             {11, &ILogger::StubReplyInterface, "Unknown11"},
         };
@@ -161,6 +163,24 @@ private:
         LOG_DEBUG(Service_LM, "called, destination={}", DestinationToString(log_destination));
         destination = log_destination;
 
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void TransmitHashedLog(HLERequestContext& ctx) {
+        // Lichii nx2 and EglantinePS5 register an explicit zeroed stub for
+        // Switch 2's optional hashed diagnostic command. Encore previously
+        // left cmd 2 null: our shared service intentionally returned an
+        // NS1-compatible 2-word success via IsSafeOptionalNoOp.
+        //
+        // Keep that exact NS1 reply; only a positively classified NS2
+        // KProcess gets the upstream's fully initialized placeholder.
+        // No process metadata is changed and no guessed guest data is read.
+        const auto* process = ctx.GetThread().GetOwnerProcess();
+        if (process && (process->GetProgramId() >> 56) == 0x04) {
+            StubReplyZeroed(ctx);
+            return;
+        }
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
