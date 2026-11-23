@@ -43,6 +43,7 @@ private:
     Result CreateNetworkPrivate(const CreateNetworkConfigPrivate& create_config,
                                 InArray<AddressEntry, BufferAttr_HipcPointer> address_list);
     Result DestroyNetwork();
+    Result Reject(u32 node_id);
     Result SetAdvertiseData(InBuffer<BufferAttr_HipcAutoSelect> buffer_data);
     Result SetStationAcceptPolicy(AcceptPolicy accept_policy);
     Result AddAcceptFilterEntry(MacAddress mac_address);

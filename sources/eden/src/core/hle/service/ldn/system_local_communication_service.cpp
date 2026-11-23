@@ -41,7 +41,7 @@ ISystemLocalCommunicationService::ISystemLocalCommunicationService(Core::System&
         {202, D<&ISystemLocalCommunicationService::CreateNetwork>, "CreateNetwork"},
         {203, D<&ISystemLocalCommunicationService::CreateNetworkPrivate>, "CreateNetworkPrivate"},
         {204, D<&ISystemLocalCommunicationService::DestroyNetwork>, "DestroyNetwork"},
-        {205, nullptr, "Reject"},
+        {205, D<&ISystemLocalCommunicationService::Reject>, "Reject"},
         {206, D<&ISystemLocalCommunicationService::SetAdvertiseData>, "SetAdvertiseData"},
         {207, D<&ISystemLocalCommunicationService::SetStationAcceptPolicy>, "SetStationAcceptPolicy"},
         {208, D<&ISystemLocalCommunicationService::AddAcceptFilterEntry>, "AddAcceptFilterEntry"},
@@ -180,6 +180,11 @@ Result ISystemLocalCommunicationService::CreateNetworkPrivate(
 
 Result ISystemLocalCommunicationService::DestroyNetwork() {
     R_RETURN(lan_discovery.DestroyNetwork());
+}
+
+Result ISystemLocalCommunicationService::Reject(u32 node_id) {
+    LOG_DEBUG(Service_LDN, "called, node_id={} (no per-node reject backend)", node_id);
+    R_SUCCEED();
 }
 
 Result ISystemLocalCommunicationService::SetAdvertiseData(

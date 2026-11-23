@@ -44,7 +44,7 @@ IUserLocalCommunicationService::IUserLocalCommunicationService(Core::System& sys
             {202, D<&IUserLocalCommunicationService::CreateNetwork>, "CreateNetwork"},
             {203, D<&IUserLocalCommunicationService::CreateNetworkPrivate>, "CreateNetworkPrivate"},
             {204, D<&IUserLocalCommunicationService::DestroyNetwork>, "DestroyNetwork"},
-            {205, nullptr, "Reject"},
+            {205, D<&IUserLocalCommunicationService::Reject>, "Reject"},
             {206, D<&IUserLocalCommunicationService::SetAdvertiseData>, "SetAdvertiseData"},
             {207, D<&IUserLocalCommunicationService::SetStationAcceptPolicy>, "SetStationAcceptPolicy"},
             {208, D<&IUserLocalCommunicationService::AddAcceptFilterEntry>, "AddAcceptFilterEntry"},
@@ -233,6 +233,14 @@ Result IUserLocalCommunicationService::DestroyNetwork() {
     LOG_INFO(Service_LDN, "called");
 
     R_RETURN(lan_discovery.DestroyNetwork());
+}
+
+Result IUserLocalCommunicationService::Reject(u32 node_id) {
+    // ldn_mitm and disabled-network clients accept Reject without a host-side action. Encore's
+    // LANDiscovery currently has no per-node rejection primitive, so keep the ABI explicit and
+    // preserve compatibility without fabricating a disconnect reason.
+    LOG_DEBUG(Service_LDN, "called, node_id={} (no per-node reject backend)", node_id);
+    R_SUCCEED();
 }
 
 Result IUserLocalCommunicationService::SetAdvertiseData(
