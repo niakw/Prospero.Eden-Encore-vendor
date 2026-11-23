@@ -27,11 +27,11 @@ IDisplayController::IDisplayController(Core::System& system_, std::shared_ptr<Ap
         {8, D<&IDisplayController::TakeScreenShotOfOwnLayer>, "TakeScreenShotOfOwnLayer"},
         {9, nullptr, "CopyBetweenCaptureBuffers"},
         {10, nullptr, "AcquireLastApplicationCaptureBuffer"},
-        {11, nullptr, "ReleaseLastApplicationCaptureBuffer"},
+        {11, D<&IDisplayController::ReleaseLastApplicationCaptureBuffer>, "ReleaseLastApplicationCaptureBuffer"},
         {12, nullptr, "AcquireLastForegroundCaptureBuffer"},
-        {13, nullptr, "ReleaseLastForegroundCaptureBuffer"},
+        {13, D<&IDisplayController::ReleaseLastForegroundCaptureBuffer>, "ReleaseLastForegroundCaptureBuffer"},
         {14, nullptr, "AcquireCallerAppletCaptureBuffer"},
-        {15, nullptr, "ReleaseCallerAppletCaptureBuffer"},
+        {15, D<&IDisplayController::ReleaseCallerAppletCaptureBuffer>, "ReleaseCallerAppletCaptureBuffer"},
         {16, nullptr, "AcquireLastApplicationCaptureBufferEx"},
         {17, nullptr, "AcquireLastForegroundCaptureBufferEx"},
         {18, nullptr, "AcquireCallerAppletCaptureBufferEx"},
@@ -82,6 +82,23 @@ Result IDisplayController::AcquireLastForegroundCaptureSharedBuffer(
     LOG_DEBUG(Service_AM, "called");
     R_RETURN(applet->display_layer_manager.WriteAppletCaptureBuffer(
         out_was_written, out_fbshare_layer_index, VI::CaptureKind::LastForeground));
+}
+
+Result IDisplayController::ReleaseLastApplicationCaptureBuffer() {
+    LOG_DEBUG(Service_AM, "called; legacy capture acquisition has no persistent ownership");
+    // The PS5 port snapshots capture data synchronously. Unlike Horizon's transfer-memory path,
+    // Encore does not retain a legacy capture-buffer ownership token after Acquire returns.
+    R_SUCCEED();
+}
+
+Result IDisplayController::ReleaseLastForegroundCaptureBuffer() {
+    LOG_DEBUG(Service_AM, "called; legacy capture acquisition has no persistent ownership");
+    R_SUCCEED();
+}
+
+Result IDisplayController::ReleaseCallerAppletCaptureBuffer() {
+    LOG_DEBUG(Service_AM, "called; legacy capture acquisition has no persistent ownership");
+    R_SUCCEED();
 }
 
 Result IDisplayController::ReleaseLastForegroundCaptureSharedBuffer() {
