@@ -19,6 +19,8 @@ public:
     ~IDisplayController() override;
 
 private:
+    Result UpdateLastForegroundCaptureImage();
+    Result UpdateCallerAppletCaptureImage();
     Result GetLastForegroundCaptureImageEx(Out<bool> out_was_written,
                                          OutBuffer<BufferAttr_HipcMapAlias> out_image_data);
     Result GetCallerAppletCaptureImageEx(Out<bool> out_was_written,

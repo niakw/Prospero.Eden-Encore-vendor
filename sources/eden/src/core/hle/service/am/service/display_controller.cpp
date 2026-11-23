@@ -17,10 +17,10 @@ IDisplayController::IDisplayController(Core::System& system_, std::shared_ptr<Ap
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, nullptr, "GetLastForegroundCaptureImage"},
-        {1, nullptr, "UpdateLastForegroundCaptureImage"},
+        {1, D<&IDisplayController::UpdateLastForegroundCaptureImage>, "UpdateLastForegroundCaptureImage"},
         {2, nullptr, "GetLastApplicationCaptureImage"},
         {3, nullptr, "GetCallerAppletCaptureImage"},
-        {4, nullptr, "UpdateCallerAppletCaptureImage"},
+        {4, D<&IDisplayController::UpdateCallerAppletCaptureImage>, "UpdateCallerAppletCaptureImage"},
         {5, D<&IDisplayController::GetLastForegroundCaptureImageEx>, "GetLastForegroundCaptureImageEx"},
         {6, nullptr, "GetLastApplicationCaptureImageEx"},
         {7, D<&IDisplayController::GetCallerAppletCaptureImageEx>, "GetCallerAppletCaptureImageEx"},
@@ -51,6 +51,22 @@ IDisplayController::IDisplayController(Core::System& system_, std::shared_ptr<Ap
 }
 
 IDisplayController::~IDisplayController() = default;
+
+Result IDisplayController::UpdateLastForegroundCaptureImage() {
+    LOG_DEBUG(Service_AM, "called");
+    bool was_written{};
+    s32 layer_index{};
+    R_RETURN(applet->display_layer_manager.WriteAppletCaptureBuffer(
+        &was_written, &layer_index, VI::CaptureKind::LastForeground));
+}
+
+Result IDisplayController::UpdateCallerAppletCaptureImage() {
+    LOG_DEBUG(Service_AM, "called");
+    bool was_written{};
+    s32 layer_index{};
+    R_RETURN(applet->display_layer_manager.WriteAppletCaptureBuffer(
+        &was_written, &layer_index, VI::CaptureKind::CallerApplet));
+}
 
 Result IDisplayController::GetLastForegroundCaptureImageEx(
     Out<bool> out_was_written, OutBuffer<BufferAttr_HipcMapAlias> out_image_data) {
