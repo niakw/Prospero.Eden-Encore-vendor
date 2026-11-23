@@ -91,9 +91,9 @@ public:
             {22002, nullptr, "GetReceivedFriendInvitationListV2"}, // 19.0.0+
             {22003, nullptr, "GetReceivedFriendInvitationDetailedInfoV2"}, // 19.0.0+
             {22010, &IFriendService::GetReceivedFriendInvitationCountCache, "GetReceivedFriendInvitationCountCache"},
-            {30100, nullptr, "DropFriendNewlyFlags"},
+            {30100, &IFriendService::DropFriendNewlyFlags, "DropFriendNewlyFlags"},
             {30101, nullptr, "DeleteFriend"},
-            {30110, nullptr, "DropFriendNewlyFlag"},
+            {30110, &IFriendService::DropFriendNewlyFlag, "DropFriendNewlyFlag"},
             {30120, nullptr, "ChangeFriendFavoriteFlag"},
             {30121, nullptr, "ChangeFriendOnlineNotificationFlag"},
             {30130, nullptr, "SetFriendNote"}, // 22.0.0+
@@ -122,13 +122,13 @@ public:
             {30403, nullptr, "BlockUserWithApplicationInfoV2"}, // 20.0.0+
             {30500, nullptr, "GetProfileExtraFromFriendCodeV1"},
             {30501, nullptr, "GetProfileExtraFromFriendCodeV2"}, // 19.0.0+
-            {30700, nullptr, "DeletePlayHistory"},
+            {30700, &IFriendService::DeletePlayHistory, "DeletePlayHistory"},
             {30701, nullptr, "AddPlayHistoryWithApplication"}, // 19.0.0+
             {30810, nullptr, "ChangePresencePermission"},
             {30811, nullptr, "ChangeFriendRequestReception"},
             {30812, nullptr, "ChangePlayLogPermission"},
             {30820, nullptr, "IssueFriendCode"},
-            {30830, nullptr, "ClearPlayLog"},
+            {30830, &IFriendService::ClearPlayLog, "ClearPlayLog"},
             {30900, nullptr, "SendFriendInvitationV1"},
             {30901, nullptr, "SendFriendInvitationV2"}, // 19.0.0+
             {30910, nullptr, "ReadFriendInvitation"},
@@ -136,7 +136,7 @@ public:
             {31000, nullptr, "OpenUser"}, // 19.0.0+
             {40100, nullptr, "DeleteFriendListCache"},
             {40400, nullptr, "DeleteBlockedUserListCache"},
-            {49900, nullptr, "DeleteNetworkServiceAccountCache"},
+            {49900, &IFriendService::DeleteNetworkServiceAccountCache, "DeleteNetworkServiceAccountCache"},
         };
         // clang-format on
 
@@ -654,6 +654,52 @@ private:
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
         rb.Push<s32>(0);
+    }
+
+    void DropFriendNewlyFlags(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto uuid = rp.PopRaw<Common::UUID>();
+        LOG_DEBUG(Service_Friend, "No friend-newly flags to drop for uuid=0x{}", uuid.RawString());
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void DropFriendNewlyFlag(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto uuid = rp.PopRaw<Common::UUID>();
+        const auto friend_id = rp.Pop<u64>();
+        LOG_DEBUG(Service_Friend,
+                  "No friend-newly flag to drop for uuid=0x{}, friend_id={:#x}",
+                  uuid.RawString(), friend_id);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void DeletePlayHistory(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto uuid = rp.PopRaw<Common::UUID>();
+        LOG_DEBUG(Service_Friend, "No play-history backend to clear for uuid=0x{}",
+                  uuid.RawString());
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void ClearPlayLog(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto uuid = rp.PopRaw<Common::UUID>();
+        LOG_DEBUG(Service_Friend, "No friend play-log backend to clear for uuid=0x{}",
+                  uuid.RawString());
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void DeleteNetworkServiceAccountCache(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto uuid = rp.PopRaw<Common::UUID>();
+        LOG_DEBUG(Service_Friend, "No network-service-account cache to delete for uuid=0x{}",
+                  uuid.RawString());
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
     }
 
     KernelHelpers::ServiceContext service_context;
