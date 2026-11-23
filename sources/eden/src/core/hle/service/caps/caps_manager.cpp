@@ -164,6 +164,24 @@ Result AlbumManager::GetAutoSavingStorage(bool& out_is_autosaving) const {
     return ResultSuccess;
 }
 
+Result AlbumManager::SetAlbumStorageAvailable(AlbumStorage storage, bool available) {
+    if (storage > AlbumStorage::Sd) {
+        return ResultInvalidStorage;
+    }
+
+    if (!available) {
+        is_mounted = false;
+        return ResultSuccess;
+    }
+
+    if (storage == AlbumStorage::Sd) {
+        FindScreenshots();
+    } else {
+        is_mounted = true;
+    }
+    return ResultSuccess;
+}
+
 Result AlbumManager::LoadAlbumScreenShotImage(LoadAlbumScreenShotImageOutput& out_image_output,
                                               std::span<u8> out_image, const AlbumFileId& file_id,
                                               const ScreenShotDecodeOption& decoder_options) const {

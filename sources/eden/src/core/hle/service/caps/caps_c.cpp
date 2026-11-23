@@ -25,17 +25,17 @@ IAlbumControlService::IAlbumControlService(Core::System& system_,
         {1001, nullptr, "RequestTakingScreenShot"},
         {1002, nullptr, "RequestTakingScreenShotWithTimeout"},
         {1011, nullptr, "NotifyTakingScreenShotRefused"},
-        {2001, nullptr, "NotifyAlbumStorageIsAvailable"},
-        {2002, nullptr, "NotifyAlbumStorageIsUnavailable"},
+        {2001, D<&IAlbumControlService::NotifyAlbumStorageIsAvailable>, "NotifyAlbumStorageIsAvailable"},
+        {2002, D<&IAlbumControlService::NotifyAlbumStorageIsUnavailable>, "NotifyAlbumStorageIsUnavailable"},
         {2003, nullptr, "GetAlbumMovieReadStreamMovieDataSize"},
         {2004, nullptr, "ReadMovieDataFromAlbumMovieReadStream"},
         {2005, nullptr, "GetAlbumMovieReadStreamBrokenReason"},
         {2006, nullptr, "GetAlbumMovieReadStreamImageDataSize"},
         {2007, nullptr, "ReadImageDataFromAlbumMovieReadStream"},
         {2008, nullptr, "ReadFileAttributeFromAlbumMovieReadStream"},
-        {2011, nullptr, "RegisterAppletResourceUserId"},
-        {2012, nullptr, "UnregisterAppletResourceUserId"},
-        {2013, nullptr, "GetApplicationIdFromAruid"},
+        {2011, D<&IAlbumControlService::RegisterAppletResourceUserId>, "RegisterAppletResourceUserId"},
+        {2012, D<&IAlbumControlService::UnregisterAppletResourceUserId>, "UnregisterAppletResourceUserId"},
+        {2013, D<&IAlbumControlService::GetApplicationIdFromAruid>, "GetApplicationIdFromAruid"},
         {2014, nullptr, "CheckApplicationIdRegistered"},
         {2101, nullptr, "GenerateCurrentAlbumFileId"},
         {2102, nullptr, "GenerateApplicationAlbumEntry"},
@@ -74,6 +74,49 @@ Result IAlbumControlService::SetShimLibraryVersion(ShimLibraryVersion library_ve
     // behavior on it, so consuming it successfully is an intentional no-op policy.
     LOG_DEBUG(Service_Capture, "called. library_version={}, applet_resource_user_id={}",
               library_version, aruid.pid);
+    R_SUCCEED();
+}
+
+Result IAlbumControlService::NotifyAlbumStorageIsAvailable(AlbumStorage storage) {
+    LOG_DEBUG(Service_Capture, "called, storage={}", storage);
+    R_RETURN(manager->SetAlbumStorageAvailable(storage, true));
+}
+
+Result IAlbumControlService::NotifyAlbumStorageIsUnavailable(AlbumStorage storage) {
+    LOG_DEBUG(Service_Capture, "called, storage={}", storage);
+    R_RETURN(manager->SetAlbumStorageAvailable(storage, false));
+}
+
+Result IAlbumControlService::RegisterAppletResourceUserId(
+    u64 aruid, const ControlApplicationId& application_id) {
+    registered_applications[aruid] = application_id;
+    LOG_DEBUG(Service_Capture, "called, aruid={:#x}, application_id={:#x}", aruid,
+              application_id.application_id);
+    R_SUCCEED();
+}
+
+Result IAlbumControlService::UnregisterAppletResourceUserId(
+    u64 aruid, const ControlApplicationId& application_id) {
+    const auto it = registered_applications.find(aruid);
+    if (it != registered_applications.end() &&
+        it->second.application_id == application_id.application_id) {
+        registered_applications.erase(it);
+    }
+    LOG_DEBUG(Service_Capture, "called, aruid={:#x}, application_id={:#x}", aruid,
+              application_id.application_id);
+    R_SUCCEED();
+}
+
+Result IAlbumControlService::GetApplicationIdFromAruid(
+    Out<ControlApplicationId> out_application_id, u64 aruid) {
+    if (const auto it = registered_applications.find(aruid); it != registered_applications.end()) {
+        *out_application_id = it->second;
+    } else {
+        // The core already tracks the title owning an ARUID; use it as the authoritative fallback
+        // when capture registration happened before caps:c was opened.
+        *out_application_id = {};
+        out_application_id->application_id = system.ResolveCallerProgramId(aruid);
+    }
     R_SUCCEED();
 }
 

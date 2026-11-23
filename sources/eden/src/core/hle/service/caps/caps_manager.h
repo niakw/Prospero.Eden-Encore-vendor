@@ -54,6 +54,7 @@ public:
                             ContentType content_type, AlbumFileDateTime start_date,
                             AlbumFileDateTime end_date, u64 aruid) const;
     Result GetAutoSavingStorage(bool& out_is_autosaving) const;
+    Result SetAlbumStorageAvailable(AlbumStorage storage, bool available);
     Result LoadAlbumScreenShotImage(LoadAlbumScreenShotImageOutput& out_image_output,
                                     std::span<u8> out_image, const AlbumFileId& file_id,
                                     const ScreenShotDecodeOption& decoder_options) const;
