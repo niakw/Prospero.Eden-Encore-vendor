@@ -46,6 +46,19 @@ static u64 MakeCbufKey(u32 index, u32 offset) {
     return (static_cast<u64>(index) << 32) | offset;
 }
 
+#ifdef PS5_NATIVE
+namespace {
+// Set only by a shader-translation worker after the GPU owner has flushed the
+// complete TIC pool and while that owner waits for every translation to finish.
+// Thread-local state cannot leak into the GPU thread or another worker job.
+thread_local bool shader_texture_pool_preflushed{};
+}
+
+void SetShaderTexturePoolPreflushedForThread(bool preflushed) noexcept {
+    shader_texture_pool_preflushed = preflushed;
+}
+#endif
+
 // Lichii #1443: distinguish an empty TIC from a genuine 1D descriptor.
 // Reserve an impossible guest CBUF index in the existing environment record;
 // the record layout is unchanged and older readers ignore the extra key.
@@ -339,7 +352,17 @@ Tegra::Texture::TICEntry GenericEnvironment::ReadTextureInfo(GPUVAddr tic_addr, 
     ASSERT(handle.first <= tic_limit);
     const GPUVAddr descriptor_addr{tic_addr + handle.first * sizeof(Tegra::Texture::TICEntry)};
     Tegra::Texture::TICEntry entry;
-    gpu_memory->ReadBlock(descriptor_addr, &entry, sizeof(entry));
+#ifdef PS5_NATIVE
+    if (shader_texture_pool_preflushed) {
+        // The GPU-owner thread flushed the whole bounded TIC pool before
+        // dispatching stage translation and is blocked until this worker ends.
+        // Avoid a renderer/cache flush from this worker thread.
+        gpu_memory->ReadBlockUnsafe(descriptor_addr, &entry, sizeof(entry));
+    } else
+#endif
+    {
+        gpu_memory->ReadBlock(descriptor_addr, &entry, sizeof(entry));
+    }
     NormalizeEmptyTexture(entry);
     return entry;
 }
