@@ -30,26 +30,26 @@ public:
         : ServiceFramework{system_, "ILocationResolver"}, storage{id} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "ResolveProgramPath"},
-            {1, nullptr, "RedirectProgramPath"},
-            {2, nullptr, "ResolveApplicationControlPath"},
-            {3, nullptr, "ResolveApplicationHtmlDocumentPath"},
+            {0, D<&ILocationResolver::ResolveProgramPath>, "ResolveProgramPath"},
+            {1, D<&ILocationResolver::RedirectProgramPath>, "RedirectProgramPath"},
+            {2, D<&ILocationResolver::ResolveApplicationControlPath>, "ResolveApplicationControlPath"},
+            {3, D<&ILocationResolver::ResolveApplicationHtmlDocumentPath>, "ResolveApplicationHtmlDocumentPath"},
             {4, nullptr, "ResolveDataPath"},
-            {5, nullptr, "RedirectApplicationControlPath"},
-            {6, nullptr, "RedirectApplicationHtmlDocumentPath"},
-            {7, nullptr, "ResolveApplicationLegalInformationPath"},
-            {8, nullptr, "RedirectApplicationLegalInformationPath"},
-            {9, nullptr, "Refresh"},
-            {10, nullptr, "RedirectApplicationProgramPath"},
-            {11, nullptr, "ClearApplicationRedirection"},
-            {12, nullptr, "EraseProgramRedirection"},
-            {13, nullptr, "EraseApplicationControlRedirection"},
-            {14, nullptr, "EraseApplicationHtmlDocumentRedirection"},
-            {15, nullptr, "EraseApplicationLegalInformationRedirection"},
-            {16, nullptr, "ResolveProgramPathForDebug"},
-            {17, nullptr, "RedirectProgramPathForDebug"},
-            {18, nullptr, "RedirectApplicationProgramPathForDebug"},
-            {19, nullptr, "EraseProgramRedirectionForDebug"},
+            {5, D<&ILocationResolver::RedirectApplicationControlPath>, "RedirectApplicationControlPath"},
+            {6, D<&ILocationResolver::RedirectApplicationHtmlDocumentPath>, "RedirectApplicationHtmlDocumentPath"},
+            {7, D<&ILocationResolver::ResolveApplicationLegalInformationPath>, "ResolveApplicationLegalInformationPath"},
+            {8, D<&ILocationResolver::RedirectApplicationLegalInformationPath>, "RedirectApplicationLegalInformationPath"},
+            {9, D<&ILocationResolver::Refresh>, "Refresh"},
+            {10, D<&ILocationResolver::RedirectApplicationProgramPath>, "RedirectApplicationProgramPath"},
+            {11, D<&ILocationResolver::ClearApplicationRedirection>, "ClearApplicationRedirection"},
+            {12, D<&ILocationResolver::EraseProgramRedirection>, "EraseProgramRedirection"},
+            {13, D<&ILocationResolver::EraseApplicationControlRedirection>, "EraseApplicationControlRedirection"},
+            {14, D<&ILocationResolver::EraseApplicationHtmlDocumentRedirection>, "EraseApplicationHtmlDocumentRedirection"},
+            {15, D<&ILocationResolver::EraseApplicationLegalInformationRedirection>, "EraseApplicationLegalInformationRedirection"},
+            {16, D<&ILocationResolver::ResolveProgramPathForDebug>, "ResolveProgramPathForDebug"},
+            {17, D<&ILocationResolver::RedirectProgramPathForDebug>, "RedirectProgramPathForDebug"},
+            {18, D<&ILocationResolver::RedirectApplicationProgramPathForDebug>, "RedirectApplicationProgramPathForDebug"},
+            {19, D<&ILocationResolver::EraseProgramRedirectionForDebug>, "EraseProgramRedirectionForDebug"},
         };
         // clang-format on
 
@@ -57,7 +57,229 @@ public:
     }
 
 private:
-    [[maybe_unused]] FileSys::StorageId storage;
+    using ResolverPath = std::array<u8, 0x301>;
+
+    struct RedirectionEntry {
+        u64 program_id{};
+        u64 owner_id{};
+        ResolverPath path{};
+    };
+
+    static constexpr Result ResultProgramNotFound{ErrorModule::LR, 2};
+    static constexpr Result ResultHtmlDocumentNotFound{ErrorModule::LR, 6};
+    static constexpr Result ResultControlNotFound{ErrorModule::LR, 8};
+    static constexpr Result ResultLegalInformationNotFound{ErrorModule::LR, 9};
+    static constexpr Result ResultDebugProgramNotFound{ErrorModule::LR, 10};
+    static constexpr Result ResultInvalidPath{ErrorModule::LR, 140};
+
+    static bool IsPathValid(const ResolverPath& path) {
+        return std::find(path.begin(), path.end(), u8{0}) != path.end();
+    }
+
+    static const RedirectionEntry* FindRedirection(const std::vector<RedirectionEntry>& entries,
+                                                   u64 program_id) {
+        const auto it = std::find_if(entries.begin(), entries.end(),
+                                     [program_id](const RedirectionEntry& entry) {
+                                         return entry.program_id == program_id;
+                                     });
+        return it != entries.end() ? std::addressof(*it) : nullptr;
+    }
+
+    static void SetRedirection(std::vector<RedirectionEntry>& entries, u64 program_id,
+                               u64 owner_id, const ResolverPath& path) {
+        const auto it = std::find_if(entries.begin(), entries.end(),
+                                     [program_id](const RedirectionEntry& entry) {
+                                         return entry.program_id == program_id;
+                                     });
+        if (it != entries.end()) {
+            it->owner_id = owner_id;
+            it->path = path;
+            return;
+        }
+        entries.push_back(RedirectionEntry{program_id, owner_id, path});
+    }
+
+    static void EraseRedirection(std::vector<RedirectionEntry>& entries, u64 program_id) {
+        entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                     [program_id](const RedirectionEntry& entry) {
+                                         return entry.program_id == program_id;
+                                     }),
+                      entries.end());
+    }
+
+    static void RetainOwners(std::vector<RedirectionEntry>& entries,
+                             InArray<u64, BufferAttr_HipcMapAlias> excluding_ids) {
+        entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                     [&excluding_ids](const RedirectionEntry& entry) {
+                                         return std::find(excluding_ids.begin(),
+                                                          excluding_ids.end(), entry.owner_id) ==
+                                                excluding_ids.end();
+                                     }),
+                      entries.end());
+    }
+
+    static Result ValidatePath(
+        const InLargeData<ResolverPath, BufferAttr_HipcPointer>& path) {
+        R_UNLESS(IsPathValid(*path), ResultInvalidPath);
+        R_SUCCEED();
+    }
+
+    static Result ResolveFromRedirection(
+        OutLargeData<ResolverPath, BufferAttr_HipcPointer> out_path,
+        const std::vector<RedirectionEntry>& entries, u64 program_id, Result not_found) {
+        const auto* const entry = FindRedirection(entries, program_id);
+        R_UNLESS(entry != nullptr, not_found);
+        *out_path = entry->path;
+        R_SUCCEED();
+    }
+
+    Result ResolveProgramPath(
+        OutLargeData<ResolverPath, BufferAttr_HipcPointer> out_path, u64 program_id) {
+        // Complete for guest-provided redirections. Installed-content fallback remains unavailable
+        // until Encore models an Horizon ContentPath rather than exposing a host VFS path.
+        R_RETURN(ResolveFromRedirection(out_path, program_redirects, program_id,
+                                        ResultProgramNotFound));
+    }
+
+    Result RedirectProgramPath(
+        const InLargeData<ResolverPath, BufferAttr_HipcPointer>& path, u64 program_id) {
+        R_TRY(ValidatePath(path));
+        SetRedirection(program_redirects, program_id, 0, *path);
+        R_SUCCEED();
+    }
+
+    Result ResolveApplicationControlPath(
+        OutLargeData<ResolverPath, BufferAttr_HipcPointer> out_path, u64 program_id) {
+        R_RETURN(ResolveFromRedirection(out_path, control_redirects, program_id,
+                                        ResultControlNotFound));
+    }
+
+    Result ResolveApplicationHtmlDocumentPath(
+        OutLargeData<ResolverPath, BufferAttr_HipcPointer> out_path, u64 program_id) {
+        R_RETURN(ResolveFromRedirection(out_path, html_redirects, program_id,
+                                        ResultHtmlDocumentNotFound));
+    }
+
+    Result RedirectApplicationControlPath(
+        const InLargeData<ResolverPath, BufferAttr_HipcPointer>& path, u64 program_id,
+        u64 owner_id) {
+        R_TRY(ValidatePath(path));
+        SetRedirection(control_redirects, program_id, owner_id, *path);
+        R_SUCCEED();
+    }
+
+    Result RedirectApplicationHtmlDocumentPath(
+        const InLargeData<ResolverPath, BufferAttr_HipcPointer>& path, u64 program_id,
+        u64 owner_id) {
+        R_TRY(ValidatePath(path));
+        SetRedirection(html_redirects, program_id, owner_id, *path);
+        R_SUCCEED();
+    }
+
+    Result ResolveApplicationLegalInformationPath(
+        OutLargeData<ResolverPath, BufferAttr_HipcPointer> out_path, u64 program_id) {
+        R_RETURN(ResolveFromRedirection(out_path, legal_redirects, program_id,
+                                        ResultLegalInformationNotFound));
+    }
+
+    Result RedirectApplicationLegalInformationPath(
+        const InLargeData<ResolverPath, BufferAttr_HipcPointer>& path, u64 program_id,
+        u64 owner_id) {
+        R_TRY(ValidatePath(path));
+        SetRedirection(legal_redirects, program_id, owner_id, *path);
+        R_SUCCEED();
+    }
+
+    Result Refresh() {
+        // The redirection side matches Horizon exactly. Re-acquiring NCM ContentStorage and
+        // ContentMetaDatabase remains unnecessary/unmodeled in Encore's FileSystemController.
+        program_redirects.clear();
+        debug_program_redirects.clear();
+        control_redirects.clear();
+        html_redirects.clear();
+        legal_redirects.clear();
+        R_SUCCEED();
+    }
+
+    Result RedirectApplicationProgramPath(
+        const InLargeData<ResolverPath, BufferAttr_HipcPointer>& path, u64 program_id,
+        u64 owner_id) {
+        R_TRY(ValidatePath(path));
+        SetRedirection(program_redirects, program_id, owner_id, *path);
+        R_SUCCEED();
+    }
+
+    Result ClearApplicationRedirection(InArray<u64, BufferAttr_HipcMapAlias> excluding_ids) {
+        // HOS 9+ retains only redirections whose owner-id is explicitly excluded from clearing.
+        RetainOwners(program_redirects, excluding_ids);
+        RetainOwners(debug_program_redirects, excluding_ids);
+        RetainOwners(control_redirects, excluding_ids);
+        RetainOwners(html_redirects, excluding_ids);
+        RetainOwners(legal_redirects, excluding_ids);
+        R_SUCCEED();
+    }
+
+    Result EraseProgramRedirection(u64 program_id) {
+        EraseRedirection(program_redirects, program_id);
+        R_SUCCEED();
+    }
+
+    Result EraseApplicationControlRedirection(u64 program_id) {
+        EraseRedirection(control_redirects, program_id);
+        R_SUCCEED();
+    }
+
+    Result EraseApplicationHtmlDocumentRedirection(u64 program_id) {
+        EraseRedirection(html_redirects, program_id);
+        R_SUCCEED();
+    }
+
+    Result EraseApplicationLegalInformationRedirection(u64 program_id) {
+        EraseRedirection(legal_redirects, program_id);
+        R_SUCCEED();
+    }
+
+    Result ResolveProgramPathForDebug(
+        OutLargeData<ResolverPath, BufferAttr_HipcPointer> out_path, u64 program_id) {
+        if (const auto* const entry = FindRedirection(debug_program_redirects, program_id);
+            entry != nullptr) {
+            *out_path = entry->path;
+            R_SUCCEED();
+        }
+        if (const auto* const entry = FindRedirection(program_redirects, program_id);
+            entry != nullptr) {
+            *out_path = entry->path;
+            R_SUCCEED();
+        }
+        return ResultDebugProgramNotFound;
+    }
+
+    Result RedirectProgramPathForDebug(
+        const InLargeData<ResolverPath, BufferAttr_HipcPointer>& path, u64 program_id) {
+        R_TRY(ValidatePath(path));
+        SetRedirection(debug_program_redirects, program_id, 0, *path);
+        R_SUCCEED();
+    }
+
+    Result RedirectApplicationProgramPathForDebug(
+        const InLargeData<ResolverPath, BufferAttr_HipcPointer>& path, u64 program_id,
+        u64 owner_id) {
+        R_TRY(ValidatePath(path));
+        SetRedirection(debug_program_redirects, program_id, owner_id, *path);
+        R_SUCCEED();
+    }
+
+    Result EraseProgramRedirectionForDebug(u64 program_id) {
+        EraseRedirection(debug_program_redirects, program_id);
+        R_SUCCEED();
+    }
+
+    FileSys::StorageId storage;
+    std::vector<RedirectionEntry> program_redirects;
+    std::vector<RedirectionEntry> debug_program_redirects;
+    std::vector<RedirectionEntry> control_redirects;
+    std::vector<RedirectionEntry> html_redirects;
+    std::vector<RedirectionEntry> legal_redirects;
 };
 
 class IRegisteredLocationResolver final : public ServiceFramework<IRegisteredLocationResolver> {
