@@ -70,8 +70,10 @@ IAlbumControlService::~IAlbumControlService() = default;
 
 Result IAlbumControlService::SetShimLibraryVersion(ShimLibraryVersion library_version,
                                                    ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_Capture, "(STUBBED) called. library_version={}, applet_resource_user_id={}",
-                library_version, aruid.pid);
+    // The shim version is a client compatibility hint. Encore does not branch album/screenshot
+    // behavior on it, so consuming it successfully is an intentional no-op policy.
+    LOG_DEBUG(Service_Capture, "called. library_version={}, applet_resource_user_id={}",
+              library_version, aruid.pid);
     R_SUCCEED();
 }
 
