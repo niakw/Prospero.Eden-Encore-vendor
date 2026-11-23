@@ -19,6 +19,24 @@ def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     raw_current = source.encode()
     current_digest = hashlib.sha1(
         b"blob " + str(len(raw_current)).encode() + b"\0" + raw_current).hexdigest()
+    # The selected NX container loader adds one verified pre-kernel
+    # platform check after this snapshot. Undo its exact seven source
+    # lines in the provenance COPY, not in the shipping runtime.
+    if current_digest == "df35fcd9db52452902f0cbd218c63dff2fd70cc0":
+        nx_include = '#include "core/loader/nx.h"\n'
+        nx_block = """        // NX carries the program platform in the verified catalog; select the
+        // matching NS2 guest layout before allocating any process memory.
+        if (Loader::AppLoader_NX::IdentifyType(file) == Loader::FileType::NX) {
+            const auto nx_program = Loader::AppLoader_NX::ReadProgramPlatform(file, program_id);
+            return nx_program && nx_program->platform == 2;
+        }
+"""
+        assert source.count(nx_include) == source.count(nx_block) == 1
+        source = source.replace(nx_include, "", 1).replace(nx_block, "", 1)
+        raw_prev = source.encode()
+        current_digest = hashlib.sha1(
+            b"blob " + str(len(raw_prev)).encode() + b"\0" + raw_prev
+        ).hexdigest()
     assert current_digest == "a2721a630b8b32222ff586ea2db19ee726d4d5b9", current_digest
     new_exefs = """            const auto exefs = mount
                 ? Eden::NupV1::Native::ContentSet(mount).ExeFS()
