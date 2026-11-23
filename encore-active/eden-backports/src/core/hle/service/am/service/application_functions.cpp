@@ -18,8 +18,10 @@
 #include "core/hle/result.h"
 #include "core/hle/service/am/am_results.h"
 #include "core/hle/service/am/applet.h"
+#include "core/hle/service/am/applet_manager.h"
 #include "core/hle/service/am/service/application_functions.h"
 #include "core/hle/service/am/service/storage.h"
+#include "core/hle/service/am/window_system.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/filesystem/filesystem.h"
 #include "core/hle/service/filesystem/save_data_controller.h"
@@ -359,8 +361,21 @@ Result IApplicationFunctions::EndBlockingHomeButton() {
 }
 
 Result IApplicationFunctions::NotifyRunning(Out<bool> out_became_running) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_became_running = true;
+    LOG_DEBUG(Service_AM, "called");
+
+    bool became_running{};
+    {
+        std::scoped_lock lk{m_applet->lock};
+        became_running = !m_applet->is_process_running;
+        m_applet->is_process_running = true;
+    }
+
+    *out_became_running = became_running;
+
+    if (auto* window_system = system.GetAppletManager().GetWindowSystem()) {
+        window_system->RequestUpdate();
+    }
+
     R_SUCCEED();
 }
 
