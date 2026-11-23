@@ -671,12 +671,19 @@ void BSD_USA::Read(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const s32 fd = rp.Pop<s32>();
 
-    LOG_WARNING(Service, "(STUBBED) called. fd={} len={}", fd, ctx.GetWriteBufferSize());
+    LOG_DEBUG(Service, "called. fd={} len={}", fd, ctx.GetWriteBufferSize());
+
+    std::vector<u8> message(ctx.GetWriteBufferSize());
+    const auto [ret, bsd_errno] = RecvImpl(fd, 0, message);
+    if (ret > 0) {
+        ctx.WriteBuffer(message.data(),
+                        (std::min)(static_cast<size_t>(ret), message.size()));
+    }
 
     IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(ResultSuccess);
-    rb.Push<u32>(0); // ret
-    rb.Push<u32>(0); // bsd errno
+    rb.Push<s32>(ret);
+    rb.PushEnum(bsd_errno);
 }
 
 void BSD_USA::Close(HLERequestContext& ctx) {
