@@ -22,6 +22,15 @@ public:
     ~IHidDebugServer() override;
 
 private:
+    Result DeactivateDebugPad();
+    Result DeactivateMouse();
+    Result DeactivateKeyboard();
+    Result DeactivateHomeButton();
+    Result DeactivateSleepButton();
+    Result DeactivateCaptureButton();
+    Result DeactivateConsoleSixAxisSensor();
+    Result DeactivateSevenSixAxisSensor();
+    Result DeactivateDigitizer();
     Result DeactivateTouchScreen();
     Result SetTouchScreenAutoPilotState(
         InArray<TouchState, BufferAttr_HipcMapAlias> auto_pilot_buffer);

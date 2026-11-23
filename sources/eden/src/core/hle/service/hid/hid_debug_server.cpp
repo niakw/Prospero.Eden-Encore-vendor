@@ -12,6 +12,15 @@
 #include "hid_core/hid_types.h"
 #include "hid_core/resource_manager.h"
 #include "hid_core/resources/hid_firmware_settings.h"
+#include "hid_core/resources/debug_pad/debug_pad.h"
+#include "hid_core/resources/digitizer/digitizer.h"
+#include "hid_core/resources/keyboard/keyboard.h"
+#include "hid_core/resources/mouse/mouse.h"
+#include "hid_core/resources/six_axis/console_six_axis.h"
+#include "hid_core/resources/six_axis/seven_six_axis.h"
+#include "hid_core/resources/system_buttons/capture_button.h"
+#include "hid_core/resources/system_buttons/home_button.h"
+#include "hid_core/resources/system_buttons/sleep_button.h"
 
 #include "hid_core/resources/touch_screen/gesture.h"
 #include "hid_core/resources/touch_screen/touch_screen.h"
@@ -24,7 +33,7 @@ IHidDebugServer::IHidDebugServer(Core::System& system_, std::shared_ptr<Resource
                                                                             settings} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, nullptr, "DeactivateDebugPad"},
+        {0, C<&IHidDebugServer::DeactivateDebugPad>, "DeactivateDebugPad"},
         {1, nullptr, "SetDebugPadAutoPilotState"},
         {2, nullptr, "UnsetDebugPadAutoPilotState"},
         {10, C<&IHidDebugServer::DeactivateTouchScreen>, "DeactivateTouchScreen"},
@@ -35,13 +44,13 @@ IHidDebugServer::IHidDebugServer(Core::System& system_, std::shared_ptr<Resource
         {15, C<&IHidDebugServer::ForceStopTouchScreenManagement>, "ForceStopTouchScreenManagement"},
         {16, C<&IHidDebugServer::ForceRestartTouchScreenManagement>, "ForceRestartTouchScreenManagement"},
         {17, C<&IHidDebugServer::IsTouchScreenManaged>, "IsTouchScreenManaged"},
-        {20, nullptr, "DeactivateMouse"},
+        {20, C<&IHidDebugServer::DeactivateMouse>, "DeactivateMouse"},
         {21, nullptr, "SetMouseAutoPilotState"},
         {22, nullptr, "UnsetMouseAutoPilotState"},
         {23, nullptr, "AddMouseSideWheelDelta"},
         {25, nullptr, "SetDebugMouseAutoPilotState"},
         {26, nullptr, "UnsetDebugMouseAutoPilotState"},
-        {30, nullptr, "DeactivateKeyboard"},
+        {30, C<&IHidDebugServer::DeactivateKeyboard>, "DeactivateKeyboard"},
         {31, nullptr, "SetKeyboardAutoPilotState"},
         {32, nullptr, "UnsetKeyboardAutoPilotState"},
         {50, nullptr, "DeactivateXpad"},
@@ -52,23 +61,23 @@ IHidDebugServer::IHidDebugServer(Core::System& system_, std::shared_ptr<Resource
         {61, nullptr, "DeactivateNpad"},
         {62, nullptr, "ForceDisconnectNpad"},
         {91, C<&IHidDebugServer::DeactivateGesture>, "DeactivateGesture"},
-        {110, nullptr, "DeactivateHomeButton"},
+        {110, C<&IHidDebugServer::DeactivateHomeButton>, "DeactivateHomeButton"},
         {111, nullptr, "SetHomeButtonAutoPilotState"},
         {112, nullptr, "UnsetHomeButtonAutoPilotState"},
-        {120, nullptr, "DeactivateSleepButton"},
+        {120, C<&IHidDebugServer::DeactivateSleepButton>, "DeactivateSleepButton"},
         {121, nullptr, "SetSleepButtonAutoPilotState"},
         {122, nullptr, "UnsetSleepButtonAutoPilotState"},
         {123, nullptr, "DeactivateInputDetector"},
-        {130, nullptr, "DeactivateCaptureButton"},
+        {130, C<&IHidDebugServer::DeactivateCaptureButton>, "DeactivateCaptureButton"},
         {131, nullptr, "SetCaptureButtonAutoPilotState"},
         {132, nullptr, "UnsetCaptureButtonAutoPilotState"},
         {133, nullptr, "SetShiftAccelerometerCalibrationValue"},
         {134, nullptr, "GetShiftAccelerometerCalibrationValue"},
         {135, nullptr, "SetShiftGyroscopeCalibrationValue"},
         {136, nullptr, "GetShiftGyroscopeCalibrationValue"},
-        {140, nullptr, "DeactivateConsoleSixAxisSensor"},
+        {140, C<&IHidDebugServer::DeactivateConsoleSixAxisSensor>, "DeactivateConsoleSixAxisSensor"},
         {141, nullptr, "GetConsoleSixAxisSensorSamplingFrequency"},
-        {142, nullptr, "DeactivateSevenSixAxisSensor"},
+        {142, C<&IHidDebugServer::DeactivateSevenSixAxisSensor>, "DeactivateSevenSixAxisSensor"},
         {143, nullptr, "GetConsoleSixAxisSensorCountStates"},
         {144, nullptr, "GetAccelerometerFsr"},
         {145, nullptr, "SetAccelerometerFsr"},
@@ -178,7 +187,7 @@ IHidDebugServer::IHidDebugServer(Core::System& system_, std::shared_ptr<Resource
         {651, nullptr, "StartButtonPlayData"},
         {652, nullptr, "StopButtonPlayData"},
         {700, nullptr, "GetRailAttachEventCount"}, //21.0.0+
-        {2000, nullptr, "DeactivateDigitizer"},
+        {2000, C<&IHidDebugServer::DeactivateDigitizer>, "DeactivateDigitizer"},
         {2001, nullptr, "SetDigitizerAutoPilotState"},
         {2002, nullptr, "UnsetDigitizerAutoPilotState"},
         {3000, nullptr, "ReloadFirmwareDebugSettings"},
@@ -189,6 +198,60 @@ IHidDebugServer::IHidDebugServer(Core::System& system_, std::shared_ptr<Resource
 }
 
 IHidDebugServer::~IHidDebugServer() = default;
+
+Result IHidDebugServer::DeactivateDebugPad() {
+    LOG_INFO(Service_HID, "called");
+    GetResourceManager()->GetDebugPad()->DeactivateController();
+    R_SUCCEED();
+}
+
+Result IHidDebugServer::DeactivateMouse() {
+    LOG_INFO(Service_HID, "called");
+    GetResourceManager()->GetMouse()->DeactivateController();
+    R_SUCCEED();
+}
+
+Result IHidDebugServer::DeactivateKeyboard() {
+    LOG_INFO(Service_HID, "called");
+    GetResourceManager()->GetKeyboard()->DeactivateController();
+    R_SUCCEED();
+}
+
+Result IHidDebugServer::DeactivateHomeButton() {
+    LOG_INFO(Service_HID, "called");
+    GetResourceManager()->GetHomeButton()->DeactivateController();
+    R_SUCCEED();
+}
+
+Result IHidDebugServer::DeactivateSleepButton() {
+    LOG_INFO(Service_HID, "called");
+    GetResourceManager()->GetSleepButton()->DeactivateController();
+    R_SUCCEED();
+}
+
+Result IHidDebugServer::DeactivateCaptureButton() {
+    LOG_INFO(Service_HID, "called");
+    GetResourceManager()->GetCaptureButton()->DeactivateController();
+    R_SUCCEED();
+}
+
+Result IHidDebugServer::DeactivateConsoleSixAxisSensor() {
+    LOG_INFO(Service_HID, "called");
+    GetResourceManager()->GetConsoleSixAxis()->DeactivateController();
+    R_SUCCEED();
+}
+
+Result IHidDebugServer::DeactivateSevenSixAxisSensor() {
+    LOG_INFO(Service_HID, "called");
+    GetResourceManager()->GetSevenSixAxis()->DeactivateController();
+    R_SUCCEED();
+}
+
+Result IHidDebugServer::DeactivateDigitizer() {
+    LOG_INFO(Service_HID, "called");
+    GetResourceManager()->GetDigitizer()->DeactivateController();
+    R_SUCCEED();
+}
 
 Result IHidDebugServer::DeactivateTouchScreen() {
     LOG_INFO(Service_HID, "called");
