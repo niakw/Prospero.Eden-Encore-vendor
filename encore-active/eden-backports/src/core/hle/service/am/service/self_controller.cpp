@@ -72,7 +72,7 @@ ISelfController::ISelfController(Core::System& system_, std::shared_ptr<Applet> 
         {130, D<&ISelfController::SetRecordVolumeMuted>, "SetRecordVolumeMuted"},
         {230, D<&ISelfController::Unknown230>, "Unknown230"},
         {240, D<&ISelfController::Unknown240>, "Unknown240"},
-        {1000, nullptr, "GetDebugStorageChannel"},
+        {1000, D<&ISelfController::RejectDebugOnlyCommand>, "GetDebugStorageChannel"},
     };
     // clang-format on
 
@@ -86,6 +86,11 @@ ISelfController::ISelfController(Core::System& system_, std::shared_ptr<Applet> 
 ISelfController::~ISelfController() {
     std::scoped_lock lk{m_applet->lock};
     m_applet->display_layer_manager.Finalize();
+}
+
+Result ISelfController::RejectDebugOnlyCommand() {
+    LOG_WARNING(Service_AM, "Rejected self-controller debug command on release runtime");
+    R_RETURN(ResultUnknown);
 }
 
 Result ISelfController::Exit() {
