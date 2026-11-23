@@ -1657,8 +1657,6 @@ void LoopProcess(Core::System& system) {
 
     server_manager->RegisterNamedService("acc:aa", std::make_shared<ACC_AA>(module, profile_manager, system));
     server_manager->RegisterNamedService("acc:su", std::make_shared<ACC_SU>(module, profile_manager, system));
-    server_manager->RegisterNamedService("acc:u0", std::make_shared<ACC_U0>(module, profile_manager, system));
-    server_manager->RegisterNamedService("acc:u1", std::make_shared<ACC_U1>(module, profile_manager, system));
 
     server_manager->RegisterNamedService("acc:e", std::make_shared<ACC_E>(module, profile_manager, system));
     server_manager->RegisterNamedService("acc:e:u1", std::make_shared<ACC_E_U1>(module, profile_manager, system));
