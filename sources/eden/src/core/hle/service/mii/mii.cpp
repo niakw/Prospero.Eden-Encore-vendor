@@ -349,15 +349,17 @@ public:
 
 private:
     Result Initialize() {
-        LOG_INFO(Service_Mii, "called");
+        LOG_INFO(Service_Mii, "called (empty image database)");
 
+        // Encore does not expose the Horizon Mii image-file backend. Initializing an empty image
+        // database therefore has no host-side work to perform.
         R_SUCCEED();
     }
 
     Result GetCount(Out<u32> out_count) {
-        LOG_DEBUG(Service_Mii, "called");
-
+        // The image database is intentionally empty until an image-file backend exists.
         *out_count = 0;
+        LOG_DEBUG(Service_Mii, "called, count={}", *out_count);
 
         R_SUCCEED();
     }
