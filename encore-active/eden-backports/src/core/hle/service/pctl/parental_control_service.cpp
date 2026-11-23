@@ -109,16 +109,16 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1603, nullptr, "IsAllFeaturesDisabled"},
         {1901, D<&IParentalControlService::DeleteFromFreeCommunicationApplicationListForDebug>, "DeleteFromFreeCommunicationApplicationListForDebug"},
         {1902, D<&IParentalControlService::ClearFreeCommunicationApplicationListForDebug>, "ClearFreeCommunicationApplicationListForDebug"},
-        {1903, nullptr, "GetExemptApplicationListCountForDebug"},
-        {1904, nullptr, "GetExemptApplicationListForDebug"},
-        {1905, nullptr, "UpdateExemptApplicationListForDebug"},
-        {1906, nullptr, "AddToExemptApplicationListForDebug"},
-        {1907, nullptr, "DeleteFromExemptApplicationListForDebug"},
-        {1908, nullptr, "ClearExemptApplicationListForDebug"},
+        {1903, D<&IParentalControlService::RejectDebugOnlyCommand>, "GetExemptApplicationListCountForDebug"},
+        {1904, D<&IParentalControlService::RejectDebugOnlyCommand>, "GetExemptApplicationListForDebug"},
+        {1905, D<&IParentalControlService::RejectDebugOnlyCommand>, "UpdateExemptApplicationListForDebug"},
+        {1906, D<&IParentalControlService::RejectDebugOnlyCommand>, "AddToExemptApplicationListForDebug"},
+        {1907, D<&IParentalControlService::RejectDebugOnlyCommand>, "DeleteFromExemptApplicationListForDebug"},
+        {1908, D<&IParentalControlService::RejectDebugOnlyCommand>, "ClearExemptApplicationListForDebug"},
         {1941, nullptr, "DeletePairing"},
-        {1951, nullptr, "SetPlayTimerSettingsForDebug"},
+        {1951, D<&IParentalControlService::RejectDebugOnlyCommand>, "SetPlayTimerSettingsForDebug"},
         {1952, nullptr, "GetPlayTimerSpentTimeForTest"},
-        {1953, nullptr, "SetPlayTimerAlarmDisabledForDebug"},
+        {1953, D<&IParentalControlService::RejectDebugOnlyCommand>, "SetPlayTimerAlarmDisabledForDebug"},
         {1954, nullptr, "IsBedtimeAlarmEnabled"}, // 18.0.0+
         {1955, nullptr, "GetBedtimeAlarmTime"}, // 18.0.0+
         {1956, nullptr, "GetBedtimeAlarmTimeHour"}, // 18.0.0+
@@ -197,6 +197,11 @@ void IParentalControlService::SetStereoVisionRestrictionImpl(bool is_restricted)
         return;
     }
     settings.is_stero_vision_restricted = is_restricted;
+}
+
+Result IParentalControlService::RejectDebugOnlyCommand() {
+    LOG_WARNING(Service_PCTL, "Rejected unsupported parental-control debug command");
+    R_RETURN(ResultUnknown);
 }
 
 Result IParentalControlService::Initialize() {

@@ -27,6 +27,7 @@ private:
     bool ConfirmStereoVisionPermissionImpl() const;
     void SetStereoVisionRestrictionImpl(bool is_restricted);
 
+    Result RejectDebugOnlyCommand();
     Result Initialize();
     Result CheckFreeCommunicationPermission();
     Result ConfirmLaunchApplicationPermission(InBuffer<BufferAttr_HipcPointer> restriction_bitset,
