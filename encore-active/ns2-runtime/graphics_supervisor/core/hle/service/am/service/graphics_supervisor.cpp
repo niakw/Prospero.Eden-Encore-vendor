@@ -203,7 +203,7 @@ private:
     }
     void QueryApplicationGpuTimeSpan(HLERequestContext& ctx) {
         IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(IPC::ResultNotSupported.raw);
+        rb.Push(Kernel::ResultNotImplemented.raw);
     }
 };
 
