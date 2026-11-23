@@ -1310,6 +1310,25 @@ void IGeneralService::IsEthernetCommunicationEnabled(HLERequestContext& ctx) {
     rb.Push<u8>(enabled);
 }
 
+void IGeneralService::NotifyConnectionStateChanged(HLERequestContext& ctx) {
+    // Encore does not maintain a separate NIFM connection-state cache. All
+    // public network queries refresh or read the live EmuNetState instead, so
+    // there is no stale daemon state to invalidate here.
+    LOG_DEBUG(Service_NIFM, "called; live network state requires no explicit invalidation");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void IGeneralService::SetWowlDelayedWakeTime(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const auto value = rp.Pop<s32>();
+    wowl_delayed_wake_time.store(value, std::memory_order_relaxed);
+
+    // Preserve the Horizon-visible configuration value even though Encore has
+    // no wake-on-wireless power daemon on the PS5 host.
+    LOG_DEBUG(Service_NIFM, "wowl_delayed_wake_time={}", value);
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
 void IGeneralService::IsWiredConnectionAvailable(HLERequestContext& ctx) {
     Network::RefreshFromHost();
     const auto& st = Network::EmuNetState::Get();
@@ -1606,8 +1625,8 @@ IGeneralService::IGeneralService(Core::System& system_)
         {39, nullptr, "NotifyApplicationSuspended"},
         {40, &IGeneralService::SetAcceptableNetworkTypeFlag, "SetAcceptableNetworkTypeFlag"},
         {41, &IGeneralService::GetAcceptableNetworkTypeFlag, "GetAcceptableNetworkTypeFlag"},
-        {42, nullptr, "NotifyConnectionStateChanged"},
-        {43, nullptr, "SetWowlDelayedWakeTime"},
+        {42, &IGeneralService::NotifyConnectionStateChanged, "NotifyConnectionStateChanged"},
+        {43, &IGeneralService::SetWowlDelayedWakeTime, "SetWowlDelayedWakeTime"},
         {44, &IGeneralService::IsWiredConnectionAvailable, "IsWiredConnectionAvailable"}, // 18.0.0+
         {45, nullptr, "IsNetworkEmulationFeatureEnabled"}, // 18.0.0+
         {46, nullptr, "SelectActiveNetworkEmulationProfileIdForDebug"}, // 18.0.0+

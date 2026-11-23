@@ -62,11 +62,14 @@ private:
     void Shutdown(HLERequestContext& ctx);
     void SetAcceptableNetworkTypeFlag(HLERequestContext& ctx);
     void GetAcceptableNetworkTypeFlag(HLERequestContext& ctx);
+    void NotifyConnectionStateChanged(HLERequestContext& ctx);
+    void SetWowlDelayedWakeTime(HLERequestContext& ctx);
     void GetScanDataV3(HLERequestContext& ctx);
 
     u32 client_id{};
     std::atomic<u32> exclusive_client_id{0};
     std::atomic<u32> acceptable_network_type_flag{0};
+    std::atomic<s32> wowl_delayed_wake_time{0};
 };
 
 } // namespace Service::NIFM

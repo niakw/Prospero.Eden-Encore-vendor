@@ -13,7 +13,8 @@ files={
  "encore-active/eden-core/include/core/hle/service/ipc_helpers.h":"a266b1a05cf0b20b7cad6d70f9b16dfec503cf7c",
  "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp":"647e2499f82de4ac921e6ab709c8a67d4f2f10cc",
  "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.h":"4599b92b022b18439014288b43c0c3ecb93f0eb7",
- "encore-active/eden-backports/src/core/hle/service/nifm/nifm.cpp":"33b1bdad2d04e59637782c70a38c9da5354ae456",
+ "encore-active/eden-backports/src/core/hle/service/nifm/nifm.cpp":"30a259b7b1d9a2816f6f3c6e525878e68b05c918",
+ "sources/eden/src/core/hle/service/nifm/nifm.h":"3c9db32f17240d6b9d3498b334a68aa6699d6569",
 }
 for file,expected in files.items():
  d=(ROOT/file).read_bytes()
@@ -71,6 +72,12 @@ assert 'requirement_revision = value' in nifm
 assert 'rb.Push(value)' in nifm
 assert 'socket_descriptors.insert(descriptor)' in nifm
 assert 'socket_descriptors.erase(descriptor)' in nifm
+assert '{42, &IGeneralService::NotifyConnectionStateChanged, "NotifyConnectionStateChanged"}' in nifm
+assert '{43, &IGeneralService::SetWowlDelayedWakeTime, "SetWowlDelayedWakeTime"}' in nifm
+notify=nifm.split("void IGeneralService::NotifyConnectionStateChanged(",1)[1].split("void IGeneralService::SetWowlDelayedWakeTime",1)[0]
+assert 'live network state requires no explicit invalidation' in notify
+wowl=nifm.split("void IGeneralService::SetWowlDelayedWakeTime(",1)[1].split("void IGeneralService::IsWiredConnectionAvailable",1)[0]
+assert 'rp.Pop<s32>()' in wowl and 'wowl_delayed_wake_time.store' in wowl
 assert "constexpr Result ResultNotSupported{ErrorModule::HIPC, 1};" in ipch
 assert "static_assert(sizeof(Uid) == 0x10)" in profile
 test=r"""
