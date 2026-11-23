@@ -131,6 +131,10 @@ private:
         OutBuffer<BufferAttr_HipcMapAlias> out_buffer);
     Result OpenSaveDataTransferProhibiter(OutInterface<ISaveDataTransferProhibiter> out_prohibiter,
                                           u64 id);
+    Result OpenImageDirectoryFileSystem(OutInterface<IFileSystem> out_interface,
+                                        ImageDirectoryId image_directory_id);
+    Result OpenContentStorageFileSystem(OutInterface<IFileSystem> out_interface,
+                                        ContentStorageId content_storage_id);
     Result OpenDataStorageByCurrentProcess(OutInterface<IStorage> out_interface);
     Result OpenDataStorageByProgramId(OutInterface<IStorage> out_interface,
                                       FileSys::StorageId storage_id, u64 title_id);

@@ -153,10 +153,10 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {85, nullptr, "OpenSaveDataTransferManagerForSaveDataRepair"},
         {86, nullptr, "OpenSaveDataMover"},
         {87, nullptr, "OpenSaveDataTransferManagerForRepair"},
-        {100, nullptr, "OpenImageDirectoryFileSystem"},
+        {100, D<&FSP_SRV::OpenImageDirectoryFileSystem>, "OpenImageDirectoryFileSystem"},
         {101, nullptr, "OpenBaseFileSystem"},
         {102, nullptr, "FormatBaseFileSystem"},
-        {110, nullptr, "OpenContentStorageFileSystem"},
+        {110, D<&FSP_SRV::OpenContentStorageFileSystem>, "OpenContentStorageFileSystem"},
         {120, nullptr, "OpenCloudBackupWorkStorageFileSystem"},
         {130, nullptr, "OpenCustomStorageFileSystem"},
         {200, D<&FSP_SRV::OpenDataStorageByCurrentProcess>, "OpenDataStorageByCurrentProcess"},
@@ -754,6 +754,45 @@ Result FSP_SRV::OpenDataFileSystemByCurrentProcess(OutInterface<IFileSystem> out
     *out_interface = std::make_shared<IFileSystem>(
         system, extracted_romfs, SizeGetter::FromStorageId(fsc, FileSys::StorageId::NandUser));
 
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenImageDirectoryFileSystem(OutInterface<IFileSystem> out_interface,
+                                                   ImageDirectoryId image_directory_id) {
+    LOG_DEBUG(Service_FS, "called, image_directory_id={}", image_directory_id);
+    auto dir = fsc.GetImageDirectory(image_directory_id);
+    R_UNLESS(dir != nullptr, FileSys::ResultInvalidArgument);
+
+    const auto storage_id = image_directory_id == ImageDirectoryId::SdCard
+                                ? FileSys::StorageId::SdCard
+                                : FileSys::StorageId::NandUser;
+    *out_interface =
+        std::make_shared<IFileSystem>(system, std::move(dir), SizeGetter::FromStorageId(fsc, storage_id));
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenContentStorageFileSystem(OutInterface<IFileSystem> out_interface,
+                                                     ContentStorageId content_storage_id) {
+    LOG_DEBUG(Service_FS, "called, content_storage_id={}", content_storage_id);
+    auto dir = fsc.GetContentDirectory(content_storage_id);
+    R_UNLESS(dir != nullptr, FileSys::ResultInvalidArgument);
+
+    FileSys::StorageId storage_id{};
+    switch (content_storage_id) {
+    case ContentStorageId::System:
+        storage_id = FileSys::StorageId::NandSystem;
+        break;
+    case ContentStorageId::User:
+        storage_id = FileSys::StorageId::NandUser;
+        break;
+    case ContentStorageId::SdCard:
+        storage_id = FileSys::StorageId::SdCard;
+        break;
+    default:
+        R_RETURN(FileSys::ResultInvalidArgument);
+    }
+    *out_interface =
+        std::make_shared<IFileSystem>(system, std::move(dir), SizeGetter::FromStorageId(fsc, storage_id));
     R_SUCCEED();
 }
 
