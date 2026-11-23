@@ -402,7 +402,7 @@ public:
             {2, &IRequest::GetSystemEventReadableHandles, "GetSystemEventReadableHandles"},
             {3, &IRequest::Cancel, "Cancel"},
             {4, &IRequest::Submit, "Submit"},
-            {5, nullptr, "SetRequirement"},
+            {5, &IRequest::SetRequirement, "SetRequirement"},
             {6, &IRequest::SetRequirementPreset, "SetRequirementPreset"},
             {8, nullptr, "SetPriority"},
             {9, &IRequest::SetNetworkProfileId, "SetNetworkProfileId"},
@@ -415,7 +415,7 @@ public:
             {16, nullptr, "SetGreedy"},
             {17, nullptr, "SetSharable"},
             {18, nullptr, "SetRequirementByRevision"},
-            {19, nullptr, "GetRequirement"},
+            {19, &IRequest::GetRequirement, "GetRequirement"},
             {20, nullptr, "GetRevision"},
             {21, &IRequest::GetAppletInfo, "GetAppletInfo"},
             {22, nullptr, "GetAdditionalInfo"},
@@ -479,6 +479,24 @@ private:
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
         rb.PushEnum(reported_state);
+    }
+
+    void SetRequirement(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        requirement = rp.PopRaw<std::array<u8, 0x24>>();
+
+        LOG_DEBUG(Service_NIFM, "stored HOS23 0x24-byte request requirement");
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetRequirement(HLERequestContext& ctx) {
+        LOG_DEBUG(Service_NIFM, "returning stored HOS23 request requirement");
+
+        IPC::ResponseBuilder rb{ctx, 11};
+        rb.Push(ResultSuccess);
+        rb.PushRaw(requirement);
     }
 
     void SetRequirementPreset(HLERequestContext& ctx) {
@@ -593,6 +611,7 @@ private:
     RequestState state;
     u32 client_id{};
     std::optional<u128> network_profile_id;
+    std::array<u8, 0x24> requirement{};
 
     Kernel::KEvent* event1;
     Kernel::KEvent* event2;

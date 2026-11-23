@@ -13,6 +13,7 @@ files={
  "encore-active/eden-core/include/core/hle/service/ipc_helpers.h":"a266b1a05cf0b20b7cad6d70f9b16dfec503cf7c",
  "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp":"647e2499f82de4ac921e6ab709c8a67d4f2f10cc",
  "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.h":"4599b92b022b18439014288b43c0c3ecb93f0eb7",
+ "encore-active/eden-backports/src/core/hle/service/nifm/nifm.cpp":"a870df7e563b51077abe38e5476b73e7a91e480b",
 }
 for file,expected in files.items():
  d=(ROOT/file).read_bytes()
@@ -21,6 +22,7 @@ for file,expected in files.items():
 ngc=(ROOT/"encore-active/eden-backports/src/core/hle/service/ngc/ngc.cpp").read_text()
 fsp=(ROOT/"encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp").read_text()
 reader=(ROOT/"encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp").read_text()
+nifm=(ROOT/"encore-active/eden-backports/src/core/hle/service/nifm/nifm.cpp").read_text()
 ipch=(ROOT/"encore-active/eden-core/include/core/hle/service/ipc_helpers.h").read_text()
 profile=(ROOT/"encore-active/eden-core/include/core/hle/service/acc/profile_manager.h").read_text()
 assert 'RegisterNamedService("stpl:u"' in ngc
@@ -48,6 +50,13 @@ assert '{66, D<&FSP_SRV::WriteSaveDataFileSystemExtraDataWithMask>, "WriteSaveDa
 masked=fsp.split("Result FSP_SRV::WriteSaveDataFileSystemExtraDataWithMask(",1)[1].split("Result FSP_SRV::FindSaveDataWithFilter",1)[0]
 assert 'mask_buffer.size() == sizeof(FileSys::SaveDataExtraData)' in masked
 assert 'FindDirectorySaveById' in masked
+assert '{5, &IRequest::SetRequirement, "SetRequirement"}' in nifm
+assert '{19, &IRequest::GetRequirement, "GetRequirement"}' in nifm
+requirement_set=nifm.split("void SetRequirement(HLERequestContext& ctx)",1)[1].split("void GetRequirement",1)[0]
+assert 'PopRaw<std::array<u8, 0x24>>()' in requirement_set
+requirement_get=nifm.split("void GetRequirement(HLERequestContext& ctx)",1)[1].split("void SetRequirementPreset",1)[0]
+assert 'ResponseBuilder rb{ctx, 11}' in requirement_get
+assert 'rb.PushRaw(requirement)' in requirement_get
 assert "constexpr Result ResultNotSupported{ErrorModule::HIPC, 1};" in ipch
 assert "static_assert(sizeof(Uid) == 0x10)" in profile
 test=r"""
