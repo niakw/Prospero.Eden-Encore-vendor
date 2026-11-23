@@ -70,6 +70,9 @@ private:
                                     FileSys::SaveDataAttribute save_struct, u128 uid);
     Result CreateSaveDataFileSystemBySystemSaveDataId(
         FileSys::SaveDataAttribute save_struct, FileSys::SaveDataCreationInfo save_create_struct);
+    Result CreateSaveDataFileSystemWithHashSalt(
+        FileSys::SaveDataAttribute attribute, FileSys::SaveDataCreationInfo creation_info,
+        FileSys::SaveDataMetaInfo meta_info, FileSys::HashSalt hash_salt);
     Result CreateSaveDataFileSystemWithCreationInfo2(
         FileSys::SaveDataCreationInfo2 save_data_creation_info);
     Result IsExFatSupported(Out<bool> out_is_supported);

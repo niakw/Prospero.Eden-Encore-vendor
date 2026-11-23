@@ -120,7 +120,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {32, D<&FSP_SRV::ExtendSaveDataFileSystem>, "ExtendSaveDataFileSystem"},
         {33, nullptr, "DeleteCacheStorage"},
         {34, D<&FSP_SRV::GetCacheStorageSize>, "GetCacheStorageSize"},
-        {35, nullptr, "CreateSaveDataFileSystemByHashSalt"},
+        {35, D<&FSP_SRV::CreateSaveDataFileSystemWithHashSalt>, "CreateSaveDataFileSystemWithHashSalt"},
         {36, nullptr, "OpenHostFileSystemWithOption"},
         {37, D<&FSP_SRV::CreateSaveDataFileSystemWithCreationInfo2>, "CreateSaveDataFileSystemWithCreationInfo2"},
         {51, D<&FSP_SRV::OpenSaveDataFileSystem>, "OpenSaveDataFileSystem"},
@@ -330,6 +330,21 @@ Result FSP_SRV::CreateSaveDataFileSystemBySystemSaveDataId(
     FileSys::VirtualDir save_data_dir{};
     R_RETURN(save_data_controller->CreateSaveData(&save_data_dir, FileSys::SaveDataSpaceId::System,
                                                   save_struct));
+}
+
+Result FSP_SRV::CreateSaveDataFileSystemWithHashSalt(
+    FileSys::SaveDataAttribute attribute, FileSys::SaveDataCreationInfo creation_info,
+    FileSys::SaveDataMetaInfo meta_info, FileSys::HashSalt hash_salt) {
+    LOG_DEBUG(Service_FS,
+              "called, attribute={}, space_id={}, size={:#x}, journal={:#x}, meta_size={:#x}",
+              attribute.DebugInfo(), creation_info.space_id, creation_info.size,
+              creation_info.journal_size, meta_info.size);
+
+    // The host-directory save backend has no Horizon integrity layer. Create the real save at
+    // the requested space; hash salt and save-meta allocation remain intentionally unmodeled.
+    FileSys::VirtualDir save_data_dir{};
+    R_RETURN(save_data_controller->CreateSaveData(&save_data_dir, creation_info.space_id,
+                                                  attribute));
 }
 
 Result FSP_SRV::CreateSaveDataFileSystemWithCreationInfo2(
