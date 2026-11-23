@@ -28,7 +28,7 @@ assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
 # The selected NS1/NS2 TextureCache now includes 10 independently reviewed
 # safety and DMA source changes; this full file SHA remains a fail-closed
 # inventory, not a silent acceptance of a changed historic contract.
-assert blob(T)=="5b3db278f70b560a098a2a479d3ee98e78b987f2"
+assert blob(T)=="948960fad4d829ba874746acb6e353a8a2ed19f7"
 for selected_guard in ("SplitLayeredImageCopies(copies)", "index > table.current_limit || index >= table.descriptors.size()", "constexpr u32 MaxDescriptorTableLimit = (1U << 21) - 1;", "TextureCache<P>::WriteDmaCopy(", "gpu_written_dest", "copy_ns1_volume_slice", "if (!gpu_memory || gpu_memory->UsesNativeTiling()", "alias_conversion_format", "PixelFormat::X8_D24_UNORM", "bool upload_completed = false;", "kMaxCompletedDecodesPerTick = 4"):
     assert selected_guard in T.read_text(), ("FC27/NS2 active texture guard lost",selected_guard)
 # Selected NS1/NS2 TextureCache must retain the causal native protections.
