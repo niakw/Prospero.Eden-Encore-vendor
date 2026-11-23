@@ -511,7 +511,7 @@ struct System::Impl {
         // active=0 on a classified NS2 title is a source bug to investigate,
         // not proof that the guest executed zero SVC instructions.
         std::fprintf(stderr,
-                     "EDEN_NS2_PROCESS_TRACE pid=%llu classified=%u active=%u\\n",
+                     "EDEN_NS2_PROCESS_TRACE pid=%llu classified=%u active=%u\n",
                      static_cast<unsigned long long>(process ? process->GetProcessId() : 0),
                      static_cast<unsigned>(is_ns2_program),
                      static_cast<unsigned>(process &&
