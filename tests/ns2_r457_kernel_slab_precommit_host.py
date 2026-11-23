@@ -70,4 +70,11 @@ assert "physical - Core::DramMemoryMap::Base, bytes, 0" in metadata
 assert "CommitKernelDirectGuestRange(" not in metadata
 assert "GetPointer<u64>(" not in metadata
 
+# Clearing an already-zero optimized bit must be a read-only no-op so the
+# shared ZERO metadata chunk is not promoted merely by unoptimized allocation.
+track_unoptimized = kernel.split("void KMemoryManager::Impl::TrackUnoptimizedAllocation", 1)[1].split(
+    "void KMemoryManager::Impl::TrackOptimizedAllocation", 1)[0]
+assert "if (word & mask)" in track_unoptimized
+assert "word &= ~mask;" in track_unoptimized
+
 print("NS2_KERNEL_SLAB_DIRECT_PHYSICAL_PRECOMMIT_OK writers=2")

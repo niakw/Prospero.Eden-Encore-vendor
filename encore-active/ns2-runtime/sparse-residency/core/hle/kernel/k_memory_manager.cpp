@@ -588,9 +588,13 @@ void KMemoryManager::Impl::TrackUnoptimizedAllocation(KernelCore& kernel, KPhysi
 
     // Track.
     while (offset <= last) {
-        // Mark the page as not being optimized-allocated.
-        optimize_map[offset / Common::BitSize<u64>()] &=
-            ~(u64(1) << (offset % Common::BitSize<u64>()));
+        // Avoid a zero->zero store. On PS5 an untouched bitmap word may
+        // still live on the shared read-only ZERO block; writing the same
+        // zero would needlessly promote an entire 2 MiB chunk.
+        auto& word = optimize_map[offset / Common::BitSize<u64>()];
+        const u64 mask = u64(1) << (offset % Common::BitSize<u64>());
+        if (word & mask)
+            word &= ~mask;
 
         offset++;
     }
