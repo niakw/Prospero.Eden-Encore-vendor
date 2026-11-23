@@ -259,6 +259,10 @@ void ServerManager::StartAdditionalHostThreads(const char* name, size_t num_thre
 
 Result ServerManager::LoopProcess() {
     SCOPE_EXIT {
+        // Additional host workers may still be handling a request whose
+        // service state lives on the caller's stack. Join them before this
+        // outer loop returns and lets that state destruct.
+        m_threads.clear();
         m_stopped.Set();
     };
 

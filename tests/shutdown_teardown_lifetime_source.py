@@ -152,6 +152,9 @@ assert "vi_worker =" in services_source
 assert 'WaitForService("dispdrv")' in vi_source and 'WaitForService("nvdrv:s")' in vi_source
 assert "void SkipLoop();" in server_header and "m_loop_skipped" in server_header
 assert "void ServerManager::SkipLoop()" in server_source
+loop_process = server_source.split("Result ServerManager::LoopProcess()", 1)[1].split(
+    "void ServerManager::SkipLoop()", 1)[0]
+assert loop_process.index("m_threads.clear();") < loop_process.index("m_stopped.Set();")
 print("PS5_HOST_SERVICE_SHUTDOWN_LIFETIME_SOURCE_PASS waiters=closed workers=joinable")
 
 cores = {
