@@ -295,12 +295,22 @@ void Fermi2D::Blit() {
         return;
     }
     if (!rasterizer->AccelerateSurfaceCopy(src, regs.dst, config)) {
-        // A block-linear volume copy names one depth slice by the surface
-        // address. The software blitter still assumes a single decoded slice
-        // and must never receive a depth>1 fallback: TextureCache either
-        // resolves the cached 3D slices or the command is rejected unchanged.
+        // The software swizzler can decode the z=0 subrectangle of a 3D
+        // surface when both guest layer selectors are zero. Preserve the
+        // unresolved non-zero slice case: origin_z is still hard-coded to 0.
         if (src.depth != 1 || regs.dst.depth != 1) {
-            UNIMPLEMENTED_MSG("Unresolved Fermi2D volume-slice copy");
+            const bool base_layer_3d_copy =
+                src.depth >= 1 && regs.dst.depth >= 1 &&
+                src.layer == 0 && regs.dst.layer == 0 &&
+                regs.clip_enable == 0;
+            if (!base_layer_3d_copy) {
+                UNIMPLEMENTED_MSG("Unresolved Fermi2D volume-slice copy");
+                return;
+            }
+            Surface dst = regs.dst;
+            src.depth = 1;
+            dst.depth = 1;
+            sw_blitter->Blit(src, dst, config);
             return;
         }
         sw_blitter->Blit(src, regs.dst, config);
