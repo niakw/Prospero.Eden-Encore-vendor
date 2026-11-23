@@ -127,7 +127,7 @@ Result IAudioDevice::GetActiveAudioDeviceNameAuto(
 }
 
 Result IAudioDevice::QueryAudioDeviceSystemEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_DEBUG(Service_Audio, "(STUBBED) called");
+    LOG_DEBUG(Service_Audio, "called");
     event->Signal(system.Kernel());
     *out_event = &event->GetReadableEvent();
     R_SUCCEED();
@@ -147,7 +147,7 @@ Result IAudioDevice::QueryAudioDeviceOutputEvent(OutCopyHandle<Kernel::KReadable
 
 Result IAudioDevice::GetActiveChannelCount(Out<u32> out_active_channel_count) {
     *out_active_channel_count = system.AudioCore().GetOutputSink().GetSystemChannels();
-    LOG_DEBUG(Service_Audio, "(STUBBED) called. Channels={}", *out_active_channel_count);
+    LOG_DEBUG(Service_Audio, "called. Channels={}", *out_active_channel_count);
     R_SUCCEED();
 }
 

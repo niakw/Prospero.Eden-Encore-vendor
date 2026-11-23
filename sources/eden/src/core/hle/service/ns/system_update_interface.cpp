@@ -46,7 +46,7 @@ Result ISystemUpdateInterface::GetBackgroundNetworkUpdateState(
 
 Result ISystemUpdateInterface::OpenSystemUpdateControl(
     Out<SharedPointer<ISystemUpdateControl>> out_system_update_control) {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
+    LOG_DEBUG(Service_NS, "called");
     *out_system_update_control = std::make_shared<ISystemUpdateControl>(system);
     R_SUCCEED();
 }

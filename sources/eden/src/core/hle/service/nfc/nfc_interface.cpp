@@ -266,7 +266,7 @@ void NfcInterface::WriteMifare(HLERequestContext& ctx) {
     memcpy(write_commands.data(), buffer.data(),
            number_of_commands * sizeof(MifareWriteBlockParameter));
 
-    LOG_INFO(Service_NFC, "(STUBBED) called, device_handle={}, write_commands_size={}",
+    LOG_INFO(Service_NFC, "called, device_handle={}, write_commands_size={}",
              device_handle, number_of_commands);
 
     auto result = GetManager()->WriteMifare(device_handle, write_commands);

@@ -46,7 +46,7 @@ public:
 
 private:
     Result RegisterBleEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
-        LOG_WARNING(Service_BTM, "(STUBBED) called");
+        LOG_DEBUG(Service_BTM, "called");
 
         *out_event = &register_event->GetReadableEvent();
         R_SUCCEED();
