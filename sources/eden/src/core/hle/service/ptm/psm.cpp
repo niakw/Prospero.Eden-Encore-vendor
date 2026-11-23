@@ -126,19 +126,19 @@ PSM::PSM(Core::System& system_) : ServiceFramework{system_, "psm"} {
     static const FunctionInfo functions[] = {
         {0, &PSM::GetBatteryChargePercentage, "GetBatteryChargePercentage"},
         {1, &PSM::GetChargerType, "GetChargerType"},
-        {2, nullptr, "EnableBatteryCharging"},
-        {3, nullptr, "DisableBatteryCharging"},
-        {4, nullptr, "IsBatteryChargingEnabled"},
-        {5, nullptr, "AcquireControllerPowerSupply"},
-        {6, nullptr, "ReleaseControllerPowerSupply"},
+        {2, &PSM::EnableBatteryCharging, "EnableBatteryCharging"},
+        {3, &PSM::DisableBatteryCharging, "DisableBatteryCharging"},
+        {4, &PSM::IsBatteryChargingEnabled, "IsBatteryChargingEnabled"},
+        {5, &PSM::AcquireControllerPowerSupply, "AcquireControllerPowerSupply"},
+        {6, &PSM::ReleaseControllerPowerSupply, "ReleaseControllerPowerSupply"},
         {7, &PSM::OpenSession, "OpenSession"},
-        {8, nullptr, "EnableEnoughPowerChargeEmulation"},
-        {9, nullptr, "DisableEnoughPowerChargeEmulation"},
-        {10, nullptr, "EnableFastBatteryCharging"},
-        {11, nullptr, "DisableFastBatteryCharging"},
+        {8, &PSM::EnableEnoughPowerChargeEmulation, "EnableEnoughPowerChargeEmulation"},
+        {9, &PSM::DisableEnoughPowerChargeEmulation, "DisableEnoughPowerChargeEmulation"},
+        {10, &PSM::EnableFastBatteryCharging, "EnableFastBatteryCharging"},
+        {11, &PSM::DisableFastBatteryCharging, "DisableFastBatteryCharging"},
         {12, &PSM::GetBatteryVoltageState, "GetBatteryVoltageState"},
-        {13, nullptr, "GetRawBatteryChargePercentage"},
-        {14, nullptr, "IsEnoughPowerSupplied"},
+        {13, &PSM::GetRawBatteryChargePercentage, "GetRawBatteryChargePercentage"},
+        {14, &PSM::IsEnoughPowerSupplied, "IsEnoughPowerSupplied"},
         {15, &PSM::GetBatteryAgePercentage, "GetBatteryAgePercentage"},
         {16, nullptr, "GetBatteryChargeInfoEvent"},
         {17, &PSM::GetBatteryChargeInfoFields, "GetBatteryChargeInfoFields"},
@@ -181,6 +181,85 @@ void PSM::GetChargerType(HLERequestContext& ctx) {
     rb.PushEnum(charger);
 }
 
+void PSM::EnableBatteryCharging(HLERequestContext& ctx) {
+    battery_charging_enabled.store(true, std::memory_order_relaxed);
+    LOG_DEBUG(Service_PTM, "battery charging policy enabled");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void PSM::DisableBatteryCharging(HLERequestContext& ctx) {
+    battery_charging_enabled.store(false, std::memory_order_relaxed);
+    LOG_DEBUG(Service_PTM, "battery charging policy disabled");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void PSM::IsBatteryChargingEnabled(HLERequestContext& ctx) {
+    const bool enabled = battery_charging_enabled.load(std::memory_order_relaxed);
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.Push<u8>(enabled);
+}
+
+void PSM::AcquireControllerPowerSupply(HLERequestContext& ctx) {
+    controller_power_supply.store(true, std::memory_order_relaxed);
+    LOG_DEBUG(Service_PTM, "controller power supply acquired");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void PSM::ReleaseControllerPowerSupply(HLERequestContext& ctx) {
+    controller_power_supply.store(false, std::memory_order_relaxed);
+    LOG_DEBUG(Service_PTM, "controller power supply released");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void PSM::EnableEnoughPowerChargeEmulation(HLERequestContext& ctx) {
+    enough_power_charge_emulation.store(true, std::memory_order_relaxed);
+    LOG_DEBUG(Service_PTM, "enough-power charge emulation enabled");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void PSM::DisableEnoughPowerChargeEmulation(HLERequestContext& ctx) {
+    enough_power_charge_emulation.store(false, std::memory_order_relaxed);
+    LOG_DEBUG(Service_PTM, "enough-power charge emulation disabled");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void PSM::EnableFastBatteryCharging(HLERequestContext& ctx) {
+    fast_battery_charging.store(true, std::memory_order_relaxed);
+    LOG_DEBUG(Service_PTM, "fast battery charging policy enabled");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void PSM::DisableFastBatteryCharging(HLERequestContext& ctx) {
+    fast_battery_charging.store(false, std::memory_order_relaxed);
+    LOG_DEBUG(Service_PTM, "fast battery charging policy disabled");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+}
+
+void PSM::GetRawBatteryChargePercentage(HLERequestContext& ctx) {
+    const auto power_status = Common::GetPowerStatus();
+    f64 percentage = 100.0;
+    if (power_status.has_battery && power_status.percentage >= 0) {
+        percentage = static_cast<f64>(power_status.percentage);
+    }
+
+    LOG_DEBUG(Service_PTM, "raw battery charge percentage={}", percentage);
+    IPC::ResponseBuilder rb{ctx, 4};
+    rb.Push(ResultSuccess);
+    rb.PushRaw<f64>(percentage);
+}
+
+void PSM::IsEnoughPowerSupplied(HLERequestContext& ctx) {
+    const auto power_status = Common::GetPowerStatus();
+    const bool enough = enough_power_charge_emulation.load(std::memory_order_relaxed) ||
+                        !power_status.has_battery || power_status.charging;
+
+    LOG_DEBUG(Service_PTM, "enough power supplied={}", enough);
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.Push<u8>(enough);
+}
+
 void PSM::OpenSession(HLERequestContext& ctx) {
     LOG_DEBUG(Service_PTM, "called");
 
@@ -220,9 +299,9 @@ struct BatteryChargeInfoFields {
     INSERT_PADDING_BYTES_NOINIT(2);
     u32 vdd50_state;
     u32 temperature_celcius;
-    f32 battery_charge_percentage;
+    u32 battery_charge_percentage;
     u32 battery_charge_milli_voltage;
-    f32 battery_age_percentage;
+    u32 battery_age_percentage;
     u32 usb_power_role;
     u32 usb_charger_type;
     u32 charger_input_voltage_limit;
@@ -239,9 +318,14 @@ void PSM::GetBatteryChargeInfoFields(HLERequestContext& ctx) {
     Common::PowerStatus power_status = Common::GetPowerStatus();
 
     BatteryChargeInfoFields r{};
-    r.battery_charge_percentage = f32(power_status.percentage); //100%
-    r.battery_age_percentage = f32(power_status.percentage); //100%
-    r.battery_charging = power_status.charging ? 1 : 0;
+    const u32 charge_percent_mille =
+        power_status.has_battery && power_status.percentage >= 0
+            ? static_cast<u32>(power_status.percentage) * 1000U
+            : 100000U;
+    r.battery_charge_percentage = charge_percent_mille;
+    r.battery_age_percentage = 100000U;
+    r.battery_charging =
+        power_status.charging && battery_charging_enabled.load(std::memory_order_relaxed) ? 1 : 0;
     r.charger_type = u32(power_status.has_battery && power_status.charging
         ? ChargerType::RegularCharger : ChargerType::Unplugged);
     r.charger_input_voltage_limit = 100;
@@ -249,6 +333,10 @@ void PSM::GetBatteryChargeInfoFields(HLERequestContext& ctx) {
     r.input_current_limit = 100;
     r.boost_mode_current_limit = 100;
     r.fast_charge_current_limit = 100;
+    r.fast_battery_charging =
+        fast_battery_charging.load(std::memory_order_relaxed) ? 1 : 0;
+    r.controller_power_supply =
+        controller_power_supply.load(std::memory_order_relaxed) ? 1 : 0;
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
