@@ -22,6 +22,7 @@ public:
     ~IHidDebugServer() override;
 
 private:
+    void RejectUnsupportedDebugCommand(HLERequestContext& ctx);
     Result DeactivateDebugPad();
     Result DeactivateMouse();
     Result DeactivateKeyboard();
