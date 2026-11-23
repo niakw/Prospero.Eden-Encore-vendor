@@ -234,6 +234,7 @@ struct NifmNetworkProfileData {
 static_assert(sizeof(NifmNetworkProfileData) == 0x18E, "NifmNetworkProfileData has incorrect size.");
 
 struct PendingProfile {
+    u128 uuid{};
     std::array<char, 0x21> ssid{};
     u8 ssid_len{};
     std::array<char, 0x41> passphrase{};
@@ -492,16 +493,12 @@ private:
 
     void SetNetworkProfileId(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
-        const auto ssid_length = rp.Pop<u32>();
-        if (ssid_length > 0x20) {
-            LOG_ERROR(Service_NIFM, "Invalid SSID length: {}", ssid_length);
-            IPC::ResponseBuilder{ctx, 2}.Push(ResultInvalidInput);
-            return;
-        }
-        LOG_WARNING(Service_NIFM, "(STUBBED) called, ssid_length={}", ssid_length);
+        network_profile_id = rp.PopRaw<u128>();
+        LOG_DEBUG(Service_NIFM, "called, profile_id={:016x}{:016x}",
+                  network_profile_id->second, network_profile_id->first);
 
         IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(1);
+        rb.Push(ResultSuccess);
     }
 
     void GetResult(HLERequestContext& ctx) {
@@ -595,6 +592,7 @@ private:
     std::mutex state_lock;
     RequestState state;
     u32 client_id{};
+    std::optional<u128> network_profile_id;
 
     Kernel::KEvent* event1;
     Kernel::KEvent* event2;
@@ -835,6 +833,7 @@ void IGeneralService::SetNetworkProfile(HLERequestContext& ctx) {
     const auto* np = reinterpret_cast<const NifmNetworkProfileData*>(data.data());
 
     PendingProfile prof{};
+    prof.uuid = np->uuid;
     prof.ssid_len = np->wireless_setting_data.ssid_length;
     std::memcpy(prof.ssid.data(), np->wireless_setting_data.ssid.data(), prof.ssid_len);
     std::memcpy(prof.passphrase.data(), np->wireless_setting_data.passphrase.data(),
@@ -849,8 +848,18 @@ void IGeneralService::SetNetworkProfile(HLERequestContext& ctx) {
 }
 
 void IGeneralService::RemoveNetworkProfile(HLERequestContext& ctx) {
-    LOG_WARNING(Service_NIFM, "(STUBBED) called");
+    IPC::RequestParser rp{ctx};
+    const auto profile_id = rp.PopRaw<u128>();
 
+    {
+        std::scoped_lock lk{g_profile_mtx};
+        if (g_pending_profile && g_pending_profile->uuid == profile_id) {
+            g_pending_profile.reset();
+        }
+    }
+
+    LOG_DEBUG(Service_NIFM, "called, profile_id={:016x}{:016x}",
+              profile_id.second, profile_id.first);
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
 }
