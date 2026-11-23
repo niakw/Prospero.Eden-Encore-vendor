@@ -56,6 +56,10 @@ public:
 private:
     Result SetCurrentProcess(ClientProcessId pid);
     Result OpenDataFileSystemByCurrentProcess(OutInterface<IFileSystem> out_interface);
+    Result OpenDataFileSystemByProgramId(OutInterface<IFileSystem> out_interface,
+                                         u64 open_program_id);
+    Result OpenDataFileSystemWithProgramIndex(OutInterface<IFileSystem> out_interface,
+                                              u8 program_index);
     Result OpenFileSystemWithPatch(OutInterface<IFileSystem> out_interface,
                                    FileSystemProxyType type, u64 open_program_id);
     Result InvalidateBisCache();

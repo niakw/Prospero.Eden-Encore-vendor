@@ -100,7 +100,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {2, D<&FSP_SRV::OpenDataFileSystemByCurrentProcess>, "OpenDataFileSystemByCurrentProcess"},
         {7, D<&FSP_SRV::OpenFileSystemWithPatch>, "OpenFileSystemWithPatch"},
         {8, nullptr, "OpenFileSystemWithId"},
-        {9, nullptr, "OpenDataFileSystemByApplicationId"},
+        {9, D<&FSP_SRV::OpenDataFileSystemByProgramId>, "OpenDataFileSystemByProgramId"},
         {11, nullptr, "OpenBisFileSystem"},
         {12, nullptr, "OpenBisStorage"},
         {13, D<&FSP_SRV::InvalidateBisCache>, "InvalidateBisCache"},
@@ -158,7 +158,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {201, D<&FSP_SRV::OpenDataStorageByProgramId>, "OpenDataStorageByProgramId"},
         {202, D<&FSP_SRV::OpenDataStorageByDataId>, "OpenDataStorageByDataId"},
         {203, D<&FSP_SRV::OpenPatchDataStorageByCurrentProcess>, "OpenPatchDataStorageByCurrentProcess"},
-        {204, nullptr, "OpenDataFileSystemByProgramIndex"},
+        {204, D<&FSP_SRV::OpenDataFileSystemWithProgramIndex>, "OpenDataFileSystemWithProgramIndex"},
         {205, D<&FSP_SRV::OpenDataStorageWithProgramIndex>, "OpenDataStorageWithProgramIndex"},
         {206, nullptr, "OpenDataStorageByPath"},
         {210, D<&FSP_SRV::SetCurrentProcess>, "SetCurrentProcess"},
@@ -618,6 +618,41 @@ Result FSP_SRV::OpenSaveDataTransferProhibiter(
     // Encore has no save-data transfer manager. There is therefore no transfer
     // operation for this lifetime token to block; do not add dormant lock state.
     *out_prohibiter = std::make_shared<ISaveDataTransferProhibiter>(system);
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenDataFileSystemByProgramId(OutInterface<IFileSystem> out_interface,
+                                                   u64 open_program_id) {
+    LOG_DEBUG(Service_FS, "called, program_id={:016X}", open_program_id);
+
+    auto patched_romfs =
+        romfs_controller->OpenPatchedRomFS(open_program_id, FileSys::ContentRecordType::Program);
+    R_UNLESS(patched_romfs != nullptr, FileSys::ResultTargetNotFound);
+
+    auto extracted_romfs = FileSys::ExtractRomFS(patched_romfs);
+    R_UNLESS(extracted_romfs != nullptr, FileSys::ResultTargetNotFound);
+
+    *out_interface = std::make_shared<IFileSystem>(
+        system, std::move(extracted_romfs),
+        SizeGetter::FromStorageId(fsc, FileSys::StorageId::NandUser));
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenDataFileSystemWithProgramIndex(OutInterface<IFileSystem> out_interface,
+                                                    u8 program_index) {
+    LOG_DEBUG(Service_FS, "called, program_id={:016X}, program_index={}", program_id,
+              program_index);
+
+    auto patched_romfs = romfs_controller->OpenPatchedRomFSWithProgramIndex(
+        program_id, program_index, FileSys::ContentRecordType::Program);
+    R_UNLESS(patched_romfs != nullptr, FileSys::ResultTargetNotFound);
+
+    auto extracted_romfs = FileSys::ExtractRomFS(patched_romfs);
+    R_UNLESS(extracted_romfs != nullptr, FileSys::ResultTargetNotFound);
+
+    *out_interface = std::make_shared<IFileSystem>(
+        system, std::move(extracted_romfs),
+        SizeGetter::FromStorageId(fsc, FileSys::StorageId::NandUser));
     R_SUCCEED();
 }
 
