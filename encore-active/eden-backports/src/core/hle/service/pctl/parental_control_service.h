@@ -45,7 +45,11 @@ private:
     Result IsRestrictionEnabled(Out<bool> out_restriction_enabled);
     Result GetSafetyLevel(Out<u32> out_safety_level);
     Result GetCurrentSettings(Out<RestrictionSettings> out_settings);
+    Result SetCustomSafetyLevelSettings(const RestrictionSettings& settings);
     Result GetFreeCommunicationApplicationListCount(Out<s32> out_count);
+    Result GetFreeCommunicationApplicationList(
+        Out<u32> out_count,
+        OutArray<std::array<u8, 0x10>, BufferAttr_HipcMapAlias> out_list, u32 offset);
     Result ConfirmStereoVisionRestrictionConfigurable();
     Result IsStereoVisionPermitted(Out<bool> out_is_permitted);
     Result UnlockRestrictionTemporarily(InArray<char, BufferAttr_HipcPointer> pin_code_buffer);

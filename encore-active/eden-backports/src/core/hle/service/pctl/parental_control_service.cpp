@@ -53,13 +53,13 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1033, nullptr, "SetSafetyLevel"},
         {1034, nullptr, "GetSafetyLevelSettings"},
         {1035, D<&IParentalControlService::GetCurrentSettings>, "GetCurrentSettings"},
-        {1036, nullptr, "SetCustomSafetyLevelSettings"},
+        {1036, D<&IParentalControlService::SetCustomSafetyLevelSettings>, "SetCustomSafetyLevelSettings"},
         {1037, nullptr, "GetDefaultRatingOrganization"},
         {1038, nullptr, "SetDefaultRatingOrganization"},
         {1039, D<&IParentalControlService::GetFreeCommunicationApplicationListCount>, "GetFreeCommunicationApplicationListCount"},
         {1042, nullptr, "AddToFreeCommunicationApplicationList"},
         {1043, nullptr, "DeleteSettings"},
-        {1044, nullptr, "GetFreeCommunicationApplicationList"},
+        {1044, D<&IParentalControlService::GetFreeCommunicationApplicationList>, "GetFreeCommunicationApplicationList"},
         {1045, nullptr, "UpdateFreeCommunicationApplicationList"},
         {1046, nullptr, "DisableFeaturesForReset"},
         {1047, nullptr, "NotifyApplicationDownloadStarted"},
@@ -364,11 +364,30 @@ Result IParentalControlService::GetCurrentSettings(Out<RestrictionSettings> out_
     R_SUCCEED();
 }
 
+Result IParentalControlService::SetCustomSafetyLevelSettings(
+    const RestrictionSettings& settings_) {
+    restriction_settings = settings_;
+    LOG_DEBUG(Service_PCTL,
+              "Custom restrictions updated: rating_age={}, sns={}, free_communication={}",
+              restriction_settings.rating_age, restriction_settings.sns_post_restriction,
+              restriction_settings.free_communication_restriction);
+    R_SUCCEED();
+}
+
 Result IParentalControlService::GetFreeCommunicationApplicationListCount(Out<s32> out_count) {
     // No whitelist is persisted. Returning four fabricated entries made callers expect records
     // that could never be listed; an empty list is the ABI-consistent local state.
     *out_count = 0;
     LOG_DEBUG(Service_PCTL, "Returning empty free-communication application list");
+    R_SUCCEED();
+}
+
+Result IParentalControlService::GetFreeCommunicationApplicationList(
+    Out<u32> out_count,
+    OutArray<std::array<u8, 0x10>, BufferAttr_HipcMapAlias> out_list, u32 offset) {
+    *out_count = 0;
+    LOG_DEBUG(Service_PCTL, "Returning empty free-communication list, offset={}, capacity={}",
+              offset, out_list.size());
     R_SUCCEED();
 }
 
