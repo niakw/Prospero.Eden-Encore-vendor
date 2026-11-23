@@ -504,6 +504,16 @@
       "active": "b121e6729e546d437713cbd42be0e2eed3f0c102cfe6902ebae849a16aa8d716",
       "bytes": 2470,
       "upstream": "8aa0df0611d60719073e534cb291006e71c91babe8164d93fa5a72e8e32d154a"
+    },
+    "src/core/hle/service/ns/factory_reset_interface.cpp": {
+      "active": "c2c5c74d573c74a0f39bcda6c6e4fc6e8c8c4eecf821bb68afcfa30c153cf2e6",
+      "bytes": 1523,
+      "upstream": "01f30937b2638f6934ed56eea706f952380b525c8fcf99db0353a55d662cdfe0"
+    },
+    "src/core/hle/service/ns/factory_reset_interface.h": {
+      "active": "d9b8e35f04bf7ef53735176d25f77edb1e28070f801bb932783a576ccda123dc",
+      "bytes": 458,
+      "upstream": "496ab1bd9ca8341d79f378473e92eed095495763ce068eee16c4ae646b1da615"
     }
   },
   "excluded_experimental": [
