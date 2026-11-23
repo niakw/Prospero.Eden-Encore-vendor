@@ -124,7 +124,6 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {2, C<&ISystemSettingsServer::GetNetworkSettings>, "GetNetworkSettings"},
         {3, C<&ISystemSettingsServer::GetFirmwareVersion>, "GetFirmwareVersion"},
         {4, C<&ISystemSettingsServer::GetFirmwareVersion2>, "GetFirmwareVersion2"},
-        {5, nullptr, "GetFirmwareVersionDigest"},
         {7, C<&ISystemSettingsServer::GetLockScreenFlag>, "GetLockScreenFlag"},
         {8, C<&ISystemSettingsServer::SetLockScreenFlag>, "SetLockScreenFlag"},
         {9, C<&ISystemSettingsServer::GetBacklightSettings>, "GetBacklightSettings"},
