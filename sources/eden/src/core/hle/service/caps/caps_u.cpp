@@ -4,6 +4,8 @@
 // SPDX-FileCopyrightText: Copyright 2020 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <vector>
+
 #include "common/logging.h"
 #include "core/hle/service/caps/caps_manager.h"
 #include "core/hle/service/caps/caps_types.h"
@@ -108,6 +110,7 @@ Result IAlbumApplicationService::LoadAlbumScreenShotImageByAruid(
         out_image_output,
     OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
     OutArray<u8, BufferAttr_HipcMapAlias> out_work_buffer) {
+    (void)out_work_buffer;
     const auto file_id = MakeAlbumFileId(file_entry, aruid, file_entry.entry.content);
     LoadAlbumScreenShotImageOutput output{};
     R_TRY(manager->LoadAlbumScreenShotImage(output, out_image, file_id, decoder_options));
@@ -158,6 +161,7 @@ Result IAlbumApplicationService::GetAlbumFileList2AafeUidAruidDeprecated(
     Out<u64> out_entries_count, ContentType content_type, AlbumFileDateTime start_date_time,
     AlbumFileDateTime end_date_time, Common::UUID user_id, ClientAppletResourceUserId aruid,
     OutArray<ApplicationAlbumFileEntry, BufferAttr_HipcMapAlias> out_entries) {
+    (void)user_id;
     R_RETURN(GetAlbumFileList1AafeAruidDeprecated(out_entries_count, content_type, start_date_time,
                                                   end_date_time, aruid, out_entries));
 }
@@ -166,6 +170,7 @@ Result IAlbumApplicationService::GetAlbumFileList4AaeUidAruid(
     Out<u64> out_entries_count, ContentType content_type, AlbumFileDateTime start_date_time,
     AlbumFileDateTime end_date_time, Common::UUID user_id, ClientAppletResourceUserId aruid,
     OutArray<ApplicationAlbumEntry, BufferAttr_HipcMapAlias> out_entries) {
+    (void)user_id;
     R_RETURN(manager->GetAlbumFileList(out_entries, *out_entries_count, content_type,
                                        start_date_time, end_date_time, aruid.pid));
 }
