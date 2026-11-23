@@ -83,6 +83,12 @@ private:
     u64 m_default_fade_out_ns{};
     bool m_input_target_force_enabled{};
     f32 m_system_output_master_volume{1.0f};
+    std::array<Set::AudioOutputMode, 6> m_output_mode_settings{{
+        Set::AudioOutputMode::ch_7_1, Set::AudioOutputMode::ch_7_1,
+        Set::AudioOutputMode::ch_7_1, Set::AudioOutputMode::ch_7_1,
+        Set::AudioOutputMode::ch_7_1, Set::AudioOutputMode::ch_7_1,
+    }};
+    HeadphoneOutputLevelMode m_headphone_output_level_mode{HeadphoneOutputLevelMode::Normal};
 };
 
 } // namespace Service::Audio

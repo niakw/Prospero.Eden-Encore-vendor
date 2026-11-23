@@ -255,33 +255,41 @@ Result IAudioController::GetForceMutePolicy(Out<ForceMutePolicy> out_mute_policy
 
 Result IAudioController::GetOutputModeSetting(Out<Set::AudioOutputMode> out_output_mode,
                                               Set::AudioOutputModeTarget target) {
-    LOG_WARNING(Audio, "(STUBBED) called, target={}", target);
+    const auto idx = static_cast<size_t>(target);
+    R_UNLESS(idx < m_output_mode_settings.size(), ResultInvalidArgument);
 
-    *out_output_mode = Set::AudioOutputMode::ch_7_1;
+    *out_output_mode = m_output_mode_settings[idx];
+    LOG_DEBUG(Audio, "output mode setting target={}, mode={}", target, *out_output_mode);
     R_SUCCEED();
 }
 
 Result IAudioController::SetOutputModeSetting(Set::AudioOutputModeTarget target,
                                               Set::AudioOutputMode output_mode) {
-    LOG_INFO(Service_SET, "called, target={}, output_mode={}", target, output_mode);
+    const auto idx = static_cast<size_t>(target);
+    R_UNLESS(idx < m_output_mode_settings.size(), ResultInvalidArgument);
+
+    m_output_mode_settings[idx] = output_mode;
+    LOG_INFO(Service_SET, "output mode setting target={}, mode={}", target, output_mode);
     R_SUCCEED();
 }
 
 Result IAudioController::SetHeadphoneOutputLevelMode(HeadphoneOutputLevelMode output_level_mode) {
-    LOG_WARNING(Audio, "(STUBBED) called, output_level_mode={}", output_level_mode);
+    m_headphone_output_level_mode = output_level_mode;
+    LOG_INFO(Audio, "headphone output level mode={}", output_level_mode);
     R_SUCCEED();
 }
 
 Result IAudioController::GetHeadphoneOutputLevelMode(
     Out<HeadphoneOutputLevelMode> out_output_level_mode) {
-    LOG_INFO(Audio, "called");
-
-    *out_output_level_mode = HeadphoneOutputLevelMode::Normal;
+    *out_output_level_mode = m_headphone_output_level_mode;
+    LOG_DEBUG(Audio, "headphone output level mode={}", *out_output_level_mode);
     R_SUCCEED();
 }
 
 Result IAudioController::NotifyHeadphoneVolumeWarningDisplayedEvent() {
-    LOG_WARNING(Service_Audio, "(STUBBED) called");
+    // Encore does not persist a separate headphone-warning latch. There is no
+    // warning state to clear, so acknowledging the notification is idempotent.
+    LOG_DEBUG(Service_Audio, "headphone volume warning acknowledged; no persistent latch");
     R_SUCCEED();
 }
 
