@@ -87,6 +87,9 @@ private:
     Result CreateSaveDataFileSystemWithCreationInfo2(
         FileSys::SaveDataCreationInfo2 save_data_creation_info);
     Result IsExFatSupported(Out<bool> out_is_supported);
+    Result OpenGameCardStorage(OutInterface<IStorage> out_interface, u32 handle, u32 partition_id);
+    Result OpenGameCardFileSystem(OutInterface<IFileSystem> out_interface, u32 handle,
+                                  u32 partition_id);
     Result OpenSaveDataFileSystem(OutInterface<IFileSystem> out_interface,
                                   FileSys::SaveDataSpaceId space_id,
                                   FileSys::SaveDataAttribute attribute);

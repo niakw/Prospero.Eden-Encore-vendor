@@ -23,6 +23,7 @@
 #include "core/core.h"
 #include "core/crypto/key_manager.h"
 #include "core/file_sys/bis_factory.h"
+#include "core/file_sys/card_image.h"
 #include "core/file_sys/content_archive.h"
 #include "core/file_sys/errors.h"
 #include "core/file_sys/fs_directory.h"
@@ -119,8 +120,8 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {26, nullptr, "FormatSdCardDryRun"},
         {27, D<&FSP_SRV::IsExFatSupported>, "IsExFatSupported"},
         {28, nullptr, "DeleteSaveDataFileSystemBySaveDataAttribute"},
-        {30, nullptr, "OpenGameCardStorage"},
-        {31, nullptr, "OpenGameCardFileSystem"},
+        {30, D<&FSP_SRV::OpenGameCardStorage>, "OpenGameCardStorage"},
+        {31, D<&FSP_SRV::OpenGameCardFileSystem>, "OpenGameCardFileSystem"},
         {32, D<&FSP_SRV::ExtendSaveDataFileSystem>, "ExtendSaveDataFileSystem"},
         {33, D<&FSP_SRV::DeleteCacheStorage>, "DeleteCacheStorage"},
         {34, D<&FSP_SRV::GetCacheStorageSize>, "GetCacheStorageSize"},
@@ -973,6 +974,50 @@ Result FSP_SRV::GetProgramIndexForAccessLog(Out<u32> out_program_index,
 
 Result FSP_SRV::FlushAccessLogOnSdCard() {
     LOG_DEBUG(Service_FS, "called; no buffered SD access-log sink is modeled");
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenGameCardStorage(OutInterface<IStorage> out_interface, u32 handle,
+                                        u32 partition_id) {
+    LOG_DEBUG(Service_FS, "called, handle={:#x}, raw_partition={}", handle, partition_id);
+
+    auto* gamecard = fsc.GetGameCard();
+    R_UNLESS(gamecard != nullptr, FileSys::ResultInvalidArgument);
+
+    FileSys::VirtualFile storage{};
+    switch (partition_id) {
+    case 0: // GameCardPartitionRaw::NormalReadable
+        storage = gamecard->GetStoragePartition0();
+        break;
+    case 1: // GameCardPartitionRaw::SecureReadable
+        storage = gamecard->GetStoragePartition1();
+        break;
+    case 2: // GameCardPartitionRaw::RootWriteable
+        // XCI is mounted read-only by Encore; never expose a fake writable root.
+        R_RETURN(FileSys::ResultInvalidArgument);
+    default:
+        R_RETURN(FileSys::ResultInvalidArgument);
+    }
+
+    R_UNLESS(storage != nullptr, FileSys::ResultInvalidArgument);
+    *out_interface = std::make_shared<IStorage>(system, std::move(storage));
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenGameCardFileSystem(OutInterface<IFileSystem> out_interface, u32 handle,
+                                           u32 partition_id) {
+    LOG_DEBUG(Service_FS, "called, handle={:#x}, partition={}", handle, partition_id);
+
+    auto* gamecard = fsc.GetGameCard();
+    R_UNLESS(gamecard != nullptr, FileSys::ResultInvalidArgument);
+    R_UNLESS(partition_id <= static_cast<u32>(FileSys::XCIPartition::Logo),
+             FileSys::ResultInvalidArgument);
+
+    auto partition = gamecard->GetPartition(static_cast<FileSys::XCIPartition>(partition_id));
+    R_UNLESS(partition != nullptr, FileSys::ResultInvalidArgument);
+
+    *out_interface = std::make_shared<IFileSystem>(
+        system, std::move(partition), SizeGetter::FromStorageId(fsc, FileSys::StorageId::GameCard));
     R_SUCCEED();
 }
 
