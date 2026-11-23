@@ -1,0 +1,194 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#include <algorithm>
+#include <cstring>
+
+#include "common/settings.h"
+#include "core/core.h"
+#include "core/file_sys/common_funcs.h"
+#include "core/hle/service/am/applet.h"
+#include "core/hle/service/am/service/applet_common_functions.h"
+#include "core/hle/service/am/service/storage.h"
+#include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/vi/vi_types.h"
+
+namespace Service::AM {
+
+IAppletCommonFunctions::IAppletCommonFunctions(Core::System& system_,
+                                               std::shared_ptr<Applet> applet_)
+    : ServiceFramework{system_, "IAppletCommonFunctions"}, applet{std::move(applet_)} {
+    // clang-format off
+    static const FunctionInfo functions[] = {
+        {0, D<&IAppletCommonFunctions::SetTerminateResult>, "SetTerminateResult"},
+        {10, D<&IAppletCommonFunctions::ReadThemeStorage>, "ReadThemeStorage"},
+        {11, D<&IAppletCommonFunctions::WriteThemeStorage>, "WriteThemeStorage"},
+        {20, D<&IAppletCommonFunctions::PushToAppletBoundChannel>, "PushToAppletBoundChannel"},
+        {21, D<&IAppletCommonFunctions::TryPopFromAppletBoundChannel>, "TryPopFromAppletBoundChannel"},
+        {40, D<&IAppletCommonFunctions::GetDisplayLogicalResolution>, "GetDisplayLogicalResolution"},
+        {42, D<&IAppletCommonFunctions::SetDisplayMagnification>, "SetDisplayMagnification"},
+        {50, D<&IAppletCommonFunctions::SetHomeButtonDoubleClickEnabled>, "SetHomeButtonDoubleClickEnabled"},
+        {51, D<&IAppletCommonFunctions::GetHomeButtonDoubleClickEnabled>, "GetHomeButtonDoubleClickEnabled"},
+        {52, D<&IAppletCommonFunctions::IsHomeButtonShortPressedBlocked>, "IsHomeButtonShortPressedBlocked"},
+        {60, nullptr, "IsVrModeCurtainRequired"},
+        {61, nullptr, "IsSleepRequiredByHighTemperature"},
+        {62, nullptr, "IsSleepRequiredByLowBattery"},
+        {70, D<&IAppletCommonFunctions::SetCpuBoostRequestPriority>, "SetCpuBoostRequestPriority"},
+        {80, nullptr, "SetHandlingCaptureButtonShortPressedMessageEnabledForApplet"},
+        {81, nullptr, "SetHandlingCaptureButtonLongPressedMessageEnabledForApplet"},
+        {90, nullptr, "OpenNamedChannelAsParent"},
+        {91, nullptr, "OpenNamedChannelAsChild"},
+        {100, nullptr, "SetApplicationCoreUsageMode"},
+        {300, D<&IAppletCommonFunctions::GetCurrentApplicationId>, "GetCurrentApplicationId"},
+        {310, nullptr, "IsSystemAppletHomeMenu"}, //19.0.0+
+        {320, D<&IAppletCommonFunctions::SetGpuTimeSliceBoost>, "SetGpuTimeSliceBoost"}, //19.0.0+
+        {321, nullptr, "SetGpuTimeSliceBoostDueToApplication"}, //19.0.0+
+        {350, D<&IAppletCommonFunctions::Unknown350>, "Unknown350"} //20.0.0+
+    };
+    // clang-format on
+
+    RegisterHandlers(functions);
+}
+
+IAppletCommonFunctions::~IAppletCommonFunctions() = default;
+
+Result IAppletCommonFunctions::SetTerminateResult(Result terminate_result) {
+    LOG_DEBUG(Service_AM, "called, result={:#x}", terminate_result.GetInnerValue());
+    std::scoped_lock lk{applet->lock};
+    applet->terminate_result = terminate_result;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::ReadThemeStorage(
+    Out<u64> out_transfer_size, u64 offset,
+    OutBuffer<BufferAttr_HipcAutoSelect> out_buffer) {
+    LOG_DEBUG(Service_AM, "called, offset={} size={}", offset, out_buffer.size());
+
+    std::scoped_lock lk{applet->lock};
+    if (offset >= applet->theme_storage.size()) {
+        *out_transfer_size = 0;
+        R_SUCCEED();
+    }
+
+    const auto start = static_cast<std::size_t>(offset);
+    const auto transfer_size =
+        (std::min)(out_buffer.size(), applet->theme_storage.size() - start);
+    std::memcpy(out_buffer.data(), applet->theme_storage.data() + start, transfer_size);
+    *out_transfer_size = static_cast<u64>(transfer_size);
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::WriteThemeStorage(
+    u64 offset, InBuffer<BufferAttr_HipcAutoSelect> buffer) {
+    LOG_DEBUG(Service_AM, "called, offset={} size={}", offset, buffer.size());
+
+    std::scoped_lock lk{applet->lock};
+    if (offset >= applet->theme_storage.size()) {
+        R_SUCCEED();
+    }
+
+    const auto start = static_cast<std::size_t>(offset);
+    const auto transfer_size =
+        (std::min)(buffer.size(), applet->theme_storage.size() - start);
+    std::memcpy(applet->theme_storage.data() + start, buffer.data(), transfer_size);
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::PushToAppletBoundChannel(SharedPointer<IStorage> storage) {
+    LOG_DEBUG(Service_AM, "called");
+
+    std::scoped_lock lk{applet->lock};
+    applet->applet_bound_channel.push_back(storage->GetData());
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::TryPopFromAppletBoundChannel(
+    Out<SharedPointer<IStorage>> out_storage) {
+    LOG_DEBUG(Service_AM, "called");
+
+    std::scoped_lock lk{applet->lock};
+    if (applet->applet_bound_channel.empty()) {
+        R_THROW(AM::ResultNoDataInChannel);
+    }
+
+    auto data = std::move(applet->applet_bound_channel.back());
+    applet->applet_bound_channel.pop_back();
+    *out_storage = std::make_shared<IStorage>(system, std::move(data));
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::GetDisplayLogicalResolution(Out<s32> out_width, Out<s32> out_height) {
+    LOG_DEBUG(Service_AM, "called");
+
+    if (Settings::IsDockedMode()) {
+        *out_width = static_cast<s32>(VI::DisplayResolution::DockedWidth);
+        *out_height = static_cast<s32>(VI::DisplayResolution::DockedHeight);
+    } else {
+        *out_width = static_cast<s32>(VI::DisplayResolution::UndockedWidth);
+        *out_height = static_cast<s32>(VI::DisplayResolution::UndockedHeight);
+    }
+
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::SetHomeButtonDoubleClickEnabled(
+    bool home_button_double_click_enabled) {
+    LOG_DEBUG(Service_AM, "called, home_button_double_click_enabled={}",
+              home_button_double_click_enabled);
+    std::scoped_lock lk{applet->lock};
+    applet->home_button_double_click_enabled = home_button_double_click_enabled;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::GetHomeButtonDoubleClickEnabled(
+    Out<bool> out_home_button_double_click_enabled) {
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{applet->lock};
+    *out_home_button_double_click_enabled = applet->home_button_double_click_enabled;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::IsHomeButtonShortPressedBlocked(
+    Out<bool> out_is_home_button_short_pressed_blocked) {
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{applet->lock};
+    *out_is_home_button_short_pressed_blocked = applet->home_button_short_pressed_blocked;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::SetDisplayMagnification(f32 x, f32 y, f32 width, f32 height) {
+    LOG_DEBUG(Service_AM, "called, x={}, y={}, width={}, height={}", x, y, width,
+                height);
+    std::scoped_lock lk{applet->lock};
+    applet->display_magnification = Common::Rectangle<f32>{x, y, x + width, y + height};
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::SetCpuBoostRequestPriority(s32 priority) {
+    LOG_WARNING(Service_AM, "(STUBBED) called");
+    std::scoped_lock lk{applet->lock};
+    applet->cpu_boost_request_priority = priority;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::GetCurrentApplicationId(Out<u64> out_application_id) {
+    LOG_WARNING(Service_AM, "(STUBBED) called");
+    *out_application_id = FileSys::GetBaseTitleID(system.GetApplicationProcessProgramID());
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::SetGpuTimeSliceBoost(s64 time_span) {
+    LOG_WARNING(Service_AM, "(STUBBED) called, time_span={}", time_span);
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::Unknown350(Out<u16> out_unknown) {
+    LOG_WARNING(Service_AM, "(STUBBED) called");
+    *out_unknown = 0;
+    R_SUCCEED();
+}
+
+} // namespace Service::AM
