@@ -25,6 +25,7 @@
 #include <optional>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include "common/container/unordered_map.h"
 #include <common/settings.h>
 
@@ -404,24 +405,24 @@ public:
             {4, &IRequest::Submit, "Submit"},
             {5, &IRequest::SetRequirement, "SetRequirement"},
             {6, &IRequest::SetRequirementPreset, "SetRequirementPreset"},
-            {8, nullptr, "SetPriority"},
+            {8, &IRequest::SetPriority, "SetPriority"},
             {9, &IRequest::SetNetworkProfileId, "SetNetworkProfileId"},
-            {10, nullptr, "SetRejectable"},
+            {10, &IRequest::SetRejectable, "SetRejectable"},
             {11, &IRequest::SetConnectionConfirmationOption, "SetConnectionConfirmationOption"},
             {12, &IRequest::SetPersistent, "SetPersistent"},
-            {13, nullptr, "SetInstant"},
-            {14, nullptr, "SetSustainable"},
-            {15, nullptr, "SetRawPriority"},
-            {16, nullptr, "SetGreedy"},
-            {17, nullptr, "SetSharable"},
-            {18, nullptr, "SetRequirementByRevision"},
+            {13, &IRequest::SetInstant, "SetInstant"},
+            {14, &IRequest::SetSustainable, "SetSustainable"},
+            {15, &IRequest::SetRawPriority, "SetRawPriority"},
+            {16, &IRequest::SetGreedy, "SetGreedy"},
+            {17, &IRequest::SetSharable, "SetSharable"},
+            {18, &IRequest::SetRequirementByRevision, "SetRequirementByRevision"},
             {19, &IRequest::GetRequirement, "GetRequirement"},
-            {20, nullptr, "GetRevision"},
+            {20, &IRequest::GetRevision, "GetRevision"},
             {21, &IRequest::GetAppletInfo, "GetAppletInfo"},
             {22, nullptr, "GetAdditionalInfo"},
-            {23, nullptr, "SetKeptInSleep"},
-            {24, nullptr, "RegisterSocketDescriptor"},
-            {25, nullptr, "UnregisterSocketDescriptor"},
+            {23, &IRequest::SetKeptInSleep, "SetKeptInSleep"},
+            {24, &IRequest::RegisterSocketDescriptor, "RegisterSocketDescriptor"},
+            {25, &IRequest::UnregisterSocketDescriptor, "UnregisterSocketDescriptor"},
             {26, nullptr, "GetNetworkAccessStatus"}, //21.0.0+
         };
         RegisterHandlers(functions);
@@ -582,6 +583,141 @@ private:
         rb.Push(ResultSuccess);
     }
 
+    void SetPriority(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto value = rp.Pop<u8>();
+        {
+            std::scoped_lock lk{state_lock};
+            priority = value;
+        }
+        LOG_DEBUG(Service_NIFM, "priority={}", value);
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+    }
+
+    void SetRejectable(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const bool value = rp.Pop<u8>() != 0;
+        {
+            std::scoped_lock lk{state_lock};
+            rejectable = value;
+        }
+        LOG_DEBUG(Service_NIFM, "rejectable={}", value);
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+    }
+
+    void SetInstant(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const bool value = rp.Pop<u8>() != 0;
+        {
+            std::scoped_lock lk{state_lock};
+            instant = value;
+        }
+        LOG_DEBUG(Service_NIFM, "instant={}", value);
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+    }
+
+    void SetSustainable(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const bool enabled = rp.Pop<u8>() != 0;
+        const auto value = rp.Pop<u8>();
+        {
+            std::scoped_lock lk{state_lock};
+            sustainable = enabled;
+            sustainable_priority = value;
+        }
+        LOG_DEBUG(Service_NIFM, "sustainable={}, priority={}", enabled, value);
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+    }
+
+    void SetRawPriority(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto value = rp.Pop<u8>();
+        {
+            std::scoped_lock lk{state_lock};
+            raw_priority = value;
+        }
+        LOG_DEBUG(Service_NIFM, "raw_priority={}", value);
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+    }
+
+    void SetGreedy(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const bool value = rp.Pop<u8>() != 0;
+        {
+            std::scoped_lock lk{state_lock};
+            greedy = value;
+        }
+        LOG_DEBUG(Service_NIFM, "greedy={}", value);
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+    }
+
+    void SetSharable(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const bool value = rp.Pop<u8>() != 0;
+        {
+            std::scoped_lock lk{state_lock};
+            sharable = value;
+        }
+        LOG_DEBUG(Service_NIFM, "sharable={}", value);
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+    }
+
+    void SetRequirementByRevision(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto value = rp.Pop<u32>();
+        {
+            std::scoped_lock lk{state_lock};
+            requirement_revision = value;
+        }
+        LOG_DEBUG(Service_NIFM, "requirement_revision={}", value);
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+    }
+
+    void GetRevision(HLERequestContext& ctx) {
+        u32 value{};
+        {
+            std::scoped_lock lk{state_lock};
+            value = requirement_revision;
+        }
+        LOG_DEBUG(Service_NIFM, "requirement_revision={}", value);
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push(value);
+    }
+
+    void SetKeptInSleep(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const bool value = rp.Pop<u8>() != 0;
+        {
+            std::scoped_lock lk{state_lock};
+            kept_in_sleep = value;
+        }
+        LOG_DEBUG(Service_NIFM, "kept_in_sleep={}", value);
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+    }
+
+    void RegisterSocketDescriptor(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto descriptor = rp.Pop<u32>();
+        {
+            std::scoped_lock lk{state_lock};
+            socket_descriptors.insert(descriptor);
+        }
+        LOG_DEBUG(Service_NIFM, "registered socket descriptor={}", descriptor);
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+    }
+
+    void UnregisterSocketDescriptor(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto descriptor = rp.Pop<u32>();
+        {
+            std::scoped_lock lk{state_lock};
+            socket_descriptors.erase(descriptor);
+        }
+        LOG_DEBUG(Service_NIFM, "unregistered socket descriptor={}", descriptor);
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+    }
+
     void SetPersistent(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         persistent = rp.Pop<u8>() != 0;
@@ -639,6 +775,17 @@ private:
     std::optional<u128> network_profile_id;
     std::array<u8, 0x24> requirement{};
     bool persistent{};
+    u8 priority{};
+    bool rejectable{};
+    bool instant{};
+    bool sustainable{};
+    u8 sustainable_priority{};
+    u8 raw_priority{};
+    bool greedy{};
+    bool sharable{};
+    u32 requirement_revision{};
+    bool kept_in_sleep{};
+    std::unordered_set<u32> socket_descriptors;
 
     Kernel::KEvent* event1;
     Kernel::KEvent* event2;

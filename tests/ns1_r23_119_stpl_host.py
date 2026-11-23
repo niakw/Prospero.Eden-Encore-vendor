@@ -13,7 +13,7 @@ files={
  "encore-active/eden-core/include/core/hle/service/ipc_helpers.h":"a266b1a05cf0b20b7cad6d70f9b16dfec503cf7c",
  "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp":"647e2499f82de4ac921e6ab709c8a67d4f2f10cc",
  "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.h":"4599b92b022b18439014288b43c0c3ecb93f0eb7",
- "encore-active/eden-backports/src/core/hle/service/nifm/nifm.cpp":"1bea7c9ba353181fb7f0b7c23fbbc2435360b50b",
+ "encore-active/eden-backports/src/core/hle/service/nifm/nifm.cpp":"33b1bdad2d04e59637782c70a38c9da5354ae456",
 }
 for file,expected in files.items():
  d=(ROOT/file).read_bytes()
@@ -64,6 +64,13 @@ request_state=nifm.split("void GetRequestState(HLERequestContext& ctx)",1)[1].sp
 assert 'persistent ? RequestState::OnHold : RequestState::Invalid' in request_state
 request_result=nifm.split("void GetResult(HLERequestContext& ctx)",1)[1].split("void GetSystemEventReadableHandles",1)[0]
 assert 'else if (!persistent)' in request_result
+for cmd,name in ((8,"SetPriority"),(10,"SetRejectable"),(13,"SetInstant"),(14,"SetSustainable"),(15,"SetRawPriority"),(16,"SetGreedy"),(17,"SetSharable"),(18,"SetRequirementByRevision"),(20,"GetRevision"),(23,"SetKeptInSleep"),(24,"RegisterSocketDescriptor"),(25,"UnregisterSocketDescriptor")):
+ assert f'{{{cmd}, &IRequest::{name}, "{name}"}}' in nifm
+assert 'const bool enabled = rp.Pop<u8>() != 0' in nifm
+assert 'requirement_revision = value' in nifm
+assert 'rb.Push(value)' in nifm
+assert 'socket_descriptors.insert(descriptor)' in nifm
+assert 'socket_descriptors.erase(descriptor)' in nifm
 assert "constexpr Result ResultNotSupported{ErrorModule::HIPC, 1};" in ipch
 assert "static_assert(sizeof(Uid) == 0x10)" in profile
 test=r"""
