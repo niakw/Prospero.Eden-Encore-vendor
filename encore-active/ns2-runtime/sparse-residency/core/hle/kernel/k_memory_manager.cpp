@@ -391,6 +391,47 @@ Result KMemoryManager::AllocateForProcess(KPageGroup* out, size_t num_pages, u32
         optimized = has_optimized && is_optimized;
     }
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+    if (optimized) {
+        // Unlike the unoptimized ClearBackingRegion path, optimized fills
+        // dereference raw DeviceMemory pointers and can raise bad_alloc in
+        // CommitKernelDirectGuestRange. Precommit the WHOLE page group before
+        // updating ANY optimized allocation bitmap, so failed admission
+        // leaves no published PTE and no partially updated tracking bits.
+        try {
+            for (const auto& block : *out) {
+                const size_t pages = block.GetNumPages();
+                if (pages == 0) continue;
+                if (pages > std::numeric_limits<size_t>::max() / PageSize)
+                    throw std::bad_alloc{};
+                CommitKernelDirectGuestRange(m_system, block.GetAddress(), pages * PageSize);
+            }
+        } catch (const std::bad_alloc&) {
+            // Only unreferenced guest physical page-heap blocks are returned.
+            // Resident 2 MiB host owners are intentionally NOT unmapped:
+            // another guest page may share the same native granule.
+            for (const auto& block : *out) {
+                KPhysicalAddress address = block.GetAddress();
+                size_t remaining_pages = block.GetNumPages();
+                while (remaining_pages != 0) {
+                    auto& manager = this->GetManager(address);
+                    const size_t pages = (std::min)(
+                        remaining_pages, manager.GetPageOffsetToEnd(address));
+                    {
+                        KScopedLightLock lk(
+                            m_pool_locks[static_cast<size_t>(manager.GetPool())]);
+                        manager.Free(address, pages);
+                    }
+                    address += pages * PageSize;
+                    remaining_pages -= pages;
+                }
+            }
+            out->Finalize();
+            R_THROW(ResultOutOfMemory);
+        }
+    }
+#endif
+
     // Perform optimized memory tracking, if we should.
     if (optimized) {
         // Iterate over the allocated blocks.
@@ -416,8 +457,10 @@ Result KMemoryManager::AllocateForProcess(KPageGroup* out, size_t num_pages, u32
                     // Process part or all of the block.
                     const size_t cur_pages =
                         (std::min)(remaining_pages, manager.GetPageOffsetToEnd(cur_address));
-                    any_new = manager.ProcessOptimizedAllocation(m_system.Kernel(), cur_address,
-                                                                 cur_pages, fill_pattern);
+                    // A block may straddle two managers; one new segment
+                    // must not be forgotten when a later segment is reused.
+                    any_new |= manager.ProcessOptimizedAllocation(m_system.Kernel(), cur_address,
+                                                                  cur_pages, fill_pattern);
 
                     // Advance.
                     cur_address += cur_pages * PageSize;

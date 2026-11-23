@@ -19,4 +19,20 @@ assert second.index("EdenNs2CommitGuestBacking(") < second.index(old_direct)
 assert "physical - Core::DramMemoryMap::Base, size" in first
 assert "physical - Core::DramMemoryMap::Base, slab_size" in second
 assert "throw std::bad_alloc{};" in first and "throw std::bad_alloc{};" in second
+# Optimized process page fills are a separate raw pointer pathway. A failed
+# sparse commit must return guest pages before bitmap publication, too.
+kernel = (root / "encore-active/ns2-runtime/sparse-residency/core/hle/kernel/k_memory_manager.cpp").read_text()
+alloc = kernel.split("Result KMemoryManager::AllocateForProcess(", 1)[1].split(
+    "size_t KMemoryManager::Impl::Initialize(", 1)[0]
+preflight = alloc.split("// Perform optimized memory tracking", 1)[0]
+assert "#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)" in preflight
+assert preflight.index("CommitKernelDirectGuestRange(m_system, block.GetAddress()") < preflight.index(
+    "catch (const std::bad_alloc&)")
+assert "out->Finalize();" in preflight
+assert "R_THROW(ResultOutOfMemory);" in preflight
+assert "manager.Free(address, pages);" in preflight
+assert alloc.index("CommitKernelDirectGuestRange(m_system, block.GetAddress()") < alloc.index(
+    "manager.ProcessOptimizedAllocation(") < alloc.index("manager.TrackOptimizedAllocation(")
+assert "any_new |= manager.ProcessOptimizedAllocation(" in alloc
+
 print("NS2_KERNEL_SLAB_DIRECT_PHYSICAL_PRECOMMIT_OK writers=2")
