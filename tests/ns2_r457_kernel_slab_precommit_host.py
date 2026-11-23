@@ -61,4 +61,13 @@ assert "device_memory.buffer.ClearBackingRegion(" in optimized
 assert optimized.index("ClearBackingRegion(") < optimized.index("return any_new;")
 assert "CommitKernelDirectGuestRange(kernel.System(), block, num_pages * PageSize);" not in optimized
 
+# Zero-initialized optimized metadata must stay demand-zero on PS5. Its
+# first later bitmap write is a normal backing write and promotes on fault.
+metadata = kernel.split("void KMemoryManager::Impl::InitializeOptimizedMemory", 1)[1].split(
+    "void KMemoryManager::Impl::TrackUnoptimizedAllocation", 1)[0]
+assert "buffer.ClearBackingRegion(" in metadata
+assert "physical - Core::DramMemoryMap::Base, bytes, 0" in metadata
+assert "CommitKernelDirectGuestRange(" not in metadata
+assert "GetPointer<u64>(" not in metadata
+
 print("NS2_KERNEL_SLAB_DIRECT_PHYSICAL_PRECOMMIT_OK writers=2")

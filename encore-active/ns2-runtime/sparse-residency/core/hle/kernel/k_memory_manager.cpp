@@ -559,16 +559,22 @@ size_t KMemoryManager::Impl::Initialize(KPhysicalAddress address, size_t size,
 }
 
 void KMemoryManager::Impl::InitializeOptimizedMemory(KernelCore& kernel) {
-    auto optimize_pa = KPageTable::GetHeapPhysicalAddress(kernel, m_management_region);
+    const auto optimize_pa = KPageTable::GetHeapPhysicalAddress(kernel, m_management_region);
+    const auto bytes = CalculateOptimizedProcessOverheadSize(m_heap.GetSize());
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
-    // Metadata is initialized before any user process page table exists.
-    // Back its complete range before taking a raw DeviceMemory pointer.
-    CommitKernelDirectGuestRange(kernel.System(), optimize_pa,
-                                 CalculateOptimizedProcessOverheadSize(m_heap.GetSize()));
-#endif
+    // Fresh optimization metadata is logically zero. Keep untouched 2 MiB
+    // chunks on the shared ZERO owner; Track* promotes only chunks whose bits
+    // are actually modified. This avoids making the full metadata span OWN
+    // before the process has used it.
+    const auto physical = GetInteger(optimize_pa);
+    if (physical < Core::DramMemoryMap::Base)
+        throw std::bad_alloc{};
+    kernel.System().DeviceMemory().buffer.ClearBackingRegion(
+        physical - Core::DramMemoryMap::Base, bytes, 0);
+#else
     auto* optimize_map = kernel.System().DeviceMemory().GetPointer<u64>(optimize_pa);
-
-    std::memset(optimize_map, 0, CalculateOptimizedProcessOverheadSize(m_heap.GetSize()));
+    std::memset(optimize_map, 0, bytes);
+#endif
 }
 
 void KMemoryManager::Impl::TrackUnoptimizedAllocation(KernelCore& kernel, KPhysicalAddress block,
