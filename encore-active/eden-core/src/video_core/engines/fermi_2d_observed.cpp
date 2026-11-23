@@ -79,6 +79,15 @@ void Fermi2D::Blit() {
         UNIMPLEMENTED_MSG("Operation is not copy");
         return;
     }
+    // RenderTargetFormat::NONE is an unbound/disabled surface, not RGBA8.
+    // PixelFormatFromRenderTargetFormat historically falls back to RGBA8 for
+    // unknown values, which would turn format 0 into a real copy and corrupt
+    // guest pixels. Reject it before any bytes-per-block or converter lookup.
+    if (regs.src.format == RenderTargetFormat::NONE ||
+        regs.dst.format == RenderTargetFormat::NONE) {
+        UNIMPLEMENTED_MSG("Fermi2D copy with unbound render-target format");
+        return;
+    }
     // NVIDIA 2D pitch surfaces have contiguous, pitch*height-sized slices.
     // Support only explicitly addressed layers of two pitch-linear images.
     // Block-linear layers require a separate verified origin_z decoder.
