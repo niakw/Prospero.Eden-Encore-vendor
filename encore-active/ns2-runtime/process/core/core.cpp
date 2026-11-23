@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstdio>
 #include <memory>
 #include <unordered_map>
 #include <utility>
@@ -496,6 +497,26 @@ struct System::Impl {
             ShutdownMainProcess();
             return SystemResultStatus::ErrorGetLoader;
         }
+
+        // Standalone ExeFS registers NS2 SVC tracing in its loader; other
+        // admitted NS2 containers (NUP/NX/NSP/XCI) do not necessarily use
+        // that loader. The post-load process owner is the common, safe gate.
+        // Never attach a trace on an unsuccessful load or an NS1 title.
+        if (is_ns2_program && process && process->GetProcessId() != 0 &&
+            !Eden::NS2::SvcTrace::IsActive(process->GetProcessId())) {
+            Eden::NS2::SvcTrace::Register(process->GetProcessId());
+        }
+#ifdef PS5_NATIVE
+        // Provenance for the *actual* loaded KProcess, including NUP.
+        // active=0 on a classified NS2 title is a source bug to investigate,
+        // not proof that the guest executed zero SVC instructions.
+        std::fprintf(stderr,
+                     "EDEN_NS2_PROCESS_TRACE pid=%llu classified=%u active=%u\n",
+                     static_cast<unsigned long long>(process ? process->GetProcessId() : 0),
+                     static_cast<unsigned>(is_ns2_program),
+                     static_cast<unsigned>(process &&
+                         Eden::NS2::SvcTrace::IsActive(process->GetProcessId())));
+#endif
 
         if (app_loader->ReadProgramId(params.program_id) != Loader::ResultStatus::Success) {
             LOG_ERROR(Core, "Failed to find program id for ROM!");

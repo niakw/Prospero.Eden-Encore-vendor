@@ -1,0 +1,20 @@
+name: NS2 container process trace and terminate evidence
+on:
+  push:
+    branches:
+      - fix/ns2-nup-trace-terminate-result-20261123
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify NS2 process trace and termination result handoff
+        run: |
+          set -euo pipefail
+          python3 -B tests/ns2_container_trace_and_terminate_result_source.py
