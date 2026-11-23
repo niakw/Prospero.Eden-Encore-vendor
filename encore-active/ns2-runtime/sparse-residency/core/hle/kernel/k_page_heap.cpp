@@ -157,7 +157,7 @@ void KPageHeap::FreeBlock(KPhysicalAddress block, s32 index) {
         if (merged == 0) {
             const size_t size = m_blocks[index].GetSize();
             const auto physical = GetInteger(block);
-            if (size >= (2_MiB) && physical >= Core::DramMemoryMap::Base) {
+            if (size >= (std::size_t{2} << 20) && physical >= Core::DramMemoryMap::Base) {
                 EdenNs2GuestBackingFreed(physical - Core::DramMemoryMap::Base, size);
             }
             return;
