@@ -103,6 +103,9 @@ public:
         Out<RebootlessSystemUpdateVersion> out_rebootless_system_update);
     Result GetDeviceTimeZoneLocationName(Out<Service::PSC::Time::LocationName> out_name);
     Result SetDeviceTimeZoneLocationName(const Service::PSC::Time::LocationName& name);
+    Result GetWirelessCertificationFileSize(Out<u64> out_size);
+    Result GetWirelessCertificationFile(
+        Out<u64> out_size, OutBuffer<BufferAttr_HipcMapAlias> out_file);
     Result SetRegionCode(SystemRegionCode region_code);
     Result GetNetworkSystemClockContext(Out<Service::PSC::Time::SystemClockContext> out_context);
     Result SetNetworkSystemClockContext(const Service::PSC::Time::SystemClockContext& context);

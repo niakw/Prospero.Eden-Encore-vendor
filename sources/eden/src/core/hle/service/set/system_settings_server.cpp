@@ -14,6 +14,7 @@
 #include "common/settings.h"
 #include "common/string_util.h"
 #include "core/core.h"
+#include "core/file_sys/bis_factory.h"
 #include "core/file_sys/content_archive.h"
 #include "core/file_sys/errors.h"
 #include "core/file_sys/nca_metadata.h"
@@ -36,6 +37,17 @@ struct SettingsHeader {
     u32 version;
     u32 reserved;
 };
+
+
+FileSys::VirtualFile ResolveWirelessCertificationFile(Core::System& system) {
+    FileSys::VirtualDir calibration_file;
+    const Result result = system.GetFileSystemController().OpenBISPartition(
+        &calibration_file, FileSys::BisPartitionId::CalibrationFile);
+    if (result.IsFailure() || !calibration_file) {
+        return {};
+    }
+    return calibration_file->GetFileRelative("Certifications/WirelessCertification.png");
+}
 
 void SyncGlobalLanguageFromCode(LanguageCode language_code) {
     const auto it = std::find_if(available_language_codes.begin(), available_language_codes.end(),
@@ -170,8 +182,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {52, C<&ISystemSettingsServer::GetOverlayDispProgramId>, "GetOverlayDispProgramId"},
         {53, C<&ISystemSettingsServer::GetDeviceTimeZoneLocationName>, "GetDeviceTimeZoneLocationName"},
         {54, C<&ISystemSettingsServer::SetDeviceTimeZoneLocationName>, "SetDeviceTimeZoneLocationName"},
-        {55, nullptr, "GetWirelessCertificationFileSize"},
-        {56, nullptr, "GetWirelessCertificationFile"},
+        {55, C<&ISystemSettingsServer::GetWirelessCertificationFileSize>, "GetWirelessCertificationFileSize"},
+        {56, C<&ISystemSettingsServer::GetWirelessCertificationFile>, "GetWirelessCertificationFile"},
         {57, C<&ISystemSettingsServer::SetRegionCode>, "SetRegionCode"},
         {58, C<&ISystemSettingsServer::GetNetworkSystemClockContext>, "GetNetworkSystemClockContext"},
         {59, C<&ISystemSettingsServer::SetNetworkSystemClockContext>, "SetNetworkSystemClockContext"},
@@ -947,6 +959,28 @@ Result ISystemSettingsServer::SetDeviceTimeZoneLocationName(
 
     m_system_settings.device_time_zone_location_name = name;
     SetSaveNeeded();
+    R_SUCCEED();
+}
+
+
+Result ISystemSettingsServer::GetWirelessCertificationFileSize(Out<u64> out_size) {
+    const auto file = ResolveWirelessCertificationFile(m_system);
+    R_UNLESS(file, FileSys::ResultPathNotFound);
+    *out_size = static_cast<u64>(file->GetSize());
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetWirelessCertificationFile(
+    Out<u64> out_size, OutBuffer<BufferAttr_HipcMapAlias> out_file) {
+    const auto file = ResolveWirelessCertificationFile(m_system);
+    R_UNLESS(file, FileSys::ResultPathNotFound);
+
+    const auto file_size = file->GetSize();
+    R_UNLESS(out_file.size() >= file_size, FileSys::ResultOutOfRange);
+
+    const auto read_size = file->Read(out_file.data(), file_size, 0);
+    R_UNLESS(read_size == file_size, FileSys::ResultOutOfRange);
+    *out_size = static_cast<u64>(read_size);
     R_SUCCEED();
 }
 
