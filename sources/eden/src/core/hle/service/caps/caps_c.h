@@ -41,6 +41,7 @@ private:
     Result RegisterAppletResourceUserId(u64 aruid, const ControlApplicationId& application_id);
     Result UnregisterAppletResourceUserId(u64 aruid, const ControlApplicationId& application_id);
     Result GetApplicationIdFromAruid(Out<ControlApplicationId> out_application_id, u64 aruid);
+    Result CheckApplicationIdRegistered(u64 application_id);
 
     std::shared_ptr<AlbumManager> manager = nullptr;
     ::Common::unordered_map<u64, ControlApplicationId> registered_applications;

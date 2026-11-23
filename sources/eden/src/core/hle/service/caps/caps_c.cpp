@@ -36,7 +36,7 @@ IAlbumControlService::IAlbumControlService(Core::System& system_,
         {2011, D<&IAlbumControlService::RegisterAppletResourceUserId>, "RegisterAppletResourceUserId"},
         {2012, D<&IAlbumControlService::UnregisterAppletResourceUserId>, "UnregisterAppletResourceUserId"},
         {2013, D<&IAlbumControlService::GetApplicationIdFromAruid>, "GetApplicationIdFromAruid"},
-        {2014, nullptr, "CheckApplicationIdRegistered"},
+        {2014, D<&IAlbumControlService::CheckApplicationIdRegistered>, "CheckApplicationIdRegistered"},
         {2101, nullptr, "GenerateCurrentAlbumFileId"},
         {2102, nullptr, "GenerateApplicationAlbumEntry"},
         {2201, nullptr, "SaveAlbumScreenShotFile"},
@@ -118,6 +118,15 @@ Result IAlbumControlService::GetApplicationIdFromAruid(
         out_application_id->application_id = system.ResolveCallerProgramId(aruid);
     }
     R_SUCCEED();
+}
+
+Result IAlbumControlService::CheckApplicationIdRegistered(u64 application_id) {
+    for (const auto& [aruid, registered] : registered_applications) {
+        if (registered.application_id == application_id) {
+            R_SUCCEED();
+        }
+    }
+    R_RETURN(ResultControlNotOpened);
 }
 
 } // namespace Service::Capture

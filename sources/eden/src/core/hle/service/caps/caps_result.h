@@ -22,6 +22,7 @@ constexpr Result ResultInvalidFileData(ErrorModule::Capture, 24);
 constexpr Result ResultUnknown25(ErrorModule::Capture, 25);
 constexpr Result ResultReadBufferShortage(ErrorModule::Capture, 30);
 constexpr Result ResultUnknown810(ErrorModule::Capture, 810);
+constexpr Result ResultControlNotOpened(ErrorModule::Capture, 822);
 constexpr Result ResultUnknown1024(ErrorModule::Capture, 1024);
 constexpr Result ResultUnknown1202(ErrorModule::Capture, 1202);
 constexpr Result ResultUnknown1203(ErrorModule::Capture, 1203);
