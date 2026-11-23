@@ -126,8 +126,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {5, nullptr, "GetFirmwareVersionDigest"},
         {7, C<&ISystemSettingsServer::GetLockScreenFlag>, "GetLockScreenFlag"},
         {8, C<&ISystemSettingsServer::SetLockScreenFlag>, "SetLockScreenFlag"},
-        {9, nullptr, "GetBacklightSettings"},
-        {10, nullptr, "SetBacklightSettings"},
+        {9, C<&ISystemSettingsServer::GetBacklightSettings>, "GetBacklightSettings"},
+        {10, C<&ISystemSettingsServer::SetBacklightSettings>, "SetBacklightSettings"},
         {11, C<&ISystemSettingsServer::SetBluetoothDevicesSettings>, "SetBluetoothDevicesSettings"},
         {12, C<&ISystemSettingsServer::GetBluetoothDevicesSettings>, "GetBluetoothDevicesSettings"},
         {13, C<&ISystemSettingsServer::GetExternalSteadyClockSourceId>, "GetExternalSteadyClockSourceId"},
@@ -1384,6 +1384,25 @@ Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration(Out<std
 
 Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value) {
     m_system_settings.console_six_axis_sensor_angular_velocity_acceleration = value;
+    SetSaveNeeded();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetBacklightSettings(
+    Out<std::array<u8, 0x28>> out_settings) {
+    // Legacy layout omits current_brightness_for_vr_mode at Ex offset 0x8.
+    std::memcpy(out_settings->data(), m_system_settings.backlight_settings_mixed_up.data(), 0x8);
+    std::memcpy(out_settings->data() + 0x8,
+                m_system_settings.backlight_settings_mixed_up.data() + 0xC, 0x20);
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::SetBacklightSettings(
+    const std::array<u8, 0x28>& settings) {
+    // Preserve the Ex-only current_brightness_for_vr_mode field at 0x8..0xB.
+    std::memcpy(m_system_settings.backlight_settings_mixed_up.data(), settings.data(), 0x8);
+    std::memcpy(m_system_settings.backlight_settings_mixed_up.data() + 0xC,
+                settings.data() + 0x8, 0x20);
     SetSaveNeeded();
     R_SUCCEED();
 }

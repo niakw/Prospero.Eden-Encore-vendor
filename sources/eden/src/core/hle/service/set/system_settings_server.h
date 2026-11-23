@@ -165,6 +165,8 @@ public:
     Result SetThemeId(s32 type, const std::array<u64, 0x10>& value);
     Result SetNetworkSettings(
         InArray<std::array<u8, 0x1B0>, BufferAttr_HipcMapAlias> settings);
+    Result GetBacklightSettings(Out<std::array<u8, 0x28>> out_settings);
+    Result SetBacklightSettings(const std::array<u8, 0x28>& settings);
     Result GetButtonConfigSettingsFull(
         Out<s32> out_count,
         OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings);
