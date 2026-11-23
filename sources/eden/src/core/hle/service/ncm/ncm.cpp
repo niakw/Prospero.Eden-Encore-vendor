@@ -66,21 +66,277 @@ public:
         : ServiceFramework{system_, "IRegisteredLocationResolver"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "ResolveProgramPath"},
-            {1, nullptr, "RegisterProgramPath"},
-            {2, nullptr, "UnregisterProgramPath"},
-            {3, nullptr, "RedirectProgramPath"},
-            {4, nullptr, "ResolveHtmlDocumentPath"},
-            {5, nullptr, "RegisterHtmlDocumentPath"},
-            {6, nullptr, "UnregisterHtmlDocumentPath"},
-            {7, nullptr, "RedirectHtmlDocumentPath"},
-            {8, nullptr, "Refresh"},
-            {9, nullptr, "RefreshExcluding"},
+            {0, &IRegisteredLocationResolver::ResolveProgramPath, "ResolveProgramPath"},
+            {1, &IRegisteredLocationResolver::RegisterProgramPath, "RegisterProgramPath"},
+            {2, &IRegisteredLocationResolver::UnregisterProgramPath, "UnregisterProgramPath"},
+            {3, &IRegisteredLocationResolver::RedirectProgramPath, "RedirectProgramPath"},
+            {4, &IRegisteredLocationResolver::ResolveHtmlDocumentPath, "ResolveHtmlDocumentPath"},
+            {5, &IRegisteredLocationResolver::RegisterHtmlDocumentPath, "RegisterHtmlDocumentPath"},
+            {6, &IRegisteredLocationResolver::UnregisterHtmlDocumentPath, "UnregisterHtmlDocumentPath"},
+            {7, &IRegisteredLocationResolver::RedirectHtmlDocumentPath, "RedirectHtmlDocumentPath"},
+            {8, &IRegisteredLocationResolver::Refresh, "Refresh"},
+            {9, &IRegisteredLocationResolver::RefreshExcluding, "RefreshExcluding"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+private:
+    using ResolverPath = std::array<u8, 0x301>;
+
+    struct ResolverEntry {
+        u64 program_id{};
+        u64 owner_id{};
+        ResolverPath path{};
+    };
+
+    static constexpr std::size_t MaxRegisteredLocations = 0x20;
+    static constexpr Result ResultProgramNotFound{ErrorModule::LR, 2};
+    static constexpr Result ResultHtmlDocumentNotFound{ErrorModule::LR, 6};
+    static constexpr Result ResultInvalidPath{ErrorModule::LR, 140};
+
+    static bool IsPathValid(const ResolverPath& path) {
+        return std::find(path.begin(), path.end(), u8{0}) != path.end();
+    }
+
+    static std::optional<ResolverPath> ReadPath(HLERequestContext& ctx) {
+        const auto input = ctx.ReadBuffer();
+        if (input.size() != sizeof(ResolverPath)) {
+            return std::nullopt;
+        }
+
+        ResolverPath path{};
+        std::memcpy(path.data(), input.data(), path.size());
+        if (!IsPathValid(path)) {
+            return std::nullopt;
+        }
+        return path;
+    }
+
+    static ResolverEntry* FindEntry(std::vector<ResolverEntry>& entries, u64 program_id) {
+        const auto it = std::find_if(entries.begin(), entries.end(),
+                                     [program_id](const ResolverEntry& entry) {
+                                         return entry.program_id == program_id;
+                                     });
+        return it != entries.end() ? std::addressof(*it) : nullptr;
+    }
+
+    static const ResolverEntry* FindEntry(const std::vector<ResolverEntry>& entries,
+                                          u64 program_id) {
+        const auto it = std::find_if(entries.begin(), entries.end(),
+                                     [program_id](const ResolverEntry& entry) {
+                                         return entry.program_id == program_id;
+                                     });
+        return it != entries.end() ? std::addressof(*it) : nullptr;
+    }
+
+    static void RegisterPath(std::vector<ResolverEntry>& entries, u64 program_id, u64 owner_id,
+                             const ResolverPath& path) {
+        if (auto* const entry = FindEntry(entries, program_id); entry != nullptr) {
+            entry->owner_id = owner_id;
+            entry->path = path;
+            return;
+        }
+
+        // Atmosphere/Horizon keeps 0x20 registered entries on HOS 9+. If registration runs out
+        // of slots, the registered set is cleared and the new fallback becomes the sole entry.
+        if (entries.size() >= MaxRegisteredLocations) {
+            entries.clear();
+        }
+        entries.push_back(ResolverEntry{program_id, owner_id, path});
+    }
+
+    static void RedirectPath(std::vector<ResolverEntry>& entries, u64 program_id, u64 owner_id,
+                             const ResolverPath& path) {
+        if (auto* const entry = FindEntry(entries, program_id); entry != nullptr) {
+            entry->owner_id = owner_id;
+            entry->path = path;
+            return;
+        }
+        entries.push_back(ResolverEntry{program_id, owner_id, path});
+    }
+
+    static void UnregisterPath(std::vector<ResolverEntry>& entries, u64 program_id) {
+        entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                     [program_id](const ResolverEntry& entry) {
+                                         return entry.program_id == program_id;
+                                     }),
+                      entries.end());
+    }
+
+    static void RetainOwners(std::vector<ResolverEntry>& entries,
+                             const std::vector<u64>& owner_ids) {
+        entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                     [&owner_ids](const ResolverEntry& entry) {
+                                         return std::find(owner_ids.begin(), owner_ids.end(),
+                                                          entry.owner_id) == owner_ids.end();
+                                     }),
+                      entries.end());
+    }
+
+    static const ResolverEntry* ResolvePath(const std::vector<ResolverEntry>& redirects,
+                                            const std::vector<ResolverEntry>& registered,
+                                            u64 program_id) {
+        if (const auto* const redirect = FindEntry(redirects, program_id); redirect != nullptr) {
+            return redirect;
+        }
+        return FindEntry(registered, program_id);
+    }
+
+    static u64 PopOwnerId(IPC::RequestParser& rp) {
+        if constexpr (HLE::ApiVersion::HOS_VERSION_MAJOR >= 9) {
+            return rp.Pop<u64>();
+        } else {
+            return 0;
+        }
+    }
+
+    void ResolveProgramPath(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto program_id = rp.Pop<u64>();
+        const auto* const entry =
+            ResolvePath(program_redirects, registered_program_paths, program_id);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        if (entry == nullptr) {
+            rb.Push(ResultProgramNotFound);
+            return;
+        }
+        ctx.WriteBuffer(entry->path);
+        rb.Push(ResultSuccess);
+    }
+
+    void RegisterProgramPath(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto program_id = rp.Pop<u64>();
+        const auto owner_id = PopOwnerId(rp);
+        const auto path = ReadPath(ctx);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        if (!path.has_value()) {
+            rb.Push(ResultInvalidPath);
+            return;
+        }
+        RegisterPath(registered_program_paths, program_id, owner_id, *path);
+        rb.Push(ResultSuccess);
+    }
+
+    void UnregisterProgramPath(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto program_id = rp.Pop<u64>();
+        UnregisterPath(registered_program_paths, program_id);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void RedirectProgramPath(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto program_id = rp.Pop<u64>();
+        const auto owner_id = PopOwnerId(rp);
+        const auto path = ReadPath(ctx);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        if (!path.has_value()) {
+            rb.Push(ResultInvalidPath);
+            return;
+        }
+        RedirectPath(program_redirects, program_id, owner_id, *path);
+        rb.Push(ResultSuccess);
+    }
+
+    void ResolveHtmlDocumentPath(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto program_id = rp.Pop<u64>();
+        const auto* const entry =
+            ResolvePath(html_redirects, registered_html_paths, program_id);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        if (entry == nullptr) {
+            rb.Push(ResultHtmlDocumentNotFound);
+            return;
+        }
+        ctx.WriteBuffer(entry->path);
+        rb.Push(ResultSuccess);
+    }
+
+    void RegisterHtmlDocumentPath(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto program_id = rp.Pop<u64>();
+        const auto owner_id = PopOwnerId(rp);
+        const auto path = ReadPath(ctx);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        if (!path.has_value()) {
+            rb.Push(ResultInvalidPath);
+            return;
+        }
+        RegisterPath(registered_html_paths, program_id, owner_id, *path);
+        rb.Push(ResultSuccess);
+    }
+
+    void UnregisterHtmlDocumentPath(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto program_id = rp.Pop<u64>();
+        UnregisterPath(registered_html_paths, program_id);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void RedirectHtmlDocumentPath(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto program_id = rp.Pop<u64>();
+        const auto owner_id = PopOwnerId(rp);
+        const auto path = ReadPath(ctx);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        if (!path.has_value()) {
+            rb.Push(ResultInvalidPath);
+            return;
+        }
+        RedirectPath(html_redirects, program_id, owner_id, *path);
+        rb.Push(ResultSuccess);
+    }
+
+    void Refresh(HLERequestContext& ctx) {
+        // HOS 9+ keeps registered fallbacks and drops only redirections.
+        program_redirects.clear();
+        html_redirects.clear();
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void RefreshExcluding(HLERequestContext& ctx) {
+        const auto input = ctx.ReadBuffer();
+        IPC::ResponseBuilder rb{ctx, 2};
+
+        if ((input.size() % sizeof(u64)) != 0) {
+            rb.Push(ResultUnknown);
+            return;
+        }
+
+        std::vector<u64> owner_ids(input.size() / sizeof(u64));
+        if (!owner_ids.empty()) {
+            std::memcpy(owner_ids.data(), input.data(), input.size());
+            RetainOwners(registered_program_paths, owner_ids);
+            RetainOwners(registered_html_paths, owner_ids);
+            RetainOwners(program_redirects, owner_ids);
+            RetainOwners(html_redirects, owner_ids);
+        } else {
+            program_redirects.clear();
+            html_redirects.clear();
+        }
+
+        rb.Push(ResultSuccess);
+    }
+
+    std::vector<ResolverEntry> registered_program_paths;
+    std::vector<ResolverEntry> registered_html_paths;
+    std::vector<ResolverEntry> program_redirects;
+    std::vector<ResolverEntry> html_redirects;
 };
 
 class IAddOnContentLocationResolver final : public ServiceFramework<IAddOnContentLocationResolver> {
