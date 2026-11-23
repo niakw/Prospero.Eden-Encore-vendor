@@ -40,7 +40,7 @@ struct WindowSystem {
 int main() {
     ExitSink sink{};
     for (int session = 1; session <= 2; ++session) {
-        WindowSystem w{sink};
+        WindowSystem w{sink, {}, false};
         w.m_applets.push_back(7);
         for (int n = 0; n < 32; ++n) w.Update();
         assert(sink.exits == static_cast<unsigned>(session-1));
