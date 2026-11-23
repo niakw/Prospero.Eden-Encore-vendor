@@ -103,7 +103,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {9, nullptr, "OpenDataFileSystemByApplicationId"},
         {11, nullptr, "OpenBisFileSystem"},
         {12, nullptr, "OpenBisStorage"},
-        {13, nullptr, "InvalidateBisCache"},
+        {13, D<&FSP_SRV::InvalidateBisCache>, "InvalidateBisCache"},
         {17, nullptr, "OpenHostFileSystem"},
         {18, D<&FSP_SRV::OpenSdCardFileSystem>, "OpenSdCardFileSystem"},
         {19, nullptr, "FormatSdCardFileSystem"},
@@ -180,7 +180,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {609, nullptr, "GetRightsIdByPath"},
         {610, nullptr, "GetRightsIdAndKeyGenerationByPath"},
         {611, nullptr, "SetCurrentPosixTimeWithTimeDifference"},
-        {612, nullptr, "GetFreeSpaceSizeForSaveData"},
+        {612, D<&FSP_SRV::GetFreeSpaceSizeForSaveData>, "GetFreeSpaceSizeForSaveData"},
         {613, nullptr, "VerifySaveDataFileSystemBySaveDataSpaceId"},
         {614, nullptr, "CorruptSaveDataFileSystemBySaveDataSpaceId"},
         {615, nullptr, "QuerySaveDataInternalStorageTotalSize"},
@@ -262,6 +262,42 @@ Result FSP_SRV::OpenFileSystemWithPatch(OutInterface<IFileSystem> out_interface,
     *out_interface = std::make_shared<IFileSystem>(
         system, extracted_romfs, SizeGetter::FromStorageId(fsc, FileSys::StorageId::NandUser));
 
+    R_SUCCEED();
+}
+
+Result FSP_SRV::InvalidateBisCache() {
+    // Encore exposes BIS directly through the VFS/BIS factory and does not keep
+    // the FS-module MBR/GPT cache that Horizon invalidates with this command.
+    LOG_DEBUG(Service_FS, "called; no BIS metadata cache is modeled");
+    R_SUCCEED();
+}
+
+Result FSP_SRV::GetFreeSpaceSizeForSaveData(Out<s64> out_free_space_size,
+                                             FileSys::SaveDataSpaceId space_id) {
+    FileSys::StorageId storage_id{};
+    switch (space_id) {
+    case FileSys::SaveDataSpaceId::System:
+    case FileSys::SaveDataSpaceId::ProperSystem:
+    case FileSys::SaveDataSpaceId::SafeMode:
+        storage_id = FileSys::StorageId::NandSystem;
+        break;
+    case FileSys::SaveDataSpaceId::User:
+    case FileSys::SaveDataSpaceId::Temporary:
+        storage_id = FileSys::StorageId::NandUser;
+        break;
+    case FileSys::SaveDataSpaceId::SdSystem:
+    case FileSys::SaveDataSpaceId::SdUser:
+        storage_id = FileSys::StorageId::SdCard;
+        break;
+    default:
+        R_RETURN(FileSys::ResultInvalidArgument);
+    }
+
+    const u64 free_space = fsc.GetFreeSpaceSize(storage_id);
+    R_UNLESS(free_space <= static_cast<u64>((std::numeric_limits<s64>::max)()), ResultUnknown);
+    *out_free_space_size = static_cast<s64>(free_space);
+    LOG_DEBUG(Service_FS, "called, space_id={}, storage_id={}, free_space={:#x}", space_id,
+              storage_id, free_space);
     R_SUCCEED();
 }
 
