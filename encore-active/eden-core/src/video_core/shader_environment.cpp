@@ -504,7 +504,8 @@ u32 GraphicsEnvironment::ReadCbufValue(u32 cbuf_index, u32 cbuf_offset) {
             throw std::out_of_range("parallel shader read disabled CBUF");
         }
         if (cbuf_offset < snapshot_size) {
-            if ((cbuf_offset & 3U) != 0 || cbuf_offset > snapshot_size - sizeof(u32) ||
+            if ((cbuf_offset & 3U) != 0 || snapshot_size < sizeof(u32) ||
+                cbuf_offset > snapshot_size - sizeof(u32) ||
                 !shader_translation_snapshot.cbuf_data ||
                 !shader_translation_snapshot.cbuf_data[cbuf_index]) {
                 throw std::out_of_range("parallel shader CBUF read escaped immutable snapshot");
