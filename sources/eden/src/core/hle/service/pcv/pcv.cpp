@@ -4,6 +4,8 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
+#include <array>
 #include <memory>
 
 #include "core/hle/service/ipc_helpers.h"
@@ -85,27 +87,79 @@ public:
         : ServiceFramework{system_, "IClkrstSession"}, device_code(device_code_) {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "SetClockEnabled"},
-            {1, nullptr, "SetClockDisabled"},
-            {2, nullptr, "SetResetAsserted"},
-            {3, nullptr, "SetResetDeasserted"},
-            {4, nullptr, "SetPowerEnabled"},
-            {5, nullptr, "SetPowerDisabled"},
-            {6, nullptr, "GetState"},
+            {0, &IClkrstSession::SetClockEnabled, "SetClockEnabled"},
+            {1, &IClkrstSession::SetClockDisabled, "SetClockDisabled"},
+            {2, &IClkrstSession::SetResetAsserted, "SetResetAsserted"},
+            {3, &IClkrstSession::SetResetDeasserted, "SetResetDeasserted"},
+            {4, &IClkrstSession::SetPowerEnabled, "SetPowerEnabled"},
+            {5, &IClkrstSession::SetPowerDisabled, "SetPowerDisabled"},
+            {6, &IClkrstSession::GetState, "GetState"},
             {7, &IClkrstSession::SetClockRate, "SetClockRate"},
             {8, &IClkrstSession::GetClockRate, "GetClockRate"},
-            {9, nullptr, "SetMinVClockRate"},
-            {10, nullptr, "GetPossibleClockRates"},
-            {11, nullptr, "GetDvfsTable"},
+            {9, &IClkrstSession::SetMinVClockRate, "SetMinVClockRate"},
+            {10, &IClkrstSession::GetPossibleClockRates, "GetPossibleClockRates"},
+            {11, &IClkrstSession::GetDvfsTable, "GetDvfsTable"},
         };
         // clang-format on
         RegisterHandlers(functions);
     }
 
 private:
+    struct ModuleState {
+        u32 clock_frequency{};
+        u8 clock_enabled{};
+        u8 power_enabled{};
+        u8 reset_asserted{};
+        u8 reserved{};
+        u32 min_v_clock_rate{};
+    };
+    static_assert(sizeof(ModuleState) == 0xC);
+
+    void ReplySuccess(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void SetClockEnabled(HLERequestContext& ctx) {
+        module_state.clock_enabled = 1;
+        ReplySuccess(ctx);
+    }
+
+    void SetClockDisabled(HLERequestContext& ctx) {
+        module_state.clock_enabled = 0;
+        ReplySuccess(ctx);
+    }
+
+    void SetResetAsserted(HLERequestContext& ctx) {
+        module_state.reset_asserted = 1;
+        ReplySuccess(ctx);
+    }
+
+    void SetResetDeasserted(HLERequestContext& ctx) {
+        module_state.reset_asserted = 0;
+        ReplySuccess(ctx);
+    }
+
+    void SetPowerEnabled(HLERequestContext& ctx) {
+        module_state.power_enabled = 1;
+        ReplySuccess(ctx);
+    }
+
+    void SetPowerDisabled(HLERequestContext& ctx) {
+        module_state.power_enabled = 0;
+        ReplySuccess(ctx);
+    }
+
+    void GetState(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 5};
+        rb.Push(ResultSuccess);
+        rb.PushRaw(module_state);
+    }
+
     void SetClockRate(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         clock_rate = rp.Pop<u32>();
+        module_state.clock_frequency = clock_rate;
         LOG_DEBUG(Service_PCV, "called, clock_rate={}", clock_rate);
 
         IPC::ResponseBuilder rb{ctx, 2};
@@ -120,7 +174,73 @@ private:
         rb.Push<u32>(clock_rate);
     }
 
+    void SetMinVClockRate(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        module_state.min_v_clock_rate = rp.Pop<u32>();
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetPossibleClockRates(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const s32 requested_count = rp.Pop<s32>();
+
+        std::array<u32, 7> rates{};
+        std::size_t rate_count{};
+        switch (device_code) {
+        case DeviceCode::Cpu:
+            rates = {1020000000U, 1224000000U, 1785000000U, 0, 0, 0, 0};
+            rate_count = 3;
+            break;
+        case DeviceCode::Gpu:
+            rates = {76800000U, 230400000U, 307200000U, 384000000U,
+                     460800000U, 691200000U, 768000000U};
+            rate_count = 7;
+            break;
+        case DeviceCode::Emc:
+            rates = {1065600000U, 1331200000U, 1600000000U, 0, 0, 0, 0};
+            rate_count = 3;
+            break;
+        default:
+            if (clock_rate != 0) {
+                rates[0] = clock_rate;
+                rate_count = 1;
+            }
+            break;
+        }
+
+        const std::size_t buffer_count =
+            ctx.CanWriteBuffer() ? ctx.GetWriteBufferSize() / sizeof(u32) : 0;
+        const std::size_t max_requested =
+            requested_count > 0 ? static_cast<std::size_t>(requested_count) : 0;
+        const std::size_t count = std::min({rate_count, buffer_count, max_requested});
+        if (count != 0) {
+            ctx.WriteBuffer(rates.data(), count * sizeof(u32));
+        }
+
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(ResultSuccess);
+        rb.Push<s32>(1); // PcvClockRatesListType::Discrete
+        rb.Push<s32>(static_cast<s32>(count));
+    }
+
+    void GetDvfsTable(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const s32 rate_count = rp.Pop<s32>();
+        const s32 voltage_count = rp.Pop<s32>();
+        LOG_DEBUG(Service_PCV, "called, rate_count={}, voltage_count={}", rate_count,
+                  voltage_count);
+
+        // Encore does not emulate Switch voltage rails. Return an empty table instead of
+        // fabricating rate/voltage pairs.
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<s32>(0);
+    }
+
     DeviceCode device_code;
+    ModuleState module_state{};
     u32 clock_rate{};
 };
 
@@ -130,8 +250,8 @@ public:
         // clang-format off
         static const FunctionInfo functions[] = {
             {0, &CLKRST::OpenSession, "OpenSession"},
-            {1, nullptr, "GetTemperatureThresholds"},
-            {2, nullptr, "SetTemperature"},
+            {1, &CLKRST::GetTemperatureThresholds, "GetTemperatureThresholds"},
+            {2, &CLKRST::SetTemperature, "SetTemperature"},
             {3, nullptr, "GetModuleStateTable"},
             {4, nullptr, "GetModuleStateTableEvent"},
             {5, nullptr, "GetModuleStateTableMaxCount"},
@@ -153,6 +273,28 @@ private:
         rb.Push(ResultSuccess);
         rb.PushIpcInterface<IClkrstSession>(ctx, system, device_code);
     }
+
+    void GetTemperatureThresholds(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const u32 module_id = rp.Pop<u32>();
+        LOG_DEBUG(Service_PCV, "called, module_id={}, no emulated thermal thresholds", module_id);
+
+        // Horizon returns a buffer plus a count. The PS5 port has no Switch thermal trip table.
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
+    }
+
+    void SetTemperature(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        temperature_raw = rp.Pop<u32>();
+        LOG_DEBUG(Service_PCV, "called, raw_temperature={}", temperature_raw);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    u32 temperature_raw{};
 };
 
 class CLKRST_A final : public ServiceFramework<CLKRST_A> {
