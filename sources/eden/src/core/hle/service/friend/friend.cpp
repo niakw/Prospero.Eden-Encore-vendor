@@ -27,7 +27,7 @@ public:
         static const FunctionInfo functions[] = {
             {0, &IFriendService::GetCompletionEvent, "GetCompletionEvent"},
             {1, &IFriendService::Cancel, "Cancel"},
-            {10100, nullptr, "GetFriendListIds"},
+            {10100, &IFriendService::GetFriendListIds, "GetFriendListIds"},
             {10101, &IFriendService::GetFriendList, "GetFriendList"},
             {10102, nullptr, "UpdateFriendInfo"},
             {10110, nullptr, "GetFriendProfileImage"},
@@ -41,7 +41,7 @@ public:
             {10421, nullptr, "EnsureBlockedUserListAvailable"},
             {10500, nullptr, "GetProfileList"},
             {10501, nullptr, "GetProfileListV2"}, // 18.0.0+
-            {10600, nullptr, "DeclareOpenOnlinePlaySession"},
+            {10600, &IFriendService::DeclareOpenOnlinePlaySession, "DeclareOpenOnlinePlaySession"},
             {10601, &IFriendService::DeclareCloseOnlinePlaySession, "DeclareCloseOnlinePlaySession"},
             {10610, &IFriendService::UpdateUserPresence, "UpdateUserPresence"},
             {10700, &IFriendService::GetPlayHistoryRegistrationKey, "GetPlayHistoryRegistrationKey"},
@@ -52,7 +52,7 @@ public:
             {20100, &IFriendService::GetFriendCount, "GetFriendCount"},
             {20101, &IFriendService::GetNewlyFriendCount, "GetNewlyFriendCount"},
             {20102, nullptr, "GetFriendDetailedInfo"},
-            {20103, nullptr, "SyncFriendList"},
+            {20103, &IFriendService::SyncFriendList, "SyncFriendList"},
             {20104, &IFriendService::RequestSyncFriendList, "RequestSyncFriendList"},
             {20105, &IFriendService::GetFriendListForViewer, "GetFriendListForViewerV1"},
             {20106, nullptr, "UpdateFriendInfoForViewerV1"},
@@ -65,13 +65,13 @@ public:
             {20201, nullptr, "GetFriendRequestListV1"},
             {20202, nullptr, "GetFriendRequestListV2"}, // 20.0.0+
             {20203, nullptr, "GetFriendRequestReceivedNotificationCount"}, // 22.0.0+
-            {20300, nullptr, "GetFriendCandidateList"},
+            {20300, &IFriendService::GetFriendCandidateList, "GetFriendCandidateList"},
             {20301, nullptr, "GetNintendoNetworkIdInfo"},
             {20302, nullptr, "GetSnsAccountLinkage"}, // 5.0.0-19.0.1
             {20303, nullptr, "GetSnsAccountProfile"}, // 5.0.0-19.0.1
             {20304, nullptr, "GetSnsAccountFriendList"}, // 5.0.0-19.0.1
             {20400, nullptr, "GetBlockedUserListV1"},
-            {20401, nullptr, "SyncBlockedUserList"},
+            {20401, &IFriendService::SyncBlockedUserList, "SyncBlockedUserList"},
             {20402, nullptr, "GetBlockedUserListV2"}, // 20.0.0+
             {20500, nullptr, "GetProfileExtraListV1"},
             {20501, nullptr, "GetRelationship"},
@@ -82,7 +82,7 @@ public:
             {20701, &IFriendService::GetPlayHistoryStatistics, "GetPlayHistoryStatistics"},
             {20702, nullptr, "GetPlayHistoryListV2"}, // 19.0.0+
             {20800, &IFriendService::LoadUserSetting, "LoadUserSettingV1"},
-            {20801, nullptr, "SyncUserSetting"},
+            {20801, &IFriendService::SyncUserSetting, "SyncUserSetting"},
             {20802, &IFriendService::LoadUserSetting, "LoadUserSettingV2"}, // 19.0.0+
             {20900, &IFriendService::RequestListSummaryOverlayNotification, "RequestListSummaryOverlayNotification"},
             {21000, nullptr, "GetExternalApplicationCatalog"},
@@ -196,6 +196,23 @@ private:
         rb.Push(ResultSuccess);
     }
 
+    void GetFriendListIds(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto friend_offset = rp.Pop<u32>();
+        const auto uuid = rp.PopRaw<Common::UUID>();
+        [[maybe_unused]] const auto filter = rp.PopRaw<SizedFriendFilter>();
+        const auto pid = rp.Pop<u64>();
+
+        // No Nintendo friends backend is connected, therefore there are no network friend
+        // account IDs to enumerate. Count zero means the type-0xA output buffer is untouched.
+        LOG_DEBUG(Service_Friend,
+                  "Returning empty friend-id list, offset={}, uuid=0x{}, pid={}", friend_offset,
+                  uuid.RawString(), pid);
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
+    }
+
     void GetFriendList(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto friend_offset = rp.Pop<u32>();
@@ -241,6 +258,14 @@ private:
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
         rb.Push(true);
+    }
+
+    void DeclareOpenOnlinePlaySession(HLERequestContext& ctx) {
+        // Encore has no Nintendo presence backend to publish an online-play session to.
+        // This mirrors DeclareCloseOnlinePlaySession: local gameplay state is unaffected.
+        LOG_DEBUG(Service_Friend, "Open-online-play-session ignored (offline social backend)");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
     }
 
     void DeclareCloseOnlinePlaySession(HLERequestContext& ctx) {
@@ -295,6 +320,36 @@ private:
         // There is no remote friend list to synchronize in Encore.
         LOG_DEBUG(Service_Friend, "Friend-list sync ignored (offline social backend)");
 
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void SyncFriendList(HLERequestContext& ctx) {
+        // There is no remote list distinct from the already-empty local friend state.
+        LOG_DEBUG(Service_Friend, "Friend-list sync ignored (offline social backend)");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetFriendCandidateList(HLERequestContext& ctx) {
+        // Friend candidates are provided by Nintendo's social backend. With that backend absent,
+        // the correct local result set is empty; count zero leaves the output buffer untouched.
+        LOG_DEBUG(Service_Friend, "Returning empty friend-candidate list");
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
+    }
+
+    void SyncBlockedUserList(HLERequestContext& ctx) {
+        // The blocked-user list is already represented locally as empty and has no remote source.
+        LOG_DEBUG(Service_Friend, "Blocked-user-list sync ignored (offline social backend)");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void SyncUserSetting(HLERequestContext& ctx) {
+        // No Nintendo friends settings backend exists to synchronize with.
+        LOG_DEBUG(Service_Friend, "Friend user-setting sync ignored (offline social backend)");
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
