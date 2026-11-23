@@ -51,7 +51,7 @@ public:
             {11001, nullptr, "GetProfileImageUrlV2"}, // 18.0.0+
             {20100, &IFriendService::GetFriendCount, "GetFriendCount"},
             {20101, &IFriendService::GetNewlyFriendCount, "GetNewlyFriendCount"},
-            {20102, nullptr, "GetFriendDetailedInfo"},
+            {20102, &IFriendService::GetFriendDetailedInfo, "GetFriendDetailedInfo"},
             {20103, &IFriendService::SyncFriendList, "SyncFriendList"},
             {20104, &IFriendService::RequestSyncFriendList, "RequestSyncFriendList"},
             {20105, &IFriendService::GetFriendListForViewer, "GetFriendListForViewerV1"},
@@ -74,7 +74,7 @@ public:
             {20401, &IFriendService::SyncBlockedUserList, "SyncBlockedUserList"},
             {20402, nullptr, "GetBlockedUserListV2"}, // 20.0.0+
             {20500, nullptr, "GetProfileExtraListV1"},
-            {20501, nullptr, "GetRelationship"},
+            {20501, &IFriendService::GetRelationship, "GetRelationship"},
             {20502, nullptr, "GetProfileExtraListV2"}, // 19.0.0+
             {20600, &IFriendService::GetUserPresenceView, "GetUserPresenceViewV1"},
             {20601, &IFriendService::GetUserPresenceView, "GetUserPresenceViewV2"}, // 19.0.0+
@@ -322,6 +322,41 @@ private:
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
+    }
+
+
+    void GetFriendDetailedInfo(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto uuid = rp.PopRaw<Common::UUID>();
+        const auto friend_id = rp.Pop<u64>();
+
+        // FriendDetailedInfoImpl is a fixed 0x800-byte pointer output. Encore has no
+        // Nintendo social backend, so there is no friend record to populate.
+        const std::array<u8, 0x800> detailed_info{};
+        ctx.WriteBuffer(detailed_info);
+
+        LOG_DEBUG(Service_Friend,
+                  "Returning empty friend detailed info, uuid=0x{}, friend_id={:016X}",
+                  uuid.RawString(), friend_id);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetRelationship(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto uuid = rp.PopRaw<Common::UUID>();
+        const auto friend_id = rp.Pop<u64>();
+
+        // nn::friends::Relationship is an 8-byte raw output. With no friend record,
+        // Ryujinx and other offline implementations return the default/zero value.
+        constexpr u64 relationship{};
+        LOG_DEBUG(Service_Friend,
+                  "Returning empty relationship, uuid=0x{}, friend_id={:016X}",
+                  uuid.RawString(), friend_id);
+
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(ResultSuccess);
+        rb.Push(relationship);
     }
 
     void SyncFriendList(HLERequestContext& ctx) {
