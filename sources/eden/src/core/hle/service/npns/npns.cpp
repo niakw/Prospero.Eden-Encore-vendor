@@ -19,16 +19,17 @@ class INpnsSystem final : public ServiceFramework<INpnsSystem> {
 public:
     explicit INpnsSystem(Core::System& system_)
         : ServiceFramework{system_, "npns:s"}, service_context{system, "npns:s"},
-          get_receive_event{service_context}, get_request_change_state_cancel_event{service_context} {
+          get_receive_event{service_context}, get_state_change_event{service_context},
+          get_request_change_state_cancel_event{service_context} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {1, nullptr, "ListenAll"},
+            {1, C<&INpnsSystem::ListenAll>, "ListenAll"},
             {2, C<&INpnsSystem::ListenTo>, "ListenTo"},
             {3, nullptr, "Receive"},
             {4, nullptr, "ReceiveRaw"},
             {5, C<&INpnsSystem::GetReceiveEvent>, "GetReceiveEvent"},
             {6, nullptr, "ListenUndelivered"},
-            {7, nullptr, "GetStateChangeEvent"},
+            {7, C<&INpnsSystem::GetStateChangeEvent>, "GetStateChangeEvent"},
             {8, C<&INpnsSystem::ListenToByName>, "ListenToByName"},
             {11, nullptr, "SubscribeTopic"},
             {12, nullptr, "UnsubscribeTopic"},
@@ -41,7 +42,7 @@ public:
             {23, nullptr, "DestroyToken"},
             {24, nullptr, "DestroyTokenWithApplicationId"},
             {25, nullptr, "QueryIsTokenValid"},
-            {26, nullptr, "ListenToMyApplicationId"},
+            {26, D<&INpnsSystem::ListenToMyApplicationId>, "ListenToMyApplicationId"},
             {27, nullptr, "DestroyTokenAll"},
             {28, nullptr, "CreateTokenWithName"}, // 18.0.0+
             {29, nullptr, "DestroyTokenWithName"}, // 18.0.0+
@@ -59,8 +60,8 @@ public:
             {44, nullptr, "SetUidList"}, // 17.0.0+
             {45, nullptr, "PutDigitalTwinKeyValue"}, // 17.0.0+
             {51, nullptr, "DeleteDigitalTwinKeyValue"}, // 18.0.0+
-            {101, nullptr, "Suspend"},
-            {102, nullptr, "Resume"},
+            {101, C<&INpnsSystem::Suspend>, "Suspend"},
+            {102, C<&INpnsSystem::Resume>, "Resume"},
             {103, C<&INpnsSystem::GetState>, "GetState"},
             {104, nullptr, "GetStatistics"},
             {105, nullptr, "GetPlayReportRequestEvent"},
@@ -97,6 +98,33 @@ public:
     ~INpnsSystem() override = default;
 
 private:
+    Result ListenAll() {
+        LOG_DEBUG(Service_NPNS, "ListenAll accepted in offline mode");
+        R_SUCCEED();
+    }
+
+    Result GetStateChangeEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
+        *out_event = get_state_change_event.GetHandle();
+        R_SUCCEED();
+    }
+
+    Result ListenToMyApplicationId(u64 application_id, ClientProcessId pid) {
+        LOG_DEBUG(Service_NPNS,
+                  "ListenToMyApplicationId accepted offline, application_id={:#x}, pid={}",
+                  application_id, pid.pid);
+        R_SUCCEED();
+    }
+
+    Result Suspend() {
+        LOG_DEBUG(Service_NPNS, "Suspend accepted; no remote push connection exists");
+        R_SUCCEED();
+    }
+
+    Result Resume() {
+        LOG_DEBUG(Service_NPNS, "Resume accepted; no remote push connection exists");
+        R_SUCCEED();
+    }
+
     Result ListenTo(u32 program_id) {
         // Encore has no Nintendo push backend. Accept the subscription request locally so guest
         // software can continue, but do not pretend a remote subscription was created.
@@ -146,28 +174,30 @@ private:
 
     KernelHelpers::ServiceContext service_context;
     Event get_receive_event;
+    Event get_state_change_event;
     Event get_request_change_state_cancel_event;
 };
 
 class INpnsUser final : public ServiceFramework<INpnsUser> {
 public:
     explicit INpnsUser(Core::System& system_)
-        : ServiceFramework{system_, "npns:u"}, service_context{system, "npns:u"}, get_receive_event{service_context} {
+        : ServiceFramework{system_, "npns:u"}, service_context{system, "npns:u"},
+          get_receive_event{service_context}, get_state_change_event{service_context} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {1, nullptr, "ListenAll"},
+            {1, C<&INpnsUser::ListenAll>, "ListenAll"},
             {2, C<&INpnsUser::ListenTo>, "ListenTo"},
             {3, nullptr, "Receive"},
             {4, nullptr, "ReceiveRaw"},
             {5, C<&INpnsUser::GetReceiveEvent>, "GetReceiveEvent"},
-            {7, nullptr, "GetStateChangeEvent"},
+            {7, C<&INpnsUser::GetStateChangeEvent>, "GetStateChangeEvent"},
             {8, C<&INpnsUser::ListenToByName>, "ListenToByName"}, // 18.0.0+
             {21, nullptr, "CreateToken"},
             {23, nullptr, "DestroyToken"},
             {25, nullptr, "QueryIsTokenValid"},
-            {26, nullptr, "ListenToMyApplicationId"},
-            {101, nullptr, "Suspend"},
-            {102, nullptr, "Resume"},
+            {26, D<&INpnsUser::ListenToMyApplicationId>, "ListenToMyApplicationId"},
+            {101, C<&INpnsUser::Suspend>, "Suspend"},
+            {102, C<&INpnsUser::Resume>, "Resume"},
             {103, C<&INpnsUser::GetState>, "GetState"},
             {104, nullptr, "GetStatistics"},
             {111, nullptr, "GetJid"},
@@ -183,6 +213,33 @@ public:
     }
 
 private:
+    Result ListenAll() {
+        LOG_DEBUG(Service_NPNS, "User ListenAll accepted in offline mode");
+        R_SUCCEED();
+    }
+
+    Result GetStateChangeEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
+        *out_event = get_state_change_event.GetHandle();
+        R_SUCCEED();
+    }
+
+    Result ListenToMyApplicationId(u64 application_id, ClientProcessId pid) {
+        LOG_DEBUG(Service_NPNS,
+                  "User ListenToMyApplicationId accepted offline, application_id={:#x}, pid={}",
+                  application_id, pid.pid);
+        R_SUCCEED();
+    }
+
+    Result Suspend() {
+        LOG_DEBUG(Service_NPNS, "User Suspend accepted; no remote push connection exists");
+        R_SUCCEED();
+    }
+
+    Result Resume() {
+        LOG_DEBUG(Service_NPNS, "User Resume accepted; no remote push connection exists");
+        R_SUCCEED();
+    }
+
     Result ListenTo(u32 program_id) {
         LOG_DEBUG(Service_NPNS, "User push subscription accepted locally, program_id={}", program_id);
         R_SUCCEED();
@@ -212,6 +269,7 @@ private:
 
     KernelHelpers::ServiceContext service_context;
     Event get_receive_event;
+    Event get_state_change_event;
 };
 
 void LoopProcess(Core::System& system) {
