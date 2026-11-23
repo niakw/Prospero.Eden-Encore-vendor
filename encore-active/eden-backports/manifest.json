@@ -514,6 +514,36 @@
       "active": "d9b8e35f04bf7ef53735176d25f77edb1e28070f801bb932783a576ccda123dc",
       "bytes": 458,
       "upstream": "496ab1bd9ca8341d79f378473e92eed095495763ce068eee16c4ae646b1da615"
+    },
+    "src/core/hle/service/am/service/all_system_applet_proxies_service.cpp": {
+      "active": "53d361ffaac06f76032a896379aa9446f86245e3429a96373189d3403263b0ef",
+      "bytes": 5857,
+      "upstream": "c51588e54cc792319b0289736039ca8c2f6c0abafd0f2c92d00768c946c6fdaf"
+    },
+    "src/core/hle/service/am/service/all_system_applet_proxies_service.h": {
+      "active": "9e15e05a786703c57043c921625f509b6967fcdac90901fab5bf992a7c7110a2",
+      "bytes": 2251,
+      "upstream": "df860aeb912e00399d55f7ed8636596a53722c99a1d8bd4f1ed237f36bee1db2"
+    },
+    "src/core/hle/service/am/service/home_menu_functions.cpp": {
+      "active": "5a28a909de47cff01abc8b2951ef1e816e33bbe4d0f1899c88dff7c93eeee4b1",
+      "bytes": 4086,
+      "upstream": "9efea8aeed4932a9f271993c8354aad89ef1baf917b13234422e876d208bf14f"
+    },
+    "src/core/hle/service/am/service/home_menu_functions.h": {
+      "active": "96350376d5dccffac1f9e638383c2453e13fe2584d43925eb531209ac78b9e16",
+      "bytes": 1464,
+      "upstream": "ecad50890c6f17dc1e5133a23cf0ea2789230c4d235e58c187836b74f25baf10"
+    },
+    "src/core/hle/service/am/service/debug_functions.cpp": {
+      "active": "18fe83cab80a8c94f615c788cd255e9a8853286e1762c335bfadf29d729f395b",
+      "bytes": 2992,
+      "upstream": "9bad1b47df169d1bd5d44d62e72416a80eb699f848f0b8db78601b92bd183a10"
+    },
+    "src/core/hle/service/am/service/debug_functions.h": {
+      "active": "f1233021890b14335af6bbc5b404c66fe92ec2f071a3807a6663fcce237e90f7",
+      "bytes": 433,
+      "upstream": "3a1927c8ca22518c8f6ec72f1617d70730a29e8ab8693c162ce8bbec03b1cae5"
     }
   },
   "excluded_experimental": [
