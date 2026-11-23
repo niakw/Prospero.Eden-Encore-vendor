@@ -233,8 +233,8 @@ public:
             {401, nullptr, "RefreshServiceEntryRequirementCacheForOnlinePlayAsync"}, // 6.1.0+
             {900, nullptr, "GetAuthenticationInfoForWin"}, // 9.0.0+
             {901, nullptr, "ImportAsyncForWin"}, // 9.0.0+
-            {997, nullptr, "DebugUnlinkNintendoAccountAsync"},
-            {998, nullptr, "DebugSetAvailabilityErrorDetail"},
+            {997, &IAdministrator::RejectDebugOnlyCommand, "DebugUnlinkNintendoAccountAsync"},
+            {998, &IAdministrator::RejectDebugOnlyCommand, "DebugSetAvailabilityErrorDetail"},
         };
         // clang-format on
 
@@ -242,6 +242,12 @@ public:
     }
 
 private:
+    void RejectDebugOnlyCommand(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected unsupported Nintendo-account debug-only command");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
     void IsLinkedWithNintendoAccount(HLERequestContext& ctx) {
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
@@ -1395,7 +1401,7 @@ public:
             {51, &ACC_SU::TrySelectUserWithoutInteractionDeprecated, "TrySelectUserWithoutInteractionDeprecated"},
             {52, &ACC_SU::TrySelectUserWithoutInteraction, "TrySelectUserWithoutInteraction"}, // 19.0.0+
             {60, &ACC_SU::ListOpenContextStoredUsers, "ListOpenContextStoredUsers"},
-            {99, nullptr, "DebugActivateOpenContextRetention"},
+            {99, &ACC_SU::RejectDebugOnlyCommand, "DebugActivateOpenContextRetention"},
             {100, nullptr, "GetUserRegistrationNotifier"},
             {101, nullptr, "GetUserStateChangeNotifier"},
             {102, &ACC_SU::GetBaasAccountManagerForSystemService, "GetBaasAccountManagerForSystemService"},
@@ -1439,18 +1445,26 @@ public:
             {410, nullptr, "GetPinCodeErrorCount"}, // 18.0.0+
             {411, nullptr, "ResetPinCodeErrorCount"}, // 18.0.0+
             {412, nullptr, "IncrementPinCodeErrorCount"}, // 18.0.0+
-            {900, nullptr, "SetUserUnqualifiedForDebug"},
-            {901, nullptr, "UnsetUserUnqualifiedForDebug"},
-            {902, nullptr, "ListUsersUnqualifiedForDebug"},
-            {910, nullptr, "RefreshFirmwareSettingsForDebug"},
-            {997, nullptr, "DebugInvalidateTokenCacheForUser"},
-            {998, nullptr, "DebugSetUserStateClose"},
-            {999, nullptr, "DebugSetUserStateOpen"},
+            {900, &ACC_SU::RejectDebugOnlyCommand, "SetUserUnqualifiedForDebug"},
+            {901, &ACC_SU::RejectDebugOnlyCommand, "UnsetUserUnqualifiedForDebug"},
+            {902, &ACC_SU::RejectDebugOnlyCommand, "ListUsersUnqualifiedForDebug"},
+            {910, &ACC_SU::RejectDebugOnlyCommand, "RefreshFirmwareSettingsForDebug"},
+            {997, &ACC_SU::RejectDebugOnlyCommand, "DebugInvalidateTokenCacheForUser"},
+            {998, &ACC_SU::RejectDebugOnlyCommand, "DebugSetUserStateClose"},
+            {999, &ACC_SU::RejectDebugOnlyCommand, "DebugSetUserStateOpen"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+private:
+    void RejectDebugOnlyCommand(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected unsupported acc:su debug-only command");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
+public:
     ~ACC_SU() override = default;
 };
 
