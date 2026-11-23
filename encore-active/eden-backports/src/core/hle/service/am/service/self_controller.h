@@ -30,6 +30,7 @@ public:
     ~ISelfController() override;
 
 private:
+    Result RejectDebugOnlyCommand();
     Result Exit();
     Result LockExit();
     Result UnlockExit();
