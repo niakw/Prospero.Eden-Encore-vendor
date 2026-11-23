@@ -5,6 +5,7 @@
 #include <array>
 #include <cstring>
 #include <span>
+#include <type_traits>
 
 #include "core/core.h"
 #include "core/file_sys/bis_factory.h"
