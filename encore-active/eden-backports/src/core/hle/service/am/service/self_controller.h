@@ -45,6 +45,7 @@ private:
     Result SetOutOfFocusSuspendingEnabled(bool enabled);
     Result SetControllerFirmwareUpdateSection(bool enabled);
     Result SetDesirableKeyboardLayout(u32 layout);
+    Result SetRequiresCaptureButtonShortPressedMessage(bool required);
     Result SetAlbumImageOrientation(Capture::AlbumImageOrientation album_image_orientation);
     Result IsSystemBufferSharingEnabled();
     Result GetSystemSharedBufferHandle(Out<u64> out_buffer_id);

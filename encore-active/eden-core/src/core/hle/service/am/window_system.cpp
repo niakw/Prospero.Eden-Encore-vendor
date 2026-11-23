@@ -221,6 +221,8 @@ void WindowSystem::SendButtonAppletMessageLocked(AppletMessage message) {
             return applet.home_button_short_pressed_blocked;
         case AppletMessage::DetectLongPressingHomeButton:
             return applet.home_button_long_pressed_blocked;
+        case AppletMessage::DetectShortPressingCaptureButton:
+            return !applet.handling_capture_button_short_pressed_message_enabled_for_applet;
         default:
             return false;
         }

@@ -37,7 +37,7 @@ ISelfController::ISelfController(Core::System& system_, std::shared_ptr<Applet> 
         {15, D<&ISelfController::SetScreenShotAppletIdentityInfo>, "SetScreenShotAppletIdentityInfo"},
         {16, D<&ISelfController::SetOutOfFocusSuspendingEnabled>, "SetOutOfFocusSuspendingEnabled"},
         {17, D<&ISelfController::SetControllerFirmwareUpdateSection>, "SetControllerFirmwareUpdateSection"},
-        {18, nullptr, "SetRequiresCaptureButtonShortPressedMessage"},
+        {18, D<&ISelfController::SetRequiresCaptureButtonShortPressedMessage>, "SetRequiresCaptureButtonShortPressedMessage"},
         {19, D<&ISelfController::SetAlbumImageOrientation>, "SetAlbumImageOrientation"},
         {20, D<&ISelfController::SetDesirableKeyboardLayout>, "SetDesirableKeyboardLayout"},
         {21, nullptr, "GetScreenShotProgramId"},
@@ -236,6 +236,15 @@ Result ISelfController::SetDesirableKeyboardLayout(u32 layout) {
     LOG_DEBUG(Service_AM, "called, layout={}", layout);
     std::scoped_lock lk{m_applet->lock};
     m_applet->desirable_keyboard_layout = layout;
+    R_SUCCEED();
+}
+
+Result ISelfController::SetRequiresCaptureButtonShortPressedMessage(bool required) {
+    LOG_DEBUG(Service_AM, "called, required={}", required);
+
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->handling_capture_button_short_pressed_message_enabled_for_applet = required;
+
     R_SUCCEED();
 }
 
