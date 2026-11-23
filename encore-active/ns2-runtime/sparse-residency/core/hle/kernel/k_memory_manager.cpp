@@ -211,11 +211,25 @@ Result KMemoryManager::InitializeOptimizedMemory(u64 process_id, Pool pool) {
     m_optimized_process_ids[pool_index] = process_id;
     m_has_optimized_process[pool_index] = true;
 
-    // Clear the management area for the optimized process.
-    for (auto* manager = this->GetFirstManager(pool, Direction::FromFront); manager != nullptr;
-         manager = this->GetNextManager(manager, Direction::FromFront)) {
-        manager->InitializeOptimizedMemory(m_system.Kernel());
+    // Clear the management area for the optimized process. The bitmap is
+    // control metadata: unlike bulk guest data, a failed first write cannot
+    // safely surface through the signal handler as a guest Result. Convert
+    // sparse backing pressure into ResultOutOfMemory here instead.
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+    try {
+#endif
+        for (auto* manager = this->GetFirstManager(pool, Direction::FromFront);
+             manager != nullptr;
+             manager = this->GetNextManager(manager, Direction::FromFront)) {
+            manager->InitializeOptimizedMemory(m_system.Kernel());
+        }
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+    } catch (const std::bad_alloc&) {
+        m_has_optimized_process[pool_index] = false;
+        m_optimized_process_ids[pool_index] = 0;
+        R_THROW(ResultOutOfMemory);
     }
+#endif
 
     R_SUCCEED();
 }
@@ -562,19 +576,14 @@ void KMemoryManager::Impl::InitializeOptimizedMemory(KernelCore& kernel) {
     const auto optimize_pa = KPageTable::GetHeapPhysicalAddress(kernel, m_management_region);
     const auto bytes = CalculateOptimizedProcessOverheadSize(m_heap.GetSize());
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
-    // Fresh optimization metadata is logically zero. Keep untouched 2 MiB
-    // chunks on the shared ZERO owner; Track* promotes only chunks whose bits
-    // are actually modified. This avoids making the full metadata span OWN
-    // before the process has used it.
-    const auto physical = GetInteger(optimize_pa);
-    if (physical < Core::DramMemoryMap::Base)
-        throw std::bad_alloc{};
-    kernel.System().DeviceMemory().buffer.ClearBackingRegion(
-        physical - Core::DramMemoryMap::Base, bytes, 0);
-#else
+    // The optimization bitmap is small control metadata. Give its touched
+    // native granule an OWN backing before direct writes so an OOM is a C++
+    // failure handled by KMemoryManager::InitializeOptimizedMemory, never an
+    // unrecoverable signal-time allocation failure.
+    CommitKernelDirectGuestRange(kernel.System(), optimize_pa, bytes);
+#endif
     auto* optimize_map = kernel.System().DeviceMemory().GetPointer<u64>(optimize_pa);
     std::memset(optimize_map, 0, bytes);
-#endif
 }
 
 void KMemoryManager::Impl::TrackUnoptimizedAllocation(KernelCore& kernel, KPhysicalAddress block,

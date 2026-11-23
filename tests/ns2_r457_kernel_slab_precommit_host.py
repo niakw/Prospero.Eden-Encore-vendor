@@ -77,4 +77,17 @@ track_unoptimized = kernel.split("void KMemoryManager::Impl::TrackUnoptimizedAll
 assert "if (word & mask)" in track_unoptimized
 assert "word &= ~mask;" in track_unoptimized
 
+# Optimized bitmap control metadata is deliberately OWN: unlike bulk zero
+# guest data, its first write must not discover OOM inside a signal handler.
+outer_opt = kernel.split("Result KMemoryManager::InitializeOptimizedMemory", 1)[1].split(
+    "void KMemoryManager::FinalizeOptimizedMemory", 1)[0]
+metadata = kernel.split("void KMemoryManager::Impl::InitializeOptimizedMemory", 1)[1].split(
+    "void KMemoryManager::Impl::TrackUnoptimizedAllocation", 1)[0]
+assert "catch (const std::bad_alloc&)" in outer_opt
+assert "m_has_optimized_process[pool_index] = false;" in outer_opt
+assert "R_THROW(ResultOutOfMemory);" in outer_opt
+assert "CommitKernelDirectGuestRange(kernel.System(), optimize_pa, bytes);" in metadata
+assert metadata.index("CommitKernelDirectGuestRange(") < metadata.index("GetPointer<u64>(")
+assert metadata.index("GetPointer<u64>(") < metadata.index("std::memset(")
+
 print("NS2_KERNEL_SLAB_DIRECT_PHYSICAL_PRECOMMIT_OK writers=2")
