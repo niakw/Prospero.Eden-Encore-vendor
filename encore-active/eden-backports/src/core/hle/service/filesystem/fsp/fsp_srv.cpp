@@ -136,7 +136,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {65, nullptr, "UpdateSaveDataMacForDebug"},
         {66, nullptr, "WriteSaveDataFileSystemExtraData2"},
         {67, D<&FSP_SRV::FindSaveDataWithFilter>, "FindSaveDataWithFilter"},
-        {68, nullptr, "OpenSaveDataInfoReaderBySaveDataFilter"},
+        {68, D<&FSP_SRV::OpenSaveDataInfoReaderWithFilter>, "OpenSaveDataInfoReaderWithFilter"},
         {69, D<&FSP_SRV::ReadSaveDataFileSystemExtraDataBySaveDataAttribute>, "ReadSaveDataFileSystemExtraDataBySaveDataAttribute"},
         {70, D<&FSP_SRV::WriteSaveDataFileSystemExtraDataWithMaskBySaveDataAttribute>, "WriteSaveDataFileSystemExtraDataWithMaskBySaveDataAttribute"},
         {71, D<&FSP_SRV::ReadSaveDataFileSystemExtraDataWithMaskBySaveDataAttribute>, "ReadSaveDataFileSystemExtraDataWithMaskBySaveDataAttribute"},
@@ -521,6 +521,17 @@ Result FSP_SRV::FindSaveDataWithFilter(Out<s64> out_count,
     if (match.has_value()) {
         std::memcpy(out_buffer.data(), &*match, sizeof(*match));
     }
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenSaveDataInfoReaderWithFilter(
+    OutInterface<ISaveDataInfoReader> out_interface, FileSys::SaveDataSpaceId space_id,
+    FileSys::SaveDataFilter filter) {
+    LOG_DEBUG(Service_FS, "called, space_id={}, {}", space_id, filter.attribute.DebugInfo());
+
+    *out_interface = std::make_shared<ISaveDataInfoReader>(
+        system, save_data_controller, space_id, filter, program_id);
+
     R_SUCCEED();
 }
 

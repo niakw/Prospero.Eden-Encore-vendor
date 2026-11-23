@@ -21,6 +21,11 @@ public:
                                  std::shared_ptr<SaveDataController> save_data_controller_,
                                  FileSys::SaveDataSpaceId space, bool cache_only = false,
                                  u64 cache_program_id = 0);
+    explicit ISaveDataInfoReader(Core::System& system_,
+                                 std::shared_ptr<SaveDataController> save_data_controller_,
+                                 FileSys::SaveDataSpaceId space,
+                                 const FileSys::SaveDataFilter& filter,
+                                 u64 current_program_id);
     ~ISaveDataInfoReader() override;
 
     struct SaveDataInfo {

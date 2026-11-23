@@ -166,13 +166,13 @@
       "upstream": "dc9e0214fab5197a3ef369cd5e5a864f294b93dd5a020887fbdac3339ee0243c"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.cpp": {
-      "active": "476e399b6f96ba2466a6ccaecdbc3f079287c10cb23b43d14a64b7380a523458",
-      "bytes": 42228,
+      "active": "6a243d1f0baef778622bcf5a989720f207aafa734c6daaf652fadf871a76e3f2",
+      "bytes": 42681,
       "upstream": "2017a14e3450768f421448326f809d439414cc385f927511382b940c64e44e84"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.h": {
-      "active": "2515f32702c549b14da79fbb9402092e513a7775c197d1c8d7ac0d3baa5af7bb",
-      "bytes": 7694,
+      "active": "1a7338739f122eb63c537fe02ac64cfbbfa315f6350e6d6a30997d826a50100c",
+      "bytes": 7943,
       "upstream": "394d7fd76564e2a7b50225a6263ab8377a6e4fa6cdfcfd1b7d51ba1e0bf39293"
     },
     "src/core/hle/service/glue/arp.cpp": {
@@ -422,13 +422,13 @@
     },
     "src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp": {
       "upstream": "6cba34161c99edc6012c40ca9713cca6f134fc3b41e1baf572eb21764c3ea4cd",
-      "active": "787a1fdbf59d951ac5d81113e84b4c981fcca265b65d582a14b1eca1d2bb5bd2",
-      "bytes": 9765
+      "active": "e1072409d138014ca542d12f008c9d74d85fc490fa5e91828205cfacc47eba75",
+      "bytes": 11190
     },
     "src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.h": {
       "upstream": "67a75240764eea738894edeb7b8763f2871a0b6ad04efbb19eb32f475d33be59",
-      "active": "2829537e826e7534de9fa41db712fa891a45ee158ebed758ec92f156fe6256e1",
-      "bytes": 2195
+      "active": "2a91ed12ba3dd935d9b95448bf06e14ccea07f18db60d7669e43617468a5a25e",
+      "bytes": 2538
     },
     "src/core/hle/service/filesystem/fsp/fs_i_filesystem.h": {
       "upstream": "71d7ac4e6543bffd1f0445383e508692f8f018668728f1420e0696847cccb0ec",

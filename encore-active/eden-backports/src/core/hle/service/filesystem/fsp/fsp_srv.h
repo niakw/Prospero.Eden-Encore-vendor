@@ -89,6 +89,9 @@ private:
     Result OpenSaveDataInfoReaderBySaveDataSpaceId(OutInterface<ISaveDataInfoReader> out_interface,
                                                    FileSys::SaveDataSpaceId space);
     Result OpenSaveDataInfoReaderOnlyCacheStorage(OutInterface<ISaveDataInfoReader> out_interface);
+    Result OpenSaveDataInfoReaderWithFilter(OutInterface<ISaveDataInfoReader> out_interface,
+                                            FileSys::SaveDataSpaceId space_id,
+                                            FileSys::SaveDataFilter filter);
     Result FindSaveDataWithFilter(Out<s64> out_count, OutBuffer<BufferAttr_HipcMapAlias> out_buffer,
                                   FileSys::SaveDataSpaceId space_id,
                                   FileSys::SaveDataFilter filter);

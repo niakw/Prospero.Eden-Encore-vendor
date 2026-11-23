@@ -47,6 +47,41 @@ ISaveDataInfoReader::ISaveDataInfoReader(Core::System& system_,
     }
 }
 
+ISaveDataInfoReader::ISaveDataInfoReader(
+    Core::System& system_, std::shared_ptr<SaveDataController> save_data_controller_,
+    FileSys::SaveDataSpaceId space, const FileSys::SaveDataFilter& filter,
+    u64 current_program_id)
+    : ISaveDataInfoReader(system_, std::move(save_data_controller_), space) {
+    const auto requested_program_id =
+        filter.attribute.program_id == 0 ? current_program_id : filter.attribute.program_id;
+
+    std::erase_if(info, [&](const SaveDataInfo& entry) {
+        if (filter.use_program_id && static_cast<u64>(entry.title_id) != requested_program_id) {
+            return true;
+        }
+        if (filter.use_save_data_type && entry.type != filter.attribute.type) {
+            return true;
+        }
+        if (filter.use_user_id &&
+            std::memcmp(entry.user_id.data(), filter.attribute.user_id.data(),
+                        entry.user_id.size()) != 0) {
+            return true;
+        }
+        if (filter.use_save_data_id &&
+            static_cast<u64>(entry.save_id) != filter.attribute.system_save_data_id) {
+            return true;
+        }
+        if (filter.use_index && static_cast<u16>(entry.index) != filter.attribute.index) {
+            return true;
+        }
+        if (filter.rank == FileSys::SaveDataRank::Primary &&
+            entry.rank == FileSys::SaveDataRank::Secondary) {
+            return true;
+        }
+        return false;
+    });
+}
+
 ISaveDataInfoReader::~ISaveDataInfoReader() = default;
 
 static u64 stoull_be(std::string_view str) {

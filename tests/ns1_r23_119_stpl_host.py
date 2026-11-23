@@ -8,9 +8,11 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 files={
  "encore-active/eden-backports/src/core/hle/service/ngc/ngc.cpp":"b5128e3a4509a9060058457c04980b7e6c922865",
- "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp":"5566c1d1e25dae7019db290950517ede3115535e",
+ "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp":"f3408c8d2d11bd13b45321802b714a2235fc57f2",
  "encore-active/eden-core/include/core/hle/service/acc/profile_manager.h":"81688175c2b96b509a9108cc1e69b12391d2127f",
  "encore-active/eden-core/include/core/hle/service/ipc_helpers.h":"a266b1a05cf0b20b7cad6d70f9b16dfec503cf7c",
+ "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp":"647e2499f82de4ac921e6ab709c8a67d4f2f10cc",
+ "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.h":"4599b92b022b18439014288b43c0c3ecb93f0eb7",
 }
 for file,expected in files.items():
  d=(ROOT/file).read_bytes()
@@ -18,6 +20,7 @@ for file,expected in files.items():
  assert sha==expected,(file,sha)
 ngc=(ROOT/"encore-active/eden-backports/src/core/hle/service/ngc/ngc.cpp").read_text()
 fsp=(ROOT/"encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp").read_text()
+reader=(ROOT/"encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp").read_text()
 ipch=(ROOT/"encore-active/eden-core/include/core/hle/service/ipc_helpers.h").read_text()
 profile=(ROOT/"encore-active/eden-core/include/core/hle/service/acc/profile_manager.h").read_text()
 assert 'RegisterNamedService("stpl:u"' in ngc
@@ -34,6 +37,13 @@ delete_cache=fsp.split("Result FSP_SRV::DeleteCacheStorage(",1)[1].split("Result
 assert 'index == 0' in delete_cache
 assert 'GetDirectoryRelative("save/cache")' in delete_cache
 assert 'DeleteSubdirectoryRecursive(cache_name)' in delete_cache
+assert '{68, D<&FSP_SRV::OpenSaveDataInfoReaderWithFilter>, "OpenSaveDataInfoReaderWithFilter"}' in fsp
+filtered=fsp.split("Result FSP_SRV::OpenSaveDataInfoReaderWithFilter(",1)[1].split("Result FSP_SRV::WriteSaveDataFileSystemExtraData",1)[0]
+assert 'space_id, filter, program_id' in filtered
+assert 'std::erase_if(info' in reader
+assert 'filter.use_program_id' in reader and 'filter.use_save_data_type' in reader
+assert 'filter.use_user_id' in reader and 'filter.use_save_data_id' in reader
+assert 'filter.use_index' in reader
 assert "constexpr Result ResultNotSupported{ErrorModule::HIPC, 1};" in ipch
 assert "static_assert(sizeof(Uid) == 0x10)" in profile
 test=r"""
