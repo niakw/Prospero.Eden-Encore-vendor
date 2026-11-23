@@ -29,7 +29,7 @@ public:
             {1, &IFriendService::Cancel, "Cancel"},
             {10100, &IFriendService::GetFriendListIds, "GetFriendListIds"},
             {10101, &IFriendService::GetFriendList, "GetFriendList"},
-            {10102, nullptr, "UpdateFriendInfo"},
+            {10102, &IFriendService::UpdateFriendInfo, "UpdateFriendInfo"},
             {10110, &IFriendService::GetFriendProfileImage, "GetFriendProfileImage"},
             {10111, nullptr, "GetFriendProfileImageWithImageSize"}, // 18.0.0+
             {10120, &IFriendService::CheckFriendListAvailability, "CheckFriendListAvailability"},
@@ -213,6 +213,25 @@ private:
         rb.Push<u32>(0);
     }
 
+
+
+    void UpdateFriendInfo(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto uuid = rp.PopRaw<Common::UUID>();
+        const auto pid_placeholder = rp.Pop<u64>();
+
+        // The Pointer input buffer contains NSAIDs and the MapAlias output contains
+        // corresponding FriendImpl records. Offline mode has no records to refresh,
+        // so initialize every requested output slot as invalid/default.
+        std::vector<u8> friends(ctx.GetWriteBufferSize());
+        ctx.WriteBuffer(friends);
+        LOG_DEBUG(Service_Friend,
+                  "Returning default UpdateFriendInfo records, uuid=0x{}, pid_placeholder={}, bytes={}",
+                  uuid.RawString(), pid_placeholder, friends.size());
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
 
     void GetFriendProfileImage(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
@@ -677,6 +696,14 @@ private:
     States states{};
 };
 
+
+class IDaemonSuspendSessionService final
+    : public ServiceFramework<IDaemonSuspendSessionService> {
+public:
+    explicit IDaemonSuspendSessionService(Core::System& system_)
+        : ServiceFramework{system_, "IDaemonSuspendSessionService"} {}
+};
+
 void Module::Interface::CreateFriendService(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(ResultSuccess);
@@ -693,6 +720,14 @@ void Module::Interface::CreateNotificationService(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(ResultSuccess);
     rb.PushIpcInterface<INotificationService>(ctx, system, uuid);
+}
+
+
+void Module::Interface::CreateDaemonSuspendSessionService(HLERequestContext& ctx) {
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(ResultSuccess);
+    rb.PushIpcInterface<IDaemonSuspendSessionService>(ctx, system);
+    LOG_DEBUG(Service_Friend, "created empty daemon suspend-session service");
 }
 
 Module::Interface::Interface(std::shared_ptr<Module> module_, Core::System& system_, const char* name)
