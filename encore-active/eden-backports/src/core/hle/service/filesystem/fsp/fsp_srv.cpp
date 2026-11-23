@@ -174,7 +174,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {603, nullptr, "CorruptSaveDataFileSystem"},
         {604, nullptr, "CreatePaddingFile"},
         {605, nullptr, "DeleteAllPaddingFiles"},
-        {606, nullptr, "GetRightsId"},
+        {606, D<&FSP_SRV::GetRightsId>, "GetRightsId"},
         {607, nullptr, "RegisterExternalKey"},
         {608, nullptr, "UnregisterAllExternalKey"},
         {609, nullptr, "GetRightsIdByPath"},
@@ -807,6 +807,18 @@ Result FSP_SRV::OpenDataStorageWithProgramIndex(OutInterface<IStorage> out_inter
 
     *out_interface = std::make_shared<IStorage>(system, std::move(patched_romfs));
 
+    R_SUCCEED();
+}
+
+Result FSP_SRV::GetRightsId(Out<FspRightsId> out_rights_id,
+                               FileSys::StorageId storage_id, u64 program_id_) {
+    LOG_DEBUG(Service_FS, "called, storage_id={:02X}, program_id={:016X}", storage_id, program_id_);
+
+    const auto nca =
+        romfs_controller->OpenBaseNca(program_id_, storage_id, FileSys::ContentRecordType::Program);
+    R_UNLESS(nca != nullptr, FileSys::ResultTargetNotFound);
+
+    *out_rights_id = nca->GetRightsId();
     R_SUCCEED();
 }
 

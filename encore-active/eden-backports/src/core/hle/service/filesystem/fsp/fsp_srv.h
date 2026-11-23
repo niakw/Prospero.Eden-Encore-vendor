@@ -40,6 +40,9 @@ enum class AccessLogMode : u32 {
     SdCard,
 };
 
+using FspRightsId = std::array<u8, 0x10>;
+static_assert(sizeof(FspRightsId) == 0x10);
+
 struct ProgramIndexMapInfo {
     u64 program_id{};
     u64 main_program_id{};
@@ -124,6 +127,8 @@ private:
                                    FileSys::StorageId storage_id, u32 unknown, u64 title_id);
     Result OpenPatchDataStorageByCurrentProcess(OutInterface<IStorage> out_interface);
     Result OpenDataStorageWithProgramIndex(OutInterface<IStorage> out_interface, u8 program_index);
+    Result GetRightsId(Out<FspRightsId> out_rights_id, FileSys::StorageId storage_id,
+                       u64 program_id_);
     Result SetSdCardAccessibility(bool is_accessible);
     Result IsSdCardAccessible(Out<bool> out_is_accessible);
     Result DisableAutoSaveDataCreation();
