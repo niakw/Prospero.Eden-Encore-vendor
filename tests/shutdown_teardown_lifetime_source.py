@@ -13,6 +13,28 @@ ROOT = Path(__file__).resolve().parents[1]
 def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     if relative != "encore-active/ns2-runtime/process/core/core.cpp":
         return source
+    # PS5 FC27 23/11: keep the SM owner alive until KProcess termination.
+    # Reverse only on the provenance copy, never on the compiled C++ owner.
+    after_service = (
+        '        services.reset();\n'
+        '        ::Eden::ReportStep("shutdown", "Completed services.reset()");\n'
+        '        // A process finishing shutdown can still consult the SM owner.\n'
+        '        // NVDRV services have already released their guest AS/page pins;\n'
+        '        // retain the service manager itself until all kernel cores retire.\n'
+        '        kernel.ShutdownCores();\n'
+        '        ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");\n'
+        '        service_manager.reset();'
+    )
+    before_service = (
+        '        services.reset();\n'
+        '        ::Eden::ReportStep("shutdown", "Completed services.reset()");\n'
+        '        service_manager.reset();\n'
+        '        kernel.ShutdownCores();\n'
+        '        ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");'
+    )
+    assert source.count(after_service) == 1, ("FC27 SM lifetime", relative)
+    source = source.replace(after_service, before_service, 1)
+
     # NUP pre-kernel selection is a verified post-#1932/#1952 runtime fix.
     # Undo its exact bytes on the audit copy, not the active C++ source.
     # The same source-selected NUP ExeFS view is needed before kernel init.

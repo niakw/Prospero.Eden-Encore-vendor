@@ -622,9 +622,12 @@ struct System::Impl {
         // was joined above, so no GPU task can reuse the retired mappings.
         services.reset();
         ::Eden::ReportStep("shutdown", "Completed services.reset()");
-        service_manager.reset();
+        // A process finishing shutdown can still consult the SM owner.
+        // NVDRV services have already released their guest AS/page pins;
+        // retain the service manager itself until all kernel cores retire.
         kernel.ShutdownCores();
         ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");
+        service_manager.reset();
         fs_controller.Reset();
         core_timing.ClearPendingEvents();
         app_loader.reset();
