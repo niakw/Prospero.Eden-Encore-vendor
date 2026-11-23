@@ -58,6 +58,9 @@ private:
     Result OpenDataFileSystemByCurrentProcess(OutInterface<IFileSystem> out_interface);
     Result OpenFileSystemWithPatch(OutInterface<IFileSystem> out_interface,
                                    FileSystemProxyType type, u64 open_program_id);
+    Result InvalidateBisCache();
+    Result GetFreeSpaceSizeForSaveData(Out<s64> out_free_space_size,
+                                       FileSys::SaveDataSpaceId space_id);
     Result OpenSdCardFileSystem(OutInterface<IFileSystem> out_interface);
     Result CreateSaveDataFileSystem(FileSys::SaveDataCreationInfo save_create_struct,
                                     FileSys::SaveDataAttribute save_struct, u128 uid);
