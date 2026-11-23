@@ -46,7 +46,9 @@ Result IGlobalStateController::StartRebootSequence() {
 IGlobalStateController::~IGlobalStateController() = default;
 
 Result IGlobalStateController::LoadAndApplyIdlePolicySettings() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    // Horizon applies its own idle policy here. On PS5 the host power policy remains owned by
+    // Prospero OS, and Encore exposes no guest idle:sys scheduler to update.
+    LOG_DEBUG(Service_AM, "called (guest idle policy intentionally not applied to host)");
     R_SUCCEED();
 }
 

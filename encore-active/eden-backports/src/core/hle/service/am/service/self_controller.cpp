@@ -323,7 +323,10 @@ Result ISelfController::SetMediaPlaybackState(bool state) {
 }
 
 Result ISelfController::OverrideAutoSleepTimeAndDimmingTime(s32 a, s32 b, s32 c, s32 d) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, a={}, b={}, c={}, d={}", a, b, c, d);
+    LOG_DEBUG(Service_AM, "called, a={}, b={}, c={}, d={}", a, b, c, d);
+
+    // These values control Horizon's idle/dimming policy. Encore intentionally does not forward
+    // guest power-policy timings to the PS5 host, and no guest idle:sys scheduler consumes them.
     R_SUCCEED();
 }
 
@@ -348,7 +351,9 @@ Result ISelfController::GetIdleTimeDetectionExtension(
 }
 
 Result ISelfController::ReportUserIsActive() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    // Horizon forwards this notification to idle:sys. Encore has no guest idle scheduler and must
+    // not reset or otherwise alter the PS5 host idle policy, so this is intentionally a no-op.
+    LOG_DEBUG(Service_AM, "called (guest idle service not exposed)");
     R_SUCCEED();
 }
 
