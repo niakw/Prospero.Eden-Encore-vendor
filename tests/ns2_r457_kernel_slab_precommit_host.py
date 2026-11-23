@@ -61,17 +61,20 @@ assert "device_memory.buffer.ClearBackingRegion(" in optimized
 assert optimized.index("ClearBackingRegion(") < optimized.index("return any_new;")
 assert "CommitKernelDirectGuestRange(kernel.System(), block, num_pages * PageSize);" not in optimized
 
-# Zero-initialized optimized metadata must stay demand-zero on PS5. Its
-# first later bitmap write is a normal backing write and promotes on fault.
+# Optimized bitmap control metadata is deliberately OWN on the current
+# runtime. Unlike bulk guest pages, its first mutation cannot safely discover
+# physical OOM from the SIGSEGV promotion path, so admission happens before
+# the direct pointer and zero initialization. This supersedes the earlier
+# demand-zero metadata experiment while leaving bulk guest data sparse.
 metadata = kernel.split("void KMemoryManager::Impl::InitializeOptimizedMemory", 1)[1].split(
     "void KMemoryManager::Impl::TrackUnoptimizedAllocation", 1)[0]
-assert "buffer.ClearBackingRegion(" in metadata
-assert "physical - Core::DramMemoryMap::Base, bytes, 0" in metadata
-assert "CommitKernelDirectGuestRange(" not in metadata
-assert "GetPointer<u64>(" not in metadata
+assert "CommitKernelDirectGuestRange(kernel.System(), optimize_pa, bytes);" in metadata
+assert metadata.index("CommitKernelDirectGuestRange(") < metadata.index("GetPointer<u64>(")
+assert metadata.index("GetPointer<u64>(") < metadata.index("std::memset(")
+assert "buffer.ClearBackingRegion(" not in metadata
 
-# Clearing an already-zero optimized bit must be a read-only no-op so the
-# shared ZERO metadata chunk is not promoted merely by unoptimized allocation.
+# Clearing an already-zero optimized bit must still be a read-only no-op; it
+# must not perform a redundant write to this already admitted control chunk.
 track_unoptimized = kernel.split("void KMemoryManager::Impl::TrackUnoptimizedAllocation", 1)[1].split(
     "void KMemoryManager::Impl::TrackOptimizedAllocation", 1)[0]
 assert "if (word & mask)" in track_unoptimized
@@ -81,13 +84,8 @@ assert "word &= ~mask;" in track_unoptimized
 # guest data, its first write must not discover OOM inside a signal handler.
 outer_opt = kernel.split("Result KMemoryManager::InitializeOptimizedMemory", 1)[1].split(
     "void KMemoryManager::FinalizeOptimizedMemory", 1)[0]
-metadata = kernel.split("void KMemoryManager::Impl::InitializeOptimizedMemory", 1)[1].split(
-    "void KMemoryManager::Impl::TrackUnoptimizedAllocation", 1)[0]
 assert "catch (const std::bad_alloc&)" in outer_opt
 assert "m_has_optimized_process[pool_index] = false;" in outer_opt
 assert "R_THROW(ResultOutOfMemory);" in outer_opt
-assert "CommitKernelDirectGuestRange(kernel.System(), optimize_pa, bytes);" in metadata
-assert metadata.index("CommitKernelDirectGuestRange(") < metadata.index("GetPointer<u64>(")
-assert metadata.index("GetPointer<u64>(") < metadata.index("std::memset(")
 
 print("NS2_KERNEL_SLAB_DIRECT_PHYSICAL_PRECOMMIT_OK writers=2")
