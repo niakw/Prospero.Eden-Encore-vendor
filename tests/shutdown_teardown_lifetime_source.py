@@ -19,6 +19,11 @@ def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     ns2_process_trace_block = "        // Standalone ExeFS registers NS2 SVC tracing in its loader; other\n        // admitted NS2 containers (NUP/NX/NSP/XCI) do not necessarily use\n        // that loader. The post-load process owner is the common, safe gate.\n        // Never attach a trace on an unsuccessful load or an NS1 title.\n        if (is_ns2_program && process && process->GetProcessId() != 0 &&\n            !Eden::NS2::SvcTrace::IsActive(process->GetProcessId())) {\n            Eden::NS2::SvcTrace::Register(process->GetProcessId());\n        }\n#ifdef PS5_NATIVE\n        // Provenance for the *actual* loaded KProcess, including NUP.\n        // active=0 on a classified NS2 title is a source bug to investigate,\n        // not proof that the guest executed zero SVC instructions.\n        std::fprintf(stderr,\n                     \"EDEN_NS2_PROCESS_TRACE pid=%llu classified=%u active=%u\\n\",\n                     static_cast<unsigned long long>(process ? process->GetProcessId() : 0),\n                     static_cast<unsigned>(is_ns2_program),\n                     static_cast<unsigned>(process &&\n                         Eden::NS2::SvcTrace::IsActive(process->GetProcessId())));\n#endif\n\n"
     assert source.count(ns2_process_trace_block) == 1, ("NS2 process trace", relative)
     source = source.replace(ns2_process_trace_block, "", 1)
+    # The NS2 diagnostic also added one include. Historical blob checks
+    # must replay that exact additive delta along with its handler block.
+    diagnostic_include = "#include <cstdio>\n"
+    assert source.count(diagnostic_include) == 1, ("NS2 diagnostic include", relative)
+    source = source.replace(diagnostic_include, "", 1)
     # New FC27 candidate releases SM-owned NVDRV handlers before KProcess
     # shutdown. Strip only this additive candidate from the historical
     # provenance reconstruction, not from the compiled source itself.
