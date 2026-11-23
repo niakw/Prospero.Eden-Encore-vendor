@@ -494,6 +494,16 @@
       "active": "c45df666a87e7680c13c584e9da55c3d7d7e4eb3f002d27c1c883eb46d4ade52",
       "bytes": 1760,
       "upstream": "9263fe5e27cb207699f4ac799bc3de3e1f2c94226d430431ed1e2f34ab08fddf"
+    },
+    "src/core/hle/service/vi/system_display_service.cpp": {
+      "active": "374cc862b8949a32f6937ee3b7697e458d980556ed77a14307f4c6229cd7a705",
+      "bytes": 9399,
+      "upstream": "55aa3160d6586216b628cc0d0e9515a78cb903384545a128189d2e4c45167ef2"
+    },
+    "src/core/hle/service/vi/system_display_service.h": {
+      "active": "b121e6729e546d437713cbd42be0e2eed3f0c102cfe6902ebae849a16aa8d716",
+      "bytes": 2470,
+      "upstream": "8aa0df0611d60719073e534cb291006e71c91babe8164d93fa5a72e8e32d154a"
     }
   },
   "excluded_experimental": [
