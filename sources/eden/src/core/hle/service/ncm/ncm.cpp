@@ -346,15 +346,73 @@ public:
         // clang-format off
         static const FunctionInfo functions[] = {
             {0, nullptr, "ResolveAddOnContentPath"},
-            {1, nullptr, "RegisterAddOnContentStorage"},
-            {2, nullptr, "UnregisterAllAddOnContentPath"},
-            {3, nullptr, "RefreshApplicationAddOnContent"},
-            {4, nullptr, "UnregisterApplicationAddOnContent"},
+            {1, D<&IAddOnContentLocationResolver::RegisterAddOnContentStorage>, "RegisterAddOnContentStorage"},
+            {2, D<&IAddOnContentLocationResolver::UnregisterAllAddOnContentPath>, "UnregisterAllAddOnContentPath"},
+            {3, D<&IAddOnContentLocationResolver::RefreshApplicationAddOnContent>, "RefreshApplicationAddOnContent"},
+            {4, D<&IAddOnContentLocationResolver::UnregisterApplicationAddOnContent>, "UnregisterApplicationAddOnContent"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+private:
+    struct StorageEntry {
+        u64 data_id{};
+        u64 owner_application_id{};
+        FileSys::StorageId storage_id{FileSys::StorageId::None};
+    };
+
+    static constexpr std::size_t MaxRegisteredStorages = 8;
+    static constexpr Result ResultTooManyRegisteredPaths{ErrorModule::LR, 90};
+
+    Result RegisterAddOnContentStorage(u64 data_id, u64 application_id,
+                                       FileSys::StorageId storage_id) {
+        const auto it = std::find_if(registered_storages.begin(), registered_storages.end(),
+                                     [data_id](const StorageEntry& entry) {
+                                         return entry.data_id == data_id;
+                                     });
+        if (it != registered_storages.end()) {
+            it->owner_application_id = application_id;
+            it->storage_id = storage_id;
+            R_SUCCEED();
+        }
+
+        R_UNLESS(registered_storages.size() < MaxRegisteredStorages,
+                 ResultTooManyRegisteredPaths);
+        registered_storages.push_back(StorageEntry{data_id, application_id, storage_id});
+        R_SUCCEED();
+    }
+
+    Result UnregisterAllAddOnContentPath() {
+        registered_storages.clear();
+        R_SUCCEED();
+    }
+
+    Result RefreshApplicationAddOnContent(
+        InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
+        registered_storages.erase(
+            std::remove_if(registered_storages.begin(), registered_storages.end(),
+                           [&application_ids](const StorageEntry& entry) {
+                               return std::find(application_ids.begin(), application_ids.end(),
+                                                entry.owner_application_id) ==
+                                      application_ids.end();
+                           }),
+            registered_storages.end());
+        R_SUCCEED();
+    }
+
+    Result UnregisterApplicationAddOnContent(u64 application_id) {
+        registered_storages.erase(
+            std::remove_if(registered_storages.begin(), registered_storages.end(),
+                           [application_id](const StorageEntry& entry) {
+                               return entry.owner_application_id == application_id;
+                           }),
+            registered_storages.end());
+        R_SUCCEED();
+    }
+
+    std::vector<StorageEntry> registered_storages;
 };
 
 class IContentStorage final : public ServiceFramework<IContentStorage> {
