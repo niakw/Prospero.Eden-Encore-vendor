@@ -31,7 +31,7 @@ public:
             {10101, &IFriendService::GetFriendList, "GetFriendList"},
             {10102, &IFriendService::UpdateFriendInfo, "UpdateFriendInfo"},
             {10110, &IFriendService::GetFriendProfileImage, "GetFriendProfileImage"},
-            {10111, nullptr, "GetFriendProfileImageWithImageSize"}, // 18.0.0+
+            {10111, &IFriendService::GetFriendProfileImage, "GetFriendProfileImageWithImageSize"}, // 18.0.0+
             {10120, &IFriendService::CheckFriendListAvailability, "CheckFriendListAvailability"},
             {10121, &IFriendService::EnsureFriendListAvailable, "EnsureFriendListAvailable"},
             {10200, nullptr, "SendFriendRequestForApplication"},
@@ -55,10 +55,10 @@ public:
             {20103, &IFriendService::SyncFriendList, "SyncFriendList"},
             {20104, &IFriendService::RequestSyncFriendList, "RequestSyncFriendList"},
             {20105, &IFriendService::GetFriendListForViewer, "GetFriendListForViewerV1"},
-            {20106, nullptr, "UpdateFriendInfoForViewerV1"},
+            {20106, &IFriendService::GetFriendDetailedInfo, "UpdateFriendInfoForViewerV1"},
             {20107, &IFriendService::GetFriendDetailedInfo, "GetFriendDetailedInfoV2"}, // 20.0.0+
             {20108, &IFriendService::GetFriendListForViewer, "GetFriendListForViewerV2"}, // 22.0.0+
-            {20109, nullptr, "UpdateFriendInfoForViewerV2"}, // 22.0.0+
+            {20109, &IFriendService::GetFriendDetailedInfo, "UpdateFriendInfoForViewerV2"}, // 22.0.0+
             {20110, nullptr, "LoadFriendSettingV1"},
             {20111, nullptr, "LoadFriendSettingV2"}, // 22.0.0+
             {20200, &IFriendService::GetReceivedFriendRequestCount, "GetReceivedFriendRequestCount"},
