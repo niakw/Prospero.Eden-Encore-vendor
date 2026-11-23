@@ -40,7 +40,7 @@ public:
             {10420, &IFriendService::CheckBlockedUserListAvailability, "CheckBlockedUserListAvailability"},
             {10421, &IFriendService::EnsureBlockedUserListAvailable, "EnsureBlockedUserListAvailable"},
             {10500, &IFriendService::GetProfileList, "GetProfileList"},
-            {10501, nullptr, "GetProfileListV2"}, // 18.0.0+
+            {10501, &IFriendService::GetProfileListV2, "GetProfileListV2"}, // 18.0.0+
             {10600, &IFriendService::DeclareOpenOnlinePlaySession, "DeclareOpenOnlinePlaySession"},
             {10601, &IFriendService::DeclareCloseOnlinePlaySession, "DeclareCloseOnlinePlaySession"},
             {10610, &IFriendService::UpdateUserPresence, "UpdateUserPresence"},
@@ -56,7 +56,7 @@ public:
             {20104, &IFriendService::RequestSyncFriendList, "RequestSyncFriendList"},
             {20105, &IFriendService::GetFriendListForViewer, "GetFriendListForViewerV1"},
             {20106, nullptr, "UpdateFriendInfoForViewerV1"},
-            {20107, nullptr, "GetFriendDetailedInfoV2"}, // 20.0.0+
+            {20107, &IFriendService::GetFriendDetailedInfo, "GetFriendDetailedInfoV2"}, // 20.0.0+
             {20108, &IFriendService::GetFriendListForViewer, "GetFriendListForViewerV2"}, // 22.0.0+
             {20109, nullptr, "UpdateFriendInfoForViewerV2"}, // 22.0.0+
             {20110, nullptr, "LoadFriendSettingV1"},
@@ -75,7 +75,7 @@ public:
             {20402, &IFriendService::GetBlockedUserListV2, "GetBlockedUserListV2"}, // 20.0.0+
             {20500, nullptr, "GetProfileExtraListV1"},
             {20501, &IFriendService::GetRelationship, "GetRelationship"},
-            {20502, nullptr, "GetProfileExtraListV2"}, // 19.0.0+
+            {20502, &IFriendService::GetProfileExtraListV2, "GetProfileExtraListV2"}, // 19.0.0+
             {20600, &IFriendService::GetUserPresenceView, "GetUserPresenceViewV1"},
             {20601, &IFriendService::GetUserPresenceView, "GetUserPresenceViewV2"}, // 19.0.0+
             {20700, &IFriendService::GetPlayHistoryListV1, "GetPlayHistoryListV1"},
@@ -654,6 +654,28 @@ private:
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
         rb.Push<s32>(0);
+    }
+
+    void GetProfileListV2(HLERequestContext& ctx) {
+        if (ctx.CanWriteBuffer()) {
+            std::vector<u8> profiles(ctx.GetWriteBufferSize());
+            ctx.WriteBuffer(profiles);
+        }
+        LOG_DEBUG(Service_Friend, "Returning empty profile list V2");
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
+    }
+
+    void GetProfileExtraListV2(HLERequestContext& ctx) {
+        if (ctx.CanWriteBuffer()) {
+            std::vector<u8> profiles(ctx.GetWriteBufferSize());
+            ctx.WriteBuffer(profiles);
+        }
+        LOG_DEBUG(Service_Friend, "Returning empty profile-extra list V2");
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
     }
 
     void EnsureFriendListAvailable(HLERequestContext& ctx) {
