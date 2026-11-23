@@ -20,16 +20,16 @@ IAlbumApplicationService::IAlbumApplicationService(Core::System& system_,
     static const FunctionInfo functions[] = {
         {32, C<&IAlbumApplicationService::SetShimLibraryVersion>, "SetShimLibraryVersion"},
         {102, C<&IAlbumApplicationService::GetAlbumFileList0AafeAruidDeprecated>, "GetAlbumFileList0AafeAruidDeprecated"},
-        {103, nullptr, "DeleteAlbumFileByAruid"},
-        {104, nullptr, "GetAlbumFileSizeByAruid"},
-        {105, nullptr, "DeleteAlbumFileByAruidForDebug"},
-        {110, nullptr, "LoadAlbumScreenShotImageByAruid"},
-        {120, nullptr, "LoadAlbumScreenShotThumbnailImageByAruid"},
+        {103, C<&IAlbumApplicationService::DeleteAlbumFileByAruid>, "DeleteAlbumFileByAruid"},
+        {104, C<&IAlbumApplicationService::GetAlbumFileSizeByAruid>, "GetAlbumFileSizeByAruid"},
+        {105, C<&IAlbumApplicationService::DeleteAlbumFileByAruidForDebug>, "DeleteAlbumFileByAruidForDebug"},
+        {110, C<&IAlbumApplicationService::LoadAlbumScreenShotImageByAruid>, "LoadAlbumScreenShotImageByAruid"},
+        {120, C<&IAlbumApplicationService::LoadAlbumScreenShotThumbnailImageByAruid>, "LoadAlbumScreenShotThumbnailImageByAruid"},
         {130, nullptr, "PrecheckToCreateContentsByAruid"},
-        {140, nullptr, "GetAlbumFileList1AafeAruidDeprecated"},
-        {141, nullptr, "GetAlbumFileList2AafeUidAruidDeprecated"},
+        {140, C<&IAlbumApplicationService::GetAlbumFileList1AafeAruidDeprecated>, "GetAlbumFileList1AafeAruidDeprecated"},
+        {141, C<&IAlbumApplicationService::GetAlbumFileList2AafeUidAruidDeprecated>, "GetAlbumFileList2AafeUidAruidDeprecated"},
         {142, C<&IAlbumApplicationService::GetAlbumFileList3AaeAruid>, "GetAlbumFileList3AaeAruid"},
-        {143, nullptr, "GetAlbumFileList4AaeUidAruid"},
+        {143, C<&IAlbumApplicationService::GetAlbumFileList4AaeUidAruid>, "GetAlbumFileList4AaeUidAruid"},
         {144, nullptr, "GetAllAlbumFileList3AaeAruid"},
         // No movie-read stream is created by the PS5 album backend.
         {2001, nullptr, "OpenAlbumMovieReadStream"},
@@ -67,6 +67,107 @@ Result IAlbumApplicationService::GetAlbumFileList0AafeAruidDeprecated(
     R_TRY(manager->IsAlbumMounted(AlbumStorage::Sd));
     R_RETURN(manager->GetAlbumFileList(out_entries, *out_entries_count, content_type,
                                        start_posix_time, end_posix_time, aruid.pid));
+}
+
+AlbumFileId IAlbumApplicationService::MakeAlbumFileId(
+    const ApplicationAlbumFileEntry& file_entry, ClientAppletResourceUserId aruid,
+    ContentType content_type) const {
+    return {
+        .application_id = system.ResolveCallerProgramId(aruid.pid),
+        .date = file_entry.datetime,
+        .storage = file_entry.entry.storage,
+        .type = content_type,
+        .unknown = file_entry.entry.unknown,
+    };
+}
+
+Result IAlbumApplicationService::DeleteAlbumFileByAruid(
+    ContentType content_type, const ApplicationAlbumFileEntry& file_entry,
+    ClientAppletResourceUserId aruid) {
+    const auto file_id = MakeAlbumFileId(file_entry, aruid, content_type);
+    R_RETURN(manager->DeleteAlbumFile(file_id));
+}
+
+Result IAlbumApplicationService::GetAlbumFileSizeByAruid(
+    Out<u64> out_size, const ApplicationAlbumFileEntry& file_entry,
+    ClientAppletResourceUserId aruid) {
+    const auto file_id = MakeAlbumFileId(file_entry, aruid, file_entry.entry.content);
+    R_RETURN(manager->GetAlbumFileSize(*out_size, file_id));
+}
+
+Result IAlbumApplicationService::DeleteAlbumFileByAruidForDebug(
+    const ApplicationAlbumFileEntry& file_entry, ClientAppletResourceUserId aruid) {
+    const auto file_id = MakeAlbumFileId(file_entry, aruid, file_entry.entry.content);
+    R_RETURN(manager->DeleteAlbumFile(file_id));
+}
+
+Result IAlbumApplicationService::LoadAlbumScreenShotImageByAruid(
+    const ApplicationAlbumFileEntry& file_entry, const ScreenShotDecodeOption& decoder_options,
+    ClientAppletResourceUserId aruid,
+    OutLargeData<LoadAlbumScreenShotImageOutputForApplication, BufferAttr_HipcMapAlias>
+        out_image_output,
+    OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
+    OutArray<u8, BufferAttr_HipcMapAlias> out_work_buffer) {
+    const auto file_id = MakeAlbumFileId(file_entry, aruid, file_entry.entry.content);
+    LoadAlbumScreenShotImageOutput output{};
+    R_TRY(manager->LoadAlbumScreenShotImage(output, out_image, file_id, decoder_options));
+
+    *out_image_output = {};
+    out_image_output->width = output.width;
+    out_image_output->height = output.height;
+    out_image_output->attribute = output.attribute;
+    R_SUCCEED();
+}
+
+Result IAlbumApplicationService::LoadAlbumScreenShotThumbnailImageByAruid(
+    const ApplicationAlbumFileEntry& file_entry, const ScreenShotDecodeOption& decoder_options,
+    ClientAppletResourceUserId aruid,
+    OutLargeData<LoadAlbumScreenShotImageOutputForApplication, BufferAttr_HipcMapAlias>
+        out_image_output,
+    OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
+    OutArray<u8, BufferAttr_HipcMapAlias> out_work_buffer) {
+    const auto file_id = MakeAlbumFileId(file_entry, aruid, file_entry.entry.content);
+    LoadAlbumScreenShotImageOutput output{};
+    R_TRY(manager->LoadAlbumScreenShotThumbnail(output, out_image, file_id, decoder_options));
+
+    *out_image_output = {};
+    out_image_output->width = output.width;
+    out_image_output->height = output.height;
+    out_image_output->attribute = output.attribute;
+    R_SUCCEED();
+}
+
+Result IAlbumApplicationService::GetAlbumFileList1AafeAruidDeprecated(
+    Out<u64> out_entries_count, ContentType content_type, AlbumFileDateTime start_date_time,
+    AlbumFileDateTime end_date_time, ClientAppletResourceUserId aruid,
+    OutArray<ApplicationAlbumFileEntry, BufferAttr_HipcMapAlias> out_entries) {
+    std::vector<ApplicationAlbumEntry> entries(out_entries.size());
+    R_TRY(manager->GetAlbumFileList(entries, *out_entries_count, content_type, start_date_time,
+                                    end_date_time, aruid.pid));
+    for (size_t i = 0; i < *out_entries_count; ++i) {
+        out_entries[i] = {
+            .entry = entries[i],
+            .datetime = entries[i].datetime,
+            .unknown = {},
+        };
+    }
+    R_SUCCEED();
+}
+
+Result IAlbumApplicationService::GetAlbumFileList2AafeUidAruidDeprecated(
+    Out<u64> out_entries_count, ContentType content_type, AlbumFileDateTime start_date_time,
+    AlbumFileDateTime end_date_time, Common::UUID user_id, ClientAppletResourceUserId aruid,
+    OutArray<ApplicationAlbumFileEntry, BufferAttr_HipcMapAlias> out_entries) {
+    R_RETURN(GetAlbumFileList1AafeAruidDeprecated(out_entries_count, content_type, start_date_time,
+                                                  end_date_time, aruid, out_entries));
+}
+
+Result IAlbumApplicationService::GetAlbumFileList4AaeUidAruid(
+    Out<u64> out_entries_count, ContentType content_type, AlbumFileDateTime start_date_time,
+    AlbumFileDateTime end_date_time, Common::UUID user_id, ClientAppletResourceUserId aruid,
+    OutArray<ApplicationAlbumEntry, BufferAttr_HipcMapAlias> out_entries) {
+    R_RETURN(manager->GetAlbumFileList(out_entries, *out_entries_count, content_type,
+                                       start_date_time, end_date_time, aruid.pid));
 }
 
 Result IAlbumApplicationService::GetAlbumFileList3AaeAruid(
