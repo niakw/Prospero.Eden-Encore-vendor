@@ -18,14 +18,14 @@ IBtmSystemCore::IBtmSystemCore(Core::System& system_)
     static const FunctionInfo functions[] = {
         {0, C<&IBtmSystemCore::StartGamepadPairing>, "StartGamepadPairing"},
         {1, C<&IBtmSystemCore::CancelGamepadPairing>, "CancelGamepadPairing"},
-        {2, nullptr, "ClearGamepadPairingDatabase"},
-        {3, nullptr, "GetPairedGamepadCount"},
+        {2, C<&IBtmSystemCore::ClearGamepadPairingDatabase>, "ClearGamepadPairingDatabase"},
+        {3, C<&IBtmSystemCore::GetPairedGamepadCount>, "GetPairedGamepadCount"},
         {4, C<&IBtmSystemCore::EnableRadio>, "EnableRadio"},
         {5, C<&IBtmSystemCore::DisableRadio>, "DisableRadio"},
         {6, C<&IBtmSystemCore::IsRadioEnabled>, "IsRadioEnabled"},
         {7, C<&IBtmSystemCore::AcquireRadioEvent>, "AcquireRadioEvent"},
-        {8, nullptr, "AcquireGamepadPairingEvent"},
-        {9, nullptr, "IsGamepadPairingStarted"},
+        {8, C<&IBtmSystemCore::AcquireGamepadPairingEvent>, "AcquireGamepadPairingEvent"},
+        {9, C<&IBtmSystemCore::IsGamepadPairingStarted>, "IsGamepadPairingStarted"},
         {10, nullptr, "StartAudioDeviceDiscovery"},
         {11, nullptr, "StopAudioDeviceDiscovery"},
         {12, nullptr, "IsDiscoveryingAudioDevice"},
@@ -45,6 +45,7 @@ IBtmSystemCore::IBtmSystemCore(Core::System& system_)
 
     RegisterHandlers(functions);
     radio_event = service_context.CreateEvent("IBtmSystemCore::RadioEvent");
+    gamepad_pairing_event = service_context.CreateEvent("IBtmSystemCore::GamepadPairingEvent");
     audio_device_connection_event =
         service_context.CreateEvent("IBtmSystemCore::AudioDeviceConnectionEvent");
 
@@ -54,17 +55,49 @@ IBtmSystemCore::IBtmSystemCore(Core::System& system_)
 
 IBtmSystemCore::~IBtmSystemCore() {
     service_context.CloseEvent(radio_event);
+    service_context.CloseEvent(gamepad_pairing_event);
     service_context.CloseEvent(audio_device_connection_event);
 }
 
 Result IBtmSystemCore::StartGamepadPairing() {
-    // Encore does not expose Switch Bluetooth gamepad discovery/pairing on PS5.
-    LOG_DEBUG(Service_BTM, "Gamepad pairing start ignored (no Switch Bluetooth pairing backend)");
-    R_SUCCEED();
+    LOG_DEBUG(Service_BTM, "called; tracking guest pairing lifecycle without a PS5 Bluetooth backend");
+
+    gamepad_pairing_started = true;
+    R_RETURN(gamepad_pairing_event->Signal(system.Kernel()));
 }
 
 Result IBtmSystemCore::CancelGamepadPairing() {
-    LOG_DEBUG(Service_BTM, "Gamepad pairing cancel ignored (no pairing operation pending)");
+    LOG_DEBUG(Service_BTM, "called");
+
+    gamepad_pairing_started = false;
+    R_RETURN(gamepad_pairing_event->Signal(system.Kernel()));
+}
+
+Result IBtmSystemCore::ClearGamepadPairingDatabase() {
+    LOG_DEBUG(Service_BTM, "called; no persistent Switch gamepad pairing database is modeled");
+    R_SUCCEED();
+}
+
+Result IBtmSystemCore::GetPairedGamepadCount(Out<u8> out_count) {
+    LOG_DEBUG(Service_BTM, "called; modeled Switch pairing database is empty");
+
+    *out_count = 0;
+    R_SUCCEED();
+}
+
+Result IBtmSystemCore::AcquireGamepadPairingEvent(
+    Out<bool> out_is_valid, OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    LOG_DEBUG(Service_BTM, "Returning live gamepad pairing state event");
+
+    *out_is_valid = true;
+    *out_event = &gamepad_pairing_event->GetReadableEvent();
+    R_SUCCEED();
+}
+
+Result IBtmSystemCore::IsGamepadPairingStarted(Out<bool> out_is_started) {
+    LOG_DEBUG(Service_BTM, "called");
+
+    *out_is_started = gamepad_pairing_started;
     R_SUCCEED();
 }
 
