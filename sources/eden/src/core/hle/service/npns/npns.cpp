@@ -20,7 +20,7 @@ public:
     explicit INpnsSystem(Core::System& system_)
         : ServiceFramework{system_, "npns:s"}, service_context{system, "npns:s"},
           get_receive_event{service_context}, get_state_change_event{service_context},
-          get_request_change_state_cancel_event{service_context} {
+          get_drop_event{service_context}, get_request_change_state_cancel_event{service_context} {
         // clang-format off
         static const FunctionInfo functions[] = {
             {1, C<&INpnsSystem::ListenAll>, "ListenAll"},
@@ -28,14 +28,14 @@ public:
             {3, nullptr, "Receive"},
             {4, nullptr, "ReceiveRaw"},
             {5, C<&INpnsSystem::GetReceiveEvent>, "GetReceiveEvent"},
-            {6, nullptr, "ListenUndelivered"},
+            {6, C<&INpnsSystem::ListenUndelivered>, "ListenUndelivered"},
             {7, C<&INpnsSystem::GetStateChangeEvent>, "GetStateChangeEvent"},
             {8, C<&INpnsSystem::ListenToByName>, "ListenToByName"},
-            {11, nullptr, "SubscribeTopic"},
-            {12, nullptr, "UnsubscribeTopic"},
+            {11, D<&INpnsSystem::SubscribeTopic>, "SubscribeTopic"},
+            {12, D<&INpnsSystem::UnsubscribeTopic>, "UnsubscribeTopic"},
             {13, nullptr, "QueryIsTopicExist"},
-            {14, nullptr, "SubscribeTopicByAccount"}, // 18.0.0+
-            {15, nullptr, "UnsubscribeTopicByAccount"}, // 18.0.0+
+            {14, D<&INpnsSystem::SubscribeTopicByAccount>, "SubscribeTopicByAccount"}, // 18.0.0+
+            {15, D<&INpnsSystem::UnsubscribeTopicByAccount>, "UnsubscribeTopicByAccount"}, // 18.0.0+
             {16, nullptr, "DownloadSubscriptionList"}, // 18.0.0+
             {21, nullptr, "CreateToken"},
             {22, nullptr, "CreateTokenWithApplicationId"},
@@ -73,9 +73,9 @@ public:
             {114, nullptr, "AttachJid"},
             {115, nullptr, "DetachJid"},
             {120, nullptr, "CreateNotificationReceiver"},
-            {151, nullptr, "GetStateWithHandover"},
-            {152, nullptr, "GetStateChangeEventWithHandover"},
-            {153, nullptr, "GetDropEventWithHandover"},
+            {151, C<&INpnsSystem::GetStateWithHandover>, "GetStateWithHandover"},
+            {152, C<&INpnsSystem::GetStateChangeEventWithHandover>, "GetStateChangeEventWithHandover"},
+            {153, C<&INpnsSystem::GetDropEventWithHandover>, "GetDropEventWithHandover"},
             {154, nullptr, "CreateTokenAsync"},
             {155, nullptr, "CreateTokenAsyncWithApplicationId"},
             {156, nullptr, "CreateTokenWithNameAsync"}, // 18.0.0+
@@ -122,6 +122,48 @@ private:
 
     Result Resume() {
         LOG_DEBUG(Service_NPNS, "Resume accepted; no remote push connection exists");
+        R_SUCCEED();
+    }
+
+    Result ListenUndelivered() {
+        LOG_DEBUG(Service_NPNS, "ListenUndelivered accepted in offline mode");
+        R_SUCCEED();
+    }
+
+    Result SubscribeTopic(InBuffer<BufferAttr_HipcPointer> topic) {
+        LOG_DEBUG(Service_NPNS, "SubscribeTopic accepted offline, bytes={}", topic.size());
+        R_SUCCEED();
+    }
+
+    Result UnsubscribeTopic(InBuffer<BufferAttr_HipcPointer> topic) {
+        LOG_DEBUG(Service_NPNS, "UnsubscribeTopic accepted offline, bytes={}", topic.size());
+        R_SUCCEED();
+    }
+
+    Result SubscribeTopicByAccount(u64 account_id, InBuffer<BufferAttr_HipcPointer> topic) {
+        LOG_DEBUG(Service_NPNS, "SubscribeTopicByAccount accepted offline, account_id={:#x}, bytes={}",
+                  account_id, topic.size());
+        R_SUCCEED();
+    }
+
+    Result UnsubscribeTopicByAccount(u64 account_id, InBuffer<BufferAttr_HipcPointer> topic) {
+        LOG_DEBUG(Service_NPNS, "UnsubscribeTopicByAccount accepted offline, account_id={:#x}, bytes={}",
+                  account_id, topic.size());
+        R_SUCCEED();
+    }
+
+    Result GetStateWithHandover(Out<u32> out_state) {
+        *out_state = 0;
+        R_SUCCEED();
+    }
+
+    Result GetStateChangeEventWithHandover(OutCopyHandle<Kernel::KReadableEvent> out_event) {
+        *out_event = get_state_change_event.GetHandle();
+        R_SUCCEED();
+    }
+
+    Result GetDropEventWithHandover(OutCopyHandle<Kernel::KReadableEvent> out_event) {
+        *out_event = get_drop_event.GetHandle();
         R_SUCCEED();
     }
 
@@ -175,6 +217,7 @@ private:
     KernelHelpers::ServiceContext service_context;
     Event get_receive_event;
     Event get_state_change_event;
+    Event get_drop_event;
     Event get_request_change_state_cancel_event;
 };
 
@@ -182,7 +225,8 @@ class INpnsUser final : public ServiceFramework<INpnsUser> {
 public:
     explicit INpnsUser(Core::System& system_)
         : ServiceFramework{system_, "npns:u"}, service_context{system, "npns:u"},
-          get_receive_event{service_context}, get_state_change_event{service_context} {
+          get_receive_event{service_context}, get_state_change_event{service_context},
+          get_drop_event{service_context} {
         // clang-format off
         static const FunctionInfo functions[] = {
             {1, C<&INpnsUser::ListenAll>, "ListenAll"},
@@ -202,9 +246,9 @@ public:
             {104, nullptr, "GetStatistics"},
             {111, nullptr, "GetJid"},
             {120, nullptr, "CreateNotificationReceiver"},
-            {151, nullptr, "GetStateWithHandover"},
-            {152, nullptr, "GetStateChangeEventWithHandover"},
-            {153, nullptr, "GetDropEventWithHandover"},
+            {151, C<&INpnsUser::GetStateWithHandover>, "GetStateWithHandover"},
+            {152, C<&INpnsUser::GetStateChangeEventWithHandover>, "GetStateChangeEventWithHandover"},
+            {153, C<&INpnsUser::GetDropEventWithHandover>, "GetDropEventWithHandover"},
             {154, nullptr, "CreateTokenAsync"},
         };
         // clang-format on
@@ -240,6 +284,21 @@ private:
         R_SUCCEED();
     }
 
+    Result GetStateWithHandover(Out<u32> out_state) {
+        *out_state = 0;
+        R_SUCCEED();
+    }
+
+    Result GetStateChangeEventWithHandover(OutCopyHandle<Kernel::KReadableEvent> out_event) {
+        *out_event = get_state_change_event.GetHandle();
+        R_SUCCEED();
+    }
+
+    Result GetDropEventWithHandover(OutCopyHandle<Kernel::KReadableEvent> out_event) {
+        *out_event = get_drop_event.GetHandle();
+        R_SUCCEED();
+    }
+
     Result ListenTo(u32 program_id) {
         LOG_DEBUG(Service_NPNS, "User push subscription accepted locally, program_id={}", program_id);
         R_SUCCEED();
@@ -270,6 +329,7 @@ private:
     KernelHelpers::ServiceContext service_context;
     Event get_receive_event;
     Event get_state_change_event;
+    Event get_drop_event;
 };
 
 void LoopProcess(Core::System& system) {
