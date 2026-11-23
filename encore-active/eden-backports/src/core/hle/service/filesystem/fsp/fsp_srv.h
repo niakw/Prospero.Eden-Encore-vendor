@@ -108,6 +108,7 @@ private:
                                    FileSys::StorageId storage_id, u32 unknown, u64 title_id);
     Result OpenPatchDataStorageByCurrentProcess(OutInterface<IStorage> out_interface);
     Result OpenDataStorageWithProgramIndex(OutInterface<IStorage> out_interface, u8 program_index);
+    Result SetSdCardAccessibility(bool is_accessible);
     Result IsSdCardAccessible(Out<bool> out_is_accessible);
     Result DisableAutoSaveDataCreation();
     Result SetGlobalAccessLogMode(AccessLogMode access_log_mode_);
@@ -131,6 +132,7 @@ private:
     u64 current_process_id = 0;
     std::vector<ProgramIndexMapInfo> program_index_map;
     AccessLogMode access_log_mode = AccessLogMode::None;
+    bool sd_card_accessible = true;
     u64 program_id = 0;
     std::shared_ptr<SaveDataController> save_data_controller;
     std::shared_ptr<RomFsController> romfs_controller;

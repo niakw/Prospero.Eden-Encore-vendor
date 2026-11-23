@@ -187,7 +187,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {616, nullptr, "GetSaveDataCommitId"},
         {617, nullptr, "UnregisterExternalKey"},
         {620, nullptr, "SetSdCardEncryptionSeed"},
-        {630, nullptr, "SetSdCardAccessibility"},
+        {630, D<&FSP_SRV::SetSdCardAccessibility>, "SetSdCardAccessibility"},
         {631, D<&FSP_SRV::IsSdCardAccessible>, "IsSdCardAccessible"},
         {640, nullptr, "IsSignedSystemPartitionOnSdCardValid"},
         {700, nullptr, "OpenAccessFailureResolver"},
@@ -696,11 +696,18 @@ Result FSP_SRV::OpenDataStorageWithProgramIndex(OutInterface<IStorage> out_inter
     R_SUCCEED();
 }
 
+Result FSP_SRV::SetSdCardAccessibility(bool is_accessible) {
+    LOG_DEBUG(Service_FS, "called, is_accessible={}", is_accessible);
+    sd_card_accessible = is_accessible;
+    R_SUCCEED();
+}
+
 Result FSP_SRV::IsSdCardAccessible(Out<bool> out_is_accessible) {
     LOG_DEBUG(Service_FS, "called");
 
     FileSys::VirtualDir sdmc{};
-    *out_is_accessible = fsc.OpenSDMC(&sdmc) == ResultSuccess && sdmc != nullptr;
+    *out_is_accessible =
+        sd_card_accessible && fsc.OpenSDMC(&sdmc) == ResultSuccess && sdmc != nullptr;
     R_SUCCEED();
 }
 
