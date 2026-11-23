@@ -166,13 +166,13 @@
       "upstream": "dc9e0214fab5197a3ef369cd5e5a864f294b93dd5a020887fbdac3339ee0243c"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.cpp": {
-      "active": "11a5acc8899c514007e9b063b359e7a829cee5e4b593f57a3c9c9d6ccfaa9903",
-      "bytes": 37258,
+      "active": "55fd3f7fae6a86548523280dfce502011cd3502d5a231bfca96e229c6e89f3ab",
+      "bytes": 41332,
       "upstream": "2017a14e3450768f421448326f809d439414cc385f927511382b940c64e44e84"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.h": {
-      "active": "52e078a00cf759027e84d96a7956cccd4c996b2a059e20d014148c6bb0f65e17",
-      "bytes": 6963,
+      "active": "2ce20a67096f12c1fd3c3e7adbf3250a60d658b6191951c7b1b025f7be3e94f3",
+      "bytes": 7652,
       "upstream": "394d7fd76564e2a7b50225a6263ab8377a6e4fa6cdfcfd1b7d51ba1e0bf39293"
     },
     "src/core/hle/service/glue/arp.cpp": {
