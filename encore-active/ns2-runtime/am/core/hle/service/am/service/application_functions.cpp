@@ -268,7 +268,7 @@ Result IApplicationFunctions::SetTerminateResult(Result terminate_result) {
     static std::atomic<unsigned> terminate_reports{0};
     if (terminate_reports.fetch_add(1, std::memory_order_relaxed) < 32) {
         std::fprintf(stderr,
-                     "EDEN_APP_TERMINATE_RESULT title=%016llX raw=0x%08X module=%u description=%u\\n",
+                     "EDEN_APP_TERMINATE_RESULT title=%016llX raw=0x%08X module=%u description=%u\n",
                      static_cast<unsigned long long>(m_applet->program_id),
                      static_cast<unsigned>(terminate_result.GetInnerValue()),
                      static_cast<unsigned>(terminate_result.GetModule()),
