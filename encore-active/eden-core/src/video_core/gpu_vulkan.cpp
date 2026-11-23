@@ -159,6 +159,23 @@ struct GPU::Impl {
 
     /// Synchronizes CPU writes with Host GPU memory.
     void InvalidateGPUCache() {
+#if defined(PS5_NATIVE)
+        // Maxwell issues this barrier very frequently, including frames with
+        // no guest CPU writes. Avoid allocating a vector/function and taking
+        // every dirty-manager gather lock when no manager can contribute.
+        // A Collect racing after this acquire load is ordered after this
+        // barrier and remains visible to the next invalidation.
+        bool may_have_pending = false;
+        for (const auto& manager : system.GetGPUDirtyMemoryManager()) {
+            if (manager.MayHavePending()) {
+                may_have_pending = true;
+                break;
+            }
+        }
+        if (!may_have_pending) {
+            return;
+        }
+#endif
         std::vector<std::pair<DAddr, u64>> writes;
         std::function<void(PAddr, size_t)> callback_writes(
             [&writes](PAddr address, size_t size) { writes.emplace_back(address, size); });
