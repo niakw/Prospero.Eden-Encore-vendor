@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <array>
+#include <limits>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -203,13 +204,198 @@ void BSD_USA::SocketExempt(HLERequestContext& ctx) {
 }
 
 void BSD_USA::Select(HLERequestContext& ctx) {
-    LOG_DEBUG(Service, "(STUBBED) called");
+    // Horizon passes nfds followed by an aligned timeval and a flag telling whether the timeout
+    // pointer was null. The three fd_sets are input/output buffers 0..2 (read/write/except).
+    struct InputParameters {
+        s32 nfds;
+        u32 reserved;
+        s64 timeout_seconds;
+        s64 timeout_microseconds;
+        u8 timeout_is_null;
+    };
+    static_assert(sizeof(InputParameters) == 0x20);
 
-    IPC::ResponseBuilder rb{ctx, 4};
+    const auto reply = [&ctx](s32 ret, Errno bsd_errno) {
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(ResultSuccess);
+        rb.Push<s32>(ret);
+        rb.PushEnum(bsd_errno);
+    };
 
-    rb.Push(ResultSuccess);
-    rb.Push<u32>(0); // ret
-    rb.Push<u32>(0); // bsd errno
+    IPC::RequestParser rp{ctx};
+    const auto input = rp.PopRaw<InputParameters>();
+    const bool timeout_is_null = input.timeout_is_null != 0;
+
+    LOG_DEBUG(Service, "called. nfds={} timeout={}s+{}us null={}", input.nfds,
+              input.timeout_seconds, input.timeout_microseconds, timeout_is_null);
+
+    if (input.nfds < 0) {
+        reply(-1, Errno::INVAL);
+        return;
+    }
+
+    const size_t nfds =
+        (std::min)(static_cast<size_t>(input.nfds), static_cast<size_t>(MAX_FD));
+    const size_t set_size = ((nfds + 63) / 64) * sizeof(u64);
+
+    std::array<std::vector<u8>, 3> requested_sets;
+    std::array<std::vector<u8>, 3> ready_sets;
+    for (size_t set = 0; set < requested_sets.size(); ++set) {
+        if (!ctx.CanReadBuffer(set)) {
+            continue;
+        }
+
+        const auto buffer = ctx.ReadBuffer(set);
+        const size_t copied_size = (std::min)(set_size, buffer.size());
+        requested_sets[set].assign(buffer.begin(), buffer.begin() + copied_size);
+
+        // Descriptors beyond Encore's table can never be valid. Match FreeBSD/Lichii and reject
+        // them only when the guest actually set the corresponding bit.
+        const size_t end =
+            (std::min)(static_cast<size_t>(input.nfds), buffer.size() * 8);
+        for (size_t fd = MAX_FD; fd < end; ++fd) {
+            if (((buffer[fd / 8] >> (fd % 8)) & 1U) != 0) {
+                reply(-1, Errno::BADF);
+                return;
+            }
+        }
+    }
+
+    s32 timeout_ms = -1;
+    if (!timeout_is_null) {
+        if (input.timeout_seconds < 0 || input.timeout_microseconds < 0 ||
+            input.timeout_microseconds >= 1'000'000) {
+            reply(-1, Errno::INVAL);
+            return;
+        }
+
+        const s64 rounded_microseconds = input.timeout_microseconds + 999;
+        const s64 milliseconds =
+            input.timeout_seconds > (std::numeric_limits<s32>::max)() / 1000
+                ? static_cast<s64>((std::numeric_limits<s32>::max)())
+                : input.timeout_seconds * 1000 + rounded_microseconds / 1000;
+        timeout_ms = static_cast<s32>(
+            (std::min)(milliseconds, static_cast<s64>((std::numeric_limits<s32>::max)())));
+    }
+
+    struct SelectEntry {
+        s32 fd;
+        std::array<bool, 3> wanted;
+        std::shared_ptr<Network::SocketBase> socket;
+    };
+
+    constexpr size_t ReadSet = 0;
+    constexpr size_t WriteSet = 1;
+    constexpr size_t ExceptSet = 2;
+
+    std::vector<SelectEntry> entries;
+    std::vector<Network::PollFD> host_pollfds;
+    entries.reserve(nfds);
+    host_pollfds.reserve(nfds);
+
+    const auto fd_is_set = [&requested_sets](size_t set, size_t fd) {
+        const auto& bits = requested_sets[set];
+        return fd / 8 < bits.size() && ((bits[fd / 8] >> (fd % 8)) & 1U) != 0;
+    };
+
+    for (size_t fd = 0; fd < nfds; ++fd) {
+        const std::array<bool, 3> wanted{
+            fd_is_set(ReadSet, fd),
+            fd_is_set(WriteSet, fd),
+            fd_is_set(ExceptSet, fd),
+        };
+        if (!wanted[ReadSet] && !wanted[WriteSet] && !wanted[ExceptSet]) {
+            continue;
+        }
+
+        if (!IsFileDescriptorValid(static_cast<s32>(fd)) ||
+            !file_descriptors[fd]->socket) {
+            reply(-1, Errno::BADF);
+            return;
+        }
+
+        // Hold a shared reference for the duration of the host poll so a concurrent close cannot
+        // destroy the C++ socket object while Select still references it.
+        auto socket = file_descriptors[fd]->socket;
+        Network::PollEvents events{};
+        if (wanted[ReadSet]) {
+            events |= Network::PollEvents::In | Network::PollEvents::RdNorm;
+        }
+        if (wanted[WriteSet]) {
+            events |= Network::PollEvents::Out;
+        }
+        if (wanted[ExceptSet]) {
+            events |= Network::PollEvents::Pri;
+        }
+
+        entries.push_back(SelectEntry{
+            .fd = static_cast<s32>(fd),
+            .wanted = wanted,
+            .socket = socket,
+        });
+        host_pollfds.push_back(Network::PollFD{
+            .socket = socket.get(),
+            .events = events,
+            .revents = Network::PollEvents{},
+        });
+    }
+
+    const auto [polled, poll_errno] = Network::Poll(host_pollfds, timeout_ms);
+    if (polled < 0) {
+        reply(-1, Translate(poll_errno));
+        return;
+    }
+
+    for (size_t set = 0; set < ready_sets.size(); ++set) {
+        ready_sets[set].assign(requested_sets[set].size(), 0);
+    }
+
+    constexpr Network::PollEvents read_events =
+        Network::PollEvents::In | Network::PollEvents::RdNorm |
+        Network::PollEvents::Hup | Network::PollEvents::Err;
+    constexpr Network::PollEvents write_events =
+        Network::PollEvents::Out | Network::PollEvents::Hup | Network::PollEvents::Err;
+    constexpr Network::PollEvents except_events =
+        Network::PollEvents::Pri | Network::PollEvents::Err;
+
+    s32 ready_count = 0;
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const auto revents = host_pollfds[i].revents;
+        if (True(revents & Network::PollEvents::Nval)) {
+            reply(-1, Errno::BADF);
+            return;
+        }
+
+        const std::array<bool, 3> ready{
+            entries[i].wanted[ReadSet] && True(revents & read_events),
+            entries[i].wanted[WriteSet] && True(revents & write_events),
+            entries[i].wanted[ExceptSet] && True(revents & except_events),
+        };
+
+        const size_t byte = static_cast<size_t>(entries[i].fd) / 8;
+        const u8 bit = static_cast<u8>(1U << (entries[i].fd % 8));
+        for (size_t set = 0; set < ready.size(); ++set) {
+            if (ready[set]) {
+                ready_sets[set][byte] = static_cast<u8>(ready_sets[set][byte] | bit);
+                ++ready_count;
+            }
+        }
+    }
+
+    // The result counts ready bits across all three sets, so one descriptor may count more than
+    // once. This matches FreeBSD and Lichii rather than the old unconditional zero result.
+    for (size_t set = 0; set < ready_sets.size(); ++set) {
+        if (!ctx.CanWriteBuffer(set) || ready_sets[set].empty()) {
+            continue;
+        }
+        const size_t size =
+            (std::min)(ready_sets[set].size(), ctx.GetWriteBufferSize(set));
+        if (size > 0) {
+            ctx.WriteBuffer(ready_sets[set].data(), size, set);
+        }
+    }
+
+    reply(ready_count, Errno::SUCCESS);
 }
 
 void BSD_USA::Poll(HLERequestContext& ctx) {
@@ -641,7 +827,7 @@ std::pair<s32, Errno> BSD_USA::PollImpl(std::vector<u8>& write_buffer, std::span
     for (PollFD& pollfd : fds) {
         ASSERT(False(pollfd.revents));
 
-        if (pollfd.fd > static_cast<s32>(MAX_FD) || pollfd.fd < 0) {
+        if (pollfd.fd >= static_cast<s32>(MAX_FD) || pollfd.fd < 0) {
             LOG_ERROR(Service, "File descriptor handle={} is invalid", pollfd.fd);
             pollfd.revents = PollEvents{};
             return {0, Errno::SUCCESS};
@@ -1131,7 +1317,7 @@ s32 BSD_USA::FindFreeFileDescriptorHandle() noexcept {
 }
 
 bool BSD_USA::IsFileDescriptorValid(s32 fd) const noexcept {
-    if (fd > static_cast<s32>(MAX_FD) || fd < 0) {
+    if (fd >= static_cast<s32>(MAX_FD) || fd < 0) {
         LOG_ERROR(Service, "Invalid file descriptor handle={}", fd);
         return false;
     }
