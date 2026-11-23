@@ -8,6 +8,7 @@
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/service/ipc_helpers.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/pm/pm.h"
 #include "core/hle/service/server_manager.h"
 #include "core/hle/service/service.h"
@@ -222,31 +223,115 @@ private:
 
 class Shell final : public ServiceFramework<Shell> {
 public:
-    explicit Shell(Core::System& system_) : ServiceFramework{system_, "pm:shell"} {
+    explicit Shell(Core::System& system_)
+        : ServiceFramework{system_, "pm:shell"}, service_context{system_, "PM::Shell"} {
         // clang-format off
         static const FunctionInfo functions[] = {
             {0, nullptr, "LaunchProgram"},
-            {1, nullptr, "TerminateProcess"},
-            {2, nullptr, "TerminateProgram"},
+            {1, &Shell::TerminateProcess, "TerminateProcess"},
+            {2, &Shell::TerminateProgram, "TerminateProgram"},
             {3, nullptr, "GetProcessEventHandle"},
             {4, nullptr, "GetProcessEventInfo"},
-            {5, nullptr, "NotifyBootFinished"},
+            {5, &Shell::NotifyBootFinished, "NotifyBootFinished"},
             {6, &Shell::GetApplicationProcessIdForShell, "GetApplicationProcessIdForShell"},
             {7, nullptr, "BoostSystemMemoryResourceLimit"},
             {8, nullptr, "BoostApplicationThreadResourceLimit"},
-            {9, nullptr, "GetBootFinishedEventHandle"},
+            {9, &Shell::GetBootFinishedEventHandle, "GetBootFinishedEventHandle"},
+            {10, nullptr, "BoostSystemThreadResourceLimit"},
+            {12, &Shell::GetProcessId, "GetProcessId"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
+
+        boot_finished_event = service_context.CreateEvent("PM::Shell::BootFinishedEvent");
+    }
+
+    ~Shell() override {
+        service_context.CloseEvent(boot_finished_event);
     }
 
 private:
+    void TerminateProcess(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto process_id = rp.PopRaw<u64>();
+
+        LOG_DEBUG(Service_PM, "called, process_id={:016X}", process_id);
+
+        auto process = kernel.GetProcessByProcessId(process_id);
+        if (process.IsNull()) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultProcessNotFound);
+            return;
+        }
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(process->Terminate(system.Kernel()));
+    }
+
+    void TerminateProgram(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto program_id = rp.PopRaw<u64>();
+
+        LOG_DEBUG(Service_PM, "called, program_id={:016X}", program_id);
+
+        auto list = kernel.GetProcessList();
+        auto process = SearchProcessList(system.Kernel(), list,
+            [program_id](auto& p) { return p->GetProgramId() == program_id; });
+        if (process.IsNull()) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultProcessNotFound);
+            return;
+        }
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(process->Terminate(system.Kernel()));
+    }
+
+    void NotifyBootFinished(HLERequestContext& ctx) {
+        LOG_DEBUG(Service_PM, "called");
+
+        const Result result = boot_finished_event->Signal(system.Kernel());
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result);
+    }
+
+    void GetBootFinishedEventHandle(HLERequestContext& ctx) {
+        LOG_DEBUG(Service_PM, "called");
+
+        IPC::ResponseBuilder rb{ctx, 2, 1};
+        rb.Push(ResultSuccess);
+        rb.PushCopyObjects(ctx, boot_finished_event->GetReadableEvent());
+    }
+
+    void GetProcessId(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto program_id = rp.PopRaw<u64>();
+
+        LOG_DEBUG(Service_PM, "called, program_id={:016X}", program_id);
+
+        auto list = kernel.GetProcessList();
+        auto process = SearchProcessList(system.Kernel(), list,
+            [program_id](auto& p) { return p->GetProgramId() == program_id; });
+        if (process.IsNull()) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultProcessNotFound);
+            return;
+        }
+
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(ResultSuccess);
+        rb.Push(process->GetProcessId());
+    }
+
     void GetApplicationProcessIdForShell(HLERequestContext& ctx) {
         LOG_DEBUG(Service_PM, "called");
         auto list = kernel.GetProcessList();
         GetApplicationPidGeneric(system.Kernel(), ctx, list);
     }
+
+    KernelHelpers::ServiceContext service_context;
+    Kernel::KEvent* boot_finished_event{};
 };
 
 void LoopProcess(Core::System& system) {
