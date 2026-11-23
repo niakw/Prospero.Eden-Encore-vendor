@@ -134,7 +134,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {62, D<&FSP_SRV::OpenSaveDataInfoReaderOnlyCacheStorage>, "OpenSaveDataInfoReaderOnlyCacheStorage"},
         {64, nullptr, "OpenSaveDataInternalStorageFileSystem"},
         {65, nullptr, "UpdateSaveDataMacForDebug"},
-        {66, nullptr, "WriteSaveDataFileSystemExtraData2"},
+        {66, D<&FSP_SRV::WriteSaveDataFileSystemExtraDataWithMask>, "WriteSaveDataFileSystemExtraDataWithMask"},
         {67, D<&FSP_SRV::FindSaveDataWithFilter>, "FindSaveDataWithFilter"},
         {68, D<&FSP_SRV::OpenSaveDataInfoReaderWithFilter>, "OpenSaveDataInfoReaderWithFilter"},
         {69, D<&FSP_SRV::ReadSaveDataFileSystemExtraDataBySaveDataAttribute>, "ReadSaveDataFileSystemExtraDataBySaveDataAttribute"},
@@ -503,6 +503,23 @@ Result FSP_SRV::OpenSaveDataInfoReaderOnlyCacheStorage(
     *out_interface = std::make_shared<ISaveDataInfoReader>(
         system, save_data_controller, FileSys::SaveDataSpaceId::User, true, program_id);
 
+    R_SUCCEED();
+}
+
+Result FSP_SRV::WriteSaveDataFileSystemExtraDataWithMask(
+    InBuffer<BufferAttr_HipcMapAlias> buffer, InBuffer<BufferAttr_HipcMapAlias> mask_buffer,
+    FileSys::SaveDataSpaceId space_id, u64 save_data_id) {
+    LOG_DEBUG(Service_FS, "called, directory-save semantics, space_id={}, save_data_id={:016X}",
+              space_id, save_data_id);
+    R_UNLESS(buffer.size() == sizeof(FileSys::SaveDataExtraData) &&
+                 mask_buffer.size() == sizeof(FileSys::SaveDataExtraData),
+             FileSys::ResultInvalidArgument);
+    R_UNLESS(FindDirectorySaveById(system, save_data_controller, space_id, save_data_id).has_value(),
+             FileSys::ResultTargetNotFound);
+
+    // Directory-backed saves have no physical ExtraData accessor. After
+    // validating both buffers and the real target, LibHac semantics reduce
+    // this masked metadata write to a no-op.
     R_SUCCEED();
 }
 

@@ -92,6 +92,9 @@ private:
     Result OpenSaveDataInfoReaderWithFilter(OutInterface<ISaveDataInfoReader> out_interface,
                                             FileSys::SaveDataSpaceId space_id,
                                             FileSys::SaveDataFilter filter);
+    Result WriteSaveDataFileSystemExtraDataWithMask(
+        InBuffer<BufferAttr_HipcMapAlias> buffer, InBuffer<BufferAttr_HipcMapAlias> mask_buffer,
+        FileSys::SaveDataSpaceId space_id, u64 save_data_id);
     Result FindSaveDataWithFilter(Out<s64> out_count, OutBuffer<BufferAttr_HipcMapAlias> out_buffer,
                                   FileSys::SaveDataSpaceId space_id,
                                   FileSys::SaveDataFilter filter);

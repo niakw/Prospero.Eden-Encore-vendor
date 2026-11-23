@@ -8,7 +8,7 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 files={
  "encore-active/eden-backports/src/core/hle/service/ngc/ngc.cpp":"b5128e3a4509a9060058457c04980b7e6c922865",
- "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp":"f3408c8d2d11bd13b45321802b714a2235fc57f2",
+ "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp":"074138d88766e9acb292e04c383e3d964c44f7d2",
  "encore-active/eden-core/include/core/hle/service/acc/profile_manager.h":"81688175c2b96b509a9108cc1e69b12391d2127f",
  "encore-active/eden-core/include/core/hle/service/ipc_helpers.h":"a266b1a05cf0b20b7cad6d70f9b16dfec503cf7c",
  "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp":"647e2499f82de4ac921e6ab709c8a67d4f2f10cc",
@@ -44,6 +44,10 @@ assert 'std::erase_if(info' in reader
 assert 'filter.use_program_id' in reader and 'filter.use_save_data_type' in reader
 assert 'filter.use_user_id' in reader and 'filter.use_save_data_id' in reader
 assert 'filter.use_index' in reader
+assert '{66, D<&FSP_SRV::WriteSaveDataFileSystemExtraDataWithMask>, "WriteSaveDataFileSystemExtraDataWithMask"}' in fsp
+masked=fsp.split("Result FSP_SRV::WriteSaveDataFileSystemExtraDataWithMask(",1)[1].split("Result FSP_SRV::FindSaveDataWithFilter",1)[0]
+assert 'mask_buffer.size() == sizeof(FileSys::SaveDataExtraData)' in masked
+assert 'FindDirectorySaveById' in masked
 assert "constexpr Result ResultNotSupported{ErrorModule::HIPC, 1};" in ipch
 assert "static_assert(sizeof(Uid) == 0x10)" in profile
 test=r"""
