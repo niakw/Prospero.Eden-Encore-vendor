@@ -625,6 +625,13 @@ struct System::Impl {
         // their mappings without racing the destroyed GPU worker.
         services.reset();
         ::Eden::ReportStep("shutdown", "Completed services.reset()");
+        // SM's factories can keep NVDRV devices alive after their server
+        // threads have joined. Drop those strong owners before KProcess
+        // retirement, but retain the SM object/ports until ShutdownCores.
+        if (service_manager) {
+            service_manager->ReleaseRegisteredHandlersForShutdown();
+            ::Eden::ReportStep("shutdown", "Completed service_manager.ReleaseRegisteredHandlersForShutdown()");
+        }
         kernel.ShutdownCores();
         ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");
         service_manager.reset();
