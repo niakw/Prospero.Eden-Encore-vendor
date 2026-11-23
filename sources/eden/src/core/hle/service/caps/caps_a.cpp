@@ -32,7 +32,7 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
         {11, nullptr, "GetAlbumEntryFromApplicationAlbumEntry"},
         {12, D<&IAlbumAccessorService::LoadAlbumScreenShotImageEx>, "LoadAlbumScreenShotImageEx"},
         {13, D<&IAlbumAccessorService::LoadAlbumScreenShotThumbnailImageEx>, "LoadAlbumScreenShotThumbnailImageEx"},
-        {14, nullptr, "LoadAlbumScreenShotImageEx0"},
+        {14, D<&IAlbumAccessorService::LoadAlbumScreenShotImageEx0>, "LoadAlbumScreenShotImageEx0"},
         {15, nullptr, "GetAlbumUsage3"},
         {16, D<&IAlbumAccessorService::GetAlbumMountResult>, "GetAlbumMountResult"},
         {17, nullptr, "GetAlbumUsage16"},
@@ -44,7 +44,7 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
         {301, nullptr, "GetLastThumbnail"},
         {302, nullptr, "GetLastOverlayMovieThumbnail"},
         {401,  C<&IAlbumAccessorService::GetAutoSavingStorage>, "GetAutoSavingStorage"},
-        {501, nullptr, "GetRequiredStorageSpaceSizeToCopyAll"},
+        {501, D<&IAlbumAccessorService::GetRequiredStorageSpaceSizeToCopyAll>, "GetRequiredStorageSpaceSizeToCopyAll"},
         {1001, nullptr, "LoadAlbumScreenShotThumbnailImageEx0"},
         {1002, C<&IAlbumAccessorService::LoadAlbumScreenShotImageEx1>, "LoadAlbumScreenShotImageEx1"},
         {1003, C<&IAlbumAccessorService::LoadAlbumScreenShotThumbnailImageEx1>, "LoadAlbumScreenShotThumbnailImageEx1"},
@@ -201,6 +201,29 @@ Result IAlbumAccessorService::GetAutoSavingStorage(Out<bool> out_is_autosaving) 
 
     const Result result = manager->GetAutoSavingStorage(*out_is_autosaving);
     R_RETURN(TranslateResult(result));
+}
+
+Result IAlbumAccessorService::LoadAlbumScreenShotImageEx0(
+    Out<ScreenShotAttribute> out_attribute, Out<s64> out_width, Out<s64> out_height,
+    const AlbumFileId& file_id, const ScreenShotDecodeOption& decoder_options,
+    OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
+    OutArray<u8, BufferAttr_HipcMapAlias> out_buffer) {
+    LoadAlbumScreenShotImageOutput output{};
+    const Result result =
+        manager->LoadAlbumScreenShotImage(output, out_image, file_id, decoder_options);
+    if (result.IsSuccess()) {
+        *out_attribute = output.attribute;
+        *out_width = output.width;
+        *out_height = output.height;
+        std::fill(out_buffer.begin(), out_buffer.end(), 0);
+    }
+    R_RETURN(TranslateResult(result));
+}
+
+Result IAlbumAccessorService::GetRequiredStorageSpaceSizeToCopyAll(
+    Out<u64> out_size, const RequiredStorageSpaceInput& input) {
+    R_RETURN(TranslateResult(
+        manager->GetRequiredStorageSpaceSizeToCopyAll(*out_size, input.source, input.destination)));
 }
 
 Result IAlbumAccessorService::LoadAlbumScreenShotImageEx1(

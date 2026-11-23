@@ -76,6 +76,20 @@ private:
 
     Result GetAutoSavingStorage(Out<bool> out_is_autosaving);
 
+    Result LoadAlbumScreenShotImageEx0(
+        Out<ScreenShotAttribute> out_attribute, Out<s64> out_width, Out<s64> out_height,
+        const AlbumFileId& file_id, const ScreenShotDecodeOption& decoder_options,
+        OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
+        OutArray<u8, BufferAttr_HipcMapAlias> out_buffer);
+
+    struct RequiredStorageSpaceInput {
+        AlbumStorage destination{};
+        AlbumStorage source{};
+    };
+    static_assert(sizeof(RequiredStorageSpaceInput) == 2);
+    Result GetRequiredStorageSpaceSizeToCopyAll(Out<u64> out_size,
+                                                const RequiredStorageSpaceInput& input);
+
     Result LoadAlbumScreenShotImageEx1(
         const AlbumFileId& file_id, const ScreenShotDecodeOption& decoder_options,
         OutLargeData<LoadAlbumScreenShotImageOutput, BufferAttr_HipcMapAlias> out_image_output,

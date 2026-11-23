@@ -107,6 +107,27 @@ Result AlbumManager::RefreshAlbumCache(AlbumStorage storage) {
     return ResultSuccess;
 }
 
+Result AlbumManager::GetRequiredStorageSpaceSizeToCopyAll(
+    u64& out_size, AlbumStorage source, AlbumStorage destination) const {
+    if (source > AlbumStorage::Sd || destination > AlbumStorage::Sd) {
+        return ResultInvalidStorage;
+    }
+    if (!is_mounted) {
+        return ResultIsNotMounted;
+    }
+
+    out_size = 0;
+    if (source == destination) {
+        return ResultSuccess;
+    }
+    for (const auto& [file_id, path] : album_files) {
+        if (file_id.storage == source) {
+            out_size += Common::FS::GetSize(path);
+        }
+    }
+    return ResultSuccess;
+}
+
 Result AlbumManager::GetAlbumFileList(std::span<AlbumEntry> out_entries, u64& out_entries_count,
                                       AlbumStorage storage, u8 flags) const {
     if (storage > AlbumStorage::Sd) {
