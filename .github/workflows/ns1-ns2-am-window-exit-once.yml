@@ -1,0 +1,28 @@
+name: Native AM WindowSystem one-shot exit and retained NS1 overlay (host only)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'encore-active/eden-core/src/core/hle/service/am/window_system.cpp'
+      - 'sources/eden/src/core/hle/service/am/window_system.h'
+      - 'tests/ns1_r23_97_overlay_z.py'
+      - 'tests/ns1_r23_97_applet_zorder.py'
+      - 'tests/ns1_ns2_window_system_exit_once_source.py'
+      - '.github/workflows/ns1-ns2-am-window-exit-once.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify one-shot AM shutdown and original z-order behavior
+        run: |
+          set -euo pipefail
+          python3 -B tests/ns1_ns2_window_system_exit_once_source.py
+          python3 -B tests/ns1_r23_97_overlay_z.py
+          python3 -B tests/ns1_r23_97_applet_zorder.py
