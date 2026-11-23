@@ -115,7 +115,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {96, nullptr, "AcquireApplicationLaunchInfo"},
         {97, nullptr, "GetMainApplicationProgramIndexByApplicationLaunchInfo"},
         {98, nullptr, "EnableApplicationAllThreadDumpOnCrash"},
-        {99, nullptr, "LaunchDevMenu"},
+        {99, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "LaunchDevMenu"},
         {100, nullptr, "ResetToFactorySettings"},
         {101, nullptr, "ResetToFactorySettingsWithoutUserSaveData"},
         {102, nullptr, "ResetToFactorySettingsForRefurbishment"},
@@ -238,10 +238,10 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {935, nullptr, "Unknown935"}, //21.0.0+
         {936, D<&IApplicationManagerInterface::Unknown936>, "Unknown936"}, //21.0.0+
         {1000, nullptr, "RequestVerifyApplicationDeprecated"},
-        {1001, nullptr, "CorruptApplicationForDebug"},
+        {1001, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "CorruptApplicationForDebug"},
         {1002, nullptr, "RequestVerifyAddOnContentsRights"},
         {1003, nullptr, "RequestVerifyApplication"},
-        {1004, nullptr, "CorruptContentForDebug"},
+        {1004, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "CorruptContentForDebug"},
         {1200, D<&IApplicationManagerInterface::NeedsUpdateVulnerability>, "NeedsUpdateVulnerability"},
         {1300, D<&IApplicationManagerInterface::IsAnyApplicationEntityInstalled>, "IsAnyApplicationEntityInstalled"},
         {1301, nullptr, "DeleteApplicationContentEntities"},
@@ -251,7 +251,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {1305, nullptr, "TryDeleteRunningApplicationEntity"},
         {1306, nullptr, "TryDeleteRunningApplicationCompletely"},
         {1307, nullptr, "TryDeleteRunningApplicationContentEntities"},
-        {1308, nullptr, "DeleteApplicationCompletelyForDebug"},
+        {1308, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "DeleteApplicationCompletelyForDebug"},
         {1309, nullptr, "CleanupUnavailableAddOnContents"},
         {1310, nullptr, "RequestMoveApplicationEntity"},
         {1311, nullptr, "EstimateSizeToMove"},
@@ -329,7 +329,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2182, nullptr, "SetActiveRightsContextUsingStateToRightsEnvironment"},
         {2183, nullptr, "Unknown2183"}, //20.1.0+
         {2190, nullptr, "GetRightsEnvironmentHandleForApplication"},
-        {2199, nullptr, "GetRightsEnvironmentCountForDebug"},
+        {2199, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "GetRightsEnvironmentCountForDebug"},
         {2200, nullptr, "GetGameCardApplicationCopyIdentifier"},
         {2201, nullptr, "GetInstalledApplicationCopyIdentifier"},
         {2250, nullptr, "RequestReportActiveELicence"},
@@ -357,8 +357,8 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2400, nullptr, "GetPromotionInfo"},
         {2401, nullptr, "CountPromotionInfo"},
         {2402, nullptr, "ListPromotionInfo"},
-        {2403, nullptr, "ImportPromotionJsonForDebug"},
-        {2404, nullptr, "ClearPromotionInfoForDebug"},
+        {2403, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "ImportPromotionJsonForDebug"},
+        {2404, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "ClearPromotionInfoForDebug"},
         {2500, nullptr, "ConfirmAvailableTime"},
         {2510, nullptr, "CreateApplicationResource"},
         {2511, nullptr, "GetApplicationResource"},
@@ -1027,6 +1027,11 @@ Result IApplicationManagerInterface::GetApplicationTerminateResult(Out<Result> o
     std::scoped_lock lk{applet->lock};
     *out_result = applet->terminate_result;
     R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::RejectDebugOnlyCommand() {
+    LOG_WARNING(Service_NS, "Rejected unsupported debug-only NS command on release runtime");
+    R_RETURN(ResultUnknown);
 }
 
 Result IApplicationManagerInterface::RequestDownloadApplicationControlDataInBackground(

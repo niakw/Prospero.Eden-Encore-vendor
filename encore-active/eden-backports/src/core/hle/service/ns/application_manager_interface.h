@@ -104,6 +104,8 @@ public:
     Result Unknown4053();
     Result Unknown4105();
 
+    Result RejectDebugOnlyCommand();
+
     Result RequestDownloadApplicationControlDataInBackground(u64 control_source,
                                                              u64 application_id);
 
