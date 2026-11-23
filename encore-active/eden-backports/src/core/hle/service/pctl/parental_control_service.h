@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "core/hle/service/cmif_types.h"
 #include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/os/event.h"
@@ -49,9 +51,15 @@ private:
     Result GetDefaultRatingOrganization(Out<u32> out_rating_organization);
     Result SetDefaultRatingOrganization(u32 rating_organization);
     Result GetFreeCommunicationApplicationListCount(Out<s32> out_count);
+    Result AddToFreeCommunicationApplicationList(u64 application_id);
     Result GetFreeCommunicationApplicationList(
         Out<u32> out_count,
         OutArray<std::array<u8, 0x10>, BufferAttr_HipcMapAlias> out_list, u32 offset);
+    Result UpdateFreeCommunicationApplicationList(
+        InArray<std::array<u8, 0x10>, BufferAttr_HipcMapAlias> list);
+    Result ResetFreeCommunicationApplicationList();
+    Result DeleteFromFreeCommunicationApplicationListForDebug(u64 application_id);
+    Result ClearFreeCommunicationApplicationListForDebug();
     Result ConfirmStereoVisionRestrictionConfigurable();
     Result IsStereoVisionPermitted(Out<bool> out_is_permitted);
     Result UnlockRestrictionTemporarily(InArray<char, BufferAttr_HipcPointer> pin_code_buffer);
@@ -102,6 +110,7 @@ private:
     ParentalControlSettings settings{};
     RestrictionSettings restriction_settings{};
     u32 default_rating_organization{};
+    std::vector<std::array<u8, 0x10>> free_communication_application_list;
     std::array<char, 8> pin_code{};
     Capability capability{};
     u64 program_id{};

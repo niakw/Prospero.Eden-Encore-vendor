@@ -271,13 +271,13 @@
       "upstream": "c076a5520dfc0186ef2498c0fc3523ec7f4e154c7cecef0d26d2fae76173e763"
     },
     "src/core/hle/service/pctl/parental_control_service.cpp": {
-      "active": "24a64459c559135841323df8a5a9aeba4bc7a91ab72fa61c56c7165b163a2123",
-      "bytes": 27982,
+      "active": "beab92d3f310a6d067efbee656085f75076db7967ae349753436cfc87a482f63",
+      "bytes": 31322,
       "upstream": "46654129562733550f1a7a6376b7372ea248342998ab38b31fdd5554d551a0ff"
     },
     "src/core/hle/service/pctl/parental_control_service.h": {
-      "active": "5cac17d950438f9eb29728ffb94075e09ff2454b24631e9366e04a9f40d8f590",
-      "bytes": 5541,
+      "active": "dd8baa5e18d504881952e2840da9b99cb8e598a149fd72b47cb7a77cd345a8f5",
+      "bytes": 6021,
       "upstream": "06b8d106236516f448c053c838170d8785721854ee1881d846d2f7e13cbb9d83"
     },
     "src/core/hle/service/pctl/pctl_types.h": {

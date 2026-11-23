@@ -57,15 +57,15 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1037, D<&IParentalControlService::GetDefaultRatingOrganization>, "GetDefaultRatingOrganization"},
         {1038, D<&IParentalControlService::SetDefaultRatingOrganization>, "SetDefaultRatingOrganization"},
         {1039, D<&IParentalControlService::GetFreeCommunicationApplicationListCount>, "GetFreeCommunicationApplicationListCount"},
-        {1042, nullptr, "AddToFreeCommunicationApplicationList"},
+        {1042, D<&IParentalControlService::AddToFreeCommunicationApplicationList>, "AddToFreeCommunicationApplicationList"},
         {1043, nullptr, "DeleteSettings"},
         {1044, D<&IParentalControlService::GetFreeCommunicationApplicationList>, "GetFreeCommunicationApplicationList"},
-        {1045, nullptr, "UpdateFreeCommunicationApplicationList"},
+        {1045, D<&IParentalControlService::UpdateFreeCommunicationApplicationList>, "UpdateFreeCommunicationApplicationList"},
         {1046, nullptr, "DisableFeaturesForReset"},
         {1047, nullptr, "NotifyApplicationDownloadStarted"},
         {1048, nullptr, "NotifyNetworkProfileCreated"},
-        {1049, nullptr, "ResetFreeCommunicationApplicationList"},
-        {1050, nullptr, "AddToFreeCommunicationApplicationList"}, //20.0.0+
+        {1049, D<&IParentalControlService::ResetFreeCommunicationApplicationList>, "ResetFreeCommunicationApplicationList"},
+        {1050, D<&IParentalControlService::AddToFreeCommunicationApplicationList>, "AddToFreeCommunicationApplicationList"}, //20.0.0+
         {1051, nullptr, "NotifyApplicationDownloadStarted"}, //20.0.0+
         {1061, D<&IParentalControlService::ConfirmStereoVisionRestrictionConfigurable>, "ConfirmStereoVisionRestrictionConfigurable"},
         {1062, D<&IParentalControlService::GetStereoVisionRestriction>, "GetStereoVisionRestriction"},
@@ -107,8 +107,8 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1601, nullptr, "DisableAllFeatures"},
         {1602, nullptr, "PostEnableAllFeatures"},
         {1603, nullptr, "IsAllFeaturesDisabled"},
-        {1901, nullptr, "DeleteFromFreeCommunicationApplicationListForDebug"},
-        {1902, nullptr, "ClearFreeCommunicationApplicationListForDebug"},
+        {1901, D<&IParentalControlService::DeleteFromFreeCommunicationApplicationListForDebug>, "DeleteFromFreeCommunicationApplicationListForDebug"},
+        {1902, D<&IParentalControlService::ClearFreeCommunicationApplicationListForDebug>, "ClearFreeCommunicationApplicationListForDebug"},
         {1903, nullptr, "GetExemptApplicationListCountForDebug"},
         {1904, nullptr, "GetExemptApplicationListForDebug"},
         {1905, nullptr, "UpdateExemptApplicationListForDebug"},
@@ -388,19 +388,91 @@ Result IParentalControlService::SetDefaultRatingOrganization(u32 rating_organiza
 }
 
 Result IParentalControlService::GetFreeCommunicationApplicationListCount(Out<s32> out_count) {
-    // No whitelist is persisted. Returning four fabricated entries made callers expect records
-    // that could never be listed; an empty list is the ABI-consistent local state.
-    *out_count = 0;
-    LOG_DEBUG(Service_PCTL, "Returning empty free-communication application list");
+    *out_count = static_cast<s32>(free_communication_application_list.size());
+    LOG_DEBUG(Service_PCTL, "called, count={}", *out_count);
+    R_SUCCEED();
+}
+
+Result IParentalControlService::AddToFreeCommunicationApplicationList(u64 application_id) {
+    const auto get_application_id = [](const std::array<u8, 0x10>& info) {
+        u64 id{};
+        std::memcpy(&id, info.data(), sizeof(id));
+        return id;
+    };
+    const auto it = std::find_if(free_communication_application_list.begin(),
+                                 free_communication_application_list.end(),
+                                 [application_id, &get_application_id](const auto& info) {
+                                     return get_application_id(info) == application_id;
+                                 });
+    if (it == free_communication_application_list.end()) {
+        std::array<u8, 0x10> info{};
+        std::memcpy(info.data(), &application_id, sizeof(application_id));
+        info[8] = 1;
+        free_communication_application_list.push_back(info);
+    } else {
+        (*it)[8] = 1;
+    }
     R_SUCCEED();
 }
 
 Result IParentalControlService::GetFreeCommunicationApplicationList(
     Out<u32> out_count,
     OutArray<std::array<u8, 0x10>, BufferAttr_HipcMapAlias> out_list, u32 offset) {
-    *out_count = 0;
-    LOG_DEBUG(Service_PCTL, "Returning empty free-communication list, offset={}, capacity={}",
-              offset, out_list.size());
+    if (offset >= free_communication_application_list.size()) {
+        *out_count = 0;
+        R_SUCCEED();
+    }
+    const auto count = (std::min)(out_list.size(),
+                                  free_communication_application_list.size() - offset);
+    std::copy_n(free_communication_application_list.begin() + offset, count, out_list.begin());
+    *out_count = static_cast<u32>(count);
+    R_SUCCEED();
+}
+
+Result IParentalControlService::UpdateFreeCommunicationApplicationList(
+    InArray<std::array<u8, 0x10>, BufferAttr_HipcMapAlias> list) {
+    const auto get_application_id = [](const std::array<u8, 0x10>& info) {
+        u64 id{};
+        std::memcpy(&id, info.data(), sizeof(id));
+        return id;
+    };
+    for (const auto& incoming : list) {
+        const auto application_id = get_application_id(incoming);
+        const auto it = std::find_if(free_communication_application_list.begin(),
+                                     free_communication_application_list.end(),
+                                     [application_id, &get_application_id](const auto& info) {
+                                         return get_application_id(info) == application_id;
+                                     });
+        if (it == free_communication_application_list.end()) {
+            free_communication_application_list.push_back(incoming);
+        } else {
+            *it = incoming;
+        }
+    }
+    R_SUCCEED();
+}
+
+Result IParentalControlService::ResetFreeCommunicationApplicationList() {
+    free_communication_application_list.clear();
+    R_SUCCEED();
+}
+
+Result IParentalControlService::DeleteFromFreeCommunicationApplicationListForDebug(
+    u64 application_id) {
+    free_communication_application_list.erase(
+        std::remove_if(free_communication_application_list.begin(),
+                       free_communication_application_list.end(),
+                       [application_id](const auto& info) {
+                           u64 id{};
+                           std::memcpy(&id, info.data(), sizeof(id));
+                           return id == application_id;
+                       }),
+        free_communication_application_list.end());
+    R_SUCCEED();
+}
+
+Result IParentalControlService::ClearFreeCommunicationApplicationListForDebug() {
+    free_communication_application_list.clear();
     R_SUCCEED();
 }
 
