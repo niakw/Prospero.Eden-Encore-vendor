@@ -115,7 +115,8 @@ Result GetFirmwareVersionImpl(FirmwareVersionFormat& out_firmware, Core::System&
 }
 
 ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
-    : ServiceFramework{system_, "set:sys"}, m_system{system} {
+    : ServiceFramework{system_, "set:sys"}, m_system{system},
+      m_service_context{system_, "ISystemSettingsServer"} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, C<&ISystemSettingsServer::SetLanguageCode>, "SetLanguageCode"},
@@ -197,8 +198,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {79, C<&ISystemSettingsServer::GetProductModel>, "GetProductModel"},
         {80, C<&ISystemSettingsServer::GetLdnChannel>, "GetLdnChannel"},
         {81, C<&ISystemSettingsServer::SetLdnChannel>, "SetLdnChannel"},
-        {82, nullptr, "AcquireTelemetryDirtyFlagEventHandle"},
-        {83, nullptr, "GetTelemetryDirtyFlags"},
+        {82, C<&ISystemSettingsServer::AcquireTelemetryDirtyFlagEventHandle>, "AcquireTelemetryDirtyFlagEventHandle"},
+        {83, C<&ISystemSettingsServer::GetTelemetryDirtyFlags>, "GetTelemetryDirtyFlags"},
         {84, C<&ISystemSettingsServer::GetPtmBatteryLot>, "GetPtmBatteryLot"},
         {85, C<&ISystemSettingsServer::SetPtmBatteryLot>, "SetPtmBatteryLot"},
         {86, C<&ISystemSettingsServer::GetPtmFuelGaugeParameter>, "GetPtmFuelGaugeParameter"},
@@ -208,8 +209,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {90, C<&ISystemSettingsServer::GetMiiAuthorId>, "GetMiiAuthorId"},
         {91, C<&ISystemSettingsServer::SetShutdownRtcValue>, "SetShutdownRtcValue"},
         {92, C<&ISystemSettingsServer::GetShutdownRtcValue>, "GetShutdownRtcValue"},
-        {93, nullptr, "AcquireFatalDirtyFlagEventHandle"},
-        {94, nullptr, "GetFatalDirtyFlags"},
+        {93, C<&ISystemSettingsServer::AcquireFatalDirtyFlagEventHandle>, "AcquireFatalDirtyFlagEventHandle"},
+        {94, C<&ISystemSettingsServer::GetFatalDirtyFlags>, "GetFatalDirtyFlags"},
         {95, C<&ISystemSettingsServer::GetAutoUpdateEnableFlag>, "GetAutoUpdateEnableFlag"},
         {96, C<&ISystemSettingsServer::SetAutoUpdateEnableFlag>, "SetAutoUpdateEnableFlag"},
         {97, C<&ISystemSettingsServer::GetNxControllerSettings>, "GetNxControllerSettings"},
@@ -348,6 +349,9 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
 
     RegisterHandlers(functions);
 
+    m_telemetry_dirty_event = m_service_context.CreateEvent("SET:TelemetryDirtyFlag");
+    m_fatal_dirty_event = m_service_context.CreateEvent("SET:FatalDirtyFlag");
+
     SetupSettings();
 
     m_system_settings.region_code =
@@ -365,6 +369,8 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
 }
 
 ISystemSettingsServer::~ISystemSettingsServer() {
+    m_service_context.CloseEvent(m_telemetry_dirty_event);
+    m_service_context.CloseEvent(m_fatal_dirty_event);
     SetSaveNeeded();
 }
 
@@ -1264,6 +1270,36 @@ Result ISystemSettingsServer::GetOverlayDispProgramId(Out<u64> out_program_id) {
     u64 id{};
     std::memcpy(&id, m_system_settings.overlay_disp_program_id.data(), sizeof(id));
     *out_program_id = id;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::AcquireTelemetryDirtyFlagEventHandle(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    // Encore has no telemetry-settings producer. Keep a valid non-auto-clear event
+    // object for ABI compatibility, but do not signal it spuriously.
+    *out_event = &m_telemetry_dirty_event->GetReadableEvent();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetTelemetryDirtyFlags(Out<u64> out_flags_0,
+                                                      Out<u64> out_flags_1) {
+    *out_flags_0 = 0;
+    *out_flags_1 = 0;
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::AcquireFatalDirtyFlagEventHandle(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    // Same policy for fatal-settings changes: no local producer means the valid
+    // event remains unsignalled and the dirty mask stays empty.
+    *out_event = &m_fatal_dirty_event->GetReadableEvent();
+    R_SUCCEED();
+}
+
+Result ISystemSettingsServer::GetFatalDirtyFlags(Out<u64> out_flags_0,
+                                                  Out<u64> out_flags_1) {
+    *out_flags_0 = 0;
+    *out_flags_1 = 0;
     R_SUCCEED();
 }
 

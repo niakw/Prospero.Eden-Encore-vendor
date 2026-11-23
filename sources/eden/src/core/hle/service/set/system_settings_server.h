@@ -14,7 +14,9 @@
 #include "common/polyfill_thread.h"
 #include "common/uuid.h"
 #include "core/hle/result.h"
+#include "core/hle/kernel/k_event.h"
 #include "core/hle/service/cmif_types.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/psc/time/common.h"
 #include "core/hle/service/service.h"
 #include "core/hle/service/set/setting_formats/appln_settings.h"
@@ -117,6 +119,12 @@ public:
     Result SetAutomaticApplicationDownloadFlag(bool flag);
     Result GetLdnChannel(Out<s32> out_value);
     Result SetLdnChannel(s32 value);
+    Result AcquireTelemetryDirtyFlagEventHandle(
+        OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result GetTelemetryDirtyFlags(Out<u64> out_flags_0, Out<u64> out_flags_1);
+    Result AcquireFatalDirtyFlagEventHandle(
+        OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result GetFatalDirtyFlags(Out<u64> out_flags_0, Out<u64> out_flags_1);
     Result GetExternalRtcResetFlag(Out<bool> out_value);
     Result SetExternalRtcResetFlag(bool value);
     Result GetUsbFullKeyEnableFlag(Out<bool> out_value);
@@ -328,6 +336,9 @@ private:
     void SetSaveNeeded();
 
     Core::System& m_system;
+    KernelHelpers::ServiceContext m_service_context;
+    Kernel::KEvent* m_telemetry_dirty_event{};
+    Kernel::KEvent* m_fatal_dirty_event{};
     SystemSettings m_system_settings{};
     PrivateSettings m_private_settings{};
     DeviceSettings m_device_settings{};
