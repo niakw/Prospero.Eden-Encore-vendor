@@ -39,18 +39,18 @@ public:
             {20101, &PlayReport::SaveSystemReportWithUserOld, "SaveSystemReportWithUser"},
             {20102, &PlayReport::SaveSystemReport, "SaveSystemReport"},
             {20103, &PlayReport::SaveSystemReportWithUser, "SaveSystemReportWithUser"},
-            {20200, nullptr, "SetOperationMode"},
-            {30100, nullptr, "ClearStorage"},
-            {30200, nullptr, "ClearStatistics"},
-            {30300, nullptr, "GetStorageUsage"},
-            {30400, nullptr, "GetStatistics"},
-            {30401, nullptr, "GetThroughputHistory"},
-            {30500, nullptr, "GetLastUploadError"},
-            {30600, nullptr, "GetApplicationUploadSummary"},
-            {40100, nullptr, "IsUserAgreementCheckEnabled"},
-            {40101, nullptr, "SetUserAgreementCheckEnabled"},
-            {50100, nullptr, "ReadAllApplicationReportFiles"},
-            {90100, nullptr, "ReadAllReportFiles"},
+            {20200, &PlayReport::SetOperationMode, "SetOperationMode"},
+            {30100, &PlayReport::ClearStorage, "ClearStorage"},
+            {30200, &PlayReport::ClearStatistics, "ClearStatistics"},
+            {30300, &PlayReport::GetStorageUsage, "GetStorageUsage"},
+            {30400, &PlayReport::GetStatistics, "GetStatistics"},
+            {30401, &PlayReport::GetThroughputHistory, "GetThroughputHistory"},
+            {30500, &PlayReport::GetLastUploadError, "GetLastUploadError"},
+            {30600, &PlayReport::GetApplicationUploadSummary, "GetApplicationUploadSummary"},
+            {40100, &PlayReport::IsUserAgreementCheckEnabled, "IsUserAgreementCheckEnabled"},
+            {40101, &PlayReport::SetUserAgreementCheckEnabled, "SetUserAgreementCheckEnabled"},
+            {50100, &PlayReport::ReadAllApplicationReportFiles, "ReadAllApplicationReportFiles"},
+            {90100, &PlayReport::ReadAllReportFiles, "ReadAllReportFiles"},
             {90101, nullptr, "Unknown90101"},
             {90102, nullptr, "Unknown90102"},
             {90200, nullptr, "GetStatistics"},
@@ -174,6 +174,103 @@ private:
         rb.Push(ResultSuccess);
     }
 
+    void SetOperationMode(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        operation_mode = rp.Pop<u64>();
+        LOG_DEBUG(Service_PREPO, "Set local play-report operation mode={}", operation_mode);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void ClearStorage(HLERequestContext& ctx) {
+        // Encore's Reporter files are emulator diagnostics, not Horizon PREPO storage. The guest
+        // PREPO store is intentionally empty and therefore already clear.
+        LOG_DEBUG(Service_PREPO, "Guest PREPO storage already empty");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void ClearStatistics(HLERequestContext& ctx) {
+        // No Nintendo telemetry transport is active, so there are no guest upload statistics.
+        LOG_DEBUG(Service_PREPO, "Guest PREPO statistics already empty");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetStorageUsage(HLERequestContext& ctx) {
+        const u128 usage{};
+        IPC::ResponseBuilder rb{ctx, 6};
+        rb.Push(ResultSuccess);
+        rb.PushRaw(usage);
+    }
+
+    void GetStatistics(HLERequestContext& ctx) {
+        if (ctx.CanWriteBuffer()) {
+            std::vector<u8> statistics(ctx.GetWriteBufferSize());
+            ctx.WriteBuffer(statistics);
+        }
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetThroughputHistory(HLERequestContext& ctx) {
+        if (ctx.CanWriteBuffer()) {
+            std::vector<u8> history(ctx.GetWriteBufferSize());
+            ctx.WriteBuffer(history);
+        }
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(0);
+    }
+
+    void GetLastUploadError(HLERequestContext& ctx) {
+        // With no upload transport there is no pending upload error to report.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetApplicationUploadSummary(HLERequestContext& ctx) {
+        const u128 summary{};
+        IPC::ResponseBuilder rb{ctx, 6};
+        rb.Push(ResultSuccess);
+        rb.PushRaw(summary);
+    }
+
+    void IsUserAgreementCheckEnabled(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push(user_agreement_check_enabled);
+    }
+
+    void SetUserAgreementCheckEnabled(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        user_agreement_check_enabled = rp.Pop<u8>() != 0;
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void ReadAllApplicationReportFiles(HLERequestContext& ctx) {
+        if (ctx.CanWriteBuffer()) {
+            std::vector<u8> reports(ctx.GetWriteBufferSize());
+            ctx.WriteBuffer(reports);
+        }
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(ResultSuccess);
+        rb.Push<u64>(0);
+    }
+
+    void ReadAllReportFiles(HLERequestContext& ctx) {
+        if (ctx.CanWriteBuffer()) {
+            std::vector<u8> reports(ctx.GetWriteBufferSize());
+            ctx.WriteBuffer(reports);
+        }
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(ResultSuccess);
+        rb.Push<u64>(0);
+    }
+
     // (21.0.0+) buffers: [0x9 (X), 0x5 (A)], inbytes: 0x10
     void SaveSystemReport(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
@@ -220,6 +317,9 @@ private:
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
+
+    u64 operation_mode{};
+    bool user_agreement_check_enabled{};
 };
 
 void LoopProcess(Core::System& system) {
