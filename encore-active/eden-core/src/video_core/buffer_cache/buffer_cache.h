@@ -232,7 +232,11 @@ void BufferCache<P>::CachedWriteMemory(DAddr device_addr, u64 size) {
     DAddr aligned_start = Common::AlignDown(device_addr, DEVICE_PAGESIZE);
     DAddr aligned_end = Common::AlignUp(device_addr + size, DEVICE_PAGESIZE);
     if (!IsRegionGpuModified(aligned_start, aligned_end - aligned_start)) {
-        WriteMemory(device_addr, size);
+        // WriteMemory's clean-page branch does exactly this mark. Re-entering
+        // it would scan the same GPU-modified ranges again under the buffer
+        // cache mutex, even though this full-page query already proved that
+        // no GPU-owned sibling bytes need a download.
+        memory_tracker.MarkRegionAsCpuModified(device_addr, size);
         return;
     }
 
