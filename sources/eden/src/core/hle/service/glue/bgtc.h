@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include "core/hle/service/cmif_types.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -24,12 +23,6 @@ class ITaskService final : public ServiceFramework<ITaskService> {
 public:
     explicit ITaskService(Core::System& system_);
     ~ITaskService() override;
-
-private:
-    Result IsInHalfAwake(Out<bool> out_half_awake);
-    Result IsInFullAwake(Out<bool> out_full_awake);
-    Result WillDisconnectNetworkWhenEnteringSleep(Out<bool> out_disconnect);
-    Result WillStayHalfAwakeInsteadSleep(Out<bool> out_half_awake);
 };
 
 class BGTC_SC final : public ServiceFramework<BGTC_SC> {

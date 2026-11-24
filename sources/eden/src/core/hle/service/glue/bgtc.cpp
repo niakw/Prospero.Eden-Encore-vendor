@@ -7,7 +7,6 @@
 #include "common/logging.h"
 #include "core/core.h"
 #include "core/hle/service/glue/bgtc.h"
-#include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/ipc_helpers.h"
 
 namespace Service::Glue {
@@ -38,9 +37,9 @@ ITaskService::ITaskService(Core::System& system_) : ServiceFramework{system_, "I
         {1, nullptr, "NotifyTaskStarting"},
         {2, nullptr, "NotifyTaskFinished"},
         {3, nullptr, "GetTriggerEvent"},
-        {4, D<&ITaskService::IsInHalfAwake>, "IsInHalfAwake"},
+        {4, nullptr, "IsInHalfAwake"},
         {5, nullptr, "NotifyClientName"},
-        {6, D<&ITaskService::IsInFullAwake>, "IsInFullAwake"},
+        {6, nullptr, "IsInFullAwake"},
         {11, nullptr, "ScheduleTask"},
         {12, nullptr, "GetScheduledTaskInterval"},
         {13, nullptr, "UnscheduleTask"},
@@ -48,8 +47,8 @@ ITaskService::ITaskService(Core::System& system_) : ServiceFramework{system_, "I
         {15, nullptr, "SchedulePeriodicTask"},
         {16, nullptr, "Unknown16"},
         {101, nullptr, "GetOperationMode"},
-        {102, D<&ITaskService::WillDisconnectNetworkWhenEnteringSleep>, "WillDisconnectNetworkWhenEnteringSleep"},
-        {103, D<&ITaskService::WillStayHalfAwakeInsteadSleep>, "WillStayHalfAwakeInsteadSleep"},
+        {102, nullptr, "WillDisconnectNetworkWhenEnteringSleep"},
+        {103, nullptr, "WillStayHalfAwakeInsteadSleep"},
         {200, nullptr, "Unknown200"},
     };
     // clang-format on
@@ -58,28 +57,6 @@ ITaskService::ITaskService(Core::System& system_) : ServiceFramework{system_, "I
 }
 
 ITaskService::~ITaskService() = default;
-
-// The running guest has no half-awake or suspended background execution mode.
-// Host PS5 sleep and its network policy are not controlled by BGTC.
-Result ITaskService::IsInHalfAwake(Out<bool> out_half_awake) {
-    *out_half_awake = false;
-    R_SUCCEED();
-}
-
-Result ITaskService::IsInFullAwake(Out<bool> out_full_awake) {
-    *out_full_awake = true;
-    R_SUCCEED();
-}
-
-Result ITaskService::WillDisconnectNetworkWhenEnteringSleep(Out<bool> out_disconnect) {
-    *out_disconnect = false;
-    R_SUCCEED();
-}
-
-Result ITaskService::WillStayHalfAwakeInsteadSleep(Out<bool> out_half_awake) {
-    *out_half_awake = false;
-    R_SUCCEED();
-}
 
 BGTC_SC::BGTC_SC(Core::System& system_) : ServiceFramework{system_, "bgtc:sc"} {
     // clang-format off
