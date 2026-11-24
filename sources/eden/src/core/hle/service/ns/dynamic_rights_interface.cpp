@@ -57,14 +57,20 @@ Result IDynamicRightsInterface::NotifyApplicationRightsCheckStart() {
 
 Result IDynamicRightsInterface::GetRunningApplicationStatus(Out<u32> out_status,
                                                             u64 rights_handle) {
-    LOG_WARNING(Service_NS, "(STUBBED) called, rights_handle={:#x}", rights_handle);
     *out_status = 0;
-    R_SUCCEED();
+    LOG_WARNING(Service_NS,
+                "GetRunningApplicationStatus unavailable without a dynamic-rights environment, "
+                "rights_handle={:#x}",
+                rights_handle);
+    R_THROW(ResultUnknown);
 }
 
 Result IDynamicRightsInterface::VerifyActivatedRightsOwners(u64 rights_handle) {
-    LOG_WARNING(Service_NS, "(STUBBED) called, rights_handle={:#x}", rights_handle);
-    R_SUCCEED();
+    LOG_WARNING(Service_NS,
+                "VerifyActivatedRightsOwners unavailable without a dynamic-rights environment, "
+                "rights_handle={:#x}",
+                rights_handle);
+    R_THROW(ResultUnknown);
 }
 
 Result IDynamicRightsInterface::HasAccountRestrictedRightsInRunningApplications(
