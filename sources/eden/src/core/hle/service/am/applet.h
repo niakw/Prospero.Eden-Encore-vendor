@@ -7,6 +7,7 @@
 #pragma once
 
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <stack>
 
@@ -28,7 +29,7 @@
 
 namespace Service::AM {
 
-struct Applet {
+struct Applet : std::enable_shared_from_this<Applet> {
     explicit Applet(Core::System& system, std::unique_ptr<Process> process_, bool is_application);
     ~Applet();
 

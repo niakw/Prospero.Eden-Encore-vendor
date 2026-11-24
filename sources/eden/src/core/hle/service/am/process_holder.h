@@ -3,10 +3,13 @@
 
 #pragma once
 
+#include <memory>
+
 #include "core/hle/service/os/multi_wait_holder.h"
 
-namespace Service {
-class Process;
+namespace Kernel {
+class KernelCore;
+class KProcess;
 }
 
 namespace Service::AM {
@@ -15,20 +18,22 @@ struct Applet;
 
 class ProcessHolder : public MultiWaitHolder, public Common::IntrusiveListBaseNode<ProcessHolder> {
 public:
-    explicit ProcessHolder(Applet& applet, Process& process);
+    ProcessHolder(Kernel::KernelCore& kernel, std::shared_ptr<Applet> applet,
+                  Kernel::KProcess* process);
     ~ProcessHolder();
 
-    Applet& GetApplet() const {
+    const std::shared_ptr<Applet>& GetApplet() const {
         return m_applet;
     }
 
-    Process& GetProcess() const {
+    Kernel::KProcess* GetObservedProcess() const {
         return m_process;
     }
 
 private:
-    Applet& m_applet;
-    Process& m_process;
+    Kernel::KernelCore& m_kernel;
+    std::shared_ptr<Applet> m_applet;
+    Kernel::KProcess* m_process;
 };
 
 } // namespace Service::AM

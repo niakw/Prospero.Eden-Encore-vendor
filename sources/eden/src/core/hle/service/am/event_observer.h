@@ -38,7 +38,6 @@ private:
     void LoopProcess();
     void OnWakeupEvent(MultiWaitHolder* holder);
     void OnProcessEvent(ProcessHolder* holder);
-    void DestroyAppletProcessHolderLocked(ProcessHolder* holder);
 
     // System reference and context.
     Core::System& m_system;

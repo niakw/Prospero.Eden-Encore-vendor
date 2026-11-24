@@ -67,7 +67,8 @@ void EventObserver::TrackAppletProcess(Applet& applet) {
     }
 
     // Allocate new holder.
-    auto* holder = new ProcessHolder(applet, *applet.process);
+    auto* holder = new ProcessHolder(m_system.Kernel(), applet.shared_from_this(),
+                                     applet.process->GetHandle());
     holder->SetUserData(static_cast<uintptr_t>(UserDataTag::AppletProcess));
 
     // Insert into list.
@@ -100,7 +101,7 @@ MultiWaitHolder* EventObserver::WaitSignaled(std::stop_token stop_token) {
         }
 
         auto* selected = m_multi_wait.WaitAny(m_system.Kernel());
-        if (selected != std::addressof(m_wakeup_holder)) {
+        if (selected && selected != std::addressof(m_wakeup_holder)) {
             // Unlink the process.
             selected->UnlinkFromMultiWait();
         }
@@ -130,35 +131,30 @@ void EventObserver::OnWakeupEvent(MultiWaitHolder* holder) {
 }
 
 void EventObserver::OnProcessEvent(ProcessHolder* holder) {
-    // Check process state.
-    auto& applet = holder->GetApplet();
-    auto& process = holder->GetProcess();
+    const auto applet = holder->GetApplet();
+    std::unique_ptr<ProcessHolder> retired;
     {
-        std::scoped_lock lk{m_lock, applet.lock};
-        if (process.IsTerminated()) {
-            // Destroy the holder.
-            this->DestroyAppletProcessHolderLocked(holder);
+        std::scoped_lock lk{m_lock, applet->lock};
+        auto& process = *applet->process;
+        if (process.GetHandle() != holder->GetObservedProcess()) {
+            // A previous incarnation was signaled; never reset the new process.
+            m_process_holder_list.erase(m_process_holder_list.iterator_to(*holder));
+            retired.reset(holder);
         } else {
-            // Reset signaled state.
-            process.ResetSignal();
-
-            // Relink wakeup event.
-            holder->LinkToMultiWait(std::addressof(m_deferred_wait_list));
+            applet->is_process_running = process.IsRunning();
+            if (process.IsTerminated()) {
+                m_process_holder_list.erase(m_process_holder_list.iterator_to(*holder));
+                retired.reset(holder);
+            } else {
+                process.ResetSignal();
+                holder->LinkToMultiWait(std::addressof(m_deferred_wait_list));
+            }
         }
-
-        // Set running.
-        applet.is_process_running = process.IsRunning();
     }
 
-    // Perform recalculation.
+    // Release the old kernel reference outside both locks.
+    retired.reset();
     m_window_system.Update();
-}
-
-void EventObserver::DestroyAppletProcessHolderLocked(ProcessHolder* holder) {
-    // Remove from owned list.
-    m_process_holder_list.erase(m_process_holder_list.iterator_to(*holder));
-    // Destroy and free.
-    delete holder;
 }
 
 } // namespace Service::AM
