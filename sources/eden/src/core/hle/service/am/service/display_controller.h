@@ -33,6 +33,7 @@ private:
                                       s32 fbshare_layer_index);
     Result CopyBetweenCaptureBuffers(s32 dst_fbshare_layer_index, s32 src_fbshare_layer_index);
     Result ClearCaptureBuffer(bool unknown0, s32 fbshare_layer_index, u32 color);
+    Result RejectLegacyCaptureBufferAcquire();
     Result ReleaseLastApplicationCaptureBuffer();
     Result ReleaseLastForegroundCaptureBuffer();
     Result ReleaseCallerAppletCaptureBuffer();

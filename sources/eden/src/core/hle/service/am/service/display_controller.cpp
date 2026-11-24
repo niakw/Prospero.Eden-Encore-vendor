@@ -26,15 +26,15 @@ IDisplayController::IDisplayController(Core::System& system_, std::shared_ptr<Ap
         {7, D<&IDisplayController::GetCallerAppletCaptureImageEx>, "GetCallerAppletCaptureImageEx"},
         {8, D<&IDisplayController::TakeScreenShotOfOwnLayer>, "TakeScreenShotOfOwnLayer"},
         {9, D<&IDisplayController::CopyBetweenCaptureBuffers>, "CopyBetweenCaptureBuffers"},
-        {10, nullptr, "AcquireLastApplicationCaptureBuffer"},
+        {10, D<&IDisplayController::RejectLegacyCaptureBufferAcquire>, "AcquireLastApplicationCaptureBuffer"},
         {11, D<&IDisplayController::ReleaseLastApplicationCaptureBuffer>, "ReleaseLastApplicationCaptureBuffer"},
-        {12, nullptr, "AcquireLastForegroundCaptureBuffer"},
+        {12, D<&IDisplayController::RejectLegacyCaptureBufferAcquire>, "AcquireLastForegroundCaptureBuffer"},
         {13, D<&IDisplayController::ReleaseLastForegroundCaptureBuffer>, "ReleaseLastForegroundCaptureBuffer"},
-        {14, nullptr, "AcquireCallerAppletCaptureBuffer"},
+        {14, D<&IDisplayController::RejectLegacyCaptureBufferAcquire>, "AcquireCallerAppletCaptureBuffer"},
         {15, D<&IDisplayController::ReleaseCallerAppletCaptureBuffer>, "ReleaseCallerAppletCaptureBuffer"},
-        {16, nullptr, "AcquireLastApplicationCaptureBufferEx"},
-        {17, nullptr, "AcquireLastForegroundCaptureBufferEx"},
-        {18, nullptr, "AcquireCallerAppletCaptureBufferEx"},
+        {16, D<&IDisplayController::RejectLegacyCaptureBufferAcquire>, "AcquireLastApplicationCaptureBufferEx"},
+        {17, D<&IDisplayController::RejectLegacyCaptureBufferAcquire>, "AcquireLastForegroundCaptureBufferEx"},
+        {18, D<&IDisplayController::RejectLegacyCaptureBufferAcquire>, "AcquireCallerAppletCaptureBufferEx"},
         {20, D<&IDisplayController::ClearCaptureBuffer>, "ClearCaptureBuffer"},
         {21, nullptr, "ClearAppletTransitionBuffer"},
         {22, D<&IDisplayController::AcquireLastApplicationCaptureSharedBuffer>, "AcquireLastApplicationCaptureSharedBuffer"},
@@ -139,6 +139,15 @@ Result IDisplayController::AcquireLastForegroundCaptureSharedBuffer(
     LOG_DEBUG(Service_AM, "called");
     R_RETURN(applet->display_layer_manager.WriteAppletCaptureBuffer(
         out_was_written, out_fbshare_layer_index, VI::CaptureKind::LastForeground));
+}
+
+Result IDisplayController::RejectLegacyCaptureBufferAcquire() {
+    LOG_DEBUG(Service_AM, "legacy capture-buffer acquisition rejected on modern Horizon contract");
+
+    // SwitchBrew documents cmds 10/12/14 as firmware stubs. On newer system versions the
+    // cmd16/17/18 TransferMemory variants also call an internal function that always errors.
+    // HOS 23 therefore must not expose the old 0x384000 TransferMemory path.
+    R_THROW(ResultUnknown);
 }
 
 Result IDisplayController::ReleaseLastApplicationCaptureBuffer() {
