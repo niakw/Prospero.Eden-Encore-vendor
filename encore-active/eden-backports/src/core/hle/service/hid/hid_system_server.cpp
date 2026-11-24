@@ -29,12 +29,12 @@ IHidSystemServer::IHidSystemServer(Core::System& system_, std::shared_ptr<Resour
     // clang-format off
     static const FunctionInfo functions[] = {
         {31, &IHidSystemServer::SendKeyboardLockKeyEvent, "SendKeyboardLockKeyEvent"},
-        {101, nullptr, "AcquireHomeButtonEventHandle"},
-        {111, nullptr, "ActivateHomeButton"},
-        {121, nullptr, "AcquireSleepButtonEventHandle"},
-        {131, nullptr, "ActivateSleepButton"},
-        {141, nullptr, "AcquireCaptureButtonEventHandle"},
-        {151, nullptr, "ActivateCaptureButton"},
+        {101, &IHidSystemServer::RejectUnsupportedSwitchHardware, "AcquireHomeButtonEventHandle"},
+        {111, &IHidSystemServer::RejectUnsupportedSwitchHardware, "ActivateHomeButton"},
+        {121, &IHidSystemServer::RejectUnsupportedSwitchHardware, "AcquireSleepButtonEventHandle"},
+        {131, &IHidSystemServer::RejectUnsupportedSwitchHardware, "ActivateSleepButton"},
+        {141, &IHidSystemServer::RejectUnsupportedSwitchHardware, "AcquireCaptureButtonEventHandle"},
+        {151, &IHidSystemServer::RejectUnsupportedSwitchHardware, "ActivateCaptureButton"},
         {161, &IHidSystemServer::GetPlatformConfig, "GetPlatformConfig"},
         {210, &IHidSystemServer::RejectUnsupportedSwitchHardware, "AcquireNfcDeviceUpdateEventHandle"},
         {211, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetNpadsWithNfc"},
@@ -66,19 +66,19 @@ IHidSystemServer::IHidSystemServer(Core::System& system_, std::shared_ptr<Resour
         {245, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetMcuVersionForNfc"},
         {246, &IHidSystemServer::RejectUnsupportedSwitchHardware, "CheckNfcDevicePower"},
         {247, &IHidSystemServer::RejectUnsupportedSwitchHardware, "SetMcuStateImmediate"},
-        {301, nullptr, "ActivateNpadSystem"},
+        {301, &IHidSystemServer::RejectUnsupportedSwitchHardware, "ActivateNpadSystem"},
         {303, &IHidSystemServer::ApplyNpadSystemCommonPolicy, "ApplyNpadSystemCommonPolicy"},
         {304, &IHidSystemServer::EnableAssigningSingleOnSlSrPress, "EnableAssigningSingleOnSlSrPress"},
         {305, &IHidSystemServer::DisableAssigningSingleOnSlSrPress, "DisableAssigningSingleOnSlSrPress"},
         {306, &IHidSystemServer::GetLastActiveNpad, "GetLastActiveNpad"},
-        {307, nullptr, "GetNpadSystemExtStyle"},
+        {307, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetNpadSystemExtStyle"},
         {308, &IHidSystemServer::ApplyNpadSystemCommonPolicyFull, "ApplyNpadSystemCommonPolicyFull"},
         {309, &IHidSystemServer::GetNpadFullKeyGripColor, "GetNpadFullKeyGripColor"},
         {310, &IHidSystemServer::GetMaskedSupportedNpadStyleSet, "GetMaskedSupportedNpadStyleSet"},
-        {311, nullptr, "SetNpadPlayerLedBlinkingDevice"},
+        {311, &IHidSystemServer::RejectUnsupportedSwitchHardware, "SetNpadPlayerLedBlinkingDevice"},
         {312, &IHidSystemServer::SetSupportedNpadStyleSetAll, "SetSupportedNpadStyleSetAll"},
         {313, &IHidSystemServer::GetNpadCaptureButtonAssignment, "GetNpadCaptureButtonAssignment"},
-        {314, nullptr, "GetAppletFooterUiType"},
+        {314, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetAppletFooterUiType"},
         {315, &IHidSystemServer::GetAppletDetailedUiType, "GetAppletDetailedUiType"},
         {316, &IHidSystemServer::GetNpadInterfaceType, "GetNpadInterfaceType"},
         {317, &IHidSystemServer::GetNpadLeftRightInterfaceType, "GetNpadLeftRightInterfaceType"},
@@ -86,17 +86,17 @@ IHidSystemServer::IHidSystemServer(Core::System& system_, std::shared_ptr<Resour
         {319, &IHidSystemServer::HasLeftRightBattery, "HasLeftRightBattery"},
         {321, &IHidSystemServer::GetUniquePadsFromNpad, "GetUniquePadsFromNpad"},
         {322, &IHidSystemServer::SetNpadSystemExtStateEnabled, "SetNpadSystemExtStateEnabled"},
-        {323, nullptr, "GetLastActiveUniquePad"},
-        {324, nullptr, "GetUniquePadButtonSet"},
-        {325, nullptr, "GetUniquePadColor"},
-        {326, nullptr, "GetUniquePadAppletDetailedUiType"},
-        {327, nullptr, "GetAbstractedPadIdDataFromNpad"},
-        {328, nullptr, "AttachAbstractedPadToNpad"},
-        {329, nullptr, "DetachAbstractedPadAll"},
-        {330, nullptr, "CheckAbstractedPadConnection"},
-        {332, nullptr, "ConvertAppletDetailedUiTypeFromPlayReportType"}, //19.0.0+
-        {333, nullptr, "SetNpadUserSpgApplet"}, //20.0.0+
-        {334, nullptr, "AcquireUniquePadButtonStateChangedEventHandle"}, //20.0.0+
+        {323, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetLastActiveUniquePad"},
+        {324, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetUniquePadButtonSet"},
+        {325, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetUniquePadColor"},
+        {326, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetUniquePadAppletDetailedUiType"},
+        {327, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetAbstractedPadIdDataFromNpad"},
+        {328, &IHidSystemServer::RejectUnsupportedSwitchHardware, "AttachAbstractedPadToNpad"},
+        {329, &IHidSystemServer::RejectUnsupportedSwitchHardware, "DetachAbstractedPadAll"},
+        {330, &IHidSystemServer::RejectUnsupportedSwitchHardware, "CheckAbstractedPadConnection"},
+        {332, &IHidSystemServer::RejectUnsupportedSwitchHardware, "ConvertAppletDetailedUiTypeFromPlayReportType"}, //19.0.0+
+        {333, &IHidSystemServer::RejectUnsupportedSwitchHardware, "SetNpadUserSpgApplet"}, //20.0.0+
+        {334, &IHidSystemServer::RejectUnsupportedSwitchHardware, "AcquireUniquePadButtonStateChangedEventHandle"}, //20.0.0+
         {501, &IHidSystemServer::RegisterAppletResourceUserId, "RegisterAppletResourceUserId"},
         {502, &IHidSystemServer::UnregisterAppletResourceUserId, "UnregisterAppletResourceUserId"},
         {503, &IHidSystemServer::EnableAppletToGetInput, "EnableAppletToGetInput"},
@@ -108,29 +108,29 @@ IHidSystemServer::IHidSystemServer(Core::System& system_, std::shared_ptr<Resour
         {511, &IHidSystemServer::GetVibrationMasterVolume, "GetVibrationMasterVolume"},
         {512, &IHidSystemServer::BeginPermitVibrationSession, "BeginPermitVibrationSession"},
         {513, &IHidSystemServer::EndPermitVibrationSession, "EndPermitVibrationSession"},
-        {514, nullptr, "Unknown514"},
-        {520, nullptr, "EnableHandheldHids"},
-        {521, nullptr, "DisableHandheldHids"},
-        {522, nullptr, "SetJoyConRailEnabled"},
+        {514, &IHidSystemServer::RejectUnsupportedSwitchHardware, "Unknown514"},
+        {520, &IHidSystemServer::RejectUnsupportedSwitchHardware, "EnableHandheldHids"},
+        {521, &IHidSystemServer::RejectUnsupportedSwitchHardware, "DisableHandheldHids"},
+        {522, &IHidSystemServer::RejectUnsupportedSwitchHardware, "SetJoyConRailEnabled"},
         {523, &IHidSystemServer::IsJoyConRailEnabled, "IsJoyConRailEnabled"},
-        {524, nullptr, "IsHandheldHidsEnabled"},
+        {524, &IHidSystemServer::RejectUnsupportedSwitchHardware, "IsHandheldHidsEnabled"},
         {525, &IHidSystemServer::IsJoyConAttachedOnAllRail, "IsJoyConAttachedOnAllRail"},
-        {540, nullptr, "AcquirePlayReportControllerUsageUpdateEvent"},
-        {541, nullptr, "GetPlayReportControllerUsages"},
-        {542, nullptr, "AcquirePlayReportRegisteredDeviceUpdateEvent"},
-        {543, nullptr, "GetRegisteredDevicesOld"},
+        {540, &IHidSystemServer::RejectUnsupportedSwitchHardware, "AcquirePlayReportControllerUsageUpdateEvent"},
+        {541, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetPlayReportControllerUsages"},
+        {542, &IHidSystemServer::RejectUnsupportedSwitchHardware, "AcquirePlayReportRegisteredDeviceUpdateEvent"},
+        {543, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetRegisteredDevicesOld"},
         {544, &IHidSystemServer::AcquireConnectionTriggerTimeoutEvent, "AcquireConnectionTriggerTimeoutEvent"},
-        {545, nullptr, "SendConnectionTrigger"},
+        {545, &IHidSystemServer::RejectUnsupportedSwitchHardware, "SendConnectionTrigger"},
         {546, &IHidSystemServer::AcquireDeviceRegisteredEventForControllerSupport, "AcquireDeviceRegisteredEventForControllerSupport"},
-        {547, nullptr, "GetAllowedBluetoothLinksCount"},
+        {547, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetAllowedBluetoothLinksCount"},
         {548, &IHidSystemServer::GetRegisteredDevices, "GetRegisteredDevices"},
-        {549, nullptr, "GetConnectableRegisteredDevices"},
+        {549, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetConnectableRegisteredDevices"},
         {551, &IHidSystemServer::GetRegisteredDevices, "GetRegisteredDevicesForControllerSupport"}, //20.0.0+ //mocked via 548 for Diablo 3 (at least)
-        {700, nullptr, "ActivateUniquePad"},
+        {700, &IHidSystemServer::RejectUnsupportedSwitchHardware, "ActivateUniquePad"},
         {702, &IHidSystemServer::AcquireUniquePadConnectionEventHandle, "AcquireUniquePadConnectionEventHandle"},
         {703, &IHidSystemServer::GetUniquePadIds, "GetUniquePadIds"},
-        {711, nullptr, "AcquireUniquePadConnectionOnHandheldForNsEventHandle"}, //20.0.0+
-        {712, nullptr, "GetUniquePadColor12"}, //20.0.0+
+        {711, &IHidSystemServer::RejectUnsupportedSwitchHardware, "AcquireUniquePadConnectionOnHandheldForNsEventHandle"}, //20.0.0+
+        {712, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetUniquePadColor12"}, //20.0.0+
         {751, &IHidSystemServer::AcquireJoyDetachOnBluetoothOffEventHandle, "AcquireJoyDetachOnBluetoothOffEventHandle"},
         {800, &IHidSystemServer::RejectUnsupportedSwitchHardware, "ListSixAxisSensorHandles"},
         {801, &IHidSystemServer::RejectUnsupportedSwitchHardware, "IsSixAxisSensorUserCalibrationSupported"},
@@ -160,7 +160,7 @@ IHidSystemServer::IHidSystemServer(Core::System& system_, std::shared_ptr<Resour
         {832, &IHidSystemServer::RejectUnsupportedSwitchHardware, "PrepareHidsForNotificationWake"},
         {850, &IHidSystemServer::IsUsbFullKeyControllerEnabled, "IsUsbFullKeyControllerEnabled"},
         {851, &IHidSystemServer::EnableUsbFullKeyController, "EnableUsbFullKeyController"},
-        {852, nullptr, "IsUsbConnected"},
+        {852, &IHidSystemServer::RejectUnsupportedSwitchHardware, "IsUsbConnected"},
         {870, &IHidSystemServer::IsHandheldButtonPressedOnConsoleMode, "IsHandheldButtonPressedOnConsoleMode"},
         {900, &IHidSystemServer::RejectUnsupportedSwitchHardware, "ActivateInputDetector"},
         {901, &IHidSystemServer::RejectUnsupportedSwitchHardware, "NotifyInputDetector"},
@@ -266,8 +266,8 @@ IHidSystemServer::IHidSystemServer(Core::System& system_, std::shared_ptr<Resour
         {1324, &IHidSystemServer::RejectUnsupportedSwitchHardware, "AcquireTouchScreenAutoTuneCompletedEvent"}, //21.0.0+
         {1325, &IHidSystemServer::RejectUnsupportedSwitchHardware, "IsTouchScreenAutoTuneRequiredForRepairProviderReplacement"}, //21.0.0+
         {1326, &IHidSystemServer::RejectUnsupportedSwitchHardware, "SetTouchScreenOffset"}, //21.0.0+
-        {1420, nullptr, "GetAppletResourceProperty"}, //19.0.0+
-        {12010, nullptr, "SetButtonConfigLeft"} //11.0.0-17.0.1
+        {1420, &IHidSystemServer::RejectUnsupportedSwitchHardware, "GetAppletResourceProperty"}, //19.0.0+
+        {12010, &IHidSystemServer::RejectUnsupportedSwitchHardware, "SetButtonConfigLeft"} //11.0.0-17.0.1
     };
     // clang-format on
 

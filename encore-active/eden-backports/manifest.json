@@ -241,8 +241,8 @@
       "upstream": "ed7cce070a4e6bab7d023bb2cd63f61f1101d5340edbd3be3c26fb3c6fdf728b"
     },
     "src/core/hle/service/hid/hid_system_server.cpp": {
-      "active": "e10a2f6dd2963373528d885994f10fd406a85a0ec6a6cd676d2dd3d945c2982f",
-      "bytes": 50219,
+      "active": "f2e1e8f2d996ccdcf2018f98f6f1b25c0f6c10a2c0df4a905646ec07cf003c96",
+      "bytes": 51896,
       "upstream": "c49157a0b9c11f7cd3dd5f0be3e115b07985dfb680aa105ce892e530b3774542"
     },
     "src/core/hle/service/hid/hid_system_server.h": {
