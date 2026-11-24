@@ -325,6 +325,16 @@
       "bytes": 12377,
       "upstream": "4240de5d0df8e51aa87eda53f0f5dfcb1a3998f7e6d801f3101608679045ab3c"
     },
+    "src/core/hle/service/caps/caps_c.cpp": {
+      "active": "8e3d804411b15d512abf536914c4cc52ba81ec63e13900976d0b7024619b3eb6",
+      "bytes": 7549,
+      "upstream": "4207c00db15d28949c3299ec36814d35ba77625594a454857bf1c97d4ca6bd95"
+    },
+    "src/core/hle/service/caps/caps_c.h": {
+      "active": "74f731531f62a7e26e33a09ffd9623b0613f89075cacab1c052e062a0ef96722",
+      "bytes": 1734,
+      "upstream": "2f6b8e4567725287f959b54928bd74f3516d6a67a404ea48a52d408eafab4d17"
+    },
     "src/core/hle/service/caps/caps_sc.cpp": {
       "active": "7738dad7be563ddec28c31bf7171c21add60a273be177687e19d201ee4d46fcd",
       "bytes": 2886,
