@@ -216,13 +216,13 @@
       "upstream": "bef2eaecc5c5a07b217277b691999845b66c3ad8e006ec101881d3218db76a22"
     },
     "src/core/hle/service/ns/application_manager_interface.cpp": {
-      "active": "a796fc33d1c79bfdcd9c0ad87cdc2cd50356ad8c90a7531c4e22434bf636471f",
-      "bytes": 56792,
+      "active": "045f1c3ef296e7e27014cfd9e719370ba0de547484a78a5deeefe923dbb92882",
+      "bytes": 58301,
       "upstream": "86874e0f8769c04c1c66b4b8b0d00549aa328a6ed58a6898f343e67431861fba"
     },
     "src/core/hle/service/ns/application_manager_interface.h": {
-      "active": "45c0d08d632391a1f26556359f1b75f7c890bffd2314c8cc2d45e67efbea2852",
-      "bytes": 7122,
+      "active": "46b3dae84f2682f27b1af25eefb3d07ab602ea98afddbaf9e4c798f52675d723",
+      "bytes": 7178,
       "upstream": "1ed17c086a3e2e34697453855e0f69583ad80196093a0944ef10929bdb56d49e"
     },
     "src/core/hle/service/ns/i_async_result.cpp": {
@@ -526,13 +526,13 @@
       "upstream": "df860aeb912e00399d55f7ed8636596a53722c99a1d8bd4f1ed237f36bee1db2"
     },
     "src/core/hle/service/am/service/home_menu_functions.cpp": {
-      "active": "f3e7f223950cc4625dc99e6d62ba8bc6d9934738f6b418b41ae06c570142980e",
-      "bytes": 5980,
+      "active": "5925bc55618c8dc5cf84ade5aa224182c693f7651dd90de2a5fc281e60c808df",
+      "bytes": 6633,
       "upstream": "9efea8aeed4932a9f271993c8354aad89ef1baf917b13234422e876d208bf14f"
     },
     "src/core/hle/service/am/service/home_menu_functions.h": {
-      "active": "8c6a68ad0260878de9b1a7bead0705bb82a30e1e4f1d3c875e28e4fafe7c5cb3",
-      "bytes": 1804,
+      "active": "00d31adbe3a4ee5ef78e80b3361e141264ff4e4f14165f32a0b5ecb77072f4a5",
+      "bytes": 1837,
       "upstream": "ecad50890c6f17dc1e5133a23cf0ea2789230c4d235e58c187836b74f25baf10"
     },
     "src/core/hle/service/am/service/debug_functions.cpp": {

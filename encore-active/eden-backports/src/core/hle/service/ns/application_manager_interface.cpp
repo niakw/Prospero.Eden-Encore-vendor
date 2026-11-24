@@ -6,9 +6,12 @@
 
 #include "core/file_sys/control_metadata.h"
 #include "core/core.h"
+#include "core/hle/api_version.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/hle/service/am/am_results.h"
 #include "core/hle/service/am/applet.h"
 #include "core/hle/service/am/applet_manager.h"
+#include "core/hle/service/am/process_creation.h"
 #include "core/hle/service/am/window_system.h"
 #include "core/file_sys/nca_metadata.h"
 #include "core/file_sys/registered_cache.h"
@@ -133,7 +136,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {301, nullptr, "PopApplicationShellEventInfo"},
         {302, nullptr, "LaunchLibraryApplet"},
         {303, nullptr, "TerminateLibraryApplet"},
-        {304, nullptr, "LaunchSystemApplet"},
+        {304, D<&IApplicationManagerInterface::LaunchSystemApplet>, "LaunchSystemApplet"},
         {305, nullptr, "TerminateSystemApplet"},
         {306, nullptr, "LaunchOverlayApplet"},
         {307, nullptr, "TerminateOverlayApplet"},
@@ -923,6 +926,38 @@ Result IApplicationManagerInterface::GetGameCardUpdateDetectionEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_DEBUG(Service_NS, "called; game-card update producer is not modeled");
     *out_event = gamecard_update_detection_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::LaunchSystemApplet(Out<u64> out_process_id) {
+    constexpr u64 QLaunchProgramId = static_cast<u64>(AM::AppletProgramId::QLaunch);
+    LOG_INFO(Service_NS, "called, program_id={:016X}", QLaunchProgramId);
+
+    for (const auto& process : system.Kernel().GetProcessList()) {
+        R_UNLESS(process->GetProgramId() != QLaunchProgramId, ResultUnknown);
+    }
+
+    auto* window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, ResultUnknown);
+
+    auto process =
+        AM::CreateProcess(system, QLaunchProgramId, 1, HLE::ApiVersion::HOS_VERSION_MAJOR);
+    R_UNLESS(process != nullptr, ResultUnknown);
+
+    const u64 process_id = process->GetProcessId();
+    auto applet = std::make_shared<AM::Applet>(system, std::move(process), false);
+    applet->program_id = QLaunchProgramId;
+    applet->applet_id = AM::AppletId::QLaunch;
+    applet->type = AM::AppletType::SystemApplet;
+    applet->library_applet_mode = AM::LibraryAppletMode::AllForeground;
+    applet->lifecycle_manager.SetFocusHandlingMode(false);
+    applet->lifecycle_manager.SetOutOfFocusSuspendingEnabled(false);
+
+    window_system->TrackApplet(applet, false);
+    window_system->RequestHomeMenuToGetForeground();
+    applet->process->Run();
+
+    *out_process_id = process_id;
     R_SUCCEED();
 }
 

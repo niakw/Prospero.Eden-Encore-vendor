@@ -15,6 +15,8 @@
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/am/am_results.h"
 #include "core/hle/service/am/service/storage.h"
+#include "core/hle/service/ns/application_manager_interface.h"
+#include "core/hle/service/ns/service_getter_interface.h"
 
 namespace Service::AM {
 
@@ -33,7 +35,7 @@ IHomeMenuFunctions::IHomeMenuFunctions(Core::System& system_, std::shared_ptr<Ap
         {31, D<&IHomeMenuFunctions::GetWriterLockAccessorEx>, "GetWriterLockAccessorEx"},
         {40, D<&IHomeMenuFunctions::IsSleepEnabled>, "IsSleepEnabled"},
         {41, D<&IHomeMenuFunctions::IsRebootEnabled>, "IsRebootEnabled"},
-        {50, nullptr, "LaunchSystemApplet"},
+        {50, D<&IHomeMenuFunctions::LaunchSystemApplet>, "LaunchSystemApplet"},
         {51, D<&IHomeMenuFunctions::LaunchStarter>, "LaunchStarter"},
         {100, D<&IHomeMenuFunctions::RejectDebugOnlyCommand>, "PopRequestLaunchApplicationForDebug"},
         {110, D<&IHomeMenuFunctions::IsForceTerminateApplicationDisabledForDebug>, "IsForceTerminateApplicationDisabledForDebug"},
@@ -101,6 +103,19 @@ Result IHomeMenuFunctions::GetWriterLockAccessorEx(
     LOG_INFO(Service_AM, "called, button_type={}", button_type);
     R_UNLESS(button_type <= 3, ResultUnknown);
     *out_lock_accessor = std::make_shared<ILockAccessor>(system);
+    R_SUCCEED();
+}
+
+Result IHomeMenuFunctions::LaunchSystemApplet() {
+    auto ns_am2 = system.ServiceManager().GetService<NS::IServiceGetterInterface>("ns:am2", true);
+    R_UNLESS(ns_am2 != nullptr, ResultUnknown);
+
+    std::shared_ptr<NS::IApplicationManagerInterface> app_man;
+    R_TRY(ns_am2->GetApplicationManagerInterface(&app_man));
+
+    u64 process_id{};
+    R_TRY(app_man->LaunchSystemApplet(&process_id));
+    LOG_INFO(Service_AM, "launched system applet, process_id={}", process_id);
     R_SUCCEED();
 }
 

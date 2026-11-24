@@ -67,6 +67,7 @@ public:
     Result GetFreeSpaceSize(Out<s64> out_free_space_size, FileSys::StorageId storage_id);
     Result GetGameCardUpdateDetectionEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result ResumeAll();
+    Result LaunchSystemApplet(Out<u64> out_process_id);
     Result IsQualificationTransitionSupportedByProcessId(Out<bool> out_is_supported,
                                                          u64 process_id);
     Result DeleteApplicationEntity(u64 application_id);
