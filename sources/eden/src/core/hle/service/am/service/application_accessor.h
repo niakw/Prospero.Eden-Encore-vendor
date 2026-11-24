@@ -40,6 +40,9 @@ private:
     Result RequestForApplicationToGetForeground();
     Result CheckRightsEnvironmentAvailable(Out<bool> out_is_available);
     Result GetNsRightsEnvironmentHandle(Out<u64> out_handle);
+    Result GetDesirableUids(Out<s32> out_count,
+                            OutArray<Common::UUID, BufferAttr_HipcMapAlias> out_user_ids);
+    Result SetApplicationAttribute(InBuffer<BufferAttr_HipcMapAlias> attribute);
     Result HasSaveDataAccessPermission(Out<bool> out_has_permission, u64 application_id);
     Result PushToFriendInvitationStorageChannel(SharedPointer<IStorage> storage);
     Result PushToNotificationStorageChannel(SharedPointer<IStorage> storage);

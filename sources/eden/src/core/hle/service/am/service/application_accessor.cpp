@@ -43,9 +43,9 @@ IApplicationAccessor::IApplicationAccessor(Core::System& system_, std::shared_pt
         {130, D<&IApplicationAccessor::SetUsers>, "SetUsers"},
         {131, D<&IApplicationAccessor::CheckRightsEnvironmentAvailable>, "CheckRightsEnvironmentAvailable"},
         {132, D<&IApplicationAccessor::GetNsRightsEnvironmentHandle>, "GetNsRightsEnvironmentHandle"},
-        {140, nullptr, "GetDesirableUids"},
+        {140, D<&IApplicationAccessor::GetDesirableUids>, "GetDesirableUids"},
         {150, D<&IApplicationAccessor::ReportApplicationExitTimeout>, "ReportApplicationExitTimeout"},
-        {160, nullptr, "SetApplicationAttribute"},
+        {160, D<&IApplicationAccessor::SetApplicationAttribute>, "SetApplicationAttribute"},
         {170, D<&IApplicationAccessor::HasSaveDataAccessPermission>, "HasSaveDataAccessPermission"},
         {180, D<&IApplicationAccessor::PushToFriendInvitationStorageChannel>, "PushToFriendInvitationStorageChannel"},
         {190, D<&IApplicationAccessor::PushToNotificationStorageChannel>, "PushToNotificationStorageChannel"},
@@ -195,6 +195,20 @@ Result IApplicationAccessor::GetApplicationLaunchProperty(
     LOG_DEBUG(Service_AM, "called");
     R_RETURN(system.GetARPManager().GetLaunchProperty(out_launch_property.Get(),
                                                       m_applet->program_id));
+}
+
+Result IApplicationAccessor::GetDesirableUids(
+    Out<s32> out_count, OutArray<Common::UUID, BufferAttr_HipcMapAlias> out_user_ids) {
+    (void)out_user_ids;
+    *out_count = 0;
+    LOG_DEBUG(Service_AM, "called, no preferred user ids");
+    R_SUCCEED();
+}
+
+Result IApplicationAccessor::SetApplicationAttribute(
+    InBuffer<BufferAttr_HipcMapAlias> attribute) {
+    LOG_DEBUG(Service_AM, "called, attribute_size={:#x}", attribute.size());
+    R_SUCCEED();
 }
 
 Result IApplicationAccessor::HasSaveDataAccessPermission(
