@@ -1354,6 +1354,7 @@ assert 'throw std::runtime_error("Native GPFIFO' not in dma_cpp
 # path. The only direct throws left are inside three deferred fence callbacks;
 # those catches latch first and then signal the captured ChannelState.
 puller_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
+puller_compact="".join(puller_cpp.split())
 for reason in (
     "Native GPFIFO SET_OBJECT class unsupported",
     "Native GPFIFO FENCE_ACTION acquire unsupported",
@@ -1368,7 +1369,7 @@ for reason in (
     "Native QMD3 dispatch was not executed",
     "Native Ampere Compute multiword payload invalid",
 ):
-    assert f'FailNativeSubmission("{reason}")' in puller_cpp.replace("dma_pusher.", "").replace("pusher.", ""), reason
+    assert f'FailNativeSubmission("{reason}")' in puller_compact, reason
 assert "pusher.FailNativeSubmission(why);" in puller_cpp
 assert "pusher.FailNativeSubmission(reason);" in puller_cpp
 assert puller_cpp.count("throw std::runtime_error") == 3
