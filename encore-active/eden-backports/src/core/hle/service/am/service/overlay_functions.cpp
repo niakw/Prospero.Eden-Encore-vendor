@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "core/core.h"
+#include "core/hle/service/am/am_results.h"
 #include "core/hle/service/am/applet.h"
 #include "core/hle/service/am/service/overlay_functions.h"
 #include "core/hle/service/cmif_serialization.h"
@@ -17,10 +19,10 @@ namespace Service::AM {
         {2, D<&IOverlayFunctions::GetApplicationIdForLogo>, "GetApplicationIdForLogo"},
         {3, D<&IOverlayFunctions::SetGpuTimeSliceBoost>, "SetGpuTimeSliceBoost"},
         {4, D<&IOverlayFunctions::SetAutoSleepTimeAndDimmingTimeEnabled>, "SetAutoSleepTimeAndDimmingTimeEnabled"},
-        {5, nullptr, "TerminateApplicationAndSetReason"},
+        {5, D<&IOverlayFunctions::TerminateApplicationAndSetReason>, "TerminateApplicationAndSetReason"},
         {6, D<&IOverlayFunctions::SetScreenShotPermissionGlobally>, "SetScreenShotPermissionGlobally"},
-        {10, nullptr, "StartShutdownSequenceForOverlay"},
-        {11, nullptr, "StartRebootSequenceForOverlay"},
+        {10, D<&IOverlayFunctions::StartShutdownSequenceForOverlay>, "StartShutdownSequenceForOverlay"},
+        {11, D<&IOverlayFunctions::StartRebootSequenceForOverlay>, "StartRebootSequenceForOverlay"},
         {20, D<&IOverlayFunctions::SetHandlingHomeButtonShortPressedEnabled>, "SetHandlingHomeButtonShortPressedEnabled"},
         {21, D<&IOverlayFunctions::SetHandlingTouchScreenInputEnabled>, "SetHandlingTouchScreenInputEnabled"},
         {30, D<&IOverlayFunctions::SetHealthWarningShowingState>, "SetHealthWarningShowingState"},
@@ -121,6 +123,41 @@ namespace Service::AM {
         // Horizon's GPU time-slice request targets the Switch scheduler. Encore's guest GPU work
         // is scheduled by the PS5 host/RADV path and must not alter host scheduling policy.
         LOG_DEBUG(Service_AM, "called, value={} (host GPU scheduler unchanged)", value);
+        R_SUCCEED();
+    }
+
+    Result IOverlayFunctions::TerminateApplicationAndSetReason(Result reason) {
+        LOG_INFO(Service_AM, "called, reason={:#x}", reason.GetInnerValue());
+
+        auto* window_system = system.GetAppletManager().GetWindowSystem();
+        R_UNLESS(window_system != nullptr, ResultUnknown);
+
+        const auto application = window_system->GetMainApplet();
+        R_UNLESS(application != nullptr, AM::ResultApplicationRecordNotFound);
+
+        {
+            std::scoped_lock lk{application->lock};
+            application->terminate_result = reason;
+            application->process->Terminate();
+        }
+
+        window_system->RequestUpdate();
+        R_SUCCEED();
+    }
+
+    Result IOverlayFunctions::StartShutdownSequenceForOverlay() {
+        LOG_INFO(Service_AM, "called");
+        // Same guest power transition used by IGlobalStateController. This exits the emulated
+        // Horizon system; it does not request a PS5 host shutdown.
+        system.Exit();
+        R_SUCCEED();
+    }
+
+    Result IOverlayFunctions::StartRebootSequenceForOverlay() {
+        LOG_INFO(Service_AM, "called");
+        // Encore has no guest reboot relaunch path distinct from shutdown yet; the global AM
+        // controller uses the same system-exit transition, so keep both interfaces coherent.
+        system.Exit();
         R_SUCCEED();
     }
 

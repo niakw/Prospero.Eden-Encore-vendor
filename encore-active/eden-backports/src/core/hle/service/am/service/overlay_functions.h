@@ -20,6 +20,9 @@ namespace Service::AM {
         Result GetApplicationIdForLogo(Out<u64> out_application_id);
         Result SetGpuTimeSliceBoost(u64 value);
         Result SetAutoSleepTimeAndDimmingTimeEnabled(bool enabled);
+        Result TerminateApplicationAndSetReason(Result reason);
+        Result StartShutdownSequenceForOverlay();
+        Result StartRebootSequenceForOverlay();
         Result SetScreenShotPermissionGlobally(bool enabled);
         Result SetHealthWarningShowingState(bool showing);
         Result IsHealthWarningRequired(Out<bool> is_required);
