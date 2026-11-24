@@ -62,13 +62,13 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {23, nullptr, "ResolveApplicationContentPath"},
         {26, nullptr, "BeginInstallApplication"},
         {27, nullptr, "DeleteApplicationRecord"},
-        {30, nullptr, "RequestApplicationUpdateInfo"},
-        {31, nullptr, "RequestUpdateApplication"},
-        {32, nullptr, "CancelApplicationDownload"},
-        {33, nullptr, "ResumeApplicationDownload"},
-        {35, nullptr, "UpdateVersionList"},
-        {36, nullptr, "PushLaunchVersion"},
-        {37, nullptr, "ListRequiredVersion"},
+        {30, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestApplicationUpdateInfo"},
+        {31, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestUpdateApplication"},
+        {32, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CancelApplicationDownload"},
+        {33, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ResumeApplicationDownload"},
+        {35, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "UpdateVersionList"},
+        {36, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "PushLaunchVersion"},
+        {37, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListRequiredVersion"},
         {38, D<&IApplicationManagerInterface::CheckApplicationLaunchVersion>, "CheckApplicationLaunchVersion"},
         {39, nullptr, "CheckApplicationLaunchRights"},
         {40, D<&IApplicationManagerInterface::GetApplicationLogoData>, "GetApplicationLogoData"},
@@ -169,9 +169,9 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {428, nullptr, "Unknown428"}, //21.0.0+
         {429, nullptr, "Unknown429"}, //21.0.0+
         {430, nullptr, "Unknown430"}, //21.0.0+
-        {502, nullptr, "RequestCheckGameCardRegistration"},
-        {503, nullptr, "RequestGameCardRegistrationGoldPoint"},
-        {504, nullptr, "RequestRegisterGameCard"},
+        {502, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestCheckGameCardRegistration"},
+        {503, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestGameCardRegistrationGoldPoint"},
+        {504, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestRegisterGameCard"},
         {505, D<&IApplicationManagerInterface::GetGameCardMountFailureEvent>, "GetGameCardMountFailureEvent"},
         {506, D<&IApplicationManagerInterface::IsGameCardInserted>, "IsGameCardInserted"},
         {507, nullptr, "EnsureGameCardAccess"},
@@ -290,30 +290,30 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {1901, nullptr, "RequestDownloadApplicationPrepurchasedRights"},
         {1902, nullptr, "GetApplicationTicketInfo"},
         {1903, nullptr, "RequestDownloadApplicationPrepurchasedRightsForAccount"},
-        {2000, nullptr, "GetSystemDeliveryInfo"},
-        {2001, nullptr, "SelectLatestSystemDeliveryInfo"},
-        {2002, nullptr, "VerifyDeliveryProtocolVersion"},
-        {2003, nullptr, "GetApplicationDeliveryInfo"},
-        {2004, nullptr, "HasAllContentsToDeliver"},
-        {2005, nullptr, "CompareApplicationDeliveryInfo"},
-        {2006, nullptr, "CanDeliverApplication"},
-        {2007, nullptr, "ListContentMetaKeyToDeliverApplication"},
-        {2008, nullptr, "NeedsSystemUpdateToDeliverApplication"},
-        {2009, nullptr, "EstimateRequiredSize"},
-        {2010, nullptr, "RequestReceiveApplication"},
-        {2011, nullptr, "CommitReceiveApplication"},
-        {2012, nullptr, "GetReceiveApplicationProgress"},
-        {2013, nullptr, "RequestSendApplication"},
-        {2014, nullptr, "GetSendApplicationProgress"},
-        {2015, nullptr, "CompareSystemDeliveryInfo"},
-        {2016, nullptr, "ListNotCommittedContentMeta"},
-        {2017, nullptr, "CreateDownloadTask"},
-        {2018, nullptr, "GetApplicationDeliveryInfoHash"},
-        {2019, nullptr, "Unknown2019"}, //20.0.0+
+        {2000, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetSystemDeliveryInfo"},
+        {2001, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "SelectLatestSystemDeliveryInfo"},
+        {2002, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "VerifyDeliveryProtocolVersion"},
+        {2003, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationDeliveryInfo"},
+        {2004, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "HasAllContentsToDeliver"},
+        {2005, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CompareApplicationDeliveryInfo"},
+        {2006, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CanDeliverApplication"},
+        {2007, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListContentMetaKeyToDeliverApplication"},
+        {2008, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "NeedsSystemUpdateToDeliverApplication"},
+        {2009, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "EstimateRequiredSize"},
+        {2010, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestReceiveApplication"},
+        {2011, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CommitReceiveApplication"},
+        {2012, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetReceiveApplicationProgress"},
+        {2013, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestSendApplication"},
+        {2014, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetSendApplicationProgress"},
+        {2015, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CompareSystemDeliveryInfo"},
+        {2016, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListNotCommittedContentMeta"},
+        {2017, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CreateDownloadTask"},
+        {2018, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationDeliveryInfoHash"},
+        {2019, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2019"}, //20.0.0+
         {2050, D<&IApplicationManagerInterface::GetApplicationRightsOnClient>, "GetApplicationRightsOnClient"},
         {2051, nullptr, "InvalidateRightsIdCache"},
-        {2052, nullptr, "Unknown2052"}, //20.0.0+
-        {2053, nullptr, "Unknown2053"}, //20.0.0+
+        {2052, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2052"}, //20.0.0+
+        {2053, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2053"}, //20.0.0+
         {2100, D<&IApplicationManagerInterface::GetApplicationTerminateResult>, "GetApplicationTerminateResult"},
         {2101, nullptr, "GetRawApplicationTerminateResult"},
         {2150, nullptr, "CreateRightsEnvironment"},
@@ -337,32 +337,32 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2201, nullptr, "GetInstalledApplicationCopyIdentifier"},
         {2250, nullptr, "RequestReportActiveELicence"},
         {2300, nullptr, "ListEventLog"},
-        {2350, nullptr, "PerformAutoUpdateByApplicationId"},
-        {2351, nullptr, "RequestNoDownloadRightsErrorResolution"},
-        {2352, nullptr, "RequestResolveNoDownloadRightsError"},
-        {2353, nullptr, "GetApplicationDownloadTaskInfo"},
-        {2354, nullptr, "PrioritizeApplicationBackgroundTask"},
-        {2355, nullptr, "PreferStorageEfficientUpdate"},
-        {2356, nullptr, "RequestStorageEfficientUpdatePreferable"},
-        {2357, nullptr, "EnableMultiCoreDownload"},
-        {2358, nullptr, "DisableMultiCoreDownload"},
-        {2359, nullptr, "IsMultiCoreDownloadEnabled"},
-        {2360, nullptr, "GetApplicationDownloadTaskCount"}, //19.0.0+
-        {2361, nullptr, "GetMaxApplicationDownloadTaskCount"}, //19.0.0+
-        {2362, nullptr, "Unknown2362"}, //20.0.0+
-        {2363, nullptr, "Unknown2363"}, //20.0.0+
-        {2364, nullptr, "Unknown2364"}, //20.0.0+
-        {2365, nullptr, "Unknown2365"}, //20.0.0+
-        {2366, nullptr, "Unknown2366"}, //20.0.0+
-        {2367, nullptr, "Unknown2367"}, //20.0.0+
-        {2368, nullptr, "Unknown2368"}, //20.0.0+
-        {2369, nullptr, "Unknown2369"}, //21.0.0+
-        {2400, nullptr, "GetPromotionInfo"},
-        {2401, nullptr, "CountPromotionInfo"},
-        {2402, nullptr, "ListPromotionInfo"},
+        {2350, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "PerformAutoUpdateByApplicationId"},
+        {2351, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestNoDownloadRightsErrorResolution"},
+        {2352, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestResolveNoDownloadRightsError"},
+        {2353, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationDownloadTaskInfo"},
+        {2354, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "PrioritizeApplicationBackgroundTask"},
+        {2355, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "PreferStorageEfficientUpdate"},
+        {2356, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestStorageEfficientUpdatePreferable"},
+        {2357, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "EnableMultiCoreDownload"},
+        {2358, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "DisableMultiCoreDownload"},
+        {2359, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "IsMultiCoreDownloadEnabled"},
+        {2360, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationDownloadTaskCount"}, //19.0.0+
+        {2361, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetMaxApplicationDownloadTaskCount"}, //19.0.0+
+        {2362, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2362"}, //20.0.0+
+        {2363, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2363"}, //20.0.0+
+        {2364, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2364"}, //20.0.0+
+        {2365, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2365"}, //20.0.0+
+        {2366, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2366"}, //20.0.0+
+        {2367, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2367"}, //20.0.0+
+        {2368, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2368"}, //20.0.0+
+        {2369, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2369"}, //21.0.0+
+        {2400, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetPromotionInfo"},
+        {2401, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CountPromotionInfo"},
+        {2402, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListPromotionInfo"},
         {2403, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "ImportPromotionJsonForDebug"},
         {2404, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "ClearPromotionInfoForDebug"},
-        {2500, nullptr, "ConfirmAvailableTime"},
+        {2500, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ConfirmAvailableTime"},
         {2510, nullptr, "CreateApplicationResource"},
         {2511, nullptr, "GetApplicationResource"},
         {2513, nullptr, "LaunchMicroApplication"},
@@ -394,7 +394,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {3012, nullptr, "IsApplicationTitleHidden"},
         {3013, nullptr, "IsGameCardEnabled"},
         {3014, nullptr, "IsLocalContentShareEnabled"},
-        {3050, nullptr, "ListAssignELicenseTaskResult"},
+        {3050, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListAssignELicenseTaskResult"},
         {3104, nullptr, "GetApplicationNintendoLogo"}, //18.0.0+
         {3105, nullptr, "GetApplicationStartupMovie"}, //18.0.0+
         {3250, D<&IApplicationManagerInterface::Unknown3250>, "Unknown3250"}, //23.5.0+
@@ -1062,6 +1062,13 @@ Result IApplicationManagerInterface::GetApplicationTerminateResult(Out<Result> o
     std::scoped_lock lk{applet->lock};
     *out_result = applet->terminate_result;
     R_SUCCEED();
+}
+
+void IApplicationManagerInterface::RejectUnavailablePlatformCommand(HLERequestContext& ctx) {
+    LOG_WARNING(Service_NS,
+                "Rejected NS platform/network command: required Nintendo/update backend is unavailable");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultUnknown);
 }
 
 Result IApplicationManagerInterface::RejectDebugOnlyCommand() {

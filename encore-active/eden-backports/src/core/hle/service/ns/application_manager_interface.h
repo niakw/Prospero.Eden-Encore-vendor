@@ -105,6 +105,7 @@ public:
     Result Unknown4053();
     Result Unknown4105();
 
+    void RejectUnavailablePlatformCommand(HLERequestContext& ctx);
     Result RejectDebugOnlyCommand();
 
     Result RequestDownloadApplicationControlDataInBackground(u64 control_source,
