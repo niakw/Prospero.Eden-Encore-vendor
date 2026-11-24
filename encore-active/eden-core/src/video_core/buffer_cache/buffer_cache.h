@@ -891,6 +891,19 @@ Common::RangeSet<DAddr> BufferCache<P>::PendingCpuWriteRanges() {
 template <class P>
 void BufferCache<P>::WriteDownloadedMemory(const Common::RangeSet<DAddr>& cpu_written,
                                            DAddr device_addr, const u8* data, u64 size) {
+    if (size == 0) {
+        return;
+    }
+#ifdef PS5_NATIVE
+    // Lichii: completed GPU readback may land directly when no newer CPU
+    // write overlaps. Avoid a temporary RangeSet/subtractions for every
+    // uncontended download while the BufferCache mutex is held.
+    // Intersects fails closed on invalid or overflowing spans.
+    if (!cpu_written.Intersects(device_addr, size)) {
+        device_memory.WriteBlockUnsafe(device_addr, data, size);
+        return;
+    }
+#endif
     Common::RangeSet<DAddr> writable;
     writable.Add(device_addr, size);
     cpu_written.ForEachInRange(device_addr, size, [&writable](DAddr start, DAddr end) {

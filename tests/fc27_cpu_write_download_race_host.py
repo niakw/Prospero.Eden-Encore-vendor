@@ -37,7 +37,8 @@ assert "SetPendingCpuWrites(PendingCpuWrites source)" in base
 assert "void ClaimCpuWrites(" in base
 assert "PendingCpuWriteRanges()" in base
 assert "WriteDownloadedMemory(" in base
-assert cache.count("device_memory.WriteBlockUnsafe(")==1, "all readback writes must pass protection helper"
+assert "if (!cpu_written.Intersects(device_addr, size))" in cache
+assert cache.count("device_memory.WriteBlockUnsafe(")==2, "both readback paths stay inside protection helper"
 assert cache.count("WriteDownloadedMemory(cpu_written") == 3
 assert "buffer_cache.SetPendingCpuWrites(" in rast
 assert "gpu.ForEachPendingCpuWrite(callback);" in rast
@@ -121,6 +122,7 @@ cpp=r"""
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#define PS5_NATIVE 1
 #include <cstring>
 #include <functional>
 #include <span>
@@ -143,12 +145,18 @@ public:
     template<class F> void ForEachInRange(T a,std::size_t n,F&& f) const {
         T b=a+n; for(auto [x,y]:r){ T s=std::max(x,a),e=std::min(y,b); if(s<e) f(s,e); }
     }
+    bool Intersects(T a,std::size_t n) const {
+        if(!n) return false;
+        for(auto [x,y]:r) if(x<a+n && a<y) return true;
+        return false;
+    }
     bool Has(T a) const { for(auto [x,y]:r) if(a>=x&&a<y) return true; return false; }
 };
 }
 struct Mem {
     std::vector<u8> bytes=std::vector<u8>(256,0);
-    void WriteBlockUnsafe(DAddr a,const u8* p,u64 n){ std::memcpy(bytes.data()+a,p,n); }
+    unsigned writes{};
+    void WriteBlockUnsafe(DAddr a,const u8* p,u64 n){ ++writes; std::memcpy(bytes.data()+a,p,n); }
 };
 template<class P=int> class BufferCache {
 public:
@@ -178,6 +186,16 @@ int main(){
         const bool protected_cpu=(i>=32&&i<48)||(i>=80&&i<88);
         assert(c.device_memory.bytes[i]==(protected_cpu?0xee:0x12));
     }
+    // Three disjoint segments avoid overwriting both newer CPU writes.
+    assert(c.device_memory.writes==3);
+    c.WriteDownloadedMemory(pending,128,stale.data(),16);
+    assert(c.device_memory.writes==4);
+    for(int i=128;i<144;++i) assert(c.device_memory.bytes[i]==0x12);
+    c.WriteDownloadedMemory(pending,128,stale.data(),0);
+    assert(c.device_memory.writes==4);
+    const Common::RangeSet<DAddr> no_pending;
+    c.WriteDownloadedMemory(no_pending,160,stale.data(),8);
+    assert(c.device_memory.writes==5);
     c.gpu_modified_ranges.Add(0,128);
     const std::pair<DAddr,u64> writes[]={{32,16},{80,8}};
     c.ClaimCpuWrites(std::span<const std::pair<DAddr,u64>>{writes});
