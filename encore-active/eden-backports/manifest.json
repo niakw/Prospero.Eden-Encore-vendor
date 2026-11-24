@@ -186,12 +186,12 @@
       "upstream": "7a47806f53b153e8750161673c6e3a5f46ef4d7d1d0b3734591b7a79e6a31b9c"
     },
     "src/core/hle/service/am/service/common_state_getter.cpp": {
-      "active": "e908bd2407fdc00e1478936179f4298dbb4b5b63d834cc0bdbcb22379cd1c3ee",
+      "active": "09a7076177ee1ceef0ca480c74f0191ea02a3e35f2b25394acd062f197b03da2",
       "bytes": 26760,
       "upstream": "16abb5f4185ddc4956771630a987f1d6e8fcb02fe6f4c12d888a1f2be5801484"
     },
     "src/core/hle/service/am/service/common_state_getter.h": {
-      "active": "b413f5ec5b113a3bc41031177ddb69382c514c4735d954f95c01a2e650a7a4c1",
+      "active": "0e0d85897649d0f65417bd5c844bd6fc3b63fa85bc600f8327180c16a4da752c",
       "bytes": 4862,
       "upstream": "0c1483f111e306fa6038cf5adc0f86538901bf694a9b546817ae5812cbb2d07e"
     },
