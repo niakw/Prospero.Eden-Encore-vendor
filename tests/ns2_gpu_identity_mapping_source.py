@@ -224,7 +224,9 @@ for x in ("address_spaces.Registered(id)","opened_gpu_as.try_emplace(id, as)",
           "identity.RemoveSpace(id)","opened_gpu_as.erase(id)"):
     assert x in bind,x
 assert bind.index("opened_gpu_as.try_emplace(id, as)") < bind.index("as->MapNative4K(identity.handle") < bind.index("identity.AddSpace(id)")
-rollback=bind.split("if (replay == Nvidia::NvResult::Success) return replay;",1)[1]
+assert bind.index("const std::scoped_lock lock{mutex}") < bind.index("opened_gpu_as.try_emplace(id, as)") < bind.index("as->CommitNativeVmImport(id)")
+assert bind.index("identity.AddSpace(id)") < bind.index("as->CommitNativeVmImport(id)")
+rollback=bind.split("if (as->CommitNativeVmImport(id)) return replay;",1)[1]
 assert rollback.index("as->UnmapNative4K(identity.address, identity.size)") < rollback.index("identity.RemoveSpace(id)") < rollback.index("opened_gpu_as.erase(id)")
 
 for x in ("struct NativeVmImport","u32_le version{};","u32_le vm_id{};",
@@ -239,9 +241,13 @@ for x in ("u32{params.version} != 5","u32{params.vm_id} == 0",
           "u64{params.user_end} != NativeNs2GpuVaSmallSplit",
           "FindRegisteredVmOwner(","layout.big_page_size = 0x20000;",
           "layout.va_range_end = NativeNs2GpuVaEnd;","AllocAsEx(layout)",
-          "owner->BindImportedAddressSpace(","m_native_vm_id = params.vm_id;"):
+          "owner->BindImportedAddressSpace("):
     assert x in native_import,x
-assert native_import.index("FindRegisteredVmOwner(") < native_import.index("AllocAsEx(layout)") < native_import.index("owner->BindImportedAddressSpace(") < native_import.index("m_native_vm_id = params.vm_id;")
+assert native_import.index("FindRegisteredVmOwner(") < native_import.index("AllocAsEx(layout)") < native_import.index("owner->BindImportedAddressSpace(")
+assert "m_native_vm_id =" not in native_import
+commit_import=as_cpp.split("bool nvhost_as_gpu::CommitNativeVmImport(u32 id) {",1)[1].split("\n}",1)[0]
+assert commit_import.index("const std::scoped_lock lock{mutex}") < commit_import.index("m_native_vm_id = id;")
+assert "m_native_vm_retired" in commit_import and "!NativeEpochCurrent()" in commit_import
 
 reset=as_cpp.split("bool nvhost_as_gpu::ResetFailedNativeVmImport() {",1)[1].split("\n}",1)[0]
 for x in ("!mapping_map.empty()","!allocation_map.empty()","!native_sparse_regions.empty()",

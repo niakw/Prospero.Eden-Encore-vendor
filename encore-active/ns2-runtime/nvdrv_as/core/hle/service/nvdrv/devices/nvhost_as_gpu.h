@@ -76,6 +76,9 @@ public:
     // GSV owns the opaque VM lifetime. Retiring it invalidates future NVDRV
     // ioctls without destroying the GMMU while a scheduler channel still
     // holds this AS through ChannelState::address_space_owner.
+    // Called by GSV with its shared-state mutex held, after mapping replay
+    // and before publication becomes visible to VM retirement.
+    [[nodiscard]] bool CommitNativeVmImport(u32 id);
     void RetireNativeVm(u32 id);
     [[nodiscard]] bool NativeSubmissionAllowed() const;
     NvResult UnmapNative4K(u64 address, u64 size);

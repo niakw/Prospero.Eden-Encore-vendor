@@ -64,7 +64,12 @@ Nvidia::NvResult GpuWorkerSharedState::BindImportedAddressSpace(
             break;
         }
     }
-    if (replay == Nvidia::NvResult::Success) return replay;
+    // Publish the local NVDRV identity before releasing the GSV mutex.
+    // Destroy must never observe opened_gpu_as with an uncommitted local ID.
+    if (replay == Nvidia::NvResult::Success) {
+        if (as->CommitNativeVmImport(id)) return replay;
+        replay = Nvidia::NvResult::InvalidState;
+    }
 
     for (auto& identity : identity_gpu_mappings) {
         if (!identity.HasSpace(id)) continue;

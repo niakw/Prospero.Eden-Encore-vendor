@@ -173,10 +173,11 @@ for marker in ("u32{params.version} != 5","u32{params.vm_id} == 0",
                "layout.va_range_start = NativeNs2GpuVaStart;",
                "layout.va_range_end = NativeNs2GpuVaEnd;",
                "layout.va_range_split = NativeNs2GpuVaSmallSplit;",
-               "AllocAsEx(layout)","BindImportedAddressSpace(",
-               "m_native_vm_id = params.vm_id;"):
+               "AllocAsEx(layout)","BindImportedAddressSpace("):
     assert marker in native_import,marker
-assert native_import.index("FindRegisteredVmOwner(") < native_import.index("AllocAsEx(layout)") < native_import.index("BindImportedAddressSpace(") < native_import.index("m_native_vm_id = params.vm_id;")
+assert native_import.index("FindRegisteredVmOwner(") < native_import.index("AllocAsEx(layout)") < native_import.index("BindImportedAddressSpace(")
+assert "m_native_vm_id =" not in native_import
+assert "m_native_vm_id = id;" in as_cpp.split("bool nvhost_as_gpu::CommitNativeVmImport(u32 id) {",1)[1].split("\n}",1)[0]
 for marker in ("AllocateVm(","RegisterVm(","FindRegisteredVmOwner(","RemoveVm("):
     assert marker in registry,marker
 assert "first = ~u64{0};" in cpp and "last = 0;" in cpp

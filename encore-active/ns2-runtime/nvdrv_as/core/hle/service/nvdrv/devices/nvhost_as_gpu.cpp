@@ -397,8 +397,18 @@ NvResult nvhost_as_gpu::ImportNativeVm(const NativeVmImport& params) {
             return NvResult::InvalidState;
         return bound;
     }
-    m_native_vm_id = params.vm_id;
+    // GSV commits the local ID under its publication lock. Never rewrite it
+    // here: the VM may already have been retired when the call returns.
     return NvResult::Success;
+}
+
+bool nvhost_as_gpu::CommitNativeVmImport(u32 id) {
+    const std::scoped_lock lock{mutex};
+    if (!id || m_native_vm_id || m_native_vm_retired || !NativeEpochCurrent() ||
+        !vm.initialised || !gmmu)
+        return false;
+    m_native_vm_id = id;
+    return true;
 }
 
 bool nvhost_as_gpu::ResetFailedNativeVmImport() {
