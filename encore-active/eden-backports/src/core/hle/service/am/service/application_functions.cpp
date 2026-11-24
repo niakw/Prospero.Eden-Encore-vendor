@@ -143,7 +143,8 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {220, D<&IApplicationFunctions::SetAudioOutputPolicy>, "SetAudioOutputPolicy"}, // [20.0.0+]
         {300, &IApplicationFunctions::RejectUnavailableMovieCommand, "CreateMovieWriter"}, // [19.0.0+]
         {310, nullptr, "Unknown310"}, // [20.0.0+]
-        {320, nullptr, "Unknown320"}, // [20.0.0+]
+        {320, D<&IApplicationFunctions::GetScreenShotAndContinuousRecordingInitiallyEnabled>,
+         "GetScreenShotAndContinuousRecordingInitiallyEnabled"}, // [20.0.0+]
         {330, D<&IApplicationFunctions::IsLanguageSelectionLimited>, "IsLanguageSelectionLimited"}, // [20.0.0+]
         {500, D<&IApplicationFunctions::RejectDebugOnlyCommand>, "StartContinuousRecordingFlushForDebug"},
         {1000, &IApplicationFunctions::RejectUnavailableMovieCommand, "CreateMovieMaker"},
@@ -915,6 +916,17 @@ Result IApplicationFunctions::SetAudioOutputPolicy(u8 policy) {
 Result IApplicationFunctions::IsLanguageSelectionLimited(Out<u8> out_limited) {
     LOG_DEBUG(Service_AM, "called");
     *out_limited = 0;
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::GetScreenShotAndContinuousRecordingInitiallyEnabled(
+    Out<bool> out_screenshot_enabled, Out<bool> out_recording_enabled) {
+    std::scoped_lock lk{m_applet->lock};
+    *out_screenshot_enabled = m_applet->screenshot_permission != ScreenshotPermission::Disable;
+    *out_recording_enabled = m_applet->game_play_recording_supported &&
+                             m_applet->game_play_recording_state == GamePlayRecordingState::Enabled;
+    LOG_DEBUG(Service_AM, "called, screenshot={}, recording={}", *out_screenshot_enabled,
+              *out_recording_enabled);
     R_SUCCEED();
 }
 

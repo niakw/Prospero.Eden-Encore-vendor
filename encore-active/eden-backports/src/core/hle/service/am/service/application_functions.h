@@ -122,6 +122,8 @@ private:
     Result GetUnknownEvent210(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result SetAudioOutputPolicy(u8 policy);
     Result IsLanguageSelectionLimited(Out<u8> out_limited);
+    Result GetScreenShotAndContinuousRecordingInitiallyEnabled(
+        Out<bool> out_screenshot_enabled, Out<bool> out_recording_enabled);
     Result PrepareForJit();
 
     struct CopyrightImageState {
