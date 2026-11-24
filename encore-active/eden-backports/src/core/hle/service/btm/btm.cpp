@@ -4,9 +4,12 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <array>
 #include <memory>
 
 #include "core/core.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/btm/btm.h"
 #include "core/hle/service/btm/btm_debug.h"
@@ -21,18 +24,19 @@ namespace Service::BTM {
 
 class IBtm final : public ServiceFramework<IBtm> {
 public:
-    explicit IBtm(Core::System& system_) : ServiceFramework{system_, "btm"} {
+    explicit IBtm(Core::System& system_)
+        : ServiceFramework{system_, "btm"}, service_context{system_, "btm"} {
         // clang-format off
         static const FunctionInfo functions[] = {
             {0, nullptr, "GetState"},
             {1, nullptr, "GetHostDeviceProperty"},
-            {2, nullptr, "AcquireDeviceConditionEvent"},
+            {2, C<&IBtm::AcquireOfflineEvent<0>>, "AcquireDeviceConditionEvent"},
             {3, C<&IBtm::GetOfflineDeviceList>, "GetDeviceCondition"},
             {4, nullptr, "SetBurstMode"},
             {5, nullptr, "SetSlotMode"},
             {6, nullptr, "SetBluetoothMode"},
             {7, nullptr, "SetWlanMode"},
-            {8, nullptr, "AcquireDeviceInfoEvent"},
+            {8, C<&IBtm::AcquireOfflineEvent<1>>, "AcquireDeviceInfoEvent"},
             {9, C<&IBtm::GetOfflineDeviceList>, "GetDeviceInfo"},
             {10, nullptr, "AddDeviceInfo"},
             {11, nullptr, "RemoveDeviceInfo"},
@@ -42,12 +46,12 @@ public:
             {15, C<&IBtm::DisableRadio>, "DisableRadio"},
             {16, nullptr, "HidDisconnect"},
             {17, nullptr, "HidSetRetransmissionMode"},
-            {18, nullptr, "AcquireAwakeReqEvent"},
-            {19, nullptr, "AcquireLlrStateEvent"},
+            {18, C<&IBtm::AcquireOfflineEvent<2>>, "AcquireAwakeReqEvent"},
+            {19, C<&IBtm::AcquireOfflineEvent<3>>, "AcquireLlrStateEvent"},
             {20, C<&IBtm::IsOfflineLlrStarted>, "IsLlrStarted"},
             {21, nullptr, "EnableSlotSaving"},
             {22, nullptr, "ProtectDeviceInfo"},
-            {23, nullptr, "AcquireBleScanEvent"},
+            {23, C<&IBtm::AcquireOfflineEvent<4>>, "AcquireBleScanEvent"},
             {24, nullptr, "GetBleScanParameterGeneral"},
             {25, nullptr, "GetBleScanParameterSmartDevice"},
             {26, nullptr, "StartBleScanForGeneral"},
@@ -58,25 +62,25 @@ public:
             {31, nullptr, "StartBleScanForSmartDevice"},
             {32, C<&IBtm::StopOfflineBleScan>, "StopBleScanForSmartDevice"},
             {33, C<&IBtm::GetOfflineScanResults>, "GetBleScanResultsForSmartDevice"},
-            {34, nullptr, "AcquireBleConnectionEvent"},
+            {34, C<&IBtm::AcquireOfflineEvent<5>>, "AcquireBleConnectionEvent"},
             {35, nullptr, "BleConnect"},
             {36, nullptr, "BleOverrideConnection"},
             {37, nullptr, "BleDisconnect"},
             {38, C<&IBtm::GetOfflineConnections>, "BleGetConnectionState"},
             {39, nullptr, "BleGetGattClientConditionList"},
-            {40, nullptr, "AcquireBlePairingEvent"},
+            {40, C<&IBtm::AcquireOfflineEvent<6>>, "AcquireBlePairingEvent"},
             {41, nullptr, "BlePairDevice"},
             {42, nullptr, "BleUnpairDeviceOnBoth"},
             {43, nullptr, "BleUnpairDevice"},
             {44, C<&IBtm::GetOfflinePairedAddresses>, "BleGetPairedAddresses"},
-            {45, nullptr, "AcquireBleServiceDiscoveryEvent"},
+            {45, C<&IBtm::AcquireOfflineEvent<7>>, "AcquireBleServiceDiscoveryEvent"},
             {46, nullptr, "GetGattServices"},
             {47, nullptr, "GetGattService"},
             {48, nullptr, "GetGattIncludedServices"},
             {49, nullptr, "GetBelongingService"},
             {50, nullptr, "GetGattCharacteristics"},
             {51, nullptr, "GetGattDescriptors"},
-            {52, nullptr, "AcquireBleMtuConfigEvent"},
+            {52, C<&IBtm::AcquireOfflineEvent<8>>, "AcquireBleMtuConfigEvent"},
             {53, nullptr, "ConfigureBleMtu"},
             {54, nullptr, "GetBleMtu"},
             {55, nullptr, "RegisterBleGattDataPath"},
@@ -118,9 +122,40 @@ public:
 
         m_set_sys =
             system.ServiceManager().GetService<Service::Set::ISystemSettingsServer>("set:sys", true);
+        constexpr std::array names{
+            "btm:AcquireDeviceConditionEvent",
+            "btm:AcquireDeviceInfoEvent",
+            "btm:AcquireAwakeReqEvent",
+            "btm:AcquireLlrStateEvent",
+            "btm:AcquireBleScanEvent",
+            "btm:AcquireBleConnectionEvent",
+            "btm:AcquireBlePairingEvent",
+            "btm:AcquireBleServiceDiscoveryEvent",
+            "btm:AcquireBleMtuConfigEvent",
+        };
+        for (size_t i = 0; i < names.size(); ++i) {
+            offline_events[i] = service_context.CreateEvent(names[i]);
+        }
+    }
+
+    ~IBtm() override {
+        for (auto* event : offline_events) {
+            service_context.CloseEvent(event);
+        }
     }
 
 private:
+    template <size_t Index>
+    Result AcquireOfflineEvent(Out<bool> out_valid,
+                               OutCopyHandle<Kernel::KReadableEvent> out_event) {
+        static_assert(Index < 9);
+        // There is no guest radio backend. Keep independent, live events
+        // unsignalled rather than reporting false scan/pairing completions.
+        *out_valid = true;
+        *out_event = &offline_events[Index]->GetReadableEvent();
+        R_SUCCEED();
+    }
+
     // HOS >= 13 uses a profile u32, pointer output and signed count for these lists.
     // PS5 controller transport is not a guest Bluetooth adapter.
     Result GetOfflineDeviceList(u32 profile, Out<s32> out_count,
@@ -166,6 +201,8 @@ private:
         R_RETURN(m_set_sys->SetBluetoothEnableFlag(false));
     }
 
+    KernelHelpers::ServiceContext service_context;
+    std::array<Kernel::KEvent*, 9> offline_events{};
     std::shared_ptr<Service::Set::ISystemSettingsServer> m_set_sys;
 };
 
