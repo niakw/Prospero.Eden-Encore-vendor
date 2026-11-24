@@ -18,6 +18,7 @@
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_kind.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
+#include "core/hle/service/am/service/gpu_worker_shared.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_va_layout.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_allocation_range.h"
 #include "common/common_types.h"
@@ -41,6 +42,7 @@ nvhost_as_gpu::nvhost_as_gpu(Core::System& system_, Module& module_, NvCore::Con
       gmmu{} {}
 
 nvhost_as_gpu::~nvhost_as_gpu() {
+    ReleaseNativeVmBinding();
     // Closing a native AS can retire its last physical NVMap pins. Finish
     // previously submitted GPU work BEFORE releasing backing, and do not
     // touch System::GPU after shutdown has already joined/destroyed it.
@@ -155,38 +157,18 @@ NvResult nvhost_as_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> i
         case 0x8:
             return WrapFixed(this, &nvhost_as_gpu::GetVARegions1, input, output);
         case 0x9: {
-            // Two real 40-byte layouts exist for ALLOC_AS_EX:
-            // older Eden/Yuzu: {flags, fd, big_page_size, reserved}
-            // newer NS2 NvRm: {big_page_size, fd, flags, reserved}.
-            // Disambiguate from valid page sizes and flags before allocating
-            // any GMMU state; preserve the NS1 owner and its legacy layout.
+            // libounce Switch 2: 0x40284109 is AS_IMPORT, not ALLOC_AS_EX.
+            // The GSV VM id was created by main 33 and registered by root 434
+            // before this independent NVDRV descriptor was opened.
             if (command.raw == 0x40284109U && m_native_process &&
                 NativeGpuProcessRegistry::Instance().Contains(m_native_process)) {
-                if (input.size() != sizeof(IoctlAllocAsEx))
+                if (input.size() != sizeof(NativeVmImport))
                     return NvResult::InvalidSize;
-                IoctlAllocAsEx parameters{};
+                NativeVmImport parameters{};
                 std::memcpy(&parameters, input.data(), sizeof(parameters));
-                const u32 first = parameters.flags;
-                const u32 third = parameters.big_page_size;
-                const auto valid_page = [](u32 value) {
-                    // 0x1000 is accepted only by the parent-backed native
-                    // small-page view (flags 5 and nonzero parent FD).
-                    return value == 0 || value == 0x1000U ||
-                           value == 0x10000U || value == 0x20000U;
-                };
-                // Newer NS2 NvRm passes the documented flag value 5
-                // when creating an Ampere VA region (Lichii notes). A
-                // <=1 guard would reject valid GMMU initialization.
-                const auto valid_flags = [](u32 value) {
-                    return value == 0 || value == 1 || value == 5;
-                };
-                const bool newer = valid_page(first) && valid_flags(third);
-                const bool legacy = valid_flags(first) && valid_page(third);
-                if (!newer && !legacy) return NvResult::BadParameter;
-                if (newer && !legacy)
-                    std::swap(parameters.flags, parameters.big_page_size);
-                return AllocAsEx(parameters);
+                return ImportNativeVm(parameters);
             }
+            // Preserve the legacy Maxwell/Yuzu A:9 allocation ABI for NS1.
             return WrapFixed(this, &nvhost_as_gpu::AllocAsEx, input, output);
         }
         case 0xa: {
@@ -366,7 +348,63 @@ void nvhost_as_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
         if (m_native_process) m_native_process->Open(system.Kernel());
     }
 }
-void nvhost_as_gpu::OnClose(DeviceFD fd) {}
+void nvhost_as_gpu::OnClose(DeviceFD fd) {
+    ReleaseNativeVmBinding();
+}
+
+NvResult nvhost_as_gpu::ImportNativeVm(const NativeVmImport& params) {
+    if (!m_native_process ||
+        !NativeGpuProcessRegistry::Instance().Contains(m_native_process) ||
+        u32{params.version} != 5 || u32{params.vm_id} == 0 ||
+        u64{params.user_first} != NativeNs2GpuVaStart ||
+        u64{params.user_end} != NativeNs2GpuVaSmallSplit)
+        return NvResult::BadParameter;
+    if (m_native_vm_id || vm.initialised || gmmu)
+        return NvResult::InvalidState;
+
+    auto owner = NativeGpuProcessRegistry::Instance().FindRegisteredVmOwner(
+        m_native_process, u32{params.vm_id});
+    if (!owner) return NvResult::InvalidState;
+
+    IoctlAllocAsEx layout{};
+    layout.big_page_size = 0x20000;
+    layout.va_range_start = NativeNs2GpuVaStart;
+    layout.va_range_end = NativeNs2GpuVaEnd;
+    layout.va_range_split = NativeNs2GpuVaSmallSplit;
+    const auto initialized = AllocAsEx(layout);
+    if (initialized != NvResult::Success) return initialized;
+
+    const auto bound = owner->BindImportedAddressSpace(
+        u32{params.vm_id}, shared_from_this());
+    if (bound != NvResult::Success) {
+        if (!ResetFailedNativeVmImport())
+            return NvResult::InvalidState;
+        return bound;
+    }
+    m_native_vm_id = params.vm_id;
+    return NvResult::Success;
+}
+
+bool nvhost_as_gpu::ResetFailedNativeVmImport() {
+    const std::scoped_lock lock{mutex};
+    if (!mapping_map.empty() || !allocation_map.empty() ||
+        !native_sparse_regions.empty() || !native_sparse_pins.empty() ||
+        native_sparse_poisoned)
+        return false;
+    gmmu.reset();
+    vm = VM{};
+    nx2_syncpoint_shim = false;
+    return true;
+}
+
+void nvhost_as_gpu::ReleaseNativeVmBinding() {
+    if (!m_native_vm_id || !m_native_process) return;
+    const u32 id = m_native_vm_id;
+    m_native_vm_id = 0;
+    if (auto owner = NativeGpuProcessRegistry::Instance().FindRegisteredVmOwner(
+            m_native_process, id))
+        owner->UnbindImportedAddressSpace(id, this);
+}
 
 bool nvhost_as_gpu::OwnsNativeProcess(Kernel::KProcess* process) {
     const std::scoped_lock lock{mutex};

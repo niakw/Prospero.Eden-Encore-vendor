@@ -107,6 +107,16 @@ private:
     };
     static_assert(sizeof(IoctlAllocAsEx) == 40, "IoctlAllocAsEx is incorrect size");
 
+    struct NativeVmImport {
+        u32_le version{};
+        u32_le vm_id{};
+        u64_le reserved{};
+        u64_le user_first{};
+        u64_le user_end{};
+        u64_le reserved2{};
+    };
+    static_assert(sizeof(NativeVmImport) == 40, "NativeVmImport is incorrect size");
+
     struct IoctlAllocSpace {
         u32_le pages{};
         u32_le page_size{};
@@ -169,6 +179,9 @@ private:
                   "IoctlGetVaRegions is incorrect size");
 
     NvResult AllocAsEx(IoctlAllocAsEx& params);
+    NvResult ImportNativeVm(const NativeVmImport& params);
+    bool ResetFailedNativeVmImport();
+    void ReleaseNativeVmBinding();
     NvResult AllocateSpace(IoctlAllocSpace& params);
     NvResult Remap(std::span<IoctlRemapEntry> params);
     NvResult MapBufferEx(IoctlMapBufferEx& params);
@@ -231,6 +244,7 @@ private:
     std::map<u64, Allocation> allocation_map;
     std::mutex mutex; //!< Locks all AS operations
     Kernel::KProcess* m_native_process{};
+    u32 m_native_vm_id{};
     // BindChannel retains the real NvCore session while any scheduler
     // ChannelState owns this AS; otherwise CloseSession can unmap backing
     // handles even though the AS shared_ptr itself is still alive.

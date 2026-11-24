@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "core/hle/service/am/service/gpu_session_protocol.h"
+#include "core/hle/service/nvdrv/nvdata.h"
 #include "core/hle/service/kernel_helpers.h"
 
 namespace Kernel { class KEvent; class KProcess; }
@@ -61,9 +62,8 @@ struct GpuWorkerSharedState {
     std::mutex mutex;
     GpuSessionProtocol::DeviceSlots devices;
     GpuSessionProtocol::AddressSpaceSlots address_spaces;
-    // Preserve the original nvhost-as-gpu OBJECT identity across all moved
-    // GPU worker KSessions. A numeric NVDRV FD alone can be recycled and
-    // GetDevice<nvhost_as_gpu> is a static_cast, not a type check.
+    // Opaque GSV VM id -> externally opened/imported nvhost-as-gpu object.
+    // libounce proves the VM id is distinct from the NVDRV descriptor.
     std::map<std::uint32_t, std::weak_ptr<Nvidia::Devices::nvhost_as_gpu>> opened_gpu_as;
     // gpu sub 101 is an identity map on Switch 2: GPU VA == CPU VA.
     // Keep it process-local and replay it into later-created GMMUs.
@@ -71,10 +71,13 @@ struct GpuWorkerSharedState {
     // Caller holds mutex except during final shared-state destruction.
     [[nodiscard]] std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
     FindOwnedAddressSpace(std::uint32_t id) const;
+    Nvidia::NvResult BindImportedAddressSpace(
+        std::uint32_t id, const std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>& as);
+    void UnbindImportedAddressSpace(
+        std::uint32_t id, const Nvidia::Devices::nvhost_as_gpu* as);
     KernelHelpers::ServiceContext event_context;
     std::array<Kernel::KEvent*, GpuSessionProtocol::MaxNotificationEvents> events{};
     std::shared_ptr<Nvidia::Module> module;
-    std::optional<std::size_t> nv_session;
     Kernel::KProcess* native_process{};
     bool native_registered{};
 };

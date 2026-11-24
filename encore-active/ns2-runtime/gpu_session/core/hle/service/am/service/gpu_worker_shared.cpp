@@ -30,41 +30,75 @@ GpuWorkerSharedState::GpuWorkerSharedState(Core::System& system,
 
 std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
 GpuWorkerSharedState::FindOwnedAddressSpace(std::uint32_t id) const {
-    if (!id || id > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) ||
-        !address_spaces.Owns(id) ||
-        module->VerifyFD(static_cast<Nvidia::DeviceFD>(id)) != Nvidia::NvResult::Success)
-        return {};
+    if (!id || !address_spaces.Owns(id)) return {};
     const auto it = opened_gpu_as.find(id);
     if (it == opened_gpu_as.end()) return {};
     const auto owned = it->second.lock();
-    // Query ONLY the untyped nvdevice base to check object identity; never
-    // static_cast a recycled descriptor before confirming the live type.
-    const auto live = module->GetDevice<Nvidia::Devices::nvdevice>(
-        static_cast<Nvidia::DeviceFD>(id));
-    return owned && live && owned.get() == live.get() &&
-                   owned->OwnsNativeProcess(native_process) ? owned : nullptr;
+    return owned && owned->OwnsNativeProcess(native_process) ? owned : nullptr;
+}
+
+Nvidia::NvResult GpuWorkerSharedState::BindImportedAddressSpace(
+    std::uint32_t id, const std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>& as) {
+    if (!id || !as) return Nvidia::NvResult::BadParameter;
+    const std::scoped_lock lock{mutex};
+    if (!address_spaces.Registered(id) || !as->OwnsNativeProcess(native_process))
+        return Nvidia::NvResult::InvalidState;
+
+    try {
+        const auto [it, inserted] = opened_gpu_as.try_emplace(id, as);
+        if (!inserted) {
+            if (it->second.lock()) return Nvidia::NvResult::InvalidState;
+            it->second = as;
+        }
+    } catch (const std::bad_alloc&) {
+        return Nvidia::NvResult::InsufficientMemory;
+    }
+
+    Nvidia::NvResult replay = Nvidia::NvResult::Success;
+    for (auto& identity : identity_gpu_mappings) {
+        replay = as->MapNative4K(identity.handle, identity.address, 0, identity.size, 0);
+        if (replay != Nvidia::NvResult::Success) break;
+        if (!identity.AddSpace(id)) {
+            (void)as->UnmapNative4K(identity.address, identity.size);
+            replay = Nvidia::NvResult::InvalidState;
+            break;
+        }
+    }
+    if (replay == Nvidia::NvResult::Success) return replay;
+
+    for (auto& identity : identity_gpu_mappings) {
+        if (!identity.HasSpace(id)) continue;
+        (void)as->UnmapNative4K(identity.address, identity.size);
+        identity.RemoveSpace(id);
+    }
+    opened_gpu_as.erase(id);
+    return replay;
+}
+
+void GpuWorkerSharedState::UnbindImportedAddressSpace(
+    std::uint32_t id, const Nvidia::Devices::nvhost_as_gpu* as) {
+    if (!id || !as) return;
+    const std::scoped_lock lock{mutex};
+    const auto it = opened_gpu_as.find(id);
+    if (it == opened_gpu_as.end()) return;
+    const auto owned = it->second.lock();
+    if (!owned || owned.get() != as) return;
+    for (auto& identity : identity_gpu_mappings)
+        identity.RemoveSpace(id);
+    opened_gpu_as.erase(it);
 }
 
 GpuWorkerSharedState::~GpuWorkerSharedState() {
-    // Worker clients can be moved to a different guest handle table. Kernel
-    // events, live GPU address-space devices and NVDRV session therefore have
-    // the lifetime of the last shared session/worker owner.
     for (auto* event : events) {
         if (event) event_context.CloseEvent(event);
     }
-    for (const auto fd : address_spaces.OwnedIds()) {
-        // The guest can close an NVDRV FD before its worker exits. If its
-        // integer was reused, closing it here would retire another device.
-        if (fd && FindOwnedAddressSpace(*fd))
-            module->Close(static_cast<Nvidia::DeviceFD>(*fd));
-    }
-    if (nv_session)
-        module->GetContainer().CloseSession(Nvidia::NvCore::SessionId{*nv_session});
-    // The GPU 497 process epoch stays authenticated while its last native
-    // AS FD and NvCore session retire. Dropping the ticket before Close()
-    // could demote the remaining native cleanup to Maxwell when 1402 has
-    // already been closed. The KProcess is still owned by IGpuSession until
-    // after the shared state destructor finishes.
+    // NVDRV owns imported descriptors. GSV owns only the opaque VM records:
+    // never close an unrelated/recycled NVDRV fd when the GPU session dies.
+    for (const auto id : address_spaces.OwnedIds())
+        if (id)
+            (void)Nvidia::Devices::NativeGpuProcessRegistry::Instance().RemoveVm(
+                native_process, *id, this);
+    opened_gpu_as.clear();
     if (native_registered)
         Nvidia::Devices::NativeGpuProcessRegistry::Instance().Unregister(native_process);
 }
