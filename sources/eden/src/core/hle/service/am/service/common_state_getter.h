@@ -64,6 +64,10 @@ private:
     Result GetBuiltInDisplayType(Out<s32> out_display_type);
     Result PerformSystemButtonPressingIfInFocus(SystemButtonType type);
     Result EnableStartupLogoDisappearedMessage();
+    Result DisableSleepTillShutdown();
+    Result SuppressDisablingSleepTemporarily(u64 duration_ns);
+    Result IsSleepEnabled(Out<bool> out_is_sleep_enabled);
+    Result IsDisablingSleepSuppressed(Out<bool> out_is_suppressed);
     Result GetOperationModeSystemInfo(Out<u32> out_operation_mode_system_info);
     Result GetAppletLaunchedHistory(Out<s32> out_count,
                                     OutArray<AppletId, BufferAttr_HipcMapAlias> out_applet_ids);

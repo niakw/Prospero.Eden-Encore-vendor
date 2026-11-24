@@ -4,6 +4,9 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <chrono>
+#include <limits>
+
 #include "common/settings.h"
 #include "core/hle/service/am/am_results.h"
 #include "core/hle/service/am/applet.h"
@@ -70,10 +73,10 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {300, D<&ICommonStateGetter::GetSettingsPlatformRegion>, "GetSettingsPlatformRegion"},
         {400, nullptr, "ActivateMigrationService"},
         {401, nullptr, "DeactivateMigrationService"},
-        {500, nullptr, "DisableSleepTillShutdown"},
-        {501, nullptr, "SuppressDisablingSleepTemporarily"},
-        {502, nullptr, "IsSleepEnabled"},
-        {503, nullptr, "IsDisablingSleepSuppressed"},
+        {500, D<&ICommonStateGetter::DisableSleepTillShutdown>, "DisableSleepTillShutdown"},
+        {501, D<&ICommonStateGetter::SuppressDisablingSleepTemporarily>, "SuppressDisablingSleepTemporarily"},
+        {502, D<&ICommonStateGetter::IsSleepEnabled>, "IsSleepEnabled"},
+        {503, D<&ICommonStateGetter::IsDisablingSleepSuppressed>, "IsDisablingSleepSuppressed"},
         {600, nullptr, "SetHidInputMagnificationForApplication"}, //20.0.0+
         {610, D<&ICommonStateGetter::Unknown610>, "Unknown610"}, //21.0.0+
         {611, D<&ICommonStateGetter::Unknown611>, "Unknown611"}, //22.0.0+
@@ -380,6 +383,46 @@ Result ICommonStateGetter::PerformSystemButtonPressingIfInFocus(SystemButtonType
 Result ICommonStateGetter::EnableStartupLogoDisappearedMessage() {
     LOG_WARNING(Service_AM, "(STUBBED) called");
     m_applet->lifecycle_manager.PushUnorderedMessage(system.Kernel(), AppletMessage::StartupLogoDisappeared);
+    R_SUCCEED();
+}
+
+namespace {
+u64 GetSteadyClockNanoseconds() {
+    return static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now().time_since_epoch())
+                                .count());
+}
+} // namespace
+
+Result ICommonStateGetter::DisableSleepTillShutdown() {
+    LOG_INFO(Service_AM, "called");
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->sleep_disabled_till_shutdown = true;
+    R_SUCCEED();
+}
+
+Result ICommonStateGetter::SuppressDisablingSleepTemporarily(u64 duration_ns) {
+    const u64 now_ns = GetSteadyClockNanoseconds();
+    const u64 max_value = std::numeric_limits<u64>::max();
+    const u64 deadline_ns = duration_ns > max_value - now_ns ? max_value : now_ns + duration_ns;
+    LOG_INFO(Service_AM, "called, duration_ns={}", duration_ns);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->sleep_disable_suppressed_until_ns = deadline_ns;
+    R_SUCCEED();
+}
+
+Result ICommonStateGetter::IsSleepEnabled(Out<bool> out_is_sleep_enabled) {
+    const u64 now_ns = GetSteadyClockNanoseconds();
+    std::scoped_lock lk{m_applet->lock};
+    const bool suppression_active = now_ns < m_applet->sleep_disable_suppressed_until_ns;
+    *out_is_sleep_enabled = !m_applet->sleep_disabled_till_shutdown || suppression_active;
+    R_SUCCEED();
+}
+
+Result ICommonStateGetter::IsDisablingSleepSuppressed(Out<bool> out_is_suppressed) {
+    const u64 now_ns = GetSteadyClockNanoseconds();
+    std::scoped_lock lk{m_applet->lock};
+    *out_is_suppressed = now_ns < m_applet->sleep_disable_suppressed_until_ns;
     R_SUCCEED();
 }
 

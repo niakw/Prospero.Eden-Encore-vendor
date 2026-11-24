@@ -581,8 +581,8 @@
       "upstream": "ecb599a464a9ecc1d202cd60faed6f81262569f7816d5a342923a02ab993737f"
     },
     "src/core/hle/service/am/service/common_state_getter.cpp": {
-      "active": "2ef1e4e1c03ac16e822f32cb4e233bc406b7f23209e935fedfb4ae091e88e759",
-      "bytes": 21149,
+      "active": "7d5316ffeb6458f537042682292c70740a063c2062c8d5d717b4dc07894b2620",
+      "bytes": 22953,
       "upstream": "16abb5f4185ddc4956771630a987f1d6e8fcb02fe6f4c12d888a1f2be5801484"
     }
   },

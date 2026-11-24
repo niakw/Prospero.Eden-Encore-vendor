@@ -133,6 +133,8 @@ struct Applet {
     ScreenshotPermission screenshot_permission{};
     IdleTimeDetectionExtension idle_time_detection_extension{};
     bool auto_sleep_disabled{};
+    bool sleep_disabled_till_shutdown{};
+    u64 sleep_disable_suppressed_until_ns{};
     u64 suspended_ticks{};
     bool album_image_taken_notification_enabled{};
     bool record_volume_muted{};
