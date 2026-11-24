@@ -125,7 +125,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {123, D<&IApplicationFunctions::GetPreviousProgramIndex>, "GetPreviousProgramIndex"},
         {124, D<&IApplicationFunctions::EnableApplicationAllThreadDumpOnCrash>, "EnableApplicationAllThreadDumpOnCrash"},
         {130, D<&IApplicationFunctions::GetGpuErrorDetectedSystemEvent>, "GetGpuErrorDetectedSystemEvent"},
-        {131, nullptr, "SetDelayTimeToAbortOnGpuError"},
+        {131, D<&IApplicationFunctions::SetDelayTimeToAbortOnGpuError>, "SetDelayTimeToAbortOnGpuError"},
         {140, D<&IApplicationFunctions::GetFriendInvitationStorageChannelEvent>, "GetFriendInvitationStorageChannelEvent"},
         {141, D<&IApplicationFunctions::TryPopFromFriendInvitationStorageChannel>, "TryPopFromFriendInvitationStorageChannel"},
         {150, D<&IApplicationFunctions::GetNotificationStorageChannelEvent>, "GetNotificationStorageChannelEvent"},
@@ -134,7 +134,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {170, D<&IApplicationFunctions::SetHdcpAuthenticationActivated>, "SetHdcpAuthenticationActivated"},
         {180, nullptr, "GetLaunchRequiredVersion"},
         {181, nullptr, "UpgradeLaunchRequiredVersion"},
-        {190, nullptr, "SendServerMaintenanceOverlayNotification"},
+        {190, D<&IApplicationFunctions::SendServerMaintenanceOverlayNotification>, "SendServerMaintenanceOverlayNotification"},
         {200, nullptr, "GetLastApplicationExitReason"},
         {210, D<&IApplicationFunctions::GetUnknownEvent210>, "Unknown210"},
         {220, nullptr, "Unknown220"}, // [20.0.0+]
@@ -515,6 +515,16 @@ Result IApplicationFunctions::SetGamePlayRecordingState(
     std::scoped_lock lk{m_applet->lock};
     m_applet->game_play_recording_state = game_play_recording_state;
 
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::SetDelayTimeToAbortOnGpuError(u64 delay_ns) {
+    LOG_DEBUG(Service_AM, "called, delay_ns={} (no guest GPU-abort timer)", delay_ns);
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::SendServerMaintenanceOverlayNotification() {
+    LOG_DEBUG(Service_AM, "called (no maintenance-overlay backend)");
     R_SUCCEED();
 }
 

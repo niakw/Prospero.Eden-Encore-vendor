@@ -75,6 +75,8 @@ private:
         u64 transfer_memory_size, InCopyHandle<Kernel::KTransferMemory> transfer_memory_handle);
     Result SetMediaPlaybackStateForApplication(bool enabled);
     Result SetGamePlayRecordingState(GamePlayRecordingState game_play_recording_state);
+    Result SetDelayTimeToAbortOnGpuError(u64 delay_ns);
+    Result SendServerMaintenanceOverlayNotification();
     Result RequestToShutdown();
     Result RequestToReboot();
     Result EnableApplicationCrashReport(bool enabled);
