@@ -6,6 +6,7 @@
 
 #include "core/core.h"
 #include "hid_core/hid_core.h"
+#include "hid_core/frontend/emulated_controller.h"
 #include "hid_core/frontend/emulated_devices.h"
 #include "core/hle/service/hid/hid_system_server.h"
 #include "core/hle/service/ipc_helpers.h"
@@ -510,18 +511,38 @@ void IHidSystemServer::GetUniquePadsFromNpad(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const auto npad_id_type{rp.PopEnum<Core::HID::NpadIdType>()};
 
-    LOG_DEBUG(Service_HID, "(STUBBED) called, npad_id_type={}",
-              npad_id_type); // Spams a lot when controller applet is running
+    u64 unique_pad_id{};
+    switch (npad_id_type) {
+    case Core::HID::NpadIdType::Player1: unique_pad_id = 1; break;
+    case Core::HID::NpadIdType::Player2: unique_pad_id = 2; break;
+    case Core::HID::NpadIdType::Player3: unique_pad_id = 3; break;
+    case Core::HID::NpadIdType::Player4: unique_pad_id = 4; break;
+    case Core::HID::NpadIdType::Player5: unique_pad_id = 5; break;
+    case Core::HID::NpadIdType::Player6: unique_pad_id = 6; break;
+    case Core::HID::NpadIdType::Player7: unique_pad_id = 7; break;
+    case Core::HID::NpadIdType::Player8: unique_pad_id = 8; break;
+    case Core::HID::NpadIdType::Handheld: unique_pad_id = 9; break;
+    default: break;
+    }
 
-    const std::vector<Core::HID::UniquePadId> unique_pads{};
+    std::vector<Core::HID::UniquePadId> unique_pads;
+    if (unique_pad_id != 0 && ctx.GetWriteBufferSize() >= sizeof(Core::HID::UniquePadId)) {
+        const auto* controller = system.HIDCore().GetEmulatedController(npad_id_type);
+        if (controller->IsConnected() &&
+            controller->GetNpadStyleIndex() != Core::HID::NpadStyleIndex::None) {
+            unique_pads.push_back({.id = unique_pad_id});
+        }
+    }
 
     if (!unique_pads.empty()) {
         ctx.WriteBuffer(unique_pads);
     }
 
-    IPC::ResponseBuilder rb{ctx, 3};
+    LOG_DEBUG(Service_HID, "called, npad_id_type={}, count={}", npad_id_type, unique_pads.size());
+
+    IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(ResultSuccess);
-    rb.Push(static_cast<u32>(unique_pads.size()));
+    rb.Push<u64>(unique_pads.size());
 }
 
 void IHidSystemServer::SetNpadSystemExtStateEnabled(HLERequestContext& ctx) {
@@ -796,11 +817,34 @@ void IHidSystemServer::AcquireUniquePadConnectionEventHandle(HLERequestContext& 
 }
 
 void IHidSystemServer::GetUniquePadIds(HLERequestContext& ctx) {
-    LOG_DEBUG(Service_HID, "(STUBBED) called");
+    std::vector<Core::HID::UniquePadId> unique_pads;
+    const auto capacity = ctx.GetWriteBufferSize() / sizeof(Core::HID::UniquePadId);
+
+    for (std::size_t index = 0; index < 8 && unique_pads.size() < capacity; ++index) {
+        const auto* controller = system.HIDCore().GetEmulatedControllerByIndex(index);
+        if (controller->IsConnected() &&
+            controller->GetNpadStyleIndex() != Core::HID::NpadStyleIndex::None) {
+            unique_pads.push_back({.id = static_cast<u64>(index + 1)});
+        }
+    }
+
+    if (unique_pads.size() < capacity) {
+        const auto* handheld = system.HIDCore().GetEmulatedController(Core::HID::NpadIdType::Handheld);
+        if (handheld->IsConnected() &&
+            handheld->GetNpadStyleIndex() != Core::HID::NpadStyleIndex::None) {
+            unique_pads.push_back({.id = 9});
+        }
+    }
+
+    if (!unique_pads.empty()) {
+        ctx.WriteBuffer(unique_pads);
+    }
+
+    LOG_DEBUG(Service_HID, "called, count={}", unique_pads.size());
 
     IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(ResultSuccess);
-    rb.Push<u64>(0);
+    rb.Push<u64>(unique_pads.size());
 }
 
 void IHidSystemServer::AcquireJoyDetachOnBluetoothOffEventHandle(HLERequestContext& ctx) {
