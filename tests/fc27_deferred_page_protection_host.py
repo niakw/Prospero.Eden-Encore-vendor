@@ -33,11 +33,37 @@ bool RasterizerVulkan::SignalNativeSyncPoint(u32 value) {
 
 """
 raster_text=R.read_text()
-assert raster_text.count(NATIVE_SYNC_BLOCK)==1
-fc27_raster=raster_text.replace(NATIVE_SYNC_BLOCK,"")
 def text_blob(text):
     raw=text.encode()
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
+# FC27 24/11 batching moves ClaimCpuWrites into the one buffer-cache lock.
+# Reverse only that reviewed delta before replaying this older safety receipt.
+if text_blob(raster_text)=="e4948333ed15fba8024aeb4ffaa143a2e010f991":
+    newer="""    if (may_claim_buffer) {
+        // Lichii 5e428570 / f5edeab: claim and apply the complete buffer batch
+        // under ONE acquisition. Texture state was handled above and is independent.
+        // Claim must precede BufferCache::WriteMemory so a sibling GPU download
+        // cannot overwrite a later CPU write from this same collected batch.
+        std::scoped_lock lock{buffer_cache.mutex};
+        buffer_cache.ClaimCpuWrites(ranges);
+        for (const auto& [addr, size] : ranges) {
+"""
+    older="""    if (may_claim_buffer) {
+        std::scoped_lock lock{buffer_cache.mutex};
+        for (const auto& [addr, size] : ranges) {
+"""
+    marker="    // The single-range invalidation callback takes the texture and buffer\n"
+    first="""    if (may_claim_buffer) {
+        std::scoped_lock lock{buffer_cache.mutex};
+        buffer_cache.ClaimCpuWrites(ranges);
+    }
+
+"""
+    assert raster_text.count(newer)==raster_text.count(marker)==1
+    raster_text=raster_text.replace(newer,older,1).replace(marker,first+marker,1)
+    assert text_blob(raster_text)=="e5baa7f438d8caf11327989087db38ed1ca053a4"
+assert raster_text.count(NATIVE_SYNC_BLOCK)==1
+fc27_raster=raster_text.replace(NATIVE_SYNC_BLOCK,"")
 assert text_blob(fc27_raster)==GUEST_CACHE_LOCK_SUCCESSOR
 restored=restore_integrated_rasterizer(fc27_raster)
 assert text_blob(restored)=="71d097b9a83028dfad9370792c905bb3bfccfd5a"
