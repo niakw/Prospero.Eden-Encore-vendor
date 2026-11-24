@@ -35,8 +35,10 @@ namespace Service::AM {
         {40, D<&IOverlayFunctions::GetApplicationNintendoLogo>, "GetApplicationNintendoLogo"},
         {41, D<&IOverlayFunctions::GetApplicationStartupMovie>, "GetApplicationStartupMovie"},
         {50, D<&IOverlayFunctions::SetGpuTimeSliceBoostForApplication>, "SetGpuTimeSliceBoostForApplication"},
-        {60, nullptr, "Unknown60"},
+        {60, D<&IOverlayFunctions::RejectUnknown60>, "Unknown60"},
         {70, D<&IOverlayFunctions::Unknown70>, "Unknown70"},
+        {71, D<&IOverlayFunctions::RejectUnknown71>, "Unknown71"},
+        {75, D<&IOverlayFunctions::RejectUnknown75>, "Unknown75"},
         {90, D<&IOverlayFunctions::SetRequiresGpuResourceUse>, "SetRequiresGpuResourceUse"},
         {101, D<&IOverlayFunctions::RejectDebugOnlyCommand>, "BeginToObserveHidInputForDevelop"},
     };
@@ -283,6 +285,22 @@ namespace Service::AM {
         std::scoped_lock lk{m_applet->lock};
         m_applet->home_button_short_pressed_blocked = !enabled;
         R_SUCCEED();
+    }
+
+    Result IOverlayFunctions::RejectUnknown60(bool value) {
+        LOG_WARNING(Service_AM, "Rejected unknown HOS23 overlay cmd60, value={}", value);
+        R_RETURN(ResultUnknown);
+    }
+
+    Result IOverlayFunctions::RejectUnknown71() {
+        LOG_WARNING(Service_AM, "Rejected unknown HOS23 overlay cmd71");
+        R_RETURN(ResultUnknown);
+    }
+
+    Result IOverlayFunctions::RejectUnknown75(Out<u64> out_value) {
+        *out_value = 0;
+        LOG_WARNING(Service_AM, "Rejected unknown HOS23 overlay cmd75");
+        R_RETURN(ResultUnknown);
     }
 
     Result IOverlayFunctions::Unknown70() {

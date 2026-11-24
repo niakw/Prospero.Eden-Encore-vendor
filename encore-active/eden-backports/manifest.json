@@ -601,13 +601,13 @@
       "upstream": "eadd2284bba5c7e5601222f2c2d3ca3ee8053ce710de52db2e22e8d8e8bbaf45"
     },
     "src/core/hle/service/am/service/overlay_functions.cpp": {
-      "active": "15dc812b4c3403a0143ebf9ce6925503c21cb3505fd22c9eda341e7a1f13366a",
-      "bytes": 12491,
+      "active": "9f0c9d4eb56f7c89283c66611a2178249e8b9406faed474aca1d5a9998f98b3b",
+      "bytes": 13214,
       "upstream": "adfdc5f9a5c3a3a30af4329fa19fc9bf053700db58ec46ff436745f522152d13"
     },
     "src/core/hle/service/am/service/overlay_functions.h": {
-      "active": "7729d954e5f60595058b4cde5a57bde050e9caf9d7e70ca0b501e07dee6619f8",
-      "bytes": 2074,
+      "active": "65f6dbc45d04045988cd87ed4bf9e232b75ce3ccf8712929944fe154c4683ac7",
+      "bytes": 2204,
       "upstream": "85093d7915d5000d80c72943c3a0aaf0f8be55c08680a511cd056f4ca9b4acd9"
     },
     "src/core/hle/service/am/service/application_functions.cpp": {

@@ -41,7 +41,10 @@ namespace Service::AM {
         Result IsHealthWarningRequired(Out<bool> is_required);
         Result SetHandlingHomeButtonShortPressedEnabled(bool enabled);
         Result SetHandlingTouchScreenInputEnabled(bool enabled);
+        Result RejectUnknown60(bool value);
         Result Unknown70();
+        Result RejectUnknown71();
+        Result RejectUnknown75(Out<u64> out_value);
 
     private:
         const std::shared_ptr<Applet> m_applet;
