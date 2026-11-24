@@ -13,6 +13,7 @@
 namespace Service::AM {
 
 class AppletDataBroker;
+class IApplicationAccessor;
 struct Applet;
 class IStorage;
 
@@ -35,6 +36,8 @@ private:
     Result Start();
     Result RequestExit();
     Result Terminate();
+    Result GetCurrentChildLibraryApplet(Out<SharedPointer<IApplicationAccessor>> out_accessor);
+    Result NeedsToExitProcess(Out<bool> out_needs_to_exit);
     Result Unknown90();
     Result PushInData(SharedPointer<IStorage> storage);
     Result PopOutData(Out<SharedPointer<IStorage>> out_storage);

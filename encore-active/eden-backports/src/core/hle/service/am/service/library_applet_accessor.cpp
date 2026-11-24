@@ -11,7 +11,9 @@
 #include "core/hle/service/am/frontend/applet_profile_select.h"
 #include "core/hle/service/am/frontend/applets.h"
 #include "core/hle/service/am/library_applet_storage.h"
+#include "core/hle/service/am/service/application_accessor.h"
 #include "core/hle/service/am/service/library_applet_accessor.h"
+#include "core/hle/service/am/window_system.h"
 #include "core/hle/service/am/service/storage.h"
 #include "core/hle/service/cmif_serialization.h"
 
@@ -65,7 +67,7 @@ ILibraryAppletAccessor::ILibraryAppletAccessor(Core::System& system_,
         {50, D<&ILibraryAppletAccessor::SetOutOfFocusApplicationSuspendingEnabled>, "SetOutOfFocusApplicationSuspendingEnabled"},
         {60, D<&ILibraryAppletAccessor::PresetLibraryAppletGpuTimeSliceZero>, "PresetLibraryAppletGpuTimeSliceZero"}, //10.0.0+
         {80, nullptr, "RequestForLibraryAppletToGetForeground"}, //19.0.0+
-        {81, nullptr, "GetCurrentChildLibraryApplet"}, //19.0.0+
+        {81, D<&ILibraryAppletAccessor::GetCurrentChildLibraryApplet>, "GetCurrentChildLibraryApplet"}, //19.0.0+
         {90, D<&ILibraryAppletAccessor::Unknown90>, "Unknown90"}, //20.0.0+
         {100, D<&ILibraryAppletAccessor::PushInData>, "PushInData"},
         {101, D<&ILibraryAppletAccessor::PopOutData>, "PopOutData"},
@@ -74,7 +76,7 @@ ILibraryAppletAccessor::ILibraryAppletAccessor(Core::System& system_,
         {104, D<&ILibraryAppletAccessor::PopInteractiveOutData>, "PopInteractiveOutData"},
         {105, D<&ILibraryAppletAccessor::GetPopOutDataEvent>, "GetPopOutDataEvent"},
         {106, D<&ILibraryAppletAccessor::GetPopInteractiveOutDataEvent>, "GetPopInteractiveOutDataEvent"},
-        {110, nullptr, "NeedsToExitProcess"},
+        {110, D<&ILibraryAppletAccessor::NeedsToExitProcess>, "NeedsToExitProcess"},
         {120, D<&ILibraryAppletAccessor::GetLibraryAppletInfo>, "GetLibraryAppletInfo"},
         {150, nullptr, "RequestForAppletToGetForeground"},
         {160, D<&ILibraryAppletAccessor::GetIndirectLayerConsumerHandle>, "GetIndirectLayerConsumerHandle"}, //2.0.0+
@@ -140,6 +142,31 @@ Result ILibraryAppletAccessor::Terminate() {
     LOG_DEBUG(Service_AM, "called");
     m_applet->process->Terminate();
     FrontendRequestExit();
+    R_SUCCEED();
+}
+
+Result ILibraryAppletAccessor::GetCurrentChildLibraryApplet(
+    Out<SharedPointer<IApplicationAccessor>> out_accessor) {
+    std::shared_ptr<Applet> child_applet;
+    {
+        std::scoped_lock lk{m_applet->lock};
+        R_UNLESS(!m_applet->child_applets.empty(), ResultUnknown);
+        child_applet = m_applet->child_applets.back();
+    }
+
+    auto* window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, ResultUnknown);
+
+    *out_accessor = std::make_shared<IApplicationAccessor>(system, std::move(child_applet),
+                                                           *window_system);
+    R_SUCCEED();
+}
+
+Result ILibraryAppletAccessor::NeedsToExitProcess(Out<bool> out_needs_to_exit) {
+    std::scoped_lock lk{m_applet->lock};
+    *out_needs_to_exit =
+        m_applet->lifecycle_manager.GetExitRequested() || m_applet->process->IsTerminated();
+    LOG_DEBUG(Service_AM, "called, needs_to_exit={}", *out_needs_to_exit);
     R_SUCCEED();
 }
 
