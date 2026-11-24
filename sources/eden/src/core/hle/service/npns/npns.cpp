@@ -195,23 +195,6 @@ private:
         R_SUCCEED();
     }
 
-    Result CreateToken(Out<TokenValue> out_token, const TokenKey& key, ClientProcessId pid) {
-        *out_token = token_store.Create(key);
-        LOG_DEBUG(Service_NPNS, "User created local opaque push token for pid={}", pid.pid);
-        R_SUCCEED();
-    }
-
-    Result DestroyToken(const TokenKey& key, ClientProcessId pid) {
-        token_store.Destroy(key);
-        LOG_DEBUG(Service_NPNS, "User destroyed local opaque push token for pid={}", pid.pid);
-        R_SUCCEED();
-    }
-
-    Result QueryIsTokenValid(Out<bool> out_valid, const TokenValue& token) {
-        *out_valid = token_store.IsValid(token);
-        R_SUCCEED();
-    }
-
     Result ListenToMyApplicationId(u64 application_id, ClientProcessId pid) {
         LOG_DEBUG(Service_NPNS,
                   "ListenToMyApplicationId accepted offline, application_id={:#x}, pid={}",
@@ -391,6 +374,23 @@ private:
 
     Result GetStateChangeEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
         *out_event = get_state_change_event.GetHandle();
+        R_SUCCEED();
+    }
+
+    Result CreateToken(Out<TokenValue> out_token, const TokenKey& key, ClientProcessId pid) {
+        *out_token = token_store.Create(key);
+        LOG_DEBUG(Service_NPNS, "User created local opaque push token for pid={}", pid.pid);
+        R_SUCCEED();
+    }
+
+    Result DestroyToken(const TokenKey& key, ClientProcessId pid) {
+        token_store.Destroy(key);
+        LOG_DEBUG(Service_NPNS, "User destroyed local opaque push token for pid={}", pid.pid);
+        R_SUCCEED();
+    }
+
+    Result QueryIsTokenValid(Out<bool> out_valid, const TokenValue& token) {
+        *out_valid = token_store.IsValid(token);
         R_SUCCEED();
     }
 
