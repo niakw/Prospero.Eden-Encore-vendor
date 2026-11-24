@@ -149,8 +149,13 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
         const u32 replacement_page = entry_type == EntryType::Mapped
                                          ? static_cast<u32>((dev_addr + offset) >> cpu_page_bits)
                                          : 0;
+        // A native kind change can reinterpret the same physical page. Retire
+        // the old cache owner while both the PTE and the old kind are visible.
+        // The lookup is only needed for Mapped -> Mapped with unchanged backing.
         const bool mapping_changed = Eden::GpuMemory::NeedsRasterizerUnmap(
-            current_entry_type, entry_type, EntryType::Mapped, previous_page, replacement_page);
+            current_entry_type, entry_type, EntryType::Mapped, previous_page, replacement_page) ||
+            (current_entry_type == EntryType::Mapped && entry_type == EntryType::Mapped &&
+             GetPageKind(current_gpu_addr) != kind);
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
         changed_runs.Record(current_gpu_addr, mapping_changed, notify_changed);
 #else
@@ -170,7 +175,10 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
         }
         remaining_size -= page_size;
     }
-    kind_map.Map(gpu_addr, gpu_addr + size, kind);
+    {
+        std::unique_lock<std::mutex> lock(guard);
+        kind_map.Map(gpu_addr, gpu_addr + size, kind);
+    }
     gpu_page_table_revision.fetch_add(1, std::memory_order_release);
     return gpu_addr;
 }
@@ -196,8 +204,13 @@ GPUVAddr MemoryManager::BigPageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr
         const u32 replacement_page = entry_type == EntryType::Mapped
                                          ? static_cast<u32>((dev_addr + offset) >> cpu_page_bits)
                                          : 0;
+        // A native kind change can reinterpret the same physical page. Retire
+        // the old cache owner while both the PTE and the old kind are visible.
+        // The lookup is only needed for Mapped -> Mapped with unchanged backing.
         const bool mapping_changed = Eden::GpuMemory::NeedsRasterizerUnmap(
-            current_entry_type, entry_type, EntryType::Mapped, previous_page, replacement_page);
+            current_entry_type, entry_type, EntryType::Mapped, previous_page, replacement_page) ||
+            (current_entry_type == EntryType::Mapped && entry_type == EntryType::Mapped &&
+             GetPageKind(current_gpu_addr) != kind);
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
         changed_runs.Record(current_gpu_addr, mapping_changed, notify_changed);
 #else
