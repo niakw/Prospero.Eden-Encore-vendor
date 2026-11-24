@@ -1,0 +1,144 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// SPDX-FileCopyrightText: Copyright 2021 yuzu Emulator Project
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#include "common/logging.h"
+#include "common/uuid.h"
+#include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/ipc_helpers.h"
+#include "core/hle/service/ns/query_service.h"
+#include "core/hle/service/service.h"
+#include "core/launch_timestamp_cache.h"
+#include "frontend_common/play_time_manager.h"
+
+namespace Service::NS {
+
+IQueryService::IQueryService(Core::System& system_) : ServiceFramework{system_, "pdm:qry"},
+    play_time_manager{std::make_unique<PlayTime::PlayTimeManager>()} {
+    // clang-format off
+    static const FunctionInfo functions[] = {
+        {0, &IQueryService::RejectUnavailablePlayLogQuery, "QueryAppletEvent"},
+        {1, nullptr, "QueryPlayStatistics"},
+        {2, nullptr, "QueryPlayStatisticsByUserAccountId"},
+        {3, nullptr, "QueryPlayStatisticsByNetworkServiceAccountId"},
+        {4, D<&IQueryService::QueryPlayStatisticsByApplicationId>, "QueryPlayStatisticsByApplicationId"},
+        {5, D<&IQueryService::QueryPlayStatisticsByApplicationIdAndUserAccountId>, "QueryPlayStatisticsByApplicationIdAndUserAccountId"},
+        {6, nullptr, "QueryPlayStatisticsByApplicationIdAndNetworkServiceAccountId"},
+        {7, nullptr, "QueryLastPlayTimeV0"},
+        {8, &IQueryService::RejectUnavailablePlayLogQuery, "QueryPlayEvent"},
+        {9, &IQueryService::RejectUnavailablePlayLogQuery, "GetAvailablePlayEventRange"},
+        {10, &IQueryService::RejectUnavailablePlayLogQuery, "QueryAccountEvent"},
+        {11, &IQueryService::RejectUnavailablePlayLogQuery, "QueryAccountPlayEvent"},
+        {12, &IQueryService::RejectUnavailablePlayLogQuery, "GetAvailableAccountPlayEventRange"},
+        {13, nullptr, "QueryApplicationPlayStatisticsForSystemV0"},
+        {16, nullptr, "QueryApplicationPlayStatisticsByUserAccountIdForSystemV0"},
+        {17, D<&IQueryService::QueryLastPlayTime>, "QueryLastPlayTime"},
+        {18, D<&IQueryService::QueryApplicationPlayStatisticsForSystem>, "QueryApplicationPlayStatisticsForSystem"},
+        {19, D<&IQueryService::QueryApplicationPlayStatisticsByUserAccountIdForSystem>, "QueryApplicationPlayStatisticsByUserAccountIdForSystem"},
+        { 30, nullptr, "Cmd30" },
+        { 31, nullptr, "Cmd31" },
+        { 100, nullptr, "Cmd100" },
+        { 110, nullptr, "Cmd110" },
+        { 118, nullptr, "Cmd118" },
+        { 119, nullptr, "Cmd119" },
+    };
+    // clang-format on
+
+    RegisterHandlers(functions);
+}
+
+IQueryService::~IQueryService() = default;
+
+void IQueryService::RejectUnavailablePlayLogQuery(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_NS, "pdm:qry raw play-log query unavailable; local aggregate statistics remain available");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
+}
+
+Result IQueryService::QueryPlayStatisticsByApplicationId(
+    Out<PlayStatistics> out_play_statistics, bool unknown, u64 application_id) {
+    const u64 launches = Core::LaunchTimestampCache::GetLaunchCount(application_id);
+    const s64 last_timestamp = Core::LaunchTimestampCache::GetLaunchTimestamp(application_id);
+    const u64 play_time_ns = play_time_manager->GetPlayTime(application_id) * 1'000'000'000ULL;
+
+    PlayStatistics stats{};
+    stats.application_id = application_id;
+    if (launches != 0 && last_timestamp > 0) {
+        stats.last_timestamp_user = static_cast<u64>(last_timestamp);
+        stats.last_timestamp_network = static_cast<u64>(last_timestamp);
+    }
+    stats.play_time_ns = play_time_ns;
+    stats.total_launches = static_cast<u32>((std::min)(launches, static_cast<u64>(UINT32_MAX)));
+    *out_play_statistics = stats;
+
+    LOG_DEBUG(Service_NS,
+              "called, flag={}, application_id={:016X}, play_time_ns={}, launches={}",
+              unknown, application_id, play_time_ns, launches);
+    R_SUCCEED();
+}
+
+Result IQueryService::QueryPlayStatisticsByApplicationIdAndUserAccountId(
+    Out<PlayStatistics> out_play_statistics, bool unknown, u64 application_id, Uid account_id) {
+    const u64 launches = Core::LaunchTimestampCache::GetLaunchCount(application_id);
+    const s64 last_timestamp = Core::LaunchTimestampCache::GetLaunchTimestamp(application_id);
+    const u64 play_time_ns = play_time_manager->GetPlayTime(application_id) * 1'000'000'000ULL;
+
+    PlayStatistics stats{};
+    stats.application_id = application_id;
+    // Eden currently persists the last launch timestamp and count, not the global PDM event log.
+    // Use the persisted timestamp for the most recent user/network observation; leave first/index
+    // fields zero rather than fabricating global PDM entry numbers.
+    if (launches != 0 && last_timestamp > 0) {
+        stats.last_timestamp_user = static_cast<u64>(last_timestamp);
+        stats.last_timestamp_network = static_cast<u64>(last_timestamp);
+    }
+    stats.play_time_ns = play_time_ns;
+    stats.total_launches = static_cast<u32>((std::min)(launches, static_cast<u64>(UINT32_MAX)));
+    *out_play_statistics = stats;
+
+    LOG_DEBUG(Service_NS,
+              "called, flag={}, application_id={:016X}, account_id={}, play_time_ns={}, launches={}",
+              unknown, application_id, account_id.uuid.FormattedString(), play_time_ns, launches);
+    R_SUCCEED();
+}
+
+Result IQueryService::QueryLastPlayTime(
+    Out<s32> out_entries, u8 unknown,
+    OutArray<LastPlayTime, BufferAttr_HipcMapAlias> out_last_play_times,
+    InArray<s32, BufferAttr_HipcMapAlias> application_ids) {
+    *out_entries = 1;
+    *out_last_play_times = {};
+    R_SUCCEED();
+}
+
+Result IQueryService::QueryApplicationPlayStatisticsForSystem(
+    Out<s32> out_entries, u8 flag,
+    OutArray<ApplicationPlayStatistics, BufferAttr_HipcMapAlias> out_stats,
+    InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
+    const size_t count = std::min(out_stats.size(), application_ids.size());
+    s32 written = 0;
+    for (size_t i = 0; i < count; ++i) {
+        const u64 app_id = application_ids[i];
+        ApplicationPlayStatistics stats{};
+        stats.application_id = app_id;
+        stats.play_time_ns = play_time_manager->GetPlayTime(app_id) * 1'000'000'000ULL;
+        stats.launch_count = Core::LaunchTimestampCache::GetLaunchCount(app_id);
+        out_stats[i] = stats;
+        ++written;
+    }
+    *out_entries = written;
+    LOG_DEBUG(Service_NS, "called, entries={} flag={}", written, flag);
+    R_SUCCEED();
+}
+
+Result IQueryService::QueryApplicationPlayStatisticsByUserAccountIdForSystem(
+    Out<s32> out_entries, u8 flag, Common::UUID user_id,
+    OutArray<ApplicationPlayStatistics, BufferAttr_HipcMapAlias> out_stats,
+    InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
+    // well we don't do per-user tracking :>
+    return QueryApplicationPlayStatisticsForSystem(out_entries, flag, out_stats, application_ids);
+}
+
+} // namespace Service::NS

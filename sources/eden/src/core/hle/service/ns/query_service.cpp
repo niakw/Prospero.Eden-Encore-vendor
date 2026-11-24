@@ -32,6 +32,8 @@ IQueryService::IQueryService(Core::System& system_) : ServiceFramework{system_, 
         {11, nullptr, "QueryAccountPlayEvent"},
         {12, nullptr, "GetAvailableAccountPlayEventRange"},
         {13, nullptr, "QueryApplicationPlayStatisticsForSystemV0"},
+        {14, nullptr, "QueryRecentlyPlayedApplication"},
+        {15, nullptr, "GetRecentlyPlayedApplicationUpdateEvent"},
         {16, nullptr, "QueryApplicationPlayStatisticsByUserAccountIdForSystemV0"},
         {17, D<&IQueryService::QueryLastPlayTime>, "QueryLastPlayTime"},
         {18, D<&IQueryService::QueryApplicationPlayStatisticsForSystem>, "QueryApplicationPlayStatisticsForSystem"},
@@ -52,26 +54,14 @@ IQueryService::~IQueryService() = default;
 
 Result IQueryService::QueryPlayStatisticsByApplicationIdAndUserAccountId(
     Out<PlayStatistics> out_play_statistics, bool unknown, u64 application_id, Uid account_id) {
-    const u64 launches = Core::LaunchTimestampCache::GetLaunchCount(application_id);
-    const s64 last_timestamp = Core::LaunchTimestampCache::GetLaunchTimestamp(application_id);
-    const u64 play_time_ns = play_time_manager->GetPlayTime(application_id) * 1'000'000'000ULL;
+    // TODO(German77): Read statistics of the game
+    *out_play_statistics = {
+        .application_id = application_id,
+        .total_launches = 1,
+    };
 
-    PlayStatistics stats{};
-    stats.application_id = application_id;
-    // Eden currently persists the last launch timestamp and count, not the global PDM event log.
-    // Use the persisted timestamp for the most recent user/network observation; leave first/index
-    // fields zero rather than fabricating global PDM entry numbers.
-    if (launches != 0 && last_timestamp > 0) {
-        stats.last_timestamp_user = static_cast<u64>(last_timestamp);
-        stats.last_timestamp_network = static_cast<u64>(last_timestamp);
-    }
-    stats.play_time_ns = play_time_ns;
-    stats.total_launches = static_cast<u32>((std::min)(launches, static_cast<u64>(UINT32_MAX)));
-    *out_play_statistics = stats;
-
-    LOG_DEBUG(Service_NS,
-              "called, flag={}, application_id={:016X}, account_id={}, play_time_ns={}, launches={}",
-              unknown, application_id, account_id.uuid.FormattedString(), play_time_ns, launches);
+    LOG_WARNING(Service_NS, "(STUBBED) called. unknown={}. application_id={:016X}, account_id={}",
+                unknown, application_id, account_id.uuid.FormattedString());
     R_SUCCEED();
 }
 
