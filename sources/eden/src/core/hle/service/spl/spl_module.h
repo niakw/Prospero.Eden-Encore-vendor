@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <mutex>
 #include <random>
 #include "core/hle/service/service.h"
 #include "core/hle/service/spl/spl_results.h"
@@ -44,6 +45,13 @@ public:
 
         std::mt19937 rng;
     };
+
+private:
+    friend class Interface;
+
+    std::mutex boot_reason_mutex;
+    BootReasonValue boot_reason{};
+    bool boot_reason_set{};
 };
 
 void LoopProcess(Core::System& system);
