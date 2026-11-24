@@ -525,6 +525,16 @@
       "bytes": 2225,
       "upstream": "375b4c15ffe68979af8e184651f3c92889129d5f8a25d2bf668352935e1d20c8"
     },
+    "src/core/hle/service/set/firmware_debug_settings_server.cpp": {
+      "active": "54a8e47b2b6df8ee4a1872ee0ecbac35bea95d7ab97a43a9cbb0bcd4f560f1be",
+      "bytes": 2010,
+      "upstream": "ec943c54def8e62c30e89e0035ad95e94979d9982182ada6c49db3cf9646b02b"
+    },
+    "src/core/hle/service/set/firmware_debug_settings_server.h": {
+      "active": "8149664a2a199dbb1710af15db64c93b6f8fa312ce38f1633c7539ff26b2e70a",
+      "bytes": 548,
+      "upstream": "48a11c6e2147f97b1d7b7803af4b20862554ecb45312fb641de7f0738bdee1f2"
+    },
     "src/core/hle/service/set/settings.cpp": {
       "active": "0867f15c4d0e250fcb81f052b103fcc05c67f9a14cfb1db9bbfbbe1f95dbc9aa",
       "bytes": 1183,
