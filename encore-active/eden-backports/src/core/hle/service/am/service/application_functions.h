@@ -79,6 +79,8 @@ private:
     Result SendServerMaintenanceOverlayNotification();
     Result RequestToShutdown();
     Result RequestToReboot();
+    Result RequestToSleep();
+    Result ExitAndRequestToShowThanksMessage();
     Result EnableApplicationCrashReport(bool enabled);
     Result InitializeApplicationCopyrightFrameBuffer(
         s32 width, s32 height, u64 transfer_memory_size,

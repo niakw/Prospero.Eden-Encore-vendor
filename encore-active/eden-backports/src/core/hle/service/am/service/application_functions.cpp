@@ -111,8 +111,8 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {68, D<&IApplicationFunctions::RejectDebugOnlyCommand>, "RequestFlushGamePlayingMovieForDebug"},
         {70, D<&IApplicationFunctions::RequestToShutdown>, "RequestToShutdown"},
         {71, D<&IApplicationFunctions::RequestToReboot>, "RequestToReboot"},
-        {72, nullptr, "RequestToSleep"},
-        {80, nullptr, "ExitAndRequestToShowThanksMessage"},
+        {72, D<&IApplicationFunctions::RequestToSleep>, "RequestToSleep"},
+        {80, D<&IApplicationFunctions::ExitAndRequestToShowThanksMessage>, "ExitAndRequestToShowThanksMessage"},
         {90, D<&IApplicationFunctions::EnableApplicationCrashReport>, "EnableApplicationCrashReport"},
         {100, D<&IApplicationFunctions::InitializeApplicationCopyrightFrameBuffer>, "InitializeApplicationCopyrightFrameBuffer"},
         {101, D<&IApplicationFunctions::SetApplicationCopyrightImage>, "SetApplicationCopyrightImage"},
@@ -539,6 +539,16 @@ Result IApplicationFunctions::RequestToReboot() {
     // The existing global AM controller represents guest reboot with this same exit transition.
     // It never requests a reboot of the PS5 host.
     system.Exit();
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::RequestToSleep() {
+    LOG_DEBUG(Service_AM, "called (guest sleep has no PS5-host side effect)");
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::ExitAndRequestToShowThanksMessage() {
+    LOG_DEBUG(Service_AM, "called (no Horizon Thanks system-applet backend)");
     R_SUCCEED();
 }
 
