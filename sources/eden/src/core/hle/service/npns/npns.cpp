@@ -4,7 +4,11 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
+#include <array>
 #include <memory>
+#include <mutex>
+#include <vector>
 
 #include "core/hle/kernel/k_event.h"
 #include "core/hle/service/cmif_serialization.h"
@@ -14,6 +18,59 @@
 #include "core/hle/service/service.h"
 
 namespace Service::NPNS {
+
+namespace {
+
+using TokenKey = std::array<u8, 0x18>;
+using TokenValue = std::array<u8, 0x28>;
+
+class OfflineTokenStore {
+public:
+    TokenValue Create(const TokenKey& key) {
+        std::scoped_lock lk{mutex};
+
+        const auto it = std::find_if(tokens.begin(), tokens.end(),
+                                     [&](const Entry& entry) { return entry.key == key; });
+        if (it != tokens.end()) {
+            return it->token;
+        }
+
+        TokenValue token{};
+        std::copy(key.begin(), key.end(), token.begin());
+
+        const u64 nonce = next_nonce++;
+        for (size_t i = 0; i < sizeof(nonce); ++i) {
+            token[0x18 + i] = static_cast<u8>(nonce >> (i * 8));
+            token[0x20 + i] = static_cast<u8>((~nonce) >> (i * 8));
+        }
+
+        tokens.push_back(Entry{key, token});
+        return token;
+    }
+
+    void Destroy(const TokenKey& key) {
+        std::scoped_lock lk{mutex};
+        std::erase_if(tokens, [&](const Entry& entry) { return entry.key == key; });
+    }
+
+    bool IsValid(const TokenValue& token) const {
+        std::scoped_lock lk{mutex};
+        return std::any_of(tokens.begin(), tokens.end(),
+                           [&](const Entry& entry) { return entry.token == token; });
+    }
+
+private:
+    struct Entry {
+        TokenKey key;
+        TokenValue token;
+    };
+
+    mutable std::mutex mutex;
+    std::vector<Entry> tokens;
+    u64 next_nonce{1};
+};
+
+} // namespace
 
 class INpnsSystem final : public ServiceFramework<INpnsSystem> {
 public:
@@ -37,11 +94,11 @@ public:
             {14, D<&INpnsSystem::SubscribeTopicByAccount>, "SubscribeTopicByAccount"}, // 18.0.0+
             {15, D<&INpnsSystem::UnsubscribeTopicByAccount>, "UnsubscribeTopicByAccount"}, // 18.0.0+
             {16, nullptr, "DownloadSubscriptionList"}, // 18.0.0+
-            {21, nullptr, "CreateToken"},
-            {22, nullptr, "CreateTokenWithApplicationId"},
-            {23, nullptr, "DestroyToken"},
-            {24, nullptr, "DestroyTokenWithApplicationId"},
-            {25, nullptr, "QueryIsTokenValid"},
+            {21, C<&INpnsSystem::CreateToken>, "CreateToken"},
+            {22, C<&INpnsSystem::CreateTokenWithApplicationId>, "CreateTokenWithApplicationId"},
+            {23, C<&INpnsSystem::DestroyToken>, "DestroyToken"},
+            {24, C<&INpnsSystem::DestroyTokenWithApplicationId>, "DestroyTokenWithApplicationId"},
+            {25, C<&INpnsSystem::QueryIsTokenValid>, "QueryIsTokenValid"},
             {26, D<&INpnsSystem::ListenToMyApplicationId>, "ListenToMyApplicationId"},
             {27, nullptr, "DestroyTokenAll"},
             {28, nullptr, "CreateTokenWithName"}, // 18.0.0+
@@ -105,6 +162,52 @@ private:
 
     Result GetStateChangeEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
         *out_event = get_state_change_event.GetHandle();
+        R_SUCCEED();
+    }
+
+    Result CreateToken(Out<TokenValue> out_token, const TokenKey& key, ClientProcessId pid) {
+        *out_token = token_store.Create(key);
+        LOG_DEBUG(Service_NPNS, "Created local opaque push token for pid={}", pid.pid);
+        R_SUCCEED();
+    }
+
+    Result CreateTokenWithApplicationId(Out<TokenValue> out_token, const TokenKey& key) {
+        *out_token = token_store.Create(key);
+        LOG_DEBUG(Service_NPNS, "Created local opaque push token with application-id key");
+        R_SUCCEED();
+    }
+
+    Result DestroyToken(const TokenKey& key, ClientProcessId pid) {
+        token_store.Destroy(key);
+        LOG_DEBUG(Service_NPNS, "Destroyed local opaque push token for pid={}", pid.pid);
+        R_SUCCEED();
+    }
+
+    Result DestroyTokenWithApplicationId(const TokenKey& key) {
+        token_store.Destroy(key);
+        LOG_DEBUG(Service_NPNS, "Destroyed local opaque push token with application-id key");
+        R_SUCCEED();
+    }
+
+    Result QueryIsTokenValid(Out<bool> out_valid, const TokenValue& token) {
+        *out_valid = token_store.IsValid(token);
+        R_SUCCEED();
+    }
+
+    Result CreateToken(Out<TokenValue> out_token, const TokenKey& key, ClientProcessId pid) {
+        *out_token = token_store.Create(key);
+        LOG_DEBUG(Service_NPNS, "User created local opaque push token for pid={}", pid.pid);
+        R_SUCCEED();
+    }
+
+    Result DestroyToken(const TokenKey& key, ClientProcessId pid) {
+        token_store.Destroy(key);
+        LOG_DEBUG(Service_NPNS, "User destroyed local opaque push token for pid={}", pid.pid);
+        R_SUCCEED();
+    }
+
+    Result QueryIsTokenValid(Out<bool> out_valid, const TokenValue& token) {
+        *out_valid = token_store.IsValid(token);
         R_SUCCEED();
     }
 
@@ -219,6 +322,7 @@ private:
     Event get_state_change_event;
     Event get_drop_event;
     Event get_request_change_state_cancel_event;
+    OfflineTokenStore token_store;
 };
 
 class INpnsUser final : public ServiceFramework<INpnsUser> {
@@ -236,9 +340,9 @@ public:
             {5, C<&INpnsUser::GetReceiveEvent>, "GetReceiveEvent"},
             {7, C<&INpnsUser::GetStateChangeEvent>, "GetStateChangeEvent"},
             {8, C<&INpnsUser::ListenToByName>, "ListenToByName"}, // 18.0.0+
-            {21, nullptr, "CreateToken"},
-            {23, nullptr, "DestroyToken"},
-            {25, nullptr, "QueryIsTokenValid"},
+            {21, C<&INpnsUser::CreateToken>, "CreateToken"},
+            {23, C<&INpnsUser::DestroyToken>, "DestroyToken"},
+            {25, C<&INpnsUser::QueryIsTokenValid>, "QueryIsTokenValid"},
             {26, D<&INpnsUser::ListenToMyApplicationId>, "ListenToMyApplicationId"},
             {101, C<&INpnsUser::Suspend>, "Suspend"},
             {102, C<&INpnsUser::Resume>, "Resume"},
@@ -330,6 +434,7 @@ private:
     Event get_receive_event;
     Event get_state_change_event;
     Event get_drop_event;
+    OfflineTokenStore token_store;
 };
 
 void LoopProcess(Core::System& system) {
