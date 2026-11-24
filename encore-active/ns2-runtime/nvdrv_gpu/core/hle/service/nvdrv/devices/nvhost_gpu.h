@@ -184,7 +184,7 @@ private:
         u64_le timestamp{};
         u32_le info32{};
         u16_le info16{};
-        u16_le status{}; // Switch ABI: always 0xFFFF
+        u16_le status{}; // 0=healthy; non-zero reports a channel fault
     };
     static_assert(sizeof(IoctlGetErrorNotification) == 16,
                   "IoctlGetErrorNotification is incorrect size");

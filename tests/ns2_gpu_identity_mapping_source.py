@@ -531,7 +531,7 @@ for token in ("if (!UsesNativeAbi(fd))",
               "native_error_notifier_initialized = static_cast<u32>(params.mem) != 0",
               "native_error_info = {}",
               "native_error_notification = {}",
-              "native_error_notification.status = 0xFFFF",
+              "requires status==0 for a healthy channel",
               "error_notifier_event->GetReadableEvent().Clear(system.Kernel())"):
     assert token in notifier,token
 for forbidden in ("nvmap.GetHandle(params.mem)", "handle->Duplicate(true)",
@@ -542,7 +542,7 @@ for forbidden in ("nvmap.GetHandle(params.mem)", "handle->Duplicate(true)",
 assert "struct IoctlGetErrorInfo" in nvhost_hdr
 assert "std::array<u32_le, 31> info{};" in nvhost_hdr
 assert 'static_assert(sizeof(IoctlGetErrorInfo) == 128' in nvhost_hdr
-assert "Switch ABI: always 0xFFFF" in nvhost_hdr
+assert "0=healthy; non-zero reports a channel fault" in nvhost_hdr
 assert "bool native_error_notifier_initialized{};" in nvhost_hdr
 assert "IoctlGetErrorInfo native_error_info{};" in nvhost_hdr
 assert "IoctlGetErrorNotification native_error_notification{};" in nvhost_hdr
@@ -578,7 +578,7 @@ for body in (health_info,health):
     assert "return NvResult::InvalidState;" in body
 assert "params = native_error_info;" in health_info
 assert "params = native_error_notification;" in health
-assert "params.status = 0xFFFF;" in health
+assert "params.status = 0xFFFF;" not in health
 assert "memory.ReadBlock" not in health
 
 # Switch 2 channel preemption-mode ioctl (SwitchBrew 0xC008481F).

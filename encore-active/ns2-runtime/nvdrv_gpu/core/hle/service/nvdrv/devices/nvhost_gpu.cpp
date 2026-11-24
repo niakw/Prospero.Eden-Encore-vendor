@@ -619,8 +619,10 @@ NvResult nvhost_gpu::SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd
 
     native_error_notifier_initialized = static_cast<u32>(params.mem) != 0;
     native_error_info = {};
+    // OunceVK reads H:0x17 immediately after installing the notifier and
+    // requires status==0 for a healthy channel. Zero-initialize the snapshot;
+    // future real GPU faults may replace it with a non-zero status.
     native_error_notification = {};
-    native_error_notification.status = 0xFFFF;
     error_notifier_event->GetReadableEvent().Clear(system.Kernel());
     return NvResult::Success;
 }
@@ -649,8 +651,9 @@ NvResult nvhost_gpu::GetErrorNotification(IoctlGetErrorNotification& params, Dev
     if (!native_error_notifier_initialized)
         return NvResult::InvalidState;
 
+    // Return the stored snapshot verbatim. A freshly configured healthy
+    // channel must report zero status before the first GPFIFO submission.
     params = native_error_notification;
-    params.status = 0xFFFF;
     return NvResult::Success;
 }
 NvResult nvhost_gpu::SetChannelPriority(IoctlChannelSetPriority& params) {
