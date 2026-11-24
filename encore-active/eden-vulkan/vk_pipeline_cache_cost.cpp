@@ -112,6 +112,8 @@ extern std::atomic<unsigned> pending_first_use_graphics_builds;
 
 namespace {
 #ifdef PS5_NATIVE
+// Internal signal: only the NS1 parallel preparation path may request a serial retry.
+struct ParallelGraphicsRetry {};
 // Detailed-only, per-cache-key CPU translation/admission cost. This NEVER
 // waits for the Vulkan driver worker and does not run on cache-hit draws.
 // The timer ends before emitting its diagnostic, avoiding log-I/O inflation.
@@ -2019,7 +2021,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
         parallel_translate_stages = snapshot_ok;
     }
 
-    if (parallel_translate_stages) {
+    if (parallel_translate_stages) try {
         // QueueWork and pool allocation may throw after earlier tasks borrowed
         // these locals. Drain before unwinding, without stopping persistent workers.
         struct TranslationDrain {
@@ -2127,12 +2129,20 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
         }
         for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
             if (parallel_errors[index]) {
-                std::rethrow_exception(parallel_errors[index]);
+                try {
+                    std::rethrow_exception(parallel_errors[index]);
+                } catch (const std::out_of_range&) {
+                    // The immutable snapshot can reject a valid owner-thread read.
+                    throw ParallelGraphicsRetry{};
+                }
             }
             if (key.unique_hashes[index] != 0 && !parallel_programs[index]) {
-                throw std::runtime_error("graphics shader translation worker returned no program");
+                throw ParallelGraphicsRetry{};
             }
         }
+    } catch (const std::bad_alloc&) {
+        // The drain guard has joined any accepted jobs before this handler.
+        throw ParallelGraphicsRetry{};
     }
 #endif
 
@@ -2515,11 +2525,42 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
             }
         }
     }
-    auto pipeline{CreateGraphicsPipeline(main_pools, graphics_key, environments.Span(),
-                                         nullptr, true, parallel_translate_stages)};
+    // Keep the original cached shader bytes and pristine environment state for a
+    // single serial retry. Workers can mutate their environment's lookup caches.
+    std::optional<GraphicsEnvironments> parallel_environments;
+    if (parallel_translate_stages) {
+        try {
+            parallel_environments.emplace();
+            parallel_environments->envs = environments.envs;
+            size_t active{};
+            for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
+                if (graphics_key.unique_hashes[index] != 0) {
+                    parallel_environments->env_ptrs[active++] =
+                        &parallel_environments->envs[index];
+                }
+            }
+        } catch (const std::bad_alloc&) {
+            parallel_environments.reset();
+        }
+    }
+    std::unique_ptr<GraphicsPipeline> pipeline;
+    if (parallel_environments) {
+        try {
+            pipeline = CreateGraphicsPipeline(main_pools, graphics_key,
+                                              parallel_environments->Span(), nullptr, true, true);
+        } catch (const ParallelGraphicsRetry&) {
+            parallel_environments.reset();
+        }
+    }
+    if (!parallel_environments) {
+        pipeline = CreateGraphicsPipeline(main_pools, graphics_key, environments.Span(),
+                                          nullptr, true, false);
+    }
+    auto& serialized_environments = parallel_environments ? *parallel_environments : environments;
 #else
     auto pipeline{
         CreateGraphicsPipeline(main_pools, graphics_key, environments.Span(), nullptr, true)};
+    auto& serialized_environments = environments;
 #endif
     if (!pipeline || pipeline_cache_filename.empty()) {
         return pipeline;
@@ -2529,7 +2570,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
     // serializer job must not discard an otherwise usable Vulkan pipeline.
     try {
 #endif
-    serialization_thread.QueueWork([this, key = graphics_key, envs = std::move(environments.envs)] {
+    serialization_thread.QueueWork([this, key = graphics_key, envs = std::move(serialized_environments.envs)] {
         boost::container::static_vector<const GenericEnvironment*, Maxwell::MaxShaderProgram>
             env_ptrs;
         for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
