@@ -1336,3 +1336,16 @@ submit_impl=nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].spli
 assert submit_impl.index("native_channel_registry.Bind(") < submit_impl.index("AttachFaultNotifier(") < submit_impl.index("EnableNativeTiling();") < submit_impl.index("push_gpu_entries(std::move(entries));")
 assert "void nvhost_gpu::SignalNativeChannelFault(void* context) noexcept" in nvhost_cpp
 assert "native_error_event_mutex" in nvhost_cpp
+
+# Every fatal condition owned by the active DmaPusher must publish through the
+# same channel-fault path rather than bypassing H:17 with a direct throw.
+for reason in (
+    "Native GPFIFO syncpoint wait owner retired",
+    "Native GPFIFO syncpoint wait source recycled",
+    "Native GPFIFO prefetch resume cursor invalid",
+    "Native GPFIFO command unmapped at GPU fetch",
+    "Native GPFIFO entry shortened during acquire",
+    "Native GPFIFO method on unbound subchannel",
+):
+    assert f'FailNativeSubmission("{reason}")' in dma_cpp, reason
+assert 'throw std::runtime_error("Native GPFIFO' not in dma_cpp

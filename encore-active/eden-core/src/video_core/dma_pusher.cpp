@@ -69,7 +69,7 @@ bool DmaPusher::ResumeNativeAcquire() {
     if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
             &channel_state) || !pending->lease ||
         !pending->lease->load(std::memory_order_acquire)) {
-        throw std::runtime_error("Native GPFIFO syncpoint wait owner retired");
+        FailNativeSubmission("Native GPFIFO syncpoint wait owner retired");
     }
 
     // The guest counter can advance when commands are merely enqueued.
@@ -79,7 +79,7 @@ bool DmaPusher::ResumeNativeAcquire() {
     const auto completed = system.Host1x().GetSyncpointManager().GetHostSyncpointValue(
         pending->id);
     if (!pending->lease->load(std::memory_order_acquire)) {
-        throw std::runtime_error("Native GPFIFO syncpoint wait source recycled");
+        FailNativeSubmission("Native GPFIFO syncpoint wait source recycled");
     }
     if (((completed - pending->threshold) & 0x80000000U) != 0)
         return false;
@@ -154,7 +154,7 @@ bool DmaPusher::Step() {
     if (prefetch_size > 0) {
 #ifdef PS5_NATIVE
         if (command_resume_offset > prefetch_size) {
-            throw std::runtime_error("Native GPFIFO prefetch resume cursor invalid");
+            FailNativeSubmission("Native GPFIFO prefetch resume cursor invalid");
         }
         const auto commands = std::span<const CommandHeader>{
             command_list.prefetch_command_list.data(), prefetch_size};
@@ -222,7 +222,7 @@ bool DmaPusher::Step() {
             // The maintained PS5 GPU pthread entry catches this exception,
             // records its fatal cause and requests worker stop before any
             // queue fence is signaled. No exception leaves the OS thread.
-            throw std::runtime_error("Native GPFIFO command unmapped at GPU fetch");
+            FailNativeSubmission("Native GPFIFO command unmapped at GPU fetch");
 #else
             return false;
 #endif
@@ -269,7 +269,7 @@ bool DmaPusher::Step() {
             Tegra::Memory::GpuGuestMemory<Tegra::CommandHeader, Tegra::Memory::GuestMemoryFlags::SafeRead>headers(memory_manager, dma_state.dma_get, header.size, &command_headers);
 #ifdef PS5_NATIVE
             if (command_resume_offset > headers.size()) {
-                throw std::runtime_error("Native GPFIFO entry shortened during acquire");
+                FailNativeSubmission("Native GPFIFO entry shortened during acquire");
             }
             require_native_submission_lease();
             ProcessCommands(std::span<const CommandHeader>{
@@ -281,7 +281,7 @@ bool DmaPusher::Step() {
             Tegra::Memory::GpuGuestMemory<Tegra::CommandHeader, Tegra::Memory::GuestMemoryFlags::UnsafeRead>headers(memory_manager, dma_state.dma_get, header.size, &command_headers);
 #ifdef PS5_NATIVE
             if (command_resume_offset > headers.size()) {
-                throw std::runtime_error("Native GPFIFO entry shortened during acquire");
+                FailNativeSubmission("Native GPFIFO entry shortened during acquire");
             }
             require_native_submission_lease();
             ProcessCommands(std::span<const CommandHeader>{
@@ -520,7 +520,7 @@ void DmaPusher::CallMethod(u32 argument) {
             // queue instead of manufacturing a successful guest fence.
             if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
                     &channel_state)) {
-                throw std::runtime_error("Native GPFIFO method on unbound subchannel");
+                FailNativeSubmission("Native GPFIFO method on unbound subchannel");
             }
 #endif
             return;
@@ -557,7 +557,7 @@ void DmaPusher::CallMultiMethod(const u32* base_start, u32 num_methods) {
             // queue instead of manufacturing a successful guest fence.
             if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
                     &channel_state)) {
-                throw std::runtime_error("Native GPFIFO method on unbound subchannel");
+                FailNativeSubmission("Native GPFIFO method on unbound subchannel");
             }
 #endif
             return;
