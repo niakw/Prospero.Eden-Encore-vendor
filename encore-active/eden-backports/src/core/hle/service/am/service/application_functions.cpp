@@ -132,8 +132,8 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {151, D<&IApplicationFunctions::TryPopFromNotificationStorageChannel>, "TryPopFromNotificationStorageChannel"},
         {160, D<&IApplicationFunctions::GetHealthWarningDisappearedSystemEvent>, "GetHealthWarningDisappearedSystemEvent"},
         {170, D<&IApplicationFunctions::SetHdcpAuthenticationActivated>, "SetHdcpAuthenticationActivated"},
-        {180, nullptr, "GetLaunchRequiredVersion"},
-        {181, nullptr, "UpgradeLaunchRequiredVersion"},
+        {180, D<&IApplicationFunctions::GetLaunchRequiredVersion>, "GetLaunchRequiredVersion"},
+        {181, D<&IApplicationFunctions::UpgradeLaunchRequiredVersion>, "UpgradeLaunchRequiredVersion"},
         {190, D<&IApplicationFunctions::SendServerMaintenanceOverlayNotification>, "SendServerMaintenanceOverlayNotification"},
         {200, D<&IApplicationFunctions::GetLastApplicationExitReason>, "GetLastApplicationExitReason"},
         {210, D<&IApplicationFunctions::GetUnknownEvent210>, "Unknown210"},
@@ -539,6 +539,23 @@ Result IApplicationFunctions::GetLastApplicationExitReason(
     std::scoped_lock lk{m_applet->lock};
     *out_last_application_exit_reason = m_applet->last_application_exit_reason;
     LOG_DEBUG(Service_AM, "called, reason={}", *out_last_application_exit_reason);
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::GetLaunchRequiredVersion(Out<u32> out_version) {
+    std::scoped_lock lk{m_applet->lock};
+    *out_version = m_applet->launch_required_version;
+    LOG_DEBUG(Service_AM, "called, version={}", *out_version);
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::UpgradeLaunchRequiredVersion(u32 version) {
+    std::scoped_lock lk{m_applet->lock};
+    if (version > m_applet->launch_required_version) {
+        m_applet->launch_required_version = version;
+    }
+    LOG_DEBUG(Service_AM, "called, requested={}, effective={}", version,
+              m_applet->launch_required_version);
     R_SUCCEED();
 }
 

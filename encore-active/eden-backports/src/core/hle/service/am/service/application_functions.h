@@ -79,6 +79,8 @@ private:
     Result SetDelayTimeToAbortOnGpuError(u64 delay_ns);
     Result SendServerMaintenanceOverlayNotification();
     Result GetLastApplicationExitReason(Out<s32> out_last_application_exit_reason);
+    Result GetLaunchRequiredVersion(Out<u32> out_version);
+    Result UpgradeLaunchRequiredVersion(u32 version);
     Result RequestToShutdown();
     Result RequestToReboot();
     Result RequestToSleep();
