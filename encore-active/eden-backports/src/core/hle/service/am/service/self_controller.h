@@ -43,6 +43,7 @@ private:
     Result SetFocusHandlingMode(bool notify, bool background, bool suspend);
     Result SetRestartMessageEnabled(bool enabled);
     Result SetScreenShotAppletIdentityInfo(AppletIdentityInfo screen_shot_applet_identity_info);
+    Result GetScreenShotProgramId(Out<u64> out_program_id);
     Result SetOutOfFocusSuspendingEnabled(bool enabled);
     Result SetControllerFirmwareUpdateSection(bool enabled);
     Result SetDesirableKeyboardLayout(u32 layout);

@@ -42,7 +42,7 @@ ISelfController::ISelfController(Core::System& system_, std::shared_ptr<Applet> 
         {18, D<&ISelfController::SetRequiresCaptureButtonShortPressedMessage>, "SetRequiresCaptureButtonShortPressedMessage"},
         {19, D<&ISelfController::SetAlbumImageOrientation>, "SetAlbumImageOrientation"},
         {20, D<&ISelfController::SetDesirableKeyboardLayout>, "SetDesirableKeyboardLayout"},
-        {21, nullptr, "GetScreenShotProgramId"},
+        {21, D<&ISelfController::GetScreenShotProgramId>, "GetScreenShotProgramId"},
         {40, D<&ISelfController::CreateManagedDisplayLayer>, "CreateManagedDisplayLayer"},
         {41, D<&ISelfController::IsSystemBufferSharingEnabled>, "IsSystemBufferSharingEnabled"},
         {42, D<&ISelfController::GetSystemSharedLayerHandle>, "GetSystemSharedLayerHandle"},
@@ -219,6 +219,16 @@ Result ISelfController::SetScreenShotAppletIdentityInfo(
     std::scoped_lock lk{m_applet->lock};
     m_applet->screen_shot_identity = screen_shot_applet_identity_info;
 
+    R_SUCCEED();
+}
+
+Result ISelfController::GetScreenShotProgramId(Out<u64> out_program_id) {
+    std::scoped_lock lk{m_applet->lock};
+
+    const u64 identity_program_id = m_applet->screen_shot_identity.application_id;
+    *out_program_id = identity_program_id != 0 ? identity_program_id : m_applet->program_id;
+
+    LOG_DEBUG(Service_AM, "called, program_id={:016X}", *out_program_id);
     R_SUCCEED();
 }
 
