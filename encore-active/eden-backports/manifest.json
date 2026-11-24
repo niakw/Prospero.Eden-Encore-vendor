@@ -216,8 +216,8 @@
       "upstream": "dc9e0214fab5197a3ef369cd5e5a864f294b93dd5a020887fbdac3339ee0243c"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.cpp": {
-      "active": "ac7e2b1e05d0a4f60908128e8bb2fdd8627bc47244c5116c09e0338b296614cc",
-      "bytes": 52049,
+      "active": "189dce8adc35c567868d6106ffb2216ea9a6765347e93f4a55347a4bc70c1b27",
+      "bytes": 52179,
       "upstream": "2017a14e3450768f421448326f809d439414cc385f927511382b940c64e44e84"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.h": {
@@ -271,8 +271,8 @@
       "upstream": "bef2eaecc5c5a07b217277b691999845b66c3ad8e006ec101881d3218db76a22"
     },
     "src/core/hle/service/ns/application_manager_interface.cpp": {
-      "active": "19301ca36d431ea771142adc7729d0581c84eca7db3c85d2d60894a332b2fa06",
-      "bytes": 66549,
+      "active": "91dd1ce772c423cea7c816333bbc6beb31de61c0394f3e75fe107d032c1afba0",
+      "bytes": 68229,
       "upstream": "86874e0f8769c04c1c66b4b8b0d00549aa328a6ed58a6898f343e67431861fba"
     },
     "src/core/hle/service/ns/application_manager_interface.h": {
