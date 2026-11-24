@@ -1139,12 +1139,14 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
     if (accelerate.BufferToImage(copy_info, src_operand, dst_operand)) {
         return;
     }
-    // Keep an accelerator that explicitly supports this layout; the CPU
-    // swizzler cannot decode a nonzero block width or destination layer.
+    // The decoder supports GOB block depth and multiple Z slices. Keep
+    // nonzero block width and a destination layer offset unsupported: the
+    // software subrectangle API has no block-width or origin-Z argument.
+    // Bound both logarithmic GOB dimensions before their shifts.
     if (regs.dst_params.block_size.width != 0 ||
-        regs.dst_params.block_size.depth != 0 ||
+        regs.dst_params.block_size.depth > 5 ||
         regs.dst_params.block_size.height > 5 ||
-        regs.dst_params.layer != 0 || regs.dst_params.depth != 1) {
+        regs.dst_params.layer != 0 || regs.dst_params.depth == 0) {
         UNIMPLEMENTED_MSG("Unsupported destination block-linear DMA geometry");
         return;
     }
@@ -1171,14 +1173,18 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
     const u32 depth = dst_params.depth;
     const u32 block_height = dst_params.block_size.height;
     const u32 block_depth = dst_params.block_size.depth;
-    // The native tiled decoder uses u32 GOB extents. Compute a bounded
-    // whole-image envelope in u64 and validate the source stride first.
+    // The decoder uses u32 GOB offsets. Prove the complete padded 3D
+    // destination and the last actual source row fit 64 MiB BEFORE calling
+    // CalculateSize/SwizzleSubrect. Their Z-slice strides are full-height,
+    // even when only a subrectangle of each slice is copied.
     constexpr u64 MAX_SOFTWARE_TILED_DMA_BYTES = u64{64} << 20;
-    if (bytes_per_pixel == 0 || width == 0 || height == 0 ||
+    const u64 origin_y = dst_params.origin.y.Value();
+    const u64 lines_per_slice = origin_y < height ? height - origin_y : 0;
+    if (bytes_per_pixel == 0 || width == 0 || height == 0 || depth == 0 ||
         x_elements == 0 || regs.line_count == 0 || regs.pitch_in <= 0 ||
         x_offset > width || x_elements > width - x_offset ||
-        dst_params.origin.y.Value() > height ||
-        regs.line_count > height - dst_params.origin.y.Value() ||
+        lines_per_slice == 0 ||
+        static_cast<u64>(regs.line_count) > lines_per_slice * depth ||
         static_cast<u64>(x_elements) * bytes_per_pixel >
             static_cast<u64>(regs.pitch_in)) {
         LOG_WARNING(Render_OpenGL, "Invalid pitch-to-tiled DMA rectangle");
@@ -1188,17 +1194,26 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
     const u64 gob_height = u64{8} << block_height;
     const u64 aligned_height = (static_cast<u64>(height) + gob_height - 1) &
                                ~(gob_height - 1);
-    const u64 src_size_wide = static_cast<u64>(regs.pitch_in) * regs.line_count;
-    if (aligned_width == 0 || aligned_height == 0 ||
+    const u64 gob_depth = u64{1} << block_depth;
+    const u64 aligned_depth = (static_cast<u64>(depth) + gob_depth - 1) &
+                              ~(gob_depth - 1);
+    const u64 slices_used = 1 + (static_cast<u64>(regs.line_count) - 1) / lines_per_slice;
+    const u64 last_slice_lines = regs.line_count - (slices_used - 1) * lines_per_slice;
+    const u64 source_rows = (slices_used - 1) * height + last_slice_lines;
+    const u64 source_pitch = static_cast<u64>(regs.pitch_in);
+    if (aligned_width == 0 || aligned_height == 0 || aligned_depth == 0 ||
         aligned_width > MAX_SOFTWARE_TILED_DMA_BYTES / aligned_height ||
-        src_size_wide > MAX_SOFTWARE_TILED_DMA_BYTES) {
+        aligned_width * aligned_height > MAX_SOFTWARE_TILED_DMA_BYTES / aligned_depth ||
+        source_rows > MAX_SOFTWARE_TILED_DMA_BYTES / source_pitch) {
         LOG_WARNING(Render_OpenGL, "Oversized pitch-to-tiled DMA software transfer");
         return;
     }
+    const u64 dst_size_wide = aligned_width * aligned_height * aligned_depth;
+    const u64 src_size_wide = source_rows * source_pitch;
     const size_t dst_size =
         CalculateSize(true, bytes_per_pixel, width, height, depth, block_height, block_depth);
     const size_t src_size = static_cast<size_t>(src_size_wide);
-    if (dst_size != aligned_width * aligned_height ||
+    if (dst_size != dst_size_wide ||
         regs.offset_in > (std::numeric_limits<u64>::max)() - src_size ||
         regs.offset_out > (std::numeric_limits<u64>::max)() - dst_size ||
         !memory_manager.IsFullyMappedRange(regs.offset_in, src_size) ||

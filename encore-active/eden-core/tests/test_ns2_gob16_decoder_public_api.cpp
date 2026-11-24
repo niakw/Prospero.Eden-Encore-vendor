@@ -60,6 +60,36 @@ int main() {
         Mix(digest,back);
         ++partial_cases;
     }
+    // Maxwell pitch-to-tiled fallback uses SwizzleSubrect for 3D GOB
+    // volumes, with line_count spanning complete Z slices. The rounded
+    // depth is part of the destination size even for one logical slice.
+    for (u32 bpp : {1U, 4U, 16U}) for (u32 depth : {2U, 3U})
+    for (u32 block_depth : {0U, 1U, 2U}) {
+        constexpr u32 width=17, height=9, block_height=1;
+        const u32 pitch=width*bpp;
+        const u64 padded_width=(static_cast<u64>(pitch)+63)&~u64{63};
+        const u64 padded_height=(static_cast<u64>(height)+15)&~u64{15};
+        const u64 block_z=u64{1}<<block_depth;
+        const u64 padded_depth=(static_cast<u64>(depth)+block_z-1)&~(block_z-1);
+        const auto tiled_bytes=Tegra::Texture::CalculateSize(
+            true,bpp,width,height,depth,block_height,block_depth);
+        Check(tiled_bytes==padded_width*padded_height*padded_depth,
+              "3D DMA padded GOB envelope");
+        std::vector<u8> linear(static_cast<size_t>(pitch)*height*depth);
+        for (size_t i=0;i<linear.size();++i)
+            linear[i]=static_cast<u8>((i*23U+bpp*7U+block_depth*11U)&255U);
+        std::vector<u8> tiled(tiled_bytes,0xAA),readback(linear.size(),0);
+        Tegra::Texture::SwizzleSubrect(
+            tiled,linear,bpp,width,height,depth,0,0,width,height*depth,
+            block_height,block_depth,pitch);
+        Tegra::Texture::UnswizzleSubrect(
+            readback,tiled,bpp,width,height,depth,0,0,width,height*depth,
+            block_height,block_depth,pitch);
+        Check(readback==linear,"3D pitch-to-block-linear DMA subrect roundtrip");
+        Mix(digest,tiled);
+        Mix(digest,readback);
+        ++partial_cases;
+    }
 #ifdef EDEN_TEST_NATIVE_TILING
     // Lichii #2085 regression: a 2x2 BPP16 I2M upload differs at GOB
     // offset bits 5/6 on Switch 2. Maxwell-written bytes must NOT decode
