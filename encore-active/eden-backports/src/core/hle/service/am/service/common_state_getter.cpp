@@ -40,7 +40,7 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {12, D<&ICommonStateGetter::ReleaseSleepLockTransiently>, "ReleaseSleepLockTransiently"},
         {13, D<&ICommonStateGetter::GetAcquiredSleepLockEvent>, "GetAcquiredSleepLockEvent"},
         {14, nullptr, "GetWakeupCount"}, //11.0.0+
-        {15, nullptr, "Unknown15"}, //19.0.0+
+        {15, D<&ICommonStateGetter::Unknown15>, "Unknown15"}, //19.0.0+
         {20, D<&ICommonStateGetter::PushToGeneralChannel>, "PushToGeneralChannel"},
         {30, D<&ICommonStateGetter::GetHomeButtonReaderLockAccessor>, "GetHomeButtonReaderLockAccessor"},
         {31, D<&ICommonStateGetter::GetReaderLockAccessorEx>, "GetReaderLockAccessorEx"}, //2.0.0+
@@ -100,6 +100,12 @@ void ICommonStateGetter::RejectUnavailableFeature(HLERequestContext& ctx) {
     LOG_WARNING(Service_AM, "AM feature unavailable in Encore runtime");
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultUnknown);
+}
+
+Result ICommonStateGetter::Unknown15(OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    LOG_DEBUG(Service_AM, "called, HOS19+ event semantics not yet identified");
+    *out_event = m_applet->unknown_event.GetHandle();
+    R_SUCCEED();
 }
 
 Result ICommonStateGetter::GetEventHandle(OutCopyHandle<Kernel::KReadableEvent> out_event) {

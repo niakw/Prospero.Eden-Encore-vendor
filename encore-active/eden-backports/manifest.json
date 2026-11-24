@@ -581,9 +581,14 @@
       "upstream": "ecb599a464a9ecc1d202cd60faed6f81262569f7816d5a342923a02ab993737f"
     },
     "src/core/hle/service/am/service/common_state_getter.cpp": {
-      "active": "2a0af6040d69ac57de773edf8749b7d59101a32a032bde6e5ca9a91b0342f081",
-      "bytes": 23322,
+      "active": "1500ee6e4df1c5c66c0c87f2ca060781cde099351f98be952db54d907049e0b5",
+      "bytes": 23590,
       "upstream": "16abb5f4185ddc4956771630a987f1d6e8fcb02fe6f4c12d888a1f2be5801484"
+    },
+    "src/core/hle/service/am/service/common_state_getter.h": {
+      "active": "1d157f8f7e2917c1cd959b2b5110514a1ab9210326b3db89289f8b37ea9f17e3",
+      "bytes": 4729,
+      "upstream": "0c1483f111e306fa6038cf5adc0f86538901bf694a9b546817ae5812cbb2d07e"
     }
   },
   "excluded_experimental": [
