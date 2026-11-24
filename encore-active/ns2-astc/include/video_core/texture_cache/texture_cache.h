@@ -458,7 +458,19 @@ SamplerId TextureCache<P>::GetSamplerId(u32 index, bool compute) {
         channel_state->sampler_ids.insert_or_assign(map_index, id);
         return id;
     }
+#ifdef PS5_NATIVE
+    // A descriptor table can retain its bytes after a channel map entry
+    // is evicted/rebuilt. Never dereference a missing sampler mapping.
+    const auto it = channel_state->sampler_ids.find(map_index);
+    if (it == channel_state->sampler_ids.end()) {
+        const auto id = FindSampler(descriptor, compute);
+        channel_state->sampler_ids.insert_or_assign(map_index, id);
+        return id;
+    }
+    return it->second;
+#else
     return channel_state->sampler_ids.find(map_index)->second;
+#endif
 }
 
 template <class P>
@@ -907,9 +919,9 @@ ImageViewId TextureCache<P>::VisitImageView(u32 index, bool compute) {
             is_remapped_view(pair->second))
             pair->second = CreateImageView(descriptor);
         PrepareImageView(pair->second, false, false);
-        // CheckFeedbackLoop caches barrier decisions by this serial. Reviving
-        // an image without rewriting its TIC must invalidate that decision.
-        if (pair->second != NULL_IMAGE_VIEW_ID)
+        // Publish both valid->NULL and NULL->valid generation transitions.
+        // A failed reconstruction also retires the previously bound view.
+        if (pair->second != NULL_IMAGE_VIEW_ID || remapped_cached_view)
             ++texture_bindings_serial;
         channel_state->image_view_ids.insert_or_assign(map_index, pair->second);
         return pair->second;
@@ -3865,6 +3877,13 @@ void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
 
 template <class P>
 void TextureCache<P>::RemoveImageViewReferences(std::span<const ImageViewId> removed_views) {
+#ifdef PS5_NATIVE
+    // Images created and retired without any view cannot be in a channel's
+    // descriptor-to-view map. Avoid scanning every channel on that path.
+    if (removed_views.empty()) {
+        return;
+    }
+#endif
     for (size_t c : active_channel_ids) {
         auto& channel_info = channel_storage[c];
         auto it = channel_info.image_views.begin();
@@ -3881,6 +3900,13 @@ void TextureCache<P>::RemoveImageViewReferences(std::span<const ImageViewId> rem
 
 template <class P>
 void TextureCache<P>::RemoveFramebuffers(std::span<const ImageViewId> removed_views) {
+#ifdef PS5_NATIVE
+    // No framebuffer can contain an absent view. Do not flush deferred
+    // clears belonging to other render targets or scan the framebuffer map.
+    if (removed_views.empty()) {
+        return;
+    }
+#endif
     runtime.FlushDeferredClear();
     auto it = framebuffers.begin();
     while (it != framebuffers.end()) {
