@@ -1525,7 +1525,7 @@ public:
             {102, &ACC_SU::GetBaasAccountManagerForSystemService, "GetBaasAccountManagerForSystemService"},
             {103, nullptr, "GetBaasUserAvailabilityChangeNotifier"},
             {104, nullptr, "GetProfileUpdateNotifier"},
-            {105, nullptr, "CheckNetworkServiceAvailabilityAsync"},
+            {105, &ACC_SU::RejectUnavailableNintendoAccount, "CheckNetworkServiceAvailabilityAsync"},
             {106, nullptr, "GetProfileSyncNotifier"},
             {110, &ACC_SU::StoreSaveDataThumbnailSystem, "StoreSaveDataThumbnail"},
             {111, &ACC_SU::ClearSaveDataThumbnail, "ClearSaveDataThumbnail"},
@@ -1534,9 +1534,9 @@ public:
             {120, nullptr, "ListOpenUsersInApplication"},
             {130, nullptr, "ActivateOpenContextRetention"},
             {140, &ACC_SU::ListQualifiedUsers, "ListQualifiedUsers"},
-            {150, nullptr, "AuthenticateApplicationAsync"},
-            {151, nullptr, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
-            {152, nullptr, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
+            {150, &ACC_SU::RejectUnavailableNintendoAccount, "AuthenticateApplicationAsync"},
+            {151, &ACC_SU::RejectUnavailableNintendoAccount, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
+            {152, &ACC_SU::RejectUnavailableNintendoAccount, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
             {190, nullptr, "GetUserLastOpenedApplication"},
             {191, nullptr, "ActivateOpenContextHolder"},
             {200, &ACC_SU::BeginUserRegistration, "BeginUserRegistration"},
@@ -1546,14 +1546,14 @@ public:
             {204, &ACC_SU::SetUserPosition, "SetUserPosition"},
             {205, &ACC_SU::GetProfileEditor, "GetProfileEditor"},
             {206, &ACC_SU::CompleteUserRegistrationForcibly, "CompleteUserRegistrationForcibly"},
-            {210, nullptr, "CreateFloatingRegistrationRequest"},
-            {211, nullptr, "CreateProcedureToRegisterUserWithNintendoAccount"},
-            {212, nullptr, "ResumeProcedureToRegisterUserWithNintendoAccount"},
-            {230, nullptr, "AuthenticateServiceAsync"},
+            {210, &ACC_SU::RejectUnavailableNintendoAccount, "CreateFloatingRegistrationRequest"},
+            {211, &ACC_SU::RejectUnavailableNintendoAccount, "CreateProcedureToRegisterUserWithNintendoAccount"},
+            {212, &ACC_SU::RejectUnavailableNintendoAccount, "ResumeProcedureToRegisterUserWithNintendoAccount"},
+            {230, &ACC_SU::RejectUnavailableNintendoAccount, "AuthenticateServiceAsync"},
             {250, &ACC_SU::GetBaasAccountAdministrator, "GetBaasAccountAdministrator"},
-            {290, nullptr, "ProxyProcedureForGuestLoginWithNintendoAccount"},
-            {291, nullptr, "ProxyProcedureForFloatingRegistrationWithNintendoAccount"},
-            {299, nullptr, "SuspendBackgroundDaemon"},
+            {290, &ACC_SU::RejectUnavailableNintendoAccount, "ProxyProcedureForGuestLoginWithNintendoAccount"},
+            {291, &ACC_SU::RejectUnavailableNintendoAccount, "ProxyProcedureForFloatingRegistrationWithNintendoAccount"},
+            {299, &ACC_SU::RejectUnavailableNintendoAccount, "SuspendBackgroundDaemon"},
             {400, nullptr, "SetPinCode"}, // 18.0.0+
             {401, &ACC_SU::GetPinCodeLength, "GetPinCodeLength"}, // 18.0.0+
             {402, nullptr, "GetPinCode"}, // 18.0.0+
@@ -1576,6 +1576,12 @@ public:
         RegisterHandlers(functions);
     }
 private:
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_DEBUG(Service_ACC, "Rejected acc:su Nintendo Account/auth backend operation");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
     void RejectDebugOnlyCommand(HLERequestContext& ctx) {
         LOG_WARNING(Service_ACC, "Rejected unsupported acc:su debug-only command");
         IPC::ResponseBuilder rb{ctx, 2};
