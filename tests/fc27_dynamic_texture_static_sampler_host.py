@@ -50,6 +50,16 @@ assert gfx_blob in {"efa8fd4d73c111655fced67fe7dd1e6b7c0178ba","526aa16b22ba3918
 cmp_blob=blob(CMP)
 assert cmp_blob in {"7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2","7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600","bb9552866e26e502839eed646be9af6ea0a0db0a"} 
 cache_blob=blob(CACHE)
+if cache_blob == "fc537323bb9f63d70ef5f8cedd65886e6a0099c0":
+    guarded = CACHE.read_text()
+    drain_guard = "        // QueueWork and pool allocation may throw after earlier tasks borrowed\n        // these locals. Drain before unwinding, without stopping persistent workers.\n        struct TranslationDrain {\n            Common::ThreadWorker& worker;\n            bool joined{};\n            ~TranslationDrain() {\n                if (!joined) worker.WaitForRequests();\n            }\n        } translation_drain{shader_translation_workers};\n"
+    joined = "        translation_drain.joined = true;\n"
+    assert guarded.count(drain_guard) == guarded.count(joined) == 1
+    assert guarded.index(drain_guard) < guarded.index("size_t parallel_env_index{};")
+    assert guarded.index(joined) > guarded.index("shader_translation_workers.WaitForRequests();", guarded.index(drain_guard))
+    predecessor = guarded.replace(drain_guard, "", 1).replace(joined, "", 1).encode("utf-8")
+    cache_blob = hashlib.sha1(b"blob " + str(len(predecessor)).encode() + bytes([0]) + predecessor).hexdigest()
+    assert cache_blob == "ad07512d129667a617b49b448d898c5756c99025", cache_blob
 if cache_blob in {"52470b6160f6049801d963960adf6952c79a45cf",
                   "b28a190e92ca80b0385148a0b558828353326f12",
                   "d222fb5565cdf8db30c6d3d464f107ff26a042c8",

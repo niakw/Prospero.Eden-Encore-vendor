@@ -2020,6 +2020,15 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     }
 
     if (parallel_translate_stages) {
+        // QueueWork and pool allocation may throw after earlier tasks borrowed
+        // these locals. Drain before unwinding, without stopping persistent workers.
+        struct TranslationDrain {
+            Common::ThreadWorker& worker;
+            bool joined{};
+            ~TranslationDrain() {
+                if (!joined) worker.WaitForRequests();
+            }
+        } translation_drain{shader_translation_workers};
         size_t parallel_env_index{};
         for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
             if (key.unique_hashes[index] == 0) {
@@ -2102,6 +2111,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
         // host snapshots plus each environment's already-copied shader code;
         // no worker traverses the live GMMU/PTE table.
         shader_translation_workers.WaitForRequests();
+        translation_drain.joined = true;
         if (auto* const owner_stage_costs =
                 ::Eden::Performance::shader_miss_stage_active) {
             for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
