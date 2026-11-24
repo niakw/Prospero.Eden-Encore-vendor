@@ -675,7 +675,19 @@ for body in (health_info,health):
     assert "return NvResult::InvalidState;" in body
 assert "params = native_error_info;" in health_info
 assert "params = native_error_notification;" in health
-assert "params.status = 0xFFFF;" not in health
+# OunceVK checks only H:0x17 status for channel health. A title-wide fatal
+# GPU latch therefore maps to NVIDIA's generic robust-channel ERROR status,
+# without fabricating a firmware-specific info32/type classification.
+for token in ("::Eden::PeekGpuFailure()",
+              "constexpr u16 RobustChannelErrorStatus = 0xFFFF;",
+              "native_error_notification.status = RobustChannelErrorStatus;",
+              "error_notifier_event->Signal(system.Kernel());"):
+    assert token in health,token
+assert health.index("::Eden::PeekGpuFailure()") < health.index(
+    "native_error_notification.status = RobustChannelErrorStatus;") < health.index(
+    "params = native_error_notification;")
+assert "native_error_notification.info32 =" not in health
+assert "native_error_info.type =" not in health
 assert "memory.ReadBlock" not in health
 
 # Switch 2 channel preemption-mode ioctl (SwitchBrew 0xC008481F).

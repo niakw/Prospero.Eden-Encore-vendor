@@ -667,8 +667,22 @@ NvResult nvhost_gpu::GetErrorNotification(IoctlGetErrorNotification& params, Dev
     if (!native_error_notifier_initialized)
         return NvResult::InvalidState;
 
-    // Return the stored snapshot verbatim. A freshly configured healthy
-    // channel must report zero status before the first GPFIFO submission.
+    // OunceVK's native completion path reads H:0x17 directly after the
+    // producer counter/marker join and treats any non-zero status as fatal.
+    // Encore's GPU failure latch is title-wide: once the GPU worker/backend
+    // has failed, no channel can make further progress. NVIDIA's robust
+    // channel notifier defines 0xFFFF as the generic ERROR status. Do not
+    // invent an info32 firmware error type until a channel-specific cause is
+    // available; report only the proven health bit and keep the snapshot
+    // latched until SetErrorNotifier resets it or the title is destroyed.
+#ifdef PS5_NATIVE
+    if (::Eden::PeekGpuFailure() &&
+        static_cast<u16>(native_error_notification.status) == 0) {
+        constexpr u16 RobustChannelErrorStatus = 0xFFFF;
+        native_error_notification.status = RobustChannelErrorStatus;
+        error_notifier_event->Signal(system.Kernel());
+    }
+#endif
     params = native_error_notification;
     return NvResult::Success;
 }
