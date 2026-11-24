@@ -949,11 +949,15 @@ NvResult nvhost_as_gpu::ReleaseNativeSparse4K(u64 address, u64 size) {
     }
     try {
         gmmu->Unmap(address, size);
+        // FlatAllocator::Free can split a coalesced block and allocate.
+        // Keep every pin and both ledgers until VA retirement succeeds.
+        vm.small_page_allocator->Free(static_cast<u32>(address >> VM::PAGE_SIZE_BITS),
+                                      static_cast<u32>(size >> VM::PAGE_SIZE_BITS));
     } catch (const std::bad_alloc&) {
-        // Do not release a mapping-table pin if the GPU VA may still
-        // contain old PTEs. Quarantine this AS for safe teardown.
+        // GMMU or VA retirement may be partial. Quarantine instead of
+        // publishing a retryable pre-mutation failure or dropping backing.
         native_sparse_poisoned = true;
-        return NvResult::InsufficientMemory;
+        return NvResult::InvalidState;
     }
     native_sparse_mappings = std::move(updated);
     for (auto it = native_sparse_pins.begin(); it != native_sparse_pins.end();) {
@@ -961,8 +965,6 @@ NvResult nvhost_as_gpu::ReleaseNativeSparse4K(u64 address, u64 size) {
         nvmap.UnpinHandle(it->first);
         it = native_sparse_pins.erase(it);
     }
-    vm.small_page_allocator->Free(static_cast<u32>(address >> VM::PAGE_SIZE_BITS),
-                                  static_cast<u32>(size >> VM::PAGE_SIZE_BITS));
     allocation_map.erase(allocation);
     native_sparse_regions.erase(owned);
     return NvResult::Success;
@@ -981,11 +983,23 @@ NvResult nvhost_as_gpu::UnmapNative4K(u64 address, u64 size) {
         reservation == allocation_map.end() || mapping->second.size != size ||
         reservation->second.size != size || reservation->second.page_size != page ||
         reservation->second.mappings.size() != 1 ||
-        reservation->second.mappings[0] != address || reservation->second.sparse)
+        reservation->second.mappings[0] != address || reservation->second.sparse ||
+        !mapping->second.fixed || mapping->second.sparse_alloc)
         return NvResult::BadParameter;
-    if (!FreeMappingLocked(address)) return NvResult::BadValue;
-    vm.small_page_allocator->Free(static_cast<u32>(address >> VM::PAGE_SIZE_BITS),
-                                  static_cast<u32>(size >> VM::PAGE_SIZE_BITS));
+    // This exact native 4K reservation owns both the PTEs and the VA.
+    // FreeMappingLocked would drop the fixed mapping's pin before the
+    // fallible allocator Free below. Retire both before publishing either
+    // ledger removal or releasing the pin.
+    try {
+        gmmu->Unmap(address, size);
+        vm.small_page_allocator->Free(static_cast<u32>(address >> VM::PAGE_SIZE_BITS),
+                                      static_cast<u32>(size >> VM::PAGE_SIZE_BITS));
+    } catch (const std::bad_alloc&) {
+        native_sparse_poisoned = true;
+        return NvResult::InvalidState;
+    }
+    nvmap.UnpinHandle(mapping->second.handle);
+    mapping_map.erase(mapping);
     allocation_map.erase(reservation);
     map_buffer_offsets.erase(static_cast<s64>(address));
     return NvResult::Success;
