@@ -22,13 +22,13 @@ public:
     explicit INotifyService(Core::System& system_) : ServiceFramework{system_, "pdm:ntfy"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            { 0, nullptr, "NotifyAppletEvent" },
-            { 2, nullptr, "NotifyOperationModeChangeEvent" },
-            { 3, nullptr, "NotifyPowerStateChangeEvent" },
-            { 4, nullptr, "NotifyClearAllEvent" },
+            { 0, &INotifyService::AcceptLocalPlayLogNotification, "NotifyAppletEvent" },
+            { 2, &INotifyService::AcceptLocalPlayLogNotification, "NotifyOperationModeChangeEvent" },
+            { 3, &INotifyService::AcceptLocalPlayLogNotification, "NotifyPowerStateChangeEvent" },
+            { 4, &INotifyService::AcceptLocalPlayLogNotification, "NotifyClearAllEvent" },
             { 5, &INotifyService::UnsupportedDebugCommand, "NotifyEventForDebug" },
-            { 6, nullptr, "SuspendUserAccountEventService" },
-            { 7, nullptr, "ResumeUserAccountEventService" },
+            { 6, &INotifyService::AcceptLocalPlayLogNotification, "SuspendUserAccountEventService" },
+            { 7, &INotifyService::AcceptLocalPlayLogNotification, "ResumeUserAccountEventService" },
             { 8, nullptr, "NotifyLibraryAppletEvent" },
             { 9, nullptr, "Cmd9" },
             { 20, nullptr, "Cmd20" },
@@ -41,6 +41,14 @@ public:
     }
 
 private:
+    void AcceptLocalPlayLogNotification(HLERequestContext& ctx) {
+        // Encore does not persist Horizon PDM play-log records. These notifications have
+        // no guest-visible payload, so acknowledge them locally without fabricating history.
+        LOG_DEBUG(Service_NS, "pdm:ntfy notification accepted locally; play-log backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
     void UnsupportedDebugCommand(HLERequestContext& ctx) {
         LOG_WARNING(Service_NS, "pdm:ntfy debug notification is not supported");
         IPC::ResponseBuilder rb{ctx, 2};
