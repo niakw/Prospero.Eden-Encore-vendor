@@ -118,8 +118,11 @@ private:
         LOG_DEBUG(Service_NS, "called");
         R_SUCCEED();
     }
-    Result GetErrorContext() {
+    Result GetErrorContext(OutBuffer<BufferAttr_HipcMapAlias> out_error_context) {
         LOG_DEBUG(Service_NS, "called");
+        // nn::err::ErrorContext is 0x200 bytes. This AsyncValue is already complete
+        // and successful, so ErrorContextType_None + ResultSuccess is all-zero.
+        std::memset(out_error_context.data(), 0, out_error_context.size());
         R_SUCCEED();
     }
     KernelHelpers::ServiceContext service_context;

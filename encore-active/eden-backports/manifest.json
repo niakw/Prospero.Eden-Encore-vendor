@@ -241,8 +241,8 @@
       "upstream": "0f937e715ef2fbac9783e7b4e46003bade0eb1cf03ab33e78eac4256a6328f88"
     },
     "src/core/hle/service/ns/read_only_application_control_data_interface.cpp": {
-      "active": "0a73933430027f51d31555b7650084c1fed0afe55f32e25b18c9be366c9b4939",
-      "bytes": 20564,
+      "active": "55751d44ad4f50614fd2e2e852d996012fb4051417f9a1f614783fa7fb826a98",
+      "bytes": 20858,
       "upstream": "2593dc1e247f9d317a46539845eacc6f3c2d6adfafd4a6350e643b094a082dfa"
     },
     "src/core/hle/service/nvdrv/devices/nvmap.cpp": {
