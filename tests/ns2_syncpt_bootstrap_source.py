@@ -469,6 +469,19 @@ assert "syncpoint, value, wait->wide," in slot_owner
 assert "GetNativeGuestSyncpointValue(syncpoint)" in slot_owner
 assert "GetNativeGuestSyncpointValue(id)" in mirror
 
+# GSV producer completion follows Host1x retirement, not the command-parser
+# guest/max-like edge. OunceVK joins this counter with a GPU-written marker.
+sync_owner=(R/"encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp").read_text()
+guest_inc=sync_owner.split("void SyncpointManager::IncrementGuest(u32 id) {",1)[1].split("\n}",1)[0]
+host_inc=sync_owner.split("void SyncpointManager::IncrementHost(u32 id) {",1)[1].split("\n}",1)[0]
+assert "guest_action_storage[id]);" in guest_inc
+assert "guest_action_storage[id], id)" not in guest_inc
+assert "host_action_storage[id], id)" in host_inc
+video=(R/"encore-active/ns2-runtime/video_decoder/core/hle/service/am/service/graphics_video_decoder_session.cpp").read_text()
+video_publish=video.split("m_available.erase(ready);",1)[1].split("m_ready->SetRoom",1)[0]
+assert video_publish.index("syncpoints.IncrementGuest(m_syncpoint);") < video_publish.index(
+    "syncpoints.IncrementHost(m_syncpoint);")
+
 # libounce gsvOpenSync: one living child per authenticated root.
 syncpt_open=cpp.split("void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
 assert "std::weak_ptr<ServiceFrameworkBase> m_syncpt_session;" in hdr

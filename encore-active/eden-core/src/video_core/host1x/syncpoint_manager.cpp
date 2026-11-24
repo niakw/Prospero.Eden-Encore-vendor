@@ -82,7 +82,12 @@ void SyncpointManager::IncrementGuest(u32 id) {
         LOG_ERROR(HW_GPU, "Ignoring increment of invalid syncpoint {:#x}", id);
         return;
     }
-    Increment(syncpoints_guest[id], wait_guest_cv, guest_action_storage[id], id);
+    // Legacy guest/max-like progress is visible as soon as the command
+    // processor reaches the increment. Native NS2 completion must not be
+    // published here: the Vulkan work preceding this increment may still be
+    // in flight, and OunceVK treats an reached producer counter with a stale
+    // GPU marker as a fatal completion mismatch.
+    Increment(syncpoints_guest[id], wait_guest_cv, guest_action_storage[id]);
 }
 void SyncpointManager::SetGuestMirror(GuestMirror mirror) {
     std::scoped_lock lk(guard);
@@ -90,7 +95,10 @@ void SyncpointManager::SetGuestMirror(GuestMirror mirror) {
 }
 void SyncpointManager::IncrementHost(u32 id) {
     if (id >= NUM_MAX_SYNCPOINTS) return;
-    Increment(syncpoints_host[id], wait_host_cv, host_action_storage[id]);
+    // The host counter retires only behind the renderer fence. Drive the
+    // native 64-bit producer count, transfer-memory mirror and GSV actions
+    // from this completed value so producer target + GPU marker stay ordered.
+    Increment(syncpoints_host[id], wait_host_cv, host_action_storage[id], id);
 }
 void SyncpointManager::WaitGuest(u32 id, u32 expected) {
     if (id >= NUM_MAX_SYNCPOINTS) return;
