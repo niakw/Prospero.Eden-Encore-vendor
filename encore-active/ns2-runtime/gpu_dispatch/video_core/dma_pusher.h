@@ -152,6 +152,10 @@ public:
                (!dma_pushbuffer.empty() && dma_pushbuffer.front().native_syncpoint_wait.has_value());
     }
     [[nodiscard]] bool ResumeNativeAcquire();
+    // Fatal native GPU decode/retirement errors share one path: on PS5 it
+    // latches the process-wide cause, wakes this channel's H:17 event, then
+    // rethrows. Host builds retain the same fail-closed exception semantics.
+    [[noreturn]] void FailNativeSubmission(const char* message);
 
     void BindSubchannel(Engines::EngineInterface* engine, u32 subchannel_id, Engines::EngineTypes engine_type) {
         subchannels[subchannel_id] = engine;
@@ -165,9 +169,6 @@ private:
     static constexpr u32 max_subchannels = 8;
     bool Step();
     void ProcessCommands(std::span<const CommandHeader> commands);
-#ifdef PS5_NATIVE
-    [[noreturn]] void FailNativeSubmission(const char* message);
-#endif
     // This header is only selected for the authenticated native NS2 source
     // graph. The cursor is an ABI field in BOTH core and video_core, even
     // when their individual TUs do not define PS5_NATIVE.

@@ -1349,3 +1349,35 @@ for reason in (
 ):
     assert f'FailNativeSubmission("{reason}")' in dma_cpp, reason
 assert 'throw std::runtime_error("Native GPFIFO' not in dma_cpp
+
+# Puller/Ampere/QMD synchronous GPU failures use the same channel-aware fatal
+# path. The only direct throws left are inside three deferred fence callbacks;
+# those catches latch first and then signal the captured ChannelState.
+puller_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
+for reason in (
+    "Native GPFIFO SET_OBJECT class unsupported",
+    "Native GPFIFO FENCE_ACTION acquire unsupported",
+    "Native GPFIFO syncpoint has no strict renderer fence",
+    "Ampere SEM_EXECUTE: unmapped acquire address",
+    "Ampere SEM_EXECUTE: parked acquire channel epoch retired",
+    "Native GPFIFO puller method unsupported",
+    "Native Ampere 3D macro channel unavailable",
+    "Native Ampere Compute macro channel unavailable",
+    "Native inline QMD destination unmapped",
+    "Native Compute report semaphore invalid",
+    "Native QMD3 dispatch was not executed",
+    "Native Ampere Compute multiword payload invalid",
+):
+    assert f'FailNativeSubmission("{reason}")' in puller_cpp.replace("dma_pusher.", "").replace("pusher.", ""), reason
+assert "pusher.FailNativeSubmission(why);" in puller_cpp
+assert "pusher.FailNativeSubmission(reason);" in puller_cpp
+assert puller_cpp.count("throw std::runtime_error") == 3
+for reason in (
+    "Ampere SEM_EXECUTE: release backing changed after GPU submit",
+    "Native Compute reduction backing revoked after GPU submission",
+    "Native QMD3 release backing revoked after GPU submission",
+):
+    assert reason in puller_cpp
+assert puller_cpp.count("Eden::RecordGpuFailure(failure);") >= 3
+assert puller_cpp.count(".ReportFault(channel);") >= 3
+assert "void FailNativeSubmission(const char* message);" in dma_h

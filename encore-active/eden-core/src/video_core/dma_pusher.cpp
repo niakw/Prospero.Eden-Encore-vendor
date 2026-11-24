@@ -6,9 +6,9 @@
 // SPDX-FileCopyrightText: Copyright 2021 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <stdexcept>
 #ifdef PS5_NATIVE
 #include "gpu_failure.h"
-#include <stdexcept>
 #endif
 #include "common/logging.h"
 #include "common/settings.h"
@@ -107,14 +107,16 @@ void DmaPusher::DispatchCalls() {
     system.GPU().OnCommandListEnd();
 }
 
-#ifdef PS5_NATIVE
 [[noreturn]] void DmaPusher::FailNativeSubmission(const char* message) {
+#ifdef PS5_NATIVE
     const auto error = std::make_exception_ptr(std::runtime_error(message));
     ::Eden::RecordGpuFailure(error);
     Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().ReportFault(&channel_state);
     std::rethrow_exception(error);
-}
+#else
+    throw std::runtime_error(message);
 #endif
+}
 
 bool DmaPusher::Step() {
     if (!ib_enable || dma_pushbuffer.empty()) {
