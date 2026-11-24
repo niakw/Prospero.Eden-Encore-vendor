@@ -8,6 +8,7 @@
 #include "core/frontend/applets/error.h"
 #include "core/reporter.h"
 #include "core/core_timing.h"
+#include "core/file_sys/common_funcs.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/registered_cache.h"
@@ -102,7 +103,8 @@ ILibraryAppletSelfAccessor::ILibraryAppletSelfAccessor(Core::System& system_,
         {60, D<&ILibraryAppletSelfAccessor::GetMainAppletApplicationDesiredLanguage>, "GetMainAppletApplicationDesiredLanguage"},
         {70, D<&ILibraryAppletSelfAccessor::GetCurrentApplicationId>, "GetCurrentApplicationId"},
         {80, D<&ILibraryAppletSelfAccessor::RequestExitToSelf>, "RequestExitToSelf"},
-        {90, nullptr, "CreateApplicationAndPushAndRequestToLaunch"},
+        {90, D<&ILibraryAppletSelfAccessor::CreateApplicationAndPushAndRequestToLaunch>,
+         "CreateApplicationAndPushAndRequestToLaunch"},
         {100, D<&ILibraryAppletSelfAccessor::RejectUnavailableGameMovieTrimmer>,
          "CreateGameMovieTrimmer"},
         {101, D<&ILibraryAppletSelfAccessor::ReserveResourceForMovieOperation>, "ReserveResourceForMovieOperation"},
@@ -412,6 +414,40 @@ Result ILibraryAppletSelfAccessor::RequestExitToSelf() {
     if (m_applet->frontend) {
         m_applet->frontend->RequestExit();
     }
+    R_SUCCEED();
+}
+
+Result ILibraryAppletSelfAccessor::CreateApplicationAndPushAndRequestToLaunch(
+    u64 application_id, SharedPointer<IStorage> storage) {
+    R_UNLESS(storage != nullptr, ResultUnknown);
+
+    const auto main_applet = GetMainApplet(system);
+    R_UNLESS(main_applet != nullptr, AM::ResultApplicationRecordNotFound);
+
+    u64 current_program_id{};
+    {
+        std::scoped_lock lk{main_applet->lock};
+        current_program_id = main_applet->program_id;
+    }
+
+    const u64 base_application_id = FileSys::GetBaseTitleID(current_program_id);
+    R_UNLESS(application_id == 0 ||
+                 FileSys::GetBaseTitleID(application_id) == base_application_id,
+             ResultUnknown);
+
+    const std::size_t program_index =
+        application_id == 0 ? 0 : static_cast<std::size_t>(application_id - base_application_id);
+
+    auto next_user_channel = m_applet->user_channel_launch_parameter;
+    next_user_channel.push_back(storage->GetData());
+    system.GetUserChannel() = std::move(next_user_channel);
+
+    LOG_INFO(Service_AM,
+             "requesting application launch, application_id={:016X}, base_id={:016X}, "
+             "program_index={}, user_channel_entries={}",
+             application_id, base_application_id, program_index, system.GetUserChannel().size());
+
+    system.ExecuteProgram(program_index);
     R_SUCCEED();
 }
 

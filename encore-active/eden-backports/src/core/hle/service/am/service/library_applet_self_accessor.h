@@ -84,6 +84,8 @@ private:
     Result GetMainAppletApplicationDesiredLanguage(Out<u64> out_desired_language);
     Result GetCurrentApplicationId(Out<u64> out_application_id);
     Result RequestExitToSelf();
+    Result CreateApplicationAndPushAndRequestToLaunch(u64 application_id,
+                                                       SharedPointer<IStorage> storage);
     Result ReserveResourceForMovieOperation();
     Result UnreserveResourceForMovieOperation();
     Result GetMainAppletAvailableUsers(Out<bool> out_can_select_any_user, Out<s32> out_users_count,
