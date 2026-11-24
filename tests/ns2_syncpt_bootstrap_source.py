@@ -445,3 +445,11 @@ assert "DecodeSyncptSlotCount(packet)" in slots
 assert "m_events.begin() + *count" in slots
 assert "m_configured_slots = *count;" in slots
 assert "if (slot >= m_configured_slots) return nullptr;" in cpp
+
+# Retain transfer objects for the full lifetime of weak async mirror callbacks.
+mirror = cpp.split("struct NativeSyncptState :",1)[1].split("class IVi2Session",1)[0]
+assert "rw.GetPointerUnsafe() == ro.GetPointerUnsafe()" in mirror
+assert mirror.index("rw_backing->Open(system.Kernel())") < mirror.index("ro_backing->Open(system.Kernel())") < mirror.index("transfer_backings = {rw_backing, ro_backing}") < mirror.index("memory = &ro->GetOwner()->GetMemory()")
+assert "rw_backing->Close(system.Kernel())" in mirror
+assert "for (auto* backing : transfer_backings) if (backing) backing->Close(system.Kernel());" in mirror
+assert "if (memory) system.Host1x().GetSyncpointManager().SetGuestMirror({});" in mirror

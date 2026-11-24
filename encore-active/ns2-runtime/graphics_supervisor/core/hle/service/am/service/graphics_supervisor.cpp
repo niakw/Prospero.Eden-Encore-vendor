@@ -409,10 +409,12 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
     ~NativeSyncptState() {
         Shutdown();
         for (auto* event : events) if (event) context.CloseEvent(event);
+        // Weak callbacks retain this state while touching the guest pages.
+        for (auto* backing : transfer_backings) if (backing) backing->Close(system.Kernel());
     }
     void Shutdown() {
         if (stopped.exchange(true, std::memory_order_acq_rel)) return;
-        system.Host1x().GetSyncpointManager().SetGuestMirror({});
+        if (memory) system.Host1x().GetSyncpointManager().SetGuestMirror({});
         if (poll) {
             system.CoreTiming().UnscheduleEvent(poll);
             poll.reset();
@@ -444,6 +446,7 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
         auto rw = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(ctx.GetCopyHandle(0));
         auto ro = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(ctx.GetCopyHandle(1));
         if (rw.IsNull() || ro.IsNull() || rw->GetOwner() != process || ro->GetOwner() != process ||
+            rw.GetPointerUnsafe() == ro.GetPointerUnsafe() ||
             rw->GetSize() < 0x1000 || ro->GetSize() < 0x2000) {
             IPC::ResponseBuilder rb{ctx, 2};
             rb.Push(Kernel::ResultInvalidHandle.raw);
@@ -459,6 +462,22 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
             rb.Push(Kernel::ResultInvalidState.raw);
             return;
         }
+        // Keep the actual transfer objects and page locks until the final
+        // asynchronous owner releases this state, not just for this IPC.
+        auto* rw_backing = rw.GetPointerUnsafe();
+        auto* ro_backing = ro.GetPointerUnsafe();
+        if (!rw_backing->Open(system.Kernel())) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidState.raw);
+            return;
+        }
+        if (!ro_backing->Open(system.Kernel())) {
+            rw_backing->Close(system.Kernel());
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidState.raw);
+            return;
+        }
+        transfer_backings = {rw_backing, ro_backing};
         const u32 requested = w[data + 1];
         count = std::min<u32>(requested, (0x1000 - 0x40) / 8);
         memory = &ro->GetOwner()->GetMemory();
@@ -544,6 +563,7 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
     Kernel::KProcess* process;
     KernelHelpers::ServiceContext context;
     std::array<Kernel::KEvent*,2> events{};
+    std::array<Kernel::KTransferMemory*,2> transfer_backings{};
     Core::Memory::Memory* memory{};
     u64 rw_address{};
     u64 ro_address{};
@@ -2152,7 +2172,7 @@ void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {
 }
 
 void IGraphicsSupervisor::AttachSyncptMemory(HLERequestContext& ctx) {
-    if (!m_syncpt) {
+    if (!m_syncpt || m_bootstrap.CurrentPhase() != GB::Phase::Ready) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(Kernel::ResultInvalidState.raw);
         return;
