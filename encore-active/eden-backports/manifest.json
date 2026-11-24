@@ -151,14 +151,14 @@
       "upstream": "f57bc1a19ca97805bb0a525c2d0eff2ce8c65b192c7643add3583d28726bbe72"
     },
     "src/core/hle/service/am/service/window_controller.cpp": {
-      "active": "f684bf3cec74cfcf9fca38cc3ea9012ec4b8987afbe50350e871516490282060",
+      "active": "350cef955b1302179d780fbf4c0b2af597fc3ec35716bb8b788144ac482c20f4",
       "bytes": 3356,
-      "upstream": "f6d3e5c7d07535acb795cb882c73771d1fb2b21ea5851df31d15aaf94f948a1a"
+      "upstream": "24d4ec8343dcb3f549c247216b5455fc4278facf75b65b6d1e4731fb7c5ad930"
     },
     "src/core/hle/service/am/service/window_controller.h": {
-      "active": "530cead7a12a851b9257b722adde35d59dad693bcb939c6eeff0758114871c9e",
+      "active": "6f8152c0467597651d5f93df164e477bda13158f7e146430b0c4c09251943c8f",
       "bytes": 1083,
-      "upstream": "b3f05dab381a79fe96f27bd69b0ab47ce69ab59fe148ef495b5c00adf3778322"
+      "upstream": "d46d2e325813441f40c9fcb2e5f048f96908d9893d309e407b9403bcaa6de07c"
     },
     "src/core/hle/service/audio/audio.cpp": {
       "active": "43ba61dd9966adb1d2717c402f3f1ce1aebe0a8eeddc020879c5d0bf436d394f",
