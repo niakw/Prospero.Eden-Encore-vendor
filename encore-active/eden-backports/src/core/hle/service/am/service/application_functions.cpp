@@ -97,7 +97,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {32, D<&IApplicationFunctions::BeginBlockingHomeButton>, "BeginBlockingHomeButton"},
         {33, D<&IApplicationFunctions::EndBlockingHomeButton>, "EndBlockingHomeButton"},
         {34, nullptr, "SelectApplicationLicense"},
-        {35, nullptr, "GetDeviceSaveDataSizeMax"},
+        {35, D<&IApplicationFunctions::GetDeviceSaveDataSizeMax>, "GetDeviceSaveDataSizeMax"},
         {36, nullptr, "GetLimitedApplicationLicense"},
         {37, nullptr, "GetLimitedApplicationLicenseUpgradableEvent"},
         {40, D<&IApplicationFunctions::NotifyRunning>, "NotifyRunning"},
@@ -355,11 +355,34 @@ Result IApplicationFunctions::CreateCacheStorage(Out<u32> out_target_media,
 
 Result IApplicationFunctions::GetSaveDataSizeMax(Out<u64> out_max_normal_size,
                                                  Out<u64> out_max_journal_size) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    std::vector<u8> nacp;
+    R_TRY(system.GetARPManager().GetControlProperty(&nacp, m_applet->program_id));
 
-    *out_max_normal_size = 0xFFFFFFF;
-    *out_max_journal_size = 0xFFFFFFF;
+    auto raw_nacp = std::make_unique<FileSys::RawNACP>();
+    std::memcpy(raw_nacp.get(), nacp.data(), (std::min)(sizeof(*raw_nacp), nacp.size()));
 
+    *out_max_normal_size = static_cast<u64>(raw_nacp->user_account_save_data_max_size);
+    *out_max_journal_size =
+        static_cast<u64>(raw_nacp->user_account_save_data_max_journal_size);
+
+    LOG_DEBUG(Service_AM, "GetSaveDataSizeMax normal={:#x}, journal={:#x}",
+              *out_max_normal_size, *out_max_journal_size);
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::GetDeviceSaveDataSizeMax(Out<u64> out_max_normal_size,
+                                                       Out<u64> out_max_journal_size) {
+    std::vector<u8> nacp;
+    R_TRY(system.GetARPManager().GetControlProperty(&nacp, m_applet->program_id));
+
+    auto raw_nacp = std::make_unique<FileSys::RawNACP>();
+    std::memcpy(raw_nacp.get(), nacp.data(), (std::min)(sizeof(*raw_nacp), nacp.size()));
+
+    *out_max_normal_size = static_cast<u64>(raw_nacp->device_save_data_max_size);
+    *out_max_journal_size = static_cast<u64>(raw_nacp->device_save_data_max_journal_size);
+
+    LOG_DEBUG(Service_AM, "GetDeviceSaveDataSizeMax normal={:#x}, journal={:#x}",
+              *out_max_normal_size, *out_max_journal_size);
     R_SUCCEED();
 }
 
