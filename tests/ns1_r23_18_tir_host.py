@@ -17,6 +17,16 @@ files={
 for name,expected in files.items():
  raw=(r/name).read_bytes()
  sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
+ # Exception-drain successor: undo only the new scope-exit guard on the
+ # audit copy, then replay the previously pinned readback batching receipt.
+ if name.endswith("/texture_cache/texture_cache.h") and sha == "bbb55dc7b1648fa1e6fd730a1b3515f2969221c7":
+  source=raw.decode()
+  current="        // An exception may leave readback copies recorded but not yet\n        // completed. Never make their staging allocations reusable until the\n        // scheduler has retired the commands. No extra wait on success.\n        SCOPE_EXIT {\n            if (std::uncaught_exceptions() > uncaught_before_readback && !pending.empty()) {\n                try {\n                    runtime.Finish();\n                } catch (...) {\n                    // A failed drain cannot prove GPU retirement. Leave the\n                    // allocations deferred rather than risk reusing GPU data.\n                    return;\n                }\n            }\n            release_batch();\n        };"
+  prior="        SCOPE_EXIT { release_batch(); };"
+  assert source.count(current)==1, "readback exception retire owner drift"
+  raw=source.replace(current,prior,1).encode()
+  sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
+  assert sha=="45659d2fa8ae336d28e7ccbd02b3104d96229378",sha
  # Reconstruct only the two readback/iteration changes on the historic audit copy.
  if name.endswith("/texture_cache/texture_cache.h") and sha == "45659d2fa8ae336d28e7ccbd02b3104d96229378":
   text=raw.decode()

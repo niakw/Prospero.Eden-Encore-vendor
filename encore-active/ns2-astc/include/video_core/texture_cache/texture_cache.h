@@ -1162,7 +1162,21 @@ void TextureCache<P>::DownloadMemory(DAddr cpu_addr, size_t size) {
             pending.clear();
             batch_bytes = 0;
         };
-        SCOPE_EXIT { release_batch(); };
+        // An exception may leave readback copies recorded but not yet
+        // completed. Never make their staging allocations reusable until the
+        // scheduler has retired the commands. No extra wait on success.
+        SCOPE_EXIT {
+            if (std::uncaught_exceptions() > uncaught_before_readback && !pending.empty()) {
+                try {
+                    runtime.Finish();
+                } catch (...) {
+                    // A failed drain cannot prove GPU retirement. Leave the
+                    // allocations deferred rather than risk reusing GPU data.
+                    return;
+                }
+            }
+            release_batch();
+        };
         const auto finish_batch = [&] {
             if (pending.empty()) return;
             runtime.Finish();
