@@ -877,11 +877,11 @@ for token in ("std::upper_bound(", "std::prev(", "block->Unmapped()",
 assert allocator_cpp.count("blocks.erase(block_start_successor, block_end_successor);") >= 1
 assert "if (virt + size == current_linear_alloc_end)" in allocator_cpp
 
-# Worker 211 fixed VA ownership must be exception-safe under host OOM.
-# FlatAddressSpaceMap can split both ends and therefore may need two new
-# vector blocks; reserve them before mutating the map/cursor in every
-# allocator entry point used by NS2 mapping/retirement.
-_reserve = "this->blocks.reserve(this->blocks.size() + 2);"
+# Worker 211/214 and native image immediate VA rollback must not allocate.
+# Mapping may insert at most two blocks; reserve four before mapping and
+# only grow on free if fewer than two remain. Preserve amortized growth.
+_reserve4 = "this->blocks.capacity() - this->blocks.size() < 4"
+_reserve2 = "this->blocks.capacity() - this->blocks.size() < 2"
 _alloc_body = allocator_cpp.split("ALLOC_MEMBER(VaType)::Allocate(VaType size) {", 1)[1].split(
     "ALLOC_MEMBER(void)::AllocateFixed(", 1)[0]
 _fixed_body = allocator_cpp.split(
@@ -890,13 +890,13 @@ _fixed_body = allocator_cpp.split(
 _free_body = allocator_cpp.split(
     "ALLOC_MEMBER(void)::Free(VaType virt, VaType size) {", 1)[1].split(
     "} // namespace Common", 1)[0]
-assert _reserve in _alloc_body
-assert _alloc_body.index(_reserve) < _alloc_body.index("current_linear_alloc_end =")
-assert _alloc_body.index(_reserve) < _alloc_body.index("MapLocked(")
-assert _reserve in _fixed_body
-assert _fixed_body.index(_reserve) < _fixed_body.index("MapLocked(")
-assert _reserve in _free_body
-assert _free_body.index(_reserve) < _free_body.index("UnmapLocked(")
+assert _alloc_body.index(_reserve4) < _alloc_body.index("current_linear_alloc_end =")
+assert _alloc_body.index(_reserve4) < _alloc_body.index("MapLocked(")
+assert _fixed_body.index(_reserve4) < _fixed_body.index("MapLocked(")
+assert _free_body.index(_reserve2) < _free_body.index("UnmapLocked(")
+for body, minimum in ((_alloc_body, 4), (_fixed_body, 4), (_free_body, 2)):
+    assert f"std::max<size_t>({minimum}, this->blocks.size() / 2)" in body
+    assert body.count("this->blocks.reserve(") == 1
 
 # Native GA10F GPU AS consolidation. This source-only contract captures
 # the reviewed pending 40-byte remap, real mapped VA owner, physical-page
