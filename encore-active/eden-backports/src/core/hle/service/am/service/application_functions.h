@@ -122,6 +122,8 @@ private:
     Result GetUnknownEvent210(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result SetAudioOutputPolicy(u8 policy);
     Result IsLanguageSelectionLimited(Out<u8> out_limited);
+    Result RequestExitApplicationAndTryPopMessage(u8 request_message_type, Common::UUID user_id,
+                                                   SharedPointer<IStorage> storage);
     Result GetScreenShotAndContinuousRecordingInitiallyEnabled(
         Out<bool> out_screenshot_enabled, Out<bool> out_recording_enabled);
     Result PrepareForJit();

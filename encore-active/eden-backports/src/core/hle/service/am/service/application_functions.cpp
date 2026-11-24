@@ -142,7 +142,8 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {210, D<&IApplicationFunctions::GetUnknownEvent210>, "Unknown210"},
         {220, D<&IApplicationFunctions::SetAudioOutputPolicy>, "SetAudioOutputPolicy"}, // [20.0.0+]
         {300, &IApplicationFunctions::RejectUnavailableMovieCommand, "CreateMovieWriter"}, // [19.0.0+]
-        {310, nullptr, "Unknown310"}, // [20.0.0+]
+        {310, D<&IApplicationFunctions::RequestExitApplicationAndTryPopMessage>,
+         "RequestExitApplicationAndTryPopMessage"}, // [20.0.0+]
         {320, D<&IApplicationFunctions::GetScreenShotAndContinuousRecordingInitiallyEnabled>,
          "GetScreenShotAndContinuousRecordingInitiallyEnabled"}, // [20.0.0+]
         {330, D<&IApplicationFunctions::IsLanguageSelectionLimited>, "IsLanguageSelectionLimited"}, // [20.0.0+]
@@ -916,6 +917,24 @@ Result IApplicationFunctions::SetAudioOutputPolicy(u8 policy) {
 Result IApplicationFunctions::IsLanguageSelectionLimited(Out<u8> out_limited) {
     LOG_DEBUG(Service_AM, "called");
     *out_limited = 0;
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::RequestExitApplicationAndTryPopMessage(
+    u8 request_message_type, Common::UUID user_id, SharedPointer<IStorage> storage) {
+    R_UNLESS(storage != nullptr, ResultUnknown);
+    LOG_INFO(Service_AM,
+             "called, request_message_type={}, user_id={}, storage_size={}; message routing partial",
+             request_message_type, user_id.FormattedString(), storage->GetData().size());
+
+    std::scoped_lock lk{m_applet->lock};
+    if (m_applet->exit_locked) {
+        m_applet->lifecycle_manager.RequestExit(system.Kernel());
+        m_applet->UpdateSuspensionStateLocked(true);
+    } else {
+        m_applet->process->Terminate();
+    }
+
     R_SUCCEED();
 }
 
