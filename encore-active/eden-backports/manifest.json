@@ -236,8 +236,8 @@
       "upstream": null
     },
     "src/core/hle/service/ns/ns.cpp": {
-      "active": "eb7851821fa18917354ef608bbf70da73004bcf85882a3cccea6f8f86b19befd",
-      "bytes": 4921,
+      "active": "a127ff1be0863bc47022473264ee703c3da61eeec70b84866fff9e288b95805f",
+      "bytes": 5478,
       "upstream": "0f937e715ef2fbac9783e7b4e46003bade0eb1cf03ab33e78eac4256a6328f88"
     },
     "src/core/hle/service/ns/read_only_application_control_data_interface.cpp": {
