@@ -65,6 +65,10 @@ private:
     void GetCurrentAccessPointOld(HLERequestContext& ctx);
     void GetCurrentAccessPoint(HLERequestContext& ctx);
     void Shutdown(HLERequestContext& ctx);
+    void GetTelemetorySystemEventReadableHandle(HLERequestContext& ctx);
+    void GetTelemetryInfo(HLERequestContext& ctx);
+    void GetAllowedChannels(HLERequestContext& ctx);
+    void NotifyApplicationSuspended(HLERequestContext& ctx);
     void SetAcceptableNetworkTypeFlag(HLERequestContext& ctx);
     void GetAcceptableNetworkTypeFlag(HLERequestContext& ctx);
     void NotifyConnectionStateChanged(HLERequestContext& ctx);

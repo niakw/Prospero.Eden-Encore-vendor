@@ -439,7 +439,7 @@ public:
             {19, &IRequest::GetRequirement, "GetRequirement"},
             {20, &IRequest::GetRevision, "GetRevision"},
             {21, &IRequest::GetAppletInfo, "GetAppletInfo"},
-            {22, nullptr, "GetAdditionalInfo"},
+            {22, &IRequest::GetAdditionalInfo, "GetAdditionalInfo"},
             {23, &IRequest::SetKeptInSleep, "SetKeptInSleep"},
             {24, &IRequest::RegisterSocketDescriptor, "RegisterSocketDescriptor"},
             {25, &IRequest::UnregisterSocketDescriptor, "UnregisterSocketDescriptor"},
@@ -706,6 +706,12 @@ private:
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
         rb.Push(value);
+    }
+
+    void GetAdditionalInfo(HLERequestContext& ctx) {
+        LOG_WARNING(Service_NIFM,
+                    "Rejected IRequest::GetAdditionalInfo: Horizon 0x410-byte payload is not modeled");
+        IPC::ResponseBuilder{ctx, 2}.Push(ResultUnknown);
     }
 
     void SetKeptInSleep(HLERequestContext& ctx) {
@@ -1492,6 +1498,34 @@ void IGeneralService::Shutdown(HLERequestContext& ctx) {
     IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
 }
 
+void IGeneralService::GetTelemetorySystemEventReadableHandle(HLERequestContext& ctx) {
+    LOG_WARNING(Service_NIFM,
+                "Rejected NIFM telemetry event request: Encore has no telemetry producer");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultUnknown);
+}
+
+void IGeneralService::GetTelemetryInfo(HLERequestContext& ctx) {
+    LOG_WARNING(Service_NIFM,
+                "Rejected NIFM telemetry info request: telemetry payload is not modeled");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultUnknown);
+}
+
+void IGeneralService::GetAllowedChannels(HLERequestContext& ctx) {
+    LOG_WARNING(Service_NIFM,
+                "Rejected NIFM allowed-channel query: host scanner exposes no regulatory channel set");
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultUnknown);
+}
+
+void IGeneralService::NotifyApplicationSuspended(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const auto process_id = rp.Pop<u64>();
+    LOG_WARNING(Service_NIFM,
+                "Rejected NIFM application-suspended notification for pid={:#x}: "
+                "no per-application NIFM suspend backend",
+                process_id);
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultUnknown);
+}
+
 void IGeneralService::SetAcceptableNetworkTypeFlag(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const auto flag = rp.Pop<u32>();
@@ -1686,15 +1720,16 @@ IGeneralService::IGeneralService(Core::System& system_)
         {28, &IGeneralService::SetDefaultIpSetting, "SetDefaultIpSetting"},
         {29, &IGeneralService::SetWirelessCommunicationEnabled, "SetWirelessCommunicationEnabledForTest"},
         {30, &IGeneralService::SetEthernetCommunicationEnabled, "SetEthernetCommunicationEnabledForTest"},
-        {31, nullptr, "GetTelemetorySystemEventReadableHandle"},
-        {32, nullptr, "GetTelemetryInfo"},
+        {31, &IGeneralService::GetTelemetorySystemEventReadableHandle,
+         "GetTelemetorySystemEventReadableHandle"},
+        {32, &IGeneralService::GetTelemetryInfo, "GetTelemetryInfo"},
         {33, &IGeneralService::ConfirmSystemAvailability, "ConfirmSystemAvailability"}, // 2.0.0+
         {34, &IGeneralService::SetBackgroundRequestEnabled, "SetBackgroundRequestEnabled"}, // 4.0.0+
         {35, &IGeneralService::GetScanDataV2, "GetScanData"},
         {36, &IGeneralService::GetCurrentAccessPoint, "GetCurrentAccessPoint"},
         {37, &IGeneralService::Shutdown, "Shutdown"},
-        {38, nullptr, "GetAllowedChannels"},
-        {39, nullptr, "NotifyApplicationSuspended"},
+        {38, &IGeneralService::GetAllowedChannels, "GetAllowedChannels"},
+        {39, &IGeneralService::NotifyApplicationSuspended, "NotifyApplicationSuspended"},
         {40, &IGeneralService::SetAcceptableNetworkTypeFlag, "SetAcceptableNetworkTypeFlag"},
         {41, &IGeneralService::GetAcceptableNetworkTypeFlag, "GetAcceptableNetworkTypeFlag"},
         {42, &IGeneralService::NotifyConnectionStateChanged, "NotifyConnectionStateChanged"},
