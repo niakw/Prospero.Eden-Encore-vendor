@@ -239,11 +239,44 @@ void ISaveDataInfoReader::FindCacheStorageSaves(FileSys::SaveDataSpaceId space, 
         return;
     }
 
+    const auto parse_index = [](std::string_view name) -> std::optional<u16> {
+        if (name.size() == 16) {
+            return 0;
+        }
+        if (name.size() != 21 || name[16] != '_') {
+            return std::nullopt;
+        }
+
+        u16 index{};
+        for (const char c : name.substr(17)) {
+            u16 nibble{};
+            if (c >= '0' && c <= '9') {
+                nibble = static_cast<u16>(c - '0');
+            } else if (c >= 'A' && c <= 'F') {
+                nibble = static_cast<u16>(c - 'A' + 10);
+            } else if (c >= 'a' && c <= 'f') {
+                nibble = static_cast<u16>(c - 'a' + 10);
+            } else {
+                return std::nullopt;
+            }
+            index = static_cast<u16>((index << 4) | nibble);
+        }
+        return index;
+    };
+
     for (const auto& title_dir : cache_dir->GetSubdirectories()) {
         if (title_dir == nullptr) {
             continue;
         }
-        const auto title_id = stoull_be(title_dir->GetName());
+
+        const auto name = title_dir->GetName();
+        const auto index = parse_index(name);
+        if (!index) {
+            continue;
+        }
+
+        const auto title_name = std::string_view{name}.substr(0, 16);
+        const auto title_id = stoull_be(title_name);
         if (program_id != 0 && title_id != program_id) {
             continue;
         }
@@ -256,7 +289,7 @@ void ISaveDataInfoReader::FindCacheStorageSaves(FileSys::SaveDataSpaceId space, 
             0,
             title_id,
             title_dir->GetSize(),
-            0,
+            *index,
             {},
             {},
         });

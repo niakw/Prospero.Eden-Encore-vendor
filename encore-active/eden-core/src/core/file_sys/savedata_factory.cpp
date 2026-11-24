@@ -75,14 +75,20 @@ std::string SaveDataFactory::GetSaveDataPath(SaveDataSpaceId space, SaveDataType
 }
 
 VirtualDir SaveDataFactory::Create(SaveDataSpaceId space, const SaveDataAttribute& meta) const {
-    const auto save_directory = GetSaveDataPath(space, meta.type, meta.program_id, meta.user_id, meta.system_save_data_id);
+    const auto storage_id = meta.type == SaveDataType::Cache ? static_cast<u64>(meta.index)
+                                                         : meta.system_save_data_id;
+    const auto save_directory =
+        GetSaveDataPath(space, meta.type, meta.program_id, meta.user_id, storage_id);
 
     return dir->CreateDirectoryRelative(save_directory);
 }
 
 VirtualDir SaveDataFactory::Open(SaveDataSpaceId space, const SaveDataAttribute& meta) const {
 
-    const auto save_directory = GetSaveDataPath(space, meta.type, meta.program_id, meta.user_id, meta.system_save_data_id);
+    const auto storage_id = meta.type == SaveDataType::Cache ? static_cast<u64>(meta.index)
+                                                         : meta.system_save_data_id;
+    const auto save_directory =
+        GetSaveDataPath(space, meta.type, meta.program_id, meta.user_id, storage_id);
 
     auto out = dir->GetDirectoryRelative(save_directory);
 
@@ -148,7 +154,10 @@ std::string SaveDataFactory::GetFullPath(ProgramId program_id, VirtualDir dir,
         return fmt::format("{}{:016X}/{:016X}{:016X}/{:016X}", out, 0, user_id[1], user_id[0],
                            title_id);
     case SaveDataType::Cache:
-        return fmt::format("{}save/cache/{:016X}", out, title_id);
+        if (save_id == 0) {
+            return fmt::format("{}save/cache/{:016X}", out, title_id);
+        }
+        return fmt::format("{}save/cache/{:016X}_{:04X}", out, title_id, save_id);
     default:
         ASSERT_MSG(false, "Unrecognized SaveDataType: {:02X}", static_cast<u8>(type));
         return fmt::format("{}save/unknown_{:X}/{:016X}", out, static_cast<u8>(type), title_id);

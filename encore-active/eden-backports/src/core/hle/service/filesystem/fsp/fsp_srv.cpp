@@ -57,6 +57,17 @@ namespace {
 
 constexpr Result ResultNcaExternalKeyInconsistent{ErrorModule::FS, 6452};
 
+std::string GetCacheStorageDirectoryName(u64 program_id, u16 index) {
+    if (index == 0) {
+        return fmt::format("{:016X}", program_id);
+    }
+    return fmt::format("{:016X}_{:04X}", program_id, index);
+}
+
+std::string GetCacheStorageRelativePath(u64 program_id, u16 index) {
+    return fmt::format("save/cache/{}", GetCacheStorageDirectoryName(program_id, index));
+}
+
 std::optional<ISaveDataInfoReader::SaveDataInfo> FindDirectorySaveById(
     Core::System& system, const std::shared_ptr<SaveDataController>& controller,
     FileSys::SaveDataSpaceId space_id, u64 save_data_id) {
@@ -1079,17 +1090,13 @@ Result FSP_SRV::ExtendSaveDataFileSystem(FileSys::SaveDataSpaceId space_id, u64 
 Result FSP_SRV::DeleteCacheStorage(u16 index) {
     LOG_DEBUG(Service_FS, "called with index={}, program_id={:016X}", index, program_id);
 
-    // Encore currently exposes one cache-storage slot per program, matching
-    // GetCacheStorageSize's existing index-0 contract.
-    R_UNLESS(index == 0, FileSys::ResultTargetNotFound);
-
     FileSys::VirtualDir save_root{};
     R_TRY(save_data_controller->OpenSaveDataSpace(&save_root, FileSys::SaveDataSpaceId::User));
 
     const auto cache_root = save_root->GetDirectoryRelative("save/cache");
     R_UNLESS(cache_root != nullptr, FileSys::ResultTargetNotFound);
 
-    const auto cache_name = fmt::format("{:016X}", program_id);
+    const auto cache_name = GetCacheStorageDirectoryName(program_id, index);
     R_UNLESS(cache_root->GetSubdirectory(cache_name) != nullptr, FileSys::ResultTargetNotFound);
     R_UNLESS(cache_root->DeleteSubdirectoryRecursive(cache_name), ResultUnknown);
 
@@ -1100,15 +1107,21 @@ Result FSP_SRV::GetCacheStorageSize(s32 index, Out<s64> out_data_size,
                                     Out<s64> out_journal_size) {
     LOG_DEBUG(Service_FS, "called with index={}, program_id={:016X}", index, program_id);
 
-    R_UNLESS(index == 0, FileSys::ResultTargetNotFound);
+    R_UNLESS(index >= 0 && static_cast<u64>(index) <= (std::numeric_limits<u16>::max)(),
+             FileSys::ResultTargetNotFound);
+
     FileSys::VirtualDir save_root{};
     R_TRY(save_data_controller->OpenSaveDataSpace(&save_root, FileSys::SaveDataSpaceId::User));
-    const auto cache_dir =
-        save_root->GetDirectoryRelative(fmt::format("save/cache/{:016X}", program_id));
+    const auto cache_dir = save_root->GetDirectoryRelative(
+        GetCacheStorageRelativePath(program_id, static_cast<u16>(index)));
     R_UNLESS(cache_dir != nullptr, FileSys::ResultTargetNotFound);
 
-    const auto size =
-        save_data_controller->ReadSaveDataSize(FileSys::SaveDataType::Cache, program_id, u128{});
+    const auto size_file = cache_dir->GetFile(FileSys::GetSaveDataSizeFileName());
+    R_UNLESS(size_file != nullptr && size_file->GetSize() >= sizeof(FileSys::SaveDataSize),
+             FileSys::ResultTargetNotFound);
+
+    FileSys::SaveDataSize size{};
+    R_UNLESS(size_file->ReadObject(&size) == sizeof(size), ResultUnknown);
     R_UNLESS(size.normal <= static_cast<u64>((std::numeric_limits<s64>::max)()) &&
                  size.journal <= static_cast<u64>((std::numeric_limits<s64>::max)()),
              ResultUnknown);

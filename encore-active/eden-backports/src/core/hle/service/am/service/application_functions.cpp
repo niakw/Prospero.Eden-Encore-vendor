@@ -36,6 +36,21 @@ namespace Service::AM {
 
 namespace {
 
+constexpr Result ResultCacheStorageAlreadyExists{ErrorModule::FS, 3003};
+constexpr Result ResultCacheStorageSizeTooLarge{ErrorModule::FS, 6069};
+constexpr Result ResultCacheStorageIndexTooLarge{ErrorModule::FS, 6070};
+
+std::string GetCacheStorageDirectoryName(u64 program_id, u16 index) {
+    if (index == 0) {
+        return fmt::format("{:016X}", program_id);
+    }
+    return fmt::format("{:016X}_{:04X}", program_id, index);
+}
+
+std::string GetCacheStorageRelativePath(u64 program_id, u16 index) {
+    return fmt::format("save/cache/{}", GetCacheStorageDirectoryName(program_id, index));
+}
+
 FileSys::PatchManager::Metadata GetApplicationMetadata(Core::System& system, u64 program_id) {
     auto metadata = FileSys::PatchManager::GetMetadataFromBaseOrUpdate(system, program_id);
     if (metadata.first != nullptr) {
@@ -286,12 +301,55 @@ Result IApplicationFunctions::GetSaveDataSize(Out<u64> out_normal_size, Out<u64>
 Result IApplicationFunctions::CreateCacheStorage(Out<u32> out_target_media,
                                                  Out<u64> out_required_size, u16 index,
                                                  u64 normal_size, u64 journal_size) {
-    LOG_WARNING(Service_AM, "(STUBBED) called with index={} size={:#x} journal_size={:#x}", index,
-                normal_size, journal_size);
+    LOG_DEBUG(Service_AM, "called with index={} size={:#x} journal_size={:#x}", index, normal_size,
+              journal_size);
 
-    *out_target_media = 1; // Nand
+    *out_target_media = 0;
     *out_required_size = 0;
 
+    std::vector<u8> nacp;
+    R_TRY(system.GetARPManager().GetControlProperty(&nacp, m_applet->program_id));
+
+    auto raw_nacp = std::make_unique<FileSys::RawNACP>();
+    std::memcpy(raw_nacp.get(), nacp.data(), (std::min)(sizeof(*raw_nacp), nacp.size()));
+
+    R_UNLESS(index <= static_cast<u16>(raw_nacp->cache_storage_max_index),
+             ResultCacheStorageIndexTooLarge);
+
+    const auto max_size =
+        static_cast<u64>(raw_nacp->cache_storage_data_and_journal_max_size);
+    R_UNLESS(normal_size <= max_size && journal_size <= max_size - normal_size,
+             ResultCacheStorageSizeTooLarge);
+
+    auto controller = system.GetFileSystemController().OpenSaveDataController();
+    FileSys::VirtualDir save_root{};
+    R_TRY(controller->OpenSaveDataSpace(&save_root, FileSys::SaveDataSpaceId::User));
+
+    const auto relative_path = GetCacheStorageRelativePath(m_applet->program_id, index);
+    R_UNLESS(save_root->GetDirectoryRelative(relative_path) == nullptr,
+             ResultCacheStorageAlreadyExists);
+
+    const auto attribute = FileSys::SaveDataAttribute::Make(
+        m_applet->program_id, FileSys::SaveDataType::Cache, {}, 0, index);
+    FileSys::VirtualDir cache_dir{};
+    R_TRY(controller->CreateSaveData(&cache_dir, FileSys::SaveDataSpaceId::User, attribute));
+    R_UNLESS(cache_dir != nullptr, ResultUnknown);
+
+    const FileSys::SaveDataSize size{normal_size, journal_size};
+    const auto size_file = cache_dir->CreateFile(FileSys::GetSaveDataSizeFileName());
+    if (size_file == nullptr || !size_file->Resize(sizeof(size)) ||
+        size_file->WriteObject(size) != sizeof(size)) {
+        if (const auto cache_root = save_root->GetDirectoryRelative("save/cache");
+            cache_root != nullptr) {
+            cache_root->DeleteSubdirectoryRecursive(
+                GetCacheStorageDirectoryName(m_applet->program_id, index));
+        }
+        R_RETURN(ResultUnknown);
+    }
+
+    // Encore has one persistent save-data backing on PS5; report the medium
+    // actually used instead of pretending that a distinct SD save partition exists.
+    *out_target_media = 1; // Nand
     R_SUCCEED();
 }
 
