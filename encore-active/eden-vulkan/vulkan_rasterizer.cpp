@@ -2646,6 +2646,13 @@ void RasterizerVulkan::SignalSyncPoint(u32 value) {
     fence_manager.SignalSyncPoint(value);
 }
 
+#ifdef PS5_NATIVE
+bool RasterizerVulkan::SignalNativeSyncPoint(u32 value) {
+    fence_manager.SignalNativeSyncPoint(value);
+    return true;
+}
+#endif
+
 void RasterizerVulkan::SignalReference() {
     fence_manager.SignalReference();
 }

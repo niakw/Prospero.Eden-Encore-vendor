@@ -674,6 +674,45 @@ for body in (health_info,health):
     assert "if (!native_error_notifier_initialized)" in body
     assert "return NvResult::InvalidState;" in body
 assert "params = native_error_info;" in health_info
+# Native Ampere producer counters must retire behind a real Vulkan fence,
+# independent of GPU fence behavior. Maxwell/NS1 keeps SignalSyncPoint.
+fence_manager=(R/"encore-active/eden-backports/src/video_core/fence_manager.h").read_text()
+raster_abi=(R/"encore-active/ns2-runtime/vulkan_abi/video_core/rasterizer_interface.h").read_text()
+vulkan_h=(R/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
+vulkan_cpp=(R/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
+native_puller=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
+strict=fence_manager.split("void SignalNativeSyncPoint(u32 value) {",1)[1].split("\n    }",1)[0]
+for token in ("CreateFence(false)",
+              "syncpoint_manager.IncrementGuest(value);",
+              "syncpoint_manager.IncrementHost(value);",
+              "pending_operations.emplace_back(std::move(uncommitted_operations));",
+              "QueueFence(new_fence)"):
+    assert token in strict,token
+assert "Settings::IsGPUFenceBehavior" not in strict
+assert strict.index("CreateFence(false)") < strict.index(
+    "syncpoint_manager.IncrementGuest(value);") < strict.index("QueueFence(new_fence)")
+assert "virtual bool SignalNativeSyncPoint(u32)" in raster_abi
+assert "return false;" in raster_abi.split(
+    "virtual bool SignalNativeSyncPoint(u32)",1)[1].split("\n    }",1)[0]
+assert "bool SignalNativeSyncPoint(u32 value) override;" in vulkan_h
+vulkan_native=vulkan_cpp.split(
+    "bool RasterizerVulkan::SignalNativeSyncPoint(u32 value) {",1
+)[1].split("\n}",1)[0]
+assert "fence_manager.SignalNativeSyncPoint(value);" in vulkan_native
+fence_action=native_puller.split(
+    "void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {",1
+)[1].split("void Puller::ProcessSemaphoreTriggerMethod",1)[0]
+native_increment=fence_action.split(
+    "case Puller::FenceOperation::Increment:",1
+)[1].split("default:",1)[0]
+for token in ("NativeGpuChannelRegistry::Instance().IsNative(",
+              "SignalNativeSyncPoint(",
+              "Native GPFIFO syncpoint has no strict renderer fence",
+              "dma_pusher.rasterizer->SignalSyncPoint("):
+    assert token in native_increment,token
+assert native_increment.index("SignalNativeSyncPoint(") < native_increment.index(
+    "dma_pusher.rasterizer->SignalSyncPoint(")
+
 assert "params = native_error_notification;" in health
 # OunceVK checks only H:0x17 status for channel health. A title-wide fatal
 # GPU latch therefore maps to NVIDIA's generic robust-channel ERROR status,

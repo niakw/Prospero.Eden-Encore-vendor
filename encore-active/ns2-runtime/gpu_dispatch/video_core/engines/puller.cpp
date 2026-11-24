@@ -259,6 +259,20 @@ void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {
         dma_pusher.rasterizer->ReleaseFences();
         break;
     case Puller::FenceOperation::Increment:
+#ifdef PS5_NATIVE
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            // OunceVK treats "producer target reached, GPU marker stale" as a
+            // fatal completion mismatch. Require the Vulkan backend's strict
+            // non-stubbed retirement fence for every Ampere increment.
+            if (!dma_pusher.rasterizer->SignalNativeSyncPoint(
+                    regs.fence_action.syncpoint_id)) {
+                throw std::runtime_error(
+                    "Native GPFIFO syncpoint has no strict renderer fence");
+            }
+            break;
+        }
+#endif
         dma_pusher.rasterizer->SignalSyncPoint(regs.fence_action.syncpoint_id);
         break;
     default:

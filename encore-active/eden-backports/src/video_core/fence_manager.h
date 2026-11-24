@@ -107,6 +107,41 @@ public:
         SignalFence(std::move(func));
     }
 
+#ifdef PS5_NATIVE
+    // NS2/Ounce completion joins the producer counter with a semaphore marker
+    // written by the guest GPU. Never let the native counter retire through
+    // SignalFence's Immediate/Fast callback or through a stubbed cache fence:
+    // both can run before the recorded Vulkan marker reaches guest memory.
+    // Maxwell keeps SignalSyncPoint above, including its historical fence
+    // behavior and performance policy.
+    void SignalNativeSyncPoint(u32 value) {
+        if constexpr (!can_async_check) {
+            TryReleasePendingFences<false>();
+        }
+        CommitAsyncFlushes();
+
+        // Allocate the backend fence before publishing the guest/max-like edge.
+        // The native host/GSV edge below is attached only to this real fence.
+        TFence new_fence = CreateFence(false);
+        std::function<void()> retire(
+            [this, value] { syncpoint_manager.IncrementHost(value); });
+
+        if constexpr (can_async_check) {
+            guard.lock();
+        }
+        uncommitted_operations.emplace_back(std::move(retire));
+        syncpoint_manager.IncrementGuest(value);
+        pending_operations.emplace_back(std::move(uncommitted_operations));
+        QueueFence(new_fence);
+        fences.push(std::move(new_fence));
+        if constexpr (can_async_check) {
+            guard.unlock();
+            cv.notify_all();
+        }
+        rasterizer.InvalidateGPUCache();
+    }
+#endif
+
     void WaitPendingFences([[maybe_unused]] bool force) {
         if constexpr (!can_async_check) {
             TryReleasePendingFences<true>();
