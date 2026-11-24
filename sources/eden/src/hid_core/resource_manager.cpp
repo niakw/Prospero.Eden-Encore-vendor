@@ -313,7 +313,10 @@ Result ResourceManager::RegisterAppletResourceUserId(u64 aruid, bool bool_value)
 }
 
 void ResourceManager::UnregisterAppletResourceUserId(u64 aruid) {
-    // The departing applet must not leave transfer-memory sampling behind.
+    // The departing applet must not leave motion sampling behind.
+    if (console_six_axis) {
+        console_six_axis->StopSampling(aruid);
+    }
     if (seven_six_axis) {
         (void)seven_six_axis->FinalizeTransferMemory(aruid);
     }
@@ -329,7 +332,10 @@ Result ResourceManager::GetSharedMemoryHandle(Kernel::KSharedMemory** out_handle
 }
 
 void ResourceManager::FreeAppletResourceId(u64 aruid) {
-    // The departing applet must not leave transfer-memory sampling behind.
+    // The departing applet must not leave motion sampling behind.
+    if (console_six_axis) {
+        console_six_axis->StopSampling(aruid);
+    }
     if (seven_six_axis) {
         (void)seven_six_axis->FinalizeTransferMemory(aruid);
     }

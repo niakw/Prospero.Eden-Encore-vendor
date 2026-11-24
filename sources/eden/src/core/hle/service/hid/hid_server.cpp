@@ -1180,18 +1180,18 @@ Result IHidServer::ActivateConsoleSixAxisSensor(ClientAppletResourceUserId aruid
 Result IHidServer::StartConsoleSixAxisSensor(
     Core::HID::ConsoleSixAxisSensorHandle console_sixaxis_handle,
     ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_HID,
-                "(STUBBED) called, unknown_1={}, unknown_2={}, applet_resource_user_id={}",
-                console_sixaxis_handle.unknown_1, console_sixaxis_handle.unknown_2, aruid.pid);
+    LOG_DEBUG(Service_HID, "called, handle=({}, {}), applet_resource_user_id={}",
+              console_sixaxis_handle.unknown_1, console_sixaxis_handle.unknown_2, aruid.pid);
+    GetResourceManager()->GetConsoleSixAxis()->StartSampling(aruid.pid);
     R_SUCCEED();
 }
 
 Result IHidServer::StopConsoleSixAxisSensor(
     Core::HID::ConsoleSixAxisSensorHandle console_sixaxis_handle,
     ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_HID,
-                "(STUBBED) called, unknown_1={}, unknown_2={}, applet_resource_user_id={}",
-                console_sixaxis_handle.unknown_1, console_sixaxis_handle.unknown_2, aruid.pid);
+    LOG_DEBUG(Service_HID, "called, handle=({}, {}), applet_resource_user_id={}",
+              console_sixaxis_handle.unknown_1, console_sixaxis_handle.unknown_2, aruid.pid);
+    GetResourceManager()->GetConsoleSixAxis()->StopSampling(aruid.pid);
     R_SUCCEED();
 }
 
