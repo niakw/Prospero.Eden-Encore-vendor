@@ -77,17 +77,18 @@ assert cache_blob in {
     "dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56",
     "e3910d11f33376097a90858118ba276f7e02cb70",
     "cfac496d574010b8121611c8616d38bf7cdcbc41",
+    "ad07512d129667a617b49b448d898c5756c99025",
 }, cache_blob
-if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41"}:
+if cache_blob in {"e10c4893c03da57dce7f607d3e0af46d62e343f1","dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41","ad07512d129667a617b49b448d898c5756c99025"}:
     selected=CACHE.read_text()
     assert "fragment_shuffle_fallback[index] = true;" in selected
     assert "EmitSPIRV(emit_profile, runtime_info, program, binding)" in selected
     assert "skipping fragment shuffle with known driver issue" in selected
-    if cache_blob in {"dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41"}:
+    if cache_blob in {"dcc4c9cbb4e3cec48ab4d1dece9f8708196c5f56","e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41","ad07512d129667a617b49b448d898c5756c99025"}:
         assert "EDEN_FRAGMENT_SHUFFLE_FALLBACK count=%u hash=0x%016llx" in selected
         assert "fallback_witness <= 8" in selected
 
-if cache_blob=="cfac496d574010b8121611c8616d38bf7cdcbc41":
+if cache_blob in {"cfac496d574010b8121611c8616d38bf7cdcbc41","ad07512d129667a617b49b448d898c5756c99025"}:
     # Only the reviewed native cache-admission policy changed after e3910d;
     # preserve the graphics shader fallback and shutdown drain contracts.
     selected=CACHE.read_text()
@@ -108,7 +109,7 @@ if gfx_blob=="526aa16b22ba3918c29ce85c884d606dcfd185a1":
 if cmp_blob=="7122e9ad2d0d5e8af812223c85d0d9cdb6ae5600":
     assert "void ComputePipeline::RunBuild()" in cmp
     assert "build_claimed.exchange(true, std::memory_order_acq_rel)" in cmp
-if cache_blob in {"e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41"}:
+if cache_blob in {"e3910d11f33376097a90858118ba276f7e02cb70","cfac496d574010b8121611c8616d38bf7cdcbc41","ad07512d129667a617b49b448d898c5756c99025"}:
     assert cache.index("workers.WaitForRequests();") < cache.index("serialization_thread.WaitForRequests();")
 
 # Dynamic + static composition. Two dynamic arrays remain deliberately rejected.
