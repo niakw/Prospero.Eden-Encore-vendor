@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2023 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <limits>
 #include <mutex>
 
 #include <openssl/bio.h>
@@ -121,10 +122,6 @@ inline void LoadCaCertStore(SSL_CTX* ctx, const char* ca_cert, std::size_t size)
 class SSLConnectionBackendOpenSSL final : public SSLConnectionBackend {
 public:
     Result Init() {
-        // on bundled OpenSSL, load ca cert store
-#ifdef YUZU_BUNDLED_OPENSSL
-        LoadCaCertStore(ssl_ctx, kCert, sizeof(kCert));
-#endif
         std::call_once(one_time_init_flag, OneTimeInit);
 
         if (!one_time_init_success) {
@@ -203,7 +200,11 @@ public:
                  ResultInvalidCertificateBufferSize);
 
         if (verify_store == nullptr) {
+#ifdef YUZU_BUNDLED_OPENSSL
+            verify_store = CreateCaCertStore(kCert, sizeof(kCert));
+#else
             verify_store = X509_STORE_new();
+#endif
             if (verify_store == nullptr) {
                 LOG_ERROR(Service_SSL, "X509_STORE_new failed");
                 return CheckOpenSSLErrors();
@@ -513,6 +514,9 @@ void OneTimeInit() {
 
     SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, nullptr);
 
+#ifdef YUZU_BUNDLED_OPENSSL
+    LoadCaCertStore(ssl_ctx, kCert, sizeof(kCert));
+#endif
     if (!SSL_CTX_set_default_verify_paths(ssl_ctx)) {
         LOG_ERROR(Service_SSL, "SSL_CTX_set_default_verify_paths failed");
         CheckOpenSSLErrors();

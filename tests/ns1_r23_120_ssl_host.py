@@ -9,9 +9,9 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 DIR=ROOT/"encore-active/eden-core/src/core/hle/service/ssl"
 EXPECTED={
- "ssl.cpp":"58f0bb2a5855a0e9f8167139d011f71d4edeeba2",
+ "ssl.cpp":"ceef96d5c9ec5d16c0930e02d23ab6cf83ca8a08",
  "ssl_backend.h":"75737e550dee27b2a5eaad5f71a5440b5d574bfe",
- "ssl_backend_openssl.cpp":"fa448e9a912b42db9c1a0cfb380ec404e3db8084",
+ "ssl_backend_openssl.cpp":"ab1b006f437da2e4917efe23bd725c7916b0ac1f",
 }
 def sha(p):
  b=p.read_bytes()
@@ -40,6 +40,9 @@ assert "backend->AddServerPki" in service
 assert "ResultUnsupportedCertificate" in service
 assert "X509_STORE_add_cert" in backend
 assert "SSL_set1_verify_cert_store" in backend
+assert backend.index("std::call_once(one_time_init_flag, OneTimeInit)") < backend.index("ssl = SSL_new(ssl_ctx)")
+one_time=backend.split("void OneTimeInit()",1)[1]
+assert one_time.index("SSL_CTX_new") < one_time.index("LoadCaCertStore")
 
 start="    Result Peek(size_t* out_size, std::span<u8> data) override {"
 end="\n    Result Write(size_t* out_size"
