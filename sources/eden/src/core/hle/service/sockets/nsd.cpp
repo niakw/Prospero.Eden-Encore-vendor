@@ -87,7 +87,7 @@ void NSD::SetChangeEnvironmentIdentifierDisabled(HLERequestContext& ctx) {
     LOG_DEBUG(Service, "called, change_environment_identifier_disabled={}",
               change_environment_identifier_disabled);
 
-    IPC::ResponseBuilder rb{ctx, 1};
+    IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
 }
 
@@ -113,7 +113,7 @@ void NSD::Resolve(HLERequestContext& ctx) {
 void NSD::ResolveEx(HLERequestContext& ctx) {
     const std::string fqdn_in = Common::StringFromBuffer(ctx.ReadBuffer(0));
 
-    std::array<char, 0x100> fqdn_out;
+    std::array<char, 0x100> fqdn_out{};
     const Result res = ResolveCommon(fqdn_in, fqdn_out);
 
     if (res.IsError()) {
