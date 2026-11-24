@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "core/hle/service/grc/grc.h"
+#include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/server_manager.h"
 #include "core/hle/service/service.h"
 
@@ -17,15 +18,21 @@ public:
     explicit GRC(Core::System& system_) : ServiceFramework{system_, "grc:c"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {1, nullptr, "OpenContinuousRecorder"},
-            {2, nullptr, "OpenGameMovieTrimmer"},
-            {3, nullptr, "OpenOffscreenRecorder"},
-            {101, nullptr, "CreateMovieMaker"},
-            {9903, nullptr, "SetOffscreenRecordingMarker"}
+            {1, &GRC::RejectUnavailableGameRecording, "OpenContinuousRecorder"},
+            {2, &GRC::RejectUnavailableGameRecording, "OpenGameMovieTrimmer"},
+            {3, &GRC::RejectUnavailableGameRecording, "OpenOffscreenRecorder"},
+            {101, &GRC::RejectUnavailableGameRecording, "CreateMovieMaker"},
+            {9903, &GRC::RejectUnavailableGameRecording, "SetOffscreenRecordingMarker"}
         };
         // clang-format on
 
         RegisterHandlers(functions);
+    }
+private:
+    void RejectUnavailableGameRecording(HLERequestContext& ctx) {
+        // No Horizon recording or trimming backend; never report a fabricated movie.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
     }
 };
 
@@ -34,12 +41,18 @@ public:
     explicit GRC_D(Core::System& system_) : ServiceFramework{system_, "grc:d"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {1, nullptr, "Initialize"},
-            {2, nullptr, "Transfer"},
-            {3, nullptr, "Cmd3"},
+            {1, &GRC_D::RejectUnavailableGameRecording, "Initialize"},
+            {2, &GRC_D::RejectUnavailableGameRecording, "Transfer"},
+            {3, &GRC_D::RejectUnavailableGameRecording, "Cmd3"},
         };
         // clang-format on
         RegisterHandlers(functions);
+    }
+private:
+    void RejectUnavailableGameRecording(HLERequestContext& ctx) {
+        // No Horizon recording or trimming backend; never report a fabricated movie.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
     }
 };
 

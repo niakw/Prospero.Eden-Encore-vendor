@@ -456,8 +456,8 @@
       "upstream": "593c6fff73fcbc2b3a27d16d4106dfcea51ea548072b3ec2fc5e5bbc73758d36"
     },
     "src/core/hle/service/grc/grc.cpp": {
-      "active": "0cfefe15f41358b3b97534237c49a9b41399f2d1f7162872accfa071572e59e7",
-      "bytes": 1733,
+      "active": "2250f140013ac91886c68af289685244ab6157ca86967d67f123bc4685971f39",
+      "bytes": 2493,
       "upstream": "ed7cce070a4e6bab7d023bb2cd63f61f1101d5340edbd3be3c26fb3c6fdf728b"
     },
     "src/core/hle/service/hid/hid_system_server.cpp": {
@@ -591,13 +591,13 @@
       "upstream": "b4b0b2052ef3846674e3def53af26462678d8863eb66252890708fc5e5d8c2b3"
     },
     "src/core/hle/service/olsc/transfer_task_list_controller.cpp": {
-      "active": "c391738f09c3d46478de2e86b7b52818d6658493195c79c91319d1c36e7778e6",
-      "bytes": 4631,
+      "active": "8cc97fdba504fa7de0d8ca893239b5674217bd81a134bef27436f3ec3483b57d",
+      "bytes": 6179,
       "upstream": "ba9b05d9f4493845cfe1f6045a47e74dcfb671d82b1af9b6588e0b66d8d4d028"
     },
     "src/core/hle/service/olsc/transfer_task_list_controller.h": {
-      "active": "686ae36cbe673f1038b936882b822b342ab7cc674d40fc290f9325afd609e594",
-      "bytes": 1252,
+      "active": "359e9311b0d99b74353edac18b61ffab0c6182826edba8108d3390ff37549a28",
+      "bytes": 1317,
       "upstream": "c076a5520dfc0186ef2498c0fc3523ec7f4e154c7cecef0d26d2fae76173e763"
     },
     "src/core/hle/service/pctl/parental_control_service.cpp": {

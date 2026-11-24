@@ -20,6 +20,7 @@ public:
     ~ITransferTaskListController() override;
 
 private:
+    void RejectUnavailableCloudTransfer(HLERequestContext& ctx);
     Result GetTransferTaskEndEventNativeHandleHolder(Out<SharedPointer<INativeHandleHolder>> out_holder);
     Result GetTransferTaskStartEventNativeHandleHolder(Out<SharedPointer<INativeHandleHolder>> out_holder);
     Result StopNextTransferTaskExecution(Out<SharedPointer<IStopperObject>> out_stopper);
