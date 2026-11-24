@@ -77,10 +77,10 @@ private:
     Result SetMediaPlaybackStateForApplication(bool enabled);
     Result SetGamePlayRecordingState(GamePlayRecordingState game_play_recording_state);
     Result SetDelayTimeToAbortOnGpuError(u64 delay_ns);
-    Result SendServerMaintenanceOverlayNotification();
+    void SendServerMaintenanceOverlayNotification(HLERequestContext& ctx);
     Result GetLastApplicationExitReason(Out<s32> out_last_application_exit_reason);
-    Result GetLaunchRequiredVersion(Out<u32> out_version);
-    Result UpgradeLaunchRequiredVersion(u32 version);
+    void GetLaunchRequiredVersion(HLERequestContext& ctx);
+    void UpgradeLaunchRequiredVersion(HLERequestContext& ctx);
     Result RequestToShutdown();
     Result RequestToReboot();
     Result RequestToSleep();
