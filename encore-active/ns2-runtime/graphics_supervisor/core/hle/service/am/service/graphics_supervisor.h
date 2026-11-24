@@ -121,6 +121,7 @@ private:
     // Shared because CoreTiming callbacks keep only weak references; shutdown
     // can therefore disarm polling before the last callback releases state.
     std::shared_ptr<NativeSyncptState> m_syncpt;
+    std::weak_ptr<ServiceFrameworkBase> m_syncpt_session;
     std::mutex m_native_memory_mutex;
     GraphicsSupervisorProtocol::NativeMemoryLedger m_native_memory;
     std::shared_ptr<Nvidia::Module> m_native_module;

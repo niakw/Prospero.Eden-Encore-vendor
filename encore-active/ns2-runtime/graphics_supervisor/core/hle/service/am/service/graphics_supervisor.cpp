@@ -2168,17 +2168,28 @@ void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {
         rb.Push(Kernel::ResultInvalidCombination.raw);
         return;
     }
+    // libounce _gsvSyncCreate keeps one shared session because a second
+    // open while the first is alive is rejected by the native root.
+    // Reopen only after the server has retired the previous child.
+    if (!m_process || !m_syncpt || m_bootstrap.CurrentPhase() != GB::Phase::Ready ||
+        !m_syncpt_session.expired()) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidState.raw);
+        return;
+    }
     Kernel::KClientSession* client{};
+    std::shared_ptr<INativeSyncptSession> handler;
     Result result = Kernel::ResultOutOfResource;
     try {
-        auto handler = std::make_shared<INativeSyncptSession>(system);
-        result = CreateMetadataSession(system, ctx, std::move(handler), &client);
+        handler = std::make_shared<INativeSyncptSession>(system);
+        result = CreateMetadataSession(system, ctx, handler, &client);
     } catch (const std::bad_alloc&) {
         result = Kernel::ResultOutOfResource;
     }
     if (result.IsSuccess()) {
         try {
             ctx.AddMoveObject(client);
+            m_syncpt_session = handler;
         } catch (const std::bad_alloc&) {
             // The creator reference has not entered the outgoing queue.
             client->Close(system.Kernel());

@@ -468,3 +468,12 @@ assert "manager.RegisterNativeGuestAction(" in slot_owner
 assert "syncpoint, value, wait->wide," in slot_owner
 assert "GetNativeGuestSyncpointValue(syncpoint)" in slot_owner
 assert "GetNativeGuestSyncpointValue(id)" in mirror
+
+# libounce gsvOpenSync: one living child per authenticated root.
+syncpt_open=cpp.split("void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
+assert "std::weak_ptr<ServiceFrameworkBase> m_syncpt_session;" in hdr
+assert "m_bootstrap.CurrentPhase() != GB::Phase::Ready" in syncpt_open
+assert "!m_syncpt_session.expired()" in syncpt_open
+assert syncpt_open.index("!m_syncpt_session.expired()") < syncpt_open.index("std::make_shared<INativeSyncptSession>")
+assert syncpt_open.index("ctx.AddMoveObject(client);") < syncpt_open.index("m_syncpt_session = handler;")
+assert "client->Close(system.Kernel());" in syncpt_open
