@@ -6,8 +6,15 @@
 
 #include <chrono>
 #include <limits>
+#include <string_view>
 
 #include "common/settings.h"
+#include "common/string_util.h"
+#include "core/core.h"
+#include "core/file_sys/content_archive.h"
+#include "core/file_sys/nca_metadata.h"
+#include "core/file_sys/registered_cache.h"
+#include "core/file_sys/romfs.h"
 #include "core/hle/service/am/am_results.h"
 #include "core/hle/service/am/applet.h"
 #include "core/hle/service/am/service/common_state_getter.h"
@@ -15,6 +22,7 @@
 #include "core/hle/service/am/service/storage.h"
 #include "core/hle/service/apm/apm_interface.h"
 #include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/filesystem/filesystem.h"
 #include "core/hle/service/pm/pm.h"
 #include "core/hle/service/sm/sm.h"
 #include "core/hle/service/vi/vi_types.h"
@@ -58,7 +66,7 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {62, D<&ICommonStateGetter::GetHdcpAuthenticationState>, "GetHdcpAuthenticationState"},
         {63, D<&ICommonStateGetter::GetHdcpAuthenticationStateChangeEvent>, "GetHdcpAuthenticationStateChangeEvent"},
         {64, D<&ICommonStateGetter::SetTvPowerStateMatchingMode>, "SetTvPowerStateMatchingMode"},
-        {65, nullptr, "GetApplicationIdByContentActionName"},
+        {65, D<&ICommonStateGetter::GetApplicationIdByContentActionName>, "GetApplicationIdByContentActionName"},
         {66, &ICommonStateGetter::SetCpuBoostMode, "SetCpuBoostMode"},
         {67, D<&ICommonStateGetter::CancelCpuBoostMode>, "CancelCpuBoostMode"},
         {68, D<&ICommonStateGetter::GetBuiltInDisplayType>, "GetBuiltInDisplayType"},
@@ -105,6 +113,74 @@ void ICommonStateGetter::RejectUnavailableFeature(HLERequestContext& ctx) {
 Result ICommonStateGetter::Unknown15(OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_DEBUG(Service_AM, "called, HOS19+ event semantics not yet identified");
     *out_event = m_applet->unknown_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result ICommonStateGetter::GetApplicationIdByContentActionName(
+    Out<u64> out_application_id, InBuffer<BufferAttr_HipcMapAlias> name_buffer) {
+    constexpr u64 ContentActionTableId = 0x0100000000000827ull;
+
+    R_UNLESS(m_applet->applet_id == AppletId::Starter, ResultUnknown);
+
+    const std::string action_name = Common::StringFromBuffer(name_buffer);
+    R_UNLESS(!action_name.empty() && action_name.size() <= 0x100, ResultUnknown);
+    R_UNLESS(action_name != "." && action_name != ".." &&
+                 action_name.find('/') == std::string::npos &&
+                 action_name.find('\\') == std::string::npos,
+             ResultUnknown);
+
+    auto* system_nand = system.GetFileSystemController().GetSystemNANDContents();
+    R_UNLESS(system_nand != nullptr, ResultUnknown);
+
+    auto nca = system_nand->GetEntry(ContentActionTableId, FileSys::ContentRecordType::Data);
+    R_UNLESS(nca != nullptr, ResultUnknown);
+
+    auto romfs = FileSys::ExtractRomFS(nca->GetRomFS());
+    R_UNLESS(romfs != nullptr, ResultUnknown);
+
+    const auto application_id_file =
+        romfs->GetFileRelative("table/" + action_name + "/ApplicationId");
+    R_UNLESS(application_id_file != nullptr, ResultUnknown);
+
+    const auto data = application_id_file->ReadAllBytes();
+    R_UNLESS(!data.empty(), ResultUnknown);
+
+    std::string_view value{reinterpret_cast<const char*>(data.data()), data.size()};
+    while (!value.empty() &&
+           (value.front() == ' ' || value.front() == '\t' || value.front() == '\r' ||
+            value.front() == '\n' || value.front() == '\0')) {
+        value.remove_prefix(1);
+    }
+    while (!value.empty() &&
+           (value.back() == ' ' || value.back() == '\t' || value.back() == '\r' ||
+            value.back() == '\n' || value.back() == '\0')) {
+        value.remove_suffix(1);
+    }
+    if (value.size() >= 2 && value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) {
+        value.remove_prefix(2);
+    }
+    R_UNLESS(!value.empty() && value.size() <= 16, ResultUnknown);
+
+    u64 application_id = 0;
+    for (const char c : value) {
+        u64 digit{};
+        if (c >= '0' && c <= '9') {
+            digit = static_cast<u64>(c - '0');
+        } else if (c >= 'a' && c <= 'f') {
+            digit = static_cast<u64>(c - 'a' + 10);
+        } else if (c >= 'A' && c <= 'F') {
+            digit = static_cast<u64>(c - 'A' + 10);
+        } else {
+            R_THROW(ResultUnknown);
+        }
+        R_UNLESS(application_id <= (std::numeric_limits<u64>::max() - digit) / 16, ResultUnknown);
+        application_id = application_id * 16 + digit;
+    }
+
+    R_UNLESS(application_id != 0, ResultUnknown);
+    *out_application_id = application_id;
+    LOG_DEBUG(Service_AM, "ContentActionName {} -> application_id={:016X}", action_name,
+              application_id);
     R_SUCCEED();
 }
 

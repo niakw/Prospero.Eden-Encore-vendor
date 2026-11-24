@@ -32,6 +32,8 @@ private:
     void RejectUnavailableFeature(HLERequestContext& ctx);
     Result GetEventHandle(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result Unknown15(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result GetApplicationIdByContentActionName(
+        Out<u64> out_application_id, InBuffer<BufferAttr_HipcMapAlias> name_buffer);
     Result ReceiveMessage(Out<AppletMessage> out_applet_message);
     Result GetCurrentFocusState(Out<FocusState> out_focus_state);
     Result RequestToAcquireSleepLock();
