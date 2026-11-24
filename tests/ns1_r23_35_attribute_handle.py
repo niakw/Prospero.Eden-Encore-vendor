@@ -315,6 +315,7 @@ test=r"""
 #include <map>
 #include <optional>
 #include <vector>
+using u8=std::uint8_t;
 using u32=std::uint32_t;
 using GPUVAddr=std::uint64_t;
 namespace Shader::IR {
@@ -444,7 +445,7 @@ int main(){
  engine.draw_manager.draw_state.index_buffer.count=4096;
  for(u32 i=0;i<4096;i++) mem.values[3000+i*4]=i%9;
  raster.CollectAttributeHandleRuns(true);
- assert(mem.block_reads==63);
+ assert(mem.block_reads==64); // 63 index batches plus one conservative partial-triangle fallback
  // NS2 keeps the old per-primitive path.
  raster.attribute_handle_runs.clear();
  mem.block_reads=0;
