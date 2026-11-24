@@ -314,6 +314,10 @@ Result ResourceManager::RegisterAppletResourceUserId(u64 aruid, bool bool_value)
 }
 
 void ResourceManager::UnregisterAppletResourceUserId(u64 aruid) {
+    // The departing applet must not leave transfer-memory sampling behind.
+    if (seven_six_axis) {
+        (void)seven_six_axis->FinalizeTransferMemory(aruid);
+    }
     std::scoped_lock lock{shared_mutex};
     applet_resource->UnregisterAppletResourceUserId(aruid);
     npad->UnregisterAppletResourceUserId(aruid);
@@ -326,6 +330,10 @@ Result ResourceManager::GetSharedMemoryHandle(Kernel::KSharedMemory** out_handle
 }
 
 void ResourceManager::FreeAppletResourceId(u64 aruid) {
+    // The departing applet must not leave transfer-memory sampling behind.
+    if (seven_six_axis) {
+        (void)seven_six_axis->FinalizeTransferMemory(aruid);
+    }
     std::scoped_lock lock{shared_mutex};
     applet_resource->FreeAppletResourceId(aruid);
     npad->FreeAppletResourceId(aruid);

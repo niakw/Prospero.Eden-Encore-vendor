@@ -14,6 +14,7 @@
 #include "common/settings.h"
 #include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/kernel/k_transfer_memory.h"
+#include "core/hle/kernel/svc_results.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/hid/active_vibration_device_list.h"
@@ -1206,13 +1207,11 @@ Result IHidServer::ActivateSevenSixAxisSensor(ClientAppletResourceUserId aruid) 
 }
 
 Result IHidServer::StartSevenSixAxisSensor(ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_HID, "(STUBBED) called, applet_resource_user_id={}", aruid.pid);
-    R_SUCCEED();
+    R_RETURN(GetResourceManager()->GetSevenSixAxis()->StartSampling(aruid.pid));
 }
 
 Result IHidServer::StopSevenSixAxisSensor(ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_HID, "(STUBBED) called, applet_resource_user_id={}", aruid.pid);
-    R_SUCCEED();
+    R_RETURN(GetResourceManager()->GetSevenSixAxis()->StopSampling(aruid.pid));
 }
 
 Result IHidServer::InitializeSevenSixAxisSensor(ClientAppletResourceUserId aruid, u64 t_mem_1_size,
@@ -1224,25 +1223,18 @@ Result IHidServer::InitializeSevenSixAxisSensor(ClientAppletResourceUserId aruid
                 "applet_resource_user_id={}",
                 t_mem_1_size, t_mem_2_size, aruid.pid);
 
-    ASSERT_MSG(t_mem_1_size == 0x1000, "t_mem_1_size is not 0x1000 bytes");
-    ASSERT_MSG(t_mem_2_size == 0x7F000, "t_mem_2_size is not 0x7F000 bytes");
+    R_UNLESS(t_mem_1_size == 0x1000 && t_mem_2_size == 0x7F000, Kernel::ResultInvalidSize);
+    R_UNLESS(t_mem_1.Get() && t_mem_2.Get(), Kernel::ResultInvalidHandle);
 
-    ASSERT_MSG(t_mem_1->GetSize() == 0x1000, "t_mem_1 has incorrect size");
-    ASSERT_MSG(t_mem_2->GetSize() == 0x7F000, "t_mem_2 has incorrect size");
-
-    // Activate console six axis controller
-    GetResourceManager()->GetConsoleSixAxis()->Activate();
-    GetResourceManager()->GetSevenSixAxis()->Activate();
-
-    GetResourceManager()->GetSevenSixAxis()->SetTransferMemoryAddress(t_mem_1->GetSourceAddress(), t_mem_1->GetOwner());
-
-    R_SUCCEED();
+    // Preserve the console resource activation, but do not sample before Start.
+    R_TRY(GetResourceManager()->GetConsoleSixAxis()->Activate());
+    R_TRY(GetResourceManager()->GetSevenSixAxis()->Activate());
+    R_RETURN(GetResourceManager()->GetSevenSixAxis()->InitializeTransferMemory(
+        aruid.pid, t_mem_1.Get(), t_mem_2.Get()));
 }
 
 Result IHidServer::FinalizeSevenSixAxisSensor(ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_HID, "(STUBBED) called, applet_resource_user_id={}", aruid.pid);
-
-    R_SUCCEED();
+    R_RETURN(GetResourceManager()->GetSevenSixAxis()->FinalizeTransferMemory(aruid.pid));
 }
 
 Result IHidServer::SetSevenSixAxisSensorFusionStrength(

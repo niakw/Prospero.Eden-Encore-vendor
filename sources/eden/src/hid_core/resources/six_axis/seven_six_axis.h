@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <mutex>
+
 #include "common/common_types.h"
 #include "common/vector_math.h"
 #include "common/typed_address.h"
@@ -13,7 +15,7 @@
 #include "hid_core/resources/ring_lifo.h"
 
 namespace Kernel {
-class KProcess;
+class KTransferMemory;
 }
 
 namespace Core {
@@ -39,13 +41,19 @@ public:
     // When the controller is requesting an update for the shared memory
     void OnUpdate(const Core::Timing::CoreTiming& core_timing) override;
 
-    // Called on InitializeSevenSixAxisSensor
-    void SetTransferMemoryAddress(Common::ProcessAddress t_mem, Kernel::KProcess* owner);
+    // Keep both transfer objects alive until finalization, with sampling serialized.
+    Result InitializeTransferMemory(u64 aruid, Kernel::KTransferMemory* first,
+                                    Kernel::KTransferMemory* second);
+    Result StartSampling(u64 aruid);
+    Result StopSampling(u64 aruid);
+    Result FinalizeTransferMemory(u64 aruid);
 
     // Called on ResetSevenSixAxisSensorTimestamp
     void ResetTimestamp();
 
 private:
+    void ReleaseTransferMemory();
+
     struct SevenSixAxisState {
         INSERT_PADDING_WORDS(2); // unused
         u64 timestamp{};
@@ -64,8 +72,11 @@ private:
     u64 last_global_timestamp{};
 
     SevenSixAxisState next_seven_sixaxis_state{};
-    Common::ProcessAddress transfer_memory{};
-    Kernel::KProcess* transfer_memory_owner{};
+    std::mutex transfer_mutex;
+    Kernel::KTransferMemory* transfer_memory{};
+    Kernel::KTransferMemory* auxiliary_memory{};
+    u64 owner_aruid{};
+    bool sampling_enabled{};
     Core::HID::EmulatedConsole* console = nullptr;
 
     Core::System& system;
