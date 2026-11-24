@@ -55,6 +55,8 @@ private:
     Result CreateManagedDisplayLayer(Out<u64> out_layer_id);
     Result CreateManagedDisplaySeparableLayer(Out<u64> out_layer_id,
                                               Out<u64> out_recording_layer_id);
+    Result RejectUnavailableManagedDisplayLayerSeparationMode(u32 mode);
+    Result RejectUnavailableRecordingLayerComposition(bool enabled);
     Result SetHandlesRequestToDisplay(bool enable);
     Result ApproveToDisplay();
     Result SetMediaPlaybackState(bool state);

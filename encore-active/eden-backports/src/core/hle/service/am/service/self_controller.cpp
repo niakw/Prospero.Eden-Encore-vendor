@@ -48,8 +48,10 @@ ISelfController::ISelfController(Core::System& system_, std::shared_ptr<Applet> 
         {42, D<&ISelfController::GetSystemSharedLayerHandle>, "GetSystemSharedLayerHandle"},
         {43, D<&ISelfController::GetSystemSharedBufferHandle>, "GetSystemSharedBufferHandle"},
         {44, D<&ISelfController::CreateManagedDisplaySeparableLayer>, "CreateManagedDisplaySeparableLayer"},
-        {45, nullptr, "SetManagedDisplayLayerSeparationMode"},
-        {46, nullptr, "SetRecordingLayerCompositionEnabled"},
+        {45, D<&ISelfController::RejectUnavailableManagedDisplayLayerSeparationMode>,
+         "SetManagedDisplayLayerSeparationMode"},
+        {46, D<&ISelfController::RejectUnavailableRecordingLayerComposition>,
+         "SetRecordingLayerCompositionEnabled"},
         {50, D<&ISelfController::SetHandlesRequestToDisplay>, "SetHandlesRequestToDisplay"},
         {51, D<&ISelfController::ApproveToDisplay>, "ApproveToDisplay"},
         {60, D<&ISelfController::OverrideAutoSleepTimeAndDimmingTime>, "OverrideAutoSleepTimeAndDimmingTime"},
@@ -313,6 +315,21 @@ Result ISelfController::CreateManagedDisplaySeparableLayer(Out<u64> out_layer_id
     std::scoped_lock lk{m_applet->lock};
     R_RETURN(m_applet->display_layer_manager.CreateManagedDisplaySeparableLayer(
         out_layer_id, out_recording_layer_id));
+}
+
+Result ISelfController::RejectUnavailableManagedDisplayLayerSeparationMode(u32 mode) {
+    LOG_WARNING(Service_AM,
+                "SetManagedDisplayLayerSeparationMode unavailable: recording layer backend is not materialized, mode={}",
+                mode);
+    R_UNLESS(mode <= 1, ResultUnknown);
+    R_RETURN(ResultUnknown);
+}
+
+Result ISelfController::RejectUnavailableRecordingLayerComposition(bool enabled) {
+    LOG_WARNING(Service_AM,
+                "SetRecordingLayerCompositionEnabled unavailable: recording layer backend is not materialized, enabled={}",
+                enabled);
+    R_RETURN(ResultUnknown);
 }
 
 Result ISelfController::SetHandlesRequestToDisplay(bool enable) {
