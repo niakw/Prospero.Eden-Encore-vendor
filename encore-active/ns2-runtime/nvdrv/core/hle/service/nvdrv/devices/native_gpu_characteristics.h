@@ -60,14 +60,14 @@ inline std::array<u8, Size> MakeNativeGpuCharacteristics(
     const u32_le native_sm_version{0x808U};
     std::memcpy(result.data() + 0x3c, &native_sm_version, sizeof(native_sm_version));
     std::memcpy(result.data() + 0x40, &native_sm_version, sizeof(native_sm_version));
-    // Native NVN maps CPU buffers into its shared VA reservation. Those buffers
-    // are 4 KiB aligned, so large pages must remain optional for allocation.
-    const u32_le preferred_page_size{0x1000};
-    std::memcpy(result.data() + 0x28, &preferred_page_size, sizeof(preferred_page_size));
-    u32_le available_page_sizes;
-    std::memcpy(&available_page_sizes, legacy.data() + 0x34, sizeof(available_page_sizes));
-    available_page_sizes = (static_cast<u32>(available_page_sizes) & 0x10000) | 0x1000;
-    std::memcpy(result.data() + 0x34, &available_page_sizes, sizeof(available_page_sizes));
+    // Native GA10F does not advertise legacy big-page size/mask values.
+    // OunceVK import_as rejects either nonzero field before importing the VM.
+    // This changes only the public native capability reply: 4 KiB mappings
+    // and the internal address-space geometry remain owned by NVDRV AS.
+    constexpr u32_le native_big_page_size{0};
+    constexpr u32_le native_big_page_mask{0};
+    std::memcpy(result.data() + 0x28, &native_big_page_size, sizeof(native_big_page_size));
+    std::memcpy(result.data() + 0x34, &native_big_page_mask, sizeof(native_big_page_mask));
     u64_le flags;
     std::memcpy(&flags, legacy.data() + 0x50, sizeof(flags));
     // Native SDK class enumeration filters 2D/3D/compute/inline/ZBC families
