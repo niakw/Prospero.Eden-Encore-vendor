@@ -32,7 +32,11 @@ private:
     Result GetDisplayLogicalResolution(Out<s32> out_width, Out<s32> out_height);
     Result SetDisplayMagnification(f32 x, f32 y, f32 width, f32 height);
     Result SetCpuBoostRequestPriority(s32 priority);
+    Result SetHandlingCaptureButtonShortPressedMessageEnabledForApplet(bool enabled);
+    Result SetHandlingCaptureButtonLongPressedMessageEnabledForApplet(bool enabled);
+    Result SetApplicationCoreUsageMode(u32 core_usage_mode);
     Result GetCurrentApplicationId(Out<u64> out_application_id);
+    Result IsSystemAppletHomeMenu(Out<bool> out_is_home_menu);
     Result SetGpuTimeSliceBoost(s64 time_span);
     Result Unknown350(Out<u16> out_unknown);
 

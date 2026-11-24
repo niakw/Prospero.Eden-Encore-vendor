@@ -37,13 +37,13 @@ IAppletCommonFunctions::IAppletCommonFunctions(Core::System& system_,
         {61, nullptr, "IsSleepRequiredByHighTemperature"},
         {62, nullptr, "IsSleepRequiredByLowBattery"},
         {70, D<&IAppletCommonFunctions::SetCpuBoostRequestPriority>, "SetCpuBoostRequestPriority"},
-        {80, nullptr, "SetHandlingCaptureButtonShortPressedMessageEnabledForApplet"},
-        {81, nullptr, "SetHandlingCaptureButtonLongPressedMessageEnabledForApplet"},
+        {80, D<&IAppletCommonFunctions::SetHandlingCaptureButtonShortPressedMessageEnabledForApplet>, "SetHandlingCaptureButtonShortPressedMessageEnabledForApplet"},
+        {81, D<&IAppletCommonFunctions::SetHandlingCaptureButtonLongPressedMessageEnabledForApplet>, "SetHandlingCaptureButtonLongPressedMessageEnabledForApplet"},
         {90, nullptr, "OpenNamedChannelAsParent"},
         {91, nullptr, "OpenNamedChannelAsChild"},
-        {100, nullptr, "SetApplicationCoreUsageMode"},
+        {100, D<&IAppletCommonFunctions::SetApplicationCoreUsageMode>, "SetApplicationCoreUsageMode"},
         {300, D<&IAppletCommonFunctions::GetCurrentApplicationId>, "GetCurrentApplicationId"},
-        {310, nullptr, "IsSystemAppletHomeMenu"}, //19.0.0+
+        {310, D<&IAppletCommonFunctions::IsSystemAppletHomeMenu>, "IsSystemAppletHomeMenu"}, //19.0.0+
         {320, D<&IAppletCommonFunctions::SetGpuTimeSliceBoost>, "SetGpuTimeSliceBoost"}, //19.0.0+
         {321, nullptr, "SetGpuTimeSliceBoostDueToApplication"}, //19.0.0+
         {350, D<&IAppletCommonFunctions::Unknown350>, "Unknown350"} //20.0.0+
@@ -167,6 +167,29 @@ Result IAppletCommonFunctions::SetDisplayMagnification(f32 x, f32 y, f32 width, 
     R_SUCCEED();
 }
 
+Result IAppletCommonFunctions::SetHandlingCaptureButtonShortPressedMessageEnabledForApplet(
+    bool enabled) {
+    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
+    std::scoped_lock lk{applet->lock};
+    applet->handling_capture_button_short_pressed_message_enabled_for_applet = enabled;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::SetHandlingCaptureButtonLongPressedMessageEnabledForApplet(
+    bool enabled) {
+    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
+    std::scoped_lock lk{applet->lock};
+    applet->handling_capture_button_long_pressed_message_enabled_for_applet = enabled;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::SetApplicationCoreUsageMode(u32 core_usage_mode) {
+    LOG_DEBUG(Service_AM, "called, core_usage_mode={}", core_usage_mode);
+    std::scoped_lock lk{applet->lock};
+    applet->application_core_usage_mode = core_usage_mode;
+    R_SUCCEED();
+}
+
 Result IAppletCommonFunctions::SetCpuBoostRequestPriority(s32 priority) {
     LOG_WARNING(Service_AM, "(STUBBED) called");
     std::scoped_lock lk{applet->lock};
@@ -177,6 +200,13 @@ Result IAppletCommonFunctions::SetCpuBoostRequestPriority(s32 priority) {
 Result IAppletCommonFunctions::GetCurrentApplicationId(Out<u64> out_application_id) {
     LOG_WARNING(Service_AM, "(STUBBED) called");
     *out_application_id = FileSys::GetBaseTitleID(system.GetApplicationProcessProgramID());
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::IsSystemAppletHomeMenu(Out<bool> out_is_home_menu) {
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{applet->lock};
+    *out_is_home_menu = applet->applet_id == AppletId::QLaunch;
     R_SUCCEED();
 }
 
