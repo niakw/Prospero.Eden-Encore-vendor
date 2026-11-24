@@ -29,14 +29,6 @@ private:
         Out<SharedPointer<ISystemUpdateControl>> out_system_update_control);
     Result GetSystemUpdateNotificationEventForContentDelivery(
         OutCopyHandle<Kernel::KReadableEvent> out_event);
-    void NotifyExFatDriverRequired(HLERequestContext& ctx);
-    void ClearExFatDriverStatusForDebug(HLERequestContext& ctx);
-    void RequestBackgroundNetworkUpdate(HLERequestContext& ctx);
-    void NotifyBackgroundNetworkUpdate(HLERequestContext& ctx);
-    void NotifyExFatDriverDownloadedForDebug(HLERequestContext& ctx);
-    void NotifySystemUpdateForContentDelivery(HLERequestContext& ctx);
-    void PrepareShutdown(HLERequestContext& ctx);
-    void DestroySystemUpdateTask(HLERequestContext& ctx);
 
 private:
     KernelHelpers::ServiceContext service_context;

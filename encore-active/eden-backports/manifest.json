@@ -490,6 +490,26 @@
       "bytes": 20858,
       "upstream": "2593dc1e247f9d317a46539845eacc6f3c2d6adfafd4a6350e643b094a082dfa"
     },
+    "src/core/hle/service/ns/system_update_control.cpp": {
+      "active": "5216661fcb40960e519f0071b891fae82bf9c3fc6fe19e85731d6eb0f869f7be",
+      "bytes": 3058,
+      "upstream": "3c4f396c17c0bbe2c8b69e851eaf08b9421c95436cdc53ad096ae84535452530"
+    },
+    "src/core/hle/service/ns/system_update_control.h": {
+      "active": "35d9565f0bdbd5671efa6ebc97c42d5ea7368d2e615ef27a1c51e1503362d2f9",
+      "bytes": 480,
+      "upstream": "8d81d0a6877e1819ca550e56e67fffe88e116addd2ae4b3c62770c648a16c028"
+    },
+    "src/core/hle/service/ns/system_update_interface.cpp": {
+      "active": "98fec76ca0b9aefcd502dbd810cb8d7eefa6bf7611a131ab40ab38a9d5232611",
+      "bytes": 5406,
+      "upstream": "0ee7723f6edd55c94aabc8e41c50696aa779922247df9931127f982e189cae72"
+    },
+    "src/core/hle/service/ns/system_update_interface.h": {
+      "active": "e7e5ad346667a12f4b03d7f2f5abbf0fc076b02e4ecfbba97b561e3fbbaea5de",
+      "bytes": 1695,
+      "upstream": "446ca472ebabcdba5160c9436eae668a24239282751739a3a335fbb96512de94"
+    },
     "src/core/hle/service/nvdrv/devices/nvmap.cpp": {
       "active": "cb2c858914a5979007235bf866327f08ba3986b30489f2be171f5dcfd2cf5a8c",
       "bytes": 10494,
