@@ -1735,14 +1735,14 @@ public:
             { 50, &ACC_E::IsUserRegistrationRequestPermitted, "IsUserRegistrationRequestPermitted"},
             { 51, &ACC_E::TrySelectUserWithoutInteractionDeprecated, "TrySelectUserWithoutInteractionDeprecated"},
             { 52, &ACC_E::TrySelectUserWithoutInteraction, "TrySelectUserWithoutInteraction"},
-            { 99, nullptr, "DebugActivateOpenContextRetention"},
+            { 99, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "DebugActivateOpenContextRetention"},
             { 100, nullptr, "GetUserRegistrationNotifier"},
             { 101, nullptr, "GetUserStateChangeNotifier"},
             { 102, &ACC_E::GetBaasAccountManagerForSystemService, "GetBaasAccountManagerForSystemService"},
-            { 103, nullptr, "GetBaasUserAvailabilityChangeNotifier"},
+            { 103, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "GetBaasUserAvailabilityChangeNotifier"},
             { 104, nullptr, "GetProfileUpdateNotifier"},
-            { 105, nullptr, "CheckNetworkServiceAvailabilityAsync"},
-            { 106, nullptr, "GetProfileSyncNotifier"},
+            { 105, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CheckNetworkServiceAvailabilityAsync"},
+            { 106, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "GetProfileSyncNotifier"},
             { 110, &ACC_E::StoreSaveDataThumbnailSystem, "StoreSaveDataThumbnail"},
             { 111, &ACC_E::ClearSaveDataThumbnail, "ClearSaveDataThumbnail"},
             { 112, &ACC_E::LoadSaveDataThumbnail, "LoadSaveDataThumbnail"},
@@ -1750,9 +1750,9 @@ public:
             { 120, nullptr, "ListOpenUsersInApplication"},
             { 130, nullptr, "ActivateOpenContextRetention"},
             { 140, &ACC_E::ListQualifiedUsers, "ListQualifiedUsers"},
-            { 151, nullptr, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
-            { 152, nullptr, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
-            { 170, nullptr, "GetNasOp2MembershipStateChangeNotifier"},
+            { 151, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
+            { 152, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
+            { 170, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "GetNasOp2MembershipStateChangeNotifier"},
             { 191, nullptr, "UpdateNotificationReceiverInfo"},
             { 200, &ACC_E::BeginUserRegistration, "BeginUserRegistration"},
             { 201, &ACC_E::CompleteUserRegistration, "CompleteUserRegistration"},
@@ -1761,24 +1761,24 @@ public:
             { 204, &ACC_E::SetUserPosition, "SetUserPosition"},
             { 205, &ACC_E::GetProfileEditor, "GetProfileEditor"},
             { 206, &ACC_E::CompleteUserRegistrationForcibly, "CompleteUserRegistrationForcibly"},
-            { 210, nullptr, "CreateFloatingRegistrationRequest"},
-            { 211, nullptr, "CreateProcedureToRegisterUserWithNintendoAccount"},
-            { 212, nullptr, "ResumeProcedureToRegisterUserWithNintendoAccount"},
-            { 213, nullptr, "CreateProcedureToCreateUserWithNintendoAccount"},
-            { 214, nullptr, "ResumeProcedureToCreateUserWithNintendoAccount"},
-            { 215, nullptr, "ResumeProcedureToCreateUserWithNintendoAccountAfterApplyResponse"},
-            { 230, nullptr, "AuthenticateServiceAsync"},
+            { 210, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CreateFloatingRegistrationRequest"},
+            { 211, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CreateProcedureToRegisterUserWithNintendoAccount"},
+            { 212, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ResumeProcedureToRegisterUserWithNintendoAccount"},
+            { 213, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CreateProcedureToCreateUserWithNintendoAccount"},
+            { 214, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ResumeProcedureToCreateUserWithNintendoAccount"},
+            { 215, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ResumeProcedureToCreateUserWithNintendoAccountAfterApplyResponse"},
+            { 230, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "AuthenticateServiceAsync"},
             { 250, nullptr, "GetBaasAccountAdministrator"},
-            { 251, nullptr, "SynchronizeNetworkServiceAccountsSnapshotAsync"},
-            { 290, nullptr, "ProxyProcedureForGuestLoginWithNintendoAccount"},
-            { 291, nullptr, "ProxyProcedureForFloatingRegistrationWithNintendoAccount"},
-            { 292, nullptr, "ProxyProcedureForDeviceMigrationAuthenticatingOperatingUser"},
-            { 293, nullptr, "ProxyProcedureForDeviceMigrationDownload"},
-            { 299, nullptr, "SuspendBackgroundDaemon"},
-            { 350, nullptr, "CreateDeviceMigrationUserExportRequest"},
-            { 351, nullptr, "UploadNasCredential"},
-            { 352, nullptr, "CreateDeviceMigrationUserImportRequest"},
-            { 353, nullptr, "DeleteUserMigrationSaveData"},
+            { 251, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "SynchronizeNetworkServiceAccountsSnapshotAsync"},
+            { 290, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ProxyProcedureForGuestLoginWithNintendoAccount"},
+            { 291, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ProxyProcedureForFloatingRegistrationWithNintendoAccount"},
+            { 292, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ProxyProcedureForDeviceMigrationAuthenticatingOperatingUser"},
+            { 293, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ProxyProcedureForDeviceMigrationDownload"},
+            { 299, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "SuspendBackgroundDaemon"},
+            { 350, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CreateDeviceMigrationUserExportRequest"},
+            { 351, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "UploadNasCredential"},
+            { 352, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CreateDeviceMigrationUserImportRequest"},
+            { 353, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "DeleteUserMigrationSaveData"},
             { 400, nullptr, "SetPinCode"},
             { 401, nullptr, "GetPinCodeLength"},
             { 402, nullptr, "GetPinCode"},
@@ -1791,20 +1791,26 @@ public:
             { 413, nullptr, "SetPinCodeErrorCount"},
             { 420, nullptr, "SetStartPenaltyTime"},
             { 421, nullptr, "GetStartPenaltyTime"},
-            { 900, nullptr, "SetUserUnqualifiedForDebug"},
-            { 901, nullptr, "UnsetUserUnqualifiedForDebug"},
-            { 902, nullptr, "ListUsersUnqualifiedForDebug"},
-            { 910, nullptr, "RefreshFirmwareSettingsForDebug"},
-            { 997, nullptr, "DebugInvalidateTokenCacheForUser"},
-            { 998, nullptr, "DebugSetUserStateClose"},
-            { 999, nullptr, "DebugSetUserStateOpen"},
+            { 900, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "SetUserUnqualifiedForDebug"},
+            { 901, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "UnsetUserUnqualifiedForDebug"},
+            { 902, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ListUsersUnqualifiedForDebug"},
+            { 910, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "RefreshFirmwareSettingsForDebug"},
+            { 997, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "DebugInvalidateTokenCacheForUser"},
+            { 998, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "DebugSetUserStateClose"},
+            { 999, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "DebugSetUserStateOpen"},
             { 1000, nullptr, "CreateIAccountEntityServiceForApplication"},
             { 1100, nullptr, "CreateIUserStateManager"},
             { 10050, nullptr, "IsUserRegistrationRequestPermittedForAccountPolicy"},
-            { 10105, nullptr, "CheckNetworkServiceAvailabilityAsyncForAccountPolicy"},
+            { 10105, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CheckNetworkServiceAvailabilityAsyncForAccountPolicy"},
         };
         // clang-format on
         RegisterHandlers(functions);
+    }
+private:
+    void RejectUnsupportedOnlineOrDebugCommand(HLERequestContext& ctx) {
+        // No Nintendo Account network, migration, or firmware debug backend on PS5.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
     }
 };
 
@@ -1823,14 +1829,14 @@ public:
             {6, nullptr, "GetProfileDigest"},
             {50, &ACC_E_U1::IsUserRegistrationRequestPermitted, "IsUserRegistrationRequestPermitted"},
             {51, &ACC_E_U1::TrySelectUserWithoutInteractionDeprecated, "TrySelectUserWithoutInteractionDeprecated"},
-            {99, nullptr, "DebugActivateOpenContextRetention"},
+            {99, &ACC_E_U1::RejectUnsupportedOnlineOrDebugCommand, "DebugActivateOpenContextRetention"},
             {100, nullptr, "GetUserRegistrationNotifier"},
             {101, nullptr, "GetUserStateChangeNotifier"},
             {102, &ACC_E_U1::GetBaasAccountManagerForSystemService, "GetBaasAccountManagerForSystemService"},
-            {103, nullptr, "GetBaasUserAvailabilityChangeNotifier"},
+            {103, &ACC_E_U1::RejectUnsupportedOnlineOrDebugCommand, "GetBaasUserAvailabilityChangeNotifier"},
             {104, nullptr, "GetProfileUpdateNotifier"},
-            {105, nullptr, "CheckNetworkServiceAvailabilityAsync"},
-            {106, nullptr, "GetProfileSyncNotifier"},
+            {105, &ACC_E_U1::RejectUnsupportedOnlineOrDebugCommand, "CheckNetworkServiceAvailabilityAsync"},
+            {106, &ACC_E_U1::RejectUnsupportedOnlineOrDebugCommand, "GetProfileSyncNotifier"},
             {110, &ACC_E_U1::StoreSaveDataThumbnailSystem, "StoreSaveDataThumbnail"},
             {111, &ACC_E_U1::ClearSaveDataThumbnail, "ClearSaveDataThumbnail"},
             {112, &ACC_E_U1::LoadSaveDataThumbnail, "LoadSaveDataThumbnail"},
@@ -1838,16 +1844,22 @@ public:
             {120, nullptr, "ListOpenUsersInApplication"},
             {130, nullptr, "ActivateOpenContextRetention"},
             {140, &ACC_E_U1::ListQualifiedUsers, "ListQualifiedUsers"},
-            {151, nullptr, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
-            {152, nullptr, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
-            {170, nullptr, "GetNasOp2MembershipStateChangeNotifier"},
+            {151, &ACC_E_U1::RejectUnsupportedOnlineOrDebugCommand, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
+            {152, &ACC_E_U1::RejectUnsupportedOnlineOrDebugCommand, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
+            {170, &ACC_E_U1::RejectUnsupportedOnlineOrDebugCommand, "GetNasOp2MembershipStateChangeNotifier"},
             {191, nullptr, "UpdateNotificationReceiverInfo"},
-            {997, nullptr, "DebugInvalidateTokenCacheForUser"},
-            {998, nullptr, "DebugSetUserStateClose"},
-            {999, nullptr, "DebugSetUserStateOpen"},
+            {997, &ACC_E_U1::RejectUnsupportedOnlineOrDebugCommand, "DebugInvalidateTokenCacheForUser"},
+            {998, &ACC_E_U1::RejectUnsupportedOnlineOrDebugCommand, "DebugSetUserStateClose"},
+            {999, &ACC_E_U1::RejectUnsupportedOnlineOrDebugCommand, "DebugSetUserStateOpen"},
         };
         // clang-format on
         RegisterHandlers(functions);
+    }
+private:
+    void RejectUnsupportedOnlineOrDebugCommand(HLERequestContext& ctx) {
+        // No Nintendo Account network, migration, or firmware debug backend on PS5.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
     }
 };
 
@@ -1867,14 +1879,14 @@ public:
             {50, &ACC_E_U2::IsUserRegistrationRequestPermitted, "#IsUserRegistrationRequestPermitted"},
             {51, &ACC_E_U2::TrySelectUserWithoutInteractionDeprecated, "TrySelectUserWithoutInteractionDeprecated"},
             {52, &ACC_E_U2::TrySelectUserWithoutInteraction, "TrySelectUserWithoutInteraction"},
-            {99, nullptr, "DebugActivateOpenContextRetention"},
+            {99, &ACC_E_U2::RejectUnsupportedOnlineOrDebugCommand, "DebugActivateOpenContextRetention"},
             {100, nullptr, "GetUserRegistrationNotifier"},
             {101, nullptr, "GetUserStateChangeNotifier"},
             {102, &ACC_E_U2::GetBaasAccountManagerForSystemService, "GetBaasAccountManagerForSystemService"},
-            {103, nullptr, "GetBaasUserAvailabilityChangeNotifier"},
+            {103, &ACC_E_U2::RejectUnsupportedOnlineOrDebugCommand, "GetBaasUserAvailabilityChangeNotifier"},
             {104, nullptr, "GetProfileUpdateNotifier"},
-            {105, nullptr, "CheckNetworkServiceAvailabilityAsync"},
-            {106, nullptr, "GetProfileSyncNotifier"},
+            {105, &ACC_E_U2::RejectUnsupportedOnlineOrDebugCommand, "CheckNetworkServiceAvailabilityAsync"},
+            {106, &ACC_E_U2::RejectUnsupportedOnlineOrDebugCommand, "GetProfileSyncNotifier"},
             {110, &ACC_E_U2::StoreSaveDataThumbnailSystem, "StoreSaveDataThumbnail"},
             {111, &ACC_E_U2::ClearSaveDataThumbnail, "ClearSaveDataThumbnail"},
             {112, &ACC_E_U2::LoadSaveDataThumbnail, "LoadSaveDataThumbnail"},
@@ -1882,9 +1894,9 @@ public:
             {120, nullptr, "ListOpenUsersInApplication"},
             {130, nullptr, "ActivateOpenContextRetention"},
             {140, &ACC_E_U2::ListQualifiedUsers, "ListQualifiedUsers"},
-            {151, nullptr, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
-            {152, nullptr, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
-            {170, nullptr, "GetNasOp2MembershipStateChangeNotifier"},
+            {151, &ACC_E_U2::RejectUnsupportedOnlineOrDebugCommand, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
+            {152, &ACC_E_U2::RejectUnsupportedOnlineOrDebugCommand, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
+            {170, &ACC_E_U2::RejectUnsupportedOnlineOrDebugCommand, "GetNasOp2MembershipStateChangeNotifier"},
             {191, nullptr, "UpdateNotificationReceiverInfo"},
             {205, &ACC_E_U2::GetProfileEditor, "GetProfileEditor"},
             {401, nullptr, "GetPinCodeLength"},
@@ -1892,12 +1904,18 @@ public:
             {403, nullptr, "GetPinCodeParity"},
             {404, nullptr, "VerifyPinCode"},
             {405, nullptr, "IsPinCodeVerificationForbidden"},
-            {997, nullptr, "DebugInvalidateTokenCacheForUser"},
-            {998, nullptr, "DebugSetUserStateClose"},
-            {999, nullptr, "DebugSetUserStateOpen"},
+            {997, &ACC_E_U2::RejectUnsupportedOnlineOrDebugCommand, "DebugInvalidateTokenCacheForUser"},
+            {998, &ACC_E_U2::RejectUnsupportedOnlineOrDebugCommand, "DebugSetUserStateClose"},
+            {999, &ACC_E_U2::RejectUnsupportedOnlineOrDebugCommand, "DebugSetUserStateOpen"},
         };
         // clang-format on
         RegisterHandlers(functions);
+    }
+private:
+    void RejectUnsupportedOnlineOrDebugCommand(HLERequestContext& ctx) {
+        // No Nintendo Account network, migration, or firmware debug backend on PS5.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
     }
 };
 
