@@ -79,11 +79,11 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
     static const FunctionInfo functions[] = {
         {1, D<&IApplicationFunctions::PopLaunchParameter>, "PopLaunchParameter"},
         {10, D<&IApplicationFunctions::CreateApplicationAndPushAndRequestToStart>, "CreateApplicationAndPushAndRequestToStart"},
-        {11, nullptr, "CreateApplicationAndPushAndRequestToStartForQuest"},
+        {11, D<&IApplicationFunctions::CreateApplicationAndPushAndRequestToStartForQuest>, "CreateApplicationAndPushAndRequestToStartForQuest"},
         {12, D<&IApplicationFunctions::CreateApplicationAndRequestToStart>, "CreateApplicationAndRequestToStart"},
-        {13, nullptr, "CreateApplicationAndRequestToStartForQuest"},
-        {14, nullptr, "CreateApplicationWithAttributeAndPushAndRequestToStartForQuest"},
-        {15, nullptr, "CreateApplicationWithAttributeAndRequestToStartForQuest"},
+        {13, D<&IApplicationFunctions::CreateApplicationAndRequestToStartForQuest>, "CreateApplicationAndRequestToStartForQuest"},
+        {14, D<&IApplicationFunctions::CreateApplicationWithAttributeAndPushAndRequestToStartForQuest>, "CreateApplicationWithAttributeAndPushAndRequestToStartForQuest"},
+        {15, D<&IApplicationFunctions::CreateApplicationWithAttributeAndRequestToStartForQuest>, "CreateApplicationWithAttributeAndRequestToStartForQuest"},
         {20, D<&IApplicationFunctions::EnsureSaveData>, "EnsureSaveData"},
         {21, D<&IApplicationFunctions::GetDesiredLanguage>, "GetDesiredLanguage"},
         {22, D<&IApplicationFunctions::SetTerminateResult>, "SetTerminateResult"},
@@ -667,6 +667,40 @@ Result IApplicationFunctions::CreateApplicationAndPushAndRequestToStart(
         m_applet->user_channel_launch_parameter.pop_back();
     }
     R_RETURN(result);
+}
+
+Result IApplicationFunctions::CreateApplicationAndPushAndRequestToStartForQuest(
+    u32 attribute0, u32 attribute1, u64 application_id, SharedPointer<IStorage> storage) {
+    LOG_INFO(Service_AM,
+             "called, application_id={:016X}, quest_attr0={:#x}, quest_attr1={:#x}",
+             application_id, attribute0, attribute1);
+
+    // The Quest attributes tune kiosk launch policy. Encore can preserve the real user-channel
+    // storage and application transition today, while those two policy values are not modeled.
+    R_RETURN(CreateApplicationAndPushAndRequestToStart(application_id, std::move(storage)));
+}
+
+Result IApplicationFunctions::CreateApplicationAndRequestToStartForQuest(
+    u32 attribute0, u32 attribute1, u64 application_id) {
+    LOG_INFO(Service_AM,
+             "called, application_id={:016X}, quest_attr0={:#x}, quest_attr1={:#x}",
+             application_id, attribute0, attribute1);
+    R_RETURN(CreateApplicationAndRequestToStart(application_id));
+}
+
+Result IApplicationFunctions::CreateApplicationWithAttributeAndPushAndRequestToStartForQuest(
+    u64 application_id, InBuffer<BufferAttr_HipcMapAlias> attribute,
+    SharedPointer<IStorage> storage) {
+    LOG_INFO(Service_AM, "called, application_id={:016X}, attribute_size={:#x}",
+             application_id, attribute.size());
+    R_RETURN(CreateApplicationAndPushAndRequestToStart(application_id, std::move(storage)));
+}
+
+Result IApplicationFunctions::CreateApplicationWithAttributeAndRequestToStartForQuest(
+    u64 application_id, InBuffer<BufferAttr_HipcMapAlias> attribute) {
+    LOG_INFO(Service_AM, "called, application_id={:016X}, attribute_size={:#x}",
+             application_id, attribute.size());
+    R_RETURN(CreateApplicationAndRequestToStart(application_id));
 }
 
 // https://switchbrew.org/wiki/Applet_Manager_services#CreateApplicationAndRequestToStart

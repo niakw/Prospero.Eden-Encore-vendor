@@ -42,6 +42,15 @@ private:
                               LaunchParameterKind launch_parameter_kind);
     Result CreateApplicationAndPushAndRequestToStart(u64 application_id,
                                                       SharedPointer<IStorage> storage);
+    Result CreateApplicationAndPushAndRequestToStartForQuest(
+        u32 attribute0, u32 attribute1, u64 application_id, SharedPointer<IStorage> storage);
+    Result CreateApplicationAndRequestToStartForQuest(u32 attribute0, u32 attribute1,
+                                                       u64 application_id);
+    Result CreateApplicationWithAttributeAndPushAndRequestToStartForQuest(
+        u64 application_id, InBuffer<BufferAttr_HipcMapAlias> attribute,
+        SharedPointer<IStorage> storage);
+    Result CreateApplicationWithAttributeAndRequestToStartForQuest(
+        u64 application_id, InBuffer<BufferAttr_HipcMapAlias> attribute);
     Result EnsureSaveData(Out<u64> out_size, Common::UUID user_id);
     Result GetDesiredLanguage(Out<u64> out_language_code);
     Result SetTerminateResult(Result terminate_result);
