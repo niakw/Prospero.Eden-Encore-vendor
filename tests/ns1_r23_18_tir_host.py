@@ -17,6 +17,23 @@ files={
 for name,expected in files.items():
  raw=(r/name).read_bytes()
  sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
+ # The maintained TextureCache now returns a truly empty render-target
+ # view on failed allocation (rather than a descriptor-null sentinel). This
+ # exact standalone correctness successor is reversed ONLY in the historical
+ # NS1 TIR test copy. Active C++ and the separate allocation guard remain.
+ if name.endswith("/texture_cache/texture_cache.h") and sha == "5c6d015cf207d63de31b577411972606145d9f2e":
+  current = """    if (!image_id) {
+        // An allocation failure means no render target. NULL_IMAGE_VIEW_ID is
+        // a valid descriptor-null sentinel and has no render-target VkImageView.
+        return ImageViewId{};
+    }"""
+  predecessor = """    if (!image_id) {
+        return NULL_IMAGE_VIEW_ID;
+    }"""
+  assert raw.decode().count(current) == 1, "Reviewed render-target failure owner drift"
+  raw = raw.decode().replace(current, predecessor, 1).encode()
+  sha = hashlib.sha1(b"blob " + str(len(raw)).encode() + bytes([0]) + raw).hexdigest()
+  assert sha == "948960fad4d829ba874746acb6e353a8a2ed19f7", sha
  if name.endswith("/vk_texture_cache_cost.cpp") and sha=="e9191238ccddd94aa22570eba501fb05fff5b207":
   raw=restore_integrated_vk_texture_except_blit(raw.decode()).encode()
   sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
