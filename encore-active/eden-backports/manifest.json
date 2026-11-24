@@ -130,6 +130,16 @@
       "bytes": 5987,
       "upstream": "1539f19a7a0103163c7226cd647ec9b56e627482095a3becc5efad836404f83c"
     },
+    "src/core/hle/service/am/service/display_controller.cpp": {
+      "active": "683f01f311461453e0a2ae9a92f34bded269b581c6e4f3f3fc90c95c782a08d4",
+      "bytes": 11217,
+      "upstream": "e5d7762a3f745c93a8c6217c1e466cabd4759f382fed9ed5c35b8221053b5dee"
+    },
+    "src/core/hle/service/am/service/display_controller.h": {
+      "active": "1ebd685695b5cf36a1bbe16aaa0717eddc4a497bd956b945333f94473e2a557d",
+      "bytes": 2648,
+      "upstream": "2b654556a601683dad9416e87e0e2b9e449a4dec5e3575bb0add5a0fc89db9e7"
+    },
     "src/core/hle/service/am/service/cradle_firmware_updater.cpp": {
       "active": "3548dcb903dc450db43cf6d8e407330cd8625e6bcbc3a3ffa4ba04411c9d2533",
       "bytes": 2401,
