@@ -1918,15 +1918,10 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
         sizes.fill(DisabledSnapshotCbuf);
     }
 
-    const auto& snapshot_tex_header = maxwell3d->regs.tex_header;
-    const GPUVAddr snapshot_texture_base = snapshot_tex_header.Address();
-    const u32 snapshot_texture_limit = static_cast<u32>(snapshot_tex_header.limit);
-    const bool snapshot_via_header_index =
-        maxwell3d->regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding;
-    const u32 snapshot_viewport_transform_state =
-        maxwell3d->regs.viewport_scale_offset_enabled;
-    const u64 snapshot_texture_bytes =
-        (u64{snapshot_texture_limit} + 1) * sizeof(Tegra::Texture::TICEntry);
+    GPUVAddr snapshot_texture_base{};
+    u32 snapshot_texture_limit{};
+    bool snapshot_via_header_index{};
+    u32 snapshot_viewport_transform_state{};
 
     if (parallel_translate_stages) {
         for (Shader::Environment* const env : envs) {
@@ -1941,6 +1936,17 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     }
 
     if (parallel_translate_stages) {
+        // Disk prewarm uses FileEnvironment and can run without a bound
+        // graphics channel. Only the live NS1 owner may read these registers.
+        const auto& snapshot_tex_header = maxwell3d->regs.tex_header;
+        snapshot_texture_base = snapshot_tex_header.Address();
+        snapshot_texture_limit = static_cast<u32>(snapshot_tex_header.limit);
+        snapshot_via_header_index =
+            maxwell3d->regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding;
+        snapshot_viewport_transform_state =
+            maxwell3d->regs.viewport_scale_offset_enabled;
+        const u64 snapshot_texture_bytes =
+            (u64{snapshot_texture_limit} + 1) * sizeof(Tegra::Texture::TICEntry);
         bool snapshot_ok =
             snapshot_texture_bytes <= MaxTextureSnapshotBytes &&
             snapshot_texture_base <=

@@ -28,8 +28,18 @@ if const_blob=="9cbdcbffe4117f9bc7957a69d15e6a277fcfe12b":
     restored=current.replace("            if (count == 0) {\n                return 0U;\n            }\n            const u32 mask{count == 32 ? ~0U : (1U << count) - 1};\n            return (base >> shift) & mask;\n","            return (base >> shift) & ((1U << count) - 1);\n",1).encode()
     assert hashlib.sha1(b"blob "+str(len(restored)).encode()+bytes([0])+restored).hexdigest()=="ce074980d021e14c80b76b4acb1372791c106b5f"
 cache_blob=blob(CACHE)
-if cache_blob in {"fc537323bb9f63d70ef5f8cedd65886e6a0099c0", "b246cf9562f8f0c37d287f7049874f04561a4b8f"}:
+if cache_blob in {"fc537323bb9f63d70ef5f8cedd65886e6a0099c0", "b246cf9562f8f0c37d287f7049874f04561a4b8f", "206d845256bbdc1d5f8d660aeed718ad4f607063"}:
     guarded = CACHE.read_text()
+    if cache_blob == "206d845256bbdc1d5f8d660aeed718ad4f607063":
+        for current, previous in (
+            ("    if (parallel_translate_stages) {\n        // Disk prewarm uses FileEnvironment and can run without a bound\n        // graphics channel. Only the live NS1 owner may read these registers.\n        const auto& snapshot_tex_header = maxwell3d->regs.tex_header;\n        snapshot_texture_base = snapshot_tex_header.Address();\n        snapshot_texture_limit = static_cast<u32>(snapshot_tex_header.limit);\n        snapshot_via_header_index =\n            maxwell3d->regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding;\n        snapshot_viewport_transform_state =\n            maxwell3d->regs.viewport_scale_offset_enabled;\n        const u64 snapshot_texture_bytes =\n            (u64{snapshot_texture_limit} + 1) * sizeof(Tegra::Texture::TICEntry);\n        bool snapshot_ok =\n", "    if (parallel_translate_stages) {\n        bool snapshot_ok =\n"),
+            ("    GPUVAddr snapshot_texture_base{};\n    u32 snapshot_texture_limit{};\n    bool snapshot_via_header_index{};\n    u32 snapshot_viewport_transform_state{};\n", "    const auto& snapshot_tex_header = maxwell3d->regs.tex_header;\n    const GPUVAddr snapshot_texture_base = snapshot_tex_header.Address();\n    const u32 snapshot_texture_limit = static_cast<u32>(snapshot_tex_header.limit);\n    const bool snapshot_via_header_index =\n        maxwell3d->regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding;\n    const u32 snapshot_viewport_transform_state =\n        maxwell3d->regs.viewport_scale_offset_enabled;\n    const u64 snapshot_texture_bytes =\n        (u64{snapshot_texture_limit} + 1) * sizeof(Tegra::Texture::TICEntry);\n"),
+        ):
+            assert guarded.count(current) == 1
+            guarded = guarded.replace(current, previous, 1)
+        raw = guarded.encode()
+        assert hashlib.sha1(b"blob " + str(len(raw)).encode() + bytes([0]) + raw).hexdigest() == "b246cf9562f8f0c37d287f7049874f04561a4b8f"
+        cache_blob = "b246cf9562f8f0c37d287f7049874f04561a4b8f"
     if cache_blob == "b246cf9562f8f0c37d287f7049874f04561a4b8f":
         for current, previous in (
         ("envs = std::move(serialized_environments.envs)", "envs = std::move(environments.envs)"),
