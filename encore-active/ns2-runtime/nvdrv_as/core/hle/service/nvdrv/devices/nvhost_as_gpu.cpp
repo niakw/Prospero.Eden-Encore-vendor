@@ -459,7 +459,10 @@ void nvhost_as_gpu::RetireNativeVm(u32 id) {
 bool nvhost_as_gpu::NativeSubmissionAllowed() const {
     // The scheduler lease protects storage, not permission to enqueue work.
     // GSV may revoke the VM from a different service thread.
-    return !m_native_vm_retired.load() && NativeEpochCurrent();
+    // A failed destructive GMMU mutation leaves page-table ownership uncertain.
+    // Do not admit new work on that AS, even while its epoch remains live.
+    return !m_native_vm_retired.load() && !native_sparse_poisoned.load() &&
+           NativeEpochCurrent();
 }
 
 bool nvhost_as_gpu::OwnsNativeProcess(Kernel::KProcess* process) {

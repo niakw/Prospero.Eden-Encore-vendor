@@ -292,7 +292,8 @@ for token in ("m_native_vm_id != id", "m_native_vm_id = 0",
 assert shared_destroy.index("as->RetireNativeVm(id)") < shared_destroy.index(
     "NativeGpuProcessRegistry::Instance().RemoveVm(")
 submit_allowed = as_cpp.split("bool nvhost_as_gpu::NativeSubmissionAllowed() const {",1)[1].split("\n}",1)[0]
-assert "!m_native_vm_retired.load() && NativeEpochCurrent()" in submit_allowed
+assert "!m_native_vm_retired.load() && !native_sparse_poisoned.load()" in submit_allowed
+assert "NativeEpochCurrent()" in submit_allowed
 submit_impl = nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split("\n}",1)[0]
 assert submit_impl.index("!as_owner->NativeSubmissionAllowed()") < submit_impl.index("CaptureNativeSyncpointLease(")
 assert submit_impl.index("!as_owner->NativeSubmissionAllowed()") < submit_impl.index("InitChannel(")
@@ -934,7 +935,7 @@ for marker in ("case 0x4: {", "case 0x7: {", "case 0xa: {",
                "native_sparse_poisoned = true;",
                "system.GPU().WaitForIdle();"):
     assert marker in _as_runtime, marker
-assert "bool native_sparse_poisoned{};" in _as_header
+assert "std::atomic_bool native_sparse_poisoned{};" in _as_header
 assert "split > end" in _va_layout
 assert "std::bad_alloc" in _native_gpu
 assert "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;" in _ctrl_gpu

@@ -253,7 +253,8 @@ private:
     // If a GMMU page allocation fails mid-batch, preserve all physical
     // backing until the owning GPU address space is retired. Subsequent
     // sparse mutations fail closed instead of unpinning a live partial PTE.
-    bool native_sparse_poisoned{};
+    // Written by mapping rollback under mutex; read at channel admission.
+    std::atomic_bool native_sparse_poisoned{};
     std::map<u64, Mapping> mapping_map;
     //!< Holds allocations created by AllocSpace from
     //!< which fixed buffers can be mapped into
