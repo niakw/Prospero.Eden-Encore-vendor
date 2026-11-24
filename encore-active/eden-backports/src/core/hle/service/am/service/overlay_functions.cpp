@@ -1,7 +1,12 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <cstring>
+
 #include "core/core.h"
+#include "core/file_sys/common_funcs.h"
+#include "core/file_sys/content_archive.h"
+#include "core/file_sys/registered_cache.h"
 #include "core/hle/service/am/am_results.h"
 #include "core/hle/service/am/applet.h"
 #include "core/hle/service/am/service/overlay_functions.h"
@@ -27,8 +32,8 @@ namespace Service::AM {
         {21, D<&IOverlayFunctions::SetHandlingTouchScreenInputEnabled>, "SetHandlingTouchScreenInputEnabled"},
         {30, D<&IOverlayFunctions::SetHealthWarningShowingState>, "SetHealthWarningShowingState"},
         {31, D<&IOverlayFunctions::IsHealthWarningRequired>, "IsHealthWarningRequired"},
-        {40, nullptr, "GetApplicationNintendoLogo"},
-        {41, nullptr, "GetApplicationStartupMovie"},
+        {40, D<&IOverlayFunctions::GetApplicationNintendoLogo>, "GetApplicationNintendoLogo"},
+        {41, D<&IOverlayFunctions::GetApplicationStartupMovie>, "GetApplicationStartupMovie"},
         {50, D<&IOverlayFunctions::SetGpuTimeSliceBoostForApplication>, "SetGpuTimeSliceBoostForApplication"},
         {60, nullptr, "Unknown60"},
         {70, D<&IOverlayFunctions::Unknown70>, "Unknown70"},
@@ -117,6 +122,72 @@ namespace Service::AM {
         LOG_DEBUG(Service_AM, "application_id={:016X} (fallback)", id);
         *out_application_id = id;
         R_SUCCEED();
+    }
+
+
+    u64 IOverlayFunctions::ResolveApplicationIdForLogo() {
+        if (auto* window_system = system.GetAppletManager().GetWindowSystem()) {
+            if (const auto target_applet = window_system->GetMainApplet()) {
+                std::scoped_lock lk{target_applet->lock};
+                const u64 id = target_applet->screen_shot_identity.application_id != 0
+                                   ? target_applet->screen_shot_identity.application_id
+                                   : target_applet->program_id;
+                if (id != 0) {
+                    return id;
+                }
+            }
+        }
+
+        std::scoped_lock lk{m_applet->lock};
+        return m_applet->screen_shot_identity.application_id != 0
+                   ? m_applet->screen_shot_identity.application_id
+                   : m_applet->program_id;
+    }
+
+    Result IOverlayFunctions::ReadApplicationLogoResource(
+        Out<u64> out_size, OutBuffer<BufferAttr_HipcMapAlias> out_buffer,
+        std::string_view file_name) {
+        const u64 application_id = ResolveApplicationIdForLogo();
+        R_UNLESS(application_id != 0, AM::ResultApplicationRecordNotFound);
+
+        auto& content_provider = system.GetContentProviderUnion();
+        auto program =
+            content_provider.GetEntry(application_id, FileSys::ContentRecordType::Program);
+        if (!program) {
+            const u64 base_id = FileSys::GetBaseTitleID(application_id);
+            if (base_id != application_id) {
+                program = content_provider.GetEntry(base_id, FileSys::ContentRecordType::Program);
+            }
+        }
+        R_UNLESS(program != nullptr, AM::ResultApplicationRecordNotFound);
+
+        const auto logo_dir = program->GetLogoPartition();
+        R_UNLESS(logo_dir != nullptr, ResultUnknown);
+
+        const auto file = logo_dir->GetFile(file_name);
+        R_UNLESS(file != nullptr, ResultUnknown);
+
+        const auto data = file->ReadAllBytes();
+        R_UNLESS(data.size() <= out_buffer.size(), ResultUnknown);
+
+        if (!data.empty()) {
+            std::memcpy(out_buffer.data(), data.data(), data.size());
+        }
+        *out_size = static_cast<u64>(data.size());
+
+        LOG_DEBUG(Service_AM, "read {} bytes from {} for application_id={:016X}", data.size(),
+                  file_name, application_id);
+        R_SUCCEED();
+    }
+
+    Result IOverlayFunctions::GetApplicationNintendoLogo(
+        Out<u64> out_size, OutBuffer<BufferAttr_HipcMapAlias> out_buffer) {
+        R_RETURN(ReadApplicationLogoResource(out_size, out_buffer, "NintendoLogo.png"));
+    }
+
+    Result IOverlayFunctions::GetApplicationStartupMovie(
+        Out<u64> out_size, OutBuffer<BufferAttr_HipcMapAlias> out_buffer) {
+        R_RETURN(ReadApplicationLogoResource(out_size, out_buffer, "StartupMovie.gif"));
     }
 
     Result IOverlayFunctions::SetGpuTimeSliceBoost(u64 value) {

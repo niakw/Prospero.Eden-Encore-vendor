@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include <string_view>
+
+#include "core/hle/service/cmif_types.h"
 #include "core/hle/service/service.h"
 
 namespace Service::AM {
@@ -18,6 +21,14 @@ namespace Service::AM {
         Result BeginToWatchShortHomeButtonMessage();
         Result EndToWatchShortHomeButtonMessage();
         Result GetApplicationIdForLogo(Out<u64> out_application_id);
+        u64 ResolveApplicationIdForLogo();
+        Result ReadApplicationLogoResource(
+            Out<u64> out_size, OutBuffer<BufferAttr_HipcMapAlias> out_buffer,
+            std::string_view file_name);
+        Result GetApplicationNintendoLogo(Out<u64> out_size,
+                                           OutBuffer<BufferAttr_HipcMapAlias> out_buffer);
+        Result GetApplicationStartupMovie(Out<u64> out_size,
+                                           OutBuffer<BufferAttr_HipcMapAlias> out_buffer);
         Result SetGpuTimeSliceBoost(u64 value);
         Result SetAutoSleepTimeAndDimmingTimeEnabled(bool enabled);
         Result SetGpuTimeSliceBoostForApplication(u64 value);
