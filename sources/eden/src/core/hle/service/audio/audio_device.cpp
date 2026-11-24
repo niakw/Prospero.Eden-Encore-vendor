@@ -32,10 +32,10 @@ IAudioDevice::IAudioDevice(Core::System& system_, u64 applet_resource_user_id, u
         {12, D<&IAudioDevice::QueryAudioDeviceOutputEvent>, "QueryAudioDeviceOutputEvent"},
         {13, D<&IAudioDevice::GetActiveAudioDeviceName>, "GetActiveAudioOutputDeviceName"},
         {14, D<&IAudioDevice::ListAudioOutputDeviceName>, "ListAudioOutputDeviceName"},
-        {15, nullptr, "AcquireAudioInputDeviceNotification"}, //17.0.0+
-        {16, nullptr, "ReleaseAudioInputDeviceNotification"}, //17.0.0+
-        {17, nullptr, "AcquireAudioOutputDeviceNotification"}, //17.0.0+
-        {18, nullptr, "ReleaseAudioOutputDeviceNotification"}, //17.0.0+
+        {15, D<&IAudioDevice::AcquireAudioInputDeviceNotification>, "AcquireAudioInputDeviceNotification"}, //17.0.0+
+        {16, D<&IAudioDevice::ReleaseAudioInputDeviceNotification>, "ReleaseAudioInputDeviceNotification"}, //17.0.0+
+        {17, D<&IAudioDevice::AcquireAudioOutputDeviceNotification>, "AcquireAudioOutputDeviceNotification"}, //17.0.0+
+        {18, D<&IAudioDevice::ReleaseAudioOutputDeviceNotification>, "ReleaseAudioOutputDeviceNotification"}, //17.0.0+
         {19, D<&IAudioDevice::SetAudioDeviceOutputVolumeAutoTuneEnabled>, "SetAudioDeviceOutputVolumeAutoTuneEnabled"}, //18.0.0+
         {20, D<&IAudioDevice::IsAudioDeviceOutputVolumeAutoTuneEnabled>, "IsAudioDeviceOutputVolumeAutoTuneEnabled"}, //18.0.0+
         {21, nullptr, "IsActiveOutputDeviceEstimatedLowLatency"} //21.0.0+
@@ -168,6 +168,30 @@ Result IAudioDevice::ListAudioOutputDeviceName(
 
     LOG_DEBUG(Service_Audio, "called.\nNames={}", out);
     R_SUCCEED();
+}
+
+Result IAudioDevice::AcquireAudioInputDeviceNotification(OutCopyHandle<Kernel::KReadableEvent>, u64 notification_id) {
+    // Horizon on NX rejects this notification API; do not manufacture a handle.
+    LOG_DEBUG(Service_Audio, "Unsupported notification API, id={:#x}", notification_id);
+    R_THROW(Audio::ResultNotSupported);
+}
+
+Result IAudioDevice::ReleaseAudioInputDeviceNotification(u64 notification_id) {
+    // Horizon on NX rejects this notification API; do not manufacture a handle.
+    LOG_DEBUG(Service_Audio, "Unsupported notification API, id={:#x}", notification_id);
+    R_THROW(Audio::ResultNotSupported);
+}
+
+Result IAudioDevice::AcquireAudioOutputDeviceNotification(OutCopyHandle<Kernel::KReadableEvent>, u64 notification_id) {
+    // Horizon on NX rejects this notification API; do not manufacture a handle.
+    LOG_DEBUG(Service_Audio, "Unsupported notification API, id={:#x}", notification_id);
+    R_THROW(Audio::ResultNotSupported);
+}
+
+Result IAudioDevice::ReleaseAudioOutputDeviceNotification(u64 notification_id) {
+    // Horizon on NX rejects this notification API; do not manufacture a handle.
+    LOG_DEBUG(Service_Audio, "Unsupported notification API, id={:#x}", notification_id);
+    R_THROW(Audio::ResultNotSupported);
 }
 
 Result IAudioDevice::SetAudioDeviceOutputVolumeAutoTuneEnabled(bool enabled) {

@@ -52,6 +52,10 @@ private:
     Result ListAudioOutputDeviceName(
         OutArray<AudioDevice::AudioDeviceName, BufferAttr_HipcMapAlias> out_names,
         Out<s32> out_count);
+    Result AcquireAudioInputDeviceNotification(OutCopyHandle<Kernel::KReadableEvent> out_event, u64 notification_id);
+    Result ReleaseAudioInputDeviceNotification(u64 notification_id);
+    Result AcquireAudioOutputDeviceNotification(OutCopyHandle<Kernel::KReadableEvent> out_event, u64 notification_id);
+    Result ReleaseAudioOutputDeviceNotification(u64 notification_id);
     Result SetAudioDeviceOutputVolumeAutoTuneEnabled(bool enabled);
     Result IsAudioDeviceOutputVolumeAutoTuneEnabled(Out<bool> out_enabled);
 
