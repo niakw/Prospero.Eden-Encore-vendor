@@ -22,10 +22,10 @@ IDisplayController::IDisplayController(Core::System& system_, std::shared_ptr<Ap
         {3, nullptr, "GetCallerAppletCaptureImage"},
         {4, D<&IDisplayController::UpdateCallerAppletCaptureImage>, "UpdateCallerAppletCaptureImage"},
         {5, D<&IDisplayController::GetLastForegroundCaptureImageEx>, "GetLastForegroundCaptureImageEx"},
-        {6, nullptr, "GetLastApplicationCaptureImageEx"},
+        {6, D<&IDisplayController::GetLastApplicationCaptureImageEx>, "GetLastApplicationCaptureImageEx"},
         {7, D<&IDisplayController::GetCallerAppletCaptureImageEx>, "GetCallerAppletCaptureImageEx"},
         {8, D<&IDisplayController::TakeScreenShotOfOwnLayer>, "TakeScreenShotOfOwnLayer"},
-        {9, nullptr, "CopyBetweenCaptureBuffers"},
+        {9, D<&IDisplayController::CopyBetweenCaptureBuffers>, "CopyBetweenCaptureBuffers"},
         {10, nullptr, "AcquireLastApplicationCaptureBuffer"},
         {11, D<&IDisplayController::ReleaseLastApplicationCaptureBuffer>, "ReleaseLastApplicationCaptureBuffer"},
         {12, nullptr, "AcquireLastForegroundCaptureBuffer"},
@@ -70,21 +70,39 @@ Result IDisplayController::UpdateCallerAppletCaptureImage() {
 
 Result IDisplayController::GetLastForegroundCaptureImageEx(
     Out<bool> out_was_written, OutBuffer<BufferAttr_HipcMapAlias> out_image_data) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_was_written = true;
-    R_SUCCEED();
+    LOG_DEBUG(Service_AM, "called");
+    R_RETURN(applet->display_layer_manager.ReadAppletCaptureBuffer(
+        out_was_written, out_image_data, VI::CaptureKind::LastForeground));
+}
+
+Result IDisplayController::GetLastApplicationCaptureImageEx(
+    Out<bool> out_was_written, OutBuffer<BufferAttr_HipcMapAlias> out_image_data) {
+    LOG_DEBUG(Service_AM, "called");
+    R_RETURN(applet->display_layer_manager.ReadAppletCaptureBuffer(
+        out_was_written, out_image_data, VI::CaptureKind::LastApplication));
 }
 
 Result IDisplayController::GetCallerAppletCaptureImageEx(
     Out<bool> out_was_written, OutBuffer<BufferAttr_HipcMapAlias> out_image_data) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_was_written = true;
-    R_SUCCEED();
+    LOG_DEBUG(Service_AM, "called");
+    R_RETURN(applet->display_layer_manager.ReadAppletCaptureBuffer(
+        out_was_written, out_image_data, VI::CaptureKind::CallerApplet));
 }
 
-Result IDisplayController::TakeScreenShotOfOwnLayer(bool unknown0, s32 fbshare_layer_index) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    R_SUCCEED();
+Result IDisplayController::TakeScreenShotOfOwnLayer(bool screenshot_permitted,
+                                                    s32 fbshare_layer_index) {
+    LOG_DEBUG(Service_AM, "called, screenshot_permitted={} buffer={}", screenshot_permitted,
+              fbshare_layer_index);
+    R_RETURN(applet->display_layer_manager.WriteAppletCaptureBufferToSlot(
+        fbshare_layer_index, screenshot_permitted));
+}
+
+Result IDisplayController::CopyBetweenCaptureBuffers(s32 dst_fbshare_layer_index,
+                                                     s32 src_fbshare_layer_index) {
+    LOG_DEBUG(Service_AM, "called, dst={} src={}", dst_fbshare_layer_index,
+              src_fbshare_layer_index);
+    R_RETURN(applet->display_layer_manager.CopyAppletCaptureBuffer(
+        dst_fbshare_layer_index, src_fbshare_layer_index));
 }
 
 Result IDisplayController::ClearCaptureBuffer(bool unknown0, s32 fbshare_layer_index, u32 color) {

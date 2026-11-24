@@ -106,8 +106,8 @@
       "upstream": "f3d96d4fe580f4686b5263d6643bc173f7a617fa086895f0124f0b3e0669dadf"
     },
     "src/core/hle/service/am/display_layer_manager.cpp": {
-      "active": "06779c13d56087168a4c725d643c463b7337e648980eb5534dcca7080396bf04",
-      "bytes": 9739,
+      "active": "8f40da015fcfbbd6d14c9133133bbae104a28a8d4feb8e363d69549f89f8edc4",
+      "bytes": 10936,
       "upstream": "ae8e02a0efcc4b4ddcd18889f420b4a7ebae21b85bf5894df83cb7a9d1d616eb"
     },
     "src/core/hle/service/am/frontend/applets.cpp": {

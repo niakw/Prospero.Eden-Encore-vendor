@@ -229,6 +229,28 @@ Result DisplayLayerManager::WriteAppletCaptureBuffer(bool* out_was_written,
         out_was_written, out_fbshare_layer_index, kind));
 }
 
+Result DisplayLayerManager::ReadAppletCaptureBuffer(bool* out_was_written, std::span<u8> out_data,
+                                                    VI::CaptureKind kind) {
+    R_UNLESS(m_buffer_sharing_enabled, VI::ResultPermissionDenied);
+    R_RETURN(m_display_service->GetContainer()->GetSharedBufferManager()->ReadAppletCaptureBuffer(
+        out_was_written, out_data, kind));
+}
+
+Result DisplayLayerManager::WriteAppletCaptureBufferToSlot(s32 fbshare_layer_index,
+                                                           bool screenshot_permitted) {
+    R_UNLESS(m_buffer_sharing_enabled, VI::ResultPermissionDenied);
+    R_RETURN(
+        m_display_service->GetContainer()->GetSharedBufferManager()->WriteAppletCaptureBufferToSlot(
+            fbshare_layer_index, screenshot_permitted));
+}
+
+Result DisplayLayerManager::CopyAppletCaptureBuffer(s32 dst_fbshare_layer_index,
+                                                    s32 src_fbshare_layer_index) {
+    R_UNLESS(m_buffer_sharing_enabled, VI::ResultPermissionDenied);
+    R_RETURN(m_display_service->GetContainer()->GetSharedBufferManager()->CopyAppletCaptureBuffer(
+        dst_fbshare_layer_index, src_fbshare_layer_index));
+}
+
 Result DisplayLayerManager::ClearAppletCaptureBuffer(s32 fbshare_layer_index, u32 color) {
     R_UNLESS(m_buffer_sharing_enabled, VI::ResultPermissionDenied);
     R_RETURN(m_display_service->GetContainer()->GetSharedBufferManager()->ClearAppletCaptureBuffer(
