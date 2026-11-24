@@ -979,8 +979,8 @@ for allocator_name in ("first_page", "start_page"):
     # GMMU rollback attempt precedes the inner catch that quarantines it.
     unmap = _allocate_block.rfind("gmmu->Unmap(address, size);", 0, failure)
     assert unmap >= 0 and failure - unmap < 150,allocator_name
-    assert "native_sparse_poisoned = true;" in error_block,allocator_name
-    assert error_block.index("native_sparse_poisoned = true;") < error_block.index(
+    assert "PoisonNativeAddressSpace();" in error_block,allocator_name
+    assert error_block.index("PoisonNativeAddressSpace();") < error_block.index(
         "return NvResult::InvalidState;"),allocator_name
 
 # Native AllocSpace must reject any page size other than 4K or its
@@ -1021,7 +1021,7 @@ for marker in ("mapping_map.upper_bound(address)",
                "native_sparse_pins.find(range.handle)",
                "NativePinnedPhysicalSpan(pin->second, source, length)",
                "static_cast<Tegra::PTEKind>(kind), big_page)",
-               "native_sparse_poisoned = true;"):
+               "PoisonNativeAddressSpace();"):
     assert marker in _mod_kind, marker
 assert _mod_kind.index("while (cursor < end) {") < _mod_kind.index(
     "\n    cursor = address;") < _mod_kind.index("gmmu->Map(cursor,")
@@ -1068,7 +1068,7 @@ for marker in ("updated = native_sparse_mappings;",
                "NativePinnedPhysicalSpan(pinned, range.source_offset, range.size)",
                "native_sparse_pins.merge(newly_pinned);",
                "gmmu->MapSparse(range.address, range.size, big_page_ranges[i]);",
-               "native_sparse_poisoned = true;",
+               "PoisonNativeAddressSpace();",
                "native_sparse_mappings = std::move(updated);",
                "nvmap.UnpinHandle(it->first);"):
     assert marker in _remap,marker
