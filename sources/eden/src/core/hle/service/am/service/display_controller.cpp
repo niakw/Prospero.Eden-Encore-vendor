@@ -151,20 +151,18 @@ Result IDisplayController::RejectLegacyCaptureBufferAcquire() {
 }
 
 Result IDisplayController::ReleaseLastApplicationCaptureBuffer() {
-    LOG_DEBUG(Service_AM, "called; legacy capture acquisition has no persistent ownership");
-    // The PS5 port snapshots capture data synchronously. Unlike Horizon's transfer-memory path,
-    // Encore does not retain a legacy capture-buffer ownership token after Acquire returns.
-    R_SUCCEED();
+    LOG_DEBUG(Service_AM, "called; no legacy capture buffer is acquired on HOS 23");
+    R_THROW(ResultBufferNotAcquired);
 }
 
 Result IDisplayController::ReleaseLastForegroundCaptureBuffer() {
-    LOG_DEBUG(Service_AM, "called; legacy capture acquisition has no persistent ownership");
-    R_SUCCEED();
+    LOG_DEBUG(Service_AM, "called; no legacy capture buffer is acquired on HOS 23");
+    R_THROW(ResultBufferNotAcquired);
 }
 
 Result IDisplayController::ReleaseCallerAppletCaptureBuffer() {
-    LOG_DEBUG(Service_AM, "called; legacy capture acquisition has no persistent ownership");
-    R_SUCCEED();
+    LOG_DEBUG(Service_AM, "called; no legacy capture buffer is acquired on HOS 23");
+    R_THROW(ResultBufferNotAcquired);
 }
 
 Result IDisplayController::ReleaseLastForegroundCaptureSharedBuffer() {
