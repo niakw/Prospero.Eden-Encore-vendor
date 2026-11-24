@@ -33,9 +33,9 @@ IAppletCommonFunctions::IAppletCommonFunctions(Core::System& system_,
         {50, D<&IAppletCommonFunctions::SetHomeButtonDoubleClickEnabled>, "SetHomeButtonDoubleClickEnabled"},
         {51, D<&IAppletCommonFunctions::GetHomeButtonDoubleClickEnabled>, "GetHomeButtonDoubleClickEnabled"},
         {52, D<&IAppletCommonFunctions::IsHomeButtonShortPressedBlocked>, "IsHomeButtonShortPressedBlocked"},
-        {60, nullptr, "IsVrModeCurtainRequired"},
-        {61, nullptr, "IsSleepRequiredByHighTemperature"},
-        {62, nullptr, "IsSleepRequiredByLowBattery"},
+        {60, D<&IAppletCommonFunctions::IsVrModeCurtainRequired>, "IsVrModeCurtainRequired"},
+        {61, D<&IAppletCommonFunctions::IsSleepRequiredByHighTemperature>, "IsSleepRequiredByHighTemperature"},
+        {62, D<&IAppletCommonFunctions::IsSleepRequiredByLowBattery>, "IsSleepRequiredByLowBattery"},
         {70, D<&IAppletCommonFunctions::SetCpuBoostRequestPriority>, "SetCpuBoostRequestPriority"},
         {80, D<&IAppletCommonFunctions::SetHandlingCaptureButtonShortPressedMessageEnabledForApplet>, "SetHandlingCaptureButtonShortPressedMessageEnabledForApplet"},
         {81, D<&IAppletCommonFunctions::SetHandlingCaptureButtonLongPressedMessageEnabledForApplet>, "SetHandlingCaptureButtonLongPressedMessageEnabledForApplet"},
@@ -156,6 +156,27 @@ Result IAppletCommonFunctions::IsHomeButtonShortPressedBlocked(
     LOG_DEBUG(Service_AM, "called");
     std::scoped_lock lk{applet->lock};
     *out_is_home_button_short_pressed_blocked = applet->home_button_short_pressed_blocked;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::IsVrModeCurtainRequired(Out<bool> out_is_required) {
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{applet->lock};
+    *out_is_required = applet->vr_mode_curtain_required;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::IsSleepRequiredByHighTemperature(Out<bool> out_is_required) {
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{applet->lock};
+    *out_is_required = applet->sleep_required_by_high_temperature;
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::IsSleepRequiredByLowBattery(Out<bool> out_is_required) {
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{applet->lock};
+    *out_is_required = applet->sleep_required_by_low_battery;
     R_SUCCEED();
 }
 

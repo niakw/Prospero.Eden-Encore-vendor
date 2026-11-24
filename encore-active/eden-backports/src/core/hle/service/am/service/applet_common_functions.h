@@ -29,6 +29,9 @@ private:
     Result SetHomeButtonDoubleClickEnabled(bool home_button_double_click_enabled);
     Result GetHomeButtonDoubleClickEnabled(Out<bool> out_home_button_double_click_enabled);
     Result IsHomeButtonShortPressedBlocked(Out<bool> out_is_home_button_short_pressed_blocked);
+    Result IsVrModeCurtainRequired(Out<bool> out_is_required);
+    Result IsSleepRequiredByHighTemperature(Out<bool> out_is_required);
+    Result IsSleepRequiredByLowBattery(Out<bool> out_is_required);
     Result GetDisplayLogicalResolution(Out<s32> out_width, Out<s32> out_height);
     Result SetDisplayMagnification(f32 x, f32 y, f32 width, f32 height);
     Result SetCpuBoostRequestPriority(s32 priority);
