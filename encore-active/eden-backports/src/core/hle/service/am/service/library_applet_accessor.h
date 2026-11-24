@@ -36,6 +36,7 @@ private:
     Result Start();
     Result RequestExit();
     Result Terminate();
+    Result RequestForLibraryAppletToGetForeground();
     Result GetCurrentChildLibraryApplet(Out<SharedPointer<IApplicationAccessor>> out_accessor);
     Result NeedsToExitProcess(Out<bool> out_needs_to_exit);
     Result RequestForAppletToGetForeground();

@@ -66,7 +66,8 @@ ILibraryAppletAccessor::ILibraryAppletAccessor(Core::System& system_,
         {30, D<&ILibraryAppletAccessor::GetResult>, "GetResult"},
         {50, D<&ILibraryAppletAccessor::SetOutOfFocusApplicationSuspendingEnabled>, "SetOutOfFocusApplicationSuspendingEnabled"},
         {60, D<&ILibraryAppletAccessor::PresetLibraryAppletGpuTimeSliceZero>, "PresetLibraryAppletGpuTimeSliceZero"}, //10.0.0+
-        {80, nullptr, "RequestForLibraryAppletToGetForeground"}, //19.0.0+
+        {80, D<&ILibraryAppletAccessor::RequestForLibraryAppletToGetForeground>,
+         "RequestForLibraryAppletToGetForeground"}, //19.0.0+
         {81, D<&ILibraryAppletAccessor::GetCurrentChildLibraryApplet>, "GetCurrentChildLibraryApplet"}, //19.0.0+
         {90, D<&ILibraryAppletAccessor::Unknown90>, "Unknown90"}, //20.0.0+
         {100, D<&ILibraryAppletAccessor::PushInData>, "PushInData"},
@@ -143,6 +144,16 @@ Result ILibraryAppletAccessor::Terminate() {
     LOG_DEBUG(Service_AM, "called");
     m_applet->process->Terminate();
     FrontendRequestExit();
+    R_SUCCEED();
+}
+
+Result ILibraryAppletAccessor::RequestForLibraryAppletToGetForeground() {
+    LOG_DEBUG(Service_AM, "called");
+
+    auto* window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, ResultUnknown);
+
+    window_system->RequestAppletVisibilityState(*m_applet, true);
     R_SUCCEED();
 }
 
