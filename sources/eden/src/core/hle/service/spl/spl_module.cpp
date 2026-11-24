@@ -179,10 +179,21 @@ void Module::Interface::GenerateRandomBytes(HLERequestContext& ctx) {
 }
 
 void Module::Interface::IsDevelopment(HLERequestContext& ctx) {
-    UNIMPLEMENTED_MSG("IsDevelopment is not implemented!");
+    u64 hardware_state{};
+    const auto result = GetConfigImpl(&hardware_state, ConfigItem::HardwareState);
+    if (result != ResultSuccess) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result);
+        return;
+    }
 
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(ResultSecureMonitorNotImplemented);
+    const bool is_development =
+        hardware_state == static_cast<u64>(HardwareState::Development);
+    LOG_DEBUG(Service_SPL, "called, is_development={}", is_development);
+
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.Push<u8>(is_development);
 }
 
 void Module::Interface::SetBootReason(HLERequestContext& ctx) {
@@ -228,7 +239,12 @@ Result Module::Interface::GetConfigImpl(u64* out_config, ConfigItem config_item)
     case ConfigItem::SecurityEngineInterruptNumber:
     case ConfigItem::FuseVersion:
     case ConfigItem::HardwareType:
+        return ResultSecureMonitorNotImplemented;
     case ConfigItem::HardwareState:
+        // Encore exposes retail/production Horizon semantics. It does not emulate a
+        // development unit, and IsDevelopment is defined in terms of this config item.
+        *out_config = static_cast<u64>(HardwareState::Production);
+        return ResultSuccess;
     case ConfigItem::IsRecoveryBoot:
     case ConfigItem::DeviceId:
     case ConfigItem::BootReason:
