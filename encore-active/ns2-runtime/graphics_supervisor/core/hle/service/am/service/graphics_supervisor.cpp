@@ -1500,10 +1500,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {498, &IGraphicsSupervisor::QueryDonatedTransferMemoryUsage, "TryQueryDonatedTransferMemoryUsage"},
         {1401, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSessionWithTransferMemory"},
         {1402, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSession"},
-        // Known TIPC contracts without a safe completed implementation:
-        // 1411 exposes NVDRV transfer-memory accounting, not GSV boot-buffer
-        // accounting (498); do not manufacture three zero usage counters.
-        {1411, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetNvDrv2UserTransferMemoryUsage"},
+        {1411, &IGraphicsSupervisor::QueryNvDrvTransferMemoryUsage, "GetNvDrv2UserTransferMemoryUsage"},
         // SDK boot: 4 -> 11 -> 101 -> 1501 -> 1502. The two context
         // operations have no image handles; retain their real session state.
         // Actual image operations still require validated native backing.
@@ -2220,6 +2217,10 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     Kernel::KClientSession* client{};
+    // The guest may close its COPY handle immediately after a successful
+    // 1401. Keep the exact kernel memory alive through the child lifetime.
+    std::shared_ptr<Kernel::KTransferMemory> donated;
+    u64 donated_size{};
     bool valid_request = packet[0] == 16 + 1402 && packet[1] == 0;
     if (packet[0] == 16 + 1401) {
         if (const auto request = GraphicsSupervisorProtocol::DecodeNvDrvTransferSession(
@@ -2230,7 +2231,22 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
             if (!memory.IsNull() && memory->GetOwner() == m_process &&
                 request->copied_handle == ctx.GetCopyHandle(0)) {
                 result = Kernel::ResultInvalidSize;
-                valid_request = request->size <= memory->GetSize();
+                if (request->size <= memory->GetSize()) {
+                    auto* owner = memory.GetPointerUnsafe();
+                    owner->Open(kernel);
+                    try {
+                        // The shared_ptr constructor invokes the deleter
+                        // even on control-block OOM. The kernel ref is owned.
+                        donated = std::shared_ptr<Kernel::KTransferMemory>{
+                            owner, [owner_kernel = &kernel](Kernel::KTransferMemory* transfer) {
+                                transfer->Close(*owner_kernel);
+                            }};
+                        donated_size = request->size;
+                        valid_request = true;
+                    } catch (const std::bad_alloc&) {
+                        result = Kernel::ResultOutOfResource;
+                    }
+                }
             }
         }
     }
@@ -2270,15 +2286,21 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
                             // allocation throws. No leaked process ticket.
                             std::shared_ptr<Nvidia::NVDRV> handler{
                                 pending.release(),
-                                [native_process = m_process](Nvidia::NVDRV* child) noexcept {
+                                [native_process = m_process, donated](Nvidia::NVDRV* child) mutable noexcept {
                                     delete child;
                                     Nvidia::Devices::NativeGpuProcessRegistry::Instance()
                                         .Unregister(native_process);
+                                    // A weak child pointer can keep the control
+                                    // block alive; release the donated memory
+                                    // at child destruction, not at weak expiry.
+                                    donated.reset();
                                 }};
                             if (handler->InitializeForProcess(m_process)) {
                                 result = CreateMetadataSession(system, ctx, handler, &client);
-                                if (result.IsSuccess())
+                                if (result.IsSuccess()) {
                                     m_nvsrv_session = handler;
+                                    m_nvsrv_transfer_memory_size = donated_size;
+                                }
                             }
                         }
                     }
@@ -2310,6 +2332,29 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
     }
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
+}
+
+void IGraphicsSupervisor::QueryNvDrvTransferMemoryUsage(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    if (packet[0] != 16 + 1411 || packet[1] != 0) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidCombination.raw);
+        return;
+    }
+    // This is the live 1401 donation, not the GSV 1/498 work buffer.
+    // The HLE NVDRV session allocates its objects outside the donated
+    // storage: no bytes have been suballocated, so used/peak remain zero.
+    const auto child = m_nvsrv_session.lock();
+    if (!child || !m_nvsrv_transfer_memory_size) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidState.raw);
+        return;
+    }
+    NativeTipcReplyWords(ctx, {
+        static_cast<u32>(m_nvsrv_transfer_memory_size),
+        static_cast<u32>(m_nvsrv_transfer_memory_size >> 32),
+        0, 0, 0, 0,
+    });
 }
 
 void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {

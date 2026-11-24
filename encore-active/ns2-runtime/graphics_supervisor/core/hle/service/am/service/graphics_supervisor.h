@@ -67,6 +67,7 @@ private:
     void OpenGpuSession(HLERequestContext& ctx);
     void QueryDonatedTransferMemoryUsage(HLERequestContext& ctx);
     void OpenNvsrvSession(HLERequestContext& ctx);
+    void QueryNvDrvTransferMemoryUsage(HLERequestContext& ctx);
     void InitializeFeatureContext(HLERequestContext& ctx);
     void OpenCameraSession(HLERequestContext& ctx);
     void OpenChatSession(HLERequestContext& ctx);
@@ -123,6 +124,9 @@ private:
     u64 m_bootstrap_transfer_memory_size{};
     // TIPC 1402: an active INvDrv2User child is exclusive per GSV session.
     std::weak_ptr<Nvidia::NVDRV> m_nvsrv_session;
+    // Capacity belongs exclusively to the live 1401 child; a 1402 child
+    // has no donation. The weak child guards access after destruction.
+    u64 m_nvsrv_transfer_memory_size{};
     // Shared because CoreTiming callbacks keep only weak references; shutdown
     // can therefore disarm polling before the last callback releases state.
     std::shared_ptr<NativeSyncptState> m_syncpt;

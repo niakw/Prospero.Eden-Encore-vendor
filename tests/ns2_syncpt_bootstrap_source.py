@@ -293,7 +293,7 @@ for marker in (
     'registry.Register(m_process)',
     'std::shared_ptr<Nvidia::NVDRV> handler{',
     'pending.release()',
-    '[native_process = m_process](Nvidia::NVDRV* child) noexcept',
+    '[native_process = m_process, donated](Nvidia::NVDRV* child) mutable noexcept',
     'delete child;',
     '.Unregister(native_process);',
 ):
@@ -477,3 +477,16 @@ assert "!m_syncpt_session.expired()" in syncpt_open
 assert syncpt_open.index("!m_syncpt_session.expired()") < syncpt_open.index("std::make_shared<INativeSyncptSession>")
 assert syncpt_open.index("ctx.AddMoveObject(client);") < syncpt_open.index("m_syncpt_session = handler;")
 assert "client->Close(system.Kernel());" in syncpt_open
+
+# 1401 retains its exact TransferMemory through child teardown, while 1411
+# reports only the live NVDRV donation (not the independent GSV bootstrap).
+assert nvsrv.index("owner->Open(kernel);") < nvsrv.index("CreateMetadataSession(system, ctx, handler, &client)")
+assert "transfer->Close(*owner_kernel);" in nvsrv
+assert nvsrv.index("delete child;") < nvsrv.index("donated.reset();")
+assert "m_nvsrv_transfer_memory_size = donated_size;" in nvsrv
+usage=cpp.split("void IGraphicsSupervisor::QueryNvDrvTransferMemoryUsage(",1)[1].split("\n}",1)[0]
+assert "packet[0] != 16 + 1411 || packet[1] != 0" in usage
+assert "m_nvsrv_session.lock()" in usage and "!m_nvsrv_transfer_memory_size" in usage
+assert "m_bootstrap_transfer_memory" not in usage
+assert "static_cast<u32>(m_nvsrv_transfer_memory_size >> 32)" in usage
+assert "{1411, &IGraphicsSupervisor::QueryNvDrvTransferMemoryUsage" in cpp
