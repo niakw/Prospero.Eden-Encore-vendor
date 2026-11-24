@@ -1347,16 +1347,20 @@ Kernel::KEvent* nvhost_gpu::QueryEvent(u32 event_id) {
         return sm_exception_breakpoint_pause_report_event;
     case 3:
         return error_notifier_event;
-    case 7:
-        // Native driver error notification; original console clients use 3.
-        // QueryEvent has no FD parameter. Do not expose the native-only event
-        // through a mixed/shared NVDRV device; fail closed if ambiguous.
-        return sessions.size() == 1 && UsesNativeAbi(sessions.begin()->first)
-                   ? error_notifier_event : nullptr;
     default:
         LOG_CRITICAL(Service_NVDRV, "Unknown Ctrl GPU Event {}", event_id);
         return nullptr;
     }
+}
+
+Kernel::KEvent* nvhost_gpu::QueryEvent(DeviceFD fd, u32 event_id) {
+    // OunceVK configures independent 3D and copy /dev/nvhost-gpu FDs and
+    // queries event 7 on each one. Admission is therefore descriptor-scoped:
+    // multiple live native channels are valid and must not make id 7
+    // ambiguous. The event producer remains the existing device event.
+    if (event_id == 7)
+        return UsesNativeAbi(fd) ? error_notifier_event : nullptr;
+    return QueryEvent(event_id);
 }
 
 bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const {

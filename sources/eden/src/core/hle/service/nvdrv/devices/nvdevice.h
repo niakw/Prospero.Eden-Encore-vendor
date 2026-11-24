@@ -90,6 +90,14 @@ public:
         return nullptr;
     }
 
+    // QueryEvent is descriptor-scoped in NVDRV. Keep the legacy overload for
+    // devices whose event namespace is device-wide, while allowing native
+    // multi-channel devices to authenticate the exact FD.
+    virtual Kernel::KEvent* QueryEvent(DeviceFD fd, u32 event_id) {
+        (void)fd;
+        return QueryEvent(event_id);
+    }
+
 protected:
     Core::System& system;
 };

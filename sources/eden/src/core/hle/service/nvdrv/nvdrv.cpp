@@ -334,7 +334,10 @@ NvResult Module::QueryEvent(DeviceFD fd, u32 event_id, Kernel::KEvent*& event) {
         return NvResult::NotImplemented;
     }
 
-    event = itr->second->QueryEvent(event_id);
+    // Preserve the descriptor all the way to devices that have per-FD
+    // event admission (native Switch 2 GPU channels). Legacy devices inherit
+    // NvDevice's delegating overload and keep their existing event behavior.
+    event = itr->second->QueryEvent(fd, event_id);
     if (!event) {
         return NvResult::BadParameter;
     }

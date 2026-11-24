@@ -62,6 +62,7 @@ public:
     bool IsGpuChannelDevice() const override { return true; }
 
     Kernel::KEvent* QueryEvent(u32 event_id) override;
+    Kernel::KEvent* QueryEvent(DeviceFD fd, u32 event_id) override;
 
 private:
     friend class nvhost_as_gpu;

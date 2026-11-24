@@ -481,6 +481,40 @@ assert submit_impl.index("if (!native_channel_enabled)") < submit_impl.index(
     "if (!native_gpfifo_configured)") < submit_impl.index(
     "for (const auto& [other_fd, session_id] : sessions)")
 
+# OunceVK configures both a 3D and a copy /dev/nvhost-gpu channel and
+# calls nvQueryEvent(fd, 7) for each. Module::QueryEvent must therefore retain
+# the descriptor through virtual dispatch; a device-wide sessions.size()==1
+# gate rejects the second valid channel before its first submit.
+module_query=(R/"sources/eden/src/core/hle/service/nvdrv/nvdrv.cpp").read_text()
+nvdevice=(R/"sources/eden/src/core/hle/service/nvdrv/devices/nvdevice.h").read_text()
+assert "virtual Kernel::KEvent* QueryEvent(DeviceFD fd, u32 event_id)" in nvdevice
+fd_fallback=nvdevice.split(
+    "virtual Kernel::KEvent* QueryEvent(DeviceFD fd, u32 event_id) {",1
+)[1].split("\n    }",1)[0]
+assert "(void)fd;" in fd_fallback
+assert "return QueryEvent(event_id);" in fd_fallback
+module_query_body=module_query.split(
+    "NvResult Module::QueryEvent(DeviceFD fd, u32 event_id, Kernel::KEvent*& event) {",1
+)[1].split("\n}",1)[0]
+assert "itr->second->QueryEvent(fd, event_id)" in module_query_body
+assert "itr->second->QueryEvent(event_id)" not in module_query_body
+assert "Kernel::KEvent* QueryEvent(DeviceFD fd, u32 event_id) override;" in nvhost_hdr
+fd_event=nvhost_cpp.split(
+    "Kernel::KEvent* nvhost_gpu::QueryEvent(DeviceFD fd, u32 event_id) {",1
+)[1].split("\n}",1)[0]
+for token in ("if (event_id == 7)", "UsesNativeAbi(fd)",
+              "error_notifier_event", "return QueryEvent(event_id);"):
+    assert token in fd_event,token
+assert "sessions.size() == 1" not in fd_event
+legacy_event=nvhost_cpp.split(
+    "Kernel::KEvent* nvhost_gpu::QueryEvent(u32 event_id) {",1
+)[1].split(
+    "Kernel::KEvent* nvhost_gpu::QueryEvent(DeviceFD fd, u32 event_id)",1
+)[0]
+for token in ("case 1:", "case 2:", "case 3:"):
+    assert token in legacy_event,token
+assert "case 7:" not in legacy_event
+
 # Ounce S2 channel EventIdControl is input-only 0x40104812 and carries
 # {u32 cmd, u32 QueryEvent id, u64 zero}. The real setup path enables id=2.
 # SwitchBrew exposes exactly the three /dev/nvhost-gpu QueryEvent ids 1..3.
