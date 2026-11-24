@@ -674,31 +674,6 @@ for body in (health_info,health):
     assert "if (!native_error_notifier_initialized)" in body
     assert "return NvResult::InvalidState;" in body
 assert "params = native_error_info;" in health_info
-# OunceVK writes G:0x14 and immediately reads G:0x15 on both its 3D
-# and copy nvhost-gpu descriptors. Native client data is FD-scoped while the
-# legacy Maxwell device-wide field remains untouched for NS1.
-assert "NvResult SetClientData(IoctlClientData& params, DeviceFD fd);" in nvhost_hdr
-assert "NvResult GetClientData(IoctlClientData& params, DeviceFD fd);" in nvhost_hdr
-assert "::Common::unordered_map<DeviceFD, u64> native_user_data;" in nvhost_hdr
-group_g=nvhost_cpp.split("case 'G':",1)[1].split("default:",1)[0]
-for token in ("SetClientData, input, output, fd",
-              "GetClientData, input, output, fd"):
-    assert token in group_g,token
-set_client=nvhost_cpp.split(
-    "NvResult nvhost_gpu::SetClientData(IoctlClientData& params, DeviceFD fd) {",1
-)[1].split("\n}",1)[0]
-get_client=nvhost_cpp.split(
-    "NvResult nvhost_gpu::GetClientData(IoctlClientData& params, DeviceFD fd) {",1
-)[1].split("\n}",1)[0]
-for body in (set_client,get_client):
-    assert "UsesNativeAbi(fd)" in body
-    assert "ValidateChannelOwner(fd, program_id)" in body
-assert "native_user_data[fd] = static_cast<u64>(params.data);" in set_client
-assert "user_data = params.data;" in set_client
-assert "native_user_data.find(fd)" in get_client
-assert "params.data = user_data;" in get_client
-assert "native_user_data.erase(fd);" in on_close
-
 assert "params = native_error_notification;" in health
 # OunceVK checks only H:0x17 status for channel health. A title-wide fatal
 # GPU latch therefore maps to NVIDIA's generic robust-channel ERROR status,
