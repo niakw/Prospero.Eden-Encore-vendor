@@ -63,6 +63,7 @@ private:
     Result CreateCacheStorage(Out<u32> out_target_media, Out<u64> out_required_size, u16 index,
                               u64 normal_size, u64 journal_size);
     Result GetSaveDataSizeMax(Out<u64> out_max_normal_size, Out<u64> out_max_journal_size);
+    Result GetLimitedApplicationLicense(Out<u8> out_license_type);
     Result GetDeviceSaveDataSizeMax(Out<u64> out_max_normal_size, Out<u64> out_max_journal_size);
     Result GetCacheStorageMax(Out<u32> out_cache_storage_index_max, Out<u64> out_max_journal_size);
     Result BeginBlockingHomeButtonShortAndLongPressed(s64 unused);
@@ -115,7 +116,8 @@ private:
     Result SetHdcpAuthenticationActivated(bool activated);
     Result CreateApplicationAndRequestToStart(u64 application_id);
     Result GetUnknownEvent210(OutCopyHandle<Kernel::KReadableEvent> out_event);
-    Result Unknown330(Out<u8> out);
+    Result SetAudioOutputPolicy(u8 policy);
+    Result IsLanguageSelectionLimited(Out<u8> out_limited);
     Result PrepareForJit();
 
     struct CopyrightImageState {

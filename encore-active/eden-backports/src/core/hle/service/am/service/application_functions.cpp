@@ -101,7 +101,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {33, D<&IApplicationFunctions::EndBlockingHomeButton>, "EndBlockingHomeButton"},
         {34, nullptr, "SelectApplicationLicense"},
         {35, D<&IApplicationFunctions::GetDeviceSaveDataSizeMax>, "GetDeviceSaveDataSizeMax"},
-        {36, nullptr, "GetLimitedApplicationLicense"},
+        {36, D<&IApplicationFunctions::GetLimitedApplicationLicense>, "GetLimitedApplicationLicense"},
         {37, nullptr, "GetLimitedApplicationLicenseUpgradableEvent"},
         {40, D<&IApplicationFunctions::NotifyRunning>, "NotifyRunning"},
         {50, D<&IApplicationFunctions::GetPseudoDeviceId>, "GetPseudoDeviceId"},
@@ -138,11 +138,11 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {190, &IApplicationFunctions::SendServerMaintenanceOverlayNotification, "SendServerMaintenanceOverlayNotification"},
         {200, D<&IApplicationFunctions::GetLastApplicationExitReason>, "GetLastApplicationExitReason"},
         {210, D<&IApplicationFunctions::GetUnknownEvent210>, "Unknown210"},
-        {220, nullptr, "Unknown220"}, // [20.0.0+]
+        {220, D<&IApplicationFunctions::SetAudioOutputPolicy>, "SetAudioOutputPolicy"}, // [20.0.0+]
         {300, &IApplicationFunctions::RejectUnavailableMovieCommand, "CreateMovieWriter"}, // [19.0.0+]
         {310, nullptr, "Unknown310"}, // [20.0.0+]
         {320, nullptr, "Unknown320"}, // [20.0.0+]
-        {330, D<&IApplicationFunctions::Unknown330>, "Unknown330"}, // [20.0.0+]
+        {330, D<&IApplicationFunctions::IsLanguageSelectionLimited>, "IsLanguageSelectionLimited"}, // [20.0.0+]
         {500, D<&IApplicationFunctions::RejectDebugOnlyCommand>, "StartContinuousRecordingFlushForDebug"},
         {1000, &IApplicationFunctions::RejectUnavailableMovieCommand, "CreateMovieMaker"},
         {1001, D<&IApplicationFunctions::PrepareForJit>, "PrepareForJit"},
@@ -376,6 +376,12 @@ Result IApplicationFunctions::GetSaveDataSizeMax(Out<u64> out_max_normal_size,
 
     LOG_DEBUG(Service_AM, "GetSaveDataSizeMax normal={:#x}, journal={:#x}",
               *out_max_normal_size, *out_max_journal_size);
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::GetLimitedApplicationLicense(Out<u8> out_license_type) {
+    *out_license_type = 0;
+    LOG_DEBUG(Service_AM, "called, no limited/trial application license");
     R_SUCCEED();
 }
 
@@ -892,9 +898,14 @@ Result IApplicationFunctions::GetUnknownEvent210(
     R_SUCCEED();
 }
 
-Result IApplicationFunctions::Unknown330(Out<u8> out) {
+Result IApplicationFunctions::SetAudioOutputPolicy(u8 policy) {
+    LOG_DEBUG(Service_AM, "called, policy={} (no separate AM audio-policy backend)", policy);
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::IsLanguageSelectionLimited(Out<u8> out_limited) {
     LOG_DEBUG(Service_AM, "called");
-    *out = 0;
+    *out_limited = 0;
     R_SUCCEED();
 }
 
