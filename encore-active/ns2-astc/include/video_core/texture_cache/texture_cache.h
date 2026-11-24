@@ -284,6 +284,15 @@ void TextureCache<P>::MarkModification(ImageId id) noexcept {
 
 template <class P>
 void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compute, bool blacklist) {
+#ifdef PS5_NATIVE
+    // The empty descriptor pass only clears the deletion/retry latch.
+    // Avoid initializing the draw-local TIC memo and entering the retry
+    // loop when no view can possibly be visited or blacklisted.
+    if (views.empty()) {
+        has_deleted_images = false;
+        return;
+    }
+#endif
     bool has_blacklisted = false;
     do {
         has_deleted_images = false;
@@ -291,25 +300,65 @@ void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compu
             has_blacklisted = false;
         }
 #ifdef PS5_NATIVE
-        // Reuse only the immediately preceding successful TIC binding in a
-        // read-only pass. Deletion, NULL recovery and blacklist effects must
-        // still visit every descriptor.
-        u32 previous_image_index{};
-        ImageViewId previous_view_id = NULL_IMAGE_VIEW_ID;
+        // P0.3: reuse nonadjacent TIC descriptors only in this stable draw pass.
+        // Never bypass NULL recovery, deletion-driven retry or blacklist work.
+        struct ViewMemo {
+            u32 index;
+            ImageViewId id;
+        };
+        // Use a mask instead of clearing sixteen keys under the texture lock.
+        // Unoccupied entries are never read, NULL IDs never memoized.
+        std::array<ViewMemo, 16> view_memo;
+        u32 occupied_view_slots = 0;
+        const bool memo_enabled = !blacklist && views.size() > 1;
 #endif
         for (ImageViewInOut& view : views) {
 #ifdef PS5_NATIVE
-            if (!blacklist && !has_deleted_images &&
-                previous_view_id != NULL_IMAGE_VIEW_ID &&
-                previous_image_index == view.index) {
-                view.id = previous_view_id;
-                continue;
+            // On a hot multi-texture HUD pass, several TIC indices may have
+            // the same low four bits. Preserve up to 16 distinct positive
+            // results without additional heap work or cross-draw caching.
+            ViewMemo* memo_slot = nullptr;
+            u32 memo_bit = 0;
+            bool memo_hit = false;
+            if (memo_enabled && !has_deleted_images) {
+                const std::size_t start = (view.index ^ (view.index >> 4)) & 15U;
+                for (std::size_t offset = 0; offset < view_memo.size(); ++offset) {
+                    const std::size_t slot = (start + offset) & 15U;
+                    const u32 bit = u32{1} << slot;
+                    auto& cached = view_memo[slot];
+                    if (!(occupied_view_slots & bit)) {
+                        memo_slot = &cached;
+                        memo_bit = bit;
+                        break;
+                    }
+                    if (cached.index != view.index) continue;
+                    memo_slot = &cached;
+                    memo_bit = bit;
+                    const auto& cached_view = slot_image_views[cached.id];
+                    // Never reuse a remapped view without rebuilding it.
+                    const bool remapped = !cached_view.IsBuffer() &&
+                        True(slot_images[cached_view.image_id].flags & ImageFlagBits::Remapped);
+                    if (!remapped) {
+                        view.id = cached.id;
+                        // A positive TIC hit still refreshes dirty pixels.
+                        PrepareImageView(cached.id, false, false);
+                        memo_hit = true;
+                    }
+                    break;
+                }
             }
+            if (memo_hit) continue;
 #endif
             view.id = VisitImageView(view.index, compute);
 #ifdef PS5_NATIVE
-            previous_image_index = view.index;
-            previous_view_id = view.id;
+            // A full table falls back to the original lookup without
+            // evicting any live descriptor in this draw. A deletion-driven
+            // retry uses a fresh table in the next do/while iteration.
+            if (memo_slot && !has_deleted_images && view.id != NULL_IMAGE_VIEW_ID) {
+                memo_slot->index = view.index;
+                memo_slot->id = view.id;
+                occupied_view_slots |= memo_bit;
+            }
 #endif
             if (blacklist) {
                 if (view.blacklist && view.id != NULL_IMAGE_VIEW_ID) {

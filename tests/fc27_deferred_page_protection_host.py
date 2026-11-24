@@ -91,8 +91,9 @@ assert blob(T) in {
     "5c6d015cf207d63de31b577411972606145d9f2e",  # empty render-target guard
     "27ea4e0e665d3f94e173c1335cb19211efc03646",  # selected HUD/cache parity
     "bbb55dc7b1648fa1e6fd730a1b3515f2969221c7",  # selected readback batching and dirty rollback
+    "5fa75d9b6b7b4f9710a6840182dc0de854e62268",  # active 16-entry HUD TIC memo parity
 }
-if blob(T) in {"27ea4e0e665d3f94e173c1335cb19211efc03646", "bbb55dc7b1648fa1e6fd730a1b3515f2969221c7"}:
+if blob(T) in {"27ea4e0e665d3f94e173c1335cb19211efc03646", "bbb55dc7b1648fa1e6fd730a1b3515f2969221c7", "5fa75d9b6b7b4f9710a6840182dc0de854e62268"}:
     for guard in ("if (it == channel_state->sampler_ids.end())",
                   "if (pair->second != NULL_IMAGE_VIEW_ID || remapped_cached_view)",
                   "if (removed_views.empty())"):
@@ -111,6 +112,17 @@ for needle in ("bool upload_completed = false;", "std::try_to_lock",
 # The PS5-selected owner must also contain the previously shadow-only BCn 3D
 # cancellation, allocation, and bounds protections, not just 2D decode fixes.
 shadow=(ROOT/"encore-active/eden-vulkan/vulkan-cache/video_core/texture_cache/texture_cache.h").read_text()
+# The selected native owner must carry the same draw-local TIC memo as the
+# maintained Vulkan owner: nonadjacent positive hits may skip descriptor
+# lookup, but each hit still runs PrepareImageView for dirty HUD pixels.
+fill_method="void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compute, bool blacklist) {"
+def fill_body(src):
+    return src.split(fill_method,1)[1].split("\n}\n",1)[0]
+assert fill_body(texture_selected)==fill_body(shadow), "selected FillImageViews HUD memo diverged"
+for needle in ("std::array<ViewMemo, 16> view_memo;",
+               "PrepareImageView(cached.id, false, false);",
+               "const bool memo_enabled = !blacklist && views.size() > 1;"):
+    assert needle in fill_body(texture_selected), needle
 method="void TextureCache<P>::TickAsyncUnswizzle() {"
 def body(src):
     return src.split(method,1)[1].split("\n}\n",1)[0]
