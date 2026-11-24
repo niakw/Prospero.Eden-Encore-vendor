@@ -28,7 +28,6 @@ public:
 private:
     Result IsInHalfAwake(Out<bool> out_half_awake);
     Result IsInFullAwake(Out<bool> out_full_awake);
-    Result GetOperationMode(Out<u32> out_operation_mode);
     Result WillDisconnectNetworkWhenEnteringSleep(Out<bool> out_disconnect);
     Result WillStayHalfAwakeInsteadSleep(Out<bool> out_half_awake);
 };
