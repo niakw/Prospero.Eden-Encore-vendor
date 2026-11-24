@@ -184,7 +184,7 @@ IGpuWorker::~IGpuWorker() {
     // dereference System::GPU() then: its optional was already reset.
     if (system.IsPoweredOn() && !system.IsShuttingDown() &&
         (!m_dense_regions.empty() || !m_mappings.Mappings().empty() ||
-         !m_memory.empty()))
+         !m_sparse_overlays.Mappings().empty() || !m_memory.empty()))
         system.GPU().WaitForIdle();
     // A failed native 215/216 can poison a GMMU AFTER the original dense
     // 214 backing was published. The worker must detect this on teardown:
@@ -207,6 +207,29 @@ IGpuWorker::~IGpuWorker() {
     if (m_quarantined_nv_session)
         LOG_ERROR(Service_AM, "NS2 poisoned GPU AS at worker teardown: quarantine all owned NVMap backing");
 
+    // 211 overlays must go first: their 213 equivalent restores sparse PTEs,
+    // after which the owning 214 reservation can be released safely.
+    if (!m_quarantined_nv_session)
+    for (const auto& [key, mapping] : m_sparse_overlays.Mappings()) {
+        (void)key;
+        std::shared_ptr<Nvidia::Devices::nvhost_as_gpu> as;
+        {
+            const std::scoped_lock lock{m_shared->mutex};
+            as = m_shared->FindOwnedAddressSpace(mapping.address_space);
+        }
+        if (!as || as->UnmapNative4K(mapping.address, mapping.size) !=
+                       Nvidia::NvResult::Success) {
+            LOG_ERROR(Service_AM, "NS2 sparse-overlay unmap failed as={} VA={:#x}",
+                      mapping.address_space, mapping.address);
+            m_quarantined_nv_session = true;
+            break;
+        }
+        if (as->IsNativeSparsePoisoned()) {
+            m_quarantined_nv_session = true;
+            break;
+        }
+    }
+
     if (!m_quarantined_nv_session)
     for (const auto& [key, mapping] : m_mappings.Mappings()) {
         const auto dense = m_dense_regions.find({mapping.address_space, mapping.address});
@@ -220,15 +243,20 @@ IGpuWorker::~IGpuWorker() {
             const std::scoped_lock lock{m_shared->mutex};
             as = m_shared->FindOwnedAddressSpace(mapping.address_space);
         }
-        if (as && (mapping.sparse
-                       ? as->ReleaseNativeSparse4K(mapping.address, mapping.size)
-                       : as->UnmapNative4K(mapping.address, mapping.size)) !=
-                      Nvidia::NvResult::Success)
+        const auto retired = as
+            ? (mapping.sparse
+                   ? as->ReleaseNativeSparse4K(mapping.address, mapping.size)
+                   : as->UnmapNative4K(mapping.address, mapping.size))
+            : Nvidia::NvResult::InvalidState;
+        if (retired != Nvidia::NvResult::Success) {
             LOG_ERROR(Service_AM, "NS2 native GPU VA unmap failed as={} VA={:#x}",
                       mapping.address_space, mapping.address);
-        // A page-table OOM can poison the AS DURING this unmap. Stop before
-        // any owner is FreeHandle'd; the GPU must not see freed backing.
-        if (as && as->IsNativeSparsePoisoned()) {
+            // No proof that the PTE/pin was retired: never continue into
+            // FreeHandle/CloseSession with potentially live GPU backing.
+            m_quarantined_nv_session = true;
+            break;
+        }
+        if (as->IsNativeSparsePoisoned()) {
             m_quarantined_nv_session = true;
             break;
         }
@@ -591,32 +619,49 @@ void IGpuWorker::NormalMapGpuMemory4K(HLERequestContext& ctx) {
             result = Kernel::ResultInvalidCombination;
             if (backing && request->memory_offset <= backing->orig_size &&
                 request->size <= backing->orig_size - request->memory_offset) {
-                GW::MappingLedger::Pending staged_ledger;
-                const auto preflight = m_mappings.PrepareMapped(*request, staged_ledger);
-                result = TranslateMappingStatus(preflight);
-                if (preflight == GW::LedgerStatus::Success) {
-                    result = Kernel::ResultInvalidState;
-                    const auto as = m_shared->FindOwnedAddressSpace(
-                        static_cast<Nvidia::DeviceFD>(request->address_space));
-                    const auto mapped = as
-                        ? as->MapNative4K(request->memory, request->address,
-                                          request->memory_offset, request->size,
-                                          request->backend_kind)
-                        : Nvidia::NvResult::InvalidState;
-                    // A failed VA allocation is not an invalid guest state.
-                    // Let the title back off/reclaim RAM instead of treating
-                    // a transient host allocator OOM as a bad GPU command.
-                    if (mapped == Nvidia::NvResult::InsufficientMemory)
-                        result = Kernel::ResultOutOfResource;
-                    if (mapped == Nvidia::NvResult::Success) {
-                        const auto committed = m_mappings.CommitPrepared(staged_ledger);
-                        if (committed == GW::LedgerStatus::Success) {
-                            selected = request->selected_kind;
-                            result = ResultSuccess;
-                            m_shared->events[request->notification]->Signal(kernel);
-                        } else {
-                            as->UnmapNative4K(request->address, request->size);
-                            result = TranslateMappingStatus(committed);
+                // OunceVK maps registered backing into an already reserved VA
+                // lease. A contained 214 reservation is therefore not an
+                // overlap error: its 211 physical views live in a distinct
+                // ledger and the AS restores sparse PTEs on 213.
+                const bool sparse_overlay =
+                    m_mappings.SparseReservationPageShift(
+                        request->address_space, request->address, request->size).has_value();
+                if (m_mappings.Count() + m_sparse_overlays.Count() >= GW::MaxMappings) {
+                    result = Kernel::ResultOutOfResource;
+                } else {
+                    auto& ledger = sparse_overlay ? m_sparse_overlays : m_mappings;
+                    GW::MappingLedger::Pending staged_ledger;
+                    const auto preflight = ledger.PrepareMapped(*request, staged_ledger);
+                    result = TranslateMappingStatus(preflight);
+                    if (preflight == GW::LedgerStatus::Success) {
+                        result = Kernel::ResultInvalidState;
+                        const auto as = m_shared->FindOwnedAddressSpace(
+                            static_cast<Nvidia::DeviceFD>(request->address_space));
+                        const auto mapped = as
+                            ? as->MapNative4K(request->memory, request->address,
+                                              request->memory_offset, request->size,
+                                              request->backend_kind,
+                                              request->cache != 0)
+                            : Nvidia::NvResult::InvalidState;
+                        if (mapped == Nvidia::NvResult::InsufficientMemory)
+                            result = Kernel::ResultOutOfResource;
+                        if (mapped == Nvidia::NvResult::Success) {
+                            const auto committed = ledger.CommitPrepared(staged_ledger);
+                            if (committed == GW::LedgerStatus::Success) {
+                                selected = request->selected_kind;
+                                result = ResultSuccess;
+                                m_shared->events[request->notification]->Signal(kernel);
+                            } else {
+                                if (as->UnmapNative4K(request->address, request->size) !=
+                                    Nvidia::NvResult::Success) {
+                                    // The AS still owns a pin/PTE not represented
+                                    // by a committed worker ledger. Fail closed.
+                                    m_quarantined_nv_session = true;
+                                    result = Kernel::ResultInvalidState;
+                                } else {
+                                    result = TranslateMappingStatus(committed);
+                                }
+                            }
                         }
                     }
                 }
@@ -640,14 +685,14 @@ void IGpuWorker::NormalModifyGpuMemory4K(HLERequestContext& ctx) {
         result = Kernel::ResultNotFound;
         if (m_shared->address_spaces.Owns(request->address_space) &&
             m_shared->events[request->notification]) {
-            const auto preflight = m_mappings.CanModify(*request);
+            auto preflight = m_mappings.CanModify(*request);
+            if (preflight != GW::LedgerStatus::Success)
+                preflight = m_sparse_overlays.CanModify(*request);
             result = TranslateMappingStatus(preflight);
             if (preflight == GW::LedgerStatus::Success) {
                 result = Kernel::ResultInvalidState;
                 const auto as = m_shared->FindOwnedAddressSpace(
                     static_cast<Nvidia::DeviceFD>(request->address_space));
-                // Preserve guest PTE interpretation while earlier 3D/Compute
-                // submissions may still reference this virtual range.
                 if (as) {
                     BlockingBoundaryTrace trace{"212_wait_idle", request->address_space,
                                                 request->address, request->size};
@@ -679,14 +724,20 @@ void IGpuWorker::NormalUnmapGpuMemory4K(HLERequestContext& ctx) {
         result = Kernel::ResultNotFound;
         if (m_shared->address_spaces.Owns(request->address_space) &&
             m_shared->events[request->notification]) {
-            const auto preflight = m_mappings.CanUnmap(*request);
+            auto* ledger = &m_mappings;
+            auto preflight = ledger->CanUnmap(*request);
+            if (preflight != GW::LedgerStatus::Success) {
+                const auto overlay = m_sparse_overlays.CanUnmap(*request);
+                if (overlay == GW::LedgerStatus::Success) {
+                    ledger = &m_sparse_overlays;
+                    preflight = overlay;
+                }
+            }
             result = TranslateMappingStatus(preflight);
             if (preflight == GW::LedgerStatus::Success) {
                 result = Kernel::ResultInvalidState;
                 const auto as = m_shared->FindOwnedAddressSpace(
                     static_cast<Nvidia::DeviceFD>(request->address_space));
-                // The native 213 owner drops its NVMap pin as it unmaps
-                // GMMU. Drain submitted GPU readers/writers before unpin.
                 if (as) {
                     BlockingBoundaryTrace trace{"213_wait_idle", request->address_space,
                                                 request->address, request->size};
@@ -694,17 +745,17 @@ void IGpuWorker::NormalUnmapGpuMemory4K(HLERequestContext& ctx) {
                 }
                 if (as && as->UnmapNative4K(request->address, request->size) ==
                                   Nvidia::NvResult::Success) {
-                    m_mappings.RecordUnmapped(*request);
-                    result = ResultSuccess;
-                    m_shared->events[request->notification]->Signal(kernel);
+                    if (ledger->RecordUnmapped(*request) == GW::LedgerStatus::Success) {
+                        result = ResultSuccess;
+                        m_shared->events[request->notification]->Signal(kernel);
+                    }
                 }
             }
         }
     }
     TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
     // libounce gsvGpuUnmap uses tipcDispatchIn: command 213 returns only
-    // Result. The completion slot is the operation-complete signal; do not
-    // append a synthetic unmapped-size payload after it.
+    // Result. The completion slot is the operation-complete signal.
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
 }
@@ -1335,11 +1386,18 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
 
     // Sub 102 destroys this memory object. Remove all 211 mappings owned by
     // this worker plus the sub-101 identity mappings before testing pins.
-    std::vector<GW::Mapping> mapped_memory;
+    struct Owned211Mapping {
+        GW::Mapping mapping;
+        bool sparse_overlay{};
+    };
+    std::vector<Owned211Mapping> mapped_memory;
     try {
         for (const auto& [key, mapping] : m_mappings.Mappings())
             if (!mapping.sparse && mapping.memory == id)
-                mapped_memory.push_back(mapping);
+                mapped_memory.push_back(Owned211Mapping{mapping, false});
+        for (const auto& [key, mapping] : m_sparse_overlays.Mappings())
+            if (mapping.memory == id)
+                mapped_memory.push_back(Owned211Mapping{mapping, true});
     } catch (const std::bad_alloc&) {
         return Kernel::ResultOutOfResource;
     }
@@ -1374,12 +1432,17 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
     }
 #endif
 
-    for (const auto& mapping : mapped_memory) {
+    for (const auto& owned_map : mapped_memory) {
+        const auto& mapping = owned_map.mapping;
         const auto as = m_shared->FindOwnedAddressSpace(mapping.address_space);
-        if (as && as->UnmapNative4K(mapping.address, mapping.size) != Nvidia::NvResult::Success)
+        if (!as || as->UnmapNative4K(mapping.address, mapping.size) !=
+                       Nvidia::NvResult::Success) {
+            m_quarantined_nv_session = true;
             return Kernel::ResultInvalidState;
+        }
         const GW::Unmap4K unmap{mapping.address_space, 0, mapping.address, mapping.size, 0};
-        if (m_mappings.RecordUnmapped(unmap) != GW::LedgerStatus::Success)
+        auto& ledger = owned_map.sparse_overlay ? m_sparse_overlays : m_mappings;
+        if (ledger.RecordUnmapped(unmap) != GW::LedgerStatus::Success)
             return Kernel::ResultInvalidState;
     }
 

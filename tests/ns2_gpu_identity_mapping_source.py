@@ -1107,3 +1107,39 @@ assert as_dtor.index("native_sparse_pins.clear();") < as_dtor.index(
     "m_native_process->Close(system.Kernel());")
 print("NS1_MAXWELL_AS_LEASE_SOURCE_PASS owner_before_payload=1 exact_session=1 "
       "pins_before_session_close=1 no_new_asid=1")
+
+
+// Worker 211 overlays one 214 reservation without taking a second VA owner.
+// 216 remains physically exclusive and 213 restores sparse PTE state.
+_overlay_worker = worker.split("void IGpuWorker::NormalMapGpuMemory4K(",1)[1].split(
+    "void IGpuWorker::CreateSparseRegion(",1)[0]
+for marker in (
+    "m_mappings.SparseReservationPageShift(",
+    "auto& ledger = sparse_overlay ? m_sparse_overlays : m_mappings;",
+    "request->cache != 0",
+    "m_sparse_overlays.CanModify(*request)",
+    "m_sparse_overlays.CanUnmap(*request)",
+):
+    assert marker in _overlay_worker, marker
+assert "GpuWorkerProtocol::MappingLedger m_sparse_overlays;" in worker_hdr
+assert "SparseReservationPageShift(" in worker_protocol
+
+_overlay_as = as_cpp.split("NvResult nvhost_as_gpu::MapNative4K(",1)[1].split(
+    "\nNvResult nvhost_as_gpu::MapNativeImage(",1)[0]
+for marker in (
+    "bool sparse_overlay = false;",
+    "native_sparse_mappings.Ranges()",
+    "if (current.handle) return NvResult::BadParameter;",
+    "Mapping(handle_id, pinned + source, address, size,",
+    "true, false, sparse_overlay, gpu_cacheable)",
+    "gmmu->MapSparse(address, size, false);",
+):
+    assert marker in _overlay_as, marker
+_overlay_unmap = as_cpp.split("NvResult nvhost_as_gpu::UnmapNative4K(",1)[1].split(
+    "\nNvResult nvhost_as_gpu::ModifyNativeKind(",1)[0]
+assert "if (mapping->second.sparse_alloc)" in _overlay_unmap
+assert _overlay_unmap.index("gmmu->MapSparse(address, size, false);") < _overlay_unmap.index(
+    "nvmap.UnpinHandle(mapping->second.handle);")
+assert "bool gpu_cacheable : 1;" in as_h
+print("NS2_WORKER_211_SPARSE_OVERLAY_SOURCE_PASS cacheability=retained "
+      "214_va_owner=preserved 216_exclusive=1 213_restores_sparse=1")

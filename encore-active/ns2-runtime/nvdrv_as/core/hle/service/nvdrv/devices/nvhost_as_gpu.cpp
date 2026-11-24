@@ -414,7 +414,8 @@ bool nvhost_as_gpu::OwnsNativeProcess(Kernel::KProcess* process) {
 // NS2 research: operate on a real, exclusive, 4-KiB guest GMMU allocation.
 // Unlike the old fixed IOCTL path, validation+reservation+mapping happen
 // under one address-space mutex and no failed/overlap request returns success.
-NvResult nvhost_as_gpu::MapNative4K(u32 handle_id, u64 address, u64 source, u64 size, u8 kind) {
+NvResult nvhost_as_gpu::MapNative4K(u32 handle_id, u64 address, u64 source, u64 size,
+                                          u8 kind, bool gpu_cacheable) {
     constexpr u64 page = VM::YUZU_PAGESIZE;
     if (!m_native_process || !handle_id || !size || (address | source | size) & (page - 1) ||
         (size >> VM::PAGE_SIZE_BITS) > std::numeric_limits<u32>::max() ||
@@ -429,77 +430,112 @@ NvResult nvhost_as_gpu::MapNative4K(u32 handle_id, u64 address, u64 source, u64 
         return NvResult::BadParameter;
 
     const std::scoped_lock lock{mutex};
-    // A revoked GPU address-space owner must never pin NvMap memory,
-    // allocate pages or dereference a stale GMMU in the same call.
     if (!vm.initialised || !gmmu || native_sparse_poisoned ||
         address < vm.va_range_start || address >= vm.va_range_split ||
         size > vm.va_range_split - address || !vm.small_page_allocator)
         return NvResult::BadParameter;
 
-    // Check both reserved mappings and raw legacy mappings, including the
-    // predecessor; an unchecked AllocateFixed would silently overwrite them.
-    const auto reservation = allocation_map.lower_bound(address);
-    if ((reservation != allocation_map.end() && reservation->first < address + size) ||
-        (reservation != allocation_map.begin() &&
-         std::prev(reservation)->first + std::prev(reservation)->second.size > address))
-        return NvResult::BadParameter;
+    // Raw 0xe3 / worker 211 may map a 4-KiB subrange of one already-reserved
+    // 214 sparse VA. That range already owns its allocator pages; a 211 view
+    // owns only the physical pin and PTEs. This mirrors OunceVK's distinction
+    // between a VA lease and a mapping of registered backing into that lease.
+    bool sparse_overlay = false;
+    const auto sparse_owner = native_sparse_regions.upper_bound(address);
+    if (sparse_owner != native_sparse_regions.begin()) {
+        const auto previous = std::prev(sparse_owner);
+        sparse_overlay =
+            address >= previous->first &&
+            address - previous->first < previous->second.size &&
+            size <= previous->second.size - (address - previous->first);
+    }
+
+    // A 216 physical remap and a 211 overlay must never own the same PTE.
+    // Unbacked (handle==0) sparse spans are replaceable; physically backed
+    // 216 spans remain exclusive until 216/102 restores them.
+    if (sparse_overlay) {
+        const u64 end = address + size;
+        const auto& sparse_ranges = native_sparse_mappings.Ranges();
+        auto range = sparse_ranges.lower_bound(address);
+        if (range != sparse_ranges.begin()) --range;
+        for (; range != sparse_ranges.end() && range->second.address < end; ++range) {
+            const auto& current = range->second;
+            if (!current.size || current.address > std::numeric_limits<u64>::max() - current.size)
+                return NvResult::InvalidState;
+            if (current.address + current.size <= address) continue;
+            if (current.handle) return NvResult::BadParameter;
+        }
+    } else {
+        // Ordinary 211 owns a fresh fixed VA. Sparse reservations are the one
+        // intentional exception; every other allocation overlap stays invalid.
+        const auto reservation = allocation_map.lower_bound(address);
+        if ((reservation != allocation_map.end() && reservation->first < address + size) ||
+            (reservation != allocation_map.begin() &&
+             std::prev(reservation)->first + std::prev(reservation)->second.size > address))
+            return NvResult::BadParameter;
+    }
+
     const auto next = mapping_map.lower_bound(address);
     if ((next != mapping_map.end() && next->first < address + size) ||
         (next != mapping_map.begin() &&
          std::prev(next)->first + std::prev(next)->second.size > address))
         return NvResult::BadParameter;
 
-    // The 4K small-page allocator uses 32-bit page numbers, but the actual
-    // address/size values and all overlap checks above remain 64-bit.
     if ((address >> VM::PAGE_SIZE_BITS) > std::numeric_limits<u32>::max() ||
         ((address + size) >> VM::PAGE_SIZE_BITS) > std::numeric_limits<u32>::max())
         return NvResult::BadParameter;
+
     const DAddr pinned = nvmap.PinHandle(handle_id, false);
     if (!NativePinnedPhysicalSpan(pinned, source, size)) {
         if (pinned) nvmap.UnpinHandle(handle_id);
         return NvResult::InsufficientMemory;
     }
     if (((pinned + source) & (page - 1)) != 0) {
-        // Small PTEs store 4-KiB physical page numbers: an unaligned
-        // device address would silently round down to unrelated RAM.
         nvmap.UnpinHandle(handle_id);
         return NvResult::BadValue;
     }
+
     const u32 first_page = static_cast<u32>(address >> VM::PAGE_SIZE_BITS);
     const u32 page_count = static_cast<u32>(size >> VM::PAGE_SIZE_BITS);
-    // The fixed-page allocator itself can allocate vector blocks. Keep it
-    // inside the SAME rollback scope as the NVMap pin and the owner maps;
-    // otherwise an OOM before the try would leak the just-acquired pin.
     bool va_reserved = false;
     try {
-        vm.small_page_allocator->AllocateFixed(first_page, page_count);
-        va_reserved = true;
-        allocation_map.emplace(address, Allocation{{}, size, VM::YUZU_PAGESIZE, false, false});
-        allocation_map.at(address).mappings.push_back(address);
+        if (!sparse_overlay) {
+            vm.small_page_allocator->AllocateFixed(first_page, page_count);
+            va_reserved = true;
+            allocation_map.emplace(address,
+                                   Allocation{{}, size, VM::YUZU_PAGESIZE, false, false});
+            allocation_map.at(address).mappings.push_back(address);
+        }
         mapping_map.emplace(address, Mapping(handle_id, pinned + source, address, size,
-                                             true, false, false));
+                                             true, false, sparse_overlay, gpu_cacheable));
     } catch (const std::bad_alloc&) {
         mapping_map.erase(address);
-        allocation_map.erase(address);
-        if (va_reserved) vm.small_page_allocator->Free(first_page, page_count);
+        if (!sparse_overlay) {
+            allocation_map.erase(address);
+            if (va_reserved) vm.small_page_allocator->Free(first_page, page_count);
+        }
         nvmap.UnpinHandle(handle_id);
         return NvResult::InsufficientMemory;
     }
+
     try {
         gmmu->Map(address, pinned + source, size, static_cast<Tegra::PTEKind>(kind), false);
     } catch (const std::bad_alloc&) {
-        // A PTE allocation can fail after touching part of the range.
-        // Retain its NVMap owner on rollback failure rather than unpinning
-        // backing which a partial GPU map might still reference.
+        // A partial 211 publication must return the pre-existing sparse pages
+        // to sparse state, not unmap the reservation itself.
         try {
-            gmmu->Unmap(address, size);
+            if (sparse_overlay)
+                gmmu->MapSparse(address, size, false);
+            else
+                gmmu->Unmap(address, size);
         } catch (const std::bad_alloc&) {
             native_sparse_poisoned = true;
             return NvResult::InvalidState;
         }
         mapping_map.erase(address);
-        allocation_map.erase(address);
-        vm.small_page_allocator->Free(first_page, page_count);
+        if (!sparse_overlay) {
+            allocation_map.erase(address);
+            vm.small_page_allocator->Free(first_page, page_count);
+        }
         nvmap.UnpinHandle(handle_id);
         return NvResult::InsufficientMemory;
     }
@@ -977,19 +1013,43 @@ NvResult nvhost_as_gpu::UnmapNative4K(u64 address, u64 size) {
         return NvResult::BadParameter;
     const std::scoped_lock lock{mutex};
     const auto mapping = mapping_map.find(address);
-    const auto reservation = allocation_map.find(address);
     if (!vm.initialised || !gmmu || !vm.small_page_allocator || native_sparse_poisoned ||
-        mapping == mapping_map.end() ||
-        reservation == allocation_map.end() || mapping->second.size != size ||
-        reservation->second.size != size || reservation->second.page_size != page ||
-        reservation->second.mappings.size() != 1 ||
-        reservation->second.mappings[0] != address || reservation->second.sparse ||
-        !mapping->second.fixed || mapping->second.sparse_alloc)
+        mapping == mapping_map.end() || mapping->second.size != size ||
+        !mapping->second.fixed)
         return NvResult::BadParameter;
-    // This exact native 4K reservation owns both the PTEs and the VA.
-    // FreeMappingLocked would drop the fixed mapping's pin before the
-    // fallible allocator Free below. Retire both before publishing either
-    // ledger removal or releasing the pin.
+
+    if (mapping->second.sparse_alloc) {
+        // Worker 213 retires only the 211 physical view. The 214 reservation
+        // and its allocator ownership survive and the PTEs return to sparse.
+        bool owned = false;
+        const auto region = native_sparse_regions.upper_bound(address);
+        if (region != native_sparse_regions.begin()) {
+            const auto previous = std::prev(region);
+            owned = address >= previous->first &&
+                    address - previous->first < previous->second.size &&
+                    size <= previous->second.size - (address - previous->first);
+        }
+        if (!owned || mapping->second.big_page)
+            return NvResult::BadParameter;
+        try {
+            gmmu->MapSparse(address, size, false);
+        } catch (const std::bad_alloc&) {
+            native_sparse_poisoned = true;
+            return NvResult::InvalidState;
+        }
+        nvmap.UnpinHandle(mapping->second.handle);
+        mapping_map.erase(mapping);
+        map_buffer_offsets.erase(static_cast<s64>(address));
+        return NvResult::Success;
+    }
+
+    const auto reservation = allocation_map.find(address);
+    if (reservation == allocation_map.end() || reservation->second.size != size ||
+        reservation->second.page_size != page ||
+        reservation->second.mappings.size() != 1 ||
+        reservation->second.mappings[0] != address || reservation->second.sparse)
+        return NvResult::BadParameter;
+
     try {
         gmmu->Unmap(address, size);
         vm.small_page_allocator->Free(static_cast<u32>(address >> VM::PAGE_SIZE_BITS),

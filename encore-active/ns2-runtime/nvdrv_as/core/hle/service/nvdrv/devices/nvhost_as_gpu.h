@@ -67,7 +67,8 @@ public:
     void OnClose(DeviceFD fd) override;
 
     // Bounded NS2 research GMMU mappings. These do not enable Ampere shaders.
-    NvResult MapNative4K(u32 handle_id, u64 address, u64 source, u64 size, u8 kind);
+    NvResult MapNative4K(u32 handle_id, u64 address, u64 source, u64 size, u8 kind,
+                         bool gpu_cacheable = false);
     // Reserve native 4K VA and map a real NVMap-backed image in one AS lock.
     NvResult MapNativeImage(u32 handle_id, u64 source, u64 size, u64& address);
     [[nodiscard]] bool OwnsNativeProcess(Kernel::KProcess* process);
@@ -208,10 +209,15 @@ private:
         bool fixed : 1;
         bool big_page : 1; // Only valid if fixed == false
         bool sparse_alloc : 1;
+        // Raw worker 211 GpuCacheability. The software GMMU currently has no
+        // cacheability PTE field, but the exact mapping owner must retain it.
+        bool gpu_cacheable : 1;
 
-        Mapping(NvCore::NvMap::Handle::Id handle_, DAddr ptr_, u64 offset_, u64 size_, bool fixed_, bool big_page_, bool sparse_alloc_)
+        Mapping(NvCore::NvMap::Handle::Id handle_, DAddr ptr_, u64 offset_, u64 size_,
+                bool fixed_, bool big_page_, bool sparse_alloc_, bool gpu_cacheable_ = false)
             : ptr(ptr_), offset(offset_), size(size_), handle(handle_)
             , fixed(fixed_), big_page(big_page_), sparse_alloc(sparse_alloc_)
+            , gpu_cacheable(gpu_cacheable_)
         {}
     };
 

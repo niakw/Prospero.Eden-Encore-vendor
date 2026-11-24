@@ -76,6 +76,10 @@ private:
     };
     std::map<u32, PendingDeviceUnlock> m_pending_device_unlocks;
     GpuWorkerProtocol::MappingLedger m_mappings;
+    // Worker 211 mappings inside a 214 reservation overlap its VA by design.
+    // Keep their physical owners separate from the reservation ledger so 215
+    // can never erase a live 211 map and 216 can remain mutually exclusive.
+    GpuWorkerProtocol::MappingLedger m_sparse_overlays;
     // Physical GPU-only backing is owned by the worker, not by guest handles.
     // It must outlive every GMMU mapping and every in-flight GPU write.
     struct DenseRegion {

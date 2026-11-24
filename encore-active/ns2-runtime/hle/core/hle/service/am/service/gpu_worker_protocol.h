@@ -373,6 +373,26 @@ public:
                address - entry.address < entry.size &&
                size <= entry.size - (address - entry.address);
     }
+    // Worker 211 always maps 4-KiB intervals. It may target a subrange of an
+    // already reserved 214 sparse VA even when that reservation was created
+    // with a 64-KiB remap granule. Do not confuse containment with the stricter
+    // 216 page-size contract below.
+    [[nodiscard]] std::optional<U8> SparseReservationPageShift(
+        U32 as, U64 address, U64 size) const {
+        if (!as || !size || !Aligned(address) || !Aligned(size) ||
+            address > std::numeric_limits<U64>::max() - size)
+            return std::nullopt;
+        auto it = mappings.upper_bound({as, address});
+        if (it == mappings.begin()) return std::nullopt;
+        --it;
+        const auto& entry = it->second;
+        if (!entry.sparse || entry.address_space != as ||
+            address < entry.address || address - entry.address >= entry.size ||
+            size > entry.size - (address - entry.address))
+            return std::nullopt;
+        return entry.sparse_page_shift;
+    }
+
     // A 216 packet carries no page shift. Determine it exclusively from the
     // already admitted sparse reservation, including alignment and bounds.
     [[nodiscard]] std::optional<U8> SparsePageShift(U32 as, U64 address, U64 size) const {
