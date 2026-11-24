@@ -77,7 +77,7 @@ assert blitter.count("memory_manager.UsesNativeTiling()") == 2
 # Missing this changes Switch 2's 16-byte intra-GOB ordering while NS1 is
 # supposed to keep the old default.
 import re
-dma_calls = re.findall(r"(?m)^\\s*(?:Unswizzle|Swizzle)Subrect\\([\\s\\S]*?\\);", dma)
+dma_calls = re.findall(r"(?m)^\s*(?:Unswizzle|Swizzle)Subrect\([\s\S]*?\);", dma)
 assert len(dma_calls) == 9, len(dma_calls)
 for call in dma_calls:
     assert call.count("memory_manager.UsesNativeTiling()") == 1, call
