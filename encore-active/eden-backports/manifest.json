@@ -306,8 +306,8 @@
       "upstream": "e956bcbeeb3b277e9b28b1272c8243cbac14622e7bf69227f8928a857c622c59"
     },
     "src/core/hle/service/sockets/bsd.cpp": {
-      "active": "730c333a12880b80127026dbe4d302b96530bd76c3be0f078bfe0512017c4c3e",
-      "bytes": 39699,
+      "active": "3fd4db63c1418c9022a60b3aede4d449f9910d7476bbae9d52de525842b5fae1",
+      "bytes": 40048,
       "upstream": "004e86b418c9124a815d1811a730a0421bc741fb880bbc4488b100646a8c5f9a"
     },
     "src/core/hle/service/sockets/bsd.h": {

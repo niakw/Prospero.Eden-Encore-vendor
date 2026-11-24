@@ -159,10 +159,15 @@ void BSD_USA::RegisterClient(HLERequestContext& ctx) {
 }
 
 void BSD_USA::StartMonitoring(HLERequestContext& ctx) {
-    LOG_WARNING(Service, "(STUBBED) called");
+    IPC::RequestParser rp{ctx};
+    const u64 client_pid = rp.Pop<u64>();
+
+    // libnx sends the client pid and expects no payload back. Encore has no separate
+    // socket-monitoring scheduler: the live BSD backend is already active for the
+    // lifetime of this service, so accepting the registration is an intentional no-op.
+    LOG_DEBUG(Service, "called, client_pid={:#x}", client_pid);
 
     IPC::ResponseBuilder rb{ctx, 2};
-
     rb.Push(ResultSuccess);
 }
 
