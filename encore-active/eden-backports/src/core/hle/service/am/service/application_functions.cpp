@@ -16,6 +16,8 @@
 #include "core/file_sys/savedata_factory.h"
 #include "core/hle/kernel/k_transfer_memory.h"
 #include "core/hle/result.h"
+#include "core/launch_timestamp_cache.h"
+#include "frontend_common/play_time_manager.h"
 #include "core/hle/service/am/am_results.h"
 #include "core/hle/service/am/applet.h"
 #include "core/hle/service/am/applet_manager.h"
@@ -54,7 +56,8 @@ FileSys::PatchManager::Metadata GetApplicationMetadata(Core::System& system, u64
 } // Anonymous namespace
 
 IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_ptr<Applet> applet)
-    : ServiceFramework{system_, "IApplicationFunctions"}, m_applet{std::move(applet)} {
+    : ServiceFramework{system_, "IApplicationFunctions"}, m_applet{std::move(applet)},
+      m_play_time_manager{std::make_unique<PlayTime::PlayTimeManager>()} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {1, D<&IApplicationFunctions::PopLaunchParameter>, "PopLaunchParameter"},
@@ -464,8 +467,17 @@ Result IApplicationFunctions::QueryApplicationPlayStatistics(
     Out<s32> out_entries,
     OutArray<ApplicationPlayStatistics, BufferAttr_HipcMapAlias> out_play_statistics,
     InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_entries = 0;
+    const size_t count = (std::min)(out_play_statistics.size(), application_ids.size());
+    for (size_t i = 0; i < count; ++i) {
+        const u64 application_id = application_ids[i];
+        out_play_statistics[i] = {
+            .application_id = application_id,
+            .play_time_ns = m_play_time_manager->GetPlayTime(application_id) * 1'000'000'000ULL,
+            .launch_count = Core::LaunchTimestampCache::GetLaunchCount(application_id),
+        };
+    }
+    *out_entries = static_cast<s32>(count);
+    LOG_DEBUG(Service_AM, "called, entries={}", count);
     R_SUCCEED();
 }
 
@@ -473,9 +485,10 @@ Result IApplicationFunctions::QueryApplicationPlayStatisticsByUid(
     Out<s32> out_entries,
     OutArray<ApplicationPlayStatistics, BufferAttr_HipcMapAlias> out_play_statistics,
     Common::UUID user_id, InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_entries = 0;
-    R_SUCCEED();
+    // Encore currently persists one play-time database for the active emulator profile.
+    // Return that real data rather than fabricating per-user counters.
+    LOG_DEBUG(Service_AM, "called, user_id={}", user_id.FormattedString());
+    R_RETURN(QueryApplicationPlayStatistics(out_entries, out_play_statistics, application_ids));
 }
 
 Result IApplicationFunctions::ExecuteProgram(ProgramSpecifyKind kind, u64 value) {

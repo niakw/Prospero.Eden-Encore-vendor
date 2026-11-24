@@ -15,6 +15,10 @@ namespace FileSys {
 enum class SaveDataType : u8;
 }
 
+namespace PlayTime {
+class PlayTimeManager;
+}
+
 namespace Kernel {
 class KReadableEvent;
 }
@@ -90,6 +94,7 @@ private:
     Result PrepareForJit();
 
     const std::shared_ptr<Applet> m_applet;
+    std::unique_ptr<PlayTime::PlayTimeManager> m_play_time_manager;
 };
 
 } // namespace Service::AM
