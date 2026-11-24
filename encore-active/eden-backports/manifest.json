@@ -511,13 +511,13 @@
       "upstream": "a04bfd1d0a1289e9102e902f6adecafc86cb4dfdba58027bdc717cb9c1b0a18b"
     },
     "src/core/hle/service/ns/application_manager_interface.cpp": {
-      "active": "5af90686a31c4c719fedade39cef9278f0bb05370d7a17964d8f53f515006aba",
-      "bytes": 69013,
+      "active": "1c0af884c3144a0b8bf9ef798c5fe918706e4abe5e7b32557b5b4a72800aaa84",
+      "bytes": 69513,
       "upstream": "86874e0f8769c04c1c66b4b8b0d00549aa328a6ed58a6898f343e67431861fba"
     },
     "src/core/hle/service/ns/application_manager_interface.h": {
-      "active": "01e6fac84b59172c95c1d59b82cf3809f46be6229951d3e53585a85f14e9c7e0",
-      "bytes": 7245,
+      "active": "450200ef9e54f2f7989f46960055e4591d00c4ca5a870b7141d2bb1f69163908",
+      "bytes": 7313,
       "upstream": "1ed17c086a3e2e34697453855e0f69583ad80196093a0944ef10929bdb56d49e"
     },
     "src/core/hle/service/ns/factory_reset_interface.cpp": {

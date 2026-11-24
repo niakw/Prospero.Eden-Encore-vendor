@@ -111,7 +111,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {87, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "IsApplicationCrashReportEnabled"},
         {90, nullptr, "BoostSystemMemoryResourceLimit"},
         {91, nullptr, "DeprecatedLaunchApplication"},
-        {92, nullptr, "GetRunningApplicationProgramId"},
+        {92, D<&IApplicationManagerInterface::GetRunningApplicationProgramId>, "GetRunningApplicationProgramId"},
         {93, nullptr, "GetMainApplicationProgramIndex"},
         {94, nullptr, "LaunchApplication"},
         {95, nullptr, "GetApplicationLaunchInfo"},
@@ -1046,6 +1046,17 @@ Result IApplicationManagerInterface::ClearApplicationTerminateResult(u64 applica
 
     std::scoped_lock lk{applet->lock};
     applet->terminate_result = ResultSuccess;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::GetRunningApplicationProgramId(
+    Out<u64> out_program_id) {
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, AM::ResultApplicationRecordNotFound);
+    const auto applet = window_system->GetMainApplet();
+    R_UNLESS(applet != nullptr, AM::ResultApplicationRecordNotFound);
+
+    *out_program_id = applet->program_id;
     R_SUCCEED();
 }
 
