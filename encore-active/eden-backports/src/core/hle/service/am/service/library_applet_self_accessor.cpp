@@ -5,6 +5,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/core.h"
+#include "core/frontend/applets/error.h"
+#include "core/reporter.h"
 #include "core/core_timing.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
@@ -27,6 +29,21 @@
 namespace Service::AM {
 
 namespace {
+
+std::optional<Result> DecodeVisibleErrorCode(ErrorCode error_code) {
+    constexpr u32 ErrorCodeModuleBase = 2000;
+    constexpr u32 MaxResultModule = 0x1FF;
+    constexpr u32 MaxResultDescription = 0x1FFF;
+
+    if (error_code.category < ErrorCodeModuleBase ||
+        error_code.category > ErrorCodeModuleBase + MaxResultModule ||
+        error_code.number > MaxResultDescription) {
+        return std::nullopt;
+    }
+
+    return Result{static_cast<ErrorModule>(error_code.category - ErrorCodeModuleBase),
+                  error_code.number};
+}
 
 AppletIdentityInfo GetCallerIdentity(Applet& applet) {
     if (const auto caller_applet = applet.caller_applet.lock(); caller_applet) {
@@ -284,15 +301,33 @@ Result ILibraryAppletSelfAccessor::GetDesirableKeyboardLayout(Out<u32> out_desir
 }
 
 Result ILibraryAppletSelfAccessor::ReportVisibleError(ErrorCode error_code) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, error {}-{}", error_code.category,
-                error_code.number);
+    const auto result = DecodeVisibleErrorCode(error_code);
+    R_UNLESS(result.has_value(), ResultUnknown);
+
+    const auto& frontend = system.GetFrontendAppletHolder().GetFrontendAppletSet().error;
+    R_UNLESS(frontend != nullptr, ResultUnknown);
+
+    LOG_WARNING(Service_AM, "displaying visible error {}-{} (raw={:08X})",
+                error_code.category, error_code.number, result->raw);
+    system.GetReporter().SaveErrorReport(system.GetApplicationProcessProgramID(), *result);
+    frontend->ShowError(*result, [] {});
     R_SUCCEED();
 }
 
 Result ILibraryAppletSelfAccessor::ReportVisibleErrorWithErrorContext(
     ErrorCode error_code, InLargeData<ErrorContext, BufferAttr_HipcMapAlias> error_context) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, error {}-{}", error_code.category,
-                error_code.number);
+    const auto result = DecodeVisibleErrorCode(error_code);
+    R_UNLESS(result.has_value(), ResultUnknown);
+
+    const auto& frontend = system.GetFrontendAppletHolder().GetFrontendAppletSet().error;
+    R_UNLESS(frontend != nullptr, ResultUnknown);
+
+    LOG_WARNING(Service_AM,
+                "displaying visible error {}-{} with ErrorContext type={} context_result={:08X}",
+                error_code.category, error_code.number, error_context->type,
+                error_context->result.raw);
+    system.GetReporter().SaveErrorReport(system.GetApplicationProcessProgramID(), *result);
+    frontend->ShowError(*result, [] {});
     R_SUCCEED();
 }
 
