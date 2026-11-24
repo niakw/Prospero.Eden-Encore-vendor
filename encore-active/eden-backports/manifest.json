@@ -300,6 +300,16 @@
       "bytes": 1734,
       "upstream": "72f8cfb6e8440154e4c646df6cc5be432f8c611ebe3236b5ceadd5572ba456b3"
     },
+    "src/core/hle/service/bcat/bcat_service.cpp": {
+      "active": "c42fa4f0c72cb96fcab8be8f5da35de8cf8a8058b8e231ad198c886118335bea",
+      "bytes": 7097,
+      "upstream": "d34a5f0e6cce26635b719dd1f31c295a7db7d8865c29fc9ab83f5c9c764b2a22"
+    },
+    "src/core/hle/service/bcat/bcat_service.h": {
+      "active": "8f0c4487f49850a940ea3bf8c81a51c643daae391d8294498c8dbc70990a3864",
+      "bytes": 1606,
+      "upstream": "e5689ca4661a9b49baee97fbc86f2a0b42eb39db577ed27238cf2bb545378b92"
+    },
     "src/core/hle/service/bpc/bpc.cpp": {
       "active": "9461845e34dd310aab8f45522aa8572e2f8eca7618f9e5975751049211188693",
       "bytes": 6531,
