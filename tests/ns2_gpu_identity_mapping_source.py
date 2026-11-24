@@ -295,7 +295,7 @@ uses_native=nvhost_cpp.split("bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const 
 assert "native_generations.contains(fd)" in uses_native
 assert "NativeGpuProcessRegistry::Instance().Contains" not in uses_native
 epoch=nvhost_cpp.split("bool nvhost_gpu::NativeEpochCurrent(DeviceFD fd) const {",1)[1].split("\n}",1)[0]
-for token in ("native_generations.find(fd)", "CaptureTicket" if False else "IsCurrent("):
+for token in ("native_generations.find(fd)", "IsCurrent("):
     assert token in epoch, token
 for ioctl in ("Ioctl1", "Ioctl2", "Ioctl3"):
     body=nvhost_cpp.split("NvResult nvhost_gpu::"+ioctl+"(",1)[1].split("\n}",1)[0]
@@ -439,7 +439,7 @@ set_tsg=nvhost_cpp.split(
     "NvResult nvhost_gpu::SetNativeTsgChannelEnabled(DeviceFD fd, NvCore::SessionId owner,",1
 )[1].split("\n}",1)[0]
 for token in ("channel->process != tsg->process",
-              "NativeGpuProcessRegistry::Instance().Contains(channel->process)",
+              "!UsesNativeAbi(fd) || !NativeEpochCurrent(fd)",
               "native_channel_enabled = enabled"):
     assert token in set_tsg,token
 # Native legacy ALLOC_GPFIFO_EX/EX2 cannot claim a configured channel from
