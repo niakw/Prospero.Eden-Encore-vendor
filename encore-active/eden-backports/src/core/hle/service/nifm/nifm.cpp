@@ -243,6 +243,7 @@ struct PendingProfile {
 
 constexpr Result ResultPendingConnection{ErrorModule::NIFM, 111};
 constexpr Result ResultInvalidInput{ErrorModule::NIFM, 112};
+constexpr Result ResultAppletLaunchNotRequired{ErrorModule::NIFM, 180};
 constexpr Result ResultNetworkCommunicationDisabled{ErrorModule::NIFM, 1111};
 
 static std::mutex g_scan_mtx;
@@ -514,9 +515,12 @@ private:
 
     void SetRequirementPreset(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
-        const auto param_1 = rp.Pop<u32>();
+        const auto preset = rp.Pop<u32>();
 
-        LOG_WARNING(Service_NIFM, "(STUBBED) called, param_1={}", param_1);
+        // Horizon uses this preset to tune policy inside NIFM. Encore has no separate Nintendo
+        // policy daemon: IRequest evaluates the actual host link and the explicit requirement
+        // fields directly, so accepting a preset has no additional host-side action.
+        LOG_DEBUG(Service_NIFM, "called, preset={} (host-policy no-op)", preset);
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
@@ -731,24 +735,28 @@ private:
     }
 
     void SetConnectionConfirmationOption(HLERequestContext& ctx) {
-        LOG_WARNING(Service_NIFM, "(STUBBED) called");
+        IPC::RequestParser rp{ctx};
+        const auto option = rp.Pop<u8>();
+
+        // Encore does not launch Horizon's network-confirmation applet. The request state is
+        // driven by the real host connectivity result, matching implementations that accept
+        // this policy setter without synthesizing a confirmation UI.
+        LOG_DEBUG(Service_NIFM, "called, option={} (no confirmation applet backend)", option);
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
 
     void GetAppletInfo(HLERequestContext& ctx) {
-        LOG_WARNING(Service_NIFM, "(STUBBED) called");
+        IPC::RequestParser rp{ctx};
+        const auto theme_color = rp.Pop<u32>();
 
-        std::vector<u8> out_buffer(ctx.GetWriteBufferSize());
+        // No Horizon network/error applet is launched by Encore. Returning the dedicated NIFM
+        // result is preferable to fabricating applet id/mode/output bytes.
+        LOG_DEBUG(Service_NIFM, "called, theme_color={:#x}; applet launch not required", theme_color);
 
-        ctx.WriteBuffer(out_buffer);
-
-        IPC::ResponseBuilder rb{ctx, 6};
-        rb.Push(ResultSuccess);
-        rb.Push<u32>(0);
-        rb.Push<u32>(0);
-        rb.Push<u32>(0);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultAppletLaunchNotRequired);
     }
 
     void UpdateState(RequestState new_state) {
