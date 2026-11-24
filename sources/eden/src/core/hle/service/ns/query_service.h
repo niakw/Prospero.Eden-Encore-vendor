@@ -20,18 +20,23 @@ class PlayTimeManager;
 
 namespace Service::NS {
 
+// nn::pdm::PlayStatistics for HOS 16.0.0+ (HOS 23 target).
+// The former 0x28 layout was PlayStatisticsV1 and is ABI-incompatible with current titles.
 struct PlayStatistics {
     u64 application_id{};
     u32 first_entry_index{};
-    u32 first_timestamp_user{};
-    u32 first_timestamp_network{};
+    u32 padding0{};
+    u64 first_timestamp_user{};
+    u64 first_timestamp_network{};
     u32 last_entry_index{};
-    u32 last_timestamp_user{};
-    u32 last_timestamp_network{};
-    u32 play_time_in_minutes{};
+    u32 padding1{};
+    u64 last_timestamp_user{};
+    u64 last_timestamp_network{};
+    u64 play_time_ns{};
     u32 total_launches{};
+    u32 padding2{};
 };
-static_assert(sizeof(PlayStatistics) == 0x28, "PlayStatistics is an invalid size");
+static_assert(sizeof(PlayStatistics) == 0x48, "PlayStatistics is an invalid size");
 
 struct LastPlayTime {};
 
