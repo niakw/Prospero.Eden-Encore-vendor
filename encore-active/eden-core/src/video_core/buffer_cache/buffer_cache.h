@@ -936,9 +936,15 @@ void BufferCache<P>::PopAsyncBuffers() {
 
 template <class P>
 bool BufferCache<P>::IsRegionGpuModified(DAddr addr, size_t size) {
+#ifdef PS5_NATIVE
+    // Native RangeSet owner is selected together with this BufferCache.
+    // Avoid walking every fragmented GPU-written interval under the cache mutex.
+    return gpu_modified_ranges.Intersects(addr, size);
+#else
     bool is_dirty = false;
     gpu_modified_ranges.ForEachInRange(addr, size, [&](DAddr, DAddr) { is_dirty = true; });
     return is_dirty;
+#endif
 }
 
 template <class P>

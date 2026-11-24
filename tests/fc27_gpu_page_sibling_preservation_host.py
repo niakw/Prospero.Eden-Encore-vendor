@@ -18,11 +18,38 @@ ROOT=Path(__file__).resolve().parents[1]
 BASE=(ROOT/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache_base.h").read_text()
 CACHE=(ROOT/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h").read_text()
 RANGESET=(ROOT/"sources/eden/src/common/range_sets.h").read_text()
-# Native dependency RangeSet has no Intersects member; the selected
-# BufferCache must call its existing ForEachInRange-based query instead.
-assert "void ForEachInRange(AddressType device_addr, size_t size, Func&& func) const;" in RANGESET
+# Preserve the immutable upstream snapshot and authenticate the native overlay
+# by reversing only the exact reviewed additions.
+HOT=ROOT/"encore-active/eden-core/overrides/buffer-hotpath"
 assert "Intersects(" not in RANGESET
-assert "gpu_modified_ranges.Intersects(" not in CACHE
+native_range=(HOT/"common/range_sets.h").read_text()
+assert native_range.replace("    // Half-open overlap query: one lookup, without enumerating dirty spans.\n    bool Intersects(AddressType base_address, size_t size) const;\n", "", 1) == RANGESET
+native_inc=(HOT/"common/range_sets.inc").read_text()
+range_add="// Lichii 6b7185676d: the caller needs only a yes/no GPU ownership answer.\ntemplate <typename AddressType>\nbool RangeSet<AddressType>::Intersects(AddressType base_address, size_t size) const {\n    const auto& set = m_impl->m_ranges_set;\n    if (set.empty() || size == 0) {\n        return false;\n    }\n    // Invalid overflowing queries must not falsely advertise clean memory.\n    if (size > std::numeric_limits<AddressType>::max() - base_address) {\n        return true;\n    }\n    const AddressType end_address = base_address + static_cast<AddressType>(size);\n    const auto it = set.lower_bound(\n        typename RangeSetImpl::IntervalType{base_address, end_address});\n    return it != set.end() && it->lower() < end_address;\n}\n\n"
+assert native_inc.count(range_add)==1
+assert native_inc.replace(range_add,"",1)==(ROOT/"sources/eden/src/common/range_sets.inc").read_text()
+native_word=(HOT/"video_core/buffer_cache/word_manager.h").read_text()
+word_add="            // Lichii f0efe663a5: clean words can skip work only when no\n            // CPU tracking notification is owed. GPU masking stays intact.\n            if (word == 0 &&\n                (!clear || ((type != Type::CPU && type != Type::CachedCPU) ||\n                            (untracked_words[index] & mask) == 0))) {\n                return;\n            }\n"
+assert native_word.count(word_add)==1
+assert native_word.replace(word_add,"",1)==(ROOT/"sources/eden/src/video_core/buffer_cache/word_manager.h").read_text()
+assert "#ifdef PS5_NATIVE\n    // Native RangeSet owner is selected together with this BufferCache.\n    // Avoid walking every fragmented GPU-written interval under the cache mutex.\n    return gpu_modified_ranges.Intersects(addr, size);\n#else\n    bool is_dirty = false;\n    gpu_modified_ranges.ForEachInRange(addr, size, [&](DAddr, DAddr) { is_dirty = true; });\n    return is_dirty;\n#endif" in CACHE
+# Exhaust the clean-word decision against old state/notification behavior for
+# CPU, CachedCPU, GPU and Preflushable, both clearing modes, all 4-bit masks.
+for kind in range(4):
+    for clear in (False, True):
+        for state in range(16):
+            for untracked in range(16):
+                for cached in range(16):
+                    for mask in range(16):
+                        effective = mask & ~untracked if kind == 2 else mask
+                        word = state & effective
+                        old_state = state & ~effective if clear else state
+                        old_untracked = untracked & ~effective if clear and kind in (0,1) else untracked
+                        old_cached = cached & ~word if clear and kind == 0 else cached
+                        notifications = untracked & effective if clear and kind in (0,1) else 0
+                        skip = word == 0 and (not clear or kind not in (0,1) or not (untracked & effective))
+                        if skip:
+                            assert (old_state,old_untracked,old_cached,notifications)==(state,untracked,cached,0)
 # Lichii 15dd980: Bananza binds storage slots 16/17. The selected shared
 # BufferCache must expose all 32 bits without changing mask width or selecting
 # the divergent research-only class layout.
@@ -245,4 +272,4 @@ with tempfile.TemporaryDirectory(prefix="fc27-gpu-page-sibling-") as td:
             if run.returncode:
                 raise RuntimeError(run.stdout+run.stderr)
 
-print("FC27_GPU_PAGE_SIBLING_PRESERVATION_HOST_PASS upstream=b13c4c1,44bf47d clean_query=1 pinned_rangeset_api=1 sibling=downloaded unmap=skip ps5=unverified")
+print("FC27_GPU_PAGE_SIBLING_PRESERVATION_HOST_PASS upstream=b13c4c1,44bf47d clean_query=1 native_rangeset_intersects=1 clean_word=1 sibling=downloaded unmap=skip ps5=unverified")
