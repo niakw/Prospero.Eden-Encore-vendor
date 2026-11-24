@@ -411,7 +411,7 @@
       "upstream": "67a75240764eea738894edeb7b8763f2871a0b6ad04efbb19eb32f475d33be59"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.cpp": {
-      "active": "189dce8adc35c567868d6106ffb2216ea9a6765347e93f4a55347a4bc70c1b27",
+      "active": "719339182d27a0dc6d3424636af67e99a1cebd4019ce09c19a862b2724d4db2f",
       "bytes": 52179,
       "upstream": "2017a14e3450768f421448326f809d439414cc385f927511382b940c64e44e84"
     },
@@ -461,7 +461,7 @@
       "upstream": "ed7cce070a4e6bab7d023bb2cd63f61f1101d5340edbd3be3c26fb3c6fdf728b"
     },
     "src/core/hle/service/hid/hid_system_server.cpp": {
-      "active": "f2e1e8f2d996ccdcf2018f98f6f1b25c0f6c10a2c0df4a905646ec07cf003c96",
+      "active": "c141fe495743f8a4b71562fe9ffb45cbea81a556bfa6b1cc9f2ec4c21382c57e",
       "bytes": 51896,
       "upstream": "c49157a0b9c11f7cd3dd5f0be3e115b07985dfb680aa105ce892e530b3774542"
     },
@@ -506,7 +506,7 @@
       "upstream": "a04bfd1d0a1289e9102e902f6adecafc86cb4dfdba58027bdc717cb9c1b0a18b"
     },
     "src/core/hle/service/ns/application_manager_interface.cpp": {
-      "active": "91dd1ce772c423cea7c816333bbc6beb31de61c0394f3e75fe107d032c1afba0",
+      "active": "48f61cb0d94e9b7f850a0b7baf2c33699ab8211fba9335d15fe0939f63fd03e6",
       "bytes": 68229,
       "upstream": "86874e0f8769c04c1c66b4b8b0d00549aa328a6ed58a6898f343e67431861fba"
     },
@@ -691,7 +691,7 @@
       "upstream": "c998e93145a5103d85c7fea515a38e0a7770996f090bf2bdfa4f8d2e97337752"
     },
     "src/core/hle/service/usb/usb.cpp": {
-      "active": "dac3fcf87f10128a3a62c8cbc3a9acb056a27a1680d2cecd298794ef52afda5f",
+      "active": "99cedcfbf68f1a803909512e8db1ff0da2552fc4a87278e674e4617426ad731e",
       "bytes": 15416,
       "upstream": "8175a9bd924f52caac68778a090604b0d768e560c98be1b786f4c55190fcb676"
     },
