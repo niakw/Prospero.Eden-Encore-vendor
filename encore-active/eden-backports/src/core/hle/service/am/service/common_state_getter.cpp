@@ -52,7 +52,7 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {53, D<&ICommonStateGetter::BeginVrModeEx>, "BeginVrModeEx"}, //7.0.0+
         {54, D<&ICommonStateGetter::EndVrModeEx>, "EndVrModeEx"}, //7.0.0+
         {55, D<&ICommonStateGetter::IsInControllerFirmwareUpdateSection>, "IsInControllerFirmwareUpdateSection"}, //3.0.0+
-        {59, nullptr, "SetVrPositionForDebug"}, //1.0.0+
+        {59, &ICommonStateGetter::RejectUnavailableFeature, "SetVrPositionForDebug"}, //1.0.0+
         {60, D<&ICommonStateGetter::GetDefaultDisplayResolution>, "GetDefaultDisplayResolution"},
         {61, D<&ICommonStateGetter::GetDefaultDisplayResolutionChangeEvent>, "GetDefaultDisplayResolutionChangeEvent"},
         {62, D<&ICommonStateGetter::GetHdcpAuthenticationState>, "GetHdcpAuthenticationState"},
@@ -66,13 +66,13 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {90, D<&ICommonStateGetter::SetPerformanceConfigurationChangedNotification>, "SetPerformanceConfigurationChangedNotification"},
         {91, D<&ICommonStateGetter::GetCurrentPerformanceConfiguration>, "GetCurrentPerformanceConfiguration"},
         {100, D<&ICommonStateGetter::SetHandlingHomeButtonShortPressedEnabled>, "SetHandlingHomeButtonShortPressedEnabled"},
-        {110, nullptr, "OpenMyGpuErrorHandler"},
+        {110, &ICommonStateGetter::RejectUnavailableFeature, "OpenMyGpuErrorHandler"},
         {120, D<&ICommonStateGetter::GetAppletLaunchedHistory>, "GetAppletLaunchedHistory"}, //13.0.0+
         {130, D<&ICommonStateGetter::EnableStartupLogoDisappearedMessage>, "EnableStartupLogoDisappearedMessage"}, //21.0.0+
         {200, D<&ICommonStateGetter::GetOperationModeSystemInfo>, "GetOperationModeSystemInfo"},
         {300, D<&ICommonStateGetter::GetSettingsPlatformRegion>, "GetSettingsPlatformRegion"},
-        {400, nullptr, "ActivateMigrationService"},
-        {401, nullptr, "DeactivateMigrationService"},
+        {400, &ICommonStateGetter::RejectUnavailableFeature, "ActivateMigrationService"},
+        {401, &ICommonStateGetter::RejectUnavailableFeature, "DeactivateMigrationService"},
         {500, D<&ICommonStateGetter::DisableSleepTillShutdown>, "DisableSleepTillShutdown"},
         {501, D<&ICommonStateGetter::SuppressDisablingSleepTemporarily>, "SuppressDisablingSleepTemporarily"},
         {502, D<&ICommonStateGetter::IsSleepEnabled>, "IsSleepEnabled"},
@@ -95,6 +95,12 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
 }
 
 ICommonStateGetter::~ICommonStateGetter() = default;
+
+void ICommonStateGetter::RejectUnavailableFeature(HLERequestContext& ctx) {
+    LOG_WARNING(Service_AM, "AM feature unavailable in Encore runtime");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultUnknown);
+}
 
 Result ICommonStateGetter::GetEventHandle(OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_DEBUG(Service_AM, "called");

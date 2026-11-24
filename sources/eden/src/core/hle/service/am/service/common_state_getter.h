@@ -29,6 +29,7 @@ public:
     ~ICommonStateGetter() override;
 
 private:
+    void RejectUnavailableFeature(HLERequestContext& ctx);
     Result GetEventHandle(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result ReceiveMessage(Out<AppletMessage> out_applet_message);
     Result GetCurrentFocusState(Out<FocusState> out_focus_state);
