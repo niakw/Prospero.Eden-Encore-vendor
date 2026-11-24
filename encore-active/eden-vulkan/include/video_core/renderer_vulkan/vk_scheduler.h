@@ -152,6 +152,11 @@ public:
 
     // Registers a callback to perform on queue submission.
     void RegisterOnSubmit(std::function<void()>&& func) {
+#ifdef PS5_NATIVE
+        // The submit callback executes inside WorkerThread's execution lock.
+        // Registration is owner-only (renderer construction/teardown).
+        std::scoped_lock lock{execution_mutex};
+#endif
         on_submit = std::move(func);
     }
 
