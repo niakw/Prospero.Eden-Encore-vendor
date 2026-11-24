@@ -216,8 +216,8 @@
       "upstream": "dc9e0214fab5197a3ef369cd5e5a864f294b93dd5a020887fbdac3339ee0243c"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.cpp": {
-      "active": "856b515da757fe307d74cff390d36d92ead5c390bd85acadcf29e96de439c838",
-      "bytes": 50931,
+      "active": "ac7e2b1e05d0a4f60908128e8bb2fdd8627bc47244c5116c09e0338b296614cc",
+      "bytes": 52049,
       "upstream": "2017a14e3450768f421448326f809d439414cc385f927511382b940c64e44e84"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.h": {
