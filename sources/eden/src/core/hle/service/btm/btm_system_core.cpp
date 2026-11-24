@@ -26,16 +26,16 @@ IBtmSystemCore::IBtmSystemCore(Core::System& system_)
         {7, C<&IBtmSystemCore::AcquireRadioEvent>, "AcquireRadioEvent"},
         {8, C<&IBtmSystemCore::AcquireGamepadPairingEvent>, "AcquireGamepadPairingEvent"},
         {9, C<&IBtmSystemCore::IsGamepadPairingStarted>, "IsGamepadPairingStarted"},
-        {10, nullptr, "StartAudioDeviceDiscovery"},
-        {11, nullptr, "StopAudioDeviceDiscovery"},
-        {12, nullptr, "IsDiscoveryingAudioDevice"},
+        {10, C<&IBtmSystemCore::StartAudioDeviceDiscovery>, "StartAudioDeviceDiscovery"},
+        {11, C<&IBtmSystemCore::StopAudioDeviceDiscovery>, "StopAudioDeviceDiscovery"},
+        {12, C<&IBtmSystemCore::IsDiscoveringAudioDevice>, "IsDiscoveryingAudioDevice"},
         {13, C<&IBtmSystemCore::GetDiscoveredAudioDevice>, "GetDiscoveredAudioDevice"},
         {14, C<&IBtmSystemCore::AcquireAudioDeviceConnectionEvent>, "AcquireAudioDeviceConnectionEvent"},
         {15, nullptr, "ConnectAudioDevice"},
-        {16, nullptr, "IsConnectingAudioDevice"},
+        {16, C<&IBtmSystemCore::IsConnectingAudioDevice>, "IsConnectingAudioDevice"},
         {17, C<&IBtmSystemCore::GetConnectedAudioDevices>, "GetConnectedAudioDevices"},
         {18, nullptr, "DisconnectAudioDevice"},
-        {19, nullptr, "AcquirePairedAudioDeviceInfoChangedEvent"},
+        {19, C<&IBtmSystemCore::AcquirePairedAudioDeviceInfoChangedEvent>, "AcquirePairedAudioDeviceInfoChangedEvent"},
         {20, C<&IBtmSystemCore::GetPairedAudioDevices>, "GetPairedAudioDevices"},
         {21, nullptr, "RemoveAudioDevicePairing"},
         {22, C<&IBtmSystemCore::RequestAudioDeviceConnectionRejection>, "RequestAudioDeviceConnectionRejection"},
@@ -49,6 +49,8 @@ IBtmSystemCore::IBtmSystemCore(Core::System& system_)
     audio_device_connection_event =
         service_context.CreateEvent("IBtmSystemCore::AudioDeviceConnectionEvent");
 
+    paired_audio_info_event = service_context.CreateEvent("IBtmSystemCore::PairedAudioInfoEvent");
+
     m_set_sys =
         system.ServiceManager().GetService<Service::Set::ISystemSettingsServer>("set:sys", true);
 }
@@ -57,6 +59,7 @@ IBtmSystemCore::~IBtmSystemCore() {
     service_context.CloseEvent(radio_event);
     service_context.CloseEvent(gamepad_pairing_event);
     service_context.CloseEvent(audio_device_connection_event);
+    service_context.CloseEvent(paired_audio_info_event);
 }
 
 Result IBtmSystemCore::StartGamepadPairing() {
@@ -127,8 +130,37 @@ Result IBtmSystemCore::AcquireRadioEvent(Out<bool> out_is_valid,
     R_SUCCEED();
 }
 
-Result IBtmSystemCore::GetDiscoveredAudioDevice(OutArray<std::array<u8, 0xFF>, BufferAttr_HipcPointer> out_audio_devices, s32 count, Out<s32> out_total) {
-    LOG_WARNING(Service_BTM, "(STUBBED) called");
+Result IBtmSystemCore::StartAudioDeviceDiscovery() {
+    // A guest discovery session can be active, but the host supplies no Switch audio devices.
+    audio_discovery_active = true;
+    R_SUCCEED();
+}
+
+Result IBtmSystemCore::StopAudioDeviceDiscovery() {
+    audio_discovery_active = false;
+    R_SUCCEED();
+}
+
+Result IBtmSystemCore::IsDiscoveringAudioDevice(Out<bool> out_active) {
+    *out_active = audio_discovery_active;
+    R_SUCCEED();
+}
+
+Result IBtmSystemCore::IsConnectingAudioDevice(Out<bool> out_active) {
+    *out_active = false;
+    R_SUCCEED();
+}
+
+Result IBtmSystemCore::AcquirePairedAudioDeviceInfoChangedEvent(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    *out_event = &paired_audio_info_event->GetReadableEvent();
+    R_SUCCEED();
+}
+
+Result IBtmSystemCore::GetDiscoveredAudioDevice(Out<s32> out_total,
+    OutBuffer<BufferAttr_HipcPointer>) {
+    // The array capacity belongs to the IPC buffer descriptor, not an inline s32.
+    *out_total = 0;
     R_SUCCEED();
 }
 

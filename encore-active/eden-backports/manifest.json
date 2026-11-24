@@ -461,8 +461,8 @@
       "bytes": 47575
     },
     "src/core/hle/service/btm/btm.cpp": {
-      "active": "db6758e6c24f92cb03c18db9ee484753aa8b3c702233d84fdb7bf98593ddc6a4",
-      "bytes": 6868,
+      "active": "973de43562a4a45c7f0dbfe6711fb002f57abe16fe9882dee4b6e83420f0f1ef",
+      "bytes": 8236,
       "upstream": "4240de5d0df8e51aa87eda53f0f5dfcb1a3998f7e6d801f3101608679045ab3c"
     },
     "src/core/hle/service/vi/application_root_service.cpp": {

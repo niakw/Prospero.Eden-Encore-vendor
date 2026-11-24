@@ -27,13 +27,13 @@ public:
             {0, nullptr, "GetState"},
             {1, nullptr, "GetHostDeviceProperty"},
             {2, nullptr, "AcquireDeviceConditionEvent"},
-            {3, nullptr, "GetDeviceCondition"},
+            {3, C<&IBtm::GetOfflineDeviceList>, "GetDeviceCondition"},
             {4, nullptr, "SetBurstMode"},
             {5, nullptr, "SetSlotMode"},
             {6, nullptr, "SetBluetoothMode"},
             {7, nullptr, "SetWlanMode"},
             {8, nullptr, "AcquireDeviceInfoEvent"},
-            {9, nullptr, "GetDeviceInfo"},
+            {9, C<&IBtm::GetOfflineDeviceList>, "GetDeviceInfo"},
             {10, nullptr, "AddDeviceInfo"},
             {11, nullptr, "RemoveDeviceInfo"},
             {12, nullptr, "IncreaseDeviceInfoOrder"},
@@ -44,31 +44,31 @@ public:
             {17, nullptr, "HidSetRetransmissionMode"},
             {18, nullptr, "AcquireAwakeReqEvent"},
             {19, nullptr, "AcquireLlrStateEvent"},
-            {20, nullptr, "IsLlrStarted"},
+            {20, C<&IBtm::IsOfflineLlrStarted>, "IsLlrStarted"},
             {21, nullptr, "EnableSlotSaving"},
             {22, nullptr, "ProtectDeviceInfo"},
             {23, nullptr, "AcquireBleScanEvent"},
             {24, nullptr, "GetBleScanParameterGeneral"},
             {25, nullptr, "GetBleScanParameterSmartDevice"},
             {26, nullptr, "StartBleScanForGeneral"},
-            {27, nullptr, "StopBleScanForGeneral"},
-            {28, nullptr, "GetBleScanResultsForGeneral"},
+            {27, C<&IBtm::StopOfflineBleScan>, "StopBleScanForGeneral"},
+            {28, C<&IBtm::GetOfflineScanResults>, "GetBleScanResultsForGeneral"},
             {29, nullptr, "StartBleScanForPairedDevice"},
-            {30, nullptr, "StopBleScanForPairedDevice"},
+            {30, C<&IBtm::StopOfflineBleScan>, "StopBleScanForPairedDevice"},
             {31, nullptr, "StartBleScanForSmartDevice"},
-            {32, nullptr, "StopBleScanForSmartDevice"},
-            {33, nullptr, "GetBleScanResultsForSmartDevice"},
+            {32, C<&IBtm::StopOfflineBleScan>, "StopBleScanForSmartDevice"},
+            {33, C<&IBtm::GetOfflineScanResults>, "GetBleScanResultsForSmartDevice"},
             {34, nullptr, "AcquireBleConnectionEvent"},
             {35, nullptr, "BleConnect"},
             {36, nullptr, "BleOverrideConnection"},
             {37, nullptr, "BleDisconnect"},
-            {38, nullptr, "BleGetConnectionState"},
+            {38, C<&IBtm::GetOfflineConnections>, "BleGetConnectionState"},
             {39, nullptr, "BleGetGattClientConditionList"},
             {40, nullptr, "AcquireBlePairingEvent"},
             {41, nullptr, "BlePairDevice"},
             {42, nullptr, "BleUnpairDeviceOnBoth"},
             {43, nullptr, "BleUnpairDevice"},
-            {44, nullptr, "BleGetPairedAddresses"},
+            {44, C<&IBtm::GetOfflinePairedAddresses>, "BleGetPairedAddresses"},
             {45, nullptr, "AcquireBleServiceDiscoveryEvent"},
             {46, nullptr, "GetGattServices"},
             {47, nullptr, "GetGattService"},
@@ -103,12 +103,12 @@ public:
             {76, nullptr, "SetWlanModeWithOption"}, //13.1.0+
             {100, nullptr, "AcquireConnectionDisallowedEvent"}, //13.0.0+
             {101, nullptr, "GetUsecaseViolationFactor"}, //13.0.0+
-            {110, nullptr, "GetShortenedDeviceInfo"}, //13.0.0+
+            {110, C<&IBtm::GetOfflineDeviceList>, "GetShortenedDeviceInfo"}, //13.0.0+
             {111, nullptr, "AcquirePairingCountUpdateEvent"},//13.0.0+
             {112, nullptr, "Unknown112"}, //14.0.0-14.1.2
             {113, nullptr, "Unknown113"}, //14.0.0-14.1.2
             {114, nullptr, "IsFirstAudioControlConnection"}, //14.0.0+
-            {115, nullptr, "GetShortenedDeviceCondition"}, //14.0.0+
+            {115, C<&IBtm::GetOfflineDeviceList>, "GetShortenedDeviceCondition"}, //14.0.0+
             {116, nullptr, "SetAudioSinkVolume"}, //15.0.0+
             {117, nullptr, "GetAudioSinkVolume"}, //15.0.0+
         };
@@ -121,6 +121,41 @@ public:
     }
 
 private:
+    // HOS >= 13 uses a profile u32, pointer output and signed count for these lists.
+    // PS5 controller transport is not a guest Bluetooth adapter.
+    Result GetOfflineDeviceList(u32 profile, Out<s32> out_count,
+                                OutBuffer<BufferAttr_HipcPointer>) {
+        R_UNLESS(profile <= 2, ResultUnknown);
+        *out_count = 0;
+        R_SUCCEED();
+    }
+
+    Result IsOfflineLlrStarted(Out<bool> out_started) {
+        *out_started = false;
+        R_SUCCEED();
+    }
+
+    Result StopOfflineBleScan() {
+        // No guest BLE scan is active; stop is idempotent.
+        R_SUCCEED();
+    }
+
+    Result GetOfflineScanResults(Out<u8> out_count, OutBuffer<BufferAttr_HipcMapAlias>) {
+        *out_count = 0;
+        R_SUCCEED();
+    }
+
+    Result GetOfflineConnections(Out<u8> out_count, OutBuffer<BufferAttr_HipcPointer>) {
+        *out_count = 0;
+        R_SUCCEED();
+    }
+
+    Result GetOfflinePairedAddresses(u64, Out<u8> out_count,
+                                     OutBuffer<BufferAttr_HipcPointer>) {
+        *out_count = 0;
+        R_SUCCEED();
+    }
+
     Result EnableRadio() {
         LOG_DEBUG(Service_BTM, "called through legacy btm interface");
         R_RETURN(m_set_sys->SetBluetoothEnableFlag(true));
