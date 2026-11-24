@@ -207,19 +207,19 @@ Ticket Ticket::Read(std::span<const u8> raw_data) {
     case SignatureType::RSA_4096_SHA1:
     case SignatureType::RSA_4096_SHA256: {
         RSA4096Ticket ticket{};
-        std::memcpy(&ticket, raw_data.data(), sizeof(ticket));
+        std::memcpy(&ticket, raw_data.data(), std::min(raw_data.size(), sizeof(ticket)));
         return Ticket{ticket};
     }
     case SignatureType::RSA_2048_SHA1:
     case SignatureType::RSA_2048_SHA256: {
         RSA2048Ticket ticket{};
-        std::memcpy(&ticket, raw_data.data(), sizeof(ticket));
+        std::memcpy(&ticket, raw_data.data(), std::min(raw_data.size(), sizeof(ticket)));
         return Ticket{ticket};
     }
     case SignatureType::ECDSA_SHA1:
     case SignatureType::ECDSA_SHA256: {
         ECDSATicket ticket{};
-        std::memcpy(&ticket, raw_data.data(), sizeof(ticket));
+        std::memcpy(&ticket, raw_data.data(), std::min(raw_data.size(), sizeof(ticket)));
         return Ticket{ticket};
     }
     default:

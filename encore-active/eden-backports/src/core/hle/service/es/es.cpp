@@ -4,6 +4,11 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
+#include <type_traits>
+#include <variant>
+#include <vector>
+
 #include "core/crypto/key_manager.h"
 #include "core/hle/service/es/es.h"
 #include "core/hle/service/ipc_helpers.h"
@@ -50,8 +55,8 @@ public:
             {27, &ETicket::RejectUnavailableTicketManagement, "CountPrepurchaseRecord"},
             {28, &ETicket::RejectUnavailableTicketManagement, "ListPrepurchaseRecordRightsIds"},
             {29, &ETicket::RejectUnavailableTicketManagement, "ListPrepurchaseRecordInfo"},
-            {30, nullptr, "CountTicket"},
-            {31, nullptr, "ListTicketRightsIds"},
+            {30, &ETicket::CountTicket, "CountTicket"},
+            {31, &ETicket::ListTicketRightsIds, "ListTicketRightsIds"},
             {32, &ETicket::RejectUnavailableTicketManagement, "CountPrepurchaseRecordEx"},
             {33, nullptr, "ListPrepurchaseRecordRightsIdsEx"},
             {34, &ETicket::RejectUnavailableTicketManagement, "GetEncryptedTicketSize"},
@@ -146,7 +151,7 @@ private:
         const auto raw_ticket = ctx.ReadBuffer();
         [[maybe_unused]] const auto cert = ctx.ReadBuffer(1);
 
-        if (raw_ticket.size() < sizeof(Core::Crypto::Ticket)) {
+        if (raw_ticket.size() < sizeof(Core::Crypto::SignatureType)) {
             LOG_ERROR(Service_ETicket, "The input buffer is not large enough!");
             IPC::ResponseBuilder rb{ctx, 2};
             rb.Push(ERROR_INVALID_ARGUMENT);
@@ -154,7 +159,8 @@ private:
         }
 
         Core::Crypto::Ticket ticket = Core::Crypto::Ticket::Read(raw_ticket);
-        if (!keys.AddTicket(ticket)) {
+        if (!ticket.IsValid() || raw_ticket.size() < ticket.GetSize() ||
+            !keys.AddTicket(ticket)) {
             LOG_ERROR(Service_ETicket, "The ticket could not be imported!");
             IPC::ResponseBuilder rb{ctx, 2};
             rb.Push(ERROR_INVALID_ARGUMENT);
@@ -211,6 +217,37 @@ private:
         rb.Push<u32>(count);
     }
 
+    void CountTicket(HLERequestContext& ctx) {
+        keys.PopulateTickets();
+        const auto count = static_cast<u32>(
+            keys.GetCommonTickets().size() + keys.GetPersonalizedTickets().size());
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(count);
+    }
+
+    void ListTicketRightsIds(HLERequestContext& ctx) {
+        keys.PopulateTickets();
+        const auto& common = keys.GetCommonTickets();
+        const auto& personalized = keys.GetPersonalizedTickets();
+        std::vector<u128> ids;
+        ids.reserve(common.size() + personalized.size());
+        for (const auto& [rights_id, ticket] : common) {
+            ids.push_back(rights_id);
+        }
+        for (const auto& [rights_id, ticket] : personalized) {
+            ids.push_back(rights_id);
+        }
+        std::sort(ids.begin(), ids.end());
+        const auto count = (std::min)(ids.size(), ctx.GetWriteBufferNumElements<u128>());
+        if (count != 0) {
+            ctx.WriteBuffer(ids.data(), count * sizeof(u128));
+        }
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(static_cast<u32>(count));
+    }
+
     void ListCommonTicketRightsIds(HLERequestContext& ctx) {
         size_t out_entries = 0;
         if (!keys.GetCommonTickets().empty()) {
@@ -263,7 +300,14 @@ private:
         if (!CheckRightsId(ctx, rights_id))
             return;
 
-        const auto ticket = keys.GetCommonTickets().at(rights_id);
+        const auto& tickets = keys.GetCommonTickets();
+        const auto ticket_it = tickets.find(rights_id);
+        if (ticket_it == tickets.end() || !ticket_it->second.IsValid()) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ERROR_INVALID_RIGHTS_ID);
+            return;
+        }
+        const auto& ticket = ticket_it->second;
 
         IPC::ResponseBuilder rb{ctx, 4};
         rb.Push(ResultSuccess);
@@ -279,7 +323,14 @@ private:
         if (!CheckRightsId(ctx, rights_id))
             return;
 
-        const auto ticket = keys.GetPersonalizedTickets().at(rights_id);
+        const auto& tickets = keys.GetPersonalizedTickets();
+        const auto ticket_it = tickets.find(rights_id);
+        if (ticket_it == tickets.end() || !ticket_it->second.IsValid()) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ERROR_INVALID_RIGHTS_ID);
+            return;
+        }
+        const auto& ticket = ticket_it->second;
 
         IPC::ResponseBuilder rb{ctx, 4};
         rb.Push(ResultSuccess);
@@ -295,10 +346,24 @@ private:
         if (!CheckRightsId(ctx, rights_id))
             return;
 
-        const auto ticket = keys.GetCommonTickets().at(rights_id);
+        const auto& tickets = keys.GetCommonTickets();
+        const auto ticket_it = tickets.find(rights_id);
+        if (ticket_it == tickets.end() || !ticket_it->second.IsValid()) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ERROR_INVALID_RIGHTS_ID);
+            return;
+        }
+        const auto& ticket = ticket_it->second;
 
         const auto write_size = std::min<u64>(ticket.GetSize(), ctx.GetWriteBufferSize());
-        ctx.WriteBuffer(&ticket, write_size);
+        std::visit(
+            [&](const auto& ticket_variant) {
+                using T = std::decay_t<decltype(ticket_variant)>;
+                if constexpr (!std::is_same_v<T, std::monostate>) {
+                    ctx.WriteBuffer(&ticket_variant, write_size);
+                }
+            },
+            ticket.data);
 
         IPC::ResponseBuilder rb{ctx, 4};
         rb.Push(ResultSuccess);
@@ -314,10 +379,24 @@ private:
         if (!CheckRightsId(ctx, rights_id))
             return;
 
-        const auto ticket = keys.GetPersonalizedTickets().at(rights_id);
+        const auto& tickets = keys.GetPersonalizedTickets();
+        const auto ticket_it = tickets.find(rights_id);
+        if (ticket_it == tickets.end() || !ticket_it->second.IsValid()) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ERROR_INVALID_RIGHTS_ID);
+            return;
+        }
+        const auto& ticket = ticket_it->second;
 
         const auto write_size = std::min<u64>(ticket.GetSize(), ctx.GetWriteBufferSize());
-        ctx.WriteBuffer(&ticket, write_size);
+        std::visit(
+            [&](const auto& ticket_variant) {
+                using T = std::decay_t<decltype(ticket_variant)>;
+                if constexpr (!std::is_same_v<T, std::monostate>) {
+                    ctx.WriteBuffer(&ticket_variant, write_size);
+                }
+            },
+            ticket.data);
 
         IPC::ResponseBuilder rb{ctx, 4};
         rb.Push(ResultSuccess);
