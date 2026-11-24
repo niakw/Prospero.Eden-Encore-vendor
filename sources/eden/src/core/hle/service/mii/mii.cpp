@@ -328,10 +328,10 @@ public:
         // clang-format off
         static const FunctionInfo functions[] = {
             {0, D<&IImageDatabaseService::Initialize>, "Initialize"},
-            {10, D<&IImageDatabaseService::Reload>, "Reload"},
+            {10, nullptr, "Reload"},
             {11, D<&IImageDatabaseService::GetCount>, "GetCount"},
-            {12, D<&IImageDatabaseService::IsEmpty>, "IsEmpty"},
-            {13, D<&IImageDatabaseService::IsFull>, "IsFull"},
+            {12, nullptr, "IsEmpty"},
+            {13, nullptr, "IsFull"},
             {14, nullptr, "GetAttribute"},
             {15, nullptr, "LoadImage"},
             {16, nullptr, "AddOrUpdateImage"},
@@ -349,34 +349,16 @@ public:
 
 private:
     Result Initialize() {
-        LOG_INFO(Service_Mii, "called (empty image database)");
+        LOG_INFO(Service_Mii, "called");
 
-        // Encore does not expose the Horizon Mii image-file backend. Initializing an empty image
-        // database therefore has no host-side work to perform.
-        R_SUCCEED();
-    }
-
-    Result Reload() {
-        // No image-file backend is mounted, so reloading preserves the empty database.
-        LOG_DEBUG(Service_Mii, "Reloading empty Mii image database");
         R_SUCCEED();
     }
 
     Result GetCount(Out<u32> out_count) {
-        // The image database is intentionally empty until an image-file backend exists.
+        LOG_DEBUG(Service_Mii, "called");
+
         *out_count = 0;
-        LOG_DEBUG(Service_Mii, "called, count={}", *out_count);
 
-        R_SUCCEED();
-    }
-
-    Result IsEmpty(Out<bool> out_empty) {
-        *out_empty = true;
-        R_SUCCEED();
-    }
-
-    Result IsFull(Out<bool> out_full) {
-        *out_full = false;
         R_SUCCEED();
     }
 };

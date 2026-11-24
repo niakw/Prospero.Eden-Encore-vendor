@@ -420,6 +420,11 @@
       "bytes": 2285,
       "upstream": "2ee23f6f39cc1b367c91a7729ec63c6c6a933d7db03eb11a652fe13b917f276b"
     },
+    "src/core/hle/service/mii/mii.cpp": {
+      "active": "e3d71bc7189d3675e16aa03bc03ea032581249625cbe3c5dc330c86f1e2dacbd",
+      "bytes": 15496,
+      "upstream": "5cefdb565a5abd82233f60875d7a0e93fa5d41f16d21df3a86b3cd73d50b826d"
+    },
     "src/core/hle/service/nfp/nfp.cpp": {
       "active": "11ed60d29fc627e3d6d1555834ca5d8aa2c03e3ef64426a840a1160557575615",
       "bytes": 9593,
