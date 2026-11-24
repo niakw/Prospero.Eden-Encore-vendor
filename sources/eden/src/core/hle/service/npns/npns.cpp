@@ -254,7 +254,7 @@ private:
         R_SUCCEED();
     }
 
-    Result ListenTo(u32 program_id) {
+    Result ListenTo(u64 program_id) {
         // Encore has no Nintendo push backend. Accept the subscription request locally so guest
         // software can continue, but do not pretend a remote subscription was created.
         LOG_DEBUG(Service_NPNS, "Push subscription accepted locally, program_id={}", program_id);
@@ -426,7 +426,7 @@ private:
         R_SUCCEED();
     }
 
-    Result ListenTo(u32 program_id) {
+    Result ListenTo(u64 program_id) {
         LOG_DEBUG(Service_NPNS, "User push subscription accepted locally, program_id={}", program_id);
         R_SUCCEED();
     }
