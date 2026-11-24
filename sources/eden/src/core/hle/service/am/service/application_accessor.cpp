@@ -204,15 +204,17 @@ Result IApplicationAccessor::RequestForApplicationToGetForeground() {
 }
 
 Result IApplicationAccessor::CheckRightsEnvironmentAvailable(Out<bool> out_is_available) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_is_available = true;
+    // Encore has no ns:rt rights-environment object. Do not advertise a handle
+    // that cannot be backed by a real service session.
+    LOG_DEBUG(Service_AM, "called; rights environment is unavailable");
+    *out_is_available = false;
     R_SUCCEED();
 }
 
 Result IApplicationAccessor::GetNsRightsEnvironmentHandle(Out<u64> out_handle) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_handle = 0xdeadbeef;
-    R_SUCCEED();
+    LOG_WARNING(Service_AM, "called; rights environment is unavailable");
+    *out_handle = 0;
+    R_THROW(ResultUnknown);
 }
 
 Result IApplicationAccessor::PushToFriendInvitationStorageChannel(
