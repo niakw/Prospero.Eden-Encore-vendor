@@ -150,6 +150,16 @@
       "bytes": 4465,
       "upstream": "f57bc1a19ca97805bb0a525c2d0eff2ce8c65b192c7643add3583d28726bbe72"
     },
+    "src/core/hle/service/am/service/window_controller.cpp": {
+      "active": "f684bf3cec74cfcf9fca38cc3ea9012ec4b8987afbe50350e871516490282060",
+      "bytes": 3356,
+      "upstream": "f6d3e5c7d07535acb795cb882c73771d1fb2b21ea5851df31d15aaf94f948a1a"
+    },
+    "src/core/hle/service/am/service/window_controller.h": {
+      "active": "530cead7a12a851b9257b722adde35d59dad693bcb939c6eeff0758114871c9e",
+      "bytes": 1083,
+      "upstream": "b3f05dab381a79fe96f27bd69b0ab47ce69ab59fe148ef495b5c00adf3778322"
+    },
     "src/core/hle/service/audio/audio.cpp": {
       "active": "43ba61dd9966adb1d2717c402f3f1ce1aebe0a8eeddc020879c5d0bf436d394f",
       "bytes": 9029,
