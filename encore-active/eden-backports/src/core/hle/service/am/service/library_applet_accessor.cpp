@@ -78,7 +78,8 @@ ILibraryAppletAccessor::ILibraryAppletAccessor(Core::System& system_,
         {106, D<&ILibraryAppletAccessor::GetPopInteractiveOutDataEvent>, "GetPopInteractiveOutDataEvent"},
         {110, D<&ILibraryAppletAccessor::NeedsToExitProcess>, "NeedsToExitProcess"},
         {120, D<&ILibraryAppletAccessor::GetLibraryAppletInfo>, "GetLibraryAppletInfo"},
-        {150, nullptr, "RequestForAppletToGetForeground"},
+        {150, D<&ILibraryAppletAccessor::RequestForAppletToGetForeground>,
+         "RequestForAppletToGetForeground"},
         {160, D<&ILibraryAppletAccessor::GetIndirectLayerConsumerHandle>, "GetIndirectLayerConsumerHandle"}, //2.0.0+
         {170, D<&ILibraryAppletAccessor::Unknown170>, "Unknown170"}, //22.0.0+
     };
@@ -163,11 +164,17 @@ Result ILibraryAppletAccessor::GetCurrentChildLibraryApplet(
 }
 
 Result ILibraryAppletAccessor::NeedsToExitProcess(Out<bool> out_needs_to_exit) {
-    std::scoped_lock lk{m_applet->lock};
-    *out_needs_to_exit =
-        m_applet->lifecycle_manager.GetExitRequested() || m_applet->process->IsTerminated();
-    LOG_DEBUG(Service_AM, "called, needs_to_exit={}", *out_needs_to_exit);
-    R_SUCCEED();
+    // Horizon implements this command as a firmware stub which returns an error.
+    // Do not expose Encore's internal lifecycle state as a successful firmware response.
+    *out_needs_to_exit = false;
+    LOG_DEBUG(Service_AM, "called; matching firmware stub error");
+    R_THROW(ResultUnknown);
+}
+
+Result ILibraryAppletAccessor::RequestForAppletToGetForeground() {
+    // Horizon implements this command as a firmware stub which returns an error.
+    LOG_DEBUG(Service_AM, "called; matching firmware stub error");
+    R_THROW(ResultUnknown);
 }
 
 Result ILibraryAppletAccessor::Unknown90() {

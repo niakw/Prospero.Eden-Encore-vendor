@@ -1,0 +1,62 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#pragma once
+
+#include "core/hle/service/am/service/library_applet_self_accessor.h"
+#include "core/hle/service/cmif_types.h"
+#include "core/hle/service/service.h"
+
+namespace Service::AM {
+
+class AppletDataBroker;
+class IApplicationAccessor;
+struct Applet;
+class IStorage;
+
+class ILibraryAppletAccessor final : public ServiceFramework<ILibraryAppletAccessor> {
+public:
+    explicit ILibraryAppletAccessor(Core::System& system_, std::shared_ptr<AppletDataBroker> broker,
+                                    std::shared_ptr<Applet> applet);
+    ~ILibraryAppletAccessor();
+
+    std::shared_ptr<Applet> GetApplet() const {
+        return m_applet;
+    }
+
+private:
+    Result GetAppletStateChangedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result IsCompleted(Out<bool> out_is_completed);
+    Result GetResult();
+    Result SetOutOfFocusApplicationSuspendingEnabled(bool enabled);
+    Result PresetLibraryAppletGpuTimeSliceZero();
+    Result Start();
+    Result RequestExit();
+    Result Terminate();
+    Result GetCurrentChildLibraryApplet(Out<SharedPointer<IApplicationAccessor>> out_accessor);
+    Result NeedsToExitProcess(Out<bool> out_needs_to_exit);
+    Result RequestForAppletToGetForeground();
+    Result Unknown90();
+    Result PushInData(SharedPointer<IStorage> storage);
+    Result PopOutData(Out<SharedPointer<IStorage>> out_storage);
+    Result PushExtraStorage(SharedPointer<IStorage> storage);
+    Result PushInteractiveInData(SharedPointer<IStorage> storage);
+    Result PopInteractiveOutData(Out<SharedPointer<IStorage>> out_storage);
+    Result GetPopOutDataEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result GetPopInteractiveOutDataEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result GetIndirectLayerConsumerHandle(Out<u64> out_handle);
+    Result GetLibraryAppletInfo(Out<LibraryAppletInfo> out_library_applet_info);
+    Result Unknown170(OutCopyHandle<Kernel::KReadableEvent> out_event);
+
+    void FrontendExecute();
+    void FrontendExecuteInteractive();
+    void FrontendRequestExit();
+
+    const std::shared_ptr<AppletDataBroker> m_broker;
+    const std::shared_ptr<Applet> m_applet;
+};
+
+} // namespace Service::AM
