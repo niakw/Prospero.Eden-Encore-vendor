@@ -515,6 +515,16 @@
       "bytes": 22178,
       "upstream": "c0d3ac321243f96a9dd58b29e18722a762d267b0459c86ec6845d46d019b31f8"
     },
+    "src/core/hle/service/set/factory_settings_server.cpp": {
+      "active": "1648b43aaa98758007d0a6edd40f80f2ef04da278085bfaf1179bfe86273159a",
+      "bytes": 11169,
+      "upstream": "e398e12a102f44ccc43ed7d652fffafaa7ad4af253a0f40f939fb39860670c18"
+    },
+    "src/core/hle/service/set/factory_settings_server.h": {
+      "active": "019972d8200732ed18e277e83467f53cebe5e921fcb4a07d07612f069bb8961c",
+      "bytes": 2225,
+      "upstream": "375b4c15ffe68979af8e184651f3c92889129d5f8a25d2bf668352935e1d20c8"
+    },
     "src/core/hle/service/set/settings.cpp": {
       "active": "0867f15c4d0e250fcb81f052b103fcc05c67f9a14cfb1db9bbfbbe1f95dbc9aa",
       "bytes": 1183,
