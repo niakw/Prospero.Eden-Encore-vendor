@@ -106,13 +106,13 @@
       "upstream": "f3d96d4fe580f4686b5263d6643bc173f7a617fa086895f0124f0b3e0669dadf"
     },
     "src/core/hle/service/am/service/application_accessor.cpp": {
-      "active": "853ba85f126bc1c7d594a3199bf122425f8357e565873dd7e0d2f377ff1e017f",
-      "bytes": 11754,
+      "active": "8ec52b605218fd9953d97a307918880c96404705ebb2b99aeb09942bf7c3a544",
+      "bytes": 12023,
       "upstream": "d65f2b544792ee88825a8af8fc24b2f0399a764275196daeb3f7f2c5e381aa9a"
     },
     "src/core/hle/service/am/service/application_accessor.h": {
-      "active": "6be6b29b158909705aaff01f6f2956a23a903ea257f5c98e9f8ca894cf64b0a3",
-      "bytes": 2776,
+      "active": "e452d1a6403ca9d34cf5d43cf019656c37e1b20e6321584d26a3e1b4fb0ef5c3",
+      "bytes": 2818,
       "upstream": "e1ffc0216433cec7e0f830a314c4254035af55052977f5dee261711323330c57"
     },
     "src/core/hle/service/am/applet.h": {

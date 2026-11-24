@@ -49,7 +49,7 @@ IApplicationAccessor::IApplicationAccessor(Core::System& system_, std::shared_pt
         {170, D<&IApplicationAccessor::HasSaveDataAccessPermission>, "HasSaveDataAccessPermission"},
         {180, D<&IApplicationAccessor::PushToFriendInvitationStorageChannel>, "PushToFriendInvitationStorageChannel"},
         {190, D<&IApplicationAccessor::PushToNotificationStorageChannel>, "PushToNotificationStorageChannel"},
-        {200, nullptr, "RequestApplicationSoftReset"},
+        {200, D<&IApplicationAccessor::RequestApplicationSoftReset>, "RequestApplicationSoftReset"},
         {201, D<&IApplicationAccessor::RestartApplicationTimer>, "RestartApplicationTimer"},
     };
     // clang-format on
@@ -296,6 +296,12 @@ Result IApplicationAccessor::PushToNotificationStorageChannel(
     m_applet->notification_storage_channel_event.Signal(system.Kernel());
 
     R_SUCCEED();
+}
+
+Result IApplicationAccessor::RequestApplicationSoftReset() {
+    LOG_WARNING(Service_AM,
+                "Application soft reset unavailable: no dedicated AM soft-reset backend is modeled");
+    R_RETURN(ResultUnknown);
 }
 
 Result IApplicationAccessor::RestartApplicationTimer() {

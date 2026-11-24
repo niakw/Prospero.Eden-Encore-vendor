@@ -56,6 +56,7 @@ private:
     Result HasSaveDataAccessPermission(Out<bool> out_has_permission, u64 application_id);
     Result PushToFriendInvitationStorageChannel(SharedPointer<IStorage> storage);
     Result PushToNotificationStorageChannel(SharedPointer<IStorage> storage);
+    Result RequestApplicationSoftReset();
     Result RestartApplicationTimer();
     Result ReportApplicationExitTimeout();
 
