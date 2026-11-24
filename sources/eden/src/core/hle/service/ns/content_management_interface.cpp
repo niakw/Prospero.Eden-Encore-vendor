@@ -7,6 +7,9 @@
 #include "common/common_funcs.h"
 #include "core/core.h"
 #include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/am/applet.h"
+#include "core/hle/service/am/applet_manager.h"
+#include "core/hle/service/am/window_system.h"
 #include "core/hle/service/filesystem/filesystem.h"
 #include "core/hle/service/ns/content_management_interface.h"
 #include "core/hle/service/ns/ns_types.h"
@@ -25,7 +28,7 @@ IContentManagementInterface::IContentManagementInterface(Core::System& system_)
         {600, nullptr, "CountApplicationContentMeta"},
         {601, nullptr, "ListApplicationContentMetaStatus"},
         {605, nullptr, "ListApplicationContentMetaStatusWithRightsCheck"},
-        {607, nullptr, "IsAnyApplicationRunning"},
+        {607, D<&IContentManagementInterface::IsAnyApplicationRunning>, "IsAnyApplicationRunning"},
         {608, nullptr, "Unknown608"}, //21.0.0+
     };
     // clang-format on
@@ -79,6 +82,21 @@ Result IContentManagementInterface::GetUnknown71(Out<u64> out_value_a, Out<u64> 
     LOG_INFO(Service_NS, "(STUBBED) called, flag={:02X}", flag);
     *out_value_a = 0;
     *out_value_b = 0;
+    R_SUCCEED();
+}
+
+Result IContentManagementInterface::IsAnyApplicationRunning(Out<bool> out_running) {
+    *out_running = false;
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    if (window_system == nullptr) {
+        R_SUCCEED();
+    }
+    const auto applet = window_system->GetMainApplet();
+    if (applet == nullptr) {
+        R_SUCCEED();
+    }
+    std::scoped_lock lk{applet->lock};
+    *out_running = applet->is_process_running && !applet->is_completed;
     R_SUCCEED();
 }
 
