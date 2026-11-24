@@ -22,8 +22,25 @@ def blob(path):
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
 # Current maintained runtime owners. The CPU-write rollback still requires
 # synchronous protection even though DMA clean-image invalidation was added.
-assert blob(R)==GUEST_CACHE_LOCK_SUCCESSOR
-assert hashlib.sha1(b"blob "+str(len(restore_integrated_rasterizer(R.read_text()).encode())).encode()+b"\x00"+restore_integrated_rasterizer(R.read_text()).encode()).hexdigest()=="71d097b9a83028dfad9370792c905bb3bfccfd5a"
+# NS2 adds only the strict Ampere syncpoint-fence wrapper to this TU; strip
+# that exact method before replaying the historical FC27 rasterizer receipt.
+NATIVE_SYNC_BLOCK="""#ifdef PS5_NATIVE
+bool RasterizerVulkan::SignalNativeSyncPoint(u32 value) {
+    fence_manager.SignalNativeSyncPoint(value);
+    return true;
+}
+#endif
+
+"""
+raster_text=R.read_text()
+assert raster_text.count(NATIVE_SYNC_BLOCK)==1
+fc27_raster=raster_text.replace(NATIVE_SYNC_BLOCK,"")
+def text_blob(text):
+    raw=text.encode()
+    return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
+assert text_blob(fc27_raster)==GUEST_CACHE_LOCK_SUCCESSOR
+restored=restore_integrated_rasterizer(fc27_raster)
+assert text_blob(restored)=="71d097b9a83028dfad9370792c905bb3bfccfd5a"
 assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
 # The selected NS1/NS2 TextureCache now includes 10 independently reviewed
 # safety and DMA source changes; this full file SHA remains a fail-closed
