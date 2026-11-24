@@ -47,11 +47,11 @@ NSD::NSD(Core::System& system_, const char* name) : ServiceFramework{system_, na
         {42, nullptr, "GetNasApiFqdn"},
         {43, nullptr, "GetNasApiFqdnEx"},
         {50, nullptr, "GetCurrentSetting"},
-        {51, nullptr, "WriteTestParameter"},
-        {52, nullptr, "ReadTestParameter"},
-        {60, nullptr, "ReadSaveDataFromFsForTest"},
-        {61, nullptr, "WriteSaveDataToFsForTest"},
-        {62, nullptr, "DeleteSaveDataOfFsForTest"},
+        {51, &NSD::UnsupportedTestCommand, "WriteTestParameter"},
+        {52, &NSD::UnsupportedTestCommand, "ReadTestParameter"},
+        {60, &NSD::UnsupportedTestCommand, "ReadSaveDataFromFsForTest"},
+        {61, &NSD::UnsupportedTestCommand, "WriteSaveDataToFsForTest"},
+        {62, &NSD::UnsupportedTestCommand, "DeleteSaveDataOfFsForTest"},
         {63, nullptr, "IsChangeEnvironmentIdentifierDisabled"},
         {64, nullptr, "SetWithoutDomainExchangeFqdns"},
         {100, &NSD::GetApplicationServerEnvironmentType, "GetApplicationServerEnvironmentType"},
@@ -136,6 +136,12 @@ void NSD::GetApplicationServerEnvironmentType(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
     rb.Push(static_cast<u32>(ServerEnvironmentType::Lp));
+}
+
+void NSD::UnsupportedTestCommand(HLERequestContext& ctx) {
+    LOG_WARNING(Service, "NSD test/debug command is not supported by the production runtime");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 NSD::~NSD() = default;

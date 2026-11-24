@@ -425,9 +425,9 @@ public:
         // clang-format off
         static const FunctionInfo functions[] = {
             {0, &NIM_ECA::CreateServerInterface, "CreateServerInterface"},
-            {1, nullptr, "RefreshDebugAvailability"},
-            {2, nullptr, "ClearDebugResponse"},
-            {3, nullptr, "RegisterDebugResponse"},
+            {1, &NIM_ECA::UnsupportedDebugCommand, "RefreshDebugAvailability"},
+            {2, &NIM_ECA::UnsupportedDebugCommand, "ClearDebugResponse"},
+            {3, &NIM_ECA::UnsupportedDebugCommand, "RegisterDebugResponse"},
             {4, &NIM_ECA::IsLargeResourceAvailable, "IsLargeResourceAvailable"},
             {5, &NIM_ECA::CreateServerInterface2, "CreateServerInterface2"} // 17.0.0+
         };
@@ -437,6 +437,12 @@ public:
     }
 
 private:
+    void UnsupportedDebugCommand(HLERequestContext& ctx) {
+        LOG_WARNING(Service_NIM, "nim:eca debug-response command is not supported");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
     void CreateServerInterface(HLERequestContext& ctx) {
         LOG_DEBUG(Service_NIM, "called");
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};

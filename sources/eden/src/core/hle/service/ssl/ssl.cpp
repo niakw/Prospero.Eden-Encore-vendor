@@ -599,11 +599,11 @@ public:
             {1, nullptr, "GetContextCount"},
             {2, D<&ISslService::GetCertificates>, "GetCertificates"},
             {3, D<&ISslService::GetCertificateBufSize>, "GetCertificateBufSize"},
-            {4, nullptr, "DebugIoctl"},
+            {4, &ISslService::UnsupportedDebugCommand, "DebugIoctl"},
             {5, &ISslService::SetInterfaceVersion, "SetInterfaceVersion"},
             {6, nullptr, "FlushSessionCache"},
-            {7, nullptr, "SetDebugOption"},
-            {8, nullptr, "GetDebugOption"},
+            {7, &ISslService::UnsupportedDebugCommand, "SetDebugOption"},
+            {8, &ISslService::UnsupportedDebugCommand, "GetDebugOption"},
             {8, nullptr, "ClearTls12FallbackFlag"},
         };
         // clang-format on
@@ -612,6 +612,12 @@ public:
     }
 
 private:
+    void UnsupportedDebugCommand(HLERequestContext& ctx) {
+        LOG_WARNING(Service_SSL, "SSL debug command is not supported by the production runtime");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
     void CreateContext(HLERequestContext& ctx) {
         struct Parameters {
             SslVersion ssl_version;

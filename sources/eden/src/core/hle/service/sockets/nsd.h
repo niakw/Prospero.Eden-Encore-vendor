@@ -25,6 +25,7 @@ private:
     void ResolveEx(HLERequestContext& ctx);
     void GetEnvironmentIdentifier(HLERequestContext& ctx);
     void GetApplicationServerEnvironmentType(HLERequestContext& ctx);
+    void UnsupportedTestCommand(HLERequestContext& ctx);
 
     bool change_environment_identifier_disabled{};
 };
