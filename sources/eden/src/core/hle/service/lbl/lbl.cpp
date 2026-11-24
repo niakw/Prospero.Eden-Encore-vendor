@@ -25,8 +25,8 @@ public:
             {1, &LBL::LoadCurrentSetting, "LoadCurrentSetting"},
             {2, &LBL::SetCurrentBrightnessSetting, "SetCurrentBrightnessSetting"},
             {3, &LBL::GetCurrentBrightnessSetting, "GetCurrentBrightnessSetting"},
-            {4, nullptr, "ApplyCurrentBrightnessSettingToBacklight"},
-            {5, nullptr, "GetBrightnessSettingAppliedToBacklight"},
+            {4, &LBL::ApplyCurrentBrightnessSettingToBacklight, "ApplyCurrentBrightnessSettingToBacklight"},
+            {5, &LBL::GetBrightnessSettingAppliedToBacklight, "GetBrightnessSettingAppliedToBacklight"},
             {6, &LBL::SwitchBacklightOn, "SwitchBacklightOn"},
             {7, &LBL::SwitchBacklightOff, "SwitchBacklightOff"},
             {8, &LBL::GetBacklightSwitchStatus, "GetBacklightSwitchStatus"},
@@ -127,10 +127,31 @@ private:
         rb.Push(brightness);
     }
 
+    void ApplyCurrentBrightnessSettingToBacklight(HLERequestContext& ctx) {
+        applied_brightness = current_brightness;
+        update_instantly = false;
+        LOG_DEBUG(Service_LBL, "Applied guest brightness={}", applied_brightness);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetBrightnessSettingAppliedToBacklight(HLERequestContext& ctx) {
+        auto brightness = applied_brightness;
+        if (!std::isfinite(brightness)) {
+            LOG_ERROR(Service_LBL, "Applied brightness is infinite!");
+            brightness = 0.0f;
+        }
+
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push(brightness);
+    }
+
     void SwitchBacklightOn(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto fade_time = rp.Pop<u64_le>();
-        LOG_WARNING(Service_LBL, "(STUBBED) called, fade_time={}", fade_time);
+        LOG_DEBUG(Service_LBL, "SwitchBacklightOn fade_time={} (guest fade not mapped to PS5 host)", fade_time);
 
         backlight_enabled = true;
 
@@ -141,7 +162,7 @@ private:
     void SwitchBacklightOff(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto fade_time = rp.Pop<u64_le>();
-        LOG_WARNING(Service_LBL, "(STUBBED) called, fade_time={}", fade_time);
+        LOG_DEBUG(Service_LBL, "SwitchBacklightOff fade_time={} (guest fade not mapped to PS5 host)", fade_time);
 
         backlight_enabled = false;
 
@@ -356,6 +377,7 @@ private:
 
     bool vr_mode_enabled = false;
     float current_brightness = 1.0f;
+    float applied_brightness = 1.0f;
     float ambient_light_value = 0.0f;
     float current_vr_brightness = 1.0f;
     bool dimming = true;
