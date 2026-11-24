@@ -29,10 +29,10 @@ namespace Service::AM {
         {31, D<&IOverlayFunctions::IsHealthWarningRequired>, "IsHealthWarningRequired"},
         {40, nullptr, "GetApplicationNintendoLogo"},
         {41, nullptr, "GetApplicationStartupMovie"},
-        {50, nullptr, "SetGpuTimeSliceBoostForApplication"},
+        {50, D<&IOverlayFunctions::SetGpuTimeSliceBoostForApplication>, "SetGpuTimeSliceBoostForApplication"},
         {60, nullptr, "Unknown60"},
         {70, D<&IOverlayFunctions::Unknown70>, "Unknown70"},
-        {90, nullptr, "SetRequiresGpuResourceUse"},
+        {90, D<&IOverlayFunctions::SetRequiresGpuResourceUse>, "SetRequiresGpuResourceUse"},
         {101, D<&IOverlayFunctions::RejectDebugOnlyCommand>, "BeginToObserveHidInputForDevelop"},
     };
         // clang-format on
@@ -158,6 +158,19 @@ namespace Service::AM {
         // Encore has no guest reboot relaunch path distinct from shutdown yet; the global AM
         // controller uses the same system-exit transition, so keep both interfaces coherent.
         system.Exit();
+        R_SUCCEED();
+    }
+
+    Result IOverlayFunctions::SetGpuTimeSliceBoostForApplication(u64 value) {
+        // HOS23 ABI is a single u64. Ryujinx treats this policy hint as an accepted no-op,
+        // and Encore does not expose a separate host GPU time-slice boost control.
+        LOG_DEBUG(Service_AM, "called, value={} (accepted policy hint)", value);
+        R_SUCCEED();
+    }
+
+    Result IOverlayFunctions::SetRequiresGpuResourceUse(bool required) {
+        // SwitchBrew documents this command as an input bool that simply returns success.
+        LOG_DEBUG(Service_AM, "called, required={} (contractual no-op)", required);
         R_SUCCEED();
     }
 
