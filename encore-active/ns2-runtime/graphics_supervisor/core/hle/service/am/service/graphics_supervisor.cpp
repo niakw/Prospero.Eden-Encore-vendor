@@ -1609,7 +1609,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         // Camera 691 shares the image-pool requirements query layout; Encore supports only
         // proven chat-camera image formats, and rejects unknown layouts.
         {691, &IGraphicsSupervisor::CalculateFeatureImagePoolRequirements, "CalculateImageArraySize"},
-        {903, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyVideoDecoderContext"},
+        {903, &IGraphicsSupervisor::ReleaseVideoDecoderAccess, "ReleaseVideoDecoderAccess"},
         {904, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeVideoDecoderContextForSystem"},
         {921, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeDecoderAliasImagePool"},
         {922, &IGraphicsSupervisor::UnavailableDocumentedFeature, "FinalizeDecoderAliasImagePool"},
@@ -2979,10 +2979,30 @@ void IGraphicsSupervisor::InitializeVideoCodecContext(HLERequestContext& ctx) {
 
 // 902/905/906 create real decoder child kernel sessions. No codec operation
 // reports success until the session has initialized its actual FFmpeg owner.
+void IGraphicsSupervisor::ReleaseVideoDecoderAccess(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    // libounce: root 903 has no payload and releases the state acquired by
+    // the decoder creator. The client must close the creator MOVE handle first.
+    if (packet[0] == 16 + 903 && packet[1] == 0) {
+        result = Kernel::ResultInvalidState;
+        if (m_video_decoder_access_held && m_video_decoder_creator.expired()) {
+            m_video_decoder_access_held = false;
+            m_video_decoder_creator.reset();
+            result = ResultSuccess;
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+// 902/905/906 create real decoder child kernel sessions. No codec operation
+// reports success until the session has initialized its actual FFmpeg owner.
 void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
     const auto* w = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     Kernel::KClientSession* client{};
+    std::weak_ptr<IGraphicsVideoDecoderSession> creator;
     const u32 cmd = ctx.GetCommand();
     // 902 has no input words; 905 carries a flag, 906 a flag and
     // library version. Reject malformed TIPC lengths before creating a
@@ -2992,11 +3012,16 @@ void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
                        cmd == 906 && w[1] == 3;
     if (w[0] == cmd + 0x10 && shape) {
         result = Kernel::ResultInvalidState;
-        if (m_process && m_bootstrap.GpuContextReady()) {
+        // libounce explicitly requires one creator per root initialization.
+        // A closed creator remains reserved until root command 903 releases
+        // that state, so do not reopen merely because the weak handle expired.
+        if (m_process && m_bootstrap.GpuContextReady() &&
+            !m_video_decoder_access_held) {
             auto owner = std::static_pointer_cast<IGraphicsSupervisor>(shared_from_this());
             try {
                 auto handler = std::make_shared<IGraphicsVideoDecoderSession>(
                     system, std::move(owner), true);
+                creator = handler;
                 result = CreateMetadataSession(system, ctx, std::move(handler), &client);
             } catch (const std::bad_alloc&) {
                 result = Kernel::ResultOutOfResource;
@@ -3019,6 +3044,10 @@ void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
         rb.Push(result.raw);
         return;
     }
+    // Publish the root lease only after the MOVE descriptor itself is queued.
+    // Failed publication therefore cannot strand the root's 903 state.
+    m_video_decoder_creator = std::move(creator);
+    m_video_decoder_access_held = true;
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
 }

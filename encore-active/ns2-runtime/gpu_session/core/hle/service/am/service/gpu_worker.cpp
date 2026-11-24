@@ -674,7 +674,6 @@ void IGpuWorker::NormalUnmapGpuMemory4K(HLERequestContext& ctx) {
     std::array<GW::U32, 9> command{};
     std::copy_n(packet, command.size(), command.begin());
     Result result = Kernel::ResultInvalidCombination;
-    u64 unmapped{};
     if (const auto request = GW::DecodeUnmap(command)) {
         const std::scoped_lock lock{m_mutex, m_shared->mutex};
         result = Kernel::ResultNotFound;
@@ -696,7 +695,6 @@ void IGpuWorker::NormalUnmapGpuMemory4K(HLERequestContext& ctx) {
                 if (as && as->UnmapNative4K(request->address, request->size) ==
                                   Nvidia::NvResult::Success) {
                     m_mappings.RecordUnmapped(*request);
-                    unmapped = request->size;
                     result = ResultSuccess;
                     m_shared->events[request->notification]->Signal(kernel);
                 }
@@ -704,9 +702,11 @@ void IGpuWorker::NormalUnmapGpuMemory4K(HLERequestContext& ctx) {
         }
     }
     TraceNs2WorkerResult(static_cast<unsigned>(ctx.GetCommand()), result.raw);
-    IPC::ResponseBuilder rb{ctx, 4};
+    // libounce gsvGpuUnmap uses tipcDispatchIn: command 213 returns only
+    // Result. The completion slot is the operation-complete signal; do not
+    // append a synthetic unmapped-size payload after it.
+    IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
-    rb.Push(unmapped);
 }
 
 void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {

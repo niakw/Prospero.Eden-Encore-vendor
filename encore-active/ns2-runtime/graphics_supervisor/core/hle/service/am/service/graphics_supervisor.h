@@ -51,6 +51,7 @@ private:
     void UnavailableVideoEncoder(HLERequestContext& ctx);
     void UnavailableDocumentedFeature(HLERequestContext& ctx);
     void InitializeVideoCodecContext(HLERequestContext& ctx);
+    void ReleaseVideoDecoderAccess(HLERequestContext& ctx);
     void OpenVideoDecoderSession(HLERequestContext& ctx);
     void OpenVideoDecoderChildSession(HLERequestContext& ctx);
     void Initialize(HLERequestContext& ctx);
@@ -111,6 +112,10 @@ private:
     u32 m_graphics_frame_restart_mode{};
     u32 m_graphics_frame_timeslice_mode{};
     std::vector<std::weak_ptr<IGpuSession>> m_gpu_sessions;
+    // libounce GSV 906/903: one decoder creator lease per root initialization.
+    // Closing the MOVE session does not release root policy state; 903 does.
+    std::weak_ptr<IGraphicsVideoDecoderSession> m_video_decoder_creator;
+    bool m_video_decoder_access_held{};
     // TIPC 1 donates a real process-owned work buffer. Keep the kernel owner
     // alive so TIPC 498 can report the exact donated capacity without
     // pretending the HLE backend consumed storage it never suballocated.
