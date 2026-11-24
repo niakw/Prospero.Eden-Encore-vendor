@@ -75,7 +75,9 @@ FileSys::PatchManager::Metadata GetApplicationMetadata(Core::System& system, u64
 
 IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_ptr<Applet> applet)
     : ServiceFramework{system_, "IApplicationFunctions"}, m_applet{std::move(applet)},
-      m_play_time_manager{std::make_unique<PlayTime::PlayTimeManager>()} {
+      m_play_time_manager{std::make_unique<PlayTime::PlayTimeManager>()},
+      m_context{system_, "IApplicationFunctions"},
+      m_limited_application_license_upgradable_event{m_context} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {1, D<&IApplicationFunctions::PopLaunchParameter>, "PopLaunchParameter"},
@@ -102,7 +104,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {34, nullptr, "SelectApplicationLicense"},
         {35, D<&IApplicationFunctions::GetDeviceSaveDataSizeMax>, "GetDeviceSaveDataSizeMax"},
         {36, D<&IApplicationFunctions::GetLimitedApplicationLicense>, "GetLimitedApplicationLicense"},
-        {37, nullptr, "GetLimitedApplicationLicenseUpgradableEvent"},
+        {37, D<&IApplicationFunctions::GetLimitedApplicationLicenseUpgradableEvent>, "GetLimitedApplicationLicenseUpgradableEvent"},
         {40, D<&IApplicationFunctions::NotifyRunning>, "NotifyRunning"},
         {50, D<&IApplicationFunctions::GetPseudoDeviceId>, "GetPseudoDeviceId"},
         {60, D<&IApplicationFunctions::SetMediaPlaybackStateForApplication>, "SetMediaPlaybackStateForApplication"},
@@ -382,6 +384,13 @@ Result IApplicationFunctions::GetSaveDataSizeMax(Out<u64> out_max_normal_size,
 Result IApplicationFunctions::GetLimitedApplicationLicense(Out<u8> out_license_type) {
     *out_license_type = 0;
     LOG_DEBUG(Service_AM, "called, no limited/trial application license");
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::GetLimitedApplicationLicenseUpgradableEvent(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    LOG_DEBUG(Service_AM, "called, no limited-license upgrade transition available");
+    *out_event = m_limited_application_license_upgradable_event.GetHandle();
     R_SUCCEED();
 }
 

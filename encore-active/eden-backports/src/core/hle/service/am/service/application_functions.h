@@ -12,6 +12,8 @@
 #include "common/uuid.h"
 #include "core/hle/service/am/am_types.h"
 #include "core/hle/service/cmif_types.h"
+#include "core/hle/service/kernel_helpers.h"
+#include "core/hle/service/os/event.h"
 #include "core/hle/service/service.h"
 
 namespace FileSys {
@@ -64,6 +66,8 @@ private:
                               u64 normal_size, u64 journal_size);
     Result GetSaveDataSizeMax(Out<u64> out_max_normal_size, Out<u64> out_max_journal_size);
     Result GetLimitedApplicationLicense(Out<u8> out_license_type);
+    Result GetLimitedApplicationLicenseUpgradableEvent(
+        OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result GetDeviceSaveDataSizeMax(Out<u64> out_max_normal_size, Out<u64> out_max_journal_size);
     Result GetCacheStorageMax(Out<u32> out_cache_storage_index_max, Out<u64> out_max_journal_size);
     Result BeginBlockingHomeButtonShortAndLongPressed(s64 unused);
@@ -131,6 +135,8 @@ private:
 
     const std::shared_ptr<Applet> m_applet;
     std::unique_ptr<PlayTime::PlayTimeManager> m_play_time_manager;
+    KernelHelpers::ServiceContext m_context;
+    Event m_limited_application_license_upgradable_event;
 
     std::mutex m_copyright_mutex;
     bool m_copyright_framebuffer_initialized{};
