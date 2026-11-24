@@ -150,6 +150,28 @@ bool DmaSoftwareOverlap(MemoryManager& memory, GPUVAddr src, size_t src_bytes,
                                 src, src_end, dst, dst_end);
 }
 
+// The GOB subrect decoder advances linear slices by full image height,
+// even if a slice starts at a nonzero Y origin. Size the WHOLE destination
+// span before a 3D tiled readback, including untouched row gaps.
+constexpr bool DmaVolumeLinearRows(u32 height, u32 depth, u32 layer, u32 origin_y,
+                                   u32 line_count, u64& rows) noexcept {
+    rows = 0;
+    if (height == 0 || depth == 0 || layer >= depth || origin_y >= height ||
+        line_count == 0) {
+        return false;
+    }
+    const u64 lines_per_slice = static_cast<u64>(height) - origin_y;
+    const u64 remaining_slices = static_cast<u64>(depth) - layer;
+    if (static_cast<u64>(line_count) > lines_per_slice * remaining_slices) {
+        return false;
+    }
+    const u64 slices_used = 1 + (static_cast<u64>(line_count) - 1) / lines_per_slice;
+    const u64 tail_lines = static_cast<u64>(line_count) -
+                           (slices_used - 1) * lines_per_slice;
+    rows = (slices_used - 1) * height + tail_lines;
+    return true;
+}
+
 // MemoryManager::CopyBlock is an individual-row transfer, not a snapshot
 // of all rows. Aliased rows must be captured before the first write.
 bool CopyPitchDmaPlain(MemoryManager& memory, GPUVAddr source,
@@ -1071,14 +1093,16 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
     const u32 depth = src_params.depth;
     const u32 block_height = src_params.block_size.height;
     const u32 block_depth = src_params.block_size.depth;
+    u64 destination_rows{};
     // The decoder uses u32 padded GOB products. Admit the full source
     // surface and destination stride with u64 before calling CalculateSize.
     constexpr u64 MAX_SOFTWARE_TILED_DMA_BYTES = u64{64} << 20;
     if (bytes_per_pixel == 0 || width == 0 || height == 0 ||
         x_elements == 0 || regs.line_count == 0 ||
         x_offset > width || x_elements > width - x_offset ||
-        src_params.origin.y.Value() > height ||
-        regs.line_count > height - src_params.origin.y.Value() ||
+        !DmaVolumeLinearRows(height, depth, src_params.layer,
+                             src_params.origin.y.Value(), regs.line_count,
+                             destination_rows) ||
         static_cast<u64>(x_elements) * bytes_per_pixel > dst_operand.pitch) {
         LOG_WARNING(Render_OpenGL, "Invalid tiled-to-pitch DMA rectangle");
         return;
@@ -1090,7 +1114,7 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
     const u64 gob_depth = u64{1} << block_depth;
     const u64 aligned_depth = (static_cast<u64>(depth) + gob_depth - 1) &
                               ~(gob_depth - 1);
-    const u64 dst_size_wide = static_cast<u64>(dst_operand.pitch) * regs.line_count;
+    const u64 dst_size_wide = static_cast<u64>(dst_operand.pitch) * destination_rows;
     if (aligned_width == 0 || aligned_height == 0 || aligned_depth == 0 ||
         aligned_width > MAX_SOFTWARE_TILED_DMA_BYTES / aligned_height ||
         aligned_width * aligned_height > MAX_SOFTWARE_TILED_DMA_BYTES / aligned_depth ||

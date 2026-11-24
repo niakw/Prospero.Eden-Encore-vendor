@@ -104,6 +104,10 @@ for body, layer in (
 assert "src_geometry.layer >= src_geometry.depth" in source_volume
 assert "src_geometry.block_size.depth == 0" in source_volume
 assert "src_size != aligned_width * aligned_height * aligned_depth" in source_volume
+assert "DmaVolumeLinearRows(height, depth, src_params.layer" in source_volume
+assert "static_cast<u64>(dst_operand.pitch) * destination_rows" in source_volume
+assert "const u64 tail_lines = static_cast<u64>(line_count)" in dma
+assert "remaining_slices = static_cast<u64>(depth) - layer" in dma
 assert "dst_params.block_size.depth == 0" in destination_volume
 assert "dst_params.layer >= regs.dst_params.depth" in destination_volume
 assert "lines_per_slice * (depth - dst_params.layer)" in destination_volume
