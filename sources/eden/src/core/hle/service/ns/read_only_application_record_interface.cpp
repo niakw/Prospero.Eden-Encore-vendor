@@ -40,8 +40,16 @@ Result IReadOnlyApplicationRecordInterface::HasApplicationRecord(
 
 Result IReadOnlyApplicationRecordInterface::IsDataCorruptedResult(
     Out<bool> out_is_data_corrupted_result, Result result) {
-    LOG_WARNING(Service_NS, "(STUBBED) called, result={:#x}", result.GetInnerValue());
-    *out_is_data_corrupted_result = false;
+    constexpr u32 DataCorruptedDescriptionMin = 4000;
+    constexpr u32 DataCorruptedDescriptionMax = 4999;
+
+    const auto description = result.GetDescription();
+    *out_is_data_corrupted_result =
+        result.GetModule() == ErrorModule::FS && description >= DataCorruptedDescriptionMin &&
+        description <= DataCorruptedDescriptionMax;
+
+    LOG_DEBUG(Service_NS, "called, result={:#x}, is_data_corrupted={}",
+              result.GetInnerValue(), *out_is_data_corrupted_result);
     R_SUCCEED();
 }
 
