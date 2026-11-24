@@ -56,6 +56,13 @@ public:
                              const InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
     Result GetFileTimeStampRaw(Out<FileSys::FileTimeStampRaw> out_timestamp,
                                const InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
+    Result QueryEntry(
+        const OutBuffer<BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure>
+            out_buffer,
+        const InBuffer<BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure>
+            in_buffer,
+        FileSys::Fsa::QueryId query_id,
+        const InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
     Result GetFileSystemAttribute(Out<FileSys::FileSystemAttribute> out_attribute);
 
 private:

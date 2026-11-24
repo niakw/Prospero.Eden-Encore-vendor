@@ -35,7 +35,7 @@ IFileSystem::IFileSystem(Core::System& system_, FileSys::VirtualDir dir_, SizeGe
         {12, D<&IFileSystem::GetTotalSpaceSize>, "GetTotalSpaceSize"},
         {13, D<&IFileSystem::CleanDirectoryRecursively>, "CleanDirectoryRecursively"},
         {14, D<&IFileSystem::GetFileTimeStampRaw>, "GetFileTimeStampRaw"},
-        {15, nullptr, "QueryEntry"},
+        {15, D<&IFileSystem::QueryEntry>, "QueryEntry"},
         {16, D<&IFileSystem::GetFileSystemAttribute>, "GetFileSystemAttribute"},
     };
     RegisterHandlers(functions);
@@ -182,6 +182,20 @@ Result IFileSystem::GetFileTimeStampRaw(
 
     *out_timestamp = vfs_timestamp;
     R_SUCCEED();
+}
+
+
+Result IFileSystem::QueryEntry(
+    const OutBuffer<BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_buffer,
+    const InBuffer<BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> in_buffer,
+    FileSys::Fsa::QueryId query_id,
+    const InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path) {
+    LOG_DEBUG(Service_FS, "called, query_id={}, path={}, in={}, out={}",
+              static_cast<u32>(query_id), path->str, in_buffer.size(), out_buffer.size());
+
+    R_RETURN(backend->QueryEntry(reinterpret_cast<char*>(out_buffer.data()), out_buffer.size(),
+                                 reinterpret_cast<const char*>(in_buffer.data()), in_buffer.size(),
+                                 query_id, FileSys::Path(path->str)));
 }
 
 Result IFileSystem::GetFileSystemAttribute(Out<FileSys::FileSystemAttribute> out_attribute) {
