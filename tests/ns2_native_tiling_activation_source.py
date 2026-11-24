@@ -61,10 +61,11 @@ assert "EnableNativeTiling" not in channel
 
 bind = "NativeGpuChannelRegistry::Instance().Bind("
 enable = "channel_state->memory_manager->EnableNativeTiling();"
-push = "gpu.PushGPUEntries(bind_id, std::move(entries));"
+push = "push_gpu_entries(std::move(entries));"
 assert nvhost.count(enable) == 1
 assert nvhost.index("if (native) {", nvhost.index(bind) - 600) < nvhost.index(bind)
 assert nvhost.index(bind) < nvhost.index(enable) < nvhost.index(push)
+assert "gpu.PushGPUEntries(bind_id, std::move(list));" in nvhost
 assert "if (native && (!channel_state->initialized || !channel_state->memory_manager))" in nvhost
 
 # Every reviewed block-linear writer consumes the same per-address-space flag.

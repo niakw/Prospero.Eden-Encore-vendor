@@ -934,7 +934,7 @@ for marker in ("case 0x4: {", "case 0x7: {", "case 0xa: {",
                "case 0xc: {", "case 0xd: {",
                "native_sparse_pins.merge(newly_pinned);",
                "if ((u32{entry.flags} & 0x7000U) == 0)",
-               "native_sparse_poisoned = true;",
+               "PoisonNativeAddressSpace();",
                "system.GPU().WaitForIdle();"):
     assert marker in _as_runtime, marker
 assert "std::atomic_bool native_sparse_poisoned{};" in _as_header
@@ -1317,3 +1317,21 @@ assert "list.native_submission_lease = native_submission_lease;" in submit_impl
 assert "std::shared_ptr<const std::atomic<bool>> native_submission_lease;" in dma_h
 assert 'Native GPFIFO address-space lease retired' in dma_cpp
 assert "lease->load(std::memory_order_acquire)" in dma_cpp
+
+
+# Native H:17 propagation: the already-admitted AS lease is authoritative even
+# after process-generation revocation makes IsNative() false. A lease fault is
+# latched globally before the exact native channel event is signalled.
+registry_h=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/native_gpu_channel_registry.h").read_text()
+assert "using FaultNotifier = void (*)(void*) noexcept;" in registry_h
+assert "AttachFaultNotifier(" in registry_h and "ReportFault(" in registry_h
+assert "it->second.fault_notifier(it->second.fault_context);" in registry_h
+step=dma_cpp.split("bool DmaPusher::Step() {",1)[1].split("\n}\n",1)[0]
+assert "if (!lease) return;" in step
+assert "NativeGpuChannelRegistry::Instance().IsNative(" not in step.split("require_native_submission_lease",1)[1].split("};",1)[0]
+fail_native=dma_cpp.split("void DmaPusher::FailNativeSubmission(",1)[1].split("\n}",1)[0]
+assert fail_native.index("::Eden::RecordGpuFailure(error);") < fail_native.index(".ReportFault(&channel_state);") < fail_native.index("std::rethrow_exception(error);")
+submit_impl=nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split("\n}",1)[0]
+assert submit_impl.index("native_channel_registry.Bind(") < submit_impl.index("AttachFaultNotifier(") < submit_impl.index("EnableNativeTiling();") < submit_impl.index("push_gpu_entries(std::move(entries));")
+assert "void nvhost_gpu::SignalNativeChannelFault(void* context) noexcept" in nvhost_cpp
+assert "native_error_event_mutex" in nvhost_cpp

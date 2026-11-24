@@ -17,12 +17,18 @@ namespace Shader::Ampere { class NativeTranslationCache; }
 namespace Service::Nvidia::Devices {
 class NativeGpuChannelRegistry {
 public:
+    using FaultNotifier = void (*)(void*) noexcept;
     struct Ticket {
         const Kernel::KProcess* process{};
         std::uint64_t generation{};
         // A new epoch is assigned on every Unbind / Bind transition, even
         // if the same process remains alive at the same ChannelState address.
         std::uint64_t channel_generation{};
+        // Optional host-only sink used to wake H:17 for this exact channel.
+        // It is invoked while the registry lock pins the owning nvhost_gpu
+        // lifetime; Unbind completes before that device frees its KEvent.
+        void* fault_context{};
+        FaultNotifier fault_notifier{};
     };
     static NativeGpuChannelRegistry& Instance() {
         static NativeGpuChannelRegistry instance;
@@ -252,6 +258,25 @@ public:
     }
     [[nodiscard]] bool IsNative(const Tegra::Control::ChannelState* channel) const {
         return CaptureTicket(channel).has_value();
+    }
+    [[nodiscard]] bool AttachFaultNotifier(const Tegra::Control::ChannelState* channel,
+                                           void* context, FaultNotifier notifier) {
+        if (!channel || !context || !notifier) return false;
+        const std::scoped_lock lock{mutex};
+        const auto it = channels.find(channel);
+        if (it == channels.end()) return false;
+        it->second.fault_context = context;
+        it->second.fault_notifier = notifier;
+        return true;
+    }
+    void ReportFault(const Tegra::Control::ChannelState* channel) noexcept {
+        if (!channel) return;
+        const std::scoped_lock lock{mutex};
+        const auto it = channels.find(channel);
+        if (it == channels.end() || !it->second.fault_context ||
+            !it->second.fault_notifier)
+            return;
+        it->second.fault_notifier(it->second.fault_context);
     }
     void Unbind(const Tegra::Control::ChannelState* channel) {
         if (!channel) return;

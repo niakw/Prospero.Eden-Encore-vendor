@@ -165,6 +165,9 @@ private:
     static constexpr u32 max_subchannels = 8;
     bool Step();
     void ProcessCommands(std::span<const CommandHeader> commands);
+#ifdef PS5_NATIVE
+    [[noreturn]] void FailNativeSubmission(const char* message);
+#endif
     // This header is only selected for the authenticated native NS2 source
     // graph. The cursor is an ABI field in BOTH core and video_core, even
     // when their individual TUs do not define PS5_NATIVE.

@@ -282,6 +282,7 @@ private:
     // of re-routing the same Ampere fd through legacy Maxwell handlers.
     [[nodiscard]] bool UsesNativeAbi(DeviceFD fd) const;
     [[nodiscard]] bool NativeEpochCurrent(DeviceFD fd) const;
+    static void SignalNativeChannelFault(void* context) noexcept;
 
     Core::Memory::Memory& GetSessionMemory(DeviceFD fd);
 
@@ -308,6 +309,8 @@ private:
     // logical runlist until this NVDRV device is closed.
     std::optional<s32> native_runlist_id{};
     std::mutex channel_mutex;
+    // Serializes error-event enable/clear with asynchronous GPU-worker signal.
+    std::mutex native_error_event_mutex;
 
     // Events
     Kernel::KEvent* sm_exception_breakpoint_int_report_event;

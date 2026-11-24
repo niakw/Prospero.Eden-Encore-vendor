@@ -83,6 +83,19 @@ nvhost_gpu::nvhost_gpu(Core::System& system_, EventInterface& events_interface_,
     error_notifier_event = events_interface.CreateEvent("GpuChannelErrorNotifier");
 }
 
+void nvhost_gpu::SignalNativeChannelFault(void* context) noexcept {
+    auto* self = static_cast<nvhost_gpu*>(context);
+    if (!self) return;
+    const std::scoped_lock event_lock{self->native_error_event_mutex};
+    if (!self->native_error_notifier_initialized || !self->error_notifier_event)
+        return;
+    try {
+        self->error_notifier_event->Signal(self->system.Kernel());
+    } catch (...) {
+        // Fault delivery must never replace the already-latched GPU cause.
+    }
+}
+
 nvhost_gpu::~nvhost_gpu() {
     // Normal guest close retires the channel from OnClose when its last FD
     // disappears. If teardown bypassed OnClose, preserve the same ordering
@@ -600,6 +613,8 @@ NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, Dev
     }
 
     const u32 bit = 1u << event_id;
+    std::unique_lock<std::mutex> error_event_lock{native_error_event_mutex, std::defer_lock};
+    if (event_id == 3) error_event_lock.lock();
     switch (cmd) {
     case 0: // disable
         native_event_enable_mask &= ~bit;
@@ -610,6 +625,10 @@ NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, Dev
         // Registration starts from a clean event state. Actual GPU fault/
         // breakpoint producers can signal the already-exported QueryEvent.
         event->GetReadableEvent().Clear(system.Kernel());
+#ifdef PS5_NATIVE
+        if (event_id == 3 && native_error_notifier_initialized && ::Eden::PeekGpuFailure())
+            event->Signal(system.Kernel());
+#endif
         break;
     case 2: // clear
         event->GetReadableEvent().Clear(system.Kernel());
@@ -634,6 +653,7 @@ NvResult nvhost_gpu::SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd
         status != NvResult::Success)
         return status;
 
+    const std::scoped_lock event_lock{native_error_event_mutex};
     native_error_notifier_initialized = static_cast<u32>(params.mem) != 0;
     native_error_info = {};
     // OunceVK reads H:0x17 immediately after installing the notifier and
@@ -641,6 +661,10 @@ NvResult nvhost_gpu::SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd
     // future real GPU faults may replace it with a non-zero status.
     native_error_notification = {};
     error_notifier_event->GetReadableEvent().Clear(system.Kernel());
+#ifdef PS5_NATIVE
+    if (native_error_notifier_initialized && ::Eden::PeekGpuFailure())
+        error_notifier_event->Signal(system.Kernel());
+#endif
     return NvResult::Success;
 }
 
@@ -681,7 +705,7 @@ NvResult nvhost_gpu::GetErrorNotification(IoctlGetErrorNotification& params, Dev
         static_cast<u16>(native_error_notification.status) == 0) {
         constexpr u16 RobustChannelErrorStatus = 0xFFFF;
         native_error_notification.status = RobustChannelErrorStatus;
-        error_notifier_event->Signal(system.Kernel());
+        SignalNativeChannelFault(this);
     }
 #endif
     params = native_error_notification;
@@ -1139,7 +1163,8 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     // Only an authenticated Switch 2 channel may switch its address-space
     // texture layout. NS1 never enters this branch and keeps Maxwell tiling.
     if (native) {
-        if (!NativeGpuChannelRegistry::Instance().Bind(
+        auto& native_channel_registry = NativeGpuChannelRegistry::Instance();
+        if (!native_channel_registry.Bind(
                 channel_state.get(), native_owner)) {
 #ifdef PS5_NATIVE
             if (trace_impl)
@@ -1149,6 +1174,9 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
 #endif
             return NvResult::InvalidState;
         }
+        if (!native_channel_registry.AttachFaultNotifier(
+                channel_state.get(), this, &nvhost_gpu::SignalNativeChannelFault))
+            return NvResult::InvalidState;
         channel_state->memory_manager->EnableNativeTiling();
     }
 
@@ -1168,7 +1196,7 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
         }
 
         if (!syncpoint_manager.IsFenceSignalled(params.fence)) {
-            push_gpu_entries( Tegra::CommandList{BuildWaitCommandList(params.fence)});
+            push_gpu_entries(Tegra::CommandList{BuildWaitCommandList(params.fence)});
         }
     }
 
@@ -1182,22 +1210,22 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
         : (flags.fence_increment.Value() != 0 ? 2U : 0U) +
           (flags.increment_value.Value() != 0 ? u32{params.fence.value} : 0U);
     params.fence.value = syncpoint_manager.IncrementSyncpointMaxExt(channel_syncpoint, increment);
-    push_gpu_entries( std::move(entries));
+    push_gpu_entries(std::move(entries));
 
     if (flags.fence_increment.Value()) {
         if (flags.suppress_wfi.Value()) {
             push_gpu_entries(
-                               Tegra::CommandList{BuildIncrementCommandList(params.fence)});
+                Tegra::CommandList{BuildIncrementCommandList(params.fence)});
         } else {
             push_gpu_entries(
-                               Tegra::CommandList{BuildIncrementWithWfiCommandList(params.fence)});
+                Tegra::CommandList{BuildIncrementWithWfiCommandList(params.fence)});
         }
     }
 
     // The completed pushbuffer precedes its counter increment on the same
     // ordered GPU queue. Do not signal before work has been submitted.
     if (native_completion != 0) {
-        push_gpu_entries( Tegra::CommandList{
+        push_gpu_entries(Tegra::CommandList{
             flags.suppress_wfi.Value()
                 ? BuildIncrementCommandList(params.fence, native_completion)
                 : BuildIncrementWithWfiCommandList(params.fence, native_completion)});

@@ -107,18 +107,27 @@ void DmaPusher::DispatchCalls() {
     system.GPU().OnCommandListEnd();
 }
 
+#ifdef PS5_NATIVE
+[[noreturn]] void DmaPusher::FailNativeSubmission(const char* message) {
+    const auto error = std::make_exception_ptr(std::runtime_error(message));
+    ::Eden::RecordGpuFailure(error);
+    Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().ReportFault(&channel_state);
+    std::rethrow_exception(error);
+}
+#endif
+
 bool DmaPusher::Step() {
     if (!ib_enable || dma_pushbuffer.empty()) {
         return false;
     }
 #ifdef PS5_NATIVE
     const auto require_native_submission_lease = [this] {
-        if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
-                &channel_state))
-            return;
         const auto& lease = dma_pushbuffer.front().native_submission_lease;
-        if (!lease || !lease->load(std::memory_order_acquire))
-            throw std::runtime_error("Native GPFIFO address-space lease retired");
+        // A revoked GSV epoch makes the registry ticket intentionally stale;
+        // the per-packet lease is therefore the authoritative native marker.
+        if (!lease) return;
+        if (!lease->load(std::memory_order_acquire))
+            FailNativeSubmission("Native GPFIFO address-space lease retired");
     };
     require_native_submission_lease();
     // The unresolved comparison stops this GPU channel without blocking the
@@ -346,7 +355,7 @@ void DmaPusher::ProcessCommands(std::span<const CommandHeader> commands) {
         // from continuing after the AS health token is revoked.
         if (const auto& lease = dma_pushbuffer.front().native_submission_lease;
             lease && !lease->load(std::memory_order_acquire))
-            throw std::runtime_error("Native GPFIFO address-space lease retired mid-dispatch");
+            FailNativeSubmission("Native GPFIFO address-space lease retired mid-dispatch");
 #endif
         // Data word of methods command
         if (dma_state.method_count && dma_state.non_incrementing) {
