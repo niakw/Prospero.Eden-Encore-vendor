@@ -232,7 +232,11 @@ private:
     static_assert(sizeof(IoctlGetWaitbase) == 8, "IoctlGetWaitbase is incorrect size");
 
     s32_le nvmap_fd{};
+    // Maxwell keeps the historical device-wide client pointer. Native Ampere
+    // channels are descriptor objects and OunceVK configures independent 3D
+    // and copy FDs, so their G:0x14/0x15 data must never alias this value.
     u64_le user_data{};
+    ::Common::unordered_map<DeviceFD, u64> native_user_data;
     IoctlZCullBind zcull_params{};
     std::array<std::optional<IoctlAllocObjCtx>, 6> ctxObjs{};
     u32_le channel_priority{};
@@ -259,8 +263,8 @@ private:
     NvResult ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd);
     NvResult GetUserSyncpoint(IoctlGetUserSyncpoint& params, DeviceFD fd);
     NvResult SetNVMAPfd(IoctlSetNvmapFD& params);
-    NvResult SetClientData(IoctlClientData& params);
-    NvResult GetClientData(IoctlClientData& params);
+    NvResult SetClientData(IoctlClientData& params, DeviceFD fd);
+    NvResult GetClientData(IoctlClientData& params, DeviceFD fd);
     NvResult ZCullBind(IoctlZCullBind& params);
     NvResult NativeEventIdControl(IoctlNativeEventIdControl& params, DeviceFD fd);
     NvResult SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd);

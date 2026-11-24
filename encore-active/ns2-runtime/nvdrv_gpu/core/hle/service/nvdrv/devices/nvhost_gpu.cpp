@@ -283,9 +283,9 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
     case 'G':
         switch (command.cmd) {
         case 0x14:
-            return WrapFixed(this, &nvhost_gpu::SetClientData, input, output);
+            return WrapFixed(this, &nvhost_gpu::SetClientData, input, output, fd);
         case 0x15:
-            return WrapFixed(this, &nvhost_gpu::GetClientData, input, output);
+            return WrapFixed(this, &nvhost_gpu::GetClientData, input, output, fd);
         default:
             break;
         }
@@ -357,6 +357,7 @@ void nvhost_gpu::OnClose(DeviceFD fd) {
         native_channel_enabled = false;
         native_gpfifo_configured = false;
     }
+    native_user_data.erase(fd);
     native_generations.erase(fd);
     sessions.erase(fd);
     // One shared ChannelState backs this nvhost-gpu device owner. Do not
@@ -542,15 +543,39 @@ NvResult nvhost_gpu::SetNVMAPfd(IoctlSetNvmapFD& params) {
     return NvResult::Success;
 }
 
-NvResult nvhost_gpu::SetClientData(IoctlClientData& params) {
+NvResult nvhost_gpu::SetClientData(IoctlClientData& params, DeviceFD fd) {
     LOG_DEBUG(Service_NVDRV, "called");
-    user_data = params.data;
+    const std::scoped_lock lock{channel_mutex};
+    if (UsesNativeAbi(fd)) {
+        u64 program_id{};
+        if (const auto status = ValidateChannelOwner(fd, program_id);
+            status != NvResult::Success)
+            return status;
+        // OunceVK stores a distinct native channel record on each GPU FD.
+        // Keep the opaque guest pointer descriptor-scoped; it is not a GPU VA
+        // and must not leak across the 3D/copy channel pair.
+        native_user_data[fd] = static_cast<u64>(params.data);
+    } else {
+        // Preserve Eden's Maxwell behaviour exactly for NS1.
+        user_data = params.data;
+    }
     return NvResult::Success;
 }
 
-NvResult nvhost_gpu::GetClientData(IoctlClientData& params) {
+NvResult nvhost_gpu::GetClientData(IoctlClientData& params, DeviceFD fd) {
     LOG_DEBUG(Service_NVDRV, "called");
-    params.data = user_data;
+    const std::scoped_lock lock{channel_mutex};
+    if (UsesNativeAbi(fd)) {
+        u64 program_id{};
+        if (const auto status = ValidateChannelOwner(fd, program_id);
+            status != NvResult::Success)
+            return status;
+        const auto it = native_user_data.find(fd);
+        params.data = it == native_user_data.end() ? 0 : it->second;
+    } else {
+        // Preserve Eden's Maxwell behaviour exactly for NS1.
+        params.data = user_data;
+    }
     return NvResult::Success;
 }
 
