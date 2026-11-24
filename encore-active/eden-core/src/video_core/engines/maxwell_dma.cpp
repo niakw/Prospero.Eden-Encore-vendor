@@ -811,9 +811,15 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
         const u64 origin_x = image.origin.x.Value();
         const u64 origin_y = image.origin.y.Value();
         const u32 block_height = image.block_size.height.Value();
-        if (image.layer != 0 || image.depth != 1 ||
-            image.block_size.width != 0 || image.block_size.depth != 0 ||
-            block_height > 5 || image.width == 0 || image.height == 0 ||
+        const u32 block_depth = image.block_size.depth.Value();
+        const bool is_volume = image.layer != 0 || image.depth != 1 ||
+                               block_depth != 0;
+        // Only an actual depth-tiled 3D volume has an addressable origin Z.
+        // The old 2D remap remains unchanged; 2D arrays stay fail-closed.
+        if (image.block_size.width != 0 || block_height > 5 ||
+            block_depth > 5 || image.width == 0 || image.height == 0 ||
+            (is_volume && (image.depth <= 1 || block_depth == 0 ||
+                           image.layer >= image.depth)) ||
             origin_x > image.width || origin_y > image.height ||
             blocks > image.width - origin_x ||
             rows > image.height - origin_y) {
@@ -824,13 +830,17 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
         const u64 gob_height = u64{8} << block_height;
         const u64 padded_height =
             (static_cast<u64>(image.height) + gob_height - 1) & ~(gob_height - 1);
-        // Multiply after the cap check. A malformed guest can otherwise
-        // overflow u64 before the decoder's image-allocation admission.
-        if (padded_width == 0 || padded_height == 0 ||
-            padded_width > MAX_BYTES / padded_height) {
+        const u64 gob_depth = u64{1} << block_depth;
+        const u64 padded_depth =
+            (static_cast<u64>(image.depth) + gob_depth - 1) & ~(gob_depth - 1);
+        // Bound the entire allocated GOB volume, not just the selected Z
+        // slice: other slices must survive a partial remapped component write.
+        if (padded_width == 0 || padded_height == 0 || padded_depth == 0 ||
+            padded_width > MAX_BYTES / padded_height ||
+            padded_width * padded_height > MAX_BYTES / padded_depth) {
             return false;
         }
-        const u64 bytes = padded_width * padded_height;
+        const u64 bytes = padded_width * padded_height * padded_depth;
         // Existing decoders address GOBs through u32 offsets and require
         // a correctly allocated full image, including its tile padding.
         if (bytes > (std::numeric_limits<u32>::max)() ||
@@ -888,13 +898,15 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
             memory_manager.ReadBlock(regs.offset_in, tiled_src.data(), tiled_src.size());
             UnswizzleSubrect(linear_src, tiled_src, 1,
                              static_cast<u32>(static_cast<u64>(regs.src_params.width) * src_bpp),
-                             regs.src_params.height, 1,
+                             regs.src_params.height, regs.src_params.depth,
                              static_cast<u32>(static_cast<u64>(regs.src_params.origin.x.Value()) *
                                               src_bpp),
                              regs.src_params.origin.y.Value(),
                              static_cast<u32>(src_row_bytes), rows,
-                             regs.src_params.block_size.height.Value(), 0,
-                             static_cast<u32>(src_row_bytes), memory_manager.UsesNativeTiling());
+                             regs.src_params.block_size.height.Value(),
+                             regs.src_params.block_size.depth.Value(),
+                             static_cast<u32>(src_row_bytes), memory_manager.UsesNativeTiling(),
+                             regs.src_params.layer);
         } else {
             for (u32 row = 0; row < rows; ++row) {
                 if (!row_addr(regs.offset_in, regs.pitch_in, row,
@@ -918,13 +930,15 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
         if (needs_destination) {
             UnswizzleSubrect(linear_dst, tiled_dst, 1,
                              static_cast<u32>(static_cast<u64>(regs.dst_params.width) * dst_bpp),
-                             regs.dst_params.height, 1,
+                             regs.dst_params.height, regs.dst_params.depth,
                              static_cast<u32>(static_cast<u64>(regs.dst_params.origin.x.Value()) *
                                               dst_bpp),
                              regs.dst_params.origin.y.Value(),
                              static_cast<u32>(dst_row_bytes), rows,
-                             regs.dst_params.block_size.height.Value(), 0,
-                             static_cast<u32>(dst_row_bytes), memory_manager.UsesNativeTiling());
+                             regs.dst_params.block_size.height.Value(),
+                             regs.dst_params.block_size.depth.Value(),
+                             static_cast<u32>(dst_row_bytes), memory_manager.UsesNativeTiling(),
+                             regs.dst_params.layer);
         }
     } else if (needs_destination) {
         for (u32 row = 0; row < rows; ++row) {
@@ -966,13 +980,15 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
     if (dst_tiled) {
         SwizzleSubrect(tiled_dst, linear_dst, 1,
                        static_cast<u32>(static_cast<u64>(regs.dst_params.width) * dst_bpp),
-                       regs.dst_params.height, 1,
+                       regs.dst_params.height, regs.dst_params.depth,
                        static_cast<u32>(static_cast<u64>(regs.dst_params.origin.x.Value()) *
                                         dst_bpp),
                        regs.dst_params.origin.y.Value(),
                        static_cast<u32>(dst_row_bytes), rows,
-                       regs.dst_params.block_size.height.Value(), 0,
-                       static_cast<u32>(dst_row_bytes), memory_manager.UsesNativeTiling());
+                       regs.dst_params.block_size.height.Value(),
+                       regs.dst_params.block_size.depth.Value(),
+                       static_cast<u32>(dst_row_bytes), memory_manager.UsesNativeTiling(),
+                       regs.dst_params.layer);
         memory_manager.WriteBlock(regs.offset_out, tiled_dst.data(), tiled_dst.size());
     } else {
         for (u32 row = 0; row < rows; ++row) {

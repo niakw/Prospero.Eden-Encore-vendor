@@ -123,6 +123,23 @@ assert "aligned_width * aligned_height * aligned_depth" in tiled_to_tiled
 assert "src.depth, src.block_size.height" in tiled_to_tiled
 assert "dst.depth, dst.block_size.height" in tiled_to_tiled
 assert "MAX_SOFTWARE_TILED_DMA_BYTES" in tiled_to_tiled
+# The remapped tiled DMA path must use Z for each selected 3D surface
+# while keeping the 16 MiB full-volume cap and the NO_WRITE destination
+# snapshot; a 2D array layer never becomes a GOB Z coordinate.
+tiled_remap = dma.split("bool MaxwellDMA::CopyBlockLinearRemap() {", 1)[1].split(
+    "void MaxwellDMA::CopyBlockLinearToPitch() {", 1
+)[0]
+remap_calls = re.findall(r"(?m)^\s*(?:Unswizzle|Swizzle)Subrect\([\s\S]*?\);", tiled_remap)
+assert len(remap_calls) == 3, len(remap_calls)
+assert "memory_manager.UsesNativeTiling(),\n                             regs.src_params.layer" in remap_calls[0]
+assert "memory_manager.UsesNativeTiling(),\n                             regs.dst_params.layer" in remap_calls[1]
+assert "memory_manager.UsesNativeTiling(),\n                       regs.dst_params.layer" in remap_calls[2]
+assert "const bool is_volume = image.layer != 0 || image.depth != 1" in tiled_remap
+assert "image.layer >= image.depth" in tiled_remap
+assert "block_depth > 5" in tiled_remap
+assert "padded_width * padded_height * padded_depth" in tiled_remap
+assert "MAX_BYTES = 16ULL << 20" in tiled_remap
+assert "if (needs_destination)" in tiled_remap
 # CMake selects this maintained texture utility for both generations.
 # Its block-linear upload and readback must both use the same channel flag.
 swizzle = texture_util.split("void SwizzleBlockLinearImage(", 1)[1].split("\n} // Anonymous namespace", 1)[0]
@@ -130,4 +147,4 @@ unswizzle = texture_util.split("UnswizzleImage(Tegra::MemoryManager& gpu_memory,
 assert swizzle.count("gpu_memory.UsesNativeTiling()") == 1
 assert unswizzle.count("gpu_memory.UsesNativeTiling()") == 1
 assert texture_util.count("gpu_memory.UsesNativeTiling()") == 2
-print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9 volume_z=6 texture_util=2")
+print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9 volume_z=9 texture_util=2")
