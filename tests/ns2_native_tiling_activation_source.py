@@ -109,6 +109,20 @@ assert "dst_params.layer >= regs.dst_params.depth" in destination_volume
 assert "lines_per_slice * (depth - dst_params.layer)" in destination_volume
 assert "MAX_SOFTWARE_TILED_DMA_BYTES" in source_volume
 assert "MAX_SOFTWARE_TILED_DMA_BYTES" in destination_volume
+# The same Z addressability also applies to non-remapped tiled-to-tiled
+# copies: one source slice is fully unswizzled before any destination writes.
+# Reuse the existing GOB3D bounds and explicit per-side layer arguments.
+tiled_to_tiled = dma.split("void MaxwellDMA::CopyBlockLinearToBlockLinear() {", 1)[1]
+selected = re.findall(r"(?m)^\s*(?:Unswizzle|Swizzle)Subrect\([\s\S]*?\);", tiled_to_tiled)
+assert len(selected) == 2, len(selected)
+assert "memory_manager.UsesNativeTiling(), src.layer" in selected[0]
+assert "memory_manager.UsesNativeTiling(), dst.layer" in selected[1]
+assert "return image.depth > 1 && image.block_size.depth != 0" in tiled_to_tiled
+assert "image.layer < image.depth" in tiled_to_tiled
+assert "aligned_width * aligned_height * aligned_depth" in tiled_to_tiled
+assert "src.depth, src.block_size.height" in tiled_to_tiled
+assert "dst.depth, dst.block_size.height" in tiled_to_tiled
+assert "MAX_SOFTWARE_TILED_DMA_BYTES" in tiled_to_tiled
 # CMake selects this maintained texture utility for both generations.
 # Its block-linear upload and readback must both use the same channel flag.
 swizzle = texture_util.split("void SwizzleBlockLinearImage(", 1)[1].split("\n} // Anonymous namespace", 1)[0]
@@ -116,4 +130,4 @@ unswizzle = texture_util.split("UnswizzleImage(Tegra::MemoryManager& gpu_memory,
 assert swizzle.count("gpu_memory.UsesNativeTiling()") == 1
 assert unswizzle.count("gpu_memory.UsesNativeTiling()") == 1
 assert texture_util.count("gpu_memory.UsesNativeTiling()") == 2
-print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9 volume_z=4 texture_util=2")
+print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9 volume_z=6 texture_util=2")

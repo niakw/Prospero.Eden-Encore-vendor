@@ -1279,10 +1279,21 @@ void MaxwellDMA::CopyBlockLinearToBlockLinear() {
     // unsupported guest geometry before memory allocation or conversion.
     const DMA::Parameters& src = regs.src_params;
     const DMA::Parameters& dst = regs.dst_params;
+    const auto safe_volume = [](const DMA::Parameters& image) {
+        if (image.depth == 0 || image.block_size.depth > 5) {
+            return false;
+        }
+        if (image.depth == 1 && image.layer == 0 && image.block_size.depth == 0) {
+            return true;  // Unchanged 2D Maxwell path.
+        }
+        // A layer is an origin Z only for an actual depth-tiled volume.
+        // Array textures and single-layer GOB pseudo-volumes stay fail-closed.
+        return image.depth > 1 && image.block_size.depth != 0 &&
+               image.layer < image.depth;
+    };
     if (src.block_size.width != 0 || dst.block_size.width != 0 ||
-        src.block_size.depth != 0 || dst.block_size.depth != 0 ||
         src.block_size.height > 5 || dst.block_size.height > 5 ||
-        src.layer != 0 || dst.layer != 0 || src.depth != 1 || dst.depth != 1) {
+        !safe_volume(src) || !safe_volume(dst)) {
         UNIMPLEMENTED_MSG("Unsupported block-linear DMA surface geometry");
         return;
     }
@@ -1331,32 +1342,41 @@ void MaxwellDMA::CopyBlockLinearToBlockLinear() {
         LOG_WARNING(Render_OpenGL, "Out-of-bounds block-linear DMA subrectangle");
         return;
     }
-    const auto admitted_surface = [=](u32 width, u32 height, u32 block_height,
+    const auto admitted_surface = [=](u32 width, u32 height, u32 depth,
+                                      u32 block_height, u32 block_depth,
                                       u64& size) -> bool {
         const u64 row_bytes = static_cast<u64>(width) * bytes_per_pixel;
         const u64 gob_height = u64{8} << block_height;
         const u64 aligned_height = (static_cast<u64>(height) + gob_height - 1) &
                                    ~(gob_height - 1);
+        const u64 gob_depth = u64{1} << block_depth;
+        const u64 aligned_depth = (static_cast<u64>(depth) + gob_depth - 1) &
+                                  ~(gob_depth - 1);
         const u64 aligned_width = (row_bytes + 63) & ~u64{63};
-        if (aligned_width == 0 || aligned_height == 0 ||
-            aligned_width > MAX_SOFTWARE_TILED_DMA_BYTES / aligned_height) {
+        if (aligned_width == 0 || aligned_height == 0 || aligned_depth == 0 ||
+            aligned_width > MAX_SOFTWARE_TILED_DMA_BYTES / aligned_height ||
+            aligned_width * aligned_height > MAX_SOFTWARE_TILED_DMA_BYTES / aligned_depth) {
             return false;
         }
-        size = aligned_width * aligned_height;
+        size = aligned_width * aligned_height * aligned_depth;
         return size <= static_cast<u64>(~u32{0});
     };
     u64 checked_src_size{}, checked_dst_size{};
     const u64 pitch_wide = static_cast<u64>(x_elements) * bytes_per_pixel;
-    if (!admitted_surface(src_width, src.height, src.block_size.height, checked_src_size) ||
-        !admitted_surface(dst_width, dst.height, dst.block_size.height, checked_dst_size) ||
+    if (!admitted_surface(src_width, src.height, src.depth, src.block_size.height,
+                          src.block_size.depth, checked_src_size) ||
+        !admitted_surface(dst_width, dst.height, dst.depth, dst.block_size.height,
+                          dst.block_size.depth, checked_dst_size) ||
         pitch_wide > MAX_SOFTWARE_TILED_DMA_BYTES / regs.line_count) {
         LOG_WARNING(Render_OpenGL, "Oversized block-linear DMA software transfer");
         return;
     }
     const size_t src_size = CalculateSize(true, bytes_per_pixel, src_width, src.height,
-                                           1, src.block_size.height, 0);
+                                          src.depth, src.block_size.height,
+                                          src.block_size.depth);
     const size_t dst_size = CalculateSize(true, bytes_per_pixel, dst_width, dst.height,
-                                           1, dst.block_size.height, 0);
+                                          dst.depth, dst.block_size.height,
+                                          dst.block_size.depth);
     if (src_size != checked_src_size || dst_size != checked_dst_size ||
         regs.offset_in > (std::numeric_limits<u64>::max)() - src_size ||
         regs.offset_out > (std::numeric_limits<u64>::max)() - dst_size ||
@@ -1377,11 +1397,13 @@ void MaxwellDMA::CopyBlockLinearToBlockLinear() {
 
     UnswizzleSubrect(intermediate_buffer, tmp_read_buffer, bytes_per_pixel, src_width, src.height,
                      src.depth, src_x_offset, src.origin.y, x_elements, regs.line_count,
-                     src.block_size.height, src.block_size.depth, pitch, memory_manager.UsesNativeTiling());
+                     src.block_size.height, src.block_size.depth, pitch,
+                     memory_manager.UsesNativeTiling(), src.layer);
 
     SwizzleSubrect(tmp_write_buffer, intermediate_buffer, bytes_per_pixel, dst_width, dst.height,
                    dst.depth, dst_x_offset, dst.origin.y, x_elements, regs.line_count,
-                   dst.block_size.height, dst.block_size.depth, pitch, memory_manager.UsesNativeTiling());
+                   dst.block_size.height, dst.block_size.depth, pitch,
+                   memory_manager.UsesNativeTiling(), dst.layer);
 }
 
 void MaxwellDMA::ReleaseSemaphore() {
