@@ -112,13 +112,13 @@ Result IHomeMenuFunctions::LaunchStarter() {
         CreateProcess(system, StarterProgramId, 1, HLE::ApiVersion::HOS_VERSION_MAJOR);
     R_UNLESS(process != nullptr, ResultUnknown);
 
-    const auto starter = std::make_shared<Applet>(system, std::move(process), false);
+    const auto starter = std::make_shared<Applet>(system, std::move(process), true);
     starter->program_id = StarterProgramId;
     starter->applet_id = AppletId::Starter;
     starter->type = AppletType::LibraryApplet;
     starter->library_applet_mode = LibraryAppletMode::AllForeground;
 
-    m_window_system.TrackApplet(starter, false);
+    m_window_system.TrackApplet(starter, true);
     starter->process->Run();
     R_SUCCEED();
 }
