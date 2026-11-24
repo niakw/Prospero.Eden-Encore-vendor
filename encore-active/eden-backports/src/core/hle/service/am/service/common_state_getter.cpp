@@ -24,9 +24,9 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
     static const FunctionInfo functions[] = {
         {0, D<&ICommonStateGetter::GetEventHandle>, "GetEventHandle"},
         {1, D<&ICommonStateGetter::ReceiveMessage>, "ReceiveMessage"},
-        {2, nullptr, "GetThisAppletKind"},
-        {3, nullptr, "AllowToEnterSleep"},
-        {4, nullptr, "DisallowToEnterSleep"},
+        {2, D<&ICommonStateGetter::RejectUnsupportedLegacyCommand>, "GetThisAppletKind"},
+        {3, D<&ICommonStateGetter::RejectUnsupportedLegacyCommand>, "AllowToEnterSleep"},
+        {4, D<&ICommonStateGetter::RejectUnsupportedLegacyCommand>, "DisallowToEnterSleep"},
         {5, D<&ICommonStateGetter::GetOperationMode>, "GetOperationMode"},
         {6, D<&ICommonStateGetter::GetPerformanceMode>, "GetPerformanceMode"},
         {7, D<&ICommonStateGetter::GetCradleStatus>, "GetCradleStatus"},
@@ -57,7 +57,7 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {64, D<&ICommonStateGetter::SetTvPowerStateMatchingMode>, "SetTvPowerStateMatchingMode"},
         {65, nullptr, "GetApplicationIdByContentActionName"},
         {66, &ICommonStateGetter::SetCpuBoostMode, "SetCpuBoostMode"},
-        {67, nullptr, "CancelCpuBoostMode"},
+        {67, D<&ICommonStateGetter::CancelCpuBoostMode>, "CancelCpuBoostMode"},
         {68, D<&ICommonStateGetter::GetBuiltInDisplayType>, "GetBuiltInDisplayType"},
         {80, D<&ICommonStateGetter::PerformSystemButtonPressingIfInFocus>, "PerformSystemButtonPressingIfInFocus"},
         {90, D<&ICommonStateGetter::SetPerformanceConfigurationChangedNotification>, "SetPerformanceConfigurationChangedNotification"},
@@ -309,6 +309,16 @@ Result ICommonStateGetter::GetDefaultDisplayResolution(Out<s32> out_width, Out<s
         *out_height = static_cast<u32>(Service::VI::DisplayResolution::UndockedHeight);
     }
 
+    R_SUCCEED();
+}
+
+Result ICommonStateGetter::RejectUnsupportedLegacyCommand() {
+    // These legacy commands return an error on Horizon.
+    R_RETURN(ResultUnknown);
+}
+
+Result ICommonStateGetter::CancelCpuBoostMode() {
+    system.GetAPMController().SetFromCpuBoostMode(APM::CpuBoostMode::Normal);
     R_SUCCEED();
 }
 

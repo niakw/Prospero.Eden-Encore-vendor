@@ -18,6 +18,7 @@ public:
     ~IGlobalStateController() override;
 
 private:
+    Result RejectUnsupportedSleepCommand();
     Result StartSleepSequence(bool sleep_requested);
     Result StartShutdownSequence();
     Result StartRebootSequence();

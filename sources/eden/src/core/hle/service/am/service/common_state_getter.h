@@ -82,6 +82,8 @@ private:
     Result GetPanelResolutionForSpecificTitle(Out<s32> out_width, Out<s32> out_height);
 
     void SetCpuBoostMode(HLERequestContext& ctx);
+    Result CancelCpuBoostMode();
+    Result RejectUnsupportedLegacyCommand();
 
     const std::shared_ptr<Applet> m_applet;
 };

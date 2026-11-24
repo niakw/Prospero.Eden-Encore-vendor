@@ -12,8 +12,8 @@ IGlobalStateController::IGlobalStateController(Core::System& system_)
       m_context{system_, "IGlobalStateController"}, m_hdcp_authentication_failed_event{m_context} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, nullptr, "RequestToEnterSleep"},
-        {1, nullptr, "EnterSleep"},
+        {0, D<&IGlobalStateController::RejectUnsupportedSleepCommand>, "RequestToEnterSleep"},
+        {1, D<&IGlobalStateController::RejectUnsupportedSleepCommand>, "EnterSleep"},
         {2, D<&IGlobalStateController::StartSleepSequence>, "StartSleepSequence"},
         {3, D<&IGlobalStateController::StartShutdownSequence>, "StartShutdownSequence"},
         {4, D<&IGlobalStateController::StartRebootSequence>, "StartRebootSequence"},
@@ -29,6 +29,11 @@ IGlobalStateController::IGlobalStateController(Core::System& system_)
     // clang-format on
 
     RegisterHandlers(functions);
+}
+
+Result IGlobalStateController::RejectUnsupportedSleepCommand() {
+    // Horizon explicitly rejects both legacy commands; never report successful sleep.
+    R_RETURN(ResultUnknown);
 }
 
 Result IGlobalStateController::StartSleepSequence(bool sleep_requested) {
