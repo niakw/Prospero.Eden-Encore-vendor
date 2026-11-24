@@ -1011,11 +1011,18 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
         return;
     }
 
-    // Unsupported tile geometry is not a software copy permission. Eden\'s
-    // soft assertions returned to this decoder and could corrupt guest bytes.
-    if (regs.src_params.block_size.width != 0 ||
-        regs.src_params.block_size.depth != 0 || regs.src_params.block_size.height > 5 ||
-        regs.src_params.layer != 0 || regs.src_params.depth != 1) {
+    // A 3D depth-tiled source may select its Z slice. The decoder owns its
+    // GOB origin_z and the full backing; do not treat a 2D array layer as Z.
+    const auto& src_geometry = regs.src_params;
+    const bool source_volume = src_geometry.layer != 0 ||
+                               src_geometry.depth != 1 ||
+                               src_geometry.block_size.depth != 0;
+    if (src_geometry.block_size.width != 0 ||
+        src_geometry.block_size.height > 5 ||
+        (source_volume && (src_geometry.block_size.depth == 0 ||
+                           src_geometry.block_size.depth > 5 ||
+                           src_geometry.depth <= 1 ||
+                           src_geometry.layer >= src_geometry.depth))) {
         UNIMPLEMENTED_MSG("Unsupported source block-linear DMA geometry");
         return;
     }
@@ -1064,9 +1071,13 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
     const u64 gob_height = u64{8} << block_height;
     const u64 aligned_height = (static_cast<u64>(height) + gob_height - 1) &
                                ~(gob_height - 1);
+    const u64 gob_depth = u64{1} << block_depth;
+    const u64 aligned_depth = (static_cast<u64>(depth) + gob_depth - 1) &
+                              ~(gob_depth - 1);
     const u64 dst_size_wide = static_cast<u64>(dst_operand.pitch) * regs.line_count;
-    if (aligned_width == 0 || aligned_height == 0 ||
+    if (aligned_width == 0 || aligned_height == 0 || aligned_depth == 0 ||
         aligned_width > MAX_SOFTWARE_TILED_DMA_BYTES / aligned_height ||
+        aligned_width * aligned_height > MAX_SOFTWARE_TILED_DMA_BYTES / aligned_depth ||
         dst_size_wide > MAX_SOFTWARE_TILED_DMA_BYTES) {
         LOG_WARNING(Render_OpenGL, "Oversized tiled-to-pitch DMA software transfer");
         return;
@@ -1074,7 +1085,7 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
     const size_t src_size =
         CalculateSize(true, bytes_per_pixel, width, height, depth, block_height, block_depth);
     const size_t dst_size = static_cast<size_t>(dst_size_wide);
-    if (src_size != aligned_width * aligned_height ||
+    if (src_size != aligned_width * aligned_height * aligned_depth ||
         regs.offset_in > (std::numeric_limits<u64>::max)() - src_size ||
         regs.offset_out > (std::numeric_limits<u64>::max)() - dst_size ||
         !memory_manager.IsFullyMappedRange(regs.offset_in, src_size) ||
@@ -1103,7 +1114,8 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
             tmp_write_buffer(memory_manager, dst_operand.address, dst_size, &write_buffer);
         UnswizzleSubrect(tmp_write_buffer, source_snapshot, bytes_per_pixel, width,
                          height, depth, x_offset, src_params.origin.y, x_elements,
-                         regs.line_count, block_height, block_depth, dst_operand.pitch, memory_manager.UsesNativeTiling());
+                         regs.line_count, block_height, block_depth, dst_operand.pitch,
+                         memory_manager.UsesNativeTiling(), src_params.layer);
         return;
     }
 
@@ -1114,7 +1126,8 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
 
     UnswizzleSubrect(tmp_write_buffer, tmp_read_buffer, bytes_per_pixel, width, height, depth,
                      x_offset, src_params.origin.y, x_elements, regs.line_count, block_height,
-                     block_depth, dst_operand.pitch, memory_manager.UsesNativeTiling());
+                     block_depth, dst_operand.pitch,
+                     memory_manager.UsesNativeTiling(), src_params.layer);
 }
 
 void MaxwellDMA::CopyPitchToBlockLinear() {
@@ -1139,14 +1152,17 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
     if (accelerate.BufferToImage(copy_info, src_operand, dst_operand)) {
         return;
     }
-    // The decoder supports GOB block depth and multiple Z slices. Keep
-    // nonzero block width and a destination layer offset unsupported: the
-    // software subrectangle API has no block-width or origin-Z argument.
-    // Bound both logarithmic GOB dimensions before their shifts.
+    // The maintained decoder exposes a bounded origin_z for 3D GOB
+    // destinations. Preserve the old fail-closed policy for 2D array layers,
+    // unmodelled GOB block width and invalid 3D slice extents.
     if (regs.dst_params.block_size.width != 0 ||
         regs.dst_params.block_size.depth > 5 ||
         regs.dst_params.block_size.height > 5 ||
-        regs.dst_params.layer != 0 || regs.dst_params.depth == 0) {
+        regs.dst_params.depth == 0 ||
+        (regs.dst_params.layer != 0 &&
+         (regs.dst_params.block_size.depth == 0 ||
+          regs.dst_params.depth <= 1 ||
+          regs.dst_params.layer >= regs.dst_params.depth))) {
         UNIMPLEMENTED_MSG("Unsupported destination block-linear DMA geometry");
         return;
     }
@@ -1184,7 +1200,8 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
         x_elements == 0 || regs.line_count == 0 || regs.pitch_in <= 0 ||
         x_offset > width || x_elements > width - x_offset ||
         lines_per_slice == 0 ||
-        static_cast<u64>(regs.line_count) > lines_per_slice * depth ||
+        static_cast<u64>(regs.line_count) >
+            lines_per_slice * (depth - dst_params.layer) ||
         static_cast<u64>(x_elements) * bytes_per_pixel >
             static_cast<u64>(regs.pitch_in)) {
         LOG_WARNING(Render_OpenGL, "Invalid pitch-to-tiled DMA rectangle");
@@ -1241,7 +1258,8 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
             tmp_write_buffer(memory_manager, dst_addr, dst_size, &write_buffer);
         SwizzleSubrect(tmp_write_buffer, source_snapshot, bytes_per_pixel, width,
                        height, depth, x_offset, dst_params.origin.y, x_elements,
-                       regs.line_count, block_height, block_depth, regs.pitch_in, memory_manager.UsesNativeTiling());
+                       regs.line_count, block_height, block_depth, regs.pitch_in,
+                       memory_manager.UsesNativeTiling(), dst_params.layer);
         return;
     }
     Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::SafeRead> tmp_read_buffer(
@@ -1252,7 +1270,8 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
     //  If the input is linear and the output is tiled, swizzle the input and copy it over.
     SwizzleSubrect(tmp_write_buffer, tmp_read_buffer, bytes_per_pixel, width, height, depth,
                    x_offset, dst_params.origin.y, x_elements, regs.line_count, block_height,
-                   block_depth, regs.pitch_in, memory_manager.UsesNativeTiling());
+                   block_depth, regs.pitch_in,
+                   memory_manager.UsesNativeTiling(), dst_params.layer);
 }
 
 void MaxwellDMA::CopyBlockLinearToBlockLinear() {

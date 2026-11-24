@@ -83,6 +83,32 @@ assert len(dma_calls) == 9, len(dma_calls)
 for call in dma_calls:
     assert call.count("memory_manager.UsesNativeTiling()") == 1, call
 assert dma.count("memory_manager.UsesNativeTiling()") == 9
+# MaxwellDMA now consumes the same reviewed 3D origin-Z decoder as
+# Fermi2D. Every software readback/upload path must carry the actual Z layer,
+# including the overlap-snapshot path; only depth-tiled volumes are admitted.
+source_volume = dma.split("void MaxwellDMA::CopyBlockLinearToPitch() {", 1)[1].split(
+    "void MaxwellDMA::CopyPitchToBlockLinear() {", 1
+)[0]
+destination_volume = dma.split("void MaxwellDMA::CopyPitchToBlockLinear() {", 1)[1].split(
+    "void MaxwellDMA::CopyBlockLinearToBlockLinear() {", 1
+)[0]
+for body, layer in (
+    (source_volume, "src_params.layer"),
+    (destination_volume, "dst_params.layer"),
+):
+    selected = re.findall(r"(?m)^\s*(?:Unswizzle|Swizzle)Subrect\([\s\S]*?\);", body)
+    assert len(selected) == 2, (layer, len(selected))
+    for call in selected:
+        assert call.count("memory_manager.UsesNativeTiling()") == 1, layer
+        assert call.count(layer) == 1, (layer, call)
+assert "src_geometry.layer >= src_geometry.depth" in source_volume
+assert "src_geometry.block_size.depth == 0" in source_volume
+assert "src_size != aligned_width * aligned_height * aligned_depth" in source_volume
+assert "dst_params.block_size.depth == 0" in destination_volume
+assert "dst_params.layer >= regs.dst_params.depth" in destination_volume
+assert "lines_per_slice * (depth - dst_params.layer)" in destination_volume
+assert "MAX_SOFTWARE_TILED_DMA_BYTES" in source_volume
+assert "MAX_SOFTWARE_TILED_DMA_BYTES" in destination_volume
 # CMake selects this maintained texture utility for both generations.
 # Its block-linear upload and readback must both use the same channel flag.
 swizzle = texture_util.split("void SwizzleBlockLinearImage(", 1)[1].split("\n} // Anonymous namespace", 1)[0]
@@ -90,4 +116,4 @@ unswizzle = texture_util.split("UnswizzleImage(Tegra::MemoryManager& gpu_memory,
 assert swizzle.count("gpu_memory.UsesNativeTiling()") == 1
 assert unswizzle.count("gpu_memory.UsesNativeTiling()") == 1
 assert texture_util.count("gpu_memory.UsesNativeTiling()") == 2
-print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9 texture_util=2")
+print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9 volume_z=4 texture_util=2")
