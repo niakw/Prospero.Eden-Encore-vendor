@@ -91,7 +91,8 @@ ILibraryAppletSelfAccessor::ILibraryAppletSelfAccessor(Core::System& system_,
         {15, D<&ILibraryAppletSelfAccessor::GetMainAppletApplicationControlProperty>, "GetMainAppletApplicationControlProperty"},
         {16, D<&ILibraryAppletSelfAccessor::GetMainAppletStorageId>, "GetMainAppletStorageId"},
         {17, D<&ILibraryAppletSelfAccessor::GetCallerAppletIdentityInfoStack>, "GetCallerAppletIdentityInfoStack"},
-        {18, nullptr, "GetNextReturnDestinationAppletIdentityInfo"},
+        {18, D<&ILibraryAppletSelfAccessor::GetNextReturnDestinationAppletIdentityInfo>,
+         "GetNextReturnDestinationAppletIdentityInfo"},
         {19, D<&ILibraryAppletSelfAccessor::GetDesirableKeyboardLayout>, "GetDesirableKeyboardLayout"},
         {20, D<&ILibraryAppletSelfAccessor::PopExtraStorage>, "PopExtraStorage"},
         {25, D<&ILibraryAppletSelfAccessor::GetPopExtraStorageEvent>, "GetPopExtraStorageEvent"},
@@ -298,6 +299,13 @@ Result ILibraryAppletSelfAccessor::GetCallerAppletIdentityInfoStack(
         out_identity_info[(*out_count)++] = GetCallerIdentity(*applet);
     } while ((applet = applet->caller_applet.lock()));
 
+    R_SUCCEED();
+}
+
+Result ILibraryAppletSelfAccessor::GetNextReturnDestinationAppletIdentityInfo(
+    Out<AppletIdentityInfo> out_identity_info) {
+    LOG_DEBUG(Service_AM, "called");
+    *out_identity_info = GetCallerIdentity(*m_applet);
     R_SUCCEED();
 }
 

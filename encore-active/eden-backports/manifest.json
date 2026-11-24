@@ -621,13 +621,13 @@
       "upstream": "7a47806f53b153e8750161673c6e3a5f46ef4d7d1d0b3734591b7a79e6a31b9c"
     },
     "src/core/hle/service/am/service/library_applet_self_accessor.cpp": {
-      "active": "29c1f99bba7e3fdde7a7b0900fa935e34c9d0f82c082e8a041258844ae76c8f3",
-      "bytes": 21599,
+      "active": "81d0154e6442f841ec22cf6d559e206525c76616348fbbdaa78f042d46800241",
+      "bytes": 21915,
       "upstream": "7bcd0144488426ea89c71a935ab7a4faa86390eedff9dfaaa6391076e66585bc"
     },
     "src/core/hle/service/am/service/library_applet_self_accessor.h": {
-      "active": "e67dc2eb744e5d6b14f358ce79ddf0d32b6726301f1ccc297ee4887b7edb56c5",
-      "bytes": 4393,
+      "active": "2e99eebbca0a3e9a80189ff16f26c3e36849da4fc88a15f06b7033a2ad23f3c3",
+      "bytes": 4500,
       "upstream": "ecb599a464a9ecc1d202cd60faed6f81262569f7816d5a342923a02ab993737f"
     },
     "src/core/hle/service/am/service/common_state_getter.cpp": {
