@@ -105,6 +105,7 @@ private:
     Result TranslateResult(Result in_result);
 
     Result GetAlbumAccessResultForDebug(Out<Result> out_result);
+    void UnsupportedDebugCommand(HLERequestContext& ctx);
 
     std::shared_ptr<AlbumManager> manager = nullptr;
 };

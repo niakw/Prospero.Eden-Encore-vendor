@@ -64,7 +64,7 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
         {8013, nullptr, "GetAlbumCacheEx"},
         {8021, nullptr, "GetAlbumEntryFromApplicationAlbumEntryAruid"},
         {10011, nullptr, "SetInternalErrorConversionEnabled"},
-        {50000, nullptr, "LoadMakerNoteInfoForDebug"},
+        {50000, &IAlbumAccessorService::UnsupportedDebugCommand, "LoadMakerNoteInfoForDebug"},
         {50011, C<&IAlbumAccessorService::GetAlbumAccessResultForDebug>, "GetAlbumAccessResultForDebug"},
         {60002, nullptr, "OpenAccessorSession"},
     };
@@ -312,6 +312,12 @@ Result IAlbumAccessorService::TranslateResult(Result in_result) {
     return in_result;
 }
 
+
+void IAlbumAccessorService::UnsupportedDebugCommand(HLERequestContext& ctx) {
+    LOG_WARNING(Service_Capture, "album maker-note debug loading is not supported");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
+}
 
 Result IAlbumAccessorService::GetAlbumAccessResultForDebug(Out<Result> out_result) {
     LOG_WARNING(Service_Capture, "(STUBBED) called");

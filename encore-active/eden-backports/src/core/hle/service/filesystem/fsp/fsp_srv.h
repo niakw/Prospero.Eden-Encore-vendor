@@ -60,6 +60,7 @@ public:
     ~FSP_SRV() override;
 
 private:
+    void UnsupportedDebugCommand(HLERequestContext& ctx);
     Result SetCurrentProcess(ClientProcessId pid);
     Result OpenDataFileSystemByCurrentProcess(OutInterface<IFileSystem> out_interface);
     Result OpenDataFileSystemByProgramId(OutInterface<IFileSystem> out_interface,

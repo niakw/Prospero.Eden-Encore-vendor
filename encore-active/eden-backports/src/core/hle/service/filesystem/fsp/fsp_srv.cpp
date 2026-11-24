@@ -138,7 +138,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {61, D<&FSP_SRV::OpenSaveDataInfoReaderBySaveDataSpaceId>, "OpenSaveDataInfoReaderBySaveDataSpaceId"},
         {62, D<&FSP_SRV::OpenSaveDataInfoReaderOnlyCacheStorage>, "OpenSaveDataInfoReaderOnlyCacheStorage"},
         {64, nullptr, "OpenSaveDataInternalStorageFileSystem"},
-        {65, nullptr, "UpdateSaveDataMacForDebug"},
+        {65, &FSP_SRV::UnsupportedDebugCommand, "UpdateSaveDataMacForDebug"},
         {66, D<&FSP_SRV::WriteSaveDataFileSystemExtraDataWithMask>, "WriteSaveDataFileSystemExtraDataWithMask"},
         {67, D<&FSP_SRV::FindSaveDataWithFilter>, "FindSaveDataWithFilter"},
         {68, D<&FSP_SRV::OpenSaveDataInfoReaderWithFilter>, "OpenSaveDataInfoReaderWithFilter"},
@@ -238,6 +238,12 @@ FSP_SRV::FSP_SRV(Core::System& system_)
 }
 
 FSP_SRV::~FSP_SRV() = default;
+
+void FSP_SRV::UnsupportedDebugCommand(HLERequestContext& ctx) {
+    LOG_WARNING(Service_FS, "save-data debug mutation is not supported by the production runtime");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
+}
 
 Result FSP_SRV::SetCurrentProcess(ClientProcessId pid) {
     current_process_id = *pid;
