@@ -638,9 +638,12 @@ private:
 
     void SetInterfaceVersion(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
-        u32 ssl_version = rp.Pop<u32>();
+        const u32 interface_version = rp.Pop<u32>();
 
-        LOG_DEBUG(Service_SSL, "called, ssl_version={}", ssl_version);
+        // This command only selects the Horizon SSL IPC interface generation
+        // (libnx uses 1/2/3 for HOS 3/5/6+). Encore exposes the compatible
+        // command superset directly, so there is no backend state to mutate.
+        LOG_DEBUG(Service_SSL, "called, interface_version={}", interface_version);
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
