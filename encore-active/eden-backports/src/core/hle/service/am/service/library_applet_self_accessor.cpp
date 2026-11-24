@@ -84,11 +84,11 @@ ILibraryAppletSelfAccessor::ILibraryAppletSelfAccessor(Core::System& system_,
         {51, D<&ILibraryAppletSelfAccessor::ReportVisibleErrorWithErrorContext>, "ReportVisibleErrorWithErrorContext"},
         {60, D<&ILibraryAppletSelfAccessor::GetMainAppletApplicationDesiredLanguage>, "GetMainAppletApplicationDesiredLanguage"},
         {70, D<&ILibraryAppletSelfAccessor::GetCurrentApplicationId>, "GetCurrentApplicationId"},
-        {80, nullptr, "RequestExitToSelf"},
+        {80, D<&ILibraryAppletSelfAccessor::RequestExitToSelf>, "RequestExitToSelf"},
         {90, nullptr, "CreateApplicationAndPushAndRequestToLaunch"},
         {100, nullptr, "CreateGameMovieTrimmer"},
-        {101, nullptr, "ReserveResourceForMovieOperation"},
-        {102, nullptr, "UnreserveResourceForMovieOperation"},
+        {101, D<&ILibraryAppletSelfAccessor::ReserveResourceForMovieOperation>, "ReserveResourceForMovieOperation"},
+        {102, D<&ILibraryAppletSelfAccessor::UnreserveResourceForMovieOperation>, "UnreserveResourceForMovieOperation"},
         {110, D<&ILibraryAppletSelfAccessor::GetMainAppletAvailableUsers>, "GetMainAppletAvailableUsers"},
         {120, D<&ILibraryAppletSelfAccessor::RejectDebugOnlyCommand>, "GetLaunchStorageInfoForDebug"},
         {130, nullptr, "GetGpuErrorDetectedSystemEvent"},
@@ -348,6 +348,33 @@ Result ILibraryAppletSelfAccessor::GetCurrentApplicationId(Out<u64> out_applicat
     R_UNLESS(main_applet != nullptr, AM::ResultApplicationRecordNotFound);
 
     *out_application_id = main_applet->program_id;
+    R_SUCCEED();
+}
+
+Result ILibraryAppletSelfAccessor::RequestExitToSelf() {
+    LOG_DEBUG(Service_AM, "called");
+
+    {
+        std::scoped_lock lk{m_applet->lock};
+        m_applet->lifecycle_manager.RequestExit(system.Kernel());
+    }
+    if (m_applet->frontend) {
+        m_applet->frontend->RequestExit();
+    }
+    R_SUCCEED();
+}
+
+Result ILibraryAppletSelfAccessor::ReserveResourceForMovieOperation() {
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->game_movie_resource_reserved = true;
+    R_SUCCEED();
+}
+
+Result ILibraryAppletSelfAccessor::UnreserveResourceForMovieOperation() {
+    LOG_DEBUG(Service_AM, "called");
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->game_movie_resource_reserved = false;
     R_SUCCEED();
 }
 

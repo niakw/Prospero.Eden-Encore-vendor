@@ -75,14 +75,12 @@ private:
     Result ClearUserChannel();
     Result UnpopToUserChannel(SharedPointer<IStorage> storage);
     Result GetPreviousProgramIndex(Out<s32> out_previous_program_index);
-    Result EnableApplicationAllThreadDumpOnCrash(bool enabled);
     Result GetGpuErrorDetectedSystemEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result GetFriendInvitationStorageChannelEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result TryPopFromFriendInvitationStorageChannel(Out<SharedPointer<IStorage>> out_storage);
     Result GetNotificationStorageChannelEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result TryPopFromNotificationStorageChannel(Out<SharedPointer<IStorage>> out_storage);
     Result GetHealthWarningDisappearedSystemEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
-    Result SetHdcpAuthenticationActivated(bool activated);
     Result CreateApplicationAndRequestToStart(u64 application_id);
     Result GetUnknownEvent210(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result Unknown330(Out<u8> out);

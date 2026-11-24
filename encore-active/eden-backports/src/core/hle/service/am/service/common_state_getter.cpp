@@ -29,7 +29,7 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {4, nullptr, "DisallowToEnterSleep"},
         {5, D<&ICommonStateGetter::GetOperationMode>, "GetOperationMode"},
         {6, D<&ICommonStateGetter::GetPerformanceMode>, "GetPerformanceMode"},
-        {7, nullptr, "GetCradleStatus"},
+        {7, D<&ICommonStateGetter::GetCradleStatus>, "GetCradleStatus"},
         {8, D<&ICommonStateGetter::GetBootMode>, "GetBootMode"},
         {9, D<&ICommonStateGetter::GetCurrentFocusState>, "GetCurrentFocusState"},
         {10, D<&ICommonStateGetter::RequestToAcquireSleepLock>, "RequestToAcquireSleepLock"},
@@ -42,7 +42,7 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {30, D<&ICommonStateGetter::GetHomeButtonReaderLockAccessor>, "GetHomeButtonReaderLockAccessor"},
         {31, D<&ICommonStateGetter::GetReaderLockAccessorEx>, "GetReaderLockAccessorEx"}, //2.0.0+
         {32, D<&ICommonStateGetter::GetWriterLockAccessorEx>, "GetWriterLockAccessorEx"}, //7.0.0+
-        {40, nullptr, "GetCradleFwVersion"}, //2.0.0+
+        {40, D<&ICommonStateGetter::GetCradleFwVersion>, "GetCradleFwVersion"}, //2.0.0+
         {50, D<&ICommonStateGetter::IsVrModeEnabled>, "IsVrModeEnabled"}, //3.0.0+
         {51, D<&ICommonStateGetter::SetVrModeEnabled>, "SetVrModeEnabled"}, //3.0.0+
         {52, D<&ICommonStateGetter::SetLcdBacklighOffEnabled>, "SetLcdBacklighOffEnabled"}, //4.0.0+
@@ -54,7 +54,7 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {61, D<&ICommonStateGetter::GetDefaultDisplayResolutionChangeEvent>, "GetDefaultDisplayResolutionChangeEvent"},
         {62, D<&ICommonStateGetter::GetHdcpAuthenticationState>, "GetHdcpAuthenticationState"},
         {63, D<&ICommonStateGetter::GetHdcpAuthenticationStateChangeEvent>, "GetHdcpAuthenticationStateChangeEvent"},
-        {64, nullptr, "SetTvPowerStateMatchingMode"},
+        {64, D<&ICommonStateGetter::SetTvPowerStateMatchingMode>, "SetTvPowerStateMatchingMode"},
         {65, nullptr, "GetApplicationIdByContentActionName"},
         {66, &ICommonStateGetter::SetCpuBoostMode, "SetCpuBoostMode"},
         {67, nullptr, "CancelCpuBoostMode"},
@@ -212,6 +212,33 @@ Result ICommonStateGetter::GetCurrentPerformanceConfiguration(
     auto& controller = system.GetAPMController();
     *out_performance_configuration =
         controller.GetCurrentPerformanceConfiguration(controller.GetCurrentPerformanceMode());
+    R_SUCCEED();
+}
+
+Result ICommonStateGetter::GetCradleStatus(Out<u8> out_status) {
+    // Horizon exposes the dock/cradle state as a u8. Encore already models this through its
+    // docked/handheld operation-mode setting, so return that same source of truth.
+    *out_status = Settings::IsDockedMode() ? 1 : 0;
+    LOG_DEBUG(Service_AM, "called, status={}", *out_status);
+    R_SUCCEED();
+}
+
+Result ICommonStateGetter::GetCradleFwVersion(Out<u32> out_version0, Out<u32> out_version1,
+                                              Out<u32> out_version2, Out<u32> out_version3) {
+    // PS5 has no Horizon cradle firmware. Report the neutral all-zero version used by upstream
+    // compatibility implementations rather than fabricating dock firmware.
+    *out_version0 = 0;
+    *out_version1 = 0;
+    *out_version2 = 0;
+    *out_version3 = 0;
+    LOG_DEBUG(Service_AM, "called, cradle firmware unavailable");
+    R_SUCCEED();
+}
+
+Result ICommonStateGetter::SetTvPowerStateMatchingMode(u32 mode) {
+    // HDMI/CEC power matching is owned by Prospero OS. Guest software may set the Horizon policy,
+    // but Encore intentionally does not propagate it to the host television or PS5 power state.
+    LOG_DEBUG(Service_AM, "called, mode={} (host TV power policy unchanged)", mode);
     R_SUCCEED();
 }
 

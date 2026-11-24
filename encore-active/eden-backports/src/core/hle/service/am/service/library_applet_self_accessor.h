@@ -79,6 +79,9 @@ private:
     Result UnpopInData(SharedPointer<IStorage> storage);
     Result GetMainAppletApplicationDesiredLanguage(Out<u64> out_desired_language);
     Result GetCurrentApplicationId(Out<u64> out_application_id);
+    Result RequestExitToSelf();
+    Result ReserveResourceForMovieOperation();
+    Result UnreserveResourceForMovieOperation();
     Result GetMainAppletAvailableUsers(Out<bool> out_can_select_any_user, Out<s32> out_users_count,
                                        OutArray<Common::UUID, BufferAttr_HipcMapAlias> out_users);
     Result ShouldSetGpuTimeSliceManually(Out<bool> out_should_set_gpu_time_slice_manually);

@@ -551,38 +551,38 @@
       "upstream": "eadd2284bba5c7e5601222f2c2d3ca3ee8053ce710de52db2e22e8d8e8bbaf45"
     },
     "src/core/hle/service/am/service/overlay_functions.cpp": {
-      "active": "20d294bd66bec5b1f5f3062d452970b98b68f52f7ccc87c8294a8b83b63452f6",
-      "bytes": 5789,
+      "active": "2ad7a8f440b03fb55437878bf57f0e1dfdec77021aede8509c583505f0920f58",
+      "bytes": 7169,
       "upstream": "adfdc5f9a5c3a3a30af4329fa19fc9bf053700db58ec46ff436745f522152d13"
     },
     "src/core/hle/service/am/service/overlay_functions.h": {
-      "active": "991da359aea0ebda1665c1d9c7dd8921a6d47e8a11a5fb468289573004fe7099",
-      "bytes": 1049,
+      "active": "3910bcc1ccd7829c2b4b444b8194469812adf33b5116e0fc8715989efa3ccdda",
+      "bytes": 1218,
       "upstream": "85093d7915d5000d80c72943c3a0aaf0f8be55c08680a511cd056f4ca9b4acd9"
     },
     "src/core/hle/service/am/service/application_functions.cpp": {
-      "active": "ea88f3bc2be3f2a7101a295d6fd3b6de3094c30f1a216b7791fecd3bc3fb0c61",
-      "bytes": 25837,
+      "active": "372a66c3ca097a5f3e352f5e79fbe2611ca0f7460eb8579109de36ab7023261c",
+      "bytes": 26464,
       "upstream": "d7154fb56b46dbe4584c95203e26c6c9ee0805f3cdb8f9efe77d9bb39ee4222d"
     },
     "src/core/hle/service/am/service/application_functions.h": {
-      "active": "88f58f0261ac337a3af9d8791c1b58f2422fbc64fc6328d84ccae36baee627da",
-      "bytes": 4687,
+      "active": "2e2117cf9ccdd8bc81ae3ba61007f420232899405d6e2fa1767a2e931e1c6b57",
+      "bytes": 4810,
       "upstream": "7a47806f53b153e8750161673c6e3a5f46ef4d7d1d0b3734591b7a79e6a31b9c"
     },
     "src/core/hle/service/am/service/library_applet_self_accessor.cpp": {
-      "active": "7d71117ceebc80d9bbf9ba21ce938e96523c209c40c8b09070ee8ff7fbec41dc",
-      "bytes": 15800,
+      "active": "d47480326cfdf45c488052b47dc5e617928454e0553cfa9fd1485b157d9d0468",
+      "bytes": 16720,
       "upstream": "7bcd0144488426ea89c71a935ab7a4faa86390eedff9dfaaa6391076e66585bc"
     },
     "src/core/hle/service/am/service/library_applet_self_accessor.h": {
-      "active": "cd54b6f4215d0766c49164c2322539896fc4dffd974334d0d46e078037fdceee",
-      "bytes": 3719,
+      "active": "58e9e94956500792a92c9a16d73c5c4789948addbceaa0c543d71b7d086a219d",
+      "bytes": 3847,
       "upstream": "ecb599a464a9ecc1d202cd60faed6f81262569f7816d5a342923a02ab993737f"
     },
     "src/core/hle/service/am/service/common_state_getter.cpp": {
-      "active": "c943355913a4fcb15ace2f298f86648eb11be27edde5416fa9ffc8511f664898",
-      "bytes": 19175,
+      "active": "8ebb413b5f90e84b4967ac01137eaa354defb975573b8daf5809555c1d9c008b",
+      "bytes": 20565,
       "upstream": "16abb5f4185ddc4956771630a987f1d6e8fcb02fe6f4c12d888a1f2be5801484"
     }
   },
