@@ -4,6 +4,9 @@
 // SPDX-FileCopyrightText: Copyright 2023 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "core/core.h"
+#include "hid_core/hid_core.h"
+#include "hid_core/frontend/emulated_devices.h"
 #include "core/hle/service/hid/hid_system_server.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/set/settings_types.h"
@@ -24,7 +27,7 @@ IHidSystemServer::IHidSystemServer(Core::System& system_, std::shared_ptr<Resour
       resource_manager{resource}, firmware_settings{settings} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {31, nullptr, "SendKeyboardLockKeyEvent"},
+        {31, &IHidSystemServer::SendKeyboardLockKeyEvent, "SendKeyboardLockKeyEvent"},
         {101, nullptr, "AcquireHomeButtonEventHandle"},
         {111, nullptr, "ActivateHomeButton"},
         {121, nullptr, "AcquireSleepButtonEventHandle"},
@@ -284,6 +287,15 @@ IHidSystemServer::~IHidSystemServer() {
     service_context.CloseEvent(acquire_connection_trigger_timeout_event);
     service_context.CloseEvent(unique_pad_connection_event);
 };
+
+void IHidSystemServer::SendKeyboardLockKeyEvent(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const auto flags = rp.Pop<u32>();
+    system.HIDCore().GetEmulatedDevices()->ApplyKeyboardLockKeyEvents(flags);
+
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
 
 void IHidSystemServer::GetPlatformConfig(HLERequestContext& ctx) {
     const auto platform_config = firmware_settings->GetPlatformConfig();

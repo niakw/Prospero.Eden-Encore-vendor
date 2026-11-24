@@ -42,7 +42,7 @@ private:
     Result ActivateMouse(ClientAppletResourceUserId aruid);
     Result ActivateDebugMouse(ClientAppletResourceUserId aruid);
     Result ActivateKeyboard(ClientAppletResourceUserId aruid);
-    Result SendKeyboardLockKeyEvent(u32 flags);
+    Result SendKeyboardLockKeyEvent(u32 flags, ClientAppletResourceUserId aruid);
     Result AcquireXpadIdEventHandle(OutCopyHandle<Kernel::KReadableEvent> out_event,
                                     ClientAppletResourceUserId aruid);
     Result ReleaseXpadIdEventHandle(ClientAppletResourceUserId aruid);

@@ -8,6 +8,9 @@
 
 #include "common/common_types.h"
 #include "common/logging.h"
+#include "core/core.h"
+#include "hid_core/hid_core.h"
+#include "hid_core/frontend/emulated_devices.h"
 #include "common/settings.h"
 #include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/kernel/k_transfer_memory.h"
@@ -303,8 +306,9 @@ Result IHidServer::ActivateKeyboard(ClientAppletResourceUserId aruid) {
     R_RETURN(GetResourceManager()->GetKeyboard()->Activate(aruid.pid));
 }
 
-Result IHidServer::SendKeyboardLockKeyEvent(u32 flags) {
-    LOG_WARNING(Service_HID, "(STUBBED) called. flags={}", flags);
+Result IHidServer::SendKeyboardLockKeyEvent(u32 flags, ClientAppletResourceUserId aruid) {
+    LOG_DEBUG(Service_HID, "called, flags={:#x}, applet_resource_user_id={}", flags, aruid.pid);
+    system.HIDCore().GetEmulatedDevices()->ApplyKeyboardLockKeyEvents(flags);
     R_SUCCEED();
 }
 
