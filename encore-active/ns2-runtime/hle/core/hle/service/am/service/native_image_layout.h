@@ -24,12 +24,15 @@ struct NativeImageRequirements {
 // in 64-byte GOBs; block height is in pixels. Matches the gsv sizers (commands 435 and 1510, run
 // against the real module): the size is one image's padded block storage times the request's
 // count word, the format word does not scale it, and the alignment is always one page.
+// Lichii's Xenoblade 2 window-buffer trace proves block-format word 7 may be 1 or 2 with
+// identical storage geometry; all other unreviewed variants remain fail-closed.
 inline std::optional<NativeImageRequirements> CalculateNativeImageRequirements(
     std::span<const u32> preference, u32 count) {
     if (preference.size() != 16 || count == 0 || preference[0] != 0 ||
         (preference[1] != 1 && preference[1] != 2) || preference[3] != 0 ||
         (preference[6] != 1 && preference[6] != 4) ||
-        preference[7] != 1 || preference[4] < 3 || preference[4] > 8) {
+        (preference[7] != 1 && preference[7] != 2) ||
+        preference[4] < 3 || preference[4] > 8) {
         return std::nullopt;
     }
     for (size_t i = 8; i < preference.size(); ++i) {
