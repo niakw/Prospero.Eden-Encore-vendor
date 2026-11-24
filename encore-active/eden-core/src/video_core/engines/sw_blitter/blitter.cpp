@@ -199,6 +199,12 @@ bool SoftwareBlitEngine::Blit(Fermi2D::Surface& src, Fermi2D::Surface& dst,
                bounded_bytes(surface.pitch, surface.height, 1);
     };
     if (!bounded_surface(src, source_bpp) || !bounded_surface(dst, target_bpp) ||
+        // A nonzero block-linear source layer needs source-origin Z semantics,
+        // which NV50's depth-tiled source path does not expose here.
+        (src.linear == Fermi2D::MemoryLayout::BlockLinear && src.layer != 0) ||
+        // DST_LAYER is meaningful only for depth-tiled 3D destinations.
+        (dst.linear == Fermi2D::MemoryLayout::BlockLinear && dst.layer != 0 &&
+         (dst.block_depth == 0 || dst.layer >= dst.depth)) ||
         (src.linear == Fermi2D::MemoryLayout::Pitch &&
          static_cast<u64>(config.src_x1) * source_bpp > src.pitch) ||
         (dst.linear == Fermi2D::MemoryLayout::Pitch &&
@@ -341,7 +347,7 @@ bool SoftwareBlitEngine::Blit(Fermi2D::Surface& src, Fermi2D::Surface& dst,
         SwizzleSubrect(tmp_buffer2, impl->dst_buffer, dst_bytes_per_pixel, dst.width, dst.height,
                        dst.depth, config.dst_x0, config.dst_y0, dst_extent_x, dst_extent_y,
                        dst.block_height, dst.block_depth, dst_extent_x * dst_bytes_per_pixel,
-                       memory_manager.UsesNativeTiling());
+                       memory_manager.UsesNativeTiling(), dst.layer);
     } else {
         ProcessPitchLinear<true>(impl->dst_buffer, tmp_buffer2, dst_extent_x, dst_extent_y,
                                  dst.pitch, config.dst_x0, config.dst_y0,

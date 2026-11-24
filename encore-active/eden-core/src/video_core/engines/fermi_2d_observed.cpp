@@ -88,10 +88,21 @@ void Fermi2D::Blit() {
         UNIMPLEMENTED_MSG("Fermi2D copy with unbound render-target format");
         return;
     }
-    // NVIDIA 2D pitch surfaces have contiguous, pitch*height-sized slices.
-    // Support only explicitly addressed layers of two pitch-linear images.
-    // Block-linear layers require a separate verified origin_z decoder.
-    const bool pitch_layer_copy = regs.src.layer != 0 || regs.dst.layer != 0;
+    // Pitch-linear arrays select a layer by advancing the base address.
+    // NV50 depth-tiled 3D destinations instead use DST_LAYER. Support only
+    // that hardware-defined destination case; source depth-tiling remains
+    // fail-closed because Nouveau cannot feed it through this 2D path.
+    const bool has_layer = regs.src.layer != 0 || regs.dst.layer != 0;
+    const bool pitch_layer_copy =
+        has_layer && regs.src.linear == MemoryLayout::Pitch &&
+        regs.dst.linear == MemoryLayout::Pitch;
+    const bool dst_volume_layer_copy =
+        regs.src.layer == 0 && regs.dst.layer != 0 &&
+        regs.dst.linear == MemoryLayout::BlockLinear && regs.dst.block_depth > 0 &&
+        regs.dst.depth > 1 && regs.dst.layer < regs.dst.depth &&
+        (regs.src.linear == MemoryLayout::Pitch || regs.src.block_depth == 0 ||
+         regs.src.depth == 1) &&
+        regs.src.depth >= 1 && regs.clip_enable == 0;
     if (pitch_layer_copy) {
         const auto valid_pitch_layers = [](const Surface& surface) {
             constexpr u64 MAX_PLANE_BYTES = 256ULL << 20;
@@ -111,6 +122,9 @@ void Fermi2D::Blit() {
             UNIMPLEMENTED_MSG("Unsupported layered Fermi2D surface or operation");
             return;
         }
+    } else if (has_layer && !dst_volume_layer_copy) {
+        UNIMPLEMENTED_MSG("Unsupported layered Fermi2D surface or operation");
+        return;
     } else if (regs.src.depth == 0 || regs.dst.depth == 0) {
         UNIMPLEMENTED_MSG("Invalid zero-depth Fermi2D surface");
         return;
@@ -301,6 +315,17 @@ void Fermi2D::Blit() {
             return; // Reject without writing a partial destination layer.
         }
         sw_blitter->Blit(src, dst, config);
+        return;
+    }
+    if (dst_volume_layer_copy) {
+        // NV50/Nouveau programs DST_LAYER for a depth-tiled 3D destination.
+        // Keep the complete destination backing mapped; the maintained
+        // software writer consumes dst.layer as its explicit GOB origin Z.
+        Surface dst = regs.dst;
+        src.depth = 1;
+        if (!sw_blitter->Blit(src, dst, config)) {
+            UNIMPLEMENTED_MSG("Rejected Fermi2D destination volume slice");
+        }
         return;
     }
     if (!rasterizer->AccelerateSurfaceCopy(src, regs.dst, config)) {

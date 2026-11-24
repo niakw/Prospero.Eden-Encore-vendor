@@ -109,6 +109,34 @@ int main() {
         Mix(digest,native);
         ++partial_cases;
     }
+    // NV50 DST_LAYER semantics: a depth-tiled 3D destination selects
+    // one Z slice without changing the base address. Exercise the maintained
+    // overload under both Maxwell/NS1 and Switch 2 native GOB ordering.
+    for (bool native : {false, true}) for (u32 bpp : {1U,4U,16U})
+    for (u32 bd : {1U,2U}) for (u32 layer : {1U,2U,3U}) {
+        constexpr u32 width=11, height=9, depth=4, bh=1;
+        const u32 pitch=width*bpp;
+        const size_t linear_size=static_cast<size_t>(pitch)*height;
+        const size_t tiled_size=Tegra::Texture::CalculateSize(
+            true,bpp,width,height,depth,bh,bd);
+        std::vector<u8> original(linear_size),tiled(tiled_size,0x5A);
+        std::vector<u8> back(linear_size,0),base(linear_size,0);
+        for (size_t i=0;i<linear_size;++i)
+            original[i]=static_cast<u8>((i*41U+bpp*17U+bd*7U+layer*13U)&255U);
+        Tegra::Texture::SwizzleSubrect(
+            tiled,original,bpp,width,height,depth,0,0,width,height,
+            bh,bd,pitch,native,layer);
+        Tegra::Texture::UnswizzleSubrect(
+            back,tiled,bpp,width,height,depth,0,0,width,height,
+            bh,bd,pitch,native,layer);
+        Tegra::Texture::UnswizzleSubrect(
+            base,tiled,bpp,width,height,depth,0,0,width,height,
+            bh,bd,pitch,native,0);
+        Check(back==original,"DST_LAYER subrect roundtrip");
+        Check(base!=original,"DST_LAYER must not overwrite z0");
+        Mix(digest,tiled);
+        ++partial_cases;
+    }
     // Lichii #2085 regression: a 2x2 BPP16 I2M upload differs at GOB
     // offset bits 5/6 on Switch 2. Maxwell-written bytes must NOT decode
     // as the original under native tiling; native write/read must roundtrip.
