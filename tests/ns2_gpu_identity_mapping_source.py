@@ -175,6 +175,22 @@ assert "if (!identity.AddSpace(*owned))" in reg_replay
 assert reg_replay.index("as->UnmapNative4K(begin, size)") < reg_replay.index(
     "identity_result = Kernel::ResultInvalidState;",reg_replay.index("if (!identity.AddSpace(*owned))"))
 
+# Worker 101 rollback must not unlock/free the guest backing after any failed
+# identity retirement, nor publish a failed registration for later AS replay.
+assert "R_UNLESS(!m_quarantined_nv_session, Kernel::ResultInvalidState);" in reg
+assert "if (as->IsNativeSparsePoisoned()) rollback_safe = false;" in reg_replay
+assert "rollback_safe = false;" in reg_replay.split("catch (const std::bad_alloc&)", 1)[1]
+reg_rollback = reg.split("if (identity_result.IsError())", 1)[1]
+assert "if (as->UnmapNative4K(begin, size) != Nvidia::NvResult::Success)" in reg_rollback
+quarantined = reg_rollback.split("if (!rollback_safe) {", 1)[1].split("\n        }", 1)[0]
+for marker in ("m_quarantined_nv_session = true;", "id = 0;",
+               "return Kernel::ResultInvalidState;"):
+    assert marker in quarantined, marker
+assert "UnlockForDeviceAddressSpace" not in quarantined and "FreeHandle" not in quarantined
+assert reg_rollback.index("identity_gpu_mappings.pop_back()") < reg_rollback.index(
+    "if (!rollback_safe)") < reg_rollback.index("UnlockForDeviceAddressSpace") < reg_rollback.index("nvmap.FreeHandle")
+assert reg_rollback.index("id = 0;", reg_rollback.index("nvmap.FreeHandle")) > reg_rollback.index("nvmap.FreeHandle")
+
 release=worker[worker.index("Result IGpuWorker::ReleaseMemory"):worker.index("void IGpuWorker::CreateGpuAccessibleMemory")]
 for x in ("mapping.memory == id","system.GPU().WaitForIdle()","m_mappings.RecordUnmapped(unmap)",
           "identity_it->RemoveSpace(as_id)","identity_gpu_mappings.erase(identity_it)",

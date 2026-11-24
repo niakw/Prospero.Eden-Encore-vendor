@@ -1063,6 +1063,7 @@ void IGpuWorker::ExecuteSparseMapRequests(HLERequestContext& ctx) {
 Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
                                   u32 device, u32& id) {
     // Caller holds BOTH m_mutex and m_shared->mutex until NVMap commit.
+    R_UNLESS(!m_quarantined_nv_session, Kernel::ResultInvalidState);
     R_UNLESS(flags == 0, Kernel::ResultNotImplemented);
     R_UNLESS(device != 0 && device < GpuSessionProtocol::MaxDevices &&
              m_shared->devices.Get(device).has_value(), Kernel::ResultNotFound);
@@ -1180,10 +1181,12 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
             LOG_ERROR(Service_AM, "NS2 identity registry rollback unlock failed: {:#x}", undone.raw);
         handle.reset();
         nvmap.FreeHandle(id, false);
+        id = 0;
         return undone.IsError() ? undone : Kernel::ResultOutOfResource;
     }
     auto& identity = m_shared->identity_gpu_mappings.back();
     Result identity_result = ResultSuccess;
+    bool rollback_safe = true;
     for (const auto owned : m_shared->address_spaces.OwnedIds()) {
         if (!owned) continue;
         const auto as = m_shared->FindOwnedAddressSpace(*owned);
@@ -1192,18 +1195,22 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
         try {
             mapped = as->MapNative4K(id, begin, 0, size, 0);
         } catch (const std::bad_alloc&) {
-            // Preserve the normal unlock/NVMap rollback below on host OOM.
+            // A thrown map may have partially published GPU PTEs.
+            // Do not retire the physical backing unless rollback is proven.
+            rollback_safe = false;
             identity_result = Kernel::ResultOutOfResource;
             break;
         }
         if (mapped != Nvidia::NvResult::Success) {
+            if (as->IsNativeSparsePoisoned()) rollback_safe = false;
             identity_result = mapped == Nvidia::NvResult::InsufficientMemory
                 ? Kernel::ResultOutOfResource : Kernel::ResultInvalidState;
             break;
         }
         if (!identity.AddSpace(*owned)) {
             // Never leave a successful but untracked identity mapping live.
-            (void)as->UnmapNative4K(begin, size);
+            if (as->UnmapNative4K(begin, size) != Nvidia::NvResult::Success)
+                rollback_safe = false;
             identity_result = Kernel::ResultInvalidState;
             break;
         }
@@ -1211,16 +1218,30 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
     if (identity_result.IsError()) {
         while (identity.mapped_count) {
             const u32 as_id = identity.mapped_spaces[identity.mapped_count - 1];
-            if (const auto as = m_shared->FindOwnedAddressSpace(as_id))
-                as->UnmapNative4K(begin, size);
+            if (const auto as = m_shared->FindOwnedAddressSpace(as_id)) {
+                if (as->UnmapNative4K(begin, size) != Nvidia::NvResult::Success)
+                    rollback_safe = false;
+            } else {
+                // A missing owner cannot prove that its channel dropped the GMMU.
+                rollback_safe = false;
+            }
             identity.RemoveSpace(as_id);
         }
+        // Never replay a registration that was not delivered to the guest.
         m_shared->identity_gpu_mappings.pop_back();
+        if (!rollback_safe) {
+            // Keep the device lock and NVMap session alive until process
+            // teardown, exactly as for a poisoned dense/sparse GPU backing.
+            m_quarantined_nv_session = true;
+            id = 0;
+            return Kernel::ResultInvalidState;
+        }
         const auto undone = page_table.UnlockForDeviceAddressSpace(begin, size);
         if (undone.IsError())
             LOG_ERROR(Service_AM, "NS2 identity-map rollback unlock failed: {:#x}", undone.raw);
         handle.reset();
         nvmap.FreeHandle(id, false);
+        id = 0;
         return undone.IsError() ? undone : identity_result;
     }
 
