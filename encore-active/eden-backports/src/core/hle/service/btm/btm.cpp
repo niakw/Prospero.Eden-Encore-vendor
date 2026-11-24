@@ -28,93 +28,93 @@ public:
         : ServiceFramework{system_, "btm"}, service_context{system_, "btm"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "GetState"},
-            {1, nullptr, "GetHostDeviceProperty"},
+            {0, &IBtm::RejectUnavailableBluetoothHardware, "GetState"},
+            {1, &IBtm::RejectUnavailableBluetoothHardware, "GetHostDeviceProperty"},
             {2, C<&IBtm::AcquireOfflineEvent<0>>, "AcquireDeviceConditionEvent"},
             {3, C<&IBtm::GetOfflineDeviceList>, "GetDeviceCondition"},
-            {4, nullptr, "SetBurstMode"},
-            {5, nullptr, "SetSlotMode"},
-            {6, nullptr, "SetBluetoothMode"},
-            {7, nullptr, "SetWlanMode"},
+            {4, &IBtm::RejectUnavailableBluetoothHardware, "SetBurstMode"},
+            {5, &IBtm::RejectUnavailableBluetoothHardware, "SetSlotMode"},
+            {6, &IBtm::RejectUnavailableBluetoothHardware, "SetBluetoothMode"},
+            {7, &IBtm::RejectUnavailableBluetoothHardware, "SetWlanMode"},
             {8, C<&IBtm::AcquireOfflineEvent<1>>, "AcquireDeviceInfoEvent"},
             {9, C<&IBtm::GetOfflineDeviceList>, "GetDeviceInfo"},
-            {10, nullptr, "AddDeviceInfo"},
-            {11, nullptr, "RemoveDeviceInfo"},
-            {12, nullptr, "IncreaseDeviceInfoOrder"},
-            {13, nullptr, "LlrNotify"},
+            {10, &IBtm::RejectUnavailableBluetoothHardware, "AddDeviceInfo"},
+            {11, &IBtm::RejectUnavailableBluetoothHardware, "RemoveDeviceInfo"},
+            {12, &IBtm::RejectUnavailableBluetoothHardware, "IncreaseDeviceInfoOrder"},
+            {13, &IBtm::RejectUnavailableBluetoothHardware, "LlrNotify"},
             {14, C<&IBtm::EnableRadio>, "EnableRadio"},
             {15, C<&IBtm::DisableRadio>, "DisableRadio"},
-            {16, nullptr, "HidDisconnect"},
-            {17, nullptr, "HidSetRetransmissionMode"},
+            {16, &IBtm::RejectUnavailableBluetoothHardware, "HidDisconnect"},
+            {17, &IBtm::RejectUnavailableBluetoothHardware, "HidSetRetransmissionMode"},
             {18, C<&IBtm::AcquireOfflineEvent<2>>, "AcquireAwakeReqEvent"},
             {19, C<&IBtm::AcquireOfflineEvent<3>>, "AcquireLlrStateEvent"},
             {20, C<&IBtm::IsOfflineLlrStarted>, "IsLlrStarted"},
-            {21, nullptr, "EnableSlotSaving"},
-            {22, nullptr, "ProtectDeviceInfo"},
+            {21, &IBtm::RejectUnavailableBluetoothHardware, "EnableSlotSaving"},
+            {22, &IBtm::RejectUnavailableBluetoothHardware, "ProtectDeviceInfo"},
             {23, C<&IBtm::AcquireOfflineEvent<4>>, "AcquireBleScanEvent"},
-            {24, nullptr, "GetBleScanParameterGeneral"},
-            {25, nullptr, "GetBleScanParameterSmartDevice"},
-            {26, nullptr, "StartBleScanForGeneral"},
+            {24, &IBtm::RejectUnavailableBluetoothHardware, "GetBleScanParameterGeneral"},
+            {25, &IBtm::RejectUnavailableBluetoothHardware, "GetBleScanParameterSmartDevice"},
+            {26, &IBtm::RejectUnavailableBluetoothHardware, "StartBleScanForGeneral"},
             {27, C<&IBtm::StopOfflineBleScan>, "StopBleScanForGeneral"},
             {28, C<&IBtm::GetOfflineScanResults>, "GetBleScanResultsForGeneral"},
-            {29, nullptr, "StartBleScanForPairedDevice"},
+            {29, &IBtm::RejectUnavailableBluetoothHardware, "StartBleScanForPairedDevice"},
             {30, C<&IBtm::StopOfflineBleScan>, "StopBleScanForPairedDevice"},
-            {31, nullptr, "StartBleScanForSmartDevice"},
+            {31, &IBtm::RejectUnavailableBluetoothHardware, "StartBleScanForSmartDevice"},
             {32, C<&IBtm::StopOfflineBleScan>, "StopBleScanForSmartDevice"},
             {33, C<&IBtm::GetOfflineScanResults>, "GetBleScanResultsForSmartDevice"},
             {34, C<&IBtm::AcquireOfflineEvent<5>>, "AcquireBleConnectionEvent"},
-            {35, nullptr, "BleConnect"},
-            {36, nullptr, "BleOverrideConnection"},
-            {37, nullptr, "BleDisconnect"},
+            {35, &IBtm::RejectUnavailableBluetoothHardware, "BleConnect"},
+            {36, &IBtm::RejectUnavailableBluetoothHardware, "BleOverrideConnection"},
+            {37, &IBtm::RejectUnavailableBluetoothHardware, "BleDisconnect"},
             {38, C<&IBtm::GetOfflineConnections>, "BleGetConnectionState"},
-            {39, nullptr, "BleGetGattClientConditionList"},
+            {39, &IBtm::RejectUnavailableBluetoothHardware, "BleGetGattClientConditionList"},
             {40, C<&IBtm::AcquireOfflineEvent<6>>, "AcquireBlePairingEvent"},
-            {41, nullptr, "BlePairDevice"},
-            {42, nullptr, "BleUnpairDeviceOnBoth"},
-            {43, nullptr, "BleUnpairDevice"},
+            {41, &IBtm::RejectUnavailableBluetoothHardware, "BlePairDevice"},
+            {42, &IBtm::RejectUnavailableBluetoothHardware, "BleUnpairDeviceOnBoth"},
+            {43, &IBtm::RejectUnavailableBluetoothHardware, "BleUnpairDevice"},
             {44, C<&IBtm::GetOfflinePairedAddresses>, "BleGetPairedAddresses"},
             {45, C<&IBtm::AcquireOfflineEvent<7>>, "AcquireBleServiceDiscoveryEvent"},
-            {46, nullptr, "GetGattServices"},
-            {47, nullptr, "GetGattService"},
-            {48, nullptr, "GetGattIncludedServices"},
-            {49, nullptr, "GetBelongingService"},
-            {50, nullptr, "GetGattCharacteristics"},
-            {51, nullptr, "GetGattDescriptors"},
+            {46, &IBtm::RejectUnavailableBluetoothHardware, "GetGattServices"},
+            {47, &IBtm::RejectUnavailableBluetoothHardware, "GetGattService"},
+            {48, &IBtm::RejectUnavailableBluetoothHardware, "GetGattIncludedServices"},
+            {49, &IBtm::RejectUnavailableBluetoothHardware, "GetBelongingService"},
+            {50, &IBtm::RejectUnavailableBluetoothHardware, "GetGattCharacteristics"},
+            {51, &IBtm::RejectUnavailableBluetoothHardware, "GetGattDescriptors"},
             {52, C<&IBtm::AcquireOfflineEvent<8>>, "AcquireBleMtuConfigEvent"},
-            {53, nullptr, "ConfigureBleMtu"},
-            {54, nullptr, "GetBleMtu"},
-            {55, nullptr, "RegisterBleGattDataPath"},
-            {56, nullptr, "UnregisterBleGattDataPath"},
-            {57, nullptr, "RegisterAppletResourceUserId"},
-            {58, nullptr, "UnregisterAppletResourceUserId"},
-            {59, nullptr, "SetAppletResourceUserId"},
-            {60, nullptr, "AcquireBleConnectionParameterUpdateEvent"}, //8.0.0+
-            {61, nullptr, "SetCeLength"}, //8.0.0+
-            {62, nullptr, "EnsureSlotExpansion"}, //9.0.0+
-            {63, nullptr, "IsSlotExpansionEnsured"}, //9.0.0+
-            {64, nullptr, "CancelConnectionTrigger"}, //10.0.0+
-            {65, nullptr, "GetConnectionCapacity"}, //13.0.0+
-            {66, nullptr, "GetWlanMode"}, //13.0.0+
-            {67, nullptr, "IsSlotSavingEnabled"}, //13.0.0+
-            {68, nullptr, "IsSlotSavingForPairingEnabled"}, //13.0.0+
-            {69, nullptr, "AcquireAudioDeviceConnectionEvent"}, //13.0.0+
-            {70, nullptr, "GetConnectedAudioDevices"}, //13.0.0+
-            {71, nullptr, "SetAudioSourceVolume"}, //13.0.0+
-            {72, nullptr, "GetAudioSourceVolume"}, //13.0.0+
-            {73, nullptr, "RequestAudioDeviceConnectionRejection"}, //13.0.0+
-            {74, nullptr, "CancelAudioDeviceConnectionRejection"}, //13.0.0+
-            {75, nullptr, "GetPairedAudioDevices"}, //13.0.0+
-            {76, nullptr, "SetWlanModeWithOption"}, //13.1.0+
-            {100, nullptr, "AcquireConnectionDisallowedEvent"}, //13.0.0+
-            {101, nullptr, "GetUsecaseViolationFactor"}, //13.0.0+
+            {53, &IBtm::RejectUnavailableBluetoothHardware, "ConfigureBleMtu"},
+            {54, &IBtm::RejectUnavailableBluetoothHardware, "GetBleMtu"},
+            {55, &IBtm::RejectUnavailableBluetoothHardware, "RegisterBleGattDataPath"},
+            {56, &IBtm::RejectUnavailableBluetoothHardware, "UnregisterBleGattDataPath"},
+            {57, &IBtm::RejectUnavailableBluetoothHardware, "RegisterAppletResourceUserId"},
+            {58, &IBtm::RejectUnavailableBluetoothHardware, "UnregisterAppletResourceUserId"},
+            {59, &IBtm::RejectUnavailableBluetoothHardware, "SetAppletResourceUserId"},
+            {60, &IBtm::RejectUnavailableBluetoothHardware, "AcquireBleConnectionParameterUpdateEvent"}, //8.0.0+
+            {61, &IBtm::RejectUnavailableBluetoothHardware, "SetCeLength"}, //8.0.0+
+            {62, &IBtm::RejectUnavailableBluetoothHardware, "EnsureSlotExpansion"}, //9.0.0+
+            {63, &IBtm::RejectUnavailableBluetoothHardware, "IsSlotExpansionEnsured"}, //9.0.0+
+            {64, &IBtm::RejectUnavailableBluetoothHardware, "CancelConnectionTrigger"}, //10.0.0+
+            {65, &IBtm::RejectUnavailableBluetoothHardware, "GetConnectionCapacity"}, //13.0.0+
+            {66, &IBtm::RejectUnavailableBluetoothHardware, "GetWlanMode"}, //13.0.0+
+            {67, &IBtm::RejectUnavailableBluetoothHardware, "IsSlotSavingEnabled"}, //13.0.0+
+            {68, &IBtm::RejectUnavailableBluetoothHardware, "IsSlotSavingForPairingEnabled"}, //13.0.0+
+            {69, &IBtm::RejectUnavailableBluetoothHardware, "AcquireAudioDeviceConnectionEvent"}, //13.0.0+
+            {70, &IBtm::RejectUnavailableBluetoothHardware, "GetConnectedAudioDevices"}, //13.0.0+
+            {71, &IBtm::RejectUnavailableBluetoothHardware, "SetAudioSourceVolume"}, //13.0.0+
+            {72, &IBtm::RejectUnavailableBluetoothHardware, "GetAudioSourceVolume"}, //13.0.0+
+            {73, &IBtm::RejectUnavailableBluetoothHardware, "RequestAudioDeviceConnectionRejection"}, //13.0.0+
+            {74, &IBtm::RejectUnavailableBluetoothHardware, "CancelAudioDeviceConnectionRejection"}, //13.0.0+
+            {75, &IBtm::RejectUnavailableBluetoothHardware, "GetPairedAudioDevices"}, //13.0.0+
+            {76, &IBtm::RejectUnavailableBluetoothHardware, "SetWlanModeWithOption"}, //13.1.0+
+            {100, &IBtm::RejectUnavailableBluetoothHardware, "AcquireConnectionDisallowedEvent"}, //13.0.0+
+            {101, &IBtm::RejectUnavailableBluetoothHardware, "GetUsecaseViolationFactor"}, //13.0.0+
             {110, C<&IBtm::GetOfflineDeviceList>, "GetShortenedDeviceInfo"}, //13.0.0+
-            {111, nullptr, "AcquirePairingCountUpdateEvent"},//13.0.0+
-            {112, nullptr, "Unknown112"}, //14.0.0-14.1.2
-            {113, nullptr, "Unknown113"}, //14.0.0-14.1.2
-            {114, nullptr, "IsFirstAudioControlConnection"}, //14.0.0+
+            {111, &IBtm::RejectUnavailableBluetoothHardware, "AcquirePairingCountUpdateEvent"},//13.0.0+
+            {112, &IBtm::RejectUnavailableBluetoothHardware, "Unknown112"}, //14.0.0-14.1.2
+            {113, &IBtm::RejectUnavailableBluetoothHardware, "Unknown113"}, //14.0.0-14.1.2
+            {114, &IBtm::RejectUnavailableBluetoothHardware, "IsFirstAudioControlConnection"}, //14.0.0+
             {115, C<&IBtm::GetOfflineDeviceList>, "GetShortenedDeviceCondition"}, //14.0.0+
-            {116, nullptr, "SetAudioSinkVolume"}, //15.0.0+
-            {117, nullptr, "GetAudioSinkVolume"}, //15.0.0+
+            {116, &IBtm::RejectUnavailableBluetoothHardware, "SetAudioSinkVolume"}, //15.0.0+
+            {117, &IBtm::RejectUnavailableBluetoothHardware, "GetAudioSinkVolume"}, //15.0.0+
         };
         // clang-format on
 
@@ -199,6 +199,13 @@ private:
     Result DisableRadio() {
         LOG_DEBUG(Service_BTM, "called through legacy btm interface");
         R_RETURN(m_set_sys->SetBluetoothEnableFlag(false));
+    }
+
+    void RejectUnavailableBluetoothHardware(HLERequestContext& ctx) {
+        LOG_WARNING(Service_BTM,
+                    "Rejected guest Bluetooth/BLE hardware command: no Switch radio backend on PS5");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
     }
 
     KernelHelpers::ServiceContext service_context;

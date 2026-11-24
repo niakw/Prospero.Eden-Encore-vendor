@@ -386,8 +386,8 @@
       "upstream": "c998e93145a5103d85c7fea515a38e0a7770996f090bf2bdfa4f8d2e97337752"
     },
     "src/core/hle/service/usb/usb.cpp": {
-      "active": "7cecd0a392d8d6ca147ebd58ae31948d32a8dff62548e357795df2aaa79ba7d0",
-      "bytes": 9919,
+      "active": "dac3fcf87f10128a3a62c8cbc3a9acb056a27a1680d2cecd298794ef52afda5f",
+      "bytes": 15416,
       "upstream": "8175a9bd924f52caac68778a090604b0d768e560c98be1b786f4c55190fcb676"
     },
     "src/core/hle/service/wlan/wlan.cpp": {
@@ -516,8 +516,8 @@
       "bytes": 47575
     },
     "src/core/hle/service/btm/btm.cpp": {
-      "active": "96380e11f6940981e600afe080a4f518bcf570e53b56b97be0d7633f50dd1205",
-      "bytes": 9874,
+      "active": "93c5f3e40792067a9fc32318a75fdf67a42a2c4f98809cbab0ea41ad71bbd35e",
+      "bytes": 12335,
       "upstream": "4240de5d0df8e51aa87eda53f0f5dfcb1a3998f7e6d801f3101608679045ab3c"
     },
     "src/core/hle/service/vi/application_root_service.cpp": {

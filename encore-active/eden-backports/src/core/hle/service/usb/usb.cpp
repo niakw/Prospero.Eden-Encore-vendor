@@ -20,24 +20,31 @@ public:
     explicit IDsInterface(Core::System& system_) : ServiceFramework{system_, "IDsInterface"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "AddEndpoint"},
-            {1, nullptr, "GetSetupEvent"},
-            {2, nullptr, "GetSetupPacket"},
-            {3, nullptr, "Enable"},
-            {4, nullptr, "Disable"},
-            {5, nullptr, "CtrlIn"},
-            {6, nullptr, "CtrlOut"},
-            {7, nullptr, "GetCtrlInCompletionEvent"},
-            {8, nullptr, "GetCtrlInUrbReport"},
-            {9, nullptr, "GetCtrlOutCompletionEvent"},
-            {10, nullptr, "GetCtrlOutUrbReport"},
-            {11, nullptr, "CtrlStall"},
-            {12, nullptr, "AppendConfigurationData"},
+            {0, &IDsInterface::RejectUnavailableUsbHardware, "AddEndpoint"},
+            {1, &IDsInterface::RejectUnavailableUsbHardware, "GetSetupEvent"},
+            {2, &IDsInterface::RejectUnavailableUsbHardware, "GetSetupPacket"},
+            {3, &IDsInterface::RejectUnavailableUsbHardware, "Enable"},
+            {4, &IDsInterface::RejectUnavailableUsbHardware, "Disable"},
+            {5, &IDsInterface::RejectUnavailableUsbHardware, "CtrlIn"},
+            {6, &IDsInterface::RejectUnavailableUsbHardware, "CtrlOut"},
+            {7, &IDsInterface::RejectUnavailableUsbHardware, "GetCtrlInCompletionEvent"},
+            {8, &IDsInterface::RejectUnavailableUsbHardware, "GetCtrlInUrbReport"},
+            {9, &IDsInterface::RejectUnavailableUsbHardware, "GetCtrlOutCompletionEvent"},
+            {10, &IDsInterface::RejectUnavailableUsbHardware, "GetCtrlOutUrbReport"},
+            {11, &IDsInterface::RejectUnavailableUsbHardware, "CtrlStall"},
+            {12, &IDsInterface::RejectUnavailableUsbHardware, "AppendConfigurationData"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableUsbHardware(HLERequestContext& ctx) {
+        LOG_WARNING(Service_USB, "Rejected IDsInterface USB hardware command: no guest USB backend on PS5");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IDsRootSession final : public ServiceFramework<IDsRootSession> {
@@ -45,12 +52,19 @@ public:
     explicit IDsRootSession(Core::System& system_) : ServiceFramework{system_, "usb:ds"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "OpenDsService"},
+            {0, &IDsRootSession::RejectUnavailableUsbHardware, "OpenDsService"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableUsbHardware(HLERequestContext& ctx) {
+        LOG_WARNING(Service_USB, "Rejected IDsRootSession USB hardware command: no guest USB backend on PS5");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IClientEpSession final : public ServiceFramework<IClientEpSession> {
@@ -59,20 +73,27 @@ public:
         : ServiceFramework{system_, "IClientEpSession"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "ReOpen"},
-            {1, nullptr, "Close"},
-            {2, nullptr, "GetCompletionEvent"},
-            {3, nullptr, "PopulateRing"},
-            {4, nullptr, "PostBufferAsync"},
-            {5, nullptr, "GetXferReport"},
-            {6, nullptr, "PostBufferMultiAsync"},
-            {7, nullptr, "CreateSmmuSpace"},
-            {8, nullptr, "ShareReportRing"},
+            {0, &IClientEpSession::RejectUnavailableUsbHardware, "ReOpen"},
+            {1, &IClientEpSession::RejectUnavailableUsbHardware, "Close"},
+            {2, &IClientEpSession::RejectUnavailableUsbHardware, "GetCompletionEvent"},
+            {3, &IClientEpSession::RejectUnavailableUsbHardware, "PopulateRing"},
+            {4, &IClientEpSession::RejectUnavailableUsbHardware, "PostBufferAsync"},
+            {5, &IClientEpSession::RejectUnavailableUsbHardware, "GetXferReport"},
+            {6, &IClientEpSession::RejectUnavailableUsbHardware, "PostBufferMultiAsync"},
+            {7, &IClientEpSession::RejectUnavailableUsbHardware, "CreateSmmuSpace"},
+            {8, &IClientEpSession::RejectUnavailableUsbHardware, "ShareReportRing"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableUsbHardware(HLERequestContext& ctx) {
+        LOG_WARNING(Service_USB, "Rejected IClientEpSession USB hardware command: no guest USB backend on PS5");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IClientIfSession final : public ServiceFramework<IClientIfSession> {
@@ -81,21 +102,28 @@ public:
         : ServiceFramework{system_, "IClientIfSession"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "GetStateChangeEvent"},
-            {1, nullptr, "SetInterface"},
-            {2, nullptr, "GetInterface"},
-            {3, nullptr, "GetAlternateInterface"},
-            {4, nullptr, "GetCurrentFrame"},
-            {5, nullptr, "CtrlXferAsync"},
-            {6, nullptr, "GetCtrlXferCompletionEvent"},
-            {7, nullptr, "GetCtrlXferReport"},
-            {8, nullptr, "ResetDevice"},
-            {9, nullptr, "OpenUsbEp"},
+            {0, &IClientIfSession::RejectUnavailableUsbHardware, "GetStateChangeEvent"},
+            {1, &IClientIfSession::RejectUnavailableUsbHardware, "SetInterface"},
+            {2, &IClientIfSession::RejectUnavailableUsbHardware, "GetInterface"},
+            {3, &IClientIfSession::RejectUnavailableUsbHardware, "GetAlternateInterface"},
+            {4, &IClientIfSession::RejectUnavailableUsbHardware, "GetCurrentFrame"},
+            {5, &IClientIfSession::RejectUnavailableUsbHardware, "CtrlXferAsync"},
+            {6, &IClientIfSession::RejectUnavailableUsbHardware, "GetCtrlXferCompletionEvent"},
+            {7, &IClientIfSession::RejectUnavailableUsbHardware, "GetCtrlXferReport"},
+            {8, &IClientIfSession::RejectUnavailableUsbHardware, "ResetDevice"},
+            {9, &IClientIfSession::RejectUnavailableUsbHardware, "OpenUsbEp"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableUsbHardware(HLERequestContext& ctx) {
+        LOG_WARNING(Service_USB, "Rejected IClientIfSession USB hardware command: no guest USB backend on PS5");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IClientRootSession final : public ServiceFramework<IClientRootSession> {
@@ -103,20 +131,27 @@ public:
     explicit IClientRootSession(Core::System& system_) : ServiceFramework{system_, "usb:hs"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "BindClientProcess"},
-            {1, nullptr, "QueryAllInterfaces"},
-            {2, nullptr, "QueryAvailableInterfaces"},
-            {3, nullptr, "QueryAcquiredInterfaces"},
-            {4, nullptr, "CreateInterfaceAvailableEvent"},
-            {5, nullptr, "DestroyInterfaceAvailableEvent"},
-            {6, nullptr, "GetInterfaceStateChangeEvent"},
-            {7, nullptr, "AcquireUsbIf"},
-            {8, nullptr, "SetTestMode"},
+            {0, &IClientRootSession::RejectUnavailableUsbHardware, "BindClientProcess"},
+            {1, &IClientRootSession::RejectUnavailableUsbHardware, "QueryAllInterfaces"},
+            {2, &IClientRootSession::RejectUnavailableUsbHardware, "QueryAvailableInterfaces"},
+            {3, &IClientRootSession::RejectUnavailableUsbHardware, "QueryAcquiredInterfaces"},
+            {4, &IClientRootSession::RejectUnavailableUsbHardware, "CreateInterfaceAvailableEvent"},
+            {5, &IClientRootSession::RejectUnavailableUsbHardware, "DestroyInterfaceAvailableEvent"},
+            {6, &IClientRootSession::RejectUnavailableUsbHardware, "GetInterfaceStateChangeEvent"},
+            {7, &IClientRootSession::RejectUnavailableUsbHardware, "AcquireUsbIf"},
+            {8, &IClientRootSession::RejectUnavailableUsbHardware, "SetTestMode"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableUsbHardware(HLERequestContext& ctx) {
+        LOG_WARNING(Service_USB, "Rejected IClientRootSession USB hardware command: no guest USB backend on PS5");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IPdSession final : public ServiceFramework<IPdSession> {
@@ -124,18 +159,25 @@ public:
     explicit IPdSession(Core::System& system_) : ServiceFramework{system_, "IPdSession"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "BindNoticeEvent"},
-            {1, nullptr, "UnbindNoticeEvent"},
-            {2, nullptr, "GetStatus"},
-            {3, nullptr, "GetNotice"},
-            {4, nullptr, "EnablePowerRequestNotice"},
-            {5, nullptr, "DisablePowerRequestNotice"},
-            {6, nullptr, "ReplyPowerRequest"},
+            {0, &IPdSession::RejectUnavailableUsbHardware, "BindNoticeEvent"},
+            {1, &IPdSession::RejectUnavailableUsbHardware, "UnbindNoticeEvent"},
+            {2, &IPdSession::RejectUnavailableUsbHardware, "GetStatus"},
+            {3, &IPdSession::RejectUnavailableUsbHardware, "GetNotice"},
+            {4, &IPdSession::RejectUnavailableUsbHardware, "EnablePowerRequestNotice"},
+            {5, &IPdSession::RejectUnavailableUsbHardware, "DisablePowerRequestNotice"},
+            {6, &IPdSession::RejectUnavailableUsbHardware, "ReplyPowerRequest"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableUsbHardware(HLERequestContext& ctx) {
+        LOG_WARNING(Service_USB, "Rejected IPdSession USB hardware command: no guest USB backend on PS5");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IPdManager final : public ServiceFramework<IPdManager> {
@@ -166,20 +208,27 @@ public:
         : ServiceFramework{system_, "IPdCradleSession"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "SetCradleVdo"},
-            {1, nullptr, "GetCradleVdo"},
-            {2, nullptr, "ResetCradleUsbHub"},
-            {3, nullptr, "GetHostPdcFirmwareType"},
-            {4, nullptr, "GetHostPdcFirmwareRevision"},
-            {5, nullptr, "GetHostPdcManufactureId"},
-            {6, nullptr, "GetHostPdcDeviceId"},
-            {7, nullptr, "EnableCradleRecovery"},
-            {8, nullptr, "DisableCradleRecovery"},
+            {0, &IPdCradleSession::RejectUnavailableUsbHardware, "SetCradleVdo"},
+            {1, &IPdCradleSession::RejectUnavailableUsbHardware, "GetCradleVdo"},
+            {2, &IPdCradleSession::RejectUnavailableUsbHardware, "ResetCradleUsbHub"},
+            {3, &IPdCradleSession::RejectUnavailableUsbHardware, "GetHostPdcFirmwareType"},
+            {4, &IPdCradleSession::RejectUnavailableUsbHardware, "GetHostPdcFirmwareRevision"},
+            {5, &IPdCradleSession::RejectUnavailableUsbHardware, "GetHostPdcManufactureId"},
+            {6, &IPdCradleSession::RejectUnavailableUsbHardware, "GetHostPdcDeviceId"},
+            {7, &IPdCradleSession::RejectUnavailableUsbHardware, "EnableCradleRecovery"},
+            {8, &IPdCradleSession::RejectUnavailableUsbHardware, "DisableCradleRecovery"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableUsbHardware(HLERequestContext& ctx) {
+        LOG_WARNING(Service_USB, "Rejected IPdCradleSession USB hardware command: no guest USB backend on PS5");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IPdCradleManager final : public ServiceFramework<IPdCradleManager> {
@@ -209,17 +258,24 @@ public:
     explicit IPmMainService(Core::System& system_) : ServiceFramework{system_, "usb:pm"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "GetPowerEvent"},
-            {1, nullptr, "GetPowerState"},
-            {2, nullptr, "GetDataEvent"},
-            {3, nullptr, "GetDataRole"},
-            {4, nullptr, "SetDiagData"},
-            {5, nullptr, "GetDiagData"},
+            {0, &IPmMainService::RejectUnavailableUsbHardware, "GetPowerEvent"},
+            {1, &IPmMainService::RejectUnavailableUsbHardware, "GetPowerState"},
+            {2, &IPmMainService::RejectUnavailableUsbHardware, "GetDataEvent"},
+            {3, &IPmMainService::RejectUnavailableUsbHardware, "GetDataRole"},
+            {4, &IPmMainService::RejectUnavailableUsbHardware, "SetDiagData"},
+            {5, &IPmMainService::RejectUnavailableUsbHardware, "GetDiagData"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableUsbHardware(HLERequestContext& ctx) {
+        LOG_WARNING(Service_USB, "Rejected IPmMainService USB hardware command: no guest USB backend on PS5");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IPdManufactureManager final : public ServiceFramework<IPdManufactureManager> {
@@ -227,11 +283,18 @@ public:
     explicit IPdManufactureManager(Core::System& system_) : ServiceFramework{system_, "usb:pd:m"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "OpenManufactureSession"},
+            {0, &IPdManufactureManager::RejectUnavailableUsbHardware, "OpenManufactureSession"},
         };
         // clang-format on
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableUsbHardware(HLERequestContext& ctx) {
+        LOG_WARNING(Service_USB, "Rejected IPdManufactureManager USB hardware command: no guest USB backend on PS5");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IQdbManager final : public ServiceFramework<IQdbManager> {
@@ -239,12 +302,19 @@ public:
     explicit IQdbManager(Core::System& system_) : ServiceFramework{system_, "usb:qdb"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "ImportQuirkDevices"},
-            {1, nullptr, "HasQuirk"},
+            {0, &IQdbManager::RejectUnavailableUsbHardware, "ImportQuirkDevices"},
+            {1, &IQdbManager::RejectUnavailableUsbHardware, "HasQuirk"},
         };
         // clang-format on
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableUsbHardware(HLERequestContext& ctx) {
+        LOG_WARNING(Service_USB, "Rejected IQdbManager USB hardware command: no guest USB backend on PS5");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IPmObserverService final : public ServiceFramework<IPmObserverService> {
@@ -252,12 +322,19 @@ public:
     explicit IPmObserverService(Core::System& system_) : ServiceFramework{system_, "usb:obsv"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "GetTopologyChangeEvent"},
-            {1, nullptr, "GetFlattenedTopology"},
+            {0, &IPmObserverService::RejectUnavailableUsbHardware, "GetTopologyChangeEvent"},
+            {1, &IPmObserverService::RejectUnavailableUsbHardware, "GetFlattenedTopology"},
         };
         // clang-format on
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableUsbHardware(HLERequestContext& ctx) {
+        LOG_WARNING(Service_USB, "Rejected IPmObserverService USB hardware command: no guest USB backend on PS5");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 void LoopProcess(Core::System& system) {
