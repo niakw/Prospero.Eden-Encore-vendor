@@ -223,12 +223,11 @@ Result ILibraryAppletAccessor::GetPopInteractiveOutDataEvent(
 }
 
 Result ILibraryAppletAccessor::GetIndirectLayerConsumerHandle(Out<u64> out_handle) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_WARNING(Service_AM,
+                "Indirect layer consumer requested without a VI indirect-layer backend");
 
-    // We require a non-zero handle to be valid. Using 0xdeadbeef allows us to trace if this is
-    // actually used anywhere
-    *out_handle = 0xdeadbeef;
-    R_SUCCEED();
+    *out_handle = 0;
+    R_THROW(ResultUnknown);
 }
 
 Result ILibraryAppletAccessor::GetLibraryAppletInfo(
