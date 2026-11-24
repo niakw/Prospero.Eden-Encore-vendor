@@ -730,20 +730,71 @@ void RasterizerVulkan::CollectAttributeHandleRuns(bool is_indexed) {
         state.topology == Maxwell::PrimitiveTopology::Triangles ? 3 : total;
     const GPUVAddr base_address = stream.Address() + source->offset +
                                  component_byte_offset;
-    const auto read_handle = [&](u32 position) {
-        u32 vertex{};
-        if (is_indexed) {
-            const auto& indices = state.index_buffer;
-            const size_t index_width = indices.FormatSizeInBytes();
-            if (index_width == 0 || index_width > sizeof(u32)) return u32{};
-            const GPUVAddr address = indices.IndexStart() +
-                                     static_cast<GPUVAddr>(position) * index_width;
-            u32 index{};
-            gpu_memory->ReadBlockUnsafe(address, &index, index_width);
-            vertex = static_cast<u32>(state.base_index + index);
-        } else {
-            vertex = state.vertex_buffer.first + position;
+#ifdef PS5_NATIVE
+    // FC27 uses a vertex-attribute texture handle on indexed triangle draws.
+    // OnCPUWrite is serialized by buffer_cache.mutex before guest memcpy, so
+    // this scan must stay under that lock. Reduce only repeated GMMU walks:
+    // prefetch a small, fully-mapped index span and decode sampled indices
+    // from it. Authenticated NS2 channels retain the original per-index path.
+    struct AttributeIndexBatch {
+        std::array<u8, 256> bytes{};
+        u32 first_position{};
+        u32 position_count{};
+        size_t index_width{};
+        bool valid{};
+    } index_batch;
+#endif
+    const auto read_index = [&](u32 position) {
+        const auto& indices = state.index_buffer;
+        const size_t index_width = indices.FormatSizeInBytes();
+        if (index_width == 0 || index_width > sizeof(u32)) return u32{};
+#ifdef PS5_NATIVE
+        if (!gpu_memory->UsesNativeTiling()) {
+            if (index_batch.valid && index_batch.index_width == index_width &&
+                position >= index_batch.first_position &&
+                position - index_batch.first_position < index_batch.position_count) {
+                u32 index{};
+                const size_t byte_offset =
+                    static_cast<size_t>(position - index_batch.first_position) * index_width;
+                std::memcpy(&index, index_batch.bytes.data() + byte_offset, index_width);
+                return index;
+            }
+            if (position < total) {
+                const size_t max_positions = index_batch.bytes.size() / index_width;
+                const u32 position_count =
+                    (std::min)(total - position, static_cast<u32>(max_positions));
+                const GPUVAddr offset = static_cast<GPUVAddr>(position) * index_width;
+                const GPUVAddr start = indices.IndexStart();
+                const GPUVAddr address = start + offset;
+                const size_t read_bytes = static_cast<size_t>(position_count) * index_width;
+                const bool address_ok =
+                    (position == 0 || offset / index_width == position) &&
+                    address >= start && read_bytes != 0 &&
+                    address <= ~GPUVAddr{0} - static_cast<GPUVAddr>(read_bytes);
+                if (position_count > 1 && address_ok &&
+                    gpu_memory->IsFullyMappedRange(address, read_bytes)) {
+                    gpu_memory->ReadBlockUnsafe(address, index_batch.bytes.data(), read_bytes);
+                    index_batch.first_position = position;
+                    index_batch.position_count = position_count;
+                    index_batch.index_width = index_width;
+                    index_batch.valid = true;
+                    u32 index{};
+                    std::memcpy(&index, index_batch.bytes.data(), index_width);
+                    return index;
+                }
+            }
         }
+#endif
+        const GPUVAddr address = indices.IndexStart() +
+                                 static_cast<GPUVAddr>(position) * index_width;
+        u32 index{};
+        gpu_memory->ReadBlockUnsafe(address, &index, index_width);
+        return index;
+    };
+    const auto read_handle = [&](u32 position) {
+        const u32 vertex =
+            is_indexed ? static_cast<u32>(state.base_index + read_index(position))
+                       : state.vertex_buffer.first + position;
         return gpu_memory->Read<u32>(base_address +
                                      static_cast<GPUVAddr>(vertex) * stream.stride);
     };
