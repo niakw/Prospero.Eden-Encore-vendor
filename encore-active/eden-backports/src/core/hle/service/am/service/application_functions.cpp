@@ -78,7 +78,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
     // clang-format off
     static const FunctionInfo functions[] = {
         {1, D<&IApplicationFunctions::PopLaunchParameter>, "PopLaunchParameter"},
-        {10, nullptr, "CreateApplicationAndPushAndRequestToStart"},
+        {10, D<&IApplicationFunctions::CreateApplicationAndPushAndRequestToStart>, "CreateApplicationAndPushAndRequestToStart"},
         {11, nullptr, "CreateApplicationAndPushAndRequestToStartForQuest"},
         {12, D<&IApplicationFunctions::CreateApplicationAndRequestToStart>, "CreateApplicationAndRequestToStart"},
         {13, nullptr, "CreateApplicationAndRequestToStartForQuest"},
@@ -655,6 +655,18 @@ Result IApplicationFunctions::ExecuteProgram(ProgramSpecifyKind kind, u64 value)
     system.GetUserChannel() = m_applet->user_channel_launch_parameter;
     system.ExecuteProgram(value);
     R_SUCCEED();
+}
+
+Result IApplicationFunctions::CreateApplicationAndPushAndRequestToStart(
+    u64 application_id, SharedPointer<IStorage> storage) {
+    LOG_INFO(Service_AM, "called, application_id={:016X}", application_id);
+
+    m_applet->user_channel_launch_parameter.push_back(storage->GetData());
+    const Result result = CreateApplicationAndRequestToStart(application_id);
+    if (R_FAILED(result)) {
+        m_applet->user_channel_launch_parameter.pop_back();
+    }
+    R_RETURN(result);
 }
 
 // https://switchbrew.org/wiki/Applet_Manager_services#CreateApplicationAndRequestToStart

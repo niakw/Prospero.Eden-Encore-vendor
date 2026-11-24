@@ -40,6 +40,8 @@ private:
     Result RejectDebugOnlyCommand();
     Result PopLaunchParameter(Out<SharedPointer<IStorage>> out_storage,
                               LaunchParameterKind launch_parameter_kind);
+    Result CreateApplicationAndPushAndRequestToStart(u64 application_id,
+                                                      SharedPointer<IStorage> storage);
     Result EnsureSaveData(Out<u64> out_size, Common::UUID user_id);
     Result GetDesiredLanguage(Out<u64> out_language_code);
     Result SetTerminateResult(Result terminate_result);
