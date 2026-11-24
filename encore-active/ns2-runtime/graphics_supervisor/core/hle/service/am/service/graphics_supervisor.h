@@ -56,6 +56,7 @@ private:
     void Initialize(HLERequestContext& ctx);
     void BindProcess(HLERequestContext& ctx);
     void CompleteBootstrap(HLERequestContext& ctx);
+    void QuerySessionMode(HLERequestContext& ctx);
     void InitializeGpuContext(HLERequestContext& ctx);
     void InitializeInterModuleImageContext(HLERequestContext& ctx);
     void DestroyGpuContext(HLERequestContext& ctx);

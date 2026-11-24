@@ -1577,7 +1577,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {123, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown123"},
         {124, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown124"},
         {125, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown125"},
-        {126, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetSessionFlag"},
+        {126, &IGraphicsSupervisor::QuerySessionMode, "GetSessionFlag"},
         {131, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown131"},
         {133, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown133"},
         {311, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateFeatureImagePool311"},
@@ -1794,6 +1794,18 @@ void IGraphicsSupervisor::CompleteBootstrap(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
 }
+void IGraphicsSupervisor::QuerySessionMode(HLERequestContext& ctx) {
+    const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
+    u32 mode{};
+    const Result result = TranslateBootstrap(m_bootstrap.QuerySessionMode(packet, mode));
+    if (result.IsSuccess()) {
+        NativeTipcReplyWords(ctx, {mode});
+    } else {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+    }
+}
+
 void IGraphicsSupervisor::InitializeInterModuleImageContext(HLERequestContext& ctx) {
     const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
     const Result result = TranslateBootstrap(

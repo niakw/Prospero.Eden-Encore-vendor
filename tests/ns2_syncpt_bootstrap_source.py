@@ -384,7 +384,7 @@ assert "void UnavailableVideoEncoder(HLERequestContext& ctx);" in hdr
 # Lichii nx2 graphics-session table parity: every named ID is either
 # implemented by a real owner or explicitly rejected, never a fake Success.
 known_lichii_gsv_ids = (
-    5, 120, 121, 122, 123, 124, 125, 126, 131, 133,
+    5, 120, 121, 122, 123, 124, 125, 131, 133,
     311, 312, 321, 361, 424, 425, 436,
     461, 462, 463, 464, 465, 466, 467, 468, 494,
     801, 802, 803, 811, 812, 813, 814, 861, 891,
@@ -428,3 +428,11 @@ assert "m_bootstrap.InitializeInterModuleImageContext(packet, ctx.GetCommand())"
 assert "TranslateBootstrap(" in inter and "rb.Push(result.raw);" in inter
 assert "void InitializeInterModuleImageContext(HLERequestContext& ctx);" in hdr
 print("NS2_GSV_INTER_MODULE_IMAGE_BOOTSTRAP_SOURCE_PASS")
+
+# libounce 32e7ac41 _gsvBootstrapRoot requires 126 between 101 and
+# 1501/1502; mode 0 skips 120. Both compared emulator upstreams return 0.
+assert '{126, &IGraphicsSupervisor::QuerySessionMode, "GetSessionFlag"}' in cpp
+query_mode=cpp.split("void IGraphicsSupervisor::QuerySessionMode(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
+assert "m_bootstrap.QuerySessionMode(packet, mode)" in query_mode
+assert "NativeTipcReplyWords(ctx, {mode});" in query_mode
+assert "rb.Push(result.raw);" in query_mode

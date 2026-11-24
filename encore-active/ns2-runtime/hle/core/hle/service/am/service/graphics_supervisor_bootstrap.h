@@ -72,6 +72,18 @@ public:
         phase=Phase::Ready;
         return Status::Success;
     }
+    // libounce gsv.c _gsvBootstrapRoot: 126 is a mandatory u32 mode
+    // query, and 120 is only sent for mode 1. Encore supports the ordinary
+    // local HLE context path (mode 0), not mode 1's additional setup.
+    // Lichii and EglantinePS5 return the same mode. Do not claim an
+    // unknown feature bit or memory reservation.
+    Status QuerySessionMode(std::span<const U32> packet, U32& mode) const {
+        if (packet.size() < 2 || packet[0] != 16 + 126 || packet[1] != 0)
+            return Status::InvalidPacket;
+        if (phase != Phase::Ready) return Status::InvalidState;
+        mode = 0;
+        return Status::Success;
+    }
     Status InitializeGpuContext(std::span<const U32> packet, U32 command) {
         if ((command!=401 && command!=402) ||
             packet.size()<2 || packet[0]!=16+command || packet[1]!=0)
