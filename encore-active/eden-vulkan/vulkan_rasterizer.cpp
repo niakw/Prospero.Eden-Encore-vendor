@@ -2542,11 +2542,6 @@ void RasterizerVulkan::OnCacheInvalidations(std::span<const std::pair<DAddr, u64
             break;
         }
     }
-    if (may_claim_buffer) {
-        std::scoped_lock lock{buffer_cache.mutex};
-        buffer_cache.ClaimCpuWrites(ranges);
-    }
-
     // The single-range invalidation callback takes the texture and buffer
     // mutex once PER range. GPU-collected write batches often contain many
     // pages; acquire each domain only once, as InnerInvalidation already
@@ -2568,7 +2563,12 @@ void RasterizerVulkan::OnCacheInvalidations(std::span<const std::pair<DAddr, u64
         }
     }
     if (may_claim_buffer) {
+        // Lichii 5e428570 / f5edeab: claim and apply the complete buffer batch
+        // under ONE acquisition. Texture state was handled above and is independent.
+        // Claim must precede BufferCache::WriteMemory so a sibling GPU download
+        // cannot overwrite a later CPU write from this same collected batch.
         std::scoped_lock lock{buffer_cache.mutex};
+        buffer_cache.ClaimCpuWrites(ranges);
         for (const auto& [addr, size] : ranges) {
             if (addr != 0 && size != 0 && !::Eden::BufferPages::NeverRegistered(addr, size)) {
                 buffer_cache.WriteMemory(addr, size);

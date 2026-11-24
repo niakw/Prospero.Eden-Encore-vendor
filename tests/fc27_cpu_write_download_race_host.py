@@ -49,12 +49,12 @@ collected=rast.split("void RasterizerVulkan::OnCacheInvalidations(", 1)[1].split
     "void RasterizerVulkan::OnCacheInvalidation(", 1)[0]
 assert collected.count("buffer_cache.ClaimCpuWrites(ranges);")==1
 assert collected.count("std::scoped_lock lock{texture_cache.mutex};")==1
-assert collected.count("std::scoped_lock lock{buffer_cache.mutex};")==2
+assert collected.count("std::scoped_lock lock{buffer_cache.mutex};")==1
 assert collected.count("texture_cache.WriteMemory(addr, size);")==1
 assert collected.count("buffer_cache.WriteMemory(addr, size);")==1
 assert collected.count("pipeline_cache.InvalidateRegion(addr, size);")==1
-assert collected.index("buffer_cache.ClaimCpuWrites(ranges);") < collected.index(
-    "texture_cache.WriteMemory(addr, size);") < collected.index(
+assert collected.index("texture_cache.WriteMemory(addr, size);") < collected.index(
+    "buffer_cache.ClaimCpuWrites(ranges);") < collected.index(
     "buffer_cache.WriteMemory(addr, size);") < collected.index(
     "pipeline_cache.InvalidateRegion(addr, size);")
 inner=rast.split("void RasterizerVulkan::InnerInvalidation(", 1)[1].split("bool RasterizerVulkan::OnCPUWrite(", 1)[0]
@@ -196,7 +196,7 @@ int main(){
 """
 
 # Compile the actual selected GPU-collected batch callback: one lock per
-# cache domain, all CPU claims before any image/buffer writes, and no lost
+# cache domain, every CPU claim before its buffer writes, and no lost
 # shader invalidations. This is the SAME existing FC27 host regression job.
 batch_method=method(rast,"void RasterizerVulkan::OnCacheInvalidations(")
 batch_cpp=r"""
@@ -225,7 +225,7 @@ struct BufferCache {
     CountMutex mutex;
     std::vector<DAddr> writes;
     void ClaimCpuWrites(std::span<const std::pair<DAddr,u64>> batch){
-        assert(mutex.held);assert(batch.size()==5);calls.push_back(1);
+        assert(mutex.held);assert(batch.size()==5);calls.push_back(2);
     }
     void WriteMemory(DAddr addr,u64){
         assert(mutex.held);writes.push_back(addr);calls.push_back(3);
@@ -235,7 +235,7 @@ struct TextureCache {
     CountMutex mutex;
     std::vector<DAddr> writes;
     void WriteMemory(DAddr addr,u64){
-        assert(mutex.held);writes.push_back(addr);calls.push_back(2);
+        assert(mutex.held);writes.push_back(addr);calls.push_back(1);
     }
 };
 struct PipelineCache {
@@ -256,7 +256,7 @@ int main(){
     const std::pair<DAddr,u64> batch[]={{0x1000,4},{0x2000,8},
                                         {0x3000,16},{0,4},{0x4000,0}};
     r.OnCacheInvalidations(batch);
-    assert(r.buffer_cache.mutex.acquired==2 && !r.buffer_cache.mutex.held);
+    assert(r.buffer_cache.mutex.acquired==1 && !r.buffer_cache.mutex.held);
     assert(r.texture_cache.mutex.acquired==1 && !r.texture_cache.mutex.held);
     assert((r.buffer_cache.writes==std::vector<DAddr>{0x1000,0x2000}));
     assert((r.texture_cache.writes==std::vector<DAddr>{0x1000,0x3000}));
