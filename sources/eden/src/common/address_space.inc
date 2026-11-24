@@ -323,17 +323,30 @@ ALLOC_MEMBER(VaType)::Allocate(VaType size) {
         return {}; // The address space is actually full.
     }
 
+    // MapLocked can need up to two vector insertions. Reserve before
+    // changing the linear cursor so allocation failure leaves both the
+    // allocator map and cursor byte-for-byte unchanged.
+    this->blocks.reserve(this->blocks.size() + 2);
     current_linear_alloc_end = alloc_start + size;
     this->MapLocked(alloc_start, true, size, {});
     return alloc_start;
 }
 
 ALLOC_MEMBER(void)::AllocateFixed(VaType virt, VaType size) {
-    this->Map(virt, true, size);
+    std::scoped_lock lock(this->block_mutex);
+    // MapLocked may split both ends of a block. Grow the vector before any
+    // existing block is rewritten so std::bad_alloc cannot leave a partial
+    // fixed VA reservation behind.
+    this->blocks.reserve(this->blocks.size() + 2);
+    this->MapLocked(virt, true, size, {});
 }
 
 ALLOC_MEMBER(void)::Free(VaType virt, VaType size) {
     std::scoped_lock lock(this->block_mutex);
+    // UnmapLocked can also split both ends. Make its only allocation point
+    // happen before it rewrites any block, so callers can safely treat an
+    // OOM as "nothing was freed".
+    this->blocks.reserve(this->blocks.size() + 2);
     this->UnmapLocked(virt, size);
     // Reuse the newest released range immediately; otherwise a streaming
     // workload can exhaust the linear cursor while large gaps stay free.
