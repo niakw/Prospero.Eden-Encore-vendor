@@ -108,6 +108,8 @@ nvhost_gpu::~nvhost_gpu() {
 
 NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> input,
                             std::span<u8> output) {
+    if (UsesNativeAbi(fd) && !NativeEpochCurrent(fd))
+        return NvResult::InvalidState;
     switch (command.group) {
     case 0x0:
         switch (command.cmd) {
@@ -295,6 +297,8 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
 
 NvResult nvhost_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> input,
                             std::span<const u8> inline_input, std::span<u8> output) {
+    if (UsesNativeAbi(fd) && !NativeEpochCurrent(fd))
+        return NvResult::InvalidState;
     switch (command.group) {
     case 'H':
         switch (command.cmd) {
@@ -328,12 +332,23 @@ NvResult nvhost_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> inpu
 
 NvResult nvhost_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8> input,
                             std::span<u8> output, std::span<u8> inline_output) {
+    if (UsesNativeAbi(fd) && !NativeEpochCurrent(fd))
+        return NvResult::InvalidState;
     UNIMPLEMENTED_MSG("Unimplemented ioctl={:08X}", command.raw);
     return NvResult::NotImplemented;
 }
 
 void nvhost_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
     sessions[fd] = session_id;
+    // OunceVK opens /dev/nvhost-gpu only after gsvOpenGpu/VM import. Capture
+    // that exact process epoch now; later GSV teardown must invalidate work,
+    // not silently reclassify this descriptor as a Switch 1 channel.
+    if (const auto* session = core.GetSession(session_id);
+        session && session->process) {
+        if (const auto ticket =
+                NativeGpuProcessRegistry::Instance().CaptureTicket(session->process))
+            native_generations.emplace(fd, ticket->generation);
+    }
 }
 
 void nvhost_gpu::OnClose(DeviceFD fd) {
@@ -342,6 +357,7 @@ void nvhost_gpu::OnClose(DeviceFD fd) {
         native_channel_enabled = false;
         native_gpfifo_configured = false;
     }
+    native_generations.erase(fd);
     sessions.erase(fd);
     // One shared ChannelState backs this nvhost-gpu device owner. Do not
     // retire it while another guest FD still references the same device.
@@ -370,7 +386,7 @@ bool nvhost_gpu::CanBindNativeTsgChannel(DeviceFD fd, NvCore::SessionId owner) {
     const auto* tsg = core.GetSession(owner);
     return channel && tsg && channel->process &&
            channel->process == tsg->process &&
-           NativeGpuProcessRegistry::Instance().Contains(channel->process);
+           UsesNativeAbi(fd) && NativeEpochCurrent(fd);
 }
 
 NvResult nvhost_gpu::SetNativeTsgChannelEnabled(DeviceFD fd, NvCore::SessionId owner,
@@ -382,7 +398,7 @@ NvResult nvhost_gpu::SetNativeTsgChannelEnabled(DeviceFD fd, NvCore::SessionId o
     const auto* tsg = core.GetSession(owner);
     if (!channel || !tsg || !channel->process ||
         channel->process != tsg->process ||
-        !NativeGpuProcessRegistry::Instance().Contains(channel->process) ||
+        !UsesNativeAbi(fd) || !NativeEpochCurrent(fd) ||
         !channel_state)
         return NvResult::InvalidState;
     native_channel_enabled = enabled;
@@ -683,13 +699,17 @@ NvResult nvhost_gpu::ValidateChannelOwner(DeviceFD fd, u64& program_id) const {
     // initialised by a foreign FD that shares the same NVDRV device object.
     // Match the real per-FD owner BEFORE InitChannel, program_id or ctxObjs
     // are changed, not only at the later SubmitGPFIFOImpl boundary.
-    const bool native = NativeGpuProcessRegistry::Instance().Contains(process);
+    const bool native = UsesNativeAbi(fd);
+    if (native && !NativeEpochCurrent(fd))
+        return NvResult::InvalidState;
     for (const auto& opened_fd : sessions) {
         const auto* opened = core.GetSession(opened_fd.second);
         if (native) {
-            if (!opened || opened->process != process) return NvResult::InvalidState;
-        } else if (opened && opened->process &&
-                   NativeGpuProcessRegistry::Instance().Contains(opened->process)) {
+            if (!opened || opened->process != process ||
+                !UsesNativeAbi(opened_fd.first) ||
+                !NativeEpochCurrent(opened_fd.first))
+                return NvResult::InvalidState;
+        } else if (UsesNativeAbi(opened_fd.first)) {
             // A legacy FD cannot initialise a device with any native owner.
             // Mixed legacy/legacy FDs keep their original compatibility.
             return NvResult::InvalidState;
@@ -1357,19 +1377,30 @@ Kernel::KEvent* nvhost_gpu::QueryEvent(DeviceFD fd, u32 event_id) {
     // OunceVK configures independent 3D and copy /dev/nvhost-gpu FDs and
     // queries event 7 on each one. Admission is therefore descriptor-scoped:
     // multiple live native channels are valid and must not make id 7
-    // ambiguous. The event producer remains the existing device event.
+    // ambiguous. A stale native epoch must not expose a live event from a
+    // later process generation.
+    if (UsesNativeAbi(fd) && !NativeEpochCurrent(fd))
+        return nullptr;
     if (event_id == 7)
         return UsesNativeAbi(fd) ? error_notifier_event : nullptr;
     return QueryEvent(event_id);
 }
 
 bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const {
-    // A device can hold FDs for different guest processes. Never promote a
-    // Switch 1 request because an unrelated FD owns a Switch 2 GPU session.
-    const auto it = sessions.find(fd);
-    if (it == sessions.end()) return false;
-    const auto* session = core.GetSession(it->second);
-    return session && session->process &&
-           NativeGpuProcessRegistry::Instance().Contains(session->process);
+    // Keep ABI identity descriptor-scoped and sticky. Epoch liveness is
+    // checked separately so stale native FDs cannot fall through to Maxwell.
+    return sessions.contains(fd) && native_generations.contains(fd);
+}
+
+bool nvhost_gpu::NativeEpochCurrent(DeviceFD fd) const {
+    const auto session_it = sessions.find(fd);
+    const auto generation_it = native_generations.find(fd);
+    if (session_it == sessions.end() || generation_it == native_generations.end())
+        return false;
+    const auto* session = core.GetSession(session_it->second);
+    if (!session || !session->process)
+        return false;
+    return NativeGpuProcessRegistry::Instance().IsCurrent(
+        {session->process, generation_it->second});
 }
 } // namespace Service::Nvidia::Devices

@@ -262,6 +262,49 @@ for forbidden in ("module->Close(","CloseSession(","nv_session"):
     assert forbidden not in shared_destroy,forbidden
 assert shared_destroy.index("NativeGpuProcessRegistry::Instance().RemoveVm(") < shared_destroy.index("NativeGpuProcessRegistry::Instance().Unregister(native_process);")
 
+# Native NVDRV descriptors keep the ABI generation they were opened under.
+# GSV teardown invalidates that generation and retires imported VM ownership;
+# stale Ampere FDs must fail closed instead of falling through to Maxwell.
+for token in ("std::optional<u64> m_native_generation{};",
+              "bool m_native_vm_retired{};",
+              "void RetireNativeVm(u32 id);",
+              "NativeEpochCurrent() const"):
+    assert token in as_h, token
+as_open=as_cpp.split("void nvhost_as_gpu::OnOpen(",1)[1].split("\n}",1)[0]
+for token in ("CaptureTicket(m_native_process)", "m_native_generation = ticket->generation"):
+    assert token in as_open, token
+for ioctl in ("Ioctl1", "Ioctl2", "Ioctl3"):
+    body=as_cpp.split("NvResult nvhost_as_gpu::"+ioctl+"(",1)[1].split("\n}",1)[0]
+    assert "m_native_vm_retired" in body
+    assert "m_native_generation && !NativeEpochCurrent()" in body
+retire=as_cpp.split("void nvhost_as_gpu::RetireNativeVm(u32 id) {",1)[1].split("\n}",1)[0]
+for token in ("m_native_vm_id != id", "m_native_vm_id = 0",
+              "m_native_vm_retired = true"):
+    assert token in retire, token
+assert shared_destroy.index("as->RetireNativeVm(id)") < shared_destroy.index(
+    "NativeGpuProcessRegistry::Instance().RemoveVm(")
+
+for token in ("::Common::unordered_map<DeviceFD, u64> native_generations;",
+              "bool NativeEpochCurrent(DeviceFD fd) const;"):
+    assert token in nvhost_hdr, token
+gpu_open=nvhost_cpp.split("void nvhost_gpu::OnOpen(",1)[1].split("\n}",1)[0]
+for token in ("CaptureTicket(session->process)",
+              "native_generations.emplace(fd, ticket->generation)"):
+    assert token in gpu_open, token
+uses_native=nvhost_cpp.split("bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const {",1)[1].split("\n}",1)[0]
+assert "native_generations.contains(fd)" in uses_native
+assert "NativeGpuProcessRegistry::Instance().Contains" not in uses_native
+epoch=nvhost_cpp.split("bool nvhost_gpu::NativeEpochCurrent(DeviceFD fd) const {",1)[1].split("\n}",1)[0]
+for token in ("native_generations.find(fd)", "CaptureTicket" if False else "IsCurrent("):
+    assert token in epoch, token
+for ioctl in ("Ioctl1", "Ioctl2", "Ioctl3"):
+    body=nvhost_cpp.split("NvResult nvhost_gpu::"+ioctl+"(",1)[1].split("\n}",1)[0]
+    assert "UsesNativeAbi(fd) && !NativeEpochCurrent(fd)" in body
+fd_event=nvhost_cpp.split(
+    "Kernel::KEvent* nvhost_gpu::QueryEvent(DeviceFD fd, u32 event_id) {",1
+)[1].split("\n}",1)[0]
+assert "UsesNativeAbi(fd) && !NativeEpochCurrent(fd)" in fd_event
+
 gsv=(R/"encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
 open_gpu=gsv.split("void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
 assert "std::make_shared<IGpuSession>(system, module, m_process)" in open_gpu

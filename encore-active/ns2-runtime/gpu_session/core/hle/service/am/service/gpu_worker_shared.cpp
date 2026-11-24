@@ -94,6 +94,11 @@ GpuWorkerSharedState::~GpuWorkerSharedState() {
     }
     // NVDRV owns imported descriptors. GSV owns only the opaque VM records:
     // never close an unrelated/recycled NVDRV fd when the GPU session dies.
+    // First retire any still-open imported descriptor logically. Its channel
+    // may keep the AS/GMMU alive only long enough to drain/destroy queued work.
+    for (const auto& [id, weak_as] : opened_gpu_as)
+        if (auto as = weak_as.lock())
+            as->RetireNativeVm(id);
     for (const auto id : address_spaces.OwnedIds())
         if (id)
             (void)Nvidia::Devices::NativeGpuProcessRegistry::Instance().RemoveVm(

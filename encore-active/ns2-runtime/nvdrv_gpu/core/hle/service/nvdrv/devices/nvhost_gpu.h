@@ -277,7 +277,11 @@ private:
     NvResult AllocateObjectContext(IoctlAllocObjCtx& params, DeviceFD fd);
 
     NvResult SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandList&& entries, DeviceFD fd);
+    // ABI identity is sticky for the lifetime of a native channel FD. The
+    // generation check is separate so a closed GSV epoch fails closed instead
+    // of re-routing the same Ampere fd through legacy Maxwell handlers.
     [[nodiscard]] bool UsesNativeAbi(DeviceFD fd) const;
+    [[nodiscard]] bool NativeEpochCurrent(DeviceFD fd) const;
 
     Core::Memory::Memory& GetSessionMemory(DeviceFD fd);
 
@@ -297,6 +301,7 @@ private:
     NvCore::NvMap& nvmap;
     std::shared_ptr<Tegra::Control::ChannelState> channel_state;
     ::Common::unordered_map<DeviceFD, NvCore::SessionId> sessions;
+    ::Common::unordered_map<DeviceFD, u64> native_generations;
     u32 channel_syncpoint;
     u32 native_submit_logs{};
     // An authenticated NS2 /dev/nvhost-gpu channel retains its selected

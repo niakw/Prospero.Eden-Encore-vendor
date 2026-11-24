@@ -74,6 +74,9 @@ nvhost_as_gpu::~nvhost_as_gpu() {
 
 NvResult nvhost_as_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> input,
                                std::span<u8> output) {
+    if (m_native_vm_retired ||
+        (m_native_generation && !NativeEpochCurrent()))
+        return NvResult::InvalidState;
     switch (command.group) {
     case 'A':
         switch (command.cmd) {
@@ -318,12 +321,18 @@ NvResult nvhost_as_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> i
 
 NvResult nvhost_as_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> input,
                                std::span<const u8> inline_input, std::span<u8> output) {
+    if (m_native_vm_retired ||
+        (m_native_generation && !NativeEpochCurrent()))
+        return NvResult::InvalidState;
     UNIMPLEMENTED_MSG("Unimplemented ioctl={:08X}", command.raw);
     return NvResult::NotImplemented;
 }
 
 NvResult nvhost_as_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8> input,
                                std::span<u8> output, std::span<u8> inline_output) {
+    if (m_native_vm_retired ||
+        (m_native_generation && !NativeEpochCurrent()))
+        return NvResult::InvalidState;
     switch (command.group) {
     case 'A':
         switch (command.cmd) {
@@ -345,7 +354,14 @@ void nvhost_as_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
     if (const auto* session = container.GetSession(session_id)) {
         m_nv_session = session_id;
         m_native_process = session->process;
-        if (m_native_process) m_native_process->Open(system.Kernel());
+        if (m_native_process) {
+            m_native_process->Open(system.Kernel());
+            // OunceVK creates/imports the GSV VM before opening this AS FD.
+            // Preserve that process generation for the descriptor lifetime.
+            if (const auto ticket =
+                    NativeGpuProcessRegistry::Instance().CaptureTicket(m_native_process))
+                m_native_generation = ticket->generation;
+        }
     }
 }
 void nvhost_as_gpu::OnClose(DeviceFD fd) {
@@ -353,7 +369,7 @@ void nvhost_as_gpu::OnClose(DeviceFD fd) {
 }
 
 NvResult nvhost_as_gpu::ImportNativeVm(const NativeVmImport& params) {
-    if (!m_native_process ||
+    if (!m_native_process || m_native_vm_retired || !NativeEpochCurrent() ||
         !NativeGpuProcessRegistry::Instance().Contains(m_native_process) ||
         u32{params.version} != 5 || u32{params.vm_id} == 0 ||
         u64{params.user_first} != NativeNs2GpuVaStart ||
@@ -398,17 +414,43 @@ bool nvhost_as_gpu::ResetFailedNativeVmImport() {
 }
 
 void nvhost_as_gpu::ReleaseNativeVmBinding() {
-    if (!m_native_vm_id || !m_native_process) return;
-    const u32 id = m_native_vm_id;
-    m_native_vm_id = 0;
+    u32 id{};
+    Kernel::KProcess* process{};
+    {
+        const std::scoped_lock lock{mutex};
+        if (!m_native_vm_id || !m_native_process) return;
+        id = m_native_vm_id;
+        process = m_native_process;
+        m_native_vm_id = 0;
+    }
+    // Never hold the AS mutex while entering the GSV shared owner.
     if (auto owner = NativeGpuProcessRegistry::Instance().FindRegisteredVmOwner(
-            m_native_process, id))
+            process, id))
         owner->UnbindImportedAddressSpace(id, this);
+}
+
+bool nvhost_as_gpu::NativeEpochCurrent() const {
+    return m_native_process && m_native_generation &&
+           NativeGpuProcessRegistry::Instance().IsCurrent(
+               {m_native_process, *m_native_generation});
+}
+
+void nvhost_as_gpu::RetireNativeVm(u32 id) {
+    if (!id) return;
+    const std::scoped_lock lock{mutex};
+    if (m_native_vm_id != id) return;
+    // Logical GSV ownership ends here, but ChannelState may still retain this
+    // AS/GMMU until queued GPU payloads are destroyed. Fail future ioctls
+    // closed and let the normal final AS destructor release physical backing.
+    m_native_vm_id = 0;
+    m_native_vm_retired = true;
 }
 
 bool nvhost_as_gpu::OwnsNativeProcess(Kernel::KProcess* process) {
     const std::scoped_lock lock{mutex};
-    return process != nullptr && m_native_process == process && vm.initialised && gmmu;
+    return process != nullptr && m_native_process == process &&
+           !m_native_vm_retired && NativeEpochCurrent() &&
+           vm.initialised && gmmu;
 }
 
 // NS2 research: operate on a real, exclusive, 4-KiB guest GMMU allocation.
