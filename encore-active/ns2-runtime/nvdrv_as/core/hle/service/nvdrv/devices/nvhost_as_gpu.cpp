@@ -446,6 +446,12 @@ void nvhost_as_gpu::RetireNativeVm(u32 id) {
     m_native_vm_retired = true;
 }
 
+bool nvhost_as_gpu::NativeSubmissionAllowed() const {
+    // The scheduler lease protects storage, not permission to enqueue work.
+    // GSV may revoke the VM from a different service thread.
+    return !m_native_vm_retired.load() && NativeEpochCurrent();
+}
+
 bool nvhost_as_gpu::OwnsNativeProcess(Kernel::KProcess* process) {
     const std::scoped_lock lock{mutex};
     return process != nullptr && m_native_process == process &&
@@ -2355,6 +2361,8 @@ NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {
     if (!gpu_channel_device || !gpu_channel_device->channel_state)
         return NvResult::BadParameter;
     const std::scoped_lock lock{mutex, gpu_channel_device->channel_mutex};
+    if (m_native_vm_retired || (m_native_generation && !NativeEpochCurrent()))
+        return NvResult::InvalidState;
     if (!vm.initialised || !gmmu || !m_native_process)
         return NvResult::InvalidState;
 

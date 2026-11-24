@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <bit>
 #include <list>
 #include <map>
@@ -76,6 +77,7 @@ public:
     // ioctls without destroying the GMMU while a scheduler channel still
     // holds this AS through ChannelState::address_space_owner.
     void RetireNativeVm(u32 id);
+    [[nodiscard]] bool NativeSubmissionAllowed() const;
     NvResult UnmapNative4K(u64 address, u64 size);
     NvResult ReserveNativeSparse4K(u64 address, u64 size, u8 page_shift = 12);
     NvResult ReleaseNativeSparse4K(u64 address, u64 size);
@@ -257,7 +259,7 @@ private:
     Kernel::KProcess* m_native_process{};
     std::optional<u64> m_native_generation{};
     u32 m_native_vm_id{};
-    bool m_native_vm_retired{};
+    std::atomic_bool m_native_vm_retired{};
     // BindChannel retains the real NvCore session while any scheduler
     // ChannelState owns this AS; otherwise CloseSession can unmap backing
     // handles even though the AS shared_ptr itself is still alive.

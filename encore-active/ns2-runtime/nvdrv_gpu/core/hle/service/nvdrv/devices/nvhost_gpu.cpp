@@ -20,6 +20,7 @@
 #include "core/hle/service/nvdrv/core/syncpoint_manager.h"
 #include "core/hle/service/nvdrv/devices/ioctl_serialization.h"
 #include "core/hle/service/nvdrv/devices/nvhost_gpu.h"
+#include "core/hle/service/nvdrv/devices/nvhost_as_gpu.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_context.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
@@ -1008,6 +1009,12 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
             return NvResult::InvalidState;
         }
         native_owner = owner->process;
+        // BindChannel is the sole publisher of this type-erased AS lease.
+        // A surviving scheduler lease must not revive a revoked GSV VM.
+        const auto as_owner = std::static_pointer_cast<nvhost_as_gpu>(
+            channel_state->address_space_owner);
+        if (!NativeEpochCurrent(fd) || !as_owner || !as_owner->NativeSubmissionAllowed())
+            return NvResult::InvalidState;
         if (!native_channel_enabled) {
 #ifdef PS5_NATIVE
             if (trace_impl)

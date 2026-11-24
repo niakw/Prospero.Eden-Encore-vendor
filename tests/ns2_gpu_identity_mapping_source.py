@@ -268,7 +268,7 @@ assert shared_destroy.index("NativeGpuProcessRegistry::Instance().RemoveVm(") < 
 nvhost_hdr=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
 nvhost_cpp=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
 for token in ("std::optional<u64> m_native_generation{};",
-              "bool m_native_vm_retired{};",
+              "std::atomic_bool m_native_vm_retired{};",
               "void RetireNativeVm(u32 id);",
               "NativeEpochCurrent() const"):
     assert token in as_h, token
@@ -285,6 +285,12 @@ for token in ("m_native_vm_id != id", "m_native_vm_id = 0",
     assert token in retire, token
 assert shared_destroy.index("as->RetireNativeVm(id)") < shared_destroy.index(
     "NativeGpuProcessRegistry::Instance().RemoveVm(")
+submit_allowed = as_cpp.split("bool nvhost_as_gpu::NativeSubmissionAllowed() const {",1)[1].split("\n}",1)[0]
+assert "!m_native_vm_retired.load() && NativeEpochCurrent()" in submit_allowed
+submit_impl = nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split("\n}",1)[0]
+assert submit_impl.index("!as_owner->NativeSubmissionAllowed()") < submit_impl.index("CaptureNativeSyncpointLease(")
+assert submit_impl.index("!as_owner->NativeSubmissionAllowed()") < submit_impl.index("InitChannel(")
+
 
 for token in ("::Common::unordered_map<DeviceFD, u64> native_generations;",
               "bool NativeEpochCurrent(DeviceFD fd) const;"):
