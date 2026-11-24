@@ -96,7 +96,7 @@ ILibraryAppletSelfAccessor::ILibraryAppletSelfAccessor(Core::System& system_,
         {25, D<&ILibraryAppletSelfAccessor::GetPopExtraStorageEvent>, "GetPopExtraStorageEvent"},
         {30, D<&ILibraryAppletSelfAccessor::UnpopInData>, "UnpopInData"},
         {31, D<&ILibraryAppletSelfAccessor::UnpopExtraStorage>, "UnpopExtraStorage"},
-        {40, nullptr, "GetIndirectLayerProducerHandle"},
+        {40, D<&ILibraryAppletSelfAccessor::GetIndirectLayerProducerHandle>, "GetIndirectLayerProducerHandle"},
         {50, D<&ILibraryAppletSelfAccessor::ReportVisibleError>, "ReportVisibleError"},
         {51, D<&ILibraryAppletSelfAccessor::ReportVisibleErrorWithErrorContext>, "ReportVisibleErrorWithErrorContext"},
         {60, D<&ILibraryAppletSelfAccessor::GetMainAppletApplicationDesiredLanguage>, "GetMainAppletApplicationDesiredLanguage"},
@@ -287,6 +287,13 @@ Result ILibraryAppletSelfAccessor::GetCallerAppletIdentityInfoStack(
     } while ((applet = applet->caller_applet.lock()));
 
     R_SUCCEED();
+}
+
+Result ILibraryAppletSelfAccessor::GetIndirectLayerProducerHandle(Out<u64> out_handle) {
+    LOG_WARNING(Service_AM,
+                "Indirect layer producer requested without a VI indirect-layer backend");
+    *out_handle = 0;
+    R_THROW(ResultUnknown);
 }
 
 Result ILibraryAppletSelfAccessor::GetDesirableKeyboardLayout(Out<u32> out_desirable_layout) {

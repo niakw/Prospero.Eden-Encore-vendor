@@ -72,6 +72,7 @@ private:
     Result GetCallerAppletIdentityInfoStack(
         Out<s32> out_count,
         OutArray<AppletIdentityInfo, BufferAttr_HipcMapAlias> out_identity_info);
+    Result GetIndirectLayerProducerHandle(Out<u64> out_handle);
     Result GetDesirableKeyboardLayout(Out<u32> out_desirable_layout);
     Result ReportVisibleError(ErrorCode error_code);
     Result ReportVisibleErrorWithErrorContext(
