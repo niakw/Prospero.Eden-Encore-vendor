@@ -9,6 +9,7 @@
 #include "common/hex_util.h"
 #include "common/settings.h"
 #include "common/uuid.h"
+#include "core/core.h"
 #include "core/file_sys/common_funcs.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
@@ -108,8 +109,8 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {66, D<&IApplicationFunctions::InitializeGamePlayRecording>, "InitializeGamePlayRecording"},
         {67, D<&IApplicationFunctions::SetGamePlayRecordingState>, "SetGamePlayRecordingState"},
         {68, D<&IApplicationFunctions::RejectDebugOnlyCommand>, "RequestFlushGamePlayingMovieForDebug"},
-        {70, nullptr, "RequestToShutdown"},
-        {71, nullptr, "RequestToReboot"},
+        {70, D<&IApplicationFunctions::RequestToShutdown>, "RequestToShutdown"},
+        {71, D<&IApplicationFunctions::RequestToReboot>, "RequestToReboot"},
         {72, nullptr, "RequestToSleep"},
         {80, nullptr, "ExitAndRequestToShowThanksMessage"},
         {90, D<&IApplicationFunctions::EnableApplicationCrashReport>, "EnableApplicationCrashReport"},
@@ -514,6 +515,20 @@ Result IApplicationFunctions::SetGamePlayRecordingState(
     std::scoped_lock lk{m_applet->lock};
     m_applet->game_play_recording_state = game_play_recording_state;
 
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::RequestToShutdown() {
+    LOG_INFO(Service_AM, "called");
+    system.Exit();
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::RequestToReboot() {
+    LOG_INFO(Service_AM, "called");
+    // The existing global AM controller represents guest reboot with this same exit transition.
+    // It never requests a reboot of the PS5 host.
+    system.Exit();
     R_SUCCEED();
 }
 
