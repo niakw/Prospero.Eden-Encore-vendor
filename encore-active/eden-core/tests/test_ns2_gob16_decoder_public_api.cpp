@@ -91,6 +91,24 @@ int main() {
         ++partial_cases;
     }
 #ifdef EDEN_TEST_NATIVE_TILING
+    // The same decoder entrypoints are used by MaxwellDMA. Cover a
+    // multi-slice 16-byte GOB upload/readback on the NS2 channel, not just
+    // the single-layer I2M fixture below.
+    for (u32 depth : {2U, 3U}) for (u32 bd : {0U, 1U}) {
+        constexpr u32 bpp=16, width=17, height=9, bh=1, pitch=width*bpp;
+        const size_t linear_size=static_cast<size_t>(pitch)*height*depth;
+        const size_t tiled_size=Tegra::Texture::CalculateSize(true,bpp,width,height,depth,bh,bd);
+        std::vector<u8> original(linear_size),native(tiled_size,0xC3),back(linear_size,0x00);
+        for (size_t i=0;i<linear_size;++i)
+            original[i]=static_cast<u8>((i*29U + depth*7U + bd*13U)&255U);
+        Tegra::Texture::SwizzleSubrect(native,original,bpp,width,height,depth,
+                                      0,0,width,height*depth,bh,bd,pitch,true);
+        Tegra::Texture::UnswizzleSubrect(back,native,bpp,width,height,depth,
+                                        0,0,width,height*depth,bh,bd,pitch,true);
+        Check(back==original,"NS2 native 3D DMA roundtrip");
+        Mix(digest,native);
+        ++partial_cases;
+    }
     // Lichii #2085 regression: a 2x2 BPP16 I2M upload differs at GOB
     // offset bits 5/6 on Switch 2. Maxwell-written bytes must NOT decode
     // as the original under native tiling; native write/read must roundtrip.

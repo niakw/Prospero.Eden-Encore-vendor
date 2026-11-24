@@ -894,7 +894,7 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
                              regs.src_params.origin.y.Value(),
                              static_cast<u32>(src_row_bytes), rows,
                              regs.src_params.block_size.height.Value(), 0,
-                             static_cast<u32>(src_row_bytes));
+                             static_cast<u32>(src_row_bytes), memory_manager.UsesNativeTiling());
         } else {
             for (u32 row = 0; row < rows; ++row) {
                 if (!row_addr(regs.offset_in, regs.pitch_in, row,
@@ -924,7 +924,7 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
                              regs.dst_params.origin.y.Value(),
                              static_cast<u32>(dst_row_bytes), rows,
                              regs.dst_params.block_size.height.Value(), 0,
-                             static_cast<u32>(dst_row_bytes));
+                             static_cast<u32>(dst_row_bytes), memory_manager.UsesNativeTiling());
         }
     } else if (needs_destination) {
         for (u32 row = 0; row < rows; ++row) {
@@ -972,7 +972,7 @@ bool MaxwellDMA::CopyBlockLinearRemap() {
                        regs.dst_params.origin.y.Value(),
                        static_cast<u32>(dst_row_bytes), rows,
                        regs.dst_params.block_size.height.Value(), 0,
-                       static_cast<u32>(dst_row_bytes));
+                       static_cast<u32>(dst_row_bytes), memory_manager.UsesNativeTiling());
         memory_manager.WriteBlock(regs.offset_out, tiled_dst.data(), tiled_dst.size());
     } else {
         for (u32 row = 0; row < rows; ++row) {
@@ -1103,7 +1103,7 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
             tmp_write_buffer(memory_manager, dst_operand.address, dst_size, &write_buffer);
         UnswizzleSubrect(tmp_write_buffer, source_snapshot, bytes_per_pixel, width,
                          height, depth, x_offset, src_params.origin.y, x_elements,
-                         regs.line_count, block_height, block_depth, dst_operand.pitch);
+                         regs.line_count, block_height, block_depth, dst_operand.pitch, memory_manager.UsesNativeTiling());
         return;
     }
 
@@ -1114,7 +1114,7 @@ void MaxwellDMA::CopyBlockLinearToPitch() {
 
     UnswizzleSubrect(tmp_write_buffer, tmp_read_buffer, bytes_per_pixel, width, height, depth,
                      x_offset, src_params.origin.y, x_elements, regs.line_count, block_height,
-                     block_depth, dst_operand.pitch);
+                     block_depth, dst_operand.pitch, memory_manager.UsesNativeTiling());
 }
 
 void MaxwellDMA::CopyPitchToBlockLinear() {
@@ -1241,7 +1241,7 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
             tmp_write_buffer(memory_manager, dst_addr, dst_size, &write_buffer);
         SwizzleSubrect(tmp_write_buffer, source_snapshot, bytes_per_pixel, width,
                        height, depth, x_offset, dst_params.origin.y, x_elements,
-                       regs.line_count, block_height, block_depth, regs.pitch_in);
+                       regs.line_count, block_height, block_depth, regs.pitch_in, memory_manager.UsesNativeTiling());
         return;
     }
     Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::SafeRead> tmp_read_buffer(
@@ -1252,7 +1252,7 @@ void MaxwellDMA::CopyPitchToBlockLinear() {
     //  If the input is linear and the output is tiled, swizzle the input and copy it over.
     SwizzleSubrect(tmp_write_buffer, tmp_read_buffer, bytes_per_pixel, width, height, depth,
                    x_offset, dst_params.origin.y, x_elements, regs.line_count, block_height,
-                   block_depth, regs.pitch_in);
+                   block_depth, regs.pitch_in, memory_manager.UsesNativeTiling());
 }
 
 void MaxwellDMA::CopyBlockLinearToBlockLinear() {
@@ -1358,11 +1358,11 @@ void MaxwellDMA::CopyBlockLinearToBlockLinear() {
 
     UnswizzleSubrect(intermediate_buffer, tmp_read_buffer, bytes_per_pixel, src_width, src.height,
                      src.depth, src_x_offset, src.origin.y, x_elements, regs.line_count,
-                     src.block_size.height, src.block_size.depth, pitch);
+                     src.block_size.height, src.block_size.depth, pitch, memory_manager.UsesNativeTiling());
 
     SwizzleSubrect(tmp_write_buffer, intermediate_buffer, bytes_per_pixel, dst_width, dst.height,
                    dst.depth, dst_x_offset, dst.origin.y, x_elements, regs.line_count,
-                   dst.block_size.height, dst.block_size.depth, pitch);
+                   dst.block_size.height, dst.block_size.depth, pitch, memory_manager.UsesNativeTiling());
 }
 
 void MaxwellDMA::ReleaseSemaphore() {

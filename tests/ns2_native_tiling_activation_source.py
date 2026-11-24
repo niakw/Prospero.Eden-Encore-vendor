@@ -14,6 +14,7 @@ nvhost = (root / "encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/dev
 channel = (root / "encore-active/ns2-runtime/gpu_dispatch/video_core/control/channel_state.cpp").read_text()
 i2m = (root / "encore-active/eden-core/src/video_core/engines/engine_upload.cpp").read_text()
 blitter = (root / "encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp").read_text()
+dma = (root / "encore-active/eden-core/src/video_core/engines/maxwell_dma.cpp").read_text()
 
 dtor = "    ~MemoryManager();\n"
 api = """    ~MemoryManager();
@@ -71,4 +72,14 @@ assert "if (native && (!channel_state->initialized || !channel_state->memory_man
 # Every reviewed block-linear writer consumes the same per-address-space flag.
 assert i2m.count("memory_manager.UsesNativeTiling()") == 1
 assert blitter.count("memory_manager.UsesNativeTiling()") == 2
-print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2")
+# The active B0B5 CPU fallback must use the authenticated channel's GOB
+# layout on every tiled source/destination, including remaps and aliases.
+# Missing this changes Switch 2's 16-byte intra-GOB ordering while NS1 is
+# supposed to keep the old default.
+import re
+dma_calls = re.findall(r"(?m)^\\s*(?:Unswizzle|Swizzle)Subrect\\([\\s\\S]*?\\);", dma)
+assert len(dma_calls) == 9, len(dma_calls)
+for call in dma_calls:
+    assert call.count("memory_manager.UsesNativeTiling()") == 1, call
+assert dma.count("memory_manager.UsesNativeTiling()") == 9
+print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9")
