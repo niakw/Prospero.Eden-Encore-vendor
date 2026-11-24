@@ -265,6 +265,8 @@ assert shared_destroy.index("NativeGpuProcessRegistry::Instance().RemoveVm(") < 
 # Native NVDRV descriptors keep the ABI generation they were opened under.
 # GSV teardown invalidates that generation and retires imported VM ownership;
 # stale Ampere FDs must fail closed instead of falling through to Maxwell.
+nvhost_hdr=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
+nvhost_cpp=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
 for token in ("std::optional<u64> m_native_generation{};",
               "bool m_native_vm_retired{};",
               "void RetireNativeVm(u32 id);",
