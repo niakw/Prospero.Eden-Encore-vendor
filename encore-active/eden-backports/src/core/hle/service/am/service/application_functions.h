@@ -6,6 +6,9 @@
 
 #pragma once
 
+#include <mutex>
+#include <vector>
+
 #include "common/uuid.h"
 #include "core/hle/service/am/am_types.h"
 #include "core/hle/service/cmif_types.h"
@@ -94,8 +97,25 @@ private:
     Result Unknown330(Out<u8> out);
     Result PrepareForJit();
 
+    struct CopyrightImageState {
+        s32 x{};
+        s32 y{};
+        s32 width{};
+        s32 height{};
+        WindowOriginMode origin_mode{};
+        std::vector<u8> data;
+    };
+
     const std::shared_ptr<Applet> m_applet;
     std::unique_ptr<PlayTime::PlayTimeManager> m_play_time_manager;
+
+    std::mutex m_copyright_mutex;
+    bool m_copyright_framebuffer_initialized{};
+    bool m_copyright_visible{true};
+    s32 m_copyright_framebuffer_width{};
+    s32 m_copyright_framebuffer_height{};
+    u64 m_copyright_transfer_memory_size{};
+    CopyrightImageState m_copyright_image{};
 };
 
 } // namespace Service::AM
