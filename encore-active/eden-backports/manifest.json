@@ -321,7 +321,7 @@
       "upstream": "c88bda026ea851e357db1fffd1226d9f07a8fc438b87af0e5e20bf9b5c5aa57c"
     },
     "src/core/hle/service/btm/btm.cpp": {
-      "active": "1b784665fd697eef4755db38a43dc0af2592d4be0ab113c040aa1b3d8863fdff",
+      "active": "fb866c889578be7356ac6205aa404d4b0b3951532f55933ccd5fc90c3077dd5f",
       "bytes": 12377,
       "upstream": "4240de5d0df8e51aa87eda53f0f5dfcb1a3998f7e6d801f3101608679045ab3c"
     },
