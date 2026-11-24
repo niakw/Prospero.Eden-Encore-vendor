@@ -21,6 +21,7 @@ public:
     ~IApplicationCreator() override;
 
 private:
+    Result PopLaunchRequestedApplication(Out<SharedPointer<IApplicationAccessor>>);
     Result CreateApplication(Out<SharedPointer<IApplicationAccessor>>, u64 application_id);
     Result CreateSystemApplication(Out<SharedPointer<IApplicationAccessor>>, u64 application_id);
     Result RejectDebugOnlyCommand();

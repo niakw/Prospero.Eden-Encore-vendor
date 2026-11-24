@@ -121,8 +121,8 @@
       "upstream": "1539f19a7a0103163c7226cd647ec9b56e627482095a3becc5efad836404f83c"
     },
     "src/core/hle/service/am/service/application_creator.cpp": {
-      "active": "25cb7bca4c5eaaa728b008543071d22d324b71876ffef2dcb802db5d79ff6048",
-      "bytes": 4491,
+      "active": "138ede8f39d1221f637a860456ab0021b312f516d3d852223575d8e9525fd7d4",
+      "bytes": 4867,
       "upstream": "dd746db0cab99a8732fc584c549f22a62fe66fe7e6f299e30761fcbbc2f0e0ee"
     },
     "src/core/hle/service/am/service/library_applet_accessor.cpp": {
@@ -551,8 +551,8 @@
       "upstream": "3a1927c8ca22518c8f6ec72f1617d70730a29e8ab8693c162ce8bbec03b1cae5"
     },
     "src/core/hle/service/am/service/application_creator.h": {
-      "active": "d061e214adee7289121075ec6b72c43497a9313af6f7796a33ae51d5192312e3",
-      "bytes": 919,
+      "active": "edd331d122633f84eddef4920680fed6ae24ff9bc2f09dd2882747ad3bdd7cc8",
+      "bytes": 1003,
       "upstream": "eadd2284bba5c7e5601222f2c2d3ca3ee8053ce710de52db2e22e8d8e8bbaf45"
     },
     "src/core/hle/service/am/service/overlay_functions.cpp": {

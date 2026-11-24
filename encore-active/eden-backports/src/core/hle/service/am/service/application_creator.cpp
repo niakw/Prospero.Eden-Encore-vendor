@@ -57,7 +57,7 @@ IApplicationCreator::IApplicationCreator(Core::System& system_, WindowSystem& wi
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, D<&IApplicationCreator::CreateApplication>, "CreateApplication"},
-        {1, nullptr, "PopLaunchRequestedApplication"},
+        {1, D<&IApplicationCreator::PopLaunchRequestedApplication>, "PopLaunchRequestedApplication"},
         {10, D<&IApplicationCreator::CreateSystemApplication>, "CreateSystemApplication"},
         {100, D<&IApplicationCreator::RejectDebugOnlyCommand>, "PopFloatingApplicationForDevelopment"},
     };
@@ -70,6 +70,14 @@ IApplicationCreator::~IApplicationCreator() = default;
 
 Result IApplicationCreator::RejectDebugOnlyCommand() {
     LOG_WARNING(Service_AM, "Rejected application-creator development command on release runtime");
+    R_RETURN(ResultUnknown);
+}
+
+Result IApplicationCreator::PopLaunchRequestedApplication(
+    Out<SharedPointer<IApplicationAccessor>> out_application_accessor) {
+    (void)out_application_accessor;
+    LOG_WARNING(Service_AM,
+                "PopLaunchRequestedApplication unavailable: no AM launch-request queue is modeled");
     R_RETURN(ResultUnknown);
 }
 
