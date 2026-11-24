@@ -1434,6 +1434,9 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         size_t built{};
         size_t valid{};
         bool has_loaded{};
+#ifdef PS5_NATIVE
+        std::exception_ptr worker_error;
+#endif
         // ENCORE_PS5_CACHE_DIAG_BEGIN
 #ifdef PS5_NATIVE
         // Updated only by the disk reader; the main thread reads after drain.
@@ -1450,6 +1453,16 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     }
     const auto schedule_prewarm = [&](Common::UniqueFunction<void> build) {
 #ifdef PS5_NATIVE
+        // ThreadWorker does not catch task exceptions. Keep the first failure
+        // until all accepted jobs have finished borrowing this loading state.
+        build = Common::UniqueFunction<void>{[&state, task = std::move(build)]() mutable {
+            try {
+                task();
+            } catch (...) {
+                std::scoped_lock lock{state.mutex};
+                if (!state.worker_error) state.worker_error = std::current_exception();
+            }
+        }};
         if (prefer_recent_cache) {
             // No driver work while scanning the file. Move-only jobs own all
             // shader environments and cannot outlive this loading function.
@@ -1626,6 +1639,9 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     // must complete before their borrowed stack state can be destroyed.
     workers.WaitForRequests();
     prewarm_drain.joined = true;
+    // Propagate the original failure on the loading owner, not std::terminate
+    // on a worker. Never advertise a partial failed cache as a successful load.
+    if (state.worker_error) std::rethrow_exception(state.worker_error);
 #else
     workers.WaitForRequests(stop_loading);
 #endif
