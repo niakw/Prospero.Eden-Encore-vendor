@@ -85,33 +85,33 @@ public:
         static const FunctionInfo functions[] = {
             {0, D<&IManagerForSystemService::CheckAvailability>, "CheckAvailability"},
             {1, D<&IManagerForSystemService::GetAccountId>, "GetAccountId"},
-            {2, nullptr, "EnsureIdTokenCacheAsync"},
+            {2, &IManagerForSystemService::RejectUnavailableNintendoAccount, "EnsureIdTokenCacheAsync"},
             {3, D<&IManagerForSystemService::LoadIdTokenCacheDeprecated>, "LoadIdTokenCacheDeprecated"}, // 19.0.0+
             {4, D<&IManagerForSystemService::LoadIdTokenCache>, "LoadIdTokenCache"}, // 19.0.0+
-            {100, nullptr, "SetSystemProgramIdentification"},
-            {101, nullptr, "RefreshNotificationTokenAsync"}, // 7.0.0+
-            {110, nullptr, "GetServiceEntryRequirementCache"}, // 4.0.0+
-            {111, nullptr, "InvalidateServiceEntryRequirementCache"}, // 4.0.0+
-            {112, nullptr, "InvalidateTokenCache"}, // 4.0.0 - 6.2.0
-            {113, nullptr, "GetServiceEntryRequirementCacheForOnlinePlay"}, // 6.1.0+
-            {120, nullptr, "GetNintendoAccountId"},
-            {121, nullptr, "CalculateNintendoAccountAuthenticationFingerprint"}, // 9.0.0+
-            {130, nullptr, "GetNintendoAccountUserResourceCache"},
-            {131, nullptr, "RefreshNintendoAccountUserResourceCacheAsync"},
-            {132, nullptr, "RefreshNintendoAccountUserResourceCacheAsyncIfSecondsElapsed"},
-            {133, nullptr, "GetNintendoAccountVerificationUrlCache"}, // 9.0.0+
-            {134, nullptr, "RefreshNintendoAccountVerificationUrlCache"}, // 9.0.0+
-            {135, nullptr, "RefreshNintendoAccountVerificationUrlCacheAsyncIfSecondsElapsed"}, // 9.0.0+
-            {136, nullptr, "GetNintendoAccountUserResourceCache"}, // 19.0.0+
-            {140, nullptr, "GetNetworkServiceLicenseCache"}, // 5.0.0+
-            {141, nullptr, "RefreshNetworkServiceLicenseCacheAsync"}, // 5.0.0+
-            {142, nullptr, "RefreshNetworkServiceLicenseCacheAsyncIfSecondsElapsed"}, // 5.0.0+
+            {100, &IManagerForSystemService::RejectUnavailableNintendoAccount, "SetSystemProgramIdentification"},
+            {101, &IManagerForSystemService::RejectUnavailableNintendoAccount, "RefreshNotificationTokenAsync"}, // 7.0.0+
+            {110, &IManagerForSystemService::RejectUnavailableNintendoAccount, "GetServiceEntryRequirementCache"}, // 4.0.0+
+            {111, &IManagerForSystemService::RejectUnavailableNintendoAccount, "InvalidateServiceEntryRequirementCache"}, // 4.0.0+
+            {112, &IManagerForSystemService::RejectUnavailableNintendoAccount, "InvalidateTokenCache"}, // 4.0.0 - 6.2.0
+            {113, &IManagerForSystemService::RejectUnavailableNintendoAccount, "GetServiceEntryRequirementCacheForOnlinePlay"}, // 6.1.0+
+            {120, &IManagerForSystemService::RejectUnavailableNintendoAccount, "GetNintendoAccountId"},
+            {121, &IManagerForSystemService::RejectUnavailableNintendoAccount, "CalculateNintendoAccountAuthenticationFingerprint"}, // 9.0.0+
+            {130, &IManagerForSystemService::RejectUnavailableNintendoAccount, "GetNintendoAccountUserResourceCache"},
+            {131, &IManagerForSystemService::RejectUnavailableNintendoAccount, "RefreshNintendoAccountUserResourceCacheAsync"},
+            {132, &IManagerForSystemService::RejectUnavailableNintendoAccount, "RefreshNintendoAccountUserResourceCacheAsyncIfSecondsElapsed"},
+            {133, &IManagerForSystemService::RejectUnavailableNintendoAccount, "GetNintendoAccountVerificationUrlCache"}, // 9.0.0+
+            {134, &IManagerForSystemService::RejectUnavailableNintendoAccount, "RefreshNintendoAccountVerificationUrlCache"}, // 9.0.0+
+            {135, &IManagerForSystemService::RejectUnavailableNintendoAccount, "RefreshNintendoAccountVerificationUrlCacheAsyncIfSecondsElapsed"}, // 9.0.0+
+            {136, &IManagerForSystemService::RejectUnavailableNintendoAccount, "GetNintendoAccountUserResourceCache"}, // 19.0.0+
+            {140, &IManagerForSystemService::RejectUnavailableNintendoAccount, "GetNetworkServiceLicenseCache"}, // 5.0.0+
+            {141, &IManagerForSystemService::RejectUnavailableNintendoAccount, "RefreshNetworkServiceLicenseCacheAsync"}, // 5.0.0+
+            {142, &IManagerForSystemService::RejectUnavailableNintendoAccount, "RefreshNetworkServiceLicenseCacheAsyncIfSecondsElapsed"}, // 5.0.0+
             {143, D<&IManagerForSystemService::GetNetworkServiceLicenseCacheEx>, "GetNetworkServiceLicenseCacheEx"}, // 15.0.0+
-            {150, nullptr, "CreateAuthorizationRequest"},
-            {160, nullptr, "RequiresUpdateNetworkServiceAccountIdTokenCache"},
-            {161, nullptr, "RequireReauthenticationOfNetworkServiceAccount"},
-            {170, nullptr, "CreateDeviceHistoryRequest"}, // 17.0.0+
-            {180, nullptr, "GetRequestForNintendoAccountReauthentication"} // 18.0.0+
+            {150, &IManagerForSystemService::RejectUnavailableNintendoAccount, "CreateAuthorizationRequest"},
+            {160, &IManagerForSystemService::RejectUnavailableNintendoAccount, "RequiresUpdateNetworkServiceAccountIdTokenCache"},
+            {161, &IManagerForSystemService::RejectUnavailableNintendoAccount, "RequireReauthenticationOfNetworkServiceAccount"},
+            {170, &IManagerForSystemService::RejectUnavailableNintendoAccount, "CreateDeviceHistoryRequest"}, // 17.0.0+
+            {180, &IManagerForSystemService::RejectUnavailableNintendoAccount, "GetRequestForNintendoAccountReauthentication"} // 18.0.0+
         };
         // clang-format on
 
@@ -150,6 +150,13 @@ private:
     }
 
     Common::UUID account_id;
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected IManagerForSystemService Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 // 3.0.0+
@@ -159,24 +166,31 @@ public:
         : ServiceFramework{system_, "IFloatingRegistrationRequest"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "GetSessionId"},
-            {12, nullptr, "GetAccountId"},
-            {13, nullptr, "GetLinkedNintendoAccountId"},
-            {14, nullptr, "GetNickname"},
-            {15, nullptr, "GetProfileImage"},
-            {16, nullptr, "GetProfileLargeImage"}, // 18.0.0+
-            {21, nullptr, "LoadIdTokenCache"},
-            {100, nullptr, "RegisterUser"}, // [1.0.0-3.0.2] RegisterAsync
-            {101, nullptr, "RegisterUserWithUid"}, // [1.0.0-3.0.2] RegisterWithUidAsync
-            {102, nullptr, "RegisterNetworkServiceAccountAsync"}, // 4.0.0+
-            {103, nullptr, "RegisterNetworkServiceAccountWithUidAsync"}, // 4.0.0+
-            {110, nullptr, "SetSystemProgramIdentification"},
-            {111, nullptr, "EnsureIdTokenCacheAsync"},
+            {0, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "GetSessionId"},
+            {12, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "GetAccountId"},
+            {13, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "GetLinkedNintendoAccountId"},
+            {14, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "GetNickname"},
+            {15, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "GetProfileImage"},
+            {16, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "GetProfileLargeImage"}, // 18.0.0+
+            {21, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "LoadIdTokenCache"},
+            {100, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "RegisterUser"}, // [1.0.0-3.0.2] RegisterAsync
+            {101, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "RegisterUserWithUid"}, // [1.0.0-3.0.2] RegisterWithUidAsync
+            {102, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "RegisterNetworkServiceAccountAsync"}, // 4.0.0+
+            {103, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "RegisterNetworkServiceAccountWithUidAsync"}, // 4.0.0+
+            {110, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "SetSystemProgramIdentification"},
+            {111, &IFloatingRegistrationRequest::RejectUnavailableNintendoAccount, "EnsureIdTokenCacheAsync"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected IFloatingRegistrationRequest Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IAdministrator final : public ServiceFramework<IAdministrator> {
@@ -185,54 +199,54 @@ public:
         : ServiceFramework{system_, "IAdministrator"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "CheckAvailability"},
-            {1, nullptr, "GetAccountId"},
-            {2, nullptr, "EnsureIdTokenCacheAsync"},
-            {3, nullptr, "LoadIdTokenCache"},
-            {100, nullptr, "SetSystemProgramIdentification"},
-            {101, nullptr, "RefreshNotificationTokenAsync"}, // 7.0.0+
-            {110, nullptr, "GetServiceEntryRequirementCache"}, // 4.0.0+
-            {111, nullptr, "InvalidateServiceEntryRequirementCache"}, // 4.0.0+
-            {112, nullptr, "InvalidateTokenCache"}, // 4.0.0 - 6.2.0
-            {113, nullptr, "GetServiceEntryRequirementCacheForOnlinePlay"}, // 6.1.0+
-            {120, nullptr, "GetNintendoAccountId"},
-            {121, nullptr, "CalculateNintendoAccountAuthenticationFingerprint"}, // 9.0.0+
-            {130, nullptr, "GetNintendoAccountUserResourceCache"},
-            {131, nullptr, "RefreshNintendoAccountUserResourceCacheAsync"},
-            {132, nullptr, "RefreshNintendoAccountUserResourceCacheAsyncIfSecondsElapsed"},
-            {133, nullptr, "GetNintendoAccountVerificationUrlCache"}, // 9.0.0+
-            {134, nullptr, "RefreshNintendoAccountVerificationUrlCacheAsync"}, // 9.0.0+
-            {135, nullptr, "RefreshNintendoAccountVerificationUrlCacheAsyncIfSecondsElapsed"}, // 9.0.0+
-            {140, nullptr, "GetNetworkServiceLicenseCache"}, // 5.0.0+
-            {141, nullptr, "RefreshNetworkServiceLicenseCacheAsync"}, // 5.0.0+
-            {142, nullptr, "RefreshNetworkServiceLicenseCacheAsyncIfSecondsElapsed"}, // 5.0.0+
-            {143, nullptr, "GetNetworkServiceLicenseCacheEx"},
-            {150, nullptr, "CreateAuthorizationRequest"},
-            {160, nullptr, "RequiresUpdateNetworkServiceAccountIdTokenCache"},
-            {161, nullptr, "RequireReauthenticationOfNetworkServiceAccount"},
-            {170, nullptr, "CreateDeviceHistoryRequest"}, // 17.0.0+
-            {180, nullptr, "GetRequestForNintendoAccountReauthentication"}, // 18.0.0+
-            {200, nullptr, "IsRegistered"},
-            {201, nullptr, "RegisterAsync"},
-            {202, nullptr, "UnregisterAsync"},
-            {203, nullptr, "DeleteRegistrationInfoLocally"},
-            {220, nullptr, "SynchronizeProfileAsync"},
-            {221, nullptr, "UploadProfileAsync"},
-            {222, nullptr, "SynchronizaProfileAsyncIfSecondsElapsed"},
+            {0, &IAdministrator::RejectUnavailableNintendoAccount, "CheckAvailability"},
+            {1, &IAdministrator::RejectUnavailableNintendoAccount, "GetAccountId"},
+            {2, &IAdministrator::RejectUnavailableNintendoAccount, "EnsureIdTokenCacheAsync"},
+            {3, &IAdministrator::RejectUnavailableNintendoAccount, "LoadIdTokenCache"},
+            {100, &IAdministrator::RejectUnavailableNintendoAccount, "SetSystemProgramIdentification"},
+            {101, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshNotificationTokenAsync"}, // 7.0.0+
+            {110, &IAdministrator::RejectUnavailableNintendoAccount, "GetServiceEntryRequirementCache"}, // 4.0.0+
+            {111, &IAdministrator::RejectUnavailableNintendoAccount, "InvalidateServiceEntryRequirementCache"}, // 4.0.0+
+            {112, &IAdministrator::RejectUnavailableNintendoAccount, "InvalidateTokenCache"}, // 4.0.0 - 6.2.0
+            {113, &IAdministrator::RejectUnavailableNintendoAccount, "GetServiceEntryRequirementCacheForOnlinePlay"}, // 6.1.0+
+            {120, &IAdministrator::RejectUnavailableNintendoAccount, "GetNintendoAccountId"},
+            {121, &IAdministrator::RejectUnavailableNintendoAccount, "CalculateNintendoAccountAuthenticationFingerprint"}, // 9.0.0+
+            {130, &IAdministrator::RejectUnavailableNintendoAccount, "GetNintendoAccountUserResourceCache"},
+            {131, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshNintendoAccountUserResourceCacheAsync"},
+            {132, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshNintendoAccountUserResourceCacheAsyncIfSecondsElapsed"},
+            {133, &IAdministrator::RejectUnavailableNintendoAccount, "GetNintendoAccountVerificationUrlCache"}, // 9.0.0+
+            {134, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshNintendoAccountVerificationUrlCacheAsync"}, // 9.0.0+
+            {135, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshNintendoAccountVerificationUrlCacheAsyncIfSecondsElapsed"}, // 9.0.0+
+            {140, &IAdministrator::RejectUnavailableNintendoAccount, "GetNetworkServiceLicenseCache"}, // 5.0.0+
+            {141, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshNetworkServiceLicenseCacheAsync"}, // 5.0.0+
+            {142, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshNetworkServiceLicenseCacheAsyncIfSecondsElapsed"}, // 5.0.0+
+            {143, &IAdministrator::RejectUnavailableNintendoAccount, "GetNetworkServiceLicenseCacheEx"},
+            {150, &IAdministrator::RejectUnavailableNintendoAccount, "CreateAuthorizationRequest"},
+            {160, &IAdministrator::RejectUnavailableNintendoAccount, "RequiresUpdateNetworkServiceAccountIdTokenCache"},
+            {161, &IAdministrator::RejectUnavailableNintendoAccount, "RequireReauthenticationOfNetworkServiceAccount"},
+            {170, &IAdministrator::RejectUnavailableNintendoAccount, "CreateDeviceHistoryRequest"}, // 17.0.0+
+            {180, &IAdministrator::RejectUnavailableNintendoAccount, "GetRequestForNintendoAccountReauthentication"}, // 18.0.0+
+            {200, &IAdministrator::RejectUnavailableNintendoAccount, "IsRegistered"},
+            {201, &IAdministrator::RejectUnavailableNintendoAccount, "RegisterAsync"},
+            {202, &IAdministrator::RejectUnavailableNintendoAccount, "UnregisterAsync"},
+            {203, &IAdministrator::RejectUnavailableNintendoAccount, "DeleteRegistrationInfoLocally"},
+            {220, &IAdministrator::RejectUnavailableNintendoAccount, "SynchronizeProfileAsync"},
+            {221, &IAdministrator::RejectUnavailableNintendoAccount, "UploadProfileAsync"},
+            {222, &IAdministrator::RejectUnavailableNintendoAccount, "SynchronizaProfileAsyncIfSecondsElapsed"},
             {250, &IAdministrator::IsLinkedWithNintendoAccount, "IsLinkedWithNintendoAccount"},
-            {251, nullptr, "CreateProcedureToLinkWithNintendoAccount"},
-            {252, nullptr, "ResumeProcedureToLinkWithNintendoAccount"},
-            {255, nullptr, "CreateProcedureToUpdateLinkageStateOfNintendoAccount"},
-            {256, nullptr, "ResumeProcedureToUpdateLinkageStateOfNintendoAccount"},
-            {260, nullptr, "CreateProcedureToLinkNnidWithNintendoAccount"}, // 3.0.0+
-            {261, nullptr, "ResumeProcedureToLinkNnidWithNintendoAccount"}, // 3.0.0+
-            {280, nullptr, "ProxyProcedureToAcquireApplicationAuthorizationForNintendoAccount"},
-            {290, nullptr, "GetRequestForNintendoAccountUserResourceView"}, // 8.0.0+
-            {300, nullptr, "TryRecoverNintendoAccountUserStateAsync"}, // 6.0.0+
-            {400, nullptr, "IsServiceEntryRequirementCacheRefreshRequiredForOnlinePlay"}, // 6.1.0+
-            {401, nullptr, "RefreshServiceEntryRequirementCacheForOnlinePlayAsync"}, // 6.1.0+
-            {900, nullptr, "GetAuthenticationInfoForWin"}, // 9.0.0+
-            {901, nullptr, "ImportAsyncForWin"}, // 9.0.0+
+            {251, &IAdministrator::RejectUnavailableNintendoAccount, "CreateProcedureToLinkWithNintendoAccount"},
+            {252, &IAdministrator::RejectUnavailableNintendoAccount, "ResumeProcedureToLinkWithNintendoAccount"},
+            {255, &IAdministrator::RejectUnavailableNintendoAccount, "CreateProcedureToUpdateLinkageStateOfNintendoAccount"},
+            {256, &IAdministrator::RejectUnavailableNintendoAccount, "ResumeProcedureToUpdateLinkageStateOfNintendoAccount"},
+            {260, &IAdministrator::RejectUnavailableNintendoAccount, "CreateProcedureToLinkNnidWithNintendoAccount"}, // 3.0.0+
+            {261, &IAdministrator::RejectUnavailableNintendoAccount, "ResumeProcedureToLinkNnidWithNintendoAccount"}, // 3.0.0+
+            {280, &IAdministrator::RejectUnavailableNintendoAccount, "ProxyProcedureToAcquireApplicationAuthorizationForNintendoAccount"},
+            {290, &IAdministrator::RejectUnavailableNintendoAccount, "GetRequestForNintendoAccountUserResourceView"}, // 8.0.0+
+            {300, &IAdministrator::RejectUnavailableNintendoAccount, "TryRecoverNintendoAccountUserStateAsync"}, // 6.0.0+
+            {400, &IAdministrator::RejectUnavailableNintendoAccount, "IsServiceEntryRequirementCacheRefreshRequiredForOnlinePlay"}, // 6.1.0+
+            {401, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshServiceEntryRequirementCacheForOnlinePlayAsync"}, // 6.1.0+
+            {900, &IAdministrator::RejectUnavailableNintendoAccount, "GetAuthenticationInfoForWin"}, // 9.0.0+
+            {901, &IAdministrator::RejectUnavailableNintendoAccount, "ImportAsyncForWin"}, // 9.0.0+
             {997, &IAdministrator::RejectDebugOnlyCommand, "DebugUnlinkNintendoAccountAsync"},
             {998, &IAdministrator::RejectDebugOnlyCommand, "DebugSetAvailabilityErrorDetail"},
         };
@@ -253,6 +267,13 @@ private:
         rb.Push(ResultSuccess);
         rb.Push(false);
     }
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected IAdministrator Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IAuthorizationRequest final : public ServiceFramework<IAuthorizationRequest> {
@@ -261,17 +282,24 @@ public:
         : ServiceFramework{system_, "IAuthorizationRequest"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "GetSessionId"},
-            {10, nullptr, "InvokeWithoutInteractionAsync"},
-            {19, nullptr, "IsAuthorized"},
-            {20, nullptr, "GetAuthorizationCode"},
-            {21, nullptr, "GetIdToken"},
-            {22, nullptr, "GetState"},
+            {0, &IAuthorizationRequest::RejectUnavailableNintendoAccount, "GetSessionId"},
+            {10, &IAuthorizationRequest::RejectUnavailableNintendoAccount, "InvokeWithoutInteractionAsync"},
+            {19, &IAuthorizationRequest::RejectUnavailableNintendoAccount, "IsAuthorized"},
+            {20, &IAuthorizationRequest::RejectUnavailableNintendoAccount, "GetAuthorizationCode"},
+            {21, &IAuthorizationRequest::RejectUnavailableNintendoAccount, "GetIdToken"},
+            {22, &IAuthorizationRequest::RejectUnavailableNintendoAccount, "GetState"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected IAuthorizationRequest Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IOAuthProcedure final : public ServiceFramework<IOAuthProcedure> {
@@ -280,16 +308,23 @@ public:
         : ServiceFramework{system_, "IOAuthProcedure"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "PrepareAsync"},
-            {1, nullptr, "GetRequest"},
-            {2, nullptr, "ApplyResponse"},
-            {3, nullptr, "ApplyResponseAsync"},
-            {10, nullptr, "Suspend"},
+            {0, &IOAuthProcedure::RejectUnavailableNintendoAccount, "PrepareAsync"},
+            {1, &IOAuthProcedure::RejectUnavailableNintendoAccount, "GetRequest"},
+            {2, &IOAuthProcedure::RejectUnavailableNintendoAccount, "ApplyResponse"},
+            {3, &IOAuthProcedure::RejectUnavailableNintendoAccount, "ApplyResponseAsync"},
+            {10, &IOAuthProcedure::RejectUnavailableNintendoAccount, "Suspend"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected IOAuthProcedure Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 // 3.0.0+
@@ -299,21 +334,28 @@ public:
         : ServiceFramework{system_, "IOAuthProcedureForExternalNsa"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "PrepareAsync"},
-            {1, nullptr, "GetRequest"},
-            {2, nullptr, "ApplyResponse"},
-            {3, nullptr, "ApplyResponseAsync"},
-            {10, nullptr, "Suspend"},
-            {100, nullptr, "GetAccountId"},
-            {101, nullptr, "GetLinkedNintendoAccountId"},
-            {102, nullptr, "GetNickname"},
-            {103, nullptr, "GetProfileImage"},
-            {104, nullptr, "GetProfileLargeImage"} // 18.0.0+
+            {0, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "PrepareAsync"},
+            {1, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "GetRequest"},
+            {2, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "ApplyResponse"},
+            {3, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "ApplyResponseAsync"},
+            {10, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "Suspend"},
+            {100, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "GetAccountId"},
+            {101, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "GetLinkedNintendoAccountId"},
+            {102, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "GetNickname"},
+            {103, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "GetProfileImage"},
+            {104, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "GetProfileLargeImage"} // 18.0.0+
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected IOAuthProcedureForExternalNsa Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class IOAuthProcedureForNintendoAccountLinkage final
@@ -323,24 +365,31 @@ public:
         : ServiceFramework{system_, "IOAuthProcedureForNintendoAccountLinkage"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "PrepareAsync"},
-            {1, nullptr, "GetRequest"},
-            {2, nullptr, "ApplyResponse"},
-            {3, nullptr, "ApplyResponseAsync"},
-            {10, nullptr, "Suspend"},
-            {100, nullptr, "GetRequestWithTheme"},
-            {101, nullptr, "IsNetworkServiceAccountReplaced"},
-            {199, nullptr, "GetUrlForIntroductionOfExtraMembership"}, // 2.0.0 - 5.1.0
-            {200, nullptr, "ApplyAsyncWithAuthorizedToken"},
-            {210, nullptr, "IsProfileAvailable"}, // 17.0.0+
-            {220, nullptr, "RegisterUserAsyncWithoutProfile"}, // 17.0.0+
-            {221, nullptr, "RegisterUserWithProfileAsync"}, // 17.0.0+
-            {230, nullptr, "RegisterUserWithLargeImageProfileAsync"}, // 18.0.0+
+            {0, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "PrepareAsync"},
+            {1, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "GetRequest"},
+            {2, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "ApplyResponse"},
+            {3, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "ApplyResponseAsync"},
+            {10, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "Suspend"},
+            {100, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "GetRequestWithTheme"},
+            {101, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "IsNetworkServiceAccountReplaced"},
+            {199, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "GetUrlForIntroductionOfExtraMembership"}, // 2.0.0 - 5.1.0
+            {200, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "ApplyAsyncWithAuthorizedToken"},
+            {210, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "IsProfileAvailable"}, // 17.0.0+
+            {220, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "RegisterUserAsyncWithoutProfile"}, // 17.0.0+
+            {221, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "RegisterUserWithProfileAsync"}, // 17.0.0+
+            {230, &IOAuthProcedureForNintendoAccountLinkage::RejectUnavailableNintendoAccount, "RegisterUserWithLargeImageProfileAsync"}, // 18.0.0+
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected IOAuthProcedureForNintendoAccountLinkage Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class INotifier final : public ServiceFramework<INotifier> {
@@ -650,19 +699,26 @@ public:
         : ServiceFramework{system_, "IGuestLoginRequest"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "GetSessionId"},
-            {11, nullptr, "Unknown"}, // 1.0.0 - 2.3.0 (the name is blank on Switchbrew)
-            {12, nullptr, "GetAccountId"},
-            {13, nullptr, "GetLinkedNintendoAccountId"},
-            {14, nullptr, "GetNickname"},
-            {15, nullptr, "GetProfileImage"},
-            {16, nullptr, "GetProfileLargeImage"}, // 18.0.0+
-            {21, nullptr, "LoadIdTokenCache"}, // 3.0.0+
+            {0, &IGuestLoginRequest::RejectUnavailableNintendoAccount, "GetSessionId"},
+            {11, &IGuestLoginRequest::RejectUnavailableNintendoAccount, "Unknown"}, // 1.0.0 - 2.3.0 (the name is blank on Switchbrew)
+            {12, &IGuestLoginRequest::RejectUnavailableNintendoAccount, "GetAccountId"},
+            {13, &IGuestLoginRequest::RejectUnavailableNintendoAccount, "GetLinkedNintendoAccountId"},
+            {14, &IGuestLoginRequest::RejectUnavailableNintendoAccount, "GetNickname"},
+            {15, &IGuestLoginRequest::RejectUnavailableNintendoAccount, "GetProfileImage"},
+            {16, &IGuestLoginRequest::RejectUnavailableNintendoAccount, "GetProfileLargeImage"}, // 18.0.0+
+            {21, &IGuestLoginRequest::RejectUnavailableNintendoAccount, "LoadIdTokenCache"}, // 3.0.0+
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected IGuestLoginRequest Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class EnsureTokenIdCacheAsyncInterface final : public IAsyncContext {
@@ -796,16 +852,23 @@ public:
         : ServiceFramework{system_, "IAsyncNetworkServiceLicenseKindContext"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "GetSystemEvent"},
-            {1, nullptr, "Cancel"},
-            {2, nullptr, "HasDone"},
-            {3, nullptr, "GetResult"},
-            {4, nullptr, "GetNetworkServiceLicenseKind"},
+            {0, &IAsyncNetworkServiceLicenseKindContext::RejectUnavailableNintendoAccount, "GetSystemEvent"},
+            {1, &IAsyncNetworkServiceLicenseKindContext::RejectUnavailableNintendoAccount, "Cancel"},
+            {2, &IAsyncNetworkServiceLicenseKindContext::RejectUnavailableNintendoAccount, "HasDone"},
+            {3, &IAsyncNetworkServiceLicenseKindContext::RejectUnavailableNintendoAccount, "GetResult"},
+            {4, &IAsyncNetworkServiceLicenseKindContext::RejectUnavailableNintendoAccount, "GetNetworkServiceLicenseKind"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected IAsyncNetworkServiceLicenseKindContext Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 // 8.0.0+
@@ -816,29 +879,36 @@ public:
         : ServiceFramework{system_, "IOAuthProcedureForUserRegistration"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "PrepareAsync"},
-            {1, nullptr, "GetRequest"},
-            {2, nullptr, "ApplyResponse"},
-            {3, nullptr, "ApplyResponseAsync"},
-            {10, nullptr, "Suspend"},
-            {100, nullptr, "GetAccountId"},
-            {101, nullptr, "GetLinkedNintendoAccountId"},
-            {102, nullptr, "GetNickname"},
-            {103, nullptr, "GetProfileImage"},
-            {104, nullptr, "GetProfileLargeImage"}, // 18.0.0+
-            {110, nullptr, "RegisterUserAsync"},
-            {111, nullptr, "GetUid"},
-            {200, nullptr, "ApplyResponseForUserCreationAsync"}, // 17.0.0+
-            {205, nullptr, "SuspendAfterApplyResponse"}, // 17.0.0+
-            {210, nullptr, "IsProfileAvailable"}, // 17.0.0+
-            {220, nullptr, "RegisterUserAsyncWithoutProfile"}, // 17.0.0+
-            {221, nullptr, "RegisterUserWithProfileAsync"}, // 17.0.0+
-            {230, nullptr, "RegisterUserWithLargeImageProfileAsync"} // 18.0.0+
+            {0, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "PrepareAsync"},
+            {1, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "GetRequest"},
+            {2, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "ApplyResponse"},
+            {3, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "ApplyResponseAsync"},
+            {10, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "Suspend"},
+            {100, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "GetAccountId"},
+            {101, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "GetLinkedNintendoAccountId"},
+            {102, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "GetNickname"},
+            {103, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "GetProfileImage"},
+            {104, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "GetProfileLargeImage"}, // 18.0.0+
+            {110, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "RegisterUserAsync"},
+            {111, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "GetUid"},
+            {200, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "ApplyResponseForUserCreationAsync"}, // 17.0.0+
+            {205, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "SuspendAfterApplyResponse"}, // 17.0.0+
+            {210, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "IsProfileAvailable"}, // 17.0.0+
+            {220, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "RegisterUserAsyncWithoutProfile"}, // 17.0.0+
+            {221, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "RegisterUserWithProfileAsync"}, // 17.0.0+
+            {230, &IOAuthProcedureForUserRegistration::RejectUnavailableNintendoAccount, "RegisterUserWithLargeImageProfileAsync"} // 18.0.0+
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected IOAuthProcedureForUserRegistration Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class DAUTH_O final : public ServiceFramework<DAUTH_O> {
@@ -846,24 +916,31 @@ public:
     explicit DAUTH_O(Core::System& system_, Common::UUID) : ServiceFramework{system_, "dauth:o"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "EnsureAuthenticationTokenCacheAsync"},
-            {1, nullptr, "LoadAuthenticationTokenCache"},
-            {2, nullptr, "InvalidateAuthenticationTokenCache"},
-            {3, nullptr, "IsDeviceAuthenticationTokenCacheAvailable"},
-            {10, nullptr, "EnsureEdgeTokenCacheAsync"},
-            {11, nullptr, "LoadEdgeTokenCache"},
-            {12, nullptr, "InvalidateEdgeTokenCache"},
-            {13, nullptr, "IsEdgeTokenCacheAvailable"},
-            {20, nullptr, "EnsureApplicationAuthenticationCacheAsync"},
-            {21, nullptr, "LoadApplicationAuthenticationTokenCache"},
-            {22, nullptr, "LoadApplicationNetworkServiceClientConfigCache"},
-            {23, nullptr, "IsApplicationAuthenticationCacheAvailable"},
-            {24, nullptr, "InvalidateApplicationAuthenticationCache"},
+            {0, &DAUTH_O::RejectUnavailableNintendoAccount, "EnsureAuthenticationTokenCacheAsync"},
+            {1, &DAUTH_O::RejectUnavailableNintendoAccount, "LoadAuthenticationTokenCache"},
+            {2, &DAUTH_O::RejectUnavailableNintendoAccount, "InvalidateAuthenticationTokenCache"},
+            {3, &DAUTH_O::RejectUnavailableNintendoAccount, "IsDeviceAuthenticationTokenCacheAvailable"},
+            {10, &DAUTH_O::RejectUnavailableNintendoAccount, "EnsureEdgeTokenCacheAsync"},
+            {11, &DAUTH_O::RejectUnavailableNintendoAccount, "LoadEdgeTokenCache"},
+            {12, &DAUTH_O::RejectUnavailableNintendoAccount, "InvalidateEdgeTokenCache"},
+            {13, &DAUTH_O::RejectUnavailableNintendoAccount, "IsEdgeTokenCacheAvailable"},
+            {20, &DAUTH_O::RejectUnavailableNintendoAccount, "EnsureApplicationAuthenticationCacheAsync"},
+            {21, &DAUTH_O::RejectUnavailableNintendoAccount, "LoadApplicationAuthenticationTokenCache"},
+            {22, &DAUTH_O::RejectUnavailableNintendoAccount, "LoadApplicationNetworkServiceClientConfigCache"},
+            {23, &DAUTH_O::RejectUnavailableNintendoAccount, "IsApplicationAuthenticationCacheAvailable"},
+            {24, &DAUTH_O::RejectUnavailableNintendoAccount, "InvalidateApplicationAuthenticationCache"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected DAUTH_O Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 // 6.0.0+
@@ -873,15 +950,22 @@ public:
         : ServiceFramework{system_, "IAsyncResult"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "GetResult"},
-            {1, nullptr, "Cancel"},
-            {2, nullptr, "IsAvailable"},
-            {3, nullptr, "GetSystemEvent"},
+            {0, &IAsyncResult::RejectUnavailableNintendoAccount, "GetResult"},
+            {1, &IAsyncResult::RejectUnavailableNintendoAccount, "Cancel"},
+            {2, &IAsyncResult::RejectUnavailableNintendoAccount, "IsAvailable"},
+            {3, &IAsyncResult::RejectUnavailableNintendoAccount, "GetSystemEvent"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected IAsyncResult Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 void Module::Interface::GetUserCount(HLERequestContext& ctx) {
@@ -1399,16 +1483,23 @@ public:
         : Interface(std::move(module_), std::move(profile_manager_), system_, "acc:aa") {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "EnsureCacheAsync"},
-            {1, nullptr, "LoadCache"},
-            {2, nullptr, "GetDeviceAccountId"},
-            {50, nullptr, "RegisterNotificationTokenAsync"},   // 1.0.0 - 6.2.0
-            {51, nullptr, "UnregisterNotificationTokenAsync"}, // 1.0.0 - 6.2.0
+            {0, &ACC_AA::RejectUnavailableNintendoAccount, "EnsureCacheAsync"},
+            {1, &ACC_AA::RejectUnavailableNintendoAccount, "LoadCache"},
+            {2, &ACC_AA::RejectUnavailableNintendoAccount, "GetDeviceAccountId"},
+            {50, &ACC_AA::RejectUnavailableNintendoAccount, "RegisterNotificationTokenAsync"},   // 1.0.0 - 6.2.0
+            {51, &ACC_AA::RejectUnavailableNintendoAccount, "UnregisterNotificationTokenAsync"}, // 1.0.0 - 6.2.0
         };
         // clang-format on
         RegisterHandlers(functions);
     }
     ~ACC_AA() override = default;
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected ACC_AA Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class ACC_SU final : public Module::Interface {
@@ -1589,30 +1680,37 @@ public:
     explicit DAUTH_0(Core::System& system_) : ServiceFramework{system_, "dauth:0"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "EnsureAuthenticationTokenCacheAsync"},
-            {1, nullptr, "LoadAuthenticationTokenCache"},
-            {2, nullptr, "InvalidateAuthenticationTokenCache"},
-            {3, nullptr, "IsDeviceAuthenticationTokenCacheAvailable"},
-            {10, nullptr, "EnsureEdgeTokenCacheAsync"},
-            {11, nullptr, "LoadEdgeTokenCache"},
-            {12, nullptr, "InvalidateEdgeTokenCache"},
-            {13, nullptr, "IsEdgeTokenCacheAvailable"},
-            {20, nullptr, "EnsureApplicationAuthenticationCacheAsync"},
-            {21, nullptr, "LoadApplicationAuthenticationTokenCache"},
-            {22, nullptr, "LoadApplicationNetworkServiceClientConfigCache"},
-            {23, nullptr, "IsApplicationAuthenticationCacheAvailable"},
-            {24, nullptr, "InvalidateApplicationAuthenticationCache"},
-            {30, nullptr, "EnsureGameCardAuthenticationCacheAsync"},
-            {31, nullptr, "LoadGameCardAuthenticationTokenCache"},
-            {32, nullptr, "IsGameCardAuthenticationCacheAvailable"},
-            {33, nullptr, "InvalidateGameCardAuthenticationCache"},
-            {1000, nullptr, "GetInactiveElicenseUsedEvent"},
-            {9000, nullptr, "ImportVirtualClientCertificate"},
-            {9010, nullptr, "DeleteVirtualClientCertificate"},
+            {0, &DAUTH_0::RejectUnavailableNintendoAccount, "EnsureAuthenticationTokenCacheAsync"},
+            {1, &DAUTH_0::RejectUnavailableNintendoAccount, "LoadAuthenticationTokenCache"},
+            {2, &DAUTH_0::RejectUnavailableNintendoAccount, "InvalidateAuthenticationTokenCache"},
+            {3, &DAUTH_0::RejectUnavailableNintendoAccount, "IsDeviceAuthenticationTokenCacheAvailable"},
+            {10, &DAUTH_0::RejectUnavailableNintendoAccount, "EnsureEdgeTokenCacheAsync"},
+            {11, &DAUTH_0::RejectUnavailableNintendoAccount, "LoadEdgeTokenCache"},
+            {12, &DAUTH_0::RejectUnavailableNintendoAccount, "InvalidateEdgeTokenCache"},
+            {13, &DAUTH_0::RejectUnavailableNintendoAccount, "IsEdgeTokenCacheAvailable"},
+            {20, &DAUTH_0::RejectUnavailableNintendoAccount, "EnsureApplicationAuthenticationCacheAsync"},
+            {21, &DAUTH_0::RejectUnavailableNintendoAccount, "LoadApplicationAuthenticationTokenCache"},
+            {22, &DAUTH_0::RejectUnavailableNintendoAccount, "LoadApplicationNetworkServiceClientConfigCache"},
+            {23, &DAUTH_0::RejectUnavailableNintendoAccount, "IsApplicationAuthenticationCacheAvailable"},
+            {24, &DAUTH_0::RejectUnavailableNintendoAccount, "InvalidateApplicationAuthenticationCache"},
+            {30, &DAUTH_0::RejectUnavailableNintendoAccount, "EnsureGameCardAuthenticationCacheAsync"},
+            {31, &DAUTH_0::RejectUnavailableNintendoAccount, "LoadGameCardAuthenticationTokenCache"},
+            {32, &DAUTH_0::RejectUnavailableNintendoAccount, "IsGameCardAuthenticationCacheAvailable"},
+            {33, &DAUTH_0::RejectUnavailableNintendoAccount, "InvalidateGameCardAuthenticationCache"},
+            {1000, &DAUTH_0::RejectUnavailableNintendoAccount, "GetInactiveElicenseUsedEvent"},
+            {9000, &DAUTH_0::RejectUnavailableNintendoAccount, "ImportVirtualClientCertificate"},
+            {9010, &DAUTH_0::RejectUnavailableNintendoAccount, "DeleteVirtualClientCertificate"},
         };
         // clang-format on
         RegisterHandlers(functions);
     }
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected DAUTH_0 Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class ACC_E final : public Module::Interface {
