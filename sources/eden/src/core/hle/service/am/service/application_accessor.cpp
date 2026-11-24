@@ -46,7 +46,7 @@ IApplicationAccessor::IApplicationAccessor(Core::System& system_, std::shared_pt
         {140, nullptr, "GetDesirableUids"},
         {150, D<&IApplicationAccessor::ReportApplicationExitTimeout>, "ReportApplicationExitTimeout"},
         {160, nullptr, "SetApplicationAttribute"},
-        {170, nullptr, "HasSaveDataAccessPermission"},
+        {170, D<&IApplicationAccessor::HasSaveDataAccessPermission>, "HasSaveDataAccessPermission"},
         {180, D<&IApplicationAccessor::PushToFriendInvitationStorageChannel>, "PushToFriendInvitationStorageChannel"},
         {190, D<&IApplicationAccessor::PushToNotificationStorageChannel>, "PushToNotificationStorageChannel"},
         {200, nullptr, "RequestApplicationSoftReset"},
@@ -195,6 +195,18 @@ Result IApplicationAccessor::GetApplicationLaunchProperty(
     LOG_DEBUG(Service_AM, "called");
     R_RETURN(system.GetARPManager().GetLaunchProperty(out_launch_property.Get(),
                                                       m_applet->program_id));
+}
+
+Result IApplicationAccessor::HasSaveDataAccessPermission(
+    Out<bool> out_has_permission, u64 application_id) {
+    const u64 current_application_id = static_cast<u64>(m_applet->program_id);
+
+    // Horizon guarantees immediate access to the application's own save data. Encore does not
+    // yet model cross-title save-data ACLs, so do not grant access to unrelated title IDs.
+    *out_has_permission = application_id == current_application_id;
+    LOG_DEBUG(Service_AM, "called, application_id={:016X}, current={:016X}, allowed={}",
+              application_id, current_application_id, *out_has_permission);
+    R_SUCCEED();
 }
 
 Result IApplicationAccessor::RequestForApplicationToGetForeground() {

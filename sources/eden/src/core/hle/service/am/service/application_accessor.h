@@ -40,6 +40,7 @@ private:
     Result RequestForApplicationToGetForeground();
     Result CheckRightsEnvironmentAvailable(Out<bool> out_is_available);
     Result GetNsRightsEnvironmentHandle(Out<u64> out_handle);
+    Result HasSaveDataAccessPermission(Out<bool> out_has_permission, u64 application_id);
     Result PushToFriendInvitationStorageChannel(SharedPointer<IStorage> storage);
     Result PushToNotificationStorageChannel(SharedPointer<IStorage> storage);
     Result ReportApplicationExitTimeout();
