@@ -8,6 +8,7 @@
 
 #include <openssl/bio.h>
 #include <openssl/err.h>
+#include <openssl/pem.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
@@ -196,6 +197,66 @@ public:
         }
     }
 
+    Result AddServerPki(u32 certificate_format, std::span<const u8> certificate) override {
+        R_UNLESS(!certificate.empty() &&
+                     certificate.size() <= static_cast<size_t>((std::numeric_limits<int>::max)()),
+                 ResultInvalidCertificateBufferSize);
+
+        if (verify_store == nullptr) {
+            verify_store = X509_STORE_new();
+            if (verify_store == nullptr) {
+                LOG_ERROR(Service_SSL, "X509_STORE_new failed");
+                return CheckOpenSSLErrors();
+            }
+            if (X509_STORE_set_default_paths(verify_store) != 1 ||
+                SSL_set1_verify_cert_store(ssl, verify_store) != 1) {
+                LOG_ERROR(Service_SSL, "failed to install per-connection verification store");
+                return CheckOpenSSLErrors();
+            }
+        }
+
+        const auto add_certificate = [this](X509* x509) -> Result {
+            if (x509 == nullptr || X509_STORE_add_cert(verify_store, x509) != 1) {
+                ERR_clear_error();
+                R_THROW(ResultUnsupportedCertificate);
+            }
+            R_SUCCEED();
+        };
+
+        BIO* const mem =
+            BIO_new_mem_buf(certificate.data(), static_cast<int>(certificate.size()));
+        R_UNLESS(mem != nullptr, ResultInternalError);
+
+        if (certificate_format == 1) {
+            bool imported = false;
+            while (X509* const x509 = PEM_read_bio_X509(mem, nullptr, nullptr, nullptr)) {
+                const Result result = add_certificate(x509);
+                X509_free(x509);
+                if (R_FAILED(result)) {
+                    BIO_free(mem);
+                    R_RETURN(result);
+                }
+                imported = true;
+            }
+            ERR_clear_error();
+            BIO_free(mem);
+            R_UNLESS(imported, ResultUnsupportedCertificate);
+            R_SUCCEED();
+        }
+
+        if (certificate_format == 2) {
+            X509* const x509 = d2i_X509_bio(mem, nullptr);
+            BIO_free(mem);
+            R_UNLESS(x509 != nullptr, ResultUnsupportedCertificate);
+            const Result result = add_certificate(x509);
+            X509_free(x509);
+            R_RETURN(result);
+        }
+
+        BIO_free(mem);
+        R_THROW(ResultUnsupportedCertificate);
+    }
+
     Result DoHandshake() override {
         SSL_set_verify_result(ssl, X509_V_OK);
         const int ret = SSL_do_handshake(ssl);
@@ -313,8 +374,10 @@ public:
     }
 
     ~SSLConnectionBackendOpenSSL() {
-        // this is null-tolerant:
+        // Both are null-tolerant. SSL_set1_verify_cert_store retains its own
+        // reference, while verify_store keeps the backend's reference.
         SSL_free(ssl);
+        X509_STORE_free(verify_store);
     }
 
     static void KeyLogCallback(const SSL* ssl, const char* line) {
@@ -392,6 +455,7 @@ public:
 
     SSL* ssl = nullptr;
     BIO* bio = nullptr;
+    X509_STORE* verify_store = nullptr;
     bool got_read_eof = false;
     bool skip_cert_verification = false;
 

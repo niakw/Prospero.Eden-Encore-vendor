@@ -474,8 +474,8 @@ public:
             {3, &ISslContext::GetConnectionCount, "GetConnectionCount"},
             {4, &ISslContext::ImportServerPki, "ImportServerPki"},
             {5, &ISslContext::ImportClientPki, "ImportClientPki"},
-            {6, nullptr, "RemoveServerPki"},
-            {7, nullptr, "RemoveClientPki"},
+            {6, &ISslContext::RemoveServerPki, "RemoveServerPki"},
+            {7, &ISslContext::RemoveClientPki, "RemoveClientPki"},
             {8, D<&ISslContext::RegisterInternalPki>, "RegisterInternalPki"},
             {9, nullptr, "AddPolicyOid"},
             {10, nullptr, "ImportCrl"},
@@ -493,8 +493,18 @@ public:
     }
 
 private:
+    struct ServerPki {
+        u64 id{};
+        CertificateFormat format{};
+        std::vector<u8> certificate;
+    };
+
+    static constexpr size_t MaximumServerPkiCount = 71;
+
     SslVersion ssl_version;
     std::shared_ptr<SslContextSharedData> shared_data;
+    std::vector<ServerPki> server_pkis;
+    u64 next_server_pki_id{1};
 
     void SetOption(HLERequestContext& ctx) {
         struct Parameters {
@@ -528,12 +538,21 @@ private:
         LOG_WARNING(Service_SSL, "called");
 
         std::unique_ptr<SSLConnectionBackend> backend;
-        const Result res = CreateSSLConnectionBackend(&backend);
+        Result res = CreateSSLConnectionBackend(&backend);
+        if (R_SUCCEEDED(res)) {
+            for (const auto& pki : server_pkis) {
+                res = backend->AddServerPki(static_cast<u32>(pki.format), pki.certificate);
+                if (R_FAILED(res)) {
+                    break;
+                }
+            }
+        }
 
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(res);
         if (res == ResultSuccess) {
-            rb.PushIpcInterface<ISslConnection>(ctx, system, ssl_version, shared_data, std::move(backend));
+            rb.PushIpcInterface<ISslConnection>(ctx, system, ssl_version, shared_data,
+                                                std::move(backend));
         }
     }
 
@@ -548,34 +567,78 @@ private:
     void ImportServerPki(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto certificate_format = rp.PopEnum<CertificateFormat>();
-        [[maybe_unused]] const auto pkcs_12_certificates = ctx.ReadBuffer(0);
+        const auto certificate = ctx.ReadBuffer(0);
 
-        constexpr u64 server_id = 0;
-
-        LOG_WARNING(Service_SSL, "(STUBBED) called, certificate_format={}", certificate_format);
+        u64 server_id = 0;
+        Result result = ResultSuccess;
+        if (certificate.empty()) {
+            result = ResultInvalidCertificateBufferSize;
+        } else if (certificate_format != CertificateFormat::Pem &&
+                   certificate_format != CertificateFormat::Der) {
+            result = ResultUnsupportedCertificate;
+        } else if (server_pkis.size() >= MaximumServerPkiCount) {
+            result = ResultMaximumServerPkiRegistered;
+        } else {
+            // Parse once at import time so an invalid certificate never receives an ID.
+            std::unique_ptr<SSLConnectionBackend> validator;
+            result = CreateSSLConnectionBackend(&validator);
+            if (R_SUCCEEDED(result)) {
+                result = validator->AddServerPki(static_cast<u32>(certificate_format), certificate);
+            }
+            if (R_SUCCEEDED(result)) {
+                server_id = next_server_pki_id++;
+                server_pkis.push_back(ServerPki{
+                    .id = server_id,
+                    .format = certificate_format,
+                    .certificate = std::vector<u8>{certificate.begin(), certificate.end()},
+                });
+                LOG_DEBUG(Service_SSL, "imported server PKI id={}, format={}, size={}",
+                          server_id, certificate_format, certificate.size());
+            }
+        }
 
         IPC::ResponseBuilder rb{ctx, 4};
-        rb.Push(ResultSuccess);
+        rb.Push(result);
         rb.Push(server_id);
     }
 
     void ImportClientPki(HLERequestContext& ctx) {
-        [[maybe_unused]] const auto pkcs_12_certificate = ctx.ReadBuffer(0);
-        [[maybe_unused]] const auto ascii_password = [&ctx] {
+        const auto pkcs_12_certificate = ctx.ReadBuffer(0);
+        const auto ascii_password = [&ctx] {
             if (ctx.CanReadBuffer(1)) {
                 return ctx.ReadBuffer(1);
             }
-
             return std::span<const u8>{};
         }();
-
-        constexpr u64 client_id = 0;
-
-        LOG_WARNING(Service_SSL, "(STUBBED) called");
+        LOG_WARNING(Service_SSL,
+                    "client PKCS#12 import unsupported (cert_size={}, password_size={})",
+                    pkcs_12_certificate.size(), ascii_password.size());
 
         IPC::ResponseBuilder rb{ctx, 4};
-        rb.Push(ResultSuccess);
-        rb.Push(client_id);
+        rb.Push(ResultUnsupportedCertificate);
+        rb.Push<u64>(0);
+    }
+
+    void RemoveServerPki(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const u64 server_id = rp.Pop<u64>();
+        const auto it = std::find_if(server_pkis.begin(), server_pkis.end(),
+                                     [server_id](const auto& pki) { return pki.id == server_id; });
+        const Result result = it == server_pkis.end() ? ResultPkiNotFound : ResultSuccess;
+        if (it != server_pkis.end()) {
+            server_pkis.erase(it);
+        }
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result);
+    }
+
+    void RemoveClientPki(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const u64 client_id = rp.Pop<u64>();
+        LOG_DEBUG(Service_SSL, "client PKI id={} not present", client_id);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultPkiNotFound);
     }
 
     Result RegisterInternalPki() {

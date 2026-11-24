@@ -23,7 +23,11 @@ namespace Service::SSL {
 
 constexpr Result ResultNoSocket{ErrorModule::SSLSrv, 103};
 constexpr Result ResultInvalidSocket{ErrorModule::SSLSrv, 106};
+constexpr Result ResultInvalidCertificateBufferSize{ErrorModule::SSLSrv, 112};
 constexpr Result ResultTimeout{ErrorModule::SSLSrv, 205};
+constexpr Result ResultPkiNotFound{ErrorModule::SSLSrv, 214};
+constexpr Result ResultMaximumServerPkiRegistered{ErrorModule::SSLSrv, 218};
+constexpr Result ResultUnsupportedCertificate{ErrorModule::SSLSrv, 305};
 constexpr Result ResultInternalError{ErrorModule::SSLSrv, 999}; // made up
 
 // ResultWouldBlock is returned from Read and Write, and oddly, DoHandshake,
@@ -37,6 +41,7 @@ public:
     virtual ~SSLConnectionBackend() {}
     virtual void SetSocket(std::shared_ptr<Network::SocketBase> socket) = 0;
     virtual void SetVerifyOption(u32 option) = 0;
+    virtual Result AddServerPki(u32 certificate_format, std::span<const u8> certificate) = 0;
     virtual Result DoHandshake() = 0;
     virtual Result Read(size_t* out_size, std::span<u8> data) = 0;
     virtual Result Peek(size_t* out_size, std::span<u8> data) = 0;

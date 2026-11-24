@@ -9,9 +9,9 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 DIR=ROOT/"encore-active/eden-core/src/core/hle/service/ssl"
 EXPECTED={
- "ssl.cpp":"ab0e1f36684db1a9d875b4ec000203cbe17b218a",
- "ssl_backend.h":"ef6bf8f9def5f80544e75c180ac72275a0325cc9",
- "ssl_backend_openssl.cpp":"71ce86365b9ff511f8a2fe550afd7d5db957e5c5",
+ "ssl.cpp":"58f0bb2a5855a0e9f8167139d011f71d4edeeba2",
+ "ssl_backend.h":"75737e550dee27b2a5eaad5f71a5440b5d574bfe",
+ "ssl_backend_openssl.cpp":"fa448e9a912b42db9c1a0cfb380ec404e3db8084",
 }
 def sha(p):
  b=p.read_bytes()
@@ -34,6 +34,12 @@ system_create=service.split("class ISslServiceForSystem",1)[1].split("Result Get
 assert 'rb.PushIpcInterface<ISslContext>(ctx, system, parameters.ssl_version,' in system_create
 assert 'ctx.GetCommand() == 100' in system_create
 assert "SSL_pending(ssl)" in backend
+assert '{6, &ISslContext::RemoveServerPki, "RemoveServerPki"}' in service
+assert '{7, &ISslContext::RemoveClientPki, "RemoveClientPki"}' in service
+assert "backend->AddServerPki" in service
+assert "ResultUnsupportedCertificate" in service
+assert "X509_STORE_add_cert" in backend
+assert "SSL_set1_verify_cert_store" in backend
 
 start="    Result Peek(size_t* out_size, std::span<u8> data) override {"
 end="\n    Result Write(size_t* out_size"
