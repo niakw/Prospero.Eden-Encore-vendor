@@ -138,12 +138,12 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {200, nullptr, "GetLastApplicationExitReason"},
         {210, D<&IApplicationFunctions::GetUnknownEvent210>, "Unknown210"},
         {220, nullptr, "Unknown220"}, // [20.0.0+]
-        {300, nullptr, "CreateMovieWriter"}, // [19.0.0+]
+        {300, &IApplicationFunctions::RejectUnavailableMovieCommand, "CreateMovieWriter"}, // [19.0.0+]
         {310, nullptr, "Unknown310"}, // [20.0.0+]
         {320, nullptr, "Unknown320"}, // [20.0.0+]
         {330, D<&IApplicationFunctions::Unknown330>, "Unknown330"}, // [20.0.0+]
         {500, D<&IApplicationFunctions::RejectDebugOnlyCommand>, "StartContinuousRecordingFlushForDebug"},
-        {1000, nullptr, "CreateMovieMaker"},
+        {1000, &IApplicationFunctions::RejectUnavailableMovieCommand, "CreateMovieMaker"},
         {1001, D<&IApplicationFunctions::PrepareForJit>, "PrepareForJit"},
     };
     // clang-format on
@@ -152,6 +152,12 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
 }
 
 IApplicationFunctions::~IApplicationFunctions() = default;
+
+void IApplicationFunctions::RejectUnavailableMovieCommand(HLERequestContext& ctx) {
+    LOG_WARNING(Service_AM, "Movie capture/encoding interface unavailable on this runtime");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultUnknown);
+}
 
 Result IApplicationFunctions::RejectDebugOnlyCommand() {
     LOG_WARNING(Service_AM, "Rejected application-functions debug command on release runtime");

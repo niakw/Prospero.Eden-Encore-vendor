@@ -37,6 +37,7 @@ public:
     ~IApplicationFunctions() override;
 
 private:
+    void RejectUnavailableMovieCommand(HLERequestContext& ctx);
     Result RejectDebugOnlyCommand();
     Result PopLaunchParameter(Out<SharedPointer<IStorage>> out_storage,
                               LaunchParameterKind launch_parameter_kind);
