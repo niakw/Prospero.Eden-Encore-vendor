@@ -112,7 +112,8 @@ ILibraryAppletSelfAccessor::ILibraryAppletSelfAccessor(Core::System& system_,
         {110, D<&ILibraryAppletSelfAccessor::GetMainAppletAvailableUsers>, "GetMainAppletAvailableUsers"},
         {120, D<&ILibraryAppletSelfAccessor::RejectDebugOnlyCommand>, "GetLaunchStorageInfoForDebug"},
         {130, D<&ILibraryAppletSelfAccessor::GetGpuErrorDetectedSystemEvent>, "GetGpuErrorDetectedSystemEvent"},
-        {140, nullptr, "SetApplicationMemoryReservation"},
+        {140, D<&ILibraryAppletSelfAccessor::SetApplicationMemoryReservation>,
+         "SetApplicationMemoryReservation"},
         {150, D<&ILibraryAppletSelfAccessor::ShouldSetGpuTimeSliceManually>, "ShouldSetGpuTimeSliceManually"},
         {160, D<&ILibraryAppletSelfAccessor::GetLibraryAppletInfoEx>, "GetLibraryAppletInfoEx"},
     };
@@ -492,6 +493,26 @@ Result ILibraryAppletSelfAccessor::GetGpuErrorDetectedSystemEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_DEBUG(Service_AM, "called");
     *out_event = m_applet->gpu_error_detected_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result ILibraryAppletSelfAccessor::SetApplicationMemoryReservation(u64 reservation) {
+    constexpr u64 ReservationAlignment = 0x1000;
+    R_UNLESS((reservation & (ReservationAlignment - 1)) == 0, ResultUnknown);
+
+    const auto main_applet = GetMainApplet(system);
+    R_UNLESS(main_applet != nullptr, AM::ResultApplicationRecordNotFound);
+    R_UNLESS(main_applet->process != nullptr && !main_applet->process->IsTerminated(),
+             ResultUnknown);
+
+    {
+        std::scoped_lock lk{main_applet->lock};
+        main_applet->application_memory_reservation = reservation;
+    }
+
+    LOG_INFO(Service_AM,
+             "recorded application memory reservation={:#x}; host allocator enforcement unavailable",
+             reservation);
     R_SUCCEED();
 }
 
