@@ -445,6 +445,16 @@
       "bytes": 2451,
       "upstream": "7d162dc8d50adbf76e3f49992479f2b8070a170d02ef38c74f11dd779734286d"
     },
+    "src/core/hle/service/glue/notif.cpp": {
+      "active": "0f3d956884d50bc21812522f3c761ec5b1d3791d239830dda39d54bd89bd2c78",
+      "bytes": 12893,
+      "upstream": "e8a7f633f1ca9e577fe9d7125d490bb32846204ebc65e5b3a2b16fa7da8b2716"
+    },
+    "src/core/hle/service/glue/notif.h": {
+      "active": "149d671724b9a599ecf3df99223015b1f58095063b3c6d24a345ca8cfa6d2b9d",
+      "bytes": 5627,
+      "upstream": "593c6fff73fcbc2b3a27d16d4106dfcea51ea548072b3ec2fc5e5bbc73758d36"
+    },
     "src/core/hle/service/grc/grc.cpp": {
       "active": "0cfefe15f41358b3b97534237c49a9b41399f2d1f7162872accfa071572e59e7",
       "bytes": 1733,

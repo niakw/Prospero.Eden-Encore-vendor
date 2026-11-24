@@ -110,10 +110,9 @@ Result NotificationServiceImpl::DeleteAlarmSetting(AlarmSettingId alarm_setting_
 }
 
 Result NotificationServiceImpl::Initialize(u64 aruid) {
-    // Alarm CRUD is backed by the in-memory alarm vector. Encore does not persist Horizon alarm
-    // configuration yet, so initialization has no external state to restore.
-    LOG_DEBUG(Service_NOTIF, "Notification service initialized without persisted alarms, aruid={}",
-              aruid);
+    // TODO: Load previous alarms from config
+
+    LOG_WARNING(Service_NOTIF, "(STUBBED) called");
     R_SUCCEED();
 }
 
