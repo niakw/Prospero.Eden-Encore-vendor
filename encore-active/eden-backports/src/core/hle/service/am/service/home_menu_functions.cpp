@@ -4,8 +4,11 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "core/hle/api_version.h"
 #include "core/hle/result.h"
+#include "core/hle/service/am/applet.h"
 #include "core/hle/service/am/applet_manager.h"
+#include "core/hle/service/am/process_creation.h"
 #include "core/hle/service/am/service/home_menu_functions.h"
 #include "core/hle/service/am/service/lock_accessor.h"
 #include "core/hle/service/am/window_system.h"
@@ -31,7 +34,7 @@ IHomeMenuFunctions::IHomeMenuFunctions(Core::System& system_, std::shared_ptr<Ap
         {40, D<&IHomeMenuFunctions::IsSleepEnabled>, "IsSleepEnabled"},
         {41, D<&IHomeMenuFunctions::IsRebootEnabled>, "IsRebootEnabled"},
         {50, nullptr, "LaunchSystemApplet"},
-        {51, nullptr, "LaunchStarter"},
+        {51, D<&IHomeMenuFunctions::LaunchStarter>, "LaunchStarter"},
         {100, D<&IHomeMenuFunctions::RejectDebugOnlyCommand>, "PopRequestLaunchApplicationForDebug"},
         {110, D<&IHomeMenuFunctions::IsForceTerminateApplicationDisabledForDebug>, "IsForceTerminateApplicationDisabledForDebug"},
         {200, D<&IHomeMenuFunctions::RejectDebugOnlyCommand>, "LaunchDevMenu"},
@@ -98,6 +101,25 @@ Result IHomeMenuFunctions::GetWriterLockAccessorEx(
     LOG_INFO(Service_AM, "called, button_type={}", button_type);
     R_UNLESS(button_type <= 3, ResultUnknown);
     *out_lock_accessor = std::make_shared<ILockAccessor>(system);
+    R_SUCCEED();
+}
+
+Result IHomeMenuFunctions::LaunchStarter() {
+    constexpr u64 StarterProgramId = static_cast<u64>(AppletProgramId::Starter);
+    LOG_INFO(Service_AM, "called, program_id={:016X}", StarterProgramId);
+
+    auto process =
+        CreateProcess(system, StarterProgramId, 1, HLE::ApiVersion::HOS_VERSION_MAJOR);
+    R_UNLESS(process != nullptr, ResultUnknown);
+
+    const auto starter = std::make_shared<Applet>(system, std::move(process), false);
+    starter->program_id = StarterProgramId;
+    starter->applet_id = AppletId::Starter;
+    starter->type = AppletType::LibraryApplet;
+    starter->library_applet_mode = LibraryAppletMode::AllForeground;
+
+    m_window_system.TrackApplet(starter, false);
+    starter->process->Run();
     R_SUCCEED();
 }
 

@@ -33,6 +33,7 @@ private:
     Result GetHomeButtonWriterLockAccessor(Out<SharedPointer<ILockAccessor>> out_lock_accessor);
     Result GetWriterLockAccessorEx(Out<SharedPointer<ILockAccessor>> out_lock_accessor,
                                    u32 button_type);
+    Result LaunchStarter();
     Result IsSleepEnabled(Out<bool> out_is_sleep_enbaled);
     Result IsRebootEnabled(Out<bool> out_is_reboot_enbaled);
     Result RejectDebugOnlyCommand();

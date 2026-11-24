@@ -526,13 +526,13 @@
       "upstream": "df860aeb912e00399d55f7ed8636596a53722c99a1d8bd4f1ed237f36bee1db2"
     },
     "src/core/hle/service/am/service/home_menu_functions.cpp": {
-      "active": "0ab0f1fa923feda6d1d00014e5ae6b4e7856f41820e14b2d9e27123caf979c3a",
-      "bytes": 5081,
+      "active": "e5b85d6f64052dd3d41f0e7a028dd787dff082724151ed302012557e4f0e328a",
+      "bytes": 5982,
       "upstream": "9efea8aeed4932a9f271993c8354aad89ef1baf917b13234422e876d208bf14f"
     },
     "src/core/hle/service/am/service/home_menu_functions.h": {
-      "active": "d3515b956b9e4f2a8cffaa93e67b6cde95d52167e7f52f9d5323c8867241df01",
-      "bytes": 1776,
+      "active": "8c6a68ad0260878de9b1a7bead0705bb82a30e1e4f1d3c875e28e4fafe7c5cb3",
+      "bytes": 1804,
       "upstream": "ecad50890c6f17dc1e5133a23cf0ea2789230c4d235e58c187836b74f25baf10"
     },
     "src/core/hle/service/am/service/debug_functions.cpp": {
