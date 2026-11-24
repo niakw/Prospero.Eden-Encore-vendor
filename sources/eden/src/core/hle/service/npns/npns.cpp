@@ -322,7 +322,7 @@ private:
     Result RequestChangeStateForceAsync(u32 requested_state) {
         if (state != requested_state) {
             state = requested_state;
-            get_state_change_event.Signal();
+            get_state_change_event.Signal(system.Kernel());
         }
         LOG_DEBUG(Service_NPNS, "Applied local NPNS state transition to {}", state);
         R_SUCCEED();
