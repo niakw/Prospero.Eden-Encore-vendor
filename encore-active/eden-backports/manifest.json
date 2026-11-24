@@ -130,6 +130,16 @@
       "bytes": 5987,
       "upstream": "1539f19a7a0103163c7226cd647ec9b56e627482095a3becc5efad836404f83c"
     },
+    "src/core/hle/service/am/service/cradle_firmware_updater.cpp": {
+      "active": "3548dcb903dc450db43cf6d8e407330cd8625e6bcbc3a3ffa4ba04411c9d2533",
+      "bytes": 2401,
+      "upstream": "f795d3b5d277fcb39f594b106f66324646112424efa349f0a54881511dd0e8ce"
+    },
+    "src/core/hle/service/am/service/cradle_firmware_updater.h": {
+      "active": "3e4ea849e8dc035325552a24fe43819f99283356ee7eac417ae0748429c65ee0",
+      "bytes": 1427,
+      "upstream": "27d1780a14ce997285ad6babd6223ae60da7256bab082b60b16fa8835de64eb6"
+    },
     "src/core/hle/service/am/service/application_creator.cpp": {
       "active": "138ede8f39d1221f637a860456ab0021b312f516d3d852223575d8e9525fd7d4",
       "bytes": 4867,
