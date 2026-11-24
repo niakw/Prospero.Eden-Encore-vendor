@@ -52,7 +52,7 @@ NSD::NSD(Core::System& system_, const char* name) : ServiceFramework{system_, na
         {60, &NSD::UnsupportedTestCommand, "ReadSaveDataFromFsForTest"},
         {61, &NSD::UnsupportedTestCommand, "WriteSaveDataToFsForTest"},
         {62, &NSD::UnsupportedTestCommand, "DeleteSaveDataOfFsForTest"},
-        {63, nullptr, "IsChangeEnvironmentIdentifierDisabled"},
+        {63, &NSD::IsChangeEnvironmentIdentifierDisabled, "IsChangeEnvironmentIdentifierDisabled"},
         {64, nullptr, "SetWithoutDomainExchangeFqdns"},
         {100, &NSD::GetApplicationServerEnvironmentType, "GetApplicationServerEnvironmentType"},
         {101, nullptr, "SetApplicationServerEnvironmentType"},
@@ -89,6 +89,14 @@ void NSD::SetChangeEnvironmentIdentifierDisabled(HLERequestContext& ctx) {
 
     IPC::ResponseBuilder rb{ctx, 1};
     rb.Push(ResultSuccess);
+}
+
+void NSD::IsChangeEnvironmentIdentifierDisabled(HLERequestContext& ctx) {
+    LOG_DEBUG(Service, "called, disabled={}", change_environment_identifier_disabled);
+
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.Push(change_environment_identifier_disabled);
 }
 
 void NSD::Resolve(HLERequestContext& ctx) {

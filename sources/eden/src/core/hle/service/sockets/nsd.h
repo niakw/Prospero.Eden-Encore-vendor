@@ -21,6 +21,7 @@ public:
 
 private:
     void SetChangeEnvironmentIdentifierDisabled(HLERequestContext& ctx);
+    void IsChangeEnvironmentIdentifierDisabled(HLERequestContext& ctx);
     void Resolve(HLERequestContext& ctx);
     void ResolveEx(HLERequestContext& ctx);
     void GetEnvironmentIdentifier(HLERequestContext& ctx);
