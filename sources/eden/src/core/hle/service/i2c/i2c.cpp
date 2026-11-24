@@ -58,15 +58,17 @@ public:
         RegisterHandlers(functions);
     }
     ~I2C() override = default;
-    Result OpenSessionForDev(OutInterface<I2CSession> out_session, s32 bus_idx, u32 slave_address, u32 addressing_mode, u32 speed_mode) {
-        LOG_DEBUG(Service, "(stubbed)");
-        *out_session = std::make_shared<I2CSession>(system);
-        R_SUCCEED();
+    Result OpenSessionForDev(OutInterface<I2CSession>, s32 bus_idx, u32 slave_address,
+                             u32 addressing_mode, u32 speed_mode) {
+        LOG_WARNING(Service,
+                    "I2C hardware is not exposed on Encore: bus={} slave={:#x} addr_mode={} speed={}",
+                    bus_idx, slave_address, addressing_mode, speed_mode);
+        R_THROW(ResultUnknown);
     }
-    Result OpenSession(OutInterface<I2CSession> out_session, I2CDevice device) {
-        LOG_DEBUG(Service, "(stubbed)");
-        *out_session = std::make_shared<I2CSession>(system);
-        R_SUCCEED();
+    Result OpenSession(OutInterface<I2CSession>, I2CDevice device) {
+        LOG_WARNING(Service, "I2C hardware is not exposed on Encore: device={}",
+                    static_cast<u32>(device));
+        R_THROW(ResultUnknown);
     }
     Result HasDevice(Out<bool> out_has_device, I2CDevice device) {
         LOG_DEBUG(Service, "(stubbed)");
@@ -78,10 +80,10 @@ public:
         *out_has_device = false;
         R_SUCCEED();
     }
-    Result OpenSession2(OutInterface<I2CSession> out_session, u32 device_code) {
-        LOG_DEBUG(Service, "(stubbed) device_code={}", device_code);
-        *out_session = std::make_shared<I2CSession>(system);
-        R_SUCCEED();
+    Result OpenSession2(OutInterface<I2CSession>, u32 device_code) {
+        LOG_WARNING(Service, "I2C hardware is not exposed on Encore: device_code={:#x}",
+                    device_code);
+        R_THROW(ResultUnknown);
     }
 };
 
