@@ -81,6 +81,7 @@ public:
     [[nodiscard]] bool CommitNativeVmImport(u32 id);
     void RetireNativeVm(u32 id);
     [[nodiscard]] bool NativeSubmissionAllowed() const;
+    [[nodiscard]] std::shared_ptr<const std::atomic_bool> CaptureNativeSubmissionLease() const;
     NvResult UnmapNative4K(u64 address, u64 size);
     NvResult ReserveNativeSparse4K(u64 address, u64 size, u8 page_shift = 12);
     NvResult ReleaseNativeSparse4K(u64 address, u64 size);
@@ -106,6 +107,8 @@ public:
     static_assert(sizeof(VaRegion) == 0x18);
 
 private:
+    void PoisonNativeAddressSpace() noexcept;
+
     struct IoctlAllocAsEx {
         u32_le flags{}; // usually passes 1
         s32_le as_fd{}; // ignored; passes 0
@@ -255,6 +258,11 @@ private:
     // sparse mutations fail closed instead of unpinning a live partial PTE.
     // Written by mapping rollback under mutex; read at channel admission.
     std::atomic_bool native_sparse_poisoned{};
+    // Every admitted native CommandList retains this independent health token.
+    // Poison/revocation flips it without freeing the AS, so already-queued GPU
+    // work fails closed before consuming commands or publishing completion.
+    std::shared_ptr<std::atomic_bool> m_native_submission_lease{
+        std::make_shared<std::atomic_bool>(true)};
     std::map<u64, Mapping> mapping_map;
     //!< Holds allocations created by AllocSpace from
     //!< which fixed buffers can be mapped into

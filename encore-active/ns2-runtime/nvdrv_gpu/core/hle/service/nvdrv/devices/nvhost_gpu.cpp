@@ -996,6 +996,7 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     // A native GPU device may expose multiple FDs. A rejected or foreign
     // process must not cause InitChannel on another guest's address space.
     const Kernel::KProcess* native_owner = nullptr;
+    std::shared_ptr<const std::atomic_bool> native_submission_lease;
     if (native) {
         const auto it = sessions.find(fd);
         const auto* owner = it == sessions.end() ? nullptr : core.GetSession(it->second);
@@ -1013,7 +1014,10 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
         // A surviving scheduler lease must not revive a revoked GSV VM.
         const auto as_owner = std::static_pointer_cast<nvhost_as_gpu>(
             channel_state->address_space_owner);
-        if (!NativeEpochCurrent(fd) || !as_owner || !as_owner->NativeSubmissionAllowed())
+        if (!NativeEpochCurrent(fd) || !as_owner)
+            return NvResult::InvalidState;
+        native_submission_lease = as_owner->CaptureNativeSubmissionLease();
+        if (!native_submission_lease)
             return NvResult::InvalidState;
         if (!native_channel_enabled) {
 #ifdef PS5_NATIVE
@@ -1150,6 +1154,11 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
 
     const auto bind_id = channel_state->bind_id;
     const u32 native_completion = native_plan ? native_plan->completion_count : 0;
+    const auto push_gpu_entries = [&](Tegra::CommandList&& list) {
+        if (native)
+            list.native_submission_lease = native_submission_lease;
+        gpu.PushGPUEntries(bind_id, std::move(list));
+    };
 
     // The native wait is attached to entries, not a legacy FENCE_ACTION
     // packet. This leaves the historical Maxwell submission path intact.
@@ -1159,7 +1168,7 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
         }
 
         if (!syncpoint_manager.IsFenceSignalled(params.fence)) {
-            gpu.PushGPUEntries(bind_id, Tegra::CommandList{BuildWaitCommandList(params.fence)});
+            push_gpu_entries( Tegra::CommandList{BuildWaitCommandList(params.fence)});
         }
     }
 
@@ -1173,14 +1182,14 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
         : (flags.fence_increment.Value() != 0 ? 2U : 0U) +
           (flags.increment_value.Value() != 0 ? u32{params.fence.value} : 0U);
     params.fence.value = syncpoint_manager.IncrementSyncpointMaxExt(channel_syncpoint, increment);
-    gpu.PushGPUEntries(bind_id, std::move(entries));
+    push_gpu_entries( std::move(entries));
 
     if (flags.fence_increment.Value()) {
         if (flags.suppress_wfi.Value()) {
-            gpu.PushGPUEntries(bind_id,
+            push_gpu_entries(
                                Tegra::CommandList{BuildIncrementCommandList(params.fence)});
         } else {
-            gpu.PushGPUEntries(bind_id,
+            push_gpu_entries(
                                Tegra::CommandList{BuildIncrementWithWfiCommandList(params.fence)});
         }
     }
@@ -1188,7 +1197,7 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     // The completed pushbuffer precedes its counter increment on the same
     // ordered GPU queue. Do not signal before work has been submitted.
     if (native_completion != 0) {
-        gpu.PushGPUEntries(bind_id, Tegra::CommandList{
+        push_gpu_entries( Tegra::CommandList{
             flags.suppress_wfi.Value()
                 ? BuildIncrementCommandList(params.fence, native_completion)
                 : BuildIncrementWithWfiCommandList(params.fence, native_completion)});

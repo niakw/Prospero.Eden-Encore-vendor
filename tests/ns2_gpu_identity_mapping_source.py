@@ -287,16 +287,18 @@ for ioctl in ("Ioctl1", "Ioctl2", "Ioctl3"):
     assert "m_native_generation && !NativeEpochCurrent()" in body
 retire=as_cpp.split("void nvhost_as_gpu::RetireNativeVm(u32 id) {",1)[1].split("\n}",1)[0]
 for token in ("m_native_vm_id != id", "m_native_vm_id = 0",
-              "m_native_vm_retired = true"):
+              "m_native_vm_retired.store(true, std::memory_order_release)"):
     assert token in retire, token
 assert shared_destroy.index("as->RetireNativeVm(id)") < shared_destroy.index(
     "NativeGpuProcessRegistry::Instance().RemoveVm(")
 submit_allowed = as_cpp.split("bool nvhost_as_gpu::NativeSubmissionAllowed() const {",1)[1].split("\n}",1)[0]
-assert "!m_native_vm_retired.load() && !native_sparse_poisoned.load()" in submit_allowed
+assert "m_native_submission_lease->load(std::memory_order_acquire)" in submit_allowed
+assert "!m_native_vm_retired.load(std::memory_order_acquire)" in submit_allowed
+assert "!native_sparse_poisoned.load(std::memory_order_acquire)" in submit_allowed
 assert "NativeEpochCurrent()" in submit_allowed
 submit_impl = nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split("\n}",1)[0]
-assert submit_impl.index("!as_owner->NativeSubmissionAllowed()") < submit_impl.index("CaptureNativeSyncpointLease(")
-assert submit_impl.index("!as_owner->NativeSubmissionAllowed()") < submit_impl.index("InitChannel(")
+assert submit_impl.index("CaptureNativeSubmissionLease()") < submit_impl.index("CaptureNativeSyncpointLease(")
+assert submit_impl.index("CaptureNativeSubmissionLease()") < submit_impl.index("InitChannel(")
 
 
 for token in ("::Common::unordered_map<DeviceFD, u64> native_generations;",
@@ -1295,3 +1297,23 @@ assert "return FreeHandleImpl(handle, internal_session, false);" in _nvmap_nativ
 assert "nvmap.FreeHandleIfUnpinned(id)" in teardown
 assert "nvmap.FreeHandleIfUnpinned(region.nvmap_handle)" in worker
 assert "nvmap.FreeHandleIfUnpinned(id)" in worker.split("Result IGpuWorker::ReleaseMemory",1)[1].split("void IGpuWorker::CreateGpuAccessibleMemory",1)[0]
+
+
+# INFLIGHT_NATIVE_AS_LEASE: admitted NS2 work retains an AS health token through
+# the GPU queue. Poison/revocation must invalidate the token before command
+# fetch/dispatch and before any synthetic completion packet can retire.
+dma_h=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/dma_pusher.h").read_text()
+dma_cpp=(R/"encore-active/eden-core/src/video_core/dma_pusher.cpp").read_text()
+assert "CaptureNativeSubmissionLease() const;" in as_h
+assert "m_native_submission_lease" in as_h
+assert "void nvhost_as_gpu::PoisonNativeAddressSpace() noexcept" in as_cpp
+assert as_cpp.count("PoisonNativeAddressSpace();") >= 17
+assert "native_sparse_poisoned = true;" not in as_cpp
+retire=as_cpp.split("void nvhost_as_gpu::RetireNativeVm(u32 id) {",1)[1].split("\n}",1)[0]
+assert 'm_native_submission_lease->store(false, std::memory_order_release)' in retire
+submit_impl=nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split("\n}",1)[0]
+assert submit_impl.index("CaptureNativeSubmissionLease()") < submit_impl.index("CaptureNativeSyncpointLease(")
+assert "list.native_submission_lease = native_submission_lease;" in submit_impl
+assert "std::shared_ptr<const std::atomic<bool>> native_submission_lease;" in dma_h
+assert 'Native GPFIFO address-space lease retired' in dma_cpp
+assert "lease->load(std::memory_order_acquire)" in dma_cpp

@@ -453,7 +453,13 @@ void nvhost_as_gpu::RetireNativeVm(u32 id) {
     // AS/GMMU until queued GPU payloads are destroyed. Fail future ioctls
     // closed and let the normal final AS destructor release physical backing.
     m_native_vm_id = 0;
-    m_native_vm_retired = true;
+    m_native_vm_retired.store(true, std::memory_order_release);
+    m_native_submission_lease->store(false, std::memory_order_release);
+}
+
+void nvhost_as_gpu::PoisonNativeAddressSpace() noexcept {
+    native_sparse_poisoned.store(true, std::memory_order_release);
+    m_native_submission_lease->store(false, std::memory_order_release);
 }
 
 bool nvhost_as_gpu::NativeSubmissionAllowed() const {
@@ -461,8 +467,15 @@ bool nvhost_as_gpu::NativeSubmissionAllowed() const {
     // GSV may revoke the VM from a different service thread.
     // A failed destructive GMMU mutation leaves page-table ownership uncertain.
     // Do not admit new work on that AS, even while its epoch remains live.
-    return !m_native_vm_retired.load() && !native_sparse_poisoned.load() &&
+    return m_native_submission_lease->load(std::memory_order_acquire) &&
+           !m_native_vm_retired.load(std::memory_order_acquire) &&
+           !native_sparse_poisoned.load(std::memory_order_acquire) &&
            NativeEpochCurrent();
+}
+
+std::shared_ptr<const std::atomic_bool> nvhost_as_gpu::CaptureNativeSubmissionLease() const {
+    if (!NativeSubmissionAllowed()) return {};
+    return m_native_submission_lease;
 }
 
 bool nvhost_as_gpu::OwnsNativeProcess(Kernel::KProcess* process) {
@@ -589,7 +602,7 @@ NvResult nvhost_as_gpu::MapNative4K(u32 handle_id, u64 address, u64 source, u64 
             else
                 gmmu->Unmap(address, size);
         } catch (const std::bad_alloc&) {
-            native_sparse_poisoned = true;
+            PoisonNativeAddressSpace();
             return NvResult::InvalidState;
         }
         mapping_map.erase(address);
@@ -674,7 +687,7 @@ NvResult nvhost_as_gpu::MapNativeImage(u32 handle_id, u64 source, u64 size, u64&
         try {
             gmmu->Unmap(gpu_address, size);
         } catch (const std::bad_alloc&) {
-            native_sparse_poisoned = true;
+            PoisonNativeAddressSpace();
             return NvResult::InvalidState;
         }
         mapping_map.erase(gpu_address);
@@ -737,7 +750,7 @@ NvResult nvhost_as_gpu::ReserveNativeSparse4K(u64 address, u64 size, u8 page_shi
         try {
             gmmu->Unmap(address, size);
         } catch (const std::bad_alloc&) {
-            native_sparse_poisoned = true;
+            PoisonNativeAddressSpace();
             return NvResult::InvalidState;
         }
         native_sparse_regions.erase(address);
@@ -952,14 +965,14 @@ NvResult nvhost_as_gpu::RemapNativeSparse(std::span<const NativeSparseRemapEntry
             }
             const auto pinned = native_sparse_pins.find(range.handle);
             if (pinned == native_sparse_pins.end()) {
-                native_sparse_poisoned = true;
+                PoisonNativeAddressSpace();
                 return NvResult::InvalidState;
             }
             gmmu->Map(range.address, pinned->second + range.source_offset, range.size,
                       static_cast<Tegra::PTEKind>(kinds[i].backend), big_page_ranges[i]);
         }
     } catch (const std::bad_alloc&) {
-        native_sparse_poisoned = true;
+        PoisonNativeAddressSpace();
         return NvResult::InsufficientMemory;
     }
     // Replacement is complete. Only now may old physical backing retire.
@@ -1053,7 +1066,7 @@ NvResult nvhost_as_gpu::ReleaseNativeSparse4K(u64 address, u64 size) {
     } catch (const std::bad_alloc&) {
         // GMMU or VA retirement may be partial. Quarantine instead of
         // publishing a retryable pre-mutation failure or dropping backing.
-        native_sparse_poisoned = true;
+        PoisonNativeAddressSpace();
         return NvResult::InvalidState;
     }
     native_sparse_mappings = std::move(updated);
@@ -1095,7 +1108,7 @@ NvResult nvhost_as_gpu::UnmapNative4K(u64 address, u64 size) {
         try {
             gmmu->MapSparse(address, size, false);
         } catch (const std::bad_alloc&) {
-            native_sparse_poisoned = true;
+            PoisonNativeAddressSpace();
             return NvResult::InvalidState;
         }
         nvmap.UnpinHandle(mapping->second.handle);
@@ -1116,7 +1129,7 @@ NvResult nvhost_as_gpu::UnmapNative4K(u64 address, u64 size) {
         vm.small_page_allocator->Free(static_cast<u32>(address >> VM::PAGE_SIZE_BITS),
                                       static_cast<u32>(size >> VM::PAGE_SIZE_BITS));
     } catch (const std::bad_alloc&) {
-        native_sparse_poisoned = true;
+        PoisonNativeAddressSpace();
         return NvResult::InvalidState;
     }
     nvmap.UnpinHandle(mapping->second.handle);
@@ -1156,7 +1169,7 @@ NvResult nvhost_as_gpu::ModifyNativeKind(u64 address, u64 size, u8 kind) {
                 gmmu->Map(address, mapping.ptr + delta, size,
                           static_cast<Tegra::PTEKind>(kind), mapping.big_page);
             } catch (const std::bad_alloc&) {
-                native_sparse_poisoned = true;
+                PoisonNativeAddressSpace();
                 return NvResult::InsufficientMemory;
             }
             return NvResult::Success;
@@ -1234,7 +1247,7 @@ NvResult nvhost_as_gpu::ModifyNativeKind(u64 address, u64 size, u8 kind) {
             cursor += length;
         }
     } catch (const std::bad_alloc&) {
-        native_sparse_poisoned = true;
+        PoisonNativeAddressSpace();
         return NvResult::InsufficientMemory;
     }
     return NvResult::Success;
@@ -1465,7 +1478,7 @@ NvResult nvhost_as_gpu::AllocateSpace(IoctlAllocSpace& params) {
                     // GMMU rollback failed after a partial MapSparse.
                     // Retain VA ownership and quarantine all further native
                     // mutations; an untracked live PTE must not be reused.
-                    native_sparse_poisoned = true;
+                    PoisonNativeAddressSpace();
                     return NvResult::InvalidState;
                 }
                 allocation_map.erase(address);
@@ -1571,7 +1584,7 @@ NvResult nvhost_as_gpu::AllocateSpace(IoctlAllocSpace& params) {
                     // The GMMU might still contain some reserved PTEs.
                     // Do not let a later ioctl overwrite these stale pages
                     // or release their owning VA on a second failed unwind.
-                    native_sparse_poisoned = true;
+                    PoisonNativeAddressSpace();
                     return NvResult::InvalidState;
                 }
                 allocation_map.erase(address);
@@ -1651,7 +1664,7 @@ bool nvhost_as_gpu::FreeMappingLocked(u64 offset) noexcept {
                 // A partial GMMU failure is not permission to unpin live
                 // backing. Keep the map ledger for deferred retirement and
                 // prevent any subsequent native VA mutation.
-                native_sparse_poisoned = true;
+                PoisonNativeAddressSpace();
                 return false;
             }
             nvmap.UnpinHandle(mapping.handle);
@@ -1739,7 +1752,7 @@ NvResult nvhost_as_gpu::FreeSpace(IoctlFreeSpace& params) {
                     gmmu->Unmap(params.offset, allocation.size);
                 } catch (const std::bad_alloc&) {
                     // Retain the ledger and pins on an incomplete unmap.
-                    native_sparse_poisoned = true;
+                    PoisonNativeAddressSpace();
                     return NvResult::InvalidState;
                 }
             } else {
@@ -1957,7 +1970,7 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
                 } catch (const std::bad_alloc&) {
                     // The original NVMap owner and pin remain valid even if
                     // this PTE edit was only partially completed.
-                    native_sparse_poisoned = true;
+                    PoisonNativeAddressSpace();
                     return NvResult::InsufficientMemory;
                 }
                 params.kind = native_kind->selected;
@@ -2199,7 +2212,7 @@ NvResult nvhost_as_gpu::MapBufferEx(IoctlMapBufferEx& params) {
                 else
                     gmmu->Unmap(address, mapped_size);
             } catch (const std::bad_alloc&) {
-                native_sparse_poisoned = true;
+                PoisonNativeAddressSpace();
                 return NvResult::InvalidState;
             }
             rollback();
@@ -2288,7 +2301,7 @@ NvResult nvhost_as_gpu::UnmapBuffer(IoctlUnmapBuffer& params) {
                                    u32(rounded >> page_bits));
                 }
             } catch (const std::bad_alloc&) {
-                native_sparse_poisoned = true;
+                PoisonNativeAddressSpace();
                 return NvResult::InsufficientMemory;
             }
 

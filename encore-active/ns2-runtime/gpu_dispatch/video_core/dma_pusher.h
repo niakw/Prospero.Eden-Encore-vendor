@@ -126,6 +126,9 @@ struct CommandList final {
     boost::container::small_vector<CommandListHeader, 512> command_lists;
     boost::container::small_vector<CommandHeader, 512> prefetch_command_list;
     std::optional<NativeSyncpointWait> native_syncpoint_wait;
+    // Host-only AS health token captured at NVDRV admission. Native queues
+    // must not execute or publish completion after GSV revocation/GMMU poison.
+    std::shared_ptr<const std::atomic<bool>> native_submission_lease;
 };
 
 /// @brief The DmaPusher class implements DMA submission to FIFOs, providing an area of memory that the

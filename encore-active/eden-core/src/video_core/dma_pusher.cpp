@@ -112,6 +112,15 @@ bool DmaPusher::Step() {
         return false;
     }
 #ifdef PS5_NATIVE
+    const auto require_native_submission_lease = [this] {
+        if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &channel_state))
+            return;
+        const auto& lease = dma_pushbuffer.front().native_submission_lease;
+        if (!lease || !lease->load(std::memory_order_acquire))
+            throw std::runtime_error("Native GPFIFO address-space lease retired");
+    };
+    require_native_submission_lease();
     // The unresolved comparison stops this GPU channel without blocking the
     // worker, which can process releases from other channels in the meantime.
     if (!ResumeNativeAcquire()) {
@@ -140,6 +149,7 @@ bool DmaPusher::Step() {
         }
         const auto commands = std::span<const CommandHeader>{
             command_list.prefetch_command_list.data(), prefetch_size};
+        require_native_submission_lease();
         ProcessCommands(commands.subspan(command_resume_offset));
         if (HasPendingNativeAcquire()) {
             return false;
@@ -175,6 +185,9 @@ bool DmaPusher::Step() {
         if (system.IsShuttingDown()) return false;
         signal_sync = false;
         synced = false;
+#ifdef PS5_NATIVE
+        require_native_submission_lease();
+#endif
     }
 
     if (header.size > 0) {
@@ -249,6 +262,7 @@ bool DmaPusher::Step() {
             if (command_resume_offset > headers.size()) {
                 throw std::runtime_error("Native GPFIFO entry shortened during acquire");
             }
+            require_native_submission_lease();
             ProcessCommands(std::span<const CommandHeader>{
                 headers.data(), headers.size()}.subspan(command_resume_offset));
 #else
@@ -260,6 +274,7 @@ bool DmaPusher::Step() {
             if (command_resume_offset > headers.size()) {
                 throw std::runtime_error("Native GPFIFO entry shortened during acquire");
             }
+            require_native_submission_lease();
             ProcessCommands(std::span<const CommandHeader>{
                 headers.data(), headers.size()}.subspan(command_resume_offset));
 #else
@@ -325,6 +340,14 @@ void DmaPusher::ProcessCommands(std::span<const CommandHeader> commands) {
     const size_t offset_before = command_resume_offset;
 #endif
     for (size_t index = 0; index < commands.size();) {
+#ifdef PS5_NATIVE
+        // A fault can race a long pushbuffer after Step's boundary check.
+        // One acquire load per decoded native word/batch prevents execution
+        // from continuing after the AS health token is revoked.
+        if (const auto& lease = dma_pushbuffer.front().native_submission_lease;
+            lease && !lease->load(std::memory_order_acquire))
+            throw std::runtime_error("Native GPFIFO address-space lease retired mid-dispatch");
+#endif
         // Data word of methods command
         if (dma_state.method_count && dma_state.non_incrementing) {
             auto const& command_header = commands[index]; //must ref (MUltiMethod re)
