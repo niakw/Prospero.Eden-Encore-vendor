@@ -585,6 +585,16 @@
       "bytes": 446,
       "upstream": null
     },
+    "src/core/hle/service/sockets/nsd.cpp": {
+      "active": "75a65607bcf99b344abe57393a9bb19aceab9194e4d282a083401b74422c954f",
+      "bytes": 6085,
+      "upstream": "706b5751eda10aa9219a720222e1ca21bda043fe38dea478b98ac643d8b880cf"
+    },
+    "src/core/hle/service/sockets/nsd.h": {
+      "active": "e6cee0431e3b7fbadda24ff8adb4618f7b5710be7041f15fb708a97ba6a7249d",
+      "bytes": 1056,
+      "upstream": "26f8440d3047ec6ab70fd45f27b4be54fdefc2763f9229a26192295e5f78ed68"
+    },
     "src/core/hle/service/sockets/sfdnsres.cpp": {
       "active": "2041e9db66081f9afacc1496de4211747ec7e4bdf9653b30f74515c2d9700bf5",
       "bytes": 15999,

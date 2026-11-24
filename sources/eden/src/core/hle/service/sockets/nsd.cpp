@@ -47,12 +47,12 @@ NSD::NSD(Core::System& system_, const char* name) : ServiceFramework{system_, na
         {42, nullptr, "GetNasApiFqdn"},
         {43, nullptr, "GetNasApiFqdnEx"},
         {50, nullptr, "GetCurrentSetting"},
-        {51, &NSD::UnsupportedTestCommand, "WriteTestParameter"},
-        {52, &NSD::UnsupportedTestCommand, "ReadTestParameter"},
-        {60, &NSD::UnsupportedTestCommand, "ReadSaveDataFromFsForTest"},
-        {61, &NSD::UnsupportedTestCommand, "WriteSaveDataToFsForTest"},
-        {62, &NSD::UnsupportedTestCommand, "DeleteSaveDataOfFsForTest"},
-        {63, &NSD::IsChangeEnvironmentIdentifierDisabled, "IsChangeEnvironmentIdentifierDisabled"},
+        {51, nullptr, "WriteTestParameter"},
+        {52, nullptr, "ReadTestParameter"},
+        {60, nullptr, "ReadSaveDataFromFsForTest"},
+        {61, nullptr, "WriteSaveDataToFsForTest"},
+        {62, nullptr, "DeleteSaveDataOfFsForTest"},
+        {63, nullptr, "IsChangeEnvironmentIdentifierDisabled"},
         {64, nullptr, "SetWithoutDomainExchangeFqdns"},
         {100, &NSD::GetApplicationServerEnvironmentType, "GetApplicationServerEnvironmentType"},
         {101, nullptr, "SetApplicationServerEnvironmentType"},
@@ -82,21 +82,12 @@ static Result ResolveCommon(const std::string& fqdn_in, std::array<char, 0x100>&
 
 void NSD::SetChangeEnvironmentIdentifierDisabled(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
-    change_environment_identifier_disabled = rp.Pop<bool>();
+    const bool disabled = rp.Pop<bool>();
 
-    LOG_DEBUG(Service, "called, change_environment_identifier_disabled={}",
-              change_environment_identifier_disabled);
+    LOG_WARNING(Service, "(STUBBED) called, disabled={}", disabled);
 
-    IPC::ResponseBuilder rb{ctx, 2};
+    IPC::ResponseBuilder rb{ctx, 1};
     rb.Push(ResultSuccess);
-}
-
-void NSD::IsChangeEnvironmentIdentifierDisabled(HLERequestContext& ctx) {
-    LOG_DEBUG(Service, "called, disabled={}", change_environment_identifier_disabled);
-
-    IPC::ResponseBuilder rb{ctx, 3};
-    rb.Push(ResultSuccess);
-    rb.Push(change_environment_identifier_disabled);
 }
 
 void NSD::Resolve(HLERequestContext& ctx) {
@@ -113,7 +104,7 @@ void NSD::Resolve(HLERequestContext& ctx) {
 void NSD::ResolveEx(HLERequestContext& ctx) {
     const std::string fqdn_in = Common::StringFromBuffer(ctx.ReadBuffer(0));
 
-    std::array<char, 0x100> fqdn_out{};
+    std::array<char, 0x100> fqdn_out;
     const Result res = ResolveCommon(fqdn_in, fqdn_out);
 
     if (res.IsError()) {
@@ -129,12 +120,9 @@ void NSD::ResolveEx(HLERequestContext& ctx) {
 }
 
 void NSD::GetEnvironmentIdentifier(HLERequestContext& ctx) {
-    // Nintendo production environment switching is intentionally disabled; use the stable local
-    // production-style identifier already expected by Eden's pass-through resolver.
     constexpr EnvironmentIdentifier lp1 = {
         .identifier = {'l', 'p', '1', '\0', '\0', '\0', '\0', '\0'}};
     ctx.WriteBuffer(lp1);
-    LOG_DEBUG(Service, "Returning synthetic NSD environment identifier lp1");
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
@@ -144,12 +132,6 @@ void NSD::GetApplicationServerEnvironmentType(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
     rb.Push(static_cast<u32>(ServerEnvironmentType::Lp));
-}
-
-void NSD::UnsupportedTestCommand(HLERequestContext& ctx) {
-    LOG_WARNING(Service, "NSD test/debug command is not supported by the production runtime");
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(IPC::ResultNotSupported);
 }
 
 NSD::~NSD() = default;
