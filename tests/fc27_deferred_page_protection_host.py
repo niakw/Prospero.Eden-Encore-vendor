@@ -84,8 +84,9 @@ assert blob(T) in {
     "948960fad4d829ba874746acb6e353a8a2ed19f7",  # original integrated DMA owner
     "5c6d015cf207d63de31b577411972606145d9f2e",  # empty render-target guard
     "27ea4e0e665d3f94e173c1335cb19211efc03646",  # selected HUD/cache parity
+    "45659d2fa8ae336d28e7ccbd02b3104d96229378",  # selected readback batching and dirty rollback
 }
-if blob(T) == "27ea4e0e665d3f94e173c1335cb19211efc03646":
+if blob(T) in {"27ea4e0e665d3f94e173c1335cb19211efc03646", "45659d2fa8ae336d28e7ccbd02b3104d96229378"}:
     for guard in ("if (it == channel_state->sampler_ids.end())",
                   "if (pair->second != NULL_IMAGE_VIEW_ID || remapped_cached_view)",
                   "if (removed_views.empty())"):
@@ -94,6 +95,9 @@ for selected_guard in ("SplitLayeredImageCopies(copies)", "index > table.current
     assert selected_guard in T.read_text(), ("FC27/NS2 active texture guard lost",selected_guard)
 # Selected NS1/NS2 TextureCache must retain the causal native protections.
 texture_selected=T.read_text()
+if blob(T) == "45659d2fa8ae336d28e7ccbd02b3104d96229378":
+    for guard in ("DownloadStagingBuffer(bytes, true)", "SCOPE_EXIT { release_batch(); }", "std::uncaught_exceptions()", "slot_images[id].flags |= ImageFlagBits::GpuModified"):
+        assert guard in texture_selected, guard
 for needle in ("bool upload_completed = false;", "std::try_to_lock",
                "kMaxCompletedDecodesPerTick = 4",
                "return GetImageViewForFramebuffer(freshest_id);"):

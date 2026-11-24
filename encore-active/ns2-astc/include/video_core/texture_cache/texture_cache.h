@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <exception>
 #include <new>
 #include <iterator>
 #include <limits>
@@ -1110,12 +1111,31 @@ bool TextureCache<P>::IsDownloadable(const ImageBase& image) const noexcept {
 template <class P>
 void TextureCache<P>::DownloadMemory(DAddr cpu_addr, size_t size) {
     boost::container::small_vector<ImageId, 16> images;
+#ifdef PS5_NATIVE
+    // DownloadMemory can fail after clearing GPU-dirty state but before guest
+    // pixels are published. Restore every touched image on unwinding, even
+    // when an earlier staged image was already copied successfully.
+    const int uncaught_before_readback = std::uncaught_exceptions();
+    SCOPE_EXIT {
+        if (std::uncaught_exceptions() > uncaught_before_readback) {
+            for (const ImageId id : images) {
+                slot_images[id].flags |= ImageFlagBits::GpuModified;
+            }
+        }
+    };
+#endif
     ForEachImageInRegion(cpu_addr, size, [this, &images](ImageId image_id, ImageBase& image) {
         if (!IsDownloadable(image)) {
             return;
         }
+#ifdef PS5_NATIVE
+        // The list can allocate: track the image BEFORE clearing its flag.
+        images.push_back(image_id);
+        image.flags &= ~ImageFlagBits::GpuModified;
+#else
         image.flags &= ~ImageFlagBits::GpuModified;
         images.push_back(image_id);
+#endif
     });
     if (images.empty()) {
         return;
@@ -1123,6 +1143,59 @@ void TextureCache<P>::DownloadMemory(DAddr cpu_addr, size_t size) {
     std::ranges::sort(images, [this](ImageId lhs, ImageId rhs) {
         return slot_images[lhs].modification_tick < slot_images[rhs].modification_tick;
     });
+#ifdef PS5_NATIVE
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        // Keep independent copies in one submission, then publish guest writes
+        // in modification order. A staging allocation stays busy until its tick.
+        using Map = decltype(runtime.DownloadStagingBuffer(size_t{}));
+        // Up to 40 small independent readbacks can now share one GPU
+        // completion fence. Keep their total staging bytes capped at 32 MiB
+        // and publish guest writes in their original modification order.
+        // Hold deferred staging until guest publication: a scheduler flush
+        // can advance the tick while another image is being recorded.
+        constexpr size_t readback_batch_limit = 40;
+        boost::container::small_vector<std::pair<ImageId, Map>, readback_batch_limit> pending;
+        constexpr size_t batch_limit = 32_MiB;
+        size_t batch_bytes = 0;
+        const auto release_batch = [&] {
+            for (auto& entry : pending) runtime.FreeDeferredStagingBuffer(entry.second);
+            pending.clear();
+            batch_bytes = 0;
+        };
+        SCOPE_EXIT { release_batch(); };
+        const auto finish_batch = [&] {
+            if (pending.empty()) return;
+            runtime.Finish();
+            for (auto& [image_id, map] : pending) {
+                Image& image = slot_images[image_id];
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, map.mapped_span,
+                             swizzle_data_buffer);
+            }
+            release_batch();
+        };
+        for (const ImageId image_id : images) {
+            Image& image = slot_images[image_id];
+            const size_t bytes = image.unswizzled_size_bytes;
+            if (pending.size() == readback_batch_limit || bytes > batch_limit - batch_bytes)
+                finish_batch();
+            auto map = runtime.DownloadStagingBuffer(bytes, true);
+            // The inline capacity is sufficient and Vulkan's map is a POD ref.
+            pending.emplace_back(image_id, std::move(map));
+            const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+            image.DownloadMemory(pending.back().second, copies);
+            // Oversized images retain the original one-image allocation/wait.
+            if (bytes >= batch_limit) {
+                finish_batch();
+            } else {
+                batch_bytes += bytes;
+            }
+        }
+        finish_batch();
+        return;
+    }
+
+#endif
     for (const ImageId image_id : images) {
         Image& image = slot_images[image_id];
         auto map = runtime.DownloadStagingBuffer(image.unswizzled_size_bytes);
@@ -3417,6 +3490,15 @@ void TextureCache<P>::ForEachImageInRegion(DAddr cpu_addr, size_t size, Func&& f
     constexpr bool BOOL_BREAK = std::is_same_v<FuncReturn, bool>;
     boost::container::small_vector<ImageId, 32> images;
     boost::container::small_vector<ImageMapId, 32> maps;
+    // Allocation or callback failure must not permanently hide a cache owner.
+    SCOPE_EXIT {
+        for (const ImageId image_id : images) {
+            slot_images[image_id].flags &= ~ImageFlagBits::Picked;
+        }
+        for (const ImageMapId map_id : maps) {
+            slot_map_views[map_id].picked = false;
+        }
+    };
     ForEachCPUPage(cpu_addr, size, [this, &images, &maps, cpu_addr, size, func](u64 page) {
         const auto it = page_table.find(page);
         if (it == page_table.end()) {
@@ -3434,14 +3516,14 @@ void TextureCache<P>::ForEachImageInRegion(DAddr cpu_addr, size_t size, Func&& f
             if (!map.Overlaps(cpu_addr, size)) {
                 continue;
             }
-            map.picked = true;
             maps.push_back(map_id);
+            map.picked = true;
             Image& image = slot_images[map.image_id];
             if (True(image.flags & ImageFlagBits::Picked)) {
                 continue;
             }
-            image.flags |= ImageFlagBits::Picked;
             images.push_back(map.image_id);
+            image.flags |= ImageFlagBits::Picked;
             if constexpr (BOOL_BREAK) {
                 if (func(map.image_id, image)) {
                     return true;
@@ -3454,12 +3536,6 @@ void TextureCache<P>::ForEachImageInRegion(DAddr cpu_addr, size_t size, Func&& f
             return false;
         }
     });
-    for (const ImageId image_id : images) {
-        slot_images[image_id].flags &= ~ImageFlagBits::Picked;
-    }
-    for (const ImageMapId map_id : maps) {
-        slot_map_views[map_id].picked = false;
-    }
 }
 
 template <class P>
