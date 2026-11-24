@@ -303,11 +303,14 @@ public:
     }
 
     ~IScanRequest() override {
+        // WorkerThread can still publish scan results and signal evt_scan_complete.
+        // Drain it before releasing either event or the service context.
+        if (worker.joinable()) {
+            worker.join();
+        }
         state.store(State::Idle);
         svc_ctx.CloseEvent(evt_scan_complete);
         svc_ctx.CloseEvent(evt_processing);
-        if (worker.joinable())
-            worker.join();
     }
 
 private:
