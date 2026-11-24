@@ -27,6 +27,7 @@ private:
     bool ConfirmStereoVisionPermissionImpl() const;
     void SetStereoVisionRestrictionImpl(bool is_restricted);
 
+    void RejectUnavailableParentalBackend(HLERequestContext& ctx);
     Result RejectDebugOnlyCommand();
     Result Initialize();
     Result CheckFreeCommunicationPermission();

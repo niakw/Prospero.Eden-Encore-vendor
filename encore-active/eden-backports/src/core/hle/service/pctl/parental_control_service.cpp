@@ -37,7 +37,7 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1009, D<&IParentalControlService::LeaveRestrictedSystemSettings>, "LeaveRestrictedSystemSettings"},
         {1010, D<&IParentalControlService::IsRestrictedSystemSettingsEntered>, "IsRestrictedSystemSettingsEntered"},
         {1011, D<&IParentalControlService::RevertRestrictedSystemSettingsEntered>, "RevertRestrictedSystemSettingsEntered"},
-        {1012, nullptr, "GetRestrictedFeatures"},
+        {1012, &IParentalControlService::RejectUnavailableParentalBackend, "GetRestrictedFeatures"},
         {1013, D<&IParentalControlService::ConfirmStereoVisionPermission>, "ConfirmStereoVisionPermission"},
         {1014, &IParentalControlService::ConfirmPlayableApplicationVideoOld, "ConfirmPlayableApplicationVideoOld"},
         {1015, &IParentalControlService::ConfirmPlayableApplicationVideo, "ConfirmPlayableApplicationVideo"},
@@ -45,13 +45,13 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1017, D<&IParentalControlService::EndFreeCommunication>, "EndFreeCommunication"},
         {1018, D<&IParentalControlService::IsFreeCommunicationAvailable>, "IsFreeCommunicationAvailable"},
         {1019, D<&IParentalControlService::ConfirmLaunchApplicationPermission>, "ConfirmLaunchApplicationPermission"},
-        {1020, nullptr, "ConfirmLaunchSharedApplicationPermission"}, //20.0.0+
-        {1021, nullptr, "TryBeginFreeCommunicationForStreamPlay"}, //21.0.0+
-        {1022, nullptr, "EndFreeCommunicationForStreamPlay"}, //21.0.0+
+        {1020, &IParentalControlService::RejectUnavailableParentalBackend, "ConfirmLaunchSharedApplicationPermission"}, //20.0.0+
+        {1021, &IParentalControlService::RejectUnavailableParentalBackend, "TryBeginFreeCommunicationForStreamPlay"}, //21.0.0+
+        {1022, &IParentalControlService::RejectUnavailableParentalBackend, "EndFreeCommunicationForStreamPlay"}, //21.0.0+
         {1031, D<&IParentalControlService::IsRestrictionEnabled>, "IsRestrictionEnabled"},
         {1032, D<&IParentalControlService::GetSafetyLevel>, "GetSafetyLevel"},
-        {1033, nullptr, "SetSafetyLevel"},
-        {1034, nullptr, "GetSafetyLevelSettings"},
+        {1033, &IParentalControlService::RejectUnavailableParentalBackend, "SetSafetyLevel"},
+        {1034, &IParentalControlService::RejectUnavailableParentalBackend, "GetSafetyLevelSettings"},
         {1035, D<&IParentalControlService::GetCurrentSettings>, "GetCurrentSettings"},
         {1036, D<&IParentalControlService::SetCustomSafetyLevelSettings>, "SetCustomSafetyLevelSettings"},
         {1037, D<&IParentalControlService::GetDefaultRatingOrganization>, "GetDefaultRatingOrganization"},
@@ -75,19 +75,19 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1201, D<&IParentalControlService::UnlockRestrictionTemporarily>, "UnlockRestrictionTemporarily"},
         {1202, D<&IParentalControlService::UnlockSystemSettingsRestriction>, "UnlockSystemSettingsRestriction"},
         {1203, D<&IParentalControlService::SetPinCode>, "SetPinCode"},
-        {1204, nullptr, "GenerateInquiryCode"},
-        {1205, nullptr, "CheckMasterKey"},
+        {1204, &IParentalControlService::RejectUnavailableParentalBackend, "GenerateInquiryCode"},
+        {1205, &IParentalControlService::RejectUnavailableParentalBackend, "CheckMasterKey"},
         {1206, D<&IParentalControlService::GetPinCodeLength>, "GetPinCodeLength"},
         {1207, D<&IParentalControlService::GetPinCodeChangedEvent>, "GetPinCodeChangedEvent"},
         {1208, D<&IParentalControlService::GetPinCode>, "GetPinCode"},
         {1403, D<&IParentalControlService::IsPairingActive>, "IsPairingActive"},
-        {1406, nullptr, "GetSettingsLastUpdated"},
-        {1411, nullptr, "GetPairingAccountInfo"},
-        {1421, nullptr, "GetAccountNickname"},
-        {1424, nullptr, "GetAccountState"},
-        {1425, nullptr, "RequestPostEvents"},
-        {1426, nullptr, "GetPostEventInterval"},
-        {1427, nullptr, "SetPostEventInterval"},
+        {1406, &IParentalControlService::RejectUnavailableParentalBackend, "GetSettingsLastUpdated"},
+        {1411, &IParentalControlService::RejectUnavailableParentalBackend, "GetPairingAccountInfo"},
+        {1421, &IParentalControlService::RejectUnavailableParentalBackend, "GetAccountNickname"},
+        {1424, &IParentalControlService::RejectUnavailableParentalBackend, "GetAccountState"},
+        {1425, &IParentalControlService::RejectUnavailableParentalBackend, "RequestPostEvents"},
+        {1426, &IParentalControlService::RejectUnavailableParentalBackend, "GetPostEventInterval"},
+        {1427, &IParentalControlService::RejectUnavailableParentalBackend, "SetPostEventInterval"},
         {1432, D<&IParentalControlService::GetSynchronizationEvent>, "GetSynchronizationEvent"},
         {1451, D<&IParentalControlService::StartPlayTimer>, "StartPlayTimer"},
         {1452, D<&IParentalControlService::StopPlayTimer>, "StopPlayTimer"},
@@ -103,7 +103,7 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1472, &IParentalControlService::CancelNetworkRequest, "CancelNetworkRequest"},
         {1473, D<&IParentalControlService::GetUnlinkedEvent>, "GetUnlinkedEvent"},
         {1474, D<&IParentalControlService::ClearUnlinkedEvent>, "ClearUnlinkedEvent"},
-        {1475, nullptr, "GetExtendedPlayTimerEvent"}, // 18.0.0+
+        {1475, &IParentalControlService::RejectUnavailableParentalBackend, "GetExtendedPlayTimerEvent"}, // 18.0.0+
         {1601, D<&IParentalControlService::DisableAllFeatures>, "DisableAllFeatures"},
         {1602, D<&IParentalControlService::PostEnableAllFeatures>, "PostEnableAllFeatures"},
         {1603, D<&IParentalControlService::IsAllFeaturesDisabled>, "IsAllFeaturesDisabled"},
@@ -119,34 +119,34 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1951, D<&IParentalControlService::RejectDebugOnlyCommand>, "SetPlayTimerSettingsForDebug"},
         {1952, D<&IParentalControlService::RejectDebugOnlyCommand>, "GetPlayTimerSpentTimeForTest"},
         {1953, D<&IParentalControlService::RejectDebugOnlyCommand>, "SetPlayTimerAlarmDisabledForDebug"},
-        {1954, nullptr, "IsBedtimeAlarmEnabled"}, // 18.0.0+
-        {1955, nullptr, "GetBedtimeAlarmTime"}, // 18.0.0+
-        {1956, nullptr, "GetBedtimeAlarmTimeHour"}, // 18.0.0+
-        {1957, nullptr, "GetBedtimeAlarmTimeMinute"}, // 18.0.0+
-        {2001, nullptr, "RequestPairingAsync"},
-        {2002, nullptr, "FinishRequestPairing"},
-        {2003, nullptr, "AuthorizePairingAsync"},
-        {2004, nullptr, "FinishAuthorizePairing"},
-        {2005, nullptr, "RetrievePairingInfoAsync"},
-        {2006, nullptr, "FinishRetrievePairingInfo"},
-        {2007, nullptr, "UnlinkPairingAsync"},
-        {2008, nullptr, "FinishUnlinkPairing"},
-        {2009, nullptr, "GetAccountMiiImageAsync"},
-        {2010, nullptr, "FinishGetAccountMiiImage"},
-        {2011, nullptr, "GetAccountMiiImageContentTypeAsync"},
-        {2012, nullptr, "FinishGetAccountMiiImageContentType"},
-        {2013, nullptr, "SynchronizeParentalControlSettingsAsync"},
-        {2014, nullptr, "FinishSynchronizeParentalControlSettings"},
-        {2015, nullptr, "FinishSynchronizeParentalControlSettingsWithLastUpdated"},
-        {2016, nullptr, "RequestUpdateExemptionListAsync"}, //5.0.0+
+        {1954, &IParentalControlService::RejectUnavailableParentalBackend, "IsBedtimeAlarmEnabled"}, // 18.0.0+
+        {1955, &IParentalControlService::RejectUnavailableParentalBackend, "GetBedtimeAlarmTime"}, // 18.0.0+
+        {1956, &IParentalControlService::RejectUnavailableParentalBackend, "GetBedtimeAlarmTimeHour"}, // 18.0.0+
+        {1957, &IParentalControlService::RejectUnavailableParentalBackend, "GetBedtimeAlarmTimeMinute"}, // 18.0.0+
+        {2001, &IParentalControlService::RejectUnavailableParentalBackend, "RequestPairingAsync"},
+        {2002, &IParentalControlService::RejectUnavailableParentalBackend, "FinishRequestPairing"},
+        {2003, &IParentalControlService::RejectUnavailableParentalBackend, "AuthorizePairingAsync"},
+        {2004, &IParentalControlService::RejectUnavailableParentalBackend, "FinishAuthorizePairing"},
+        {2005, &IParentalControlService::RejectUnavailableParentalBackend, "RetrievePairingInfoAsync"},
+        {2006, &IParentalControlService::RejectUnavailableParentalBackend, "FinishRetrievePairingInfo"},
+        {2007, &IParentalControlService::RejectUnavailableParentalBackend, "UnlinkPairingAsync"},
+        {2008, &IParentalControlService::RejectUnavailableParentalBackend, "FinishUnlinkPairing"},
+        {2009, &IParentalControlService::RejectUnavailableParentalBackend, "GetAccountMiiImageAsync"},
+        {2010, &IParentalControlService::RejectUnavailableParentalBackend, "FinishGetAccountMiiImage"},
+        {2011, &IParentalControlService::RejectUnavailableParentalBackend, "GetAccountMiiImageContentTypeAsync"},
+        {2012, &IParentalControlService::RejectUnavailableParentalBackend, "FinishGetAccountMiiImageContentType"},
+        {2013, &IParentalControlService::RejectUnavailableParentalBackend, "SynchronizeParentalControlSettingsAsync"},
+        {2014, &IParentalControlService::RejectUnavailableParentalBackend, "FinishSynchronizeParentalControlSettings"},
+        {2015, &IParentalControlService::RejectUnavailableParentalBackend, "FinishSynchronizeParentalControlSettingsWithLastUpdated"},
+        {2016, &IParentalControlService::RejectUnavailableParentalBackend, "RequestUpdateExemptionListAsync"}, //5.0.0+
         {145601, D<&IParentalControlService::GetPlayTimerSettings>, "GetPlayTimerSettings"}, // 18.0.0+
-        {2017, nullptr, "AuthorizePairingAsync"}, //19.0.0+
-        {2019, nullptr, "RequestUpdateDeviceUsersBackground"}, //19.0.0+
-        {2021, nullptr, "RequestCopyPairingAsync"}, //20.0.0+
-        {2022, nullptr, "FinishRequestCopyPairing"}, //20.0.0+
-        {2023, nullptr, "IsFromPairingActiveDevice"}, //20.0.0+
-        {2024, nullptr, "RollbackCopyPairing"}, //21.0.0+
-        {3001, nullptr, "GetErrorContextChangedEvent"}, //20.0.0+
+        {2017, &IParentalControlService::RejectUnavailableParentalBackend, "AuthorizePairingAsync"}, //19.0.0+
+        {2019, &IParentalControlService::RejectUnavailableParentalBackend, "RequestUpdateDeviceUsersBackground"}, //19.0.0+
+        {2021, &IParentalControlService::RejectUnavailableParentalBackend, "RequestCopyPairingAsync"}, //20.0.0+
+        {2022, &IParentalControlService::RejectUnavailableParentalBackend, "FinishRequestCopyPairing"}, //20.0.0+
+        {2023, &IParentalControlService::RejectUnavailableParentalBackend, "IsFromPairingActiveDevice"}, //20.0.0+
+        {2024, &IParentalControlService::RejectUnavailableParentalBackend, "RollbackCopyPairing"}, //21.0.0+
+        {3001, &IParentalControlService::RejectUnavailableParentalBackend, "GetErrorContextChangedEvent"}, //20.0.0+
         {145601, D<&IParentalControlService::GetPlayTimerSettings>, "GetPlayTimerSettings"}, // 18.0.0+
         {195101, D<&IParentalControlService::SetPlayTimerSettings>, "SetPlayTimerSettingsForDebug"}, //18.0.0+
     };
@@ -197,6 +197,13 @@ void IParentalControlService::SetStereoVisionRestrictionImpl(bool is_restricted)
         return;
     }
     settings.is_stero_vision_restricted = is_restricted;
+}
+
+void IParentalControlService::RejectUnavailableParentalBackend(HLERequestContext& ctx) {
+    LOG_WARNING(Service_PCTL,
+                "Rejected parental-control account/pairing/system-settings command: backend unavailable");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultUnknown);
 }
 
 Result IParentalControlService::RejectDebugOnlyCommand() {
