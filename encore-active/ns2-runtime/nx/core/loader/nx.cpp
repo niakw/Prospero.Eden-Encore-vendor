@@ -5,7 +5,6 @@
 #include <array>
 #include <cstring>
 #include <condition_variable>
-#include <limits>
 #include <mutex>
 #include <optional>
 
@@ -293,7 +292,10 @@ private:
     }
     VirtualFile MakeFile(const nx::DirectoryEntryView& entry) const {
         const auto info = session->archive().file_info(entry.file);
-        if (!info || info.value->size > std::numeric_limits<std::size_t>::max()) {
+        // VFS sizes use size_t. A round trip rejects truncation on narrower
+        // hosts without an always-false uint64_t comparison on native PS5.
+        if (!info || static_cast<u64>(static_cast<std::size_t>(info.value->size)) !=
+                         info.value->size) {
             return nullptr;
         }
         return std::make_shared<NxFile>(session, *info.value, std::string(entry.name), Self());
