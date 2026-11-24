@@ -30,6 +30,14 @@ if const_blob=="9cbdcbffe4117f9bc7957a69d15e6a277fcfe12b":
 cache_blob=blob(CACHE)
 # Verify the complete deduplicated prewarm successor before replaying the frozen shader proof.
 cache_source = CACHE.read_text()
+if cache_blob == "7db0462ad24aa4c6356ce4efa0086b356f171be6":
+    guard = "\n        // Disk records are untrusted: the six guest programs include both\n        // VertexA and VertexB, even though Vulkan exposes five graphics stages.\n        size_t env_index = 0;\n        for (size_t index = 0; index < key.unique_hashes.size(); ++index) {\n            if (key.unique_hashes[index] == 0) continue;\n            if (env_index == envs.size() ||\n                envs[env_index].ShaderStage() != (index == 0 ? Shader::Stage::VertexA\n                                                            : Shader::StageFromIndex(index - 1))) {\n                return;\n            }\n            ++env_index;\n        }\n        if (env_index == 0 || env_index != envs.size()) return;\n"
+    capacity = "boost::container::static_vector<Shader::Environment*, Maxwell::MaxShaderProgram> env_ptrs;"
+    assert cache_source.count(guard) == cache_source.count(capacity) == 1
+    cache_source = cache_source.replace(guard, "", 1).replace(capacity, "boost::container::static_vector<Shader::Environment*, 5> env_ptrs;", 1)
+    raw = cache_source.encode("utf-8")
+    cache_blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + bytes([0]) + raw).hexdigest()
+    assert cache_blob == "cdcef0c6ec4cdada8521af43f856e66f98d5b0a9"
 if cache_blob == "cdcef0c6ec4cdada8521af43f856e66f98d5b0a9":
     for newer, earlier in (
         ("#include \"diagnostics.h\"\n#include <cstddef>\n#include <deque>\n#include <list>\n#include <variant>\n#include <fstream>\n#include <iostream>\n#include <memory>", "#include \"diagnostics.h\"\n#include <cstddef>\n#include <deque>\n#include <fstream>\n#include <iostream>\n#include <memory>"),

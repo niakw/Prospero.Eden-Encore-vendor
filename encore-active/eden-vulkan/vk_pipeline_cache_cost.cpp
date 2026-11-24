@@ -1531,6 +1531,20 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         GraphicsPipelineCacheKey key;
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
 
+        // Disk records are untrusted: the six guest programs include both
+        // VertexA and VertexB, even though Vulkan exposes five graphics stages.
+        size_t env_index = 0;
+        for (size_t index = 0; index < key.unique_hashes.size(); ++index) {
+            if (key.unique_hashes[index] == 0) continue;
+            if (env_index == envs.size() ||
+                envs[env_index].ShaderStage() != (index == 0 ? Shader::Stage::VertexA
+                                                            : Shader::StageFromIndex(index - 1))) {
+                return;
+            }
+            ++env_index;
+        }
+        if (env_index == 0 || env_index != envs.size()) return;
+
         if ((key.state.extended_dynamic_state != 0) !=
                 dynamic_features.has_extended_dynamic_state ||
             (key.state.extended_dynamic_state_2 != 0) !=
@@ -1564,7 +1578,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
 
         schedule_prewarm(key, [this, key, envs_ = std::move(envs), &state, &callback]() mutable {
             ShaderPools pools;
-            boost::container::static_vector<Shader::Environment*, 5> env_ptrs;
+            boost::container::static_vector<Shader::Environment*, Maxwell::MaxShaderProgram> env_ptrs;
             for (auto& env : envs_) {
                 env_ptrs.push_back(&env);
             }
