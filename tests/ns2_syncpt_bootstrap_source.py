@@ -436,3 +436,12 @@ query_mode=cpp.split("void IGraphicsSupervisor::QuerySessionMode(HLERequestConte
 assert "m_bootstrap.QuerySessionMode(packet, mode)" in query_mode
 assert "NativeTipcReplyWords(ctx, {mode});" in query_mode
 assert "rb.Push(result.raw);" in query_mode
+
+# libounce 32e7ac41 _gsvSyncCreate calls 1 then 21(u32 configured).
+# Bound the actual live event table, not just an acknowledgement.
+assert '{21, &INativeSyncptSession::ConfigureSlots, "ConfigureSlots"}' in cpp
+slots=cpp.split("void ConfigureSlots(HLERequestContext& ctx) {",1)[1].split("    void QueryCounter",1)[0]
+assert "DecodeSyncptSlotCount(packet)" in slots
+assert "m_events.begin() + *count" in slots
+assert "m_configured_slots = *count;" in slots
+assert "if (slot >= m_configured_slots) return nullptr;" in cpp

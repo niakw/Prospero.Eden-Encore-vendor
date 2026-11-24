@@ -214,7 +214,7 @@ public:
         static const FunctionInfo f[] = {
             {0, &INativeSyncptSession::Handshake, "Handshake"},
             {1, &INativeSyncptSession::GetCount, "GetCount"},
-            {21, &INativeSyncptSession::Unknown21, "Unknown21"},
+            {21, &INativeSyncptSession::ConfigureSlots, "ConfigureSlots"},
             {22, &INativeSyncptSession::GetSlotEvent, "GetSlotEvent"},
             {103, &INativeSyncptSession::QueryCounter, "QueryCounter"},
             {201, &INativeSyncptSession::RequestSlotEvent, "RequestSlotEvent"},
@@ -246,7 +246,7 @@ public:
     }
 private:
     static constexpr u32 HostSyncpoints = Tegra::Host1x::SyncpointManager::NUM_MAX_SYNCPOINTS;
-    static constexpr u32 MaxSlots = 64;
+    static constexpr u32 MaxSlots = GraphicsSupervisorProtocol::SyncptLegacySlots;
     struct SlotRequest {
         u32 syncpoint{};
         std::atomic<bool> pending{};
@@ -257,7 +257,7 @@ private:
         bool alive{true};
     };
     Kernel::KEvent* EventFor(u32 slot) {
-        if (slot >= MaxSlots) return nullptr;
+        if (slot >= m_configured_slots) return nullptr;
         auto*& event = m_events[slot];
         if (event) return event;
         char name[48]{};
@@ -274,14 +274,26 @@ private:
         NativeTipcReplyWords(ctx, {w[2], w[3]});
     }
     void GetCount(HLERequestContext& ctx) {
-        NativeTipcReplyWords(ctx, {32});
+        NativeTipcReplyWords(ctx, {GraphicsSupervisorProtocol::SyncptAdvertisedSlots});
     }
-    void Unknown21(HLERequestContext& ctx) {
-        // SwitchBrew lists SyncptSession command 21 but still publishes no
-        // name, input layout or output contract. Never manufacture success
-        // or read a guessed payload until that ABI is known.
+    void ConfigureSlots(HLERequestContext& ctx) {
+        const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
+        const auto count = GraphicsSupervisorProtocol::DecodeSyncptSlotCount(packet);
+        Result result = Kernel::ResultInvalidCombination;
+        if (count) {
+            // Do not revoke a slot with a live event or asynchronous callback.
+            // All handlers for this service are serialized by LockService.
+            const bool live_outside = std::any_of(
+                m_events.begin() + *count, m_events.end(),
+                [](const auto* event) { return event != nullptr; });
+            result = Kernel::ResultInvalidState;
+            if (!live_outside) {
+                m_configured_slots = *count;
+                result = ResultSuccess;
+            }
+        }
         IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(Kernel::ResultNotImplemented.raw);
+        rb.Push(result.raw);
     }
     void QueryCounter(HLERequestContext& ctx) {
         const u32 syncpoint = ~ctx.CommandBuffer()[2];
@@ -294,7 +306,8 @@ private:
         auto* event = EventFor(slot);
         if (!event) {
             IPC::ResponseBuilder rb{ctx, 2};
-            rb.Push(Kernel::ResultOutOfResource.raw);
+            rb.Push(slot >= m_configured_slots ? Kernel::ResultInvalidArgument.raw
+                                               : Kernel::ResultOutOfResource.raw);
             return;
         }
         auto* readable = &event->GetReadableEvent();
@@ -325,8 +338,8 @@ private:
         auto* event = EventFor(slot);
         if (!event) {
             IPC::ResponseBuilder rb{ctx, 2};
-            rb.Push(slot >= MaxSlots ? Kernel::ResultInvalidArgument.raw
-                                    : Kernel::ResultOutOfResource.raw);
+            rb.Push(slot >= m_configured_slots ? Kernel::ResultInvalidArgument.raw
+                                               : Kernel::ResultOutOfResource.raw);
             return;
         }
         if (syncpoint >= HostSyncpoints) {
@@ -352,7 +365,7 @@ private:
     }
     void CancelSlotEvent(HLERequestContext& ctx) {
         const u32 slot = ctx.CommandBuffer()[2];
-        if (slot >= MaxSlots) {
+        if (slot >= m_configured_slots) {
             IPC::ResponseBuilder rb{ctx, 2};
             rb.Push(Kernel::ResultInvalidArgument.raw);
             return;
@@ -377,6 +390,7 @@ private:
     KernelHelpers::ServiceContext m_context;
     std::array<Kernel::KEvent*, MaxSlots> m_events{};
     std::array<SlotRequest, MaxSlots> m_requests{};
+    u32 m_configured_slots{MaxSlots};
     std::shared_ptr<SharedState> m_shared = std::make_shared<SharedState>();
     std::atomic<u32> m_trace_count{};
 };

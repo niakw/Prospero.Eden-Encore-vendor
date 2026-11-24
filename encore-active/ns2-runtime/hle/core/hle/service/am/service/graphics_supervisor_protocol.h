@@ -78,6 +78,18 @@ constexpr RequestGroupDuplicateStatus ClassifyRequestGroupEventDuplicate(
     return RequestGroupDuplicateStatus::Ready;
 }
 
+// libounce gsv.c _gsvSyncCreate: command 1 advertises capacity,
+// command 21 sends a u32 configured count, at most min(capacity, 0x3f).
+// Keep the historical unconfigured limit for SDKs that never send 21.
+constexpr u32 SyncptAdvertisedSlots = 32;
+constexpr u32 SyncptLegacySlots = 64;
+inline std::optional<u32> DecodeSyncptSlotCount(std::span<const u32> packet) {
+    if (packet.size() < 3 || packet[0] != 16 + 21 || packet[1] != 1 ||
+        packet[2] == 0 || packet[2] > SyncptAdvertisedSlots)
+        return {};
+    return packet[2];
+}
+
 struct SyncpointWait {
     u32 slot;
     u32 id;
