@@ -1109,8 +1109,8 @@ print("NS1_MAXWELL_AS_LEASE_SOURCE_PASS owner_before_payload=1 exact_session=1 "
       "pins_before_session_close=1 no_new_asid=1")
 
 
-// Worker 211 overlays one 214 reservation without taking a second VA owner.
-// 216 remains physically exclusive and 213 restores sparse PTE state.
+# Worker 211 overlays one 214 reservation without taking a second VA owner.
+# 216 remains physically exclusive and 213 restores sparse PTE state.
 _overlay_worker = worker.split("void IGpuWorker::NormalMapGpuMemory4K(",1)[1].split(
     "void IGpuWorker::CreateSparseRegion(",1)[0]
 for marker in (
