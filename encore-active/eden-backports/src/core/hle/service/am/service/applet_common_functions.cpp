@@ -45,7 +45,7 @@ IAppletCommonFunctions::IAppletCommonFunctions(Core::System& system_,
         {300, D<&IAppletCommonFunctions::GetCurrentApplicationId>, "GetCurrentApplicationId"},
         {310, D<&IAppletCommonFunctions::IsSystemAppletHomeMenu>, "IsSystemAppletHomeMenu"}, //19.0.0+
         {320, D<&IAppletCommonFunctions::SetGpuTimeSliceBoost>, "SetGpuTimeSliceBoost"}, //19.0.0+
-        {321, nullptr, "SetGpuTimeSliceBoostDueToApplication"}, //19.0.0+
+        {321, D<&IAppletCommonFunctions::SetGpuTimeSliceBoostDueToApplication>, "SetGpuTimeSliceBoostDueToApplication"}, //19.0.0+
         {350, D<&IAppletCommonFunctions::Unknown350>, "Unknown350"} //20.0.0+
     };
     // clang-format on
@@ -233,6 +233,14 @@ Result IAppletCommonFunctions::IsSystemAppletHomeMenu(Out<bool> out_is_home_menu
 
 Result IAppletCommonFunctions::SetGpuTimeSliceBoost(s64 time_span) {
     LOG_WARNING(Service_AM, "(STUBBED) called, time_span={}", time_span);
+    R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::SetGpuTimeSliceBoostDueToApplication(u64 boost) {
+    // This is a Horizon GPU scheduling-policy hint. Encore schedules guest GPU work through
+    // the PS5/RADV backend and must not reinterpret the guest time-slice request as a host
+    // scheduler change.
+    LOG_DEBUG(Service_AM, "called, boost={} (host GPU scheduler unchanged)", boost);
     R_SUCCEED();
 }
 

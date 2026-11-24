@@ -41,6 +41,7 @@ private:
     Result GetCurrentApplicationId(Out<u64> out_application_id);
     Result IsSystemAppletHomeMenu(Out<bool> out_is_home_menu);
     Result SetGpuTimeSliceBoost(s64 time_span);
+    Result SetGpuTimeSliceBoostDueToApplication(u64 boost);
     Result Unknown350(Out<u16> out_unknown);
 
     const std::shared_ptr<Applet> applet;
