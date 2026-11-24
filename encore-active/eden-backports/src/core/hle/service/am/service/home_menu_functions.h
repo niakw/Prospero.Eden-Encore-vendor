@@ -36,6 +36,7 @@ private:
     Result IsSleepEnabled(Out<bool> out_is_sleep_enbaled);
     Result IsRebootEnabled(Out<bool> out_is_reboot_enbaled);
     Result RejectDebugOnlyCommand();
+    Result SetLastApplicationExitReason(s32 reason);
     Result IsForceTerminateApplicationDisabledForDebug(
         Out<bool> out_is_force_terminate_application_disabled_for_debug);
 

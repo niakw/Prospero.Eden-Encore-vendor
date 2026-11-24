@@ -135,7 +135,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {180, nullptr, "GetLaunchRequiredVersion"},
         {181, nullptr, "UpgradeLaunchRequiredVersion"},
         {190, D<&IApplicationFunctions::SendServerMaintenanceOverlayNotification>, "SendServerMaintenanceOverlayNotification"},
-        {200, nullptr, "GetLastApplicationExitReason"},
+        {200, D<&IApplicationFunctions::GetLastApplicationExitReason>, "GetLastApplicationExitReason"},
         {210, D<&IApplicationFunctions::GetUnknownEvent210>, "Unknown210"},
         {220, nullptr, "Unknown220"}, // [20.0.0+]
         {300, &IApplicationFunctions::RejectUnavailableMovieCommand, "CreateMovieWriter"}, // [19.0.0+]
@@ -531,6 +531,14 @@ Result IApplicationFunctions::SetDelayTimeToAbortOnGpuError(u64 delay_ns) {
 
 Result IApplicationFunctions::SendServerMaintenanceOverlayNotification() {
     LOG_DEBUG(Service_AM, "called (no maintenance-overlay backend)");
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::GetLastApplicationExitReason(
+    Out<s32> out_last_application_exit_reason) {
+    std::scoped_lock lk{m_applet->lock};
+    *out_last_application_exit_reason = m_applet->last_application_exit_reason;
+    LOG_DEBUG(Service_AM, "called, reason={}", *out_last_application_exit_reason);
     R_SUCCEED();
 }
 

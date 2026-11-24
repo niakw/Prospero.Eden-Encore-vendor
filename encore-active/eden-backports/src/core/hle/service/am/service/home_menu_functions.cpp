@@ -35,7 +35,7 @@ IHomeMenuFunctions::IHomeMenuFunctions(Core::System& system_, std::shared_ptr<Ap
         {100, D<&IHomeMenuFunctions::RejectDebugOnlyCommand>, "PopRequestLaunchApplicationForDebug"},
         {110, D<&IHomeMenuFunctions::IsForceTerminateApplicationDisabledForDebug>, "IsForceTerminateApplicationDisabledForDebug"},
         {200, D<&IHomeMenuFunctions::RejectDebugOnlyCommand>, "LaunchDevMenu"},
-        {1000, nullptr, "SetLastApplicationExitReason"},
+        {1000, D<&IHomeMenuFunctions::SetLastApplicationExitReason>, "SetLastApplicationExitReason"},
     };
     // clang-format on
 
@@ -110,6 +110,13 @@ Result IHomeMenuFunctions::IsSleepEnabled(Out<bool> out_is_sleep_enbaled) {
 Result IHomeMenuFunctions::IsRebootEnabled(Out<bool> out_is_reboot_enbaled) {
     LOG_INFO(Service_AM, "called");
     *out_is_reboot_enbaled = true;
+    R_SUCCEED();
+}
+
+Result IHomeMenuFunctions::SetLastApplicationExitReason(s32 reason) {
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->last_application_exit_reason = reason;
+    LOG_DEBUG(Service_AM, "called, reason={}", reason);
     R_SUCCEED();
 }
 

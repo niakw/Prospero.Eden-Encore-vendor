@@ -78,6 +78,7 @@ private:
     Result SetGamePlayRecordingState(GamePlayRecordingState game_play_recording_state);
     Result SetDelayTimeToAbortOnGpuError(u64 delay_ns);
     Result SendServerMaintenanceOverlayNotification();
+    Result GetLastApplicationExitReason(Out<s32> out_last_application_exit_reason);
     Result RequestToShutdown();
     Result RequestToReboot();
     Result RequestToSleep();

@@ -68,6 +68,7 @@ struct Applet {
 
     // Applet common functions
     Result terminate_result{};
+    s32 last_application_exit_reason{};
     s32 display_logical_width{};
     s32 display_logical_height{};
     Common::Rectangle<f32> display_magnification{0, 0, 1, 1};
