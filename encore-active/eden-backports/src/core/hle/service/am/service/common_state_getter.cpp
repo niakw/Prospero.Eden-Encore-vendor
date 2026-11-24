@@ -173,8 +173,9 @@ Result ICommonStateGetter::GetDefaultDisplayResolutionChangeEvent(
 }
 
 Result ICommonStateGetter::GetHdcpAuthenticationState(Out<s32> out_state) {
-    LOG_DEBUG(Service_AM, "called");
-    *out_state = 1;
+    std::scoped_lock lk{m_applet->lock};
+    *out_state = m_applet->hdcp_authentication_activated ? 1 : 0;
+    LOG_DEBUG(Service_AM, "called, state={}", *out_state);
     R_SUCCEED();
 }
 

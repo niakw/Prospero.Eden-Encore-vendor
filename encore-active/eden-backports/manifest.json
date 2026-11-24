@@ -561,8 +561,8 @@
       "upstream": "85093d7915d5000d80c72943c3a0aaf0f8be55c08680a511cd056f4ca9b4acd9"
     },
     "src/core/hle/service/am/service/application_functions.cpp": {
-      "active": "33ce528e7b1c05ce89dccdd89ddca308e9329e9f907cbb76286fd915ae90d43b",
-      "bytes": 31330,
+      "active": "c0bb45821beab58140d2c4cf7520d3a7d7c0f0da50ec9d318e636ab9c46bfbac",
+      "bytes": 31557,
       "upstream": "d7154fb56b46dbe4584c95203e26c6c9ee0805f3cdb8f9efe77d9bb39ee4222d"
     },
     "src/core/hle/service/am/service/application_functions.h": {
@@ -581,8 +581,8 @@
       "upstream": "ecb599a464a9ecc1d202cd60faed6f81262569f7816d5a342923a02ab993737f"
     },
     "src/core/hle/service/am/service/common_state_getter.cpp": {
-      "active": "39bb92616aa5c2d3bafa31d6b0c45a518c3af0bc23aca7c7f23dcb05eb2bc230",
-      "bytes": 21040,
+      "active": "2ef1e4e1c03ac16e822f32cb4e233bc406b7f23209e935fedfb4ae091e88e759",
+      "bytes": 21149,
       "upstream": "16abb5f4185ddc4956771630a987f1d6e8fcb02fe6f4c12d888a1f2be5801484"
     }
   },

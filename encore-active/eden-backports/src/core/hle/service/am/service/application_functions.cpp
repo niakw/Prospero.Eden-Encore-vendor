@@ -692,8 +692,17 @@ Result IApplicationFunctions::GetHealthWarningDisappearedSystemEvent(
 
 Result IApplicationFunctions::SetHdcpAuthenticationActivated(bool activated) {
     LOG_DEBUG(Service_AM, "called, activated={}", activated);
-    std::scoped_lock lk{m_applet->lock};
-    m_applet->hdcp_authentication_activated = activated;
+
+    bool changed{};
+    {
+        std::scoped_lock lk{m_applet->lock};
+        changed = m_applet->hdcp_authentication_activated != activated;
+        m_applet->hdcp_authentication_activated = activated;
+    }
+    if (changed) {
+        m_applet->lifecycle_manager.GetHDCPStateChangedEvent().Signal(system.Kernel());
+    }
+
     R_SUCCEED();
 }
 
