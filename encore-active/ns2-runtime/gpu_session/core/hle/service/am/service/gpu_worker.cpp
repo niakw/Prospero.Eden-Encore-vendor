@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <new>
@@ -23,6 +24,9 @@
 #include "core/hle/kernel/k_memory_manager.h"
 #include "core/hle/kernel/k_system_resource.h"
 #include "video_core/gpu.h"
+#ifdef PS5_NATIVE
+#include "gpu_failure.h"
+#endif
 #include "core/hle/kernel/svc_results.h"
 #include "core/hle/service/am/service/gpu_memory_registration.h"
 #include "core/hle/service/am/service/gpu_worker.h"
@@ -184,8 +188,18 @@ IGpuWorker::~IGpuWorker() {
     // dereference System::GPU() then: its optional was already reset.
     if (system.IsPoweredOn() && !system.IsShuttingDown() &&
         (!m_dense_regions.empty() || !m_mappings.Mappings().empty() ||
-         !m_sparse_overlays.Mappings().empty() || !m_memory.empty()))
-        system.GPU().WaitForIdle();
+         !m_sparse_overlays.Mappings().empty() || !m_memory.empty())) {
+        try {
+            system.GPU().WaitForIdle();
+        } catch (...) {
+            // An unsuccessful drain does not prove the GPU stopped using
+            // backing. The destructor must not terminate the host or free it.
+            m_quarantined_nv_session = true;
+#ifdef PS5_NATIVE
+            ::Eden::RecordGpuFailure(std::current_exception());
+#endif
+        }
+    }
     // A failed native 215/216 can poison a GMMU AFTER the original dense
     // 214 backing was published. The worker must detect this on teardown:
     // FreeHandle / CloseSession would otherwise unpin physical pages while
@@ -273,15 +287,13 @@ IGpuWorker::~IGpuWorker() {
         if (identity == m_shared->identity_gpu_mappings.end()) continue;
         while (identity->mapped_count) {
             const u32 as_id = identity->mapped_spaces[identity->mapped_count - 1];
-            if (const auto as = m_shared->FindOwnedAddressSpace(as_id)) {
-                if (as->UnmapNative4K(identity->address, identity->size) !=
-                    Nvidia::NvResult::Success)
-                    LOG_ERROR(Service_AM, "NS2 identity GPU VA unmap failed as={} VA={:#x}",
-                              as_id, identity->address);
-                if (as->IsNativeSparsePoisoned()) {
-                    m_quarantined_nv_session = true;
-                    break;
-                }
+            const auto as = m_shared->FindOwnedAddressSpace(as_id);
+            if (!as || as->UnmapNative4K(identity->address, identity->size) !=
+                           Nvidia::NvResult::Success || as->IsNativeSparsePoisoned()) {
+                LOG_ERROR(Service_AM, "NS2 identity GPU VA unmap failed as={} VA={:#x}",
+                          as_id, identity->address);
+                m_quarantined_nv_session = true;
+                break;
             }
             identity->RemoveSpace(as_id);
         }
@@ -1302,6 +1314,7 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
 
 Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
     // Caller holds BOTH locks, so event ownership and GPU IDs stay stable.
+    R_UNLESS(!m_quarantined_nv_session, Kernel::ResultInvalidState);
     R_UNLESS(notification < m_shared->events.size() &&
              m_shared->events[notification], Kernel::ResultInvalidCombination);
     const auto it = std::find(m_memory.begin(), m_memory.end(), id);
@@ -1449,10 +1462,11 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
     if (identity_it != m_shared->identity_gpu_mappings.end()) {
         while (identity_it->mapped_count) {
             const u32 as_id = identity_it->mapped_spaces[identity_it->mapped_count - 1];
-            if (const auto as = m_shared->FindOwnedAddressSpace(as_id)) {
-                if (as->UnmapNative4K(identity_it->address, identity_it->size) !=
-                    Nvidia::NvResult::Success)
-                    return Kernel::ResultInvalidState;
+            const auto as = m_shared->FindOwnedAddressSpace(as_id);
+            if (!as || as->UnmapNative4K(identity_it->address, identity_it->size) !=
+                           Nvidia::NvResult::Success || as->IsNativeSparsePoisoned()) {
+                m_quarantined_nv_session = true;
+                return Kernel::ResultInvalidState;
             }
             identity_it->RemoveSpace(as_id);
         }

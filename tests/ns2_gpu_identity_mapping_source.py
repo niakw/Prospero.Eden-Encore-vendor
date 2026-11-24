@@ -1145,3 +1145,11 @@ assert _overlay_unmap.index("gmmu->MapSparse(address, size, false);") < _overlay
 assert "bool gpu_cacheable : 1;" in as_h
 print("NS2_WORKER_211_SPARSE_OVERLAY_SOURCE_PASS cacheability=retained "
       "214_va_owner=preserved 216_exclusive=1 213_restores_sparse=1")
+
+# Worker teardown cannot drop physical backing after a failed drain or identity unmap.
+assert "catch (...)" in teardown.split("system.GPU().WaitForIdle();", 1)[1].split("// A failed native", 1)[0]
+assert "::Eden::RecordGpuFailure(std::current_exception());" in teardown
+identity_teardown = teardown.split("for (const u32 memory_id : m_memory)",1)[1].split("// The sparse reservations",1)[0]
+assert "if (!as || as->UnmapNative4K" in identity_teardown
+assert identity_teardown.index("m_quarantined_nv_session = true;") < identity_teardown.index("identity->RemoveSpace(as_id);")
+assert "R_UNLESS(!m_quarantined_nv_session, Kernel::ResultInvalidState);" in release
