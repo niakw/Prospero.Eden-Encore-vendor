@@ -238,10 +238,31 @@ void NVDRV::SetGraphicsFirmwareMemoryMarginEnabled(HLERequestContext& ctx) {
 }
 
 void NVDRV::GetStatus(HLERequestContext& ctx) {
-    LOG_WARNING(Service_NVDRV, "(STUBBED) called");
+    // Horizon returns the nvdrv work-buffer status (0x20 bytes) followed by NvResult.
+    // The four memory counters are not modeled by Encore yet, so preserve their neutral
+    // zero values while keeping the ABI and initialization error contract exact.
+    struct NvStatus {
+        u32 memory_value_1{};
+        u32 memory_value_2{};
+        u32 memory_value_3{};
+        u32 memory_value_4{};
+        u64 reserved_1{};
+        u64 reserved_2{};
+    };
+    static_assert(sizeof(NvStatus) == 0x20);
 
-    IPC::ResponseBuilder rb{ctx, 3};
+    if (!is_initialized) {
+        LOG_DEBUG(Service_NVDRV, "called before Initialize");
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.PushEnum(NvResult::NotInitialized);
+        return;
+    }
+
+    LOG_DEBUG(Service_NVDRV, "called");
+    IPC::ResponseBuilder rb{ctx, 11};
     rb.Push(ResultSuccess);
+    rb.PushRaw(NvStatus{});
     rb.PushEnum(NvResult::Success);
 }
 
