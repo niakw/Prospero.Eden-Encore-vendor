@@ -81,6 +81,7 @@ struct Applet {
     bool handling_capture_button_short_pressed_message_enabled_for_applet{};
     bool handling_capture_button_long_pressed_message_enabled_for_applet{};
     u32 application_core_usage_mode{};
+    s64 applet_gpu_time_slice{};
 
     // Application functions
     bool game_play_recording_supported{};
