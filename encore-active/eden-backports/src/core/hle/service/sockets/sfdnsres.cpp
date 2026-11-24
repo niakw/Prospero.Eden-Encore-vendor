@@ -411,12 +411,19 @@ void SFDNSRES::GetAddrInfoRequestWithOptions(HLERequestContext& ctx) {
 }
 
 void SFDNSRES::ResolverSetOptionRequest(HLERequestContext& ctx) {
-    LOG_WARNING(Service, "(STUBBED) called");
+    IPC::RequestParser rp{ctx};
+    const u64 option_id = rp.Pop<u64>();
+    const auto options = ctx.ReadBuffer(0);
 
-    IPC::ResponseBuilder rb{ctx, 3};
+    // HOS accepts an opaque resolver-option buffer here. The active host resolver does not
+    // implement those option semantics yet, but the IPC payload and both result words must
+    // still be consumed/returned with the correct shape.
+    LOG_DEBUG(Service, "called, option_id={:#x}, options_size={:#x}", option_id, options.size());
 
+    IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(ResultSuccess);
-    rb.Push<s32>(0); // bsd errno
+    rb.Push<s32>(0); // ret
+    rb.Push<u32>(0); // bsd errno
 }
 
 

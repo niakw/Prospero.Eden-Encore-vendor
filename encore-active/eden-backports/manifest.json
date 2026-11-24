@@ -321,8 +321,8 @@
       "upstream": null
     },
     "src/core/hle/service/sockets/sfdnsres.cpp": {
-      "active": "c2428eb36c81e92b1af98aed824c996df63f4c53f3adf441b31916ef956ed2a4",
-      "bytes": 15560,
+      "active": "2041e9db66081f9afacc1496de4211747ec7e4bdf9653b30f74515c2d9700bf5",
+      "bytes": 15999,
       "upstream": "4680cf17e296597d514fb602d1995a16ce71293b7f10d298984548fabc3f0313"
     },
     "src/core/hle/service/sockets/sockets.cpp": {
