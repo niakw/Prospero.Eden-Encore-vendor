@@ -7,6 +7,7 @@
 #include <array>
 #include <atomic>
 #include <mutex>
+#include <memory>
 
 #include "common/common_types.h"
 #include "core/hle/service/nvdrv/nvdata.h"
@@ -45,6 +46,10 @@ public:
      * @brief Checks if the given syncpoint is both allocated and below the number of HW syncpoints
      */
     bool IsSyncpointAllocated(u32 id) const;
+
+    // Native submit owns a lease to this exact reservation, never merely
+    // the reusable hardware ID. A closed producer invalidates every wait.
+    [[nodiscard]] std::shared_ptr<const std::atomic<bool>> CaptureNativeSyncpointLease(u32 id);
 
     /**
      * @brief Finds a free syncpoint and reserves it
@@ -126,6 +131,8 @@ private:
                                 //!< synchronous and requires direct cooperation of the CPU)
         bool reserved; //!< If the syncpoint is reserved or not, not to be confused with a reserved
                        //!< value
+        // Lazily allocated only for native GPU waits; no NS1 allocation cost.
+        std::shared_ptr<std::atomic<bool>> native_wait_lease{};
     };
 
     static constexpr std::size_t SyncpointCount{192};

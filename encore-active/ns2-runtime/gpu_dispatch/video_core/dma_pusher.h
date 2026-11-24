@@ -7,6 +7,9 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <memory>
+#include <optional>
 #include <condition_variable>
 #include <span>
 #include <vector>
@@ -106,6 +109,14 @@ inline CommandHeader BuildCommandHeader(BufferMethods method, u32 arg_count, Sub
     return result;
 }
 
+// Host-only metadata for an admitted NVDRV FENCE_WAIT. It is never
+// decoded from guest command words and cannot be forged by a pushbuffer.
+struct NativeSyncpointWait {
+    u32 id{};
+    u32 threshold{};
+    std::shared_ptr<const std::atomic<bool>> lease;
+};
+
 struct CommandList final {
     CommandList() = default;
     explicit CommandList(std::size_t size) : command_lists(size) {}
@@ -114,6 +125,7 @@ struct CommandList final {
 
     boost::container::small_vector<CommandListHeader, 512> command_lists;
     boost::container::small_vector<CommandHeader, 512> prefetch_command_list;
+    std::optional<NativeSyncpointWait> native_syncpoint_wait;
 };
 
 /// @brief The DmaPusher class implements DMA submission to FIFOs, providing an area of memory that the
@@ -133,11 +145,10 @@ public:
     void DispatchCalls();
 
     [[nodiscard]] bool HasPendingNativeAcquire() const noexcept {
-        return puller.HasPendingNativeAcquire();
+        return puller.HasPendingNativeAcquire() ||
+               (!dma_pushbuffer.empty() && dma_pushbuffer.front().native_syncpoint_wait.has_value());
     }
-    [[nodiscard]] bool ResumeNativeAcquire() {
-        return puller.ResumeNativeAcquire(*this);
-    }
+    [[nodiscard]] bool ResumeNativeAcquire();
 
     void BindSubchannel(Engines::EngineInterface* engine, u32 subchannel_id, Engines::EngineTypes engine_type) {
         subchannels[subchannel_id] = engine;

@@ -1002,32 +1002,30 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
         }
     }
 
-    // A guest may request FENCE_WAIT with an arbitrary negative, out-of-
-    // range or released syncpoint ID. HasSyncpointExpired uses at() and
-    // asserts on unreserved IDs; never let an untrusted NVDRV ioctl reach
-    // that host assertion before GPU channel admission is complete.
-    // Keep the Maxwell/NS1 fence path untouched.
-    if (native && flags.fence_wait.Value() &&
-        !syncpoint_manager.IsSyncpointAllocated(
-            static_cast<u32>(params.fence.id)))
-        return NvResult::BadParameter;
-
-    // Native FENCE_ACTION ACQUIRE is not yet scheduled by the Ampere
-    // puller. If this input fence is unresolved, submitting its legacy
-    // wait packet would kill the GPU worker after an apparently successful
-    // ioctl, and possibly strand an already-reserved completion syncpoint.
-    // Reject BEFORE InitChannel, bind or fence reservation. A satisfied
-    // wait needs no command; NS1 retains its existing wait path.
-    if (native && flags.fence_wait.Value() &&
-        !syncpoint_manager.IsFenceSignalled(params.fence)) {
+    // Capture the exact source reservation before any channel mutation,
+    // rather than asking the legacy cached min/max fence predicate twice.
+    // The wait belongs to the command list and will be polled by the
+    // existing native channel scheduler before executing its first word.
+    if (native && flags.fence_wait.Value()) {
+        try {
+            auto lease = syncpoint_manager.CaptureNativeSyncpointLease(
+                static_cast<u32>(params.fence.id));
+            if (!lease) {
 #ifdef PS5_NATIVE
-        if (trace_impl)
-            std::fprintf(stderr,
-                         "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=unresolved-native-wait fence_id=%u fence_value=%u\n",
-                         impl_trace_ticket, static_cast<unsigned>(params.fence.id),
-                         static_cast<unsigned>(params.fence.value));
+                if (trace_impl)
+                    std::fprintf(stderr,
+                                 "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=invalid-native-wait fence_id=%u fence_value=%u\n",
+                                 impl_trace_ticket, static_cast<unsigned>(params.fence.id),
+                                 static_cast<unsigned>(params.fence.value));
 #endif
-        return NvResult::NotImplemented;
+                return NvResult::BadParameter;
+            }
+            entries.native_syncpoint_wait.emplace(Tegra::NativeSyncpointWait{
+                static_cast<u32>(params.fence.id), static_cast<u32>(params.fence.value),
+                std::move(lease)});
+        } catch (const std::bad_alloc&) {
+            return NvResult::InsufficientMemory;
+        }
     }
 
     // P2.7: every native GPFIFO entry must refer to a fully mapped GMMU
@@ -1112,7 +1110,9 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     const auto bind_id = channel_state->bind_id;
     const u32 native_completion = native_plan ? native_plan->completion_count : 0;
 
-    if (flags.fence_wait.Value()) {
+    // The native wait is attached to entries, not a legacy FENCE_ACTION
+    // packet. This leaves the historical Maxwell submission path intact.
+    if (!native && flags.fence_wait.Value()) {
         if (flags.increment_value.Value()) {
             return NvResult::BadParameter;
         }

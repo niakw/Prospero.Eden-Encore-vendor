@@ -25,7 +25,13 @@ SyncpointManager::SyncpointManager(Tegra::Host1x::Host1x& host1x_) : host1x{host
     }
 }
 
-SyncpointManager::~SyncpointManager() = default;
+SyncpointManager::~SyncpointManager() {
+    // Queued command lists may retain the token, not this manager.
+    for (auto& syncpoint : syncpoints) {
+        if (syncpoint.native_wait_lease)
+            syncpoint.native_wait_lease->store(false, std::memory_order_release);
+    }
+}
 
 u32 SyncpointManager::ReserveSyncpoint(u32 id, bool client_managed) {
     auto& syncpoint = syncpoints.at(id);
@@ -73,7 +79,22 @@ void SyncpointManager::FreeSyncpoint(u32 id) {
     std::lock_guard lock(reservation_lock);
     auto& syncpoint = syncpoints.at(id);
     ASSERT(syncpoint.reserved);
+    // Invalidate the old generation before making its ID reusable.
+    if (syncpoint.native_wait_lease) {
+        syncpoint.native_wait_lease->store(false, std::memory_order_release);
+        syncpoint.native_wait_lease.reset();
+    }
     syncpoint.reserved = false;
+}
+
+std::shared_ptr<const std::atomic<bool>> SyncpointManager::CaptureNativeSyncpointLease(u32 id) {
+    if (id == 0 || id >= SyncpointCount) return {};
+    const std::scoped_lock lock{reservation_lock};
+    auto& syncpoint = syncpoints[id];
+    if (!syncpoint.reserved) return {};
+    if (!syncpoint.native_wait_lease)
+        syncpoint.native_wait_lease = std::make_shared<std::atomic<bool>>(true);
+    return syncpoint.native_wait_lease;
 }
 
 bool SyncpointManager::IsSyncpointAllocated(u32 id) const {

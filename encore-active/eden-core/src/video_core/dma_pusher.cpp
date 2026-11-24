@@ -22,6 +22,7 @@
 #ifdef PS5_NATIVE
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_fetch_admission.h"
+#include "video_core/host1x/host1x.h"
 #endif
 #include "video_core/memory_manager.h"
 #include "video_core/rasterizer_interface.h"
@@ -54,6 +55,38 @@ DmaPusher::DmaPusher(Core::System& system_, MemoryManager& memory_manager_, Cont
 {}
 
 DmaPusher::~DmaPusher() = default;
+
+#ifdef PS5_NATIVE
+bool DmaPusher::ResumeNativeAcquire() {
+    if (!puller.ResumeNativeAcquire(*this)) return false;
+    if (dma_pushbuffer.empty()) return true;
+    auto& pending = dma_pushbuffer.front().native_syncpoint_wait;
+    if (!pending) return true;
+
+    // Only the authenticated channel's admitted wait can park this list.
+    // Recheck the source reservation around the live counter read: an ID
+    // recycled by another channel must not satisfy an old dependency.
+    if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+            &channel_state) || !pending->lease ||
+        !pending->lease->load(std::memory_order_acquire)) {
+        throw std::runtime_error("Native GPFIFO syncpoint wait owner retired");
+    }
+
+    // The guest counter can advance when commands are merely enqueued.
+    // Only the Host1x HOST counter is incremented after real fence
+    // retirement. Poll nonblocking, so other channels can submit work.
+    rasterizer->ReleaseFences(false);
+    const auto completed = system.Host1x().GetSyncpointManager().GetHostSyncpointValue(
+        pending->id);
+    if (!pending->lease->load(std::memory_order_acquire)) {
+        throw std::runtime_error("Native GPFIFO syncpoint wait source recycled");
+    }
+    if (((completed - pending->threshold) & 0x80000000U) != 0)
+        return false;
+    pending.reset();
+    return true;
+}
+#endif
 
 void DmaPusher::DispatchCalls() {
 #ifdef PS5_NATIVE

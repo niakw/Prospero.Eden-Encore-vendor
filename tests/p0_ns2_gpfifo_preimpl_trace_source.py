@@ -21,7 +21,7 @@ for route in ("ioctl1-submit", "ioctl1-kickoff", "ioctl2-kickoff",
 assert 'EDEN_NS2_GPFIFO_IMPL ticket=%u stage=enter' in text
 for reason in (
     "kickoff-shape", "session", "guest-header-range", "inline-span",
-    "native-plan", "owner-session", "mixed-owner", "unresolved-native-wait",
+    "native-plan", "owner-session", "mixed-owner", "invalid-native-wait",
     "unmapped-command", "channel-not-ready", "channel-bind",
 ):
     assert f"reason={reason}" in text, reason
@@ -45,22 +45,27 @@ assert "OunceVK verifies it byte-for-byte" in submit_impl
 assert submit_impl.index("gpu.PushGPUEntries(bind_id, std::move(entries));") < submit_impl.index(
     "if (!native)\n        flags.raw = 0;")
 
-# A hostile NS2 FENCE_WAIT must not call HasSyncpointExpired/
-# IsFenceSignalled on an out-of-range or unreserved ID, since the
-# inherited manager uses an assertion/at() there. Admission must happen
-# before side effects and before the unresolved-wait check.
+# Native waits capture a reservation lease before publication and use the
+# existing native scheduler. Legacy wait packets remain NS1-only.
 submit = text.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split(
-    "\n}",1)[0]
-for marker in ("if (native && flags.fence_wait.Value() &&",
-               "syncpoint_manager.IsSyncpointAllocated(",
+    "\n}\n",1)[0]
+for marker in ("if (native && flags.fence_wait.Value())",
+               "syncpoint_manager.CaptureNativeSyncpointLease(",
                "static_cast<u32>(params.fence.id)",
+               "entries.native_syncpoint_wait.emplace(",
                "return NvResult::BadParameter;",
-               "!syncpoint_manager.IsFenceSignalled(params.fence)"):
+               "return NvResult::InsufficientMemory;"):
     assert marker in submit, marker
-assert submit.index("syncpoint_manager.IsSyncpointAllocated(") < submit.index(
-    "!syncpoint_manager.IsFenceSignalled(params.fence)") < submit.index(
-    "gpu.PushGPUEntries(")
-
+assert submit.index("syncpoint_manager.CaptureNativeSyncpointLease(") < submit.index(
+    "system.GPU().InitChannel(") < submit.index("gpu.PushGPUEntries(")
+assert "if (!native && flags.fence_wait.Value())" in submit
+dma=(ROOT/"encore-active/eden-core/src/video_core/dma_pusher.cpp").read_text()
+resume=dma.split("bool DmaPusher::ResumeNativeAcquire() {",1)[1].split("\n}",1)[0]
+assert resume.count("pending->lease->load(std::memory_order_acquire)")==2
+assert resume.index("rasterizer->ReleaseFences(false);") < resume.index(
+    "GetHostSyncpointValue(") < resume.index("pending.reset();")
+assert "0x80000000U" in resume
+assert "GetGuestSyncpointValue" not in resume
 # Switch 2 0xC0504821 must bind a real initialized kernel-mode
 # channel, not return success for missing GMMU or USERD/doorbell buffers.
 hdr=(ROOT/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
