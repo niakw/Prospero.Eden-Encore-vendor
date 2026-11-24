@@ -125,10 +125,60 @@ assert cpp.count("size = Nvidia::Devices::NativeNs2GpuVaSmallSplit - first;") ==
 # user region ends at 768 GiB. Keep those distinct exactly as the
 # reviewed Lichii upstream reports GetUserPartition/GetVaRange.
 layout=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/native_gpu_va_layout.h").read_text()
+as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
+registry=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
 assert "NativeNs2GpuVaSmallSplit = 3ULL << 38;" in layout
 assert "NativeNs2GpuVaEnd = 1ULL << 40;" in layout
-assert "const u64_le range_end{Nvidia::Devices::NativeNs2GpuVaEnd};" in cpp
 assert "0xC000000000" in cpp
+
+# libounce cpu_window.c: 33 creates an opaque vm_id; 203/202 describe it;
+# root 434 registers it; only then does an independently opened NVDRV AS
+# descriptor import that id with 0x40284109.
+create=cpp.split("void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {",1)[1].split(
+    "\n}\n\nvoid IGpuSession::SynchronizeAddressSpace",1)[0]
+for marker in ("NativeGpuProcessRegistry::Instance().AllocateVm(",
+               "m_shared->address_spaces.Add(*candidate)",
+               "NativeGpuProcessRegistry::Instance().RemoveVm(",
+               "id = *candidate;"):
+    assert marker in create,marker
+for forbidden in ('m_module->Open("/dev/nvhost-as-gpu"', "m_module->Ioctl1(",
+                  "static_cast<u32>(fd)", "AllocAsEx", "MapNative4K"):
+    assert forbidden not in create,("cmd33 must stay VM-only",forbidden)
+
+register_vm=cpp.split("Result IGpuSession::RegisterAddressSpace(u32 id) {",1)[1].split("\n}",1)[0]
+assert "NativeGpuProcessRegistry::Instance().RegisterVm(m_process, id)" in register_vm
+assert "m_shared->address_spaces.Register(id)" in register_vm
+for command,name,next_name in ((201,"GetUserPartition","GetGsvPartition"),
+                               (202,"GetGsvPartition","GetVaRange"),
+                               (203,"GetVaRange","CreateGraphicsDevice")):
+    body=cpp.split(f"void IGpuSession::{name}(HLERequestContext& ctx) {{",1)[1].split(
+        f"\n}}\n\nvoid IGpuSession::{next_name}",1)[0]
+    assert "m_shared->address_spaces.Owns(request->address_space)" in body,(command,name)
+    assert "ResolveOpenedAddressSpace" not in body,(command,"pre-import query")
+
+for marker in ("struct NativeVmImport {","u32_le version{};","u32_le vm_id{};",
+               "u64_le user_first{};","u64_le user_end{};",
+               'static_assert(sizeof(NativeVmImport) == 40'):
+    assert marker in as_h,marker
+case9=as_cpp.split("case 0x9: {",1)[1].split("case 0xa: {",1)[0]
+for marker in ("command.raw == 0x40284109U","sizeof(NativeVmImport)",
+               "ImportNativeVm(parameters)"):
+    assert marker in case9,marker
+native_import=as_cpp.split("NvResult nvhost_as_gpu::ImportNativeVm(const NativeVmImport& params) {",1)[1].split("\n}",1)[0]
+for marker in ("u32{params.version} != 5","u32{params.vm_id} == 0",
+               "u64{params.user_first} != NativeNs2GpuVaStart",
+               "u64{params.user_end} != NativeNs2GpuVaSmallSplit",
+               "FindRegisteredVmOwner(","layout.big_page_size = 0x20000;",
+               "layout.va_range_start = NativeNs2GpuVaStart;",
+               "layout.va_range_end = NativeNs2GpuVaEnd;",
+               "layout.va_range_split = NativeNs2GpuVaSmallSplit;",
+               "AllocAsEx(layout)","BindImportedAddressSpace(",
+               "m_native_vm_id = params.vm_id;"):
+    assert marker in native_import,marker
+assert native_import.index("FindRegisteredVmOwner(") < native_import.index("AllocAsEx(layout)") < native_import.index("BindImportedAddressSpace(") < native_import.index("m_native_vm_id = params.vm_id;")
+for marker in ("AllocateVm(","RegisterVm(","FindRegisteredVmOwner(","RemoveVm("):
+    assert marker in registry,marker
 assert "first = ~u64{0};" in cpp and "last = 0;" in cpp
 get_ranges=cpp.split("void IGpuSession::GetVaRange(HLERequestContext& ctx) {",1)[1].split(
     "\n}\n\nvoid IGpuSession::CreateGraphicsDevice",1)[0]
@@ -145,4 +195,4 @@ assert "u64 kind{};" not in get_ranges
 assert "rb.Push(kind);" not in get_ranges
 # The obsolete nine-u64 GetVARegions reply was a shifted older contract.
 assert "std::array<u64, 9> values" not in cpp
-print("NS2_GPU_PARTITION_NEW_SDK_SOURCE_PASS commands=200,201,202,203 sync_event=owned no_global_idle=1")
+print("NS2_GPU_PARTITION_NEW_SDK_SOURCE_PASS commands=200,201,202,203 vm_id=opaque import=40284109 sync_event=owned no_global_idle=1")
