@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "core/hle/service/cmif_types.h"
 #include "core/hle/service/service.h"
 
@@ -37,6 +39,8 @@ private:
     Result SetCpuBoostRequestPriority(s32 priority);
     Result SetHandlingCaptureButtonShortPressedMessageEnabledForApplet(bool enabled);
     Result SetHandlingCaptureButtonLongPressedMessageEnabledForApplet(bool enabled);
+    Result RejectUnavailableNamedChannelAsParent(std::array<u8, 0x10> channel_name);
+    Result RejectUnavailableNamedChannelAsChild(std::array<u8, 0x10> channel_name);
     Result SetApplicationCoreUsageMode(u32 core_usage_mode);
     Result GetCurrentApplicationId(Out<u64> out_application_id);
     Result IsSystemAppletHomeMenu(Out<bool> out_is_home_menu);

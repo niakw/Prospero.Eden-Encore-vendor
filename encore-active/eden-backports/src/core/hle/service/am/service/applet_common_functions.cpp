@@ -39,8 +39,8 @@ IAppletCommonFunctions::IAppletCommonFunctions(Core::System& system_,
         {70, D<&IAppletCommonFunctions::SetCpuBoostRequestPriority>, "SetCpuBoostRequestPriority"},
         {80, D<&IAppletCommonFunctions::SetHandlingCaptureButtonShortPressedMessageEnabledForApplet>, "SetHandlingCaptureButtonShortPressedMessageEnabledForApplet"},
         {81, D<&IAppletCommonFunctions::SetHandlingCaptureButtonLongPressedMessageEnabledForApplet>, "SetHandlingCaptureButtonLongPressedMessageEnabledForApplet"},
-        {90, nullptr, "OpenNamedChannelAsParent"},
-        {91, nullptr, "OpenNamedChannelAsChild"},
+        {90, D<&IAppletCommonFunctions::RejectUnavailableNamedChannelAsParent>, "OpenNamedChannelAsParent"},
+        {91, D<&IAppletCommonFunctions::RejectUnavailableNamedChannelAsChild>, "OpenNamedChannelAsChild"},
         {100, D<&IAppletCommonFunctions::SetApplicationCoreUsageMode>, "SetApplicationCoreUsageMode"},
         {300, D<&IAppletCommonFunctions::GetCurrentApplicationId>, "GetCurrentApplicationId"},
         {310, D<&IAppletCommonFunctions::IsSystemAppletHomeMenu>, "IsSystemAppletHomeMenu"}, //19.0.0+
@@ -202,6 +202,22 @@ Result IAppletCommonFunctions::SetHandlingCaptureButtonLongPressedMessageEnabled
     std::scoped_lock lk{applet->lock};
     applet->handling_capture_button_long_pressed_message_enabled_for_applet = enabled;
     R_SUCCEED();
+}
+
+Result IAppletCommonFunctions::RejectUnavailableNamedChannelAsParent(
+    std::array<u8, 0x10> channel_name) {
+    (void)channel_name;
+    LOG_WARNING(Service_AM,
+                "OpenNamedChannelAsParent rejected: named IStorageChannel backend is unavailable");
+    R_RETURN(ResultUnknown);
+}
+
+Result IAppletCommonFunctions::RejectUnavailableNamedChannelAsChild(
+    std::array<u8, 0x10> channel_name) {
+    (void)channel_name;
+    LOG_WARNING(Service_AM,
+                "OpenNamedChannelAsChild rejected: named IStorageChannel backend is unavailable");
+    R_RETURN(ResultUnknown);
 }
 
 Result IAppletCommonFunctions::SetApplicationCoreUsageMode(u32 core_usage_mode) {
