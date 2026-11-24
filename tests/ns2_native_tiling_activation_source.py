@@ -59,7 +59,7 @@ assert "EnqueueDeferredCPUWrite" not in overlay  # never activate experimental b
 # The generation-neutral ChannelState must not globally opt every game in.
 assert "EnableNativeTiling" not in channel
 
-bind = "NativeGpuChannelRegistry::Instance().Bind("
+bind = "native_channel_registry.Bind("
 enable = "channel_state->memory_manager->EnableNativeTiling();"
 push = "push_gpu_entries(std::move(entries));"
 assert nvhost.count(enable) == 1
