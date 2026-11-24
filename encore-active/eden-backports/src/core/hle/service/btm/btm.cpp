@@ -11,6 +11,7 @@
 #include "core/hle/kernel/k_event.h"
 #include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/btm/btm.h"
 #include "core/hle/service/btm/btm_debug.h"
 #include "core/hle/service/btm/btm_system.h"
