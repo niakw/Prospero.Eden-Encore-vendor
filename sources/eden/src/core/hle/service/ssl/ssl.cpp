@@ -558,20 +558,24 @@ private:
     void ImportServerPki(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto certificate_format = rp.PopEnum<CertificateFormat>();
-        [[maybe_unused]] const auto pkcs_12_certificates = ctx.ReadBuffer(0);
+        const auto certificate_data = ctx.ReadBuffer(0);
 
         constexpr u64 server_id = 0;
 
-        LOG_WARNING(Service_SSL, "(STUBBED) called, certificate_format={}", certificate_format);
+        // Encore's active TLS backend has no context-local trust-store/PKI registry. Returning
+        // Success here would hand the guest an unusable id and silently skip certificate import.
+        LOG_WARNING(Service_SSL,
+                    "ImportServerPki unsupported by the active TLS backend, format={}, size={}",
+                    certificate_format, certificate_data.size());
 
         IPC::ResponseBuilder rb{ctx, 4};
-        rb.Push(ResultSuccess);
+        rb.Push(IPC::ResultNotSupported);
         rb.Push(server_id);
     }
 
     void ImportClientPki(HLERequestContext& ctx) {
-        [[maybe_unused]] const auto pkcs_12_certificate = ctx.ReadBuffer(0);
-        [[maybe_unused]] const auto ascii_password = [&ctx] {
+        const auto pkcs_12_certificate = ctx.ReadBuffer(0);
+        const auto ascii_password = [&ctx] {
             if (ctx.CanReadBuffer(1)) {
                 return ctx.ReadBuffer(1);
             }
@@ -581,10 +585,15 @@ private:
 
         constexpr u64 client_id = 0;
 
-        LOG_WARNING(Service_SSL, "(STUBBED) called");
+        // Client-certificate installation is not represented by SSLConnectionBackend either.
+        // Consume both buffers but fail closed instead of publishing a fake id 0 as Success.
+        LOG_WARNING(Service_SSL,
+                    "ImportClientPki unsupported by the active TLS backend, certificate_size={}, "
+                    "password_size={}",
+                    pkcs_12_certificate.size(), ascii_password.size());
 
         IPC::ResponseBuilder rb{ctx, 4};
-        rb.Push(ResultSuccess);
+        rb.Push(IPC::ResultNotSupported);
         rb.Push(client_id);
     }
 };
