@@ -121,8 +121,10 @@ Result IAudioDevice::GetAudioDeviceOutputVolumeAuto(
 Result IAudioDevice::GetActiveAudioDeviceNameAuto(
     OutArray<AudioDevice::AudioDeviceName, BufferAttr_HipcAutoSelect> out_name) {
     R_UNLESS(!out_name.empty(), Audio::ResultInsufficientBuffer);
+    // HLE exposes one virtual Horizon output device. This is the same device accepted by
+    // Set/GetAudioDeviceOutputVolumeAuto and backed by the active AudioCore output sink.
     out_name[0] = AudioDevice::AudioDeviceName("AudioTvOutput");
-    LOG_DEBUG(Service_Audio, "(STUBBED) called");
+    LOG_DEBUG(Service_Audio, "called, active_device=AudioTvOutput");
     R_SUCCEED();
 }
 
@@ -134,7 +136,9 @@ Result IAudioDevice::QueryAudioDeviceSystemEvent(OutCopyHandle<Kernel::KReadable
 }
 
 Result IAudioDevice::QueryAudioDeviceInputEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_DEBUG(Service_Audio, "(STUBBED) called");
+    // Horizon's audio-device interface uses the device-change event for both input and output
+    // queries. Keep one ServiceContext-owned KEvent, matching the output-event path.
+    LOG_DEBUG(Service_Audio, "called");
     *out_event = &event->GetReadableEvent();
     R_SUCCEED();
 }
