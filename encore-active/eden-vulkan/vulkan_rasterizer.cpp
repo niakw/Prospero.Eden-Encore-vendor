@@ -2530,30 +2530,21 @@ bool RasterizerVulkan::OnCPUWrite(DAddr addr, u64 size) {
 }
 
 void RasterizerVulkan::OnCacheInvalidations(std::span<const std::pair<DAddr, u64>> ranges) {
-    // Remove the complete CPU-write batch from GPU-owned ranges before any
-    // individual invalidation can download stale bytes over a later write.
-    // No registered buffer page in this CPU-write batch means no buffer can
-    // own GPU bytes to claim. Avoid the buffer mutex entirely in that case.
-    // NeverRegistered is monotonic and fails closed on unknown address spans.
+    // One owner-witness pass for the complete collected batch, as in
+    // InnerInvalidation. Each witness is monotonic and fails closed; once both
+    // cache domains may overlap, no later range can change the lock decision.
     bool may_claim_buffer = false;
-    for (const auto& [addr, size] : ranges) {
-        if (addr != 0 && size != 0 && !::Eden::BufferPages::NeverRegistered(addr, size)) {
-            may_claim_buffer = true;
-            break;
-        }
-    }
-    // The single-range invalidation callback takes the texture and buffer
-    // mutex once PER range. GPU-collected write batches often contain many
-    // pages; acquire each domain only once, as InnerInvalidation already
-    // does for the same texture -> buffer -> shader ordering. The prior
-    // ClaimCpuWrites still precedes every possible GPU sibling readback.
     bool may_touch_texture = false;
     for (const auto& [addr, size] : ranges) {
-        if (addr != 0 && size != 0 && !::Eden::ImagePages::NeverHeld(addr, size)) {
+        if (addr == 0 || size == 0) continue;
+        if (!may_claim_buffer && !::Eden::BufferPages::NeverRegistered(addr, size))
+            may_claim_buffer = true;
+        if (!may_touch_texture && !::Eden::ImagePages::NeverHeld(addr, size))
             may_touch_texture = true;
-            break;
-        }
+        if (may_claim_buffer && may_touch_texture) break;
     }
+    // GPU-collected write batches acquire each cache domain only once. Claim
+    // still precedes every BufferCache write/readback below.
     if (may_touch_texture) {
         std::scoped_lock lock{texture_cache.mutex};
         for (const auto& [addr, size] : ranges) {

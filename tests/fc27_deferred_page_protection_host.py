@@ -36,6 +36,15 @@ raster_text=R.read_text()
 def text_blob(text):
     raw=text.encode()
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
+# FC27 24/11: collapse the two cache-owner probes to one pass. This is a
+# performance-only successor; restore the exact prior rasterizer before the
+# older batch-lock and synchronous-protection receipts.
+if text_blob(raster_text)=="fcd174ed2326f3c205365b192c98f9d2f4d82ec3":
+    newer="    // One owner-witness pass for the complete collected batch, as in\n    // InnerInvalidation. Each witness is monotonic and fails closed; once both\n    // cache domains may overlap, no later range can change the lock decision.\n    bool may_claim_buffer = false;\n    bool may_touch_texture = false;\n    for (const auto& [addr, size] : ranges) {\n        if (addr == 0 || size == 0) continue;\n        if (!may_claim_buffer && !::Eden::BufferPages::NeverRegistered(addr, size))\n            may_claim_buffer = true;\n        if (!may_touch_texture && !::Eden::ImagePages::NeverHeld(addr, size))\n            may_touch_texture = true;\n        if (may_claim_buffer && may_touch_texture) break;\n    }\n    // GPU-collected write batches acquire each cache domain only once. Claim\n    // still precedes every BufferCache write/readback below.\n"
+    older="    // Remove the complete CPU-write batch from GPU-owned ranges before any\n    // individual invalidation can download stale bytes over a later write.\n    // No registered buffer page in this CPU-write batch means no buffer can\n    // own GPU bytes to claim. Avoid the buffer mutex entirely in that case.\n    // NeverRegistered is monotonic and fails closed on unknown address spans.\n    bool may_claim_buffer = false;\n    for (const auto& [addr, size] : ranges) {\n        if (addr != 0 && size != 0 && !::Eden::BufferPages::NeverRegistered(addr, size)) {\n            may_claim_buffer = true;\n            break;\n        }\n    }\n    // The single-range invalidation callback takes the texture and buffer\n    // mutex once PER range. GPU-collected write batches often contain many\n    // pages; acquire each domain only once, as InnerInvalidation already\n    // does for the same texture -> buffer -> shader ordering. The prior\n    // ClaimCpuWrites still precedes every possible GPU sibling readback.\n    bool may_touch_texture = false;\n    for (const auto& [addr, size] : ranges) {\n        if (addr != 0 && size != 0 && !::Eden::ImagePages::NeverHeld(addr, size)) {\n            may_touch_texture = true;\n            break;\n        }\n    }\n"
+    assert raster_text.count(newer)==1
+    raster_text=raster_text.replace(newer,older,1)
+    assert text_blob(raster_text)=="e4948333ed15fba8024aeb4ffaa143a2e010f991"
 # FC27 24/11 batching moves ClaimCpuWrites into the one buffer-cache lock.
 # Reverse only that reviewed delta before replaying this older safety receipt.
 if text_blob(raster_text)=="e4948333ed15fba8024aeb4ffaa143a2e010f991":
