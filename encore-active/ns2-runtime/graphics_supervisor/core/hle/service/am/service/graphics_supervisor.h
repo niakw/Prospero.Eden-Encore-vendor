@@ -57,6 +57,7 @@ private:
     void BindProcess(HLERequestContext& ctx);
     void CompleteBootstrap(HLERequestContext& ctx);
     void InitializeGpuContext(HLERequestContext& ctx);
+    void InitializeInterModuleImageContext(HLERequestContext& ctx);
     void DestroyGpuContext(HLERequestContext& ctx);
     void CreateSyncptContext(HLERequestContext& ctx);
     void OpenSyncptSession(HLERequestContext& ctx);

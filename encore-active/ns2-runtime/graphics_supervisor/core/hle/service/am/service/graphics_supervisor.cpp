@@ -1447,10 +1447,11 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         // 1411 exposes NVDRV transfer-memory accounting, not GSV boot-buffer
         // accounting (498); do not manufacture three zero usage counters.
         {1411, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetNvDrv2UserTransferMemoryUsage"},
-        // 1501/1502 initialize inter-module image sharing. Until image
-        // ownership and backing semantics are available, fail closed.
-        {1501, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateInterModuleImageContext"},
-        {1502, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeInterModuleImageContext"},
+        // SDK boot: 4 -> 11 -> 101 -> 1501 -> 1502. The two context
+        // operations have no image handles; retain their real session state.
+        // Actual image operations still require validated native backing.
+        {1501, &IGraphicsSupervisor::InitializeInterModuleImageContext, "CreateInterModuleImageContext"},
+        {1502, &IGraphicsSupervisor::InitializeInterModuleImageContext, "InitializeInterModuleImageContext"},
         {301, &IGraphicsSupervisor::InitializeDisplayContext, "InitializeDisplayContext"},
         {303, &IGraphicsSupervisor::FinalizeDisplayContext, "FinalizeDisplayContext"},
         {305, &IGraphicsSupervisor::OpenDisplaySession, "OpenDisplaySession"},
@@ -1790,6 +1791,13 @@ void IGraphicsSupervisor::BindProcess(HLERequestContext& ctx) {
 void IGraphicsSupervisor::CompleteBootstrap(HLERequestContext& ctx) {
     const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
     const Result result = TranslateBootstrap(m_bootstrap.Complete(packet));
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+void IGraphicsSupervisor::InitializeInterModuleImageContext(HLERequestContext& ctx) {
+    const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
+    const Result result = TranslateBootstrap(
+        m_bootstrap.InitializeInterModuleImageContext(packet, ctx.GetCommand()));
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
 }

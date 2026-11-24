@@ -416,3 +416,15 @@ assert "rb.Push(Kernel::ResultNotImplemented.raw);" in cpp
 assert "void OpenGpuTimeSession(HLERequestContext& ctx);" in hdr
 
 print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS graphics_frame=1101,1102,1111,1112,1113 native_memory=113-transfer-owner donated_usage=498 supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")
+
+# NS2 PS5 ee5d6d57: SDK aborts with 0x4201 immediately after 1501.
+# SwitchBrew identifies context create/init; Lichii 05412e6 routes both to
+# permission checks. Encore tracks the authenticated context lifecycle.
+for cmd, name in ((1501,"CreateInterModuleImageContext"),(1502,"InitializeInterModuleImageContext")):
+    assert f'{{{cmd}, &IGraphicsSupervisor::InitializeInterModuleImageContext, "{name}"}}' in cpp
+    assert f'{{{cmd}, &IGraphicsSupervisor::UnavailableDocumentedFeature' not in cpp
+inter=cpp.split("void IGraphicsSupervisor::InitializeInterModuleImageContext(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
+assert "m_bootstrap.InitializeInterModuleImageContext(packet, ctx.GetCommand())" in inter
+assert "TranslateBootstrap(" in inter and "rb.Push(result.raw);" in inter
+assert "void InitializeInterModuleImageContext(HLERequestContext& ctx);" in hdr
+print("NS2_GSV_INTER_MODULE_IMAGE_BOOTSTRAP_SOURCE_PASS")
