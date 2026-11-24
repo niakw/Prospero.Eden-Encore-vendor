@@ -46,6 +46,11 @@ private:
     void SetEthernetCommunicationEnabled(HLERequestContext& ctx);
     void IsEthernetCommunicationEnabled(HLERequestContext& ctx);
     void IsWiredConnectionAvailable(HLERequestContext& ctx);
+    void IsNetworkEmulationFeatureEnabled(HLERequestContext& ctx);
+    void SelectActiveNetworkEmulationProfileIdForDebug(HLERequestContext& ctx);
+    void IsRewriteFeatureEnabled(HLERequestContext& ctx);
+    void CreateRewriteRule(HLERequestContext& ctx);
+    void DestroyRewriteRule(HLERequestContext& ctx);
     void IsAnyInternetRequestAccepted(HLERequestContext& ctx);
     void IsAnyForegroundRequestAccepted(HLERequestContext& ctx);
     void PutToSleep(HLERequestContext& ctx);

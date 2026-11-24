@@ -1164,6 +1164,51 @@ void IGeneralService::GetScanDataV2(HLERequestContext& ctx) {
     rb.Push(static_cast<u32>(scans.size()));
 }
 
+void IGeneralService::IsNetworkEmulationFeatureEnabled(HLERequestContext& ctx) {
+    // Encore has no host-side NIFM network-emulation engine or emulation profiles.
+    LOG_DEBUG(Service_NIFM, "called, enabled=false");
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.Push<u8>(false);
+}
+
+void IGeneralService::SelectActiveNetworkEmulationProfileIdForDebug(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const auto profile_id = rp.Pop<u32>();
+    LOG_WARNING(Service_NIFM,
+                "Rejected network-emulation debug profile selection, profile_id={:#x}",
+                profile_id);
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultUnknown);
+}
+
+void IGeneralService::IsRewriteFeatureEnabled(HLERequestContext& ctx) {
+    // Encore does not install or execute Nintendo NIFM rewrite rules.
+    LOG_DEBUG(Service_NIFM, "called, enabled=false");
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.Push<u8>(false);
+}
+
+void IGeneralService::CreateRewriteRule(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const bool enabled = rp.Pop<u8>() != 0;
+    const auto rule_size = ctx.GetReadBufferSize();
+
+    LOG_WARNING(Service_NIFM,
+                "Rejected unsupported NIFM rewrite-rule creation, enabled={}, rule_size={}",
+                enabled, rule_size);
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultUnknown);
+}
+
+void IGeneralService::DestroyRewriteRule(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const auto rule_id = rp.Pop<u64>();
+
+    LOG_WARNING(Service_NIFM, "Rejected unsupported NIFM rewrite-rule destruction, id={:#x}",
+                rule_id);
+    IPC::ResponseBuilder{ctx, 2}.Push(ResultUnknown);
+}
+
 void IGeneralService::GetScanDataV3(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
 
@@ -1655,12 +1700,14 @@ IGeneralService::IGeneralService(Core::System& system_)
         {42, &IGeneralService::NotifyConnectionStateChanged, "NotifyConnectionStateChanged"},
         {43, &IGeneralService::SetWowlDelayedWakeTime, "SetWowlDelayedWakeTime"},
         {44, &IGeneralService::IsWiredConnectionAvailable, "IsWiredConnectionAvailable"}, // 18.0.0+
-        {45, nullptr, "IsNetworkEmulationFeatureEnabled"}, // 18.0.0+
-        {46, nullptr, "SelectActiveNetworkEmulationProfileIdForDebug"}, // 18.0.0+
+        {45, &IGeneralService::IsNetworkEmulationFeatureEnabled,
+         "IsNetworkEmulationFeatureEnabled"}, // 18.0.0+
+        {46, &IGeneralService::SelectActiveNetworkEmulationProfileIdForDebug,
+         "SelectActiveNetworkEmulationProfileIdForDebug"}, // 18.0.0+
         {47, &IGeneralService::GetScanDataV3, "GetScanData"}, // 19.0.0+
-        {50, nullptr, "IsRewriteFeatureEnabled"}, // 18.0.0+
-        {51, nullptr, "CreateRewriteRule"}, // 18.0.0+
-        {52, nullptr, "DestroyRewriteRule"} // 18.0.0+
+        {50, &IGeneralService::IsRewriteFeatureEnabled, "IsRewriteFeatureEnabled"}, // 18.0.0+
+        {51, &IGeneralService::CreateRewriteRule, "CreateRewriteRule"}, // 18.0.0+
+        {52, &IGeneralService::DestroyRewriteRule, "DestroyRewriteRule"} // 18.0.0+
     };
     // clang-format on
 
