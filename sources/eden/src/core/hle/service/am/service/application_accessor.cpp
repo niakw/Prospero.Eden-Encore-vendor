@@ -50,7 +50,7 @@ IApplicationAccessor::IApplicationAccessor(Core::System& system_, std::shared_pt
         {180, D<&IApplicationAccessor::PushToFriendInvitationStorageChannel>, "PushToFriendInvitationStorageChannel"},
         {190, D<&IApplicationAccessor::PushToNotificationStorageChannel>, "PushToNotificationStorageChannel"},
         {200, nullptr, "RequestApplicationSoftReset"},
-        {201, nullptr, "RestartApplicationTimer"},
+        {201, D<&IApplicationAccessor::RestartApplicationTimer>, "RestartApplicationTimer"},
     };
     // clang-format on
 
@@ -266,6 +266,11 @@ Result IApplicationAccessor::PushToNotificationStorageChannel(
     }
     m_applet->notification_storage_channel_event.Signal(system.Kernel());
 
+    R_SUCCEED();
+}
+
+Result IApplicationAccessor::RestartApplicationTimer() {
+    LOG_DEBUG(Service_AM, "called (no guest AM application watchdog backend)");
     R_SUCCEED();
 }
 
