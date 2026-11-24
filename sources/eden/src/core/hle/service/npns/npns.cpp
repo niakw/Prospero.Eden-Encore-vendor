@@ -77,7 +77,8 @@ public:
     explicit INpnsSystem(Core::System& system_)
         : ServiceFramework{system_, "npns:s"}, service_context{system, "npns:s"},
           get_receive_event{service_context}, get_state_change_event{service_context},
-          get_drop_event{service_context}, get_request_change_state_cancel_event{service_context} {
+          get_drop_event{service_context}, get_request_change_state_cancel_event{service_context},
+          get_play_report_request_event{service_context} {
         // clang-format off
         static const FunctionInfo functions[] = {
             {1, C<&INpnsSystem::ListenAll>, "ListenAll"},
@@ -120,8 +121,8 @@ public:
             {101, C<&INpnsSystem::Suspend>, "Suspend"},
             {102, C<&INpnsSystem::Resume>, "Resume"},
             {103, C<&INpnsSystem::GetState>, "GetState"},
-            {104, nullptr, "GetStatistics"},
-            {105, nullptr, "GetPlayReportRequestEvent"},
+            {104, C<&INpnsSystem::GetStatistics>, "GetStatistics"},
+            {105, C<&INpnsSystem::GetPlayReportRequestEvent>, "GetPlayReportRequestEvent"},
             {106, C<&INpnsSystem::GetLastNotifiedTime>, "GetLastNotifiedTime"}, // 18.0.0+
             {107, nullptr, "SetLastNotifiedTime"}, // 18.0.0+
             {111, nullptr, "GetJid"},
@@ -300,6 +301,19 @@ private:
         R_SUCCEED();
     }
 
+    Result GetStatistics(OutBuffer<BufferAttr_HipcMapAlias> out_statistics) {
+        // No Nintendo push transport is active in offline mode, therefore all counters are zero.
+        std::fill(out_statistics.begin(), out_statistics.end(), u8{0});
+        R_SUCCEED();
+    }
+
+    Result GetPlayReportRequestEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
+        // No remote play-report request is generated in offline mode. Return the live, unsignaled
+        // event instead of a fabricated handle or a permanently-signaled notification.
+        *out_event = get_play_report_request_event.GetHandle();
+        R_SUCCEED();
+    }
+
     Result GetLastNotifiedTime(Out<s64> out_last_notified_time) {
         LOG_WARNING(Service_NPNS, "(STUBBED) called");
 
@@ -322,6 +336,7 @@ private:
     Event get_state_change_event;
     Event get_drop_event;
     Event get_request_change_state_cancel_event;
+    Event get_play_report_request_event;
     OfflineTokenStore token_store;
 };
 
@@ -347,7 +362,7 @@ public:
             {101, C<&INpnsUser::Suspend>, "Suspend"},
             {102, C<&INpnsUser::Resume>, "Resume"},
             {103, C<&INpnsUser::GetState>, "GetState"},
-            {104, nullptr, "GetStatistics"},
+            {104, C<&INpnsUser::GetStatistics>, "GetStatistics"},
             {111, nullptr, "GetJid"},
             {120, nullptr, "CreateNotificationReceiver"},
             {151, C<&INpnsUser::GetStateWithHandover>, "GetStateWithHandover"},
@@ -411,6 +426,11 @@ private:
     Result GetState(Out<u32> out_state) {
         *out_state = 0;
         LOG_DEBUG(Service_NPNS, "Returning offline user push-notification state");
+        R_SUCCEED();
+    }
+
+    Result GetStatistics(OutBuffer<BufferAttr_HipcMapAlias> out_statistics) {
+        std::fill(out_statistics.begin(), out_statistics.end(), u8{0});
         R_SUCCEED();
     }
 
