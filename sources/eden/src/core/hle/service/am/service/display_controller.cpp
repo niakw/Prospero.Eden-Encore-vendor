@@ -43,7 +43,7 @@ IDisplayController::IDisplayController(Core::System& system_, std::shared_ptr<Ap
         {25, D<&IDisplayController::ReleaseLastForegroundCaptureSharedBuffer>, "ReleaseLastForegroundCaptureSharedBuffer"},
         {26, D<&IDisplayController::AcquireCallerAppletCaptureSharedBuffer>, "AcquireCallerAppletCaptureSharedBuffer"},
         {27, D<&IDisplayController::ReleaseCallerAppletCaptureSharedBuffer>, "ReleaseCallerAppletCaptureSharedBuffer"},
-        {28, nullptr, "TakeScreenShotOfOwnLayerEx"},
+        {28, D<&IDisplayController::TakeScreenShotOfOwnLayerEx>, "TakeScreenShotOfOwnLayerEx"},
     };
     // clang-format on
 
@@ -93,6 +93,19 @@ Result IDisplayController::TakeScreenShotOfOwnLayer(bool screenshot_permitted,
                                                     s32 fbshare_layer_index) {
     LOG_DEBUG(Service_AM, "called, screenshot_permitted={} buffer={}", screenshot_permitted,
               fbshare_layer_index);
+    R_RETURN(applet->display_layer_manager.WriteAppletCaptureBufferToSlot(
+        fbshare_layer_index, screenshot_permitted));
+}
+
+Result IDisplayController::TakeScreenShotOfOwnLayerEx(
+    bool screenshot_permitted, bool immediately, s32 fbshare_layer_index) {
+    LOG_DEBUG(Service_AM,
+              "called, screenshot_permitted={} immediately={} buffer={}",
+              screenshot_permitted, immediately, fbshare_layer_index);
+
+    // Horizon routes cmd28 through the same capture path as cmd8 and only adds the
+    // immediate/deferred policy bit. Encore's PS5 capture backend is synchronous, so both
+    // policies currently converge on the same real slot write.
     R_RETURN(applet->display_layer_manager.WriteAppletCaptureBufferToSlot(
         fbshare_layer_index, screenshot_permitted));
 }
