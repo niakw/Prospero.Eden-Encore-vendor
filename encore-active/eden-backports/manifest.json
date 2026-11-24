@@ -371,8 +371,8 @@
       "upstream": "5029fbc1a9eedaa6937198ad25bf352ce97b442b0be1ce77f92cb9305d6cef4a"
     },
     "src/core/hle/service/es/es.cpp": {
-      "active": "ce91acfa09973cbdf79303eb44488a9723e88bcec468cd22972da21314fac66e",
-      "bytes": 19829,
+      "active": "cecad076878369841f655d7e36b754ef45a1d6e5454b1b02642f2bdc2ed84d09",
+      "bytes": 21705,
       "upstream": "fb2386ef1e53f8a5e8ede1f8d11d98c312b205a337ed0350c72210520c8da605"
     },
     "src/core/hle/service/eupld/eupld.cpp": {

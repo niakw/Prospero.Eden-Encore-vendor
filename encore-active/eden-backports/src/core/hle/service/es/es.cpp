@@ -412,14 +412,20 @@ public:
         : ServiceFramework{system_, "ndrm:lu"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {1, nullptr, "Cmd1"},
-            {2, nullptr, "Cmd2"},
-            {3, nullptr, "Cmd3"},
-            {1000, nullptr, "Cmd1000"},
-            {8000, nullptr, "Cmd8000"},
+            {1, &NDRM_LU::RejectUnavailableNdrm, "Cmd1"},
+            {2, &NDRM_LU::RejectUnavailableNdrm, "Cmd2"},
+            {3, &NDRM_LU::RejectUnavailableNdrm, "Cmd3"},
+            {1000, &NDRM_LU::RejectUnavailableNdrm, "Cmd1000"},
+            {8000, &NDRM_LU::RejectUnavailableNdrm, "Cmd8000"},
         };
         // clang-format on
         RegisterHandlers(functions);
+    }
+private:
+    // NDRM relies on Nintendo entitlement services, not available to the PS5 guest.
+    void RejectUnavailableNdrm(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
     }
 };
 
@@ -429,63 +435,69 @@ public:
         : ServiceFramework{system_, "ndrm:la"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {1, nullptr, "Cmd1"},
-            {2, nullptr, "Cmd2"},
-            {3, nullptr, "Cmd3"},
-            {4, nullptr, "Cmd4"},
-            {5, nullptr, "Cmd5"},
-            {6, nullptr, "Cmd6"},
-            {7, nullptr, "Cmd7"},
-            {8, nullptr, "Cmd8"},
-            {9, nullptr, "Cmd9"},
-            {10, nullptr, "Cmd10"},
-            {11, nullptr, "Cmd11"},
-            {12, nullptr, "Cmd12"},
-            {13, nullptr, "Cmd13"},
-            {14, nullptr, "Cmd14"},
-            {15, nullptr, "Cmd15"},
-            {16, nullptr, "Cmd16"},
-            {17, nullptr, "Cmd17"},
-            {18, nullptr, "Cmd18"},
-            {19, nullptr, "Cmd19"},
-            {20, nullptr, "Cmd20"},
-            {21, nullptr, "Cmd21"},
-            {22, nullptr, "Cmd22"},
-            {23, nullptr, "Cmd23"},
-            {24, nullptr, "Cmd24"},
-            {25, nullptr, "Cmd25"},
-            {26, nullptr, "Cmd26"},
-            {27, nullptr, "Cmd27"},
-            {28, nullptr, "Cmd28"},
-            {29, nullptr, "Cmd29"},
-            {30, nullptr, "Cmd30"},
-            {31, nullptr, "Cmd31"},
-            {32, nullptr, "Cmd32"},
-            {33, nullptr, "Cmd33"},
-            {34, nullptr, "Cmd34"},
-            {35, nullptr, "Cmd35"},
-            {36, nullptr, "Cmd36"},
-            {37, nullptr, "Cmd37"},
-            {38, nullptr, "Cmd38"},
-            {39, nullptr, "Cmd39"},
-            {40, nullptr, "Cmd40"},
-            {42, nullptr, "Cmd42"},
-            {43, nullptr, "Cmd43"},
-            {44, nullptr, "Cmd44"},
-            {45, nullptr, "Cmd45"},
-            {46, nullptr, "Cmd46"},
-            {47, nullptr, "Cmd47"},
-            {48, nullptr, "Cmd48"},
-            {49, nullptr, "Cmd49"},
-            {50, nullptr, "Cmd50"},
-            {51, nullptr, "Cmd51"},
-            {8000, nullptr, "Cmd8000"},
-            {8001, nullptr, "Cmd8001"},
-            {8002, nullptr, "Cmd8002"},
-            {8003, nullptr, "Cmd8003"},
+            {1, &NDRM_LA::RejectUnavailableNdrm, "Cmd1"},
+            {2, &NDRM_LA::RejectUnavailableNdrm, "Cmd2"},
+            {3, &NDRM_LA::RejectUnavailableNdrm, "Cmd3"},
+            {4, &NDRM_LA::RejectUnavailableNdrm, "Cmd4"},
+            {5, &NDRM_LA::RejectUnavailableNdrm, "Cmd5"},
+            {6, &NDRM_LA::RejectUnavailableNdrm, "Cmd6"},
+            {7, &NDRM_LA::RejectUnavailableNdrm, "Cmd7"},
+            {8, &NDRM_LA::RejectUnavailableNdrm, "Cmd8"},
+            {9, &NDRM_LA::RejectUnavailableNdrm, "Cmd9"},
+            {10, &NDRM_LA::RejectUnavailableNdrm, "Cmd10"},
+            {11, &NDRM_LA::RejectUnavailableNdrm, "Cmd11"},
+            {12, &NDRM_LA::RejectUnavailableNdrm, "Cmd12"},
+            {13, &NDRM_LA::RejectUnavailableNdrm, "Cmd13"},
+            {14, &NDRM_LA::RejectUnavailableNdrm, "Cmd14"},
+            {15, &NDRM_LA::RejectUnavailableNdrm, "Cmd15"},
+            {16, &NDRM_LA::RejectUnavailableNdrm, "Cmd16"},
+            {17, &NDRM_LA::RejectUnavailableNdrm, "Cmd17"},
+            {18, &NDRM_LA::RejectUnavailableNdrm, "Cmd18"},
+            {19, &NDRM_LA::RejectUnavailableNdrm, "Cmd19"},
+            {20, &NDRM_LA::RejectUnavailableNdrm, "Cmd20"},
+            {21, &NDRM_LA::RejectUnavailableNdrm, "Cmd21"},
+            {22, &NDRM_LA::RejectUnavailableNdrm, "Cmd22"},
+            {23, &NDRM_LA::RejectUnavailableNdrm, "Cmd23"},
+            {24, &NDRM_LA::RejectUnavailableNdrm, "Cmd24"},
+            {25, &NDRM_LA::RejectUnavailableNdrm, "Cmd25"},
+            {26, &NDRM_LA::RejectUnavailableNdrm, "Cmd26"},
+            {27, &NDRM_LA::RejectUnavailableNdrm, "Cmd27"},
+            {28, &NDRM_LA::RejectUnavailableNdrm, "Cmd28"},
+            {29, &NDRM_LA::RejectUnavailableNdrm, "Cmd29"},
+            {30, &NDRM_LA::RejectUnavailableNdrm, "Cmd30"},
+            {31, &NDRM_LA::RejectUnavailableNdrm, "Cmd31"},
+            {32, &NDRM_LA::RejectUnavailableNdrm, "Cmd32"},
+            {33, &NDRM_LA::RejectUnavailableNdrm, "Cmd33"},
+            {34, &NDRM_LA::RejectUnavailableNdrm, "Cmd34"},
+            {35, &NDRM_LA::RejectUnavailableNdrm, "Cmd35"},
+            {36, &NDRM_LA::RejectUnavailableNdrm, "Cmd36"},
+            {37, &NDRM_LA::RejectUnavailableNdrm, "Cmd37"},
+            {38, &NDRM_LA::RejectUnavailableNdrm, "Cmd38"},
+            {39, &NDRM_LA::RejectUnavailableNdrm, "Cmd39"},
+            {40, &NDRM_LA::RejectUnavailableNdrm, "Cmd40"},
+            {42, &NDRM_LA::RejectUnavailableNdrm, "Cmd42"},
+            {43, &NDRM_LA::RejectUnavailableNdrm, "Cmd43"},
+            {44, &NDRM_LA::RejectUnavailableNdrm, "Cmd44"},
+            {45, &NDRM_LA::RejectUnavailableNdrm, "Cmd45"},
+            {46, &NDRM_LA::RejectUnavailableNdrm, "Cmd46"},
+            {47, &NDRM_LA::RejectUnavailableNdrm, "Cmd47"},
+            {48, &NDRM_LA::RejectUnavailableNdrm, "Cmd48"},
+            {49, &NDRM_LA::RejectUnavailableNdrm, "Cmd49"},
+            {50, &NDRM_LA::RejectUnavailableNdrm, "Cmd50"},
+            {51, &NDRM_LA::RejectUnavailableNdrm, "Cmd51"},
+            {8000, &NDRM_LA::RejectUnavailableNdrm, "Cmd8000"},
+            {8001, &NDRM_LA::RejectUnavailableNdrm, "Cmd8001"},
+            {8002, &NDRM_LA::RejectUnavailableNdrm, "Cmd8002"},
+            {8003, &NDRM_LA::RejectUnavailableNdrm, "Cmd8003"},
         };
         // clang-format on
         RegisterHandlers(functions);
+    }
+private:
+    // NDRM relies on Nintendo entitlement services, not available to the PS5 guest.
+    void RejectUnavailableNdrm(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
     }
 };
 
