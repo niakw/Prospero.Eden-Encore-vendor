@@ -36,6 +36,7 @@ public:
     void SetNfcEnabled(HLERequestContext& ctx);
     void WriteMifare(HLERequestContext& ctx);
     void SendCommandByPassThrough(HLERequestContext& ctx);
+    void UnsupportedDebugCommand(HLERequestContext& ctx);
 
 protected:
     std::shared_ptr<DeviceManager> GetManager();

@@ -75,7 +75,7 @@ public:
             {411, &NfcInterface::AttachActivateEvent, "AttachActivateEvent"},
             {412, &NfcInterface::AttachDeactivateEvent, "AttachDeactivateEvent"},
             {500, &NfcInterface::SetNfcEnabled, "SetNfcEnabled"},
-            {510, nullptr, "OutputTestWave"},
+            {510, &NfcInterface::UnsupportedDebugCommand, "OutputTestWave"},
             {1000, &NfcInterface::ReadMifare, "ReadMifare"},
             {1001, &NfcInterface::WriteMifare, "WriteMifare"},
             {1300, &NfcInterface::SendCommandByPassThrough, "SendCommandByPassThrough"},

@@ -191,7 +191,7 @@ public:
             {153, nullptr, "RequestUpdateAudioSinkVolume"},
             {154, nullptr, "IsAudioSinkVolumeSupported"},
             {256, nullptr, "IsManufacturingMode"},
-            {257, nullptr, "EmulateBluetoothCrash"},
+            {257, &IBluetoothDriver::UnsupportedDebugCommand, "EmulateBluetoothCrash"},
             {258, nullptr, "GetBleChannelMap"},
         };
         // clang-format on
@@ -200,6 +200,12 @@ public:
     }
 
 private:
+    void UnsupportedDebugCommand(HLERequestContext& ctx) {
+        LOG_WARNING(Service_BTDRV, "Bluetooth crash emulation is disabled in the production runtime");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
     Result EnableRadio() {
         LOG_WARNING(Service_BTDRV, "(STUBBED) called");
         R_SUCCEED();

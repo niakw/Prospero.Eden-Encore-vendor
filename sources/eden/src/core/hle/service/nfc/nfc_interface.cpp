@@ -313,6 +313,12 @@ BackendType NfcInterface::GetBackendType() const {
     return backend_type;
 }
 
+void NfcInterface::UnsupportedDebugCommand(HLERequestContext& ctx) {
+    LOG_WARNING(Service_NFC, "NFC hardware test-wave output is not supported");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
+}
+
 Result NfcInterface::TranslateResultToServiceError(Result result) const {
     const auto backend = GetBackendType();
 

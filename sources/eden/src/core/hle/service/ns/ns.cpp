@@ -26,7 +26,7 @@ public:
             { 2, nullptr, "NotifyOperationModeChangeEvent" },
             { 3, nullptr, "NotifyPowerStateChangeEvent" },
             { 4, nullptr, "NotifyClearAllEvent" },
-            { 5, nullptr, "NotifyEventForDebug" },
+            { 5, &INotifyService::UnsupportedDebugCommand, "NotifyEventForDebug" },
             { 6, nullptr, "SuspendUserAccountEventService" },
             { 7, nullptr, "ResumeUserAccountEventService" },
             { 8, nullptr, "NotifyLibraryAppletEvent" },
@@ -39,6 +39,13 @@ public:
         // clang-format on
         RegisterHandlers(functions);
     }
+
+private:
+    void UnsupportedDebugCommand(HLERequestContext& ctx) {
+        LOG_WARNING(Service_NS, "pdm:ntfy debug notification is not supported");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
 };
 
 class IVulnerabilityManagerInterface final
@@ -49,7 +56,7 @@ public:
         // clang-format off
         static const FunctionInfo functions[] = {
             {1200, D<&IVulnerabilityManagerInterface::NeedsUpdateVulnerability>, "NeedsUpdateVulnerability"},
-            {1201, nullptr, "UpdateSafeSystemVersionForDebug"},
+            {1201, &IVulnerabilityManagerInterface::UnsupportedDebugCommand, "UpdateSafeSystemVersionForDebug"},
             {1202, nullptr, "GetSafeSystemVersion"},
             {3100, D<&IVulnerabilityManagerInterface::GetSafeSystemVersionCheckInfo>, "GetSafeSystemVersionCheckInfo"},
             {3101, nullptr, "RequestUpdateSafeSystemVersionCheckInfo"},
@@ -59,6 +66,12 @@ public:
         RegisterHandlers(functions);
     }
     ~IVulnerabilityManagerInterface() override = default;
+
+    void UnsupportedDebugCommand(HLERequestContext& ctx) {
+        LOG_WARNING(Service_NS, "ns:vm debug system-version update is not supported");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
 
     Result NeedsUpdateVulnerability(Out<bool> out_needs_update_vulnerability) {
         LOG_WARNING(Service_NS, "(STUBBED)");
