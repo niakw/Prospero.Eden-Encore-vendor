@@ -386,8 +386,8 @@
       "upstream": "3c4df471914d57f311f8d8ada3f69389929519c8ff26bc4cf8701a9c01782880"
     },
     "src/video_core/fence_manager.h": {
-      "active": "012cc72932c34fcc82090791d5a4c8c8d64c34966e69948bb4cf6c7b23349c97",
-      "bytes": 9151,
+      "active": "71e095bcfbd1666a7c46b8ffab8ad4357b895bdef1eb8c1fb69992cd8836c6b3",
+      "bytes": 10589,
       "upstream": "3eaddb95142043a7a587f8978ca26928af104ed75550216711cf99758dac8580"
     },
     "src/video_core/query_cache/query_cache.h": {
