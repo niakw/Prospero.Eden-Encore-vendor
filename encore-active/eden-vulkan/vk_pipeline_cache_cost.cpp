@@ -19,6 +19,8 @@
 #include "diagnostics.h"
 #include <cstddef>
 #include <deque>
+#include <list>
+#include <variant>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -1424,7 +1426,8 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         env_before.bytes <= kRecentShaderCacheScanLimit;
     const size_t prewarm_pipeline_limit =
         prefer_recent_cache ? kRecentPrewarmPipelines : kStartupPrewarmPipelines;
-    std::deque<Common::UniqueFunction<void>> recent_cache_builds;
+    using PrewarmKey = std::variant<ComputePipelineCacheKey, GraphicsPipelineCacheKey>;
+    std::list<std::pair<PrewarmKey, Common::UniqueFunction<void>>> recent_cache_builds;
     const auto startup_prewarm_started = std::chrono::steady_clock::now();
     std::stop_source startup_reader;
 #endif
@@ -1451,7 +1454,8 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     if (device.IsKhrPipelineExecutablePropertiesEnabled()) {
         state.statistics = std::make_unique<PipelineStatistics>(device);
     }
-    const auto schedule_prewarm = [&](Common::UniqueFunction<void> build) {
+    const auto schedule_prewarm = [&]([[maybe_unused]] const auto& key,
+                                      Common::UniqueFunction<void> build) {
 #ifdef PS5_NATIVE
         // ThreadWorker does not catch task exceptions. Keep the first failure
         // until all accepted jobs have finished borrowing this loading state.
@@ -1467,9 +1471,20 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             // No driver work while scanning the file. Move-only jobs own all
             // shader environments and cannot outlive this loading function.
             // Discard oldest unstarted work without creating GPU pipelines.
+            // Live misses append to the disk cache, including keys skipped by
+            // earlier bounded prewarms. Retain the most recent occurrence of
+            // each full typed key, not 128 possibly duplicate records.
+            // The bounded list owns only unstarted jobs; no live GPU resource
+            // or shader environment used by another worker is replaced.
+            const PrewarmKey candidate{key};
+            const auto duplicate = std::find_if(
+                recent_cache_builds.begin(), recent_cache_builds.end(),
+                [&](const auto& entry) { return entry.first == candidate; });
+            if (duplicate != recent_cache_builds.end())
+                recent_cache_builds.erase(duplicate);
             if (recent_cache_builds.size() == prewarm_pipeline_limit)
                 recent_cache_builds.pop_front();
-            recent_cache_builds.emplace_back(std::move(build));
+            recent_cache_builds.emplace_back(candidate, std::move(build));
             return;
         }
 #endif
@@ -1492,7 +1507,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         ComputePipelineCacheKey key;
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
 
-        schedule_prewarm([this, key, env_ = std::move(env), &state, &callback]() mutable {
+        schedule_prewarm(key, [this, key, env_ = std::move(env), &state, &callback]() mutable {
             ShaderPools pools;
             auto pipeline{CreateComputePipeline(pools, key, env_, state.statistics.get(), false)};
             std::scoped_lock lock{state.mutex};
@@ -1547,7 +1562,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             return;
         }
 
-        schedule_prewarm([this, key, envs_ = std::move(envs), &state, &callback]() mutable {
+        schedule_prewarm(key, [this, key, envs_ = std::move(envs), &state, &callback]() mutable {
             ShaderPools pools;
             boost::container::static_vector<Shader::Environment*, 5> env_ptrs;
             for (auto& env : envs_) {
@@ -1610,8 +1625,8 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                                    load_graphics);
 #ifdef PS5_NATIVE
         if (prefer_recent_cache && !stop_loading.stop_requested()) {
-            for (auto& build : recent_cache_builds) {
-                workers.QueueWork(std::move(build));
+            for (auto& entry : recent_cache_builds) {
+                workers.QueueWork(std::move(entry.second));
                 std::scoped_lock lock{state.mutex};
                 ++state.total;
             }
