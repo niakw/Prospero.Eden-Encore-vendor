@@ -192,7 +192,9 @@ assert reg_rollback.index("identity_gpu_mappings.pop_back()") < reg_rollback.ind
 assert reg_rollback.index("id = 0;", reg_rollback.index("nvmap.FreeHandle")) > reg_rollback.index("nvmap.FreeHandle")
 
 release=worker[worker.index("Result IGpuWorker::ReleaseMemory"):worker.index("void IGpuWorker::CreateGpuAccessibleMemory")]
-for x in ("mapping.memory == id","system.GPU().WaitForIdle()","m_mappings.RecordUnmapped(unmap)",
+for x in ("mapping.memory == id","system.GPU().WaitForIdle()",
+          "auto& ledger = owned_map.sparse_overlay ? m_sparse_overlays : m_mappings;",
+          "ledger.RecordUnmapped(unmap)",
           "identity_it->RemoveSpace(as_id)","identity_gpu_mappings.erase(identity_it)",
           "handle->pins == 0"):
     assert x in release,x
