@@ -29,40 +29,40 @@ namespace {
 
 constexpr size_t ir_components = 4;
 
+template <typename T>
+void NearestNeighborRows(std::span<const T> input, std::span<T> output, u32 src_width,
+                         u32 src_height, u32 dst_width, u32 dst_height, size_t components) {
+    // Quantize each coordinate independently. Combining fractional Y with X
+    // before flooring can select a different column (or even the next row).
+    const u32 x_step = src_width / dst_width;
+    const u32 x_remainder = src_width % dst_width;
+    for (u32 y = 0; y < dst_height; ++y) {
+        const size_t src_row = (static_cast<u64>(y) * src_height / dst_height) * src_width;
+        const size_t dst_row = static_cast<size_t>(y) * dst_width;
+        u32 src_x = 0;
+        u64 x_error = 0;
+        for (u32 x = 0; x < dst_width; ++x) {
+            const size_t read_from = (src_row + src_x) * components;
+            const size_t write_to = (dst_row + x) * components;
+            std::memcpy(&output[write_to], &input[read_from], sizeof(T) * components);
+            src_x += x_step;
+            x_error += x_remainder;
+            if (x_error >= dst_width) {
+                x_error -= dst_width;
+                ++src_x;
+            }
+        }
+    }
+}
+
 void NearestNeighbor(std::span<const u8> input, std::span<u8> output, u32 src_width, u32 src_height,
                      u32 dst_width, u32 dst_height, size_t bpp) {
-    const size_t dx_du = std::llround((static_cast<f64>(src_width) / dst_width) * (1ULL << 32));
-    const size_t dy_dv = std::llround((static_cast<f64>(src_height) / dst_height) * (1ULL << 32));
-    size_t src_y = 0;
-    for (u32 y = 0; y < dst_height; y++) {
-        size_t src_x = 0;
-        for (u32 x = 0; x < dst_width; x++) {
-            const size_t read_from = ((src_y * src_width + src_x) >> 32) * bpp;
-            const size_t write_to = (y * dst_width + x) * bpp;
-
-            std::memcpy(&output[write_to], &input[read_from], bpp);
-            src_x += dx_du;
-        }
-        src_y += dy_dv;
-    }
+    NearestNeighborRows(input, output, src_width, src_height, dst_width, dst_height, bpp);
 }
 
 void NearestNeighborFast(std::span<const f32> input, std::span<f32> output, u32 src_width,
                          u32 src_height, u32 dst_width, u32 dst_height) {
-    const size_t dx_du = std::llround((static_cast<f64>(src_width) / dst_width) * (1ULL << 32));
-    const size_t dy_dv = std::llround((static_cast<f64>(src_height) / dst_height) * (1ULL << 32));
-    size_t src_y = 0;
-    for (u32 y = 0; y < dst_height; y++) {
-        size_t src_x = 0;
-        for (u32 x = 0; x < dst_width; x++) {
-            const size_t read_from = ((src_y * src_width + src_x) >> 32) * ir_components;
-            const size_t write_to = (y * dst_width + x) * ir_components;
-
-            std::memcpy(&output[write_to], &input[read_from], sizeof(f32) * ir_components);
-            src_x += dx_du;
-        }
-        src_y += dy_dv;
-    }
+    NearestNeighborRows(input, output, src_width, src_height, dst_width, dst_height, ir_components);
 }
 
 void Bilinear(std::span<const f32> input, std::span<f32> output, size_t src_width,

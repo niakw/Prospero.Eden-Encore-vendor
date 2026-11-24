@@ -33,12 +33,12 @@ previous_blob = hashlib.sha1(
     b"blob " + str(len(previous.encode())).encode() + b"\0" + previous.encode()
 ).hexdigest()
 # Since the original #2121 receipt, the selected PS5 owner also gained
-# independent fail-closed geometry/allocation hardening. Native tiling remains
+# independent fail-closed geometry/allocation hardening and exact nearest-neighbor sampling. Native tiling remains
 # exactly two arguments on top of that reviewed generation.
 assert hashlib.sha1(
     b"blob " + str(len(active.encode())).encode() + b"\0" + active.encode()
-).hexdigest() == "212648a456594522345b3b7724449006a54b492b"
-assert previous_blob == "342d983353406f49f8f312f3fdb012c1012ebf16", previous_blob
+).hexdigest() == "6a18c9825936bd72b9919335ce5f8c2590183ab9"
+assert previous_blob == "ba5ab47ddf2c2e6cc258cf103bddcdf0d02d38a6", previous_blob
 for safety in (
     "MAX_SOFTWARE_BLIT_BYTES = 256ULL << 20",
     "checked_surface_size",
