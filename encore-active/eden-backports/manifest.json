@@ -446,8 +446,8 @@
       "upstream": "7d162dc8d50adbf76e3f49992479f2b8070a170d02ef38c74f11dd779734286d"
     },
     "src/core/hle/service/glue/notif.cpp": {
-      "active": "0f3d956884d50bc21812522f3c761ec5b1d3791d239830dda39d54bd89bd2c78",
-      "bytes": 12893,
+      "active": "76fa32489de5befb16d0dc141c843fd65e0f5de5a78b287232571b356ad50bd7",
+      "bytes": 12913,
       "upstream": "e8a7f633f1ca9e577fe9d7125d490bb32846204ebc65e5b3a2b16fa7da8b2716"
     },
     "src/core/hle/service/glue/notif.h": {

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 
 #include "common/assert.h"
 #include "common/logging.h"
