@@ -453,3 +453,12 @@ assert mirror.index("rw_backing->Open(system.Kernel())") < mirror.index("ro_back
 assert "rw_backing->Close(system.Kernel())" in mirror
 assert "for (auto* backing : transfer_backings) if (backing) backing->Close(system.Kernel());" in mirror
 assert "if (memory) system.Host1x().GetSyncpointManager().SetGuestMirror({});" in mirror
+
+# libounce gsvSyncCheckNative explicitly treats invalid producer as UINT64_MAX.
+slot_owner=cpp.split("class INativeSyncptSession",1)[1].split("struct NativeSyncptState",1)[0]
+assert "std::numeric_limits<u64>::max();" in slot_owner
+assert "GraphicsSupervisorProtocol::DecodeSyncpointWait(" in slot_owner
+assert slot_owner.index("Cancel(request);",slot_owner.index("void RequestSlotEvent")) < slot_owner.index("if (syncpoint >= HostSyncpoints)")
+cancel=slot_owner.split("bool Cancel(SlotRequest& request)",1)[1]
+assert "if (request.handle != 0)" in cancel and "DeregisterGuestAction" in cancel
+assert "if (!request.pending.exchange" not in cancel

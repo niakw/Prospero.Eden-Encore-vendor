@@ -296,9 +296,18 @@ private:
         rb.Push(result.raw);
     }
     void QueryCounter(HLERequestContext& ctx) {
-        const u32 syncpoint = ~ctx.CommandBuffer()[2];
+        const auto* packet = ctx.CommandBuffer();
+        if (packet[0] != 16 + 103 || packet[1] != 1) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidCombination.raw);
+            return;
+        }
+        const u32 syncpoint = ~packet[2];
+        // libounce gsvSyncCheckNative treats UINT64_MAX as an invalid
+        // producer (already reached). Returning zero can strand a waiter.
         const u64 value = syncpoint < HostSyncpoints
-            ? system.Host1x().GetSyncpointManager().GetGuestSyncpointValue(syncpoint) : 0;
+            ? system.Host1x().GetSyncpointManager().GetGuestSyncpointValue(syncpoint)
+            : std::numeric_limits<u64>::max();
         NativeTipcReplyWords(ctx, {static_cast<u32>(value), static_cast<u32>(value >> 32), 0});
     }
     void GetSlotEvent(HLERequestContext& ctx) {
@@ -332,9 +341,16 @@ private:
     }
     void RequestSlotEvent(HLERequestContext& ctx) {
         const auto* w = ctx.CommandBuffer();
-        const u32 slot = w[2];
-        const u32 syncpoint = ~w[3];
-        const u64 value = u64{w[4]} | (u64{w[5]} << 32);
+        const auto wait = GraphicsSupervisorProtocol::DecodeSyncpointWait(
+            std::span<const u32>{w, IPC::COMMAND_BUFFER_LENGTH});
+        if (!wait) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidCombination.raw);
+            return;
+        }
+        const u32 slot = wait->slot;
+        const u32 syncpoint = wait->id;
+        const u64 value = wait->threshold;
         auto* event = EventFor(slot);
         if (!event) {
             IPC::ResponseBuilder rb{ctx, 2};
@@ -342,14 +358,14 @@ private:
                                                : Kernel::ResultOutOfResource.raw);
             return;
         }
+        auto& request = m_requests[slot];
+        Cancel(request);
+        event->Clear(system.Kernel());
         if (syncpoint >= HostSyncpoints) {
             event->Signal(system.Kernel());
             NativeTipcReplyWords(ctx, {});
             return;
         }
-        auto& request = m_requests[slot];
-        Cancel(request);
-        event->Clear(system.Kernel());
         request.syncpoint = syncpoint;
         request.pending.store(true, std::memory_order_release);
         auto& manager = system.Host1x().GetSyncpointManager();
@@ -381,11 +397,18 @@ private:
         NativeTipcReplyWords(ctx, {});
     }
     bool Cancel(SlotRequest& request) {
-        if (!request.pending.exchange(false, std::memory_order_acq_rel)) return false;
-        system.Host1x().GetSyncpointManager().DeregisterGuestAction(request.syncpoint,
-                                                                    request.handle);
-        request.handle = 0;
-        return true;
+        // The old callback clears pending BEFORE signalling. Even if
+        // pending is false, a nonzero handle can still be executing.
+        // DeregisterGuestAction waits for a running callback to return.
+        // Join before reusing/clearing the slot so an old signal cannot
+        // satisfy a new wait prematurely.
+        const bool was_pending = request.pending.exchange(false, std::memory_order_acq_rel);
+        if (request.handle != 0) {
+            system.Host1x().GetSyncpointManager().DeregisterGuestAction(request.syncpoint,
+                                                                        request.handle);
+            request.handle = 0;
+        }
+        return was_pending;
     }
     KernelHelpers::ServiceContext m_context;
     std::array<Kernel::KEvent*, MaxSlots> m_events{};
