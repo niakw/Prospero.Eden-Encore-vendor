@@ -735,8 +735,9 @@ assert "params = native_error_notification;" in health
 for token in ("::Eden::PeekGpuFailure()",
               "constexpr u16 RobustChannelErrorStatus = 0xFFFF;",
               "native_error_notification.status = RobustChannelErrorStatus;",
-              "error_notifier_event->Signal(system.Kernel());"):
+              "SignalNativeChannelFault(this);"):
     assert token in health,token
+assert "error_notifier_event->Signal(self->system.Kernel());" in nvhost_cpp
 assert health.index("::Eden::PeekGpuFailure()") < health.index(
     "native_error_notification.status = RobustChannelErrorStatus;") < health.index(
     "params = native_error_notification;")
