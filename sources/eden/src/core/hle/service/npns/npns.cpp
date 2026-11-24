@@ -140,7 +140,7 @@ public:
             {161, C<&INpnsSystem::GetRequestChangeStateCancelEvent>, "GetRequestChangeStateCancelEvent"}, // 10.0.0+
             {162, nullptr, "RequestChangeStateForceTimedWithCancelEvent"},
             {201, nullptr, "RequestChangeStateForceTimed"},
-            {202, nullptr, "RequestChangeStateForceAsync"},
+            {202, C<&INpnsSystem::RequestChangeStateForceAsync>, "RequestChangeStateForceAsync"},
             {301, nullptr, "GetPassword"}, // 18.0.0+
             {302, nullptr, "GetAllImmigration"}, // 18.0.0+
             {303, nullptr, "GetNotificationHistories"}, // 18.0.0+
@@ -257,7 +257,7 @@ private:
     }
 
     Result GetStateWithHandover(Out<u32> out_state) {
-        *out_state = 0;
+        *out_state = state;
         R_SUCCEED();
     }
 
@@ -294,10 +294,8 @@ private:
     }
 
     Result GetState(Out<u32> out_state) {
-        // No persistent Nintendo push connection is established by Encore. Keep the neutral
-        // disconnected state explicit instead of presenting a fabricated online session.
-        *out_state = 0;
-        LOG_DEBUG(Service_NPNS, "Returning offline push-notification state={}", *out_state);
+        *out_state = state;
+        LOG_DEBUG(Service_NPNS, "Returning local push-notification state={}", *out_state);
         R_SUCCEED();
     }
 
@@ -321,6 +319,15 @@ private:
         R_SUCCEED();
     }
 
+    Result RequestChangeStateForceAsync(u32 requested_state) {
+        if (state != requested_state) {
+            state = requested_state;
+            get_state_change_event.Signal();
+        }
+        LOG_DEBUG(Service_NPNS, "Applied local NPNS state transition to {}", state);
+        R_SUCCEED();
+    }
+
     Result GetRequestChangeStateCancelEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
         LOG_DEBUG(Service_NPNS, "(STUBBED) called.");
 
@@ -338,6 +345,7 @@ private:
     Event get_request_change_state_cancel_event;
     Event get_play_report_request_event;
     OfflineTokenStore token_store;
+    u32 state{};
 };
 
 class INpnsUser final : public ServiceFramework<INpnsUser> {
