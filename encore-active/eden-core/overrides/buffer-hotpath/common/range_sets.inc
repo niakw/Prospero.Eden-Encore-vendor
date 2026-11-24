@@ -116,28 +116,24 @@ struct OverlapRangeSet<AddressType>::OverlapRangeSetImpl {
         }
         AddressType end_address = base_address + static_cast<AddressType>(size);
         IntervalType interval{base_address, end_address};
-        bool any_removals = false;
         m_split_ranges_set += std::make_pair(interval, -amount);
-        do {
-            any_removals = false;
-            auto it = m_split_ranges_set.lower_bound(interval);
-            if (it == m_split_ranges_set.end()) {
-                return;
+        // Lichii: retire non-positive segments in one pass under BufferCache's lock.
+        // Erasing a node does not invalidate the other interval-map iterators.
+        auto it = m_split_ranges_set.lower_bound(interval);
+        const auto end_it = m_split_ranges_set.upper_bound(interval);
+        while (it != end_it) {
+            if (it->second > 0) {
+                ++it;
+                continue;
             }
-            auto end_it = m_split_ranges_set.upper_bound(interval);
-            for (; it != end_it; it++) {
-                if (it->second <= 0) {
-                    if constexpr (has_on_delete) {
-                        if (it->second == 0) {
-                            on_delete(it->first.lower(), it->first.upper());
-                        }
-                    }
-                    any_removals = true;
-                    m_split_ranges_set.erase(it);
-                    break;
+            if constexpr (has_on_delete) {
+                if (it->second == 0) {
+                    on_delete(it->first.lower(), it->first.upper());
                 }
             }
-        } while (any_removals);
+            const auto dead = it++;
+            m_split_ranges_set.erase(dead);
+        }
     }
 
     template <typename Func>
@@ -196,11 +192,16 @@ template <typename AddressType>
 RangeSet<AddressType>::RangeSet(RangeSet&& other) {
     m_impl = std::make_unique<RangeSet<AddressType>::RangeSetImpl>();
     m_impl->m_ranges_set = std::move(other.m_impl->m_ranges_set);
+    other.m_impl->m_ranges_set.clear();
 }
 
 template <typename AddressType>
 RangeSet<AddressType>& RangeSet<AddressType>::operator=(RangeSet&& other) {
-    m_impl->m_ranges_set = std::move(other.m_impl->m_ranges_set);
+    if (this != &other) {
+        m_impl->m_ranges_set = std::move(other.m_impl->m_ranges_set);
+        other.m_impl->m_ranges_set.clear();
+    }
+    return *this;
 }
 
 template <typename AddressType>
@@ -265,11 +266,16 @@ template <typename AddressType>
 OverlapRangeSet<AddressType>::OverlapRangeSet(OverlapRangeSet&& other) {
     m_impl = std::make_unique<OverlapRangeSet<AddressType>::OverlapRangeSetImpl>();
     m_impl->m_split_ranges_set = std::move(other.m_impl->m_split_ranges_set);
+    other.m_impl->m_split_ranges_set.clear();
 }
 
 template <typename AddressType>
 OverlapRangeSet<AddressType>& OverlapRangeSet<AddressType>::operator=(OverlapRangeSet&& other) {
-    m_impl->m_split_ranges_set = std::move(other.m_impl->m_split_ranges_set);
+    if (this != &other) {
+        m_impl->m_split_ranges_set = std::move(other.m_impl->m_split_ranges_set);
+        other.m_impl->m_split_ranges_set.clear();
+    }
+    return *this;
 }
 
 template <typename AddressType>
