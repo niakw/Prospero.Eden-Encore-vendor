@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "common/logging.h"
+#include "common/settings.h"
 #include "core/core.h"
 #include "core/hle/service/glue/bgtc.h"
 #include "core/hle/service/cmif_serialization.h"
@@ -47,7 +48,7 @@ ITaskService::ITaskService(Core::System& system_) : ServiceFramework{system_, "I
         {14, nullptr, "GetScheduleEvent"},
         {15, nullptr, "SchedulePeriodicTask"},
         {16, nullptr, "Unknown16"},
-        {101, nullptr, "GetOperationMode"},
+        {101, D<&ITaskService::GetOperationMode>, "GetOperationMode"},
         {102, D<&ITaskService::WillDisconnectNetworkWhenEnteringSleep>, "WillDisconnectNetworkWhenEnteringSleep"},
         {103, D<&ITaskService::WillStayHalfAwakeInsteadSleep>, "WillStayHalfAwakeInsteadSleep"},
         {200, nullptr, "Unknown200"},
@@ -68,6 +69,12 @@ Result ITaskService::IsInHalfAwake(Out<bool> out_half_awake) {
 
 Result ITaskService::IsInFullAwake(Out<bool> out_full_awake) {
     *out_full_awake = true;
+    R_SUCCEED();
+}
+
+Result ITaskService::GetOperationMode(Out<u32> out_operation_mode) {
+    // nn::am::OperationMode / BGTC ABI: 0 = handheld, 1 = docked.
+    *out_operation_mode = Settings::IsDockedMode() ? 1U : 0U;
     R_SUCCEED();
 }
 
