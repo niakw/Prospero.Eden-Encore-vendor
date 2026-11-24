@@ -7,7 +7,9 @@
 #include "common/logging.h"
 #include "core/hle/result.h"
 #include "core/hle/service/am/am_results.h"
+#include "core/hle/service/am/applet_manager.h"
 #include "core/hle/service/am/frontend/applets.h"
+#include "core/hle/service/am/window_system.h"
 #include "core/hle/service/am/service/self_controller.h"
 #include "core/hle/service/caps/caps_su.h"
 #include "core/hle/service/cmif_serialization.h"
@@ -311,7 +313,18 @@ Result ISelfController::SetHandlesRequestToDisplay(bool enable) {
 }
 
 Result ISelfController::ApproveToDisplay() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
+
+    if (auto* window_system = system.GetAppletManager().GetWindowSystem()) {
+        window_system->RequestAppletVisibilityState(*m_applet, true);
+    } else {
+        // The applet manager normally owns a WindowSystem for the whole AM lifetime. Keep the
+        // guest-visible state coherent during teardown/startup without dereferencing a null owner.
+        std::scoped_lock lk{m_applet->lock};
+        m_applet->window_visible = true;
+        LOG_WARNING(Service_AM, "ApproveToDisplay without an active WindowSystem");
+    }
+
     R_SUCCEED();
 }
 
