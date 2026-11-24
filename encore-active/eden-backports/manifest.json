@@ -315,6 +315,11 @@
       "bytes": 6531,
       "upstream": "a00cf1c9063c645589e3fef97614b5e45c12e3dbe7ac547d0fa576040fefb932"
     },
+    "src/core/hle/service/btdrv/btdrv.cpp": {
+      "active": "60ab520184f4f7ba390424ce9bf5c8f47693456a7afdef558f27f366157baa61",
+      "bytes": 16709,
+      "upstream": "c88bda026ea851e357db1fffd1226d9f07a8fc438b87af0e5e20bf9b5c5aa57c"
+    },
     "src/core/hle/service/btm/btm.cpp": {
       "active": "1b784665fd697eef4755db38a43dc0af2592d4be0ab113c040aa1b3d8863fdff",
       "bytes": 12377,
