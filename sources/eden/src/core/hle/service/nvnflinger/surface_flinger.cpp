@@ -112,6 +112,20 @@ void SurfaceFlinger::SetLayerStackMask(s32 consumer_binder_id, u32 layer_stack_m
     }
 }
 
+bool SurfaceFlinger::UpdateLayerStackMask(s32 consumer_binder_id, u32 stack_bit, bool add) {
+    const auto layer = this->FindLayer(consumer_binder_id);
+    if (!layer) {
+        return false;
+    }
+    // Caller holds the VI container lock, also used by ComposeOnDisplay.
+    if (add) {
+        layer->layer_stack_mask |= stack_bit;
+    } else {
+        layer->layer_stack_mask &= ~stack_bit;
+    }
+    return true;
+}
+
 void SurfaceFlinger::SetLayerIsOverlay(s32 consumer_binder_id, bool is_overlay) {
     if (const auto layer = this->FindLayer(consumer_binder_id); layer != nullptr) {
         layer->is_overlay = is_overlay;

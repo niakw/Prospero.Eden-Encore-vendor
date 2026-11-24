@@ -47,7 +47,7 @@ IManagerDisplayService::IManagerDisplayService(Core::System& system_,
         {4209, nullptr, "IsDisplayPanelOn"},
         {4300, nullptr, "GetInternalPanelId"},
         {6000, C<&IManagerDisplayService::AddToLayerStack>, "AddToLayerStack"},
-        {6001, nullptr, "RemoveFromLayerStack"},
+        {6001, C<&IManagerDisplayService::RemoveFromLayerStack>, "RemoveFromLayerStack"},
         {6002, C<&IManagerDisplayService::SetLayerVisibility>, "SetLayerVisibility"},
         {6003, nullptr, "SetLayerConfig"},
         {6004, nullptr, "AttachLayerPresentationTracer"},
@@ -135,8 +135,11 @@ Result IManagerDisplayService::DestroyManagedLayer(u64 layer_id) {
 }
 
 Result IManagerDisplayService::AddToLayerStack(u32 stack_id, u64 layer_id) {
-    LOG_WARNING(Service_VI, "(STUBBED) called. stack_id={}, layer_id={}", stack_id, layer_id);
-    R_SUCCEED();
+    R_RETURN(m_container->UpdateLayerStack(layer_id, stack_id, true));
+}
+
+Result IManagerDisplayService::RemoveFromLayerStack(u32 stack_id, u64 layer_id) {
+    R_RETURN(m_container->UpdateLayerStack(layer_id, stack_id, false));
 }
 
 Result IManagerDisplayService::SetLayerVisibility(bool visible, u64 layer_id) {

@@ -34,6 +34,7 @@ public:
                               AppletResourceUserId aruid);
     Result DestroyManagedLayer(u64 layer_id);
     Result AddToLayerStack(u32 stack_id, u64 layer_id);
+    Result RemoveFromLayerStack(u32 stack_id, u64 layer_id);
     Result SetLayerVisibility(bool visible, u64 layer_id);
 
 private:
