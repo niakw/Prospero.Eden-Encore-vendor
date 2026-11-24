@@ -14,6 +14,7 @@ nvhost = (root / "encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/dev
 channel = (root / "encore-active/ns2-runtime/gpu_dispatch/video_core/control/channel_state.cpp").read_text()
 i2m = (root / "encore-active/eden-core/src/video_core/engines/engine_upload.cpp").read_text()
 blitter = (root / "encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp").read_text()
+texture_util = (root / "encore-active/eden-core/src/video_core/texture_cache/util.cpp").read_text()
 dma = (root / "encore-active/eden-core/src/video_core/engines/maxwell_dma.cpp").read_text()
 
 dtor = "    ~MemoryManager();\n"
@@ -82,4 +83,11 @@ assert len(dma_calls) == 9, len(dma_calls)
 for call in dma_calls:
     assert call.count("memory_manager.UsesNativeTiling()") == 1, call
 assert dma.count("memory_manager.UsesNativeTiling()") == 9
-print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9")
+# CMake selects this maintained texture utility for both generations.
+# Its block-linear upload and readback must both use the same channel flag.
+swizzle = texture_util.split("void SwizzleBlockLinearImage(", 1)[1].split("\n} // Anonymous namespace", 1)[0]
+unswizzle = texture_util.split("UnswizzleImage(Tegra::MemoryManager& gpu_memory,", 1)[1].split("\nvoid ConvertImage(", 1)[0]
+assert swizzle.count("gpu_memory.UsesNativeTiling()") == 1
+assert unswizzle.count("gpu_memory.UsesNativeTiling()") == 1
+assert texture_util.count("gpu_memory.UsesNativeTiling()") == 2
+print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9 texture_util=2")

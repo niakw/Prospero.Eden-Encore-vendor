@@ -15,9 +15,11 @@ on:
       - 'encore-active/eden-core/src/video_core/engines/engine_upload.cpp'
       - 'encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp'
       - 'encore-active/eden-core/src/video_core/engines/maxwell_dma.cpp'
+      - 'encore-active/eden-core/src/video_core/texture_cache/util.cpp'
       - 'tests/ns2_sw_blitter_native_tiling_source.py'
       - 'encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp'
       - 'encore-active/eden-core/src/video_core/engines/maxwell_dma.cpp'
+      - 'encore-active/eden-core/src/video_core/texture_cache/util.cpp'
       - 'tests/ns2_sw_blitter_native_tiling_source.py'
       - 'encore-active/eden-core/guest-bridge/engine_upload.cpp'
       - 'encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp'
@@ -64,6 +66,7 @@ jobs:
             encore-active/eden-core/src/video_core/engines/engine_upload.cpp
             encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp
             encore-active/eden-core/src/video_core/engines/maxwell_dma.cpp
+            encore-active/eden-core/src/video_core/texture_cache/util.cpp
             tests/ns2_sw_blitter_native_tiling_source.py
             sources/eden/src/video_core/engines/sw_blitter/blitter.cpp
             encore-active/eden-core/guest-bridge/engine_upload.cpp
