@@ -132,14 +132,13 @@ void Module::Interface::GenerateAesKek(HLERequestContext& ctx) {
     const auto generation = rp.Pop<u32>();
     const auto option = rp.Pop<u32>();
 
-    LOG_WARNING(Service_SPL, "(STUBBED) called, generation={:#x}, option={:#x}", generation,
-                option);
+    LOG_WARNING(Service_SPL,
+                "GenerateAesKek unavailable without a secure-monitor key derivation backend; "
+                "generation={:#x}, option={:#x}",
+                generation, option);
 
-    AccessKey access_key{};
-
-    IPC::ResponseBuilder rb{ctx, 6};
-    rb.Push(ResultSuccess);
-    rb.PushRaw(access_key);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
 }
 
 void Module::Interface::GenerateAesKey(HLERequestContext& ctx) {
@@ -147,13 +146,11 @@ void Module::Interface::GenerateAesKey(HLERequestContext& ctx) {
     [[maybe_unused]] const auto access_key = rp.PopRaw<AccessKey>();
     [[maybe_unused]] const auto key_source = rp.PopRaw<KeySource>();
 
-    LOG_WARNING(Service_SPL, "(STUBBED) called");
+    LOG_WARNING(Service_SPL,
+                "GenerateAesKey unavailable without a secure-monitor key derivation backend");
 
-    AesKey aes_key{};
-
-    IPC::ResponseBuilder rb{ctx, 6};
-    rb.Push(ResultSuccess);
-    rb.PushRaw(aes_key);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
 }
 
 void Module::Interface::SetConfig(HLERequestContext& ctx) {
