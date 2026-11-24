@@ -117,7 +117,7 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1908, D<&IParentalControlService::RejectDebugOnlyCommand>, "ClearExemptApplicationListForDebug"},
         {1941, D<&IParentalControlService::DeletePairing>, "DeletePairing"},
         {1951, D<&IParentalControlService::RejectDebugOnlyCommand>, "SetPlayTimerSettingsForDebug"},
-        {1952, nullptr, "GetPlayTimerSpentTimeForTest"},
+        {1952, D<&IParentalControlService::RejectDebugOnlyCommand>, "GetPlayTimerSpentTimeForTest"},
         {1953, D<&IParentalControlService::RejectDebugOnlyCommand>, "SetPlayTimerAlarmDisabledForDebug"},
         {1954, nullptr, "IsBedtimeAlarmEnabled"}, // 18.0.0+
         {1955, nullptr, "GetBedtimeAlarmTime"}, // 18.0.0+

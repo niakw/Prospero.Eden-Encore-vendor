@@ -271,8 +271,8 @@
       "upstream": "c076a5520dfc0186ef2498c0fc3523ec7f4e154c7cecef0d26d2fae76173e763"
     },
     "src/core/hle/service/pctl/parental_control_service.cpp": {
-      "active": "ca1e6ccb318d1ba0c58f5aed8fe97839e1106e58fe38d12d26b8acc857e36269",
-      "bytes": 35927,
+      "active": "7297f877999919ce8a484d8474c82330457aba9bc17c69952d9b88bc19206580",
+      "bytes": 35971,
       "upstream": "46654129562733550f1a7a6376b7372ea248342998ab38b31fdd5554d551a0ff"
     },
     "src/core/hle/service/pctl/parental_control_service.h": {

@@ -44,6 +44,9 @@ private:
 
     Result GetKeyCodeMap2(OutLargeData<KeyCodeMap, BufferAttr_HipcMapAlias> out_key_code_map);
 
+    Result GetFirmwareVersionForDebug(
+        OutLargeData<FirmwareVersionFormat, BufferAttr_HipcPointer> out_firmware_data);
+
     Result GetDeviceNickName(
         OutLargeData<std::array<u8, 0x80>, BufferAttr_HipcMapAlias> out_device_name);
     
