@@ -238,7 +238,8 @@ NvResult nvhost_nvdec_common::UnmapBuffer(IoctlMapBuffer& params,
 }
 
 NvResult nvhost_nvdec_common::SetSubmitTimeout(u32 timeout) {
-    LOG_WARNING(Service_NVDRV, "(STUBBED) called");
+    submit_timeout = timeout;
+    LOG_DEBUG(Service_NVDRV, "SetSubmitTimeout timeout={}", timeout);
     return NvResult::Success;
 }
 
