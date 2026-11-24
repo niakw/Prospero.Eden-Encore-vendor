@@ -28,18 +28,20 @@ IMonitorService::IMonitorService(Core::System& system_)
 IMonitorService::~IMonitorService() = default;
 
 Result IMonitorService::GetStateForMonitor(Out<State> out_state) {
-    LOG_WARNING(Service_LDN, "(STUBBED) called");
-    *out_state = State::None;
+    LOG_DEBUG(Service_LDN, "called, state={}", state);
+    *out_state = state;
     R_SUCCEED();
 }
 
 Result IMonitorService::InitializeMonitor() {
     LOG_INFO(Service_LDN, "called");
+    state = State::Initialized;
     R_SUCCEED();
 }
 
 Result IMonitorService::FinalizeMonitor() {
     LOG_INFO(Service_LDN, "called");
+    state = State::None;
     R_SUCCEED();
 }
 
