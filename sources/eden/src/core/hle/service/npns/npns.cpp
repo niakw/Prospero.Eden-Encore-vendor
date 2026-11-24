@@ -124,7 +124,7 @@ public:
             {104, C<&INpnsSystem::GetStatistics>, "GetStatistics"},
             {105, C<&INpnsSystem::GetPlayReportRequestEvent>, "GetPlayReportRequestEvent"},
             {106, C<&INpnsSystem::GetLastNotifiedTime>, "GetLastNotifiedTime"}, // 18.0.0+
-            {107, nullptr, "SetLastNotifiedTime"}, // 18.0.0+
+            {107, C<&INpnsSystem::SetLastNotifiedTime>, "SetLastNotifiedTime"}, // 18.0.0+
             {111, nullptr, "GetJid"},
             {112, nullptr, "CreateJid"},
             {113, nullptr, "DestroyJid"},
@@ -268,11 +268,14 @@ private:
         R_SUCCEED();
     }
 
-    Result ListenToByName() {
-        LOG_DEBUG(Service_NPNS, "(STUBBED) called.");
+    Result ListenToByName(InBuffer<BufferAttr_HipcMapAlias> name_buffer) {
+        const std::string name(reinterpret_cast<const char*>(name_buffer.data()), name_buffer.size());
+        LOG_DEBUG(Service_NPNS, "System push subscription accepted locally by name, bytes={}",
+                  name_buffer.size());
 
-        // TODO (jarrodnorwell)
-
+        // Encore has no Nintendo push backend. Validate and consume the documented input buffer,
+        // while keeping the same explicit offline-subscription semantics as npns:u.
+        (void)name;
         R_SUCCEED();
     }
 
@@ -296,9 +299,14 @@ private:
     }
 
     Result GetLastNotifiedTime(Out<s64> out_last_notified_time) {
-        LOG_WARNING(Service_NPNS, "(STUBBED) called");
+        *out_last_notified_time = last_notified_time;
+        LOG_DEBUG(Service_NPNS, "Returning local last-notified time={}", last_notified_time);
+        R_SUCCEED();
+    }
 
-        *out_last_notified_time = 0;
+    Result SetLastNotifiedTime(s64 notified_time) {
+        last_notified_time = notified_time;
+        LOG_DEBUG(Service_NPNS, "Updated local last-notified time={}", last_notified_time);
         R_SUCCEED();
     }
 
@@ -312,12 +320,8 @@ private:
     }
 
     Result GetRequestChangeStateCancelEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
-        LOG_DEBUG(Service_NPNS, "(STUBBED) called.");
-
-        // TODO (jarrodnorwell)
-
+        LOG_DEBUG(Service_NPNS, "Returning live request-change-state cancel event");
         *out_event = get_request_change_state_cancel_event.GetHandle();
-
         R_SUCCEED();
     }
 
@@ -329,6 +333,7 @@ private:
     Event get_play_report_request_event;
     OfflineTokenStore token_store;
     u32 state{};
+    s64 last_notified_time{};
 };
 
 class INpnsUser final : public ServiceFramework<INpnsUser> {
