@@ -17,6 +17,7 @@ enum class StorageId : u8;
 
 namespace Kernel {
 class KReadableEvent;
+class KTransferMemory;
 }
 
 namespace Service::AM {
@@ -51,6 +52,8 @@ public:
     ~ILibraryAppletSelfAccessor() override;
 
 private:
+    Result RejectUnavailableGameMovieTrimmer(
+        u64 transfer_memory_size, InCopyHandle<Kernel::KTransferMemory> transfer_memory_handle);
     Result RejectDebugOnlyCommand();
     Result PopInData(Out<SharedPointer<IStorage>> out_storage);
     Result PushOutData(SharedPointer<IStorage> storage);

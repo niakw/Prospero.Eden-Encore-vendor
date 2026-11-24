@@ -103,7 +103,8 @@ ILibraryAppletSelfAccessor::ILibraryAppletSelfAccessor(Core::System& system_,
         {70, D<&ILibraryAppletSelfAccessor::GetCurrentApplicationId>, "GetCurrentApplicationId"},
         {80, D<&ILibraryAppletSelfAccessor::RequestExitToSelf>, "RequestExitToSelf"},
         {90, nullptr, "CreateApplicationAndPushAndRequestToLaunch"},
-        {100, nullptr, "CreateGameMovieTrimmer"},
+        {100, D<&ILibraryAppletSelfAccessor::RejectUnavailableGameMovieTrimmer>,
+         "CreateGameMovieTrimmer"},
         {101, D<&ILibraryAppletSelfAccessor::ReserveResourceForMovieOperation>, "ReserveResourceForMovieOperation"},
         {102, D<&ILibraryAppletSelfAccessor::UnreserveResourceForMovieOperation>, "UnreserveResourceForMovieOperation"},
         {110, D<&ILibraryAppletSelfAccessor::GetMainAppletAvailableUsers>, "GetMainAppletAvailableUsers"},
@@ -118,6 +119,14 @@ ILibraryAppletSelfAccessor::ILibraryAppletSelfAccessor(Core::System& system_,
 }
 
 ILibraryAppletSelfAccessor::~ILibraryAppletSelfAccessor() = default;
+
+Result ILibraryAppletSelfAccessor::RejectUnavailableGameMovieTrimmer(
+    u64 transfer_memory_size, InCopyHandle<Kernel::KTransferMemory> transfer_memory_handle) {
+    LOG_WARNING(Service_AM,
+                "GameMovieTrimmer unavailable: GRC OpenGameMovieTrimmer backend is not implemented, size={:#x}",
+                transfer_memory_size);
+    R_RETURN(ResultUnknown);
+}
 
 Result ILibraryAppletSelfAccessor::RejectDebugOnlyCommand() {
     LOG_WARNING(Service_AM, "Rejected library-applet debug command on release runtime");
