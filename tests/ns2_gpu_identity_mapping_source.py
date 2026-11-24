@@ -1152,4 +1152,16 @@ assert "::Eden::RecordGpuFailure(std::current_exception());" in teardown
 identity_teardown = teardown.split("for (const u32 memory_id : m_memory)",1)[1].split("// The sparse reservations",1)[0]
 assert "if (!as || as->UnmapNative4K" in identity_teardown
 assert identity_teardown.index("m_quarantined_nv_session = true;") < identity_teardown.index("identity->RemoveSpace(as_id);")
-assert "R_UNLESS(!m_quarantined_nv_session, Kernel::ResultInvalidState);" in release
+assert "R_UNLESS(!m_quarantined_nv_session, Kernel::ResultInvalidState);" in worker.split("Result IGpuWorker::ReleaseMemory",1)[1].split("void IGpuWorker::CreateGpuAccessibleMemory",1)[0]
+
+# Exclusive native worker free performs its final ownership check under NvMap's
+# real handle mutex. The stale shared_ptr cannot pin after retirement.
+_nvmap_native = (R/"encore-active/eden-core/src/core/hle/service/nvdrv/core/nvmap.cpp").read_text()
+_free_impl = _nvmap_native.split("NvMap::FreeHandleImpl(",1)[1].split("void NvMap::UnmapAllHandles",1)[0]
+assert _free_impl.index("std::scoped_lock lock(handle_description->mutex);") < _free_impl.index("handle_description->pins != 0") < _free_impl.index("handle_description->native_retired = true;") < _free_impl.index("--handle_description->dupes")
+assert "if (handle_description->native_retired) return 0;" in _nvmap_native
+assert "if (!allocated || native_retired)" in _nvmap_native
+assert "return FreeHandleImpl(handle, internal_session, false);" in _nvmap_native
+assert "nvmap.FreeHandleIfUnpinned(id)" in teardown
+assert "nvmap.FreeHandleIfUnpinned(region.nvmap_handle)" in worker
+assert "nvmap.FreeHandleIfUnpinned(id)" in worker.split("Result IGpuWorker::ReleaseMemory",1)[1].split("void IGpuWorker::CreateGpuAccessibleMemory",1)[0]

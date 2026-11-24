@@ -57,8 +57,10 @@ NvResult NvMap::Handle::Alloc(Flags pFlags, u32 pAlign, u8 pKind, u64 pAddress,
 
 NvResult NvMap::Handle::Duplicate(bool internal_session) {
     std::scoped_lock lock(mutex);
-    // Unallocated handles cannot be duplicated as duplication requires memory accounting (in HOS)
-    if (!allocated) [[unlikely]] {
+    // Unallocated handles cannot be duplicated as duplication requires memory accounting (in HOS).
+    // A thread which retained a stale shared_ptr before exclusive retirement
+    // cannot resurrect the native handle after waiting for this mutex.
+    if (!allocated || native_retired) [[unlikely]] {
         return NvResult::BadValue;
     }
 
@@ -172,6 +174,7 @@ DAddr NvMap::PinHandle(NvMap::Handle::Id handle, bool low_area_pin) {
     }
 
     std::scoped_lock lock(handle_description->mutex);
+    if (handle_description->native_retired) return 0;
     const auto map_low_area = [&]() -> bool {
         if (handle_description->pin_virt_address == 0) {
             if (handle_description->aligned_size > std::numeric_limits<u32>::max())
@@ -318,6 +321,15 @@ void NvMap::DuplicateHandle(Handle::Id handle, bool internal_session) {
 }
 
 std::optional<NvMap::FreeInfo> NvMap::FreeHandle(Handle::Id handle, bool internal_session) {
+    return FreeHandleImpl(handle, internal_session, false);
+}
+
+std::optional<NvMap::FreeInfo> NvMap::FreeHandleIfUnpinned(Handle::Id handle) {
+    return FreeHandleImpl(handle, false, true);
+}
+
+std::optional<NvMap::FreeInfo> NvMap::FreeHandleImpl(Handle::Id handle, bool internal_session,
+                                                    bool exclusive_native) {
     std::weak_ptr<Handle> hWeak{GetHandle(handle)};
     FreeInfo freeInfo;
 
@@ -325,6 +337,17 @@ std::optional<NvMap::FreeInfo> NvMap::FreeHandle(Handle::Id handle, bool interna
     // guest
     if (auto handle_description = hWeak.lock()) {
         std::scoped_lock lock(handle_description->mutex);
+
+        if (handle_description->native_retired)
+            return std::nullopt;
+        if (exclusive_native) {
+            // The check and the final decrement share the exact same mutex
+            // as PinHandle/Duplicate. No check-then-free window is possible.
+            if (internal_session || handle_description->dupes != 1 ||
+                handle_description->internal_dupes != 0 || handle_description->pins != 0)
+                return std::nullopt;
+            handle_description->native_retired = true;
+        }
 
         if (internal_session) {
             if (handle_description->internal_dupes <= 0) {

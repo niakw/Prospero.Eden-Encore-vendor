@@ -55,6 +55,9 @@ public:
         Id id; //!< A globally unique identifier for this handle
 
         s64 pins{};
+        // Set only by exclusive NS2 worker retirement under mutex. A stale
+        // shared_ptr must never re-pin or duplicate an already retired handle.
+        bool native_retired{};
         u32 pin_virt_address{};
         std::optional<typename std::list<std::shared_ptr<Handle>>::iterator> unmap_queue_entry{};
 
@@ -155,9 +158,15 @@ public:
      */
     std::optional<FreeInfo> FreeHandle(Handle::Id handle, bool internal_session);
 
+    // NS2 worker owns the last user reference. Atomically refuse external
+    // pins/duplicates, rather than letting the legacy final free force-unmap.
+    std::optional<FreeInfo> FreeHandleIfUnpinned(Handle::Id handle);
+
     void UnmapAllHandles(NvCore::SessionId session_id);
 
 private:
+    std::optional<FreeInfo> FreeHandleImpl(Handle::Id handle, bool internal_session,
+                                           bool exclusive_native);
     std::list<std::shared_ptr<Handle>> unmap_queue{};
     std::mutex unmap_queue_lock{}; //!< Protects access to `unmap_queue`
 

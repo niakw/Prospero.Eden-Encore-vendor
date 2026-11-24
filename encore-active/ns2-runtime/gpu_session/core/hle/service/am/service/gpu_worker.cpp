@@ -309,11 +309,10 @@ IGpuWorker::~IGpuWorker() {
         if (!RetireGpuOnlyRegion(key.first, key.second)) {
             LOG_ERROR(Service_AM, "NS2 dense backing retire failed as={} VA={:#x}",
                       key.first, key.second);
-            // Never free live physical memory after a failed guest unmap.
-            // A safe process-level quarantine is preferable to a GPU UAF.
-            auto leaked = std::move(m_dense_regions.begin()->second.pages);
-            (void)leaked.release();
-            m_dense_regions.erase(m_dense_regions.begin());
+            // CloseSession would force-free the remaining NVMap owners.
+            // Preserve the whole session as well as its physical page groups.
+            m_quarantined_nv_session = true;
+            break;
         }
     }
     auto& nvmap = m_module->GetContainer().GetNvMapFile();
@@ -325,7 +324,8 @@ IGpuWorker::~IGpuWorker() {
             // NVMap reference must not lose its still-locked guest backing.
             if (!pending->second.nvmap_lifetime.expired()) {
                 LOG_ERROR(Service_AM, "NS2 GPU memory still externally owned at worker teardown: {}", id);
-                continue;
+                m_quarantined_nv_session = true;
+                break;
             }
             const auto result = m_process->GetPageTable().UnlockForDeviceAddressSpace(
                 pending->second.address, pending->second.size);
@@ -333,12 +333,23 @@ IGpuWorker::~IGpuWorker() {
                 LOG_ERROR(Service_AM, "NS2 deferred GPU memory unlock failed: {:#x}", result.raw);
             continue;
         }
-        if (const auto info = nvmap.FreeHandle(id, false); info && info->can_unlock) {
-            const auto result = m_process->GetPageTable().UnlockForDeviceAddressSpace(
-                info->address, info->size);
-            if (result.IsError()) {
-                LOG_ERROR(Service_AM, "NS2 GPU memory unlock failed: {:#x}", result.raw);
-            }
+        std::optional<Nvidia::NvCore::NvMap::FreeInfo> info;
+        try {
+            info = nvmap.FreeHandleIfUnpinned(id);
+        } catch (...) {
+            m_quarantined_nv_session = true;
+            break;
+        }
+        if (!info || !info->can_unlock) {
+            // External pins/duplicates (or an in-flight shared owner) are
+            // not proof of retirement. Never follow this with CloseSession.
+            m_quarantined_nv_session = true;
+            break;
+        }
+        const auto result = m_process->GetPageTable().UnlockForDeviceAddressSpace(
+            info->address, info->size);
+        if (result.IsError()) {
+            LOG_ERROR(Service_AM, "NS2 GPU memory unlock failed: {:#x}", result.raw);
         }
     }
     if (m_quarantined_nv_session) {
@@ -547,7 +558,13 @@ bool IGpuWorker::RetireGpuOnlyRegion(u32 address_space, u64 address) {
     // call it twice for this owner. Wait for the original object's weak
     // lifetime to expire before tearing down the CPU-visible page alias.
     if (!region.nvmap_released) {
-        const auto info = nvmap.FreeHandle(region.nvmap_handle, false);
+        std::optional<Nvidia::NvCore::NvMap::FreeInfo> info;
+        try {
+            info = nvmap.FreeHandleIfUnpinned(region.nvmap_handle);
+        } catch (...) {
+            m_quarantined_nv_session = true;
+            return false;
+        }
         if (!info) return false;
         region.nvmap_released = true;
     }
@@ -1494,10 +1511,18 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
     }
     // Release our last strong reference so FreeHandle may report unlockable.
     handle.reset();
-    const auto info = nvmap.FreeHandle(id, false);
+    std::optional<Nvidia::NvCore::NvMap::FreeInfo> info;
+    try {
+        info = nvmap.FreeHandleIfUnpinned(id);
+    } catch (...) {
+        // A failed destructive SMMU mutation cannot be retried as a clean
+        // free. Preserve the remaining page lock and session until teardown.
+        m_quarantined_nv_session = true;
+        return Kernel::ResultInvalidState;
+    }
     if (!info) {
         m_pending_device_unlocks.erase(pending);
-        return Kernel::ResultInvalidState;
+        return Kernel::ResultBusy;
     }
     pending->second.address = info->address;
     pending->second.size = info->size;
