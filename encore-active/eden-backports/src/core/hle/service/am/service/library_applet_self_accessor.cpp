@@ -108,7 +108,7 @@ ILibraryAppletSelfAccessor::ILibraryAppletSelfAccessor(Core::System& system_,
         {102, D<&ILibraryAppletSelfAccessor::UnreserveResourceForMovieOperation>, "UnreserveResourceForMovieOperation"},
         {110, D<&ILibraryAppletSelfAccessor::GetMainAppletAvailableUsers>, "GetMainAppletAvailableUsers"},
         {120, D<&ILibraryAppletSelfAccessor::RejectDebugOnlyCommand>, "GetLaunchStorageInfoForDebug"},
-        {130, nullptr, "GetGpuErrorDetectedSystemEvent"},
+        {130, D<&ILibraryAppletSelfAccessor::GetGpuErrorDetectedSystemEvent>, "GetGpuErrorDetectedSystemEvent"},
         {140, nullptr, "SetApplicationMemoryReservation"},
         {150, D<&ILibraryAppletSelfAccessor::ShouldSetGpuTimeSliceManually>, "ShouldSetGpuTimeSliceManually"},
         {160, D<&ILibraryAppletSelfAccessor::GetLibraryAppletInfoEx>, "GetLibraryAppletInfoEx"},
@@ -440,6 +440,13 @@ Result ILibraryAppletSelfAccessor::GetMainAppletAvailableUsers(
         }
     }
 
+    R_SUCCEED();
+}
+
+Result ILibraryAppletSelfAccessor::GetGpuErrorDetectedSystemEvent(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    LOG_DEBUG(Service_AM, "called");
+    *out_event = m_applet->gpu_error_detected_event.GetHandle();
     R_SUCCEED();
 }
 

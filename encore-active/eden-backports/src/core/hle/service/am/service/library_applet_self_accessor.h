@@ -85,6 +85,7 @@ private:
     Result UnreserveResourceForMovieOperation();
     Result GetMainAppletAvailableUsers(Out<bool> out_can_select_any_user, Out<s32> out_users_count,
                                        OutArray<Common::UUID, BufferAttr_HipcMapAlias> out_users);
+    Result GetGpuErrorDetectedSystemEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result ShouldSetGpuTimeSliceManually(Out<bool> out_should_set_gpu_time_slice_manually);
     Result GetLibraryAppletInfoEx(Out<LibraryAppletInfo> out_library_applet_info);
 
