@@ -16,10 +16,10 @@ IDisplayController::IDisplayController(Core::System& system_, std::shared_ptr<Ap
     : ServiceFramework{system_, "IDisplayController"}, applet(std::move(applet_)) {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, nullptr, "GetLastForegroundCaptureImage"},
+        {0, D<&IDisplayController::RejectLegacyCaptureImage>, "GetLastForegroundCaptureImage"},
         {1, D<&IDisplayController::UpdateLastForegroundCaptureImage>, "UpdateLastForegroundCaptureImage"},
-        {2, nullptr, "GetLastApplicationCaptureImage"},
-        {3, nullptr, "GetCallerAppletCaptureImage"},
+        {2, D<&IDisplayController::RejectLegacyCaptureImage>, "GetLastApplicationCaptureImage"},
+        {3, D<&IDisplayController::RejectLegacyCaptureImage>, "GetCallerAppletCaptureImage"},
         {4, D<&IDisplayController::UpdateCallerAppletCaptureImage>, "UpdateCallerAppletCaptureImage"},
         {5, D<&IDisplayController::GetLastForegroundCaptureImageEx>, "GetLastForegroundCaptureImageEx"},
         {6, D<&IDisplayController::GetLastApplicationCaptureImageEx>, "GetLastApplicationCaptureImageEx"},
@@ -51,6 +51,16 @@ IDisplayController::IDisplayController(Core::System& system_, std::shared_ptr<Ap
 }
 
 IDisplayController::~IDisplayController() = default;
+
+Result IDisplayController::RejectLegacyCaptureImage(
+    OutBuffer<BufferAttr_HipcMapAlias> out_image_data) {
+    LOG_DEBUG(Service_AM, "legacy capture-image command rejected, buffer_size={:#x}",
+              out_image_data.size());
+
+    // Horizon keeps cmds 0/2/3 as legacy stubs and returns an error. Do not alias them to the
+    // newer cmd5/6/7 CaptureImageEx path, which has different observable semantics.
+    R_THROW(ResultUnknown);
+}
 
 Result IDisplayController::UpdateLastForegroundCaptureImage() {
     LOG_DEBUG(Service_AM, "called");
