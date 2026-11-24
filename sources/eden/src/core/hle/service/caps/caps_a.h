@@ -24,41 +24,6 @@ public:
     ~IAlbumAccessorService() override;
 
 private:
-    struct AlbumFileCountEx0Input {
-        AlbumStorage storage{};
-        std::array<u8, 7> pad0{};
-        u8 flags{};
-        std::array<u8, 7> pad1{};
-    };
-    static_assert(sizeof(AlbumFileCountEx0Input) == 0x10);
-
-    Result GetAlbumFileCount(Out<u64> out_count, AlbumStorage storage);
-    Result GetAlbumFileSize(Out<u64> out_size, const AlbumFileId& file_id);
-    Result GetAlbumMountResult(AlbumStorage storage);
-    Result GetAlbumFileCountEx0(Out<u64> out_count, const AlbumFileCountEx0Input& input);
-    Result ForceAlbumUnmounted(AlbumStorage storage);
-    Result ResetAlbumMountStatus(AlbumStorage storage);
-    Result RefreshAlbumCache(AlbumStorage storage);
-
-    Result LoadAlbumScreenShotImage(
-        Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
-        OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
-        OutArray<u8, BufferAttr_HipcMapAlias> out_buffer);
-    Result LoadAlbumScreenShotThumbnailImage(
-        Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
-        OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
-        OutArray<u8, BufferAttr_HipcMapAlias> out_buffer);
-    Result LoadAlbumScreenShotImageEx(
-        Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
-        const ScreenShotDecodeOption& decoder_options,
-        OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
-        OutArray<u8, BufferAttr_HipcMapAlias> out_buffer);
-    Result LoadAlbumScreenShotThumbnailImageEx(
-        Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
-        const ScreenShotDecodeOption& decoder_options,
-        OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
-        OutArray<u8, BufferAttr_HipcMapAlias> out_buffer);
-
     Result GetAlbumFileList(Out<u64> out_count, AlbumStorage storage,
                             OutArray<AlbumEntry, BufferAttr_HipcMapAlias> out_entries);
 
@@ -76,20 +41,6 @@ private:
 
     Result GetAutoSavingStorage(Out<bool> out_is_autosaving);
 
-    Result LoadAlbumScreenShotImageEx0(
-        Out<ScreenShotAttribute> out_attribute, Out<s64> out_width, Out<s64> out_height,
-        const AlbumFileId& file_id, const ScreenShotDecodeOption& decoder_options,
-        OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
-        OutArray<u8, BufferAttr_HipcMapAlias> out_buffer);
-
-    struct RequiredStorageSpaceInput {
-        AlbumStorage destination{};
-        AlbumStorage source{};
-    };
-    static_assert(sizeof(RequiredStorageSpaceInput) == 2);
-    Result GetRequiredStorageSpaceSizeToCopyAll(Out<u64> out_size,
-                                                const RequiredStorageSpaceInput& input);
-
     Result LoadAlbumScreenShotImageEx1(
         const AlbumFileId& file_id, const ScreenShotDecodeOption& decoder_options,
         OutLargeData<LoadAlbumScreenShotImageOutput, BufferAttr_HipcMapAlias> out_image_output,
@@ -105,7 +56,6 @@ private:
     Result TranslateResult(Result in_result);
 
     Result GetAlbumAccessResultForDebug(Out<Result> out_result);
-    void UnsupportedDebugCommand(HLERequestContext& ctx);
 
     std::shared_ptr<AlbumManager> manager = nullptr;
 };

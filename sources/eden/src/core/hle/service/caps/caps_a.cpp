@@ -18,53 +18,44 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
     : ServiceFramework{system_, "caps:a"}, manager{album_manager} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, D<&IAlbumAccessorService::GetAlbumFileCount>, "GetAlbumFileCount"},
+        {0, nullptr, "GetAlbumFileCount"},
         {1, C<&IAlbumAccessorService::GetAlbumFileList>, "GetAlbumFileList"},
         {2, nullptr, "LoadAlbumFile"},
         {3, C<&IAlbumAccessorService::DeleteAlbumFile>, "DeleteAlbumFile"},
         {4, nullptr, "StorageCopyAlbumFile"},
         {5, C<&IAlbumAccessorService::IsAlbumMounted>, "IsAlbumMounted"},
         {6, nullptr, "GetAlbumUsage"},
-        {7, D<&IAlbumAccessorService::GetAlbumFileSize>, "GetAlbumFileSize"},
+        {7, nullptr, "GetAlbumFileSize"},
         {8, nullptr, "LoadAlbumFileThumbnail"},
-        {9, D<&IAlbumAccessorService::LoadAlbumScreenShotImage>, "LoadAlbumScreenShotImage"},
-        {10, D<&IAlbumAccessorService::LoadAlbumScreenShotThumbnailImage>, "LoadAlbumScreenShotThumbnailImage"},
+        {9, nullptr, "LoadAlbumScreenShotImage"},
+        {10, nullptr, "LoadAlbumScreenShotThumbnailImage"},
         {11, nullptr, "GetAlbumEntryFromApplicationAlbumEntry"},
-        {12, D<&IAlbumAccessorService::LoadAlbumScreenShotImageEx>, "LoadAlbumScreenShotImageEx"},
-        {13, D<&IAlbumAccessorService::LoadAlbumScreenShotThumbnailImageEx>, "LoadAlbumScreenShotThumbnailImageEx"},
-        {14, D<&IAlbumAccessorService::LoadAlbumScreenShotImageEx0>, "LoadAlbumScreenShotImageEx0"},
+        {12, nullptr, "LoadAlbumScreenShotImageEx"},
+        {13, nullptr, "LoadAlbumScreenShotThumbnailImageEx"},
+        {14, nullptr, "LoadAlbumScreenShotImageEx0"},
         {15, nullptr, "GetAlbumUsage3"},
-        {16, D<&IAlbumAccessorService::GetAlbumMountResult>, "GetAlbumMountResult"},
+        {16, nullptr, "GetAlbumMountResult"},
         {17, nullptr, "GetAlbumUsage16"},
         {18, C<&IAlbumAccessorService::Unknown18>, "Unknown18"},
         {19, nullptr, "Unknown19"},
-        {100, D<&IAlbumAccessorService::GetAlbumFileCountEx0>, "GetAlbumFileCountEx0"},
+        {100, nullptr, "GetAlbumFileCountEx0"},
         {101, C<&IAlbumAccessorService::GetAlbumFileListEx0>, "GetAlbumFileListEx0"},
         {202, nullptr, "SaveEditedScreenShot"},
         {301, nullptr, "GetLastThumbnail"},
         {302, nullptr, "GetLastOverlayMovieThumbnail"},
         {401,  C<&IAlbumAccessorService::GetAutoSavingStorage>, "GetAutoSavingStorage"},
-        {501, D<&IAlbumAccessorService::GetRequiredStorageSpaceSizeToCopyAll>, "GetRequiredStorageSpaceSizeToCopyAll"},
+        {501, nullptr, "GetRequiredStorageSpaceSizeToCopyAll"},
         {1001, nullptr, "LoadAlbumScreenShotThumbnailImageEx0"},
         {1002, C<&IAlbumAccessorService::LoadAlbumScreenShotImageEx1>, "LoadAlbumScreenShotImageEx1"},
         {1003, C<&IAlbumAccessorService::LoadAlbumScreenShotThumbnailImageEx1>, "LoadAlbumScreenShotThumbnailImageEx1"},
-        // Movie album streams are not backed by Encore: reject explicitly.
-        {2001, nullptr, "OpenAlbumMovieReadStream"},
-        {2002, nullptr, "CloseAlbumMovieReadStream"},
-        {2003, nullptr, "GetAlbumMovieReadStreamMovieDataSize"},
-        {2004, nullptr, "ReadMovieDataFromAlbumMovieReadStream"},
-        {2005, nullptr, "GetAlbumMovieReadStreamBrokenReason"},
-        {2006, nullptr, "GetAlbumMovieReadStreamImageDataSize"},
-        {2007, nullptr, "ReadImageDataFromAlbumMovieReadStream"},
-        {2008, nullptr, "ReadFileAttributeFromAlbumMovieReadStream"},
-        {8001, D<&IAlbumAccessorService::ForceAlbumUnmounted>, "ForceAlbumUnmounted"},
-        {8002, D<&IAlbumAccessorService::ResetAlbumMountStatus>, "ResetAlbumMountStatus"},
-        {8011, D<&IAlbumAccessorService::RefreshAlbumCache>, "RefreshAlbumCache"},
+        {8001, nullptr, "ForceAlbumUnmounted"},
+        {8002, nullptr, "ResetAlbumMountStatus"},
+        {8011, nullptr, "RefreshAlbumCache"},
         {8012, nullptr, "GetAlbumCache"},
         {8013, nullptr, "GetAlbumCacheEx"},
         {8021, nullptr, "GetAlbumEntryFromApplicationAlbumEntryAruid"},
         {10011, nullptr, "SetInternalErrorConversionEnabled"},
-        {50000, &IAlbumAccessorService::UnsupportedDebugCommand, "LoadMakerNoteInfoForDebug"},
+        {50000, nullptr, "LoadMakerNoteInfoForDebug"},
         {50011, C<&IAlbumAccessorService::GetAlbumAccessResultForDebug>, "GetAlbumAccessResultForDebug"},
         {60002, nullptr, "OpenAccessorSession"},
     };
@@ -74,85 +65,6 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
 }
 
 IAlbumAccessorService::~IAlbumAccessorService() = default;
-
-Result IAlbumAccessorService::GetAlbumFileCount(Out<u64> out_count, AlbumStorage storage) {
-    R_RETURN(TranslateResult(manager->GetAlbumFileCount(*out_count, storage, 0)));
-}
-
-Result IAlbumAccessorService::GetAlbumFileSize(Out<u64> out_size, const AlbumFileId& file_id) {
-    R_RETURN(TranslateResult(manager->GetAlbumFileSize(*out_size, file_id)));
-}
-
-Result IAlbumAccessorService::GetAlbumMountResult(AlbumStorage storage) {
-    R_RETURN(TranslateResult(manager->GetAlbumMountResult(storage)));
-}
-
-Result IAlbumAccessorService::GetAlbumFileCountEx0(
-    Out<u64> out_count, const AlbumFileCountEx0Input& input) {
-    R_RETURN(TranslateResult(manager->GetAlbumFileCount(*out_count, input.storage, input.flags)));
-}
-
-Result IAlbumAccessorService::ForceAlbumUnmounted(AlbumStorage storage) {
-    R_RETURN(TranslateResult(manager->SetAlbumStorageAvailable(storage, false)));
-}
-
-Result IAlbumAccessorService::ResetAlbumMountStatus(AlbumStorage storage) {
-    R_RETURN(TranslateResult(manager->SetAlbumStorageAvailable(storage, true)));
-}
-
-Result IAlbumAccessorService::RefreshAlbumCache(AlbumStorage storage) {
-    R_RETURN(TranslateResult(manager->RefreshAlbumCache(storage)));
-}
-
-Result IAlbumAccessorService::LoadAlbumScreenShotImage(
-    Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
-    OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
-    OutArray<u8, BufferAttr_HipcMapAlias> out_buffer) {
-    LoadAlbumScreenShotImageOutput output{};
-    const Result result =
-        manager->LoadAlbumScreenShotImage(output, out_image, file_id, ScreenShotDecodeOption{});
-    *out_width = static_cast<u64>(output.width);
-    *out_height = static_cast<u64>(output.height);
-    R_RETURN(TranslateResult(result));
-}
-
-Result IAlbumAccessorService::LoadAlbumScreenShotThumbnailImage(
-    Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
-    OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
-    OutArray<u8, BufferAttr_HipcMapAlias> out_buffer) {
-    LoadAlbumScreenShotImageOutput output{};
-    const Result result =
-        manager->LoadAlbumScreenShotThumbnail(output, out_image, file_id, ScreenShotDecodeOption{});
-    *out_width = static_cast<u64>(output.width);
-    *out_height = static_cast<u64>(output.height);
-    R_RETURN(TranslateResult(result));
-}
-
-Result IAlbumAccessorService::LoadAlbumScreenShotImageEx(
-    Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
-    const ScreenShotDecodeOption& decoder_options,
-    OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
-    OutArray<u8, BufferAttr_HipcMapAlias> out_buffer) {
-    LoadAlbumScreenShotImageOutput output{};
-    const Result result =
-        manager->LoadAlbumScreenShotImage(output, out_image, file_id, decoder_options);
-    *out_width = static_cast<u64>(output.width);
-    *out_height = static_cast<u64>(output.height);
-    R_RETURN(TranslateResult(result));
-}
-
-Result IAlbumAccessorService::LoadAlbumScreenShotThumbnailImageEx(
-    Out<u64> out_width, Out<u64> out_height, const AlbumFileId& file_id,
-    const ScreenShotDecodeOption& decoder_options,
-    OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
-    OutArray<u8, BufferAttr_HipcMapAlias> out_buffer) {
-    LoadAlbumScreenShotImageOutput output{};
-    const Result result =
-        manager->LoadAlbumScreenShotThumbnail(output, out_image, file_id, decoder_options);
-    *out_width = static_cast<u64>(output.width);
-    *out_height = static_cast<u64>(output.height);
-    R_RETURN(TranslateResult(result));
-}
 
 Result IAlbumAccessorService::GetAlbumFileList(
     Out<u64> out_count, AlbumStorage storage,
@@ -197,33 +109,10 @@ Result IAlbumAccessorService::GetAlbumFileListEx0(
 }
 
 Result IAlbumAccessorService::GetAutoSavingStorage(Out<bool> out_is_autosaving) {
-    LOG_DEBUG(Service_Capture, "called");
+    LOG_WARNING(Service_Capture, "(STUBBED) called");
 
     const Result result = manager->GetAutoSavingStorage(*out_is_autosaving);
     R_RETURN(TranslateResult(result));
-}
-
-Result IAlbumAccessorService::LoadAlbumScreenShotImageEx0(
-    Out<ScreenShotAttribute> out_attribute, Out<s64> out_width, Out<s64> out_height,
-    const AlbumFileId& file_id, const ScreenShotDecodeOption& decoder_options,
-    OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
-    OutArray<u8, BufferAttr_HipcMapAlias> out_buffer) {
-    LoadAlbumScreenShotImageOutput output{};
-    const Result result =
-        manager->LoadAlbumScreenShotImage(output, out_image, file_id, decoder_options);
-    if (result.IsSuccess()) {
-        *out_attribute = output.attribute;
-        *out_width = output.width;
-        *out_height = output.height;
-        std::fill(out_buffer.begin(), out_buffer.end(), 0);
-    }
-    R_RETURN(TranslateResult(result));
-}
-
-Result IAlbumAccessorService::GetRequiredStorageSpaceSizeToCopyAll(
-    Out<u64> out_size, const RequiredStorageSpaceInput& input) {
-    R_RETURN(TranslateResult(
-        manager->GetRequiredStorageSpaceSizeToCopyAll(*out_size, input.source, input.destination)));
 }
 
 Result IAlbumAccessorService::LoadAlbumScreenShotImageEx1(
@@ -312,12 +201,6 @@ Result IAlbumAccessorService::TranslateResult(Result in_result) {
     return in_result;
 }
 
-
-void IAlbumAccessorService::UnsupportedDebugCommand(HLERequestContext& ctx) {
-    LOG_WARNING(Service_Capture, "album maker-note debug loading is not supported");
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(IPC::ResultNotSupported);
-}
 
 Result IAlbumAccessorService::GetAlbumAccessResultForDebug(Out<Result> out_result) {
     LOG_WARNING(Service_Capture, "(STUBBED) called");
