@@ -23,7 +23,10 @@ end="    std::string_view error;"
 assert method.count(begin)==method.count(end)==1
 owner=begin+method.split(begin,1)[1].split(end,1)[0]
 assert "SignalFence(" in owner
-assert "RecordGpuFailure(std::current_exception())" in owner
+assert "auto failure = std::current_exception();" in owner
+assert "RecordGpuFailure(failure)" in owner
+assert ".ReportFault(channel)" in owner
+assert owner.index("RecordGpuFailure(failure)") < owner.index(".ReportFault(channel)")
 assert "Native QMD3 release backing revoked after GPU submission" in owner
 assert owner.index("if (!current.IsCurrent(channel, ticket)) return;") < owner.index(
     "throw std::runtime_error(")
@@ -57,6 +60,7 @@ class NativeGpuChannelRegistry {
 public:
     struct Ticket{unsigned serial{7};};
     bool current{true};
+    unsigned reports{};
     static NativeGpuChannelRegistry& Instance(){
         static NativeGpuChannelRegistry r;
         return r;
@@ -64,6 +68,7 @@ public:
     bool IsCurrent(const Channel*,const Ticket& ticket) const {
         return current&&ticket.serial==7;
     }
+    void ReportFault(const Channel*) { ++reports; }
 };
 }
 struct MemoryManager {
@@ -135,8 +140,8 @@ int main() {
     assert(release(0x1000,31,0));
     pusher.memory_manager.mapped=false;
     renderer.RetireOne();
-    assert(Eden::failures==1 && pusher.memory_manager.word==30 &&
-           pusher.memory_manager.writes==3);
+    assert(Eden::failures==1 && Registry::Instance().reports==1 &&
+           pusher.memory_manager.word==30 && pusher.memory_manager.writes==3);
     try {std::rethrow_exception(Eden::last);}
     catch(const std::runtime_error& e){
         assert(std::string_view(e.what())==
@@ -146,7 +151,8 @@ int main() {
     assert(release(0x1000,32,0));
     pusher.memory_manager.cpu_backed=false;
     renderer.RetireOne();
-    assert(Eden::failures==2 && pusher.memory_manager.word==30);
+    assert(Eden::failures==2 && Registry::Instance().reports==2 &&
+           pusher.memory_manager.word==30);
     pusher.memory_manager.cpu_backed=true;
 
     // The same guest GPU VA can now map a different physical allocation.
@@ -155,7 +161,8 @@ int main() {
     assert(release(0x1000,99,0));
     pusher.memory_manager.remapped=true;
     renderer.RetireOne();
-    assert(Eden::failures==3 && pusher.memory_manager.writes==3);
+    assert(Eden::failures==3 && Registry::Instance().reports==3 &&
+           pusher.memory_manager.writes==3);
     assert(pusher.memory_manager.word==30 &&
            pusher.memory_manager.reused_word==100);
     pusher.memory_manager.remapped=false;
@@ -165,7 +172,8 @@ int main() {
     assert(release(0x1000,44,0));
     Registry::Instance().current=false;
     renderer.RetireOne();
-    assert(Eden::failures==3 && pusher.memory_manager.word==30);
+    assert(Eden::failures==3 && Registry::Instance().reports==3 &&
+           pusher.memory_manager.word==30);
     Registry::Instance().current=true;
     assert(!release(0x1001,47,0));
     assert(!release(0,47,0));
@@ -175,6 +183,7 @@ int main() {
               " unmapped_late=GPU_failure_latched"
               " cpu_backing_lost_late=GPU_failure_latched"
               " va_remap_late=GPU_failure_latched"
+              " H17_reported=3"
               " revoked_epoch=no_write"
               " native_vkCmdDispatch=not_exercised");
 }
