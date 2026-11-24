@@ -29,6 +29,11 @@ def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     post_join_handler_retire = "        // SM's factories can keep NVDRV devices alive after their server\n        // threads have joined. Drop those strong owners before KProcess\n        // retirement, but retain the SM object/ports until ShutdownCores.\n        if (service_manager) {\n            service_manager->ReleaseRegisteredHandlersForShutdown();\n            ::Eden::ReportStep(\"shutdown\", \"Completed service_manager.ReleaseRegisteredHandlersForShutdown()\");\n        }\n"
     assert source.count(post_join_handler_retire) == 1, ("SM/ NVDRV lifetime", relative)
     source = source.replace(post_join_handler_retire, "", 1)
+    # Nov23 AM shutdown-race successor. Historical teardown provenance predates
+    # DropPendingProcess(); remove only this exact call/report block on the audit copy.
+    pending_process_release = "        // AM may never have taken the frontend-created application if the\n        // title was closed while services were still starting. Drop it now,\n        // after service loops stopped and before KProcess/kernel teardown.\n        applet_manager.DropPendingProcess();\n        ::Eden::ReportStep(\"shutdown\", \"Completed applet_manager.DropPendingProcess()\");\n"
+    assert source.count(pending_process_release) == 1, ("AM pending-process lifetime", relative)
+    source = source.replace(pending_process_release, "", 1)
     # PS5 FC27 23/11 host-service lifetime successor: wake SM waiters,
     # stop server loops and join retained host workers before ShutdownCores.
     # Undo only in this provenance copy before replaying older shutdown SHAs.
