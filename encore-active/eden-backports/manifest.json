@@ -301,8 +301,8 @@
       "upstream": "72f8cfb6e8440154e4c646df6cc5be432f8c611ebe3236b5ceadd5572ba456b3"
     },
     "src/core/hle/service/bpc/bpc.cpp": {
-      "active": "10528a780cdc1d9dbbf0e94d4ad7622c8d10a986a3ceae7ef17d4c84875bf8bf",
-      "bytes": 4552,
+      "active": "9461845e34dd310aab8f45522aa8572e2f8eca7618f9e5975751049211188693",
+      "bytes": 6531,
       "upstream": "a00cf1c9063c645589e3fef97614b5e45c12e3dbe7ac547d0fa576040fefb932"
     },
     "src/core/hle/service/btm/btm.cpp": {
