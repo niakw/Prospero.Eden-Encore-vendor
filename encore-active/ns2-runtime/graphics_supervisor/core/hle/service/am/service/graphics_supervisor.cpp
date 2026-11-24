@@ -306,7 +306,7 @@ private:
         // libounce gsvSyncCheckNative treats UINT64_MAX as an invalid
         // producer (already reached). Returning zero can strand a waiter.
         const u64 value = syncpoint < HostSyncpoints
-            ? system.Host1x().GetSyncpointManager().GetGuestSyncpointValue(syncpoint)
+            ? system.Host1x().GetSyncpointManager().GetNativeGuestSyncpointValue(syncpoint)
             : std::numeric_limits<u64>::max();
         NativeTipcReplyWords(ctx, {static_cast<u32>(value), static_cast<u32>(value >> 32), 0});
     }
@@ -369,8 +369,8 @@ private:
         request.syncpoint = syncpoint;
         request.pending.store(true, std::memory_order_release);
         auto& manager = system.Host1x().GetSyncpointManager();
-        request.handle = manager.RegisterGuestAction(
-            syncpoint, static_cast<u32>(value),
+        request.handle = manager.RegisterNativeGuestAction(
+            syncpoint, value, wait->wide,
             [shared=m_shared, &kernel=system.Kernel(), request=&request, event] {
                 std::scoped_lock lk{shared->mutex};
                 if (!shared->alive) return;
@@ -399,12 +399,12 @@ private:
     bool Cancel(SlotRequest& request) {
         // The old callback clears pending BEFORE signalling. Even if
         // pending is false, a nonzero handle can still be executing.
-        // DeregisterGuestAction waits for a running callback to return.
+        // DeregisterNativeGuestAction waits for a running callback to return.
         // Join before reusing/clearing the slot so an old signal cannot
         // satisfy a new wait prematurely.
         const bool was_pending = request.pending.exchange(false, std::memory_order_acq_rel);
         if (request.handle != 0) {
-            system.Host1x().GetSyncpointManager().DeregisterGuestAction(request.syncpoint,
+            system.Host1x().GetSyncpointManager().DeregisterNativeGuestAction(request.syncpoint,
                                                                         request.handle);
             request.handle = 0;
         }
@@ -528,7 +528,7 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
         manager.WithGuestValuesStable([&] {
             const u32 limit = std::min(count, HostSyncpoints);
             for (u32 id=0; id<limit; ++id) {
-                const u32 value = manager.GetGuestSyncpointValue(id);
+                const u64 value = manager.GetNativeGuestSyncpointValue(id);
                 const u64 address = ro_address + ValuesOffset + u64{id} * 8;
                 if (memory->Read64(address) != value) {
                     memory->Write64(address, value);
@@ -566,7 +566,7 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
         stopped.store(false, std::memory_order_release);
         std::weak_ptr<NativeSyncptState> weak = shared_from_this();
         system.Host1x().GetSyncpointManager().SetGuestMirror(
-            [weak](u32 id,u32 value) {
+            [weak](u32 id,u64 value) {
                 if (auto self=weak.lock();
                     self && !self->stopped.load(std::memory_order_acquire) &&
                     self->memory && id<std::min(self->count,HostSyncpoints)) {
@@ -591,7 +591,7 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
     u64 rw_address{};
     u64 ro_address{};
     u32 count{};
-    std::array<u32,HostSyncpoints> polled_values{};
+    std::array<u64,HostSyncpoints> polled_values{};
     std::shared_ptr<Core::Timing::EventType> poll;
     std::atomic<bool> stopped{false};
 };

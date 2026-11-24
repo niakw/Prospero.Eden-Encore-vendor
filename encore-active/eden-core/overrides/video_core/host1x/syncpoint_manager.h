@@ -20,6 +20,15 @@ public:
     u32 GetGuestSyncpointValue(u32 id) const {
         return id < NUM_MAX_SYNCPOINTS ? syncpoints_guest[id].load(std::memory_order_acquire) : 0;
     }
+    // Native NS2 observes the complete producer count; legacy NVDRV
+    // keeps its original low-word interface and ordering.
+    u64 GetNativeGuestSyncpointValue(u32 id) const {
+        return id < NUM_MAX_SYNCPOINTS ? native_guest_counts[id].load(std::memory_order_acquire) : ~u64{0};
+    }
+    static constexpr bool IsNativeGuestActionReady(u64 current, u64 target, bool wide) {
+        return wide ? current >= target
+                    : ((static_cast<u32>(current) - static_cast<u32>(target)) & 0x80000000U) == 0;
+    }
     u32 GetHostSyncpointValue(u32 id) const {
         return id < NUM_MAX_SYNCPOINTS ? syncpoints_host[id].load(std::memory_order_acquire) : 0;
     }
@@ -29,6 +38,8 @@ public:
         u32 expected_value;
         u64 id;
         std::function<void()> action;
+        u64 native_target{};
+        bool native_wide{};
     };
     using ActionHandle = u64;
     template <typename Func>
@@ -43,10 +54,13 @@ public:
         return RegisterAction(syncpoints_host[syncpoint_id], host_action_storage[syncpoint_id],
                               expected_value, std::move(action));
     }
+    ActionHandle RegisterNativeGuestAction(u32 syncpoint_id, u64 target, bool wide,
+                                           std::function<void()>&& action);
+    void DeregisterNativeGuestAction(u32 syncpoint_id, const ActionHandle& handle);
     void DeregisterGuestAction(u32 syncpoint_id, const ActionHandle& handle);
     void DeregisterHostAction(u32 syncpoint_id, const ActionHandle& handle);
     void IncrementGuest(u32 syncpoint_id);
-    using GuestMirror = std::function<void(u32 syncpoint_id, u32 value)>;
+    using GuestMirror = std::function<void(u32 syncpoint_id, u64 value)>;
     void SetGuestMirror(GuestMirror mirror);
     template <typename Func>
     void WithGuestValuesStable(Func&& func) {
@@ -84,6 +98,8 @@ private:
     };
     std::array<std::atomic<u32>, NUM_MAX_SYNCPOINTS> syncpoints_guest{};
     std::array<std::atomic<u32>, NUM_MAX_SYNCPOINTS> syncpoints_host{};
+    std::array<std::atomic<u64>, NUM_MAX_SYNCPOINTS> native_guest_counts{};
+    std::array<std::list<RegisteredAction>, NUM_MAX_SYNCPOINTS> native_guest_actions;
     std::array<std::list<RegisteredAction>, NUM_MAX_SYNCPOINTS> guest_action_storage;
     std::array<std::list<RegisteredAction>, NUM_MAX_SYNCPOINTS> host_action_storage;
     std::mutex guard;

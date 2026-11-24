@@ -460,5 +460,11 @@ assert "std::numeric_limits<u64>::max();" in slot_owner
 assert "GraphicsSupervisorProtocol::DecodeSyncpointWait(" in slot_owner
 assert slot_owner.index("Cancel(request);",slot_owner.index("void RequestSlotEvent")) < slot_owner.index("if (syncpoint >= HostSyncpoints)")
 cancel=slot_owner.split("bool Cancel(SlotRequest& request)",1)[1]
-assert "if (request.handle != 0)" in cancel and "DeregisterGuestAction" in cancel
+assert "if (request.handle != 0)" in cancel and "DeregisterNativeGuestAction" in cancel
 assert "if (!request.pending.exchange" not in cancel
+
+# Native wait must retain all 64 bits and mode from libounce 201.
+assert "manager.RegisterNativeGuestAction(" in slot_owner
+assert "syncpoint, value, wait->wide," in slot_owner
+assert "GetNativeGuestSyncpointValue(syncpoint)" in slot_owner
+assert "GetNativeGuestSyncpointValue(id)" in mirror

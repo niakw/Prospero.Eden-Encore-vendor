@@ -91,7 +91,41 @@ int main(){
     assert(mirrored.load()==1);
     assert(observed.load()==0);
     assert(m.GetGuestSyncpointValue(3)==1);
-    m.WithGuestValuesStable([&]{ assert(m.GetGuestSyncpointValue(3)==1); });
+    m.WithGuestValuesStable([&]{ assert(m.GetGuestSyncpointValue(3)==1); assert(m.GetNativeGuestSyncpointValue(3)==1); });
+  }
+  {
+    SyncpointManager m;
+    // Modular comparison recognizes a previously reached wrapped threshold.
+    static_assert(SyncpointManager::IsNativeGuestActionReady(1,0xffffffffu,false));
+    static_assert(!SyncpointManager::IsNativeGuestActionReady(0xfffffffeu,1,false));
+    static_assert(!SyncpointManager::IsNativeGuestActionReady(1,0x100000001ULL,true));
+    static_assert(SyncpointManager::IsNativeGuestActionReady(0x100000001ULL,0x100000001ULL,true));
+    std::atomic<unsigned> modular{}, wide{}, legacy{}, cancelled{};
+    assert(m.RegisterNativeGuestAction(4,0xffffffffu,false,[&]{++modular;})==0);
+    assert(modular==1);
+    const auto high=m.RegisterNativeGuestAction(4,0x100000001ULL,true,[&]{++wide;});
+    assert(high!=0);
+    const auto cancel=m.RegisterNativeGuestAction(4,2,false,[&]{++cancelled;});
+    m.DeregisterNativeGuestAction(4,cancel);
+    m.RegisterNativeGuestAction(4,2,true,[&]{++wide;});
+    m.RegisterGuestAction(4,2,[&]{++legacy;});
+    m.IncrementGuest(4);
+    assert(wide==0 && legacy==0);
+    m.IncrementGuest(4);
+    assert(wide==1 && legacy==1 && cancelled==0);
+    m.DeregisterNativeGuestAction(4,high);
+    assert(m.GetNativeGuestSyncpointValue(4)==2);
+  }
+  {
+    SyncpointManager m;
+    std::promise<void> entered, release;
+    auto entered_f=entered.get_future();
+    auto h=m.RegisterNativeGuestAction(6,1,true,[&]{entered.set_value(); release.get_future().wait();});
+    std::thread inc([&]{m.IncrementGuest(6);});
+    assert(entered_f.wait_for(2s)==std::future_status::ready);
+    auto cancel=std::async(std::launch::async,[&]{m.DeregisterNativeGuestAction(6,h);});
+    assert(cancel.wait_for(100ms)==std::future_status::timeout);
+    release.set_value(); inc.join(); cancel.get();
   }
 }
 '''

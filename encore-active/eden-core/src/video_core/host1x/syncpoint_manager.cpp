@@ -49,6 +49,28 @@ void SyncpointManager::DeregisterAction(std::list<RegisteredAction>& action_stor
     }
 }
 
+SyncpointManager::ActionHandle SyncpointManager::RegisterNativeGuestAction(
+    u32 id, u64 target, bool wide, std::function<void()>&& action) {
+    if (id >= NUM_MAX_SYNCPOINTS) return {};
+    {
+        std::scoped_lock lk(guard);
+        if (!IsNativeGuestActionReady(native_guest_counts[id].load(std::memory_order_relaxed),
+                                      target, wide)) {
+            do { ++last_action_id; } while (last_action_id == 0);
+            auto& entry = native_guest_actions[id].emplace_back(0, last_action_id, std::move(action));
+            entry.native_target = target;
+            entry.native_wide = wide;
+            return entry.id;
+        }
+    }
+    action();
+    return {};
+}
+
+void SyncpointManager::DeregisterNativeGuestAction(u32 id, const ActionHandle& handle) {
+    if (id < NUM_MAX_SYNCPOINTS) DeregisterAction(native_guest_actions[id], handle);
+}
+
 void SyncpointManager::DeregisterGuestAction(u32 id, const ActionHandle& handle) {
     if (id < NUM_MAX_SYNCPOINTS) DeregisterAction(guest_action_storage[id], handle);
 }
@@ -100,17 +122,32 @@ void SyncpointManager::Increment(std::atomic<u32>& syncpoint, std::condition_var
                                  std::list<RegisteredAction>& action_storage,
                                  std::optional<u32> mirrored_id) {
     std::unique_lock lk(guard);
-    if (mirrored_id && guest_mirror) {
-        guest_mirror(*mirrored_id, syncpoint.load(std::memory_order_relaxed) + 1);
+    u64 native_value{};
+    if (mirrored_id) {
+        native_value = native_guest_counts[*mirrored_id].load(std::memory_order_relaxed) + 1;
+        if (guest_mirror) guest_mirror(*mirrored_id, native_value);
     }
     const u32 new_value{syncpoint.fetch_add(1, std::memory_order_acq_rel) + 1};
+    if (mirrored_id)
+        native_guest_counts[*mirrored_id].store(native_value, std::memory_order_release);
     wait_cv.notify_all();
     auto end = action_storage.begin();
     while (end != action_storage.end() && end->expected_value <= new_value) ++end;
-    if (end == action_storage.begin()) return;
+    if (end == action_storage.begin() &&
+        (!mirrored_id || native_guest_actions[*mirrored_id].empty())) return;
 
     DueActions due;
     due.pending.splice(due.pending.end(), action_storage, action_storage.begin(), end);
+    if (mirrored_id) {
+        auto& native = native_guest_actions[*mirrored_id];
+        for (auto it = native.begin(); it != native.end();) {
+            auto candidate = it++;
+            if (IsNativeGuestActionReady(native_value, candidate->native_target,
+                                         candidate->native_wide))
+                due.pending.splice(due.pending.end(), native, candidate);
+        }
+    }
+    if (due.pending.empty()) return;
     due_actions.push_back(&due);
     while (!due.pending.empty()) {
         std::function<void()> action{std::move(due.pending.front().action)};
