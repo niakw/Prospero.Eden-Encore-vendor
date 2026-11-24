@@ -27,10 +27,17 @@ class UsageTracker {
 
 public:
     explicit UsageTracker(std::size_t size)
-        : pages((size >> BUFFER_PAGE_SHIFT) + 1, 0ULL) {}
+        : pages((size >> BUFFER_PAGE_SHIFT) + 1, 0ULL), set_begin{pages.size()} {}
 
     void Reset() noexcept {
-        std::ranges::fill(pages, 0ULL);
+        // Lichii 5e428570 / 7a5e5357: only Track can set usage words.
+        // Large guest buffers therefore clear only the page-word extent that
+        // was touched since the previous reset, never the whole allocation.
+        if (set_begin == pages.size()) return;
+        std::fill(pages.begin() + static_cast<std::ptrdiff_t>(set_begin),
+                  pages.begin() + static_cast<std::ptrdiff_t>(set_end), 0ULL);
+        set_begin = pages.size();
+        set_end = 0;
     }
 
     void Track(u64 offset, u64 size) noexcept {
@@ -39,6 +46,9 @@ public:
         const std::size_t first_page = static_cast<std::size_t>(offset >> BUFFER_PAGE_SHIFT);
         const std::size_t last_page = static_cast<std::size_t>(last >> BUFFER_PAGE_SHIFT);
         if (last_page >= pages.size()) return;
+
+        set_begin = std::min(set_begin, first_page);
+        set_end = std::max(set_end, last_page + 1);
 
         const u64 first_bytes =
             std::min<u64>(size, BUFFER_PAGE_BYTES - (offset % BUFFER_PAGE_BYTES));
@@ -98,6 +108,8 @@ private:
     }
 
     std::vector<u64> pages;
+    std::size_t set_begin;
+    std::size_t set_end{};
 };
 
 } // namespace VideoCommon

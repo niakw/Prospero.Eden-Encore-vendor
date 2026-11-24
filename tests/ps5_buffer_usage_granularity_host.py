@@ -29,6 +29,11 @@ assert "(offset_in_page + bytes - 1) >> BUFFER_BYTES_PER_BITSHIFT" in source
 assert "if (first_page == last_page) return false;" in source
 assert "count = last_bit - first_bit + 1;" in source
 assert "if (size == 0) return 0;" in source
+assert "set_begin{pages.size()}" in source
+assert "set_begin = std::min(set_begin, first_page);" in source
+assert "set_end = std::max(set_end, last_page + 1);" in source
+assert "if (set_begin == pages.size()) return;" in source
+assert "pages.begin() + static_cast<std::ptrdiff_t>(set_begin)" in source
 assert "buffer.IsRegionUsed(copy.dst_offset, copy.size)" in VULKAN.read_text()
 assert "return tracker.IsUsed(offset, size);" in RENDERER_HEADER.read_text()
 
@@ -72,6 +77,15 @@ static void known_cases() {
     assert(!tracker.IsUsed(0,64));
     tracker.Reset();
     assert(!tracker.IsUsed(0,1) && !tracker.IsUsed(4096,4096));
+    tracker.Reset(); // no tracked words: must remain a no-op
+    tracker.Track((1u<<20)-64,64);
+    assert(tracker.IsUsed((1u<<20)-64,64));
+    tracker.Reset();
+    assert(!tracker.IsUsed((1u<<20)-64,64));
+    tracker.Track(0,64);
+    tracker.Track((1u<<20)-64,64);
+    tracker.Reset();
+    assert(!tracker.IsUsed(0,64) && !tracker.IsUsed((1u<<20)-64,64));
     tracker.Track(0,0);
     assert(!tracker.IsUsed(0,0));
     tracker.Track(UINT64_MAX-5,100);
@@ -136,4 +150,4 @@ with tempfile.TemporaryDirectory(prefix="ps5-usage-tracker-") as tmp:
         assert proc.returncode==0,(cc,proc.stderr[-3500:])
 print("PS5_BUFFER_USAGE_GRANULARITY_HOST_PASS actual_header=1 "
       "partial_64=1 page_boundaries=1 multi_page=1 overflow_rejected=1 "
-      "oracle_randomized=16000 original_source_immutable=1 hardware=unverified")
+      "oracle_randomized=16000 bounded_reset=1 repeated_reset=1 original_source_immutable=1 hardware=unverified")
