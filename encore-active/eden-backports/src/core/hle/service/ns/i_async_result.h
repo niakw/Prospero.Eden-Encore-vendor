@@ -11,6 +11,7 @@ public:
     ~IAsyncResult() override;
 
 private:
+    void RejectUnavailableAsyncPayload(HLERequestContext& ctx);
     Result Cancel();
 
     Service::Event* event{};
