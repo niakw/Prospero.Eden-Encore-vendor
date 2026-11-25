@@ -291,13 +291,13 @@
       "upstream": "d46d2e325813441f40c9fcb2e5f048f96908d9893d309e407b9403bcaa6de07c"
     },
     "src/core/hle/service/audio/audio_controller.cpp": {
-      "active": "0078f1b6dedc252aa70d8f7fa95ab06f5d687e8d36ae86ffa0fe4e3065347957",
-      "bytes": 19322,
+      "active": "86a282dd72634f837e316a67a1e1bf0fd8f7f4de8c0be775d938e72dd66ea3c2",
+      "bytes": 20281,
       "upstream": "26fc5c855c8e79b1d9c397c8823d43c18bfec4514ba9df356b26bd062086ab9f"
     },
     "src/core/hle/service/audio/audio_controller.h": {
-      "active": "5dfcd543d98369d5a945ab97ab10879f26038158f62438d7625635c9040da2de",
-      "bytes": 3794,
+      "active": "098052f1df9cfe353f02f8d5585232d5372a94d07c280cb27d84053f43fee21c",
+      "bytes": 4223,
       "upstream": "fd45f0ac0fbba6cdfdcfd00105565242fcb62fd71476488e791060baa6153658"
     },
     "src/core/hle/service/audio/audio.cpp": {

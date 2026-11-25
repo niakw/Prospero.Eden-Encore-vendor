@@ -35,7 +35,7 @@ IAudioController::IAudioController(Core::System& system_)
         {8, D<&IAudioController::GetDefaultTarget>, "GetDefaultTarget"},
         {9, D<&IAudioController::GetAudioOutputMode>, "GetAudioOutputMode"},
         {10, D<&IAudioController::SetAudioOutputMode>, "SetAudioOutputMode"},
-        {11, nullptr, "SetForceMutePolicy"},
+        {11, D<&IAudioController::SetForceMutePolicy>, "SetForceMutePolicy"},
         {12, D<&IAudioController::GetForceMutePolicy>, "GetForceMutePolicy"},
         {13, D<&IAudioController::GetOutputModeSetting>, "GetOutputModeSetting"},
         {14, D<&IAudioController::SetOutputModeSetting>, "SetOutputModeSetting"},
@@ -61,11 +61,11 @@ IAudioController::IAudioController(Core::System& system_)
         {34, D<&IAudioController::AcquireTargetNotification>, "AcquireTargetNotification"},
         {35, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetHearingProtectionSafeguardTimerRemainingTimeForDebug"},
         {36, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetHearingProtectionSafeguardTimerRemainingTimeForDebug"},
-        {37, nullptr, "SetHearingProtectionSafeguardEnabled"},
-        {38, nullptr, "IsHearingProtectionSafeguardEnabled"},
+        {37, D<&IAudioController::SetHearingProtectionSafeguardEnabled>, "SetHearingProtectionSafeguardEnabled"},
+        {38, D<&IAudioController::IsHearingProtectionSafeguardEnabled>, "IsHearingProtectionSafeguardEnabled"},
         {39, &IAudioController::RejectUnavailableReportingOrDebugCommand, "IsHearingProtectionSafeguardMonitoringOutputForDebug"},
         {40, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetSystemInformationForDebug"},
-        {41, nullptr, "SetVolumeButtonLongPressTime"},
+        {41, D<&IAudioController::SetVolumeButtonLongPressTime>, "SetVolumeButtonLongPressTime"},
         {42, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetNativeVolumeForDebug"},
         {43, nullptr, "Unknown43"}, //21.0.0+
         {5000, D<&IAudioController::Unknown5000>, "Unknown5000"}, //19.0.0+
@@ -164,10 +164,7 @@ Result IAudioController::SetAudioOutputMode(Set::AudioOutputModeTarget target,
 }
 
 Result IAudioController::GetForceMutePolicy(Out<ForceMutePolicy> out_mute_policy) {
-    LOG_WARNING(Audio, "(STUBBED) called");
-
-    // Removed on FW 13.2.1+
-    *out_mute_policy = ForceMutePolicy::Disable;
+    *out_mute_policy = m_force_mute_policy;
     R_SUCCEED();
 }
 
@@ -413,6 +410,30 @@ Result IAudioController::SetSystemOutputMasterVolume(f32 volume) {
 
 Result IAudioController::GetSystemOutputMasterVolume(Out<f32> out_volume) {
     *out_volume = m_system_output_master_volume;
+    R_SUCCEED();
+}
+
+
+Result IAudioController::SetForceMutePolicy(ForceMutePolicy force_mute_policy) {
+    m_force_mute_policy = force_mute_policy;
+    LOG_INFO(Audio, "force mute policy={}", static_cast<u32>(force_mute_policy));
+    R_SUCCEED();
+}
+
+Result IAudioController::SetHearingProtectionSafeguardEnabled(bool is_enabled) {
+    m_hearing_protection_safeguard_enabled = is_enabled;
+    LOG_INFO(Audio, "hearing protection safeguard enabled={}", is_enabled);
+    R_SUCCEED();
+}
+
+Result IAudioController::IsHearingProtectionSafeguardEnabled(Out<bool> out_is_enabled) {
+    *out_is_enabled = m_hearing_protection_safeguard_enabled;
+    R_SUCCEED();
+}
+
+Result IAudioController::SetVolumeButtonLongPressTime(u64 long_press_time) {
+    m_volume_button_long_press_time = long_press_time;
+    LOG_DEBUG(Audio, "volume-button long-press time={}", long_press_time);
     R_SUCCEED();
 }
 

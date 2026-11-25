@@ -65,6 +65,10 @@ private:
     Result GetAudioOutputTargetForPlayReport(Out<Set::AudioOutputModeTarget> out_target);
     Result SetSystemOutputMasterVolume(f32 volume);
     Result GetSystemOutputMasterVolume(Out<f32> out_volume);
+    Result SetForceMutePolicy(ForceMutePolicy force_mute_policy);
+    Result SetHearingProtectionSafeguardEnabled(bool is_enabled);
+    Result IsHearingProtectionSafeguardEnabled(Out<bool> out_is_enabled);
+    Result SetVolumeButtonLongPressTime(u64 long_press_time);
     void RejectUnavailableReportingOrDebugCommand(HLERequestContext& ctx);
 
     KernelHelpers::ServiceContext service_context;
@@ -79,6 +83,9 @@ private:
     u64 m_default_fade_out_ns{};
     bool m_input_target_force_enabled{};
     f32 m_system_output_master_volume{1.0f};
+    ForceMutePolicy m_force_mute_policy{ForceMutePolicy::Disable};
+    bool m_hearing_protection_safeguard_enabled{};
+    u64 m_volume_button_long_press_time{};
 };
 
 } // namespace Service::Audio
