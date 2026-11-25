@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <array>
 #include <chrono>
 
 #include "core/file_sys/vfs/vfs.h"
@@ -11,6 +12,13 @@
 #include "core/hle/service/service.h"
 
 namespace Service::FileSystem {
+
+struct StorageQueryRangeInfo {
+    s32 aes_ctr_key_type{};
+    s32 speed_emulation_type{};
+    std::array<u8, 0x38> reserved{};
+};
+static_assert(sizeof(StorageQueryRangeInfo) == 0x40);
 
 class IStorage final : public ServiceFramework<IStorage> {
 public:
@@ -31,6 +39,8 @@ private:
     Result Flush();
     Result SetSize(s64 size);
     Result GetSize(Out<u64> out_size);
+    Result OperateRange(Out<StorageQueryRangeInfo> out_info, s32 operation_id, s64 offset,
+                        s64 size);
 };
 
 class IStorageForBatchRead final : public ServiceFramework<IStorageForBatchRead> {

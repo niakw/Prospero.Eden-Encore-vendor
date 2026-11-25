@@ -12,6 +12,7 @@
 #include <thread>
 
 #include "core/file_sys/errors.h"
+#include "core/file_sys/fs_operate_range.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/filesystem/fsp/fs_i_storage.h"
@@ -26,7 +27,7 @@ IStorage::IStorage(Core::System& system_, FileSys::VirtualFile backend_)
         {2, D<&IStorage::Flush>, "Flush"},
         {3, D<&IStorage::SetSize>, "SetSize"},
         {4, D<&IStorage::GetSize>, "GetSize"},
-        {5, nullptr, "OperateRange"},
+        {5, D<&IStorage::OperateRange>, "OperateRange"},
     };
     RegisterHandlers(functions);
 }
@@ -117,6 +118,25 @@ Result IStorage::GetSize(Out<u64> out_size) {
     LOG_DEBUG(Service_FS, "called, size={}", *out_size);
 
     R_SUCCEED();
+}
+
+Result IStorage::OperateRange(Out<StorageQueryRangeInfo> out_info, s32 operation_id,
+                              s64 offset, s64 size) {
+    LOG_DEBUG(Service_FS, "called, operation_id={}, offset={:#x}, size={}",
+              operation_id, offset, size);
+
+    switch (static_cast<FileSys::OperationId>(operation_id)) {
+    case FileSys::OperationId::Invalidate:
+        // VirtualFile has no separate storage-range cache to invalidate.
+        *out_info = {};
+        R_SUCCEED();
+    case FileSys::OperationId::QueryRange:
+        // This VFS storage does not apply AES-CTR or speed-emulation range metadata.
+        *out_info = {};
+        R_SUCCEED();
+    default:
+        R_THROW(FileSys::ResultNotImplemented);
+    }
 }
 
 IStorageForBatchRead::IStorageForBatchRead(Core::System& system_, FileSys::VirtualFile backend_)
