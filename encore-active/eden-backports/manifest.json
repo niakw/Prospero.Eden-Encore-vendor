@@ -984,6 +984,16 @@
       "upstream": "ab4633368634aaa026497c9157ee9721492abcbe1d5c09a197057ecffcd8542f",
       "active": "f2ab513f40a1878b580c0332625a31fb1fecdc5a14ef5dfab50808c8631135a5",
       "bytes": 3527
+    },
+    "src/core/hle/service/omm/policy_manager_system.cpp": {
+      "upstream": "49b7fae920c0fdb0ef065c14fb68ebb8d63acad8a6951847340ccd688e1ffb8f",
+      "active": "7a85fc0cb07a316fc581292298a865b37278e94ea7bbf9a1e2af2e03d0300687",
+      "bytes": 2116
+    },
+    "src/core/hle/service/omm/policy_manager_system.h": {
+      "upstream": "5c96ae7620d3c051ae804cc1b0e2f0c3d9afdc6bba27ef5f8e53ee3d4b51b028",
+      "active": "81098a83a7e4f870e4478908632ac95aadb169e3ba0ceb00a0ef3d94aac8fc77",
+      "bytes": 853
     }
   },
   "excluded_experimental": [
