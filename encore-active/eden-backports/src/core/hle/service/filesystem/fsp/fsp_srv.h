@@ -33,6 +33,7 @@ class IFileSystem;
 class ISaveDataInfoReader;
 class ISaveDataTransferProhibiter;
 class IStorage;
+class IStorageForBatchRead;
 class IMultiCommitManager;
 
 enum class AccessLogMode : u32 {
@@ -161,6 +162,16 @@ private:
     Result OpenDataStorageWithProgramIndex(OutInterface<IStorage> out_interface, u8 program_index);
     Result OpenDataStorageByPath(
         OutInterface<IStorage> out_interface, ContentAttributes attributes,
+        FileSystemProxyType type,
+        InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
+    Result OpenDataStorageByCurrentProcessForBatchRead(
+        OutInterface<IStorageForBatchRead> out_interface);
+    Result OpenDataStorageByProgramIdForBatchRead(
+        OutInterface<IStorageForBatchRead> out_interface, u64 program_id);
+    Result OpenDataStorageWithProgramIndexForBatchRead(
+        OutInterface<IStorageForBatchRead> out_interface, u8 program_index);
+    Result OpenDataStorageByPathForBatchRead(
+        OutInterface<IStorageForBatchRead> out_interface, ContentAttributes attributes,
         FileSystemProxyType type,
         InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
     Result GetRightsId(Out<FspRightsId> out_rights_id, FileSys::StorageId storage_id,

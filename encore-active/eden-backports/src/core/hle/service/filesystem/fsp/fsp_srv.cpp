@@ -230,10 +230,10 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {204, D<&FSP_SRV::OpenDataFileSystemWithProgramIndex>, "OpenDataFileSystemWithProgramIndex"},
         {205, D<&FSP_SRV::OpenDataStorageWithProgramIndex>, "OpenDataStorageWithProgramIndex"},
         {206, D<&FSP_SRV::OpenDataStorageByPath>, "OpenDataStorageByPath"},
-        {210, D<&FSP_SRV::OpenDataStorageByCurrentProcess>, "OpenDataStorageByCurrentProcessForBatchRead"},
-        {211, D<&FSP_SRV::OpenDataStorageByProgramId>, "OpenDataStorageByProgramIdForBatchRead"},
-        {212, D<&FSP_SRV::OpenDataStorageWithProgramIndex>, "OpenDataStorageWithProgramIndexForBatchRead"},
-        {213, D<&FSP_SRV::OpenDataStorageByPath>, "OpenDataStorageByPathForBatchRead"},
+        {210, D<&FSP_SRV::OpenDataStorageByCurrentProcessForBatchRead>, "OpenDataStorageByCurrentProcessForBatchRead"},
+        {211, D<&FSP_SRV::OpenDataStorageByProgramIdForBatchRead>, "OpenDataStorageByProgramIdForBatchRead"},
+        {212, D<&FSP_SRV::OpenDataStorageWithProgramIndexForBatchRead>, "OpenDataStorageWithProgramIndexForBatchRead"},
+        {213, D<&FSP_SRV::OpenDataStorageByPathForBatchRead>, "OpenDataStorageByPathForBatchRead"},
         {400, &FSP_SRV::UnsupportedDebugCommand, "OpenDeviceOperator"},
         {500, &FSP_SRV::UnsupportedDebugCommand, "OpenSdCardDetectionEventNotifier"},
         {501, &FSP_SRV::UnsupportedDebugCommand, "OpenGameCardDetectionEventNotifier"},
@@ -1108,6 +1108,88 @@ Result FSP_SRV::OpenDataStorageByPath(
     R_UNLESS(romfs != nullptr, FileSys::ResultTargetNotFound);
 
     *out_interface = std::make_shared<IStorage>(system, std::move(romfs));
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenDataStorageByCurrentProcessForBatchRead(
+    OutInterface<IStorageForBatchRead> out_interface) {
+    auto current_romfs = romfs_controller->OpenRomFSCurrentProcess();
+    R_UNLESS(current_romfs != nullptr, FileSys::ResultTargetNotFound);
+    *out_interface = std::make_shared<IStorageForBatchRead>(system, std::move(current_romfs));
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenDataStorageByProgramIdForBatchRead(
+    OutInterface<IStorageForBatchRead> out_interface, u64 program_id_) {
+    const u64 base_id = FileSys::GetBaseTitleID(program_id_);
+    const u64 index = program_id_ - base_id;
+    R_UNLESS(index <= std::numeric_limits<u8>::max(), FileSys::ResultInvalidArgument);
+
+    auto patched_romfs = romfs_controller->OpenPatchedRomFSWithProgramIndex(
+        base_id, static_cast<u8>(index), FileSys::ContentRecordType::Program);
+    R_UNLESS(patched_romfs != nullptr, FileSys::ResultTargetNotFound);
+
+    *out_interface =
+        std::make_shared<IStorageForBatchRead>(system, std::move(patched_romfs));
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenDataStorageWithProgramIndexForBatchRead(
+    OutInterface<IStorageForBatchRead> out_interface, u8 program_index) {
+    auto patched_romfs = romfs_controller->OpenPatchedRomFSWithProgramIndex(
+        program_id, program_index, FileSys::ContentRecordType::Program);
+    R_UNLESS(patched_romfs != nullptr, FileSys::ResultTargetNotFound);
+
+    *out_interface =
+        std::make_shared<IStorageForBatchRead>(system, std::move(patched_romfs));
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenDataStorageByPathForBatchRead(
+    OutInterface<IStorageForBatchRead> out_interface, ContentAttributes attributes,
+    FileSystemProxyType type,
+    InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path) {
+    R_UNLESS(attributes == ContentAttributes::None || attributes == ContentAttributes::All,
+             FileSys::ResultInvalidArgument);
+
+    FileSys::StorageId storage_id{};
+    std::shared_ptr<FileSys::NCA> nca;
+    R_TRY(ResolveRegisteredNcaPath(fsc, *path, &storage_id, &nca));
+
+    FileSys::ContentRecordType record_type{};
+    switch (type) {
+    case FileSystemProxyType::Rom:
+        R_UNLESS(nca->GetType() == FileSys::NCAContentType::Program,
+                 FileSys::ResultInvalidArgument);
+        record_type = FileSys::ContentRecordType::Program;
+        break;
+    case FileSystemProxyType::Control:
+        R_UNLESS(nca->GetType() == FileSys::NCAContentType::Control,
+                 FileSys::ResultInvalidArgument);
+        record_type = FileSys::ContentRecordType::Control;
+        break;
+    case FileSystemProxyType::Manual:
+        R_UNLESS(nca->GetType() == FileSys::NCAContentType::Manual,
+                 FileSys::ResultInvalidArgument);
+        record_type = FileSys::ContentRecordType::HtmlDocument;
+        break;
+    case FileSystemProxyType::Data:
+        R_UNLESS(nca->GetType() == FileSys::NCAContentType::Data ||
+                     nca->GetType() == FileSys::NCAContentType::PublicData,
+                 FileSys::ResultInvalidArgument);
+        record_type = FileSys::ContentRecordType::Data;
+        break;
+    default:
+        R_RETURN(FileSys::ResultInvalidArgument);
+    }
+
+    auto romfs = nca->GetRomFS();
+    if (!romfs && romfs_controller) {
+        romfs = romfs_controller->OpenPatchedRomFS(nca->GetTitleId(), record_type);
+    }
+    R_UNLESS(romfs != nullptr, FileSys::ResultTargetNotFound);
+
+    *out_interface = std::make_shared<IStorageForBatchRead>(system, std::move(romfs));
     R_SUCCEED();
 }
 
