@@ -143,6 +143,7 @@ public:
     Result GetMainApplicationProgramIndexByApplicationLaunchInfo(
         Out<u8> out_program_index, ApplicationLaunchInfoV19 launch_info);
     Result GetMainApplicationProgramIndex(Out<u8> out_program_index, u64 application_id);
+    Result GetProgramId(Out<u64> out_program_id, u64 application_id);
     Result TerminateApplication(u64 application_id);
     Result GetApplicationTerminateResult(Out<Result> out_result, u64 application_id);
     Result GetRawApplicationTerminateResult(Out<u32> out_raw_result, u64 application_id);

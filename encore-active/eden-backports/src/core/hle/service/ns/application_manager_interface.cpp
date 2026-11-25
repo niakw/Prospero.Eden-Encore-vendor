@@ -380,7 +380,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2520, D<&IApplicationManagerInterface::IsQualificationTransitionSupportedByProcessId>, "IsQualificationTransitionSupportedByProcessId"},
         {2521, nullptr, "GetRightsUserChangedEvent"},
         {2522, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "IsRomRedirectionAvailable"},
-        {2523, nullptr, "GetProgramId"}, //17.0.0+
+        {2523, D<&IApplicationManagerInterface::GetProgramId>, "GetProgramId"}, //17.0.0+
         {2524, nullptr, "Unknown2524"}, //19.0.0+
         {2525, nullptr, "Unknown2525"}, //20.0.0+
         {2800, nullptr, "GetApplicationIdOfPreomia"},
@@ -1503,6 +1503,21 @@ Result IApplicationManagerInterface::GetMainApplicationProgramIndex(
     const u64 program_index = running_program_id - running_base_id;
     R_UNLESS(program_index <= std::numeric_limits<u8>::max(), AM::ResultApplicationRecordNotFound);
     *out_program_index = static_cast<u8>(program_index);
+    R_SUCCEED();
+}
+
+
+Result IApplicationManagerInterface::GetProgramId(Out<u64> out_program_id, u64 application_id) {
+    auto& storage = system.GetContentProviderUnion();
+    const u64 base_application_id = FileSys::GetBaseTitleID(application_id);
+    const u64 program_id =
+        storage.HasEntry(application_id, FileSys::ContentRecordType::Program)
+            ? application_id
+            : base_application_id;
+
+    R_UNLESS(storage.HasEntry(program_id, FileSys::ContentRecordType::Program),
+             AM::ResultApplicationRecordNotFound);
+    *out_program_id = program_id;
     R_SUCCEED();
 }
 
