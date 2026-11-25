@@ -39,6 +39,57 @@
 
 namespace Service::NS {
 
+namespace {
+
+std::optional<AM::AppletId> GetAppletIdForProgramId(u64 program_id) {
+    switch (static_cast<AM::AppletProgramId>(program_id)) {
+    case AM::AppletProgramId::QLaunch:
+        return AM::AppletId::QLaunch;
+    case AM::AppletProgramId::Auth:
+        return AM::AppletId::Auth;
+    case AM::AppletProgramId::Cabinet:
+        return AM::AppletId::Cabinet;
+    case AM::AppletProgramId::Controller:
+        return AM::AppletId::Controller;
+    case AM::AppletProgramId::DataErase:
+        return AM::AppletId::DataErase;
+    case AM::AppletProgramId::Error:
+        return AM::AppletId::Error;
+    case AM::AppletProgramId::NetConnect:
+        return AM::AppletId::NetConnect;
+    case AM::AppletProgramId::ProfileSelect:
+        return AM::AppletId::ProfileSelect;
+    case AM::AppletProgramId::SoftwareKeyboard:
+        return AM::AppletId::SoftwareKeyboard;
+    case AM::AppletProgramId::MiiEdit:
+        return AM::AppletId::MiiEdit;
+    case AM::AppletProgramId::Web:
+        return AM::AppletId::Web;
+    case AM::AppletProgramId::Shop:
+        return AM::AppletId::Shop;
+    case AM::AppletProgramId::OverlayDisplay:
+        return AM::AppletId::OverlayDisplay;
+    case AM::AppletProgramId::PhotoViewer:
+        return AM::AppletId::PhotoViewer;
+    case AM::AppletProgramId::Settings:
+        return AM::AppletId::Settings;
+    case AM::AppletProgramId::OfflineWeb:
+        return AM::AppletId::OfflineWeb;
+    case AM::AppletProgramId::LoginShare:
+        return AM::AppletId::LoginShare;
+    case AM::AppletProgramId::WebAuth:
+        return AM::AppletId::WebAuth;
+    case AM::AppletProgramId::Starter:
+        return AM::AppletId::Starter;
+    case AM::AppletProgramId::MyPage:
+        return AM::AppletId::MyPage;
+    default:
+        return std::nullopt;
+    }
+}
+
+} // namespace
+
 IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_)
     : ServiceFramework{system_, "IApplicationManagerInterface"},
       service_context{system, "IApplicationManagerInterface"},
@@ -138,11 +189,11 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {221, D<&IApplicationManagerInterface::UnregisterNetworkServiceAccountWithUserSaveDataDeletion>, "UnregisterNetworkServiceAccountWithUserSaveDataDeletion"},
         {300, D<&IApplicationManagerInterface::GetApplicationShellEvent>, "GetApplicationShellEvent"},
         {301, D<&IApplicationManagerInterface::PopApplicationShellEventInfo>, "PopApplicationShellEventInfo"},
-        {302, nullptr, "LaunchLibraryApplet"},
-        {303, nullptr, "TerminateLibraryApplet"},
+        {302, D<&IApplicationManagerInterface::LaunchLibraryApplet>, "LaunchLibraryApplet"},
+        {303, D<&IApplicationManagerInterface::TerminateLibraryApplet>, "TerminateLibraryApplet"},
         {304, D<&IApplicationManagerInterface::LaunchSystemApplet>, "LaunchSystemApplet"},
         {305, D<&IApplicationManagerInterface::TerminateSystemApplet>, "TerminateSystemApplet"},
-        {306, nullptr, "LaunchOverlayApplet"},
+        {306, D<&IApplicationManagerInterface::LaunchOverlayApplet>, "LaunchOverlayApplet"},
         {307, D<&IApplicationManagerInterface::TerminateOverlayApplet>, "TerminateOverlayApplet"},
         {400, D<&IApplicationManagerInterface::GetApplicationControlData>, "GetApplicationControlData"},
         {401, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "InvalidateAllApplicationControlCache"},
@@ -1222,6 +1273,90 @@ Result IApplicationManagerInterface::GetGameCardUpdateDetectionEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_DEBUG(Service_NS, "called; game-card update producer is not modeled");
     *out_event = gamecard_update_detection_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::LaunchLibraryApplet(Out<u64> out_process_id,
+                                                          u64 program_id) {
+    LOG_INFO(Service_NS, "LaunchLibraryApplet program_id={:016X}", program_id);
+
+    const auto applet_id = GetAppletIdForProgramId(program_id);
+    R_UNLESS(applet_id.has_value() && *applet_id != AM::AppletId::QLaunch &&
+                 *applet_id != AM::AppletId::OverlayDisplay,
+             ResultUnknown);
+
+    for (const auto& process : system.Kernel().GetProcessList()) {
+        R_UNLESS(process->GetProgramId() != program_id, ResultUnknown);
+    }
+
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, ResultUnknown);
+
+    auto process =
+        AM::CreateProcess(system, program_id, 1, HLE::ApiVersion::HOS_VERSION_MAJOR);
+    R_UNLESS(process != nullptr, ResultUnknown);
+
+    const u64 process_id = process->GetProcessId();
+    auto applet = std::make_shared<AM::Applet>(system, std::move(process), false);
+    applet->program_id = program_id;
+    applet->applet_id = *applet_id;
+    applet->type = AM::AppletType::LibraryApplet;
+    applet->library_applet_mode = AM::LibraryAppletMode::AllForeground;
+
+    window_system->TrackApplet(applet, false);
+    applet->process->Run();
+    window_system->RequestUpdate();
+
+    *out_process_id = process_id;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::TerminateLibraryApplet(u64 program_id) {
+    LOG_DEBUG(Service_NS, "TerminateLibraryApplet program_id={:016X}", program_id);
+
+    const auto applet_id = GetAppletIdForProgramId(program_id);
+    R_UNLESS(applet_id.has_value() && *applet_id != AM::AppletId::QLaunch &&
+                 *applet_id != AM::AppletId::OverlayDisplay,
+             ResultUnknown);
+
+    for (const auto& process : system.Kernel().GetProcessList()) {
+        if (process->GetProgramId() == program_id) {
+            R_RETURN(process->Terminate(system.Kernel()));
+        }
+    }
+    R_THROW(ResultUnknown);
+}
+
+Result IApplicationManagerInterface::LaunchOverlayApplet(Out<u64> out_process_id) {
+    constexpr u64 OverlayProgramId = static_cast<u64>(AM::AppletProgramId::OverlayDisplay);
+    LOG_INFO(Service_NS, "LaunchOverlayApplet program_id={:016X}", OverlayProgramId);
+
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, ResultUnknown);
+    R_UNLESS(window_system->GetOverlayDisplayApplet() == nullptr, ResultUnknown);
+
+    for (const auto& process : system.Kernel().GetProcessList()) {
+        R_UNLESS(process->GetProgramId() != OverlayProgramId, ResultUnknown);
+    }
+
+    auto process =
+        AM::CreateProcess(system, OverlayProgramId, 1, HLE::ApiVersion::HOS_VERSION_MAJOR);
+    R_UNLESS(process != nullptr, ResultUnknown);
+
+    const u64 process_id = process->GetProcessId();
+    auto applet = std::make_shared<AM::Applet>(system, std::move(process), false);
+    applet->program_id = OverlayProgramId;
+    applet->applet_id = AM::AppletId::OverlayDisplay;
+    applet->type = AM::AppletType::OverlayApplet;
+    applet->library_applet_mode = AM::LibraryAppletMode::AllForeground;
+    applet->lifecycle_manager.SetFocusHandlingMode(false);
+    applet->lifecycle_manager.SetOutOfFocusSuspendingEnabled(false);
+
+    window_system->TrackApplet(applet, false);
+    applet->process->Run();
+    window_system->RequestUpdate();
+
+    *out_process_id = process_id;
     R_SUCCEED();
 }
 

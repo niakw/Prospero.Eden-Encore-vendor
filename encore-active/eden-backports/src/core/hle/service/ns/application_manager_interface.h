@@ -118,8 +118,11 @@ public:
     Result GetFreeSpaceSize(Out<s64> out_free_space_size, FileSys::StorageId storage_id);
     Result GetGameCardUpdateDetectionEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result ResumeAll();
+    Result LaunchLibraryApplet(Out<u64> out_process_id, u64 program_id);
+    Result TerminateLibraryApplet(u64 program_id);
     Result LaunchSystemApplet(Out<u64> out_process_id);
     Result TerminateSystemApplet(u64 program_id);
+    Result LaunchOverlayApplet(Out<u64> out_process_id);
     Result TerminateOverlayApplet(u64 program_id);
     Result IsQualificationTransitionSupportedByProcessId(Out<bool> out_is_supported,
                                                          u64 process_id);
