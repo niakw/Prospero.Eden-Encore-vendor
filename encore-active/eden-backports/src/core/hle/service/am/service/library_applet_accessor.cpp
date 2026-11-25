@@ -267,12 +267,25 @@ Result ILibraryAppletAccessor::GetPopInteractiveOutDataEvent(
     R_SUCCEED();
 }
 
-Result ILibraryAppletAccessor::GetIndirectLayerConsumerHandle(Out<u64> out_handle) {
-    LOG_WARNING(Service_AM,
-                "Indirect layer consumer requested without a VI indirect-layer backend");
+Result ILibraryAppletAccessor::GetIndirectLayerConsumerHandle(
+    Out<u64> out_handle, u64 applet_resource_user_id, ClientProcessId process_id) {
+    R_UNLESS(m_applet->library_applet_mode ==
+                 LibraryAppletMode::PartialForegroundWithIndirectDisplay,
+             ResultUnknown);
 
-    *out_handle = 0;
-    R_THROW(ResultUnknown);
+    const auto caller = m_applet->caller_applet.lock();
+    R_UNLESS(caller != nullptr && caller->process != nullptr, ResultUnknown);
+    R_UNLESS(process_id.pid != 0 && caller->process->GetProcessId() == process_id.pid,
+             ResultUnknown);
+    R_UNLESS(caller->aruid.pid == applet_resource_user_id, ResultUnknown);
+
+    R_UNLESS(m_applet->aruid.pid != 0, ResultUnknown);
+    *out_handle = m_applet->aruid.pid;
+
+    LOG_DEBUG(Service_AM,
+              "GetIndirectLayerConsumerHandle caller_pid={} caller_aruid={} child_aruid={}",
+              process_id.pid, applet_resource_user_id, *out_handle);
+    R_SUCCEED();
 }
 
 Result ILibraryAppletAccessor::GetLibraryAppletInfo(
