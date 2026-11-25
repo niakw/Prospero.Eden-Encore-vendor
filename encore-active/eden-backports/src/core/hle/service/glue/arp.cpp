@@ -41,16 +41,21 @@ ARP_R::ARP_R(Core::System& system_, const ARPManager& manager_)
         {1, &ARP_R::GetApplicationLaunchPropertyWithApplicationId, "GetApplicationLaunchPropertyWithApplicationId"},
         {2, &ARP_R::GetApplicationControlProperty, "GetApplicationControlProperty"},
         {3, &ARP_R::GetApplicationControlPropertyWithApplicationId, "GetApplicationControlPropertyWithApplicationId"},
-        {4, nullptr, "GetApplicationInstanceUnregistrationNotifier"},
-        {5, nullptr, "ListApplicationInstanceId"},
-        {6, nullptr, "GetMicroApplicationInstanceId"},
-        {7, nullptr, "GetApplicationCertificate"},
-        {9998, nullptr, "GetPreomiaApplicationLaunchProperty"},
-        {9999, nullptr, "GetPreomiaApplicationControlProperty"},
+        {4, &ARP_R::RejectUnsupportedReaderCommand, "GetApplicationInstanceUnregistrationNotifier"},
+        {5, &ARP_R::RejectUnsupportedReaderCommand, "ListApplicationInstanceId"},
+        {6, &ARP_R::RejectUnsupportedReaderCommand, "GetMicroApplicationInstanceId"},
+        {7, &ARP_R::RejectUnsupportedReaderCommand, "GetApplicationCertificate"},
+        {9998, &ARP_R::RejectUnsupportedReaderCommand, "GetPreomiaApplicationLaunchProperty"},
+        {9999, &ARP_R::RejectUnsupportedReaderCommand, "GetPreomiaApplicationControlProperty"},
     };
     // clang-format on
 
     RegisterHandlers(functions);
+}
+
+void ARP_R::RejectUnsupportedReaderCommand(HLERequestContext& ctx) {
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 ARP_R::~ARP_R() = default;
@@ -250,11 +255,16 @@ ARP_W::ARP_W(Core::System& system_, ARPManager& manager_)
         static const FunctionInfo functions[] = {
             {0, &ARP_W::AcquireRegistrar, "AcquireRegistrar"},
             {1, &ARP_W::UnregisterApplicationInstance , "UnregisterApplicationInstance "},
-            {2, nullptr, "AcquireUpdater"},
+            {2, &ARP_W::RejectUnsupportedWriterCommand, "AcquireUpdater"},
         };
     // clang-format on
 
     RegisterHandlers(functions);
+}
+
+void ARP_W::RejectUnsupportedWriterCommand(HLERequestContext& ctx) {
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 ARP_W::~ARP_W() = default;
