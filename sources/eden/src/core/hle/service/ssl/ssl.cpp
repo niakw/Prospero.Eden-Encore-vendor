@@ -79,10 +79,10 @@ public:
             {1, &ISslConnection::SetHostName, "SetHostName"},
             {2, &ISslConnection::SetVerifyOption, "SetVerifyOption"},
             {3, &ISslConnection::SetIoMode, "SetIoMode"},
-            {4, nullptr, "GetSocketDescriptor"},
+            {4, &ISslConnection::GetSocketDescriptor, "GetSocketDescriptor"},
             {5, nullptr, "GetHostName"},
-            {6, nullptr, "GetVerifyOption"},
-            {7, nullptr, "GetIoMode"},
+            {6, &ISslConnection::GetVerifyOption, "GetVerifyOption"},
+            {7, &ISslConnection::GetIoMode, "GetIoMode"},
             {8, &ISslConnection::DoHandshake, "DoHandshake"},
             {9, &ISslConnection::DoHandshakeGetServerCert, "DoHandshakeGetServerCert"},
             {10, &ISslConnection::Read, "Read"},
@@ -150,6 +150,8 @@ private:
     bool skip_default_verify = false;
     bool enable_alpn = false;
     std::shared_ptr<Network::SocketBase> socket;
+    s32 input_socket_fd{-1};
+    IoMode io_mode{IoMode::Blocking};
     std::vector<u8> next_alpn_proto;
     bool did_handshake = false;
     u32 verify_option = 0;
@@ -175,6 +177,7 @@ private:
                 return ResultInvalidSocket;
             }
             socket = std::move(*sock);
+            input_socket_fd = fd;
             backend->SetSocket(socket);
             return ResultSuccess;
         }
@@ -198,14 +201,19 @@ private:
 
     Result SetIoModeImpl(u32 input_mode) {
         auto mode = static_cast<IoMode>(input_mode);
-        ASSERT(mode == IoMode::Blocking || mode == IoMode::NonBlocking);
+        if (mode != IoMode::Blocking && mode != IoMode::NonBlocking) {
+            LOG_ERROR(Service_SSL, "Invalid TLS I/O mode: {}", input_mode);
+            return ResultInternalError;
+        }
         ASSERT_OR_EXECUTE(socket, { return ResultNoSocket; });
 
         const bool non_block = mode == IoMode::NonBlocking;
         const Network::Errno error = socket->SetNonBlock(non_block);
         if (error != Network::Errno::SUCCESS) {
             LOG_ERROR(Service_SSL, "Failed to set native socket non-block flag to {}", non_block);
+            return ResultInternalError;
         }
+        io_mode = mode;
         return ResultSuccess;
     }
 
@@ -307,6 +315,25 @@ private:
         const Result res = SetIoModeImpl(mode);
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(res);
+    }
+
+    // Report the caller's original BSD descriptor, not the internal duplicate.
+    void GetSocketDescriptor(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(socket ? ResultSuccess : ResultNoSocket);
+        rb.Push<s32>(socket ? input_socket_fd : -1);
+    }
+
+    void GetVerifyOption(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push<u32>(verify_option);
+    }
+
+    void GetIoMode(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(socket ? ResultSuccess : ResultNoSocket);
+        rb.Push<u32>(static_cast<u32>(io_mode));
     }
 
     void DoHandshake(HLERequestContext& ctx) {
