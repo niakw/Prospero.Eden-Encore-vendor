@@ -19,12 +19,12 @@ IAlbumControlService::IAlbumControlService(Core::System& system_,
     : ServiceFramework{system_, "caps:c"}, manager{album_manager} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {1, nullptr, "CaptureRawImage"},
-        {2, nullptr, "CaptureRawImageWithTimeout"},
+        {1, &IAlbumControlService::RejectUnavailableCaptureCommand, "CaptureRawImage"},
+        {2, &IAlbumControlService::RejectUnavailableCaptureCommand, "CaptureRawImageWithTimeout"},
         {33, C<&IAlbumControlService::SetShimLibraryVersion>, "SetShimLibraryVersion"},
-        {1001, nullptr, "RequestTakingScreenShot"},
-        {1002, nullptr, "RequestTakingScreenShotWithTimeout"},
-        {1011, nullptr, "NotifyTakingScreenShotRefused"},
+        {1001, &IAlbumControlService::RejectUnavailableCaptureCommand, "RequestTakingScreenShot"},
+        {1002, &IAlbumControlService::RejectUnavailableCaptureCommand, "RequestTakingScreenShotWithTimeout"},
+        {1011, &IAlbumControlService::RejectUnavailableCaptureCommand, "NotifyTakingScreenShotRefused"},
         {2001, D<&IAlbumControlService::NotifyAlbumStorageIsAvailable>, "NotifyAlbumStorageIsAvailable"},
         {2002, D<&IAlbumControlService::NotifyAlbumStorageIsUnavailable>, "NotifyAlbumStorageIsUnavailable"},
         {2003, &IAlbumControlService::RejectUnavailableMovieBackend, "GetAlbumMovieReadStreamMovieDataSize"},
@@ -37,11 +37,11 @@ IAlbumControlService::IAlbumControlService(Core::System& system_,
         {2012, D<&IAlbumControlService::UnregisterAppletResourceUserId>, "UnregisterAppletResourceUserId"},
         {2013, D<&IAlbumControlService::GetApplicationIdFromAruid>, "GetApplicationIdFromAruid"},
         {2014, D<&IAlbumControlService::CheckApplicationIdRegistered>, "CheckApplicationIdRegistered"},
-        {2101, nullptr, "GenerateCurrentAlbumFileId"},
-        {2102, nullptr, "GenerateApplicationAlbumEntry"},
-        {2201, nullptr, "SaveAlbumScreenShotFile"},
-        {2202, nullptr, "SaveAlbumScreenShotFileEx"},
-        {2301, nullptr, "SetOverlayScreenShotThumbnailData"},
+        {2101, &IAlbumControlService::RejectUnavailableCaptureCommand, "GenerateCurrentAlbumFileId"},
+        {2102, &IAlbumControlService::RejectUnavailableCaptureCommand, "GenerateApplicationAlbumEntry"},
+        {2201, &IAlbumControlService::RejectUnavailableCaptureCommand, "SaveAlbumScreenShotFile"},
+        {2202, &IAlbumControlService::RejectUnavailableCaptureCommand, "SaveAlbumScreenShotFileEx"},
+        {2301, &IAlbumControlService::RejectUnavailableCaptureCommand, "SetOverlayScreenShotThumbnailData"},
         {2302, &IAlbumControlService::RejectUnavailableMovieBackend, "SetOverlayMovieThumbnailData"},
         // Album movie-write streams are unsupported; never report fake success.
         {2401, &IAlbumControlService::RejectUnavailableMovieBackend, "OpenAlbumMovieWriteStream"},
@@ -59,7 +59,7 @@ IAlbumControlService::IAlbumControlService(Core::System& system_,
         {2431, &IAlbumControlService::RejectUnavailableMovieBackend, "GetAlbumMovieWriteStreamBrokenReason"},
         {2433, &IAlbumControlService::RejectUnavailableMovieBackend, "GetAlbumMovieWriteStreamDataSize"},
         {2434, &IAlbumControlService::RejectUnavailableMovieBackend, "SetAlbumMovieWriteStreamDataSize"},
-        {60001, nullptr, "OpenControlSession"},
+        {60001, &IAlbumControlService::RejectUnavailableCaptureCommand, "OpenControlSession"},
     };
     // clang-format on
 
@@ -67,6 +67,12 @@ IAlbumControlService::IAlbumControlService(Core::System& system_,
 }
 
 IAlbumControlService::~IAlbumControlService() = default;
+
+void IAlbumControlService::RejectUnavailableCaptureCommand(HLERequestContext& ctx) {
+    LOG_WARNING(Service_Capture, "unsupported capture/control command {}", ctx.GetCommand());
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
+}
 
 void IAlbumControlService::RejectUnavailableMovieBackend(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 2};
