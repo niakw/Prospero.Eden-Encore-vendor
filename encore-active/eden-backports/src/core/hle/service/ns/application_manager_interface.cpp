@@ -114,7 +114,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {90, nullptr, "BoostSystemMemoryResourceLimit"},
         {91, nullptr, "DeprecatedLaunchApplication"},
         {92, D<&IApplicationManagerInterface::GetRunningApplicationProgramId>, "GetRunningApplicationProgramId"},
-        {93, nullptr, "GetMainApplicationProgramIndex"},
+        {93, D<&IApplicationManagerInterface::GetMainApplicationProgramIndex>, "GetMainApplicationProgramIndex"},
         {94, nullptr, "LaunchApplication"},
         {95, nullptr, "GetApplicationLaunchInfo"},
         {96, nullptr, "AcquireApplicationLaunchInfo"},
@@ -1155,6 +1155,24 @@ Result IApplicationManagerInterface::GetRunningApplicationProgramId(
     R_UNLESS(applet != nullptr, AM::ResultApplicationRecordNotFound);
 
     *out_program_id = applet->program_id;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::GetMainApplicationProgramIndex(
+    Out<u8> out_program_index, u64 application_id) {
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, AM::ResultApplicationRecordNotFound);
+    const auto applet = window_system->GetMainApplet();
+    R_UNLESS(applet != nullptr, AM::ResultApplicationRecordNotFound);
+
+    const u64 running_program_id = applet->program_id;
+    const u64 running_base_id = FileSys::GetBaseTitleID(running_program_id);
+    const u64 requested_base_id = FileSys::GetBaseTitleID(application_id);
+    R_UNLESS(running_base_id == requested_base_id, AM::ResultApplicationRecordNotFound);
+
+    const u64 program_index = running_program_id - running_base_id;
+    R_UNLESS(program_index <= std::numeric_limits<u8>::max(), AM::ResultApplicationRecordNotFound);
+    *out_program_index = static_cast<u8>(program_index);
     R_SUCCEED();
 }
 
