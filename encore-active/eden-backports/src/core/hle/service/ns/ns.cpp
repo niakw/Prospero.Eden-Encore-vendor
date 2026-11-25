@@ -29,12 +29,12 @@ public:
             { 5, &INotifyService::UnsupportedDebugCommand, "NotifyEventForDebug" },
             { 6, &INotifyService::AcceptLocalPlayLogNotification, "SuspendUserAccountEventService" },
             { 7, &INotifyService::AcceptLocalPlayLogNotification, "ResumeUserAccountEventService" },
-            { 8, nullptr, "NotifyLibraryAppletEvent" },
-            { 9, nullptr, "Cmd9" },
-            { 20, nullptr, "Cmd20" },
-            { 30, nullptr, "Cmd30" },
-            { 100, nullptr, "Cmd100" },
-            { 101, nullptr, "Cmd101" },
+            { 8, &INotifyService::AcceptLocalPlayLogNotification, "NotifyLibraryAppletEvent" },
+            { 9, &INotifyService::UnsupportedDebugCommand, "Cmd9" },
+            { 20, &INotifyService::UnsupportedDebugCommand, "Cmd20" },
+            { 30, &INotifyService::UnsupportedDebugCommand, "Cmd30" },
+            { 100, &INotifyService::UnsupportedDebugCommand, "Cmd100" },
+            { 101, &INotifyService::UnsupportedDebugCommand, "Cmd101" },
         };
         // clang-format on
         RegisterHandlers(functions);
@@ -65,9 +65,9 @@ public:
         static const FunctionInfo functions[] = {
             {1200, D<&IVulnerabilityManagerInterface::NeedsUpdateVulnerability>, "NeedsUpdateVulnerability"},
             {1201, &IVulnerabilityManagerInterface::UnsupportedDebugCommand, "UpdateSafeSystemVersionForDebug"},
-            {1202, nullptr, "GetSafeSystemVersion"},
+            {1202, &IVulnerabilityManagerInterface::UnsupportedDebugCommand, "GetSafeSystemVersion"},
             {3100, D<&IVulnerabilityManagerInterface::GetSafeSystemVersionCheckInfo>, "GetSafeSystemVersionCheckInfo"},
-            {3101, nullptr, "RequestUpdateSafeSystemVersionCheckInfo"},
+            {3101, &IVulnerabilityManagerInterface::UnsupportedDebugCommand, "RequestUpdateSafeSystemVersionCheckInfo"},
             {3102, D<&IVulnerabilityManagerInterface::ResetSafeSystemVersionCheckInfo>, "ResetSafeSystemVersionCheckInfo"},
         };
         // clang-format on
