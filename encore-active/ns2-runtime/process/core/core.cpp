@@ -645,12 +645,6 @@ struct System::Impl {
         // after service loops stopped and before KProcess/kernel teardown.
         applet_manager.DropPendingProcess();
         ::Eden::ReportStep("shutdown", "Completed applet_manager.DropPendingProcess()");
-        // Services owns the audio/VI host jthreads. Join them while their
-        // dummy KThreads still have a live kernel/scheduler to Close() into.
-        // Server managers have already stopped, so NVDRV owners can release
-        // their mappings without racing the destroyed GPU worker.
-        services.reset();
-        ::Eden::ReportStep("shutdown", "Completed services.reset()");
         // SM's factories can keep NVDRV devices alive after their server
         // threads have joined. Drop those strong owners before KProcess
         // retirement, but retain the SM object/ports until ShutdownCores.
@@ -658,6 +652,12 @@ struct System::Impl {
             service_manager->ReleaseRegisteredHandlersForShutdown();
             ::Eden::ReportStep("shutdown", "Completed service_manager.ReleaseRegisteredHandlersForShutdown()");
         }
+        // Services owns the audio/VI host jthreads. Join them while their
+        // dummy KThreads still have a live kernel/scheduler to Close() into.
+        // Server managers have already stopped, so NVDRV owners can release
+        // their mappings without racing the destroyed GPU worker.
+        services.reset();
+        ::Eden::ReportStep("shutdown", "Completed services.reset()");
         kernel.ShutdownCores();
         ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");
         service_manager.reset();
