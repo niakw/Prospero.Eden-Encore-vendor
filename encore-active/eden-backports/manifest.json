@@ -496,7 +496,7 @@
       "upstream": "efc30e676bb88648c855d32b6260f8589643206210979d3264ee2cb64968f663"
     },
     "src/core/hle/service/ngc/ngc.cpp": {
-      "active": "6e915b3192c49516ec5c9d0d9654ad6a485c96260cec01859ea73298b98651b5",
+      "active": "c1f1ef432dbd348f9fdede30a8b92f465bb6f2f6a6959b4cf011c716e9d1d4f1",
       "bytes": 12012,
       "upstream": "8ac6febc0e5258adeb3870971a88c2067ea3312e624b059a17f50e0c0b265dc2"
     },
@@ -781,7 +781,7 @@
       "upstream": "0a71a9d662e114d54f759f535cfdb3187e4d285cf381fa6f52298aa636ffa503"
     },
     "src/core/hle/service/wlan/wlan.cpp": {
-      "active": "bbc32def88a39f9c2bb3de6ca7e0f7507b7f5994e2ad6ec0e6ebaa5094605b24",
+      "active": "b71e93829ea39fc9ae9eea3d045e78a57d809d72d46c21a6bd10fd7a423cdfee",
       "bytes": 18713,
       "upstream": "62d13fd7c5fcf252808c7bf7a393600d940987165aceac397bb34e210d70eac6"
     },
@@ -911,7 +911,7 @@
       "upstream": "1c0423d7b471cb4c0fde484bc622637504d8e063b9ce5f0bbfff984ce122d859"
     },
     "src/core/hle/service/fgm/fgm.cpp": {
-      "active": "65332edc1c54e6239b1f3373f19f6c2851caff3105beff56dfc5841623e201d8",
+      "active": "ed94950adff398bc825051e46386fe0af4c8eeedd7859fc1890bcde7eaee82e4",
       "bytes": 2278,
       "upstream": "8aecb71864066ab38ed1f88b67a34d56e86237c917ce21b33c3eeda48fbdf37d"
     },
