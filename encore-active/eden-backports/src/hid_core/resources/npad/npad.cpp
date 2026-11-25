@@ -1116,6 +1116,10 @@ Result NPad::RegisterAppletResourceUserId(u64 aruid) {
     return npad_resource.RegisterAppletResourceUserId(aruid);
 }
 
+void NPad::SetAppletResourceUserId(u64 aruid) {
+    npad_resource.SetAppletResourceUserId(aruid);
+}
+
 void NPad::UnregisterAppletResourceUserId(u64 aruid) {
     // TODO: Remove this once abstract pad is emulated properly
     auto aruid_index = npad_resource.GetIndexFromAruid(aruid);
