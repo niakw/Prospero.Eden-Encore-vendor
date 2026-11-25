@@ -2444,25 +2444,23 @@ VideoCore::RasterizerDownloadArea RasterizerVulkan::GetFlushArea(DAddr addr, u64
         // The existing GPU sync flushes both cache domains.
         return *texture_area;
     }
-    if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
+    auto area = texture_area.value_or(clean_area);
+    // Core::Memory caches the returned interval, not just the original
+    // scalar read. A preemptive texture can extend over other GPU-written
+    // buffers. Check EVERY byte the caller may subsequently read without
+    // re-entering GetFlushArea. Keep the original texture extent when clean.
+    const DAddr buffer_start = area.start_address;
+    const u64 buffer_size = area.end_address - buffer_start;
+    if (!::Eden::BufferPages::NeverRegistered(buffer_start, buffer_size)) {
         ::Eden::Performance::GuestCacheLock(buffer_cache.mutex, false);
         std::lock_guard lock{buffer_cache.mutex, std::adopt_lock};
-        if (buffer_cache.IsRegionGpuModified(
-                clean_area.start_address, clean_area.end_address - clean_area.start_address)) {
-            // GPU::OnCPURead must not return early for buffer-only GPU writes.
-            // Keep any texture-covered extent, including its sibling bytes.
-            return VideoCore::RasterizerDownloadArea{
-                .start_address = texture_area
-                    ? (std::min)(texture_area->start_address, clean_area.start_address)
-                    : clean_area.start_address,
-                .end_address = texture_area
-                    ? (std::max)(texture_area->end_address, clean_area.end_address)
-                    : clean_area.end_address,
-                .preemtive = false,
-            };
+        if (buffer_cache.IsRegionGpuModified(buffer_start, buffer_size)) {
+            // Preserve the real GPU ownership and the existing ordered
+            // FlushRegion on the GPU worker. Do not certify stale siblings.
+            area.preemtive = false;
         }
     }
-    return texture_area.value_or(clean_area);
+    return area;
 }
 
 void RasterizerVulkan::InvalidateRegion(DAddr addr, u64 size, VideoCommon::CacheType which) {
