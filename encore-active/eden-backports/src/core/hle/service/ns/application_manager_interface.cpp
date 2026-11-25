@@ -139,7 +139,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {302, nullptr, "LaunchLibraryApplet"},
         {303, nullptr, "TerminateLibraryApplet"},
         {304, D<&IApplicationManagerInterface::LaunchSystemApplet>, "LaunchSystemApplet"},
-        {305, nullptr, "TerminateSystemApplet"},
+        {305, D<&IApplicationManagerInterface::TerminateSystemApplet>, "TerminateSystemApplet"},
         {306, nullptr, "LaunchOverlayApplet"},
         {307, D<&IApplicationManagerInterface::TerminateOverlayApplet>, "TerminateOverlayApplet"},
         {400, D<&IApplicationManagerInterface::GetApplicationControlData>, "GetApplicationControlData"},
@@ -1143,6 +1143,19 @@ Result IApplicationManagerInterface::LaunchSystemApplet(Out<u64> out_process_id)
 
     *out_process_id = process_id;
     R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::TerminateSystemApplet(u64 program_id) {
+    constexpr u64 QLaunchProgramId = static_cast<u64>(AM::AppletProgramId::QLaunch);
+    LOG_DEBUG(Service_NS, "called, program_id={:016X}", program_id);
+    R_UNLESS(program_id == QLaunchProgramId, ResultUnknown);
+
+    for (const auto& process : system.Kernel().GetProcessList()) {
+        if (process->GetProgramId() == program_id) {
+            R_RETURN(process->Terminate(system.Kernel()));
+        }
+    }
+    R_THROW(ResultUnknown);
 }
 
 Result IApplicationManagerInterface::TerminateOverlayApplet(u64 program_id) {
