@@ -27,12 +27,12 @@ IAlbumApplicationService::IAlbumApplicationService(Core::System& system_,
         {105, C<&IAlbumApplicationService::DeleteAlbumFileByAruidForDebug>, "DeleteAlbumFileByAruidForDebug"},
         {110, C<&IAlbumApplicationService::LoadAlbumScreenShotImageByAruid>, "LoadAlbumScreenShotImageByAruid"},
         {120, C<&IAlbumApplicationService::LoadAlbumScreenShotThumbnailImageByAruid>, "LoadAlbumScreenShotThumbnailImageByAruid"},
-        {130, nullptr, "PrecheckToCreateContentsByAruid"},
+        {130, &IAlbumApplicationService::RejectUnavailableAlbumVariant, "PrecheckToCreateContentsByAruid"},
         {140, C<&IAlbumApplicationService::GetAlbumFileList1AafeAruidDeprecated>, "GetAlbumFileList1AafeAruidDeprecated"},
         {141, C<&IAlbumApplicationService::GetAlbumFileList2AafeUidAruidDeprecated>, "GetAlbumFileList2AafeUidAruidDeprecated"},
         {142, C<&IAlbumApplicationService::GetAlbumFileList3AaeAruid>, "GetAlbumFileList3AaeAruid"},
         {143, C<&IAlbumApplicationService::GetAlbumFileList4AaeUidAruid>, "GetAlbumFileList4AaeUidAruid"},
-        {144, nullptr, "GetAllAlbumFileList3AaeAruid"},
+        {144, &IAlbumApplicationService::RejectUnavailableAlbumVariant, "GetAllAlbumFileList3AaeAruid"},
         // No movie-read stream is created by the PS5 album backend.
         {2001, &IAlbumApplicationService::RejectUnavailableMovieOrSessionBackend, "OpenAlbumMovieReadStream"},
         {2002, &IAlbumApplicationService::RejectUnavailableMovieOrSessionBackend, "CloseAlbumMovieReadStream"},
@@ -44,6 +44,11 @@ IAlbumApplicationService::IAlbumApplicationService(Core::System& system_,
     // clang-format on
 
     RegisterHandlers(functions);
+}
+
+void IAlbumApplicationService::RejectUnavailableAlbumVariant(HLERequestContext& ctx) {
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 IAlbumApplicationService::~IAlbumApplicationService() = default;
