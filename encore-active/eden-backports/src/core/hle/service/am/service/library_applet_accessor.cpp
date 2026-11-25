@@ -270,7 +270,7 @@ Result ILibraryAppletAccessor::GetPopInteractiveOutDataEvent(
 Result ILibraryAppletAccessor::GetIndirectLayerConsumerHandle(
     Out<u64> out_handle, u64 applet_resource_user_id, ClientProcessId process_id) {
     R_UNLESS(m_applet->library_applet_mode ==
-                 LibraryAppletMode::PartialForegroundWithIndirectDisplay,
+                 LibraryAppletMode::PartialForegroundIndirectDisplay,
              ResultUnknown);
 
     const auto caller = m_applet->caller_applet.lock();
