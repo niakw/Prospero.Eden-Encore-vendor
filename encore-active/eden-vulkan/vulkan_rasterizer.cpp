@@ -2279,15 +2279,16 @@ void RasterizerVulkan::DispatchCompute() {
         }
 #endif
         scheduler.RequestOutsideRenderPassOperationContext();
-        if (::Eden::DevVulkan::compute_barriers) {
-            scheduler.Record([](vk::CommandBuffer cmdbuf) {
-                cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER,
-                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                                       0, COMPUTE_INPUT_BARRIER);
-            });
-        }
+        // Lichii #1246: keep the input barrier in the dispatch command. Vulkan
+        // ordering is unchanged, but one scheduler/worker command disappears.
         scheduler.Record([pipeline, indirect_buffer = buffer->Handle(),
                           indirect_offset = offset](vk::CommandBuffer cmdbuf) {
+            if (::Eden::DevVulkan::compute_barriers) {
+                cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER,
+                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+                                           VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                                       0, COMPUTE_INPUT_BARRIER);
+            }
             if (!pipeline->IsBound()) {
                 return;
             }
@@ -2310,9 +2311,11 @@ void RasterizerVulkan::DispatchCompute() {
         .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
         .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
     };
-    scheduler.Record([](vk::CommandBuffer cmdbuf) { cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                               0, READ_BARRIER); });
+    // Lichii #1246: this barrier was a separate scheduler command although
+    // nothing records Vulkan work between it and the dispatch.
     scheduler.Record([pipeline, dim](vk::CommandBuffer cmdbuf) {
+        cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER,
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, READ_BARRIER);
         if (!pipeline->IsBound()) {
             return;
         }
