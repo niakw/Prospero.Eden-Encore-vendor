@@ -157,19 +157,25 @@ public:
     explicit IServiceWithManagementApi(Core::System& system_) : ServiceFramework(system_, "ngct:s") {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0 , nullptr, "Match"},
-            {1 , nullptr, "Filter"},
-            {100, nullptr, "ConfigureAutoUpdateSetting"},
-            {101, nullptr, "RequestResourceUpdateCheck"},
-            {110, nullptr, "Reload"},
-            {111, nullptr, "IsReloadRequired"},
-            {112, nullptr, "TryAcquireReloadRequestNotifier"},
-            {120, nullptr, "CalculateContentFingerprint"},
-            {130, nullptr, "TryEnableTemporalPassThrough"},
+            {0 , &IServiceWithManagementApi::RejectUnavailableManagementApi, "Match"},
+            {1 , &IServiceWithManagementApi::RejectUnavailableManagementApi, "Filter"},
+            {100, &IServiceWithManagementApi::RejectUnavailableManagementApi, "ConfigureAutoUpdateSetting"},
+            {101, &IServiceWithManagementApi::RejectUnavailableManagementApi, "RequestResourceUpdateCheck"},
+            {110, &IServiceWithManagementApi::RejectUnavailableManagementApi, "Reload"},
+            {111, &IServiceWithManagementApi::RejectUnavailableManagementApi, "IsReloadRequired"},
+            {112, &IServiceWithManagementApi::RejectUnavailableManagementApi, "TryAcquireReloadRequestNotifier"},
+            {120, &IServiceWithManagementApi::RejectUnavailableManagementApi, "CalculateContentFingerprint"},
+            {130, &IServiceWithManagementApi::RejectUnavailableManagementApi, "TryEnableTemporalPassThrough"},
         };
         // clang-format on
         RegisterHandlers(functions);
     }
+private:
+    void RejectUnavailableManagementApi(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 struct SaveDataHandle {
@@ -281,7 +287,10 @@ void LoopProcess(Core::System& system) {
     auto server_manager = std::make_unique<ServerManager>(system);
 
     server_manager->RegisterNamedService("ngct:u", std::make_shared<IService>(system), 4);
-    server_manager->RegisterNamedService("ngct:s", std::make_shared<IServiceWithManagementApi>(system), 4);
+    if (FirmwareManager::GetFirmwareVersion(system).first.major < 21) {
+        server_manager->RegisterNamedService("ngct:s",
+                                             std::make_shared<IServiceWithManagementApi>(system), 4);
+    }
     server_manager->RegisterNamedService("ngc:u", std::make_shared<NgcServiceImpl>(system), 4);
 
     // +23.0.0
