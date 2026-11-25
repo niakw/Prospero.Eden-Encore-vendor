@@ -954,6 +954,36 @@
       "active": "89e8791e2aff88485dd74e2daf355c2092ed00e06732b687ea80d095887bd0e4",
       "bytes": 1231,
       "upstream": "db79fca3521c6b1afd4a2a6bcc1130b2121d6c5443c6a4508aafbce5fa1cd082"
+    },
+    "src/core/hle/service/ldn/lan_discovery.cpp": {
+      "upstream": "e0dc813cd13fd8a44fd35e8ea61bb3e4ee786a6099da74fbfdffc9134c693235",
+      "active": "91ff5de90476905497fcfafacfaec9c900d6c52d1f2c9b6d43efefd0812d9e25",
+      "bytes": 19554
+    },
+    "src/core/hle/service/ldn/lan_discovery.h": {
+      "upstream": "603829307bb5df88199beb4c98ef6a450cff12e68539dc64313245eaaa99cfe6",
+      "active": "c905fad3cdf47b92ae41e666ba449ea2e2ee6338db14d5ab5eddace42806047c",
+      "bytes": 4301
+    },
+    "src/core/hle/service/ldn/user_local_communication_service.cpp": {
+      "upstream": "915368e033067a7a5dc9182bf59cf8ce3f7d52d7b061e5679fa605437430928d",
+      "active": "4b3e806c7c25532ee31308eb3dff3236bb346ff1e50e28c4a41af2b2d85f09f8",
+      "bytes": 14849
+    },
+    "src/core/hle/service/ldn/user_local_communication_service.h": {
+      "upstream": "e30df6060a832c4016e9f7c36a9ccb4b7969133cc9dd564b46d54850e4afe058",
+      "active": "c61c8a2517cf78ab4f6c49431b8459f37032b5f601912cc3b1e60513fd38a1a8",
+      "bytes": 3784
+    },
+    "src/core/hle/service/ldn/system_local_communication_service.cpp": {
+      "upstream": "09d019e4111e71e6f4d8b7e6f711b66c69b9e8cfcb114c4c4094070236e80c60",
+      "active": "ea23edb79cd15fc5116ee5134b50f8879778e0ec8525c8bc88f6a6de46e987e3",
+      "bytes": 13105
+    },
+    "src/core/hle/service/ldn/system_local_communication_service.h": {
+      "upstream": "ab4633368634aaa026497c9157ee9721492abcbe1d5c09a197057ecffcd8542f",
+      "active": "f2ab513f40a1878b580c0332625a31fb1fecdc5a14ef5dfab50808c8631135a5",
+      "bytes": 3527
     }
   },
   "excluded_experimental": [
