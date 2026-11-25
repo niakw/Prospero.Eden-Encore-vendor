@@ -14,7 +14,7 @@ namespace Core::HID {
 class EmulatedController;
 } // namespace Core::HID
 
-namespace Service::IRS {
+namespace Service::HID {\nclass ResourceManager;\n}\n\nnamespace Service::IRS {
 
 class IRS final : public ServiceFramework<IRS> {
 public:
@@ -161,8 +161,15 @@ private:
 
 class IRS_SYS final : public ServiceFramework<IRS_SYS> {
 public:
-    explicit IRS_SYS(Core::System& system);
+    explicit IRS_SYS(Core::System& system,\n                     std::shared_ptr<Service::HID::ResourceManager> resource_manager);
     ~IRS_SYS() override;
+
+private:
+    void RegisterAppletResourceUserId(HLERequestContext& ctx);
+    void UnregisterAppletResourceUserId(HLERequestContext& ctx);
+    void EnableAppletToGetInput(HLERequestContext& ctx);
+
+    std::shared_ptr<Service::HID::ResourceManager> resource_manager;
 };
 
 } // namespace Service::IRS

@@ -20,6 +20,8 @@
 #include "hid_core/hid_core.h"
 #include "hid_core/hid_result.h"
 #include "hid_core/hid_util.h"
+#include "hid_core/resource_manager.h"
+#include "hid_core/resources/npad/npad.h"
 #include "hid_core/irsensor/clustering_processor.h"
 #include "hid_core/irsensor/image_transfer_processor.h"
 #include "hid_core/irsensor/ir_led_processor.h"
@@ -375,17 +377,61 @@ Core::IrSensor::DeviceFormat& IRS::GetIrCameraSharedMemoryDeviceEntry(
     return shared_memory->device[camera_handle.npad_id];
 }
 
-IRS_SYS::IRS_SYS(Core::System& system_) : ServiceFramework{system_, "irs:sys"} {
+IRS_SYS::IRS_SYS(Core::System& system_, std::shared_ptr<Service::HID::ResourceManager> resource_manager_)\n    : ServiceFramework{system_, "irs:sys"}, resource_manager{std::move(resource_manager_)} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {500, nullptr, "SetAppletResourceUserId"},
-        {501, nullptr, "RegisterAppletResourceUserId"},
-        {502, nullptr, "UnregisterAppletResourceUserId"},
-        {503, nullptr, "EnableAppletToGetInput"},
+        {501, &IRS_SYS::RegisterAppletResourceUserId, "RegisterAppletResourceUserId"},
+        {502, &IRS_SYS::UnregisterAppletResourceUserId, "UnregisterAppletResourceUserId"},
+        {503, &IRS_SYS::EnableAppletToGetInput, "EnableAppletToGetInput"},
     };
     // clang-format on
 
     RegisterHandlers(functions);
+}
+
+
+void IRS_SYS::RegisterAppletResourceUserId(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    struct Parameters {
+        bool enable_input;
+        INSERT_PADDING_WORDS_NOINIT(1);
+        u64 applet_resource_user_id;
+    };
+    static_assert(sizeof(Parameters) == 0x10);
+
+    const auto parameters = rp.PopRaw<Parameters>();
+    const Result result = resource_manager->RegisterAppletResourceUserId(
+        parameters.applet_resource_user_id, parameters.enable_input);
+
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result);
+}
+
+void IRS_SYS::UnregisterAppletResourceUserId(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const u64 applet_resource_user_id = rp.Pop<u64>();
+    resource_manager->UnregisterAppletResourceUserId(applet_resource_user_id);
+
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void IRS_SYS::EnableAppletToGetInput(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    struct Parameters {
+        bool is_enabled;
+        INSERT_PADDING_WORDS_NOINIT(1);
+        u64 applet_resource_user_id;
+    };
+    static_assert(sizeof(Parameters) == 0x10);
+
+    const auto parameters = rp.PopRaw<Parameters>();
+    resource_manager->EnableInput(parameters.applet_resource_user_id, parameters.is_enabled);
+    resource_manager->GetNpad()->EnableAppletToGetInput(parameters.applet_resource_user_id);
+
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
 }
 
 IRS_SYS::~IRS_SYS() = default;
