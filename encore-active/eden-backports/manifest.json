@@ -1379,6 +1379,26 @@
       "active": "628c59ef8f6e937dc54d75b7ea2c9cea8b9e599acb9d5d01c4a60a8ea552bb7b",
       "bytes": 1075,
       "upstream": "e84ef0ac8181ffc7031f6bd4284a5edb1e30a725c651a5c0200f20bcfe064c43"
+    },
+    "src/core/hle/service/hid/hidbus.cpp": {
+      "active": "dfce3cd0cc9b3bb6307adf1887b967d2e3e7a735165a20fe8b2985e27c9ac3a0",
+      "bytes": 17628,
+      "upstream": "9bad04bff47c378383d561bc1e9fd47d5477e02fd3dc534dc0eabe8dcf0086cd"
+    },
+    "src/core/hle/service/hid/hidbus.h": {
+      "active": "43055bb8caaa03483d6f1744ada0967520e2c113ec04dfcbf2f4fdadbabb41f6",
+      "bytes": 5324,
+      "upstream": "0c30a720c28fef90e72b2797dc3336d22fc2ec02669651292695aec26abf2900"
+    },
+    "src/core/hle/service/audio/final_output_recorder_manager_for_applet.cpp": {
+      "active": "c87b6cdceb0fde303c6eb9b0110d0b91a3aebaa072eb498e77d6856ab24389b5",
+      "bytes": 1206,
+      "upstream": "3e96e3bbe3faa76c5fc372018ce4596ba45e37c14e7faf00b4e6fe6b24eb29eb"
+    },
+    "src/core/hle/service/audio/final_output_recorder_manager_for_applet.h": {
+      "active": "ea74597c0ea3786eebb8f0babd03fe8890ebc120f9e4f71bc343420c00fc3293",
+      "bytes": 591,
+      "upstream": "ff99aa15a1f2e30c36ea73a24f60276f28839cc0964b32f296abcfca7fdfedf7"
     }
   },
   "excluded_experimental": [
