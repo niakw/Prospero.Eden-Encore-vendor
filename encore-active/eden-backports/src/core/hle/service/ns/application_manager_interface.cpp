@@ -65,7 +65,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {19, D<&IApplicationManagerInterface::LaunchApplicationOld>, "LaunchApplicationOld"},
         {21, D<&IApplicationManagerInterface::GetApplicationContentPath>, "GetApplicationContentPath"},
         {22, D<&IApplicationManagerInterface::TerminateApplication>, "TerminateApplication"},
-        {23, nullptr, "ResolveApplicationContentPath"},
+        {23, D<&IApplicationManagerInterface::ResolveApplicationContentPath>, "ResolveApplicationContentPath"},
         {26, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "BeginInstallApplication"},
         {27, nullptr, "DeleteApplicationRecord"},
         {30, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestApplicationUpdateInfo"},
@@ -811,6 +811,42 @@ Result IApplicationManagerInterface::GetApplicationContentPath(
         R_SUCCEED();
     }
 
+    R_RETURN(AM::ResultApplicationRecordNotFound);
+}
+
+Result IApplicationManagerInterface::ResolveApplicationContentPath(ContentPath content_path) {
+    const u8 content_type = content_path.file_system_proxy_type;
+    const u64 application_id = content_path.program_id;
+    const u64 base_id = FileSys::GetBaseTitleID(application_id);
+    const u64 update_id = FileSys::GetUpdateTitleID(base_id);
+    auto& cp = system.GetContentProviderUnion();
+
+    FileSys::ContentRecordType record_type{};
+    bool prefer_update = true;
+    switch (content_type) {
+    case 0: record_type = FileSys::ContentRecordType::Meta; break;
+    case 1: record_type = FileSys::ContentRecordType::Control; break;
+    case 2: record_type = FileSys::ContentRecordType::HtmlDocument; break;
+    case 3: record_type = FileSys::ContentRecordType::Program; prefer_update = false; break;
+    case 4: record_type = FileSys::ContentRecordType::Data; break;
+    default: R_RETURN(ResultUnknown);
+    }
+
+    const std::array candidates = prefer_update ? std::array{update_id, base_id}
+                                                : std::array{base_id, update_id};
+    for (const u64 title_id : candidates) {
+        const auto slot = cp.GetSlotForEntry(title_id, record_type);
+        if (!slot.has_value()) continue;
+        if (*slot == FileSys::ContentProviderUnionSlot::FrontendManual &&
+            record_type == FileSys::ContentRecordType::HtmlDocument) {
+            R_SUCCEED();
+        }
+        const auto* cache =
+            dynamic_cast<const FileSys::RegisteredCache*>(cp.GetSlotProvider(*slot));
+        if (cache != nullptr && cache->GetRegisteredContentPath(title_id, record_type).has_value()) {
+            R_SUCCEED();
+        }
+    }
     R_RETURN(AM::ResultApplicationRecordNotFound);
 }
 

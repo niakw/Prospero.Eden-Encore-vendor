@@ -135,9 +135,9 @@ Result IDocumentInterface::GetApplicationContentPath2(
 }
 
 Result IDocumentInterface::ResolveApplicationContentPath(ContentPath content_path) {
-    LOG_WARNING(Service_NS, "(STUBBED) called, file_system_proxy_type={}, program_id={:016X}",
-                content_path.file_system_proxy_type, content_path.program_id);
-    R_SUCCEED();
+    ResolvedDocumentContentPath resolved{};
+    R_RETURN(ResolveDocumentContentPath(system, &resolved, content_path.file_system_proxy_type,
+                                        content_path.program_id));
 }
 
 Result IDocumentInterface::GetRunningApplicationProgramId(Out<u64> out_program_id,

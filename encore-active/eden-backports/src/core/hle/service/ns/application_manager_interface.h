@@ -154,6 +154,7 @@ public:
                                   InBuffer<BufferAttr_HipcMapAlias> logo_path_buffer);
     Result GetApplicationContentPath(OutBuffer<BufferAttr_HipcPointer> out_path,
                                      u8 content_type, u64 application_id);
+    Result ResolveApplicationContentPath(ContentPath content_path);
     Result Unknown3250(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result Unknown3251(Out<s64> out_count, OutBuffer<BufferAttr_HipcMapAlias> out_buffer);
     Result Unknown3253(Out<s64> out_count, OutBuffer<BufferAttr_HipcMapAlias> out_buffer,
