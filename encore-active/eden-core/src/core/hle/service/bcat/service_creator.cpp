@@ -1,0 +1,81 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#include "core/core.h"
+#include "core/file_sys/vfs/vfs_vector.h"
+#include "core/hle/service/bcat/bcat_service.h"
+#include "core/hle/service/bcat/delivery_cache_storage_service.h"
+#include "core/hle/service/bcat/service_creator.h"
+#include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/filesystem/filesystem.h"
+
+namespace Service::BCAT {
+
+namespace {
+// Lichii: a missing BCAT directory is a valid empty cache, not a null
+// root published to guest-facing DeliveryCache file/directory IPC objects.
+// Do not fabricate a successful download or reuse another title's storage.
+FileSys::VirtualDir OpenCacheOrEmpty(Service::FileSystem::FileSystemController& fs,
+                                     u64 title_id) {
+    if (auto directory = fs.GetBCATDirectory(title_id)) return directory;
+    LOG_WARNING(Service_BCAT, "No BCAT delivery cache for title {:016X}; using empty view",
+                title_id);
+    return std::make_shared<FileSys::VectorVfsDirectory>();
+}
+} // namespace
+
+std::unique_ptr<BcatBackend> CreateBackendFromSettings([[maybe_unused]] Core::System& system,
+                                                       DirectoryGetter getter) {
+    return std::make_unique<NullBcatBackend>(std::move(getter));
+}
+
+IServiceCreator::IServiceCreator(Core::System& system_, const char* name_)
+    : ServiceFramework{system_, name_}, fsc{system.GetFileSystemController()} {
+    // clang-format off
+    static const FunctionInfo functions[] = {
+        {0, D<&IServiceCreator::CreateBcatService>, "CreateBcatService"},
+        {1, D<&IServiceCreator::CreateDeliveryCacheStorageService>, "CreateDeliveryCacheStorageService"},
+        {2, D<&IServiceCreator::CreateDeliveryCacheStorageServiceWithApplicationId>, "CreateDeliveryCacheStorageServiceWithApplicationId"},
+        {3, nullptr, "CreateDeliveryCacheProgressService"},
+        {4, nullptr, "CreateDeliveryCacheProgressServiceWithApplicationId"},
+    };
+    // clang-format on
+
+    RegisterHandlers(functions);
+
+    backend =
+        CreateBackendFromSettings(system_, [this](u64 tid) { return OpenCacheOrEmpty(fsc, tid); });
+}
+
+IServiceCreator::~IServiceCreator() = default;
+
+Result IServiceCreator::CreateBcatService(ClientProcessId process_id,
+                                          OutInterface<IBcatService> out_interface) {
+    LOG_INFO(Service_BCAT, "called, process_id={}", process_id.pid);
+    *out_interface =
+        std::make_shared<IBcatService>(system, *backend, system.ResolveCallerProgramId(*process_id));
+    R_SUCCEED();
+}
+
+Result IServiceCreator::CreateDeliveryCacheStorageService(
+    ClientProcessId process_id, OutInterface<IDeliveryCacheStorageService> out_interface) {
+    LOG_INFO(Service_BCAT, "called, process_id={}", process_id.pid);
+
+    const auto title_id = system.ResolveCallerProgramId(*process_id);
+    *out_interface =
+        std::make_shared<IDeliveryCacheStorageService>(system, OpenCacheOrEmpty(fsc, title_id));
+    R_SUCCEED();
+}
+
+Result IServiceCreator::CreateDeliveryCacheStorageServiceWithApplicationId(
+    u64 application_id, OutInterface<IDeliveryCacheStorageService> out_interface) {
+    LOG_DEBUG(Service_BCAT, "called, application_id={:016X}", application_id);
+    *out_interface = std::make_shared<IDeliveryCacheStorageService>(
+        system, OpenCacheOrEmpty(fsc, application_id));
+    R_SUCCEED();
+}
+
+} // namespace Service::BCAT
