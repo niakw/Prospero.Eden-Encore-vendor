@@ -93,6 +93,7 @@ private:
         OutArray<u8, BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_image,
         OutArray<u8, BufferAttr_HipcMapAlias> out_buffer);
 
+    void RejectUnavailableCaptureCommand(HLERequestContext& ctx);
     void RejectUnavailableMovieBackend(HLERequestContext& ctx);
 
     Result GetRequiredStorageSpaceSizeToCopyAll(Out<u64> out_size,
