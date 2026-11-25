@@ -7,6 +7,7 @@
 #include "core/core.h"
 #include "core/file_sys/vfs/vfs_vector.h"
 #include "core/hle/service/bcat/bcat_service.h"
+#include "core/hle/service/bcat/delivery_cache_progress_service.h"
 #include "core/hle/service/bcat/delivery_cache_storage_service.h"
 #include "core/hle/service/bcat/service_creator.h"
 #include "core/hle/service/cmif_serialization.h"
@@ -33,13 +34,14 @@ std::unique_ptr<BcatBackend> CreateBackendFromSettings([[maybe_unused]] Core::Sy
 }
 
 IServiceCreator::IServiceCreator(Core::System& system_, const char* name_)
-    : ServiceFramework{system_, name_}, fsc{system.GetFileSystemController()} {
+    : ServiceFramework{system_, name_}, fsc{system.GetFileSystemController()},
+      legacy_progress{system_, "Legacy"} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, D<&IServiceCreator::CreateBcatService>, "CreateBcatService"},
         {1, D<&IServiceCreator::CreateDeliveryCacheStorageService>, "CreateDeliveryCacheStorageService"},
         {2, D<&IServiceCreator::CreateDeliveryCacheStorageServiceWithApplicationId>, "CreateDeliveryCacheStorageServiceWithApplicationId"},
-        {3, nullptr, "CreateDeliveryCacheProgressService"},
+        {3, D<&IServiceCreator::CreateDeliveryCacheProgressService>, "CreateDeliveryCacheProgressService"},
         {4, nullptr, "CreateDeliveryCacheProgressServiceWithApplicationId"},
     };
     // clang-format on
@@ -75,6 +77,15 @@ Result IServiceCreator::CreateDeliveryCacheStorageServiceWithApplicationId(
     LOG_DEBUG(Service_BCAT, "called, application_id={:016X}", application_id);
     *out_interface = std::make_shared<IDeliveryCacheStorageService>(
         system, OpenCacheOrEmpty(fsc, application_id));
+    R_SUCCEED();
+}
+
+Result IServiceCreator::CreateDeliveryCacheProgressService(
+    ClientProcessId process_id, OutInterface<IDeliveryCacheProgressService> out_interface) {
+    LOG_INFO(Service_BCAT, "called, process_id={}", process_id.pid);
+    legacy_progress.FinishDownload(system.Kernel(), ResultSuccess);
+    *out_interface = std::make_shared<IDeliveryCacheProgressService>(
+        system, legacy_progress.GetEvent(), legacy_progress.GetImpl());
     R_SUCCEED();
 }
 
