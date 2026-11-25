@@ -994,6 +994,16 @@
       "upstream": "5c96ae7620d3c051ae804cc1b0e2f0c3d9afdc6bba27ef5f8e53ee3d4b51b028",
       "active": "81098a83a7e4f870e4478908632ac95aadb169e3ba0ceb00a0ef3d94aac8fc77",
       "bytes": 853
+    },
+    "src/core/hle/service/ptm/psm.cpp": {
+      "upstream": "f16c0d350be649221e93c7d76728245f0a84bf0331a5f68359422740c3e98af3",
+      "active": "73ad237a6fdbfde40cf584a10d99265311882d2688c740591d8e31d991a3058f",
+      "bytes": 14379
+    },
+    "src/core/hle/service/ptm/psm.h": {
+      "upstream": "57ba579b672d7757a3708a3696fd77bed64354cf1ea59a9f2b8841ff4f7e80bb",
+      "active": "5d9df80981089a775d4efd6d8fd0f7b573ee9dd6092e5b9e1ccdb0b9f603f302",
+      "bytes": 2255
     }
   },
   "excluded_experimental": [
