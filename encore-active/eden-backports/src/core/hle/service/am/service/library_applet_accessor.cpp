@@ -188,9 +188,12 @@ Result ILibraryAppletAccessor::RequestForAppletToGetForeground() {
     R_THROW(ResultUnknown);
 }
 
-Result ILibraryAppletAccessor::Unknown90() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    R_SUCCEED();
+Result ILibraryAppletAccessor::Unknown90(u64 arg0, u64 arg1, u64 arg2, u64 arg3) {
+    LOG_WARNING(Service_AM,
+                "Rejected undocumented HOS20+ ILibraryAppletAccessor cmd90 "
+                "args={:#x},{:#x},{:#x},{:#x}",
+                arg0, arg1, arg2, arg3);
+    R_THROW(IPC::ResultNotSupported);
 }
 
 Result ILibraryAppletAccessor::PushInData(SharedPointer<IStorage> storage) {
@@ -298,10 +301,13 @@ Result ILibraryAppletAccessor::GetLibraryAppletInfo(
     R_SUCCEED();
 }
 
-Result ILibraryAppletAccessor::Unknown170(OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_event = m_applet->unknown_event.GetHandle();
-    R_SUCCEED();
+Result ILibraryAppletAccessor::Unknown170(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    (void)out_event;
+    LOG_WARNING(Service_AM,
+                "Rejected undocumented HOS22+ ILibraryAppletAccessor cmd170; "
+                "no producer exists for the historical placeholder event");
+    R_THROW(IPC::ResultNotSupported);
 }
 
 void ILibraryAppletAccessor::FrontendExecute() {
