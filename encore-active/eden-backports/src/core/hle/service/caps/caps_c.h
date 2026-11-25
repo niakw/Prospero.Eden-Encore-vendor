@@ -34,6 +34,7 @@ public:
     ~IAlbumControlService() override;
 
 private:
+    void RejectUnavailableCaptureCommand(HLERequestContext& ctx);
     void RejectUnavailableMovieBackend(HLERequestContext& ctx);
     Result SetShimLibraryVersion(ShimLibraryVersion library_version,
                                  ClientAppletResourceUserId aruid);
