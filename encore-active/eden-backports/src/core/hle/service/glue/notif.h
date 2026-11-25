@@ -115,6 +115,7 @@ public:
     ~INotificationServices() override;
 
 private:
+    void RejectUnsupportedNotificationCommand(HLERequestContext& ctx);
     Result RegisterAlarmSetting(Out<AlarmSettingId> out_alarm_setting_id,
                                 InLargeData<AlarmSetting, BufferAttr_HipcMapAlias> alarm_setting,
                                 InBuffer<BufferAttr_HipcMapAlias> application_parameter);
