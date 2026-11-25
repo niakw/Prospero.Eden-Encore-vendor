@@ -11,6 +11,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -115,8 +116,9 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {1, D<&FSP_SRV::SetCurrentProcess>, "SetCurrentProcess"},
         {2, D<&FSP_SRV::OpenDataFileSystemByCurrentProcess>, "OpenDataFileSystemByCurrentProcess"},
         {7, D<&FSP_SRV::OpenFileSystemWithPatch>, "OpenFileSystemWithPatch"},
-        {8, nullptr, "OpenFileSystemWithId"},
+        {8, D<&FSP_SRV::OpenFileSystemWithIdObsolete>, "OpenFileSystemWithIdObsolete"},
         {9, D<&FSP_SRV::OpenDataFileSystemByProgramId>, "OpenDataFileSystemByProgramId"},
+        {10, D<&FSP_SRV::OpenFileSystemWithId>, "OpenFileSystemWithId"},
         {11, D<&FSP_SRV::OpenBisFileSystem>, "OpenBisFileSystem"},
         {12, D<&FSP_SRV::OpenBisStorage>, "OpenBisStorage"},
         {13, D<&FSP_SRV::InvalidateBisCache>, "InvalidateBisCache"},
@@ -711,6 +713,140 @@ Result FSP_SRV::OpenSaveDataTransferProhibiter(
     // Encore has no save-data transfer manager. There is therefore no transfer
     // operation for this lifetime token to block; do not add dormant lock state.
     *out_prohibiter = std::make_shared<ISaveDataTransferProhibiter>(system);
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenFileSystemWithIdObsolete(
+    OutInterface<IFileSystem> out_interface, FileSystemProxyType type, u64 open_program_id,
+    InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path) {
+    R_RETURN(OpenFileSystemWithIdImpl(out_interface, ContentAttributes::None, type,
+                                     open_program_id, *path));
+}
+
+Result FSP_SRV::OpenFileSystemWithId(
+    OutInterface<IFileSystem> out_interface, ContentAttributes attributes,
+    FileSystemProxyType type, u64 open_program_id,
+    InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path) {
+    R_RETURN(OpenFileSystemWithIdImpl(out_interface, attributes, type, open_program_id, *path));
+}
+
+Result FSP_SRV::OpenFileSystemWithIdImpl(OutInterface<IFileSystem> out_interface,
+                                         ContentAttributes attributes,
+                                         FileSystemProxyType type, u64 open_program_id,
+                                         const FileSys::Sf::Path& path) {
+    R_UNLESS(attributes == ContentAttributes::None || attributes == ContentAttributes::All,
+             FileSys::ResultInvalidArgument);
+
+    const std::string_view content_path{path.str, FileSys::Sf::Path::GetPathLength(path)};
+    FileSys::RegisteredCache* cache{};
+    FileSys::StorageId storage_id{FileSys::StorageId::None};
+    if (content_path.starts_with("@UserContent://registered/")) {
+        cache = fsc.GetUserNANDContents();
+        storage_id = FileSys::StorageId::NandUser;
+    } else if (content_path.starts_with("@SdCardContent://registered/")) {
+        cache = fsc.GetSDMCContents();
+        storage_id = FileSys::StorageId::SdCard;
+    } else if (content_path.starts_with("@SystemContent://registered/")) {
+        cache = fsc.GetSystemNANDContents();
+        storage_id = FileSys::StorageId::NandSystem;
+    } else {
+        R_RETURN(FileSys::ResultPathNotFound);
+    }
+    R_UNLESS(cache != nullptr, FileSys::ResultTargetNotFound);
+
+    const auto slash = content_path.find_last_of('/');
+    R_UNLESS(slash != std::string_view::npos, FileSys::ResultPathNotFound);
+    const auto file_name = content_path.substr(slash + 1);
+    const bool normal_name = file_name.size() == 36 && file_name.ends_with(".nca");
+    const bool meta_name = file_name.size() == 41 && file_name.ends_with(".cnmt.nca");
+    R_UNLESS(normal_name || meta_name, FileSys::ResultPathNotFound);
+
+    const auto id_hex = file_name.substr(0, 32);
+    const bool valid_hex = std::all_of(id_hex.begin(), id_hex.end(), [](char ch) {
+        return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') ||
+               (ch >= 'A' && ch <= 'F');
+    });
+    R_UNLESS(valid_hex, FileSys::ResultPathNotFound);
+
+    const auto nca_id = Common::HexStringToArray<0x10>(id_hex);
+    auto raw_nca = cache->GetContentFile(nca_id);
+    R_UNLESS(raw_nca != nullptr, FileSys::ResultTargetNotFound);
+
+    auto nca = std::make_shared<FileSys::NCA>(std::move(raw_nca));
+    const auto status = nca->GetStatus();
+    R_UNLESS(status == Loader::ResultStatus::Success ||
+                 status == Loader::ResultStatus::ErrorMissingBKTRBaseRomFS,
+             FileSys::ResultTargetNotFound);
+
+    const auto nca_type = nca->GetType();
+    if (type != FileSystemProxyType::Meta) {
+        R_UNLESS(open_program_id != std::numeric_limits<u64>::max(),
+                 FileSys::ResultInvalidArgument);
+        R_UNLESS(nca->GetTitleId() == open_program_id, FileSys::ResultInvalidArgument);
+    }
+
+    FileSys::VirtualDir mounted_dir{};
+    FileSys::VirtualFile romfs{};
+    switch (type) {
+    case FileSystemProxyType::Code:
+        R_UNLESS(nca_type == FileSys::NCAContentType::Program, FileSys::ResultInvalidArgument);
+        mounted_dir = nca->GetExeFS();
+        break;
+    case FileSystemProxyType::Rom:
+        R_UNLESS(nca_type == FileSys::NCAContentType::Program, FileSys::ResultInvalidArgument);
+        romfs = nca->GetRomFS();
+        if (!romfs && romfs_controller) {
+            romfs = romfs_controller->OpenPatchedRomFS(open_program_id,
+                                                       FileSys::ContentRecordType::Program);
+        }
+        mounted_dir = romfs ? FileSys::ExtractRomFS(romfs) : nullptr;
+        break;
+    case FileSystemProxyType::Logo:
+        R_UNLESS(nca_type == FileSys::NCAContentType::Program, FileSys::ResultInvalidArgument);
+        mounted_dir = nca->GetLogoPartition();
+        break;
+    case FileSystemProxyType::Control:
+        R_UNLESS(nca_type == FileSys::NCAContentType::Control, FileSys::ResultInvalidArgument);
+        romfs = nca->GetRomFS();
+        if (!romfs && romfs_controller) {
+            romfs = romfs_controller->OpenPatchedRomFS(open_program_id,
+                                                       FileSys::ContentRecordType::Control);
+        }
+        mounted_dir = romfs ? FileSys::ExtractRomFS(romfs) : nullptr;
+        break;
+    case FileSystemProxyType::Manual:
+        R_UNLESS(nca_type == FileSys::NCAContentType::Manual, FileSys::ResultInvalidArgument);
+        romfs = nca->GetRomFS();
+        if (!romfs && romfs_controller) {
+            romfs = romfs_controller->OpenPatchedRomFS(
+                open_program_id, FileSys::ContentRecordType::HtmlDocument);
+        }
+        mounted_dir = romfs ? FileSys::ExtractRomFS(romfs) : nullptr;
+        break;
+    case FileSystemProxyType::Meta:
+        R_UNLESS(nca_type == FileSys::NCAContentType::Meta, FileSys::ResultInvalidArgument);
+        mounted_dir = nca;
+        break;
+    case FileSystemProxyType::Data:
+        R_UNLESS(nca_type == FileSys::NCAContentType::Data ||
+                     nca_type == FileSys::NCAContentType::PublicData,
+                 FileSys::ResultInvalidArgument);
+        romfs = nca->GetRomFS();
+        if (!romfs && romfs_controller) {
+            romfs = romfs_controller->OpenPatchedRomFS(open_program_id,
+                                                       FileSys::ContentRecordType::Data);
+        }
+        mounted_dir = romfs ? FileSys::ExtractRomFS(romfs) : nullptr;
+        break;
+    case FileSystemProxyType::Package:
+    case FileSystemProxyType::RegisteredUpdate:
+    default:
+        R_RETURN(FileSys::ResultNotImplemented);
+    }
+
+    R_UNLESS(mounted_dir != nullptr, FileSys::ResultTargetNotFound);
+    *out_interface = std::make_shared<IFileSystem>(
+        system, std::move(mounted_dir), SizeGetter::FromStorageId(fsc, storage_id));
     R_SUCCEED();
 }
 

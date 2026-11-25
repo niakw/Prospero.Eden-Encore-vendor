@@ -69,6 +69,16 @@ private:
                                               u8 program_index);
     Result OpenFileSystemWithPatch(OutInterface<IFileSystem> out_interface,
                                    FileSystemProxyType type, u64 open_program_id);
+    Result OpenFileSystemWithIdObsolete(
+        OutInterface<IFileSystem> out_interface, FileSystemProxyType type, u64 open_program_id,
+        InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
+    Result OpenFileSystemWithId(
+        OutInterface<IFileSystem> out_interface, ContentAttributes attributes,
+        FileSystemProxyType type, u64 open_program_id,
+        InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
+    Result OpenFileSystemWithIdImpl(OutInterface<IFileSystem> out_interface,
+                                    ContentAttributes attributes, FileSystemProxyType type,
+                                    u64 open_program_id, const FileSys::Sf::Path& path);
     Result OpenBisFileSystem(
         OutInterface<IFileSystem> out_interface, FileSys::BisPartitionId partition_id,
         InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);

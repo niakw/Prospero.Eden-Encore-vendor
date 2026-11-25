@@ -426,13 +426,13 @@
       "upstream": "67a75240764eea738894edeb7b8763f2871a0b6ad04efbb19eb32f475d33be59"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.cpp": {
-      "active": "719339182d27a0dc6d3424636af67e99a1cebd4019ce09c19a862b2724d4db2f",
-      "bytes": 52179,
+      "active": "ea29669f8c4c6b0ef33c6217fd09e0843b208b2981e44b1e907c95567535f884",
+      "bytes": 58727,
       "upstream": "2017a14e3450768f421448326f809d439414cc385f927511382b940c64e44e84"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.h": {
-      "active": "5a527656ed3a1d30b0ec852ef3c4eaee90a9812279939436d8fae0bf08096d51",
-      "bytes": 9612,
+      "active": "79e9e384cdae6df0b99aa026da2957ff428825baf0f23de22bf66b81932986e0",
+      "bytes": 10314,
       "upstream": "394d7fd76564e2a7b50225a6263ab8377a6e4fa6cdfcfd1b7d51ba1e0bf39293"
     },
     "src/core/hle/service/friend/friend.cpp": {
@@ -526,13 +526,13 @@
       "upstream": "a04bfd1d0a1289e9102e902f6adecafc86cb4dfdba58027bdc717cb9c1b0a18b"
     },
     "src/core/hle/service/ns/application_manager_interface.cpp": {
-      "active": "e9fef5cb07fe375b315900167b51bb9ab54d0a3f78ec2a54d935be1663583f02",
-      "bytes": 88816,
+      "active": "7ca49cbdffe17586431b7acc9526eddaefa73e05dc94c6050184aded74800158",
+      "bytes": 91633,
       "upstream": "86874e0f8769c04c1c66b4b8b0d00549aa328a6ed58a6898f343e67431861fba"
     },
     "src/core/hle/service/ns/application_manager_interface.h": {
-      "active": "44a0764ca28c95c149cc9f14739767b81676ddfc97e4720f33548c949560b9b8",
-      "bytes": 10921,
+      "active": "e79118acce4841f784cb507454701c3c1e14bf96924aeb494f4ee9133de6112d",
+      "bytes": 11077,
       "upstream": "1ed17c086a3e2e34697453855e0f69583ad80196093a0944ef10929bdb56d49e"
     },
     "src/core/hle/service/ns/dynamic_rights_interface.cpp": {
@@ -1319,6 +1319,11 @@
       "active": "31b712f1e03f8b51fbe91335c626ce7d6488cff84a12ddadcb9c1d7bf050d534",
       "bytes": 13593,
       "upstream": "f928a12982ee825b5e2925f7ce265c7195fd6670cebf5b115c250a69ebb49a7b"
+    },
+    "src/core/hle/service/filesystem/fsp/fsp_types.h": {
+      "active": "cd73269910de7b550e88c74d812382f6c03af6ea889313a12fd5b85753082008",
+      "bytes": 859,
+      "upstream": "eea2f91394eb9a47fb6364f4f1542701ddb5f44304944d0edd9dd2c42f9dc07b"
     }
   },
   "excluded_experimental": [

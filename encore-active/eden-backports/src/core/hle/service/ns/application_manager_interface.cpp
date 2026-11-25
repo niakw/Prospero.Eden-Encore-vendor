@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <cstring>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 namespace Service::NS {
@@ -62,7 +63,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {16, &IApplicationManagerInterface::PushApplicationRecord, "PushApplicationRecord"},
         {17, D<&IApplicationManagerInterface::ListApplicationRecordContentMeta>, "ListApplicationRecordContentMeta"},
         {19, D<&IApplicationManagerInterface::LaunchApplicationOld>, "LaunchApplicationOld"},
-        {21, nullptr, "GetApplicationContentPath"},
+        {21, D<&IApplicationManagerInterface::GetApplicationContentPath>, "GetApplicationContentPath"},
         {22, D<&IApplicationManagerInterface::TerminateApplication>, "TerminateApplication"},
         {23, nullptr, "ResolveApplicationContentPath"},
         {26, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "BeginInstallApplication"},
@@ -735,6 +736,82 @@ Result IApplicationManagerInterface::ListApplicationRecordContentMeta(
     }
     *out_count = static_cast<s32>(count);
     R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::GetApplicationContentPath(
+    OutBuffer<BufferAttr_HipcPointer> out_path, u8 content_type, u64 application_id) {
+    const u64 base_id = FileSys::GetBaseTitleID(application_id);
+    const u64 update_id = FileSys::GetUpdateTitleID(base_id);
+    auto& cp = system.GetContentProviderUnion();
+
+    R_UNLESS(cp.HasEntry(base_id, FileSys::ContentRecordType::Program) ||
+                 cp.HasEntry(base_id, FileSys::ContentRecordType::Meta) ||
+                 cp.HasEntry(update_id, FileSys::ContentRecordType::Meta),
+             AM::ResultApplicationRecordNotFound);
+
+    FileSys::ContentRecordType record_type{};
+    bool prefer_update = true;
+    switch (content_type) {
+    case 0:
+        record_type = FileSys::ContentRecordType::Meta;
+        break;
+    case 1:
+        record_type = FileSys::ContentRecordType::Control;
+        break;
+    case 2:
+        record_type = FileSys::ContentRecordType::HtmlDocument;
+        break;
+    case 3:
+        record_type = FileSys::ContentRecordType::Program;
+        prefer_update = false;
+        break;
+    case 4:
+        record_type = FileSys::ContentRecordType::Data;
+        break;
+    default:
+        R_RETURN(ResultUnknown);
+    }
+
+    const std::array candidates = prefer_update ? std::array{update_id, base_id}
+                                                : std::array{base_id, update_id};
+    for (const u64 title_id : candidates) {
+        const auto slot = cp.GetSlotForEntry(title_id, record_type);
+        if (!slot.has_value()) {
+            continue;
+        }
+        const auto* cache =
+            dynamic_cast<const FileSys::RegisteredCache*>(cp.GetSlotProvider(*slot));
+        if (cache == nullptr) {
+            continue;
+        }
+        const auto relative_path = cache->GetRegisteredContentPath(title_id, record_type);
+        if (!relative_path.has_value()) {
+            continue;
+        }
+
+        std::string_view prefix;
+        switch (*slot) {
+        case FileSys::ContentProviderUnionSlot::SysNAND:
+            prefix = "@SystemContent://";
+            break;
+        case FileSys::ContentProviderUnionSlot::UserNAND:
+            prefix = "@UserContent://";
+            break;
+        case FileSys::ContentProviderUnionSlot::SDMC:
+            prefix = "@SdCardContent://";
+            break;
+        default:
+            continue;
+        }
+
+        const std::string content_path = std::string{prefix} + *relative_path;
+        R_UNLESS(content_path.size() + 1 <= out_path.size(), ResultUnknown);
+        std::memset(out_path.data(), 0, out_path.size());
+        std::memcpy(out_path.data(), content_path.c_str(), content_path.size());
+        R_SUCCEED();
+    }
+
+    R_RETURN(AM::ResultApplicationRecordNotFound);
 }
 
 Result IApplicationManagerInterface::TerminateApplication(u64 application_id) {

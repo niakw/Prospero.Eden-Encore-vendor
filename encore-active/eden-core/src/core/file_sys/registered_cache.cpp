@@ -801,6 +801,25 @@ VirtualFile RegisteredCache::GetEntryRaw(u64 title_id, ContentRecordType type) c
     return id ? parser(GetFileAtID(*id), *id) : nullptr;
 }
 
+std::optional<NcaID> RegisteredCache::GetContentId(u64 title_id,
+                                                    ContentRecordType type) const {
+    return GetNcaIDFromMetadata(title_id, type);
+}
+
+std::optional<std::string> RegisteredCache::GetRegisteredContentPath(
+    u64 title_id, ContentRecordType type) const {
+    const auto id = GetNcaIDFromMetadata(title_id, type);
+    if (!id) {
+        return std::nullopt;
+    }
+    return std::string{"registered"} + GetRelativePathFromNcaID(*id, false, true, false);
+}
+
+VirtualFile RegisteredCache::GetContentFile(const NcaID& id) const {
+    const auto file = GetFileAtID(id);
+    return file != nullptr ? parser(file, id) : nullptr;
+}
+
 std::unique_ptr<NCA> RegisteredCache::GetEntry(u64 title_id, ContentRecordType type) const {
     const auto raw = GetEntryRaw(title_id, type);
     if (raw == nullptr)

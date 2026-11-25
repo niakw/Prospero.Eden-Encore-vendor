@@ -201,6 +201,10 @@ public:
     std::optional<std::vector<u8>> ReadContent(const NcaID& id, u64 offset,
                                                std::size_t size) const;
     std::vector<NcaID> ListContentIds() const;
+    std::optional<NcaID> GetContentId(u64 title_id, ContentRecordType type) const;
+    std::optional<std::string> GetRegisteredContentPath(u64 title_id,
+                                                        ContentRecordType type) const;
+    VirtualFile GetContentFile(const NcaID& id) const;
     std::optional<std::pair<NcaID, u8>> GetRightsId(const NcaID& id) const;
     const CNMT* GetContentMeta(u64 title_id) const;
     std::optional<NcaID> GetMetaNcaId(u64 title_id) const;
