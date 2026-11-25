@@ -1926,7 +1926,7 @@ public:
             {11, &NCM::ContentMetaDatabaseLifecycleNoOp, "ActivateContentMetaDatabase"},
             {12, &NCM::ContentMetaDatabaseLifecycleNoOp, "InactivateContentMetaDatabase"},
             {13, &NCM::InvalidateRightsIdCache, "InvalidateRightsIdCache"},
-            {14, nullptr, "GetMemoryReport"},
+            {14, &NCM::RejectUnavailableMemoryReport, "GetMemoryReport"},
             {15, &NCM::ActivateFsContentStorage, "ActivateFsContentStorage"},
         };
         // clang-format on
@@ -1935,6 +1935,11 @@ public:
     }
 
 private:
+    void RejectUnavailableMemoryReport(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
     void CleanupContentMetaDatabase(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto storage_id = rp.PopEnum<FileSys::StorageId>();
