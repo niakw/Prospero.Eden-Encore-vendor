@@ -546,19 +546,19 @@
       "upstream": "496ab1bd9ca8341d79f378473e92eed095495763ce068eee16c4ae646b1da615"
     },
     "src/core/hle/service/ns/i_async_result.cpp": {
-      "active": "e1e49e898bcddbf03236fa1e43fd97eaa18ec66db242b76a86fed37c703318f9",
-      "bytes": 906,
-      "upstream": null
+      "upstream": null,
+      "active": "300ab1b8004dabdc2a312b347cd102537eda4133198306b498f9f531a0a519c5",
+      "bytes": 1175
     },
     "src/core/hle/service/ns/i_async_result.h": {
-      "active": "ef2419f2570fafecb96a6af8c2730cb20662008fe5fd1f62044d4701c680b47a",
-      "bytes": 444,
-      "upstream": null
+      "upstream": null,
+      "active": "b78df1e77b8144060afdb20eda17acbdf6b4fa2b4824ad1ad458c60b6c40fb0d",
+      "bytes": 508
     },
     "src/core/hle/service/ns/ns.cpp": {
-      "active": "4af9b51074d7a9b95e30030633a60753227abf6af6ced22bc4ed7f286544d189",
-      "bytes": 6151,
-      "upstream": "0f937e715ef2fbac9783e7b4e46003bade0eb1cf03ab33e78eac4256a6328f88"
+      "upstream": "0f937e715ef2fbac9783e7b4e46003bade0eb1cf03ab33e78eac4256a6328f88",
+      "active": "5f9670df67de8f4288692d15c310376b1b2f320fc93ff33149100417761d2663",
+      "bytes": 6454
     },
     "src/core/hle/service/ns/query_service.cpp": {
       "active": "8acc95fba8b1871c20dc4a64140654a3471c26557857e68cec139b3c1f2198c0",
@@ -586,9 +586,9 @@
       "upstream": "8d81d0a6877e1819ca550e56e67fffe88e116addd2ae4b3c62770c648a16c028"
     },
     "src/core/hle/service/ns/system_update_interface.cpp": {
-      "active": "98fec76ca0b9aefcd502dbd810cb8d7eefa6bf7611a131ab40ab38a9d5232611",
-      "bytes": 5406,
-      "upstream": "0ee7723f6edd55c94aabc8e41c50696aa779922247df9931127f982e189cae72"
+      "upstream": "0ee7723f6edd55c94aabc8e41c50696aa779922247df9931127f982e189cae72",
+      "active": "62dd45bd70a5f5e0ce112370130259673930b50cf9ca973529da2ac161811b6f",
+      "bytes": 5626
     },
     "src/core/hle/service/ns/system_update_interface.h": {
       "active": "e7e5ad346667a12f4b03d7f2f5abbf0fc076b02e4ecfbba97b561e3fbbaea5de",
@@ -1244,6 +1244,26 @@
       "upstream": "aedd606bd5b3f0e3f297b0e20bcd6e8699d0af2addd7db4c066d044a8e42a292",
       "active": "2dd552c80ddc23803e492bfb743aed57dc06978c75654aefb0f9f1344f761a74",
       "bytes": 749
+    },
+    "src/core/hle/service/ns/download_task_interface.cpp": {
+      "upstream": "a5588bd78fb277ff6375862bab373732b57ca1cdfa5fa649b8ef25148b4f26b9",
+      "active": "b56bce3deba22e3d7f965c787627e27efff51713dcd78431f3410bfe9ccf1c88",
+      "bytes": 2049
+    },
+    "src/core/hle/service/ns/download_task_interface.h": {
+      "upstream": "4ef0ad2bb1d1dfd96b9865acdadd3e889fca017aaf19b3ebe16db3981898c3f2",
+      "active": "a3ceb02804c417f23158e0fc5107fa491a22bac986c34017521c1a5430191c11",
+      "bytes": 561
+    },
+    "src/core/hle/service/ns/ecommerce_interface.cpp": {
+      "upstream": "bad57c16a64a90a48391ef960a8572b9206654080f944d682d586bd07ebd798c",
+      "active": "5f3e8428a386acd7590d532cd4bf9a417c9da2ed3d35f48cc5eb72d9fec55a8e",
+      "bytes": 1470
+    },
+    "src/core/hle/service/ns/ecommerce_interface.h": {
+      "upstream": "76f9e9fc404c076a7ac9f85baa2797e826ecfc2802f0a27a8997ac5a07a52b4e",
+      "active": "2aef8961396822751e941437cf3f89fd054146cd56f78f3fd1ec1f7407af0047",
+      "bytes": 473
     }
   },
   "excluded_experimental": [
