@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/nvnflinger/hos_binder_driver.h"
 #include "core/hle/service/vi/application_display_service.h"
 #include "core/hle/service/vi/container.h"
@@ -18,12 +19,19 @@ IManagerRootService::IManagerRootService(Core::System& system_,
     static const FunctionInfo functions[] = {
         {2, C<&IManagerRootService::GetDisplayService>, "GetDisplayService"},
         {3, C<&IManagerRootService::GetDisplayService>, "GetDisplayServiceWithProxyNameExchange"},
-        {100, nullptr, "PrepareFatal"},
-        {101, nullptr, "ShowFatal"},
-        {102, nullptr, "DrawFatalRectangle"},
-        {103, nullptr, "DrawFatalText32"},
+        {100, &IManagerRootService::RejectUnavailableFatalDisplay, "PrepareFatal"},
+        {101, &IManagerRootService::RejectUnavailableFatalDisplay, "ShowFatal"},
+        {102, &IManagerRootService::RejectUnavailableFatalDisplay, "DrawFatalRectangle"},
+        {103, &IManagerRootService::RejectUnavailableFatalDisplay, "DrawFatalText32"},
     };
     RegisterHandlers(functions);
+}
+
+void IManagerRootService::RejectUnavailableFatalDisplay(HLERequestContext& ctx) {
+    // Encore has no Horizon fatal-screen drawing backend on PS5. Keep the normal
+    // vi:m display-service path intact and fail the fatal-only surface explicitly.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 IManagerRootService::~IManagerRootService() = default;

@@ -771,8 +771,8 @@
       "upstream": "6602683a55dc526fe8eb744a059aff37d0d4a8f619ef745267360f4d172652d0"
     },
     "src/core/hle/service/vi/manager_root_service.cpp": {
-      "active": "e4c9cdb0c053aa56aea27958ce5da78e1d2ba5804f704050d521475f449545d5",
-      "bytes": 1621,
+      "active": "18c357a27b6360dbaa3fbcbcdf92ed0f4414f0b781bf30ae6f5016d1d8c2b7c8",
+      "bytes": 2165,
       "upstream": "51868893a55f90bbc4d0a7375048c388120e03acc415908781cd635bc906d1c5"
     },
     "src/core/hle/service/vi/system_display_service.cpp": {
@@ -1399,6 +1399,11 @@
       "active": "ea74597c0ea3786eebb8f0babd03fe8890ebc120f9e4f71bc343420c00fc3293",
       "bytes": 591,
       "upstream": "ff99aa15a1f2e30c36ea73a24f60276f28839cc0964b32f296abcfca7fdfedf7"
+    },
+    "src/core/hle/service/vi/manager_root_service.h": {
+      "active": "c7dd52009c52cfced1dd1d04aa4630305aad59fafe972f1eab9a2139bcdcfdb0",
+      "bytes": 860,
+      "upstream": "8bb348adfddec6676e0deca4b5cf37a981ef999928e64e1148d1539d14c79ed1"
     }
   },
   "excluded_experimental": [
