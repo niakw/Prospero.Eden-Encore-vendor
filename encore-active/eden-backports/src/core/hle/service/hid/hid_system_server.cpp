@@ -6,6 +6,7 @@
 
 #include "core/core.h"
 #include "hid_core/hid_core.h"
+#include "hid_core/hid_util.h"
 #include "hid_core/frontend/emulated_controller.h"
 #include "hid_core/frontend/emulated_devices.h"
 #include "core/hle/service/hid/hid_system_server.h"
@@ -379,17 +380,30 @@ void IHidSystemServer::GetNpadFullKeyGripColor(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const auto npad_id_type{rp.PopEnum<Core::HID::NpadIdType>()};
 
-    LOG_DEBUG(Service_HID, "(STUBBED) called, npad_id_type={}",
-              npad_id_type); // Spams a lot when controller applet is running
+    Core::HID::NpadColor main_color{};
+    Core::HID::NpadColor sub_color{};
+    Result result = ResultInvalidNpadId;
 
-    Core::HID::NpadColor left_color{};
-    Core::HID::NpadColor right_color{};
-    // TODO: Get colors from Npad
+    if (IsNpadIdValid(npad_id_type)) {
+        const auto* controller = system.HIDCore().GetEmulatedController(npad_id_type);
+        if (controller != nullptr && controller->IsConnected() &&
+            controller->GetNpadStyleIndex() == Core::HID::NpadStyleIndex::Fullkey) {
+            const auto colors = controller->GetColors();
+            main_color = colors.fullkey.body;
+            sub_color = colors.fullkey.button;
+            result = ResultSuccess;
+        } else {
+            result = ResultNpadIsNotProController;
+        }
+    }
+
+    LOG_DEBUG(Service_HID, "called, npad_id_type={}, result={:#x}", npad_id_type,
+              result.raw);
 
     IPC::ResponseBuilder rb{ctx, 4};
-    rb.Push(ResultSuccess);
-    rb.PushRaw(left_color);
-    rb.PushRaw(right_color);
+    rb.Push(result);
+    rb.PushRaw(main_color);
+    rb.PushRaw(sub_color);
 }
 
 void IHidSystemServer::GetMaskedSupportedNpadStyleSet(HLERequestContext& ctx) {
@@ -460,58 +474,71 @@ void IHidSystemServer::GetNpadInterfaceType(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const auto npad_id_type{rp.PopEnum<Core::HID::NpadIdType>()};
 
-    LOG_DEBUG(Service_HID, "(STUBBED) called, npad_id_type={}",
-              npad_id_type); // Spams a lot when controller applet is running
+    Core::HID::NpadInterfaceType interface_type{};
+    const Result result =
+        GetResourceManager()->GetNpad()->GetNpadInterfaceType(npad_id_type, interface_type);
+
+    LOG_DEBUG(Service_HID, "called, npad_id_type={}, interface_type={}, result={:#x}",
+              npad_id_type, interface_type, result.raw);
 
     IPC::ResponseBuilder rb{ctx, 3};
-    rb.Push(ResultSuccess);
-    rb.PushEnum(Core::HID::NpadInterfaceType::Bluetooth);
+    rb.Push(result);
+    rb.PushEnum(interface_type);
 }
 
 void IHidSystemServer::GetNpadLeftRightInterfaceType(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const auto npad_id_type{rp.PopEnum<Core::HID::NpadIdType>()};
 
-    LOG_DEBUG(Service_HID, "(STUBBED) called, npad_id_type={}",
-              npad_id_type); // Spams a lot when controller applet is running
+    Core::HID::NpadInterfaceType left_interface_type{};
+    Core::HID::NpadInterfaceType right_interface_type{};
+    const Result result = GetResourceManager()->GetNpad()->GetNpadLeftRightInterfaceType(
+        npad_id_type, left_interface_type, right_interface_type);
+
+    LOG_DEBUG(Service_HID,
+              "called, npad_id_type={}, left_interface_type={}, right_interface_type={}, result={:#x}",
+              npad_id_type, left_interface_type, right_interface_type, result.raw);
 
     IPC::ResponseBuilder rb{ctx, 4};
-    rb.Push(ResultSuccess);
-    rb.PushEnum(Core::HID::NpadInterfaceType::Bluetooth);
-    rb.PushEnum(Core::HID::NpadInterfaceType::Bluetooth);
+    rb.Push(result);
+    rb.PushEnum(left_interface_type);
+    rb.PushEnum(right_interface_type);
 }
 
 void IHidSystemServer::HasBattery(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const auto npad_id_type{rp.PopEnum<Core::HID::NpadIdType>()};
 
-    LOG_DEBUG(Service_HID, "(STUBBED) called, npad_id_type={}",
-              npad_id_type); // Spams a lot when controller applet is running
+    bool has_battery{};
+    const Result result = GetResourceManager()->GetNpad()->HasBattery(npad_id_type, has_battery);
+
+    LOG_DEBUG(Service_HID, "called, npad_id_type={}, has_battery={}, result={:#x}",
+              npad_id_type, has_battery, result.raw);
 
     IPC::ResponseBuilder rb{ctx, 3};
-    rb.Push(ResultSuccess);
-    rb.Push(false);
+    rb.Push(result);
+    rb.Push(has_battery);
 }
 
 void IHidSystemServer::HasLeftRightBattery(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const auto npad_id_type{rp.PopEnum<Core::HID::NpadIdType>()};
 
-    LOG_DEBUG(Service_HID, "(STUBBED) called, npad_id_type={}",
-              npad_id_type); // Spams a lot when controller applet is running
-
     struct LeftRightBattery {
         bool left;
         bool right;
     };
 
-    LeftRightBattery left_right_battery{
-        .left = false,
-        .right = false,
-    };
+    LeftRightBattery left_right_battery{};
+    const Result result = GetResourceManager()->GetNpad()->HasLeftRightBattery(
+        npad_id_type, left_right_battery.left, left_right_battery.right);
+
+    LOG_DEBUG(Service_HID,
+              "called, npad_id_type={}, left={}, right={}, result={:#x}",
+              npad_id_type, left_right_battery.left, left_right_battery.right, result.raw);
 
     IPC::ResponseBuilder rb{ctx, 3};
-    rb.Push(ResultSuccess);
+    rb.Push(result);
     rb.PushRaw(left_right_battery);
 }
 
@@ -773,9 +800,13 @@ void IHidSystemServer::IsJoyConRailEnabled(HLERequestContext& ctx) {
 }
 
 void IHidSystemServer::IsJoyConAttachedOnAllRail(HLERequestContext& ctx) {
-    const bool is_attached = true;
+    const auto* handheld =
+        system.HIDCore().GetEmulatedController(Core::HID::NpadIdType::Handheld);
+    const bool is_attached =
+        firmware_settings->IsRailEnabled() && handheld != nullptr && handheld->IsConnected() &&
+        handheld->GetNpadStyleIndex() == Core::HID::NpadStyleIndex::Handheld;
 
-    LOG_DEBUG(Service_HID, "(STUBBED) called, is_attached={}", is_attached);
+    LOG_DEBUG(Service_HID, "called, is_attached={}", is_attached);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
@@ -799,17 +830,17 @@ void IHidSystemServer::AcquireDeviceRegisteredEventForControllerSupport(HLEReque
 }
 
 void IHidSystemServer::GetRegisteredDevices(HLERequestContext& ctx) {
-    LOG_WARNING(Service_HID, "(STUBBED) called, command={}", ctx.GetCommand()); //548 or 551
-
+    // Encore does not expose a persistent Nintendo Bluetooth pairing database on PS5.
+    // Connected emulated controllers are reported through the NPad/UniquePad paths instead.
     struct RegisterData {
         std::array<u8, 0x68> data;
     };
     static_assert(sizeof(RegisterData) == 0x68, "RegisterData is an invalid size");
-    std::vector<RegisterData> registered_devices{};
+    const std::vector<RegisterData> registered_devices{};
 
-    if (!registered_devices.empty()) {
-        ctx.WriteBuffer(registered_devices);
-    }
+    LOG_DEBUG(Service_HID,
+              "called, command={}; no persistent Switch registered-device database",
+              ctx.GetCommand()); // 548 or 551
 
     IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(ResultSuccess);
@@ -938,7 +969,9 @@ void IHidSystemServer::CheckUsbFirmwareUpdateRequired(HLERequestContext& ctx) {
 }
 
 void IHidSystemServer::InitializeUsbFirmwareUpdateWithoutMemory(HLERequestContext& ctx) {
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    // The PS5 host has no Nintendo-controller USB firmware-update backend. This is a
+    // successful no-op paired with CheckUsbFirmwareUpdateRequired reporting no work.
+    LOG_DEBUG(Service_HID, "called; Nintendo USB firmware-update backend is not present");
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
@@ -1023,9 +1056,11 @@ void IHidSystemServer::SetForceHandheldStyleVibration(HLERequestContext& ctx) {
 }
 
 void IHidSystemServer::IsUsingCustomButtonConfig(HLERequestContext& ctx) {
-    const bool is_enabled = false;
+    // Guest-side Nintendo button-remap storage is not exposed by Encore; host input
+    // mappings are an emulator concern and must not be reported as a guest custom config.
+    constexpr bool is_enabled = false;
 
-    LOG_DEBUG(Service_HID, "(STUBBED) called, is_enabled={}", is_enabled);
+    LOG_DEBUG(Service_HID, "called, is_enabled={}", is_enabled);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
@@ -1033,9 +1068,10 @@ void IHidSystemServer::IsUsingCustomButtonConfig(HLERequestContext& ctx) {
 }
 
 void IHidSystemServer::IsAnyCustomButtonConfigEnabled(HLERequestContext& ctx) {
-    const bool is_enabled = false;
+    // See IsUsingCustomButtonConfig: Encore has no guest Nintendo remap database.
+    constexpr bool is_enabled = false;
 
-    LOG_DEBUG(Service_HID, "(STUBBED) called, is_enabled={}", is_enabled);
+    LOG_DEBUG(Service_HID, "called, is_enabled={}", is_enabled);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
