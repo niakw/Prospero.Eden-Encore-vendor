@@ -46,7 +46,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {0, D<&IApplicationManagerInterface::ListApplicationRecord>, "ListApplicationRecord"},
         {1, D<&IApplicationManagerInterface::GenerateApplicationRecordCount>, "GenerateApplicationRecordCount"},
         {2, D<&IApplicationManagerInterface::GetApplicationRecordUpdateSystemEvent>, "GetApplicationRecordUpdateSystemEvent"},
-        {3, nullptr, "GetApplicationViewDeprecated"},
+        {3, D<&IApplicationManagerInterface::GetApplicationViewDeprecated>, "GetApplicationViewDeprecated"},
         {4, D<&IApplicationManagerInterface::DeleteApplicationEntity>, "DeleteApplicationEntity"},
         {5, D<&IApplicationManagerInterface::DeleteApplicationCompletely>, "DeleteApplicationCompletely"},
         {6, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "IsAnyApplicationEntityRedundant"},
