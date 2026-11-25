@@ -4,6 +4,10 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "core/core.h"
+#include "core/hle/service/am/applet.h"
+#include "core/hle/service/am/applet_manager.h"
+#include "core/hle/service/am/window_system.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/nvnflinger/hos_binder_driver.h"
 #include "core/hle/service/nvnflinger/parcel.h"
@@ -41,7 +45,7 @@ IApplicationDisplayService::IApplicationDisplayService(Core::System& system_,
         {2102, C<&IApplicationDisplayService::ConvertScalingMode>, "ConvertScalingMode"},
         {2103, C<&IApplicationDisplayService::Cmd2103>, "Cmd2103"},
         {2450, C<&IApplicationDisplayService::GetIndirectLayerImageMap>, "GetIndirectLayerImageMap"},
-        {2451, nullptr, "GetIndirectLayerImageCropMap"},
+        {2451, C<&IApplicationDisplayService::GetIndirectLayerImageCropMap>, "GetIndirectLayerImageCropMap"},
         {2460, C<&IApplicationDisplayService::GetIndirectLayerImageRequiredMemoryInfo>, "GetIndirectLayerImageRequiredMemoryInfo"},
         {5202, C<&IApplicationDisplayService::GetDisplayVsyncEvent>, "GetDisplayVsyncEvent"},
         {5203, C<&IApplicationDisplayService::GetDisplayVsyncEvent>, "GetDisplayVsyncEventForDebug"},
@@ -299,14 +303,45 @@ Result IApplicationDisplayService::Cmd2103(Out<std::array<u8, 0x18>> out_unk18) 
 Result IApplicationDisplayService::GetIndirectLayerImageMap(
     Out<u64> out_size, Out<u64> out_stride,
     OutBuffer<BufferAttr_HipcMapTransferAllowsNonSecure | BufferAttr_HipcMapAlias> out_buffer,
-    s64 width, s64 height, u64 indirect_layer_consumer_handle, ClientAppletResourceUserId aruid) {
-    LOG_WARNING(
-        Service_VI,
-        "(STUBBED) called, width={}, height={}, indirect_layer_consumer_handle={}, aruid={:#x}",
-        width, height, indirect_layer_consumer_handle, aruid.pid);
-    *out_size = 0;
-    *out_stride = 0;
-    R_SUCCEED();
+    s64 width, s64 height, u64 indirect_layer_consumer_handle, u64 applet_resource_user_id,
+    ClientProcessId process_id) {
+    R_UNLESS(width > 0 && height > 0, ResultOperationFailed);
+
+    auto* window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, ResultNotFound);
+
+    const auto caller = window_system->GetByAppletResourceUserId(applet_resource_user_id);
+    R_UNLESS(caller != nullptr && caller->process != nullptr, ResultPermissionDenied);
+    R_UNLESS(process_id.pid != 0 && caller->process->GetProcessId() == process_id.pid,
+             ResultPermissionDenied);
+
+    const auto child = window_system->GetByAppletResourceUserId(indirect_layer_consumer_handle);
+    R_UNLESS(child != nullptr, ResultNotFound);
+    R_UNLESS(child->library_applet_mode ==
+                 AM::LibraryAppletMode::PartialForegroundWithIndirectDisplay,
+             ResultPermissionDenied);
+    R_UNLESS(child->caller_applet.lock() == caller, ResultPermissionDenied);
+
+    LOG_WARNING(Service_VI,
+                "Indirect-layer image backend unavailable: caller_pid={}, caller_aruid={}, "
+                "child_aruid={}, width={}, height={}, buffer_size={}",
+                process_id.pid, applet_resource_user_id, indirect_layer_consumer_handle, width,
+                height, out_buffer.size());
+    R_THROW(ResultNotSupported);
+}
+
+Result IApplicationDisplayService::GetIndirectLayerImageCropMap(
+    Out<u64> out_size, Out<u64> out_stride,
+    OutBuffer<BufferAttr_HipcMapTransferAllowsNonSecure | BufferAttr_HipcMapAlias> out_buffer,
+    float x1, float y1, float x2, float y2, s64 width, s64 height,
+    u64 indirect_layer_consumer_handle, u64 applet_resource_user_id,
+    ClientProcessId process_id) {
+    LOG_DEBUG(Service_VI,
+              "GetIndirectLayerImageCropMap crop=({}, {}, {}, {}), width={}, height={}", x1, y1,
+              x2, y2, width, height);
+    R_RETURN(GetIndirectLayerImageMap(out_size, out_stride, out_buffer, width, height,
+                                      indirect_layer_consumer_handle, applet_resource_user_id,
+                                      process_id));
 }
 
 Result IApplicationDisplayService::GetIndirectLayerImageRequiredMemoryInfo(Out<s64> out_size,
