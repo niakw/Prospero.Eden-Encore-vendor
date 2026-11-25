@@ -124,6 +124,7 @@ public:
     Result TerminateSystemApplet(u64 program_id);
     Result LaunchOverlayApplet(Out<u64> out_process_id);
     Result TerminateOverlayApplet(u64 program_id);
+    Result IsQualificationTransitionSupported(Out<bool> out_is_supported, u64 application_id);
     Result IsQualificationTransitionSupportedByProcessId(Out<bool> out_is_supported,
                                                          u64 process_id);
     Result DeleteApplicationEntity(u64 application_id);
