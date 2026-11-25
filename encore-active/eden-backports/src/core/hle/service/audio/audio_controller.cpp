@@ -35,8 +35,8 @@ IAudioController::IAudioController(Core::System& system_)
         {8, D<&IAudioController::GetDefaultTarget>, "GetDefaultTarget"},
         {9, D<&IAudioController::GetAudioOutputMode>, "GetAudioOutputMode"},
         {10, D<&IAudioController::SetAudioOutputMode>, "SetAudioOutputMode"},
-        {11, D<&IAudioController::SetForceMutePolicy>, "SetForceMutePolicy"},
-        {12, D<&IAudioController::GetForceMutePolicy>, "GetForceMutePolicy"},
+        {11, &IAudioController::RejectLegacyAudioControl, "SetForceMutePolicy"}, //1.0.0-13.2.1
+        {12, &IAudioController::RejectLegacyAudioControl, "GetForceMutePolicy"}, //1.0.0-13.2.1
         {13, D<&IAudioController::GetOutputModeSetting>, "GetOutputModeSetting"},
         {14, D<&IAudioController::SetOutputModeSetting>, "SetOutputModeSetting"},
         {15, D<&IAudioController::SetOutputTarget>, "SetOutputTarget"},
@@ -45,43 +45,43 @@ IAudioController::IAudioController(Core::System& system_)
         {18, D<&IAudioController::GetHeadphoneOutputLevelMode>, "GetHeadphoneOutputLevelMode"},
         {19, D<&IAudioController::SetForceMonauralOutputModeEnabled>, "SetForceMonauralOutputModeEnabled"},
         {20, D<&IAudioController::IsForceMonauralOutputModeEnabled>, "IsForceMonauralOutputModeEnabled"},
-        {21, D<&IAudioController::GetAudioOutputTargetForPlayReport>, "GetAudioOutputTargetForPlayReport"},
+        {21, &IAudioController::RejectLegacyAudioControl, "GetAudioOutputTargetForPlayReport"}, //3.0.0-13.2.1
         {22, D<&IAudioController::NotifyHeadphoneVolumeWarningDisplayedEvent>, "NotifyHeadphoneVolumeWarningDisplayedEvent"},
         {23, D<&IAudioController::SetSystemOutputMasterVolume>, "SetSystemOutputMasterVolume"},
         {24, D<&IAudioController::GetSystemOutputMasterVolume>, "GetSystemOutputMasterVolume"},
         {25, &IAudioController::RejectUnknownHOS23AudioControl, "Unknown25"}, //20.0.0+: old play-report ABI removed
         {26, &IAudioController::RejectLegacyAudioControl, "UpdateHeadphoneSettings"}, //4.0.0-14.1.2
-        {27, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetVolumeMappingTableForDev"},
-        {28, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetAudioOutputChannelCountForPlayReport"},
-        {29, &IAudioController::RejectUnavailableReportingOrDebugCommand, "BindAudioOutputChannelCountUpdateEventForPlayReport"},
+        {27, &IAudioController::RejectLegacyAudioControl, "SetVolumeMappingTableForDev"}, //7.0.0-16.1.0
+        {28, &IAudioController::RejectLegacyAudioControl, "GetAudioOutputChannelCountForPlayReport"}, //10.0.0-13.2.1
+        {29, &IAudioController::RejectLegacyAudioControl, "BindAudioOutputChannelCountUpdateEventForPlayReport"}, //10.0.0-13.2.1
         {30, D<&IAudioController::SetSpeakerAutoMuteEnabled>, "SetSpeakerAutoMuteEnabled"},
         {31, D<&IAudioController::IsSpeakerAutoMuteEnabled>, "IsSpeakerAutoMuteEnabled"},
         {32, D<&IAudioController::GetActiveOutputTarget>, "GetActiveOutputTarget"},
         {33, &IAudioController::GetTargetDeviceInfo, "GetTargetDeviceInfo"},
         {34, D<&IAudioController::AcquireTargetNotification>, "AcquireTargetNotification"},
-        {35, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetHearingProtectionSafeguardTimerRemainingTimeForDebug"},
-        {36, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetHearingProtectionSafeguardTimerRemainingTimeForDebug"},
-        {37, D<&IAudioController::SetHearingProtectionSafeguardEnabled>, "SetHearingProtectionSafeguardEnabled"},
-        {38, D<&IAudioController::IsHearingProtectionSafeguardEnabled>, "IsHearingProtectionSafeguardEnabled"},
-        {39, &IAudioController::RejectUnavailableReportingOrDebugCommand, "IsHearingProtectionSafeguardMonitoringOutputForDebug"},
+        {35, &IAudioController::RejectLegacyAudioControl, "SetHearingProtectionSafeguardTimerRemainingTimeForDebug"}, //14.0.0-14.1.2
+        {36, &IAudioController::RejectLegacyAudioControl, "GetHearingProtectionSafeguardTimerRemainingTimeForDebug"}, //14.0.0-14.1.2
+        {37, &IAudioController::RejectLegacyAudioControl, "SetHearingProtectionSafeguardEnabled"}, //14.0.0-14.1.2
+        {38, &IAudioController::RejectLegacyAudioControl, "IsHearingProtectionSafeguardEnabled"}, //14.0.0-14.1.2
+        {39, &IAudioController::RejectLegacyAudioControl, "IsHearingProtectionSafeguardMonitoringOutputForDebug"}, //14.0.0-14.1.2
         {40, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetSystemInformationForDebug"},
-        {41, D<&IAudioController::SetVolumeButtonLongPressTime>, "SetVolumeButtonLongPressTime"},
+        {41, &IAudioController::RejectLegacyAudioControl, "SetVolumeButtonLongPressTime"}, //15.0.0-19.0.1
         {42, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetNativeVolumeForDebug"},
         {43, &IAudioController::RejectUnknownHOS23AudioControl, "Unknown43"}, //21.0.0+
         {5000, D<&IAudioController::Unknown5000>, "Unknown5000"}, //19.0.0+
-        {10000, &IAudioController::RejectUnavailableReportingOrDebugCommand, "NotifyAudioOutputTargetForPlayReport"},
-        {10001, &IAudioController::RejectUnavailableReportingOrDebugCommand, "NotifyAudioOutputChannelCountForPlayReport"},
-        {10002, &IAudioController::RejectUnavailableReportingOrDebugCommand, "NotifyUnsupportedUsbOutputDeviceAttachedForPlayReport"},
+        {10000, &IAudioController::RejectLegacyAudioControl, "NotifyAudioOutputTargetForPlayReport"}, //13.0.0-19.0.1
+        {10001, &IAudioController::RejectLegacyAudioControl, "NotifyAudioOutputChannelCountForPlayReport"}, //13.0.0-19.0.1
+        {10002, &IAudioController::RejectLegacyAudioControl, "NotifyUnsupportedUsbOutputDeviceAttachedForPlayReport"}, //13.0.0-19.0.1
         {10100, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetAudioVolumeDataForPlayReport"},
         {10101, &IAudioController::RejectUnavailableReportingOrDebugCommand, "BindAudioVolumeUpdateEventForPlayReport"},
-        {10102, &IAudioController::RejectUnavailableReportingOrDebugCommand, "BindAudioOutputTargetUpdateEventForPlayReport"},
-        {10103, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetAudioOutputTargetForPlayReport"},
-        {10104, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetAudioOutputChannelCountForPlayReport"},
-        {10105, &IAudioController::RejectUnavailableReportingOrDebugCommand, "BindAudioOutputChannelCountUpdateEventForPlayReport"}, //14.0.0-19.0.1
-        {10106, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetDefaultAudioOutputTargetForPlayReport"}, //14.0.0-19.0.1
+        {10102, &IAudioController::RejectLegacyAudioControl, "BindAudioOutputTargetUpdateEventForPlayReport"}, //14.0.0-19.0.1
+        {10103, &IAudioController::RejectLegacyAudioControl, "GetAudioOutputTargetForPlayReport"}, //14.0.0-19.0.1
+        {10104, &IAudioController::RejectLegacyAudioControl, "GetAudioOutputChannelCountForPlayReport"}, //14.0.0-19.0.1
+        {10105, &IAudioController::RejectLegacyAudioControl, "BindAudioOutputChannelCountUpdateEventForPlayReport"}, //14.0.0-19.0.1
+        {10106, &IAudioController::RejectLegacyAudioControl, "GetDefaultAudioOutputTargetForPlayReport"}, //14.0.0-19.0.1
         {10200, &IAudioController::RejectUnknownHOS23AudioControl, "Unknown10200"}, //20.0.0+
-        {50000, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetAnalogInputBoostGainForPrototyping"}, //15.0.0-18.1.0
-        {50001, &IAudioController::RejectUnavailableReportingOrDebugCommand, "OverrideDefaultTargetForDebug"}, //19.0.0-19.0.1
+        {50000, &IAudioController::RejectLegacyAudioControl, "SetAnalogInputBoostGainForPrototyping"}, //15.0.0-18.1.0
+        {50001, &IAudioController::RejectLegacyAudioControl, "OverrideDefaultTargetForDebug"}, //19.0.0-19.0.1
         {50003, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetForceOverrideExternalDeviceNameForDebug"}, //19.0.0+
         {50004, &IAudioController::RejectUnavailableReportingOrDebugCommand, "ClearForceOverrideExternalDeviceNameForDebug"} //19.0.0+
     };
