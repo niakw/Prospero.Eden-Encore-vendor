@@ -152,6 +152,7 @@ private:
     void Close(HLERequestContext& ctx);
     void DuplicateSocket(HLERequestContext& ctx);
     void EventFd(HLERequestContext& ctx);
+    void RejectUnsupportedBsdExtension(HLERequestContext& ctx);
 
     template <typename Work>
     void ExecuteWork(HLERequestContext& ctx, Work work);
@@ -207,6 +208,9 @@ class BSD_NU final : public ServiceFramework<BSD_NU> {
 public:
     explicit BSD_NU(Core::System& system_);
     ~BSD_NU() override;
+
+private:
+    void RejectUnsupportedUserServiceFactory(HLERequestContext& ctx);
 };
 
 } // namespace Service::Sockets
