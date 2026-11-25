@@ -28,6 +28,7 @@ private:
     Result Write(
         InBuffer<BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> in_bytes,
         s64 offset, s64 length);
+    Result Flush();
     Result SetSize(s64 size);
     Result GetSize(Out<u64> out_size);
 };

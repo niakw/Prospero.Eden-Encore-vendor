@@ -20,7 +20,7 @@ IStorage::IStorage(Core::System& system_, FileSys::VirtualFile backend_)
     static const FunctionInfo functions[] = {
         {0, D<&IStorage::Read>, "Read"},
         {1, D<&IStorage::Write>, "Write"},
-        {2, nullptr, "Flush"},
+        {2, D<&IStorage::Flush>, "Flush"},
         {3, D<&IStorage::SetSize>, "SetSize"},
         {4, D<&IStorage::GetSize>, "GetSize"},
         {5, nullptr, "OperateRange"},
@@ -89,6 +89,12 @@ Result IStorage::Write(
                                         static_cast<std::size_t>(write_offset));
     R_UNLESS(written == static_cast<std::size_t>(write_length), FileSys::ResultWriteNotPermitted);
 
+    R_SUCCEED();
+}
+
+Result IStorage::Flush() {
+    // There is no deferred flush queue in the VFS. Writes complete in
+    // IStorage::Write, matching FileSys::Fsa::IFile::DoFlush semantics.
     R_SUCCEED();
 }
 
