@@ -682,8 +682,8 @@
     },
     "src/core/hle/service/pm/pm.cpp": {
       "upstream": "e6d2758d23ee1760c07d85fbf6edabd2222fec1c17e813e8809a346a93c94cfd",
-      "active": "7136735f7e157cd353baa126ca85b8a589ba683205151510180487c7c9f3ae73",
-      "bytes": 13340
+      "active": "b7dad8ea37f1db5cac483c5c594e8c6f1f16bb3f4100723c205f2fe10b18e388",
+      "bytes": 15582
     },
     "src/core/hle/service/ro/ro.cpp": {
       "upstream": "c0d3ac321243f96a9dd58b29e18722a762d267b0459c86ec6845d46d019b31f8",

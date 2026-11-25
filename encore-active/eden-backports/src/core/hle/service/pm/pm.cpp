@@ -232,17 +232,26 @@ private:
 
 };
 
+enum class ProcessEvent : u32 { None = 0, Exit = 1, Start = 2, Crash = 3, DebugStart = 4, DebugBreak = 5 };
+
+struct ProcessEventInfo {
+    ProcessEvent event{ProcessEvent::None};
+    u32 pad{};
+    u64 process_id{};
+};
+static_assert(sizeof(ProcessEventInfo) == 0x10);
+
 class Shell final : public ServiceFramework<Shell> {
 public:
     explicit Shell(Core::System& system_)
         : ServiceFramework{system_, "pm:shell"}, service_context{system_, "PM::Shell"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "LaunchProgram"},
+            {0, &Shell::RejectUnsupportedLaunchProgram, "LaunchProgram"},
             {1, &Shell::TerminateProcess, "TerminateProcess"},
             {2, &Shell::TerminateProgram, "TerminateProgram"},
-            {3, nullptr, "GetProcessEventHandle"},
-            {4, nullptr, "GetProcessEventInfo"},
+            {3, &Shell::GetProcessEventHandle, "GetProcessEventHandle"},
+            {4, &Shell::GetProcessEventInfo, "GetProcessEventInfo"},
             {5, &Shell::NotifyBootFinished, "NotifyBootFinished"},
             {6, &Shell::GetApplicationProcessIdForShell, "GetApplicationProcessIdForShell"},
             {7, &Shell::AcceptResourceLimitNoop, "BoostSystemMemoryResourceLimit"},
@@ -256,9 +265,11 @@ public:
         RegisterHandlers(functions);
 
         boot_finished_event = service_context.CreateEvent("PM::Shell::BootFinishedEvent");
+        process_event = service_context.CreateEvent("PM::Shell::ProcessEvent");
     }
 
     ~Shell() override {
+        service_context.CloseEvent(process_event);
         service_context.CloseEvent(boot_finished_event);
     }
 
@@ -276,8 +287,13 @@ private:
             return;
         }
 
+        const Result result = process->Terminate(system.Kernel());
+        if (R_SUCCEEDED(result)) {
+            PublishProcessEvent(ProcessEvent::Exit, process_id);
+        }
+
         IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(process->Terminate(system.Kernel()));
+        rb.Push(result);
     }
 
     void TerminateProgram(HLERequestContext& ctx) {
@@ -295,8 +311,48 @@ private:
             return;
         }
 
+        const auto process_id = process->GetProcessId();
+        const Result result = process->Terminate(system.Kernel());
+        if (R_SUCCEEDED(result)) {
+            PublishProcessEvent(ProcessEvent::Exit, process_id);
+        }
+
         IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(process->Terminate(system.Kernel()));
+        rb.Push(result);
+    }
+
+    void RejectUnsupportedLaunchProgram(HLERequestContext& ctx) {
+        LOG_WARNING(Service_PM, "Rejected pm:shell LaunchProgram: loader/process backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
+    void GetProcessEventHandle(HLERequestContext& ctx) {
+        LOG_DEBUG(Service_PM, "called");
+        IPC::ResponseBuilder rb{ctx, 2, 1};
+        rb.Push(ResultSuccess);
+        rb.PushCopyObjects(ctx, process_event->GetReadableEvent());
+    }
+
+    void GetProcessEventInfo(HLERequestContext& ctx) {
+        LOG_DEBUG(Service_PM, "called, pending={}, event={}, pid={:016X}",
+                  process_event_pending, last_process_event.event, last_process_event.process_id);
+
+        IPC::ResponseBuilder rb{ctx, 6};
+        rb.Push(ResultSuccess);
+        rb.PushRaw(last_process_event);
+
+        if (process_event_pending) {
+            process_event_pending = false;
+            process_event->GetReadableEvent().Clear(system.Kernel());
+            last_process_event = {};
+        }
+    }
+
+    void PublishProcessEvent(ProcessEvent event, u64 process_id) {
+        last_process_event = {.event = event, .pad = 0, .process_id = process_id};
+        process_event_pending = true;
+        process_event->Signal(system.Kernel());
     }
 
     void NotifyBootFinished(HLERequestContext& ctx) {
@@ -343,6 +399,9 @@ private:
 
     KernelHelpers::ServiceContext service_context;
     Kernel::KEvent* boot_finished_event{};
+    Kernel::KEvent* process_event{};
+    ProcessEventInfo last_process_event{};
+    bool process_event_pending{};
     void AcceptResourceLimitNoop(HLERequestContext& ctx) {
         // Encore does not emulate Horizon resource-limit boost quotas. The host
         // scheduler/memory limits are unchanged, so accepting the guest request
