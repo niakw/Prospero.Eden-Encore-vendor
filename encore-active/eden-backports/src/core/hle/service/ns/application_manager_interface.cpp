@@ -1415,12 +1415,14 @@ Result IApplicationManagerInterface::LaunchApplicationOld(
 Result IApplicationManagerInterface::LaunchApplication(
     Out<u64> out_process_id, u8 program_index, ApplicationLaunchInfoV19 launch_info) {
     LOG_INFO(Service_NS,
-             "called, application_id={:016X}, program_id={:016X}, program_index={}",
-             launch_info.application_id, launch_info.program_id, program_index);
+             "called, application_id={:016X}, patch_id={:016X}, program_index={}",
+             launch_info.application_id, launch_info.patch_id, program_index);
 
+    // HOS 19+ ApplicationLaunchInfo[0x08] is PatchId, not ProgramId.
+    // ProgramIndex selects the program NCA inside the application.
     const u64 application_id = FileSys::GetBaseTitleID(launch_info.application_id);
     const u64 program_id =
-        launch_info.program_id != 0 ? launch_info.program_id : application_id + program_index;
+        FileSys::GetBaseTitleIDWithProgramIndex(application_id, program_index);
     R_RETURN(LaunchApplicationByProgramId(out_process_id.Get(), program_index, application_id,
                                          program_id));
 }
@@ -1429,12 +1431,9 @@ Result IApplicationManagerInterface::GetApplicationLaunchInfo(
     Out<ApplicationLaunchInfoV19> out_launch_info, u64 application_id) {
     auto& storage = system.GetContentProviderUnion();
     const u64 base_application_id = FileSys::GetBaseTitleID(application_id);
-    const u64 program_id =
-        storage.HasEntry(application_id, FileSys::ContentRecordType::Program)
-            ? application_id
-            : base_application_id;
+    const u64 patch_id = FileSys::GetUpdateTitleID(base_application_id);
 
-    R_UNLESS(storage.HasEntry(program_id, FileSys::ContentRecordType::Program),
+    R_UNLESS(storage.HasEntry(base_application_id, FileSys::ContentRecordType::Program),
              AM::ResultApplicationRecordNotFound);
 
     const auto storage_id_for_slot = [](std::optional<FileSys::ContentProviderUnionSlot> slot) {
@@ -1455,20 +1454,25 @@ Result IApplicationManagerInterface::GetApplicationLaunchInfo(
         }
     };
 
-    FileSys::PatchManager patch_manager{program_id, system.GetFileSystemController(), storage};
+    auto update_slot =
+        storage.GetSlotForEntry(patch_id, FileSys::ContentRecordType::Program);
+    if (!update_slot.has_value()) {
+        update_slot = storage.GetSlotForEntry(patch_id, FileSys::ContentRecordType::Meta);
+    }
+    const bool has_patch = update_slot.has_value();
+
+    FileSys::PatchManager patch_manager{base_application_id, system.GetFileSystemController(),
+                                        storage};
 
     *out_launch_info = {};
     out_launch_info->application_id = base_application_id;
-    out_launch_info->program_id = program_id;
+    out_launch_info->patch_id = has_patch ? patch_id : 0;
     out_launch_info->version = patch_manager.GetGameVersion().value_or(0);
+    out_launch_info->content_meta_type = static_cast<u32>(FileSys::TitleType::Application);
+    out_launch_info->launch_flags = 0xB;
     out_launch_info->application_storage_id = static_cast<u8>(storage_id_for_slot(
-        storage.GetSlotForEntry(program_id, FileSys::ContentRecordType::Program)));
-    out_launch_info->update_storage_id = static_cast<u8>(storage_id_for_slot(
-        storage.GetSlotForEntry(FileSys::GetUpdateTitleID(base_application_id),
-                                FileSys::ContentRecordType::Program)));
-    // GetApplicationLaunchInfo is the pre-launch form. Horizon fills the
-    // application-instance id at 0x30 later, during CreateApplicationInstance.
-    out_launch_info->application_instance_id = 0;
+        storage.GetSlotForEntry(base_application_id, FileSys::ContentRecordType::Program)));
+    out_launch_info->update_storage_id = static_cast<u8>(storage_id_for_slot(update_slot));
     R_SUCCEED();
 }
 
