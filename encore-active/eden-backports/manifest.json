@@ -381,8 +381,8 @@
       "upstream": "5029fbc1a9eedaa6937198ad25bf352ce97b442b0be1ce77f92cb9305d6cef4a"
     },
     "src/core/hle/service/es/es.cpp": {
-      "active": "385bc0a4486c6ecbd4d7fdc8944e945a0f6a7c73b1177106db34ba03a5417d75",
-      "bytes": 22875,
+      "active": "13c992000788179a053c525b5011076a3718137307ce5b7fb0241768fc604739",
+      "bytes": 22889,
       "upstream": "fb2386ef1e53f8a5e8ede1f8d11d98c312b205a337ed0350c72210520c8da605"
     },
     "src/core/hle/service/eupld/eupld.cpp": {
@@ -1324,6 +1324,16 @@
       "active": "cd73269910de7b550e88c74d812382f6c03af6ea889313a12fd5b85753082008",
       "bytes": 859,
       "upstream": "eea2f91394eb9a47fb6364f4f1542701ddb5f44304944d0edd9dd2c42f9dc07b"
+    },
+    "src/core/hle/service/ns/document_interface.cpp": {
+      "active": "046f8995b76f272349b9549a34477b70a4b754ac821fff6fd21642d8f0c8fe9f",
+      "bytes": 5376,
+      "upstream": "64d793774ade848e7ad3335c7797dfe3188de13bc463cc7165f2976cd009322b"
+    },
+    "src/core/hle/service/ns/document_interface.h": {
+      "active": "000816c49caf2773d3c76f778e269e5a3f5650ec791ecd3310176869fe31a190",
+      "bytes": 1074,
+      "upstream": "c9b884bbd6b8a4b3ef83b66155dfe5a3abc580e458c9b32040ab0c62b460a208"
     }
   },
   "excluded_experimental": [

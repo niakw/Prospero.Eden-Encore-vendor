@@ -78,7 +78,7 @@ public:
             {205, nullptr, "Unknown205"}, //18.0.0+
             {501, nullptr, "Unknown501"},
             {502, nullptr, "Unknown502"},
-            {503, nullptr, "GetTitleKey"},
+            {503, &ETicket::GetTitleKey, "GetTitleKey"},
             {504, nullptr, "Unknown504"},
             {508, nullptr, "Unknown508"},
             {509, nullptr, "Unknown509"},
