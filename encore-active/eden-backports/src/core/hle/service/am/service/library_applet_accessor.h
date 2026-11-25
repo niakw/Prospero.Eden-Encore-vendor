@@ -48,7 +48,8 @@ private:
     Result PopInteractiveOutData(Out<SharedPointer<IStorage>> out_storage);
     Result GetPopOutDataEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result GetPopInteractiveOutDataEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
-    Result GetIndirectLayerConsumerHandle(Out<u64> out_handle);
+    Result GetIndirectLayerConsumerHandle(Out<u64> out_handle, u64 applet_resource_user_id,
+                                          ClientProcessId process_id);
     Result GetLibraryAppletInfo(Out<LibraryAppletInfo> out_library_applet_info);
     Result Unknown170(OutCopyHandle<Kernel::KReadableEvent> out_event);
 
