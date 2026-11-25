@@ -6,7 +6,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <limits>
 #include <thread>
 
 #include "core/file_sys/errors.h"
