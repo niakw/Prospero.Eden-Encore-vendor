@@ -22,6 +22,7 @@ public:
     explicit IManagerDisplayService(Core::System& system_, std::shared_ptr<Container> container);
     ~IManagerDisplayService() override;
 
+    Result GetDisplayResolution(Out<s64> out_width, Out<s64> out_height, u64 display_id);
     Result CreateSharedLayerSession(Kernel::KProcess* owner_process, u64* out_buffer_id,
                                     u64* out_layer_handle, u64 display_id, bool enable_blending);
     void DestroySharedLayerSession(Kernel::KProcess* owner_process);

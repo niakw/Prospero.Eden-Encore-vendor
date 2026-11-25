@@ -7,6 +7,7 @@
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/vi/container.h"
 #include "core/hle/service/vi/manager_display_service.h"
+#include "core/hle/service/vi/vi_types.h"
 
 namespace Service::VI {
 
@@ -17,7 +18,7 @@ IManagerDisplayService::IManagerDisplayService(Core::System& system_,
     static const FunctionInfo functions[] = {
         {200, nullptr, "AllocateProcessHeapBlock"},
         {201, nullptr, "FreeProcessHeapBlock"},
-        {1102, nullptr, "GetDisplayResolution"},
+        {1102, C<&IManagerDisplayService::GetDisplayResolution>, "GetDisplayResolution"},
         {2010, C<&IManagerDisplayService::CreateManagedLayer>, "CreateManagedLayer"},
         {2011, C<&IManagerDisplayService::DestroyManagedLayer>, "DestroyManagedLayer"},
         {2012, nullptr, "CreateStrayLayer"},
@@ -103,6 +104,14 @@ IManagerDisplayService::IManagerDisplayService(Core::System& system_,
 }
 
 IManagerDisplayService::~IManagerDisplayService() = default;
+
+Result IManagerDisplayService::GetDisplayResolution(Out<s64> out_width, Out<s64> out_height,
+                                                    u64 display_id) {
+    LOG_DEBUG(Service_VI, "called. display_id={}", display_id);
+    *out_width = static_cast<s64>(DisplayResolution::UndockedWidth);
+    *out_height = static_cast<s64>(DisplayResolution::UndockedHeight);
+    R_SUCCEED();
+}
 
 Result IManagerDisplayService::CreateSharedLayerSession(Kernel::KProcess* owner_process,
                                                         u64* out_buffer_id, u64* out_layer_handle,
