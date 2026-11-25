@@ -92,17 +92,18 @@ public:
         static const FunctionInfo functions[] = {
             {0, &ILogger::Log, "Log"},
             {1, &ILogger::SetDestination, "SetDestination"},
-            {2, &ILogger::RejectUnsupportedModernLogCommand, "TransmitHashedLog"}, //20.0.0+
-            {3, &ILogger::RejectUnsupportedModernLogCommand, "DevNotify"}, //20.0.0+
+            {2, &ILogger::AcceptRetailNoop, "TransmitHashedLog"}, //20.0.0+
+            {3, &ILogger::AcceptRetailNoop, "DevNotify"}, //20.0.0+
         };
         RegisterHandlers(functions);
     }
 
 private:
-    void RejectUnsupportedModernLogCommand(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_LM, "Rejecting unsupported modern logger command {}", ctx.GetCommand());
+    void AcceptRetailNoop(HLERequestContext& ctx) {
+        // nn::lm is stubbed on retail: modern logger extensions succeed without
+        // transmitting to TMA/UART when no retail logging backend is active.
         IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(Kernel::ResultNotImplemented);
+        rb.Push(ResultSuccess);
     }
 
     void Log(HLERequestContext& ctx) {
