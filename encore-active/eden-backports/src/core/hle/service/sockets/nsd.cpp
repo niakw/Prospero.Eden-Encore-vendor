@@ -31,7 +31,7 @@ static_assert(sizeof(EnvironmentIdentifier) == 0x8);
 NSD::NSD(Core::System& system_, const char* name) : ServiceFramework{system_, name} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {5, nullptr, "GetSettingUrl"},
+        {5, &NSD::RejectUnavailableNintendoSetting, "GetSettingUrl"},
         {10, &NSD::RejectUnavailableNintendoSetting, "GetSettingName"},
         {11, &NSD::GetEnvironmentIdentifier, "GetEnvironmentIdentifier"},
         {12, &NSD::RejectUnavailableNintendoSetting, "GetDeviceId"},
@@ -53,10 +53,10 @@ NSD::NSD(Core::System& system_, const char* name) : ServiceFramework{system_, na
         {61, &NSD::UnsupportedTestCommand, "WriteSaveDataToFsForTest"},
         {62, &NSD::UnsupportedTestCommand, "DeleteSaveDataOfFsForTest"},
         {63, &NSD::IsChangeEnvironmentIdentifierDisabled, "IsChangeEnvironmentIdentifierDisabled"},
-        {64, nullptr, "SetWithoutDomainExchangeFqdns"},
+        {64, &NSD::RejectUnavailableNintendoSetting, "SetWithoutDomainExchangeFqdns"},
         {100, &NSD::GetApplicationServerEnvironmentType, "GetApplicationServerEnvironmentType"},
-        {101, nullptr, "SetApplicationServerEnvironmentType"},
-        {102, nullptr, "DeleteApplicationServerEnvironmentType"},
+        {101, &NSD::RejectUnavailableNintendoSetting, "SetApplicationServerEnvironmentType"},
+        {102, &NSD::RejectUnavailableNintendoSetting, "DeleteApplicationServerEnvironmentType"},
     };
     // clang-format on
 
