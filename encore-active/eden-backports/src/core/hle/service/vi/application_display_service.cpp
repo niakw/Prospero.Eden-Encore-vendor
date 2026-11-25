@@ -69,27 +69,27 @@ IApplicationDisplayService::~IApplicationDisplayService() {
 
 Result IApplicationDisplayService::GetRelayService(
     Out<SharedPointer<Nvnflinger::IHOSBinderDriver>> out_relay_service) {
-    LOG_WARNING(Service_VI, "(STUBBED) called");
+    LOG_DEBUG(Service_VI, "Returning relay binder service");
     R_RETURN(m_container->GetBinderDriver(out_relay_service));
 }
 
 Result IApplicationDisplayService::GetSystemDisplayService(
     Out<SharedPointer<ISystemDisplayService>> out_system_display_service) {
-    LOG_WARNING(Service_VI, "(STUBBED) called");
+    LOG_DEBUG(Service_VI, "Creating system display service");
     *out_system_display_service = std::make_shared<ISystemDisplayService>(system, m_container);
     R_SUCCEED();
 }
 
 Result IApplicationDisplayService::GetManagerDisplayService(
     Out<SharedPointer<IManagerDisplayService>> out_manager_display_service) {
-    LOG_WARNING(Service_VI, "(STUBBED) called");
+    LOG_DEBUG(Service_VI, "Creating manager display service");
     *out_manager_display_service = std::make_shared<IManagerDisplayService>(system, m_container);
     R_SUCCEED();
 }
 
 Result IApplicationDisplayService::GetIndirectDisplayTransactionService(
     Out<SharedPointer<Nvnflinger::IHOSBinderDriver>> out_indirect_display_transaction_service) {
-    LOG_WARNING(Service_VI, "(STUBBED) called");
+    LOG_DEBUG(Service_VI, "Returning indirect-display binder service");
     R_RETURN(m_container->GetBinderDriver(out_indirect_display_transaction_service));
 }
 
@@ -243,7 +243,7 @@ Result IApplicationDisplayService::CreateStrayLayer(
 }
 
 Result IApplicationDisplayService::DestroyStrayLayer(u64 layer_id) {
-    LOG_WARNING(Service_VI, "(STUBBED) called. layer_id={}", layer_id);
+    LOG_DEBUG(Service_VI, "DestroyStrayLayer called. layer_id={}", layer_id);
 
     {
         std::scoped_lock lk{m_lock};
