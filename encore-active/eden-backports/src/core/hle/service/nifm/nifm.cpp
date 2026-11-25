@@ -443,7 +443,7 @@ public:
             {23, &IRequest::SetKeptInSleep, "SetKeptInSleep"},
             {24, &IRequest::RegisterSocketDescriptor, "RegisterSocketDescriptor"},
             {25, &IRequest::UnregisterSocketDescriptor, "UnregisterSocketDescriptor"},
-            {26, nullptr, "GetNetworkAccessStatus"}, //21.0.0+
+            {26, &IRequest::RejectUnsupportedNetworkAccessStatus, "GetNetworkAccessStatus"}, //21.0.0+
         };
         RegisterHandlers(functions);
 
@@ -465,6 +465,11 @@ public:
     }
 
 private:
+    void RejectUnsupportedNetworkAccessStatus(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
     [[nodiscard]] bool HasConnection() const {
         return !Eden::Encore::kGuestNetworkOffline &&
                Network::GetHostIPv4Address().has_value() &&
@@ -832,12 +837,20 @@ class INetworkProfile final : public ServiceFramework<INetworkProfile> {
 public:
     explicit INetworkProfile(Core::System& system_) : ServiceFramework{system_, "INetworkProfile"} {
         static const FunctionInfo functions[] = {
-            {0, nullptr, "Update"},
-            {1, nullptr, "PersistOld"},
-            {2, nullptr, "Persist"},
+            {0, &INetworkProfile::RejectUnsupportedProfileMutation, "Update"},
+            {1, &INetworkProfile::RejectUnsupportedProfileMutation, "PersistOld"},
+            {2, &INetworkProfile::RejectUnsupportedProfileMutation, "Persist"},
         };
         RegisterHandlers(functions);
     }
+private:
+    void RejectUnsupportedProfileMutation(HLERequestContext& ctx) {
+        // Host network profile persistence is intentionally not exposed as guest
+        // writable Switch configuration.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 void IGeneralService::GetClientId(HLERequestContext& ctx) {
