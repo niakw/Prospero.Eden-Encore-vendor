@@ -57,9 +57,14 @@ Result IStorage::Read(
         LOG_ERROR(Service_FS, "EDEN_FS_SHORT_STORAGE offset={:#x} length={} read={} size={}", offset, length, fs_read, backend->GetSize());
     if (fs_start) {
         ::Eden::Performance::AddSince(::Eden::Performance::guest_fs_storage, fs_start);
-        ::Eden::Performance::guest_fs_storage_bytes.fetch_add(static_cast<unsigned long long>(length), std::memory_order_relaxed);
+        ::Eden::Performance::guest_fs_storage_bytes.fetch_add(
+            static_cast<unsigned long long>(fs_read), std::memory_order_relaxed);
     }
 
+    // The storage IPC contract has no partial-read byte count. Do not report
+    // success when the backing file supplied fewer bytes than the guest asked for:
+    // the untouched portion of the mapped output buffer is not valid content.
+    R_UNLESS(fs_read == static_cast<std::size_t>(length), FileSys::ResultOutOfRange);
     R_SUCCEED();
 }
 
