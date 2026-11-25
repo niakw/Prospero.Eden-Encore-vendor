@@ -876,10 +876,11 @@ void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {
                             const auto committed =
                                 m_mappings.CommitPrepared(staged_ledger);
                             if (committed == GW::LedgerStatus::Success) {
-                                // Mode 0 requests physical GPU-only render storage.
-                                // Mode 1 remains an explicitly unbacked sparse VA
-                                // until the guest submits physical 216 mappings.
-                                if (request->allocation_mode == 0) {
+                                // TIPC 214 word 7 carries the real sparse flag
+                                // used by MKW (0x60c/0xa0c). Preserve the older
+                                // word-8 mode as a compatible sparse indication,
+                                // but never densely back a flagged multi-GiB VA.
+                                if (!IsSparseGpuRegion(*request)) {
                                     result = BackGpuOnlyRegion(
                                         request->address_space, request->begin, size,
                                         request->page_shift);

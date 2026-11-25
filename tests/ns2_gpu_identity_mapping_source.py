@@ -72,6 +72,21 @@ for token in (
 create_sparse=worker.split(
     "void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {",1
 )[1].split("\nvoid IGpuWorker::DestroySparseRegion(",1)[0]
+# TIPC 214 word 7 is not a byte-sized page-shift field. MKW emits
+# 0x60c/0xa0c: low byte 0x0c selects 4-KiB pages while bit 0x200 marks
+# a sparse reservation. Keep word-8 mode support for previously qualified
+# callers, but flagged regions must never enter dense GPU-only backing.
+for token in (
+    "inline constexpr u32 GpuSparseRegionFlag = 0x200U;",
+    "u32 page_flags;",
+    "static_cast<u8>(packet[7] & 0xffU)",
+    "(request.page_flags & GpuSparseRegionFlag) != 0",
+    "request.allocation_mode == 1",
+):
+    assert token in registration, token
+assert "if (!IsSparseGpuRegion(*request)) {" in create_sparse
+assert "if (request->allocation_mode == 0) {" not in create_sparse
+
 for token in (
     "m_mappings.ExactSparse(request->address_space, request->begin)",
     "m_mappings.PrepareSparseReplacingExact(",

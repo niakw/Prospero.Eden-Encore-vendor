@@ -166,10 +166,13 @@ constexpr bool IsValidGpuMemoryRegistrationRange(
     const u64 size = req.end - req.begin + 1;
     return size != 0 && (size & 0xfff) == 0;
 }
+inline constexpr u32 GpuSparseRegionFlag = 0x200U;
+
 struct GpuSparseRegionRequest {
     u32 address_space;
     u64 begin;
     u64 end;
+    u32 page_flags;
     u8 page_shift;
     u8 allocation_mode;
     u8 device;
@@ -177,18 +180,30 @@ struct GpuSparseRegionRequest {
     u32 notification;
 };
 
+[[nodiscard]] constexpr bool IsSparseGpuRegion(
+    const GpuSparseRegionRequest& request) {
+    // TIPC 214 word 7 combines the low-byte page shift with region flags.
+    // MKW uses 0x60c/0xa0c: truncating this word to u8 preserved 4-KiB
+    // granularity but silently discarded the 0x200 sparse-reservation bit.
+    // Keep the historical word-8 mode as an additional sparse indication so
+    // already-qualified callers retain their previous ABI.
+    return (request.page_flags & GpuSparseRegionFlag) != 0 ||
+           request.allocation_mode == 1;
+}
+
 constexpr std::optional<GpuSparseRegionRequest> DecodeGpuSparseRegion(
     std::span<const u32> packet) {
     if (packet.size() < 12 || packet[0] != 0xe6 || packet[1] != 10) return std::nullopt;
     return GpuSparseRegionRequest{packet[2], u64{packet[3]} | (u64{packet[4]} << 32),
-        u64{packet[5]} | (u64{packet[6]} << 32), static_cast<u8>(packet[7]),
-        static_cast<u8>(packet[8]), static_cast<u8>(packet[9]), static_cast<u8>(packet[10]),
-        packet[11]};
+        u64{packet[5]} | (u64{packet[6]} << 32), packet[7],
+        static_cast<u8>(packet[7] & 0xffU), static_cast<u8>(packet[8]),
+        static_cast<u8>(packet[9]), static_cast<u8>(packet[10]), packet[11]};
 }
 
 // Bound experimental GPU-only render-target backing. An unbacked sparse
-// reservation (allocation_mode 1) must never count toward physically resident
-// images, and an OOM must not return a successful 214 completion.
+// reservation (TIPC word-7 sparse flag or the older word-8 mode 1) must never
+// count toward physically resident images, and an OOM must not return a
+// successful 214 completion.
 inline constexpr u64 NativeDenseGpuRegionLimit = 512ULL << 20;
 inline constexpr u64 NativeDenseGpuTotalLimit = 2ULL << 30;
 inline constexpr u64 NativeDenseGpuFreeReserve = 128ULL << 20;
