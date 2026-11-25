@@ -671,9 +671,9 @@
       "upstream": "ce8839986272ada6e4efc48a366276dffb17606cabc32aa1f01fb4f657e9bff9"
     },
     "src/core/hle/service/pm/pm.cpp": {
-      "active": "77eb1821f6beec704c93f199604dcebc12ad138a219f1540a1cffd2e93915d0c",
-      "bytes": 12308,
-      "upstream": "e6d2758d23ee1760c07d85fbf6edabd2222fec1c17e813e8809a346a93c94cfd"
+      "upstream": "e6d2758d23ee1760c07d85fbf6edabd2222fec1c17e813e8809a346a93c94cfd",
+      "active": "7136735f7e157cd353baa126ca85b8a589ba683205151510180487c7c9f3ae73",
+      "bytes": 13340
     },
     "src/core/hle/service/ro/ro.cpp": {
       "active": "a457293e406bcc2c6d0173857abb00b2ac32b7922239df28e815bec98809945c",
@@ -1159,6 +1159,21 @@
       "upstream": "6510e7bc080143ca9468d28b1968597ac599fb8c5fa2ff6e27bc8433aa4b0e55",
       "active": "80e06a2450be4989f43308c80acbb14c5f6392f8b5f31605de45e3284222125a",
       "bytes": 20188
+    },
+    "src/core/hle/service/psc/time/alarms.cpp": {
+      "upstream": "79227ed7e721631f4557bf03b9a3ec7cfbb33939c9a6b202c39ff8cc78b07623",
+      "active": "0053f2f14fc8ac5061aa967f4626a5737c5eeef6b137e5dc606da75c5189e406",
+      "bytes": 6833
+    },
+    "src/core/hle/service/psc/time/alarms.h": {
+      "upstream": "a1c08e78e6adb0077f3de9ff6687cf6af158f2cd46f4fc72c54fe0e350df665b",
+      "active": "27e55ca7155ce98142c58b84a4ac07b4f6337026376c3b3f447933b053f8c184",
+      "bytes": 3730
+    },
+    "src/core/hle/service/tma/tma.cpp": {
+      "upstream": "2205080fe0a08efd7dcb59796d779933e864a24a30773fc9ebc4dfd982919afc",
+      "active": "41de1e88443d7a9c1fd82c26e5d26e76f9ea4f75f8e70a829f2e8ec20463b351",
+      "bytes": 1519
     }
   },
   "excluded_experimental": [
