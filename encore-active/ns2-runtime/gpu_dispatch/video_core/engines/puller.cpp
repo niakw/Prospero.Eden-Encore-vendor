@@ -23,6 +23,7 @@
 #include <span>
 #include <memory>
 #include <new>
+#include <optional>
 #include <atomic>
 #include <algorithm>
 #include <limits>
@@ -75,6 +76,70 @@ namespace {
 
 constexpr u32 Gf100BindClassMask = 0xffff;
 constexpr u32 Gf100BindValidMask =  0x1f0000 | Gf100BindClassMask;
+
+using NativeProcessTicket =
+    Service::Nvidia::Devices::NativeGpuProcessRegistry::Ticket;
+
+[[nodiscard]] NativeProcessTicket ProcessTicket(
+    const Service::Nvidia::Devices::NativeGpuChannelRegistry::Ticket& ticket) {
+    return NativeProcessTicket{ticket.process, ticket.generation};
+}
+
+template <typename Memory, typename Combine>
+[[nodiscard]] bool PublishNativeSemaphoreWord(
+    Memory& memory, const NativeProcessTicket& ticket, GPUVAddr address,
+    std::optional<GPUVAddr> mirror, bool combined, Combine&& combine) {
+    auto& registry =
+        Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+    const auto device = memory.GpuToCpuAddress(address, sizeof(u32));
+    if (!device || !memory.IsFullyMappedRange(address, sizeof(u32)))
+        return false;
+
+    const u32 guest_before = memory.template Read<u32>(address);
+    const u32 guest_after = combine(guest_before);
+
+    if (mirror) {
+        const auto mirror_device =
+            memory.GpuToCpuAddress(*mirror, sizeof(u32));
+        if (!mirror_device ||
+            !memory.IsFullyMappedRange(*mirror, sizeof(u32)))
+            return false;
+        const u32 mirror_guest = memory.template Read<u32>(*mirror);
+        const auto shadow =
+            registry.ReadSemaphoreShadow(ticket, *mirror_device, mirror_guest);
+        const u32 logical_before = shadow.value_or(mirror_guest);
+        const u32 logical_after = combine(logical_before);
+
+        memory.template Write<u32>(address, guest_after);
+        if (registry.IsSemaphoreDirectWord(ticket, *mirror_device)) {
+            if (!registry.SetSemaphoreShadow(
+                    ticket, *mirror_device, logical_after, mirror_guest))
+                return false;
+        } else {
+            memory.template Write<u32>(*mirror, logical_after);
+        }
+        return true;
+    }
+
+    const auto shadow =
+        registry.ReadSemaphoreShadow(ticket, *device, guest_before);
+    const auto direct =
+        registry.NoteDirectSemaphoreRelease(ticket, address, *device);
+    if (direct ==
+        Service::Nvidia::Devices::NativeGpuProcessRegistry::
+            SemaphoreDirectResult::OutOfResource)
+        return false;
+
+    memory.template Write<u32>(address, guest_after);
+    if (combined && shadow &&
+        direct ==
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::
+                SemaphoreDirectResult::Tracked) {
+        return registry.SetSemaphoreShadow(
+            ticket, *device, combine(*shadow), guest_after);
+    }
+    return true;
+}
 
 } // Anonymous namespace
 
@@ -351,7 +416,7 @@ static CoherentNativeSemaphoreValue ReadCoherentNativeSemaphore(
         dma_pusher.rasterizer->FlushRegion(
             *cpu_address, sizeof(u32), VideoCommon::CacheType::BufferCache);
     }
-    const u32 observed = dma_pusher.memory_manager.Read<u32>(address);
+    u32 observed = dma_pusher.memory_manager.Read<u32>(address);
     // A guest can change the GMMU backing while a CPU-side flush/read is
     // underway. Never accept a value fetched from an unstable physical page.
     const auto after = dma_pusher.memory_manager.GpuToCpuAddress(
@@ -359,6 +424,21 @@ static CoherentNativeSemaphoreValue ReadCoherentNativeSemaphore(
     if (!after || *after != *cpu_address) {
         dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: acquire page remapped during read");
     }
+#ifdef PS5_NATIVE
+    const auto channel_ticket =
+        Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+            .CaptureTicket(&dma_pusher.channel_state);
+    if (!channel_ticket) {
+        dma_pusher.FailNativeSubmission(
+            "Ampere SEM_EXECUTE: acquire process epoch unavailable");
+    }
+    if (const auto shadow =
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+                .ReadSemaphoreShadow(
+                    ProcessTicket(*channel_ticket), *cpu_address, observed)) {
+        observed = *shadow;
+    }
+#endif
     return {observed, *cpu_address};
 }
 
@@ -441,8 +521,22 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
         }
         const auto* const channel = &dma_pusher.channel_state;
         auto* const memory = &dma_pusher.memory_manager;
+        const auto process_ticket = ProcessTicket(*ticket);
+        const auto mirror =
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+                .SemaphoreMirrorAddress(process_ticket, address);
+        const auto* const mirror_backing =
+            mirror ? dma_pusher.memory_manager.GetPointer(*mirror) : nullptr;
+        if (mirror &&
+            (!dma_pusher.memory_manager.IsFullyMappedRange(
+                 *mirror, sizeof(u32)) ||
+             !mirror_backing)) {
+            dma_pusher.FailNativeSubmission(
+                "Ampere SEM_EXECUTE: semaphore mirror backing unavailable");
+        }
         dma_pusher.rasterizer->SignalFence(
-            [channel, memory, ticket = *ticket, address, value, backing] {
+            [channel, memory, ticket = *ticket, process_ticket, address,
+             value, backing, mirror, mirror_backing] {
                 try {
                     auto& current =
                         Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
@@ -450,11 +544,19 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
                     // completion into the replacement process's guest RAM.
                     if (!current.IsCurrent(channel, ticket)) return;
                     if (!memory->IsFullyMappedRange(address, sizeof(u32)) ||
-                        memory->GetPointer(address) != backing) {
+                        memory->GetPointer(address) != backing ||
+                        (mirror &&
+                         (!memory->IsFullyMappedRange(*mirror, sizeof(u32)) ||
+                          memory->GetPointer(*mirror) != mirror_backing))) {
                         throw std::runtime_error(
                             "Ampere SEM_EXECUTE: release backing changed after GPU submit");
                     }
-                    memory->Write<u32>(address, value);
+                    if (!PublishNativeSemaphoreWord(
+                            *memory, process_ticket, address, mirror, false,
+                            [value](u32) { return value; })) {
+                        throw std::runtime_error(
+                            "Ampere SEM_EXECUTE: semaphore mirror publication failed");
+                    }
                 } catch (...) {
                     auto failure = std::current_exception();
                     Eden::RecordGpuFailure(failure);
@@ -1040,29 +1142,54 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
     if (!memory->GpuToCpuAddress(address, write_bytes)) {
         pusher.FailNativeSubmission("Native Compute report semaphore missing CPU backing");
     }
-    if (reduction_enabled) {
+    if (reduction_enabled || one_word) {
+        const auto process_ticket = ProcessTicket(*ticket);
+        const auto mirror =
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+                .SemaphoreMirrorAddress(process_ticket, address);
+        const auto* const backing = memory->GetPointer(address);
+        const auto* const mirror_backing =
+            mirror ? memory->GetPointer(*mirror) : nullptr;
+        if (!backing ||
+            (mirror &&
+             (!memory->IsFullyMappedRange(*mirror, sizeof(u32)) ||
+              !mirror_backing))) {
+            pusher.FailNativeSubmission(
+                "Native Compute report semaphore backing unavailable");
+        }
         const u32 reduction = (control >> 9) & 7U;
         pusher.rasterizer->SignalFence(
-            [channel, memory, ticket = *ticket, address, payload, reduction] {
+            [channel, memory, ticket = *ticket, process_ticket, address,
+             payload, reduction, reduction_enabled, backing, mirror,
+             mirror_backing] {
                 // The deferred fence may execute after a sparse GMMU unmap.
                 // Never let a guest-memory exception unwind through Vulkan
-                // retirement or fabricate a completed reduction.
+                // retirement or fabricate a completed reduction/release.
                 try {
                     auto& current =
                         Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
                     if (!current.IsCurrent(channel, ticket)) return;
-                    // A still-live channel cannot retire a queued reduction
-                    // after its guest backing vanishes. Latch a fatal worker
-                    // error rather than silently claiming GPU completion.
                     if (!Tegra::NativeComputeSemaphoreSpanValid(address, sizeof(u32)) ||
-                        !memory->IsFullyMappedRange(address, sizeof(u32))) {
+                        !memory->IsFullyMappedRange(address, sizeof(u32)) ||
+                        memory->GetPointer(address) != backing ||
+                        (mirror &&
+                         (!memory->IsFullyMappedRange(*mirror, sizeof(u32)) ||
+                          memory->GetPointer(*mirror) != mirror_backing))) {
                         throw std::runtime_error(
-                            "Native Compute reduction backing revoked after GPU submission");
+                            "Native Compute report semaphore backing revoked after GPU submission");
                     }
-                    const u32 old_value = memory->Read<u32>(address);
-                    memory->Write<u32>(
-                        address, Tegra::NativeComputeSemaphoreReduction(
-                                     old_value, payload, reduction));
+                    if (!PublishNativeSemaphoreWord(
+                            *memory, process_ticket, address, mirror,
+                            reduction_enabled,
+                            [payload, reduction, reduction_enabled](u32 old_value) {
+                                return reduction_enabled
+                                    ? Tegra::NativeComputeSemaphoreReduction(
+                                          old_value, payload, reduction)
+                                    : payload;
+                            })) {
+                        throw std::runtime_error(
+                            "Native Compute semaphore mirror publication failed");
+                    }
                 } catch (...) {
 #ifdef PS5_NATIVE
                     auto failure = std::current_exception();
@@ -1073,11 +1200,11 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
                 }
             });
     } else {
+        // The 16-byte timestamp report is not the packed queue-semaphore
+        // form. Preserve the existing QueryCache path and its timestamp ABI.
         pusher.rasterizer->Query(
             address, VideoCommon::QueryType::Payload,
-            one_word ? VideoCommon::QueryPropertiesFlags::IsAFence
-                     : VideoCommon::QueryPropertiesFlags::HasTimeout,
-            payload, 0);
+            VideoCommon::QueryPropertiesFlags::HasTimeout, payload, 0);
     }
 }
 
@@ -1136,8 +1263,19 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
         if (!backing) return false;
         const auto* channel = &pusher.channel_state;
         auto* memory = &pusher.memory_manager;
+        const auto process_ticket = ProcessTicket(*ticket);
+        const auto mirror =
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+                .SemaphoreMirrorAddress(process_ticket, addr);
+        const auto* const mirror_backing =
+            mirror ? pusher.memory_manager.GetPointer(*mirror) : nullptr;
+        if (mirror &&
+            (!pusher.memory_manager.IsFullyMappedRange(*mirror, sizeof(u32)) ||
+             !mirror_backing))
+            return false;
         pusher.rasterizer->SignalFence(
-            [channel, memory, ticket = *ticket, addr, payload, flags, backing] {
+            [channel, memory, ticket = *ticket, process_ticket, addr, payload,
+             flags, backing, mirror, mirror_backing] {
                 // A QMD3 dispatch can already be accepted when this
                 // completion callback runs. If guest memory disappears or
                 // fails during Read/Write, latch the fatal worker error;
@@ -1152,15 +1290,27 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                     // Report the fatal epoch failure through the existing
                     // GPU-worker latch instead of fabricating the semaphore.
                     if (!memory->IsFullyMappedRange(addr, sizeof(u32)) ||
-                        memory->GetPointer(addr) != backing) {
+                        memory->GetPointer(addr) != backing ||
+                        (mirror &&
+                         (!memory->IsFullyMappedRange(*mirror, sizeof(u32)) ||
+                          memory->GetPointer(*mirror) != mirror_backing))) {
                         throw std::runtime_error(
                             "Native QMD3 release backing revoked after GPU submission");
                     }
-                    u32 value = payload;
-                    if (flags & (1u << 26)) value = memory->Read<u32>(addr) + payload;
-                    else if (flags & (1u << 19))
-                        value = std::max(memory->Read<u32>(addr), payload);
-                    memory->Write<u32>(addr, value);
+                    const bool combined =
+                        (flags & ((1u << 26) | (1u << 19))) != 0;
+                    if (!PublishNativeSemaphoreWord(
+                            *memory, process_ticket, addr, mirror, combined,
+                            [payload, flags](u32 old_value) {
+                                if (flags & (1u << 26))
+                                    return old_value + payload;
+                                if (flags & (1u << 19))
+                                    return std::max(old_value, payload);
+                                return payload;
+                            })) {
+                        throw std::runtime_error(
+                            "Native QMD3 semaphore mirror publication failed");
+                    }
                 } catch (...) {
 #ifdef PS5_NATIVE
                     auto failure = std::current_exception();

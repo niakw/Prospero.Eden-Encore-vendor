@@ -36,6 +36,7 @@
 #include "core/hle/service/nvdrv/core/nvmap.h"
 #include "core/hle/service/nvdrv/nvdrv.h"
 #include "core/hle/service/nvdrv/devices/nvhost_as_gpu.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
 
 namespace Service::AM {
 namespace {
@@ -1326,6 +1327,17 @@ Result IGpuWorker::RegisterMemory(u64 begin, u64 end, u32 flags,
     }
 
     m_memory.push_back(id);
+    if (size == 0x2000 &&
+        !Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+             .RegisterSemaphoreRegion(m_process, begin, size)) {
+        // The GPU memory is already fully published at this point. A missing
+        // process epoch or impossible mirror-capacity mismatch makes it unsafe
+        // to expose the handle without its queue-semaphore contract. Keep the
+        // backing owned until worker teardown rather than returning an
+        // untracked live allocation to the guest.
+        m_quarantined_nv_session = true;
+        return Kernel::ResultInvalidState;
+    }
     return ResultSuccess;
 }
 
@@ -1345,6 +1357,10 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
         R_UNLESS(pending->second.nvmap_lifetime.expired(), Kernel::ResultBusy);
         R_TRY(m_process->GetPageTable().UnlockForDeviceAddressSpace(
             pending->second.address, pending->second.size));
+        if (pending->second.size == 0x2000) {
+            Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+                .UnregisterSemaphoreRegion(m_process, pending->second.address);
+        }
         m_pending_device_unlocks.erase(pending);
         m_memory_debug_labels.erase(id);
         m_memory.erase(it);
@@ -1533,6 +1549,10 @@ Result IGpuWorker::ReleaseMemory(u32 id, u32 notification) {
              Kernel::ResultBusy);
     R_TRY(m_process->GetPageTable().UnlockForDeviceAddressSpace(
         pending->second.address, pending->second.size));
+    if (pending->second.size == 0x2000) {
+        Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+            .UnregisterSemaphoreRegion(m_process, pending->second.address);
+    }
     m_pending_device_unlocks.erase(pending);
     m_memory_debug_labels.erase(id);
     m_memory.erase(it);
