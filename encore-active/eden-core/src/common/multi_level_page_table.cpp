@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <cstdint>
+#include <new>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -52,7 +53,15 @@ MultiLevelPageTable<BaseAddr>::MultiLevelPageTable(std::size_t address_space_bit
         base = nullptr;
 #endif
 #endif
+    // The PS5 assertion logger is not fatal. A failed sparse/dense GPU table
+    // allocation must never publish a MemoryManager whose PTE base is null.
+    // nvhost_as_gpu::AllocAsEx already translates bad_alloc to an NVDRV
+    // InsufficientMemory result and leaves the address space uninitialized.
+#if defined(PS5_NATIVE)
+    if (!base) throw std::bad_alloc{};
+#else
     ASSERT(base);
+#endif
     base_ptr = reinterpret_cast<BaseAddr*>(base);
 }
 
