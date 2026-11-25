@@ -226,11 +226,17 @@ public:
         : ServiceFramework{system_, "wlan:p"}
     {
         static const FunctionInfo functions[] = {
-            { 0, nullptr, "CreateWirelessCommunicationService" },
-            { 1, nullptr, "CreatePrivateWirelessCommunicationService" },
+            { 0, &IPrivateServiceCreator::RejectUnavailableCreator, "CreateWirelessCommunicationService" },
+            { 1, &IPrivateServiceCreator::RejectUnavailableCreator, "CreatePrivateWirelessCommunicationService" },
         };
         RegisterHandlers(functions);
     }
+private:
+    void RejectUnavailableCreator(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class ISfDriverServiceCreator final : public ServiceFramework<ISfDriverServiceCreator> {
@@ -239,10 +245,16 @@ public:
         : ServiceFramework{system_, "wlan:nd"}
     {
         static const FunctionInfo functions[] = {
-            { 0, nullptr, "CreateDriverService" },
+            { 0, &ISfDriverServiceCreator::RejectUnavailableCreator, "CreateDriverService" },
         };
         RegisterHandlers(functions);
     }
+private:
+    void RejectUnavailableCreator(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 
@@ -358,8 +370,12 @@ void LoopProcess(Core::System& system) {
         server_manager->RegisterNamedService("wlan:soc", std::make_shared<ISocketManager>(system), 10);
         server_manager->RegisterNamedService("wlan:dtc", std::make_shared<IDetectManager>(system), 4);
     }
-    server_manager->RegisterNamedService("wlan:p", std::make_shared<IPrivateServiceCreator>(system), 30);
-    server_manager->RegisterNamedService("wlan:nd", std::make_shared<ISfDriverServiceCreator>(system), 5);
+    if (FirmwareManager::GetFirmwareVersion(system).first.major >= 15) {
+        server_manager->RegisterNamedService("wlan:p",
+                                             std::make_shared<IPrivateServiceCreator>(system), 30);
+        server_manager->RegisterNamedService("wlan:nd",
+                                             std::make_shared<ISfDriverServiceCreator>(system), 5);
+    }
     ServerManager::RunServer(std::move(server_manager));
 }
 
