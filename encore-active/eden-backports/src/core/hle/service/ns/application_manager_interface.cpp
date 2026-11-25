@@ -62,7 +62,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {21, nullptr, "GetApplicationContentPath"},
         {22, D<&IApplicationManagerInterface::TerminateApplication>, "TerminateApplication"},
         {23, nullptr, "ResolveApplicationContentPath"},
-        {26, nullptr, "BeginInstallApplication"},
+        {26, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "BeginInstallApplication"},
         {27, nullptr, "DeleteApplicationRecord"},
         {30, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestApplicationUpdateInfo"},
         {31, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestUpdateApplication"},
@@ -192,14 +192,14 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {600, D<&IApplicationManagerInterface::CountApplicationContentMeta>, "CountApplicationContentMeta"},
         {601, D<&IApplicationManagerInterface::ListApplicationContentMetaStatus>, "ListApplicationContentMetaStatus"},
         {602, D<&IApplicationManagerInterface::ListAvailableAddOnContent>, "ListAvailableAddOnContent"},
-        {603, nullptr, "GetOwnedApplicationContentMetaStatus"},
+        {603, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetOwnedApplicationContentMetaStatus"},
         {604, nullptr, "RegisterContentsExternalKey"},
-        {605, nullptr, "ListApplicationContentMetaStatusWithRightsCheck"},
+        {605, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListApplicationContentMetaStatusWithRightsCheck"},
         {606, nullptr, "GetContentMetaStorage"},
         {607, D<&IApplicationManagerInterface::ListAvailableAddOnContent>, "ListAvailableAddOnContent"},
-        {609, nullptr, "ListAvailabilityAssuredAddOnContent"},
+        {609, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListAvailabilityAssuredAddOnContent"},
         {610, nullptr, "GetInstalledContentMetaStorage"},
-        {611, nullptr, "PrepareAddOnContent"},
+        {611, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "PrepareAddOnContent"},
         {700, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "PushDownloadTaskList"},
         {701, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ClearTaskStatusList"},
         {702, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestDownloadTaskList"},
@@ -375,7 +375,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2519, nullptr, "IsQualificationTransitionSupported"},
         {2520, D<&IApplicationManagerInterface::IsQualificationTransitionSupportedByProcessId>, "IsQualificationTransitionSupportedByProcessId"},
         {2521, nullptr, "GetRightsUserChangedEvent"},
-        {2522, nullptr, "IsRomRedirectionAvailable"},
+        {2522, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "IsRomRedirectionAvailable"},
         {2523, nullptr, "GetProgramId"}, //17.0.0+
         {2524, nullptr, "Unknown2524"}, //19.0.0+
         {2525, nullptr, "Unknown2525"}, //20.0.0+
@@ -396,8 +396,8 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {3013, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "IsGameCardEnabled"},
         {3014, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "IsLocalContentShareEnabled"},
         {3050, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListAssignELicenseTaskResult"},
-        {3104, nullptr, "GetApplicationNintendoLogo"}, //18.0.0+
-        {3105, nullptr, "GetApplicationStartupMovie"}, //18.0.0+
+        {3104, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationNintendoLogo"}, //18.0.0+
+        {3105, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationStartupMovie"}, //18.0.0+
         {3250, D<&IApplicationManagerInterface::Unknown3250>, "Unknown3250"}, //23.5.0+
         {3251, D<&IApplicationManagerInterface::Unknown3251>, "Unknown3251"}, //23.5.0+
         {3252, nullptr, "Unknown3252"}, //23.5.0+
