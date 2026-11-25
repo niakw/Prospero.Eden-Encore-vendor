@@ -1234,6 +1234,16 @@
       "active": "26b183188e989bd330b91f0c945fd82bc7ea3d0d12f02ac3af48083203208c68",
       "bytes": 2994,
       "upstream": "868baf901534b723e6e89f6b37c49cfe5867fbdcf747659c260dda716f5c56e0"
+    },
+    "src/core/hle/service/sm/sm_controller.cpp": {
+      "upstream": "1a630843d3c8cd4e26c4e8656cb185e0ffebc6fe208631b50d27444768c2c030",
+      "active": "a8e14749160e0957079fbf2371cdb5fb2ce207699ba4b14b9054a0b091728675",
+      "bytes": 5360
+    },
+    "src/core/hle/service/sm/sm_controller.h": {
+      "upstream": "aedd606bd5b3f0e3f297b0e20bcd6e8699d0af2addd7db4c066d044a8e42a292",
+      "active": "2dd552c80ddc23803e492bfb743aed57dc06978c75654aefb0f9f1344f761a74",
+      "bytes": 749
     }
   },
   "excluded_experimental": [
