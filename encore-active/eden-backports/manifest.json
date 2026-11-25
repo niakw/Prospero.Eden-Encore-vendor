@@ -480,6 +480,11 @@
       "bytes": 2285,
       "upstream": "2ee23f6f39cc1b367c91a7729ec63c6c6a933d7db03eb11a652fe13b917f276b"
     },
+    "src/core/hle/service/mig/mig.cpp": {
+      "active": "b53691cfaa0184daf17dd82987bf94fac66b2a0c1000ddb32529496fa7e35763",
+      "bytes": 4475,
+      "upstream": "5387c8803d0ba6de4cebff8ca332bda476f48812c8b6c6e47091bd09ffd3fff6"
+    },
     "src/core/hle/service/mii/mii.cpp": {
       "active": "e3d71bc7189d3675e16aa03bc03ea032581249625cbe3c5dc330c86f1e2dacbd",
       "bytes": 15496,
@@ -519,6 +524,16 @@
       "active": "450200ef9e54f2f7989f46960055e4591d00c4ca5a870b7141d2bb1f69163908",
       "bytes": 7313,
       "upstream": "1ed17c086a3e2e34697453855e0f69583ad80196093a0944ef10929bdb56d49e"
+    },
+    "src/core/hle/service/ns/dynamic_rights_interface.cpp": {
+      "active": "241b1a5060032e58e33579b3d5bf23abc9929ec92393d168b9a9b1352a0cea0a",
+      "bytes": 5039,
+      "upstream": "39d255c2a905b49aa78830470901d32f3edcd348d449867dc507b55e852dd132"
+    },
+    "src/core/hle/service/ns/dynamic_rights_interface.h": {
+      "active": "60a4afe05c0425fb13e620b77be80adb6be491755dc0358391a7af812135d19f",
+      "bytes": 920,
+      "upstream": "42c21b40cb4264eecacc570d8cf8413b25ffd6f56bf2b1303d4d12d73aba78c7"
     },
     "src/core/hle/service/ns/factory_reset_interface.cpp": {
       "active": "c2c5c74d573c74a0f39bcda6c6e4fc6e8c8c4eecf821bb68afcfa30c153cf2e6",
@@ -634,6 +649,11 @@
       "active": "359e9311b0d99b74353edac18b61ffab0c6182826edba8108d3390ff37549a28",
       "bytes": 1317,
       "upstream": "c076a5520dfc0186ef2498c0fc3523ec7f4e154c7cecef0d26d2fae76173e763"
+    },
+    "src/core/hle/service/pcie/pcie.cpp": {
+      "active": "78592f53eaee50b23dc63648a8b8d9057524d9c969ee5a8f1d3da540f572afe4",
+      "bytes": 4550,
+      "upstream": "d7ad1a55a92e91b5e28fc62e7b7f64a9195532b0d80544661078057eb79107ec"
     },
     "src/core/hle/service/pctl/parental_control_service.cpp": {
       "active": "ed83f719be6e45bbcf8641e2fb19844b87b467a86e450b25bf112a698e4baa8f",
