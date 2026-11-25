@@ -38,6 +38,18 @@ public:
         void AllocateAesKeyslot(HLERequestContext& ctx);
         void DeallocateAesKeySlot(HLERequestContext& ctx);
         void GetAesKeyslotAvailableEvent(HLERequestContext& ctx);
+        void ImportLotusKey(HLERequestContext& ctx);
+        void DecryptLotusMessage(HLERequestContext& ctx);
+        void GenerateSpecificAesKey(HLERequestContext& ctx);
+        void LoadTitleKey(HLERequestContext& ctx);
+        void GetPackage2Hash(HLERequestContext& ctx);
+        void DecryptDeviceUniqueData(HLERequestContext& ctx);
+        void ImportSecureExpModKey(HLERequestContext& ctx);
+        void SecureExpModWithStoredKey(HLERequestContext& ctx);
+        void UnwrapRsaOaepWrappedKey(HLERequestContext& ctx);
+        void PrepareEsCommonKey(HLERequestContext& ctx);
+        void LoadPreparedAesKey(HLERequestContext& ctx);
+        void ReencryptDeviceUniqueData(HLERequestContext& ctx);
         void SetConfig(HLERequestContext& ctx);
         void GenerateRandomBytes(HLERequestContext& ctx);
         void IsDevelopment(HLERequestContext& ctx);
