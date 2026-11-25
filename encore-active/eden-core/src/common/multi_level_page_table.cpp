@@ -23,6 +23,9 @@ namespace Common {
 void* AllocateSparsePages(std::size_t size) noexcept;
 void FreeSparsePages(void* base, std::size_t size) noexcept;
 void CommitSparsePage(std::uintptr_t page) noexcept;
+// Unlike the general sparse allocator's fatal first-commit contract, GPU
+// page-table reservations must surface a recoverable allocation failure.
+bool TryCommitSparsePage(std::uintptr_t page) noexcept;
 std::size_t SparseCommitSpan() noexcept;
 #endif
 
@@ -108,9 +111,10 @@ void MultiLevelPageTable<BaseAddr>::AllocateLevel(u64 index) {
     const auto chunk_begin = reinterpret_cast<std::uintptr_t>(ptr);
     const auto chunk_end = chunk_begin + first_level_chunk_size;
     const auto span = SparseCommitSpan();
-    for (auto page = chunk_begin; page < chunk_end; page += span)
-        CommitSparsePage(page);
-    CommitSparsePage(chunk_end - 1);
+    for (auto page = chunk_begin; page < chunk_end; page += span) {
+        if (!TryCommitSparsePage(page)) throw std::bad_alloc{};
+    }
+    if (!TryCommitSparsePage(chunk_end - 1)) throw std::bad_alloc{};
 #endif
 #endif
     first_level_map[index] = base;
