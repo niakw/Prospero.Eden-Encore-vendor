@@ -4,6 +4,10 @@
 // SPDX-FileCopyrightText: Copyright 2021 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
+#include <ctime>
+#include <limits>
+
 #include "common/logging.h"
 #include "common/uuid.h"
 #include "core/hle/service/cmif_serialization.h"
@@ -20,29 +24,29 @@ IQueryService::IQueryService(Core::System& system_) : ServiceFramework{system_, 
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, &IQueryService::RejectUnavailablePlayLogQuery, "QueryAppletEvent"},
-        {1, nullptr, "QueryPlayStatistics"},
-        {2, nullptr, "QueryPlayStatisticsByUserAccountId"},
-        {3, nullptr, "QueryPlayStatisticsByNetworkServiceAccountId"},
+        {1, &IQueryService::RejectUnavailablePlayLogQuery, "QueryPlayStatistics"},
+        {2, &IQueryService::RejectUnavailablePlayLogQuery, "QueryPlayStatisticsByUserAccountId"},
+        {3, &IQueryService::RejectUnavailablePlayLogQuery, "QueryPlayStatisticsByNetworkServiceAccountId"},
         {4, D<&IQueryService::QueryPlayStatisticsByApplicationId>, "QueryPlayStatisticsByApplicationId"},
         {5, D<&IQueryService::QueryPlayStatisticsByApplicationIdAndUserAccountId>, "QueryPlayStatisticsByApplicationIdAndUserAccountId"},
-        {6, nullptr, "QueryPlayStatisticsByApplicationIdAndNetworkServiceAccountId"},
-        {7, nullptr, "QueryLastPlayTimeV0"},
+        {6, &IQueryService::RejectUnavailablePlayLogQuery, "QueryPlayStatisticsByApplicationIdAndNetworkServiceAccountId"},
+        {7, D<&IQueryService::QueryLastPlayTimeV0>, "QueryLastPlayTimeV0"},
         {8, &IQueryService::RejectUnavailablePlayLogQuery, "QueryPlayEvent"},
         {9, &IQueryService::RejectUnavailablePlayLogQuery, "GetAvailablePlayEventRange"},
         {10, &IQueryService::RejectUnavailablePlayLogQuery, "QueryAccountEvent"},
         {11, &IQueryService::RejectUnavailablePlayLogQuery, "QueryAccountPlayEvent"},
         {12, &IQueryService::RejectUnavailablePlayLogQuery, "GetAvailableAccountPlayEventRange"},
-        {13, nullptr, "QueryApplicationPlayStatisticsForSystemV0"},
-        {16, nullptr, "QueryApplicationPlayStatisticsByUserAccountIdForSystemV0"},
+        {13, D<&IQueryService::QueryApplicationPlayStatisticsForSystemV0>, "QueryApplicationPlayStatisticsForSystemV0"},
+        {16, D<&IQueryService::QueryApplicationPlayStatisticsByUserAccountIdForSystemV0>, "QueryApplicationPlayStatisticsByUserAccountIdForSystemV0"},
         {17, D<&IQueryService::QueryLastPlayTime>, "QueryLastPlayTime"},
         {18, D<&IQueryService::QueryApplicationPlayStatisticsForSystem>, "QueryApplicationPlayStatisticsForSystem"},
         {19, D<&IQueryService::QueryApplicationPlayStatisticsByUserAccountIdForSystem>, "QueryApplicationPlayStatisticsByUserAccountIdForSystem"},
-        { 30, nullptr, "Cmd30" },
-        { 31, nullptr, "Cmd31" },
-        { 100, nullptr, "Cmd100" },
-        { 110, nullptr, "Cmd110" },
-        { 118, nullptr, "Cmd118" },
-        { 119, nullptr, "Cmd119" },
+        {30, &IQueryService::RejectUnavailablePlayLogQuery, "Cmd30"},
+        {31, &IQueryService::RejectUnavailablePlayLogQuery, "Cmd31"},
+        {100, &IQueryService::RejectUnavailablePlayLogQuery, "Cmd100"},
+        {110, &IQueryService::RejectUnavailablePlayLogQuery, "Cmd110"},
+        {118, &IQueryService::RejectUnavailablePlayLogQuery, "Cmd118"},
+        {119, &IQueryService::RejectUnavailablePlayLogQuery, "Cmd119"},
     };
     // clang-format on
 
@@ -107,10 +111,66 @@ Result IQueryService::QueryPlayStatisticsByApplicationIdAndUserAccountId(
 Result IQueryService::QueryLastPlayTime(
     Out<s32> out_entries, u8 unknown,
     OutArray<LastPlayTime, BufferAttr_HipcMapAlias> out_last_play_times,
-    InArray<s32, BufferAttr_HipcMapAlias> application_ids) {
-    *out_entries = 1;
-    *out_last_play_times = {};
+    InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
+    constexpr s64 HorizonMinuteEpoch = 946598400; // 1999-12-31 00:00 UTC
+    const s64 now = static_cast<s64>(std::time(nullptr));
+    const size_t count = std::min(out_last_play_times.size(), application_ids.size());
+    s32 written = 0;
+
+    for (size_t i = 0; i < count; ++i) {
+        const u64 application_id = application_ids[i];
+        LastPlayTime entry{};
+        entry.application_id = application_id;
+
+        const u64 launches = Core::LaunchTimestampCache::GetLaunchCount(application_id);
+        if (launches != 0) {
+            const s64 timestamp = Core::LaunchTimestampCache::GetLaunchTimestamp(application_id);
+            if (timestamp >= HorizonMinuteEpoch) {
+                const u64 horizon_minutes =
+                    static_cast<u64>(timestamp - HorizonMinuteEpoch) / 60ULL;
+                const u32 encoded_timestamp = static_cast<u32>((std::min)(
+                    horizon_minutes, static_cast<u64>(std::numeric_limits<u32>::max())));
+                entry.last_timestamp_user = encoded_timestamp;
+                entry.last_timestamp_network = encoded_timestamp;
+
+                if (now >= timestamp) {
+                    const u64 elapsed_minutes = static_cast<u64>(now - timestamp) / 60ULL;
+                    entry.minutes_since_last_played = static_cast<u32>((std::min)(
+                        elapsed_minutes, static_cast<u64>(std::numeric_limits<u32>::max())));
+                    entry.has_minutes_since_last_played = 1;
+                }
+            }
+        }
+
+        out_last_play_times[i] = entry;
+        ++written;
+    }
+
+    *out_entries = written;
+    LOG_DEBUG(Service_NS, "called, entries={} flag={}", written, unknown);
     R_SUCCEED();
+}
+
+Result IQueryService::QueryLastPlayTimeV0(
+    Out<s32> out_entries,
+    OutArray<LastPlayTime, BufferAttr_HipcMapAlias> out_last_play_times,
+    InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
+    R_RETURN(QueryLastPlayTime(out_entries, 0, out_last_play_times, application_ids));
+}
+
+Result IQueryService::QueryApplicationPlayStatisticsForSystemV0(
+    Out<s32> out_entries,
+    OutArray<ApplicationPlayStatistics, BufferAttr_HipcMapAlias> out_stats,
+    InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
+    R_RETURN(QueryApplicationPlayStatisticsForSystem(out_entries, 0, out_stats, application_ids));
+}
+
+Result IQueryService::QueryApplicationPlayStatisticsByUserAccountIdForSystemV0(
+    Out<s32> out_entries, Common::UUID user_id,
+    OutArray<ApplicationPlayStatistics, BufferAttr_HipcMapAlias> out_stats,
+    InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
+    R_RETURN(QueryApplicationPlayStatisticsByUserAccountIdForSystem(
+        out_entries, 0, user_id, out_stats, application_ids));
 }
 
 Result IQueryService::QueryApplicationPlayStatisticsForSystem(
