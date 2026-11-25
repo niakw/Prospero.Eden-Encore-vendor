@@ -225,7 +225,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {913, D<&IApplicationManagerInterface::ListApplicationRecord>, "ListAllApplicationRecord"},
         {914, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "HideApplicationRecord"},
         {915, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ShowApplicationRecord"},
-        {916, nullptr, "IsApplicationAutoDeleteDisabled"},
+        {916, D<&IApplicationManagerInterface::IsApplicationAutoDeleteDisabled>, "IsApplicationAutoDeleteDisabled"},
         {917, nullptr, "Unknown917"}, //20.0.0+
         {918, nullptr, "Unknown918"}, //20.0.0+
         {919, nullptr, "Unknown919"}, //20.0.0+
@@ -281,7 +281,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {1702, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationDownloadTaskStatus"},
         {1703, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationViewDownloadErrorContext"},
         {1704, D<&IApplicationManagerInterface::GetApplicationViewWithPromotionInfo>, "GetApplicationViewWithPromotionInfo"},
-        {1705, nullptr, "IsPatchAutoDeletableApplication"},
+        {1705, D<&IApplicationManagerInterface::IsPatchAutoDeletableApplication>, "IsPatchAutoDeletableApplication"},
         {1706, D<&IApplicationManagerInterface::GetApplicationView>, "GetApplicationView"},
         {1800, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "IsNotificationSetupCompleted"},
         {1801, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetLastNotificationInfoCount"},
@@ -1204,6 +1204,26 @@ Result IApplicationManagerInterface::TouchApplication(u64 application_id) {
 
     // Encore does not persist NS "last touched" record metadata yet. Validate
     // the application record instead of returning success for arbitrary IDs.
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::IsApplicationAutoDeleteDisabled(
+    Out<bool> out_disabled, u64 application_id) {
+    LOG_DEBUG(Service_NS, "called, application_id={:016X}", application_id);
+
+    // Encore has no background application auto-delete backend on PS5. Report
+    // the effective platform state instead of pretending that auto-delete is active.
+    *out_disabled = true;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::IsPatchAutoDeletableApplication(
+    Out<bool> out_deletable, u64 application_id) {
+    LOG_DEBUG(Service_NS, "called, application_id={:016X}", application_id);
+
+    // No NS auto-delete worker exists on Encore/PS5, so installed patches are
+    // conservatively non-auto-deletable.
+    *out_deletable = false;
     R_SUCCEED();
 }
 
