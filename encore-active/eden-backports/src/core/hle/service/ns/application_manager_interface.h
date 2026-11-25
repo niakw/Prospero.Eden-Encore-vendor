@@ -20,20 +20,21 @@ namespace Service::NS {
 
 struct ApplicationLaunchInfoV19 {
     u64 application_id;
+    u64 patch_id;
     u32 version;
+    u32 content_meta_type;
     u32 launch_flags;
     u8 application_storage_id;
     u8 update_storage_id;
-    u8 reserved_12[0x1E];
-    u64 application_instance_id;
-    u8 reserved_38[0x48];
+    u8 reserved_1e[0x62];
 };
 static_assert(sizeof(ApplicationLaunchInfoV19) == 0x80);
-static_assert(offsetof(ApplicationLaunchInfoV19, version) == 0x08);
-static_assert(offsetof(ApplicationLaunchInfoV19, launch_flags) == 0x0C);
-static_assert(offsetof(ApplicationLaunchInfoV19, application_storage_id) == 0x10);
-static_assert(offsetof(ApplicationLaunchInfoV19, update_storage_id) == 0x11);
-static_assert(offsetof(ApplicationLaunchInfoV19, application_instance_id) == 0x30);
+static_assert(offsetof(ApplicationLaunchInfoV19, patch_id) == 0x08);
+static_assert(offsetof(ApplicationLaunchInfoV19, version) == 0x10);
+static_assert(offsetof(ApplicationLaunchInfoV19, content_meta_type) == 0x14);
+static_assert(offsetof(ApplicationLaunchInfoV19, launch_flags) == 0x18);
+static_assert(offsetof(ApplicationLaunchInfoV19, application_storage_id) == 0x1C);
+static_assert(offsetof(ApplicationLaunchInfoV19, update_storage_id) == 0x1D);
 
 struct ApplicationContentStorageRecord {
     u64 title_id;
