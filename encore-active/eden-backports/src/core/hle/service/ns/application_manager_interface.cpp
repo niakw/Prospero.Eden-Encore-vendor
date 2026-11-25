@@ -141,7 +141,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {304, D<&IApplicationManagerInterface::LaunchSystemApplet>, "LaunchSystemApplet"},
         {305, nullptr, "TerminateSystemApplet"},
         {306, nullptr, "LaunchOverlayApplet"},
-        {307, nullptr, "TerminateOverlayApplet"},
+        {307, D<&IApplicationManagerInterface::TerminateOverlayApplet>, "TerminateOverlayApplet"},
         {400, D<&IApplicationManagerInterface::GetApplicationControlData>, "GetApplicationControlData"},
         {401, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "InvalidateAllApplicationControlCache"},
         {402, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestDownloadApplicationControlData"},
@@ -1142,6 +1142,18 @@ Result IApplicationManagerInterface::LaunchSystemApplet(Out<u64> out_process_id)
     applet->process->Run();
 
     *out_process_id = process_id;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::TerminateOverlayApplet(u64 program_id) {
+    LOG_DEBUG(Service_NS, "called, program_id={:016X}", program_id);
+
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, ResultUnknown);
+    const auto applet = window_system->GetOverlayDisplayApplet();
+    R_UNLESS(applet != nullptr && applet->program_id == program_id, ResultUnknown);
+
+    applet->process->Terminate();
     R_SUCCEED();
 }
 
