@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <array>
 #include <tuple>
 #include "common/assert.h"
 #include "common/scope_exit.h"
@@ -68,10 +69,28 @@ void ServiceManager::ReleaseRegisteredHandlersForShutdown() {
         }
         retired.swap(registered_services);
     }
-    // A factory may own an NVDRV handler -> module -> nvhost_as_gpu. The latter
-    // calls KProcess::Close and must never run after ShutdownCores. Destroy
-    // OUTSIDE SM's lock because final release can re-enter service cleanup.
+    // GPU supervisor / worker factories may hold an AS shared_ptr after its
+    // originating NVDRV FD closes. nvhost_as_gpu references Module::Container
+    // and NvMap: destroying NVDRV first leaves those references dangling, and
+    // later AS retirement tries to lock an already-destroyed mutex. Retire all
+    // other service factories before the three NVDRV aliases. Service loops
+    // are already joined and the kernel/Host1x remain alive. Moving the
+    // std::function owners costs no allocations and keeps this out of SM's lock.
+    std::array<SessionRequestHandlerFactory, 3> nvdrv_keepers{};
+    for (auto& [name, factory] : retired) {
+        if (name == "nvdrv") {
+            nvdrv_keepers[0] = std::move(factory);
+        } else if (name == "nvdrv:a") {
+            nvdrv_keepers[1] = std::move(factory);
+        } else if (name == "nvdrv:s") {
+            nvdrv_keepers[2] = std::move(factory);
+        }
+    }
     retired.clear();
+    // Only now may NVDRV's module close its NvMap/Container and their mutexes.
+    for (auto& factory : nvdrv_keepers) {
+        factory = {};
+    }
 }
 
 ServiceManager::~ServiceManager() {
