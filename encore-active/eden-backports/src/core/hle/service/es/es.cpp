@@ -66,15 +66,15 @@ public:
             {38, nullptr, "OwnTicket3"},
             {39, &ETicket::RejectUnavailableTicketManagement, "DeleteAllInactivePersonalizedTicket"},
             {40, &ETicket::RejectUnavailableTicketManagement, "DeletePrepurchaseRecordByNintendoAccountId"},
-            {101, nullptr, "Unknown101"}, //18.0.0+
-            {102, nullptr, "Unknown102"}, //18.0.0+
-            {103, nullptr, "Unknown103"}, //18.0.0+
-            {104, nullptr, "Unknown104"}, //18.0.0+
-            {105, nullptr, "Unknown105"}, //20.0.0+
-            {201, nullptr, "Unknown201"}, //18.0.0+
-            {202, nullptr, "Unknown202"}, //18.0.0+
-            {203, nullptr, "Unknown203"}, //18.0.0+
-            {204, nullptr, "Unknown204"}, //18.0.0+
+            {101, &ETicket::ReturnDocumentedUnavailableResult, "Unknown101"}, //18.0.0+
+            {102, &ETicket::ReturnDocumentedUnavailableResult, "Unknown102"}, //18.0.0+
+            {103, &ETicket::ReturnDocumentedUnavailableResult, "Unknown103"}, //18.0.0+
+            {104, &ETicket::ReturnDocumentedUnavailableResult, "Unknown104"}, //18.0.0+
+            {105, &ETicket::ReturnDocumentedUnavailableResult, "Unknown105"}, //20.0.0+
+            {201, &ETicket::ReturnDocumentedUnavailableResult, "Unknown201"}, //18.0.0+
+            {202, &ETicket::ReturnDocumentedUnavailableResult, "Unknown202"}, //18.0.0+
+            {203, &ETicket::ReturnDocumentedUnavailableResult, "Unknown203"}, //18.0.0+
+            {204, &ETicket::ReturnDocumentedUnavailableResult, "Unknown204"}, //18.0.0+
             {205, nullptr, "Unknown205"}, //18.0.0+
             {501, nullptr, "Unknown501"},
             {502, nullptr, "Unknown502"},
@@ -129,6 +129,13 @@ public:
     }
 
 private:
+    // Horizon returns 0x3F4A91 for these 18.0+/20.0+ commands (SwitchBrew ETicket).
+    // Preserve the observed failure rather than reporting success or a generic IPC error.
+    void ReturnDocumentedUnavailableResult(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Result{0x3F4A91});
+    }
+
     // Switch eTicket mutation and prepurchase service lacks an authenticated backend.
     // Preserve local ticket reads and title-key access on the existing KeyManager.
     void RejectUnavailableTicketManagement(HLERequestContext& ctx) {
