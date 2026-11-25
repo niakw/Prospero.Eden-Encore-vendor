@@ -55,7 +55,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {7, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "DeleteRedundantApplicationEntity"},
         {8, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "IsApplicationEntityMovable"},
         {9, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "MoveApplicationEntity"},
-        {11, nullptr, "CalculateApplicationOccupiedSize"},
+        {11, D<&IApplicationManagerInterface::CalculateApplicationOccupiedSize>, "CalculateApplicationOccupiedSize"},
         {16, &IApplicationManagerInterface::PushApplicationRecord, "PushApplicationRecord"},
         {17, nullptr, "ListApplicationRecordContentMeta"},
         {19, nullptr, "LaunchApplicationOld"},
@@ -719,6 +719,12 @@ Result IApplicationManagerInterface::PopApplicationShellEventInfo(
     *out_event_info_type = 0;
     *out_application_id = 0;
     R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::CalculateApplicationOccupiedSize(
+    Out<ApplicationOccupiedSize> out_size, u64 application_id) {
+    R_RETURN(IContentManagementInterface(system).CalculateApplicationOccupiedSize(out_size,
+                                                                                  application_id));
 }
 
 Result IApplicationManagerInterface::GetApplicationControlProperty(

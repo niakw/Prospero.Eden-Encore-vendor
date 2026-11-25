@@ -44,6 +44,8 @@ public:
     Result GetApplicationRecordUpdateSystemEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result GetApplicationShellEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result PopApplicationShellEventInfo(Out<u32> out_event_info_type, Out<u64> out_application_id);
+    Result CalculateApplicationOccupiedSize(Out<ApplicationOccupiedSize> out_size,
+                                            u64 application_id);
     Result GetApplicationControlProperty(OutBuffer<BufferAttr_HipcMapAlias> out_buffer,
                                          u64 application_id);
     Result GetGameCardAttachmentEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
