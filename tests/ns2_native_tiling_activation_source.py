@@ -290,3 +290,22 @@ with tempfile.TemporaryDirectory(prefix="eden-i2m-packet-") as directory:
         ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
         assert ran.returncode == 0, (opt, ran.stderr[-5000:])
 print("NS2_INLINE_UPLOAD_PACKET_BOUNDS_PASS full=1 fragmented=1 scalar_truncation=1 unaligned=1 overflow=1 O0=1 O2=1 ASan=1 UBSan=1")
+
+# The selected I2M writer must prove the entire GOB extent fits in the
+# decoder's u32 address space and preserve compact inline words across Z.
+i2m_span = i2m.split("void State::ProcessData(std::span<const u8> read_buffer) {", 1)[1]
+for guard in (
+    "regs.dest.BlockWidth() != 0",
+    "origin_y >= height || origin_z >= depth",
+    "lines_per_slice * (static_cast<u64>(depth) - origin_z)",
+    "aligned_width > MaxInlineUploadBytes / aligned_height",
+    "aligned_width * aligned_height > MaxInlineUploadBytes / aligned_depth",
+    "source_rows > MaxInlineUploadBytes / regs.line_length_in",
+    "dst_size != destination_bytes",
+    "memory_manager.IsFullyMappedRange(address, dst_size)",
+    "padded_source.resize(static_cast<size_t>(source_bytes))",
+    "source.data() + copied_rows * regs.line_length_in",
+    "memory_manager.UsesNativeTiling(), origin_z",
+):
+    assert guard in i2m_span, ("I2M tiled safety contract lost", guard)
+assert "source_bytes != copy_size" in i2m_span
