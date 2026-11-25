@@ -31,6 +31,19 @@ public:
     ~ISelfController() override;
 
 private:
+    Result SetControllerFirmwareUpdateSection(bool enabled);
+    Result SetRequiresCaptureButtonShortPressedMessage(bool required);
+    Result SetDesirableKeyboardLayout(u32 layout);
+    Result GetScreenShotProgramId(Out<u64> out_program_id);
+    Result RejectUnavailableManagedDisplayLayerSeparationMode(u32 mode);
+    Result RejectUnavailableRecordingLayerComposition(bool enabled);
+    Result SetInputDetectionSourceSet(u32 input_detection_source_set);
+    Result GetCurrentIlluminance(Out<f32> out_illuminance);
+    void ReportMultimediaError(HLERequestContext& ctx);
+    Result GetCurrentIlluminanceEx(Out<CurrentIlluminanceEx> out_illuminance);
+    Result SetWirelessPriorityMode(u32 wireless_priority_mode);
+    void SetApplicationAlbumUserData(HLERequestContext& ctx);
+    Result RejectDebugOnlyCommand();
     void GetGraphicsSupervisor(HLERequestContext& ctx);
     Result Exit();
     Result LockExit();

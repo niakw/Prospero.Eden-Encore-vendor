@@ -45,43 +45,43 @@ ISelfController::ISelfController(Core::System& system_, std::shared_ptr<Applet> 
         {14, D<&ISelfController::SetRestartMessageEnabled>, "SetRestartMessageEnabled"},
         {15, D<&ISelfController::SetScreenShotAppletIdentityInfo>, "SetScreenShotAppletIdentityInfo"},
         {16, D<&ISelfController::SetOutOfFocusSuspendingEnabled>, "SetOutOfFocusSuspendingEnabled"},
-        {17, nullptr, "SetControllerFirmwareUpdateSection"},
-        {18, nullptr, "SetRequiresCaptureButtonShortPressedMessage"},
+        {17, D<&ISelfController::SetControllerFirmwareUpdateSection>, "SetControllerFirmwareUpdateSection"},
+        {18, D<&ISelfController::SetRequiresCaptureButtonShortPressedMessage>, "SetRequiresCaptureButtonShortPressedMessage"},
         {19, D<&ISelfController::SetAlbumImageOrientation>, "SetAlbumImageOrientation"},
-        {20, nullptr, "SetDesirableKeyboardLayout"},
-        {21, nullptr, "GetScreenShotProgramId"},
+        {20, D<&ISelfController::SetDesirableKeyboardLayout>, "SetDesirableKeyboardLayout"},
+        {21, D<&ISelfController::GetScreenShotProgramId>, "GetScreenShotProgramId"},
         {40, D<&ISelfController::CreateManagedDisplayLayer>, "CreateManagedDisplayLayer"},
         {41, D<&ISelfController::IsSystemBufferSharingEnabled>, "IsSystemBufferSharingEnabled"},
         {42, D<&ISelfController::GetSystemSharedLayerHandle>, "GetSystemSharedLayerHandle"},
         {43, D<&ISelfController::GetSystemSharedBufferHandle>, "GetSystemSharedBufferHandle"},
         {44, D<&ISelfController::CreateManagedDisplaySeparableLayer>, "CreateManagedDisplaySeparableLayer"},
-        {45, nullptr, "SetManagedDisplayLayerSeparationMode"},
-        {46, nullptr, "SetRecordingLayerCompositionEnabled"},
+        {45, D<&ISelfController::RejectUnavailableManagedDisplayLayerSeparationMode>, "SetManagedDisplayLayerSeparationMode"},
+        {46, D<&ISelfController::RejectUnavailableRecordingLayerComposition>, "SetRecordingLayerCompositionEnabled"},
         {50, D<&ISelfController::SetHandlesRequestToDisplay>, "SetHandlesRequestToDisplay"},
         {51, D<&ISelfController::ApproveToDisplay>, "ApproveToDisplay"},
         {60, D<&ISelfController::OverrideAutoSleepTimeAndDimmingTime>, "OverrideAutoSleepTimeAndDimmingTime"},
         {61, D<&ISelfController::SetMediaPlaybackState>, "SetMediaPlaybackState"},
         {62, D<&ISelfController::SetIdleTimeDetectionExtension>, "SetIdleTimeDetectionExtension"},
         {63, D<&ISelfController::GetIdleTimeDetectionExtension>, "GetIdleTimeDetectionExtension"},
-        {64, nullptr, "SetInputDetectionSourceSet"},
+        {64, D<&ISelfController::SetInputDetectionSourceSet>, "SetInputDetectionSourceSet"},
         {65, D<&ISelfController::ReportUserIsActive>, "ReportUserIsActive"},
-        {66, nullptr, "GetCurrentIlluminance"},
+        {66, D<&ISelfController::GetCurrentIlluminance>, "GetCurrentIlluminance"},
         {67, D<&ISelfController::IsIlluminanceAvailable>, "IsIlluminanceAvailable"},
         {68, D<&ISelfController::SetAutoSleepDisabled>, "SetAutoSleepDisabled"},
         {69, D<&ISelfController::IsAutoSleepDisabled>, "IsAutoSleepDisabled"},
-        {70, nullptr, "ReportMultimediaError"},
-        {71, nullptr, "GetCurrentIlluminanceEx"},
+        {70, &ISelfController::ReportMultimediaError, "ReportMultimediaError"},
+        {71, D<&ISelfController::GetCurrentIlluminanceEx>, "GetCurrentIlluminanceEx"},
         {72, D<&ISelfController::SetInputDetectionPolicy>, "SetInputDetectionPolicy"},
-        {80, nullptr, "SetWirelessPriorityMode"},
+        {80, D<&ISelfController::SetWirelessPriorityMode>, "SetWirelessPriorityMode"},
         {90, D<&ISelfController::GetAccumulatedSuspendedTickValue>, "GetAccumulatedSuspendedTickValue"},
         {91, D<&ISelfController::GetAccumulatedSuspendedTickChangedEvent>, "GetAccumulatedSuspendedTickChangedEvent"},
         {100, D<&ISelfController::SetAlbumImageTakenNotificationEnabled>, "SetAlbumImageTakenNotificationEnabled"},
-        {110, nullptr, "SetApplicationAlbumUserData"},
+        {110, &ISelfController::SetApplicationAlbumUserData, "SetApplicationAlbumUserData"},
         {120, D<&ISelfController::SaveCurrentScreenshot>, "SaveCurrentScreenshot"},
         {130, D<&ISelfController::SetRecordVolumeMuted>, "SetRecordVolumeMuted"},
         {230, D<&ISelfController::Unknown230>, "Unknown230"},
         {240, D<&ISelfController::Unknown240>, "Unknown240"},
-        {1000, nullptr, "GetDebugStorageChannel"},
+        {1000, D<&ISelfController::RejectDebugOnlyCommand>, "GetDebugStorageChannel"},
         {2000, &ISelfController::GetGraphicsSupervisor, "GetGraphicsSupervisor"},
     };
     // clang-format on
@@ -100,6 +100,109 @@ ISelfController::~ISelfController() {
 }
 
 // NS2-only command 2000: preserve a real kernel copy handle and its lifetime.
+Result ISelfController::SetControllerFirmwareUpdateSection(bool enabled) {
+    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->controller_firmware_update_section = enabled;
+    R_SUCCEED();
+}
+
+Result ISelfController::SetRequiresCaptureButtonShortPressedMessage(bool required) {
+    LOG_DEBUG(Service_AM, "called, required={}", required);
+
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->handling_capture_button_short_pressed_message_enabled_for_applet = required;
+
+    R_SUCCEED();
+}
+
+Result ISelfController::SetDesirableKeyboardLayout(u32 layout) {
+    LOG_DEBUG(Service_AM, "called, layout={}", layout);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->desirable_keyboard_layout = layout;
+    R_SUCCEED();
+}
+
+Result ISelfController::GetScreenShotProgramId(Out<u64> out_program_id) {
+    std::scoped_lock lk{m_applet->lock};
+
+    const u64 identity_program_id = m_applet->screen_shot_identity.application_id;
+    *out_program_id = identity_program_id != 0 ? identity_program_id : m_applet->program_id;
+
+    LOG_DEBUG(Service_AM, "called, program_id={:016X}", *out_program_id);
+    R_SUCCEED();
+}
+
+Result ISelfController::RejectUnavailableManagedDisplayLayerSeparationMode(u32 mode) {
+    LOG_WARNING(Service_AM,
+                "SetManagedDisplayLayerSeparationMode unavailable: recording layer backend is not materialized, mode={}",
+                mode);
+    R_UNLESS(mode <= 1, ResultUnknown);
+    R_RETURN(ResultUnknown);
+}
+
+Result ISelfController::RejectUnavailableRecordingLayerComposition(bool enabled) {
+    LOG_WARNING(Service_AM,
+                "SetRecordingLayerCompositionEnabled unavailable: recording layer backend is not materialized, enabled={}",
+                enabled);
+    R_RETURN(ResultUnknown);
+}
+
+Result ISelfController::SetInputDetectionSourceSet(u32 input_detection_source_set) {
+    m_input_detection_source_set = input_detection_source_set;
+    LOG_DEBUG(Service_AM, "called, input_detection_source_set={:#x}",
+              m_input_detection_source_set);
+    R_SUCCEED();
+}
+
+Result ISelfController::GetCurrentIlluminance(Out<f32> out_illuminance) {
+    // PS5 integration exposes no ambient-light sensor; pair this neutral value with
+    // IsIlluminanceAvailable=false so guests can handle the unsupported capability normally.
+    *out_illuminance = 0.0f;
+    LOG_DEBUG(Service_AM, "called, illuminance={}", *out_illuminance);
+    R_SUCCEED();
+}
+
+void ISelfController::ReportMultimediaError(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const u32 error = rp.Pop<u32>();
+    LOG_DEBUG(Service_AM, "Multimedia error reported by guest, code={:#x}, context_size={}", error,
+              ctx.GetReadBufferSize());
+
+    // This is a report/notification command. Encore has no Horizon multimedia-error collector;
+    // accepting the notification has no guest-visible state transition.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+Result ISelfController::GetCurrentIlluminanceEx(Out<CurrentIlluminanceEx> out_illuminance) {
+    *out_illuminance = {};
+    LOG_DEBUG(Service_AM, "called, ambient-light sensor unavailable");
+    R_SUCCEED();
+}
+
+Result ISelfController::SetWirelessPriorityMode(u32 wireless_priority_mode) {
+    // There is no Horizon WLAN scheduler on PS5. Keep the requested value as guest-visible
+    // service state without attempting to alter host networking priorities.
+    m_wireless_priority_mode = wireless_priority_mode;
+    LOG_DEBUG(Service_AM, "called, wireless_priority_mode={}", m_wireless_priority_mode);
+    R_SUCCEED();
+}
+
+void ISelfController::SetApplicationAlbumUserData(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_AM, "called, application_album_user_data_size={}", ctx.GetReadBufferSize());
+
+    // The current screenshot backend writes image/title/timestamp data directly and has no
+    // consumer for Horizon's opaque application album-user-data blob.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+Result ISelfController::RejectDebugOnlyCommand() {
+    LOG_WARNING(Service_AM, "Rejected self-controller debug command on release runtime");
+    R_RETURN(ResultUnknown);
+}
+
 void ISelfController::GetGraphicsSupervisor(HLERequestContext& ctx) {
     if (m_graphics_supervisor_session) {
         IPC::ResponseBuilder rb{ctx, 2, 1};
