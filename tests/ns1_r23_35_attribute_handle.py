@@ -126,7 +126,7 @@ for path,sha in EXPECTED.items():
    assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==old_sha, ("FC27 graphics hint predecessor drift", path)
    assert "kNativeTransitionHintLimit = 64" in raw.decode("utf-8") or "next_transition_replacement" in raw.decode("utf-8")
   continue
- if path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path) in {"52470b6160f6049801d963960adf6952c79a45cf","b28a190e92ca80b0385148a0b558828353326f12","cfac496d574010b8121611c8616d38bf7cdcbc41","a0e2a45b9b0f080b739d97abb92e9485a0063f73","79660c5cc4ff046f24e7ffa50ab066a86857698c","d222fb5565cdf8db30c6d3d464f107ff26a042c8"}:
+ if path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path) in {"44b0edc24e847d4cbcd47de0ed86241787bda38a","52470b6160f6049801d963960adf6952c79a45cf","b28a190e92ca80b0385148a0b558828353326f12","cfac496d574010b8121611c8616d38bf7cdcbc41","a0e2a45b9b0f080b739d97abb92e9485a0063f73","79660c5cc4ff046f24e7ffa50ab066a86857698c","d222fb5565cdf8db30c6d3d464f107ff26a042c8"}:
   # Reviewed newest-32 native prewarm overlay. The complete current shader
   # owner is cryptographically pinned; the engine's Vulkan/R23 audit separately
   # reverses its entire exact LoadDiskResources hunk to the historical blob.
@@ -134,6 +134,15 @@ for path,sha in EXPECTED.items():
   # but must not mistake a bounded shader reader change for an ABI change.
   selected=raw.decode("utf-8")
   cache_blob_current=gitblob(ROOT/path)
+  if cache_blob_current == "44b0edc24e847d4cbcd47de0ed86241787bda38a":
+   # Only the exact FC27 cache quota changes; preserve historic ABI checks.
+   new_policy = "    // FC27 PS5 25/11: 598 valid cached keys, only 128 restored in 704 ms,\n    // and 243 first-use translations during gameplay. Prebuild the newest\n    // 768 DISTINCT cached keys before guest Run when the existing file-size\n    // limit allows it. Keep the 32-entry prefix for large/absent caches;\n    // this changes no GPU barriers, shader output or draw ordering.\n    constexpr size_t kStartupPrewarmPipelines = 32;\n    constexpr size_t kRecentPrewarmPipelines = 768;"
+   old_policy = "    // For a modest, already populated cache, admit the newest 128 builders\n    // before gameplay; preserve the 32-entry prefix for large/absent caches.\n    // This shifts some first-use work to loading without skipping any draw.\n    constexpr size_t kStartupPrewarmPipelines = 32;\n    constexpr size_t kRecentPrewarmPipelines = 128;"
+   assert selected.count(new_policy) == 1, "Unreviewed shader-cache source"
+   selected = selected.replace(new_policy, old_policy, 1)
+   predecessor = selected.encode("utf-8")
+   assert hashlib.sha1(b"blob " + str(len(predecessor)).encode() + bytes([0]) + predecessor).hexdigest() == "7db0462ad24aa4c6356ce4efa0086b356f171be6"
+   cache_blob_current = "7db0462ad24aa4c6356ce4efa0086b356f171be6"
   if cache_blob_current in {"52470b6160f6049801d963960adf6952c79a45cf","b28a190e92ca80b0385148a0b558828353326f12","79660c5cc4ff046f24e7ffa50ab066a86857698c","d222fb5565cdf8db30c6d3d464f107ff26a042c8"}:
    from ps5_recent_prewarm_receipt import reverse_adaptive_prewarm
    selected=reverse_adaptive_prewarm(selected)

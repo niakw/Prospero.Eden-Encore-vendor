@@ -52,6 +52,16 @@ assert cmp_blob in {"7d9fa72ce2afff5a7b1b75a05fc894b1d99ce6a2","7122e9ad2d0d5e8a
 cache_blob=blob(CACHE)
 # Verify the complete deduplicated prewarm successor before replaying the frozen shader proof.
 cache_source = CACHE.read_text()
+# The only change to the selected Vulkan prewarm owner is authenticated by
+# its whole source blob and inverted ONLY on an in-memory historical copy.
+if cache_blob == "44b0edc24e847d4cbcd47de0ed86241787bda38a":
+    new_policy = "    // FC27 PS5 25/11: 598 valid cached keys, only 128 restored in 704 ms,\n    // and 243 first-use translations during gameplay. Prebuild the newest\n    // 768 DISTINCT cached keys before guest Run when the existing file-size\n    // limit allows it. Keep the 32-entry prefix for large/absent caches;\n    // this changes no GPU barriers, shader output or draw ordering.\n    constexpr size_t kStartupPrewarmPipelines = 32;\n    constexpr size_t kRecentPrewarmPipelines = 768;"
+    old_policy = "    // For a modest, already populated cache, admit the newest 128 builders\n    // before gameplay; preserve the 32-entry prefix for large/absent caches.\n    // This shifts some first-use work to loading without skipping any draw.\n    constexpr size_t kStartupPrewarmPipelines = 32;\n    constexpr size_t kRecentPrewarmPipelines = 128;"
+    assert cache_source.count(new_policy) == 1, "FC27 cache source drift"
+    cache_source = cache_source.replace(new_policy, old_policy, 1)
+    data = cache_source.encode("utf-8")
+    cache_blob = hashlib.sha1(b"blob " + str(len(data)).encode() + bytes([0]) + data).hexdigest()
+    assert cache_blob == "7db0462ad24aa4c6356ce4efa0086b356f171be6", cache_blob
 if cache_blob == "7db0462ad24aa4c6356ce4efa0086b356f171be6":
     guard = "\n        // Disk records are untrusted: the six guest programs include both\n        // VertexA and VertexB, even though Vulkan exposes five graphics stages.\n        size_t env_index = 0;\n        for (size_t index = 0; index < key.unique_hashes.size(); ++index) {\n            if (key.unique_hashes[index] == 0) continue;\n            if (env_index == envs.size() ||\n                envs[env_index].ShaderStage() != (index == 0 ? Shader::Stage::VertexA\n                                                            : Shader::StageFromIndex(index - 1))) {\n                return;\n            }\n            ++env_index;\n        }\n        if (env_index == 0 || env_index != envs.size()) return;\n"
     capacity = "boost::container::static_vector<Shader::Environment*, Maxwell::MaxShaderProgram> env_ptrs;"
