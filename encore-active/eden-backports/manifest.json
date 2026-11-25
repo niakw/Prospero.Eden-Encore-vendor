@@ -801,8 +801,8 @@
       "upstream": "96952882443b02647637b6f768a580c55535d1145296959f0d83a78a6fd225ad"
     },
     "src/hid_core/resources/npad/npad.cpp": {
-      "active": "fc6c2112d6db7451b9d65072781e048b9bae32755aceea57f3209d25c7a9a121",
-      "bytes": 63262,
+      "active": "5c0e8393f4799efc3e17444fb1437f6e371abec5db1773e2f5eecf853dc9dc21",
+      "bytes": 63363,
       "upstream": "04079c74931260bcceb23325a796060af766a981959b3c230d1ad2c5276c5b8b"
     },
     "src/video_core/buffer_cache/buffer_cache.h": {
@@ -1419,6 +1419,21 @@
       "active": "a50758e94a4a5fcc2be3932deb08f35da95ee82efade7a6d2eeae4cd0eae2c79",
       "bytes": 3970,
       "upstream": "be0f14859eaa4d2fe82250eb0ab55bc962139cf7b5ff8a9db88739e3d2fcc506"
+    },
+    "src/hid_core/resources/npad/npad.h": {
+      "active": "c725a7ce7d5700a9db2fa3af3a7b49e7212bfefd425f267cc793044909ec4a2c",
+      "bytes": 10207,
+      "upstream": "4376307d2bd769f49801387610bf6336c5a0ac267f48bbf9db3653629b372bfe"
+    },
+    "src/core/hle/service/hid/irs.cpp": {
+      "active": "373f5b564af04ac3e213ff60e0369d14b8b910c01a269497a4eda1df876898d2",
+      "bytes": 20221,
+      "upstream": "f254ded667b084f6eb87d91d7decc92c52ee25f3d2033cbd6eb38d645d75187c"
+    },
+    "src/core/hle/service/hid/irs.h": {
+      "active": "1678fdbca263a6f6a3fd7a6924741da6b89015cd839120851a44efefbde0c9d6",
+      "bytes": 7604,
+      "upstream": "461176b251843d5b70ebe6ba114bf43f2d1d7fa392f74cbe96115a8a89ba4723"
     }
   },
   "excluded_experimental": [
