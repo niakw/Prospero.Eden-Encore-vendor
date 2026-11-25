@@ -426,13 +426,13 @@
       "upstream": "67a75240764eea738894edeb7b8763f2871a0b6ad04efbb19eb32f475d33be59"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.cpp": {
-      "active": "f3802081a232c921387ff6455f47ec763ad223639519dae62bd2603fc0bd57ad",
-      "bytes": 62809,
+      "active": "c00dae00676188f4b55cb9fbe68c03337ec07579c0811f8141e16e6d5b0808d7",
+      "bytes": 63534,
       "upstream": "2017a14e3450768f421448326f809d439414cc385f927511382b940c64e44e84"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.h": {
-      "active": "bc519b94610131dad27fdb7107b00a33151d3a10b141c0aa85fe156c58e7f96a",
-      "bytes": 11212,
+      "active": "cf847034826318b0235ecdf7f0d1c5b0e844e887dfb5e025f7d8aad18bd7f0f6",
+      "bytes": 11145,
       "upstream": "394d7fd76564e2a7b50225a6263ab8377a6e4fa6cdfcfd1b7d51ba1e0bf39293"
     },
     "src/core/hle/service/friend/friend.cpp": {

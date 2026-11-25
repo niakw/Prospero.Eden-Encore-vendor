@@ -230,7 +230,10 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {204, D<&FSP_SRV::OpenDataFileSystemWithProgramIndex>, "OpenDataFileSystemWithProgramIndex"},
         {205, D<&FSP_SRV::OpenDataStorageWithProgramIndex>, "OpenDataStorageWithProgramIndex"},
         {206, D<&FSP_SRV::OpenDataStorageByPath>, "OpenDataStorageByPath"},
-        {210, D<&FSP_SRV::SetCurrentProcess>, "SetCurrentProcess"},
+        {210, D<&FSP_SRV::OpenDataStorageByCurrentProcess>, "OpenDataStorageByCurrentProcessForBatchRead"},
+        {211, D<&FSP_SRV::OpenDataStorageByProgramId>, "OpenDataStorageByProgramIdForBatchRead"},
+        {212, D<&FSP_SRV::OpenDataStorageWithProgramIndex>, "OpenDataStorageWithProgramIndexForBatchRead"},
+        {213, D<&FSP_SRV::OpenDataStorageByPath>, "OpenDataStorageByPathForBatchRead"},
         {400, &FSP_SRV::UnsupportedDebugCommand, "OpenDeviceOperator"},
         {500, &FSP_SRV::UnsupportedDebugCommand, "OpenSdCardDetectionEventNotifier"},
         {501, &FSP_SRV::UnsupportedDebugCommand, "OpenGameCardDetectionEventNotifier"},
@@ -984,9 +987,19 @@ Result FSP_SRV::OpenDataStorageByCurrentProcess(OutInterface<IStorage> out_inter
 }
 
 Result FSP_SRV::OpenDataStorageByProgramId(OutInterface<IStorage> out_interface,
-                                             FileSys::StorageId storage_id, u64 title_id) {
-    LOG_DEBUG(Service_FS, "called with storage_id={:02X}, title_id={:016X}", storage_id, title_id);
-    R_RETURN(OpenDataStorageByDataId(out_interface, storage_id, 0, title_id));
+                                             u64 program_id_) {
+    LOG_DEBUG(Service_FS, "called with program_id={:016X}", program_id_);
+
+    const u64 base_id = FileSys::GetBaseTitleID(program_id_);
+    const u64 index = program_id_ - base_id;
+    R_UNLESS(index <= std::numeric_limits<u8>::max(), FileSys::ResultInvalidArgument);
+
+    auto patched_romfs = romfs_controller->OpenPatchedRomFSWithProgramIndex(
+        base_id, static_cast<u8>(index), FileSys::ContentRecordType::Program);
+    R_UNLESS(patched_romfs != nullptr, FileSys::ResultTargetNotFound);
+
+    *out_interface = std::make_shared<IStorage>(system, std::move(patched_romfs));
+    R_SUCCEED();
 }
 
 Result FSP_SRV::OpenDataStorageByDataId(OutInterface<IStorage> out_interface,

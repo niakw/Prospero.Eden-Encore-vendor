@@ -154,8 +154,7 @@ private:
     Result OpenContentStorageFileSystem(OutInterface<IFileSystem> out_interface,
                                         ContentStorageId content_storage_id);
     Result OpenDataStorageByCurrentProcess(OutInterface<IStorage> out_interface);
-    Result OpenDataStorageByProgramId(OutInterface<IStorage> out_interface,
-                                      FileSys::StorageId storage_id, u64 title_id);
+    Result OpenDataStorageByProgramId(OutInterface<IStorage> out_interface, u64 program_id);
     Result OpenDataStorageByDataId(OutInterface<IStorage> out_interface,
                                    FileSys::StorageId storage_id, u32 unknown, u64 title_id);
     Result OpenPatchDataStorageByCurrentProcess(OutInterface<IStorage> out_interface);
