@@ -290,7 +290,7 @@ NVDRV::NVDRV(Core::System& system_, std::shared_ptr<Module> nvdrv_, const char* 
         {4, &NVDRV::QueryEvent, "QueryEvent"},
         {5, &NVDRV::RejectUnsupportedExtension, "MapSharedMem"},
         {6, &NVDRV::GetStatus, "GetStatus"},
-        {7, &NVDRV::RejectUnsupportedExtension, "SetAruidForTest"},
+        {7, &NVDRV::SetAruid, "SetAruidForTest"},
         {8, &NVDRV::SetAruid, "SetAruid"},
         {9, &NVDRV::DumpGraphicsMemoryInfo, "DumpGraphicsMemoryInfo"},
         {10, &NVDRV::RejectUnsupportedExtension, "InitializeDevtools"},
