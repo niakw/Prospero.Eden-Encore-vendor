@@ -1404,6 +1404,16 @@
       "active": "c7dd52009c52cfced1dd1d04aa4630305aad59fafe972f1eab9a2139bcdcfdb0",
       "bytes": 860,
       "upstream": "8bb348adfddec6676e0deca4b5cf37a981ef999928e64e1148d1539d14c79ed1"
+    },
+    "src/core/hle/service/am/service/audio_controller.cpp": {
+      "active": "b97fb4ed91b76af7ece652fa2aadfb8f77ad9b5ac09b83c7d1266cb17d8bfab2",
+      "bytes": 3391,
+      "upstream": "5c564ca5a734ba107915bc30ce46fd700b45290d57a01c0448700e095c6fa8bd"
+    },
+    "src/core/hle/service/am/service/audio_controller.h": {
+      "active": "87d8b762f32f621fe41e8571f99b177749fca2ec0718302f0879a54625611ce6",
+      "bytes": 1431,
+      "upstream": "7d0bc7d12f1530d97a98febf6d67611bdb6a847350e24abbe2b3929a2c049d06"
     }
   },
   "excluded_experimental": [
