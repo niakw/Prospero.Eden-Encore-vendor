@@ -1360,8 +1360,9 @@ for reason in (
 assert 'throw std::runtime_error("Native GPFIFO' not in dma_cpp
 
 # Puller/Ampere/QMD synchronous GPU failures use the same channel-aware fatal
-# path. The only direct throws left are inside three deferred fence callbacks;
-# those catches latch first and then signal the captured ChannelState.
+# path. Direct throws are confined to the three deferred fence callback
+# families: backing-epoch loss and mirror-publication failure. Each callback
+# catches, latches the GPU failure and faults the captured ChannelState.
 puller_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
 for reason in (
     "Native GPFIFO SET_OBJECT class unsupported",
@@ -1385,12 +1386,16 @@ for reason in (
     assert "FailNativeSubmission" in puller_cpp[max(0,pos-96):pos], reason
 assert "pusher.FailNativeSubmission(why);" in puller_cpp
 assert "pusher.FailNativeSubmission(reason);" in puller_cpp
-assert puller_cpp.count("throw std::runtime_error") == 3
-for reason in (
+deferred_throw_reasons = (
     "Ampere SEM_EXECUTE: release backing changed after GPU submit",
-    "Native Compute reduction backing revoked after GPU submission",
+    "Ampere SEM_EXECUTE: semaphore mirror publication failed",
+    "Native Compute report semaphore backing revoked after GPU submission",
+    "Native Compute semaphore mirror publication failed",
     "Native QMD3 release backing revoked after GPU submission",
-):
+    "Native QMD3 semaphore mirror publication failed",
+)
+assert puller_cpp.count("throw std::runtime_error") == len(deferred_throw_reasons)
+for reason in deferred_throw_reasons:
     assert reason in puller_cpp
 assert puller_cpp.count("Eden::RecordGpuFailure(failure);") >= 3
 assert puller_cpp.count(".ReportFault(channel);") >= 3
