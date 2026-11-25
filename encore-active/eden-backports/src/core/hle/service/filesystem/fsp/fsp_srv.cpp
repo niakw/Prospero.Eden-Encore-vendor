@@ -230,6 +230,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {204, D<&FSP_SRV::OpenDataFileSystemWithProgramIndex>, "OpenDataFileSystemWithProgramIndex"},
         {205, D<&FSP_SRV::OpenDataStorageWithProgramIndex>, "OpenDataStorageWithProgramIndex"},
         {206, D<&FSP_SRV::OpenDataStorageByPath>, "OpenDataStorageByPath"},
+        {207, D<&FSP_SRV::OpenDataFileSystemByDataId>, "OpenDataFileSystemByDataId"},
         {210, D<&FSP_SRV::OpenDataStorageByCurrentProcessForBatchRead>, "OpenDataStorageByCurrentProcessForBatchRead"},
         {211, D<&FSP_SRV::OpenDataStorageByProgramIdForBatchRead>, "OpenDataStorageByProgramIdForBatchRead"},
         {212, D<&FSP_SRV::OpenDataStorageWithProgramIndexForBatchRead>, "OpenDataStorageWithProgramIndexForBatchRead"},
@@ -1032,6 +1033,33 @@ Result FSP_SRV::OpenDataStorageByDataId(OutInterface<IStorage> out_interface,
         system, pm.PatchRomFS(base.get(), std::move(data), FileSys::ContentRecordType::Data));
 
     *out_interface = std::move(storage);
+    R_SUCCEED();
+}
+
+Result FSP_SRV::OpenDataFileSystemByDataId(
+    OutInterface<IFileSystem> out_interface, FileSys::StorageId storage_id, u32 padding,
+    u64 data_id) {
+    LOG_DEBUG(Service_FS,
+              "called with storage_id={:02X}, padding={:08X}, data_id={:016X}",
+              storage_id, padding, data_id);
+
+    auto data = romfs_controller->OpenRomFS(data_id, storage_id, FileSys::ContentRecordType::Data);
+    if (!data) {
+        data = FileSys::SystemArchive::SynthesizeSystemArchive(data_id);
+    }
+    R_UNLESS(data != nullptr, FileSys::ResultTargetNotFound);
+
+    const FileSys::PatchManager pm{data_id, fsc, content_provider};
+    auto base =
+        romfs_controller->OpenBaseNca(data_id, storage_id, FileSys::ContentRecordType::Data);
+    auto patched = pm.PatchRomFS(base.get(), std::move(data), FileSys::ContentRecordType::Data);
+    R_UNLESS(patched != nullptr, FileSys::ResultTargetNotFound);
+
+    auto directory = FileSys::ExtractRomFS(patched);
+    R_UNLESS(directory != nullptr, FileSys::ResultTargetNotFound);
+
+    *out_interface = std::make_shared<IFileSystem>(
+        system, std::move(directory), SizeGetter::FromStorageId(fsc, storage_id));
     R_SUCCEED();
 }
 
