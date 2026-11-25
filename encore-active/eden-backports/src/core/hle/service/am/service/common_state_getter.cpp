@@ -47,7 +47,7 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {11, D<&ICommonStateGetter::ReleaseSleepLock>, "ReleaseSleepLock"},
         {12, D<&ICommonStateGetter::ReleaseSleepLockTransiently>, "ReleaseSleepLockTransiently"},
         {13, D<&ICommonStateGetter::GetAcquiredSleepLockEvent>, "GetAcquiredSleepLockEvent"},
-        {14, nullptr, "GetWakeupCount"}, //11.0.0+
+        {14, D<&ICommonStateGetter::GetWakeupCount>, "GetWakeupCount"}, //11.0.0+
         {15, D<&ICommonStateGetter::Unknown15>, "Unknown15"}, //19.0.0+
         {20, D<&ICommonStateGetter::PushToGeneralChannel>, "PushToGeneralChannel"},
         {30, D<&ICommonStateGetter::GetHomeButtonReaderLockAccessor>, "GetHomeButtonReaderLockAccessor"},
@@ -85,11 +85,11 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {501, D<&ICommonStateGetter::SuppressDisablingSleepTemporarily>, "SuppressDisablingSleepTemporarily"},
         {502, D<&ICommonStateGetter::IsSleepEnabled>, "IsSleepEnabled"},
         {503, D<&ICommonStateGetter::IsDisablingSleepSuppressed>, "IsDisablingSleepSuppressed"},
-        {600, nullptr, "SetHidInputMagnificationForApplication"}, //20.0.0+
+        {600, &ICommonStateGetter::RejectUnavailableFeature, "SetHidInputMagnificationForApplication"}, //20.0.0+
         {610, D<&ICommonStateGetter::Unknown610>, "Unknown610"}, //21.0.0+
         {611, D<&ICommonStateGetter::Unknown611>, "Unknown611"}, //22.0.0+
         {900, D<&ICommonStateGetter::SetRequestExitToLibraryAppletAtExecuteNextProgramEnabled>, "SetRequestExitToLibraryAppletAtExecuteNextProgramEnabled"}, //11.0.0+
-        {910, nullptr, "GetLaunchRequiredTick"}, //17.0.0+
+        {910, &ICommonStateGetter::RejectUnavailableFeature, "GetLaunchRequiredTick"}, //17.0.0+
         {1000, D<&ICommonStateGetter::BeginVrMode3d>, "BeginVrMode3d"}, //19.0.0+
         {1001, D<&ICommonStateGetter::EndVrMode3d>, "EndVrMode3d"}, //19.0.0+
         {1002, D<&ICommonStateGetter::IsVrModeEnabled3d>, "IsVrModeEnabled3d"}, //19.0.0+
@@ -201,6 +201,13 @@ Result ICommonStateGetter::ReceiveMessage(Out<AppletMessage> out_applet_message)
     LOG_DEBUG(Service_AM, "called, returning message={} to applet_id={}",
              static_cast<u32>(*out_applet_message), static_cast<u32>(m_applet->applet_id));
 
+    R_SUCCEED();
+}
+
+Result ICommonStateGetter::GetWakeupCount(Out<u64> out_wakeup_count) {
+    // Encore does not currently model a guest sleep/resume cycle. Report a stable
+    // zero count rather than exposing PS5 host suspend state to Horizon.
+    *out_wakeup_count = 0;
     R_SUCCEED();
 }
 
