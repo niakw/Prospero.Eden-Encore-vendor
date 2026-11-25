@@ -9,6 +9,7 @@
 #include "core/hle/service/cmif_types.h"
 #include "core/hle/service/service.h"
 #include "core/hle/service/server_manager.h"
+#include "frontend_common/firmware_manager.h"
 
 namespace Service::WLAN {
 
@@ -244,14 +245,119 @@ public:
     }
 };
 
+
+class IWirelessCommunicationService final : public ServiceFramework<IWirelessCommunicationService> {
+public:
+    explicit IWirelessCommunicationService(Core::System& system_)
+        : ServiceFramework{system_, "IWirelessCommunicationService"} {
+        // Horizon 15+ uses the unified wlan service; these low-level radio
+        // commands cannot be backed by the PS5 guest network socket backend.
+        static const FunctionInfo functions[] = {
+            {0, &IWirelessCommunicationService::RejectUnavailableRadio, "OpenCommunication"},
+            {1, &IWirelessCommunicationService::RejectUnavailableRadio, "CloseCommunication"},
+            {10, &IWirelessCommunicationService::RejectUnavailableRadio, "PutActionFrame"},
+            {11, &IWirelessCommunicationService::RejectUnavailableRadio, "GetActionFrame"},
+            {12, &IWirelessCommunicationService::RejectUnavailableRadio, "CancelGetActionFrame"},
+            {13, &IWirelessCommunicationService::RejectUnavailableRadio, "CreateRxEntryForActionFrame"},
+            {14, &IWirelessCommunicationService::RejectUnavailableRadio, "DeleteRxEntryForActionFrame"},
+            {20, &IWirelessCommunicationService::RejectUnavailableRadio, "SetActionFrameBssidFilter"},
+            {21, &IWirelessCommunicationService::RejectUnavailableRadio, "DeleteActionFrameBssidFilter"},
+            {30, &IWirelessCommunicationService::RejectUnavailableRadio, "GetState"},
+            {31, &IWirelessCommunicationService::RejectUnavailableRadio, "GetCommunicationSetting"},
+            {32, &IWirelessCommunicationService::RejectUnavailableRadio, "GetStationStatus"},
+            {33, &IWirelessCommunicationService::RejectUnavailableRadio, "GetMacAddress"},
+            {40, &IWirelessCommunicationService::RejectUnavailableRadio, "PutFrame"},
+            {41, &IWirelessCommunicationService::RejectUnavailableRadio, "GetFrame"},
+            {42, &IWirelessCommunicationService::RejectUnavailableRadio, "CancelGetFrame"},
+            {43, &IWirelessCommunicationService::RejectUnavailableRadio, "CreateRxEntry"},
+            {44, &IWirelessCommunicationService::RejectUnavailableRadio, "DeleteRxEntry"},
+            {45, &IWirelessCommunicationService::RejectUnavailableRadio, "AddEthertypeToRxEntry"},
+            {46, &IWirelessCommunicationService::RejectUnavailableRadio, "DeleteEthertypeFromRxEntry"},
+            {47, &IWirelessCommunicationService::RejectUnavailableRadio, "AddMatchingDataToRxEntry"},
+            {48, &IWirelessCommunicationService::RejectUnavailableRadio, "DeleteMatchingDataFromRxEntry"},
+            {50, &IWirelessCommunicationService::RejectUnavailableRadio, "AddVendorSpecificIe"},
+            {51, &IWirelessCommunicationService::RejectUnavailableRadio, "DeleteVendorSpecificIe"},
+            {60, &IWirelessCommunicationService::RejectUnavailableRadio, "Scan"},
+            {61, &IWirelessCommunicationService::RejectUnavailableRadio, "StopScan"},
+            {62, &IWirelessCommunicationService::RejectUnavailableRadio, "GetScanCompleteEvent"},
+            {63, &IWirelessCommunicationService::RejectUnavailableRadio, "GetScanResults"},
+            {80, &IWirelessCommunicationService::RejectUnavailableRadio, "RequestSleep"},
+            {81, &IWirelessCommunicationService::RejectUnavailableRadio, "RequestWakeUp"},
+            {90, &IWirelessCommunicationService::RejectUnavailableRadio, "CreateBss"},
+            {91, &IWirelessCommunicationService::RejectUnavailableRadio, "DestroyBss"},
+            {92, &IWirelessCommunicationService::RejectUnavailableRadio, "Deauthenticate"},
+            {93, &IWirelessCommunicationService::RejectUnavailableRadio, "GetStationConnectionEvent"},
+            {94, &IWirelessCommunicationService::RejectUnavailableRadio, "GetAllowedChannels"},
+            {95, &IWirelessCommunicationService::RejectUnavailableRadio, "SetActionFrameWithBeacon"},
+            {96, &IWirelessCommunicationService::RejectUnavailableRadio, "StopActionFrameWithBeacon"},
+            {97, &IWirelessCommunicationService::RejectUnavailableRadio, "SetMaxAssociationNumber"},
+            {98, &IWirelessCommunicationService::RejectUnavailableRadio, "SetShortGiSupport"},
+            {100, &IWirelessCommunicationService::RejectUnavailableRadio, "Connect"},
+            {101, &IWirelessCommunicationService::RejectUnavailableRadio, "GetConnectionEvent"},
+            {102, &IWirelessCommunicationService::RejectUnavailableRadio, "CancelConnect"},
+            {103, &IWirelessCommunicationService::RejectUnavailableRadio, "Disconnect"},
+            {104, &IWirelessCommunicationService::RejectUnavailableRadio, "GetConnectionCompleteEvent"},
+            {105, &IWirelessCommunicationService::RejectUnavailableRadio, "GetConnectionStatus"},
+            {106, &IWirelessCommunicationService::RejectUnavailableRadio, "GetRssiAndSignalLevel"},
+            {107, &IWirelessCommunicationService::RejectUnavailableRadio, "SetMulticastFilter"},
+            {108, &IWirelessCommunicationService::RejectUnavailableRadio, "SetPowerSaveMode"},
+            {109, &IWirelessCommunicationService::RejectUnavailableRadio, "Cmd109"},
+            {110, &IWirelessCommunicationService::RejectUnavailableRadio, "GetWakeupReason"},
+            {111, &IWirelessCommunicationService::RejectUnavailableRadio, "SetTcpSessionInformation"},
+            {112, &IWirelessCommunicationService::RejectUnavailableRadio, "RemoveTcpSessionInformation"},
+            {113, &IWirelessCommunicationService::RejectUnavailableRadio, "SetWowlDelayedWakeTime"},
+            {120, &IWirelessCommunicationService::RejectUnavailableRadio, "Cmd120"},
+            {140, &IWirelessCommunicationService::RejectUnavailableRadio, "Cmd140"},
+            {200, &IWirelessCommunicationService::RejectUnavailableRadio, "SetTxPower"},
+            {201, &IWirelessCommunicationService::RejectUnavailableRadio, "ResetTxPower"},
+            {202, &IWirelessCommunicationService::RejectUnavailableRadio, "GetTxPower"},
+            {203, &IWirelessCommunicationService::RejectUnavailableRadio, "RequestIfUpDown"},
+            {204, &IWirelessCommunicationService::RejectUnavailableRadio, "Cmd204"},
+            {900, &IWirelessCommunicationService::RejectUnavailableRadio, "Cmd900"},
+        };
+        RegisterHandlers(functions);
+    }
+
+private:
+    void RejectUnavailableRadio(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+};
+
+class IGeneralServiceCreator final : public ServiceFramework<IGeneralServiceCreator> {
+public:
+    explicit IGeneralServiceCreator(Core::System& system_)
+        : ServiceFramework{system_, "wlan"} {
+        static const FunctionInfo functions[] = {
+            {0, &IGeneralServiceCreator::CreateWirelessCommunicationService,
+             "CreateWirelessCommunicationService"},
+        };
+        RegisterHandlers(functions);
+    }
+
+private:
+    void CreateWirelessCommunicationService(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+        rb.Push(ResultSuccess);
+        rb.PushIpcInterface<IWirelessCommunicationService>(ctx, system);
+    }
+};
+
 void LoopProcess(Core::System& system) {
     auto server_manager = std::make_unique<ServerManager>(system);
-    server_manager->RegisterNamedService("wlan:lcl", std::make_shared<ILocalManager>(system), 10);
-    server_manager->RegisterNamedService("wlan:lg", std::make_shared<ILocalGetFrame>(system), 10);
-    server_manager->RegisterNamedService("wlan:lga", std::make_shared<ILocalGetActionFrame>(system), 10);
-    server_manager->RegisterNamedService("wlan:sg", std::make_shared<ISocketGetFrame>(system), 10);
-    server_manager->RegisterNamedService("wlan:soc", std::make_shared<ISocketManager>(system), 10);
-    server_manager->RegisterNamedService("wlan:dtc", std::make_shared<IDetectManager>(system), 4);
+    // Horizon 15 replaced the six legacy WLAN endpoints with "wlan".
+    if (FirmwareManager::GetFirmwareVersion(system).first.major >= 15) {
+        server_manager->RegisterNamedService(
+            "wlan", std::make_shared<IGeneralServiceCreator>(system), 10);
+    } else {
+        server_manager->RegisterNamedService("wlan:lcl", std::make_shared<ILocalManager>(system), 10);
+        server_manager->RegisterNamedService("wlan:lg", std::make_shared<ILocalGetFrame>(system), 10);
+        server_manager->RegisterNamedService("wlan:lga", std::make_shared<ILocalGetActionFrame>(system), 10);
+        server_manager->RegisterNamedService("wlan:sg", std::make_shared<ISocketGetFrame>(system), 10);
+        server_manager->RegisterNamedService("wlan:soc", std::make_shared<ISocketManager>(system), 10);
+        server_manager->RegisterNamedService("wlan:dtc", std::make_shared<IDetectManager>(system), 4);
+    }
     server_manager->RegisterNamedService("wlan:p", std::make_shared<IPrivateServiceCreator>(system), 30);
     server_manager->RegisterNamedService("wlan:nd", std::make_shared<ISfDriverServiceCreator>(system), 5);
     ServerManager::RunServer(std::move(server_manager));

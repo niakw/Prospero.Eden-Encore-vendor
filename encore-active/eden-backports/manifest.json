@@ -731,8 +731,8 @@
       "upstream": "0a71a9d662e114d54f759f535cfdb3187e4d285cf381fa6f52298aa636ffa503"
     },
     "src/core/hle/service/wlan/wlan.cpp": {
-      "active": "df1a2a35a3cfa6e6925cebf38df42c17114668277eb84f52a573593d1b658b37",
-      "bytes": 10653,
+      "active": "46fe01d4bb77e8a72f2c9d61972b0437684dcc29050983db3a31499fc64ebfbe",
+      "bytes": 18111,
       "upstream": "62d13fd7c5fcf252808c7bf7a393600d940987165aceac397bb34e210d70eac6"
     },
     "src/core/memory.cpp": {
