@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <atomic>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -28,12 +29,12 @@ SFDNSRES::SFDNSRES(Core::System& system_) : ServiceFramework{system_, "sfdnsres"
         {1, nullptr, "GetDnsAddressPrivateRequest"},
         {2, &SFDNSRES::GetHostByNameRequest, "GetHostByNameRequest"},
         {3, nullptr, "GetHostByAddrRequest"},
-        {4, nullptr, "GetHostStringErrorRequest"},
+        {4, &SFDNSRES::GetHostStringErrorRequest, "GetHostStringErrorRequest"},
         {5, &SFDNSRES::GetGaiStringErrorRequest, "GetGaiStringErrorRequest"},
         {6, &SFDNSRES::GetAddrInfoRequest, "GetAddrInfoRequest"},
         {7, nullptr, "GetNameInfoRequest"},
-        {8, nullptr, "RequestCancelHandleRequest"},
-        {9, nullptr, "CancelRequest"},
+        {8, &SFDNSRES::RequestCancelHandleRequest, "RequestCancelHandleRequest"},
+        {9, &SFDNSRES::CancelRequest, "CancelRequest"},
         {10, &SFDNSRES::GetHostByNameRequestWithOptions, "GetHostByNameRequestWithOptions"},
         {11, nullptr, "GetHostByAddrRequestWithOptions"},
         {12, &SFDNSRES::GetAddrInfoRequestWithOptions, "GetAddrInfoRequestWithOptions"},
@@ -372,6 +373,62 @@ void SFDNSRES::GetAddrInfoRequest(HLERequestContext& ctx) {
         .gai_error = emu_gai_err,
         .data_size = data_size,
     });
+}
+
+void SFDNSRES::GetHostStringErrorRequest(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const auto error = static_cast<NetDbError>(rp.Pop<u32>());
+
+    std::string result;
+    switch (error) {
+    case NetDbError::Success:
+        result = "Resolver success";
+        break;
+    case NetDbError::HostNotFound:
+        result = "Host not found";
+        break;
+    case NetDbError::TryAgain:
+        result = "Temporary resolver failure";
+        break;
+    case NetDbError::NoRecovery:
+        result = "Non-recoverable resolver failure";
+        break;
+    case NetDbError::NoData:
+        result = "No address associated with host";
+        break;
+    default:
+        result = "Resolver internal error";
+        break;
+    }
+
+    ctx.WriteBuffer(result);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void SFDNSRES::RequestCancelHandleRequest(HLERequestContext& ctx) {
+    // DNS work is synchronous in Encore today. Still provide unique HOS-style
+    // cancel tokens so libnx can pair a later CancelRequest without failing IPC.
+    static std::atomic<u32> next_cancel_handle{1};
+    u32 handle = next_cancel_handle.fetch_add(1, std::memory_order_relaxed);
+    if (handle == 0) {
+        handle = next_cancel_handle.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.Push(handle);
+}
+
+void SFDNSRES::CancelRequest(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const u32 handle = rp.Pop<u32>();
+    [[maybe_unused]] const u32 padding = rp.Pop<u32>();
+    [[maybe_unused]] const u64 process_id = rp.Pop<u64>();
+    LOG_DEBUG(Service, "cancel resolver request handle={:#x}; resolver is synchronous", handle);
+
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
 }
 
 void SFDNSRES::GetGaiStringErrorRequest(HLERequestContext& ctx) {
