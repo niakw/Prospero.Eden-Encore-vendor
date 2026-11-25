@@ -106,9 +106,9 @@
       "upstream": "5619f8fd62f292084432263d56456e7b656b626dad7781a76ba9ccb2f70a1acb"
     },
     "src/core/hle/service/acc/acc.cpp": {
-      "active": "71c34670cc93158e954ac7a04b3b52cbe60306aaf5c6948ce50ca2ee663d2595",
-      "bytes": 95439,
-      "upstream": "95857946c85c42721f123d4e591d880a57e2cfd9bc74ec995741e633975af02b"
+      "upstream": "95857946c85c42721f123d4e591d880a57e2cfd9bc74ec995741e633975af02b",
+      "active": "933ea9c58805cb783518ae3b49a420885d15e8c874a0496efc59792e99c9e9f9",
+      "bytes": 102756
     },
     "src/core/hle/service/acc/acc.h": {
       "active": "e4da8d73487cb8a3da53bff6364784cd066663a238a6e29a54c924ff142dfd75",
@@ -1204,6 +1204,16 @@
       "upstream": "3a7517076f5f80fa9bd6e3bdd44aa0d05cc4e9a34206797a533989c71e1b5e73",
       "active": "5b6f70d453bb4e2bf7a38ce2077fe2abd9407f3c42caabbde17260f92099ff9b",
       "bytes": 749
+    },
+    "src/core/hle/service/aoc/addon_content_manager.cpp": {
+      "upstream": "b09d37fd974e17f55f6425836d2e7f981755ed005e617d1ebda1f0cbf45edfe9",
+      "active": "3993f73ae8a466ea0a5c3d2be55c85dfaec86d0ea6f70a9ed54bce61dde25818",
+      "bytes": 9681
+    },
+    "src/core/hle/service/aoc/addon_content_manager.h": {
+      "upstream": "0bfabeb189026b2ebc9b4c0ad12cff9e919c46b7b67ae2ebeef895cfb8df3b52",
+      "active": "77450091cbe4d57b827b2c7f7d10f1d118b58fbb2bcf14c5cec2025286cb32b8",
+      "bytes": 1812
     }
   },
   "excluded_experimental": [
