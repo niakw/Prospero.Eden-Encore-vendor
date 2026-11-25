@@ -431,9 +431,9 @@
       "upstream": "fe8774aed91e37d4b1addb14b62a82110bd64f12c9f6817a9705a46ae8e0a8b5"
     },
     "src/core/hle/service/glue/arp.cpp": {
-      "active": "af0e9706345e30362b6e91a614192013bc7a8c73352b914200a782ce3d4c5e40",
-      "bytes": 9857,
-      "upstream": "21fe3fe2716fc6f34a5cc2908aa561f3a5b8ac594ce68c511f159b492827a043"
+      "upstream": "21fe3fe2716fc6f34a5cc2908aa561f3a5b8ac594ce68c511f159b492827a043",
+      "active": "b48a3db4b741a938b1497b296ac5e9272ce0c5470272c37a2eb1f8f4d3696fe9",
+      "bytes": 10368
     },
     "src/core/hle/service/glue/bgtc.cpp": {
       "active": "d772b524d0aee373f73bc0b9ff9851619b09084d2dce9ea24b2c72e10fe0c428",
@@ -451,14 +451,14 @@
       "upstream": "7d162dc8d50adbf76e3f49992479f2b8070a170d02ef38c74f11dd779734286d"
     },
     "src/core/hle/service/glue/notif.cpp": {
-      "active": "76fa32489de5befb16d0dc141c843fd65e0f5de5a78b287232571b356ad50bd7",
-      "bytes": 12913,
-      "upstream": "e8a7f633f1ca9e577fe9d7125d490bb32846204ebc65e5b3a2b16fa7da8b2716"
+      "upstream": "e8a7f633f1ca9e577fe9d7125d490bb32846204ebc65e5b3a2b16fa7da8b2716",
+      "active": "2a4006fbb09233ffc2cfdfd812a8bec7aa14ac79edc839c4b5f086c0069f931c",
+      "bytes": 13885
     },
     "src/core/hle/service/glue/notif.h": {
-      "active": "149d671724b9a599ecf3df99223015b1f58095063b3c6d24a345ca8cfa6d2b9d",
-      "bytes": 5627,
-      "upstream": "593c6fff73fcbc2b3a27d16d4106dfcea51ea548072b3ec2fc5e5bbc73758d36"
+      "upstream": "593c6fff73fcbc2b3a27d16d4106dfcea51ea548072b3ec2fc5e5bbc73758d36",
+      "active": "4dfa482df32a60c34314fd7c036c044f989494b351e46c46f871e57c5458294d",
+      "bytes": 5698
     },
     "src/core/hle/service/grc/grc.cpp": {
       "active": "2250f140013ac91886c68af289685244ab6157ca86967d67f123bc4685971f39",
@@ -1134,6 +1134,31 @@
       "upstream": "5b996783d1823e9cefd7b10722f5932ffe6160f058a384b7b1f79213e7316f77",
       "active": "2cb2e055fba7f1db8242cd4832216edf91d5b1383e66994dfd8b193c62f63b40",
       "bytes": 437
+    },
+    "src/core/hle/service/glue/arp.h": {
+      "upstream": "7c264b1e502db1573498743b85fb3bf100b8b8054d7b9f1a2e3b9b0d18e0bf1b",
+      "active": "9bd338bbf4c03eb2dea34f60ee22b13ea0a0b8c1e573017606623c96ccf34308",
+      "bytes": 1222
+    },
+    "src/core/hle/service/glue/ectx.cpp": {
+      "upstream": "eb64936c8a3f2bbeec85e138cfe354a40e8c97941375d5bb4fde22d73a863c59",
+      "active": "6fbbb428db5bae1d46a65cfb48fd376f139aba5e536520d54278bea80b2712e2",
+      "bytes": 3470
+    },
+    "src/core/hle/service/glue/ectx.h": {
+      "upstream": "1e4f227954f4a0b0301158c6be73f9e482217682326c3efc10f6fd942ad14752",
+      "active": "e2257adfa29d04a8e4b5c45f571d56a65e1c05292d31cc1f180b6d62870f400f",
+      "bytes": 1114
+    },
+    "src/core/hle/service/set/system_settings_server.cpp": {
+      "upstream": "1127251469dd98e57cb475102ea310f6a34e2e64ac3b87ddcef16d0da580f2f2",
+      "active": "7c8a67a55832b3848e29b91b967b3dbf443036ec9a0c426feb96391bbd78976b",
+      "bytes": 108310
+    },
+    "src/core/hle/service/set/system_settings_server.h": {
+      "upstream": "6510e7bc080143ca9468d28b1968597ac599fb8c5fa2ff6e27bc8433aa4b0e55",
+      "active": "80e06a2450be4989f43308c80acbb14c5f6392f8b5f31605de45e3284222125a",
+      "bytes": 20188
     }
   },
   "excluded_experimental": [
