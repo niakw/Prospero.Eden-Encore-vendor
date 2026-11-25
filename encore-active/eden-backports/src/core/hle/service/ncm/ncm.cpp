@@ -34,7 +34,7 @@ public:
             {1, D<&ILocationResolver::RedirectProgramPath>, "RedirectProgramPath"},
             {2, D<&ILocationResolver::ResolveApplicationControlPath>, "ResolveApplicationControlPath"},
             {3, D<&ILocationResolver::ResolveApplicationHtmlDocumentPath>, "ResolveApplicationHtmlDocumentPath"},
-            {4, nullptr, "ResolveDataPath"},
+            {4, &ILocationResolver::RejectUnavailableGuestPath, "ResolveDataPath"},
             {5, D<&ILocationResolver::RedirectApplicationControlPath>, "RedirectApplicationControlPath"},
             {6, D<&ILocationResolver::RedirectApplicationHtmlDocumentPath>, "RedirectApplicationHtmlDocumentPath"},
             {7, D<&ILocationResolver::ResolveApplicationLegalInformationPath>, "ResolveApplicationLegalInformationPath"},
@@ -131,6 +131,13 @@ private:
         R_UNLESS(entry != nullptr, not_found);
         *out_path = entry->path;
         R_SUCCEED();
+    }
+
+    void RejectUnavailableGuestPath(HLERequestContext& ctx) {
+        // Encore intentionally does not expose a PS5 host VFS path as Horizon's
+        // fixed-size fs-common path.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
     }
 
     Result ResolveProgramPath(
@@ -567,7 +574,7 @@ public:
         : ServiceFramework{system_, "IAddOnContentLocationResolver"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "ResolveAddOnContentPath"},
+            {0, &IAddOnContentLocationResolver::RejectUnavailableGuestPath, "ResolveAddOnContentPath"},
             {1, D<&IAddOnContentLocationResolver::RegisterAddOnContentStorage>, "RegisterAddOnContentStorage"},
             {2, D<&IAddOnContentLocationResolver::UnregisterAllAddOnContentPath>, "UnregisterAllAddOnContentPath"},
             {3, D<&IAddOnContentLocationResolver::RefreshApplicationAddOnContent>, "RefreshApplicationAddOnContent"},
@@ -587,6 +594,11 @@ private:
 
     static constexpr std::size_t MaxRegisteredStorages = 8;
     static constexpr Result ResultTooManyRegisteredPaths{ErrorModule::LR, 90};
+
+    void RejectUnavailableGuestPath(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
 
     Result RegisterAddOnContentStorage(u64 data_id, u64 application_id,
                                        FileSys::StorageId storage_id) {
