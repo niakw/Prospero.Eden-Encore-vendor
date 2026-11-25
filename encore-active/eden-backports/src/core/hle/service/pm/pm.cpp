@@ -83,15 +83,15 @@ public:
     explicit DebugMonitor(Core::System& system_) : ServiceFramework{system_, "pm:dmnt"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "GetJitDebugProcessIdList"},
-            {1, nullptr, "StartProcess"},
+            {0, &DebugMonitor::RejectUnsupportedDebugControl, "GetJitDebugProcessIdList"},
+            {1, &DebugMonitor::RejectUnsupportedDebugControl, "StartProcess"},
             {2, &DebugMonitor::GetProcessId, "GetProcessId"},
-            {3, nullptr, "HookToCreateProcess"},
+            {3, &DebugMonitor::RejectUnsupportedDebugControl, "HookToCreateProcess"},
             {4, &DebugMonitor::GetApplicationProcessId, "GetApplicationProcessId"},
-            {5, nullptr, "HookToCreateApplicationProgress"},
-            {6, nullptr, "ClearHook"},
+            {5, &DebugMonitor::RejectUnsupportedDebugControl, "HookToCreateApplicationProgress"},
+            {6, &DebugMonitor::RejectUnsupportedDebugControl, "ClearHook"},
             {65000, &DebugMonitor::AtmosphereGetProcessInfo, "AtmosphereGetProcessInfo"},
-            {65001, nullptr, "AtmosphereGetCurrentLimitInfo"},
+            {65001, &DebugMonitor::RejectUnsupportedDebugControl, "AtmosphereGetCurrentLimitInfo"},
         };
         // clang-format on
 
@@ -166,6 +166,11 @@ private:
         rb.PushRaw(program_location);
         rb.PushRaw(override_status);
     }
+    void RejectUnsupportedDebugControl(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class Info final : public ServiceFramework<Info> {
@@ -174,8 +179,8 @@ public:
         static const FunctionInfo functions[] = {
             {0, &Info::GetProgramId, "GetProgramId"},
             {65000, &Info::AtmosphereGetProcessId, "AtmosphereGetProcessId"},
-            {65001, nullptr, "AtmosphereHasLaunchedProgram"},
-            {65002, nullptr, "AtmosphereGetProcessInfo"},
+            {65001, &Info::RejectUnsupportedAtmosphereInfo, "AtmosphereHasLaunchedProgram"},
+            {65002, &Info::RejectUnsupportedAtmosphereInfo, "AtmosphereGetProcessInfo"},
         };
         RegisterHandlers(functions);
     }
@@ -220,6 +225,11 @@ private:
         rb.Push(ResultSuccess);
         rb.Push(process->GetProcessId());
     }
+    void RejectUnsupportedAtmosphereInfo(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class Shell final : public ServiceFramework<Shell> {
@@ -235,10 +245,10 @@ public:
             {4, nullptr, "GetProcessEventInfo"},
             {5, &Shell::NotifyBootFinished, "NotifyBootFinished"},
             {6, &Shell::GetApplicationProcessIdForShell, "GetApplicationProcessIdForShell"},
-            {7, nullptr, "BoostSystemMemoryResourceLimit"},
-            {8, nullptr, "BoostApplicationThreadResourceLimit"},
+            {7, &Shell::AcceptResourceLimitNoop, "BoostSystemMemoryResourceLimit"},
+            {8, &Shell::AcceptResourceLimitNoop, "BoostApplicationThreadResourceLimit"},
             {9, &Shell::GetBootFinishedEventHandle, "GetBootFinishedEventHandle"},
-            {10, nullptr, "BoostSystemThreadResourceLimit"},
+            {10, &Shell::AcceptResourceLimitNoop, "BoostSystemThreadResourceLimit"},
             {12, &Shell::GetProcessId, "GetProcessId"},
         };
         // clang-format on
@@ -333,6 +343,14 @@ private:
 
     KernelHelpers::ServiceContext service_context;
     Kernel::KEvent* boot_finished_event{};
+    void AcceptResourceLimitNoop(HLERequestContext& ctx) {
+        // Encore does not emulate Horizon resource-limit boost quotas. The host
+        // scheduler/memory limits are unchanged, so accepting the guest request
+        // preserves the effective unlimited-emulation policy.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
 };
 
 void LoopProcess(Core::System& system) {
