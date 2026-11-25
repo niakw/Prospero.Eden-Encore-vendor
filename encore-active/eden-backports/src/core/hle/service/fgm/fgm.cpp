@@ -19,15 +19,21 @@ public:
     explicit IRequest(Core::System& system_) : ServiceFramework{system_, "IRequest"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "Initialize"},
-            {1, nullptr, "Set"},
-            {2, nullptr, "Get"},
-            {3, nullptr, "Cancel"},
+            {0, &IRequest::RejectUnavailableClockRequest, "Initialize"},
+            {1, &IRequest::RejectUnavailableClockRequest, "Set"},
+            {2, &IRequest::RejectUnavailableClockRequest, "Get"},
+            {3, &IRequest::RejectUnavailableClockRequest, "Cancel"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
+private:
+    void RejectUnavailableClockRequest(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 };
 
 class FGM final : public ServiceFramework<FGM> {
