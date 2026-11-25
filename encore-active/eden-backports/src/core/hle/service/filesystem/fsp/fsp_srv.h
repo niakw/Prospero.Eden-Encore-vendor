@@ -160,6 +160,10 @@ private:
                                    FileSys::StorageId storage_id, u32 unknown, u64 title_id);
     Result OpenPatchDataStorageByCurrentProcess(OutInterface<IStorage> out_interface);
     Result OpenDataStorageWithProgramIndex(OutInterface<IStorage> out_interface, u8 program_index);
+    Result OpenDataStorageByPath(
+        OutInterface<IStorage> out_interface, ContentAttributes attributes,
+        FileSystemProxyType type,
+        InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
     Result GetRightsId(Out<FspRightsId> out_rights_id, FileSys::StorageId storage_id,
                        u64 program_id_);
     Result GetRightsIdByPath(
