@@ -46,16 +46,17 @@ void State::ProcessExec(const bool is_linear_) {
     inner_buffer.resize_destructive(copy_size);
 }
 
-void State::ProcessData(const u32 data, const bool is_last_call) {
+void State::ProcessData(const u32 data, const bool /*is_last_call*/) {
     if (copy_size == 0 || write_offset >= copy_size) {
         return;
     }
     const u32 sub_copy_size = (std::min)(4U, copy_size - write_offset);
     std::memcpy(inner_buffer.data() + write_offset, &data, sub_copy_size);
     write_offset += sub_copy_size;
-    // A last-call marker on a truncated pushbuffer must never publish
-    // unreceived scratch bytes into guest textures or shader input.
-    if (is_last_call && write_offset == copy_size) {
+    // The last-call marker ends a GPFIFO method group, not necessarily
+    // the upload. Publish only when ALL requested bytes have arrived,
+    // including when scalar words finish before the group terminates.
+    if (write_offset == copy_size) {
         ProcessData(inner_buffer);
     }
 }
