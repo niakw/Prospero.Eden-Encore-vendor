@@ -31,6 +31,7 @@
 #include "core/file_sys/fs_filesystem.h"
 #include "core/file_sys/nca_metadata.h"
 #include "core/file_sys/patch_manager.h"
+#include "core/file_sys/registered_cache.h"
 #include "core/file_sys/romfs.h"
 #include "core/file_sys/romfs_factory.h"
 #include "core/file_sys/savedata_factory.h"
@@ -57,6 +58,56 @@ namespace Service::FileSystem {
 namespace {
 
 constexpr Result ResultNcaExternalKeyInconsistent{ErrorModule::FS, 6452};
+
+Result ResolveRegisteredNcaPath(FileSystemController& fsc, const FileSys::Sf::Path& path,
+                                FileSys::StorageId* out_storage_id,
+                                std::shared_ptr<FileSys::NCA>* out_nca) {
+    const std::string_view content_path{path.str, FileSys::Sf::Path::GetPathLength(path)};
+    FileSys::RegisteredCache* cache{};
+    FileSys::StorageId storage_id{FileSys::StorageId::None};
+
+    if (content_path.starts_with("@UserContent://registered/")) {
+        cache = fsc.GetUserNANDContents();
+        storage_id = FileSys::StorageId::NandUser;
+    } else if (content_path.starts_with("@SdCardContent://registered/")) {
+        cache = fsc.GetSDMCContents();
+        storage_id = FileSys::StorageId::SdCard;
+    } else if (content_path.starts_with("@SystemContent://registered/")) {
+        cache = fsc.GetSystemNANDContents();
+        storage_id = FileSys::StorageId::NandSystem;
+    } else {
+        R_RETURN(FileSys::ResultPathNotFound);
+    }
+    R_UNLESS(cache != nullptr, FileSys::ResultTargetNotFound);
+
+    const auto slash = content_path.find_last_of('/');
+    R_UNLESS(slash != std::string_view::npos, FileSys::ResultPathNotFound);
+    const auto file_name = content_path.substr(slash + 1);
+    const bool normal_name = file_name.size() == 36 && file_name.ends_with(".nca");
+    const bool meta_name = file_name.size() == 41 && file_name.ends_with(".cnmt.nca");
+    R_UNLESS(normal_name || meta_name, FileSys::ResultPathNotFound);
+
+    const auto id_hex = file_name.substr(0, 32);
+    const bool valid_hex = std::all_of(id_hex.begin(), id_hex.end(), [](char ch) {
+        return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') ||
+               (ch >= 'A' && ch <= 'F');
+    });
+    R_UNLESS(valid_hex, FileSys::ResultPathNotFound);
+
+    const auto nca_id = Common::HexStringToArray<0x10>(id_hex);
+    auto raw_nca = cache->GetContentFile(nca_id);
+    R_UNLESS(raw_nca != nullptr, FileSys::ResultTargetNotFound);
+
+    auto nca = std::make_shared<FileSys::NCA>(std::move(raw_nca));
+    const auto status = nca->GetStatus();
+    R_UNLESS(status == Loader::ResultStatus::Success ||
+                 status == Loader::ResultStatus::ErrorMissingBKTRBaseRomFS,
+             FileSys::ResultTargetNotFound);
+
+    *out_storage_id = storage_id;
+    *out_nca = std::move(nca);
+    R_SUCCEED();
+}
 
 std::string GetCacheStorageDirectoryName(u64 program_id, u16 index) {
     if (index == 0) {
@@ -195,8 +246,8 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {606, D<&FSP_SRV::GetRightsId>, "GetRightsId"},
         {607, D<&FSP_SRV::RegisterExternalKey>, "RegisterExternalKey"},
         {608, D<&FSP_SRV::UnregisterAllExternalKey>, "UnregisterAllExternalKey"},
-        {609, nullptr, "GetRightsIdByPath"},
-        {610, nullptr, "GetRightsIdAndKeyGenerationByPath"},
+        {609, D<&FSP_SRV::GetRightsIdByPath>, "GetRightsIdByPath"},
+        {610, D<&FSP_SRV::GetRightsIdAndKeyGenerationByPath>, "GetRightsIdAndKeyGenerationByPath"},
         {611, nullptr, "SetCurrentPosixTimeWithTimeDifference"},
         {612, D<&FSP_SRV::GetFreeSpaceSizeForSaveData>, "GetFreeSpaceSizeForSaveData"},
         {613, &FSP_SRV::UnsupportedDebugCommand, "VerifySaveDataFileSystemBySaveDataSpaceId"},
@@ -737,46 +788,9 @@ Result FSP_SRV::OpenFileSystemWithIdImpl(OutInterface<IFileSystem> out_interface
     R_UNLESS(attributes == ContentAttributes::None || attributes == ContentAttributes::All,
              FileSys::ResultInvalidArgument);
 
-    const std::string_view content_path{path.str, FileSys::Sf::Path::GetPathLength(path)};
-    FileSys::RegisteredCache* cache{};
     FileSys::StorageId storage_id{FileSys::StorageId::None};
-    if (content_path.starts_with("@UserContent://registered/")) {
-        cache = fsc.GetUserNANDContents();
-        storage_id = FileSys::StorageId::NandUser;
-    } else if (content_path.starts_with("@SdCardContent://registered/")) {
-        cache = fsc.GetSDMCContents();
-        storage_id = FileSys::StorageId::SdCard;
-    } else if (content_path.starts_with("@SystemContent://registered/")) {
-        cache = fsc.GetSystemNANDContents();
-        storage_id = FileSys::StorageId::NandSystem;
-    } else {
-        R_RETURN(FileSys::ResultPathNotFound);
-    }
-    R_UNLESS(cache != nullptr, FileSys::ResultTargetNotFound);
-
-    const auto slash = content_path.find_last_of('/');
-    R_UNLESS(slash != std::string_view::npos, FileSys::ResultPathNotFound);
-    const auto file_name = content_path.substr(slash + 1);
-    const bool normal_name = file_name.size() == 36 && file_name.ends_with(".nca");
-    const bool meta_name = file_name.size() == 41 && file_name.ends_with(".cnmt.nca");
-    R_UNLESS(normal_name || meta_name, FileSys::ResultPathNotFound);
-
-    const auto id_hex = file_name.substr(0, 32);
-    const bool valid_hex = std::all_of(id_hex.begin(), id_hex.end(), [](char ch) {
-        return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') ||
-               (ch >= 'A' && ch <= 'F');
-    });
-    R_UNLESS(valid_hex, FileSys::ResultPathNotFound);
-
-    const auto nca_id = Common::HexStringToArray<0x10>(id_hex);
-    auto raw_nca = cache->GetContentFile(nca_id);
-    R_UNLESS(raw_nca != nullptr, FileSys::ResultTargetNotFound);
-
-    auto nca = std::make_shared<FileSys::NCA>(std::move(raw_nca));
-    const auto status = nca->GetStatus();
-    R_UNLESS(status == Loader::ResultStatus::Success ||
-                 status == Loader::ResultStatus::ErrorMissingBKTRBaseRomFS,
-             FileSys::ResultTargetNotFound);
+    std::shared_ptr<FileSys::NCA> nca;
+    R_TRY(ResolveRegisteredNcaPath(fsc, path, &storage_id, &nca));
 
     const auto nca_type = nca->GetType();
     if (type != FileSystemProxyType::Meta) {
@@ -1032,6 +1046,31 @@ Result FSP_SRV::OpenDataStorageWithProgramIndex(OutInterface<IStorage> out_inter
 
     *out_interface = std::make_shared<IStorage>(system, std::move(patched_romfs));
 
+    R_SUCCEED();
+}
+
+Result FSP_SRV::GetRightsIdByPath(
+    Out<FspRightsId> out_rights_id,
+    InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path) {
+    FileSys::StorageId storage_id{};
+    std::shared_ptr<FileSys::NCA> nca;
+    R_TRY(ResolveRegisteredNcaPath(fsc, *path, &storage_id, &nca));
+    *out_rights_id = nca->GetRightsId();
+    R_SUCCEED();
+}
+
+Result FSP_SRV::GetRightsIdAndKeyGenerationByPath(
+    Out<RightsIdAndKeyGeneration> out_result, ContentAttributes attributes,
+    InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path) {
+    R_UNLESS(attributes == ContentAttributes::None || attributes == ContentAttributes::All,
+             FileSys::ResultInvalidArgument);
+
+    FileSys::StorageId storage_id{};
+    std::shared_ptr<FileSys::NCA> nca;
+    R_TRY(ResolveRegisteredNcaPath(fsc, *path, &storage_id, &nca));
+
+    out_result->key_generation = nca->GetKeyGeneration();
+    out_result->rights_id = nca->GetRightsId();
     R_SUCCEED();
 }
 

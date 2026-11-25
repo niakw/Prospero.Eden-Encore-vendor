@@ -46,6 +46,13 @@ static_assert(sizeof(FspRightsId) == 0x10);
 using FspAccessKey = std::array<u8, 0x10>;
 static_assert(sizeof(FspAccessKey) == 0x10);
 
+struct RightsIdAndKeyGeneration {
+    u8 key_generation{};
+    std::array<u8, 0x7> padding{};
+    FspRightsId rights_id{};
+};
+static_assert(sizeof(RightsIdAndKeyGeneration) == 0x18);
+
 struct ProgramIndexMapInfo {
     u64 program_id{};
     u64 main_program_id{};
@@ -155,6 +162,12 @@ private:
     Result OpenDataStorageWithProgramIndex(OutInterface<IStorage> out_interface, u8 program_index);
     Result GetRightsId(Out<FspRightsId> out_rights_id, FileSys::StorageId storage_id,
                        u64 program_id_);
+    Result GetRightsIdByPath(
+        Out<FspRightsId> out_rights_id,
+        InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
+    Result GetRightsIdAndKeyGenerationByPath(
+        Out<RightsIdAndKeyGeneration> out_result, ContentAttributes attributes,
+        InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
     Result RegisterExternalKey(FspRightsId rights_id, FspAccessKey access_key);
     Result UnregisterAllExternalKey();
     Result UnregisterExternalKey(FspRightsId rights_id);
