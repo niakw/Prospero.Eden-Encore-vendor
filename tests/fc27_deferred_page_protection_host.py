@@ -36,6 +36,13 @@ raster_text=R.read_text()
 def text_blob(text):
     raw=text.encode()
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
+# The indirect argument read does not change synchronous page protection.
+if text_blob(raster_text) == "d8c093893b882175c46fb07c87193468da5f0f7a":
+    for newer, older in (("        // Indirect arguments are read, not overwritten. Preserve GPU dirty bytes.\n        const auto post_op = VideoCommon::ObtainBufferOperation::DoNothing;", "        const auto post_op = VideoCommon::ObtainBufferOperation::DiscardWrite;"), ("        buffer->MarkUsage(offset, 12);\n        scheduler.RequestOutsideRenderPassOperationContext();\n        // Lichii #1246: keep the input barrier in the dispatch command.", "        scheduler.RequestOutsideRenderPassOperationContext();\n        // Lichii #1246: keep the input barrier in the dispatch command.")):
+        assert raster_text.count(newer) == 1
+        raster_text = raster_text.replace(newer, older, 1)
+    assert text_blob(raster_text) == "4a7ba88e47d686e3d277bee9df48f9b0d81a1248"
+
 # Compute dispatch barrier folding changes only scheduler command granularity.
 # Reverse both exact #1246 hunks before replaying the CPU-write safety receipt.
 if "Lichii #1246" in raster_text:

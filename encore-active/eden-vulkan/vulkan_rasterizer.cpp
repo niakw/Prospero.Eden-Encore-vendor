@@ -2267,7 +2267,8 @@ void RasterizerVulkan::DispatchCompute() {
     if (indirect_address) {
         // DispatchIndirect
         static constexpr auto sync_info = VideoCommon::ObtainBufferSynchronize::FullSynchronize;
-        const auto post_op = VideoCommon::ObtainBufferOperation::DiscardWrite;
+        // Indirect arguments are read, not overwritten. Preserve GPU dirty bytes.
+        const auto post_op = VideoCommon::ObtainBufferOperation::DoNothing;
         const auto [buffer, offset] =
             buffer_cache.ObtainBuffer(*indirect_address, 12, sync_info, post_op);
 #ifdef PS5_NATIVE
@@ -2278,6 +2279,7 @@ void RasterizerVulkan::DispatchCompute() {
             return;
         }
 #endif
+        buffer->MarkUsage(offset, 12);
         scheduler.RequestOutsideRenderPassOperationContext();
         // Lichii #1246: keep the input barrier in the dispatch command. Vulkan
         // ordering is unchanged, but one scheduler/worker command disappears.
