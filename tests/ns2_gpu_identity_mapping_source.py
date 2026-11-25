@@ -251,8 +251,17 @@ assert "m_native_vm_retired" in commit_import and "!NativeEpochCurrent()" in com
 
 reset=as_cpp.split("bool nvhost_as_gpu::ResetFailedNativeVmImport() {",1)[1].split("\n}",1)[0]
 for x in ("!mapping_map.empty()","!allocation_map.empty()","!native_sparse_regions.empty()",
-          "!native_sparse_pins.empty()","native_sparse_poisoned","gmmu.reset();","vm = VM{};"):
+          "!native_sparse_pins.empty()","native_sparse_poisoned","gmmu.reset();",
+          "vm.big_page_allocator.reset();","vm.small_page_allocator.reset();",
+          "vm.big_page_size = VM::DEFAULT_BIG_PAGE_SIZE;",
+          "vm.big_page_size_bits = static_cast<u32>(std::countr_zero<u32>(VM::DEFAULT_BIG_PAGE_SIZE));",
+          "vm.va_range_start = static_cast<u64>(VM::DEFAULT_BIG_PAGE_SIZE) << VM::VA_START_SHIFT;",
+          "vm.va_range_split = VM::DEFAULT_VA_SPLIT;",
+          "vm.va_range_end = VM::DEFAULT_VA_RANGE;",
+          "vm.initialised = false;"):
     assert x in reset,x
+assert "vm = VM{};" not in reset
+assert reset.index("gmmu.reset();") < reset.index("vm.big_page_allocator.reset();") < reset.index("vm.small_page_allocator.reset();") < reset.index("vm.initialised = false;")
 on_close=as_cpp.split("void nvhost_as_gpu::OnClose(DeviceFD fd) {",1)[1].split("\n}",1)[0]
 assert "ReleaseNativeVmBinding();" in on_close
 unbind=shared_cpp.split("void GpuWorkerSharedState::UnbindImportedAddressSpace(",1)[1].split("\n}",1)[0]

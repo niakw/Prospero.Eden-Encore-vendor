@@ -418,7 +418,18 @@ bool nvhost_as_gpu::ResetFailedNativeVmImport() {
         native_sparse_poisoned)
         return false;
     gmmu.reset();
-    vm = VM{};
+    // FlatAllocator cannot be assigned, so neither std::optional allocator
+    // nor this VM can be assigned from a temporary on the native PS5 toolchain.
+    // Destroy both allocator owners explicitly and restore the default VA
+    // geometry. The guard above proves no live mapping or pin survives.
+    vm.big_page_allocator.reset();
+    vm.small_page_allocator.reset();
+    vm.big_page_size = VM::DEFAULT_BIG_PAGE_SIZE;
+    vm.big_page_size_bits = static_cast<u32>(std::countr_zero<u32>(VM::DEFAULT_BIG_PAGE_SIZE));
+    vm.va_range_start = static_cast<u64>(VM::DEFAULT_BIG_PAGE_SIZE) << VM::VA_START_SHIFT;
+    vm.va_range_split = VM::DEFAULT_VA_SPLIT;
+    vm.va_range_end = VM::DEFAULT_VA_RANGE;
+    vm.initialised = false;
     nx2_syncpoint_shim = false;
     return true;
 }
