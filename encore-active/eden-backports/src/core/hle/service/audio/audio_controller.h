@@ -65,6 +65,9 @@ private:
     Result SetSpeakerAutoMuteEnabled(bool is_speaker_auto_mute_enabled);
     Result IsSpeakerAutoMuteEnabled(Out<bool> out_is_speaker_auto_mute_enabled);
     Result AcquireTargetNotification(OutCopyHandle<Kernel::KReadableEvent> out_notification_event);
+    void GetTargetDeviceInfo(HLERequestContext& ctx);
+    void RejectUnknownHOS23AudioControl(HLERequestContext& ctx);
+    void RejectLegacyAudioControl(HLERequestContext& ctx);
     Result Unknown5000(Out<SharedPointer<IAudioController>> out_audio_controller);
     Result SetDefaultTarget(Set::AudioOutputModeTarget target, u64 fade_in_ns, u64 fade_out_ns);
     Result GetDefaultTarget(Out<Set::AudioOutputModeTarget> out_default_target);
@@ -91,6 +94,7 @@ private:
     u64 m_default_fade_out_ns{};
     bool m_input_target_force_enabled{};
     bool m_force_monaural_output_mode_enabled{};
+    HeadphoneOutputLevelMode m_headphone_output_level_mode{HeadphoneOutputLevelMode::Normal};
     f32 m_system_output_master_volume{1.0f};
     ForceMutePolicy m_force_mute_policy{ForceMutePolicy::Disable};
     bool m_hearing_protection_safeguard_enabled{};

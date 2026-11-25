@@ -30,7 +30,7 @@ IAudioController::IAudioController(Core::System& system_)
         {3, D<&IAudioController::GetTargetVolumeMax>, "GetTargetVolumeMax"},
         {4, D<&IAudioController::IsTargetMute>, "IsTargetMute"},
         {5, D<&IAudioController::SetTargetMute>, "SetTargetMute"},
-        {6, nullptr, "IsTargetConnected"}, //20.0.0+
+        {6, &IAudioController::RejectUnknownHOS23AudioControl, "Unknown6"}, //20.0.0+: ABI changed; semantics unnamed
         {7, D<&IAudioController::SetDefaultTarget>, "SetDefaultTarget"},
         {8, D<&IAudioController::GetDefaultTarget>, "GetDefaultTarget"},
         {9, D<&IAudioController::GetAudioOutputMode>, "GetAudioOutputMode"},
@@ -49,15 +49,15 @@ IAudioController::IAudioController(Core::System& system_)
         {22, D<&IAudioController::NotifyHeadphoneVolumeWarningDisplayedEvent>, "NotifyHeadphoneVolumeWarningDisplayedEvent"},
         {23, D<&IAudioController::SetSystemOutputMasterVolume>, "SetSystemOutputMasterVolume"},
         {24, D<&IAudioController::GetSystemOutputMasterVolume>, "GetSystemOutputMasterVolume"},
-        {25, D<&IAudioController::GetAudioVolumeDataForPlayReport>, "GetAudioVolumeDataForPlayReport"},
-        {26, nullptr, "UpdateHeadphoneSettings"},
+        {25, &IAudioController::RejectUnknownHOS23AudioControl, "Unknown25"}, //20.0.0+: old play-report ABI removed
+        {26, &IAudioController::RejectLegacyAudioControl, "UpdateHeadphoneSettings"}, //4.0.0-14.1.2
         {27, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetVolumeMappingTableForDev"},
         {28, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetAudioOutputChannelCountForPlayReport"},
         {29, &IAudioController::RejectUnavailableReportingOrDebugCommand, "BindAudioOutputChannelCountUpdateEventForPlayReport"},
         {30, D<&IAudioController::SetSpeakerAutoMuteEnabled>, "SetSpeakerAutoMuteEnabled"},
         {31, D<&IAudioController::IsSpeakerAutoMuteEnabled>, "IsSpeakerAutoMuteEnabled"},
         {32, D<&IAudioController::GetActiveOutputTarget>, "GetActiveOutputTarget"},
-        {33, nullptr, "GetTargetDeviceInfo"},
+        {33, &IAudioController::GetTargetDeviceInfo, "GetTargetDeviceInfo"},
         {34, D<&IAudioController::AcquireTargetNotification>, "AcquireTargetNotification"},
         {35, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetHearingProtectionSafeguardTimerRemainingTimeForDebug"},
         {36, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetHearingProtectionSafeguardTimerRemainingTimeForDebug"},
@@ -67,7 +67,7 @@ IAudioController::IAudioController(Core::System& system_)
         {40, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetSystemInformationForDebug"},
         {41, D<&IAudioController::SetVolumeButtonLongPressTime>, "SetVolumeButtonLongPressTime"},
         {42, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetNativeVolumeForDebug"},
-        {43, nullptr, "Unknown43"}, //21.0.0+
+        {43, &IAudioController::RejectUnknownHOS23AudioControl, "Unknown43"}, //21.0.0+
         {5000, D<&IAudioController::Unknown5000>, "Unknown5000"}, //19.0.0+
         {10000, &IAudioController::RejectUnavailableReportingOrDebugCommand, "NotifyAudioOutputTargetForPlayReport"},
         {10001, &IAudioController::RejectUnavailableReportingOrDebugCommand, "NotifyAudioOutputChannelCountForPlayReport"},
@@ -79,7 +79,7 @@ IAudioController::IAudioController(Core::System& system_)
         {10104, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetAudioOutputChannelCountForPlayReport"},
         {10105, &IAudioController::RejectUnavailableReportingOrDebugCommand, "BindAudioOutputChannelCountUpdateEventForPlayReport"}, //14.0.0-19.0.1
         {10106, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetDefaultAudioOutputTargetForPlayReport"}, //14.0.0-19.0.1
-        {10200, nullptr, "Unknown10200"}, //20.0.0+
+        {10200, &IAudioController::RejectUnknownHOS23AudioControl, "Unknown10200"}, //20.0.0+
         {50000, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetAnalogInputBoostGainForPrototyping"}, //15.0.0-18.1.0
         {50001, &IAudioController::RejectUnavailableReportingOrDebugCommand, "OverrideDefaultTargetForDebug"}, //19.0.0-19.0.1
         {50003, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetForceOverrideExternalDeviceNameForDebug"}, //19.0.0+
@@ -170,20 +170,21 @@ Result IAudioController::GetForceMutePolicy(Out<ForceMutePolicy> out_mute_policy
 
 Result IAudioController::GetOutputModeSetting(Out<Set::AudioOutputMode> out_output_mode,
                                               Set::AudioOutputModeTarget target) {
-    LOG_WARNING(Audio, "(STUBBED) called, target={}", target);
-
-    *out_output_mode = Set::AudioOutputMode::ch_7_1;
-    R_SUCCEED();
+    const auto result = m_set_sys->GetAudioOutputMode(out_output_mode, target);
+    LOG_INFO(Service_SET, "GetOutputModeSetting target={}, output_mode={}", target,
+             *out_output_mode);
+    R_RETURN(result);
 }
 
 Result IAudioController::SetOutputModeSetting(Set::AudioOutputModeTarget target,
                                               Set::AudioOutputMode output_mode) {
-    LOG_INFO(Service_SET, "called, target={}, output_mode={}", target, output_mode);
-    R_SUCCEED();
+    LOG_INFO(Service_SET, "SetOutputModeSetting target={}, output_mode={}", target, output_mode);
+    R_RETURN(m_set_sys->SetAudioOutputMode(target, output_mode));
 }
 
 Result IAudioController::SetHeadphoneOutputLevelMode(HeadphoneOutputLevelMode output_level_mode) {
-    LOG_WARNING(Audio, "(STUBBED) called, output_level_mode={}", output_level_mode);
+    m_headphone_output_level_mode = output_level_mode;
+    LOG_INFO(Audio, "SetHeadphoneOutputLevelMode output_level_mode={}", output_level_mode);
     R_SUCCEED();
 }
 
@@ -191,7 +192,7 @@ Result IAudioController::GetHeadphoneOutputLevelMode(
     Out<HeadphoneOutputLevelMode> out_output_level_mode) {
     LOG_INFO(Audio, "called");
 
-    *out_output_level_mode = HeadphoneOutputLevelMode::Normal;
+    *out_output_level_mode = m_headphone_output_level_mode;
     R_SUCCEED();
 }
 
@@ -207,7 +208,8 @@ Result IAudioController::IsForceMonauralOutputModeEnabled(Out<bool> out_enabled)
 }
 
 Result IAudioController::NotifyHeadphoneVolumeWarningDisplayedEvent() {
-    LOG_WARNING(Service_Audio, "(STUBBED) called");
+    // Notification acknowledgement only: Encore has no Nintendo warning UI to dismiss.
+    LOG_DEBUG(Service_Audio, "Headphone volume warning acknowledgement received");
     R_SUCCEED();
 }
 
@@ -226,9 +228,8 @@ Result IAudioController::IsSpeakerAutoMuteEnabled(Out<bool> out_is_speaker_auto_
 
 Result IAudioController::AcquireTargetNotification(
     OutCopyHandle<Kernel::KReadableEvent> out_notification_event) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-
     *out_notification_event = &notification_event->GetReadableEvent();
+    LOG_DEBUG(Service_Audio, "Returning audctl target-change notification event");
     R_SUCCEED();
 }
 Result IAudioController::Unknown5000(Out<SharedPointer<IAudioController>> out_audio_controller) {
@@ -456,6 +457,52 @@ Result IAudioController::GetAudioVolumeDataForPlayReport(
     }
     out_report_data->volume = static_cast<u32>(m_target_volumes[idx]);
     R_SUCCEED();
+}
+
+void IAudioController::GetTargetDeviceInfo(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const auto target = rp.PopEnum<Set::AudioOutputModeTarget>();
+
+    std::array<char, 0x100> device_name{};
+    std::string_view name{};
+    switch (target) {
+    case Set::AudioOutputModeTarget::Hdmi:
+        name = "AudioTvOutput";
+        break;
+    case Set::AudioOutputModeTarget::Speaker:
+        name = "AudioBuiltInSpeakerOutput";
+        break;
+    case Set::AudioOutputModeTarget::Headphone:
+        name = "AudioStereoJackOutput";
+        break;
+    default:
+        LOG_WARNING(Audio, "GetTargetDeviceInfo unsupported target={}", target);
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultInvalidArgument);
+        return;
+    }
+
+    const auto copy_size = (std::min)(name.size(), device_name.size() - 1);
+    std::copy_n(name.data(), copy_size, device_name.data());
+    ctx.WriteBuffer(device_name);
+
+    LOG_DEBUG(Audio, "GetTargetDeviceInfo target={}, name={}", target, name);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void IAudioController::RejectUnknownHOS23AudioControl(HLERequestContext& ctx) {
+    // HOS23 server ABI is known for these commands, but Nintendo has not published
+    // semantics. Fail closed rather than executing a stale pre-20 command body.
+    LOG_WARNING(Audio, "Rejected unnamed HOS23 audctl command {}", ctx.GetCommand());
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
+}
+
+void IAudioController::RejectLegacyAudioControl(HLERequestContext& ctx) {
+    LOG_WARNING(Audio, "Rejected legacy audctl command {} outside HOS23 surface", ctx.GetCommand());
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 void IAudioController::RejectUnavailableReportingOrDebugCommand(HLERequestContext& ctx) {
