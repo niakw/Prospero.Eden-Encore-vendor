@@ -1037,8 +1037,8 @@
     },
     "src/core/hle/service/ncm/ncm.cpp": {
       "upstream": "136b67a32b2024c4d9512455f4bb041624e2050b511264377470af631cb2d822",
-      "active": "06f4fd31703a7360ab511b46661a722a319fc062b4e83afeea314e94e6772c4c",
-      "bytes": 86340
+      "active": "d415c8e6c70f6751294cb90363175b2243021e554529d2ed02b21bca679e1fef",
+      "bytes": 86523
     },
     "src/core/hle/service/btm/btm_system_core.cpp": {
       "upstream": "c6cef4acb0099f4965dd0918c0f6f9b20f52e7442489f89181741e0a43b40492",
@@ -1174,6 +1174,36 @@
       "upstream": "2205080fe0a08efd7dcb59796d779933e864a24a30773fc9ebc4dfd982919afc",
       "active": "41de1e88443d7a9c1fd82c26e5d26e76f9ea4f75f8e70a829f2e8ec20463b351",
       "bytes": 1519
+    },
+    "src/core/hle/service/ldn/monitor_service.cpp": {
+      "upstream": "4203f4f772df022d31f9b69052aaa28b6483cb60fe0848115efcb51aeaf3786c",
+      "active": "a59e09fa47757d5990de1055dbbad835a367ccc3bf7e1164290d89f4db60c477",
+      "bytes": 2053
+    },
+    "src/core/hle/service/ldn/monitor_service.h": {
+      "upstream": "896a9167547d3c66ea986d1dbcff83114117bf2dfcfa50302c0e94c37d934ce5",
+      "active": "126a124325410fb68c743a4bf65016a670a29612dd6a4e6c58878d2a3f37c8af",
+      "bytes": 727
+    },
+    "src/core/hle/service/ldn/sf_monitor_service.cpp": {
+      "upstream": "e9511dad0b52f9d378ab602dcf9de795b404fff0b145ac9295aa5407b0367402",
+      "active": "3b3481bab7eda307ff5043bc71bd40a820e00496fd49459b2e8a4867e9270795",
+      "bytes": 1557
+    },
+    "src/core/hle/service/ldn/sf_monitor_service.h": {
+      "upstream": "ae7102777c0784c66f689abccd2d598477b8e29213ea412174127be8b554275c",
+      "active": "7d64b5e3a6469f1ba9cc684d310cb40c9a44f90fb86bf81f15b27006ecfa2e5f",
+      "bytes": 700
+    },
+    "src/core/hle/service/ldn/sf_service_monitor.cpp": {
+      "upstream": "1163e5d1b73b93fa54cc27b9f55a5d87b747bd549fada45c34e76b553b9c7fad",
+      "active": "f45bacefdd621e2724ea8a931b456159807708b6d9260222dea394f3f5f5d39d",
+      "bytes": 2512
+    },
+    "src/core/hle/service/ldn/sf_service_monitor.h": {
+      "upstream": "3a7517076f5f80fa9bd6e3bdd44aa0d05cc4e9a34206797a533989c71e1b5e73",
+      "active": "5b6f70d453bb4e2bf7a38ce2077fe2abd9407f3c42caabbde17260f92099ff9b",
+      "bytes": 749
     }
   },
   "excluded_experimental": [
