@@ -168,6 +168,7 @@ assert "MaxInlineUploadBytes" in active_upload_methods
 assert "write_offset == copy_size" in active_upload_methods
 assert "num_data, (remaining + 3) / sizeof(u32)" in active_upload_methods
 assert "ProcessData(std::span<const u8>{bytes, copy_size})" in active_upload_methods
+assert active_upload_methods.count("inner_buffer.resize_destructive(copy_size);") == 2
 
 inline_fixture = r"""
 #include <algorithm>
@@ -185,7 +186,8 @@ using u64 = std::uint64_t;
 struct Registers { u32 line_length_in{}; u32 line_count{}; };
 struct Scratch {
     std::vector<u8> storage;
-    void resize_destructive(std::size_t size) { storage.resize(size); }
+    unsigned allocations{};
+    void resize_destructive(std::size_t size) { if (size > storage.capacity()) ++allocations; storage.resize(size); }
     u8* data() { return storage.data(); }
     operator std::span<const u8>() const { return storage; }
 };
@@ -197,6 +199,8 @@ public:
     void ProcessData(const u32* data, std::size_t num_data);
     u32 Size() const { return copy_size; }
     u32 Offset() const { return write_offset; }
+    std::size_t StagingSize() const { return inner_buffer.storage.size(); }
+    unsigned StagingAllocations() const { return inner_buffer.allocations; }
     std::vector<u8> published;
     unsigned completions{};
 private:
@@ -218,17 +222,20 @@ int main() {
     Registers dimensions{4,3};
     State full{dimensions};
     full.ProcessExec(true);
-    assert(full.Size()==12);
+    assert(full.Size()==12 && full.StagingSize()==0 && full.StagingAllocations()==0);
     full.ProcessData(words.data(), 3);
     assert(full.completions==1 && full.Offset()==12);
+    assert(full.StagingSize()==0 && full.StagingAllocations()==0);
     assert(std::memcmp(full.published.data(),raw,12)==0);
     full.ProcessData(words.data(), 3);
     assert(full.completions==1);
 
     State fragmented{dimensions};
     fragmented.ProcessExec(true);
+    assert(fragmented.StagingAllocations()==0);
     fragmented.ProcessData(words.data(), 1);
     assert(fragmented.completions==0 && fragmented.Offset()==4);
+    assert(fragmented.StagingSize()==12 && fragmented.StagingAllocations()==1);
     fragmented.ProcessData(words.data()+1, 1);
     assert(fragmented.completions==0 && fragmented.Offset()==8);
     fragmented.ProcessData(words.data()+2, 1);
@@ -237,8 +244,9 @@ int main() {
 
     State scalar{dimensions};
     scalar.ProcessExec(false);
+    assert(scalar.StagingAllocations()==0);
     scalar.ProcessData(words[0],true);
-    assert(scalar.completions==0);
+    assert(scalar.completions==0 && scalar.StagingAllocations()==1);
     scalar.ProcessData(words[1],false);
     assert(scalar.completions==0);
     scalar.ProcessData(words[2],true);
@@ -262,7 +270,7 @@ int main() {
     State partial{partial_length};
     partial.ProcessExec(true);
     partial.ProcessData(words.data(), 2);
-    assert(partial.completions==1 && partial.Size()==5);
+    assert(partial.completions==1 && partial.Size()==5 && partial.StagingAllocations()==0);
     assert(std::memcmp(partial.published.data(),raw,5)==0);
 
     State incomplete{dimensions};
@@ -302,7 +310,7 @@ with tempfile.TemporaryDirectory(prefix="eden-i2m-packet-") as directory:
         assert compiled.returncode == 0, (opt, compiled.stderr[-5000:])
         ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
         assert ran.returncode == 0, (opt, ran.stderr[-5000:])
-print("NS2_INLINE_UPLOAD_PACKET_BOUNDS_PASS full=1 fragmented=1 scalar_truncation=1 scalar_complete_without_tail=1 unaligned=1 overflow=1 O0=1 O2=1 ASan=1 UBSan=1")
+print("NS2_INLINE_UPLOAD_PACKET_BOUNDS_PASS full=1 fragmented=1 scalar_truncation=1 scalar_complete_without_tail=1 lazy_staging=1 unaligned=1 overflow=1 O0=1 O2=1 ASan=1 UBSan=1")
 
 # The selected I2M writer must prove the entire GOB extent fits in the
 # decoder's u32 address space and preserve compact inline words across Z.

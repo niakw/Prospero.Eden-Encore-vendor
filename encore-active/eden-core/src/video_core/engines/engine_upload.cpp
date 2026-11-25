@@ -43,12 +43,16 @@ void State::ProcessExec(const bool is_linear_) {
         return;
     }
     copy_size = static_cast<u32>(bytes);
-    inner_buffer.resize_destructive(copy_size);
+    // Avoid staging allocations for complete pushbuffer packets. The first
+    // scalar or partial packet allocates the bounded scratch on demand.
 }
 
 void State::ProcessData(const u32 data, const bool /*is_last_call*/) {
     if (copy_size == 0 || write_offset >= copy_size) {
         return;
+    }
+    if (write_offset == 0) {
+        inner_buffer.resize_destructive(copy_size);
     }
     const u32 sub_copy_size = (std::min)(4U, copy_size - write_offset);
     std::memcpy(inner_buffer.data() + write_offset, &data, sub_copy_size);
@@ -76,6 +80,9 @@ void State::ProcessData(const u32* data, size_t num_data) {
         write_offset = copy_size;
         ProcessData(std::span<const u8>{bytes, copy_size});
         return;
+    }
+    if (write_offset == 0) {
+        inner_buffer.resize_destructive(copy_size);
     }
     std::memcpy(inner_buffer.data() + write_offset, bytes, received);
     write_offset += static_cast<u32>(received);
