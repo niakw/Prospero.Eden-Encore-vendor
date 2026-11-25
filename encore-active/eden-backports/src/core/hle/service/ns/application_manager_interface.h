@@ -111,6 +111,7 @@ public:
     Result CheckApplicationLaunchVersion(u64 application_id);
     Result GetRunningApplicationProgramId(Out<u64> out_program_id);
     Result GetMainApplicationProgramIndex(Out<u8> out_program_index, u64 application_id);
+    Result TerminateApplication(u64 application_id);
     Result GetApplicationTerminateResult(Out<Result> out_result, u64 application_id);
     Result GetRawApplicationTerminateResult(Out<u32> out_raw_result, u64 application_id);
     Result GetApplicationLogoData(Out<s64> out_size,

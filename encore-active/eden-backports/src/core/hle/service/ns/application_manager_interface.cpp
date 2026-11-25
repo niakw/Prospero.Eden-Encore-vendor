@@ -60,7 +60,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {17, D<&IApplicationManagerInterface::ListApplicationRecordContentMeta>, "ListApplicationRecordContentMeta"},
         {19, nullptr, "LaunchApplicationOld"},
         {21, nullptr, "GetApplicationContentPath"},
-        {22, nullptr, "TerminateApplication"},
+        {22, D<&IApplicationManagerInterface::TerminateApplication>, "TerminateApplication"},
         {23, nullptr, "ResolveApplicationContentPath"},
         {26, nullptr, "BeginInstallApplication"},
         {27, nullptr, "DeleteApplicationRecord"},
@@ -731,6 +731,22 @@ Result IApplicationManagerInterface::ListApplicationRecordContentMeta(
         out_records[i] = records[start + i];
     }
     *out_count = static_cast<s32>(count);
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::TerminateApplication(u64 application_id) {
+    LOG_DEBUG(Service_NS, "called, application_id={:016X}", application_id);
+
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, AM::ResultApplicationRecordNotFound);
+    const auto applet = window_system->GetMainApplet();
+    R_UNLESS(applet != nullptr, AM::ResultApplicationRecordNotFound);
+
+    const u64 running_base_id = FileSys::GetBaseTitleID(applet->program_id);
+    const u64 requested_base_id = FileSys::GetBaseTitleID(application_id);
+    R_UNLESS(running_base_id == requested_base_id, AM::ResultApplicationRecordNotFound);
+
+    applet->process->Terminate();
     R_SUCCEED();
 }
 

@@ -526,13 +526,13 @@
       "upstream": "a04bfd1d0a1289e9102e902f6adecafc86cb4dfdba58027bdc717cb9c1b0a18b"
     },
     "src/core/hle/service/ns/application_manager_interface.cpp": {
-      "active": "9a950f9353595f6eb13a5e7a9c95168766d88c7b040f2a5c6691275d39f5f847",
-      "bytes": 79478,
+      "active": "008abc68077e8a3da38871adcc76b48439230110514b7101056dffebb24a4379",
+      "bytes": 80260,
       "upstream": "86874e0f8769c04c1c66b4b8b0d00549aa328a6ed58a6898f343e67431861fba"
     },
     "src/core/hle/service/ns/application_manager_interface.h": {
-      "active": "6d1ff41f54fd11a2fea4dbd8bb927ba86476826bd31f132c7cf14c4c880b55e0",
-      "bytes": 9287,
+      "active": "0ce6c19f41bcf76e59e337c411a4c7ac201b9c166318fc66b74cce02b13c436f",
+      "bytes": 9340,
       "upstream": "1ed17c086a3e2e34697453855e0f69583ad80196093a0944ef10929bdb56d49e"
     },
     "src/core/hle/service/ns/dynamic_rights_interface.cpp": {
