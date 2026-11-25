@@ -1334,6 +1334,26 @@
       "active": "000816c49caf2773d3c76f778e269e5a3f5650ec791ecd3310176869fe31a190",
       "bytes": 1074,
       "upstream": "c9b884bbd6b8a4b3ef83b66155dfe5a3abc580e458c9b32040ab0c62b460a208"
+    },
+    "src/core/hle/service/audio/audio_renderer.cpp": {
+      "active": "13f100831d497d6c3a89f7b63c7597059490be575d22a7bf75c032ebd5475c78",
+      "bytes": 6176,
+      "upstream": "c2acbf7ea299bbaedaae6b8e0f63d304108ab0296552e77f218a0cfc47dcfa1a"
+    },
+    "src/core/hle/service/audio/audio_renderer.h": {
+      "active": "13fcce9a4b5c7a6512893ec88590c156efe375537061d850435aa414d9bebb12",
+      "bytes": 2339,
+      "upstream": "8d7204ebde044a62187e1b562a2fe1e71c016d94a91028f561906aef41e7408b"
+    },
+    "src/audio_core/renderer/system_manager.cpp": {
+      "active": "0eaa8de86c77d7c0e4c66c3252d143c5c80833bedc3d16c17d0ae5b63a399f75",
+      "bytes": 3219,
+      "upstream": "c08ece05cb6133a31678bfd8f11488bcf82e35f944ac3899704a7a3d509b98ab"
+    },
+    "src/audio_core/renderer/system_manager.h": {
+      "active": "dda544d07e42e291cd45a84982d4788ff5b972469dfe207f46553bfa6e5942ed",
+      "bytes": 2761,
+      "upstream": "8e3fab01da8f8736b05eeefd7531f72dc61e7ca02984c11e67755d0ddc6ca28b"
     }
   },
   "excluded_experimental": [
