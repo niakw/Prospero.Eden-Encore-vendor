@@ -118,7 +118,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {94, nullptr, "LaunchApplication"},
         {95, nullptr, "GetApplicationLaunchInfo"},
         {96, nullptr, "AcquireApplicationLaunchInfo"},
-        {97, nullptr, "GetMainApplicationProgramIndexByApplicationLaunchInfo"},
+        {97, D<&IApplicationManagerInterface::GetMainApplicationProgramIndexByApplicationLaunchInfo>, "GetMainApplicationProgramIndexByApplicationLaunchInfo"},
         {98, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "EnableApplicationAllThreadDumpOnCrash"},
         {99, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "LaunchDevMenu"},
         {100, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ResetToFactorySettings"},
@@ -1242,6 +1242,11 @@ Result IApplicationManagerInterface::GetRunningApplicationProgramId(
 
     *out_program_id = applet->program_id;
     R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::GetMainApplicationProgramIndexByApplicationLaunchInfo(
+    Out<u8> out_program_index, ApplicationLaunchInfoV19 launch_info) {
+    R_RETURN(GetMainApplicationProgramIndex(out_program_index, launch_info.application_id));
 }
 
 Result IApplicationManagerInterface::GetMainApplicationProgramIndex(
