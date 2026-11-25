@@ -354,12 +354,13 @@ void IParentalControlService::ConfirmShowNewsPermission(HLERequestContext& ctx) 
 }
 
 Result IParentalControlService::EndFreeCommunication() {
-    LOG_WARNING(Service_PCTL, "(STUBBED) called");
+    states.free_communication = false;
+    LOG_DEBUG(Service_PCTL, "Free-communication session ended");
     R_SUCCEED();
 }
 
 Result IParentalControlService::IsFreeCommunicationAvailable() {
-    LOG_DEBUG(Service_PCTL, "(STUBBED) called");
+    LOG_DEBUG(Service_PCTL, "called");
 
     if (!CheckFreeCommunicationPermissionImpl()) {
         R_THROW(PCTL::ResultNoFreeCommunication);
@@ -693,14 +694,14 @@ Result IParentalControlService::GetPlayTimerSettingsOld(
 }
 
 Result IParentalControlService::GetPlayTimerSettings(Out<PlayTimerSettings> out_play_timer_settings) {
-    LOG_WARNING(Service_PCTL, "(STUBBED) called");
     *out_play_timer_settings = raw_play_timer_settings;
+    LOG_DEBUG(Service_PCTL, "Returning locally stored HOS18+ play-timer settings");
     R_SUCCEED();
 }
 
 Result IParentalControlService::SetPlayTimerSettings(PlayTimerSettings play_timer_settings) {
-    LOG_WARNING(Service_PCTL, "(STUBBED) called");
     raw_play_timer_settings = play_timer_settings;
+    LOG_DEBUG(Service_PCTL, "Stored local HOS18+ play-timer settings");
     R_SUCCEED();
 }
 
