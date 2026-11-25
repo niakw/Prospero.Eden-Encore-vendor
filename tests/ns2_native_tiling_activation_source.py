@@ -315,6 +315,15 @@ print("NS2_INLINE_UPLOAD_PACKET_BOUNDS_PASS full=1 fragmented=1 scalar_truncatio
 # The selected I2M writer must prove the entire GOB extent fits in the
 # decoder's u32 address space and preserve compact inline words across Z.
 i2m_span = i2m.split("void State::ProcessData(std::span<const u8> read_buffer) {", 1)[1]
+# A packet cannot reuse a mutable register layout to overrun its received
+# bytes; all pitched destinations must be mapped before the first write.
+assert "static_cast<u64>(regs.line_length_in) * regs.line_count != copy_size" in i2m_span
+assert i2m_span.index("!= copy_size") < i2m_span.index("if (is_linear)")
+assert "regs.dest.pitch <= regs.line_length_in" in i2m_span
+assert "last_offset + regs.line_length_in" in i2m_span
+assert "IsFullyMappedRange(address, static_cast<size_t>(extent))" in i2m_span
+assert "IsFullyMappedRange(dest_line, regs.line_length_in)" in i2m_span
+assert i2m_span.index("IsFullyMappedRange(dest_line, regs.line_length_in)") < i2m_span.index("rasterizer->AccelerateInlineToMemory")
 for guard in (
     "regs.dest.BlockWidth() != 0",
     "origin_y >= height || origin_z >= depth",

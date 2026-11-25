@@ -95,6 +95,12 @@ void State::ProcessData(std::span<const u8> read_buffer) {
     if (!rasterizer || copy_size == 0 || read_buffer.size() < copy_size) {
         return;
     }
+    // The register bank remains writable after EXEC. If a guest changes its
+    // line geometry before the last packet, the received byte count is no
+    // longer enough to index those rows or GOB slices safely.
+    if (static_cast<u64>(regs.line_length_in) * regs.line_count != copy_size) {
+        return;
+    }
     const GPUVAddr address{regs.dest.Address()};
     constexpr u64 MaxInlineUploadBytes = u64{64} << 20;
     constexpr u64 MaxAddress = (std::numeric_limits<u64>::max)();
@@ -106,6 +112,23 @@ void State::ProcessData(std::span<const u8> read_buffer) {
         if (regs.line_length_in > MaxAddress - address ||
             last_offset > MaxAddress - address - regs.line_length_in) {
             return;
+        }
+        // Do not commit row zero when a later pitched row is unmapped.
+        // Overlapping/touching rows form one contiguous GMMU extent. Gapped
+        // rows must be checked separately so an unmapped padding gap is legal.
+        if (regs.dest.pitch <= regs.line_length_in) {
+            const u64 extent = last_offset + regs.line_length_in;
+            if (extent > (std::numeric_limits<size_t>::max)() ||
+                !memory_manager.IsFullyMappedRange(address, static_cast<size_t>(extent))) {
+                return;
+            }
+        } else {
+            for (size_t line = 0; line < regs.line_count; ++line) {
+                const GPUVAddr dest_line = address + line * regs.dest.pitch;
+                if (!memory_manager.IsFullyMappedRange(dest_line, regs.line_length_in)) {
+                    return;
+                }
+            }
         }
         for (size_t line = 0; line < regs.line_count; ++line) {
             const GPUVAddr dest_line = address + line * regs.dest.pitch;
