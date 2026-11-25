@@ -118,8 +118,12 @@ void State::ProcessData(std::span<const u8> read_buffer) {
         // rows must be checked separately so an unmapped padding gap is legal.
         if (regs.dest.pitch <= regs.line_length_in) {
             const u64 extent = last_offset + regs.line_length_in;
-            if (extent > (std::numeric_limits<size_t>::max)() ||
-                !memory_manager.IsFullyMappedRange(address, static_cast<size_t>(extent))) {
+            if constexpr (sizeof(size_t) < sizeof(u64)) {
+                if (extent > static_cast<u64>((std::numeric_limits<size_t>::max)())) {
+                    return;
+                }
+            }
+            if (!memory_manager.IsFullyMappedRange(address, static_cast<size_t>(extent))) {
                 return;
             }
         } else {
