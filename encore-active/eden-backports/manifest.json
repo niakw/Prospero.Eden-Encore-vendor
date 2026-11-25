@@ -864,6 +864,26 @@
       "active": "d8ce7169d4c4485c681381ff8fc0679e9c27c0753c4bc49d57c6900014c0812d",
       "bytes": 58780,
       "upstream": "0303d1a97f5988b2ace20cb8de1b83eb50d3b1c84ec27e17acc5110fef0e4b30"
+    },
+    "src/core/hle/service/omm/operation_mode_manager.cpp": {
+      "active": "105f9ab1292bec4a49a6b477fbcd907f3c9fd716904b043a87f1811564e1608b",
+      "bytes": 4497,
+      "upstream": "608d4d783dfce7c7a1e6b1ccc4f903acb686eb18070e9efb42a55af379372b93"
+    },
+    "src/core/hle/service/omm/operation_mode_manager.h": {
+      "active": "b5fd33cc7be4a210bed4e3d0bd027d6a34489405c89f8d9ed5e07faaff17204d",
+      "bytes": 679,
+      "upstream": "1443851d46bdc6559852b2988fa8c651975119ffff2d60ede4f3d7cd55824f2f"
+    },
+    "src/core/hle/service/omm/power_state_interface.cpp": {
+      "active": "d51935cfe62c9d956778d3ab6b30ba0660ec12cf7d56da2f07178a1ea59bd528",
+      "bytes": 1999,
+      "upstream": "8a8f647a8650614ad51494a6b83e642c2b12b347adc7e80fcb5d642da62a2876"
+    },
+    "src/core/hle/service/omm/power_state_interface.h": {
+      "active": "557a3c3b7341880d7893bedbaefe8b84ffe8a0ae14937f8b2b6b1725ccd3621b",
+      "bytes": 516,
+      "upstream": "650897d9c03aedb21a713aa50e91cf51218bc2378b7e6923fd8532f042a4803c"
     }
   },
   "excluded_experimental": [
