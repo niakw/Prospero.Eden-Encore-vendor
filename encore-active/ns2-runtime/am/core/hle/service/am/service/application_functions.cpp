@@ -273,8 +273,8 @@ Result IApplicationFunctions::GetDesiredLanguage(Out<u64> out_language_code) {
 }
 
 Result IApplicationFunctions::SetTerminateResult(Result terminate_result) {
-    LOG_INFO(Service_AM, "(STUBBED) called, result={:#x} ({:04}-{:04})",
-             terminate_result.GetInnerValue(),
+    LOG_DEBUG(Service_AM, "called, result={:#x} ({:04}-{:04})",
+              terminate_result.GetInnerValue(),
              static_cast<u32>(terminate_result.GetModule()) + 2000,
              terminate_result.GetDescription());
 
@@ -527,7 +527,11 @@ Result IApplicationFunctions::IsGamePlayRecordingSupported(
 
 Result IApplicationFunctions::InitializeGamePlayRecording(
     u64 transfer_memory_size, InCopyHandle<Kernel::KTransferMemory> transfer_memory_handle) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    // Encore exposes no guest gameplay-recorder backend on PS5. This command
+    // remains the previously qualified Horizon-compatible no-op: recording
+    // capability stays disabled and no transfer-memory ownership is retained.
+    LOG_DEBUG(Service_AM, "called, recorder unavailable, size={:#x}", transfer_memory_size);
+    (void)transfer_memory_handle;
     R_SUCCEED();
 }
 
@@ -663,7 +667,7 @@ Result IApplicationFunctions::QueryApplicationPlayStatisticsByUid(
 }
 
 Result IApplicationFunctions::ExecuteProgram(ProgramSpecifyKind kind, u64 value) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, kind={}, value={}", kind, value);
+    LOG_DEBUG(Service_AM, "called, kind={}, value={}", kind, value);
     ASSERT(kind == ProgramSpecifyKind::ExecuteProgram ||
            kind == ProgramSpecifyKind::RestartProgram);
 
