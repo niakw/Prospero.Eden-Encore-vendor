@@ -22,6 +22,7 @@ public:
     ~IAlbumApplicationService() override;
 
 private:
+    void RejectUnavailableAlbumVariant(HLERequestContext& ctx);
     void RejectUnavailableMovieOrSessionBackend(HLERequestContext& ctx);
     Result SetShimLibraryVersion(ShimLibraryVersion library_version,
                                  ClientAppletResourceUserId aruid);
