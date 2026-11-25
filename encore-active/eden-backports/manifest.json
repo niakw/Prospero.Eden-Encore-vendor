@@ -326,24 +326,24 @@
       "upstream": "4240de5d0df8e51aa87eda53f0f5dfcb1a3998f7e6d801f3101608679045ab3c"
     },
     "src/core/hle/service/caps/caps_a.cpp": {
-      "active": "2dbc991930f11b5a1b9610466707bc0c98057d4b69ab2cf8bc2945a33fc41709",
-      "bytes": 16414,
-      "upstream": "87b0ddbd87dfb576b3c3b04132ae4a2b5b4d82b2c47697b894d9e27144614070"
+      "upstream": "87b0ddbd87dfb576b3c3b04132ae4a2b5b4d82b2c47697b894d9e27144614070",
+      "active": "bfa3e3f139b0830270b6502822e4d486b078f8ef2ac7dc891a65f2ad8a6464f2",
+      "bytes": 17390
     },
     "src/core/hle/service/caps/caps_a.h": {
-      "active": "d3e63d69825bec5b2ca29d44b53e45257e62b1732255df3b1260ba041344fb18",
-      "bytes": 5512,
-      "upstream": "8cd0a0575d2bc624f0feed26930c4f9378a56f36afb287d1431a6d5ce76c3450"
+      "upstream": "8cd0a0575d2bc624f0feed26930c4f9378a56f36afb287d1431a6d5ce76c3450",
+      "active": "f88394b90e3d77394cbb406b043e09ffccd6b1009b39d6531edd7d882db3d447",
+      "bytes": 5578
     },
     "src/core/hle/service/caps/caps_c.cpp": {
-      "active": "8e3d804411b15d512abf536914c4cc52ba81ec63e13900976d0b7024619b3eb6",
-      "bytes": 7549,
-      "upstream": "4207c00db15d28949c3299ec36814d35ba77625594a454857bf1c97d4ca6bd95"
+      "upstream": "4207c00db15d28949c3299ec36814d35ba77625594a454857bf1c97d4ca6bd95",
+      "active": "9af073dde8ad2513c9cb98dfe125da39ac16d9bb408ff46bd7059f62f6154f3e",
+      "bytes": 8323
     },
     "src/core/hle/service/caps/caps_c.h": {
-      "active": "74f731531f62a7e26e33a09ffd9623b0613f89075cacab1c052e062a0ef96722",
-      "bytes": 1734,
-      "upstream": "2f6b8e4567725287f959b54928bd74f3516d6a67a404ea48a52d408eafab4d17"
+      "upstream": "2f6b8e4567725287f959b54928bd74f3516d6a67a404ea48a52d408eafab4d17",
+      "active": "5bc82758389b796d72e896654c4291dc9dfd33b1fa6afa11f6da7fb0d8d7b6fd",
+      "bytes": 1800
     },
     "src/core/hle/service/caps/caps_sc.cpp": {
       "active": "7738dad7be563ddec28c31bf7171c21add60a273be177687e19d201ee4d46fcd",
@@ -486,9 +486,9 @@
       "upstream": "5387c8803d0ba6de4cebff8ca332bda476f48812c8b6c6e47091bd09ffd3fff6"
     },
     "src/core/hle/service/mii/mii.cpp": {
-      "active": "e3d71bc7189d3675e16aa03bc03ea032581249625cbe3c5dc330c86f1e2dacbd",
-      "bytes": 15496,
-      "upstream": "5cefdb565a5abd82233f60875d7a0e93fa5d41f16d21df3a86b3cd73d50b826d"
+      "upstream": "5cefdb565a5abd82233f60875d7a0e93fa5d41f16d21df3a86b3cd73d50b826d",
+      "active": "e636313feb0b2de5f8e8529f203fd03b2dd45b2346ada86551a1576c4ea09891",
+      "bytes": 15733
     },
     "src/core/hle/service/nfp/nfp.cpp": {
       "active": "11ed60d29fc627e3d6d1555834ca5d8aa2c03e3ef64426a840a1160557575615",
@@ -1019,6 +1019,26 @@
       "upstream": "c2dbe38ad9c7d4b09b01d37bc667cbaaa757e9f699a7706451dfd298582a68ca",
       "active": "10725d237d49c6c56bf8c303f46fd2f0087bfbf5b264870a8921e8911af0538b",
       "bytes": 10160
+    },
+    "src/core/hle/service/olsc/daemon_controller.cpp": {
+      "upstream": "8b99413c7065bdaf4942d61fe3bab7f94e761ee8a34d35f96f8ec07178436966",
+      "active": "c348f3a7e34d0959b91421cee009b3f1b3c8dba64f8eb8f6950bb565e2d94ea3",
+      "bytes": 5415
+    },
+    "src/core/hle/service/olsc/daemon_controller.h": {
+      "upstream": "73d2ef77ba1b75fc47eada17fc61c8aff768e0c5de5522e843a62f67a3fa262c",
+      "active": "9cc6b393992214c83309c7844ac04a64e9856b124b7f2096961859afe98cd55d",
+      "bytes": 2648
+    },
+    "src/core/hle/service/olsc/olsc.cpp": {
+      "upstream": "adcf67ec6f356fca510b32c6743610bcf93c63992fe1819705d6544c3c1e093d",
+      "active": "f7bd765cae1ed45ac71033aaf0f00b276921335980b6ef26bd5f234123dcbd31",
+      "bytes": 1679
+    },
+    "src/core/hle/service/ncm/ncm.cpp": {
+      "upstream": "136b67a32b2024c4d9512455f4bb041624e2050b511264377470af631cb2d822",
+      "active": "06f4fd31703a7360ab511b46661a722a319fc062b4e83afeea314e94e6772c4c",
+      "bytes": 86340
     }
   },
   "excluded_experimental": [
