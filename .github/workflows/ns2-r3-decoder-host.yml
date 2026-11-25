@@ -82,7 +82,7 @@ jobs:
           set -euo pipefail
           test "$(git hash-object encore-active/eden-core/src/video_core/textures/decoders.cpp)" = '506396c49bc6b8556ef843244694de09cb854ad6'
           test "$(git hash-object encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h)" = 'e45fe0229f34e26f46523bac7c46fb4116cdd8aa'
-          test "$(git hash-object encore-active/eden-core/src/video_core/engines/engine_upload.cpp)" = 'a217f52b0085a3e59ddc7daab20391cf23245657'
+          test "$(git hash-object encore-active/eden-core/src/video_core/engines/engine_upload.cpp)" = 'c8a9f20e959f086c39416063c80d99e975e2bc77'
           test "$(git hash-object encore-active/eden-core/guest-bridge/engine_upload.cpp)" = '4dc4273c7b7f59bc79d4fcac815df86baa121bf9'
           test "$(git hash-object sources/eden/src/video_core/textures/decoders.cpp)" = '25b0860b0f7a9b31f49b63647c64d8d5493fab71'
           test "$(git hash-object sources/eden/src/video_core/textures/decoders.h)" = '1e14a3875356ed4a2e6c949694618d12be7d77e0'

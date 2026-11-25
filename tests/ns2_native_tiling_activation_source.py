@@ -152,3 +152,141 @@ assert swizzle.count("gpu_memory.UsesNativeTiling()") == 1
 assert unswizzle.count("gpu_memory.UsesNativeTiling()") == 1
 assert texture_util.count("gpu_memory.UsesNativeTiling()") == 2
 print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9 volume_z=9 texture_util=2")
+
+# I2M streaming admission: compile the actual maintained ProcessExec and both
+# packet-consumption overloads. A fragmented GPFIFO upload must never read
+# beyond a partial packet or publish unreceived bytes as a whole texture.
+import shutil
+import subprocess
+import tempfile
+
+i2m_start = i2m.index("void State::ProcessExec(")
+i2m_stop = i2m.index("void State::ProcessData(std::span<const u8>", i2m_start)
+active_upload_methods = i2m[i2m_start:i2m_stop]
+assert "static_cast<u64>(regs.line_length_in) * regs.line_count" in active_upload_methods
+assert "MaxInlineUploadBytes" in active_upload_methods
+assert "write_offset == copy_size" in active_upload_methods
+assert "num_data, (remaining + 3) / sizeof(u32)" in active_upload_methods
+assert "ProcessData(std::span<const u8>{bytes, copy_size})" in active_upload_methods
+
+inline_fixture = r"""
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <limits>
+#include <span>
+#include <vector>
+using u8 = std::uint8_t;
+using u32 = std::uint32_t;
+using u64 = std::uint64_t;
+struct Registers { u32 line_length_in{}; u32 line_count{}; };
+struct Scratch {
+    std::vector<u8> storage;
+    void resize_destructive(std::size_t size) { storage.resize(size); }
+    u8* data() { return storage.data(); }
+    operator std::span<const u8>() const { return storage; }
+};
+class State {
+public:
+    explicit State(Registers& r) : regs(r) {}
+    void ProcessExec(bool is_linear_);
+    void ProcessData(u32 data, bool is_last_call);
+    void ProcessData(const u32* data, std::size_t num_data);
+    u32 Size() const { return copy_size; }
+    u32 Offset() const { return write_offset; }
+    std::vector<u8> published;
+    unsigned completions{};
+private:
+    void ProcessData(std::span<const u8> bytes) {
+        assert(bytes.size() >= copy_size);
+        ++completions;
+        published.assign(bytes.begin(), bytes.begin() + copy_size);
+    }
+    u32 write_offset{};
+    u32 copy_size{};
+    Scratch inner_buffer;
+    bool is_linear{};
+    Registers& regs;
+};
+__MAINTAINED_METHODS__
+int main() {
+    std::array<u32, 3> words{0x01020304, 0x05060708, 0x090a0b0c};
+    const auto* raw = reinterpret_cast<const u8*>(words.data());
+    Registers dimensions{4,3};
+    State full{dimensions};
+    full.ProcessExec(true);
+    assert(full.Size()==12);
+    full.ProcessData(words.data(), 3);
+    assert(full.completions==1 && full.Offset()==12);
+    assert(std::memcmp(full.published.data(),raw,12)==0);
+    full.ProcessData(words.data(), 3);
+    assert(full.completions==1);
+
+    State fragmented{dimensions};
+    fragmented.ProcessExec(true);
+    fragmented.ProcessData(words.data(), 1);
+    assert(fragmented.completions==0 && fragmented.Offset()==4);
+    fragmented.ProcessData(words.data()+1, 1);
+    assert(fragmented.completions==0 && fragmented.Offset()==8);
+    fragmented.ProcessData(words.data()+2, 1);
+    assert(fragmented.completions==1 && fragmented.Offset()==12);
+    assert(std::memcmp(fragmented.published.data(),raw,12)==0);
+
+    State scalar{dimensions};
+    scalar.ProcessExec(false);
+    scalar.ProcessData(words[0],true);
+    assert(scalar.completions==0);
+    scalar.ProcessData(words[1],false);
+    assert(scalar.completions==0);
+    scalar.ProcessData(words[2],true);
+    assert(scalar.completions==1);
+    assert(std::memcmp(scalar.published.data(),raw,12)==0);
+
+    Registers partial_length{5,1};
+    State partial{partial_length};
+    partial.ProcessExec(true);
+    partial.ProcessData(words.data(), 2);
+    assert(partial.completions==1 && partial.Size()==5);
+    assert(std::memcmp(partial.published.data(),raw,5)==0);
+
+    State incomplete{dimensions};
+    incomplete.ProcessExec(false);
+    incomplete.ProcessData(words.data(), 2);
+    assert(incomplete.completions==0 && incomplete.Offset()==8);
+    incomplete.ProcessData(nullptr, std::numeric_limits<std::size_t>::max());
+    assert(incomplete.completions==0);
+
+    State absurd{dimensions};
+    dimensions={std::numeric_limits<u32>::max(),std::numeric_limits<u32>::max()};
+    absurd.ProcessExec(true);
+    assert(absurd.Size()==0);
+    absurd.ProcessData(words.data(), std::numeric_limits<std::size_t>::max());
+    assert(absurd.completions==0 && absurd.Offset()==0);
+
+    dimensions={1,(64u<<20)+1};
+    absurd.ProcessExec(true);
+    assert(absurd.Size()==0);
+    dimensions={0,3};
+    absurd.ProcessExec(true);
+    assert(absurd.Size()==0);
+}
+""".replace("__MAINTAINED_METHODS__", active_upload_methods)
+compiler = shutil.which("clang++") or shutil.which("g++")
+assert compiler, "An available C++20 compiler is required for the I2M packet witness"
+with tempfile.TemporaryDirectory(prefix="eden-i2m-packet-") as directory:
+    path = Path(directory) / "i2m_packet.cpp"
+    path.write_text(inline_fixture)
+    for opt in ("-O0", "-O2"):
+        executable = Path(directory) / ("i2m" + opt)
+        compiled = subprocess.run(
+            [compiler, "-std=c++20", opt, "-Wall", "-Wextra", "-Werror",
+             "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+             str(path), "-o", str(executable)], capture_output=True, text=True, timeout=60
+        )
+        assert compiled.returncode == 0, (opt, compiled.stderr[-5000:])
+        ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+        assert ran.returncode == 0, (opt, ran.stderr[-5000:])
+print("NS2_INLINE_UPLOAD_PACKET_BOUNDS_PASS full=1 fragmented=1 scalar_truncation=1 unaligned=1 overflow=1 O0=1 O2=1 ASan=1 UBSan=1")
