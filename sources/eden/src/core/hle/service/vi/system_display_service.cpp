@@ -17,9 +17,9 @@ ISystemDisplayService::ISystemDisplayService(Core::System& system_,
     : ServiceFramework{system_, "ISystemDisplayService"}, m_container{std::move(container)} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {1200, nullptr, "GetZOrderCountMin"},
-        {1202, nullptr, "GetZOrderCountMax"},
-        {1203, nullptr, "GetDisplayLogicalResolution"},
+        {1200, D<&ISystemDisplayService::GetZOrderCountMin>, "GetZOrderCountMin"},
+        {1202, D<&ISystemDisplayService::GetZOrderCountMax>, "GetZOrderCountMax"},
+        {1203, D<&ISystemDisplayService::GetDisplayLogicalResolution>, "GetDisplayLogicalResolution"},
         {1204, nullptr, "SetDisplayMagnification"},
         {2201, nullptr, "SetLayerPosition"},
         {2203, nullptr, "SetLayerSize"},
@@ -70,6 +70,29 @@ ISystemDisplayService::ISystemDisplayService(Core::System& system_,
 }
 
 ISystemDisplayService::~ISystemDisplayService() = default;
+
+Result ISystemDisplayService::GetZOrderCountMin(Out<s64> out_min_z, u64 display_id) {
+    LOG_DEBUG(Service_VI, "GetZOrderCountMin, display_id={}", display_id);
+    *out_min_z = 1;
+    R_SUCCEED();
+}
+
+Result ISystemDisplayService::GetZOrderCountMax(Out<s64> out_max_z, u64 display_id) {
+    LOG_DEBUG(Service_VI, "GetZOrderCountMax, display_id={}", display_id);
+    *out_max_z = 255;
+    R_SUCCEED();
+}
+
+Result ISystemDisplayService::GetDisplayLogicalResolution(Out<s32> out_width,
+                                                           Out<s32> out_height, u64 display_id) {
+    LOG_DEBUG(Service_VI, "GetDisplayLogicalResolution, display_id={}", display_id);
+    const bool docked = Settings::IsDockedMode();
+    *out_width = static_cast<s32>(docked ? DisplayResolution::DockedWidth
+                                         : DisplayResolution::UndockedWidth);
+    *out_height = static_cast<s32>(docked ? DisplayResolution::DockedHeight
+                                          : DisplayResolution::UndockedHeight);
+    R_SUCCEED();
+}
 
 Result ISystemDisplayService::GetLayerZ(Out<u64> out_z_value, u64 layer_id) {
     LOG_DEBUG(Service_VI, "called. layer_id={}", layer_id);
