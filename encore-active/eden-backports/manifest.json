@@ -884,6 +884,26 @@
       "active": "557a3c3b7341880d7893bedbaefe8b84ffe8a0ae14937f8b2b6b1725ccd3621b",
       "bytes": 516,
       "upstream": "650897d9c03aedb21a713aa50e91cf51218bc2378b7e6923fd8532f042a4803c"
+    },
+    "src/core/hle/service/pcv/pcv.cpp": {
+      "active": "c2fda0b5766f25f242fa2e1bd242ece41271610d9e441e852bd3447a092e3714",
+      "bytes": 13864,
+      "upstream": "80648faaf1103f71df863a9f29107aa24e3b6efb5dd386771ae1092cc5934090"
+    },
+    "src/core/hle/service/psc/psc.cpp": {
+      "active": "5cb40750e568b2fd35feb11ef29dddae7d9ffcfd178d73fc8d6106f3eaf9eba4",
+      "bytes": 7924,
+      "upstream": "bdf44cd651a7b6eaa0e273959fa15314514fed0e3763601649462349ef18fd96"
+    },
+    "src/core/hle/service/audio/final_output_recorder_manager.cpp": {
+      "active": "0ba9b25d81b4f723445e257b0430709a417a7615537a6376faea60615bb8cce3",
+      "bytes": 2780,
+      "upstream": "9a800607a59ea78ab3c33e0c147855973edab8155555402318e287f0533ebffd"
+    },
+    "src/core/hle/service/audio/final_output_recorder_manager.h": {
+      "active": "154a4bae6d4d5f65af9024ead1ac41cab106ee368aea7c2149c481b24cd53dcf",
+      "bytes": 542,
+      "upstream": "9987c004a6c9f3973b3ac139be7783b5c2188ce7104ed209c7bb90d87103b9eb"
     }
   },
   "excluded_experimental": [
