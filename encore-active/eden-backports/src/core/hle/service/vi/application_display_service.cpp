@@ -318,7 +318,7 @@ Result IApplicationDisplayService::GetIndirectLayerImageMap(
     const auto child = window_system->GetByAppletResourceUserId(indirect_layer_consumer_handle);
     R_UNLESS(child != nullptr, ResultNotFound);
     R_UNLESS(child->library_applet_mode ==
-                 AM::LibraryAppletMode::PartialForegroundWithIndirectDisplay,
+                 AM::LibraryAppletMode::PartialForegroundIndirectDisplay,
              ResultPermissionDenied);
     R_UNLESS(child->caller_applet.lock() == caller, ResultPermissionDenied);
 
