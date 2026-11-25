@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include "core/hle/service/cmif_types.h"
 #include "core/hle/service/ns/content_management_interface.h"
 #include "core/hle/service/ns/i_async_result.h"
@@ -18,13 +20,20 @@ namespace Service::NS {
 
 struct ApplicationLaunchInfoV19 {
     u64 application_id;
+    u64 program_id;
     u32 version;
-    u32 launch_flags;
+    u8 reserved_14[0x8];
     u8 application_storage_id;
     u8 update_storage_id;
-    u8 reserved[0x6E];
+    u8 reserved_1e[0x12];
+    u64 application_instance_id;
+    u8 reserved_38[0x48];
 };
 static_assert(sizeof(ApplicationLaunchInfoV19) == 0x80);
+static_assert(offsetof(ApplicationLaunchInfoV19, program_id) == 0x08);
+static_assert(offsetof(ApplicationLaunchInfoV19, version) == 0x10);
+static_assert(offsetof(ApplicationLaunchInfoV19, application_storage_id) == 0x1C);
+static_assert(offsetof(ApplicationLaunchInfoV19, application_instance_id) == 0x30);
 
 struct ApplicationContentStorageRecord {
     u64 title_id;
@@ -123,6 +132,8 @@ public:
     Result IsApplicationUpdateRequested(Out<bool> out_update_required, Out<u32> out_update_version,
                                         u64 application_id);
     Result CheckApplicationLaunchVersion(u64 application_id);
+    Result GetApplicationLaunchInfo(Out<ApplicationLaunchInfoV19> out_launch_info,
+                                    u64 application_id);
     Result GetRunningApplicationProgramId(Out<u64> out_program_id);
     Result GetMainApplicationProgramIndexByApplicationLaunchInfo(
         Out<u8> out_program_index, ApplicationLaunchInfoV19 launch_info);

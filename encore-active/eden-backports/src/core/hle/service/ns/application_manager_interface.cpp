@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <optional>
 #include <vector>
 
 namespace Service::NS {
@@ -116,7 +117,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {92, D<&IApplicationManagerInterface::GetRunningApplicationProgramId>, "GetRunningApplicationProgramId"},
         {93, D<&IApplicationManagerInterface::GetMainApplicationProgramIndex>, "GetMainApplicationProgramIndex"},
         {94, nullptr, "LaunchApplication"},
-        {95, nullptr, "GetApplicationLaunchInfo"},
+        {95, D<&IApplicationManagerInterface::GetApplicationLaunchInfo>, "GetApplicationLaunchInfo"},
         {96, nullptr, "AcquireApplicationLaunchInfo"},
         {97, D<&IApplicationManagerInterface::GetMainApplicationProgramIndexByApplicationLaunchInfo>, "GetMainApplicationProgramIndexByApplicationLaunchInfo"},
         {98, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "EnableApplicationAllThreadDumpOnCrash"},
@@ -1275,6 +1276,53 @@ Result IApplicationManagerInterface::ClearApplicationTerminateResult(u64 applica
 
     std::scoped_lock lk{applet->lock};
     applet->terminate_result = ResultSuccess;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::GetApplicationLaunchInfo(
+    Out<ApplicationLaunchInfoV19> out_launch_info, u64 application_id) {
+    auto& storage = system.GetContentProviderUnion();
+    const u64 base_application_id = FileSys::GetBaseTitleID(application_id);
+    const u64 program_id =
+        storage.HasEntry(application_id, FileSys::ContentRecordType::Program)
+            ? application_id
+            : base_application_id;
+
+    R_UNLESS(storage.HasEntry(program_id, FileSys::ContentRecordType::Program),
+             AM::ResultApplicationRecordNotFound);
+
+    const auto storage_id_for_slot = [](std::optional<FileSys::ContentProviderUnionSlot> slot) {
+        if (!slot.has_value()) {
+            return FileSys::StorageId::None;
+        }
+        switch (*slot) {
+        case FileSys::ContentProviderUnionSlot::UserNAND:
+            return FileSys::StorageId::NandUser;
+        case FileSys::ContentProviderUnionSlot::SysNAND:
+            return FileSys::StorageId::NandSystem;
+        case FileSys::ContentProviderUnionSlot::SDMC:
+            return FileSys::StorageId::SdCard;
+        case FileSys::ContentProviderUnionSlot::FrontendManual:
+            return FileSys::StorageId::Host;
+        default:
+            return FileSys::StorageId::None;
+        }
+    };
+
+    FileSys::PatchManager patch_manager{program_id, system.GetFileSystemController(), storage};
+
+    *out_launch_info = {};
+    out_launch_info->application_id = base_application_id;
+    out_launch_info->program_id = program_id;
+    out_launch_info->version = patch_manager.GetGameVersion().value_or(0);
+    out_launch_info->application_storage_id = static_cast<u8>(storage_id_for_slot(
+        storage.GetSlotForEntry(program_id, FileSys::ContentRecordType::Program)));
+    out_launch_info->update_storage_id = static_cast<u8>(storage_id_for_slot(
+        storage.GetSlotForEntry(FileSys::GetUpdateTitleID(base_application_id),
+                                FileSys::ContentRecordType::Program)));
+    // GetApplicationLaunchInfo is the pre-launch form. Horizon fills the
+    // application-instance id at 0x30 later, during CreateApplicationInstance.
+    out_launch_info->application_instance_id = 0;
     R_SUCCEED();
 }
 
