@@ -501,9 +501,9 @@
       "upstream": "8ac6febc0e5258adeb3870971a88c2067ea3312e624b059a17f50e0c0b265dc2"
     },
     "src/core/hle/service/nifm/nifm.cpp": {
-      "active": "b7b0a21ef2fa8341ad2141217d56b85179262ef272a7c757aaf49c6e98603911",
-      "bytes": 63678,
-      "upstream": "bef2eaecc5c5a07b217277b691999845b66c3ad8e006ec101881d3218db76a22"
+      "upstream": "bef2eaecc5c5a07b217277b691999845b66c3ad8e006ec101881d3218db76a22",
+      "active": "51e3479cd7ecc087d31a590d01abb66ae395f52208d7eaa727c8659aae1a5a6c",
+      "bytes": 64300
     },
     "src/core/hle/service/nim/nim.cpp": {
       "active": "d5a75f5c272e10ef770922e13cab7fe637466df756c6a84b9bc4ce8a51792bf1",
@@ -1039,6 +1039,56 @@
       "upstream": "136b67a32b2024c4d9512455f4bb041624e2050b511264377470af631cb2d822",
       "active": "06f4fd31703a7360ab511b46661a722a319fc062b4e83afeea314e94e6772c4c",
       "bytes": 86340
+    },
+    "src/core/hle/service/btm/btm_system_core.cpp": {
+      "upstream": "c6cef4acb0099f4965dd0918c0f6f9b20f52e7442489f89181741e0a43b40492",
+      "active": "728b136a36cd5abfc0f01365adf4e559dff5e5bd0c00157e841257ce3ec7d0bc",
+      "bytes": 8111
+    },
+    "src/core/hle/service/btm/btm_system_core.h": {
+      "upstream": "b99cf033f85c185f50509c8966b8f9386a3c0eb9bb06f388e8f090a6caee359e",
+      "active": "6fc2f8d3dc8324b681406f3cfdd09114c479a0adf87dadd39ec43c035c51c416",
+      "bytes": 2723
+    },
+    "src/core/hle/service/btm/btm_user_core.cpp": {
+      "upstream": "ff77ce3fdd4068e5713a76c3220877d633bc6797d6391baafdf975fa70f5c22b",
+      "active": "efe9818cdfaf0925ca394dd15803f830c18224a92cb1e44f4932d52d505780ba",
+      "bytes": 7158
+    },
+    "src/core/hle/service/btm/btm_user_core.h": {
+      "upstream": "58ec851477b6999dbc7a9768b6e44c22d792fa9318a05bbd6b31d0f698487e3b",
+      "active": "8cba276bbf8d6f237e4d7452368453dccdaceb07a026b01181086c2024d3b3e4",
+      "bytes": 2164
+    },
+    "src/core/hle/service/fatal/fatal_p.cpp": {
+      "upstream": "faf19671d145f16f26a06aa938d1adbc405839ad168c51882507ad8df4177353",
+      "active": "466a2a1f93f7ec64e2cf0143a07421153f5ff65640a9d41d6a3b8d8a317efd69",
+      "bytes": 815
+    },
+    "src/core/hle/service/fatal/fatal_p.h": {
+      "upstream": "4760f1c6d25904b8e6821c645012dd82c0d30778756952919cc29b809b02eb67",
+      "active": "a7ff910cb51bb52753cabb60cf86c9c2407fa7553abc105c2936cb3dd5428e06",
+      "bytes": 468
+    },
+    "src/core/hle/service/apm/apm_interface.cpp": {
+      "upstream": "a913465bd636989f8635cff0321568d4510cc82f9ed14ddfcda8f61b0b480819",
+      "active": "252998fe90a169de45a0c5e8c2dfb8d590a6cdf2b27e12958078153bb390947d",
+      "bytes": 5844
+    },
+    "src/core/hle/service/apm/apm_interface.h": {
+      "upstream": "46a35cb9bf0381ce95529dd9df2932647f0fad3abbff183c318a7eae206d4a3d",
+      "active": "d993aa28169aaa98a4ca58e24ab19655a1a24f09a3552a31d69edf61884a5475",
+      "bytes": 1130
+    },
+    "src/core/hle/service/ptm/ts.cpp": {
+      "upstream": "44fd9b1bf56b212a75afa56a86b732115493033f62c84d518d3c9c176d468a57",
+      "active": "e3d2e26aa808e9d4d26517cef05bf7aab4fb67c9b79ca34dbb0d2f10e603d4a1",
+      "bytes": 3317
+    },
+    "src/core/hle/service/ptm/ts.h": {
+      "upstream": "2d94395fdb8a007547c56a4d86095321e48748e77769cfdf471b077d548b7506",
+      "active": "c49fe8933d6b98b3f9977a325760d8f7b033551a11aa329c60c32d5a533c93c9",
+      "bytes": 595
     }
   },
   "excluded_experimental": [
