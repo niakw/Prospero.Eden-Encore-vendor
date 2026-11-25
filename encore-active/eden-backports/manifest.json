@@ -736,9 +736,9 @@
       "upstream": "26f8440d3047ec6ab70fd45f27b4be54fdefc2763f9229a26192295e5f78ed68"
     },
     "src/core/hle/service/sockets/sfdnsres.cpp": {
-      "active": "2041e9db66081f9afacc1496de4211747ec7e4bdf9653b30f74515c2d9700bf5",
-      "bytes": 15999,
-      "upstream": "4680cf17e296597d514fb602d1995a16ce71293b7f10d298984548fabc3f0313"
+      "upstream": "4680cf17e296597d514fb602d1995a16ce71293b7f10d298984548fabc3f0313",
+      "active": "ee1e606c9d73c32c601f3fc73b539aa74b40ae59a367418a1f01a8c7b6731b0d",
+      "bytes": 18710
     },
     "src/core/hle/service/sockets/sockets.cpp": {
       "upstream": "c998e93145a5103d85c7fea515a38e0a7770996f090bf2bdfa4f8d2e97337752",
@@ -1264,6 +1264,11 @@
       "upstream": "76f9e9fc404c076a7ac9f85baa2797e826ecfc2802f0a27a8997ac5a07a52b4e",
       "active": "2aef8961396822751e941437cf3f89fd054146cd56f78f3fd1ec1f7407af0047",
       "bytes": 473
+    },
+    "src/core/hle/service/sockets/sfdnsres.h": {
+      "upstream": "b1ded778c122781e3ed4113a38a031ca40a2e82450e8b074ed85cf1d89f81143",
+      "active": "83ba9a673a9f8e1ce248abaaf5f7fa57dab36b58ef8479a5e92b58c74bd44e2a",
+      "bytes": 1331
     }
   },
   "excluded_experimental": [
