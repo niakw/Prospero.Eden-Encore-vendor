@@ -10,6 +10,7 @@
 #include "core/hle/kernel/k_process.h"
 
 #include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/ro/ro.h"
 #include "core/hle/service/ro/ro_nro_utils.h"
 #include "core/hle/service/ro/ro_results.h"
@@ -578,9 +579,15 @@ public:
         : ServiceFramework{system_, "ro:dmnt"}
     {
         static const FunctionInfo functions[] = {
-            { 0, nullptr, "GetProcessModuleInfo" },
+            { 0, &IDebugMonitorInterface::RejectUnavailableDebugModuleInfo, "GetProcessModuleInfo" },
         };
         RegisterHandlers(functions);
+    }
+
+private:
+    void RejectUnavailableDebugModuleInfo(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
     }
 };
 
