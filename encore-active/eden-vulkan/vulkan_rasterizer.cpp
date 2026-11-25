@@ -2758,10 +2758,22 @@ void RasterizerVulkan::TiledCacheBarrier() {
 }
 
 void RasterizerVulkan::FlushCommands() {
+#ifdef PS5_NATIVE
+    // draw_counter measures graphics batching, not whether Vulkan work exists.
+    // DMA fills/copies and image transfers can record scheduler commands without
+    // any graphics draw. Conversely, a fence/explicit scheduler flush may have
+    // already submitted the current recording. Use the selected native
+    // scheduler's command epoch as the end-of-list authority.
+    draw_counter = 0;
+    if (!scheduler.RecordedSinceSubmit()) {
+        return;
+    }
+#else
     if (draw_counter == 0) {
         return;
     }
     draw_counter = 0;
+#endif
     scheduler.Flush();
 }
 
