@@ -35,6 +35,7 @@ private:
     Result GetApplicationIdByContentActionName(
         Out<u64> out_application_id, InBuffer<BufferAttr_HipcMapAlias> name_buffer);
     Result ReceiveMessage(Out<AppletMessage> out_applet_message);
+    Result GetWakeupCount(Out<u64> out_wakeup_count);
     Result GetCurrentFocusState(Out<FocusState> out_focus_state);
     Result RequestToAcquireSleepLock();
     Result ReleaseSleepLock();
