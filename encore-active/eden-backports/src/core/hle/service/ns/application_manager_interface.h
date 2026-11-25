@@ -132,8 +132,11 @@ public:
     Result IsApplicationUpdateRequested(Out<bool> out_update_required, Out<u32> out_update_version,
                                         u64 application_id);
     Result CheckApplicationLaunchVersion(u64 application_id);
+    Result LaunchApplicationOld(Out<u64> out_process_id, u64 application_id);
     Result LaunchApplication(Out<u64> out_process_id, u8 program_index,
                              ApplicationLaunchInfoV19 launch_info);
+    Result LaunchApplicationByProgramId(u64* out_process_id, u8 program_index,
+                                        u64 application_id, u64 program_id);
     Result GetApplicationLaunchInfo(Out<ApplicationLaunchInfoV19> out_launch_info,
                                     u64 application_id);
     Result GetRunningApplicationProgramId(Out<u64> out_program_id);

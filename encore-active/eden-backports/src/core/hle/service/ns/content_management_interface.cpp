@@ -36,7 +36,7 @@ IContentManagementInterface::IContentManagementInterface(Core::System& system_)
         {71, D<&IContentManagementInterface::GetUnknown71>, "Unknown71"},
         {600, D<&IContentManagementInterface::CountApplicationContentMeta>, "CountApplicationContentMeta"},
         {601, D<&IContentManagementInterface::ListApplicationContentMetaStatus>, "ListApplicationContentMetaStatus"},
-        {605, nullptr, "ListApplicationContentMetaStatusWithRightsCheck"},
+        {605, D<&IContentManagementInterface::ListApplicationContentMetaStatus>, "ListApplicationContentMetaStatusWithRightsCheck"},
         {607, D<&IContentManagementInterface::IsAnyApplicationRunning>, "IsAnyApplicationRunning"},
         {608, nullptr, "Unknown608"}, //21.0.0+
     };

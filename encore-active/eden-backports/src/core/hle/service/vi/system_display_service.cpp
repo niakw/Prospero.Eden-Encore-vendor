@@ -6,9 +6,11 @@
 
 #include "common/settings.h"
 #include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/vi/container.h"
 #include "core/hle/service/vi/system_display_service.h"
 #include "core/hle/service/vi/vi_types.h"
+#include "core/hle/service/vi/vi_results.h"
 
 namespace Service::VI {
 
@@ -37,8 +39,8 @@ ISystemDisplayService::ISystemDisplayService(Core::System& system_,
         {3002, nullptr, "ListDisplayContentTypes"},
         {3200, C<&ISystemDisplayService::GetDisplayMode>, "GetDisplayMode"},
         {3201, nullptr, "SetDisplayMode"},
-        {3202, nullptr, "GetDisplayUnderscan"},
-        {3203, nullptr, "SetDisplayUnderscan"},
+        {3202, &ISystemDisplayService::RejectDisplayUnderscan, "GetDisplayUnderscan"},
+        {3203, &ISystemDisplayService::RejectDisplayUnderscan, "SetDisplayUnderscan"},
         {3204, nullptr, "GetDisplayContentType"},
         {3205, nullptr, "SetDisplayContentType"},
         {3206, nullptr, "GetDisplayRgbRange"},
@@ -158,6 +160,12 @@ Result ISystemDisplayService::GetDisplayMode(Out<DisplayMode> out_display_mode, 
     out_display_mode->unknown = 0;
 
     R_SUCCEED();
+}
+
+void ISystemDisplayService::RejectDisplayUnderscan(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_VI, "underscan is unsupported by retail display output");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultNotSupported);
 }
 
 Result ISystemDisplayService::GetSharedBufferMemoryHandleId(

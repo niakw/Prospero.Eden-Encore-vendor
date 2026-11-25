@@ -61,7 +61,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {11, D<&IApplicationManagerInterface::CalculateApplicationOccupiedSize>, "CalculateApplicationOccupiedSize"},
         {16, &IApplicationManagerInterface::PushApplicationRecord, "PushApplicationRecord"},
         {17, D<&IApplicationManagerInterface::ListApplicationRecordContentMeta>, "ListApplicationRecordContentMeta"},
-        {19, nullptr, "LaunchApplicationOld"},
+        {19, D<&IApplicationManagerInterface::LaunchApplicationOld>, "LaunchApplicationOld"},
         {21, nullptr, "GetApplicationContentPath"},
         {22, D<&IApplicationManagerInterface::TerminateApplication>, "TerminateApplication"},
         {23, nullptr, "ResolveApplicationContentPath"},
@@ -1281,24 +1281,16 @@ Result IApplicationManagerInterface::ClearApplicationTerminateResult(u64 applica
     R_SUCCEED();
 }
 
-Result IApplicationManagerInterface::LaunchApplication(
-    Out<u64> out_process_id, u8 program_index, ApplicationLaunchInfoV19 launch_info) {
-    LOG_INFO(Service_NS,
-             "called, application_id={:016X}, program_id={:016X}, program_index={}",
-             launch_info.application_id, launch_info.program_id, program_index);
-
+Result IApplicationManagerInterface::LaunchApplicationByProgramId(
+    u64* out_process_id, u8 program_index, u64 application_id, u64 program_id) {
     auto* const window_system = system.GetAppletManager().GetWindowSystem();
     R_UNLESS(window_system != nullptr, AM::ResultApplicationRecordNotFound);
 
     // WindowSystem::TrackApplet requires a single live application owner.
-    // Fail before creating a process instead of tripping that invariant.
     R_UNLESS(window_system->GetMainApplet() == nullptr, ResultUnknown);
 
-    const u64 application_id = FileSys::GetBaseTitleID(launch_info.application_id);
+    application_id = FileSys::GetBaseTitleID(application_id);
     R_UNLESS(application_id != 0, AM::ResultApplicationRecordNotFound);
-
-    const u64 program_id =
-        launch_info.program_id != 0 ? launch_info.program_id : application_id + program_index;
     R_UNLESS(FileSys::GetBaseTitleID(program_id) == application_id,
              AM::ResultApplicationRecordNotFound);
 
@@ -1334,6 +1326,26 @@ Result IApplicationManagerInterface::LaunchApplication(
 
     *out_process_id = process_id;
     R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::LaunchApplicationOld(
+    Out<u64> out_process_id, u64 application_id) {
+    LOG_INFO(Service_NS, "legacy launch called, application_id={:016X}", application_id);
+    const u64 program_id = FileSys::GetBaseTitleID(application_id);
+    R_RETURN(LaunchApplicationByProgramId(out_process_id.Get(), 0, program_id, program_id));
+}
+
+Result IApplicationManagerInterface::LaunchApplication(
+    Out<u64> out_process_id, u8 program_index, ApplicationLaunchInfoV19 launch_info) {
+    LOG_INFO(Service_NS,
+             "called, application_id={:016X}, program_id={:016X}, program_index={}",
+             launch_info.application_id, launch_info.program_id, program_index);
+
+    const u64 application_id = FileSys::GetBaseTitleID(launch_info.application_id);
+    const u64 program_id =
+        launch_info.program_id != 0 ? launch_info.program_id : application_id + program_index;
+    R_RETURN(LaunchApplicationByProgramId(out_process_id.Get(), program_index, application_id,
+                                         program_id));
 }
 
 Result IApplicationManagerInterface::GetApplicationLaunchInfo(
