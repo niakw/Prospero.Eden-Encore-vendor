@@ -25,24 +25,31 @@ namespace Service::Sockets {
 
 SFDNSRES::SFDNSRES(Core::System& system_) : ServiceFramework{system_, "sfdnsres"} {
     static const FunctionInfo functions[] = {
-        {0, nullptr, "SetDnsAddressesPrivateRequest"},
-        {1, nullptr, "GetDnsAddressPrivateRequest"},
+        {0, &SFDNSRES::RejectUnsupportedResolverExtension, "SetDnsAddressesPrivateRequest"},
+        {1, &SFDNSRES::RejectUnsupportedResolverExtension, "GetDnsAddressPrivateRequest"},
         {2, &SFDNSRES::GetHostByNameRequest, "GetHostByNameRequest"},
-        {3, nullptr, "GetHostByAddrRequest"},
+        {3, &SFDNSRES::RejectUnsupportedResolverExtension, "GetHostByAddrRequest"},
         {4, &SFDNSRES::GetHostStringErrorRequest, "GetHostStringErrorRequest"},
         {5, &SFDNSRES::GetGaiStringErrorRequest, "GetGaiStringErrorRequest"},
         {6, &SFDNSRES::GetAddrInfoRequest, "GetAddrInfoRequest"},
-        {7, nullptr, "GetNameInfoRequest"},
+        {7, &SFDNSRES::RejectUnsupportedResolverExtension, "GetNameInfoRequest"},
         {8, &SFDNSRES::RequestCancelHandleRequest, "RequestCancelHandleRequest"},
         {9, &SFDNSRES::CancelRequest, "CancelRequest"},
         {10, &SFDNSRES::GetHostByNameRequestWithOptions, "GetHostByNameRequestWithOptions"},
-        {11, nullptr, "GetHostByAddrRequestWithOptions"},
+        {11, &SFDNSRES::RejectUnsupportedResolverExtension, "GetHostByAddrRequestWithOptions"},
         {12, &SFDNSRES::GetAddrInfoRequestWithOptions, "GetAddrInfoRequestWithOptions"},
-        {13, nullptr, "GetNameInfoRequestWithOptions"},
+        {13, &SFDNSRES::RejectUnsupportedResolverExtension, "GetNameInfoRequestWithOptions"},
         {14, &SFDNSRES::ResolverSetOptionRequest, "ResolverSetOptionRequest"},
-        {15, nullptr, "ResolverGetOptionRequest"},
+        {15, &SFDNSRES::RejectUnsupportedResolverExtension, "ResolverGetOptionRequest"},
     };
     RegisterHandlers(functions);
+}
+
+void SFDNSRES::RejectUnsupportedResolverExtension(HLERequestContext& ctx) {
+    // Keep forward host/name resolution functional. Reverse lookup, private DNS
+    // configuration and opaque resolver options are not modeled by Encore.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 SFDNSRES::~SFDNSRES() = default;
@@ -488,12 +495,17 @@ DNS_PRIV::DNS_PRIV(Core::System& system_)
     : ServiceFramework{system_, "dns:priv"} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, nullptr, "Cmd0"},
-        {1, nullptr, "Cmd1"},
-        {2, nullptr, "Cmd2"},
+        {0, &DNS_PRIV::RejectUnsupportedPrivateDns, "Cmd0"},
+        {1, &DNS_PRIV::RejectUnsupportedPrivateDns, "Cmd1"},
+        {2, &DNS_PRIV::RejectUnsupportedPrivateDns, "Cmd2"},
     };
     // clang-format on
     RegisterHandlers(functions);
+}
+
+void DNS_PRIV::RejectUnsupportedPrivateDns(HLERequestContext& ctx) {
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 DNS_PRIV::~DNS_PRIV() = default;
