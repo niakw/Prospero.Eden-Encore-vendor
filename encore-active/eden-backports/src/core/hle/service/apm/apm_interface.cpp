@@ -1,0 +1,164 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#include "common/logging.h"
+#include "core/hle/service/apm/apm.h"
+#include "core/hle/service/apm/apm_controller.h"
+#include "core/hle/service/apm/apm_interface.h"
+#include "core/hle/service/ipc_helpers.h"
+
+namespace Service::APM {
+
+class ISession final : public ServiceFramework<ISession> {
+public:
+    explicit ISession(Core::System& system_, Controller& controller_)
+        : ServiceFramework{system_, "ISession"}, controller{controller_} {
+        static const FunctionInfo functions[] = {
+            {0, &ISession::SetPerformanceConfiguration, "SetPerformanceConfiguration"},
+            {1, &ISession::GetPerformanceConfiguration, "GetPerformanceConfiguration"},
+            {2, &ISession::SetCpuOverclockEnabled, "SetCpuOverclockEnabled"},
+        };
+        RegisterHandlers(functions);
+    }
+
+private:
+    void SetPerformanceConfiguration(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+
+        const auto mode = rp.PopEnum<PerformanceMode>();
+        const auto config = rp.PopEnum<PerformanceConfiguration>();
+        LOG_DEBUG(Service_APM, "called mode={} config={}", mode, config);
+
+        controller.SetPerformanceConfiguration(mode, config);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetPerformanceConfiguration(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+
+        const auto mode = rp.PopEnum<PerformanceMode>();
+        LOG_DEBUG(Service_APM, "called mode={}", mode);
+
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.PushEnum(controller.GetCurrentPerformanceConfiguration(mode));
+    }
+
+    void SetCpuOverclockEnabled(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+
+        const auto cpu_overclock_enabled = rp.Pop<bool>();
+
+        // Horizon exposes this as a hardware overclock request. Encore has no guest CPU clock
+        // domain to mutate on PS5, so the request is intentionally accepted without changing
+        // host clocks. IsCpuOverclockEnabled therefore remains false.
+        LOG_DEBUG(Service_APM, "Ignoring guest CPU overclock request: enabled={}",
+                  cpu_overclock_enabled);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    Controller& controller;
+};
+
+APM::APM(Core::System& system_, std::shared_ptr<Module> apm_, Controller& controller_,
+         const char* name)
+    : ServiceFramework{system_, name}, apm(std::move(apm_)), controller{controller_} {
+    static const FunctionInfo functions[] = {
+        {0, &APM::OpenSession, "OpenSession"},
+        {1, &APM::GetPerformanceMode, "GetPerformanceMode"},
+        {6, &APM::IsCpuOverclockEnabled, "IsCpuOverclockEnabled"},
+    };
+    RegisterHandlers(functions);
+}
+
+APM::~APM() = default;
+
+void APM::OpenSession(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_APM, "called");
+
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(ResultSuccess);
+    rb.PushIpcInterface<ISession>(ctx, system, controller);
+}
+
+void APM::GetPerformanceMode(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_APM, "called");
+
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.PushEnum(controller.GetCurrentPerformanceMode());
+}
+
+void APM::IsCpuOverclockEnabled(HLERequestContext& ctx) {
+    // No guest CPU overclock domain is exposed by Encore. This is an intentional emulation
+    // policy rather than an unimplemented hardware query.
+    LOG_DEBUG(Service_APM, "Guest CPU overclock is not exposed on this platform");
+
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.Push(false);
+}
+
+APM_Sys::APM_Sys(Core::System& system_, Controller& controller_)
+    : ServiceFramework{system_, "apm:sys"}, controller{controller_} {
+    // clang-format off
+    static const FunctionInfo functions[] = {
+        {0, &APM_Sys::RejectUnsupportedSystemPolicy, "RequestPerformanceMode"},
+        {1, &APM_Sys::GetPerformanceEvent, "GetPerformanceEvent"},
+        {2, &APM_Sys::RejectUnsupportedSystemPolicy, "GetThrottlingState"},
+        {3, &APM_Sys::RejectUnsupportedSystemPolicy, "GetLastThrottlingState"},
+        {4, &APM_Sys::RejectUnsupportedSystemPolicy, "ClearLastThrottlingState"},
+        {5, &APM_Sys::RejectUnsupportedSystemPolicy, "LoadAndApplySettings"},
+        {6, &APM_Sys::SetCpuBoostMode, "SetCpuBoostMode"},
+        {7, &APM_Sys::GetCurrentPerformanceConfiguration, "GetCurrentPerformanceConfiguration"},
+    };
+    // clang-format on
+
+    RegisterHandlers(functions);
+}
+
+void APM_Sys::RejectUnsupportedSystemPolicy(HLERequestContext& ctx) {
+    // Encore exposes performance configuration/boost state but does not emulate
+    // Horizon's system throttling policy engine.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
+}
+
+APM_Sys::~APM_Sys() = default;
+
+void APM_Sys::GetPerformanceEvent(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_APM, "called");
+
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(ResultSuccess);
+    rb.PushIpcInterface<ISession>(ctx, system, controller);
+}
+
+void APM_Sys::SetCpuBoostMode(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const auto mode = rp.PopEnum<CpuBoostMode>();
+
+    LOG_DEBUG(Service_APM, "called, mode={:08X}", mode);
+
+    controller.SetFromCpuBoostMode(mode);
+
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void APM_Sys::GetCurrentPerformanceConfiguration(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_APM, "called");
+
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.PushEnum(
+        controller.GetCurrentPerformanceConfiguration(controller.GetCurrentPerformanceMode()));
+}
+
+} // namespace Service::APM
