@@ -27,7 +27,7 @@ IAudioRendererManager::IAudioRendererManager(Core::System& system_)
         {0, D<&IAudioRendererManager::OpenAudioRenderer>, "OpenAudioRenderer"},
         {1, D<&IAudioRendererManager::GetWorkBufferSize>, "GetWorkBufferSize"},
         {2, D<&IAudioRendererManager::GetAudioDeviceService>, "GetAudioDeviceService"},
-        {3, nullptr, "OpenAudioRendererForManualExecution"},
+        {3, D<&IAudioRendererManager::OpenAudioRendererForManualExecution>, "OpenAudioRendererForManualExecution"},
         {4, D<&IAudioRendererManager::GetAudioDeviceServiceWithRevisionInfo>, "GetAudioDeviceServiceWithRevisionInfo"},
     };
     // clang-format on
@@ -67,6 +67,15 @@ Result IAudioRendererManager::OpenAudioRenderer(
         std::make_shared<IAudioRenderer>(system, *impl, parameter, tmem_handle.Get(), tmem_size,
                                          process_handle.Get(), aruid.pid, session_id);
     R_SUCCEED();
+}
+
+Result IAudioRendererManager::OpenAudioRendererForManualExecution(
+    Out<SharedPointer<IAudioRenderer>> out_audio_renderer,
+    AudioCore::AudioRendererParameterInternal parameter,
+    InCopyHandle<Kernel::KTransferMemory> tmem_handle, u64 tmem_size,
+    InCopyHandle<Kernel::KProcess> process_handle, ClientAppletResourceUserId aruid) {
+    R_RETURN(OpenAudioRenderer(out_audio_renderer, parameter, tmem_handle, tmem_size,
+                               process_handle, aruid));
 }
 
 Result IAudioRendererManager::GetWorkBufferSize(Out<u64> out_size,

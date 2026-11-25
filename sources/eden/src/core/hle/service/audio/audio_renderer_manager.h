@@ -26,6 +26,12 @@ private:
                              InCopyHandle<Kernel::KTransferMemory> tmem_handle, u64 tmem_size,
                              InCopyHandle<Kernel::KProcess> process_handle,
                              ClientAppletResourceUserId aruid);
+    Result OpenAudioRendererForManualExecution(
+        Out<SharedPointer<IAudioRenderer>> out_audio_renderer,
+        AudioCore::AudioRendererParameterInternal parameter,
+        InCopyHandle<Kernel::KTransferMemory> tmem_handle, u64 tmem_size,
+        InCopyHandle<Kernel::KProcess> process_handle,
+        ClientAppletResourceUserId aruid);
     Result GetWorkBufferSize(Out<u64> out_size,
                              AudioCore::AudioRendererParameterInternal parameter);
     Result GetAudioDeviceService(Out<SharedPointer<IAudioDevice>> out_audio_device,

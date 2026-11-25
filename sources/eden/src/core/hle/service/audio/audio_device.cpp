@@ -38,11 +38,17 @@ IAudioDevice::IAudioDevice(Core::System& system_, u64 applet_resource_user_id, u
         {18, D<&IAudioDevice::ReleaseAudioOutputDeviceNotification>, "ReleaseAudioOutputDeviceNotification"}, //17.0.0+
         {19, D<&IAudioDevice::SetAudioDeviceOutputVolumeAutoTuneEnabled>, "SetAudioDeviceOutputVolumeAutoTuneEnabled"}, //18.0.0+
         {20, D<&IAudioDevice::IsAudioDeviceOutputVolumeAutoTuneEnabled>, "IsAudioDeviceOutputVolumeAutoTuneEnabled"}, //18.0.0+
-        {21, nullptr, "IsActiveOutputDeviceEstimatedLowLatency"} //21.0.0+
+        {21, D<&IAudioDevice::IsActiveOutputDeviceEstimatedLowLatency>, "IsActiveOutputDeviceEstimatedLowLatency"} //21.0.0+
     };
     RegisterHandlers(functions);
 
     event->Signal(system.Kernel());
+}
+
+Result IAudioDevice::IsActiveOutputDeviceEstimatedLowLatency(Out<bool> out_is_low_latency) {
+    // The native PS5 sink has no qualified low-latency mode contract.
+    *out_is_low_latency = false;
+    R_SUCCEED();
 }
 
 IAudioDevice::~IAudioDevice() {
