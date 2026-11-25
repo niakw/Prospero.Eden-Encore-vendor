@@ -19,106 +19,114 @@ public:
         : ServiceFramework{system_, "wlan:lcl"}
     {
         static const FunctionInfo functions[] = {
-            { 0, nullptr, "OpenMasterMode" },
-            { 0, nullptr, "OpenMode_2" },
-            { 1, nullptr, "CloseMasterMode" },
-            { 1, nullptr, "CloseMode_2" },
-            { 2, nullptr, "OpenClientMode" },
-            { 2, nullptr, "GetMacAddress_2" },
-            { 3, nullptr, "CloseClientMode" },
-            { 3, nullptr, "CreateBss" },
-            { 4, nullptr, "OpenSpectatorMode" },
-            { 4, nullptr, "DestroyBss" },
-            { 5, nullptr, "CloseSpectatorMode" },
-            { 5, nullptr, "StartScan_2" },
-            { 6, nullptr, "GetMacAddress_2" },
-            { 6, nullptr, "StopScan_2" },
-            { 7, nullptr, "CreateBss" },
-            { 7, nullptr, "Connect_2" },
-            { 8, nullptr, "DestroyBss" },
-            { 8, nullptr, "CancelConnect_2" },
-            { 9, nullptr, "StartScan_2" },
-            { 9, nullptr, "Join" },
-            { 10, nullptr, "StopScan_2" },
-            { 10, nullptr, "CancelJoin" },
-            { 11, nullptr, "Connect_2" },
-            { 11, nullptr, "Disconnect_2" },
-            { 12, nullptr, "CancelConnect_2" },
-            { 12, nullptr, "SetBeaconLostCount" },
-            { 13, nullptr, "Join" },
-            { 13, nullptr, "GetSystemEvent_2" },
-            { 14, nullptr, "CancelJoin" },
-            { 14, nullptr, "GetConnectionStatus_2" },
-            { 15, nullptr, "Disconnect_2" },
-            { 15, nullptr, "GetClientStatus" },
-            { 16, nullptr, "SetBeaconLostCount" },
-            { 16, nullptr, "GetBssIndicationEvent" },
-            { 17, nullptr, "GetSystemEvent_2" },
-            { 17, nullptr, "GetBssIndicationInfo" },
-            { 18, nullptr, "GetConnectionStatus_2" },
-            { 18, nullptr, "GetState_2" },
-            { 19, nullptr, "GetClientStatus" },
-            { 19, nullptr, "GetAllowedChannels" },
-            { 20, nullptr, "GetBssIndicationEvent" },
-            { 20, nullptr, "AddIe" },
-            { 21, nullptr, "GetBssIndicationInfo" },
-            { 21, nullptr, "DeleteIe" },
-            { 22, nullptr, "GetState_2" },
-            { 22, nullptr, "PutFrameRaw" },
-            { 23, nullptr, "GetAllowedChannels" },
-            { 23, nullptr, "CancelGetFrame" },
-            { 24, nullptr, "AddIe" },
-            { 24, nullptr, "CreateRxEntry" },
-            { 25, nullptr, "DeleteIe" },
-            { 25, nullptr, "DeleteRxEntry" },
-            { 26, nullptr, "PutFrameRaw" },
-            { 26, nullptr, "AddEthertypeToRxEntry" },
-            { 27, nullptr, "CancelGetFrame" },
-            { 27, nullptr, "DeleteEthertypeFromRxEntry" },
-            { 28, nullptr, "CreateRxEntry" },
-            { 28, nullptr, "AddMatchingDataToRxEntry" },
-            { 29, nullptr, "DeleteRxEntry" },
-            { 29, nullptr, "RemoveMatchingDataFromRxEntry" },
-            { 30, nullptr, "AddEthertypeToRxEntry" },
-            { 30, nullptr, "GetScanResult_2" },
-            { 31, nullptr, "DeleteEthertypeFromRxEntry" },
-            { 31, nullptr, "PutActionFrameOneShot" },
-            { 32, nullptr, "AddMatchingDataToRxEntry" },
-            { 32, nullptr, "SetActionFrameWithBeacon" },
-            { 33, nullptr, "RemoveMatchingDataFromRxEntry" },
-            { 33, nullptr, "CancelActionFrameWithBeacon" },
-            { 34, nullptr, "GetScanResult_2" },
-            { 34, nullptr, "CreateRxEntryForActionFrame" },
-            { 35, nullptr, "PutActionFrameOneShot" },
-            { 35, nullptr, "DeleteRxEntryForActionFrame" },
-            { 36, nullptr, "SetActionFrameWithBeacon" },
-            { 36, nullptr, "AddSubtypeToRxEntryForActionFrame" },
-            { 37, nullptr, "CancelActionFrameWithBeacon" },
-            { 37, nullptr, "DeleteSubtypeFromRxEntryForActionFrame" },
-            { 38, nullptr, "CreateRxEntryForActionFrame" },
-            { 38, nullptr, "CancelGetActionFrame" },
-            { 39, nullptr, "DeleteRxEntryForActionFrame" },
-            { 39, nullptr, "GetRssi_2" },
-            { 40, nullptr, "AddSubtypeToRxEntryForActionFrame" },
-            { 40, nullptr, "SetMaxAssociationNumber" },
-            { 41, nullptr, "DeleteSubtypeFromRxEntryForActionFrame" },
-            { 41, nullptr, "Cmd41" },
-            { 42, nullptr, "CancelGetActionFrame" },
-            { 42, nullptr, "Cmd42" },
-            { 43, nullptr, "GetRssi_2" },
-            { 43, nullptr, "Cmd43" },
-            { 44, nullptr, "SetMaxAssociationNumber" },
-            { 45, nullptr, "OpenLcsMasterMode" },
-            { 46, nullptr, "CloseLcsMasterMode" },
-            { 47, nullptr, "OpenLcsClientMode" },
-            { 48, nullptr, "CloseLcsClientMode" },
-            { 49, nullptr, "GetChannelStats" },
-            { 50, nullptr, "Cmd50" },
-            { 51, nullptr, "Cmd51" },
-            { 52, nullptr, "Cmd52" },
+            { 0, &ILocalManager::RejectLegacyWlanCommand, "OpenMasterMode" },
+            { 0, &ILocalManager::RejectLegacyWlanCommand, "OpenMode_2" },
+            { 1, &ILocalManager::RejectLegacyWlanCommand, "CloseMasterMode" },
+            { 1, &ILocalManager::RejectLegacyWlanCommand, "CloseMode_2" },
+            { 2, &ILocalManager::RejectLegacyWlanCommand, "OpenClientMode" },
+            { 2, &ILocalManager::RejectLegacyWlanCommand, "GetMacAddress_2" },
+            { 3, &ILocalManager::RejectLegacyWlanCommand, "CloseClientMode" },
+            { 3, &ILocalManager::RejectLegacyWlanCommand, "CreateBss" },
+            { 4, &ILocalManager::RejectLegacyWlanCommand, "OpenSpectatorMode" },
+            { 4, &ILocalManager::RejectLegacyWlanCommand, "DestroyBss" },
+            { 5, &ILocalManager::RejectLegacyWlanCommand, "CloseSpectatorMode" },
+            { 5, &ILocalManager::RejectLegacyWlanCommand, "StartScan_2" },
+            { 6, &ILocalManager::RejectLegacyWlanCommand, "GetMacAddress_2" },
+            { 6, &ILocalManager::RejectLegacyWlanCommand, "StopScan_2" },
+            { 7, &ILocalManager::RejectLegacyWlanCommand, "CreateBss" },
+            { 7, &ILocalManager::RejectLegacyWlanCommand, "Connect_2" },
+            { 8, &ILocalManager::RejectLegacyWlanCommand, "DestroyBss" },
+            { 8, &ILocalManager::RejectLegacyWlanCommand, "CancelConnect_2" },
+            { 9, &ILocalManager::RejectLegacyWlanCommand, "StartScan_2" },
+            { 9, &ILocalManager::RejectLegacyWlanCommand, "Join" },
+            { 10, &ILocalManager::RejectLegacyWlanCommand, "StopScan_2" },
+            { 10, &ILocalManager::RejectLegacyWlanCommand, "CancelJoin" },
+            { 11, &ILocalManager::RejectLegacyWlanCommand, "Connect_2" },
+            { 11, &ILocalManager::RejectLegacyWlanCommand, "Disconnect_2" },
+            { 12, &ILocalManager::RejectLegacyWlanCommand, "CancelConnect_2" },
+            { 12, &ILocalManager::RejectLegacyWlanCommand, "SetBeaconLostCount" },
+            { 13, &ILocalManager::RejectLegacyWlanCommand, "Join" },
+            { 13, &ILocalManager::RejectLegacyWlanCommand, "GetSystemEvent_2" },
+            { 14, &ILocalManager::RejectLegacyWlanCommand, "CancelJoin" },
+            { 14, &ILocalManager::RejectLegacyWlanCommand, "GetConnectionStatus_2" },
+            { 15, &ILocalManager::RejectLegacyWlanCommand, "Disconnect_2" },
+            { 15, &ILocalManager::RejectLegacyWlanCommand, "GetClientStatus" },
+            { 16, &ILocalManager::RejectLegacyWlanCommand, "SetBeaconLostCount" },
+            { 16, &ILocalManager::RejectLegacyWlanCommand, "GetBssIndicationEvent" },
+            { 17, &ILocalManager::RejectLegacyWlanCommand, "GetSystemEvent_2" },
+            { 17, &ILocalManager::RejectLegacyWlanCommand, "GetBssIndicationInfo" },
+            { 18, &ILocalManager::RejectLegacyWlanCommand, "GetConnectionStatus_2" },
+            { 18, &ILocalManager::RejectLegacyWlanCommand, "GetState_2" },
+            { 19, &ILocalManager::RejectLegacyWlanCommand, "GetClientStatus" },
+            { 19, &ILocalManager::RejectLegacyWlanCommand, "GetAllowedChannels" },
+            { 20, &ILocalManager::RejectLegacyWlanCommand, "GetBssIndicationEvent" },
+            { 20, &ILocalManager::RejectLegacyWlanCommand, "AddIe" },
+            { 21, &ILocalManager::RejectLegacyWlanCommand, "GetBssIndicationInfo" },
+            { 21, &ILocalManager::RejectLegacyWlanCommand, "DeleteIe" },
+            { 22, &ILocalManager::RejectLegacyWlanCommand, "GetState_2" },
+            { 22, &ILocalManager::RejectLegacyWlanCommand, "PutFrameRaw" },
+            { 23, &ILocalManager::RejectLegacyWlanCommand, "GetAllowedChannels" },
+            { 23, &ILocalManager::RejectLegacyWlanCommand, "CancelGetFrame" },
+            { 24, &ILocalManager::RejectLegacyWlanCommand, "AddIe" },
+            { 24, &ILocalManager::RejectLegacyWlanCommand, "CreateRxEntry" },
+            { 25, &ILocalManager::RejectLegacyWlanCommand, "DeleteIe" },
+            { 25, &ILocalManager::RejectLegacyWlanCommand, "DeleteRxEntry" },
+            { 26, &ILocalManager::RejectLegacyWlanCommand, "PutFrameRaw" },
+            { 26, &ILocalManager::RejectLegacyWlanCommand, "AddEthertypeToRxEntry" },
+            { 27, &ILocalManager::RejectLegacyWlanCommand, "CancelGetFrame" },
+            { 27, &ILocalManager::RejectLegacyWlanCommand, "DeleteEthertypeFromRxEntry" },
+            { 28, &ILocalManager::RejectLegacyWlanCommand, "CreateRxEntry" },
+            { 28, &ILocalManager::RejectLegacyWlanCommand, "AddMatchingDataToRxEntry" },
+            { 29, &ILocalManager::RejectLegacyWlanCommand, "DeleteRxEntry" },
+            { 29, &ILocalManager::RejectLegacyWlanCommand, "RemoveMatchingDataFromRxEntry" },
+            { 30, &ILocalManager::RejectLegacyWlanCommand, "AddEthertypeToRxEntry" },
+            { 30, &ILocalManager::RejectLegacyWlanCommand, "GetScanResult_2" },
+            { 31, &ILocalManager::RejectLegacyWlanCommand, "DeleteEthertypeFromRxEntry" },
+            { 31, &ILocalManager::RejectLegacyWlanCommand, "PutActionFrameOneShot" },
+            { 32, &ILocalManager::RejectLegacyWlanCommand, "AddMatchingDataToRxEntry" },
+            { 32, &ILocalManager::RejectLegacyWlanCommand, "SetActionFrameWithBeacon" },
+            { 33, &ILocalManager::RejectLegacyWlanCommand, "RemoveMatchingDataFromRxEntry" },
+            { 33, &ILocalManager::RejectLegacyWlanCommand, "CancelActionFrameWithBeacon" },
+            { 34, &ILocalManager::RejectLegacyWlanCommand, "GetScanResult_2" },
+            { 34, &ILocalManager::RejectLegacyWlanCommand, "CreateRxEntryForActionFrame" },
+            { 35, &ILocalManager::RejectLegacyWlanCommand, "PutActionFrameOneShot" },
+            { 35, &ILocalManager::RejectLegacyWlanCommand, "DeleteRxEntryForActionFrame" },
+            { 36, &ILocalManager::RejectLegacyWlanCommand, "SetActionFrameWithBeacon" },
+            { 36, &ILocalManager::RejectLegacyWlanCommand, "AddSubtypeToRxEntryForActionFrame" },
+            { 37, &ILocalManager::RejectLegacyWlanCommand, "CancelActionFrameWithBeacon" },
+            { 37, &ILocalManager::RejectLegacyWlanCommand, "DeleteSubtypeFromRxEntryForActionFrame" },
+            { 38, &ILocalManager::RejectLegacyWlanCommand, "CreateRxEntryForActionFrame" },
+            { 38, &ILocalManager::RejectLegacyWlanCommand, "CancelGetActionFrame" },
+            { 39, &ILocalManager::RejectLegacyWlanCommand, "DeleteRxEntryForActionFrame" },
+            { 39, &ILocalManager::RejectLegacyWlanCommand, "GetRssi_2" },
+            { 40, &ILocalManager::RejectLegacyWlanCommand, "AddSubtypeToRxEntryForActionFrame" },
+            { 40, &ILocalManager::RejectLegacyWlanCommand, "SetMaxAssociationNumber" },
+            { 41, &ILocalManager::RejectLegacyWlanCommand, "DeleteSubtypeFromRxEntryForActionFrame" },
+            { 41, &ILocalManager::RejectLegacyWlanCommand, "Cmd41" },
+            { 42, &ILocalManager::RejectLegacyWlanCommand, "CancelGetActionFrame" },
+            { 42, &ILocalManager::RejectLegacyWlanCommand, "Cmd42" },
+            { 43, &ILocalManager::RejectLegacyWlanCommand, "GetRssi_2" },
+            { 43, &ILocalManager::RejectLegacyWlanCommand, "Cmd43" },
+            { 44, &ILocalManager::RejectLegacyWlanCommand, "SetMaxAssociationNumber" },
+            { 45, &ILocalManager::RejectLegacyWlanCommand, "OpenLcsMasterMode" },
+            { 46, &ILocalManager::RejectLegacyWlanCommand, "CloseLcsMasterMode" },
+            { 47, &ILocalManager::RejectLegacyWlanCommand, "OpenLcsClientMode" },
+            { 48, &ILocalManager::RejectLegacyWlanCommand, "CloseLcsClientMode" },
+            { 49, &ILocalManager::RejectLegacyWlanCommand, "GetChannelStats" },
+            { 50, &ILocalManager::RejectLegacyWlanCommand, "Cmd50" },
+            { 51, &ILocalManager::RejectLegacyWlanCommand, "Cmd51" },
+            { 52, &ILocalManager::RejectLegacyWlanCommand, "Cmd52" },
         };
         RegisterHandlers(functions);
     }
+private:
+    void RejectLegacyWlanCommand(HLERequestContext& ctx) {
+        // These interfaces are registered only before HOS 15. Modern HOS uses
+        // the wlan creator/service path below; no legacy Switch radio backend exists.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class ILocalGetFrame final : public ServiceFramework<ILocalGetFrame> {
@@ -127,10 +135,18 @@ public:
         : ServiceFramework{system_, "wlan:lg"}
     {
         static const FunctionInfo functions[] = {
-            { 0, nullptr, "GetFrameRaw" },
+            { 0, &ILocalGetFrame::RejectLegacyWlanCommand, "GetFrameRaw" },
         };
         RegisterHandlers(functions);
     }
+private:
+    void RejectLegacyWlanCommand(HLERequestContext& ctx) {
+        // These interfaces are registered only before HOS 15. Modern HOS uses
+        // the wlan creator/service path below; no legacy Switch radio backend exists.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class ILocalGetActionFrame final : public ServiceFramework<ILocalGetActionFrame> {
@@ -139,10 +155,18 @@ public:
         : ServiceFramework{system_, "wlan:lga"}
     {
         static const FunctionInfo functions[] = {
-            { 0, nullptr, "GetActionFrame" },
+            { 0, &ILocalGetActionFrame::RejectLegacyWlanCommand, "GetActionFrame" },
         };
         RegisterHandlers(functions);
     }
+private:
+    void RejectLegacyWlanCommand(HLERequestContext& ctx) {
+        // These interfaces are registered only before HOS 15. Modern HOS uses
+        // the wlan creator/service path below; no legacy Switch radio backend exists.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class ISocketGetFrame final : public ServiceFramework<ISocketGetFrame> {
@@ -151,10 +175,18 @@ public:
         : ServiceFramework{system_, "wlan:sg"}
     {
         static const FunctionInfo functions[] = {
-            { 0, nullptr, "GetFrameRaw" },
+            { 0, &ISocketGetFrame::RejectLegacyWlanCommand, "GetFrameRaw" },
         };
         RegisterHandlers(functions);
     }
+private:
+    void RejectLegacyWlanCommand(HLERequestContext& ctx) {
+        // These interfaces are registered only before HOS 15. Modern HOS uses
+        // the wlan creator/service path below; no legacy Switch radio backend exists.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class ISocketManager final : public ServiceFramework<ISocketManager> {
@@ -163,22 +195,30 @@ public:
         : ServiceFramework{system_, "wlan:soc"}
     {
         static const FunctionInfo functions[] = {
-            { 0, nullptr, "PutFrameRaw_2" },
-            { 1, nullptr, "CancelGetFrame_2" },
-            { 2, nullptr, "CreateRxEntry_2" },
-            { 3, nullptr, "DeleteRxEntry_2" },
-            { 4, nullptr, "AddEthertypeToRxEntry_2" },
-            { 5, nullptr, "DeleteEthertypeFromRxEntry_2" },
-            { 6, nullptr, "GetMacAddress_3" },
-            { 7, nullptr, "SwitchTsfTimerFunction" },
-            { 8, nullptr, "GetDeltaTimeBetweenSystemAndTsf" },
-            { 9, nullptr, "RegisterSharedMemory" },
-            { 10, nullptr, "UnregisterSharedMemory" },
-            { 11, nullptr, "EnableSharedMemory" },
-            { 12, nullptr, "SetMulticastFilter" },
+            { 0, &ISocketManager::RejectLegacyWlanCommand, "PutFrameRaw_2" },
+            { 1, &ISocketManager::RejectLegacyWlanCommand, "CancelGetFrame_2" },
+            { 2, &ISocketManager::RejectLegacyWlanCommand, "CreateRxEntry_2" },
+            { 3, &ISocketManager::RejectLegacyWlanCommand, "DeleteRxEntry_2" },
+            { 4, &ISocketManager::RejectLegacyWlanCommand, "AddEthertypeToRxEntry_2" },
+            { 5, &ISocketManager::RejectLegacyWlanCommand, "DeleteEthertypeFromRxEntry_2" },
+            { 6, &ISocketManager::RejectLegacyWlanCommand, "GetMacAddress_3" },
+            { 7, &ISocketManager::RejectLegacyWlanCommand, "SwitchTsfTimerFunction" },
+            { 8, &ISocketManager::RejectLegacyWlanCommand, "GetDeltaTimeBetweenSystemAndTsf" },
+            { 9, &ISocketManager::RejectLegacyWlanCommand, "RegisterSharedMemory" },
+            { 10, &ISocketManager::RejectLegacyWlanCommand, "UnregisterSharedMemory" },
+            { 11, &ISocketManager::RejectLegacyWlanCommand, "EnableSharedMemory" },
+            { 12, &ISocketManager::RejectLegacyWlanCommand, "SetMulticastFilter" },
         };
         RegisterHandlers(functions);
     }
+private:
+    void RejectLegacyWlanCommand(HLERequestContext& ctx) {
+        // These interfaces are registered only before HOS 15. Modern HOS uses
+        // the wlan creator/service path below; no legacy Switch radio backend exists.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class IDetectManager final : public ServiceFramework<IDetectManager> {
@@ -187,37 +227,45 @@ public:
         : ServiceFramework{system_, "wlan:dtc"}
     {
         static const FunctionInfo functions[] = {
-            { 0, nullptr, "Cmd0" },
-            { 1, nullptr, "Cmd1" },
-            { 2, nullptr, "Cmd2" },
-            { 3, nullptr, "Cmd3" },
-            { 4, nullptr, "Cmd4" },
-            { 5, nullptr, "Cmd5" },
-            { 6, nullptr, "Cmd6" },
-            { 7, nullptr, "Cmd7" },
-            { 8, nullptr, "Cmd8" },
-            { 9, nullptr, "Cmd9" },
-            { 10, nullptr, "Cmd10" },
-            { 11, nullptr, "Cmd11" },
-            { 12, nullptr, "Cmd12" },
-            { 13, nullptr, "Cmd13" },
-            { 14, nullptr, "Cmd14" },
-            { 15, nullptr, "Cmd15" },
-            { 16, nullptr, "Cmd16" },
-            { 17, nullptr, "Cmd17" },
-            { 18, nullptr, "Cmd18" },
-            { 19, nullptr, "Cmd19" },
-            { 20, nullptr, "Cmd20" },
-            { 21, nullptr, "Cmd21" },
-            { 22, nullptr, "Cmd22" },
-            { 23, nullptr, "Cmd23" },
-            { 24, nullptr, "Cmd24" },
-            { 25, nullptr, "Cmd25" },
-            { 26, nullptr, "Cmd26" },
-            { 27, nullptr, "Cmd27" },
+            { 0, &IDetectManager::RejectLegacyWlanCommand, "Cmd0" },
+            { 1, &IDetectManager::RejectLegacyWlanCommand, "Cmd1" },
+            { 2, &IDetectManager::RejectLegacyWlanCommand, "Cmd2" },
+            { 3, &IDetectManager::RejectLegacyWlanCommand, "Cmd3" },
+            { 4, &IDetectManager::RejectLegacyWlanCommand, "Cmd4" },
+            { 5, &IDetectManager::RejectLegacyWlanCommand, "Cmd5" },
+            { 6, &IDetectManager::RejectLegacyWlanCommand, "Cmd6" },
+            { 7, &IDetectManager::RejectLegacyWlanCommand, "Cmd7" },
+            { 8, &IDetectManager::RejectLegacyWlanCommand, "Cmd8" },
+            { 9, &IDetectManager::RejectLegacyWlanCommand, "Cmd9" },
+            { 10, &IDetectManager::RejectLegacyWlanCommand, "Cmd10" },
+            { 11, &IDetectManager::RejectLegacyWlanCommand, "Cmd11" },
+            { 12, &IDetectManager::RejectLegacyWlanCommand, "Cmd12" },
+            { 13, &IDetectManager::RejectLegacyWlanCommand, "Cmd13" },
+            { 14, &IDetectManager::RejectLegacyWlanCommand, "Cmd14" },
+            { 15, &IDetectManager::RejectLegacyWlanCommand, "Cmd15" },
+            { 16, &IDetectManager::RejectLegacyWlanCommand, "Cmd16" },
+            { 17, &IDetectManager::RejectLegacyWlanCommand, "Cmd17" },
+            { 18, &IDetectManager::RejectLegacyWlanCommand, "Cmd18" },
+            { 19, &IDetectManager::RejectLegacyWlanCommand, "Cmd19" },
+            { 20, &IDetectManager::RejectLegacyWlanCommand, "Cmd20" },
+            { 21, &IDetectManager::RejectLegacyWlanCommand, "Cmd21" },
+            { 22, &IDetectManager::RejectLegacyWlanCommand, "Cmd22" },
+            { 23, &IDetectManager::RejectLegacyWlanCommand, "Cmd23" },
+            { 24, &IDetectManager::RejectLegacyWlanCommand, "Cmd24" },
+            { 25, &IDetectManager::RejectLegacyWlanCommand, "Cmd25" },
+            { 26, &IDetectManager::RejectLegacyWlanCommand, "Cmd26" },
+            { 27, &IDetectManager::RejectLegacyWlanCommand, "Cmd27" },
         };
         RegisterHandlers(functions);
     }
+private:
+    void RejectLegacyWlanCommand(HLERequestContext& ctx) {
+        // These interfaces are registered only before HOS 15. Modern HOS uses
+        // the wlan creator/service path below; no legacy Switch radio backend exists.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class IPrivateServiceCreator final : public ServiceFramework<IPrivateServiceCreator> {
