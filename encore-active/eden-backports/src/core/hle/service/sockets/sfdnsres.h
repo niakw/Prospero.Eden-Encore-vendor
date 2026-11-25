@@ -20,6 +20,7 @@ public:
     ~SFDNSRES() override;
 
 private:
+    void RejectUnsupportedResolverExtension(HLERequestContext& ctx);
     void GetHostByNameRequest(HLERequestContext& ctx);
     void GetHostStringErrorRequest(HLERequestContext& ctx);
     void RequestCancelHandleRequest(HLERequestContext& ctx);
@@ -35,6 +36,9 @@ class DNS_PRIV final : public ServiceFramework<DNS_PRIV> {
 public:
     explicit DNS_PRIV(Core::System& system_);
     ~DNS_PRIV() override;
+
+private:
+    void RejectUnsupportedPrivateDns(HLERequestContext& ctx);
 };
 
 } // namespace Service::Sockets
