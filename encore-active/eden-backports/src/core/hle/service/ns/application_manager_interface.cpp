@@ -1425,9 +1425,9 @@ Result IApplicationManagerInterface::LaunchApplicationOld(
 Result IApplicationManagerInterface::LaunchApplication(
     Out<u64> out_process_id, u8 program_index, ApplicationLaunchInfoV19 launch_info) {
     LOG_INFO(Service_NS,
-             "called, application_id={:016X}, version={}, flags={:#x}, program_index={}",
-             launch_info.application_id, launch_info.version, launch_info.launch_flags,
-             program_index);
+             "called, application_id={:016X}, patch_id={:016X}, version={}, flags={:#x}, program_index={}",
+             launch_info.application_id, launch_info.patch_id, launch_info.version,
+             launch_info.launch_flags, program_index);
 
     const u64 application_id = FileSys::GetBaseTitleID(launch_info.application_id);
     const u64 program_id =
@@ -1460,11 +1460,15 @@ Result IApplicationManagerInterface::GetApplicationLaunchInfo(
     auto update_slot = storage.GetSlotForEntry(update_id, FileSys::ContentRecordType::Program);
     if (!update_slot) update_slot = storage.GetSlotForEntry(update_id, FileSys::ContentRecordType::Meta);
 
+    const bool has_patch = update_slot.has_value();
+
     FileSys::PatchManager patch_manager{base_application_id, system.GetFileSystemController(), storage};
     *out_launch_info = {};
     out_launch_info->application_id = base_application_id;
+    out_launch_info->patch_id = has_patch ? update_id : 0;
     out_launch_info->version = patch_manager.GetGameVersion().value_or(0);
-    out_launch_info->launch_flags = 0;
+    out_launch_info->content_meta_type = static_cast<u32>(FileSys::TitleType::Application);
+    out_launch_info->launch_flags = 0xB;
     out_launch_info->application_storage_id = static_cast<u8>(storage_id_for_slot(
         storage.GetSlotForEntry(base_application_id, FileSys::ContentRecordType::Program)));
     out_launch_info->update_storage_id = static_cast<u8>(storage_id_for_slot(update_slot));
