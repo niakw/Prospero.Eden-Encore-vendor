@@ -41,29 +41,41 @@ constexpr u32 EXPECTED_MAGIC{0x36f81a1e};  // What we expect the encrypted bfttf
 constexpr u64 SHARED_FONT_MEM_SIZE{0x1100000};
 constexpr FontRegion EMPTY_REGION{0, 0};
 
-static void DecryptSharedFont(const std::span<u32 const> input, std::span<u8> output, std::size_t& offset) {
-    ASSERT(offset + (input.size() * sizeof(u32)) < SHARED_FONT_MEM_SIZE && "Shared fonts exceeds 17mb!");
-    ASSERT(input[0] == EXPECTED_MAGIC && "Failed to derive key, unexpected magic number");
-    const u32 KEY = input[0] ^ EXPECTED_RESULT; // Derive key using an inverse xor
+static bool DecryptSharedFont(const std::span<u32 const> input, std::span<u8> output,
+                              std::size_t& offset) {
+    // Font archives can come from guest-provided NAND data. Validate before dereferencing
+    // the two header words or writing into the fixed shared-font backing memory.
+    if (input.size() < 2 || input[0] != EXPECTED_MAGIC || offset > output.size() ||
+        input.size() > (output.size() - offset) / sizeof(u32)) {
+        LOG_ERROR(Service_NS, "Invalid shared font header or capacity: words={}, offset={}, capacity={}",
+                  input.size(), offset, output.size());
+        return false;
+    }
+
+    const u32 key = input[0] ^ EXPECTED_RESULT;
     std::vector<u32> transformed_font(input.size());
-    // TODO(ogniK): Figure out a better way to do this
-    std::transform(input.begin(), input.end(), transformed_font.begin(), [&KEY](u32 font_data) { return Common::swap32(font_data ^ KEY); });
-    transformed_font[1] = Common::swap32(transformed_font[1]) ^ KEY; // "re-encrypt" the size
-    std::memcpy(output.data() + offset, transformed_font.data(), transformed_font.size() * sizeof(u32));
-    offset += transformed_font.size() * sizeof(u32);
+    std::transform(input.begin(), input.end(), transformed_font.begin(),
+                   [key](u32 font_data) { return Common::swap32(font_data ^ key); });
+    transformed_font[1] = Common::swap32(transformed_font[1]) ^ key;
+    const auto byte_count = transformed_font.size() * sizeof(u32);
+    std::memcpy(output.data() + offset, transformed_font.data(), byte_count);
+    offset += byte_count;
+    return true;
 }
 
 void DecryptSharedFontToTTF(const std::vector<u32>& input, std::vector<u8>& output) {
-    ASSERT_MSG(input[0] == EXPECTED_MAGIC, "Failed to derive key, unexpected magic number");
-    if (input.size() < 2) {
-        LOG_ERROR(Service_NS, "Input font is empty");
+    if (input.size() < 2 || input[0] != EXPECTED_MAGIC ||
+        input.size() - 2 > output.size() / sizeof(u32)) {
+        LOG_ERROR(Service_NS, "Invalid shared font or insufficient decoded output buffer");
         return;
     }
-    const u32 KEY = input[0] ^ EXPECTED_RESULT; // Derive key using an inverse xor
+
+    const u32 key = input[0] ^ EXPECTED_RESULT;
     std::vector<u32> transformed_font(input.size());
-    // TODO(ogniK): Figure out a better way to do this
-    std::transform(input.begin(), input.end(), transformed_font.begin(), [&KEY](u32 font_data) { return Common::swap32(font_data ^ KEY); });
-    std::memcpy(output.data(), transformed_font.data() + 2, (transformed_font.size() - 2) * sizeof(u32));
+    std::transform(input.begin(), input.end(), transformed_font.begin(),
+                   [key](u32 font_data) { return Common::swap32(font_data ^ key); });
+    std::memcpy(output.data(), transformed_font.data() + 2,
+                (transformed_font.size() - 2) * sizeof(u32));
 }
 
 void EncryptSharedFont(const std::vector<u32>& input, std::vector<u8>& output, std::size_t& offset) {
@@ -145,14 +157,26 @@ IPlatformServiceManager::IPlatformServiceManager(Core::System& system_, const ch
             LOG_ERROR(Service_NS, "{:016X} has no file \"{}\"! Skipping", font.first, font.second);
             continue;
         }
-        std::vector<u32> font_data_u32(font_fp->GetSize() / sizeof(u32));
-        font_fp->ReadBytes<u32>(font_data_u32.data(), font_fp->GetSize());
-        // We need to be BigEndian as u32s for the xor encryption
+        const auto font_size = font_fp->GetSize();
+        if (font_size < 2 * sizeof(u32) || font_size % sizeof(u32) != 0 ||
+            offset > SHARED_FONT_MEM_SIZE || font_size > SHARED_FONT_MEM_SIZE - offset) {
+            LOG_ERROR(Service_NS, "Shared font {:016X} has invalid size or exceeds backing memory: size={}, offset={}",
+                      font.first, font_size, offset);
+            continue;
+        }
+        std::vector<u32> font_data_u32(font_size / sizeof(u32));
+        if (font_fp->ReadBytes<u32>(font_data_u32.data(), font_size) != font_size) {
+            LOG_ERROR(Service_NS, "Incomplete shared font read for {:016X}", font.first);
+            continue;
+        }
         std::transform(font_data_u32.begin(), font_data_u32.end(), font_data_u32.begin(),
                        Common::swap32);
-        // Font offset and size do not account for the header
-        const FontRegion region{u32(offset + 8), u32((font_data_u32.size() * sizeof(u32)) - 8)};
-        DecryptSharedFont(font_data_u32, impl->shared_font, offset);
+        const auto font_offset = offset;
+        if (!DecryptSharedFont(font_data_u32, impl->shared_font, offset)) {
+            continue;
+        }
+        const FontRegion region{static_cast<u32>(font_offset + 8),
+                                static_cast<u32>(font_size - 8)};
         impl->shared_font_regions.push_back(region);
     }
 }
