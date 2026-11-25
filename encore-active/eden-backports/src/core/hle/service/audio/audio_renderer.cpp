@@ -36,6 +36,7 @@ IAudioRenderer::IAudioRenderer(Core::System& system_, Manager& manager_,
         {11, D<&IAudioRenderer::ExecuteAudioRendererRendering>, "ExecuteAudioRendererRendering"}, //3.0.0+
         {12, D<&IAudioRenderer::SetVoiceDropParameter>, "SetVoiceDropParameter"}, //15.0.0+
         {13, D<&IAudioRenderer::GetVoiceDropParameter>, "GetVoiceDropParameter"}, //15.0.0+
+        {14, D<&IAudioRenderer::SetAsyncMemoryPoolControlEnabled>, "SetAsyncMemoryPoolControlEnabled"}, //23.0.0+
     };
     // clang-format on
     RegisterHandlers(functions);
@@ -135,6 +136,13 @@ Result IAudioRenderer::ExecuteAudioRendererRendering() {
              Audio::ResultNotSupported);
 
     manager.GetSystemManager().ExecuteManual(renderer_system);
+    R_SUCCEED();
+}
+
+Result IAudioRenderer::SetAsyncMemoryPoolControlEnabled(bool enabled) {
+    // HOS 23 exposes this control, but the retail CPU renderer accepts it as a
+    // successful no-op. Encore has no separate asynchronous memory-pool backend.
+    LOG_DEBUG(Service_Audio, "called, enabled={}", enabled);
     R_SUCCEED();
 }
 

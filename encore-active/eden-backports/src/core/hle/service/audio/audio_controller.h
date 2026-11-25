@@ -59,6 +59,8 @@ private:
                                 Set::AudioOutputMode output_mode);
     Result SetHeadphoneOutputLevelMode(HeadphoneOutputLevelMode output_level_mode);
     Result GetHeadphoneOutputLevelMode(Out<HeadphoneOutputLevelMode> out_output_level_mode);
+    Result SetForceMonauralOutputModeEnabled(bool enabled);
+    Result IsForceMonauralOutputModeEnabled(Out<bool> out_enabled);
     Result NotifyHeadphoneVolumeWarningDisplayedEvent();
     Result SetSpeakerAutoMuteEnabled(bool is_speaker_auto_mute_enabled);
     Result IsSpeakerAutoMuteEnabled(Out<bool> out_is_speaker_auto_mute_enabled);
@@ -88,6 +90,7 @@ private:
     u64 m_default_fade_in_ns{};
     u64 m_default_fade_out_ns{};
     bool m_input_target_force_enabled{};
+    bool m_force_monaural_output_mode_enabled{};
     f32 m_system_output_master_volume{1.0f};
     ForceMutePolicy m_force_mute_policy{ForceMutePolicy::Disable};
     bool m_hearing_protection_safeguard_enabled{};

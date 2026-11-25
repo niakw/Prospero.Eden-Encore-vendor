@@ -43,8 +43,8 @@ IAudioController::IAudioController(Core::System& system_)
         {16, D<&IAudioController::SetInputTargetForceEnabled>, "SetInputTargetForceEnabled"},
         {17, D<&IAudioController::SetHeadphoneOutputLevelMode>, "SetHeadphoneOutputLevelMode"},
         {18, D<&IAudioController::GetHeadphoneOutputLevelMode>, "GetHeadphoneOutputLevelMode"},
-        {19, &IAudioController::RejectUnavailableReportingOrDebugCommand, "AcquireAudioVolumeUpdateEventForPlayReport"},
-        {20, &IAudioController::RejectUnavailableReportingOrDebugCommand, "AcquireAudioOutputDeviceUpdateEventForPlayReport"},
+        {19, D<&IAudioController::SetForceMonauralOutputModeEnabled>, "SetForceMonauralOutputModeEnabled"},
+        {20, D<&IAudioController::IsForceMonauralOutputModeEnabled>, "IsForceMonauralOutputModeEnabled"},
         {21, D<&IAudioController::GetAudioOutputTargetForPlayReport>, "GetAudioOutputTargetForPlayReport"},
         {22, D<&IAudioController::NotifyHeadphoneVolumeWarningDisplayedEvent>, "NotifyHeadphoneVolumeWarningDisplayedEvent"},
         {23, D<&IAudioController::SetSystemOutputMasterVolume>, "SetSystemOutputMasterVolume"},
@@ -192,6 +192,17 @@ Result IAudioController::GetHeadphoneOutputLevelMode(
     LOG_INFO(Audio, "called");
 
     *out_output_level_mode = HeadphoneOutputLevelMode::Normal;
+    R_SUCCEED();
+}
+
+Result IAudioController::SetForceMonauralOutputModeEnabled(bool enabled) {
+    m_force_monaural_output_mode_enabled = enabled;
+    LOG_INFO(Audio, "force monaural output mode enabled={}", enabled);
+    R_SUCCEED();
+}
+
+Result IAudioController::IsForceMonauralOutputModeEnabled(Out<bool> out_enabled) {
+    *out_enabled = m_force_monaural_output_mode_enabled;
     R_SUCCEED();
 }
 

@@ -40,6 +40,7 @@ private:
     Result SetRenderingTimeLimit(u32 rendering_time_limit);
     Result GetRenderingTimeLimit(Out<u32> out_rendering_time_limit);
     Result ExecuteAudioRendererRendering();
+    Result SetAsyncMemoryPoolControlEnabled(bool enabled);
     Result SetVoiceDropParameter(f32 voice_drop_parameter);
     Result GetVoiceDropParameter(Out<f32> out_voice_drop_parameter);
 
