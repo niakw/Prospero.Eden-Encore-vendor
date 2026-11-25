@@ -44,6 +44,7 @@ void Module::Interface::GetConfig(HLERequestContext& ctx) {
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(result_code);
+        return;
     }
 
     LOG_DEBUG(Service_SPL, "called, config_item={}, result_code={}, smc_result={}", config_item,
