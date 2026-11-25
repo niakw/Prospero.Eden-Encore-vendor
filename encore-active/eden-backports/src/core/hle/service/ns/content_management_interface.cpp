@@ -20,6 +20,7 @@
 #include "core/hle/service/am/applet_manager.h"
 #include "core/hle/service/am/window_system.h"
 #include "core/hle/service/filesystem/filesystem.h"
+#include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/ns/content_management_interface.h"
 #include "core/hle/service/ns/ns_types.h"
 
@@ -33,12 +34,13 @@ IContentManagementInterface::IContentManagementInterface(Core::System& system_)
         {43, D<&IContentManagementInterface::CheckSdCardMountStatus>, "CheckSdCardMountStatus"},
         {47, D<&IContentManagementInterface::GetTotalSpaceSize>, "GetTotalSpaceSize"},
         {48, D<&IContentManagementInterface::GetFreeSpaceSize>, "GetFreeSpaceSize"},
-        {71, D<&IContentManagementInterface::GetUnknown71>, "Unknown71"},
+        {58, &IContentManagementInterface::RejectUnknownHOS23ContentManagement, "Cmd58"},
+        {71, &IContentManagementInterface::RejectUnknownHOS23ContentManagement, "Cmd71"},
         {600, D<&IContentManagementInterface::CountApplicationContentMeta>, "CountApplicationContentMeta"},
         {601, D<&IContentManagementInterface::ListApplicationContentMetaStatus>, "ListApplicationContentMetaStatus"},
         {605, D<&IContentManagementInterface::ListApplicationContentMetaStatus>, "ListApplicationContentMetaStatusWithRightsCheck"},
         {607, D<&IContentManagementInterface::IsAnyApplicationRunning>, "IsAnyApplicationRunning"},
-        {608, nullptr, "Unknown608"}, //21.0.0+
+        {608, &IContentManagementInterface::RejectUnknownHOS23ContentManagement, "Cmd608"}, //21.0.0+
     };
     // clang-format on
 
@@ -185,30 +187,32 @@ Result IContentManagementInterface::CalculateApplicationOccupiedSize(
 }
 
 Result IContentManagementInterface::CheckSdCardMountStatus() {
-    LOG_WARNING(Service_NS, "(STUBBED) called");
+    // PS5 has no removable Switch SD state; Encore's configured emulated SDMC is
+    // the guest-visible mount and is treated as mounted.
+    LOG_DEBUG(Service_NS, "called; using emulated SDMC mount policy");
     R_SUCCEED();
 }
 
 Result IContentManagementInterface::GetTotalSpaceSize(Out<s64> out_total_space_size,
                                                       FileSys::StorageId storage_id) {
-    LOG_INFO(Service_NS, "(STUBBED) called, storage_id={}", storage_id);
+    LOG_DEBUG(Service_NS, "GetTotalSpaceSize storage_id={}", storage_id);
     *out_total_space_size = system.GetFileSystemController().GetTotalSpaceSize(storage_id);
     R_SUCCEED();
 }
 
 Result IContentManagementInterface::GetFreeSpaceSize(Out<s64> out_free_space_size,
                                                      FileSys::StorageId storage_id) {
-    LOG_INFO(Service_NS, "(STUBBED) called, storage_id={}", storage_id);
+    LOG_DEBUG(Service_NS, "GetFreeSpaceSize storage_id={}", storage_id);
     *out_free_space_size = system.GetFileSystemController().GetFreeSpaceSize(storage_id);
     R_SUCCEED();
 }
 
-Result IContentManagementInterface::GetUnknown71(Out<u64> out_value_a, Out<u64> out_value_b,
-                                                 u8 flag) {
-    LOG_INFO(Service_NS, "(STUBBED) called, flag={:02X}", flag);
-    *out_value_a = 0;
-    *out_value_b = 0;
-    R_SUCCEED();
+void IContentManagementInterface::RejectUnknownHOS23ContentManagement(HLERequestContext& ctx) {
+    // NS 23.0.1 exposes 58/71/608 with known ABIs but unnamed semantics.
+    LOG_WARNING(Service_NS, "Rejected unnamed HOS23 content-management command {}",
+                ctx.GetCommand());
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 Result IContentManagementInterface::CountApplicationContentMeta(Out<s32> out_count,
