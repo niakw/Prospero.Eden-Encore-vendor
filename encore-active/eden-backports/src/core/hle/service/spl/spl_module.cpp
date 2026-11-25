@@ -211,6 +211,119 @@ void Module::Interface::GetAesKeyslotAvailableEvent(HLERequestContext& ctx) {
     rb.Push(ResultSecureMonitorNotImplemented);
 }
 
+
+void Module::Interface::ImportLotusKey(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    [[maybe_unused]] const auto sealed_kek = rp.PopRaw<AccessKey>();
+    [[maybe_unused]] const auto wrapped_key = rp.PopRaw<KeySource>();
+    [[maybe_unused]] const auto rsa_size = ctx.CanReadBuffer(0) ? ctx.GetReadBufferSize(0) : 0;
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
+}
+
+void Module::Interface::DecryptLotusMessage(HLERequestContext& ctx) {
+    [[maybe_unused]] const auto input_size = ctx.CanReadBuffer(0) ? ctx.GetReadBufferSize(0) : 0;
+    [[maybe_unused]] const auto modulus_size = ctx.CanReadBuffer(1) ? ctx.GetReadBufferSize(1) : 0;
+    [[maybe_unused]] const auto output_size = ctx.CanWriteBuffer(0) ? ctx.GetWriteBufferSize(0) : 0;
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
+}
+
+void Module::Interface::GenerateSpecificAesKey(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    [[maybe_unused]] const auto wrapped_key = rp.PopRaw<KeySource>();
+    [[maybe_unused]] const u32 key_generation = rp.Pop<u32>();
+    [[maybe_unused]] const u32 option = rp.Pop<u32>();
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
+}
+
+void Module::Interface::LoadTitleKey(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    [[maybe_unused]] const auto sealed_title_key = rp.PopRaw<AccessKey>();
+    [[maybe_unused]] const u32 keyslot = rp.Pop<u32>();
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
+}
+
+void Module::Interface::GetPackage2Hash(HLERequestContext& ctx) {
+    [[maybe_unused]] const auto output_size = ctx.CanWriteBuffer(0) ? ctx.GetWriteBufferSize(0) : 0;
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
+}
+
+void Module::Interface::DecryptDeviceUniqueData(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    [[maybe_unused]] const auto sealed_kek = rp.PopRaw<AccessKey>();
+    [[maybe_unused]] const auto wrapped_key = rp.PopRaw<KeySource>();
+    [[maybe_unused]] const auto wrapped_data_size =
+        ctx.CanReadBuffer(0) ? ctx.GetReadBufferSize(0) : 0;
+    [[maybe_unused]] const auto output_size =
+        ctx.CanWriteBuffer(0) ? ctx.GetWriteBufferSize(0) : 0;
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
+}
+
+void Module::Interface::ImportSecureExpModKey(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    [[maybe_unused]] const auto sealed_kek = rp.PopRaw<AccessKey>();
+    [[maybe_unused]] const auto wrapped_key = rp.PopRaw<KeySource>();
+    [[maybe_unused]] const auto wrapped_rsa_size =
+        ctx.CanReadBuffer(0) ? ctx.GetReadBufferSize(0) : 0;
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
+}
+
+void Module::Interface::SecureExpModWithStoredKey(HLERequestContext& ctx) {
+    [[maybe_unused]] const auto input_size = ctx.CanReadBuffer(0) ? ctx.GetReadBufferSize(0) : 0;
+    [[maybe_unused]] const auto modulus_size = ctx.CanReadBuffer(1) ? ctx.GetReadBufferSize(1) : 0;
+    [[maybe_unused]] const auto output_size = ctx.CanWriteBuffer(0) ? ctx.GetWriteBufferSize(0) : 0;
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
+}
+
+void Module::Interface::UnwrapRsaOaepWrappedKey(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    [[maybe_unused]] const u32 key_generation = rp.Pop<u32>();
+    [[maybe_unused]] const auto wrapped_key_size =
+        ctx.CanReadBuffer(0) ? ctx.GetReadBufferSize(0) : 0;
+    [[maybe_unused]] const auto modulus_size =
+        ctx.CanReadBuffer(1) ? ctx.GetReadBufferSize(1) : 0;
+    [[maybe_unused]] const auto label_hash_size =
+        ctx.CanReadBuffer(2) ? ctx.GetReadBufferSize(2) : 0;
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
+}
+
+void Module::Interface::PrepareEsCommonKey(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    [[maybe_unused]] const auto wrapped_title_key = rp.PopRaw<KeySource>();
+    [[maybe_unused]] const u32 key_generation = rp.Pop<u32>();
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
+}
+
+void Module::Interface::LoadPreparedAesKey(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    [[maybe_unused]] const auto sealed_key = rp.PopRaw<AccessKey>();
+    [[maybe_unused]] const u32 keyslot = rp.Pop<u32>();
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
+}
+
+void Module::Interface::ReencryptDeviceUniqueData(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    [[maybe_unused]] const auto sealed_kek_pre = rp.PopRaw<AccessKey>();
+    [[maybe_unused]] const auto wrapped_key_pre = rp.PopRaw<KeySource>();
+    [[maybe_unused]] const auto sealed_kek_post = rp.PopRaw<AccessKey>();
+    [[maybe_unused]] const auto wrapped_kek_post = rp.PopRaw<KeySource>();
+    [[maybe_unused]] const u32 option = rp.Pop<u32>();
+    [[maybe_unused]] const auto input_size = ctx.CanReadBuffer(0) ? ctx.GetReadBufferSize(0) : 0;
+    [[maybe_unused]] const auto output_size = ctx.CanWriteBuffer(0) ? ctx.GetWriteBufferSize(0) : 0;
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSecureMonitorNotImplemented);
+}
+
 void Module::Interface::SetConfig(HLERequestContext& ctx) {
     UNIMPLEMENTED_MSG("SetConfig is not implemented!");
 
