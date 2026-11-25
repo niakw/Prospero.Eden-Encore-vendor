@@ -418,15 +418,30 @@ for needle in ("std::unique_lock epoch_lock(scheduling_guard);",
     assert needle in retire,needle
 release=gpu_cpp.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split("\n    }",1)[0]
 assert "#if defined(PS5_NATIVE)" in release and "#else" in release
-assert release.index("RequestSyncOperation([this, channel_id, expected]") < release.index(
-    "gpu_thread.TickGPU(is_async);") < release.index("WaitForSyncOperation(fence);")
-assert release.index("const auto it = channels.find(channel_id);") < release.index(
-    "it->second.get() != expected") < release.index("const auto owner = it->second;")
-assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
+# A draw calls TickWork while holding scheduler leases: a retirement may
+# never be published through that inline sync queue. The native worker FIFO
+# command holds a shared owner and acknowledges only after actual retirement.
+assert "RequestSyncOperation(" not in release and "WaitForSyncOperation(" not in release
+assert release.index("const auto owner = FindChannel(channel_id);") < release.index(
+    "if (owner.get() != &to_release)") < release.index(
+    "gpu_thread.RetireChannelAtBoundary([this, channel_id, owner]")
+assert release.index("if (FindChannel(channel_id) != owner)") < release.index(
+    "scheduler.RetireChannel(owner.get());") < release.index(
     "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);") < release.index(
-    "channels.erase(it);")
-assert release.index("channels.find(channel_id);") > release.index(
-    "RequestSyncOperation([this, channel_id, expected]")
+    "std::scoped_lock lock{channel_mutex};") < release.index(
+    "if (it != channels.end() && it->second == owner)") < release.index("channels.erase(it);")
+worker_header=(R/"encore-active/eden-gpu/include/video_core/gpu_thread.h").read_text()
+assert "GPUTickCommand, RetireChannelCommand>" in worker_header
+for variant in ("quiet", "dev"):
+    worker_cpp=(R/f"encore-active/eden-gpu/gpu_thread_{variant}.cpp").read_text()
+    assert "PushCommand(RetireChannelCommand{std::move(action)}, true, is_async);" in worker_cpp
+    assert worker_cpp.index("scheduler.Push(system.GPU()") < worker_cpp.index(
+        "std::get_if<RetireChannelCommand>(&next.data)") < worker_cpp.index(
+        "retire->action();") < worker_cpp.index(
+        "state.signaled_fence.store(next.fence, std::memory_order_release);")
+find_channel=gpu_cpp.split("FindChannel(s32 channel_id) {",1)[1].split("\n    }",1)[0]
+assert find_channel.index("std::scoped_lock lock{channel_mutex};") < find_channel.index("channels.find(channel_id)")
+
 dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}",1)[0]
 for needle in ("!sessions.empty() && channel_state",
                "system.IsPoweredOn()", "!system.IsShuttingDown()",
