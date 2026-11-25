@@ -832,7 +832,14 @@ private:
     void Event(HLERequestContext& ctx) {
         const auto* p=ctx.CommandBuffer();
         Result result=Kernel::ResultInvalidCombination;
-        if(p[0]==0x1b&&p[1]==1&&p[2]==0){
+        // Switch 2 SDKs use different notification masks here. Real Lichii
+        // nx2 guest captures send cmd 11 with data words [2]=1, [3]=1.
+        // The old zero-only predicate rejected those valid requests and
+        // returned no copy handle; subsequent WaitSynchronization loops
+        // could only fail with InvalidHandle (0xe401). Match the reviewed
+        // VI2 event service: command identity, not an invented payload mask,
+        // determines whether this session may return its readable event.
+        if (p[0] == 0x1b) {
             if(!m_event)m_event=m_context.CreateEvent("Vi2Notify");
             result=m_event?ResultSuccess:Kernel::ResultOutOfResource;
             if(m_event&&std::ranges::any_of(m_notes,[](u32 note){return note!=0;}))

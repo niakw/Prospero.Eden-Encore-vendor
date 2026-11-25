@@ -225,6 +225,16 @@ assert gpu_open.index("m_gpu_sessions.reserve(m_gpu_sessions.size() + 1);") < gp
 # invent a success timestamp on an unconsumed QueueBuffer.
 vi2 = cpp[vi2_begin:cpp.index("class INativeChatGsvSession final", vi2_begin)]
 assert '{53,&IVi2Session::GetRecordedTimestamps,"GetRecordedTimestamps"}' in vi2
+# R457 Bananza/MKW: VI2 notification cmd 11 must return a COPY event for
+# the recorded newer SDK payload [2]=1, [3]=1 as well as older payloads.
+# The old [2]==0 gate dropped the handle and led to SVC 0x18/E401 loops.
+vi2_notification = vi2.split("void Event(HLERequestContext& ctx) {", 1)[1].split("\n    }", 1)[0]
+assert "if (p[0] == 0x1b) {" in vi2_notification
+assert "p[1]==" not in vi2_notification and "p[2]==" not in vi2_notification
+assert 'm_context.CreateEvent("Vi2Notify")' in vi2_notification
+assert "IPC::ResponseBuilder rb{ctx,2,1,0};" in vi2_notification
+assert "rb.PushCopyObjects(ctx,m_event->GetReadableEvent());" in vi2_notification
+
 # All known Lichii nx2 VI2 IDs must have a named dispatch. Unknown
 # firmware semantics stay fail-closed: no copied request or fake Success.
 opaque_vi2_ids = (13, 107, 108, 113, 230, 231, 232, 301, 302,
