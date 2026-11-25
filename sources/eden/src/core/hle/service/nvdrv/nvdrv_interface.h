@@ -40,6 +40,7 @@ private:
     void SetGraphicsFirmwareMemoryMarginEnabled(HLERequestContext& ctx);
     void GetStatus(HLERequestContext& ctx);
     void DumpGraphicsMemoryInfo(HLERequestContext& ctx);
+    void RejectUnsupportedExtension(HLERequestContext& ctx);
 
     void ServiceError(HLERequestContext& ctx, NvResult result);
 

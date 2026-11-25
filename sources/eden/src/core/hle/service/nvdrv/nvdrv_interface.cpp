@@ -230,6 +230,11 @@ void NVDRV::SetAruid(HLERequestContext& ctx) {
     rb.PushEnum(NvResult::Success);
 }
 
+void NVDRV::RejectUnsupportedExtension(HLERequestContext& ctx) {
+    LOG_WARNING(Service_NVDRV, "Unsupported nvdrv extension command {}", ctx.GetCommand());
+    ServiceError(ctx, NvResult::NotSupported);
+}
+
 void NVDRV::SetGraphicsFirmwareMemoryMarginEnabled(HLERequestContext& ctx) {
     LOG_WARNING(Service_NVDRV, "(STUBBED) called");
 
@@ -283,12 +288,12 @@ NVDRV::NVDRV(Core::System& system_, std::shared_ptr<Module> nvdrv_, const char* 
         {2, &NVDRV::Close, "Close"},
         {3, &NVDRV::Initialize, "Initialize"},
         {4, &NVDRV::QueryEvent, "QueryEvent"},
-        {5, nullptr, "MapSharedMem"},
+        {5, &NVDRV::RejectUnsupportedExtension, "MapSharedMem"},
         {6, &NVDRV::GetStatus, "GetStatus"},
-        {7, nullptr, "SetAruidForTest"},
+        {7, &NVDRV::RejectUnsupportedExtension, "SetAruidForTest"},
         {8, &NVDRV::SetAruid, "SetAruid"},
         {9, &NVDRV::DumpGraphicsMemoryInfo, "DumpGraphicsMemoryInfo"},
-        {10, nullptr, "InitializeDevtools"},
+        {10, &NVDRV::RejectUnsupportedExtension, "InitializeDevtools"},
         {11, &NVDRV::Ioctl2, "Ioctl2"},
         {12, &NVDRV::Ioctl3, "Ioctl3"},
         {13, &NVDRV::SetGraphicsFirmwareMemoryMarginEnabled,
