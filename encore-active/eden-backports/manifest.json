@@ -776,8 +776,8 @@
       "upstream": "51868893a55f90bbc4d0a7375048c388120e03acc415908781cd635bc906d1c5"
     },
     "src/core/hle/service/vi/system_display_service.cpp": {
-      "active": "374cc862b8949a32f6937ee3b7697e458d980556ed77a14307f4c6229cd7a705",
-      "bytes": 9399,
+      "active": "04be16b40b45bb4a13cbbf7a534dae37e2862c0914d94aff7581f02524f434b1",
+      "bytes": 9723,
       "upstream": "55aa3160d6586216b628cc0d0e9515a78cb903384545a128189d2e4c45167ef2"
     },
     "src/core/hle/service/vi/system_display_service.h": {

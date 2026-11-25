@@ -73,13 +73,13 @@ ISystemDisplayService::~ISystemDisplayService() = default;
 
 Result ISystemDisplayService::GetZOrderCountMin(Out<s64> out_min, u64 display_id) {
     LOG_DEBUG(Service_VI, "called, display_id={}", display_id);
-    *out_min = 0;
+    *out_min = 1;
     R_SUCCEED();
 }
 
 Result ISystemDisplayService::GetZOrderCountMax(Out<s64> out_max, u64 display_id) {
     LOG_DEBUG(Service_VI, "called, display_id={}", display_id);
-    *out_max = 15;
+    *out_max = 255;
     R_SUCCEED();
 }
 
@@ -126,9 +126,12 @@ Result ISystemDisplayService::ListDisplayModes(
     LOG_WARNING(Service_VI, "(STUBBED) called, display_id={}", display_id);
 
     if (!out_display_modes.empty()) {
+        const bool docked = Settings::IsDockedMode();
         out_display_modes[0] = {
-            .width = 1920,
-            .height = 1080,
+            .width = static_cast<u32>(docked ? DisplayResolution::DockedWidth
+                                             : DisplayResolution::UndockedWidth),
+            .height = static_cast<u32>(docked ? DisplayResolution::DockedHeight
+                                              : DisplayResolution::UndockedHeight),
             .refresh_rate = 60.f,
             .unknown = {},
         };
