@@ -190,7 +190,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {518, nullptr, "Unknown518"}, //21.0.0+
         {519, nullptr, "Unknown519"}, //21.0.0+
         {600, D<&IApplicationManagerInterface::CountApplicationContentMeta>, "CountApplicationContentMeta"},
-        {601, nullptr, "ListApplicationContentMetaStatus"},
+        {601, D<&IApplicationManagerInterface::ListApplicationContentMetaStatus>, "ListApplicationContentMetaStatus"},
         {602, D<&IApplicationManagerInterface::ListAvailableAddOnContent>, "ListAvailableAddOnContent"},
         {603, nullptr, "GetOwnedApplicationContentMetaStatus"},
         {604, nullptr, "RegisterContentsExternalKey"},
@@ -816,6 +816,13 @@ Result IApplicationManagerInterface::ListApplicationIdOnGameCard(
     (void)out_ids;
     *out_count = 0;
     R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::ListApplicationContentMetaStatus(
+    OutArray<ApplicationContentMetaStatus, BufferAttr_HipcMapAlias> out_statuses,
+    Out<s32> out_count, s32 index, u64 application_id) {
+    R_RETURN(IContentManagementInterface(system).ListApplicationContentMetaStatus(
+        out_statuses, out_count, index, application_id));
 }
 
 Result IApplicationManagerInterface::CountApplicationContentMeta(

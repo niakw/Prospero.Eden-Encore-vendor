@@ -7,6 +7,7 @@
 #pragma once
 
 #include "core/hle/service/cmif_types.h"
+#include "core/hle/service/ns/content_management_interface.h"
 #include "core/hle/service/ns/i_async_result.h"
 #include "core/hle/service/ns/language.h"
 #include "core/hle/service/ns/ns_types.h"
@@ -66,6 +67,9 @@ public:
     Result GetSdCardRemovedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result ListApplicationIdOnGameCard(OutArray<u64, BufferAttr_HipcMapAlias> out_ids,
                                        Out<s32> out_count);
+    Result ListApplicationContentMetaStatus(
+        OutArray<ApplicationContentMetaStatus, BufferAttr_HipcMapAlias> out_statuses,
+        Out<s32> out_count, s32 index, u64 application_id);
     Result CountApplicationContentMeta(Out<s32> out_count, u64 application_id);
     Result ListAvailableAddOnContent(OutArray<u32, BufferAttr_HipcMapAlias> out_addons,
                                      Out<u32> out_count, u32 offset, u64 application_id);
