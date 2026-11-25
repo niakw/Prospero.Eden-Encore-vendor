@@ -1362,10 +1362,10 @@ BSD_USA::BSD_USA(Core::System& system_, const char* name, bool is_user_)
         {1, &BSD_USA::StartMonitoring, "StartMonitoring"},
         {2, &BSD_USA::Socket, "Socket"},
         {3, &BSD_USA::SocketExempt, "SocketExempt"},
-        {4, nullptr, "Open"},
+        {4, &BSD_USA::RejectUnsupportedBsdExtension, "Open"},
         {5, &BSD_USA::Select, "Select"},
         {6, &BSD_USA::Poll, "Poll"},
-        {7, nullptr, "Sysctl"},
+        {7, &BSD_USA::RejectUnsupportedBsdExtension, "Sysctl"},
         {8, &BSD_USA::Recv, "Recv"},
         {9, &BSD_USA::RecvFrom, "RecvFrom"},
         {10, &BSD_USA::Send, "Send"},
@@ -1381,29 +1381,29 @@ BSD_USA::BSD_USA(Core::System& system_, const char* name, bool is_user_)
         {20, &BSD_USA::Fcntl, "Fcntl"},
         {21, &BSD_USA::SetSockOpt, "SetSockOpt"},
         {22, &BSD_USA::Shutdown, "Shutdown"},
-        {23, nullptr, "ShutdownAllSockets"},
+        {23, &BSD_USA::RejectUnsupportedBsdExtension, "ShutdownAllSockets"},
         {24, &BSD_USA::Write, "Write"},
         {25, &BSD_USA::Read, "Read"},
         {26, &BSD_USA::Close, "Close"},
         {27, &BSD_USA::DuplicateSocket, "DuplicateSocket"},
-        {28, nullptr, "GetResourceStatistics"},
-        {29, nullptr, "RecvMMsg"}, //3.0.0+
-        {30, nullptr, "SendMMsg"}, //3.0.0+
+        {28, &BSD_USA::RejectUnsupportedBsdExtension, "GetResourceStatistics"},
+        {29, &BSD_USA::RejectUnsupportedBsdExtension, "RecvMMsg"}, //3.0.0+
+        {30, &BSD_USA::RejectUnsupportedBsdExtension, "SendMMsg"}, //3.0.0+
         {31, &BSD_USA::EventFd, "EventFd"}, //7.0.0+
-        {32, nullptr, "RegisterResourceStatisticsName"}, //7.0.0+
-        {33, nullptr, "RegisterClientShared"}, //10.0.0+
-        {34, nullptr, "GetSocketStatistics"}, //15.0.0+
-        {35, nullptr, "NifIoctl"}, //17.0.0+
-        {36, nullptr, "Unknown36"}, //18.0.0+
-        {37, nullptr, "Unknown37"}, //18.0.0+
-        {38, nullptr, "Unknown38"}, //18.0.0+
-        {39, nullptr, "Unknown39"}, //20.0.0+
-        {40, nullptr, "Unknown40"}, //20.0.0+
-        {41, nullptr, "Unknown41"}, //21.0.0+
-        {42, nullptr, "Unknown42"}, //21.0.0+
-        {43, nullptr, "Unknown43"}, //21.0.0+
-        {200, nullptr, "SetThreadCoreMask"}, //15.0.0+
-        {201, nullptr, "GetThreadCoreMask"}, //15.0.0+
+        {32, &BSD_USA::RejectUnsupportedBsdExtension, "RegisterResourceStatisticsName"}, //7.0.0+
+        {33, &BSD_USA::RejectUnsupportedBsdExtension, "RegisterClientShared"}, //10.0.0+
+        {34, &BSD_USA::RejectUnsupportedBsdExtension, "GetSocketStatistics"}, //15.0.0+
+        {35, &BSD_USA::RejectUnsupportedBsdExtension, "NifIoctl"}, //17.0.0+
+        {36, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown36"}, //18.0.0+
+        {37, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown37"}, //18.0.0+
+        {38, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown38"}, //18.0.0+
+        {39, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown39"}, //20.0.0+
+        {40, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown40"}, //20.0.0+
+        {41, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown41"}, //21.0.0+
+        {42, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown42"}, //21.0.0+
+        {43, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown43"}, //21.0.0+
+        {200, &BSD_USA::RejectUnsupportedBsdExtension, "SetThreadCoreMask"}, //15.0.0+
+        {201, &BSD_USA::RejectUnsupportedBsdExtension, "GetThreadCoreMask"}, //15.0.0+
     };
     // clang-format on
 
@@ -1444,9 +1444,9 @@ BSDCFG::BSDCFG(Core::System& system_, const char *name)
         {10, &BSDCFG::HostNetworkNoop, "ClearArpEntries"},
         {11, &BSDCFG::HostNetworkNoop, "ClearArpEntries2"},
         {12, &BSDCFG::HostNetworkNoop, "PrintArpEntries"},
-        {13, nullptr, "Unknown13"},
-        {14, nullptr, "Unknown14"},
-        {15, nullptr, "Unknown15"},
+        {13, &BSDCFG::HostNetworkNoop, "Unknown13"},
+        {14, &BSDCFG::HostNetworkNoop, "Unknown14"},
+        {15, &BSDCFG::HostNetworkNoop, "Unknown15"},
     };
     // clang-format on
 
@@ -1472,7 +1472,7 @@ BSD_NU::BSD_NU(Core::System& system_)
     : ServiceFramework{system_, "bsd:nu"} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, nullptr, "CreateUserService"},
+        {0, &BSD_NU::RejectUnsupportedUserServiceFactory, "CreateUserService"},
     };
     // clang-format on
     RegisterHandlers(functions);
@@ -1480,4 +1480,16 @@ BSD_NU::BSD_NU(Core::System& system_)
 
 BSD_NU::~BSD_NU() = default;
 
+
+void BSD_USA::RejectUnsupportedBsdExtension(HLERequestContext& ctx) {
+    // Keep the implemented BSD socket data path intact; unsupported extensions
+    // fail at HIPC level instead of pretending to expose host-only state.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
+}
+
+void BSD_NU::RejectUnsupportedUserServiceFactory(HLERequestContext& ctx) {
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
+}
 } // namespace Service::Sockets
