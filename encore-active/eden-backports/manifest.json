@@ -1004,6 +1004,21 @@
       "upstream": "57ba579b672d7757a3708a3696fd77bed64354cf1ea59a9f2b8841ff4f7e80bb",
       "active": "5d9df80981089a775d4efd6d8fd0f7b573ee9dd6092e5b9e1ccdb0b9f603f302",
       "bytes": 2255
+    },
+    "src/core/hle/service/prepo/prepo.cpp": {
+      "upstream": "9fc008ff8edebb5fb661ab6e54905c3e85da73bb4926b0365bf648486e602060",
+      "active": "7b714291320e150a4ff77ddea2bcdd8f89d167e9ebe0efa8b324b1336cb1ad4c",
+      "bytes": 14467
+    },
+    "src/core/hle/service/lm/lm.cpp": {
+      "upstream": "ae16237f1447fb221c35627528c36c8778c70b7b6159a404bbe8bebaa8199561",
+      "active": "21cc95aa002c2901f72e993ab28bb98e15bdfd282f1e3ae49ca7dd81bd7591f1",
+      "bytes": 13277
+    },
+    "src/core/hle/service/nfc/nfc.cpp": {
+      "upstream": "c2dbe38ad9c7d4b09b01d37bc667cbaaa757e9f699a7706451dfd298582a68ca",
+      "active": "10725d237d49c6c56bf8c303f46fd2f0087bfbf5b264870a8921e8911af0538b",
+      "bytes": 10160
     }
   },
   "excluded_experimental": [
