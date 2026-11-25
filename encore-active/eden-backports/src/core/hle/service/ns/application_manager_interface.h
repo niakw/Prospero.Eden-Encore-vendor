@@ -15,6 +15,17 @@
 
 namespace Service::NS {
 
+struct ApplicationContentStorageRecord {
+    u64 title_id;
+    u32 version;
+    u8 meta_type;
+    u8 install_type;
+    u8 key_padding[2];
+    u8 storage_id;
+    u8 storage_padding[7];
+};
+static_assert(sizeof(ApplicationContentStorageRecord) == 0x18);
+
 class IApplicationManagerInterface final : public ServiceFramework<IApplicationManagerInterface> {
 public:
     explicit IApplicationManagerInterface(Core::System& system_);
@@ -38,6 +49,9 @@ public:
         Out<ApplicationLanguage> out_application_language, u64 language_code);
     Result ListApplicationRecord(OutArray<ApplicationRecord, BufferAttr_HipcMapAlias> out_records,
                                  Out<s32> out_count, s32 offset);
+    Result ListApplicationRecordContentMeta(
+        OutArray<ApplicationContentStorageRecord, BufferAttr_HipcMapAlias> out_records,
+        Out<s32> out_count, u64 offset, u64 application_id);
     Result GenerateApplicationRecordCount(Out<s32> out_count);
     Result GetApplicationRecord(Out<ApplicationRecord> out_record, u64 application_id);
     Result HasApplicationRecord(Out<bool> out_has_record, u64 application_id);

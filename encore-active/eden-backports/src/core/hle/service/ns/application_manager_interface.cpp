@@ -57,7 +57,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {9, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "MoveApplicationEntity"},
         {11, D<&IApplicationManagerInterface::CalculateApplicationOccupiedSize>, "CalculateApplicationOccupiedSize"},
         {16, &IApplicationManagerInterface::PushApplicationRecord, "PushApplicationRecord"},
-        {17, nullptr, "ListApplicationRecordContentMeta"},
+        {17, D<&IApplicationManagerInterface::ListApplicationRecordContentMeta>, "ListApplicationRecordContentMeta"},
         {19, nullptr, "LaunchApplicationOld"},
         {21, nullptr, "GetApplicationContentPath"},
         {22, nullptr, "TerminateApplication"},
@@ -667,6 +667,70 @@ Result IApplicationManagerInterface::GenerateApplicationRecordCount(Out<s32> out
     }
 
     *out_count = count;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::ListApplicationRecordContentMeta(
+    OutArray<ApplicationContentStorageRecord, BufferAttr_HipcMapAlias> out_records,
+    Out<s32> out_count, u64 offset, u64 application_id) {
+    const u64 real_id = FileSys::GetBaseTitleID(application_id);
+    auto& cp = system.GetContentProviderUnion();
+
+    std::vector<ApplicationContentStorageRecord> records;
+    const auto append = [&](u64 title_id, FileSys::TitleType meta_type,
+                            FileSys::ContentRecordType record_type) {
+        if (!cp.HasEntry(title_id, record_type)) {
+            return;
+        }
+        const auto slot = cp.GetSlotForEntry(title_id, record_type);
+        u8 storage_id = static_cast<u8>(FileSys::StorageId::None);
+        if (slot.has_value()) {
+            switch (*slot) {
+            case FileSys::ContentProviderUnionSlot::UserNAND:
+                storage_id = static_cast<u8>(FileSys::StorageId::NandUser);
+                break;
+            case FileSys::ContentProviderUnionSlot::SysNAND:
+                storage_id = static_cast<u8>(FileSys::StorageId::NandSystem);
+                break;
+            case FileSys::ContentProviderUnionSlot::SDMC:
+                storage_id = static_cast<u8>(FileSys::StorageId::SdCard);
+                break;
+            case FileSys::ContentProviderUnionSlot::FrontendManual:
+                storage_id = static_cast<u8>(FileSys::StorageId::Host);
+                break;
+            default:
+                break;
+            }
+        }
+        records.push_back({
+            .title_id = title_id,
+            .version = cp.GetEntryVersion(title_id).value_or(0),
+            .meta_type = static_cast<u8>(meta_type),
+            .install_type = 0,
+            .key_padding = {},
+            .storage_id = storage_id,
+            .storage_padding = {},
+        });
+    };
+
+    append(real_id, FileSys::TitleType::Application, FileSys::ContentRecordType::Program);
+    append(FileSys::GetUpdateTitleID(real_id), FileSys::TitleType::Update,
+           FileSys::ContentRecordType::Program);
+    const auto aocs =
+        cp.ListEntriesFilter(FileSys::TitleType::AOC, FileSys::ContentRecordType::Data);
+    for (const auto& entry : aocs) {
+        if (FileSys::GetBaseTitleID(entry.title_id) == real_id) {
+            append(entry.title_id, FileSys::TitleType::AOC, FileSys::ContentRecordType::Data);
+        }
+    }
+
+    const std::size_t start =
+        static_cast<std::size_t>((std::min)(offset, static_cast<u64>(records.size())));
+    const std::size_t count = (std::min)(out_records.size(), records.size() - start);
+    for (std::size_t i = 0; i < count; ++i) {
+        out_records[i] = records[start + i];
+    }
+    *out_count = static_cast<s32>(count);
     R_SUCCEED();
 }
 
