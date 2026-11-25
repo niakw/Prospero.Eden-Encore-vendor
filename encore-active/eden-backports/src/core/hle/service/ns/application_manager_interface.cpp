@@ -157,10 +157,10 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {414, nullptr, "Unknown414"}, //19.0.0+
         {415, nullptr, "Unknown415"}, //19.0.0+
         {416, nullptr, "Unknown416"}, //19.0.0+
-        {417, nullptr, "InvalidateAllApplicationControlCacheOfTheStage"}, //19.0.0+
-        {418, nullptr, "InvalidateApplicationControlCacheOfTheStage"}, //19.0.0+
+        {417, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "InvalidateAllApplicationControlCacheOfTheStage"}, //19.0.0+
+        {418, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "InvalidateApplicationControlCacheOfTheStage"}, //19.0.0+
         {419, D<&IApplicationManagerInterface::RequestDownloadApplicationControlDataInBackground>, "RequestDownloadApplicationControlDataInBackground"},
-        {420, nullptr, "CloneApplicationControlDataCacheForDebug"},
+        {420, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CloneApplicationControlDataCacheForDebug"},
         {421, nullptr, "Unknown421"}, //20.0.0+
         {422, nullptr, "Unknown422"}, //20.0.0+
         {423, nullptr, "Unknown423"}, //20.0.0+
@@ -176,10 +176,10 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {504, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestRegisterGameCard"},
         {505, D<&IApplicationManagerInterface::GetGameCardMountFailureEvent>, "GetGameCardMountFailureEvent"},
         {506, D<&IApplicationManagerInterface::IsGameCardInserted>, "IsGameCardInserted"},
-        {507, nullptr, "EnsureGameCardAccess"},
-        {508, nullptr, "GetLastGameCardMountFailureResult"},
+        {507, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "EnsureGameCardAccess"},
+        {508, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetLastGameCardMountFailureResult"},
         {509, D<&IApplicationManagerInterface::ListApplicationIdOnGameCard>, "ListApplicationIdOnGameCard"},
-        {510, nullptr, "GetGameCardPlatformRegion"},
+        {510, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetGameCardPlatformRegion"},
         {511, D<&IApplicationManagerInterface::GetGameCardWakenReadyEvent>, "GetGameCardWakenReadyEvent"},
         {512, D<&IApplicationManagerInterface::IsGameCardApplicationRunning>, "IsGameCardApplicationRunning"},
         {513, nullptr, "Unknown513"}, //20.0.0+
@@ -214,7 +214,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {902, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "EnableApplicationAutoUpdate"},
         {903, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "DisableApplicationAutoUpdate"},
         {904, D<&IApplicationManagerInterface::TouchApplication>, "TouchApplication"},
-        {905, nullptr, "RequestApplicationUpdate"},
+        {905, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestApplicationUpdate"},
         {906, D<&IApplicationManagerInterface::IsApplicationUpdateRequested>, "IsApplicationUpdateRequested"},
         {907, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "WithdrawApplicationUpdateRequest"},
         {908, nullptr, "ListApplicationRecordInstalledContentMeta"},
@@ -290,7 +290,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {1803, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListNotificationTask"},
         {1900, nullptr, "IsActiveAccount"},
         {1901, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestDownloadApplicationPrepurchasedRights"},
-        {1902, nullptr, "GetApplicationTicketInfo"},
+        {1902, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationTicketInfo"},
         {1903, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestDownloadApplicationPrepurchasedRightsForAccount"},
         {2000, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetSystemDeliveryInfo"},
         {2001, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "SelectLatestSystemDeliveryInfo"},
