@@ -68,6 +68,9 @@ void ThreadManager::RunWorker(VideoCore::RendererBase& renderer, Core::Frontend:
                 { ::Eden::Performance::DiagnosticTimer category_timer(::Eden::Performance::gpu_command_tick);
                 system.GPU().TickWork();
                 }
+            } else if (auto* retire = std::get_if<RetireChannelCommand>(&next.data)) {
+                // Unlike TickWork from a draw, this is outside all dispatch leases.
+                retire->action();
             } else if (const auto* flush = std::get_if<FlushRegionCommand>(&next.data)) {
                 { ::Eden::Performance::DiagnosticTimer category_timer(::Eden::Performance::gpu_command_flush);
                 renderer.ReadRasterizer()->FlushRegion(flush->addr, flush->size);
@@ -105,6 +108,12 @@ void ThreadManager::FlushRegion(DAddr addr, u64 size, bool is_async) {
 
 void ThreadManager::TickGPU(bool is_async) {
     PushCommand(GPUTickCommand(), false, is_async);
+}
+
+void ThreadManager::RetireChannelAtBoundary(std::function<void()> action, bool is_async) {
+    // A successful return from the blocking command publishes retirement
+    // through the existing release/acquire worker fence, not a draw tick.
+    PushCommand(RetireChannelCommand{std::move(action)}, true, is_async);
 }
 
 void ThreadManager::InvalidateRegion(DAddr addr, u64 size) {

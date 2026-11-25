@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -77,9 +78,14 @@ struct FlushAndInvalidateRegionCommand final {
 /// Command to make the gpu look into pending requests
 struct GPUTickCommand final {};
 
+/// Retire a channel only after the current scheduler dispatch has unwound.
+struct RetireChannelCommand final {
+    std::function<void()> action;
+};
+
 using CommandData =
     std::variant<std::monostate, SubmitListCommand, FlushRegionCommand, InvalidateRegionCommand,
-                 FlushAndInvalidateRegionCommand, GPUTickCommand>;
+                 FlushAndInvalidateRegionCommand, GPUTickCommand, RetireChannelCommand>;
 
 struct CommandDataContainer {
     CommandDataContainer() = default;
@@ -126,6 +132,7 @@ public:
     void FlushAndInvalidateRegion(DAddr addr, u64 size, bool is_async);
 
     void TickGPU(bool is_async);
+    void RetireChannelAtBoundary(std::function<void()> action, bool is_async);
 
 private:
     /// Pushes a command to be executed by the GPU thread
