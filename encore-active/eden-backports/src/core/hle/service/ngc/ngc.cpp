@@ -188,14 +188,14 @@ public:
     explicit IUserShimScopedObject(Core::System& system_) : ServiceFramework(system_, "IUserShimScopedObject") {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {450, nullptr, "InitializeForSaveData"},
-            {451, nullptr, "FinalizeForSaveData"},
+            {450, &IUserShimScopedObject::RejectUnavailableSaveData, "InitializeForSaveData"},
+            {451, &IUserShimScopedObject::RejectUnavailableSaveData, "FinalizeForSaveData"},
             {452, D<&IUserShimScopedObject::OpenSaveData>, "OpenSaveData"},
-            {453, nullptr, "CloseSaveData"},
+            {453, &IUserShimScopedObject::RejectUnavailableSaveData, "CloseSaveData"},
             {454, D<&IUserShimScopedObject::ReadSaveSlot>, "ReadSaveSlot"},
             {455, D<&IUserShimScopedObject::WriteSaveSlot>, "WriteSaveSlot"},
-            {456, nullptr, "FlushSaveSlot"},
-            {457, nullptr, "CommitSaveData"},
+            {456, &IUserShimScopedObject::RejectUnavailableSaveData, "FlushSaveSlot"},
+            {457, &IUserShimScopedObject::RejectUnavailableSaveData, "CommitSaveData"},
         };
         // clang-format on
         RegisterHandlers(functions);
@@ -217,6 +217,11 @@ public:
         // save-game semantics. Fail explicitly until a real implementation.
         R_THROW(IPC::ResultNotSupported);
     }
+    void RejectUnavailableSaveData(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class IUserService final : public ServiceFramework<IUserService> {
@@ -241,15 +246,15 @@ public:
     explicit ISystemShimScopedObject(Core::System& system_) : ServiceFramework(system_, "ISystemShimScopedObject") {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {106, nullptr, "Cmd106"},
-            {107, nullptr, "Cmd107"},
+            {106, &ISystemShimScopedObject::RejectUnavailableSystemShim, "Cmd106"},
+            {107, &ISystemShimScopedObject::RejectUnavailableSystemShim, "Cmd107"},
             {108, D<&ISystemShimScopedObject::Cmd108>, "Cmd108"},
-            {207, nullptr, "Cmd207"},
+            {207, &ISystemShimScopedObject::RejectUnavailableSystemShim, "Cmd207"},
             {208, D<&ISystemShimScopedObject::Cmd208>, "Cmd208"},
-            {209, nullptr, "Cmd209"},
-            {210, nullptr, "Cmd210"},
-            {211, nullptr, "Cmd211"},
-            {212, nullptr, "Cmd212"},
+            {209, &ISystemShimScopedObject::RejectUnavailableSystemShim, "Cmd209"},
+            {210, &ISystemShimScopedObject::RejectUnavailableSystemShim, "Cmd210"},
+            {211, &ISystemShimScopedObject::RejectUnavailableSystemShim, "Cmd211"},
+            {212, &ISystemShimScopedObject::RejectUnavailableSystemShim, "Cmd212"},
         };
         // clang-format on
         RegisterHandlers(functions);
@@ -264,6 +269,11 @@ public:
         LOG_WARNING(Service_NGC, "stubbed");
         R_THROW(IPC::ResultNotSupported);
     }
+    void RejectUnavailableSystemShim(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class ISystemService final : public ServiceFramework<ISystemService> {
