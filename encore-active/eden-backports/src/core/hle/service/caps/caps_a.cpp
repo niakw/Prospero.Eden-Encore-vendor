@@ -20,28 +20,28 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
     static const FunctionInfo functions[] = {
         {0, D<&IAlbumAccessorService::GetAlbumFileCount>, "GetAlbumFileCount"},
         {1, C<&IAlbumAccessorService::GetAlbumFileList>, "GetAlbumFileList"},
-        {2, nullptr, "LoadAlbumFile"},
+        {2, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "LoadAlbumFile"},
         {3, C<&IAlbumAccessorService::DeleteAlbumFile>, "DeleteAlbumFile"},
-        {4, nullptr, "StorageCopyAlbumFile"},
+        {4, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "StorageCopyAlbumFile"},
         {5, C<&IAlbumAccessorService::IsAlbumMounted>, "IsAlbumMounted"},
-        {6, nullptr, "GetAlbumUsage"},
+        {6, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "GetAlbumUsage"},
         {7, D<&IAlbumAccessorService::GetAlbumFileSize>, "GetAlbumFileSize"},
-        {8, nullptr, "LoadAlbumFileThumbnail"},
+        {8, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "LoadAlbumFileThumbnail"},
         {9, D<&IAlbumAccessorService::LoadAlbumScreenShotImage>, "LoadAlbumScreenShotImage"},
         {10, D<&IAlbumAccessorService::LoadAlbumScreenShotThumbnailImage>, "LoadAlbumScreenShotThumbnailImage"},
-        {11, nullptr, "GetAlbumEntryFromApplicationAlbumEntry"},
+        {11, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "GetAlbumEntryFromApplicationAlbumEntry"},
         {12, D<&IAlbumAccessorService::LoadAlbumScreenShotImageEx>, "LoadAlbumScreenShotImageEx"},
         {13, D<&IAlbumAccessorService::LoadAlbumScreenShotThumbnailImageEx>, "LoadAlbumScreenShotThumbnailImageEx"},
         {14, D<&IAlbumAccessorService::LoadAlbumScreenShotImageEx0>, "LoadAlbumScreenShotImageEx0"},
-        {15, nullptr, "GetAlbumUsage3"},
+        {15, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "GetAlbumUsage3"},
         {16, D<&IAlbumAccessorService::GetAlbumMountResult>, "GetAlbumMountResult"},
-        {17, nullptr, "GetAlbumUsage16"},
+        {17, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "GetAlbumUsage16"},
         {18, C<&IAlbumAccessorService::Unknown18>, "Unknown18"},
-        {19, nullptr, "Unknown19"},
+        {19, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "Unknown19"},
         {100, D<&IAlbumAccessorService::GetAlbumFileCountEx0>, "GetAlbumFileCountEx0"},
         {101, C<&IAlbumAccessorService::GetAlbumFileListEx0>, "GetAlbumFileListEx0"},
-        {202, nullptr, "SaveEditedScreenShot"},
-        {301, nullptr, "GetLastThumbnail"},
+        {202, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "SaveEditedScreenShot"},
+        {301, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "GetLastThumbnail"},
         {302, &IAlbumAccessorService::RejectUnavailableMovieBackend, "GetLastOverlayMovieThumbnail"},
         {401,  C<&IAlbumAccessorService::GetAutoSavingStorage>, "GetAutoSavingStorage"},
         {501, D<&IAlbumAccessorService::GetRequiredStorageSpaceSizeToCopyAll>, "GetRequiredStorageSpaceSizeToCopyAll"},
@@ -60,13 +60,13 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
         {8001, D<&IAlbumAccessorService::ForceAlbumUnmounted>, "ForceAlbumUnmounted"},
         {8002, D<&IAlbumAccessorService::ResetAlbumMountStatus>, "ResetAlbumMountStatus"},
         {8011, D<&IAlbumAccessorService::RefreshAlbumCache>, "RefreshAlbumCache"},
-        {8012, nullptr, "GetAlbumCache"},
-        {8013, nullptr, "GetAlbumCacheEx"},
-        {8021, nullptr, "GetAlbumEntryFromApplicationAlbumEntryAruid"},
-        {10011, nullptr, "SetInternalErrorConversionEnabled"},
+        {8012, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "GetAlbumCache"},
+        {8013, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "GetAlbumCacheEx"},
+        {8021, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "GetAlbumEntryFromApplicationAlbumEntryAruid"},
+        {10011, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "SetInternalErrorConversionEnabled"},
         {50000, &IAlbumAccessorService::UnsupportedDebugCommand, "LoadMakerNoteInfoForDebug"},
         {50011, C<&IAlbumAccessorService::GetAlbumAccessResultForDebug>, "GetAlbumAccessResultForDebug"},
-        {60002, nullptr, "OpenAccessorSession"},
+        {60002, &IAlbumAccessorService::RejectUnavailableCaptureCommand, "OpenAccessorSession"},
     };
     // clang-format on
 
@@ -74,6 +74,12 @@ IAlbumAccessorService::IAlbumAccessorService(Core::System& system_,
 }
 
 IAlbumAccessorService::~IAlbumAccessorService() = default;
+
+void IAlbumAccessorService::RejectUnavailableCaptureCommand(HLERequestContext& ctx) {
+    LOG_WARNING(Service_Capture, "unsupported album/capture command {}", ctx.GetCommand());
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
+}
 
 void IAlbumAccessorService::RejectUnavailableMovieBackend(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 2};
