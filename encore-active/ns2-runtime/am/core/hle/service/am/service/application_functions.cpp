@@ -108,7 +108,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {34, nullptr, "SelectApplicationLicense"},
         {35, D<&IApplicationFunctions::GetDeviceSaveDataSizeMax>, "GetDeviceSaveDataSizeMax"},
         {36, D<&IApplicationFunctions::GetLimitedApplicationLicense>, "GetLimitedApplicationLicense"},
-        {37, nullptr, "GetLimitedApplicationLicenseUpgradableEvent"},
+        {37, D<&IApplicationFunctions::GetLimitedApplicationLicenseUpgradableEvent>, "GetLimitedApplicationLicenseUpgradableEvent"},
         {40, D<&IApplicationFunctions::NotifyRunning>, "NotifyRunning"},
         {50, D<&IApplicationFunctions::GetPseudoDeviceId>, "GetPseudoDeviceId"},
         {60, D<&IApplicationFunctions::SetMediaPlaybackStateForApplication>, "SetMediaPlaybackStateForApplication"},
@@ -700,6 +700,16 @@ Result IApplicationFunctions::GetDeviceSaveDataSizeMax(Out<u64> out_max_normal_s
 Result IApplicationFunctions::GetLimitedApplicationLicense(Out<u8> out_license_type) {
     *out_license_type = 0;
     LOG_DEBUG(Service_AM, "called, no limited/trial application license");
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::GetLimitedApplicationLicenseUpgradableEvent(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    // GetLimitedApplicationLicense reports the normal/full-license path (0), so there is
+    // no pending limited-license upgrade to signal. Reuse the applet's persistent,
+    // currently-unsignaled event rather than manufacturing a successful upgrade.
+    LOG_DEBUG(Service_AM, "called, no limited application license upgrade pending");
+    *out_event = m_applet->unknown_event.GetHandle();
     R_SUCCEED();
 }
 

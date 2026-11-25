@@ -99,6 +99,8 @@ private:
             u64 application_id, InBuffer<BufferAttr_HipcMapAlias> attribute);
     Result GetDeviceSaveDataSizeMax(Out<u64> out_max_normal_size, Out<u64> out_max_journal_size);
     Result GetLimitedApplicationLicense(Out<u8> out_license_type);
+    Result GetLimitedApplicationLicenseUpgradableEvent(
+        OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result SetDelayTimeToAbortOnGpuError(u64 delay_ns);
     void SendServerMaintenanceOverlayNotification(HLERequestContext& ctx);
     void GetLaunchRequiredVersion(HLERequestContext& ctx);
