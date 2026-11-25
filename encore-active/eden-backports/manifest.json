@@ -1296,8 +1296,8 @@
       "bytes": 2688
     },
     "src/core/hle/service/ns/content_management_interface.cpp": {
-      "active": "1c95d07a05b6b61cc741e12bd17bf4ba57f305f686f956c42ef586dc61c1aff7",
-      "bytes": 7053,
+      "active": "7a9393a9101f85465b868a3c89c909a6f7482186c58dfa74f2a9f8be637de3d8",
+      "bytes": 6383,
       "upstream": "83a8eae9ea9e50190d72315fd3d838cc1f72c3a6eec79c353c9510faf1b9d4a2"
     }
   },

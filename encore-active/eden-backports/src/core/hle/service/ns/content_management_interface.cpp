@@ -72,19 +72,6 @@ u64 InstalledTitleSize(const FileSys::RegisteredCache& cache, u64 title_id) {
     return total;
 }
 
-FileSys::StorageId StorageForInstalledSlot(FileSys::ContentProviderUnionSlot slot) {
-    switch (slot) {
-    case FileSys::ContentProviderUnionSlot::SysNAND:
-        return FileSys::StorageId::NandSystem;
-    case FileSys::ContentProviderUnionSlot::UserNAND:
-        return FileSys::StorageId::NandUser;
-    case FileSys::ContentProviderUnionSlot::SDMC:
-        return FileSys::StorageId::SdCard;
-    default:
-        return FileSys::StorageId::None;
-    }
-}
-
 } // namespace
 
 Result IContentManagementInterface::CalculateApplicationOccupiedSize(
@@ -92,23 +79,19 @@ Result IContentManagementInterface::CalculateApplicationOccupiedSize(
     LOG_DEBUG(Service_NS, "called, application_id={:016X}", application_id);
     *out_size = {};
 
-    constexpr std::array installed_slots{
-        FileSys::ContentProviderUnionSlot::SysNAND,
-        FileSys::ContentProviderUnionSlot::UserNAND,
-        FileSys::ContentProviderUnionSlot::SDMC,
+    const auto& fsc = system.GetFileSystemController();
+    const std::array installed_caches{
+        std::pair{FileSys::StorageId::NandSystem, fsc.GetSystemNANDContents()},
+        std::pair{FileSys::StorageId::NandUser, fsc.GetUserNANDContents()},
+        std::pair{FileSys::StorageId::SdCard, fsc.GetSDMCContents()},
     };
 
-    auto& providers = system.GetContentProviderUnion();
     std::size_t entity_index = 0;
-    for (const auto slot : installed_slots) {
-        const auto* provider = providers.GetSlotProvider(slot);
-        if (provider == nullptr) {
+    for (const auto& [storage_id, cache_ptr] : installed_caches) {
+        if (cache_ptr == nullptr) {
             continue;
         }
-
-        // NAND and SD factories register these slots as RegisteredCache providers.
-        // FrontendManual/External are intentionally not reported as installed storage.
-        const auto& cache = *static_cast<const FileSys::RegisteredCache*>(provider);
+        const auto& cache = *cache_ptr;
         const u64 app_size = InstalledTitleSize(cache, application_id);
         const u64 patch_size =
             InstalledTitleSize(cache, FileSys::GetUpdateTitleID(application_id));
@@ -133,7 +116,7 @@ Result IContentManagementInterface::CalculateApplicationOccupiedSize(
             break;
         }
         out_size->entities[entity_index++] = {
-            .storage_id = StorageForInstalledSlot(slot),
+            .storage_id = storage_id,
             .app_size = app_size,
             .patch_size = patch_size,
             .aoc_size = aoc_size,
