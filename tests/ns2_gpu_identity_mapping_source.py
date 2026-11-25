@@ -1156,23 +1156,36 @@ assert "Tegra::Control::ChannelState* current_channel{};" in gpu_cpp
 assert "s32 bound_channel{-1};" in gpu_cpp
 release=gpu_cpp.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split(
     "\n    /// Binds a renderer to the GPU.",1)[0]
-for needle in ("const s32 channel_id = to_release.bind_id;",
-               "const auto* expected = &to_release;",
-               "RequestSyncOperation([this, channel_id, expected]",
-               "scheduler.RetireChannel(owner.get());",
-               "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);",
-               "channels.erase(it);",
-               "gpu_thread.TickGPU(is_async);",
-               "WaitForSyncOperation(fence);"):
-    assert needle in release,needle
-assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
-    "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);") < release.index(
-    "channels.erase(it);")
-assert release.index("gpu_thread.TickGPU(is_async);") < release.index(
-    "WaitForSyncOperation(fence);")
-assert "if (current_channel == owner.get()) {" in release
-assert "current_channel = nullptr;" in release
-assert "bound_channel = -1;" in release
+# The dual native build selects gpu_gl_native.cpp even for Vulkan gameplay.
+# Verify BOTH maintained owners; the selected one must not regress to a stub.
+for gpu_owner in (gpu_cpp, (R/"encore-active/eden-core/src/video_core/gpu_gl_native.cpp").read_text()):
+    assert "Tegra::Control::ChannelState* current_channel{};" in gpu_owner
+    assert "s32 bound_channel{-1};" in gpu_owner
+    release=gpu_owner.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split(
+        "\n    /// Binds a renderer to the GPU.",1)[0]
+    for needle in ("const s32 channel_id = to_release.bind_id;",
+                   "const auto owner = FindChannel(channel_id);",
+                   "if (owner.get() != &to_release)",
+                   "gpu_thread.RetireChannelAtBoundary([this, channel_id, owner]",
+                   "if (FindChannel(channel_id) != owner)",
+                   "scheduler.RetireChannel(owner.get());",
+                   "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);",
+                   "std::scoped_lock lock{channel_mutex};",
+                   "if (it != channels.end() && it->second == owner)",
+                   "channels.erase(it);"):
+        assert needle in release, needle
+    assert "RequestSyncOperation(" not in release and "WaitForSyncOperation(" not in release
+    assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
+        "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);") < release.index(
+        "std::scoped_lock lock{channel_mutex};") < release.index("channels.erase(it);")
+    assert "if (current_channel == owner.get()) {" in release
+    assert "current_channel = nullptr;" in release
+    assert "bound_channel = -1;" in release
+    assert "std::atomic<u64> last_sync_fence{};" in gpu_owner
+    assert "last_sync_fence.load(std::memory_order_acquire)" in gpu_owner
+    assert "current_sync_fence.load(std::memory_order_acquire)" in gpu_owner
+    assert "std::make_shared<std::vector<u8>>()" in gpu_owner
+    assert "if (CurrentSyncRequestFence() < wait_fence)" in gpu_owner
 print("NS1_PREBIND_GPU_CLOSE_SOURCE_PASS initialized_pointer=1 unbound_close=1")
 
 # Final-FD retirement must never prevent Module::Close from erasing the FD,
