@@ -19,9 +19,9 @@ IStorage::IStorage(Core::System& system_, FileSys::VirtualFile backend_)
     : ServiceFramework{system_, "IStorage"}, backend(std::move(backend_)) {
     static const FunctionInfo functions[] = {
         {0, D<&IStorage::Read>, "Read"},
-        {1, nullptr, "Write"},
+        {1, D<&IStorage::Write>, "Write"},
         {2, nullptr, "Flush"},
-        {3, nullptr, "SetSize"},
+        {3, D<&IStorage::SetSize>, "SetSize"},
         {4, D<&IStorage::GetSize>, "GetSize"},
         {5, nullptr, "OperateRange"},
     };
@@ -59,6 +59,40 @@ Result IStorage::Read(
         ::Eden::Performance::AddSince(::Eden::Performance::guest_fs_storage, fs_start);
         ::Eden::Performance::guest_fs_storage_bytes.fetch_add(static_cast<unsigned long long>(length), std::memory_order_relaxed);
     }
+
+    R_SUCCEED();
+}
+
+
+Result IStorage::Write(
+    InBuffer<BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> in_bytes,
+    s64 offset, s64 length) {
+    LOG_DEBUG(Service_FS, "called, offset={:#x}, length={}", offset, length);
+
+    R_UNLESS(length >= 0, FileSys::ResultInvalidSize);
+    R_UNLESS(offset >= 0, FileSys::ResultInvalidOffset);
+    R_UNLESS(static_cast<u64>(length) <= in_bytes.size(), FileSys::ResultInvalidSize);
+    R_UNLESS(backend->IsWritable(), FileSys::ResultWriteNotPermitted);
+
+    const u64 storage_size = backend->GetSize();
+    const u64 write_offset = static_cast<u64>(offset);
+    const u64 write_length = static_cast<u64>(length);
+    R_UNLESS(write_offset <= storage_size, FileSys::ResultOutOfRange);
+    R_UNLESS(write_length <= storage_size - write_offset, FileSys::ResultOutOfRange);
+
+    const auto written = backend->Write(in_bytes.data(), static_cast<std::size_t>(write_length),
+                                        static_cast<std::size_t>(write_offset));
+    R_UNLESS(written == static_cast<std::size_t>(write_length), FileSys::ResultWriteNotPermitted);
+
+    R_SUCCEED();
+}
+
+Result IStorage::SetSize(s64 size) {
+    LOG_DEBUG(Service_FS, "called, size={}", size);
+
+    R_UNLESS(size >= 0, FileSys::ResultInvalidSize);
+    R_UNLESS(backend->IsWritable(), FileSys::ResultWriteNotPermitted);
+    R_UNLESS(backend->Resize(static_cast<std::size_t>(size)), FileSys::ResultWriteNotPermitted);
 
     R_SUCCEED();
 }
