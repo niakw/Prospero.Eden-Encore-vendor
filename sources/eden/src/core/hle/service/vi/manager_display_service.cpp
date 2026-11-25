@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "common/settings.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/vi/container.h"
 #include "core/hle/service/vi/manager_display_service.h"
@@ -108,8 +109,11 @@ IManagerDisplayService::~IManagerDisplayService() = default;
 Result IManagerDisplayService::GetDisplayResolution(Out<s64> out_width, Out<s64> out_height,
                                                     u64 display_id) {
     LOG_DEBUG(Service_VI, "called. display_id={}", display_id);
-    *out_width = static_cast<s64>(DisplayResolution::UndockedWidth);
-    *out_height = static_cast<s64>(DisplayResolution::UndockedHeight);
+    const bool docked = Settings::IsDockedMode();
+    *out_width = static_cast<s64>(docked ? DisplayResolution::DockedWidth
+                                         : DisplayResolution::UndockedWidth);
+    *out_height = static_cast<s64>(docked ? DisplayResolution::DockedHeight
+                                          : DisplayResolution::UndockedHeight);
     R_SUCCEED();
 }
 
