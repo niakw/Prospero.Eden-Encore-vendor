@@ -28,31 +28,12 @@ Result ResolveDocumentContentPath(Core::System& system, ResolvedDocumentContentP
     const u64 update_id = FileSys::GetUpdateTitleID(base_id);
     auto& cp = system.GetContentProviderUnion();
 
-    FileSys::ContentRecordType record_type{};
-    bool prefer_update = true;
-    switch (content_type) {
-    case 0:
-        record_type = FileSys::ContentRecordType::Meta;
-        break;
-    case 1:
-        record_type = FileSys::ContentRecordType::Control;
-        break;
-    case 2:
-        record_type = FileSys::ContentRecordType::HtmlDocument;
-        break;
-    case 3:
-        record_type = FileSys::ContentRecordType::Program;
-        prefer_update = false;
-        break;
-    case 4:
-        record_type = FileSys::ContentRecordType::Data;
-        break;
-    default:
-        R_RETURN(ResultUnknown);
-    }
-
-    const std::array candidates = prefer_update ? std::array{update_id, base_id}
-                                                : std::array{base_id, update_id};
+    // NS receives NcmContentType; its values match ContentRecordType (0..6).
+    R_UNLESS(content_type <= static_cast<u8>(FileSys::ContentRecordType::DeltaFragment),
+             ResultUnknown);
+    const auto record_type = static_cast<FileSys::ContentRecordType>(content_type);
+    // Installed update takes precedence; fall back to the base title.
+    const std::array candidates{update_id, base_id};
     for (const u64 title_id : candidates) {
         const auto slot = cp.GetSlotForEntry(title_id, record_type);
         if (!slot) {
