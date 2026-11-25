@@ -94,7 +94,7 @@ IParentalControlService::IParentalControlService(Core::System& system_, Capabili
         {1453, D<&IParentalControlService::IsPlayTimerEnabled>, "IsPlayTimerEnabled"},
         {1454, D<&IParentalControlService::GetPlayTimerRemainingTime>, "GetPlayTimerRemainingTime"},
         {1455, D<&IParentalControlService::IsRestrictedByPlayTimer>, "IsRestrictedByPlayTimer"},
-        {1456, D<&IParentalControlService::GetPlayTimerSettingsOld>, "GetPlayTimerSettingsOld"},
+        {1456, &IParentalControlService::RejectUnavailableParentalBackend, "GetPlayTimerSettingsOld"}, // removed in HOS 21.0.0
         {1457, D<&IParentalControlService::GetPlayTimerEventToRequestSuspension>, "GetPlayTimerEventToRequestSuspension"},
         {1458, D<&IParentalControlService::IsPlayTimerAlarmDisabled>, "IsPlayTimerAlarmDisabled"},
         {1459, D<&IParentalControlService::GetPlayTimerRemainingTimeDisplayInfo>, "GetPlayTimerRemainingTimeDisplayInfo"},
@@ -688,8 +688,9 @@ Result IParentalControlService::IsRestrictedByPlayTimer(Out<bool> out_is_restric
 
 Result IParentalControlService::GetPlayTimerSettingsOld(
     Out<PlayTimerSettingsOld> out_play_timer_settings) {
-    LOG_WARNING(Service_PCTL, "(STUBBED) called");
+    // Legacy pre-HOS21 ABI retained only for source compatibility; the HOS23 table rejects cmd1456.
     *out_play_timer_settings = {};
+    LOG_DEBUG(Service_PCTL, "Legacy GetPlayTimerSettingsOld invoked outside the HOS23 service table");
     R_SUCCEED();
 }
 
