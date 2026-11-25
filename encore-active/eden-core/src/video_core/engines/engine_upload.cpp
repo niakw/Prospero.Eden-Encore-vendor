@@ -20,6 +20,14 @@
 
 namespace Tegra::Engines::Upload {
 
+template <typename SizeType>
+constexpr bool FitsHostSize(const u64 value) {
+    if constexpr (sizeof(SizeType) < sizeof(u64)) {
+        return value <= static_cast<u64>((std::numeric_limits<SizeType>::max)());
+    }
+    return true;
+}
+
 State::State(MemoryManager& memory_manager_, Registers& regs_)
     : regs{regs_}, memory_manager{memory_manager_} {}
 
@@ -118,12 +126,8 @@ void State::ProcessData(std::span<const u8> read_buffer) {
         // rows must be checked separately so an unmapped padding gap is legal.
         if (regs.dest.pitch <= regs.line_length_in) {
             const u64 extent = last_offset + regs.line_length_in;
-            if constexpr (sizeof(size_t) < sizeof(u64)) {
-                if (extent > static_cast<u64>((std::numeric_limits<size_t>::max)())) {
-                    return;
-                }
-            }
-            if (!memory_manager.IsFullyMappedRange(address, static_cast<size_t>(extent))) {
+            if (!FitsHostSize<size_t>(extent) ||
+                !memory_manager.IsFullyMappedRange(address, static_cast<size_t>(extent))) {
                 return;
             }
         } else {
