@@ -839,17 +839,32 @@ void BufferCache<P>::CommitAsyncFlushesHigh() {
     auto download_staging = runtime.DownloadStagingBuffer(total_size_bytes, true);
     boost::container::small_vector<BufferCopy, 4> normalized_copies;
     runtime.PreCopyBarrier();
-    for (auto& [copy, buffer_id] : downloads) {
-        copy.dst_offset += download_staging.offset;
-        const std::array copies{copy};
-        BufferCopy second_copy{copy};
+    // Adjacent download regions from the same source buffer share the
+    // already-established transfer barriers. Their staging offsets are
+    // distinct, and no guest draw or fence is recorded between these copies.
+    // Bound each batch to the Vulkan runtime's inline copy-vector capacity:
+    // this removes repeated scheduler callbacks without adding heap work
+    // under BufferCache::mutex or changing normalized readback ownership.
+    for (size_t first = 0; first < downloads.size();) {
+        const BufferId buffer_id = downloads[first].second;
         Buffer& buffer = slot_buffers[buffer_id];
-        second_copy.src_offset = static_cast<size_t>(buffer.CpuAddr()) + copy.src_offset;
-        const DAddr orig_device_addr = static_cast<DAddr>(second_copy.src_offset);
-        async_downloads.Add(orig_device_addr, copy.size);
-        buffer.MarkUsage(copy.src_offset, copy.size);
-        runtime.CopyBuffer(download_staging.buffer, buffer, copies, false);
-        normalized_copies.push_back(second_copy);
+        std::array<BufferCopy, 8> copies{};
+        size_t count = 0;
+        do {
+            auto& copy = downloads[first].first;
+            copy.dst_offset += download_staging.offset;
+            BufferCopy second_copy{copy};
+            second_copy.src_offset = static_cast<size_t>(buffer.CpuAddr()) + copy.src_offset;
+            const DAddr orig_device_addr = static_cast<DAddr>(second_copy.src_offset);
+            async_downloads.Add(orig_device_addr, copy.size);
+            buffer.MarkUsage(copy.src_offset, copy.size);
+            copies[count++] = copy;
+            normalized_copies.push_back(second_copy);
+            ++first;
+        } while (first < downloads.size() && count < copies.size() &&
+                 downloads[first].second == buffer_id);
+        runtime.CopyBuffer(download_staging.buffer, buffer,
+                           std::span<const BufferCopy>{copies.data(), count}, false);
     }
     runtime.PostCopyBarrier();
     pending_downloads.emplace_back(std::move(normalized_copies));
