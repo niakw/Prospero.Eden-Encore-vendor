@@ -63,48 +63,42 @@ void ITransferTaskListController::RejectUnavailableCloudTransfer(HLERequestConte
 
 Result ITransferTaskListController::GetTransferTaskEndEventNativeHandleHolder(
     Out<SharedPointer<INativeHandleHolder>> out_holder) {
-    LOG_WARNING(Service_OLSC, "(STUBBED) called");
-    *out_holder = std::make_shared<INativeHandleHolder>(system);
-    R_SUCCEED();
+    LOG_DEBUG(Service_OLSC, "called; cloud transfer backend unavailable");
+    R_THROW(ResultUnknown);
 }
 
 Result ITransferTaskListController::StopNextTransferTaskExecution(
     Out<SharedPointer<IStopperObject>> out_stopper) {
-    LOG_WARNING(Service_OLSC, "(STUBBED) called");
-    *out_stopper = std::make_shared<IStopperObject>(system);
-    R_SUCCEED();
+    LOG_DEBUG(Service_OLSC, "called; cloud transfer backend unavailable");
+    R_THROW(ResultUnknown);
 }
 
 Result ITransferTaskListController::GetTransferTaskStartEventNativeHandleHolder(
     Out<SharedPointer<INativeHandleHolder>> out_holder) {
-    LOG_WARNING(Service_OLSC, "(STUBBED) called");
-    *out_holder = std::make_shared<INativeHandleHolder>(system);
-    R_SUCCEED();
+    LOG_DEBUG(Service_OLSC, "called; cloud transfer backend unavailable");
+    R_THROW(ResultUnknown);
 }
 
 Result ITransferTaskListController::GetCurrentTransferTaskInfo(Out<std::array<u8, 0x30>> out_info,
                                                               u8 unknown) {
-    LOG_WARNING(Service_OLSC, "(STUBBED) called, unknown={:#x}", unknown);
-    out_info->fill(0);
-    R_SUCCEED();
+    LOG_DEBUG(Service_OLSC, "called, unknown={:#x}; cloud transfer backend unavailable", unknown);
+    R_THROW(ResultUnknown);
 }
 
 Result ITransferTaskListController::GetTransferTaskProgress() {
-    LOG_WARNING(Service_OLSC, "(STUBBED) called.");
-    R_SUCCEED();
+    LOG_DEBUG(Service_OLSC, "called; cloud transfer backend unavailable");
+    R_THROW(ResultUnknown);
 }
 
 Result ITransferTaskListController::FindTransferTaskInfo(Out<std::array<u8, 0x30>> out_info,
                                                         InBuffer<BufferAttr_HipcAutoSelect> in) {
-    LOG_WARNING(Service_OLSC, "(STUBBED) called, in_size={}", in.size());
-    out_info->fill(0);
-    R_SUCCEED();
+    LOG_DEBUG(Service_OLSC, "called, in_size={}; cloud transfer backend unavailable", in.size());
+    R_THROW(ResultUnknown);
 }
 
 Result ITransferTaskListController::GetTransferTaskCount(Out<u32> out_count, u8 unknown) {
-    LOG_WARNING(Service_OLSC, "(STUBBED) called, unknown={:#x}", unknown);
-    *out_count = 0;
-    R_SUCCEED();
+    LOG_DEBUG(Service_OLSC, "called, unknown={:#x}; cloud transfer backend unavailable", unknown);
+    R_THROW(ResultUnknown);
 }
 
 } // namespace Service::OLSC
