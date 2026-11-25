@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/server_manager.h"
 #include "core/hle/service/sockets/bsd.h"
 #include "core/hle/service/sockets/nsd.h"
@@ -18,17 +19,25 @@ public:
         : ServiceFramework{system_, "ethc:c"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "Initialize"},
-            {1, nullptr, "Cancel"},
-            {2, nullptr, "GetResult"},
-            {3, nullptr, "GetMediaList"},
-            {4, nullptr, "SetMediaType"},
-            {5, nullptr, "GetMediaType"},
-            {6, nullptr, "GetMacAddress"},
+            {0, &ETHC_C::RejectUnavailableEthernetControl, "Initialize"},
+            {1, &ETHC_C::RejectUnavailableEthernetControl, "Cancel"},
+            {2, &ETHC_C::RejectUnavailableEthernetControl, "GetResult"},
+            {3, &ETHC_C::RejectUnavailableEthernetControl, "GetMediaList"},
+            {4, &ETHC_C::RejectUnavailableEthernetControl, "SetMediaType"},
+            {5, &ETHC_C::RejectUnavailableEthernetControl, "GetMediaType"},
+            {6, &ETHC_C::RejectUnavailableEthernetControl, "GetMacAddress"},
         };
         // clang-format on
         RegisterHandlers(functions);
     }
+private:
+    void RejectUnavailableEthernetControl(HLERequestContext& ctx) {
+        // Encore uses the host networking abstraction; no Switch Ethernet
+        // controller/driver object is exposed to the guest.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class ETHC_I final : public ServiceFramework<ETHC_I> {
@@ -37,15 +46,23 @@ public:
         : ServiceFramework{system_, "ethc:i"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "GetReadableHandle"},
-            {1, nullptr, "Cancel"},
-            {2, nullptr, "GetResult"},
-            {3, nullptr, "GetInterfaceList"},
-            {4, nullptr, "GetInterfaceCount"},
+            {0, &ETHC_I::RejectUnavailableEthernetControl, "GetReadableHandle"},
+            {1, &ETHC_I::RejectUnavailableEthernetControl, "Cancel"},
+            {2, &ETHC_I::RejectUnavailableEthernetControl, "GetResult"},
+            {3, &ETHC_I::RejectUnavailableEthernetControl, "GetInterfaceList"},
+            {4, &ETHC_I::RejectUnavailableEthernetControl, "GetInterfaceCount"},
         };
         // clang-format on
         RegisterHandlers(functions);
     }
+private:
+    void RejectUnavailableEthernetControl(HLERequestContext& ctx) {
+        // Encore uses the host networking abstraction; no Switch Ethernet
+        // controller/driver object is exposed to the guest.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class ISfDriverServiceCreator final : public ServiceFramework<ISfDriverServiceCreator> {
@@ -54,11 +71,19 @@ public:
         : ServiceFramework{system_, "eth:nd"} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, nullptr, "CreateDriverService"},
+            {0, &ISfDriverServiceCreator::RejectUnavailableEthernetControl, "CreateDriverService"},
         };
         // clang-format on
         RegisterHandlers(functions);
     }
+private:
+    void RejectUnavailableEthernetControl(HLERequestContext& ctx) {
+        // Encore uses the host networking abstraction; no Switch Ethernet
+        // controller/driver object is exposed to the guest.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 void LoopProcess(Core::System& system) {
