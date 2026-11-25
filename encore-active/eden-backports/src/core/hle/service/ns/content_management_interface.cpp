@@ -32,7 +32,7 @@ IContentManagementInterface::IContentManagementInterface(Core::System& system_)
         {47, D<&IContentManagementInterface::GetTotalSpaceSize>, "GetTotalSpaceSize"},
         {48, D<&IContentManagementInterface::GetFreeSpaceSize>, "GetFreeSpaceSize"},
         {71, D<&IContentManagementInterface::GetUnknown71>, "Unknown71"},
-        {600, nullptr, "CountApplicationContentMeta"},
+        {600, D<&IContentManagementInterface::CountApplicationContentMeta>, "CountApplicationContentMeta"},
         {601, nullptr, "ListApplicationContentMetaStatus"},
         {605, nullptr, "ListApplicationContentMetaStatusWithRightsCheck"},
         {607, D<&IContentManagementInterface::IsAnyApplicationRunning>, "IsAnyApplicationRunning"},
@@ -150,6 +150,32 @@ Result IContentManagementInterface::GetUnknown71(Out<u64> out_value_a, Out<u64> 
     LOG_INFO(Service_NS, "(STUBBED) called, flag={:02X}", flag);
     *out_value_a = 0;
     *out_value_b = 0;
+    R_SUCCEED();
+}
+
+Result IContentManagementInterface::CountApplicationContentMeta(Out<s32> out_count,
+                                                                u64 application_id) {
+    const u64 requested_id =
+        application_id != 0 ? application_id : system.GetApplicationProcessProgramID();
+    const u64 real_id = FileSys::GetBaseTitleID(requested_id);
+    const auto& cp = system.GetContentProviderUnion();
+
+    s32 count = 0;
+    if (cp.HasEntry(real_id, FileSys::ContentRecordType::Program)) {
+        ++count;
+    }
+    if (cp.HasEntry(FileSys::GetUpdateTitleID(real_id), FileSys::ContentRecordType::Program)) {
+        ++count;
+    }
+    const auto aocs = cp.ListEntriesFilterOrigin(
+        std::nullopt, FileSys::TitleType::AOC, FileSys::ContentRecordType::Data);
+    for (const auto& [slot, entry] : aocs) {
+        if (FileSys::GetBaseTitleID(entry.title_id) == real_id) {
+            ++count;
+        }
+    }
+
+    *out_count = count;
     R_SUCCEED();
 }
 

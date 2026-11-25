@@ -1296,9 +1296,14 @@
       "bytes": 2688
     },
     "src/core/hle/service/ns/content_management_interface.cpp": {
-      "active": "7a9393a9101f85465b868a3c89c909a6f7482186c58dfa74f2a9f8be637de3d8",
-      "bytes": 6383,
+      "active": "4cdcb68b593381cc31e3d6dc4c192a345d4e13ba3d598d5427063f9a412d196e",
+      "bytes": 7397,
       "upstream": "83a8eae9ea9e50190d72315fd3d838cc1f72c3a6eec79c353c9510faf1b9d4a2"
+    },
+    "src/core/hle/service/ns/content_management_interface.h": {
+      "active": "51e39d3dac28b309e8cd34e84d9b08fea79fb55afa5f16c3b731bd736615c3a3",
+      "bytes": 1220,
+      "upstream": "7891715802a786423749e02e324697fa8c42b338f00fc19499a93acc1965201f"
     }
   },
   "excluded_experimental": [
