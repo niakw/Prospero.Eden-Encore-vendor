@@ -496,8 +496,8 @@
       "upstream": "efc30e676bb88648c855d32b6260f8589643206210979d3264ee2cb64968f663"
     },
     "src/core/hle/service/ngc/ngc.cpp": {
-      "active": "afae15d9fc27afccce5f830aae5e7f040ef70d5135a719e210bdadf35af54bc8",
-      "bytes": 10435,
+      "active": "9a1beab08458c540b290f7e819815e4ef68cd82d14e4a63673ebb9828901dad3",
+      "bytes": 11176,
       "upstream": "8ac6febc0e5258adeb3870971a88c2067ea3312e624b059a17f50e0c0b265dc2"
     },
     "src/core/hle/service/nifm/nifm.cpp": {
@@ -904,6 +904,36 @@
       "active": "154a4bae6d4d5f65af9024ead1ac41cab106ee368aea7c2149c481b24cd53dcf",
       "bytes": 542,
       "upstream": "9987c004a6c9f3973b3ac139be7783b5c2188ce7104ed209c7bb90d87103b9eb"
+    },
+    "src/core/hle/service/mnpp/mnpp.cpp": {
+      "active": "a14e5af5f2162dd500496c3ddfad34913077d4723aa9e7083702593e0bb5b650",
+      "bytes": 3558,
+      "upstream": "1c0423d7b471cb4c0fde484bc622637504d8e063b9ce5f0bbfff984ce122d859"
+    },
+    "src/core/hle/service/fgm/fgm.cpp": {
+      "active": "83f59d8c9ceec1f817b496087602cd9002378f12012508cd8d25c74aee01b7de",
+      "bytes": 1992,
+      "upstream": "8aecb71864066ab38ed1f88b67a34d56e86237c917ce21b33c3eeda48fbdf37d"
+    },
+    "src/core/hle/service/ptm/ptm.cpp": {
+      "active": "a8b2537f5a61ec82d04947a50e5b409762a84af57ea5d7b6e3629c579856181f",
+      "bytes": 803,
+      "upstream": "ce5f5c76f5b97c70c9635575db979fe8920ad4c6a461eaa0cc3bcba07969be89"
+    },
+    "src/core/hle/service/i2c/i2c.cpp": {
+      "active": "4882be0a73353ad6aaa6a7ac59f9629348ed8834136026e29ff0b404c1a0dfbe",
+      "bytes": 3800,
+      "upstream": "56458000c97abab5cc361ee859f8c8fd3c750dc01d260f9d78b5fc8167fd722b"
+    },
+    "src/core/hle/service/ldn/sf_service.cpp": {
+      "active": "8b94f50318e47db6283faf839366e43c4587a656fb5b8fa8fe75b6741eec945d",
+      "bytes": 2050,
+      "upstream": "e4cb9c9104ddf629c40782cfd0adb759ef3d85404ee053996cafcbef7fc98553"
+    },
+    "src/core/hle/service/ldn/sf_service.h": {
+      "active": "18007dd388a2722d2a13f5a5c855a877244c6814b6c6789b139c672ecd671969",
+      "bytes": 512,
+      "upstream": "c63d32507ba049731f6ef3ec56e4d5a7803f8b97c52399ffc875754eeafe8f35"
     }
   },
   "excluded_experimental": [
