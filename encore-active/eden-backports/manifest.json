@@ -186,14 +186,14 @@
       "upstream": "7a47806f53b153e8750161673c6e3a5f46ef4d7d1d0b3734591b7a79e6a31b9c"
     },
     "src/core/hle/service/am/service/common_state_getter.cpp": {
-      "active": "09a7076177ee1ceef0ca480c74f0191ea02a3e35f2b25394acd062f197b03da2",
-      "bytes": 26760,
-      "upstream": "16abb5f4185ddc4956771630a987f1d6e8fcb02fe6f4c12d888a1f2be5801484"
+      "upstream": "16abb5f4185ddc4956771630a987f1d6e8fcb02fe6f4c12d888a1f2be5801484",
+      "active": "84167d9bd1db5fe3fc56a7e1b7fcfefb35f8aacae4d8b6a13c06147b603004d9",
+      "bytes": 27142
     },
     "src/core/hle/service/am/service/common_state_getter.h": {
-      "active": "0e0d85897649d0f65417bd5c844bd6fc3b63fa85bc600f8327180c16a4da752c",
-      "bytes": 4862,
-      "upstream": "0c1483f111e306fa6038cf5adc0f86538901bf694a9b546817ae5812cbb2d07e"
+      "upstream": "0c1483f111e306fa6038cf5adc0f86538901bf694a9b546817ae5812cbb2d07e",
+      "active": "98efbf58eade3510262bd9a41a1db7bd783241db6c79460e53918237876befdb",
+      "bytes": 4916
     },
     "src/core/hle/service/am/service/cradle_firmware_updater.cpp": {
       "active": "3548dcb903dc450db43cf6d8e407330cd8625e6bcbc3a3ffa4ba04411c9d2533",
@@ -476,9 +476,9 @@
       "upstream": "9bffe217aa3be684399ab099fb80b7f17d793615af6e5179a5fba575b0cff5f3"
     },
     "src/core/hle/service/ldr/ldr.cpp": {
-      "active": "58a4df4af602e91a281bfcd6b0349182eb2994259919c39b0884797d9db41854",
-      "bytes": 2285,
-      "upstream": "2ee23f6f39cc1b367c91a7729ec63c6c6a933d7db03eb11a652fe13b917f276b"
+      "upstream": "2ee23f6f39cc1b367c91a7729ec63c6c6a933d7db03eb11a652fe13b917f276b",
+      "active": "cab66b6cfbd9a6e4af27780c94ba46a641287b6cf3174281cd576e2429418310",
+      "bytes": 3732
     },
     "src/core/hle/service/mig/mig.cpp": {
       "active": "95a32643a3c4cad5036a467b10a09274f1508ecd3e7eddfe06d69ea86312aa88",
@@ -676,9 +676,9 @@
       "bytes": 13340
     },
     "src/core/hle/service/ro/ro.cpp": {
-      "active": "a457293e406bcc2c6d0173857abb00b2ac32b7922239df28e815bec98809945c",
-      "bytes": 22178,
-      "upstream": "c0d3ac321243f96a9dd58b29e18722a762d267b0459c86ec6845d46d019b31f8"
+      "upstream": "c0d3ac321243f96a9dd58b29e18722a762d267b0459c86ec6845d46d019b31f8",
+      "active": "71b3b1e91b34fb4d5dc222a70f84f237b075d2f7a620bf2d489b14923c37ac86",
+      "bytes": 22437
     },
     "src/core/hle/service/set/factory_settings_server.cpp": {
       "active": "1648b43aaa98758007d0a6edd40f80f2ef04da278085bfaf1179bfe86273159a",
@@ -1037,8 +1037,8 @@
     },
     "src/core/hle/service/ncm/ncm.cpp": {
       "upstream": "136b67a32b2024c4d9512455f4bb041624e2050b511264377470af631cb2d822",
-      "active": "d415c8e6c70f6751294cb90363175b2243021e554529d2ed02b21bca679e1fef",
-      "bytes": 86523
+      "active": "35f6f228a2a011f4d8679febf54135501116f51ba7818043a48d3e769484d7b0",
+      "bytes": 87036
     },
     "src/core/hle/service/btm/btm_system_core.cpp": {
       "upstream": "c6cef4acb0099f4965dd0918c0f6f9b20f52e7442489f89181741e0a43b40492",
