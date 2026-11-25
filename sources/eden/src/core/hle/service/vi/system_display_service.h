@@ -23,9 +23,6 @@ public:
     ~ISystemDisplayService() override;
 
 private:
-    Result GetZOrderCountMin(Out<s64> out_min_z, u64 display_id);
-    Result GetZOrderCountMax(Out<s64> out_max_z, u64 display_id);
-    Result GetDisplayLogicalResolution(Out<s32> out_width, Out<s32> out_height, u64 display_id);
     Result GetLayerZ(Out<u64> out_z_value, u64 layer_id);
     Result SetLayerZ(u64 layer_id, u64 z_value);
     Result SetLayerVisibility(bool visible, u64 layer_id);

@@ -69,12 +69,8 @@ Result IQueryService::QueryLastPlayTime(
     Out<s32> out_entries, u8 unknown,
     OutArray<LastPlayTime, BufferAttr_HipcMapAlias> out_last_play_times,
     InArray<s32, BufferAttr_HipcMapAlias> application_ids) {
-    // The LastPlayTime ABI has not been reverse-engineered here (the current
-    // LastPlayTime type is a placeholder). Never dereference an empty guest
-    // output buffer or claim that a fabricated record was returned.
-    *out_entries = 0;
-    LOG_DEBUG(Service_NS, "QueryLastPlayTime has no records; input_count={}, output_capacity={}",
-              application_ids.size(), out_last_play_times.size());
+    *out_entries = 1;
+    *out_last_play_times = {};
     R_SUCCEED();
 }
 

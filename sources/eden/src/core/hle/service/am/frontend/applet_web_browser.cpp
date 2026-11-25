@@ -204,22 +204,13 @@ void ExtractSharedFonts(Core::System& system) {
             continue;
         }
 
-        const auto font_size = font_file->GetSize();
-        if (font_size < 2 * sizeof(u32) || font_size % sizeof(u32) != 0) {
-            LOG_ERROR(Service_AM, "Invalid shared font size for title {:016X}: {} bytes",
-                      font_title_id, font_size);
-            continue;
-        }
-        std::vector<u32> font_data_u32(font_size / sizeof(u32));
-        if (font_file->ReadBytes<u32>(font_data_u32.data(), font_size) != font_size) {
-            LOG_ERROR(Service_AM, "Incomplete shared font read for title {:016X}", font_title_id);
-            continue;
-        }
+        std::vector<u32> font_data_u32(font_file->GetSize() / sizeof(u32));
+        font_file->ReadBytes<u32>(font_data_u32.data(), font_file->GetSize());
 
         std::transform(font_data_u32.begin(), font_data_u32.end(), font_data_u32.begin(),
                        Common::swap32);
 
-        std::vector<u8> decrypted_data(font_size - 8);
+        std::vector<u8> decrypted_data(font_file->GetSize() - 8);
 
         NS::DecryptSharedFontToTTF(font_data_u32, decrypted_data);
 
