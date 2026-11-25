@@ -49,8 +49,8 @@ public:
             {15, D<&IDatabaseService::DestroyFile>, "DestroyFile"},
             {16, D<&IDatabaseService::DeleteFile>, "DeleteFile"},
             {17, D<&IDatabaseService::Format>, "Format"},
-            {18, nullptr, "Import"},
-            {19, nullptr, "Export"},
+            {18, &IDatabaseService::RejectUnsupportedImportExport, "Import"},
+            {19, &IDatabaseService::RejectUnsupportedImportExport, "Export"},
             {20, D<&IDatabaseService::IsBrokenDatabaseWithClearFlag>, "IsBrokenDatabaseWithClearFlag"},
             {21, D<&IDatabaseService::GetIndex>, "GetIndex"},
             {22, D<&IDatabaseService::SetInterfaceVersion>, "SetInterfaceVersion"},
@@ -69,6 +69,11 @@ public:
     }
 
 private:
+    void RejectUnsupportedImportExport(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
     Result IsUpdated(Out<bool> out_is_updated, SourceFlag source_flag) {
         LOG_DEBUG(Service_Mii, "called with source_flag={}", source_flag);
 
