@@ -46,8 +46,8 @@
       "upstream": "83a044f8ab5d9117c9cad8aae095b2359f02da27af0c5caab75ce6e5a3f03d56"
     },
     "src/core/crypto/key_manager.cpp": {
-      "active": "4618f776b9d3e4f857444ed99c09592132f1bce7addce595bfd4baa7fe96426b",
-      "bytes": 47656,
+      "active": "fe6a5a0077dc71cfc5ef31c3d1768a4c79c0cd3b3253ede9d609bbbb027137f8",
+      "bytes": 47847,
       "upstream": "54554b43592aa7e71ad920d25862d4d6a42ed0e29bcf3f35abc7f8de31941afc"
     },
     "src/core/crypto/key_manager.h": {
@@ -371,8 +371,8 @@
       "upstream": "5029fbc1a9eedaa6937198ad25bf352ce97b442b0be1ce77f92cb9305d6cef4a"
     },
     "src/core/hle/service/es/es.cpp": {
-      "active": "cecad076878369841f655d7e36b754ef45a1d6e5454b1b02642f2bdc2ed84d09",
-      "bytes": 21705,
+      "active": "0df4c4ffce351e618d94d767043fffc0032fb579353a26e7613873521523fda6",
+      "bytes": 21899,
       "upstream": "fb2386ef1e53f8a5e8ede1f8d11d98c312b205a337ed0350c72210520c8da605"
     },
     "src/core/hle/service/eupld/eupld.cpp": {

@@ -415,8 +415,12 @@ std::vector<Ticket> GetTicketblob(const Common::FS::IOFile& ticket_save) {
         if (buffer[offset] == 0x4 && buffer[offset + 1] == 0x0 && buffer[offset + 2] == 0x1 &&
             buffer[offset + 3] == 0x0) {
             // NOTE: Assumes ticket blob will only contain RSA-2048 tickets.
+            // A signature near the end of a save does not imply a complete ticket.
+            if (buffer.size() - offset < sizeof(RSA2048Ticket)) {
+                break;
+            }
             auto ticket = Ticket::Read(std::span{buffer.data() + offset, sizeof(RSA2048Ticket)});
-            offset += sizeof(RSA2048Ticket);
+            offset += sizeof(RSA2048Ticket) - 1;
             if (ticket.IsValid()) {
                 out.push_back(ticket);
             }

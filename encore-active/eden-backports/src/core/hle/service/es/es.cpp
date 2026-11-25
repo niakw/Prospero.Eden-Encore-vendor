@@ -198,6 +198,7 @@ private:
     }
 
     void CountCommonTicket(HLERequestContext& ctx) {
+        keys.PopulateTickets();
         LOG_DEBUG(Service_ETicket, "called");
 
         const u32 count = static_cast<u32>(keys.GetCommonTickets().size());
@@ -208,6 +209,7 @@ private:
     }
 
     void CountPersonalizedTicket(HLERequestContext& ctx) {
+        keys.PopulateTickets();
         LOG_DEBUG(Service_ETicket, "called");
 
         const u32 count = static_cast<u32>(keys.GetPersonalizedTickets().size());
@@ -249,14 +251,14 @@ private:
     }
 
     void ListCommonTicketRightsIds(HLERequestContext& ctx) {
+        keys.PopulateTickets();
         size_t out_entries = 0;
         if (!keys.GetCommonTickets().empty()) {
             out_entries = ctx.GetWriteBufferNumElements<u128>();
         }
         LOG_DEBUG(Service_ETicket, "called, entries={:016X}", out_entries);
 
-        keys.PopulateTickets();
-        const auto tickets = keys.GetCommonTickets();
+        const auto& tickets = keys.GetCommonTickets();
         std::vector<u128> ids;
         std::transform(tickets.begin(), tickets.end(), std::back_inserter(ids),
                        [](const auto& pair) { return pair.first; });
@@ -270,6 +272,7 @@ private:
     }
 
     void ListPersonalizedTicketRightsIds(HLERequestContext& ctx) {
+        keys.PopulateTickets();
         size_t out_entries = 0;
         if (!keys.GetPersonalizedTickets().empty()) {
             out_entries = ctx.GetWriteBufferNumElements<u128>();
@@ -277,8 +280,7 @@ private:
 
         LOG_DEBUG(Service_ETicket, "called, entries={:016X}", out_entries);
 
-        keys.PopulateTickets();
-        const auto tickets = keys.GetPersonalizedTickets();
+        const auto& tickets = keys.GetPersonalizedTickets();
         std::vector<u128> ids;
         std::transform(tickets.begin(), tickets.end(), std::back_inserter(ids),
                        [](const auto& pair) { return pair.first; });
@@ -292,6 +294,7 @@ private:
     }
 
     void GetCommonTicketSize(HLERequestContext& ctx) {
+        keys.PopulateTickets();
         IPC::RequestParser rp{ctx};
         const auto rights_id = rp.PopRaw<u128>();
 
@@ -315,6 +318,7 @@ private:
     }
 
     void GetPersonalizedTicketSize(HLERequestContext& ctx) {
+        keys.PopulateTickets();
         IPC::RequestParser rp{ctx};
         const auto rights_id = rp.PopRaw<u128>();
 
@@ -338,6 +342,7 @@ private:
     }
 
     void GetCommonTicketData(HLERequestContext& ctx) {
+        keys.PopulateTickets();
         IPC::RequestParser rp{ctx};
         const auto rights_id = rp.PopRaw<u128>();
 
@@ -371,6 +376,7 @@ private:
     }
 
     void GetPersonalizedTicketData(HLERequestContext& ctx) {
+        keys.PopulateTickets();
         IPC::RequestParser rp{ctx};
         const auto rights_id = rp.PopRaw<u128>();
 
