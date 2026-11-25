@@ -595,6 +595,36 @@
       "bytes": 3566,
       "upstream": "b4b0b2052ef3846674e3def53af26462678d8863eb66252890708fc5e5d8c2b3"
     },
+    "src/core/hle/service/olsc/olsc_service_for_application.cpp": {
+      "active": "492bcad65f8ee6c531ccf4d0bdd7e4b8a75f1be88887f63cc91121dcb3cdeb51",
+      "bytes": 4159,
+      "upstream": "851c3ddf254b7468a9bdce025b9767bb1082d8a807876e0c0788a00fd5130667"
+    },
+    "src/core/hle/service/olsc/olsc_service_for_application.h": {
+      "active": "adba6f6793229d9f20d42cb6ff42ea50c430842cc26cbe8ca6f86fd50c1e5815",
+      "bytes": 930,
+      "upstream": "c7967190b4067f71d434d71bead934694226403931002ae71ace67ffd1cbc86d"
+    },
+    "src/core/hle/service/olsc/olsc_service_for_system_service.cpp": {
+      "active": "9f9df2f68ea4d09f92f1dce9f1fce1751ce7ad6ad9ddf83488edcbe3910feac3",
+      "bytes": 9601,
+      "upstream": "8559d301b3754dd3501a25edcbaef81c0fac076785a7aeaa8a6005a28e08945c"
+    },
+    "src/core/hle/service/olsc/olsc_service_for_system_service.h": {
+      "active": "49dcf923894dde7eead1a5e69ab73d4d65eae3560c886aa16bec2bf6b2a88c7b",
+      "bytes": 1800,
+      "upstream": "73e3339dfce8c8c0040b0a15aadf9f8d492f4556ac0685356a226bba20653222"
+    },
+    "src/core/hle/service/olsc/remote_storage_controller.cpp": {
+      "active": "8a2aefc2418aa22ceb2739b668eb14387ec8827fd323ddb5595b44cf5de6b71b",
+      "bytes": 5038,
+      "upstream": "5fa3abd9dbebf13c56f7029111289b7f7c23b335f11f4d7738d8de567f43ac91"
+    },
+    "src/core/hle/service/olsc/remote_storage_controller.h": {
+      "active": "c527516fe2652bf38681c2a0a8c74e5a0e232cd3d2e75fe7d53a1df615b43007",
+      "bytes": 962,
+      "upstream": "2900c4246f1f035304c426f8daf7dc9a9776acd0703864d4a7866b47364fefe2"
+    },
     "src/core/hle/service/olsc/transfer_task_list_controller.cpp": {
       "active": "8cc97fdba504fa7de0d8ca893239b5674217bd81a134bef27436f3ec3483b57d",
       "bytes": 6179,
