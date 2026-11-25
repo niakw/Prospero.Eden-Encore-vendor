@@ -506,8 +506,8 @@
       "upstream": "efc30e676bb88648c855d32b6260f8589643206210979d3264ee2cb64968f663"
     },
     "src/core/hle/service/ngc/ngc.cpp": {
-      "active": "c1f1ef432dbd348f9fdede30a8b92f465bb6f2f6a6959b4cf011c716e9d1d4f1",
-      "bytes": 12012,
+      "active": "5742981ed393099f65638fce3fdd2bf8f816a8d208bc67bc55c8532960f7ad71",
+      "bytes": 12322,
       "upstream": "8ac6febc0e5258adeb3870971a88c2067ea3312e624b059a17f50e0c0b265dc2"
     },
     "src/core/hle/service/nifm/nifm.cpp": {

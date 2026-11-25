@@ -39,7 +39,7 @@ private:
             ? Common::StringFromFixedZeroTerminatedBuffer(reinterpret_cast<const char*>(buffer.data()), buffer.size())
             : std::string{};
 
-        LOG_WARNING(Service_NGC, "(STUBBED) called, text={}", text);
+        LOG_DEBUG(Service_NGC, "called, pass-through text policy, text={}", text);
 
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
@@ -53,7 +53,7 @@ private:
             ? Common::StringFromFixedZeroTerminatedBuffer(reinterpret_cast<const char*>(buffer.data()), buffer.size())
             : std::string{};
 
-        LOG_WARNING(Service_NGC, "(STUBBED) called, text={}", text);
+        LOG_DEBUG(Service_NGC, "called, pass-through text policy, text={}", text);
 
         // Return the same string since we don't censor anything
         ctx.WriteBuffer(buffer);
@@ -91,7 +91,7 @@ private:
                   "ProfanityFilterOption has incorrect size");
 
     void GetContentVersion(HLERequestContext& ctx) {
-        LOG_INFO(Service_NGC, "(STUBBED) called");
+        LOG_DEBUG(Service_NGC, "called, pass-through profanity policy");
 
         // This calls nn::ngc::ProfanityFilter::GetContentVersion
         const u32 version = NgcContentVersion;
@@ -102,7 +102,7 @@ private:
     }
 
     void Check(HLERequestContext& ctx) {
-        LOG_INFO(Service_NGC, "(STUBBED) called");
+        LOG_DEBUG(Service_NGC, "called, pass-through profanity policy");
 
         struct InputParameters {
             u32 flags;
@@ -122,7 +122,7 @@ private:
     }
 
     void Mask(HLERequestContext& ctx) {
-        LOG_INFO(Service_NGC, "(STUBBED) called");
+        LOG_DEBUG(Service_NGC, "called, pass-through profanity policy");
 
         struct InputParameters {
             u32 flags;
@@ -143,7 +143,7 @@ private:
     }
 
     void Reload(HLERequestContext& ctx) {
-        LOG_INFO(Service_NGC, "(STUBBED) called");
+        LOG_DEBUG(Service_NGC, "called, pass-through profanity policy");
 
         // This reloads the database.
 
@@ -202,12 +202,12 @@ public:
     }
 
     Result OpenSaveData(Account::Uid unk0, Out<SaveDataHandle> unk1) {
-        LOG_WARNING(Service_NGC, "stubbed");
+        LOG_DEBUG(Service_NGC, "called; save-data backend unavailable");
         R_THROW(IPC::ResultNotSupported);
     }
 
     Result ReadSaveSlot(s32 offset, SaveDataHandle handle, OutBuffer<BufferAttr_HipcAutoSelect> out_data, Out<u32> out_size) {
-        LOG_WARNING(Service_NGC, "stubbed");
+        LOG_DEBUG(Service_NGC, "called; save-data backend unavailable");
         R_THROW(IPC::ResultNotSupported);
     }
 
@@ -235,7 +235,7 @@ public:
         RegisterHandlers(functions);
     }
     Result Cmd0(u32 unk0, OutInterface<IUserShimScopedObject> out_interface) {
-        LOG_WARNING(Service_NGC, "stubbed");
+        LOG_DEBUG(Service_NGC, "called, returning HOS23 user shim object, unk0={:#x}", unk0);
         *out_interface = std::make_shared<IUserShimScopedObject>(system);
         R_SUCCEED();
     }
@@ -261,12 +261,12 @@ public:
     }
 
     Result Cmd108() {
-        LOG_WARNING(Service_NGC, "stubbed");
+        LOG_DEBUG(Service_NGC, "called; save-data backend unavailable");
         R_THROW(IPC::ResultNotSupported);
     }
 
     Result Cmd208(Out<std::array<u8, 0x20>> unk0) {
-        LOG_WARNING(Service_NGC, "stubbed");
+        LOG_DEBUG(Service_NGC, "called; save-data backend unavailable");
         R_THROW(IPC::ResultNotSupported);
     }
     void RejectUnavailableSystemShim(HLERequestContext& ctx) {
@@ -287,7 +287,7 @@ public:
         RegisterHandlers(functions);
     }
     Result Cmd0(OutInterface<ISystemShimScopedObject> out_interface) {
-        LOG_WARNING(Service_NGC, "stubbed");
+        LOG_DEBUG(Service_NGC, "called, returning HOS23 system shim object");
         *out_interface = std::make_shared<ISystemShimScopedObject>(system);
         R_SUCCEED();
     }
