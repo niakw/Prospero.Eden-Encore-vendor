@@ -1269,6 +1269,11 @@
       "upstream": "b1ded778c122781e3ed4113a38a031ca40a2e82450e8b074ed85cf1d89f81143",
       "active": "83ba9a673a9f8e1ce248abaaf5f7fa57dab36b58ef8479a5e92b58c74bd44e2a",
       "bytes": 1331
+    },
+    "src/core/hle/service/spl/spl.cpp": {
+      "upstream": "5d87bd098ff7f01786bda47676e8eea58555fd7f64146fef39dffc15052da0e8",
+      "active": "2aded71b5a847a0f29d96c0a754730cea6aa6a1c0d4f949dbbc8693dc879be42",
+      "bytes": 7198
     }
   },
   "excluded_experimental": [
