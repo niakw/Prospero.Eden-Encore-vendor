@@ -245,6 +245,19 @@ int main() {
     assert(scalar.completions==1);
     assert(std::memcmp(scalar.published.data(),raw,12)==0);
 
+    // A complete scalar upload must publish even if its last data word is
+    // not marked as the final method of the enclosing GPFIFO group.
+    State scalar_not_last{dimensions};
+    scalar_not_last.ProcessExec(false);
+    scalar_not_last.ProcessData(words[0],false);
+    scalar_not_last.ProcessData(words[1],false);
+    assert(scalar_not_last.completions==0);
+    scalar_not_last.ProcessData(words[2],false);
+    assert(scalar_not_last.completions==1 && scalar_not_last.Offset()==12);
+    assert(std::memcmp(scalar_not_last.published.data(),raw,12)==0);
+    scalar_not_last.ProcessData(words[2],true);
+    assert(scalar_not_last.completions==1);
+
     Registers partial_length{5,1};
     State partial{partial_length};
     partial.ProcessExec(true);
@@ -289,7 +302,7 @@ with tempfile.TemporaryDirectory(prefix="eden-i2m-packet-") as directory:
         assert compiled.returncode == 0, (opt, compiled.stderr[-5000:])
         ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
         assert ran.returncode == 0, (opt, ran.stderr[-5000:])
-print("NS2_INLINE_UPLOAD_PACKET_BOUNDS_PASS full=1 fragmented=1 scalar_truncation=1 unaligned=1 overflow=1 O0=1 O2=1 ASan=1 UBSan=1")
+print("NS2_INLINE_UPLOAD_PACKET_BOUNDS_PASS full=1 fragmented=1 scalar_truncation=1 scalar_complete_without_tail=1 unaligned=1 overflow=1 O0=1 O2=1 ASan=1 UBSan=1")
 
 # The selected I2M writer must prove the entire GOB extent fits in the
 # decoder's u32 address space and preserve compact inline words across Z.
