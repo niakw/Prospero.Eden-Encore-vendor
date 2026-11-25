@@ -92,6 +92,9 @@ private:
     Result CreateApplicationAndRequestToStart(u64 application_id);
     Result GetUnknownEvent210(OutCopyHandle<Kernel::KReadableEvent> out_event);
     void RejectUnavailableMovieCommand(HLERequestContext& ctx);
+    void RejectLegacyApplicationFunctionsCommand(HLERequestContext& ctx);
+    void RejectUnknownAudioOutputPolicy(HLERequestContext& ctx);
+    void RequestExitApplicationAndTryPopMessage(HLERequestContext& ctx);
     Result RejectDebugOnlyCommand();
     Result CreateApplicationAndPushAndRequestToStart(u64 application_id,
                                                           SharedPointer<IStorage> storage);

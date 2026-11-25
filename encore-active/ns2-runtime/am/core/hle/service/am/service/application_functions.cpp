@@ -126,7 +126,7 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {31, D<&IApplicationFunctions::EndBlockingHomeButtonShortAndLongPressed>, "EndBlockingHomeButtonShortAndLongPressed"},
         {32, D<&IApplicationFunctions::BeginBlockingHomeButton>, "BeginBlockingHomeButton"},
         {33, D<&IApplicationFunctions::EndBlockingHomeButton>, "EndBlockingHomeButton"},
-        {34, nullptr, "SelectApplicationLicense"},
+        {34, &IApplicationFunctions::RejectLegacyApplicationFunctionsCommand, "SelectApplicationLicense"}, // removed before HOS23
         {35, D<&IApplicationFunctions::GetDeviceSaveDataSizeMax>, "GetDeviceSaveDataSizeMax"},
         {36, D<&IApplicationFunctions::GetLimitedApplicationLicense>, "GetLimitedApplicationLicense"},
         {37, D<&IApplicationFunctions::GetLimitedApplicationLicenseUpgradableEvent>, "GetLimitedApplicationLicenseUpgradableEvent"},
@@ -165,9 +165,9 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {190, &IApplicationFunctions::SendServerMaintenanceOverlayNotification, "SendServerMaintenanceOverlayNotification"},
         {200, D<&IApplicationFunctions::GetLastApplicationExitReason>, "GetLastApplicationExitReason"},
         {210, D<&IApplicationFunctions::GetUnknownEvent210>, "Unknown210"},
-        {220, nullptr, "Unknown220"}, // [20.0.0+]
+        {220, &IApplicationFunctions::RejectUnknownAudioOutputPolicy, "SetAudioOutputPolicy"}, // [20.0.0+]
         {300, &IApplicationFunctions::RejectUnavailableMovieCommand, "CreateMovieWriter"}, // [19.0.0+]
-        {310, nullptr, "Unknown310"}, // [20.0.0+]
+        {310, &IApplicationFunctions::RequestExitApplicationAndTryPopMessage, "RequestExitApplicationAndTryPopMessage"}, // [20.0.0+]
         {320, D<&IApplicationFunctions::GetScreenShotAndContinuousRecordingInitiallyEnabled>,
          "GetScreenShotAndContinuousRecordingInitiallyEnabled"}, // NS2 SDK 20.0+
         // SDKs that request 321 expect a full one-byte response, not a
@@ -778,6 +778,33 @@ Result IApplicationFunctions::GetScreenShotAndContinuousRecordingInitiallyEnable
     LOG_DEBUG(Service_AM, "called, screenshot={}, recording={}", *out_screenshot_enabled,
               *out_recording_enabled);
     R_SUCCEED();
+}
+
+void IApplicationFunctions::RejectLegacyApplicationFunctionsCommand(HLERequestContext& ctx) {
+    LOG_WARNING(Service_AM, "Rejected legacy IApplicationFunctions command {} outside HOS23 surface",
+                ctx.GetCommand());
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultUnknown);
+}
+
+void IApplicationFunctions::RejectUnknownAudioOutputPolicy(HLERequestContext& ctx) {
+    // HOS23 names command 220 SetAudioOutputPolicy and takes one byte, but the
+    // policy values/semantics are not publicly documented. Fail closed instead
+    // of inventing guest audio behavior.
+    LOG_WARNING(Service_AM, "SetAudioOutputPolicy is present on HOS23 but policy semantics are unknown");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultUnknown);
+}
+
+void IApplicationFunctions::RequestExitApplicationAndTryPopMessage(HLERequestContext& ctx) {
+    // The HOS23 ABI carries 0x18 bytes plus an input interface. Its observable
+    // application-side effect is an exit request; Encore has no Home Menu
+    // message-pop backend to service the secondary part.
+    LOG_INFO(Service_AM, "RequestExitApplicationAndTryPopMessage: requesting guest application exit");
+    system.Exit();
+
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
 }
 
 void IApplicationFunctions::RejectUnavailableMovieCommand(HLERequestContext& ctx) {
