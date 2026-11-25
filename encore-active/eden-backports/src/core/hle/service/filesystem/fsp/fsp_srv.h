@@ -168,6 +168,9 @@ private:
     Result GetRightsIdAndKeyGenerationByPath(
         Out<RightsIdAndKeyGeneration> out_result, ContentAttributes attributes,
         InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
+    Result GetProgramIdByPath(
+        Out<u64> out_program_id, ContentAttributes attributes,
+        InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
     Result RegisterExternalKey(FspRightsId rights_id, FspAccessKey access_key);
     Result UnregisterAllExternalKey();
     Result UnregisterExternalKey(FspRightsId rights_id);

@@ -255,6 +255,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {615, nullptr, "QuerySaveDataInternalStorageTotalSize"},
         {616, nullptr, "GetSaveDataCommitId"},
         {617, D<&FSP_SRV::UnregisterExternalKey>, "UnregisterExternalKey"},
+        {618, D<&FSP_SRV::GetProgramIdByPath>, "GetProgramId"},
         {620, &FSP_SRV::UnsupportedDebugCommand, "SetSdCardEncryptionSeed"},
         {630, D<&FSP_SRV::SetSdCardAccessibility>, "SetSdCardAccessibility"},
         {631, D<&FSP_SRV::IsSdCardAccessible>, "IsSdCardAccessible"},
@@ -1071,6 +1072,20 @@ Result FSP_SRV::GetRightsIdAndKeyGenerationByPath(
 
     out_result->key_generation = nca->GetKeyGeneration();
     out_result->rights_id = nca->GetRightsId();
+    R_SUCCEED();
+}
+
+
+Result FSP_SRV::GetProgramIdByPath(
+    Out<u64> out_program_id, ContentAttributes attributes,
+    InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path) {
+    R_UNLESS(attributes == ContentAttributes::None || attributes == ContentAttributes::All,
+             FileSys::ResultInvalidArgument);
+
+    FileSys::StorageId storage_id{};
+    std::shared_ptr<FileSys::NCA> nca;
+    R_TRY(ResolveRegisteredNcaPath(fsc, *path, &storage_id, &nca));
+    *out_program_id = nca->GetTitleId();
     R_SUCCEED();
 }
 
