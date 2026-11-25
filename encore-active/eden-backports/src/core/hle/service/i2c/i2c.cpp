@@ -1,0 +1,102 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#include "core/core.h"
+#include "core/hle/result.h"
+#include "core/hle/service/i2c/i2c.h"
+#include "core/hle/service/ipc_helpers.h"
+#include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/cmif_types.h"
+#include "core/hle/service/service.h"
+#include "core/hle/service/server_manager.h"
+
+namespace Service::I2C {
+
+class I2CSession final : public ServiceFramework<I2CSession> {
+public:
+    explicit I2CSession(Core::System& system_)
+        : ServiceFramework{system_, "I2CSession"}
+    {
+        static const FunctionInfo functions[] = {
+            {0, &I2CSession::RejectUnavailableI2C, "SendOld"},
+            {1, &I2CSession::RejectUnavailableI2C, "ReceiveOld"},
+            {2, &I2CSession::RejectUnavailableI2C, "ExecuteCommandListOld"},
+            {10, C<&I2CSession::Send>, "Send"},
+            {11, &I2CSession::RejectUnavailableI2C, "Receive"},
+            {12, &I2CSession::RejectUnavailableI2C, "ExecuteCommandList"},
+            {13, &I2CSession::RejectUnavailableI2C, "SetRetryPolicy"},
+        };
+        RegisterHandlers(functions);
+    }
+    ~I2CSession() override = default;
+    Result Send(InBuffer<BufferAttr_HipcMapAlias> in_data, u32 transaction_option) {
+        LOG_WARNING(Service, "(stubbed) topt={}", transaction_option);
+        R_THROW(ResultUnknown);
+    }
+private:
+    void RejectUnavailableI2C(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
+};
+
+enum class I2CDevice : u32 {
+    ClassicController,
+    Ftm3bd56,
+};
+
+class I2C final : public ServiceFramework<I2C> {
+public:
+    explicit I2C(Core::System& system_)
+        : ServiceFramework{system_, "i2c"}
+    {
+        static const FunctionInfo functions[] = {
+            {0, C<&I2C::OpenSessionForDev>, "OpenSessionForDev"},
+            {1, C<&I2C::OpenSession>, "OpenSession"},
+            {2, C<&I2C::HasDevice>, "HasDevice"},
+            {3, C<&I2C::HasDeviceForDev>, "HasDeviceForDev"},
+            {4, C<&I2C::OpenSession2>, "OpenSession2"},
+        };
+        RegisterHandlers(functions);
+    }
+    ~I2C() override = default;
+    Result OpenSessionForDev(OutInterface<I2CSession>, s32 bus_idx, u32 slave_address,
+                             u32 addressing_mode, u32 speed_mode) {
+        LOG_WARNING(Service,
+                    "I2C hardware is not exposed on Encore: bus={} slave={:#x} addr_mode={} speed={}",
+                    bus_idx, slave_address, addressing_mode, speed_mode);
+        R_THROW(ResultUnknown);
+    }
+    Result OpenSession(OutInterface<I2CSession>, I2CDevice device) {
+        LOG_WARNING(Service, "I2C hardware is not exposed on Encore: device={}",
+                    static_cast<u32>(device));
+        R_THROW(ResultUnknown);
+    }
+    Result HasDevice(Out<bool> out_has_device, I2CDevice device) {
+        LOG_DEBUG(Service, "(stubbed)");
+        *out_has_device = false;
+        R_SUCCEED();
+    }
+    Result HasDeviceForDev(Out<bool> out_has_device, I2CDevice device) {
+        LOG_DEBUG(Service, "(stubbed)");
+        *out_has_device = false;
+        R_SUCCEED();
+    }
+    Result OpenSession2(OutInterface<I2CSession>, u32 device_code) {
+        LOG_WARNING(Service, "I2C hardware is not exposed on Encore: device_code={:#x}",
+                    device_code);
+        R_THROW(ResultUnknown);
+    }
+};
+
+void LoopProcess(Core::System& system) {
+    auto server_manager = std::make_unique<ServerManager>(system);
+    server_manager->RegisterNamedService("i2c", std::make_shared<I2C>(system));
+    ServerManager::RunServer(std::move(server_manager));
+}
+
+} // namespace Service::I2C
