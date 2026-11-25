@@ -165,7 +165,7 @@ Result IApplicationDisplayService::SetLayerScalingMode(NintendoScaleMode scale_m
 
 Result IApplicationDisplayService::ListDisplays(
     Out<u64> out_count, OutArray<DisplayInfo, BufferAttr_HipcMapAlias> out_displays) {
-    LOG_WARNING(Service_VI, "(STUBBED) called");
+    LOG_DEBUG(Service_VI, "Listing the emulated Default display");
 
     if (out_displays.size() > 0) {
         out_displays[0] = DisplayInfo{};
@@ -296,7 +296,11 @@ Result IApplicationDisplayService::ConvertScalingMode(Out<ConvertedScaleMode> ou
 }
 
 Result IApplicationDisplayService::Cmd2103(Out<std::array<u8, 0x18>> out_unk18) {
-    LOG_WARNING(Service_VI, "(stubbed)");
+    // HOS 21.0.0+ exposes this command with no input and exactly 0x18 output bytes,
+    // but its public name/semantics remain unknown. Known compatibility implementations
+    // return a zero payload. Keep the ABI deterministic while retaining AMBIGU status.
+    *out_unk18 = {};
+    LOG_WARNING(Service_VI, "Undocumented HOS21+ Cmd2103: returning zero compatibility payload");
     R_SUCCEED();
 }
 
