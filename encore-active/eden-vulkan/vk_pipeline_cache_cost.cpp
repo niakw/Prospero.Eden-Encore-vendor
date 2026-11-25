@@ -1415,11 +1415,13 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     // were ignored and the GPU owner still translated 303 new graphics keys.
     // A recorded FC27 warm cache contains 710 valid pipeline records, yet the
     // 32-entry prewarm left 361 guest shaders to translate during the match.
-    // For a modest, already populated cache, admit the newest 128 builders
-    // before gameplay; preserve the 32-entry prefix for large/absent caches.
-    // This shifts some first-use work to loading without skipping any draw.
+    // FC27 PS5 25/11: 598 valid cached keys, only 128 restored in 704 ms,
+    // and 243 first-use translations during gameplay. Prebuild the newest
+    // 768 DISTINCT cached keys before guest Run when the existing file-size
+    // limit allows it. Keep the 32-entry prefix for large/absent caches;
+    // this changes no GPU barriers, shader output or draw ordering.
     constexpr size_t kStartupPrewarmPipelines = 32;
-    constexpr size_t kRecentPrewarmPipelines = 128;
+    constexpr size_t kRecentPrewarmPipelines = 768;
     constexpr std::uintmax_t kRecentShaderCacheScanLimit = 64ULL << 20;
     const bool prefer_recent_cache =
         env_before.present && env_before.bytes > 12 &&
