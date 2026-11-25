@@ -317,7 +317,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2052, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2052"}, //20.0.0+
         {2053, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown2053"}, //20.0.0+
         {2100, D<&IApplicationManagerInterface::GetApplicationTerminateResult>, "GetApplicationTerminateResult"},
-        {2101, nullptr, "GetRawApplicationTerminateResult"},
+        {2101, D<&IApplicationManagerInterface::GetRawApplicationTerminateResult>, "GetRawApplicationTerminateResult"},
         {2150, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CreateRightsEnvironment"},
         {2151, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "DestroyRightsEnvironment"},
         {2152, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ActivateRightsEnvironment"},
@@ -1170,6 +1170,21 @@ Result IApplicationManagerInterface::GetApplicationTerminateResult(Out<Result> o
 
     std::scoped_lock lk{applet->lock};
     *out_result = applet->terminate_result;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::GetRawApplicationTerminateResult(
+    Out<u32> out_raw_result, u64 application_id) {
+    LOG_DEBUG(Service_NS, "called, application_id={:016X}", application_id);
+
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, AM::ResultApplicationRecordNotFound);
+    const auto applet = window_system->GetMainApplet();
+    R_UNLESS(applet != nullptr && applet->program_id == application_id,
+             AM::ResultApplicationRecordNotFound);
+
+    std::scoped_lock lk{applet->lock};
+    *out_raw_result = applet->terminate_result.GetInnerValue();
     R_SUCCEED();
 }
 
