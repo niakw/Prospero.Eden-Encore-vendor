@@ -21,6 +21,8 @@
 #include "core/hle/service/filesystem/filesystem.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/ns/application_manager_interface.h"
+#include "core/hle/service/os/process.h"
+#include "core/loader/loader.h"
 
 #include "core/file_sys/content_archive.h"
 #include "core/hle/service/ns/content_management_interface.h"
@@ -116,7 +118,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {91, nullptr, "DeprecatedLaunchApplication"},
         {92, D<&IApplicationManagerInterface::GetRunningApplicationProgramId>, "GetRunningApplicationProgramId"},
         {93, D<&IApplicationManagerInterface::GetMainApplicationProgramIndex>, "GetMainApplicationProgramIndex"},
-        {94, nullptr, "LaunchApplication"},
+        {94, D<&IApplicationManagerInterface::LaunchApplication>, "LaunchApplication"},
         {95, D<&IApplicationManagerInterface::GetApplicationLaunchInfo>, "GetApplicationLaunchInfo"},
         {96, nullptr, "AcquireApplicationLaunchInfo"},
         {97, D<&IApplicationManagerInterface::GetMainApplicationProgramIndexByApplicationLaunchInfo>, "GetMainApplicationProgramIndexByApplicationLaunchInfo"},
@@ -1276,6 +1278,61 @@ Result IApplicationManagerInterface::ClearApplicationTerminateResult(u64 applica
 
     std::scoped_lock lk{applet->lock};
     applet->terminate_result = ResultSuccess;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::LaunchApplication(
+    Out<u64> out_process_id, u8 program_index, ApplicationLaunchInfoV19 launch_info) {
+    LOG_INFO(Service_NS,
+             "called, application_id={:016X}, program_id={:016X}, program_index={}",
+             launch_info.application_id, launch_info.program_id, program_index);
+
+    auto* const window_system = system.GetAppletManager().GetWindowSystem();
+    R_UNLESS(window_system != nullptr, AM::ResultApplicationRecordNotFound);
+
+    // WindowSystem::TrackApplet requires a single live application owner.
+    // Fail before creating a process instead of tripping that invariant.
+    R_UNLESS(window_system->GetMainApplet() == nullptr, ResultUnknown);
+
+    const u64 application_id = FileSys::GetBaseTitleID(launch_info.application_id);
+    R_UNLESS(application_id != 0, AM::ResultApplicationRecordNotFound);
+
+    const u64 program_id =
+        launch_info.program_id != 0 ? launch_info.program_id : application_id + program_index;
+    R_UNLESS(FileSys::GetBaseTitleID(program_id) == application_id,
+             AM::ResultApplicationRecordNotFound);
+
+    const u64 derived_program_index = program_id - application_id;
+    R_UNLESS(derived_program_index <= std::numeric_limits<u8>::max() &&
+                 static_cast<u8>(derived_program_index) == program_index,
+             AM::ResultApplicationRecordNotFound);
+
+    auto& storage = system.GetContentProviderUnion();
+    auto program_nca = storage.GetEntryRaw(program_id, FileSys::ContentRecordType::Program);
+    R_UNLESS(program_nca != nullptr, AM::ResultApplicationRecordNotFound);
+
+    std::vector<u8> control;
+    std::unique_ptr<Loader::AppLoader> loader;
+    Loader::ResultStatus load_result{};
+    auto process = AM::CreateApplicationProcess(control, loader, load_result, system,
+                                                std::move(program_nca), program_id,
+                                                program_index);
+    R_UNLESS(process != nullptr, ResultUnknown);
+
+    const u64 process_id = process->GetProcessId();
+    auto applet = std::make_shared<AM::Applet>(system, std::move(process), true);
+    applet->program_id = program_id;
+    applet->applet_id = AM::AppletId::Application;
+    applet->type = AM::AppletType::Application;
+    applet->library_applet_mode = AM::LibraryAppletMode::AllForeground;
+    applet->lifecycle_manager.SetFocusState(system.Kernel(), AM::FocusState::InFocus);
+
+    Core::LaunchTimestampCache::SaveLaunchTimestamp(program_id);
+    window_system->TrackApplet(applet, true);
+    window_system->RequestApplicationToGetForeground();
+    applet->process->Run();
+
+    *out_process_id = process_id;
     R_SUCCEED();
 }
 
