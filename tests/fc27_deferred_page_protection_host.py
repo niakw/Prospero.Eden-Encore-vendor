@@ -36,6 +36,38 @@ raster_text=R.read_text()
 def text_blob(text):
     raw=text.encode()
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
+# DMA-only submit ownership is independent from the historical CPU-write
+# protection contract. Authenticate and reverse only that exact successor.
+if text_blob(raster_text)=="7049700a833c9e6cb239de8b01b5015dd7e3d163":
+    newer="""void RasterizerVulkan::FlushCommands() {
+#ifdef PS5_NATIVE
+    // draw_counter measures graphics batching, not whether Vulkan work exists.
+    // DMA fills/copies and image transfers can record scheduler commands without
+    // any graphics draw. Conversely, a fence/explicit scheduler flush may have
+    // already submitted the current recording. Use the selected native
+    // scheduler's command epoch as the end-of-list authority.
+    draw_counter = 0;
+    if (!scheduler.RecordedSinceSubmit()) {
+        return;
+    }
+#else
+    if (draw_counter == 0) {
+        return;
+    }
+    draw_counter = 0;
+#endif
+    scheduler.Flush();
+}"""
+    older="""void RasterizerVulkan::FlushCommands() {
+    if (draw_counter == 0) {
+        return;
+    }
+    draw_counter = 0;
+    scheduler.Flush();
+}"""
+    assert raster_text.count(newer)==1
+    raster_text=raster_text.replace(newer,older,1)
+    assert text_blob(raster_text)=="f79943f596b8a95cdcb05ce74a964a2141ae10ac"
 # FC27 attribute-handle index batching is PS5/NS1-only and does not change
 # deferred page-protection ownership. Reverse only this exact draw-scan delta.
 if text_blob(raster_text)=="f79943f596b8a95cdcb05ce74a964a2141ae10ac":
