@@ -226,7 +226,6 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {914, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "HideApplicationRecord"},
         {915, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ShowApplicationRecord"},
         {916, nullptr, "IsApplicationAutoDeleteDisabled"},
-        {916, nullptr, "Unknown916"}, //20.0.0+
         {917, nullptr, "Unknown917"}, //20.0.0+
         {918, nullptr, "Unknown918"}, //20.0.0+
         {919, nullptr, "Unknown919"}, //20.0.0+
