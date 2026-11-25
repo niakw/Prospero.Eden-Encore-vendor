@@ -689,20 +689,20 @@ void IGeneralService::GetNetworkProfile(HLERequestContext& ctx) {
         return SfNetworkProfileData{
             .ip_setting_data{
                 .ip_address_setting{
-                    .is_automatic{true},
+                    .is_automatic = true,
                     .ip_address{Network::TranslateIPv4(net_iface->ip_address)},
                     .subnet_mask{Network::TranslateIPv4(net_iface->subnet_mask)},
                     .default_gateway{Network::TranslateIPv4(net_iface->gateway)},
                 },
                 .dns_setting{
-                    .is_automatic{true},
+                    .is_automatic = true,
                     .primary_dns{1, 1, 1, 1},
                     .secondary_dns{1, 0, 0, 1},
                 },
                 .proxy_setting{
-                    .is_enabled{false},
+                    .is_enabled = false,
                 },
-                .mtu{1500},
+                .mtu = 1500,
             },
             .uuid{MakeUuidFromName(net_state.ssid)},
             .network_name{net_name},
