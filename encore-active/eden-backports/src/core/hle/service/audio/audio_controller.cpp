@@ -49,7 +49,7 @@ IAudioController::IAudioController(Core::System& system_)
         {22, D<&IAudioController::NotifyHeadphoneVolumeWarningDisplayedEvent>, "NotifyHeadphoneVolumeWarningDisplayedEvent"},
         {23, D<&IAudioController::SetSystemOutputMasterVolume>, "SetSystemOutputMasterVolume"},
         {24, D<&IAudioController::GetSystemOutputMasterVolume>, "GetSystemOutputMasterVolume"},
-        {25, nullptr, "GetAudioVolumeDataForPlayReport"},
+        {25, D<&IAudioController::GetAudioVolumeDataForPlayReport>, "GetAudioVolumeDataForPlayReport"},
         {26, nullptr, "UpdateHeadphoneSettings"},
         {27, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetVolumeMappingTableForDev"},
         {28, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetAudioOutputChannelCountForPlayReport"},
@@ -434,6 +434,16 @@ Result IAudioController::IsHearingProtectionSafeguardEnabled(Out<bool> out_is_en
 Result IAudioController::SetVolumeButtonLongPressTime(u64 long_press_time) {
     m_volume_button_long_press_time = long_press_time;
     LOG_DEBUG(Audio, "volume-button long-press time={}", long_press_time);
+    R_SUCCEED();
+}
+
+Result IAudioController::GetAudioVolumeDataForPlayReport(
+    Out<AudioVolumeReportData> out_report_data) {
+    const auto idx = static_cast<size_t>(m_active_target);
+    if (idx >= m_target_volumes.size()) {
+        R_THROW(ResultInvalidArgument);
+    }
+    out_report_data->volume = static_cast<u32>(m_target_volumes[idx]);
     R_SUCCEED();
 }
 

@@ -20,6 +20,11 @@ class ISystemSettingsServer;
 
 namespace Service::Audio {
 
+struct AudioVolumeReportData {
+    u32 volume{};
+};
+static_assert(sizeof(AudioVolumeReportData) == sizeof(u32));
+
 class IAudioController final : public ServiceFramework<IAudioController> {
 public:
     explicit IAudioController(Core::System& system_);
@@ -43,6 +48,7 @@ private:
     Result IsTargetMute(Out<bool> out_is_target_muted, Set::AudioOutputModeTarget target);
     Result SetTargetMute(bool is_muted, Set::AudioOutputModeTarget target);
     Result GetActiveOutputTarget(Out<Set::AudioOutputModeTarget> out_active_target);
+    Result GetAudioVolumeDataForPlayReport(Out<AudioVolumeReportData> out_report_data);
     Result GetAudioOutputMode(Out<Set::AudioOutputMode> out_output_mode,
                               Set::AudioOutputModeTarget target);
     Result SetAudioOutputMode(Set::AudioOutputModeTarget target, Set::AudioOutputMode output_mode);
