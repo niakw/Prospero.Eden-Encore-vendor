@@ -42,6 +42,17 @@ public:
     Result GetApplicationRecord(Out<ApplicationRecord> out_record, u64 application_id);
     Result HasApplicationRecord(Out<bool> out_has_record, u64 application_id);
     Result GetApplicationRecordUpdateSystemEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result GetApplicationShellEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result PopApplicationShellEventInfo(Out<u32> out_event_info_type, Out<u64> out_application_id);
+    Result GetApplicationControlProperty(OutBuffer<BufferAttr_HipcMapAlias> out_buffer,
+                                         u64 application_id);
+    Result GetGameCardAttachmentEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result GetSdCardRemovedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    Result ListApplicationIdOnGameCard(OutArray<u64, BufferAttr_HipcMapAlias> out_ids,
+                                       Out<s32> out_count);
+    Result CountApplicationContentMeta(Out<s32> out_count, u64 application_id);
+    Result ListAvailableAddOnContent(OutArray<u32, BufferAttr_HipcMapAlias> out_addons,
+                                     Out<u32> out_count, u32 offset, u64 application_id);
     Result GetGameCardMountFailureEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result GetGameCardWakenReadyEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result IsGameCardApplicationRunning(Out<bool> out_is_running);
@@ -126,6 +137,7 @@ private:
     Event gamecard_waken_ready_event;
     Event unknown_event;
     Event present_event;
+    Event application_shell_event;
 };
 
 } // namespace Service::NS

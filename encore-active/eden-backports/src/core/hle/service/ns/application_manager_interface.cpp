@@ -4,6 +4,8 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "common/settings.h"
+#include "core/file_sys/common_funcs.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/core.h"
 #include "core/hle/api_version.h"
@@ -40,7 +42,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
       gamecard_update_detection_event{service_context},
       gamecard_mount_status_event{service_context}, gamecard_mount_failure_event{service_context},
       gamecard_waken_ready_event{service_context}, unknown_event{service_context},
-      present_event{service_context} {
+      present_event{service_context}, application_shell_event{service_context} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, D<&IApplicationManagerInterface::ListApplicationRecord>, "ListApplicationRecord"},
@@ -76,11 +78,11 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {42, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CleanupSdCard"},
         {43, D<&IApplicationManagerInterface::CheckSdCardMountStatus>, "CheckSdCardMountStatus"},
         {44, D<&IApplicationManagerInterface::GetSdCardMountStatusChangedEvent>, "GetSdCardMountStatusChangedEvent"},
-        {45, nullptr, "GetGameCardAttachmentEvent"},
+        {45, D<&IApplicationManagerInterface::GetGameCardAttachmentEvent>, "GetGameCardAttachmentEvent"},
         {46, D<&IApplicationManagerInterface::GetGameCardAttachmentInfo>, "GetGameCardAttachmentInfo"},
         {47, D<&IApplicationManagerInterface::GetTotalSpaceSize>, "GetTotalSpaceSize"},
         {48, D<&IApplicationManagerInterface::GetFreeSpaceSize>, "GetFreeSpaceSize"},
-        {49, nullptr, "GetSdCardRemovedEvent"},
+        {49, D<&IApplicationManagerInterface::GetSdCardRemovedEvent>, "GetSdCardRemovedEvent"},
         {52, D<&IApplicationManagerInterface::GetGameCardUpdateDetectionEvent>, "GetGameCardUpdateDetectionEvent"},
         {53, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "DisableApplicationAutoDelete"},
         {54, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "EnableApplicationAutoDelete"},
@@ -132,8 +134,8 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {211, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "DeleteSaveData"},
         {220, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "UnregisterNetworkServiceAccount"},
         {221, D<&IApplicationManagerInterface::UnregisterNetworkServiceAccountWithUserSaveDataDeletion>, "UnregisterNetworkServiceAccountWithUserSaveDataDeletion"},
-        {300, nullptr, "GetApplicationShellEvent"},
-        {301, nullptr, "PopApplicationShellEventInfo"},
+        {300, D<&IApplicationManagerInterface::GetApplicationShellEvent>, "GetApplicationShellEvent"},
+        {301, D<&IApplicationManagerInterface::PopApplicationShellEventInfo>, "PopApplicationShellEventInfo"},
         {302, nullptr, "LaunchLibraryApplet"},
         {303, nullptr, "TerminateLibraryApplet"},
         {304, D<&IApplicationManagerInterface::LaunchSystemApplet>, "LaunchSystemApplet"},
@@ -146,7 +148,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {403, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetMaxApplicationControlCacheCount"},
         {404, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "InvalidateApplicationControlCache"},
         {405, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListApplicationControlCacheEntryInfo"},
-        {406, nullptr, "GetApplicationControlProperty"},
+        {406, D<&IApplicationManagerInterface::GetApplicationControlProperty>, "GetApplicationControlProperty"},
         {407, &IApplicationManagerInterface::ListApplicationTitle, "ListApplicationTitle"},
         {408, &IApplicationManagerInterface::ListApplicationIcon, "ListApplicationIcon"},
         {411, nullptr, "Unknown411"}, //19.0.0+
@@ -176,7 +178,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {506, D<&IApplicationManagerInterface::IsGameCardInserted>, "IsGameCardInserted"},
         {507, nullptr, "EnsureGameCardAccess"},
         {508, nullptr, "GetLastGameCardMountFailureResult"},
-        {509, nullptr, "ListApplicationIdOnGameCard"},
+        {509, D<&IApplicationManagerInterface::ListApplicationIdOnGameCard>, "ListApplicationIdOnGameCard"},
         {510, nullptr, "GetGameCardPlatformRegion"},
         {511, D<&IApplicationManagerInterface::GetGameCardWakenReadyEvent>, "GetGameCardWakenReadyEvent"},
         {512, D<&IApplicationManagerInterface::IsGameCardApplicationRunning>, "IsGameCardApplicationRunning"},
@@ -187,14 +189,14 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {517, nullptr, "Unknown517"}, //21.0.0+
         {518, nullptr, "Unknown518"}, //21.0.0+
         {519, nullptr, "Unknown519"}, //21.0.0+
-        {600, nullptr, "CountApplicationContentMeta"},
+        {600, D<&IApplicationManagerInterface::CountApplicationContentMeta>, "CountApplicationContentMeta"},
         {601, nullptr, "ListApplicationContentMetaStatus"},
-        {602, nullptr, "ListAvailableAddOnContent"},
+        {602, D<&IApplicationManagerInterface::ListAvailableAddOnContent>, "ListAvailableAddOnContent"},
         {603, nullptr, "GetOwnedApplicationContentMetaStatus"},
         {604, nullptr, "RegisterContentsExternalKey"},
         {605, nullptr, "ListApplicationContentMetaStatusWithRightsCheck"},
         {606, nullptr, "GetContentMetaStorage"},
-        {607, nullptr, "ListAvailableAddOnContent"},
+        {607, D<&IApplicationManagerInterface::ListAvailableAddOnContent>, "ListAvailableAddOnContent"},
         {609, nullptr, "ListAvailabilityAssuredAddOnContent"},
         {610, nullptr, "GetInstalledContentMetaStorage"},
         {611, nullptr, "PrepareAddOnContent"},
@@ -220,7 +222,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {910, D<&IApplicationManagerInterface::HasApplicationRecord>, "HasApplicationRecord"},
         {911, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "SetPreInstalledApplication"},
         {912, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ClearPreInstalledApplicationFlag"},
-        {913, nullptr, "ListAllApplicationRecord"},
+        {913, D<&IApplicationManagerInterface::ListApplicationRecord>, "ListAllApplicationRecord"},
         {914, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "HideApplicationRecord"},
         {915, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ShowApplicationRecord"},
         {916, nullptr, "IsApplicationAutoDeleteDisabled"},
@@ -700,6 +702,96 @@ Result IApplicationManagerInterface::GetApplicationRecordUpdateSystemEvent(
     // The handle itself is passive. Mutating application-record operations
     // signal this event when the underlying record set actually changes.
     *out_event = record_update_system_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::GetApplicationShellEvent(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    LOG_DEBUG(Service_NS, "called");
+    application_shell_event.Clear();
+    *out_event = application_shell_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::PopApplicationShellEventInfo(
+    Out<u32> out_event_info_type, Out<u64> out_application_id) {
+    LOG_DEBUG(Service_NS, "called");
+    *out_event_info_type = 0;
+    *out_application_id = 0;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::GetApplicationControlProperty(
+    OutBuffer<BufferAttr_HipcMapAlias> out_buffer, u64 application_id) {
+    u32 actual_size{};
+    R_RETURN(IReadOnlyApplicationControlDataInterface(system).GetApplicationControlData(
+        out_buffer, &actual_size, ApplicationControlSource::Storage, application_id));
+}
+
+Result IApplicationManagerInterface::GetGameCardAttachmentEvent(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    *out_event = gamecard_mount_status_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::GetSdCardRemovedEvent(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    *out_event = sd_card_mount_status_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::ListApplicationIdOnGameCard(
+    OutArray<u64, BufferAttr_HipcMapAlias> out_ids, Out<s32> out_count) {
+    // Encore has no physical Switch game-card backend on PS5. This matches
+    // IsGameCardInserted=false and reports an empty, internally consistent list.
+    (void)out_ids;
+    *out_count = 0;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::CountApplicationContentMeta(
+    Out<s32> out_count, u64 application_id) {
+    const auto& disabled = Settings::values.disabled_addons[application_id];
+    if (std::find(disabled.begin(), disabled.end(), "DLC") != disabled.end()) {
+        *out_count = 0;
+        R_SUCCEED();
+    }
+
+    const auto installed = system.GetContentProviderUnion().ListEntriesFilterOrigin(
+        std::nullopt, FileSys::TitleType::AOC, FileSys::ContentRecordType::Data);
+    s32 count = 0;
+    for (const auto& [slot, entry] : installed) {
+        if (FileSys::GetBaseTitleID(entry.title_id) == application_id) {
+            ++count;
+        }
+    }
+    *out_count = count;
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::ListAvailableAddOnContent(
+    OutArray<u32, BufferAttr_HipcMapAlias> out_addons, Out<u32> out_count, u32 offset,
+    u64 application_id) {
+    std::vector<u32> addons;
+    const auto& disabled = Settings::values.disabled_addons[application_id];
+    if (std::find(disabled.begin(), disabled.end(), "DLC") == disabled.end()) {
+        const auto installed = system.GetContentProviderUnion().ListEntriesFilterOrigin(
+            std::nullopt, FileSys::TitleType::AOC, FileSys::ContentRecordType::Data);
+        for (const auto& [slot, entry] : installed) {
+            if (FileSys::GetBaseTitleID(entry.title_id) == application_id) {
+                addons.push_back(static_cast<u32>(FileSys::GetAOCID(entry.title_id)));
+            }
+        }
+        std::sort(addons.begin(), addons.end());
+        addons.erase(std::unique(addons.begin(), addons.end()), addons.end());
+    }
+
+    R_UNLESS(offset <= addons.size(), AM::ResultApplicationRecordNotFound);
+    const auto count = (std::min)(out_addons.size(), addons.size() - offset);
+    for (std::size_t i = 0; i < count; ++i) {
+        out_addons[i] = addons[offset + i];
+    }
+    *out_count = static_cast<u32>(count);
     R_SUCCEED();
 }
 
