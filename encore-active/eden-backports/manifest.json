@@ -481,8 +481,8 @@
       "upstream": "2ee23f6f39cc1b367c91a7729ec63c6c6a933d7db03eb11a652fe13b917f276b"
     },
     "src/core/hle/service/mig/mig.cpp": {
-      "active": "b53691cfaa0184daf17dd82987bf94fac66b2a0c1000ddb32529496fa7e35763",
-      "bytes": 4475,
+      "active": "95a32643a3c4cad5036a467b10a09274f1508ecd3e7eddfe06d69ea86312aa88",
+      "bytes": 4474,
       "upstream": "5387c8803d0ba6de4cebff8ca332bda476f48812c8b6c6e47091bd09ffd3fff6"
     },
     "src/core/hle/service/mii/mii.cpp": {

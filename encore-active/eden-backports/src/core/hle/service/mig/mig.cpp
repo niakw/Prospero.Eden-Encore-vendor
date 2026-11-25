@@ -69,7 +69,7 @@ private:
 void LoopProcess(Core::System& system) {
     auto server_manager = std::make_unique<ServerManager>(system);
 
-    server_manager->RegisterNamedService("mig:user", std::make_shared<MIG_USR>(system));
+    server_manager->RegisterNamedService("mig:usr", std::make_shared<MIG_USR>(system));
     ServerManager::RunServer(std::move(server_manager));
 }
 
