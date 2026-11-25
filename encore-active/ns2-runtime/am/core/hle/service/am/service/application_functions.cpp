@@ -22,10 +22,14 @@
 #include "core/file_sys/savedata_factory.h"
 #include "core/hle/kernel/k_transfer_memory.h"
 #include "core/hle/result.h"
+#include "core/launch_timestamp_cache.h"
+#include "frontend_common/play_time_manager.h"
 #include "core/hle/service/am/am_results.h"
 #include "core/hle/service/am/applet.h"
+#include "core/hle/service/am/applet_manager.h"
 #include "core/hle/service/am/service/application_functions.h"
 #include "core/hle/service/am/service/storage.h"
+#include "core/hle/service/am/window_system.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/filesystem/filesystem.h"
 #include "core/hle/service/filesystem/save_data_controller.h"
@@ -37,6 +41,22 @@
 namespace Service::AM {
 
 namespace {
+
+constexpr Result ResultCacheStorageAlreadyExists{ErrorModule::FS, 3003};
+constexpr Result ResultCacheStorageSizeTooLarge{ErrorModule::FS, 6069};
+constexpr Result ResultCacheStorageIndexTooLarge{ErrorModule::FS, 6070};
+constexpr Result ResultInvalidCopyrightParameters{ErrorModule::AM, 506};
+
+std::string GetCacheStorageDirectoryName(u64 program_id, u16 index) {
+    if (index == 0) {
+        return fmt::format("{:016X}", program_id);
+    }
+    return fmt::format("{:016X}_{:04X}", program_id, index);
+}
+
+std::string GetCacheStorageRelativePath(u64 program_id, u16 index) {
+    return fmt::format("save/cache/{}", GetCacheStorageDirectoryName(program_id, index));
+}
 
 // Diagnostic only: no changes to the language result or guest IPC layout.
 // Bound release stderr traffic and collapse consecutive identical replies,
@@ -81,7 +101,8 @@ FileSys::PatchManager::Metadata GetApplicationMetadata(Core::System& system, u64
 } // Anonymous namespace
 
 IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_ptr<Applet> applet)
-    : ServiceFramework{system_, "IApplicationFunctions"}, m_applet{std::move(applet)} {
+    : ServiceFramework{system_, "IApplicationFunctions"}, m_applet{std::move(applet)},
+      m_play_time_manager{std::make_unique<PlayTime::PlayTimeManager>()} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {1, D<&IApplicationFunctions::PopLaunchParameter>, "PopLaunchParameter"},
@@ -326,22 +347,72 @@ Result IApplicationFunctions::GetSaveDataSize(Out<u64> out_normal_size, Out<u64>
 Result IApplicationFunctions::CreateCacheStorage(Out<u32> out_target_media,
                                                  Out<u64> out_required_size, u16 index,
                                                  u64 normal_size, u64 journal_size) {
-    LOG_WARNING(Service_AM, "(STUBBED) called with index={} size={:#x} journal_size={:#x}", index,
-                normal_size, journal_size);
+    LOG_DEBUG(Service_AM, "called with index={} size={:#x} journal_size={:#x}", index, normal_size,
+              journal_size);
 
-    *out_target_media = 1; // Nand
+    *out_target_media = 0;
     *out_required_size = 0;
 
+    std::vector<u8> nacp;
+    R_TRY(system.GetARPManager().GetControlProperty(&nacp, m_applet->program_id));
+
+    auto raw_nacp = std::make_unique<FileSys::RawNACP>();
+    std::memcpy(raw_nacp.get(), nacp.data(), (std::min)(sizeof(*raw_nacp), nacp.size()));
+
+    R_UNLESS(index <= static_cast<u16>(raw_nacp->cache_storage_max_index),
+             ResultCacheStorageIndexTooLarge);
+
+    const auto max_size =
+        static_cast<u64>(raw_nacp->cache_storage_data_and_journal_max_size);
+    R_UNLESS(normal_size <= max_size && journal_size <= max_size - normal_size,
+             ResultCacheStorageSizeTooLarge);
+
+    auto controller = system.GetFileSystemController().OpenSaveDataController();
+    FileSys::VirtualDir save_root{};
+    R_TRY(controller->OpenSaveDataSpace(&save_root, FileSys::SaveDataSpaceId::User));
+
+    const auto relative_path = GetCacheStorageRelativePath(m_applet->program_id, index);
+    R_UNLESS(save_root->GetDirectoryRelative(relative_path) == nullptr,
+             ResultCacheStorageAlreadyExists);
+
+    const auto attribute = FileSys::SaveDataAttribute::Make(
+        m_applet->program_id, FileSys::SaveDataType::Cache, {}, 0, index);
+    FileSys::VirtualDir cache_dir{};
+    R_TRY(controller->CreateSaveData(&cache_dir, FileSys::SaveDataSpaceId::User, attribute));
+    R_UNLESS(cache_dir != nullptr, ResultUnknown);
+
+    const FileSys::SaveDataSize size{normal_size, journal_size};
+    const auto size_file = cache_dir->CreateFile(FileSys::GetSaveDataSizeFileName());
+    if (size_file == nullptr || !size_file->Resize(sizeof(size)) ||
+        size_file->WriteObject(size) != sizeof(size)) {
+        if (const auto cache_root = save_root->GetDirectoryRelative("save/cache");
+            cache_root != nullptr) {
+            cache_root->DeleteSubdirectoryRecursive(
+                GetCacheStorageDirectoryName(m_applet->program_id, index));
+        }
+        R_RETURN(ResultUnknown);
+    }
+
+    // Encore has one persistent save-data backing on PS5; report the medium
+    // actually used instead of pretending that a distinct SD save partition exists.
+    *out_target_media = 1; // Nand
     R_SUCCEED();
 }
 
 Result IApplicationFunctions::GetSaveDataSizeMax(Out<u64> out_max_normal_size,
                                                  Out<u64> out_max_journal_size) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    std::vector<u8> nacp;
+    R_TRY(system.GetARPManager().GetControlProperty(&nacp, m_applet->program_id));
 
-    *out_max_normal_size = 0xFFFFFFF;
-    *out_max_journal_size = 0xFFFFFFF;
+    auto raw_nacp = std::make_unique<FileSys::RawNACP>();
+    std::memcpy(raw_nacp.get(), nacp.data(), (std::min)(sizeof(*raw_nacp), nacp.size()));
 
+    *out_max_normal_size = static_cast<u64>(raw_nacp->user_account_save_data_max_size);
+    *out_max_journal_size =
+        static_cast<u64>(raw_nacp->user_account_save_data_max_journal_size);
+
+    LOG_DEBUG(Service_AM, "GetSaveDataSizeMax normal={:#x}, journal={:#x}",
+              *out_max_normal_size, *out_max_journal_size);
     R_SUCCEED();
 }
 
@@ -362,7 +433,7 @@ Result IApplicationFunctions::GetCacheStorageMax(Out<u32> out_cache_storage_inde
 }
 
 Result IApplicationFunctions::BeginBlockingHomeButtonShortAndLongPressed(s64 unused) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->home_button_long_pressed_blocked = true;
@@ -372,7 +443,7 @@ Result IApplicationFunctions::BeginBlockingHomeButtonShortAndLongPressed(s64 unu
 }
 
 Result IApplicationFunctions::EndBlockingHomeButtonShortAndLongPressed() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->home_button_long_pressed_blocked = false;
@@ -382,7 +453,7 @@ Result IApplicationFunctions::EndBlockingHomeButtonShortAndLongPressed() {
 }
 
 Result IApplicationFunctions::BeginBlockingHomeButton(s64 timeout_ns) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, timeout_ns={}", timeout_ns);
+    LOG_DEBUG(Service_AM, "called, timeout_ns={} (automatic timeout not modeled)", timeout_ns);
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->home_button_long_pressed_blocked = true;
@@ -393,7 +464,7 @@ Result IApplicationFunctions::BeginBlockingHomeButton(s64 timeout_ns) {
 }
 
 Result IApplicationFunctions::EndBlockingHomeButton() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->home_button_long_pressed_blocked = false;
@@ -404,8 +475,21 @@ Result IApplicationFunctions::EndBlockingHomeButton() {
 }
 
 Result IApplicationFunctions::NotifyRunning(Out<bool> out_became_running) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_became_running = true;
+    LOG_DEBUG(Service_AM, "called");
+
+    bool became_running{};
+    {
+        std::scoped_lock lk{m_applet->lock};
+        became_running = !m_applet->is_process_running;
+        m_applet->is_process_running = true;
+    }
+
+    *out_became_running = became_running;
+
+    if (auto* window_system = system.GetAppletManager().GetWindowSystem()) {
+        window_system->RequestUpdate();
+    }
+
     R_SUCCEED();
 }
 
@@ -436,7 +520,7 @@ Result IApplicationFunctions::GetPseudoDeviceId(Out<Common::UUID> out_pseudo_dev
 
 Result IApplicationFunctions::IsGamePlayRecordingSupported(
     Out<bool> out_is_game_play_recording_supported) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
     *out_is_game_play_recording_supported = m_applet->game_play_recording_supported;
     R_SUCCEED();
 }
@@ -448,7 +532,7 @@ Result IApplicationFunctions::InitializeGamePlayRecording(
 }
 
 Result IApplicationFunctions::SetMediaPlaybackStateForApplication(bool enabled) {
-    LOG_WARNING(Service_AM, "(stubbed) {}", enabled);
+    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
     std::scoped_lock lk{m_applet->lock};
     m_applet->media_playback_state = enabled;
     R_SUCCEED();
@@ -456,7 +540,7 @@ Result IApplicationFunctions::SetMediaPlaybackStateForApplication(bool enabled) 
 
 Result IApplicationFunctions::SetGamePlayRecordingState(
     GamePlayRecordingState game_play_recording_state) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->game_play_recording_state = game_play_recording_state;
@@ -465,7 +549,7 @@ Result IApplicationFunctions::SetGamePlayRecordingState(
 }
 
 Result IApplicationFunctions::EnableApplicationCrashReport(bool enabled) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->application_crash_report_enabled = enabled;
@@ -476,19 +560,77 @@ Result IApplicationFunctions::EnableApplicationCrashReport(bool enabled) {
 Result IApplicationFunctions::InitializeApplicationCopyrightFrameBuffer(
     s32 width, s32 height, u64 transfer_memory_size,
     InCopyHandle<Kernel::KTransferMemory> transfer_memory_handle) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    constexpr s32 MaxCopyrightWidth = 1280;
+    constexpr s32 MaxCopyrightHeight = 720;
+    constexpr u64 TransferMemoryAlignment = 0x40000;
+
+    const bool dimensions_valid =
+        width >= 1 && width <= MaxCopyrightWidth && height >= 1 && height <= MaxCopyrightHeight;
+    const u64 minimum_size =
+        dimensions_valid ? static_cast<u64>(width) * static_cast<u64>(height) * 4 : 0;
+    R_UNLESS(dimensions_valid && transfer_memory_size >= minimum_size &&
+                 (transfer_memory_size % TransferMemoryAlignment) == 0,
+             ResultInvalidCopyrightParameters);
+
+    // The client keeps ownership of the transfer-memory lifecycle after this call. Encore
+    // records the validated framebuffer contract, while screenshot compositing remains separate.
+    (void)transfer_memory_handle;
+
+    std::scoped_lock lk{m_copyright_mutex};
+    m_copyright_framebuffer_initialized = true;
+    m_copyright_framebuffer_width = width;
+    m_copyright_framebuffer_height = height;
+    m_copyright_transfer_memory_size = transfer_memory_size;
+    m_copyright_visible = true;
+    m_copyright_image = {};
+
+    LOG_DEBUG(Service_AM, "called, width={}, height={}, transfer_memory_size={:#x}", width, height,
+              transfer_memory_size);
     R_SUCCEED();
 }
 
 Result IApplicationFunctions::SetApplicationCopyrightImage(
     s32 x, s32 y, s32 width, s32 height, WindowOriginMode window_origin_mode,
     InBuffer<BufferAttr_HipcMapTransferAllowsNonSecure | BufferAttr_HipcMapAlias> image_data) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    constexpr s32 MaxCopyrightWidth = 1280;
+    constexpr s32 MaxCopyrightHeight = 720;
+
+    R_UNLESS(x >= 0 && y >= 0 && width >= 1 && height >= 1 &&
+                 static_cast<s32>(window_origin_mode) >= 1,
+             ResultInvalidCopyrightParameters);
+
+    const s64 right = static_cast<s64>(x) + static_cast<s64>(width);
+    const s64 bottom = static_cast<s64>(y) + static_cast<s64>(height);
+    const u64 required_bytes = static_cast<u64>(width) * static_cast<u64>(height) * 4;
+    R_UNLESS(right <= MaxCopyrightWidth && bottom <= MaxCopyrightHeight &&
+                 image_data.size() >= required_bytes,
+             ResultInvalidCopyrightParameters);
+
+    std::scoped_lock lk{m_copyright_mutex};
+    if (m_copyright_framebuffer_initialized) {
+        R_UNLESS(right <= m_copyright_framebuffer_width &&
+                     bottom <= m_copyright_framebuffer_height,
+                 ResultInvalidCopyrightParameters);
+    }
+
+    m_copyright_image.x = x;
+    m_copyright_image.y = y;
+    m_copyright_image.width = width;
+    m_copyright_image.height = height;
+    m_copyright_image.origin_mode = window_origin_mode;
+    m_copyright_image.data.assign(image_data.begin(),
+                                  image_data.begin() + static_cast<size_t>(required_bytes));
+
+    LOG_DEBUG(Service_AM,
+              "called, x={}, y={}, width={}, height={}, origin={}, image_bytes={:#x}", x, y, width,
+              height, static_cast<s32>(window_origin_mode), required_bytes);
     R_SUCCEED();
 }
 
 Result IApplicationFunctions::SetApplicationCopyrightVisibility(bool visible) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, is_visible={}", visible);
+    std::scoped_lock lk{m_copyright_mutex};
+    m_copyright_visible = visible;
+    LOG_DEBUG(Service_AM, "called, visible={}", visible);
     R_SUCCEED();
 }
 
@@ -496,8 +638,17 @@ Result IApplicationFunctions::QueryApplicationPlayStatistics(
     Out<s32> out_entries,
     OutArray<ApplicationPlayStatistics, BufferAttr_HipcMapAlias> out_play_statistics,
     InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_entries = 0;
+    const size_t count = (std::min)(out_play_statistics.size(), application_ids.size());
+    for (size_t i = 0; i < count; ++i) {
+        const u64 application_id = application_ids[i];
+        out_play_statistics[i] = {
+            .application_id = application_id,
+            .play_time_ns = m_play_time_manager->GetPlayTime(application_id) * 1'000'000'000ULL,
+            .launch_count = Core::LaunchTimestampCache::GetLaunchCount(application_id),
+        };
+    }
+    *out_entries = static_cast<s32>(count);
+    LOG_DEBUG(Service_AM, "called, entries={}", count);
     R_SUCCEED();
 }
 
@@ -505,9 +656,10 @@ Result IApplicationFunctions::QueryApplicationPlayStatisticsByUid(
     Out<s32> out_entries,
     OutArray<ApplicationPlayStatistics, BufferAttr_HipcMapAlias> out_play_statistics,
     Common::UUID user_id, InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_entries = 0;
-    R_SUCCEED();
+    // Encore currently persists one play-time database for the active emulator profile.
+    // Return that real data rather than fabricating per-user counters.
+    LOG_DEBUG(Service_AM, "called, user_id={}", user_id.FormattedString());
+    R_RETURN(QueryApplicationPlayStatistics(out_entries, out_play_statistics, application_ids));
 }
 
 Result IApplicationFunctions::ExecuteProgram(ProgramSpecifyKind kind, u64 value) {
@@ -553,14 +705,14 @@ Result IApplicationFunctions::UnpopToUserChannel(SharedPointer<IStorage> storage
 }
 
 Result IApplicationFunctions::GetPreviousProgramIndex(Out<s32> out_previous_program_index) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
     *out_previous_program_index = m_applet->previous_program_index;
     R_SUCCEED();
 }
 
 Result IApplicationFunctions::GetGpuErrorDetectedSystemEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
     *out_event = m_applet->gpu_error_detected_event.GetHandle();
     R_SUCCEED();
 }
@@ -828,7 +980,7 @@ Result IApplicationFunctions::Unknown330(Out<u8> out) {
 }
 
 Result IApplicationFunctions::PrepareForJit() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->jit_service_launched = true;
