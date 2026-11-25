@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <array>
 #include <cstdio>
 #include <mutex>
 #include <optional>
@@ -13,6 +14,7 @@
 #include "common/hex_util.h"
 #include "common/settings.h"
 #include "common/uuid.h"
+#include "core/core.h"
 #include "core/file_sys/common_funcs.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
@@ -83,17 +85,17 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
     // clang-format off
     static const FunctionInfo functions[] = {
         {1, D<&IApplicationFunctions::PopLaunchParameter>, "PopLaunchParameter"},
-        {10, nullptr, "CreateApplicationAndPushAndRequestToStart"},
-        {11, nullptr, "CreateApplicationAndPushAndRequestToStartForQuest"},
+        {10, D<&IApplicationFunctions::CreateApplicationAndPushAndRequestToStart>, "CreateApplicationAndPushAndRequestToStart"},
+        {11, D<&IApplicationFunctions::CreateApplicationAndPushAndRequestToStartForQuest>, "CreateApplicationAndPushAndRequestToStartForQuest"},
         {12, D<&IApplicationFunctions::CreateApplicationAndRequestToStart>, "CreateApplicationAndRequestToStart"},
-        {13, nullptr, "CreateApplicationAndRequestToStartForQuest"},
-        {14, nullptr, "CreateApplicationWithAttributeAndPushAndRequestToStartForQuest"},
-        {15, nullptr, "CreateApplicationWithAttributeAndRequestToStartForQuest"},
+        {13, D<&IApplicationFunctions::CreateApplicationAndRequestToStartForQuest>, "CreateApplicationAndRequestToStartForQuest"},
+        {14, D<&IApplicationFunctions::CreateApplicationWithAttributeAndPushAndRequestToStartForQuest>, "CreateApplicationWithAttributeAndPushAndRequestToStartForQuest"},
+        {15, D<&IApplicationFunctions::CreateApplicationWithAttributeAndRequestToStartForQuest>, "CreateApplicationWithAttributeAndRequestToStartForQuest"},
         {20, D<&IApplicationFunctions::EnsureSaveData>, "EnsureSaveData"},
         {21, D<&IApplicationFunctions::GetDesiredLanguage>, "GetDesiredLanguage"},
         {22, D<&IApplicationFunctions::SetTerminateResult>, "SetTerminateResult"},
         {23, D<&IApplicationFunctions::GetDisplayVersion>, "GetDisplayVersion"},
-        {24, nullptr, "GetLaunchStorageInfoForDebug"},
+        {24, D<&IApplicationFunctions::RejectDebugOnlyCommand>, "GetLaunchStorageInfoForDebug"},
         {25, D<&IApplicationFunctions::ExtendSaveData>, "ExtendSaveData"},
         {26, D<&IApplicationFunctions::GetSaveDataSize>, "GetSaveDataSize"},
         {27, D<&IApplicationFunctions::CreateCacheStorage>, "CreateCacheStorage"},
@@ -104,8 +106,8 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {32, D<&IApplicationFunctions::BeginBlockingHomeButton>, "BeginBlockingHomeButton"},
         {33, D<&IApplicationFunctions::EndBlockingHomeButton>, "EndBlockingHomeButton"},
         {34, nullptr, "SelectApplicationLicense"},
-        {35, nullptr, "GetDeviceSaveDataSizeMax"},
-        {36, nullptr, "GetLimitedApplicationLicense"},
+        {35, D<&IApplicationFunctions::GetDeviceSaveDataSizeMax>, "GetDeviceSaveDataSizeMax"},
+        {36, D<&IApplicationFunctions::GetLimitedApplicationLicense>, "GetLimitedApplicationLicense"},
         {37, nullptr, "GetLimitedApplicationLicenseUpgradableEvent"},
         {40, D<&IApplicationFunctions::NotifyRunning>, "NotifyRunning"},
         {50, D<&IApplicationFunctions::GetPseudoDeviceId>, "GetPseudoDeviceId"},
@@ -113,11 +115,11 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {65, D<&IApplicationFunctions::IsGamePlayRecordingSupported>, "IsGamePlayRecordingSupported"},
         {66, D<&IApplicationFunctions::InitializeGamePlayRecording>, "InitializeGamePlayRecording"},
         {67, D<&IApplicationFunctions::SetGamePlayRecordingState>, "SetGamePlayRecordingState"},
-        {68, nullptr, "RequestFlushGamePlayingMovieForDebug"},
-        {70, nullptr, "RequestToShutdown"},
-        {71, nullptr, "RequestToReboot"},
-        {72, nullptr, "RequestToSleep"},
-        {80, nullptr, "ExitAndRequestToShowThanksMessage"},
+        {68, D<&IApplicationFunctions::RejectDebugOnlyCommand>, "RequestFlushGamePlayingMovieForDebug"},
+        {70, D<&IApplicationFunctions::RequestToShutdown>, "RequestToShutdown"},
+        {71, D<&IApplicationFunctions::RequestToReboot>, "RequestToReboot"},
+        {72, D<&IApplicationFunctions::RequestToSleep>, "RequestToSleep"},
+        {80, D<&IApplicationFunctions::ExitAndRequestToShowThanksMessage>, "ExitAndRequestToShowThanksMessage"},
         {90, D<&IApplicationFunctions::EnableApplicationCrashReport>, "EnableApplicationCrashReport"},
         {100, D<&IApplicationFunctions::InitializeApplicationCopyrightFrameBuffer>, "InitializeApplicationCopyrightFrameBuffer"},
         {101, D<&IApplicationFunctions::SetApplicationCopyrightImage>, "SetApplicationCopyrightImage"},
@@ -128,22 +130,22 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {121, D<&IApplicationFunctions::ClearUserChannel>, "ClearUserChannel"},
         {122, D<&IApplicationFunctions::UnpopToUserChannel>, "UnpopToUserChannel"},
         {123, D<&IApplicationFunctions::GetPreviousProgramIndex>, "GetPreviousProgramIndex"},
-        {124, nullptr, "EnableApplicationAllThreadDumpOnCrash"},
+        {124, D<&IApplicationFunctions::EnableApplicationAllThreadDumpOnCrash>, "EnableApplicationAllThreadDumpOnCrash"},
         {130, D<&IApplicationFunctions::GetGpuErrorDetectedSystemEvent>, "GetGpuErrorDetectedSystemEvent"},
-        {131, nullptr, "SetDelayTimeToAbortOnGpuError"},
+        {131, D<&IApplicationFunctions::SetDelayTimeToAbortOnGpuError>, "SetDelayTimeToAbortOnGpuError"},
         {140, D<&IApplicationFunctions::GetFriendInvitationStorageChannelEvent>, "GetFriendInvitationStorageChannelEvent"},
         {141, D<&IApplicationFunctions::TryPopFromFriendInvitationStorageChannel>, "TryPopFromFriendInvitationStorageChannel"},
         {150, D<&IApplicationFunctions::GetNotificationStorageChannelEvent>, "GetNotificationStorageChannelEvent"},
-        {151, nullptr, "TryPopFromNotificationStorageChannel"},
+        {151, D<&IApplicationFunctions::TryPopFromNotificationStorageChannel>, "TryPopFromNotificationStorageChannel"},
         {160, D<&IApplicationFunctions::GetHealthWarningDisappearedSystemEvent>, "GetHealthWarningDisappearedSystemEvent"},
-        {170, nullptr, "SetHdcpAuthenticationActivated"},
-        {180, nullptr, "GetLaunchRequiredVersion"},
-        {181, nullptr, "UpgradeLaunchRequiredVersion"},
-        {190, nullptr, "SendServerMaintenanceOverlayNotification"},
-        {200, nullptr, "GetLastApplicationExitReason"},
+        {170, D<&IApplicationFunctions::SetHdcpAuthenticationActivated>, "SetHdcpAuthenticationActivated"},
+        {180, &IApplicationFunctions::GetLaunchRequiredVersion, "GetLaunchRequiredVersion"},
+        {181, &IApplicationFunctions::UpgradeLaunchRequiredVersion, "UpgradeLaunchRequiredVersion"},
+        {190, &IApplicationFunctions::SendServerMaintenanceOverlayNotification, "SendServerMaintenanceOverlayNotification"},
+        {200, D<&IApplicationFunctions::GetLastApplicationExitReason>, "GetLastApplicationExitReason"},
         {210, D<&IApplicationFunctions::GetUnknownEvent210>, "Unknown210"},
         {220, nullptr, "Unknown220"}, // [20.0.0+]
-        {300, nullptr, "CreateMovieWriter"}, // [19.0.0+]
+        {300, &IApplicationFunctions::RejectUnavailableMovieCommand, "CreateMovieWriter"}, // [19.0.0+]
         {310, nullptr, "Unknown310"}, // [20.0.0+]
         {320, D<&IApplicationFunctions::GetScreenShotAndContinuousRecordingInitiallyEnabled>,
          "GetScreenShotAndContinuousRecordingInitiallyEnabled"}, // NS2 SDK 20.0+
@@ -151,8 +153,8 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         // successful IPC reply with stale data left in the output word.
         {321, D<&IApplicationFunctions::Unknown321>, "Unknown321"}, // Switch 2
         {330, D<&IApplicationFunctions::Unknown330>, "Unknown330"}, // [20.0.0+]
-        {500, nullptr, "StartContinuousRecordingFlushForDebug"},
-        {1000, nullptr, "CreateMovieMaker"},
+        {500, D<&IApplicationFunctions::RejectDebugOnlyCommand>, "StartContinuousRecordingFlushForDebug"},
+        {1000, &IApplicationFunctions::RejectUnavailableMovieCommand, "CreateMovieMaker"},
         {1001, D<&IApplicationFunctions::PrepareForJit>, "PrepareForJit"},
     };
     // clang-format on
@@ -619,6 +621,185 @@ Result IApplicationFunctions::GetScreenShotAndContinuousRecordingInitiallyEnable
                              m_applet->game_play_recording_state == GamePlayRecordingState::Enabled;
     LOG_DEBUG(Service_AM, "called, screenshot={}, recording={}", *out_screenshot_enabled,
               *out_recording_enabled);
+    R_SUCCEED();
+}
+
+void IApplicationFunctions::RejectUnavailableMovieCommand(HLERequestContext& ctx) {
+    LOG_WARNING(Service_AM, "Movie capture/encoding interface unavailable on this runtime");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultUnknown);
+}
+
+Result IApplicationFunctions::RejectDebugOnlyCommand() {
+    LOG_WARNING(Service_AM, "Rejected application-functions debug command on release runtime");
+    R_RETURN(ResultUnknown);
+}
+
+Result IApplicationFunctions::CreateApplicationAndPushAndRequestToStart(
+    u64 application_id, SharedPointer<IStorage> storage) {
+    LOG_INFO(Service_AM, "called, application_id={:016X}", application_id);
+
+    m_applet->user_channel_launch_parameter.push_back(storage->GetData());
+    const Result result = CreateApplicationAndRequestToStart(application_id);
+    if (R_FAILED(result)) {
+        m_applet->user_channel_launch_parameter.pop_back();
+    }
+    R_RETURN(result);
+}
+
+Result IApplicationFunctions::CreateApplicationAndPushAndRequestToStartForQuest(
+    u32 attribute0, u32 attribute1, u64 application_id, SharedPointer<IStorage> storage) {
+    LOG_INFO(Service_AM,
+             "called, application_id={:016X}, quest_attr0={:#x}, quest_attr1={:#x}",
+             application_id, attribute0, attribute1);
+
+    // The Quest attributes tune kiosk launch policy. Encore can preserve the real user-channel
+    // storage and application transition today, while those two policy values are not modeled.
+    R_RETURN(CreateApplicationAndPushAndRequestToStart(application_id, std::move(storage)));
+}
+
+Result IApplicationFunctions::CreateApplicationAndRequestToStartForQuest(
+    u32 attribute0, u32 attribute1, u64 application_id) {
+    LOG_INFO(Service_AM,
+             "called, application_id={:016X}, quest_attr0={:#x}, quest_attr1={:#x}",
+             application_id, attribute0, attribute1);
+    R_RETURN(CreateApplicationAndRequestToStart(application_id));
+}
+
+Result IApplicationFunctions::CreateApplicationWithAttributeAndPushAndRequestToStartForQuest(
+    u64 application_id, InBuffer<BufferAttr_HipcMapAlias> attribute,
+    SharedPointer<IStorage> storage) {
+    LOG_INFO(Service_AM, "called, application_id={:016X}, attribute_size={:#x}",
+             application_id, attribute.size());
+    R_RETURN(CreateApplicationAndPushAndRequestToStart(application_id, std::move(storage)));
+}
+
+Result IApplicationFunctions::CreateApplicationWithAttributeAndRequestToStartForQuest(
+    u64 application_id, InBuffer<BufferAttr_HipcMapAlias> attribute) {
+    LOG_INFO(Service_AM, "called, application_id={:016X}, attribute_size={:#x}",
+             application_id, attribute.size());
+    R_RETURN(CreateApplicationAndRequestToStart(application_id));
+}
+
+Result IApplicationFunctions::GetDeviceSaveDataSizeMax(Out<u64> out_max_normal_size,
+                                                       Out<u64> out_max_journal_size) {
+    std::vector<u8> nacp;
+    R_TRY(system.GetARPManager().GetControlProperty(&nacp, m_applet->program_id));
+
+    auto raw_nacp = std::make_unique<FileSys::RawNACP>();
+    std::memcpy(raw_nacp.get(), nacp.data(), (std::min)(sizeof(*raw_nacp), nacp.size()));
+
+    *out_max_normal_size = static_cast<u64>(raw_nacp->device_save_data_max_size);
+    *out_max_journal_size = static_cast<u64>(raw_nacp->device_save_data_max_journal_size);
+
+    LOG_DEBUG(Service_AM, "GetDeviceSaveDataSizeMax normal={:#x}, journal={:#x}",
+              *out_max_normal_size, *out_max_journal_size);
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::GetLimitedApplicationLicense(Out<u8> out_license_type) {
+    *out_license_type = 0;
+    LOG_DEBUG(Service_AM, "called, no limited/trial application license");
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::SetDelayTimeToAbortOnGpuError(u64 delay_ns) {
+    LOG_DEBUG(Service_AM, "called, delay_ns={} (no guest GPU-abort timer)", delay_ns);
+    R_SUCCEED();
+}
+
+void IApplicationFunctions::SendServerMaintenanceOverlayNotification(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    [[maybe_unused]] const auto notification = rp.PopRaw<std::array<u8, 0x10>>();
+    LOG_DEBUG(Service_AM, "called (maintenance overlay unavailable; payload consumed)");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void IApplicationFunctions::GetLaunchRequiredVersion(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    [[maybe_unused]] const auto request = rp.PopRaw<std::array<u8, 0x10>>();
+    LOG_WARNING(Service_AM, "GetLaunchRequiredVersion HOS23 payload is not decoded; rejecting");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultUnknown);
+}
+
+void IApplicationFunctions::UpgradeLaunchRequiredVersion(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    [[maybe_unused]] const auto request = rp.PopRaw<std::array<u8, 0x50>>();
+    LOG_WARNING(Service_AM, "UpgradeLaunchRequiredVersion HOS23 payload is not decoded; rejecting");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultUnknown);
+}
+
+Result IApplicationFunctions::GetLastApplicationExitReason(
+    Out<s32> out_last_application_exit_reason) {
+    std::scoped_lock lk{m_applet->lock};
+    *out_last_application_exit_reason = m_applet->last_application_exit_reason;
+    LOG_DEBUG(Service_AM, "called, reason={}", *out_last_application_exit_reason);
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::RequestToShutdown() {
+    LOG_INFO(Service_AM, "called");
+    system.Exit();
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::RequestToReboot() {
+    LOG_INFO(Service_AM, "called");
+    // The existing global AM controller represents guest reboot with this same exit transition.
+    // It never requests a reboot of the PS5 host.
+    system.Exit();
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::RequestToSleep() {
+    LOG_DEBUG(Service_AM, "called (guest sleep has no PS5-host side effect)");
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::ExitAndRequestToShowThanksMessage() {
+    LOG_DEBUG(Service_AM, "called (no Horizon Thanks system-applet backend)");
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::EnableApplicationAllThreadDumpOnCrash(bool enabled) {
+    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->all_thread_dump_on_crash_enabled = enabled;
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::TryPopFromNotificationStorageChannel(
+    Out<SharedPointer<IStorage>> out_storage) {
+    LOG_DEBUG(Service_AM, "called");
+
+    std::scoped_lock lk{m_applet->lock};
+    auto& channel = m_applet->notification_storage_channel;
+    if (channel.empty()) {
+        R_THROW(AM::ResultNoDataInChannel);
+    }
+
+    auto data = std::move(channel.back());
+    channel.pop_back();
+    *out_storage = std::make_shared<IStorage>(system, std::move(data));
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::SetHdcpAuthenticationActivated(bool activated) {
+    LOG_DEBUG(Service_AM, "called, activated={}", activated);
+
+    bool changed{};
+    {
+        std::scoped_lock lk{m_applet->lock};
+        changed = m_applet->hdcp_authentication_activated != activated;
+        m_applet->hdcp_authentication_activated = activated;
+    }
+    if (changed) {
+        m_applet->lifecycle_manager.GetHDCPStateChangedEvent().Signal(system.Kernel());
+    }
+
     R_SUCCEED();
 }
 

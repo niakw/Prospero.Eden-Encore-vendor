@@ -84,6 +84,33 @@ private:
     Result GetHealthWarningDisappearedSystemEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result CreateApplicationAndRequestToStart(u64 application_id);
     Result GetUnknownEvent210(OutCopyHandle<Kernel::KReadableEvent> out_event);
+    void RejectUnavailableMovieCommand(HLERequestContext& ctx);
+    Result RejectDebugOnlyCommand();
+    Result CreateApplicationAndPushAndRequestToStart(u64 application_id,
+                                                          SharedPointer<IStorage> storage);
+    Result CreateApplicationAndPushAndRequestToStartForQuest(
+            u32 attribute0, u32 attribute1, u64 application_id, SharedPointer<IStorage> storage);
+    Result CreateApplicationAndRequestToStartForQuest(u32 attribute0, u32 attribute1,
+                                                           u64 application_id);
+    Result CreateApplicationWithAttributeAndPushAndRequestToStartForQuest(
+            u64 application_id, InBuffer<BufferAttr_HipcMapAlias> attribute,
+            SharedPointer<IStorage> storage);
+    Result CreateApplicationWithAttributeAndRequestToStartForQuest(
+            u64 application_id, InBuffer<BufferAttr_HipcMapAlias> attribute);
+    Result GetDeviceSaveDataSizeMax(Out<u64> out_max_normal_size, Out<u64> out_max_journal_size);
+    Result GetLimitedApplicationLicense(Out<u8> out_license_type);
+    Result SetDelayTimeToAbortOnGpuError(u64 delay_ns);
+    void SendServerMaintenanceOverlayNotification(HLERequestContext& ctx);
+    void GetLaunchRequiredVersion(HLERequestContext& ctx);
+    void UpgradeLaunchRequiredVersion(HLERequestContext& ctx);
+    Result GetLastApplicationExitReason(Out<s32> out_last_application_exit_reason);
+    Result RequestToShutdown();
+    Result RequestToReboot();
+    Result RequestToSleep();
+    Result ExitAndRequestToShowThanksMessage();
+    Result EnableApplicationAllThreadDumpOnCrash(bool enabled);
+    Result TryPopFromNotificationStorageChannel(Out<SharedPointer<IStorage>> out_storage);
+    Result SetHdcpAuthenticationActivated(bool activated);
     Result GetScreenShotAndContinuousRecordingInitiallyEnabled(
         Out<bool> out_screenshot_enabled, Out<bool> out_recording_enabled);
     Result Unknown321(Out<u8> out);
