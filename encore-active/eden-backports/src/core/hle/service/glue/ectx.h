@@ -22,7 +22,6 @@ public:
 private:
     void CreateContextRegistrar(HLERequestContext& ctx);
     void RejectUnsupportedContextCommand(HLERequestContext& ctx);
-    void RejectUnsupportedContextCommand(HLERequestContext& ctx);
 };
 
 class ECTX_R final : public ServiceFramework<ECTX_R> {
@@ -41,6 +40,7 @@ public:
 
 private:
     void CreateContextRegistrar(HLERequestContext& ctx);
+    void RejectUnsupportedContextCommand(HLERequestContext& ctx);
 };
 
 } // namespace Service::Glue
