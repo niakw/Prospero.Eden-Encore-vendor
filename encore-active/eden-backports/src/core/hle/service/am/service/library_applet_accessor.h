@@ -40,7 +40,7 @@ private:
     Result GetCurrentChildLibraryApplet(Out<SharedPointer<IApplicationAccessor>> out_accessor);
     Result NeedsToExitProcess(Out<bool> out_needs_to_exit);
     Result RequestForAppletToGetForeground();
-    Result Unknown90();
+    Result Unknown90(u64 arg0, u64 arg1, u64 arg2, u64 arg3);
     Result PushInData(SharedPointer<IStorage> storage);
     Result PopOutData(Out<SharedPointer<IStorage>> out_storage);
     Result PushExtraStorage(SharedPointer<IStorage> storage);
