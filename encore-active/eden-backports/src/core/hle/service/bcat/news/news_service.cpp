@@ -1,0 +1,124 @@
+// SPDX-FileCopyrightText: Copyright 2025 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "core/hle/service/bcat/news/news_service.h"
+#include "core/hle/service/bcat/news/news_storage.h"
+#include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/ipc_helpers.h"
+
+#include <cstring>
+
+namespace Service::News {
+
+INewsService::INewsService(Core::System& system_) : ServiceFramework{system_, "INewsService"} {
+    // clang-format off
+    static const FunctionInfo functions[] = {
+        {10100, D<&INewsService::PostLocalNews>, "PostLocalNews"},
+        {20100, D<&INewsService::SetPassphrase>, "SetPassphrase"},
+        {30100, D<&INewsService::GetSubscriptionStatus>, "GetSubscriptionStatus"},
+        {30101, D<&INewsService::GetTopicList>, "GetTopicList"}, //3.0.0+
+        {30110, D<&INewsService::GetTopicList>, "Unknown30110"}, //6.0.0+ (stub)
+        {30200, D<&INewsService::IsSystemUpdateRequired>, "IsSystemUpdateRequired"},
+        {30201, D<&INewsService::IsSystemUpdateRequired>, "Unknown30201"}, //8.0.0+ (stub)
+        {30210, D<&INewsService::IsSystemUpdateRequired>, "Unknown30210"}, //10.0.0+ (stub)
+        {30300, &INewsService::RejectUnavailableNewsBackend, "RequestImmediateReception"},
+        {30400, &INewsService::RejectUnavailableNewsBackend, "DecodeArchiveFile"}, //3.0.0-18.1.0 (stub)
+        {30500, &INewsService::RejectUnavailableNewsBackend, "Unknown30500"}, //8.0.0+ (stub)
+        {30900, &INewsService::RejectUnavailableNewsBackend, "Unknown30900"}, //1.0.0 (stub)
+        {30901, &INewsService::RejectUnavailableNewsBackend, "Unknown30901"}, //1.0.0 (stub)
+        {30902, &INewsService::RejectUnavailableNewsBackend, "Unknown30902"}, //1.0.0 (stub)
+        {40100, &INewsService::RejectUnavailableNewsBackend, "SetSubscriptionStatus"},
+        {40101, D<&INewsService::RequestAutoSubscription>, "RequestAutoSubscription"}, //3.0.0+
+        {40200, D<&INewsService::ClearStorage>, "ClearStorage"},
+        {40201, D<&INewsService::ClearSubscriptionStatusAll>, "ClearSubscriptionStatusAll"},
+        {90100, D<&INewsService::GetNewsDatabaseDump>, "GetNewsDatabaseDump"},
+    };
+    // clang-format on
+
+    RegisterHandlers(functions);
+}
+
+void INewsService::RejectUnavailableNewsBackend(HLERequestContext& ctx) {
+    // Remote news reception/subscription/archive services require Nintendo infrastructure.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultUnknown);
+}
+
+INewsService::~INewsService() = default;
+
+Result INewsService::PostLocalNews(InBuffer<BufferAttr_HipcAutoSelect> buffer_data) {
+    // Horizon local-news archive ingestion is not modeled; Encore exposes its own built-in/local
+    // NewsStorage instead. Acknowledge the guest request without fabricating parsed records.
+    LOG_DEBUG(Service_BCAT, "Local-news archive ignored, size={}", buffer_data.size());
+    R_SUCCEED();
+}
+
+Result INewsService::GetSubscriptionStatus(Out<u32> out_status,
+                                           InBuffer<BufferAttr_HipcPointer> buffer_data) {
+    // No Nintendo news subscription backend exists; report the neutral unsubscribed state.
+    LOG_DEBUG(Service_BCAT, "Returning local-news subscription status, buffer_size={}",
+              buffer_data.size());
+    *out_status = 0;
+    R_SUCCEED();
+}
+
+Result INewsService::IsSystemUpdateRequired(Out<bool> out_is_system_update_required) {
+    // News service must not invent firmware-update requirements for the emulated guest.
+    *out_is_system_update_required = false;
+    LOG_DEBUG(Service_BCAT, "No news-triggered system update required");
+    R_SUCCEED();
+}
+
+Result INewsService::RequestAutoSubscription(u64 value) {
+    // Nintendo account/news subscriptions are outside Encore's local NewsStorage model.
+    LOG_DEBUG(Service_BCAT, "Auto-subscription request ignored, value={}", value);
+    R_SUCCEED();
+}
+
+Result INewsService::SetPassphrase(InBuffer<BufferAttr_HipcPointer> buffer_data) {
+    // Passphrases protect Nintendo-delivered news archives; local Encore news is not encrypted.
+    LOG_DEBUG(Service_BCAT, "News passphrase ignored, size={}", buffer_data.size());
+    R_SUCCEED();
+}
+
+Result INewsService::GetTopicList(Out<s32> out_count, OutBuffer<BufferAttr_HipcMapAlias> out_topics, s32 filter) {
+    constexpr size_t TopicIdSize = 32;
+    constexpr auto EdenTopicId = "eden";
+
+    const size_t max_topics = out_topics.size() / TopicIdSize;
+
+    if (max_topics == 0) {
+        *out_count = 0;
+        R_SUCCEED();
+    }
+
+    std::memset(out_topics.data(), 0, out_topics.size());
+
+    std::memcpy(out_topics.data(), EdenTopicId, std::strlen(EdenTopicId));
+    *out_count = 1;
+
+    R_SUCCEED();
+}
+
+Result INewsService::ClearStorage() {
+    LOG_DEBUG(Service_BCAT, "Clearing local news storage");
+    NewsStorage::Instance().Clear();
+    R_SUCCEED();
+}
+
+Result INewsService::ClearSubscriptionStatusAll() {
+    // Encore does not persist Nintendo subscription state, so there is no local state to clear.
+    LOG_DEBUG(Service_BCAT, "Subscription-status clear ignored (no persisted subscription state)");
+    R_SUCCEED();
+}
+
+Result INewsService::GetNewsDatabaseDump() {
+    // Debug/export command: the guest ABI is accepted, but Encore has no Nintendo DB dump format.
+    LOG_DEBUG(Service_BCAT, "News database dump ignored (unsupported Nintendo dump format)");
+    R_SUCCEED();
+}
+
+} // namespace Service::News
