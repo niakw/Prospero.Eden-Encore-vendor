@@ -547,7 +547,8 @@ Result ISelfController::SetRecordVolumeMuted(bool muted) {
 }
 
 Result ISelfController::Unknown230(u32 in_val, Out<u16> out_val) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, in_val={}", in_val);
+    LOG_WARNING(Service_AM,
+                "Undocumented HOS20+ Unknown230 compatibility response, in_val={}", in_val);
 
     *out_val = 0;
 
@@ -555,7 +556,8 @@ Result ISelfController::Unknown230(u32 in_val, Out<u16> out_val) {
 }
 
 Result ISelfController::Unknown240(u32 in_val) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, in_val={}", in_val);
+    LOG_WARNING(Service_AM,
+                "Undocumented HOS23+ Unknown240 compatibility response, in_val={}", in_val);
 
     R_SUCCEED();
 }
