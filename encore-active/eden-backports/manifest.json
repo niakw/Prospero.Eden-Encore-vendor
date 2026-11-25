@@ -1296,13 +1296,13 @@
       "bytes": 2688
     },
     "src/core/hle/service/ns/content_management_interface.cpp": {
-      "active": "4cdcb68b593381cc31e3d6dc4c192a345d4e13ba3d598d5427063f9a412d196e",
-      "bytes": 7397,
+      "active": "502ae7498e1f444bc6811112231cbbb1bbd0f97bd7a9b643c5d5b252f6d4c5f1",
+      "bytes": 9795,
       "upstream": "83a8eae9ea9e50190d72315fd3d838cc1f72c3a6eec79c353c9510faf1b9d4a2"
     },
     "src/core/hle/service/ns/content_management_interface.h": {
-      "active": "51e39d3dac28b309e8cd34e84d9b08fea79fb55afa5f16c3b731bd736615c3a3",
-      "bytes": 1220,
+      "active": "40be7d3f2d4feec6fa9a74487ceab2eca7a05767fe1a270c808cb6529d696223",
+      "bytes": 1646,
       "upstream": "7891715802a786423749e02e324697fa8c42b338f00fc19499a93acc1965201f"
     }
   },

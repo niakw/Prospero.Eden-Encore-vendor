@@ -4,9 +4,11 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <array>
 #include <limits>
 #include <set>
+#include <vector>
 
 #include "common/common_funcs.h"
 #include "core/core.h"
@@ -33,7 +35,7 @@ IContentManagementInterface::IContentManagementInterface(Core::System& system_)
         {48, D<&IContentManagementInterface::GetFreeSpaceSize>, "GetFreeSpaceSize"},
         {71, D<&IContentManagementInterface::GetUnknown71>, "Unknown71"},
         {600, D<&IContentManagementInterface::CountApplicationContentMeta>, "CountApplicationContentMeta"},
-        {601, nullptr, "ListApplicationContentMetaStatus"},
+        {601, D<&IContentManagementInterface::ListApplicationContentMetaStatus>, "ListApplicationContentMetaStatus"},
         {605, nullptr, "ListApplicationContentMetaStatusWithRightsCheck"},
         {607, D<&IContentManagementInterface::IsAnyApplicationRunning>, "IsAnyApplicationRunning"},
         {608, nullptr, "Unknown608"}, //21.0.0+
@@ -50,6 +52,62 @@ namespace {
 u64 SaturatingAddSize(u64 lhs, u64 rhs) {
     return rhs > std::numeric_limits<u64>::max() - lhs ? std::numeric_limits<u64>::max()
                                                         : lhs + rhs;
+}
+
+FileSys::StorageId GetStorageIdForContentSlot(
+    std::optional<FileSys::ContentProviderUnionSlot> slot) {
+    if (!slot.has_value()) {
+        return FileSys::StorageId::None;
+    }
+    switch (*slot) {
+    case FileSys::ContentProviderUnionSlot::UserNAND:
+        return FileSys::StorageId::NandUser;
+    case FileSys::ContentProviderUnionSlot::SysNAND:
+        return FileSys::StorageId::NandSystem;
+    case FileSys::ContentProviderUnionSlot::SDMC:
+        return FileSys::StorageId::SdCard;
+    case FileSys::ContentProviderUnionSlot::FrontendManual:
+        return FileSys::StorageId::Host;
+    default:
+        return FileSys::StorageId::None;
+    }
+}
+
+std::vector<ApplicationContentMetaStatus> BuildApplicationContentMetaStatuses(
+    Core::System& system, u64 application_id) {
+    const u64 requested_id =
+        application_id != 0 ? application_id : system.GetApplicationProcessProgramID();
+    const u64 real_id = FileSys::GetBaseTitleID(requested_id);
+    auto& cp = system.GetContentProviderUnion();
+
+    std::vector<ApplicationContentMetaStatus> statuses;
+    const auto append = [&](u64 title_id, FileSys::TitleType meta_type,
+                            FileSys::ContentRecordType record_type) {
+        if (!cp.HasEntry(title_id, record_type)) {
+            return;
+        }
+        statuses.push_back({
+            .meta_type = static_cast<u8>(meta_type),
+            .storage_id = GetStorageIdForContentSlot(cp.GetSlotForEntry(title_id, record_type)),
+            .rights_check = 0,
+            .reserved = 0,
+            .version = cp.GetEntryVersion(title_id).value_or(0),
+            .application_id = title_id,
+        });
+    };
+
+    append(real_id, FileSys::TitleType::Application, FileSys::ContentRecordType::Program);
+    append(FileSys::GetUpdateTitleID(real_id), FileSys::TitleType::Update,
+           FileSys::ContentRecordType::Program);
+
+    const auto aocs =
+        cp.ListEntriesFilter(FileSys::TitleType::AOC, FileSys::ContentRecordType::Data);
+    for (const auto& entry : aocs) {
+        if (FileSys::GetBaseTitleID(entry.title_id) == real_id) {
+            append(entry.title_id, FileSys::TitleType::AOC, FileSys::ContentRecordType::Data);
+        }
+    }
+    return statuses;
 }
 
 u64 InstalledTitleSize(const FileSys::RegisteredCache& cache, u64 title_id) {
@@ -155,27 +213,26 @@ Result IContentManagementInterface::GetUnknown71(Out<u64> out_value_a, Out<u64> 
 
 Result IContentManagementInterface::CountApplicationContentMeta(Out<s32> out_count,
                                                                 u64 application_id) {
-    const u64 requested_id =
-        application_id != 0 ? application_id : system.GetApplicationProcessProgramID();
-    const u64 real_id = FileSys::GetBaseTitleID(requested_id);
-    const auto& cp = system.GetContentProviderUnion();
+    const auto statuses = BuildApplicationContentMetaStatuses(system, application_id);
+    *out_count = static_cast<s32>(statuses.size());
+    R_SUCCEED();
+}
 
-    s32 count = 0;
-    if (cp.HasEntry(real_id, FileSys::ContentRecordType::Program)) {
-        ++count;
-    }
-    if (cp.HasEntry(FileSys::GetUpdateTitleID(real_id), FileSys::ContentRecordType::Program)) {
-        ++count;
-    }
-    const auto aocs = cp.ListEntriesFilterOrigin(
-        std::nullopt, FileSys::TitleType::AOC, FileSys::ContentRecordType::Data);
-    for (const auto& [slot, entry] : aocs) {
-        if (FileSys::GetBaseTitleID(entry.title_id) == real_id) {
-            ++count;
-        }
+Result IContentManagementInterface::ListApplicationContentMetaStatus(
+    OutArray<ApplicationContentMetaStatus, BufferAttr_HipcMapAlias> out_statuses,
+    Out<s32> out_count, s32 index, u64 application_id) {
+    const auto statuses = BuildApplicationContentMetaStatuses(system, application_id);
+    const std::size_t start = static_cast<std::size_t>(std::max(0, index));
+    if (start >= statuses.size()) {
+        *out_count = 0;
+        R_SUCCEED();
     }
 
-    *out_count = count;
+    const std::size_t count = (std::min)(out_statuses.size(), statuses.size() - start);
+    for (std::size_t i = 0; i < count; ++i) {
+        out_statuses[i] = statuses[start + i];
+    }
+    *out_count = static_cast<s32>(count);
     R_SUCCEED();
 }
 
