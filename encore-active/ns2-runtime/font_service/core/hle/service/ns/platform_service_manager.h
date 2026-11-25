@@ -61,6 +61,7 @@ public:
     ~IPlatformServiceManager() override;
 
 private:
+    void RejectUnavailablePlatformPolicy(HLERequestContext& ctx);
     Result RequestLoad(SharedFontType type);
     Result GetLoadState(Out<LoadState> out_load_state, SharedFontType type);
     Result GetSize(Out<u32> out_size, SharedFontType type);

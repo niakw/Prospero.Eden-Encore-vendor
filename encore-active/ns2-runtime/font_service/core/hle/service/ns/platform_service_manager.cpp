@@ -198,15 +198,15 @@ IPlatformServiceManager::IPlatformServiceManager(Core::System& system_, const ch
         {4, D<&IPlatformServiceManager::GetSharedMemoryNativeHandle>, "GetSharedMemoryNativeHandle"},
         {5, D<&IPlatformServiceManager::GetSharedFontInOrderOfPriority>, "GetSharedFontInOrderOfPriority"},
         {6, D<&IPlatformServiceManager::GetSharedFontInOrderOfPriority>, "GetSharedFontInOrderOfPriorityForSystem"},
-        {100, nullptr, "RequestApplicationFunctionAuthorization"},
-        {101, nullptr, "RequestApplicationFunctionAuthorizationByProcessId"},
-        {102, nullptr, "RequestApplicationFunctionAuthorizationByApplicationId"},
-        {103, nullptr, "RefreshApplicationFunctionBlackListDebugRecord"},
-        {104, nullptr, "RequestApplicationFunctionAuthorizationByProgramId"},
-        {105, nullptr, "GetFunctionBlackListSystemVersionToAuthorize"},
-        {106, nullptr, "GetFunctionBlackListVersion"},
-        {1000, nullptr, "LoadNgWordDataForPlatformRegionChina"},
-        {1001, nullptr, "GetNgWordDataSizeForPlatformRegionChina"},
+        {100, &IPlatformServiceManager::RejectUnavailablePlatformPolicy, "RequestApplicationFunctionAuthorization"},
+        {101, &IPlatformServiceManager::RejectUnavailablePlatformPolicy, "RequestApplicationFunctionAuthorizationByProcessId"},
+        {102, &IPlatformServiceManager::RejectUnavailablePlatformPolicy, "RequestApplicationFunctionAuthorizationByApplicationId"},
+        {103, &IPlatformServiceManager::RejectUnavailablePlatformPolicy, "RefreshApplicationFunctionBlackListDebugRecord"},
+        {104, &IPlatformServiceManager::RejectUnavailablePlatformPolicy, "RequestApplicationFunctionAuthorizationByProgramId"},
+        {105, &IPlatformServiceManager::RejectUnavailablePlatformPolicy, "GetFunctionBlackListSystemVersionToAuthorize"},
+        {106, &IPlatformServiceManager::RejectUnavailablePlatformPolicy, "GetFunctionBlackListVersion"},
+        {1000, &IPlatformServiceManager::RejectUnavailablePlatformPolicy, "LoadNgWordDataForPlatformRegionChina"},
+        {1001, &IPlatformServiceManager::RejectUnavailablePlatformPolicy, "GetNgWordDataSizeForPlatformRegionChina"},
         {2100, &IPlatformServiceManager::RequestLoadNxFont, "RequestLoadNxFont"},
         {2000, &IPlatformServiceManager::GetBuiltInFontSharedMemory, "GetBuiltInFontSharedMemory (Switch 2)"},
         {2010, &IPlatformServiceManager::GetBuiltInFontData, "GetBuiltInFontData (Switch 2)"},
@@ -400,6 +400,13 @@ void IPlatformServiceManager::GetBuiltInFontData(HLERequestContext& ctx) {
     rb.Push<u32>(0);
     rb.Push<u32>(region.offset);
     rb.Push<u32>(region.size);
+}
+
+void IPlatformServiceManager::RejectUnavailablePlatformPolicy(HLERequestContext& ctx) {
+    // Shared-font loading remains fully active. These authorization blacklist
+    // and China NG-word data services have no qualified backend in Encore.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 IPlatformServiceManager::~IPlatformServiceManager() {
