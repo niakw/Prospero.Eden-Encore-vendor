@@ -107,18 +107,18 @@ public:
             {21, D<&ISslConnection::GetRenegotiationMode>, "GetRenegotiationMode"},
             {22, D<&ISslConnection::SetOption>, "SetOption"},
             {23, D<&ISslConnection::GetOption>, "GetOption"},
-            {24, nullptr, "GetVerifyCertErrors"},
-            {25, nullptr, "GetCipherInfo"},
+            {24, &ISslConnection::RejectUnsupportedConnectionExtension, "GetVerifyCertErrors"},
+            {25, &ISslConnection::RejectUnsupportedConnectionExtension, "GetCipherInfo"},
             {26, D<&ISslConnection::SetNextAlpnProto>, "SetNextAlpnProto"},
             {27, D<&ISslConnection::GetNextAlpnProto>, "GetNextAlpnProto"},
-            {28, nullptr, "SetDtlsSocketDescriptor"},
-            {29, nullptr, "GetDtlsHandshakeTimeout"},
-            {30, nullptr, "SetPrivateOption"},
-            {31, nullptr, "SetSrtpCiphers"},
-            {32, nullptr, "GetSrtpCipher"},
-            {33, nullptr, "ExportKeyingMaterial"},
-            {34, nullptr, "SetIoTimeout"},
-            {35, nullptr, "GetIoTimeout"},
+            {28, &ISslConnection::RejectUnsupportedConnectionExtension, "SetDtlsSocketDescriptor"},
+            {29, &ISslConnection::RejectUnsupportedConnectionExtension, "GetDtlsHandshakeTimeout"},
+            {30, &ISslConnection::RejectUnsupportedConnectionExtension, "SetPrivateOption"},
+            {31, &ISslConnection::RejectUnsupportedConnectionExtension, "SetSrtpCiphers"},
+            {32, &ISslConnection::RejectUnsupportedConnectionExtension, "GetSrtpCipher"},
+            {33, &ISslConnection::RejectUnsupportedConnectionExtension, "ExportKeyingMaterial"},
+            {34, &ISslConnection::RejectUnsupportedConnectionExtension, "SetIoTimeout"},
+            {35, &ISslConnection::RejectUnsupportedConnectionExtension, "GetIoTimeout"},
         };
         // clang-format on
 
@@ -462,6 +462,12 @@ private:
     bool skip_default_verify = false;
     bool enable_alpn = false;
     bool did_handshake = false;
+
+    void RejectUnsupportedConnectionExtension(HLERequestContext& ctx) {
+        LOG_WARNING(Service_SSL, "Rejected unsupported SSL extension command {}", ctx.GetCommand());
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
 };
 
 class ISslContext final : public ServiceFramework<ISslContext> {
@@ -479,11 +485,11 @@ public:
             {6, &ISslContext::RemoveServerPki, "RemoveServerPki"},
             {7, &ISslContext::RemoveClientPki, "RemoveClientPki"},
             {8, D<&ISslContext::RegisterInternalPki>, "RegisterInternalPki"},
-            {9, nullptr, "AddPolicyOid"},
-            {10, nullptr, "ImportCrl"},
-            {11, nullptr, "RemoveCrl"},
-            {12, nullptr, "ImportClientCertKeyPki"},
-            {13, nullptr, "GeneratePrivateKeyAndCert"},
+            {9, &ISslContext::RejectUnsupportedPkiExtension, "AddPolicyOid"},
+            {10, &ISslContext::RejectUnsupportedPkiExtension, "ImportCrl"},
+            {11, &ISslContext::RejectUnsupportedPkiExtension, "RemoveCrl"},
+            {12, &ISslContext::RejectUnsupportedPkiExtension, "ImportClientCertKeyPki"},
+            {13, &ISslContext::RejectUnsupportedPkiExtension, "GeneratePrivateKeyAndCert"},
         };
         RegisterHandlers(functions);
         if (for_system) {
@@ -647,6 +653,12 @@ private:
         LOG_WARNING(Service_SSL, "(STUBBED) called");
         R_SUCCEED();
     }
+
+    void RejectUnsupportedPkiExtension(HLERequestContext& ctx) {
+        LOG_WARNING(Service_SSL, "Rejected unsupported SSL extension command {}", ctx.GetCommand());
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
 };
 
 class ISslService final : public ServiceFramework<ISslService> {
@@ -656,15 +668,15 @@ public:
         // clang-format off
         static const FunctionInfo functions[] = {
             {0, &ISslService::CreateContext, "CreateContext"},
-            {1, nullptr, "GetContextCount"},
+            {1, &ISslService::RejectUnsupportedServiceExtension, "GetContextCount"},
             {2, D<&ISslService::GetCertificates>, "GetCertificates"},
             {3, D<&ISslService::GetCertificateBufSize>, "GetCertificateBufSize"},
-            {4, nullptr, "DebugIoctl"},
+            {4, &ISslService::RejectUnsupportedServiceExtension, "DebugIoctl"},
             {5, &ISslService::SetInterfaceVersion, "SetInterfaceVersion"},
-            {6, nullptr, "FlushSessionCache"},
-            {7, nullptr, "SetDebugOption"},
-            {8, nullptr, "GetDebugOption"},
-            {8, nullptr, "ClearTls12FallbackFlag"},
+            {6, &ISslService::RejectUnsupportedServiceExtension, "FlushSessionCache"},
+            {7, &ISslService::RejectUnsupportedServiceExtension, "SetDebugOption"},
+            {8, &ISslService::RejectUnsupportedServiceExtension, "GetDebugOption"},
+            {8, &ISslService::RejectUnsupportedServiceExtension, "ClearTls12FallbackFlag"},
         };
         // clang-format on
 
@@ -715,6 +727,12 @@ private:
 
 private:
     CertStore cert_store;
+
+    void RejectUnsupportedServiceExtension(HLERequestContext& ctx) {
+        LOG_WARNING(Service_SSL, "Rejected unsupported SSL extension command {}", ctx.GetCommand());
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
 };
 
 class ISslServiceForSystem final : public ServiceFramework<ISslServiceForSystem> {
