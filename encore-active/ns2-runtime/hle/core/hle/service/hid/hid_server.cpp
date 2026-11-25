@@ -92,7 +92,7 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {83, C<&IHidServer::IsFirmwareUpdateAvailableForSixAxisSensor>, "IsFirmwareUpdateAvailableForSixAxisSensor"},
         {84, C<&IHidServer::EnableSixAxisSensorUnalteredPassthrough>, "EnableSixAxisSensorUnalteredPassthrough"},
         {85, C<&IHidServer::IsSixAxisSensorUnalteredPassthroughEnabled>, "IsSixAxisSensorUnalteredPassthroughEnabled"},
-        {86, nullptr, "StoreSixAxisSensorCalibrationParameter"},
+        {86, &IHidServer::RejectUnsupportedExtendedCommand, "StoreSixAxisSensorCalibrationParameter"},
         {87, C<&IHidServer::LoadSixAxisSensorCalibrationParameter>, "LoadSixAxisSensorCalibrationParameter"},
         {88, C<&IHidServer::GetSixAxisSensorIcInformation>, "GetSixAxisSensorIcInformation"},
         {89, C<&IHidServer::ResetIsSixAxisSensorDeviceNewlyAssigned>, "ResetIsSixAxisSensorDeviceNewlyAssigned"},
@@ -151,8 +151,8 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {308, C<&IHidServer::SetSevenSixAxisSensorFusionStrength>, "SetSevenSixAxisSensorFusionStrength"},
         {309, C<&IHidServer::GetSevenSixAxisSensorFusionStrength>, "GetSevenSixAxisSensorFusionStrength"},
         {310, C<&IHidServer::ResetSevenSixAxisSensorTimestamp>, "ResetSevenSixAxisSensorTimestamp"},
-        {320, nullptr, "EnableNpadImu"}, //21.0.0+
-        {321, nullptr, "DisableNpadImu"}, //21.0.0+
+        {320, &IHidServer::RejectUnsupportedExtendedCommand, "EnableNpadImu"}, //21.0.0+
+        {321, &IHidServer::RejectUnsupportedExtendedCommand, "DisableNpadImu"}, //21.0.0+
         {400, C<&IHidServer::IsUsbFullKeyControllerEnabled>, "IsUsbFullKeyControllerEnabled"},
         {401, C<&IHidServer::EnableUsbFullKeyController>, "EnableUsbFullKeyController"},
         {402, C<&IHidServer::IsUsbFullKeyControllerConnected>, "IsUsbFullKeyControllerConnected"},
@@ -160,8 +160,8 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {404, C<&IHidServer::HasLeftRightBattery>, "HasLeftRightBattery"},
         {405, C<&IHidServer::GetNpadInterfaceType>, "GetNpadInterfaceType"},
         {406, C<&IHidServer::GetNpadLeftRightInterfaceType>, "GetNpadLeftRightInterfaceType"},
-        {407, nullptr, "GetNpadOfHighestBatteryLevel"},
-        {408, nullptr, "GetNpadOfHighestBatteryLevelForJoyRight"},
+        {407, &IHidServer::RejectUnsupportedExtendedCommand, "GetNpadOfHighestBatteryLevel"},
+        {408, &IHidServer::RejectUnsupportedExtendedCommand, "GetNpadOfHighestBatteryLevelForJoyRight"},
         {500, C<&IHidServer::GetPalmaConnectionHandle>, "GetPalmaConnectionHandle"},
         {501, C<&IHidServer::InitializePalma>, "InitializePalma"},
         {502, C<&IHidServer::AcquirePalmaOperationCompleteEvent>, "AcquirePalmaOperationCompleteEvent"},
@@ -197,54 +197,54 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {1002, C<&IHidServer::SetTouchScreenConfiguration>, "SetTouchScreenConfiguration"},
         {1003, C<&IHidServer::IsFirmwareUpdateNeededForNotification>, "IsFirmwareUpdateNeededForNotification"},
         {1004, C<&IHidServer::SetTouchScreenResolution>, "SetTouchScreenResolution"},
-        {1270, nullptr, "DeleteButtonConfigStorageRight"},
-        {1271, nullptr, "IsUsingCustomButtonConfig"},
-        {1272, nullptr, "IsAnyCustomButtonConfigEnabled"},
-        {1273, nullptr, "SetAllCustomButtonConfigEnabled"},
-        {1274, nullptr, "SetDefaultButtonConfig"},
-        {1275, nullptr, "SetAllDefaultButtonConfig"},
-        {1276, nullptr, "SetHidButtonConfigEmbedded"},
-        {1277, nullptr, "SetHidButtonConfigFull"},
-        {1278, nullptr, "SetHidButtonConfigLeft"},
-        {1279, nullptr, "SetHidButtonConfigRight"},
-        {1280, nullptr, "GetHidButtonConfigEmbedded"},
-        {1281, nullptr, "GetHidButtonConfigFull"},
-        {1282, nullptr, "GetHidButtonConfigLeft"},
-        {1283, nullptr, "GetHidButtonConfigRight"},
-        {1284, nullptr, "GetButtonConfigStorageEmbedded"},
-        {1285, nullptr, "GetButtonConfigStorageFull"},
-        {1286, nullptr, "GetButtonConfigStorageLeft"},
-        {1287, nullptr, "GetButtonConfigStorageRight"},
-        {1288, nullptr, "SetButtonConfigStorageEmbedded"},
-        {1289, nullptr, "SetButtonConfigStorageFull"},
-        {1290, nullptr, "SetButtonConfigStorageLeft"},
-        {1291, nullptr, "SetButtonConfigStorageRight"},
-        {1308, nullptr, "SetButtonConfigVisible"},
-        {1309, nullptr, "IsButtonConfigVisible"},
-        {1320, nullptr, "WakeTouchScreenUp"},
-        {1321, nullptr, "PutTouchScreenToSleep"},
-        {1322, nullptr, "AcquireTouchScreenAsyncWakeCompletedEvent"},
-        {1323, nullptr, "StartTouchScreenAutoTuneForSystemSettings"},
-        {1324, nullptr, "AcquireTouchScreenAutoTuneCompletedEvent"},
-        {1325, nullptr, "IsTouchScreenAutoTuneRequiredForRepairProviderReplacement"},
-        {1420, nullptr, "GetAppletResourceProperty"},
-        {2000, nullptr, "ActivateDigitizer"},
-        {3000, nullptr, "GetDebugPadGenericPadMap"},
-        {3001, nullptr, "SetDebugPadGenericPadMap"},
-        {3002, nullptr, "ResetDebugPadGenericPadMap"},
-        {3003, nullptr, "GetDebugPadKeyboardMap"},
-        {3004, nullptr, "SetDebugPadKeyboardMap"},
-        {3005, nullptr, "ResetDebugPadKeyboardMap"},
-        {3006, nullptr, "GetFullKeyGenericPadMap"},
-        {3007, nullptr, "SetFullKeyGenericPadMap"},
-        {3008, nullptr, "ResetFullKeyGenericPadMap"},
-        {3009, nullptr, "GetFullKeyKeyboardMap"},
-        {3010, nullptr, "SetFullKeyKeyboardMap"},
-        {3011, nullptr, "ResetFullKeyKeyboardMap"},
-        {3012, nullptr, "GetDebugPadGenericPadMap"}, //21.0.0+
-        {3013, nullptr, "SetDebugPadGenericPadMap"}, //21.0.0+
-        {3014, nullptr, "GetDebugPadKeyboardMap"}, //21.0.0+
-        {3015, nullptr, "SetDebugPadKeyboardMap"}, //21.0.0+
+        {1270, &IHidServer::RejectUnsupportedExtendedCommand, "DeleteButtonConfigStorageRight"},
+        {1271, &IHidServer::RejectUnsupportedExtendedCommand, "IsUsingCustomButtonConfig"},
+        {1272, &IHidServer::RejectUnsupportedExtendedCommand, "IsAnyCustomButtonConfigEnabled"},
+        {1273, &IHidServer::RejectUnsupportedExtendedCommand, "SetAllCustomButtonConfigEnabled"},
+        {1274, &IHidServer::RejectUnsupportedExtendedCommand, "SetDefaultButtonConfig"},
+        {1275, &IHidServer::RejectUnsupportedExtendedCommand, "SetAllDefaultButtonConfig"},
+        {1276, &IHidServer::RejectUnsupportedExtendedCommand, "SetHidButtonConfigEmbedded"},
+        {1277, &IHidServer::RejectUnsupportedExtendedCommand, "SetHidButtonConfigFull"},
+        {1278, &IHidServer::RejectUnsupportedExtendedCommand, "SetHidButtonConfigLeft"},
+        {1279, &IHidServer::RejectUnsupportedExtendedCommand, "SetHidButtonConfigRight"},
+        {1280, &IHidServer::RejectUnsupportedExtendedCommand, "GetHidButtonConfigEmbedded"},
+        {1281, &IHidServer::RejectUnsupportedExtendedCommand, "GetHidButtonConfigFull"},
+        {1282, &IHidServer::RejectUnsupportedExtendedCommand, "GetHidButtonConfigLeft"},
+        {1283, &IHidServer::RejectUnsupportedExtendedCommand, "GetHidButtonConfigRight"},
+        {1284, &IHidServer::RejectUnsupportedExtendedCommand, "GetButtonConfigStorageEmbedded"},
+        {1285, &IHidServer::RejectUnsupportedExtendedCommand, "GetButtonConfigStorageFull"},
+        {1286, &IHidServer::RejectUnsupportedExtendedCommand, "GetButtonConfigStorageLeft"},
+        {1287, &IHidServer::RejectUnsupportedExtendedCommand, "GetButtonConfigStorageRight"},
+        {1288, &IHidServer::RejectUnsupportedExtendedCommand, "SetButtonConfigStorageEmbedded"},
+        {1289, &IHidServer::RejectUnsupportedExtendedCommand, "SetButtonConfigStorageFull"},
+        {1290, &IHidServer::RejectUnsupportedExtendedCommand, "SetButtonConfigStorageLeft"},
+        {1291, &IHidServer::RejectUnsupportedExtendedCommand, "SetButtonConfigStorageRight"},
+        {1308, &IHidServer::RejectUnsupportedExtendedCommand, "SetButtonConfigVisible"},
+        {1309, &IHidServer::RejectUnsupportedExtendedCommand, "IsButtonConfigVisible"},
+        {1320, &IHidServer::RejectUnsupportedExtendedCommand, "WakeTouchScreenUp"},
+        {1321, &IHidServer::RejectUnsupportedExtendedCommand, "PutTouchScreenToSleep"},
+        {1322, &IHidServer::RejectUnsupportedExtendedCommand, "AcquireTouchScreenAsyncWakeCompletedEvent"},
+        {1323, &IHidServer::RejectUnsupportedExtendedCommand, "StartTouchScreenAutoTuneForSystemSettings"},
+        {1324, &IHidServer::RejectUnsupportedExtendedCommand, "AcquireTouchScreenAutoTuneCompletedEvent"},
+        {1325, &IHidServer::RejectUnsupportedExtendedCommand, "IsTouchScreenAutoTuneRequiredForRepairProviderReplacement"},
+        {1420, &IHidServer::RejectUnsupportedExtendedCommand, "GetAppletResourceProperty"},
+        {2000, &IHidServer::RejectUnsupportedExtendedCommand, "ActivateDigitizer"},
+        {3000, &IHidServer::RejectUnsupportedExtendedCommand, "GetDebugPadGenericPadMap"},
+        {3001, &IHidServer::RejectUnsupportedExtendedCommand, "SetDebugPadGenericPadMap"},
+        {3002, &IHidServer::RejectUnsupportedExtendedCommand, "ResetDebugPadGenericPadMap"},
+        {3003, &IHidServer::RejectUnsupportedExtendedCommand, "GetDebugPadKeyboardMap"},
+        {3004, &IHidServer::RejectUnsupportedExtendedCommand, "SetDebugPadKeyboardMap"},
+        {3005, &IHidServer::RejectUnsupportedExtendedCommand, "ResetDebugPadKeyboardMap"},
+        {3006, &IHidServer::RejectUnsupportedExtendedCommand, "GetFullKeyGenericPadMap"},
+        {3007, &IHidServer::RejectUnsupportedExtendedCommand, "SetFullKeyGenericPadMap"},
+        {3008, &IHidServer::RejectUnsupportedExtendedCommand, "ResetFullKeyGenericPadMap"},
+        {3009, &IHidServer::RejectUnsupportedExtendedCommand, "GetFullKeyKeyboardMap"},
+        {3010, &IHidServer::RejectUnsupportedExtendedCommand, "SetFullKeyKeyboardMap"},
+        {3011, &IHidServer::RejectUnsupportedExtendedCommand, "ResetFullKeyKeyboardMap"},
+        {3012, &IHidServer::RejectUnsupportedExtendedCommand, "GetDebugPadGenericPadMap"}, //21.0.0+
+        {3013, &IHidServer::RejectUnsupportedExtendedCommand, "SetDebugPadGenericPadMap"}, //21.0.0+
+        {3014, &IHidServer::RejectUnsupportedExtendedCommand, "GetDebugPadKeyboardMap"}, //21.0.0+
+        {3015, &IHidServer::RejectUnsupportedExtendedCommand, "SetDebugPadKeyboardMap"}, //21.0.0+
         {3110, &IHidServer::StubJcms, "InitializeJcms"},
         {3111, &IHidServer::StubJcms, "FinalizeJcms"},
         {3112, &IHidServer::StubJcms, "StartJcms"},
@@ -1724,6 +1724,12 @@ Result IHidServer::GetNmousePointerRanges(Out<s32> out_width, Out<s32> out_heigh
     *out_width = it != m_ns2_nmouse_ranges.end() ? it->second.width : 0;
     *out_height = it != m_ns2_nmouse_ranges.end() ? it->second.height : 0;
     R_SUCCEED();
+}
+
+void IHidServer::RejectUnsupportedExtendedCommand(HLERequestContext& ctx) {
+    LOG_WARNING(Service_HID, "Rejected unsupported extended HID command {}", ctx.GetCommand());
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 Result IHidServer::SetMouseLibraryVersion(ClientAppletResourceUserId aruid) {
