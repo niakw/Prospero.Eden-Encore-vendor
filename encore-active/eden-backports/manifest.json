@@ -1304,6 +1304,16 @@
       "active": "40be7d3f2d4feec6fa9a74487ceab2eca7a05767fe1a270c808cb6529d696223",
       "bytes": 1646,
       "upstream": "7891715802a786423749e02e324697fa8c42b338f00fc19499a93acc1965201f"
+    },
+    "src/core/hle/service/hid/xcd.cpp": {
+      "active": "68532e47906b5ce369e24d87452abc3c51306f1c52a9de5a1cf181e35fdc6219",
+      "bytes": 2539,
+      "upstream": "7e125f642cddbd42ccd0c8f822c0757a97f8df27f410021173263121fd4a739e"
+    },
+    "src/core/hle/service/hid/xcd.h": {
+      "active": "5d1391730a4f7ff8dcece1a01c2f9ed6abcc07307fc0c8c3a6aadf2b98d8c3ab",
+      "bytes": 465,
+      "upstream": "a4c955126def0af0b0687e7914c97f09b9ba044ad25e0e3cc952a6d8321fc0d4"
     }
   },
   "excluded_experimental": [
