@@ -121,7 +121,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {93, D<&IApplicationManagerInterface::GetMainApplicationProgramIndex>, "GetMainApplicationProgramIndex"},
         {94, D<&IApplicationManagerInterface::LaunchApplication>, "LaunchApplication"},
         {95, D<&IApplicationManagerInterface::GetApplicationLaunchInfo>, "GetApplicationLaunchInfo"},
-        {96, nullptr, "AcquireApplicationLaunchInfo"},
+        {96, D<&IApplicationManagerInterface::AcquireApplicationLaunchInfo>, "AcquireApplicationLaunchInfo"},
         {97, D<&IApplicationManagerInterface::GetMainApplicationProgramIndexByApplicationLaunchInfo>, "GetMainApplicationProgramIndexByApplicationLaunchInfo"},
         {98, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "EnableApplicationAllThreadDumpOnCrash"},
         {99, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "LaunchDevMenu"},
@@ -1451,64 +1451,60 @@ Result IApplicationManagerInterface::LaunchApplicationOld(
 Result IApplicationManagerInterface::LaunchApplication(
     Out<u64> out_process_id, u8 program_index, ApplicationLaunchInfoV19 launch_info) {
     LOG_INFO(Service_NS,
-             "called, application_id={:016X}, patch_id={:016X}, program_index={}",
-             launch_info.application_id, launch_info.patch_id, program_index);
+             "called, application_id={:016X}, version={}, flags={:#x}, program_index={}",
+             launch_info.application_id, launch_info.version, launch_info.launch_flags,
+             program_index);
 
-    // HOS 19+ ApplicationLaunchInfo[0x08] is PatchId, not ProgramId.
-    // ProgramIndex selects the program NCA inside the application.
     const u64 application_id = FileSys::GetBaseTitleID(launch_info.application_id);
     const u64 program_id =
         FileSys::GetBaseTitleIDWithProgramIndex(application_id, program_index);
-    R_RETURN(LaunchApplicationByProgramId(out_process_id.Get(), program_index, application_id,
-                                         program_id));
+    R_TRY(LaunchApplicationByProgramId(out_process_id.Get(), program_index, application_id,
+                                       program_id));
+    launch_info.application_id = application_id;
+    pending_application_launch_info = launch_info;
+    R_SUCCEED();
 }
 
 Result IApplicationManagerInterface::GetApplicationLaunchInfo(
     Out<ApplicationLaunchInfoV19> out_launch_info, u64 application_id) {
     auto& storage = system.GetContentProviderUnion();
     const u64 base_application_id = FileSys::GetBaseTitleID(application_id);
-    const u64 patch_id = FileSys::GetUpdateTitleID(base_application_id);
-
+    const u64 update_id = FileSys::GetUpdateTitleID(base_application_id);
     R_UNLESS(storage.HasEntry(base_application_id, FileSys::ContentRecordType::Program),
              AM::ResultApplicationRecordNotFound);
 
     const auto storage_id_for_slot = [](std::optional<FileSys::ContentProviderUnionSlot> slot) {
-        if (!slot.has_value()) {
-            return FileSys::StorageId::None;
-        }
+        if (!slot) return FileSys::StorageId::None;
         switch (*slot) {
-        case FileSys::ContentProviderUnionSlot::UserNAND:
-            return FileSys::StorageId::NandUser;
-        case FileSys::ContentProviderUnionSlot::SysNAND:
-            return FileSys::StorageId::NandSystem;
-        case FileSys::ContentProviderUnionSlot::SDMC:
-            return FileSys::StorageId::SdCard;
-        case FileSys::ContentProviderUnionSlot::FrontendManual:
-            return FileSys::StorageId::Host;
-        default:
-            return FileSys::StorageId::None;
+        case FileSys::ContentProviderUnionSlot::UserNAND: return FileSys::StorageId::NandUser;
+        case FileSys::ContentProviderUnionSlot::SysNAND: return FileSys::StorageId::NandSystem;
+        case FileSys::ContentProviderUnionSlot::SDMC: return FileSys::StorageId::SdCard;
+        case FileSys::ContentProviderUnionSlot::FrontendManual: return FileSys::StorageId::Host;
+        default: return FileSys::StorageId::None;
         }
     };
+    auto update_slot = storage.GetSlotForEntry(update_id, FileSys::ContentRecordType::Program);
+    if (!update_slot) update_slot = storage.GetSlotForEntry(update_id, FileSys::ContentRecordType::Meta);
 
-    auto update_slot =
-        storage.GetSlotForEntry(patch_id, FileSys::ContentRecordType::Program);
-    if (!update_slot.has_value()) {
-        update_slot = storage.GetSlotForEntry(patch_id, FileSys::ContentRecordType::Meta);
-    }
-    const bool has_patch = update_slot.has_value();
-
-    FileSys::PatchManager patch_manager{base_application_id, system.GetFileSystemController(),
-                                        storage};
-
+    FileSys::PatchManager patch_manager{base_application_id, system.GetFileSystemController(), storage};
     *out_launch_info = {};
     out_launch_info->application_id = base_application_id;
-    out_launch_info->patch_id = has_patch ? patch_id : 0;
     out_launch_info->version = patch_manager.GetGameVersion().value_or(0);
-    out_launch_info->content_meta_type = static_cast<u32>(FileSys::TitleType::Application);
-    out_launch_info->launch_flags = 0xB;
+    out_launch_info->launch_flags = 0;
     out_launch_info->application_storage_id = static_cast<u8>(storage_id_for_slot(
         storage.GetSlotForEntry(base_application_id, FileSys::ContentRecordType::Program)));
     out_launch_info->update_storage_id = static_cast<u8>(storage_id_for_slot(update_slot));
+    R_SUCCEED();
+}
+
+Result IApplicationManagerInterface::AcquireApplicationLaunchInfo(
+    Out<ApplicationLaunchInfoV19> out_launch_info, u64 application_id) {
+    const u64 base_application_id = FileSys::GetBaseTitleID(application_id);
+    R_UNLESS(pending_application_launch_info &&
+                 FileSys::GetBaseTitleID(pending_application_launch_info->application_id) == base_application_id,
+             AM::ResultApplicationRecordNotFound);
+    *out_launch_info = *pending_application_launch_info;
+    pending_application_launch_info.reset();
     R_SUCCEED();
 }
 
