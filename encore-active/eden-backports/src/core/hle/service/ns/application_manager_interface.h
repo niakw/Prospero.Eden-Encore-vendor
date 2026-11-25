@@ -180,6 +180,7 @@ public:
     Result Unknown4105();
 
     void RejectUnavailablePlatformCommand(HLERequestContext& ctx);
+    void RejectUnknownHOS23Command(HLERequestContext& ctx);
     Result RejectDebugOnlyCommand();
 
     Result RequestDownloadApplicationControlDataInBackground(u64 control_source,

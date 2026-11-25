@@ -76,7 +76,6 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {36, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "PushLaunchVersion"},
         {37, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListRequiredVersion"},
         {38, D<&IApplicationManagerInterface::CheckApplicationLaunchVersion>, "CheckApplicationLaunchVersion"},
-        {39, nullptr, "CheckApplicationLaunchRights"},
         {40, D<&IApplicationManagerInterface::GetApplicationLogoData>, "GetApplicationLogoData"},
         {41, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CalculateApplicationDownloadRequiredSize"},
         {42, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CleanupSdCard"},
@@ -110,7 +109,6 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {80, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestDownloadApplication"},
         {81, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestDownloadAddOnContent"},
         {82, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "DownloadApplication"},
-        {83, nullptr, "CheckApplicationResumeRights"},
         {84, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetDynamicCommitEvent"},
         {85, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestUpdateApplication2"},
         {86, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "EnableApplicationCrashReport"},
@@ -155,26 +153,26 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {406, D<&IApplicationManagerInterface::GetApplicationControlProperty>, "GetApplicationControlProperty"},
         {407, &IApplicationManagerInterface::ListApplicationTitle, "ListApplicationTitle"},
         {408, &IApplicationManagerInterface::ListApplicationIcon, "ListApplicationIcon"},
-        {411, nullptr, "Unknown411"}, //19.0.0+
-        {412, nullptr, "Unknown412"}, //19.0.0+
-        {413, nullptr, "Unknown413"}, //19.0.0+
-        {414, nullptr, "Unknown414"}, //19.0.0+
-        {415, nullptr, "Unknown415"}, //19.0.0+
-        {416, nullptr, "Unknown416"}, //19.0.0+
+        {411, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd411"}, //19.0.0+
+        {412, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd412"}, //19.0.0+
+        {413, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd413"}, //19.0.0+
+        {414, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd414"}, //19.0.0+
+        {415, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd415"}, //19.0.0+
+        {416, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd416"}, //19.0.0+
         {417, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "InvalidateAllApplicationControlCacheOfTheStage"}, //19.0.0+
         {418, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "InvalidateApplicationControlCacheOfTheStage"}, //19.0.0+
         {419, D<&IApplicationManagerInterface::RequestDownloadApplicationControlDataInBackground>, "RequestDownloadApplicationControlDataInBackground"},
         {420, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CloneApplicationControlDataCacheForDebug"},
-        {421, nullptr, "Unknown421"}, //20.0.0+
-        {422, nullptr, "Unknown422"}, //20.0.0+
-        {423, nullptr, "Unknown423"}, //20.0.0+
-        {424, nullptr, "Unknown424"}, //20.0.0+
-        {425, nullptr, "Unknown425"}, //20.0.0+
-        {426, nullptr, "Unknown426"}, //20.0.0+
-        {427, nullptr, "Unknown427"}, //20.0.0+
-        {428, nullptr, "Unknown428"}, //21.0.0+
-        {429, nullptr, "Unknown429"}, //21.0.0+
-        {430, nullptr, "Unknown430"}, //21.0.0+
+        {421, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd421"}, //20.0.0+
+        {422, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd422"}, //20.0.0+
+        {423, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd423"}, //20.0.0+
+        {424, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd424"}, //20.0.0+
+        {425, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd425"}, //20.0.0+
+        {426, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd426"}, //20.0.0+
+        {427, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd427"}, //20.0.0+
+        {428, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd428"}, //21.0.0+
+        {429, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd429"}, //21.0.0+
+        {430, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd430"}, //21.0.0+
         {502, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestCheckGameCardRegistration"},
         {503, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestGameCardRegistrationGoldPoint"},
         {504, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestRegisterGameCard"},
@@ -186,18 +184,17 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {510, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetGameCardPlatformRegion"},
         {511, D<&IApplicationManagerInterface::GetGameCardWakenReadyEvent>, "GetGameCardWakenReadyEvent"},
         {512, D<&IApplicationManagerInterface::IsGameCardApplicationRunning>, "IsGameCardApplicationRunning"},
-        {513, nullptr, "Unknown513"}, //20.0.0+
-        {514, nullptr, "Unknown514"}, //20.0.0+
-        {515, nullptr, "Unknown515"}, //20.0.0+
-        {516, nullptr, "Unknown516"}, //21.0.0+
-        {517, nullptr, "Unknown517"}, //21.0.0+
-        {518, nullptr, "Unknown518"}, //21.0.0+
-        {519, nullptr, "Unknown519"}, //21.0.0+
+        {513, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd513"}, //20.0.0+
+        {514, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd514"}, //20.0.0+
+        {515, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd515"}, //20.0.0+
+        {516, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd516"}, //21.0.0+
+        {517, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd517"}, //21.0.0+
+        {518, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd518"}, //21.0.0+
+        {519, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd519"}, //21.0.0+
         {600, D<&IApplicationManagerInterface::CountApplicationContentMeta>, "CountApplicationContentMeta"},
         {601, D<&IApplicationManagerInterface::ListApplicationContentMetaStatus>, "ListApplicationContentMetaStatus"},
         {602, D<&IApplicationManagerInterface::ListAvailableAddOnContent>, "ListAvailableAddOnContent"},
         {603, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetOwnedApplicationContentMetaStatus"},
-        {604, nullptr, "RegisterContentsExternalKey"},
         {605, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListApplicationContentMetaStatusWithRightsCheck"},
         {606, nullptr, "GetContentMetaStorage"},
         {607, D<&IApplicationManagerInterface::ListAvailableAddOnContent>, "ListAvailableAddOnContent"},
@@ -230,20 +227,20 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {914, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "HideApplicationRecord"},
         {915, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ShowApplicationRecord"},
         {916, D<&IApplicationManagerInterface::IsApplicationAutoDeleteDisabled>, "IsApplicationAutoDeleteDisabled"},
-        {917, nullptr, "Unknown917"}, //20.0.0+
-        {918, nullptr, "Unknown918"}, //20.0.0+
-        {919, nullptr, "Unknown919"}, //20.0.0+
-        {920, nullptr, "Unknown920"}, //20.0.0+
-        {921, nullptr, "Unknown921"}, //20.0.0+
-        {922, nullptr, "Unknown922"}, //20.0.0+
-        {923, nullptr, "Unknown923"}, //20.0.0+
-        {928, nullptr, "Unknown928"}, //20.0.0+
-        {929, nullptr, "Unknown929"}, //20.0.0+
-        {930, nullptr, "Unknown930"}, //20.0.0+
-        {931, nullptr, "Unknown931"}, //20.0.0+
-        {933, nullptr, "Unknown933"}, //20.0.0+
-        {934, nullptr, "Unknown934"}, //21.0.0+
-        {935, nullptr, "Unknown935"}, //21.0.0+
+        {917, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd917"}, //20.0.0+
+        {918, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd918"}, //20.0.0+
+        {919, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd919"}, //20.0.0+
+        {920, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd920"}, //20.0.0+
+        {921, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd921"}, //20.0.0+
+        {922, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd922"}, //20.0.0+
+        {923, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd923"}, //20.0.0+
+        {928, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd928"}, //20.0.0+
+        {929, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd929"}, //20.0.0+
+        {930, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd930"}, //20.0.0+
+        {931, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd931"}, //20.0.0+
+        {933, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd933"}, //20.0.0+
+        {934, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd934"}, //21.0.0+
+        {935, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd935"}, //21.0.0+
         {936, D<&IApplicationManagerInterface::Unknown936>, "Unknown936"}, //21.0.0+
         {1000, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestVerifyApplicationDeprecated"},
         {1001, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "CorruptApplicationForDebug"},
@@ -275,9 +272,9 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {1506, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetSdCardStartupStatus"},
         {1508, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown1508"}, //20.0.0+
         {1509, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "Unknown1509"}, //20.0.0+
-        {1510, nullptr, "Unknown1510"}, //20.0.0+
-        {1511, nullptr, "Unknown1511"}, //20.0.0+
-        {1512, nullptr, "Unknown1512"}, //20.0.0+
+        {1510, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd1510"}, //20.0.0+
+        {1511, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd1511"}, //20.0.0+
+        {1512, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd1512"}, //20.0.0+
         {1600, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetSystemSeedForPseudoDeviceId"},
         {1601, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ResetSystemSeedForPseudoDeviceId"},
         {1700, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListApplicationDownloadingContentMeta"},
@@ -291,7 +288,6 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {1801, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetLastNotificationInfoCount"},
         {1802, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListLastNotificationInfo"},
         {1803, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListNotificationTask"},
-        {1900, nullptr, "IsActiveAccount"},
         {1901, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestDownloadApplicationPrepurchasedRights"},
         {1902, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationTicketInfo"},
         {1903, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestDownloadApplicationPrepurchasedRightsForAccount"},
@@ -327,7 +323,6 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2153, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "DeactivateRightsEnvironment"},
         {2154, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ForceActivateRightsContextForExit"},
         {2155, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "UpdateRightsEnvironmentStatus"},
-        {2156, nullptr, "CreateRightsEnvironmentForMicroApplication"},
         {2160, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "AddTargetApplicationToRightsEnvironment"},
         {2161, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "SetUsersToRightsEnvironment"},
         {2170, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetRightsEnvironmentStatus"},
@@ -335,12 +330,9 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2180, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestExtendRightsInRightsEnvironment"},
         {2181, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetResultOfExtendRightsInRightsEnvironment"},
         {2182, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "SetActiveRightsContextUsingStateToRightsEnvironment"},
-        {2183, nullptr, "Unknown2183"}, //20.1.0+
+        {2183, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd2183"}, //20.1.0+
         {2190, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetRightsEnvironmentHandleForApplication"},
         {2199, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "GetRightsEnvironmentCountForDebug"},
-        {2200, nullptr, "GetGameCardApplicationCopyIdentifier"},
-        {2201, nullptr, "GetInstalledApplicationCopyIdentifier"},
-        {2250, nullptr, "RequestReportActiveELicence"},
         {2300, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListEventLog"},
         {2350, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "PerformAutoUpdateByApplicationId"},
         {2351, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestNoDownloadRightsErrorResolution"},
@@ -373,16 +365,14 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2513, nullptr, "LaunchMicroApplication"},
         {2514, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ClearTaskOfAsyncTaskManager"},
         {2515, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CleanupAllPlaceHolderAndFragmentsIfNoTask"},
-        {2516, nullptr, "EnsureApplicationCertificate"},
         {2517, nullptr, "CreateApplicationInstance"},
         {2518, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "UpdateQualificationForDebug"},
         {2519, nullptr, "IsQualificationTransitionSupported"},
         {2520, D<&IApplicationManagerInterface::IsQualificationTransitionSupportedByProcessId>, "IsQualificationTransitionSupportedByProcessId"},
-        {2521, nullptr, "GetRightsUserChangedEvent"},
         {2522, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "IsRomRedirectionAvailable"},
         {2523, D<&IApplicationManagerInterface::GetProgramId>, "GetProgramId"}, //17.0.0+
-        {2524, nullptr, "Unknown2524"}, //19.0.0+
-        {2525, nullptr, "Unknown2525"}, //20.0.0+
+        {2524, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd2524"}, //19.0.0+
+        {2525, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd2525"}, //20.0.0+
         {2800, nullptr, "GetApplicationIdOfPreomia"},
         {3000, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RegisterDeviceLockKey"},
         {3001, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "UnregisterDeviceLockKey"},
@@ -404,7 +394,6 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {3105, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationStartupMovie"}, //18.0.0+
         {3250, D<&IApplicationManagerInterface::Unknown3250>, "Unknown3250"}, //23.5.0+
         {3251, D<&IApplicationManagerInterface::Unknown3251>, "Unknown3251"}, //23.5.0+
-        {3252, nullptr, "Unknown3252"}, //23.5.0+
         {3253, D<&IApplicationManagerInterface::Unknown3253>, "Unknown3253"}, //23.5.0+
         {3254, D<&IApplicationManagerInterface::Unknown3254>, "Unknown3254"}, //23.5.0+
         {3255, D<&IApplicationManagerInterface::Unknown3255>, "Unknown3255"}, //23.5.0+
@@ -415,98 +404,131 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {3260, D<&IApplicationManagerInterface::Unknown3260>, "Unknown3260"}, //23.5.0+
         {3261, D<&IApplicationManagerInterface::Unknown3261>, "Unknown3261"}, //23.5.0+
         {3262, D<&IApplicationManagerInterface::Unknown3262>, "Unknown3262"}, //23.5.0+
-        {4000, nullptr, "Unknown4000"}, //20.0.0+
-        {4004, nullptr, "Unknown4004"}, //20.0.0+
-        {4006, nullptr, "Unknown4006"}, //20.0.0+
-        {4007, nullptr, "Unknown4007"}, //20.0.0+
-        {4008, nullptr, "Unknown4008"}, //20.0.0+
-        {4009, nullptr, "Unknown4009"}, //20.0.0+
-        {4010, nullptr, "Unknown4010"}, //20.0.0+
-        {4011, nullptr, "Unknown4011"}, //20.0.0+
-        {4012, nullptr, "Unknown4012"}, //20.0.0+
-        {4013, nullptr, "Unknown4013"}, //20.0.0+
-        {4015, nullptr, "Unknown4015"}, //20.0.0+
-        {4017, nullptr, "Unknown4017"}, //20.0.0+
-        {4019, nullptr, "Unknown4019"}, //20.0.0+
-        {4020, nullptr, "Unknown4020"}, //20.0.0+
-        {4021, nullptr, "Unknown4021"}, //20.0.0+
+        {4000, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4000"}, //20.0.0+
+        {4004, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4004"}, //20.0.0+
+        {4006, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4006"}, //20.0.0+
+        {4007, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4007"}, //20.0.0+
+        {4008, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4008"}, //20.0.0+
+        {4009, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4009"}, //20.0.0+
+        {4010, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4010"}, //20.0.0+
+        {4011, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4011"}, //20.0.0+
+        {4012, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4012"}, //20.0.0+
+        {4013, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4013"}, //20.0.0+
+        {4015, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4015"}, //20.0.0+
+        {4017, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4017"}, //20.0.0+
+        {4019, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4019"}, //20.0.0+
+        {4020, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4020"}, //20.0.0+
+        {4021, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4021"}, //20.0.0+
         {4022, D<&IApplicationManagerInterface::Unknown4022>, "Unknown4022"}, //20.0.0+
         {4023, D<&IApplicationManagerInterface::Unknown4023>, "Unknown4023"}, //20.0.0+
-        {4024, nullptr, "Unknown4024"}, //20.0.0+
-        {4025, nullptr, "Unknown4025"}, //20.0.0+
-        {4026, nullptr, "Unknown4026"}, //20.0.0+
-        {4027, nullptr, "Unknown4027"}, //20.0.0+
-        {4028, nullptr, "Unknown4028"}, //20.0.0+
-        {4029, nullptr, "Unknown4029"}, //20.0.0+
-        {4030, nullptr, "Unknown4030"}, //20.0.0+
-        {4031, nullptr, "Unknown4031"}, //20.0.0+
-        {4032, nullptr, "Unknown4032"}, //20.0.0+
-        {4033, nullptr, "Unknown4033"}, //20.0.0+
-        {4034, nullptr, "Unknown4034"}, //20.0.0+
-        {4035, nullptr, "Unknown4035"}, //20.0.0+
-        {4037, nullptr, "Unknown4037"}, //20.0.0+
-        {4038, nullptr, "Unknown4038"}, //20.0.0+
-        {4039, nullptr, "Unknown4039"}, //20.0.0+
-        {4040, nullptr, "Unknown4040"}, //20.0.0+
-        {4041, nullptr, "Unknown4041"}, //20.0.0+
+        {4024, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4024"}, //20.0.0+
+        {4025, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4025"}, //20.0.0+
+        {4026, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4026"}, //20.0.0+
+        {4027, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4027"}, //20.0.0+
+        {4028, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4028"}, //20.0.0+
+        {4029, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4029"}, //20.0.0+
+        {4030, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4030"}, //20.0.0+
+        {4031, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4031"}, //20.0.0+
+        {4032, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4032"}, //20.0.0+
+        {4033, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4033"}, //20.0.0+
+        {4034, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4034"}, //20.0.0+
+        {4035, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4035"}, //20.0.0+
+        {4037, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4037"}, //20.0.0+
+        {4038, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4038"}, //20.0.0+
+        {4039, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4039"}, //20.0.0+
+        {4040, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4040"}, //20.0.0+
+        {4041, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4041"}, //20.0.0+
         {4042, D<&IApplicationManagerInterface::Unknown4042>, "Unknown4042"}, //20.0.0+
-        {4043, nullptr, "Unknown4043"}, //20.0.0+
-        {4044, nullptr, "Unknown4044"}, //20.0.0+
-        {4045, nullptr, "Unknown4045"}, //20.0.0+
-        {4046, nullptr, "Unknown4046"}, //20.0.0+
-        {4049, nullptr, "Unknown4049"}, //20.0.0+
-        {4050, nullptr, "Unknown4050"}, //20.0.0+
-        {4051, nullptr, "Unknown4051"}, //20.0.0+
-        {4052, nullptr, "Unknown4052"}, //20.0.0+
+        {4043, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4043"}, //20.0.0+
+        {4044, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4044"}, //20.0.0+
+        {4045, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4045"}, //20.0.0+
+        {4046, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4046"}, //20.0.0+
+        {4049, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4049"}, //20.0.0+
+        {4050, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4050"}, //20.0.0+
+        {4051, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4051"}, //20.0.0+
+        {4052, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4052"}, //20.0.0+
         {4053, D<&IApplicationManagerInterface::Unknown4053>, "Unknown4053"}, //20.0.0+
-        {4054, nullptr, "Unknown4054"}, //20.0.0+
-        {4055, nullptr, "Unknown4055"}, //20.0.0+
-        {4056, nullptr, "Unknown4056"}, //20.0.0+
-        {4057, nullptr, "Unknown4057"}, //20.0.0+
-        {4058, nullptr, "Unknown4058"}, //20.0.0+
-        {4059, nullptr, "Unknown4059"}, //20.0.0+
-        {4060, nullptr, "Unknown4060"}, //20.0.0+
-        {4061, nullptr, "Unknown4061"}, //20.0.0+
-        {4062, nullptr, "Unknown4062"}, //20.0.0+
-        {4063, nullptr, "Unknown4063"}, //20.0.0+
-        {4064, nullptr, "Unknown4064"}, //20.0.0+
-        {4065, nullptr, "Unknown4065"}, //20.0.0+
-        {4066, nullptr, "Unknown4066"}, //20.0.0+
-        {4067, nullptr, "Unknown4067"}, //20.0.0+
-        {4068, nullptr, "Unknown4068"}, //20.0.0+
-        {4069, nullptr, "Unknown4069"}, //20.0.0+
-        {4070, nullptr, "Unknown4070"}, //20.0.0+
-        {4071, nullptr, "Unknown4071"}, //20.0.0+
-        {4072, nullptr, "Unknown4072"}, //20.0.0+
-        {4073, nullptr, "Unknown4073"}, //20.0.0+
-        {4074, nullptr, "Unknown4074"}, //20.0.0+
-        {4075, nullptr, "Unknown4075"}, //20.0.0+
-        {4076, nullptr, "Unknown4076"}, //20.0.0+
-        {4077, nullptr, "Unknown4077"}, //20.0.0+
-        {4078, nullptr, "Unknown4078"}, //20.0.0+
-        {4079, nullptr, "Unknown4079"}, //20.0.0+
-        {4080, nullptr, "Unknown4080"}, //20.0.0+
-        {4081, nullptr, "Unknown4081"}, //20.0.0+
-        {4083, nullptr, "Unknown4083"}, //20.0.0+
-        {4084, nullptr, "Unknown4084"}, //20.0.0+
-        {4085, nullptr, "Unknown4085"}, //20.0.0+
-        {4086, nullptr, "Unknown4086"}, //20.0.0+
-        {4087, nullptr, "Unknown4087"}, //20.0.0+
+        {4054, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4054"}, //20.0.0+
+        {4055, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4055"}, //20.0.0+
+        {4056, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4056"}, //20.0.0+
+        {4057, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4057"}, //20.0.0+
+        {4058, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4058"}, //20.0.0+
+        {4059, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4059"}, //20.0.0+
+        {4060, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4060"}, //20.0.0+
+        {4061, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4061"}, //20.0.0+
+        {4062, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4062"}, //20.0.0+
+        {4063, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4063"}, //20.0.0+
+        {4064, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4064"}, //20.0.0+
+        {4065, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4065"}, //20.0.0+
+        {4066, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4066"}, //20.0.0+
+        {4067, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4067"}, //20.0.0+
+        {4068, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4068"}, //20.0.0+
+        {4069, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4069"}, //20.0.0+
+        {4070, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4070"}, //20.0.0+
+        {4071, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4071"}, //20.0.0+
+        {4072, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4072"}, //20.0.0+
+        {4073, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4073"}, //20.0.0+
+        {4074, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4074"}, //20.0.0+
+        {4075, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4075"}, //20.0.0+
+        {4076, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4076"}, //20.0.0+
+        {4077, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4077"}, //20.0.0+
+        {4078, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4078"}, //20.0.0+
+        {4079, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4079"}, //20.0.0+
+        {4080, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4080"}, //20.0.0+
+        {4081, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4081"}, //20.0.0+
+        {4083, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4083"}, //20.0.0+
+        {4084, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4084"}, //20.0.0+
+        {4085, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4085"}, //20.0.0+
+        {4086, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4086"}, //20.0.0+
+        {4087, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4087"}, //20.0.0+
         {4088, D<&IApplicationManagerInterface::Unknown4022>, "Unknown4088"}, //20.0.0+
-        {4089, nullptr, "Unknown4089"}, //20.0.0+
-        {4090, nullptr, "Unknown4090"}, //20.0.0+
-        {4091, nullptr, "Unknown4091"}, //20.0.0+
-        {4092, nullptr, "Unknown4092"}, //20.0.0+
-        {4093, nullptr, "Unknown4093"}, //20.0.0+
-        {4094, nullptr, "Unknown4094"}, //20.0.0+
-        {4095, nullptr, "Unknown4095"}, //20.0.0+
-        {4096, nullptr, "Unknown4096"}, //20.0.0+
-        {4097, nullptr, "Unknown4097"}, //20.0.0+
-        {4099, nullptr, "Unknown4099"}, //21.0.0+
+        {4089, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4089"}, //20.0.0+
+        {4090, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4090"}, //20.0.0+
+        {4091, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4091"}, //20.0.0+
+        {4092, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4092"}, //20.0.0+
+        {4093, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4093"}, //20.0.0+
+        {4094, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4094"}, //20.0.0+
+        {4095, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4095"}, //20.0.0+
+        {4096, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4096"}, //20.0.0+
+        {4097, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4097"}, //20.0.0+
+        {4099, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4099"}, //21.0.0+
         {4105, D<&IApplicationManagerInterface::Unknown4105>, "Unknown4105"}, //23.0.0+
-        {5000, nullptr, "Unknown5000"}, //18.0.0+
-        {5001, nullptr, "Unknown5001"}, //18.0.0+
-        {9999, nullptr, "GetApplicationCertificate"}, //10.0.0-10.2.0
+        {5000, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd5000"}, //18.0.0+
+        {5001, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd5001"}, //18.0.0+
+        {88, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd88"}, // HOS23.0.1 server surface
+        {431, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd431"}, // HOS23.0.1 server surface
+        {432, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd432"}, // HOS23.0.1 server surface
+        {612, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd612"}, // HOS23.0.1 server surface
+        {937, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd937"}, // HOS23.0.1 server surface
+        {938, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd938"}, // HOS23.0.1 server surface
+        {939, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd939"}, // HOS23.0.1 server surface
+        {940, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd940"}, // HOS23.0.1 server surface
+        {941, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd941"}, // HOS23.0.1 server surface
+        {942, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd942"}, // HOS23.0.1 server surface
+        {943, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd943"}, // HOS23.0.1 server surface
+        {944, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd944"}, // HOS23.0.1 server surface
+        {1904, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd1904"}, // HOS23.0.1 server surface
+        {2526, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd2526"}, // HOS23.0.1 server surface
+        {3015, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetNetworkUpdateRequiredByGameCardDetectionEvent"}, // HOS23.0.1 server surface
+        {3100, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetSafeSystemVersionCheckInfo"}, // HOS23.0.1 server surface
+        {3101, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestUpdateSafeSystemVersionCheckInfo"}, // HOS23.0.1 server surface
+        {3102, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ResetSafeSystemVersionCheckInfo"}, // HOS23.0.1 server surface
+        {3106, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetSafeSystemVersionCheckInfo"}, // HOS23.0.1 server surface
+        {3300, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd3300"}, // HOS23.0.1 server surface
+        {3301, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd3301"}, // HOS23.0.1 server surface
+        {3302, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd3302"}, // HOS23.0.1 server surface
+        {3303, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd3303"}, // HOS23.0.1 server surface
+        {3304, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd3304"}, // HOS23.0.1 server surface
+        {3305, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd3305"}, // HOS23.0.1 server surface
+        {4100, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4100"}, // HOS23.0.1 server surface
+        {4101, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4101"}, // HOS23.0.1 server surface
+        {4102, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4102"}, // HOS23.0.1 server surface
+        {4103, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4103"}, // HOS23.0.1 server surface
+        {4104, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4104"}, // HOS23.0.1 server surface
+        {4106, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4106"}, // HOS23.0.1 server surface
+        {4107, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4107"}, // HOS23.0.1 server surface
+        {4108, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4108"}, // HOS23.0.1 server surface
+        {4109, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd4109"}, // HOS23.0.1 server surface
     };
     // clang-format on
 
@@ -1568,6 +1590,15 @@ Result IApplicationManagerInterface::GetRawApplicationTerminateResult(
 void IApplicationManagerInterface::RejectUnavailablePlatformCommand(HLERequestContext& ctx) {
     LOG_WARNING(Service_NS,
                 "Rejected NS platform/network command: required Nintendo/update backend is unavailable");
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultUnknown);
+}
+
+void IApplicationManagerInterface::RejectUnknownHOS23Command(HLERequestContext& ctx) {
+    // The command exists in the NS 23.0.1 server and its wire ABI is known from
+    // the current service binary, but Nintendo has not published semantics.
+    LOG_WARNING(Service_NS, "Rejected unnamed HOS23 IApplicationManagerInterface command {}",
+                ctx.GetCommand());
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultUnknown);
 }
