@@ -418,7 +418,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2515, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CleanupAllPlaceHolderAndFragmentsIfNoTask"},
         {2517, nullptr, "CreateApplicationInstance"},
         {2518, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "UpdateQualificationForDebug"},
-        {2519, nullptr, "IsQualificationTransitionSupported"},
+        {2519, D<&IApplicationManagerInterface::IsQualificationTransitionSupported>, "IsQualificationTransitionSupported"},
         {2520, D<&IApplicationManagerInterface::IsQualificationTransitionSupportedByProcessId>, "IsQualificationTransitionSupportedByProcessId"},
         {2522, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "IsRomRedirectionAvailable"},
         {2523, D<&IApplicationManagerInterface::GetProgramId>, "GetProgramId"}, //17.0.0+
@@ -1424,10 +1424,19 @@ Result IApplicationManagerInterface::ResumeAll() {
     R_SUCCEED();
 }
 
+Result IApplicationManagerInterface::IsQualificationTransitionSupported(
+    Out<bool> out_is_supported, u64 application_id) {
+    LOG_DEBUG(Service_NS, "Qualification transition unsupported for application_id={:016X}",
+              application_id);
+    *out_is_supported = false;
+    R_SUCCEED();
+}
+
 Result IApplicationManagerInterface::IsQualificationTransitionSupportedByProcessId(
     Out<bool> out_is_supported, u64 process_id) {
-    LOG_WARNING(Service_NS, "(STUBBED) called, process_id={}", process_id);
-    *out_is_supported = true;
+    LOG_DEBUG(Service_NS, "Qualification transition unsupported for process_id={:016X}",
+              process_id);
+    *out_is_supported = false;
     R_SUCCEED();
 }
 
