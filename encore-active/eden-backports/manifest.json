@@ -1314,6 +1314,11 @@
       "active": "5d1391730a4f7ff8dcece1a01c2f9ed6abcc07307fc0c8c3a6aadf2b98d8c3ab",
       "bytes": 465,
       "upstream": "a4c955126def0af0b0687e7914c97f09b9ba044ad25e0e3cc952a6d8321fc0d4"
+    },
+    "src/core/hle/service/nvdrv/nvdrv.cpp": {
+      "active": "31b712f1e03f8b51fbe91335c626ce7d6488cff84a12ddadcb9c1d7bf050d534",
+      "bytes": 13593,
+      "upstream": "f928a12982ee825b5e2925f7ce265c7195fd6670cebf5b115c250a69ebb49a7b"
     }
   },
   "excluded_experimental": [
