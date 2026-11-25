@@ -1214,6 +1214,26 @@
       "upstream": "0bfabeb189026b2ebc9b4c0ad12cff9e919c46b7b67ae2ebeef895cfb8df3b52",
       "active": "77450091cbe4d57b827b2c7f7d10f1d118b58fbb2bcf14c5cec2025286cb32b8",
       "bytes": 1812
+    },
+    "src/core/hle/service/ns/application_version_interface.cpp": {
+      "active": "ab652312d21868163fb8b561d741444de49d2a48b689cb0d8922c6b27b3bf2cf",
+      "bytes": 2250,
+      "upstream": "e1a1f07572a07dfd81276cb159ed1b75cb82964e3ccf479121563f288ef42fab"
+    },
+    "src/core/hle/service/ns/application_version_interface.h": {
+      "active": "0fbc36e249d699548ff79d381921ece77278e4db63869c2532cb491a3c9c6e56",
+      "bytes": 514,
+      "upstream": "9e94b827349ebf9b77fa02d0f654aa07fa7573c76fc08f34786b7040d79ac847"
+    },
+    "src/core/hle/service/ns/platform_service_manager.cpp": {
+      "active": "4e2aa4ae3164f0a0e21c272bcb14a147b8541456754bd582a80257cf07689bf8",
+      "bytes": 11474,
+      "upstream": "c7b2e16f21a67b8303ce19ec610476496c2016bf15b6fefcf4e08e32f0de0158"
+    },
+    "src/core/hle/service/ns/platform_service_manager.h": {
+      "active": "26b183188e989bd330b91f0c945fd82bc7ea3d0d12f02ac3af48083203208c68",
+      "bytes": 2994,
+      "upstream": "868baf901534b723e6e89f6b37c49cfe5867fbdcf747659c260dda716f5c56e0"
     }
   },
   "excluded_experimental": [
