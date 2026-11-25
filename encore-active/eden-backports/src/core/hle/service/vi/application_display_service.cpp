@@ -305,6 +305,8 @@ Result IApplicationDisplayService::GetIndirectLayerImageMap(
     OutBuffer<BufferAttr_HipcMapTransferAllowsNonSecure | BufferAttr_HipcMapAlias> out_buffer,
     s64 width, s64 height, u64 indirect_layer_consumer_handle, u64 applet_resource_user_id,
     ClientProcessId process_id) {
+    (void)out_size;
+    (void)out_stride;
     R_UNLESS(width > 0 && height > 0, ResultOperationFailed);
 
     auto* window_system = system.GetAppletManager().GetWindowSystem();
