@@ -377,7 +377,8 @@ Core::IrSensor::DeviceFormat& IRS::GetIrCameraSharedMemoryDeviceEntry(
     return shared_memory->device[camera_handle.npad_id];
 }
 
-IRS_SYS::IRS_SYS(Core::System& system_, std::shared_ptr<Service::HID::ResourceManager> resource_manager_)\n    : ServiceFramework{system_, "irs:sys"}, resource_manager{std::move(resource_manager_)} {
+IRS_SYS::IRS_SYS(Core::System& system_, std::shared_ptr<Service::HID::ResourceManager> resource_manager_)
+    : ServiceFramework{system_, "irs:sys"}, resource_manager{std::move(resource_manager_)} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {500, nullptr, "SetAppletResourceUserId"},

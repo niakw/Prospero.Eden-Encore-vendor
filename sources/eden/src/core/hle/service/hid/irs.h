@@ -14,7 +14,11 @@ namespace Core::HID {
 class EmulatedController;
 } // namespace Core::HID
 
-namespace Service::HID {\nclass ResourceManager;\n}\n\nnamespace Service::IRS {
+namespace Service::HID {
+class ResourceManager;
+}
+
+namespace Service::IRS {
 
 class IRS final : public ServiceFramework<IRS> {
 public:
@@ -161,7 +165,8 @@ private:
 
 class IRS_SYS final : public ServiceFramework<IRS_SYS> {
 public:
-    explicit IRS_SYS(Core::System& system,\n                     std::shared_ptr<Service::HID::ResourceManager> resource_manager);
+    explicit IRS_SYS(Core::System& system,
+                     std::shared_ptr<Service::HID::ResourceManager> resource_manager);
     ~IRS_SYS() override;
 
 private:
