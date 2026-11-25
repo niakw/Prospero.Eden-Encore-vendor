@@ -58,6 +58,13 @@ private:
     Result IsSpeakerAutoMuteEnabled(Out<bool> out_is_speaker_auto_mute_enabled);
     Result AcquireTargetNotification(OutCopyHandle<Kernel::KReadableEvent> out_notification_event);
     Result Unknown5000(Out<SharedPointer<IAudioController>> out_audio_controller);
+    Result SetDefaultTarget(Set::AudioOutputModeTarget target, u64 fade_in_ns, u64 fade_out_ns);
+    Result GetDefaultTarget(Out<Set::AudioOutputModeTarget> out_default_target);
+    Result SetOutputTarget(Set::AudioOutputModeTarget target);
+    Result SetInputTargetForceEnabled(bool enabled);
+    Result GetAudioOutputTargetForPlayReport(Out<Set::AudioOutputModeTarget> out_target);
+    Result SetSystemOutputMasterVolume(f32 volume);
+    Result GetSystemOutputMasterVolume(Out<f32> out_volume);
     void RejectUnavailableReportingOrDebugCommand(HLERequestContext& ctx);
 
     KernelHelpers::ServiceContext service_context;
@@ -67,6 +74,11 @@ private:
     std::array<s32, 6> m_target_volumes{{15, 15, 15, 15, 15, 15}};
     std::array<bool, 6> m_target_muted{{false, false, false, false, false, false}};
     Set::AudioOutputModeTarget m_active_target{Set::AudioOutputModeTarget::Speaker};
+    Set::AudioOutputModeTarget m_default_target{Set::AudioOutputModeTarget::Speaker};
+    u64 m_default_fade_in_ns{};
+    u64 m_default_fade_out_ns{};
+    bool m_input_target_force_enabled{};
+    f32 m_system_output_master_volume{1.0f};
 };
 
 } // namespace Service::Audio

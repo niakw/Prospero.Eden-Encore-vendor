@@ -31,24 +31,24 @@ IAudioController::IAudioController(Core::System& system_)
         {4, D<&IAudioController::IsTargetMute>, "IsTargetMute"},
         {5, D<&IAudioController::SetTargetMute>, "SetTargetMute"},
         {6, nullptr, "IsTargetConnected"}, //20.0.0+
-        {7, nullptr, "SetDefaultTarget"},
-        {8, nullptr, "GetDefaultTarget"},
+        {7, D<&IAudioController::SetDefaultTarget>, "SetDefaultTarget"},
+        {8, D<&IAudioController::GetDefaultTarget>, "GetDefaultTarget"},
         {9, D<&IAudioController::GetAudioOutputMode>, "GetAudioOutputMode"},
         {10, D<&IAudioController::SetAudioOutputMode>, "SetAudioOutputMode"},
         {11, nullptr, "SetForceMutePolicy"},
         {12, D<&IAudioController::GetForceMutePolicy>, "GetForceMutePolicy"},
         {13, D<&IAudioController::GetOutputModeSetting>, "GetOutputModeSetting"},
         {14, D<&IAudioController::SetOutputModeSetting>, "SetOutputModeSetting"},
-        {15, nullptr, "SetOutputTarget"},
-        {16, nullptr, "SetInputTargetForceEnabled"},
+        {15, D<&IAudioController::SetOutputTarget>, "SetOutputTarget"},
+        {16, D<&IAudioController::SetInputTargetForceEnabled>, "SetInputTargetForceEnabled"},
         {17, D<&IAudioController::SetHeadphoneOutputLevelMode>, "SetHeadphoneOutputLevelMode"},
         {18, D<&IAudioController::GetHeadphoneOutputLevelMode>, "GetHeadphoneOutputLevelMode"},
         {19, &IAudioController::RejectUnavailableReportingOrDebugCommand, "AcquireAudioVolumeUpdateEventForPlayReport"},
         {20, &IAudioController::RejectUnavailableReportingOrDebugCommand, "AcquireAudioOutputDeviceUpdateEventForPlayReport"},
-        {21, &IAudioController::RejectUnavailableReportingOrDebugCommand, "GetAudioOutputTargetForPlayReport"},
+        {21, D<&IAudioController::GetAudioOutputTargetForPlayReport>, "GetAudioOutputTargetForPlayReport"},
         {22, D<&IAudioController::NotifyHeadphoneVolumeWarningDisplayedEvent>, "NotifyHeadphoneVolumeWarningDisplayedEvent"},
-        {23, nullptr, "SetSystemOutputMasterVolume"},
-        {24, nullptr, "GetSystemOutputMasterVolume"},
+        {23, D<&IAudioController::SetSystemOutputMasterVolume>, "SetSystemOutputMasterVolume"},
+        {24, D<&IAudioController::GetSystemOutputMasterVolume>, "GetSystemOutputMasterVolume"},
         {25, nullptr, "GetAudioVolumeDataForPlayReport"},
         {26, nullptr, "UpdateHeadphoneSettings"},
         {27, &IAudioController::RejectUnavailableReportingOrDebugCommand, "SetVolumeMappingTableForDev"},
@@ -339,6 +339,80 @@ Result IAudioController::SetTargetMute(bool is_muted, Set::AudioOutputModeTarget
 
     Settings::values.audio_muted.SetValue(is_muted);
 
+    R_SUCCEED();
+}
+
+Result IAudioController::SetDefaultTarget(Set::AudioOutputModeTarget target, u64 fade_in_ns,
+                                                u64 fade_out_ns) {
+    const auto idx = static_cast<size_t>(target);
+    R_UNLESS(idx < m_target_volumes.size(), ResultInvalidArgument);
+
+    m_default_target = target;
+    m_default_fade_in_ns = fade_in_ns;
+    m_default_fade_out_ns = fade_out_ns;
+    LOG_INFO(Audio, "default target={}, fade_in_ns={}, fade_out_ns={}", target, fade_in_ns,
+             fade_out_ns);
+    R_SUCCEED();
+}
+
+Result IAudioController::GetDefaultTarget(Out<Set::AudioOutputModeTarget> out_default_target) {
+    *out_default_target = m_default_target;
+    LOG_DEBUG(Audio, "default target={}", m_default_target);
+    R_SUCCEED();
+}
+
+Result IAudioController::SetOutputTarget(Set::AudioOutputModeTarget target) {
+    const auto idx = static_cast<size_t>(target);
+    R_UNLESS(idx < m_target_volumes.size(), ResultInvalidArgument);
+
+    const bool changed = m_active_target != target;
+    m_active_target = target;
+
+    const float volume =
+        m_target_muted[idx] ? 0.0f : static_cast<float>(m_target_volumes[idx]) / 15.0f;
+    try {
+        auto& sink = system.AudioCore().GetOutputSink();
+        sink.SetSystemVolume(volume);
+        sink.SetDeviceVolume(volume);
+    } catch (...) {
+        LOG_WARNING(Audio, "Failed to apply output-target volume");
+    }
+    if (auto audout_mgr = system.ServiceManager().GetService<IAudioOutManager>("audout:u")) {
+        audout_mgr->SetAllAudioOutVolume(volume);
+    }
+
+    const int ui_volume =
+        static_cast<int>(std::lround((static_cast<double>(m_target_volumes[idx]) / 15.0) * 100.0));
+    Settings::values.volume.SetValue(static_cast<u8>(std::clamp(ui_volume, 0, 100)));
+    Settings::values.audio_muted.SetValue(m_target_muted[idx]);
+
+    if (changed) {
+        notification_event->Signal(system.Kernel());
+    }
+    LOG_INFO(Audio, "active output target={}", target);
+    R_SUCCEED();
+}
+
+Result IAudioController::SetInputTargetForceEnabled(bool enabled) {
+    m_input_target_force_enabled = enabled;
+    LOG_DEBUG(Audio, "input target force enabled={}", enabled);
+    R_SUCCEED();
+}
+
+Result IAudioController::GetAudioOutputTargetForPlayReport(
+    Out<Set::AudioOutputModeTarget> out_target) {
+    *out_target = m_active_target;
+    R_SUCCEED();
+}
+
+Result IAudioController::SetSystemOutputMasterVolume(f32 volume) {
+    m_system_output_master_volume = std::clamp(volume, 0.0f, 1.0f);
+    LOG_DEBUG(Audio, "stored system output master volume={}", m_system_output_master_volume);
+    R_SUCCEED();
+}
+
+Result IAudioController::GetSystemOutputMasterVolume(Out<f32> out_volume) {
+    *out_volume = m_system_output_master_volume;
     R_SUCCEED();
 }
 
