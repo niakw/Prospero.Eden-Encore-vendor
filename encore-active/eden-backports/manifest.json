@@ -236,8 +236,8 @@
       "upstream": "ecad50890c6f17dc1e5133a23cf0ea2789230c4d235e58c187836b74f25baf10"
     },
     "src/core/hle/service/am/service/library_applet_accessor.cpp": {
-      "active": "4a8c04ad17cf9928487cbbfc1d0927aa61195ad00722843ce54da433f7a1a5a5",
-      "bytes": 12776,
+      "active": "9313e56f43e5b80635ff1fec238e52aaccc60330fd8c3c8cfcc29823d0bedcf7",
+      "bytes": 12772,
       "upstream": "541464a92129a274c9694b6953dc5b5c97c72aa5593819db5c496078bb087324"
     },
     "src/core/hle/service/am/service/library_applet_accessor.h": {
@@ -761,8 +761,8 @@
       "upstream": "8175a9bd924f52caac68778a090604b0d768e560c98be1b786f4c55190fcb676"
     },
     "src/core/hle/service/vi/application_display_service.cpp": {
-      "active": "7986f3c4ef4e7dc1d2a5c7a755b549dcbea633b57e6fffe5aa580e17b024219b",
-      "bytes": 15043,
+      "active": "98582a8714d62d18d2680a775fe5ce4ff01b9f88d3046ce84cc1e2efadddd869",
+      "bytes": 15081,
       "upstream": "ee8164870ef1cd84eeb254fcb4ba80c30e100bce1003b7811f765d6efe36f771"
     },
     "src/core/hle/service/vi/application_root_service.cpp": {
