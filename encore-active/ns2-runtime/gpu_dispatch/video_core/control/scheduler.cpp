@@ -36,14 +36,14 @@ void Scheduler::Push(GPU& gpu, s32 channel, CommandList&& entries) {
             gpu.BindChannel(channel_state->bind_id);
             pusher.Push(std::move(entries));
             pusher.DispatchCalls();
-        }
-        // A second GPU-worker path may retry parked semaphores while this
-        // submission publishes its pending channel. Guard the actual list.
-        const std::scoped_lock pending_lock(pending_guard);
-        if (pusher.HasPendingNativeAcquire() &&
-            std::find(pending_native_channels.begin(), pending_native_channels.end(),
-                      channel_state) == pending_native_channels.end()) {
-            pending_native_channels.push_back(channel_state);
+            // Publish the parked state while the GPU execution lease still
+            // protects the pusher. A concurrent replay must not change it.
+            const std::scoped_lock pending_lock(pending_guard);
+            if (pusher.HasPendingNativeAcquire() &&
+                std::find(pending_native_channels.begin(), pending_native_channels.end(),
+                          channel_state) == pending_native_channels.end()) {
+                pending_native_channels.push_back(channel_state);
+            }
         }
     }
     // Do not hold the scheduling lease while replaying other channels.
@@ -68,11 +68,16 @@ void Scheduler::ResumePendingNative(GPU& gpu) {
             if (!pusher.system.IsPoweredOn()) {
                 return;
             }
-            if (!pusher.HasPendingNativeAcquire() ||
-                !pusher.ResumeNativeAcquire()) {
+            if (!pusher.HasPendingNativeAcquire()) {
                 continue;
             }
+            // The acquire itself performs coherent rasterizer reads/flushes.
+            // Bind the parked owner before those operations, not only before
+            // DispatchCalls: another channel may have been bound meanwhile.
             gpu.BindChannel(state->bind_id);
+            if (!pusher.ResumeNativeAcquire()) {
+                continue;
+            }
             pusher.DispatchCalls();
             progress = true;
         }
