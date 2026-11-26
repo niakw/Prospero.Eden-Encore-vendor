@@ -202,8 +202,18 @@ private:
         NativeTipcReplyWords(ctx, {p[2], p[3]});
     }
     void QueryApplicationGpuTimeSpan(HLERequestContext& ctx) {
-        IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(Kernel::ResultNotImplemented.raw);
+        // GSV 1121 returns this child; TIPC 11 has wire command 27.
+        // The SDK asks how long the guest application was scheduled in
+        // [begin, end], not how long Vulkan was busy. On this guest GPU
+        // timeline the one running guest owns the interval, as in nxnative.
+        const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
+        const auto span = GraphicsSupervisorProtocol::DecodeApplicationGpuScheduledSpan(packet);
+        if (!span) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidCombination.raw);
+            return;
+        }
+        NativeTipcReplyWords(ctx, {static_cast<u32>(*span), static_cast<u32>(*span >> 32)});
     }
 };
 

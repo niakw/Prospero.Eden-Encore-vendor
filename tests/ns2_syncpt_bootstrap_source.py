@@ -422,7 +422,18 @@ for evidence in ("p[0] == 16 + 1121", "CreateMetadataSession(system, ctx,",
                  "ctx.AddMoveObject(client)", "IPC::ResponseBuilder rb{ctx, 2, 0, 1}",
                  "client->Close(system.Kernel())"):
     assert evidence in gpu_time, evidence
-assert "rb.Push(Kernel::ResultNotImplemented.raw);" in cpp
+# SDK 20/21 graphics-frame session: TIPC 11 (wire 27), two u64 input
+# timestamps -> one u64 scheduling duration, as in nxnative and ScarletNX.
+# The child must not treat its supported command as NotImplemented.
+gpu_time_child = cpp.split("class INativeGpuTimeSession final", 1)[1].split(
+    "class INativeSyncptSession final", 1)[0]
+for marker in (
+    "GraphicsSupervisorProtocol::DecodeApplicationGpuScheduledSpan(packet)",
+    "NativeTipcReplyWords(ctx, {static_cast<u32>(*span), static_cast<u32>(*span >> 32)});",
+    "rb.Push(Kernel::ResultInvalidCombination.raw);",
+):
+    assert marker in gpu_time_child, marker
+assert "ResultNotImplemented" not in gpu_time_child
 assert "void OpenGpuTimeSession(HLERequestContext& ctx);" in hdr
 
 print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS graphics_frame=1101,1102,1111,1112,1113 native_memory=113-transfer-owner donated_usage=498 supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")
@@ -543,3 +554,57 @@ for guard in ("packet[0] == 16 + 603 && packet[1] == 0", "if (m_camera_contexts 
               "--m_camera_contexts;", "Kernel::ResultInvalidState", "ResultSuccess"):
     assert guard in camera_root, guard
 print("NS2_CAMERA_ROOT_FINALIZE_SOURCE_PASS cmd603=owned_after_602")
+
+# Compile and execute the production TIPC decoder, not a mock. This
+# fixture checks successful intervals, reverse order, saturation, malformed
+# header/arity, and truncated packets without a PS5 native build.
+import shutil as _shutil
+import subprocess as _subprocess
+import tempfile as _tempfile
+_gpu_cc = _shutil.which("clang++") or _shutil.which("g++")
+assert _gpu_cc, "A host C++20 compiler is required by the vendor gate"
+_gpu_src = r"""
+#include <array>
+#include <cassert>
+#include <cstdint>
+#include <limits>
+#include <span>
+#include "core/hle/service/am/service/graphics_supervisor_protocol.h"
+using Service::AM::GraphicsSupervisorProtocol::DecodeApplicationGpuScheduledSpan;
+int main() {
+    std::array<u32, 6> packet{27, 4, 100, 0, 250, 0};
+    assert(DecodeApplicationGpuScheduledSpan(packet) == 150);
+    packet[4] = 50;
+    assert(DecodeApplicationGpuScheduledSpan(packet) == 0);
+    packet[2] = 0;
+    packet[4] = 0;
+    packet[5] = 0x80000000U;
+    assert(DecodeApplicationGpuScheduledSpan(packet) ==
+           static_cast<u64>(std::numeric_limits<s64>::max()));
+    packet[0] = 26;
+    assert(!DecodeApplicationGpuScheduledSpan(packet));
+    packet[0] = 27;
+    packet[1] = 3;
+    assert(!DecodeApplicationGpuScheduledSpan(packet));
+    packet[1] = 4;
+    assert(!DecodeApplicationGpuScheduledSpan(std::span<const u32>{packet.data(), 5}));
+    packet = {27, 4, 0xffffffffU, 0xffffffffU, 0, 0};
+    assert(DecodeApplicationGpuScheduledSpan(packet) == 0);
+}
+"""
+with _tempfile.TemporaryDirectory(prefix="eden-ns2-gpu-time-") as _dir:
+    _source = Path(_dir) / "gpu_time.cpp"
+    _output = Path(_dir) / "gpu_time"
+    _source.write_text(_gpu_src)
+    _compile = _subprocess.run(
+        [_gpu_cc, "-std=c++20", "-O2", "-Wall", "-Wextra", "-Werror",
+         "-fsanitize=undefined", "-fno-sanitize-recover=all",
+         "-I" + str(R / "encore-active/ns2-runtime/hle"),
+         "-I" + str(R / "sources/eden/src"),
+         str(_source), "-o", str(_output)],
+        capture_output=True, text=True, timeout=70,
+    )
+    assert _compile.returncode == 0, _compile.stderr[-5000:]
+    _run = _subprocess.run([str(_output)], capture_output=True, text=True, timeout=15)
+    assert _run.returncode == 0, _run.stderr[-5000:]
+print("NS2_GPU_TIME_TIPC11_HOST_PASS scheduled_interval=saturated reverse=zero malformed=rejected")

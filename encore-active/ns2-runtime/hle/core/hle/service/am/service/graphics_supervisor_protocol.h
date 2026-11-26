@@ -81,6 +81,24 @@ constexpr RequestGroupDuplicateStatus ClassifyRequestGroupEventDuplicate(
 // libounce gsv.c _gsvSyncCreate: command 1 advertises capacity,
 // command 21 sends a u32 configured count, at most min(capacity, 0x3f).
 // Keep the historical unconfigured limit for SDKs that never send 21.
+// nn::gs::sdk::QueryApplicationGpuTimeSpan sends two u64 timestamps
+// to GSV 1121's GraphicsFrameSession TIPC 11 (27 on the wire), and
+// expects one u64 TimeSpan. This is scheduling entitlement on the
+// guest's sole application timeline, NOT renderer busy time.
+// Decode before publishing the output; saturate to signed TimeSpan.
+[[nodiscard]] inline std::optional<u64> DecodeApplicationGpuScheduledSpan(
+    std::span<const u32> packet) noexcept {
+    if (packet.size() < 6 || packet[0] != 16 + 11 || packet[1] != 4) {
+        return std::nullopt;
+    }
+    const u64 begin = u64{packet[2]} | (u64{packet[3]} << 32);
+    const u64 end = u64{packet[4]} | (u64{packet[5]} << 32);
+    if (end <= begin) {
+        return 0;
+    }
+    return std::min(end - begin, static_cast<u64>(std::numeric_limits<s64>::max()));
+}
+
 constexpr u32 SyncptAdvertisedSlots = 32;
 constexpr u32 SyncptLegacySlots = 64;
 inline std::optional<u32> DecodeSyncptSlotCount(std::span<const u32> packet) {
