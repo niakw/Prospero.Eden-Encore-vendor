@@ -5,17 +5,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <array>
-#include <algorithm>
-#include <cmath>
-#include <cstring>
-#include <mutex>
 #include <fmt/ranges.h>
+#include <mutex>
+#include <cstring>
+#include <cmath>
+#include <algorithm>
 
 #include "common/common_types.h"
 #include "common/logging.h"
-#include "core/core.h"
-#include "hid_core/hid_core.h"
-#include "hid_core/frontend/emulated_devices.h"
 #include "common/settings.h"
 #include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/kernel/k_transfer_memory.h"
@@ -129,13 +126,8 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {134, C<&IHidServer::SetNpadAnalogStickUseCenterClamp>, "SetNpadAnalogStickUseCenterClamp"},
         {135, C<&IHidServer::SetNpadCaptureButtonAssignment>, "SetNpadCaptureButtonAssignment"},
         {136, C<&IHidServer::ClearNpadCaptureButtonAssignment>, "ClearNpadCaptureButtonAssignment"},
-        {137, &IHidServer::StubReplyZeroed, "Unknown137"},
         {138, C<&IHidServer::SetSceneIdForPrivateApp>, "SetSceneIdForPrivateApp"},
         {139, C<&IHidServer::GetSceneIdForPrivateApp>, "GetSceneIdForPrivateApp"},
-        {140, &IHidServer::StubReplyZeroed, "Unknown140"},
-        {150, &IHidServer::StubReplyZeroed, "Unknown150"},
-        {151, &IHidServer::StubReplyZeroed, "Unknown151"},
-        {160, &IHidServer::StubReplyZeroed, "Unknown160"},
         {200, C<&IHidServer::GetVibrationDeviceInfo>, "GetVibrationDeviceInfo"},
         {201, C<&IHidServer::SendVibrationValue>, "SendVibrationValue"},
         {202, C<&IHidServer::GetActualVibrationValue>, "GetActualVibrationValue"},
@@ -149,8 +141,6 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {210, C<&IHidServer::EndPermitVibrationSession>, "EndPermitVibrationSession"},
         {211, C<&IHidServer::IsVibrationDeviceMounted>, "IsVibrationDeviceMounted"},
         {212, C<&IHidServer::SendVibrationValueInBool>, "SendVibrationValueInBool"},
-        {213, C<&IHidServer::SendVibrationValueInMode>, "SendVibrationValueInMode"},
-        {214, C<&IHidServer::SendNx2VibrationValues>, "SendVibrationValuesInMode"},
         {220, C<&IHidServer::IsOunceVibrationDeviceMounted>, "IsOunceVibrationDeviceMounted"},
         {300, C<&IHidServer::ActivateConsoleSixAxisSensor>, "ActivateConsoleSixAxisSensor"},
         {301, C<&IHidServer::StartConsoleSixAxisSensor>, "StartConsoleSixAxisSensor"},
@@ -163,13 +153,8 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {308, &IHidServer::StubReplyZeroed, "SetSevenSixAxisSensorFusionStrength"},
         {309, &IHidServer::StubReplyZeroed, "GetSevenSixAxisSensorFusionStrength"},
         {310, C<&IHidServer::ResetSevenSixAxisSensorTimestamp>, "ResetSevenSixAxisSensorTimestamp"},
-        {311, &IHidServer::StubReplyZeroed, "Unknown311"},
-        {312, &IHidServer::StubReplyZeroed, "Unknown312"},
         {320, &IHidServer::StubReplyZeroed, "EnableNpadImu"}, //21.0.0+
         {321, &IHidServer::StubReplyZeroed, "DisableNpadImu"}, //21.0.0+
-        {322, &IHidServer::StubReplyZeroed, "Unknown322"},
-        {323, &IHidServer::StubReplyZeroed, "Unknown323"},
-        {324, &IHidServer::StubReplyZeroed, "Unknown324"},
         {400, C<&IHidServer::IsUsbFullKeyControllerEnabled>, "IsUsbFullKeyControllerEnabled"},
         {401, &IHidServer::StubReplyZeroed, "EnableUsbFullKeyController"},
         {402, &IHidServer::StubReplyZeroed, "IsUsbFullKeyControllerConnected"},
@@ -178,7 +163,7 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {405, &IHidServer::StubReplyZeroed, "GetNpadInterfaceType"},
         {406, &IHidServer::StubReplyZeroed, "GetNpadLeftRightInterfaceType"},
         {407, &IHidServer::StubReplyZeroed, "GetNpadOfHighestBatteryLevel"},
-        {408, &IHidServer::RejectUnsupportedExtendedCommand, "GetNpadOfHighestBatteryLevelForJoyRight"},
+        {408, nullptr, "GetNpadOfHighestBatteryLevelForJoyRight"},
         {500, C<&IHidServer::GetPalmaConnectionHandle>, "GetPalmaConnectionHandle"},
         {501, C<&IHidServer::InitializePalma>, "InitializePalma"},
         {502, C<&IHidServer::AcquirePalmaOperationCompleteEvent>, "AcquirePalmaOperationCompleteEvent"},
@@ -209,45 +194,43 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {527, C<&IHidServer::EnablePalmaBoostMode>, "EnablePalmaBoostMode"},
         {528, C<&IHidServer::GetPalmaBluetoothAddress>, "GetPalmaBluetoothAddress"},
         {529, C<&IHidServer::SetDisallowedPalmaConnection>, "SetDisallowedPalmaConnection"},
-        {550, &IHidServer::StubReplyZeroed, "Unknown550"},
         {1000, C<&IHidServer::SetNpadCommunicationMode>, "SetNpadCommunicationMode"},
         {1001, C<&IHidServer::GetNpadCommunicationMode>, "GetNpadCommunicationMode"},
         {1002, C<&IHidServer::SetTouchScreenConfiguration>, "SetTouchScreenConfiguration"},
         {1003, C<&IHidServer::IsFirmwareUpdateNeededForNotification>, "IsFirmwareUpdateNeededForNotification"},
         {1004, C<&IHidServer::SetTouchScreenResolution>, "SetTouchScreenResolution"},
-        {1005, &IHidServer::StubReplyZeroed, "Unknown1005"},
-        {1270, &IHidServer::RejectUnsupportedExtendedCommand, "DeleteButtonConfigStorageRight"},
-        {1271, &IHidServer::RejectUnsupportedExtendedCommand, "IsUsingCustomButtonConfig"},
-        {1272, &IHidServer::RejectUnsupportedExtendedCommand, "IsAnyCustomButtonConfigEnabled"},
-        {1273, &IHidServer::RejectUnsupportedExtendedCommand, "SetAllCustomButtonConfigEnabled"},
-        {1274, &IHidServer::RejectUnsupportedExtendedCommand, "SetDefaultButtonConfig"},
-        {1275, &IHidServer::RejectUnsupportedExtendedCommand, "SetAllDefaultButtonConfig"},
-        {1276, &IHidServer::RejectUnsupportedExtendedCommand, "SetHidButtonConfigEmbedded"},
-        {1277, &IHidServer::RejectUnsupportedExtendedCommand, "SetHidButtonConfigFull"},
-        {1278, &IHidServer::RejectUnsupportedExtendedCommand, "SetHidButtonConfigLeft"},
-        {1279, &IHidServer::RejectUnsupportedExtendedCommand, "SetHidButtonConfigRight"},
-        {1280, &IHidServer::RejectUnsupportedExtendedCommand, "GetHidButtonConfigEmbedded"},
-        {1281, &IHidServer::RejectUnsupportedExtendedCommand, "GetHidButtonConfigFull"},
-        {1282, &IHidServer::RejectUnsupportedExtendedCommand, "GetHidButtonConfigLeft"},
-        {1283, &IHidServer::RejectUnsupportedExtendedCommand, "GetHidButtonConfigRight"},
-        {1284, &IHidServer::RejectUnsupportedExtendedCommand, "GetButtonConfigStorageEmbedded"},
-        {1285, &IHidServer::RejectUnsupportedExtendedCommand, "GetButtonConfigStorageFull"},
-        {1286, &IHidServer::RejectUnsupportedExtendedCommand, "GetButtonConfigStorageLeft"},
-        {1287, &IHidServer::RejectUnsupportedExtendedCommand, "GetButtonConfigStorageRight"},
-        {1288, &IHidServer::RejectUnsupportedExtendedCommand, "SetButtonConfigStorageEmbedded"},
-        {1289, &IHidServer::RejectUnsupportedExtendedCommand, "SetButtonConfigStorageFull"},
-        {1290, &IHidServer::RejectUnsupportedExtendedCommand, "SetButtonConfigStorageLeft"},
-        {1291, &IHidServer::RejectUnsupportedExtendedCommand, "SetButtonConfigStorageRight"},
-        {1308, &IHidServer::RejectUnsupportedExtendedCommand, "SetButtonConfigVisible"},
-        {1309, &IHidServer::RejectUnsupportedExtendedCommand, "IsButtonConfigVisible"},
-        {1320, &IHidServer::RejectUnsupportedExtendedCommand, "WakeTouchScreenUp"},
-        {1321, &IHidServer::RejectUnsupportedExtendedCommand, "PutTouchScreenToSleep"},
-        {1322, &IHidServer::RejectUnsupportedExtendedCommand, "AcquireTouchScreenAsyncWakeCompletedEvent"},
-        {1323, &IHidServer::RejectUnsupportedExtendedCommand, "StartTouchScreenAutoTuneForSystemSettings"},
-        {1324, &IHidServer::RejectUnsupportedExtendedCommand, "AcquireTouchScreenAutoTuneCompletedEvent"},
-        {1325, &IHidServer::RejectUnsupportedExtendedCommand, "IsTouchScreenAutoTuneRequiredForRepairProviderReplacement"},
-        {1420, &IHidServer::RejectUnsupportedExtendedCommand, "GetAppletResourceProperty"},
-        {2000, &IHidServer::RejectUnsupportedExtendedCommand, "ActivateDigitizer"},
+        {1270, nullptr, "DeleteButtonConfigStorageRight"},
+        {1271, nullptr, "IsUsingCustomButtonConfig"},
+        {1272, nullptr, "IsAnyCustomButtonConfigEnabled"},
+        {1273, nullptr, "SetAllCustomButtonConfigEnabled"},
+        {1274, nullptr, "SetDefaultButtonConfig"},
+        {1275, nullptr, "SetAllDefaultButtonConfig"},
+        {1276, nullptr, "SetHidButtonConfigEmbedded"},
+        {1277, nullptr, "SetHidButtonConfigFull"},
+        {1278, nullptr, "SetHidButtonConfigLeft"},
+        {1279, nullptr, "SetHidButtonConfigRight"},
+        {1280, nullptr, "GetHidButtonConfigEmbedded"},
+        {1281, nullptr, "GetHidButtonConfigFull"},
+        {1282, nullptr, "GetHidButtonConfigLeft"},
+        {1283, nullptr, "GetHidButtonConfigRight"},
+        {1284, nullptr, "GetButtonConfigStorageEmbedded"},
+        {1285, nullptr, "GetButtonConfigStorageFull"},
+        {1286, nullptr, "GetButtonConfigStorageLeft"},
+        {1287, nullptr, "GetButtonConfigStorageRight"},
+        {1288, nullptr, "SetButtonConfigStorageEmbedded"},
+        {1289, nullptr, "SetButtonConfigStorageFull"},
+        {1290, nullptr, "SetButtonConfigStorageLeft"},
+        {1291, nullptr, "SetButtonConfigStorageRight"},
+        {1308, nullptr, "SetButtonConfigVisible"},
+        {1309, nullptr, "IsButtonConfigVisible"},
+        {1320, nullptr, "WakeTouchScreenUp"},
+        {1321, nullptr, "PutTouchScreenToSleep"},
+        {1322, nullptr, "AcquireTouchScreenAsyncWakeCompletedEvent"},
+        {1323, nullptr, "StartTouchScreenAutoTuneForSystemSettings"},
+        {1324, nullptr, "AcquireTouchScreenAutoTuneCompletedEvent"},
+        {1325, nullptr, "IsTouchScreenAutoTuneRequiredForRepairProviderReplacement"},
+        {1420, nullptr, "GetAppletResourceProperty"},
+        {2000, nullptr, "ActivateDigitizer"},
         {3000, &IHidServer::StubReplyZeroed, "GetDebugPadGenericPadMap"},
         {3001, &IHidServer::StubReplyZeroed, "SetDebugPadGenericPadMap"},
         {3002, &IHidServer::StubReplyZeroed, "ResetDebugPadGenericPadMap"},
@@ -269,17 +252,33 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {3112, &IHidServer::StubJcms, "StartJcms"},
         {3113, &IHidServer::StubJcms, "StopJcms"},
         // Documented Nmouse lifecycle and pointer ABI; do not invent sensor samples.
-        {3114, &IHidServer::StubReplyZeroed, "Unknown3114"},
         {3130, C<&IHidServer::InitializeNmouse>, "InitializeNmouse"},
         {3131, C<&IHidServer::FinalizeNmouse>, "FinalizeNmouse"},
         {3132, C<&IHidServer::SetNmousePointerRanges>, "SetNmousePointerRanges"},
         {3133, C<&IHidServer::GetNmousePointerRanges>, "GetNmousePointerRanges"},
+        {3138, C<&IHidServer::SetMergedNmouseSourceTypes>, "SetMergedNmouseSourceTypes"},
+        {3139, C<&IHidServer::InitializeNmouse2>, "InitializeNmouse2"},
+        {3150, C<&IHidServer::SetMouseLibraryVersion>, "SetMouseLibraryVersion"}, //21.0.0+
+        // What? -- {12010, nullptr, "SetButtonConfigLeft"},
+        {137, &IHidServer::StubReplyZeroed, "Unknown137"},
+        {140, &IHidServer::StubReplyZeroed, "Unknown140"},
+        {150, &IHidServer::StubReplyZeroed, "Unknown150"},
+        {151, &IHidServer::StubReplyZeroed, "Unknown151"},
+        {160, &IHidServer::StubReplyZeroed, "Unknown160"},
+        {213, C<&IHidServer::SendVibrationValueInMode>, "SendVibrationValueInMode"},
+        {214, C<&IHidServer::SendNx2VibrationValues>, "SendVibrationValuesInMode"},
+        {311, &IHidServer::StubReplyZeroed, "Unknown311"},
+        {312, &IHidServer::StubReplyZeroed, "Unknown312"},
+        {322, &IHidServer::StubReplyZeroed, "Unknown322"},
+        {323, &IHidServer::StubReplyZeroed, "Unknown323"},
+        {324, &IHidServer::StubReplyZeroed, "Unknown324"},
+        {550, &IHidServer::StubReplyZeroed, "Unknown550"},
+        {1005, &IHidServer::StubReplyZeroed, "Unknown1005"},
+        {3114, &IHidServer::StubReplyZeroed, "Unknown3114"},
         {3134, &IHidServer::StubReplyZeroed, "Unknown3134"},
         {3135, &IHidServer::StubReplyZeroed, "Unknown3135"},
         {3136, &IHidServer::StubReplyZeroed, "Unknown3136"},
         {3137, &IHidServer::StubReplyZeroed, "Unknown3137"},
-        {3138, C<&IHidServer::SetMergedNmouseSourceTypes>, "SetMergedNmouseSourceTypes"},
-        {3139, C<&IHidServer::InitializeNmouse2>, "InitializeNmouse2"},
         {3140, &IHidServer::StubReplyZeroed, "Unknown3140"},
         {3141, &IHidServer::StubReplyZeroed, "Unknown3141"},
         {3142, &IHidServer::StubReplyZeroed, "Unknown3142"},
@@ -290,8 +289,6 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {3147, &IHidServer::StubReplyZeroed, "Unknown3147"},
         {3148, &IHidServer::StubReplyZeroed, "Unknown3148"},
         {3149, &IHidServer::StubReplyZeroed, "Unknown3149"},
-        {3150, C<&IHidServer::SetMouseLibraryVersion>, "SetMouseLibraryVersion"}, //21.0.0+
-        // What? -- {12010, nullptr, "SetButtonConfigLeft"},
         {5000, &IHidServer::StubReplyZeroed, "Unknown5000"},
     };
     // clang-format on
@@ -363,9 +360,8 @@ Result IHidServer::ActivateKeyboard(ClientAppletResourceUserId aruid) {
     R_RETURN(GetResourceManager()->GetKeyboard()->Activate(aruid.pid));
 }
 
-Result IHidServer::SendKeyboardLockKeyEvent(u32 flags, ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID, "called, flags={:#x}, applet_resource_user_id={}", flags, aruid.pid);
-    system.HIDCore().GetEmulatedDevices()->ApplyKeyboardLockKeyEvents(flags);
+Result IHidServer::SendKeyboardLockKeyEvent(u32 flags) {
+    LOG_WARNING(Service_HID, "(STUBBED) called. flags={}", flags);
     R_SUCCEED();
 }
 
@@ -1130,134 +1126,6 @@ Result IHidServer::IsVibrationDeviceMounted(
     R_SUCCEED();
 }
 
-Result IHidServer::SetAccelerometerParameters(
-    Core::HID::SixAxisSensorHandle sixaxis_handle, AccelerometerParameters parameters,
-    ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, npad_type={}, npad_id={}, device_index={}, x={}, y={}, "
-              "applet_resource_user_id={}",
-              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
-              parameters.x, parameters.y, aruid.pid);
-    accelerometer_parameters = parameters;
-    R_SUCCEED();
-}
-
-Result IHidServer::GetAccelerometerParameters(
-    Out<AccelerometerParameters> out_parameters, Core::HID::SixAxisSensorHandle sixaxis_handle,
-    ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, npad_type={}, npad_id={}, device_index={}, applet_resource_user_id={}",
-              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
-              aruid.pid);
-    *out_parameters = accelerometer_parameters;
-    R_SUCCEED();
-}
-
-Result IHidServer::ResetAccelerometerParameters(Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                                ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, npad_type={}, npad_id={}, device_index={}, applet_resource_user_id={}",
-              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
-              aruid.pid);
-    accelerometer_parameters = {};
-    R_SUCCEED();
-}
-
-Result IHidServer::SetAccelerometerPlayMode(Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                            u32 play_mode, ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, npad_type={}, npad_id={}, device_index={}, play_mode={}, "
-              "applet_resource_user_id={}",
-              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
-              play_mode, aruid.pid);
-    accelerometer_play_mode = play_mode;
-    R_SUCCEED();
-}
-
-Result IHidServer::GetAccelerometerPlayMode(Out<u32> out_play_mode,
-                                            Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                            ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, npad_type={}, npad_id={}, device_index={}, applet_resource_user_id={}",
-              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
-              aruid.pid);
-    *out_play_mode = accelerometer_play_mode;
-    R_SUCCEED();
-}
-
-Result IHidServer::ResetAccelerometerPlayMode(Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                              ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, npad_type={}, npad_id={}, device_index={}, applet_resource_user_id={}",
-              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
-              aruid.pid);
-    accelerometer_play_mode = 0;
-    R_SUCCEED();
-}
-
-Result IHidServer::SetSevenSixAxisSensorFusionStrength(
-    f32 strength, ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID, "called, strength={}, applet_resource_user_id={}", strength, aruid.pid);
-    seven_six_axis_sensor_fusion_strength = strength;
-    R_SUCCEED();
-}
-
-Result IHidServer::GetSevenSixAxisSensorFusionStrength(
-    Out<f32> out_strength, ClientAppletResourceUserId aruid) {
-    *out_strength = seven_six_axis_sensor_fusion_strength;
-    LOG_DEBUG(Service_HID, "called, strength={}, applet_resource_user_id={}", *out_strength,
-              aruid.pid);
-    R_SUCCEED();
-}
-
-Result IHidServer::EnableUsbFullKeyController(bool is_enabled) {
-    LOG_DEBUG(Service_HID, "called, is_enabled={}", is_enabled);
-
-    usb_full_key_controller_enabled = is_enabled;
-    R_SUCCEED();
-}
-
-Result IHidServer::IsUsbFullKeyControllerConnected(Out<bool> out_is_connected,
-                                                    Core::HID::NpadIdType npad_id) {
-    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
-
-    R_RETURN(GetResourceManager()->GetNpad()->IsUsbFullKeyControllerConnected(
-        npad_id, *out_is_connected));
-}
-
-Result IHidServer::HasBattery(Out<bool> out_has_battery, Core::HID::NpadIdType npad_id) {
-    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
-
-    R_RETURN(GetResourceManager()->GetNpad()->HasBattery(npad_id, *out_has_battery));
-}
-
-Result IHidServer::HasLeftRightBattery(Out<bool> out_has_left_battery,
-                                       Out<bool> out_has_right_battery,
-                                       Core::HID::NpadIdType npad_id) {
-    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
-
-    R_RETURN(GetResourceManager()->GetNpad()->HasLeftRightBattery(
-        npad_id, *out_has_left_battery, *out_has_right_battery));
-}
-
-Result IHidServer::GetNpadInterfaceType(
-    Out<Core::HID::NpadInterfaceType> out_interface_type, Core::HID::NpadIdType npad_id) {
-    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
-
-    R_RETURN(GetResourceManager()->GetNpad()->GetNpadInterfaceType(
-        npad_id, *out_interface_type));
-}
-
-Result IHidServer::GetNpadLeftRightInterfaceType(
-    Out<Core::HID::NpadInterfaceType> out_left_interface_type,
-    Out<Core::HID::NpadInterfaceType> out_right_interface_type,
-    Core::HID::NpadIdType npad_id) {
-    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
-
-    R_RETURN(GetResourceManager()->GetNpad()->GetNpadLeftRightInterfaceType(
-        npad_id, *out_left_interface_type, *out_right_interface_type));
-}
-
 Result IHidServer::SetSceneIdForPrivateApp(ClientAppletResourceUserId aruid, u64 scene_id) {
     const std::scoped_lock lock{m_ns2_state_mutex};
     try {
@@ -1816,12 +1684,6 @@ Result IHidServer::GetNmousePointerRanges(Out<s32> out_width, Out<s32> out_heigh
     *out_width = it != m_ns2_nmouse_ranges.end() ? it->second.width : 0;
     *out_height = it != m_ns2_nmouse_ranges.end() ? it->second.height : 0;
     R_SUCCEED();
-}
-
-void IHidServer::RejectUnsupportedExtendedCommand(HLERequestContext& ctx) {
-    LOG_WARNING(Service_HID, "Rejected unsupported extended HID command {}", ctx.GetCommand());
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(IPC::ResultNotSupported);
 }
 
 Result IHidServer::SetMouseLibraryVersion(ClientAppletResourceUserId aruid) {

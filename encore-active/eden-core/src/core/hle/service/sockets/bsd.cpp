@@ -6,7 +6,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <array>
-#include <limits>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -204,198 +203,13 @@ void BSD_USA::SocketExempt(HLERequestContext& ctx) {
 }
 
 void BSD_USA::Select(HLERequestContext& ctx) {
-    // Horizon passes nfds followed by an aligned timeval and a flag telling whether the timeout
-    // pointer was null. The three fd_sets are input/output buffers 0..2 (read/write/except).
-    struct InputParameters {
-        s32 nfds;
-        u32 reserved;
-        s64 timeout_seconds;
-        s64 timeout_microseconds;
-        u8 timeout_is_null;
-    };
-    static_assert(sizeof(InputParameters) == 0x20);
+    LOG_DEBUG(Service, "(STUBBED) called");
 
-    const auto reply = [&ctx](s32 ret, Errno bsd_errno) {
-        IPC::ResponseBuilder rb{ctx, 4};
-        rb.Push(ResultSuccess);
-        rb.Push<s32>(ret);
-        rb.PushEnum(bsd_errno);
-    };
+    IPC::ResponseBuilder rb{ctx, 4};
 
-    IPC::RequestParser rp{ctx};
-    const auto input = rp.PopRaw<InputParameters>();
-    const bool timeout_is_null = input.timeout_is_null != 0;
-
-    LOG_DEBUG(Service, "called. nfds={} timeout={}s+{}us null={}", input.nfds,
-              input.timeout_seconds, input.timeout_microseconds, timeout_is_null);
-
-    if (input.nfds < 0) {
-        reply(-1, Errno::INVAL);
-        return;
-    }
-
-    const size_t nfds =
-        (std::min)(static_cast<size_t>(input.nfds), static_cast<size_t>(MAX_FD));
-    const size_t set_size = ((nfds + 63) / 64) * sizeof(u64);
-
-    std::array<std::vector<u8>, 3> requested_sets;
-    std::array<std::vector<u8>, 3> ready_sets;
-    for (size_t set = 0; set < requested_sets.size(); ++set) {
-        if (!ctx.CanReadBuffer(set)) {
-            continue;
-        }
-
-        const auto buffer = ctx.ReadBuffer(set);
-        const size_t copied_size = (std::min)(set_size, buffer.size());
-        requested_sets[set].assign(buffer.begin(), buffer.begin() + copied_size);
-
-        // Descriptors beyond Encore's table can never be valid. Match FreeBSD/Lichii and reject
-        // them only when the guest actually set the corresponding bit.
-        const size_t end =
-            (std::min)(static_cast<size_t>(input.nfds), buffer.size() * 8);
-        for (size_t fd = MAX_FD; fd < end; ++fd) {
-            if (((buffer[fd / 8] >> (fd % 8)) & 1U) != 0) {
-                reply(-1, Errno::BADF);
-                return;
-            }
-        }
-    }
-
-    s32 timeout_ms = -1;
-    if (!timeout_is_null) {
-        if (input.timeout_seconds < 0 || input.timeout_microseconds < 0 ||
-            input.timeout_microseconds >= 1'000'000) {
-            reply(-1, Errno::INVAL);
-            return;
-        }
-
-        const s64 rounded_microseconds = input.timeout_microseconds + 999;
-        const s64 milliseconds =
-            input.timeout_seconds > (std::numeric_limits<s32>::max)() / 1000
-                ? static_cast<s64>((std::numeric_limits<s32>::max)())
-                : input.timeout_seconds * 1000 + rounded_microseconds / 1000;
-        timeout_ms = static_cast<s32>(
-            (std::min)(milliseconds, static_cast<s64>((std::numeric_limits<s32>::max)())));
-    }
-
-    struct SelectEntry {
-        s32 fd;
-        std::array<bool, 3> wanted;
-        std::shared_ptr<Network::SocketBase> socket;
-    };
-
-    constexpr size_t ReadSet = 0;
-    constexpr size_t WriteSet = 1;
-    constexpr size_t ExceptSet = 2;
-
-    std::vector<SelectEntry> entries;
-    std::vector<Network::PollFD> host_pollfds;
-    entries.reserve(nfds);
-    host_pollfds.reserve(nfds);
-
-    const auto fd_is_set = [&requested_sets](size_t set, size_t fd) {
-        const auto& bits = requested_sets[set];
-        return fd / 8 < bits.size() && ((bits[fd / 8] >> (fd % 8)) & 1U) != 0;
-    };
-
-    for (size_t fd = 0; fd < nfds; ++fd) {
-        const std::array<bool, 3> wanted{
-            fd_is_set(ReadSet, fd),
-            fd_is_set(WriteSet, fd),
-            fd_is_set(ExceptSet, fd),
-        };
-        if (!wanted[ReadSet] && !wanted[WriteSet] && !wanted[ExceptSet]) {
-            continue;
-        }
-
-        if (!IsFileDescriptorValid(static_cast<s32>(fd)) ||
-            !file_descriptors[fd]->socket) {
-            reply(-1, Errno::BADF);
-            return;
-        }
-
-        // Hold a shared reference for the duration of the host poll so a concurrent close cannot
-        // destroy the C++ socket object while Select still references it.
-        auto socket = file_descriptors[fd]->socket;
-        Network::PollEvents events{};
-        if (wanted[ReadSet]) {
-            events |= Network::PollEvents::In | Network::PollEvents::RdNorm;
-        }
-        if (wanted[WriteSet]) {
-            events |= Network::PollEvents::Out;
-        }
-        if (wanted[ExceptSet]) {
-            events |= Network::PollEvents::Pri;
-        }
-
-        entries.push_back(SelectEntry{
-            .fd = static_cast<s32>(fd),
-            .wanted = wanted,
-            .socket = socket,
-        });
-        host_pollfds.push_back(Network::PollFD{
-            .socket = socket.get(),
-            .events = events,
-            .revents = Network::PollEvents{},
-        });
-    }
-
-    const auto [polled, poll_errno] = Network::Poll(host_pollfds, timeout_ms);
-    if (polled < 0) {
-        reply(-1, Translate(poll_errno));
-        return;
-    }
-
-    for (size_t set = 0; set < ready_sets.size(); ++set) {
-        ready_sets[set].assign(requested_sets[set].size(), 0);
-    }
-
-    constexpr Network::PollEvents read_events =
-        Network::PollEvents::In | Network::PollEvents::RdNorm |
-        Network::PollEvents::Hup | Network::PollEvents::Err;
-    constexpr Network::PollEvents write_events =
-        Network::PollEvents::Out | Network::PollEvents::Hup | Network::PollEvents::Err;
-    constexpr Network::PollEvents except_events =
-        Network::PollEvents::Pri | Network::PollEvents::Err;
-
-    s32 ready_count = 0;
-    for (size_t i = 0; i < entries.size(); ++i) {
-        const auto revents = host_pollfds[i].revents;
-        if (True(revents & Network::PollEvents::Nval)) {
-            reply(-1, Errno::BADF);
-            return;
-        }
-
-        const std::array<bool, 3> ready{
-            entries[i].wanted[ReadSet] && True(revents & read_events),
-            entries[i].wanted[WriteSet] && True(revents & write_events),
-            entries[i].wanted[ExceptSet] && True(revents & except_events),
-        };
-
-        const size_t byte = static_cast<size_t>(entries[i].fd) / 8;
-        const u8 bit = static_cast<u8>(1U << (entries[i].fd % 8));
-        for (size_t set = 0; set < ready.size(); ++set) {
-            if (ready[set]) {
-                ready_sets[set][byte] = static_cast<u8>(ready_sets[set][byte] | bit);
-                ++ready_count;
-            }
-        }
-    }
-
-    // The result counts ready bits across all three sets, so one descriptor may count more than
-    // once. This matches FreeBSD and Lichii rather than the old unconditional zero result.
-    for (size_t set = 0; set < ready_sets.size(); ++set) {
-        if (!ctx.CanWriteBuffer(set) || ready_sets[set].empty()) {
-            continue;
-        }
-        const size_t size =
-            (std::min)(ready_sets[set].size(), ctx.GetWriteBufferSize(set));
-        if (size > 0) {
-            ctx.WriteBuffer(ready_sets[set].data(), size, set);
-        }
-    }
-
-    reply(ready_count, Errno::SUCCESS);
+    rb.Push(ResultSuccess);
+    rb.Push<u32>(0); // ret
+    rb.Push<u32>(0); // bsd errno
 }
 
 void BSD_USA::Poll(HLERequestContext& ctx) {
@@ -671,19 +485,12 @@ void BSD_USA::Read(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const s32 fd = rp.Pop<s32>();
 
-    LOG_DEBUG(Service, "called. fd={} len={}", fd, ctx.GetWriteBufferSize());
-
-    std::vector<u8> message(ctx.GetWriteBufferSize());
-    const auto [ret, bsd_errno] = RecvImpl(fd, 0, message);
-    if (ret > 0) {
-        ctx.WriteBuffer(message.data(),
-                        (std::min)(static_cast<size_t>(ret), message.size()));
-    }
+    LOG_WARNING(Service, "(STUBBED) called. fd={} len={}", fd, ctx.GetWriteBufferSize());
 
     IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(ResultSuccess);
-    rb.Push<s32>(ret);
-    rb.PushEnum(bsd_errno);
+    rb.Push<u32>(0); // ret
+    rb.Push<u32>(0); // bsd errno
 }
 
 void BSD_USA::Close(HLERequestContext& ctx) {
@@ -834,7 +641,7 @@ std::pair<s32, Errno> BSD_USA::PollImpl(std::vector<u8>& write_buffer, std::span
     for (PollFD& pollfd : fds) {
         ASSERT(False(pollfd.revents));
 
-        if (pollfd.fd >= static_cast<s32>(MAX_FD) || pollfd.fd < 0) {
+        if (pollfd.fd > static_cast<s32>(MAX_FD) || pollfd.fd < 0) {
             LOG_ERROR(Service, "File descriptor handle={} is invalid", pollfd.fd);
             pollfd.revents = PollEvents{};
             return {0, Errno::SUCCESS};
@@ -1324,7 +1131,7 @@ s32 BSD_USA::FindFreeFileDescriptorHandle() noexcept {
 }
 
 bool BSD_USA::IsFileDescriptorValid(s32 fd) const noexcept {
-    if (fd >= static_cast<s32>(MAX_FD) || fd < 0) {
+    if (fd > static_cast<s32>(MAX_FD) || fd < 0) {
         LOG_ERROR(Service, "Invalid file descriptor handle={}", fd);
         return false;
     }
@@ -1362,10 +1169,10 @@ BSD_USA::BSD_USA(Core::System& system_, const char* name, bool is_user_)
         {1, &BSD_USA::StartMonitoring, "StartMonitoring"},
         {2, &BSD_USA::Socket, "Socket"},
         {3, &BSD_USA::SocketExempt, "SocketExempt"},
-        {4, &BSD_USA::RejectUnsupportedBsdExtension, "Open"},
+        {4, nullptr, "Open"},
         {5, &BSD_USA::Select, "Select"},
         {6, &BSD_USA::Poll, "Poll"},
-        {7, &BSD_USA::RejectUnsupportedBsdExtension, "Sysctl"},
+        {7, nullptr, "Sysctl"},
         {8, &BSD_USA::Recv, "Recv"},
         {9, &BSD_USA::RecvFrom, "RecvFrom"},
         {10, &BSD_USA::Send, "Send"},
@@ -1381,29 +1188,30 @@ BSD_USA::BSD_USA(Core::System& system_, const char* name, bool is_user_)
         {20, &BSD_USA::Fcntl, "Fcntl"},
         {21, &BSD_USA::SetSockOpt, "SetSockOpt"},
         {22, &BSD_USA::Shutdown, "Shutdown"},
-        {23, &BSD_USA::RejectUnsupportedBsdExtension, "ShutdownAllSockets"},
+        {23, &BSD_USA::StubReplyZeroed, "ShutdownAllSockets"},
         {24, &BSD_USA::Write, "Write"},
         {25, &BSD_USA::Read, "Read"},
         {26, &BSD_USA::Close, "Close"},
         {27, &BSD_USA::DuplicateSocket, "DuplicateSocket"},
-        {28, &BSD_USA::RejectUnsupportedBsdExtension, "GetResourceStatistics"},
-        {29, &BSD_USA::RejectUnsupportedBsdExtension, "RecvMMsg"}, //3.0.0+
-        {30, &BSD_USA::RejectUnsupportedBsdExtension, "SendMMsg"}, //3.0.0+
+        {28, &BSD_USA::StubReplyZeroed, "GetResourceStatistics"},
+        {29, nullptr, "RecvMMsg"}, //3.0.0+
+        {30, nullptr, "SendMMsg"}, //3.0.0+
         {31, &BSD_USA::EventFd, "EventFd"}, //7.0.0+
-        {32, &BSD_USA::RejectUnsupportedBsdExtension, "RegisterResourceStatisticsName"}, //7.0.0+
-        {33, &BSD_USA::RejectUnsupportedBsdExtension, "RegisterClientShared"}, //10.0.0+
-        {34, &BSD_USA::RejectUnsupportedBsdExtension, "GetSocketStatistics"}, //15.0.0+
-        {35, &BSD_USA::RejectUnsupportedBsdExtension, "NifIoctl"}, //17.0.0+
-        {36, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown36"}, //18.0.0+
-        {37, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown37"}, //18.0.0+
-        {38, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown38"}, //18.0.0+
-        {39, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown39"}, //20.0.0+
-        {40, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown40"}, //20.0.0+
-        {41, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown41"}, //21.0.0+
-        {42, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown42"}, //21.0.0+
-        {43, &BSD_USA::RejectUnsupportedBsdExtension, "Unknown43"}, //21.0.0+
-        {200, &BSD_USA::RejectUnsupportedBsdExtension, "SetThreadCoreMask"}, //15.0.0+
-        {201, &BSD_USA::RejectUnsupportedBsdExtension, "GetThreadCoreMask"}, //15.0.0+
+        {32, &BSD_USA::StubReplyZeroed, "RegisterResourceStatisticsName"}, //7.0.0+
+        {33, &BSD_USA::StubReplyZeroed, "RegisterClientShared"}, //10.0.0+
+        {34, &BSD_USA::StubReplyZeroed, "GetSocketStatistics"}, //15.0.0+
+        {35, &BSD_USA::StubReplyZeroed, "NifIoctl"}, //17.0.0+
+        {36, &BSD_USA::RegisterClient, "RegisterClientSwitch2"}, //18.0.0+
+        {37, &BSD_USA::StubReplyZeroed, "Unknown37"}, //18.0.0+
+        {38, &BSD_USA::StubReplyZeroed, "Unknown38"}, //18.0.0+
+        {39, &BSD_USA::StubReplyZeroed, "Unknown39"}, //20.0.0+
+        {40, &BSD_USA::StubReplyZeroed, "Unknown40"}, //20.0.0+
+        {41, &BSD_USA::StubReplyEvent, "Unknown41"}, //21.0.0+
+        {42, &BSD_USA::StubReplyZeroed, "Unknown42"}, //21.0.0+
+        {43, &BSD_USA::StubReplyZeroed, "Unknown43"}, //21.0.0+
+        {200, &BSD_USA::StubReplyZeroed, "SetThreadCoreMask"}, //15.0.0+
+        {201, &BSD_USA::StubReplyZeroed, "GetThreadCoreMask"}, //15.0.0+
+        {44, &BSD_USA::StubReplyZeroed, "Unknown44"},
     };
     // clang-format on
 
@@ -1431,39 +1239,31 @@ BSDCFG::BSDCFG(Core::System& system_, const char *name)
     : ServiceFramework{system_, name} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, &BSDCFG::HostNetworkNoop, "SetIfUp"},
-        {1, &BSDCFG::HostNetworkNoop, "SetIfUpWithEvent"},
-        {2, &BSDCFG::HostNetworkNoop, "CancelIf"},
-        {3, &BSDCFG::HostNetworkNoop, "SetIfDown"},
-        {4, &BSDCFG::HostNetworkNoop, "GetIfState"},
-        {5, &BSDCFG::HostNetworkNoopU32, "DhcpRenew"},
-        {6, &BSDCFG::HostNetworkNoop, "AddStaticArpEntry"},
-        {7, &BSDCFG::HostNetworkNoopU32, "RemoveArpEntry"},
-        {8, &BSDCFG::HostNetworkNoop, "LookupArpEntry"},
-        {9, &BSDCFG::HostNetworkNoopU32, "LookupArpEntry2"},
-        {10, &BSDCFG::HostNetworkNoop, "ClearArpEntries"},
-        {11, &BSDCFG::HostNetworkNoop, "ClearArpEntries2"},
-        {12, &BSDCFG::HostNetworkNoop, "PrintArpEntries"},
-        {13, &BSDCFG::HostNetworkNoop, "Unknown13"},
-        {14, &BSDCFG::HostNetworkNoop, "Unknown14"},
-        {15, &BSDCFG::HostNetworkNoop, "Unknown15"},
+        {0, nullptr, "SetIfUp"},
+        {1, &BSDCFG::StubReplyZeroed, "SetIfUpWithEvent"},
+        {2, &BSDCFG::StubReplyZeroed, "CancelIf"},
+        {3, &BSDCFG::StubReplyZeroed, "SetIfDown"},
+        {4, &BSDCFG::StubReplyZeroed, "GetIfState"},
+        {5, &BSDCFG::StubReplyZeroed, "DhcpRenew"},
+        {6, &BSDCFG::StubReplyZeroed, "AddStaticArpEntry"},
+        {7, &BSDCFG::StubReplyZeroed, "RemoveArpEntry"},
+        {8, &BSDCFG::StubReplyZeroed, "LookupArpEntry"},
+        {9, &BSDCFG::StubReplyZeroed, "LookupArpEntry2"},
+        {10, &BSDCFG::StubReplyZeroed, "ClearArpEntries"},
+        {11, &BSDCFG::StubReplyZeroed, "ClearArpEntries2"},
+        {12, &BSDCFG::StubReplyZeroed, "PrintArpEntries"},
+        {13, &BSDCFG::StubReplyZeroed, "Unknown13"},
+        {14, &BSDCFG::StubReplyZeroed, "Unknown14"},
+        {15, &BSDCFG::StubReplyZeroed, "Unknown15"},
+        {100, &BSDCFG::StubReplyZeroed, "Unknown100"},
+        {101, &BSDCFG::StubReplyZeroed, "Unknown101"},
+        {102, &BSDCFG::StubReplyZeroed, "Unknown102"},
+        {103, &BSDCFG::StubReplyZeroed, "Unknown103"},
+        {104, &BSDCFG::StubReplyZeroed, "Unknown104"},
     };
     // clang-format on
 
     RegisterHandlers(functions);
-}
-
-void BSDCFG::HostNetworkNoop(HLERequestContext& ctx) {
-    LOG_DEBUG(Service, "bsdcfg host-network control acknowledged without mutating host interface");
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(ResultSuccess);
-}
-
-void BSDCFG::HostNetworkNoopU32(HLERequestContext& ctx) {
-    LOG_DEBUG(Service, "bsdcfg host-network query acknowledged with zero status");
-    IPC::ResponseBuilder rb{ctx, 3};
-    rb.Push(ResultSuccess);
-    rb.Push<u32>(0);
 }
 
 BSDCFG::~BSDCFG() = default;
@@ -1472,7 +1272,7 @@ BSD_NU::BSD_NU(Core::System& system_)
     : ServiceFramework{system_, "bsd:nu"} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, &BSD_NU::RejectUnsupportedUserServiceFactory, "CreateUserService"},
+        {0, nullptr, "CreateUserService"},
     };
     // clang-format on
     RegisterHandlers(functions);
@@ -1480,16 +1280,4 @@ BSD_NU::BSD_NU(Core::System& system_)
 
 BSD_NU::~BSD_NU() = default;
 
-
-void BSD_USA::RejectUnsupportedBsdExtension(HLERequestContext& ctx) {
-    // Keep the implemented BSD socket data path intact; unsupported extensions
-    // fail at HIPC level instead of pretending to expose host-only state.
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(IPC::ResultNotSupported);
-}
-
-void BSD_NU::RejectUnsupportedUserServiceFactory(HLERequestContext& ctx) {
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(IPC::ResultNotSupported);
-}
 } // namespace Service::Sockets

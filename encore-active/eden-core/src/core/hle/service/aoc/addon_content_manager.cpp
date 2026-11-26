@@ -71,13 +71,13 @@ IAddOnContentManager::IAddOnContentManager(Core::System& system_)
       service_context{system_, "aoc:u"} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, &IAddOnContentManager::RejectUnsupportedAocExtension, "CountAddOnContentByApplicationId"},
-        {1, &IAddOnContentManager::RejectUnsupportedAocExtension, "ListAddOnContentByApplicationId"},
+        {0, nullptr, "CountAddOnContentByApplicationId"},
+        {1, nullptr, "ListAddOnContentByApplicationId"},
         {2, D<&IAddOnContentManager::CountAddOnContent>, "CountAddOnContent"},
         {3, D<&IAddOnContentManager::ListAddOnContent>, "ListAddOnContent"},
-        {4, &IAddOnContentManager::RejectUnsupportedAocExtension, "GetAddOnContentBaseIdByApplicationId"},
+        {4, nullptr, "GetAddOnContentBaseIdByApplicationId"},
         {5, D<&IAddOnContentManager::GetAddOnContentBaseId>, "GetAddOnContentBaseId"},
-        {6, &IAddOnContentManager::RejectUnsupportedAocExtension, "PrepareAddOnContentByApplicationId"},
+        {6, nullptr, "PrepareAddOnContentByApplicationId"},
         {7, D<&IAddOnContentManager::PrepareAddOnContent>, "PrepareAddOnContent"},
         {8, D<&IAddOnContentManager::GetAddOnContentListChangedEvent>, "GetAddOnContentListChangedEvent"},
         {9, &IAddOnContentManager::StubReplyZeroed, "GetAddOnContentLostErrorCode"},
@@ -99,13 +99,6 @@ IAddOnContentManager::IAddOnContentManager(Core::System& system_)
     RegisterHandlers(functions);
 
     aoc_change_event = service_context.CreateEvent("GetAddOnContentListChanged:Event");
-}
-
-void IAddOnContentManager::RejectUnsupportedAocExtension(HLERequestContext& ctx) {
-    // Existing process-based DLC Count/List/BaseId/Prepare paths remain active.
-    // These application-id/debug/host/cache extensions lack a qualified backend.
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(IPC::ResultNotSupported);
 }
 
 IAddOnContentManager::~IAddOnContentManager() {
@@ -211,7 +204,7 @@ Result IAddOnContentManager::PrepareAddOnContent(s32 addon_index, ClientProcessI
 
 Result IAddOnContentManager::GetAddOnContentListChangedEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_DEBUG(Service_AOC, "called");
+    LOG_WARNING(Service_AOC, "(STUBBED) called");
 
     *out_event = &aoc_change_event->GetReadableEvent();
 
@@ -220,7 +213,7 @@ Result IAddOnContentManager::GetAddOnContentListChangedEvent(
 
 Result IAddOnContentManager::GetAddOnContentListChangedEventWithProcessId(
     OutCopyHandle<Kernel::KReadableEvent> out_event, ClientProcessId process_id) {
-    LOG_DEBUG(Service_AOC, "called. process_id={}", process_id.pid);
+    LOG_WARNING(Service_AOC, "(STUBBED) called");
 
     *out_event = &aoc_change_event->GetReadableEvent();
 
@@ -228,17 +221,15 @@ Result IAddOnContentManager::GetAddOnContentListChangedEventWithProcessId(
 }
 
 Result IAddOnContentManager::NotifyMountAddOnContent() {
-    LOG_DEBUG(Service_AOC, "called");
+    LOG_WARNING(Service_AOC, "(STUBBED) called");
 
-    add_on_content = AccumulateAOCTitleIDs(system);
-    R_RETURN(aoc_change_event->Signal(system.Kernel()));
+    R_SUCCEED();
 }
 
 Result IAddOnContentManager::NotifyUnmountAddOnContent() {
-    LOG_DEBUG(Service_AOC, "called");
+    LOG_WARNING(Service_AOC, "(STUBBED) called");
 
-    add_on_content = AccumulateAOCTitleIDs(system);
-    R_RETURN(aoc_change_event->Signal(system.Kernel()));
+    R_SUCCEED();
 }
 
 Result IAddOnContentManager::CheckAddOnContentMountStatus() {
@@ -249,7 +240,7 @@ Result IAddOnContentManager::CheckAddOnContentMountStatus() {
 
 Result IAddOnContentManager::CreateEcPurchasedEventManager(
     OutInterface<IPurchaseEventManager> out_interface) {
-    LOG_DEBUG(Service_AOC, "called");
+    LOG_WARNING(Service_AOC, "(STUBBED) called");
 
     *out_interface = std::make_shared<IPurchaseEventManager>(system);
 
@@ -258,7 +249,7 @@ Result IAddOnContentManager::CreateEcPurchasedEventManager(
 
 Result IAddOnContentManager::CreatePermanentEcPurchasedEventManager(
     OutInterface<IPurchaseEventManager> out_interface) {
-    LOG_DEBUG(Service_AOC, "called");
+    LOG_WARNING(Service_AOC, "(STUBBED) called");
 
     *out_interface = std::make_shared<IPurchaseEventManager>(system);
 

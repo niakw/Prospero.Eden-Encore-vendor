@@ -40,37 +40,6 @@ public:
 private:
     void StubJcms(HLERequestContext& ctx);
     // Switch 2 HID: process-scoped scene state, vibration and disconnected Nmouse.
-    Result SetAccelerometerParameters(Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                          AccelerometerParameters parameters,
-                                          ClientAppletResourceUserId aruid);
-    Result GetAccelerometerParameters(Out<AccelerometerParameters> out_parameters,
-                                          Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                          ClientAppletResourceUserId aruid);
-    Result ResetAccelerometerParameters(Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                            ClientAppletResourceUserId aruid);
-    Result SetAccelerometerPlayMode(Core::HID::SixAxisSensorHandle sixaxis_handle, u32 play_mode,
-                                        ClientAppletResourceUserId aruid);
-    Result GetAccelerometerPlayMode(Out<u32> out_play_mode,
-                                        Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                        ClientAppletResourceUserId aruid);
-    Result ResetAccelerometerPlayMode(Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                          ClientAppletResourceUserId aruid);
-    Result SetSevenSixAxisSensorFusionStrength(f32 strength, ClientAppletResourceUserId aruid);
-    Result GetSevenSixAxisSensorFusionStrength(Out<f32> out_strength,
-                                                   ClientAppletResourceUserId aruid);
-    Result EnableUsbFullKeyController(bool is_enabled);
-    Result IsUsbFullKeyControllerConnected(Out<bool> out_is_connected,
-                                               Core::HID::NpadIdType npad_id);
-    Result HasBattery(Out<bool> out_has_battery, Core::HID::NpadIdType npad_id);
-    Result HasLeftRightBattery(Out<bool> out_has_left_battery,
-                                   Out<bool> out_has_right_battery,
-                                   Core::HID::NpadIdType npad_id);
-    Result GetNpadInterfaceType(Out<Core::HID::NpadInterfaceType> out_interface_type,
-                                    Core::HID::NpadIdType npad_id);
-    Result GetNpadLeftRightInterfaceType(
-            Out<Core::HID::NpadInterfaceType> out_left_interface_type,
-            Out<Core::HID::NpadInterfaceType> out_right_interface_type,
-            Core::HID::NpadIdType npad_id);
     Result SetSceneIdForPrivateApp(ClientAppletResourceUserId aruid, u64 scene_id);
     Result GetSceneIdForPrivateApp(Out<u64> out_scene_id, ClientAppletResourceUserId aruid);
     // Switch 2 sends vibration every frame with 214: pointer buffers of device handles and values
@@ -103,7 +72,7 @@ private:
     Result ActivateMouse(ClientAppletResourceUserId aruid);
     Result ActivateDebugMouse(ClientAppletResourceUserId aruid);
     Result ActivateKeyboard(ClientAppletResourceUserId aruid);
-    Result SendKeyboardLockKeyEvent(u32 flags, ClientAppletResourceUserId aruid);
+    Result SendKeyboardLockKeyEvent(u32 flags);
     Result AcquireXpadIdEventHandle(OutCopyHandle<Kernel::KReadableEvent> out_event,
                                     ClientAppletResourceUserId aruid);
     Result ReleaseXpadIdEventHandle(ClientAppletResourceUserId aruid);
@@ -325,7 +294,6 @@ private:
                                                  s32 unknown, ClientAppletResourceUserId aruid);
     Result SetTouchScreenResolution(u32 width, u32 height, ClientAppletResourceUserId aruid);
     Result SetMouseLibraryVersion(ClientAppletResourceUserId aruid);
-    void RejectUnsupportedExtendedCommand(HLERequestContext& ctx);
 
     std::shared_ptr<ResourceManager> resource_manager;
     std::shared_ptr<HidFirmwareSettings> firmware_settings;

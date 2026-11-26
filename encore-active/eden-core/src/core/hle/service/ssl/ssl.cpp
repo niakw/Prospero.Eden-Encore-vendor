@@ -4,8 +4,6 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <algorithm>
-
 #include "common/string_util.h"
 
 #include "core/core.h"
@@ -89,7 +87,7 @@ public:
             {3, D<&ISslConnection::SetIoMode>, "SetIoMode"},
             {4, D<&ISslConnection::GetSocketDescriptor>, "GetSocketDescriptor"},
             {5, D<&ISslConnection::GetHostName>, "GetHostName"},
-            {6, D<&ISslConnection::GetVerifyOption>, "GetVerifyOption"},
+            {6, nullptr, "GetVerifyOption"},
             {7, D<&ISslConnection::GetIoMode>, "GetIoMode"},
             {8, D<&ISslConnection::DoHandshake>, "DoHandshake"},
             {9, &ISslConnection::DoHandshakeGetServerCert, "DoHandshakeGetServerCert"},
@@ -107,18 +105,20 @@ public:
             {21, D<&ISslConnection::GetRenegotiationMode>, "GetRenegotiationMode"},
             {22, D<&ISslConnection::SetOption>, "SetOption"},
             {23, D<&ISslConnection::GetOption>, "GetOption"},
-            {24, &ISslConnection::RejectUnsupportedConnectionExtension, "GetVerifyCertErrors"},
-            {25, &ISslConnection::RejectUnsupportedConnectionExtension, "GetCipherInfo"},
+            {24, &ISslConnection::StubReplyZeroed, "GetVerifyCertErrors"},
+            {25, &ISslConnection::StubReplyZeroed, "GetCipherInfo"},
             {26, D<&ISslConnection::SetNextAlpnProto>, "SetNextAlpnProto"},
             {27, D<&ISslConnection::GetNextAlpnProto>, "GetNextAlpnProto"},
-            {28, &ISslConnection::RejectUnsupportedConnectionExtension, "SetDtlsSocketDescriptor"},
-            {29, &ISslConnection::RejectUnsupportedConnectionExtension, "GetDtlsHandshakeTimeout"},
-            {30, &ISslConnection::RejectUnsupportedConnectionExtension, "SetPrivateOption"},
-            {31, &ISslConnection::RejectUnsupportedConnectionExtension, "SetSrtpCiphers"},
-            {32, &ISslConnection::RejectUnsupportedConnectionExtension, "GetSrtpCipher"},
-            {33, &ISslConnection::RejectUnsupportedConnectionExtension, "ExportKeyingMaterial"},
-            {34, &ISslConnection::RejectUnsupportedConnectionExtension, "SetIoTimeout"},
-            {35, &ISslConnection::RejectUnsupportedConnectionExtension, "GetIoTimeout"},
+            {28, &ISslConnection::StubReplyZeroed, "SetDtlsSocketDescriptor"},
+            {29, &ISslConnection::StubReplyZeroed, "GetDtlsHandshakeTimeout"},
+            {30, &ISslConnection::StubReplyZeroed, "SetPrivateOption"},
+            {31, &ISslConnection::StubReplyZeroed, "SetSrtpCiphers"},
+            {32, &ISslConnection::StubReplyZeroed, "GetSrtpCipher"},
+            {33, &ISslConnection::StubReplyZeroed, "ExportKeyingMaterial"},
+            {34, &ISslConnection::StubReplyZeroed, "SetIoTimeout"},
+            {35, &ISslConnection::StubReplyZeroed, "GetIoTimeout"},
+            {36, &ISslConnection::StubReplyZeroed, "Unknown36"},
+            {37, &ISslConnection::StubReplyZeroed, "Unknown37"},
         };
         // clang-format on
 
@@ -132,11 +132,17 @@ public:
     ~ISslConnection() {
         shared_data->connection_count--;
         if (fd_to_close.has_value()) {
-            auto bsd = system.ServiceManager().GetService<Service::Sockets::BSD_USA>("bsd:u");
-            if (bsd) {
-                const auto err = bsd->CloseImpl(*fd_to_close);
-                if (err != Service::Sockets::Errno::SUCCESS) {
-                    LOG_ERROR(Service_SSL, "Failed to close duplicated socket: {}", err);
+            const s32 fd = *fd_to_close;
+            if (!do_not_close_socket) {
+                LOG_ERROR(Service_SSL,
+                          "do_not_close_socket was changed after setting socket; is this right?");
+            } else {
+                auto bsd = system.ServiceManager().GetService<Service::Sockets::BSD_USA>("bsd:u");
+                if (bsd) {
+                    auto err = bsd->CloseImpl(fd);
+                    if (err != Service::Sockets::Errno::SUCCESS) {
+                        LOG_ERROR(Service_SSL, "Failed to close duplicated socket: {}", err);
+                    }
                 }
             }
         }
@@ -194,15 +200,11 @@ private:
                 fd_to_close = dup_fd;
             auto const sock = bsd->GetSocket(dup_fd);
             if (!sock.has_value()) {
-                (void)bsd->CloseImpl(dup_fd);
                 LOG_ERROR(Service_SSL, "invalid socket fd {} after duplication", dup_fd);
                 return ResultInvalidSocket;
             }
-            input_fd = in_fd;
-            socket = *sock;
-            // Keep our shared_ptr as well: SetIoMode and status getters need
-            // the same live socket after the backend takes its own reference.
-            backend->SetSocket(socket);
+            socket = std::move(*sock);
+            backend->SetSocket(std::move(socket));
             return ResultSuccess;
         }
         LOG_ERROR(Service_SSL, "Failed to duplicate socket with fd {}", in_fd);
@@ -213,11 +215,7 @@ private:
         auto const hostname = Common::StringFromBuffer(buf);
         LOG_DEBUG(Service_SSL, "called. hostname={}", hostname);
         ASSERT(!did_handshake);
-        const Result result = backend->SetHostName(hostname.c_str());
-        if (result.IsSuccess()) {
-            host_name = hostname;
-        }
-        return result;
+        return backend->SetHostName(hostname.c_str());
     }
 
     Result SetVerifyOption(u32 option) {
@@ -236,34 +234,24 @@ private:
         const Network::Errno error = socket->SetNonBlock(non_block);
         if (error != Network::Errno::SUCCESS) {
             LOG_ERROR(Service_SSL, "Failed to set native socket non-block flag to {}", non_block);
-            return ResultInternalError;
         }
-        io_mode = mode;
         R_SUCCEED();
     }
 
     Result GetSocketDescriptor(Out<u32> out_fd) {
-        R_UNLESS(input_fd.has_value(), ResultNoSocket);
-        *out_fd = static_cast<u32>(*input_fd);
+        LOG_WARNING(Service_SSL, "(STUBBED)");
+        *out_fd = socket->GetFD();
         R_SUCCEED();
     }
 
     Result GetHostName(OutBuffer<BufferAttr_HipcMapAlias> data, Out<u32> out_size) {
-        const auto write_size = (std::min)(host_name.size(), data.size());
-        if (write_size != 0) {
-            std::memcpy(data.data(), host_name.data(), write_size);
-        }
-        *out_size = static_cast<u32>(host_name.size());
-        R_SUCCEED();
-    }
-
-    Result GetVerifyOption(Out<u32> out_option) {
-        *out_option = verify_option;
-        R_SUCCEED();
+        LOG_WARNING(Service_SSL, "(STUBBED)");
+        ASSERT(!did_handshake);
+        return backend->GetHostName(std::span<u8>{data.begin(), data.end()}, out_size);
     }
 
     Result GetIoMode(Out<u32> out_mode) {
-        *out_mode = static_cast<u32>(io_mode);
+        LOG_WARNING(Service_SSL, "(STUBBED)");
         R_SUCCEED();
     }
 
@@ -338,22 +326,18 @@ private:
     }
 
     Result Poll(u32 in_pollevent, u32 timer, Out<u32> out_pollevent) {
-        (void)in_pollevent;
-        (void)timer;
-        (void)out_pollevent;
-        LOG_WARNING(Service_SSL, "SSL Poll is unsupported by the active backend");
-        R_THROW(IPC::ResultNotSupported);
+        LOG_WARNING(Service_SSL, "(STUBBED)");
+        R_SUCCEED();
     }
 
     Result GetVerifyCertError() {
-        LOG_WARNING(Service_SSL, "SSL certificate verification-error query is unsupported");
-        R_THROW(IPC::ResultNotSupported);
+        LOG_WARNING(Service_SSL, "(STUBBED)");
+        R_SUCCEED();
     }
 
     Result GetNeededServerCertBufferSize(Out<u32> out_needed_buffer_size) {
-        (void)out_needed_buffer_size;
-        LOG_WARNING(Service_SSL, "SSL server-certificate buffer query is unsupported");
-        R_THROW(IPC::ResultNotSupported);
+        LOG_WARNING(Service_SSL, "(STUBBED)");
+        R_SUCCEED();
     }
 
     Result SetSessionCacheMode(u32 mode) {
@@ -363,16 +347,15 @@ private:
     }
 
     Result GetSessionCacheMode(Out<u32> mode) {
-        (void)mode;
+        LOG_WARNING(Service_SSL, "(STUBBED)");
         R_UNLESS(!did_handshake, ResultInternalError);
-        LOG_WARNING(Service_SSL, "SSL session-cache mode query is unsupported");
-        R_THROW(IPC::ResultNotSupported);
+        R_SUCCEED();
     }
 
     Result FlushSessionCache() {
+        LOG_WARNING(Service_SSL, "(STUBBED)");
         R_UNLESS(!did_handshake, ResultInternalError);
-        LOG_WARNING(Service_SSL, "SSL session-cache flush is unsupported");
-        R_THROW(IPC::ResultNotSupported);
+        R_SUCCEED();
     }
 
     Result SetRenegotiationMode(RenegotiationMode mode) {
@@ -455,31 +438,22 @@ private:
     std::shared_ptr<SslContextSharedData> shared_data;
     std::unique_ptr<SSLConnectionBackend> backend;
     std::optional<int> fd_to_close;
-    std::optional<s32> input_fd;
     std::shared_ptr<Network::SocketBase> socket;
-    std::string host_name;
     std::vector<u8> next_alpn_proto;
     u32 verify_option = 0;
-    IoMode io_mode = IoMode::Blocking;
 
     bool do_not_close_socket = false;
     bool get_server_cert_chain = false;
     bool skip_default_verify = false;
     bool enable_alpn = false;
     bool did_handshake = false;
-
-    void RejectUnsupportedConnectionExtension(HLERequestContext& ctx) {
-        LOG_WARNING(Service_SSL, "Rejected unsupported SSL extension command {}", ctx.GetCommand());
-        IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(IPC::ResultNotSupported);
-    }
 };
 
 class ISslContext final : public ServiceFramework<ISslContext> {
 public:
-    explicit ISslContext(Core::System& system_, SslVersion version, bool for_system = false)
-        : ServiceFramework{system_, for_system ? "ISslContextForSystem" : "ISslContext"},
-          ssl_version{version}, shared_data{std::make_shared<SslContextSharedData>()} {
+    explicit ISslContext(Core::System& system_, SslVersion version)
+        : ServiceFramework{system_, "ISslContext"}, ssl_version{version},
+          shared_data{std::make_shared<SslContextSharedData>()} {
         static const FunctionInfo functions[] = {
             {0, &ISslContext::SetOption, "SetOption"},
             {1, &ISslContext::GetOption, "GetOption"},
@@ -487,37 +461,21 @@ public:
             {3, &ISslContext::GetConnectionCount, "GetConnectionCount"},
             {4, &ISslContext::ImportServerPki, "ImportServerPki"},
             {5, &ISslContext::ImportClientPki, "ImportClientPki"},
-            {6, &ISslContext::RemoveServerPki, "RemoveServerPki"},
-            {7, &ISslContext::RemoveClientPki, "RemoveClientPki"},
+            {6, nullptr, "RemoveServerPki"},
+            {7, nullptr, "RemoveClientPki"},
             {8, D<&ISslContext::RegisterInternalPki>, "RegisterInternalPki"},
-            {9, &ISslContext::RejectUnsupportedPkiExtension, "AddPolicyOid"},
-            {10, &ISslContext::RejectUnsupportedPkiExtension, "ImportCrl"},
-            {11, &ISslContext::RejectUnsupportedPkiExtension, "RemoveCrl"},
-            {12, &ISslContext::RejectUnsupportedPkiExtension, "ImportClientCertKeyPki"},
-            {13, &ISslContext::RejectUnsupportedPkiExtension, "GeneratePrivateKeyAndCert"},
+            {9, nullptr, "AddPolicyOid"},
+            {10, nullptr, "ImportCrl"},
+            {11, nullptr, "RemoveCrl"},
+            {12, nullptr, "ImportClientCertKeyPki"},
+            {13, nullptr, "GeneratePrivateKeyAndCert"},
         };
         RegisterHandlers(functions);
-        if (for_system) {
-            static const FunctionInfo system_functions[] = {
-                {100, &ISslContext::CreateConnection, "CreateConnectionEx"},
-            };
-            RegisterHandlers(system_functions);
-        }
     }
 
 private:
-    struct ServerPki {
-        u64 id{};
-        CertificateFormat format{};
-        std::vector<u8> certificate;
-    };
-
-    static constexpr size_t MaximumServerPkiCount = 71;
-
     SslVersion ssl_version;
     std::shared_ptr<SslContextSharedData> shared_data;
-    std::vector<ServerPki> server_pkis;
-    u64 next_server_pki_id{1};
 
     void SetOption(HLERequestContext& ctx) {
         struct Parameters {
@@ -551,21 +509,12 @@ private:
         LOG_WARNING(Service_SSL, "called");
 
         std::unique_ptr<SSLConnectionBackend> backend;
-        Result res = CreateSSLConnectionBackend(&backend);
-        if (R_SUCCEEDED(res)) {
-            for (const auto& pki : server_pkis) {
-                res = backend->AddServerPki(static_cast<u32>(pki.format), pki.certificate);
-                if (R_FAILED(res)) {
-                    break;
-                }
-            }
-        }
+        const Result res = CreateSSLConnectionBackend(&backend);
 
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(res);
         if (res == ResultSuccess) {
-            rb.PushIpcInterface<ISslConnection>(ctx, system, ssl_version, shared_data,
-                                                std::move(backend));
+            rb.PushIpcInterface<ISslConnection>(ctx, system, ssl_version, shared_data, std::move(backend));
         }
     }
 
@@ -580,89 +529,39 @@ private:
     void ImportServerPki(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto certificate_format = rp.PopEnum<CertificateFormat>();
-        const auto certificate = ctx.ReadBuffer(0);
+        [[maybe_unused]] const auto pkcs_12_certificates = ctx.ReadBuffer(0);
 
-        u64 server_id = 0;
-        Result result = ResultSuccess;
-        if (certificate.empty()) {
-            result = ResultInvalidCertificateBufferSize;
-        } else if (certificate_format != CertificateFormat::Pem &&
-                   certificate_format != CertificateFormat::Der) {
-            result = ResultUnsupportedCertificate;
-        } else if (server_pkis.size() >= MaximumServerPkiCount) {
-            result = ResultMaximumServerPkiRegistered;
-        } else {
-            // Parse once at import time so an invalid certificate never receives an ID.
-            std::unique_ptr<SSLConnectionBackend> validator;
-            result = CreateSSLConnectionBackend(&validator);
-            if (R_SUCCEEDED(result)) {
-                result = validator->AddServerPki(static_cast<u32>(certificate_format), certificate);
-            }
-            if (R_SUCCEEDED(result)) {
-                server_id = next_server_pki_id++;
-                server_pkis.push_back(ServerPki{
-                    .id = server_id,
-                    .format = certificate_format,
-                    .certificate = std::vector<u8>{certificate.begin(), certificate.end()},
-                });
-                LOG_DEBUG(Service_SSL, "imported server PKI id={}, format={}, size={}",
-                          server_id, certificate_format, certificate.size());
-            }
-        }
+        constexpr u64 server_id = 0;
+
+        LOG_WARNING(Service_SSL, "(STUBBED) called, certificate_format={}", certificate_format);
 
         IPC::ResponseBuilder rb{ctx, 4};
-        rb.Push(result);
+        rb.Push(ResultSuccess);
         rb.Push(server_id);
     }
 
     void ImportClientPki(HLERequestContext& ctx) {
-        const auto pkcs_12_certificate = ctx.ReadBuffer(0);
-        const auto ascii_password = [&ctx] {
+        [[maybe_unused]] const auto pkcs_12_certificate = ctx.ReadBuffer(0);
+        [[maybe_unused]] const auto ascii_password = [&ctx] {
             if (ctx.CanReadBuffer(1)) {
                 return ctx.ReadBuffer(1);
             }
+
             return std::span<const u8>{};
         }();
-        LOG_WARNING(Service_SSL,
-                    "client PKCS#12 import unsupported (cert_size={}, password_size={})",
-                    pkcs_12_certificate.size(), ascii_password.size());
+
+        constexpr u64 client_id = 0;
+
+        LOG_WARNING(Service_SSL, "(STUBBED) called");
 
         IPC::ResponseBuilder rb{ctx, 4};
-        rb.Push(ResultUnsupportedCertificate);
-        rb.Push<u64>(0);
-    }
-
-    void RemoveServerPki(HLERequestContext& ctx) {
-        IPC::RequestParser rp{ctx};
-        const u64 server_id = rp.Pop<u64>();
-        const auto it = std::find_if(server_pkis.begin(), server_pkis.end(),
-                                     [server_id](const auto& pki) { return pki.id == server_id; });
-        const Result result = it == server_pkis.end() ? ResultPkiNotFound : ResultSuccess;
-        if (it != server_pkis.end()) {
-            server_pkis.erase(it);
-        }
-
-        IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(result);
-    }
-
-    void RemoveClientPki(HLERequestContext& ctx) {
-        IPC::RequestParser rp{ctx};
-        const u64 client_id = rp.Pop<u64>();
-        LOG_DEBUG(Service_SSL, "client PKI id={} not present", client_id);
-        IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(ResultPkiNotFound);
+        rb.Push(ResultSuccess);
+        rb.Push(client_id);
     }
 
     Result RegisterInternalPki() {
         LOG_WARNING(Service_SSL, "(STUBBED) called");
         R_SUCCEED();
-    }
-
-    void RejectUnsupportedPkiExtension(HLERequestContext& ctx) {
-        LOG_WARNING(Service_SSL, "Rejected unsupported SSL extension command {}", ctx.GetCommand());
-        IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(IPC::ResultNotSupported);
     }
 };
 
@@ -673,15 +572,15 @@ public:
         // clang-format off
         static const FunctionInfo functions[] = {
             {0, &ISslService::CreateContext, "CreateContext"},
-            {1, &ISslService::RejectUnsupportedServiceExtension, "GetContextCount"},
+            {1, nullptr, "GetContextCount"},
             {2, D<&ISslService::GetCertificates>, "GetCertificates"},
             {3, D<&ISslService::GetCertificateBufSize>, "GetCertificateBufSize"},
-            {4, &ISslService::RejectUnsupportedServiceExtension, "DebugIoctl"},
+            {4, nullptr, "DebugIoctl"},
             {5, &ISslService::SetInterfaceVersion, "SetInterfaceVersion"},
-            {6, &ISslService::RejectUnsupportedServiceExtension, "FlushSessionCache"},
-            {7, &ISslService::RejectUnsupportedServiceExtension, "SetDebugOption"},
-            {8, &ISslService::RejectUnsupportedServiceExtension, "GetDebugOption"},
-            {8, &ISslService::RejectUnsupportedServiceExtension, "ClearTls12FallbackFlag"},
+            {6, nullptr, "FlushSessionCache"},
+            {7, nullptr, "SetDebugOption"},
+            {8, nullptr, "GetDebugOption"},
+            {8, nullptr, "ClearTls12FallbackFlag"},
         };
         // clang-format on
 
@@ -700,7 +599,7 @@ private:
         IPC::RequestParser rp{ctx};
         const auto parameters = rp.PopRaw<Parameters>();
 
-        LOG_DEBUG(Service_SSL, "CreateContext api_version={}, pid_placeholder={}", parameters.ssl_version.api_version, parameters.pid_placeholder);
+        LOG_WARNING(Service_SSL, "(STUBBED) called, api_version={}, pid_placeholder={}", parameters.ssl_version.api_version, parameters.pid_placeholder);
 
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(ResultSuccess);
@@ -732,12 +631,6 @@ private:
 
 private:
     CertStore cert_store;
-
-    void RejectUnsupportedServiceExtension(HLERequestContext& ctx) {
-        LOG_WARNING(Service_SSL, "Rejected unsupported SSL extension command {}", ctx.GetCommand());
-        IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(IPC::ResultNotSupported);
-    }
 };
 
 class ISslServiceForSystem final : public ServiceFramework<ISslServiceForSystem> {
@@ -745,7 +638,7 @@ class ISslServiceForSystem final : public ServiceFramework<ISslServiceForSystem>
         explicit ISslServiceForSystem(Core::System& system_) : ServiceFramework{system_, "ssl:s"} {
             // clang-format off
             static const FunctionInfo functions[] = {
-                {0, &ISslServiceForSystem::CreateContext, "CreateContext"},
+                {0, D<&ISslServiceForSystem::CreateContext>, "CreateContext"},
                 {1, D<&ISslServiceForSystem::GetContextCount>, "GetContextCount"},
                 {2, D<&ISslServiceForSystem::GetCertificates>, "GetCertificates"},
                 {3, D<&ISslServiceForSystem::GetCertificateBufSize>, "GetCertificateBufSize"},
@@ -755,7 +648,7 @@ class ISslServiceForSystem final : public ServiceFramework<ISslServiceForSystem>
                 {7, D<&ISslServiceForSystem::SetDebugOption>, "SetDebugOption"},
                 {8, D<&ISslServiceForSystem::GetDebugOption>, "GetDebugOption"},
                 {9, D<&ISslServiceForSystem::ClearTls12FallbackFlag>, "ClearTls12FallbackFlag"},
-                {100, &ISslServiceForSystem::CreateContext, "CreateContextForSystem"},
+                {100, D<&ISslServiceForSystem::CreateContextForSystem>, "CreateContextForSystem"},
                 {101, D<&ISslServiceForSystem::SetThreadCoreMask>, "SetThreadCoreMask"},
                 {102, D<&ISslServiceForSystem::GetThreadCoreMask>, "GetThreadCoreMask"},
                 {103, D<&ISslServiceForSystem::VerifySignature>, "VerifySignature"}
@@ -765,23 +658,12 @@ class ISslServiceForSystem final : public ServiceFramework<ISslServiceForSystem>
             RegisterHandlers(functions);
         };
 
-        void CreateContext(HLERequestContext& ctx) {
-            struct Parameters {
-                SslVersion ssl_version;
-                INSERT_PADDING_BYTES(0x4);
-                u64 pid_placeholder;
-            };
-            static_assert(sizeof(Parameters) == 0x10, "Parameters is an invalid size");
+        Result CreateContext() {
+            LOG_DEBUG(Service_SSL, "(STUBBED) called.");
 
-            IPC::RequestParser rp{ctx};
-            const auto parameters = rp.PopRaw<Parameters>();
-            LOG_WARNING(Service_SSL, "called, command={}, api_version={}", ctx.GetCommand(),
-                        parameters.ssl_version.api_version);
+            // TODO (jarrodnorwell)
 
-            IPC::ResponseBuilder rb{ctx, 2, 0, 1};
-            rb.Push(ResultSuccess);
-            rb.PushIpcInterface<ISslContext>(ctx, system, parameters.ssl_version,
-                                             ctx.GetCommand() == 100);
+            return ResultSuccess;
         };
 
         Result GetContextCount() {
@@ -849,6 +731,14 @@ class ISslServiceForSystem final : public ServiceFramework<ISslServiceForSystem>
         };
 
         Result ClearTls12FallbackFlag() {
+            LOG_DEBUG(Service_SSL, "(STUBBED) called.");
+
+            // TODO (jarrodnorwell)
+
+            return ResultSuccess;
+        };
+
+        Result CreateContextForSystem() {
             LOG_DEBUG(Service_SSL, "(STUBBED) called.");
 
             // TODO (jarrodnorwell)
