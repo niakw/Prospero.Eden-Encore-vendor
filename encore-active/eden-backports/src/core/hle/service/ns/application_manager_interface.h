@@ -183,6 +183,7 @@ public:
     Result Unknown4053();
     Result Unknown4105();
 
+    void AcknowledgeSystemMemoryResourceLimit(HLERequestContext& ctx);
     void RejectUnavailablePlatformCommand(HLERequestContext& ctx);
     void RejectUnknownHOS23Command(HLERequestContext& ctx);
     Result RejectDebugOnlyCommand();

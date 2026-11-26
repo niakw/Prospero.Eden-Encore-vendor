@@ -118,7 +118,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {22, D<&IApplicationManagerInterface::TerminateApplication>, "TerminateApplication"},
         {23, D<&IApplicationManagerInterface::ResolveApplicationContentPath>, "ResolveApplicationContentPath"},
         {26, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "BeginInstallApplication"},
-        {27, nullptr, "DeleteApplicationRecord"},
+        {27, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "DeleteApplicationRecord"},
         {30, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestApplicationUpdateInfo"},
         {31, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestUpdateApplication"},
         {32, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CancelApplicationDownload"},
@@ -164,8 +164,8 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {85, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestUpdateApplication2"},
         {86, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "EnableApplicationCrashReport"},
         {87, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "IsApplicationCrashReportEnabled"},
-        {90, nullptr, "BoostSystemMemoryResourceLimit"},
-        {91, nullptr, "DeprecatedLaunchApplication"},
+        {90, &IApplicationManagerInterface::AcknowledgeSystemMemoryResourceLimit, "BoostSystemMemoryResourceLimit"},
+        {91, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "DeprecatedLaunchApplication"},
         {92, D<&IApplicationManagerInterface::GetRunningApplicationProgramId>, "GetRunningApplicationProgramId"},
         {93, D<&IApplicationManagerInterface::GetMainApplicationProgramIndex>, "GetMainApplicationProgramIndex"},
         {94, D<&IApplicationManagerInterface::LaunchApplication>, "LaunchApplication"},
@@ -247,10 +247,10 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {602, D<&IApplicationManagerInterface::ListAvailableAddOnContent>, "ListAvailableAddOnContent"},
         {603, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetOwnedApplicationContentMetaStatus"},
         {605, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListApplicationContentMetaStatusWithRightsCheck"},
-        {606, nullptr, "GetContentMetaStorage"},
+        {606, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetContentMetaStorage"},
         {607, D<&IApplicationManagerInterface::ListAvailableAddOnContent>, "ListAvailableAddOnContent"},
         {609, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListAvailabilityAssuredAddOnContent"},
-        {610, nullptr, "GetInstalledContentMetaStorage"},
+        {610, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetInstalledContentMetaStorage"},
         {611, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "PrepareAddOnContent"},
         {700, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "PushDownloadTaskList"},
         {701, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ClearTaskStatusList"},
@@ -262,14 +262,14 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {801, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListVersionList"},
         {802, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestVersionListData"},
         {900, D<&IApplicationManagerInterface::GetApplicationRecord>, "GetApplicationRecord"},
-        {901, nullptr, "GetApplicationRecordProperty"},
+        {901, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationRecordProperty"},
         {902, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "EnableApplicationAutoUpdate"},
         {903, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "DisableApplicationAutoUpdate"},
         {904, D<&IApplicationManagerInterface::TouchApplication>, "TouchApplication"},
         {905, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestApplicationUpdate"},
         {906, D<&IApplicationManagerInterface::IsApplicationUpdateRequested>, "IsApplicationUpdateRequested"},
         {907, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "WithdrawApplicationUpdateRequest"},
-        {908, nullptr, "ListApplicationRecordInstalledContentMeta"},
+        {908, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ListApplicationRecordInstalledContentMeta"},
         {909, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "WithdrawCleanupAddOnContentsWithNoRightsRecommendation"},
         {910, D<&IApplicationManagerInterface::HasApplicationRecord>, "HasApplicationRecord"},
         {911, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "SetPreInstalledApplication"},
@@ -411,12 +411,12 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2403, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "ImportPromotionJsonForDebug"},
         {2404, D<&IApplicationManagerInterface::RejectDebugOnlyCommand>, "ClearPromotionInfoForDebug"},
         {2500, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ConfirmAvailableTime"},
-        {2510, nullptr, "CreateApplicationResource"},
-        {2511, nullptr, "GetApplicationResource"},
+        {2510, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CreateApplicationResource"},
+        {2511, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationResource"},
         {2513, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "LaunchMicroApplication"},
         {2514, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ClearTaskOfAsyncTaskManager"},
         {2515, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CleanupAllPlaceHolderAndFragmentsIfNoTask"},
-        {2517, nullptr, "CreateApplicationInstance"},
+        {2517, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CreateApplicationInstance"},
         {2518, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "UpdateQualificationForDebug"},
         {2519, D<&IApplicationManagerInterface::IsQualificationTransitionSupported>, "IsQualificationTransitionSupported"},
         {2520, D<&IApplicationManagerInterface::IsQualificationTransitionSupportedByProcessId>, "IsQualificationTransitionSupportedByProcessId"},
@@ -424,7 +424,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2523, D<&IApplicationManagerInterface::GetProgramId>, "GetProgramId"}, //17.0.0+
         {2524, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd2524"}, //19.0.0+
         {2525, &IApplicationManagerInterface::RejectUnknownHOS23Command, "Cmd2525"}, //20.0.0+
-        {2800, nullptr, "GetApplicationIdOfPreomia"},
+        {2800, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationIdOfPreomia"},
         {3000, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RegisterDeviceLockKey"},
         {3001, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "UnregisterDeviceLockKey"},
         {3002, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "VerifyDeviceLockKey"},
@@ -1729,6 +1729,18 @@ Result IApplicationManagerInterface::GetRawApplicationTerminateResult(
     std::scoped_lock lk{applet->lock};
     *out_raw_result = applet->terminate_result.GetInnerValue();
     R_SUCCEED();
+}
+
+void IApplicationManagerInterface::AcknowledgeSystemMemoryResourceLimit(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const u64 requested_limit = rp.Pop<u64>();
+    // Encore does not expose Horizon's NS system-memory resource limiter to the guest.
+    // The emulator already owns the host/guest memory budget, so consuming the ABI and
+    // acknowledging this legacy policy request is the observable HLE equivalent.
+    LOG_DEBUG(Service_NS, "BoostSystemMemoryResourceLimit acknowledged, requested_limit={:#x}",
+              requested_limit);
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
 }
 
 void IApplicationManagerInterface::RejectUnavailablePlatformCommand(HLERequestContext& ctx) {
