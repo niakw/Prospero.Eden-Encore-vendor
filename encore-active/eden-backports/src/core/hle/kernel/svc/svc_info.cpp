@@ -41,6 +41,7 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
     case InfoType::UsedNonSystemMemorySize:
     case InfoType::IsApplication:
     case InfoType::FreeThreadCount:
+    case InfoType::IsSvcPermitted:
     case InfoType::Nx2RegionAddress:
     case InfoType::Nx2RegionSize:
     case InfoType::Nx2RemoteMemorySize:
@@ -151,6 +152,12 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
                 *result = 0;
             }
             R_SUCCEED();
+        case InfoType::IsSvcPermitted:
+            // HOS 14+ permits querying only SynchronizePreemptionState (SVC 0x36).
+            // The process's NPDM capabilities are already retained by KProcess.
+            *result = process->GetSvcPermissions().test(
+                          static_cast<size_t>(SvcId::SynchronizePreemptionState)) ? 1 : 0;
+            R_SUCCEED();
         case InfoType::AliasRegionExtraSize: {
             R_UNLESS(info_sub_id == 0, ResultInvalidCombination);
             *result = process->GetPageTable().GetAliasRegionExtraSize();
@@ -168,6 +175,8 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
         R_THROW(ResultInvalidEnumValue);
     }
     case InfoType::DebuggerAttached:
+        R_UNLESS(handle == 0, ResultInvalidHandle);
+        R_UNLESS(info_sub_id == 0, ResultInvalidCombination);
         *result = 0;
         R_SUCCEED();
     case InfoType::ResourceLimit: {
