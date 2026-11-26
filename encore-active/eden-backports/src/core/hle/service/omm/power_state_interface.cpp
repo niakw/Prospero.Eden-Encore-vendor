@@ -22,6 +22,11 @@ IPowerStateInterface::IPowerStateInterface(Core::System& system_)
         {9, &IPowerStateInterface::RejectUnavailablePowerControl, "ChangeHomeButtonLongPressingTime"},
         {10, &IPowerStateInterface::RejectUnavailablePowerControl, "PutErrorState"},
         {11, &IPowerStateInterface::RejectUnavailablePowerControl, "InvalidateCurrentHomeButtonPressing"},
+        {12, &IPowerStateInterface::RejectUnavailablePowerControl, "EmulatePowerButtonPressedBriefly"},
+        {13, &IPowerStateInterface::RejectUnavailablePowerControl, "EmulatePowerButtonPressedFor7Sec"},
+        {14, &IPowerStateInterface::RejectUnavailablePowerControl, "SetAlwaysRebootFlag"},
+        {15, &IPowerStateInterface::RejectUnavailablePowerControl, "SetWakeReasonOverride"},
+        {16, &IPowerStateInterface::RejectUnavailablePowerControl, "SetWakeupAlarm"},
     };
     // clang-format on
 
