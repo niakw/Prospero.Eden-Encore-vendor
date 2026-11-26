@@ -32,6 +32,8 @@ CURRENT_ATTRIBUTE_SOURCE={
 # Two byte-sealed PS5-only transition-hint changes sit on TOP of the
 # original FC27 attribute-handle successor. Reconstruct its exact existing
 # receipt instead of treating the new optional hint cache as an R23 change.
+INDEX_BATCH_NEW="#ifdef PS5_NATIVE\n    // FC27 uses a vertex-attribute texture handle on indexed triangle draws.\n    // OnCPUWrite is serialized by buffer_cache.mutex before guest memcpy, so\n    // this scan must stay under that lock. Reduce only repeated GMMU walks:\n    // prefetch a small, fully-mapped index span and decode sampled indices\n    // from it. Authenticated NS2 channels retain the original per-index path.\n    struct AttributeIndexBatch {\n        std::array<u8, 256> bytes{};\n        u32 first_position{};\n        u32 position_count{};\n        size_t index_width{};\n        bool valid{};\n    } index_batch;\n#endif\n    const auto read_index = [&](u32 position) {\n        const auto& indices = state.index_buffer;\n        const size_t index_width = indices.FormatSizeInBytes();\n        if (index_width == 0 || index_width > sizeof(u32)) return u32{};\n#ifdef PS5_NATIVE\n        if (!gpu_memory->UsesNativeTiling()) {\n            if (index_batch.valid && index_batch.index_width == index_width &&\n                position >= index_batch.first_position &&\n                position - index_batch.first_position < index_batch.position_count) {\n                u32 index{};\n                const size_t byte_offset =\n                    static_cast<size_t>(position - index_batch.first_position) * index_width;\n                std::memcpy(&index, index_batch.bytes.data() + byte_offset, index_width);\n                return index;\n            }\n            if (position < total) {\n                const size_t max_positions = index_batch.bytes.size() / index_width;\n                const u32 position_count =\n                    (std::min)(total - position, static_cast<u32>(max_positions));\n                const GPUVAddr offset = static_cast<GPUVAddr>(position) * index_width;\n                const GPUVAddr start = indices.IndexStart();\n                const GPUVAddr address = start + offset;\n                const size_t read_bytes = static_cast<size_t>(position_count) * index_width;\n                const bool address_ok =\n                    (position == 0 || offset / index_width == position) &&\n                    address >= start && read_bytes != 0 &&\n                    address <= ~GPUVAddr{0} - static_cast<GPUVAddr>(read_bytes);\n                if (position_count > 1 && address_ok &&\n                    gpu_memory->IsFullyMappedRange(address, read_bytes)) {\n                    gpu_memory->ReadBlockUnsafe(address, index_batch.bytes.data(), read_bytes);\n                    index_batch.first_position = position;\n                    index_batch.position_count = position_count;\n                    index_batch.index_width = index_width;\n                    index_batch.valid = true;\n                    u32 index{};\n                    std::memcpy(&index, index_batch.bytes.data(), index_width);\n                    return index;\n                }\n            }\n        }\n#endif\n        const GPUVAddr address = indices.IndexStart() +\n                                 static_cast<GPUVAddr>(position) * index_width;\n        u32 index{};\n        gpu_memory->ReadBlockUnsafe(address, &index, index_width);\n        return index;\n    };\n    const auto read_handle = [&](u32 position) {\n        const u32 vertex =\n            is_indexed ? static_cast<u32>(state.base_index + read_index(position))\n                       : state.vertex_buffer.first + position;\n        return gpu_memory->Read<u32>(base_address +\n                                     static_cast<GPUVAddr>(vertex) * stream.stride);\n    };"
+INDEX_BATCH_OLD="    const auto read_handle = [&](u32 position) {\n        u32 vertex{};\n        if (is_indexed) {\n            const auto& indices = state.index_buffer;\n            const size_t index_width = indices.FormatSizeInBytes();\n            if (index_width == 0 || index_width > sizeof(u32)) return u32{};\n            const GPUVAddr address = indices.IndexStart() +\n                                     static_cast<GPUVAddr>(position) * index_width;\n            u32 index{};\n            gpu_memory->ReadBlockUnsafe(address, &index, index_width);\n            vertex = static_cast<u32>(state.base_index + index);\n        } else {\n            vertex = state.vertex_buffer.first + position;\n        }\n        return gpu_memory->Read<u32>(base_address +\n                                     static_cast<GPUVAddr>(vertex) * stream.stride);\n    };"
 BOUNDED_GRAPHICS_REVERSE={
   "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp":("f3c82781675b6979a8be96a333184e048ef57f81","2834a18fe7638749ec83cc8f5feb1fcde6c71a9a","void GraphicsPipeline::AddTransition(GraphicsPipeline* transition) {\n#ifdef PS5_NATIVE\n    // Only a fast-path hint: the canonical graphics_cache still owns ALL\n    // pipelines. A pipeline with hundreds of different successors must not\n    // accumulate unbounded state or scan every former successor on each miss.\n    // The two HUD/overlay hot indices remain pinned across ring replacement.\n    if (transition_keys.size() >= kNativeTransitionHintLimit) {\n        size_t slot = next_transition_replacement;\n        for (size_t skipped = 0; skipped < 2; ++skipped) {\n            if (slot != hot_transition_indices[0] &&\n                slot != hot_transition_indices[1]) break;\n            slot = (slot + 1) % kNativeTransitionHintLimit;\n        }\n        // Both vectors are already fully allocated here. Replacing a hint\n        // cannot invalidate a live shader pipeline or allocate GPU objects.\n        transition_keys[slot] = transition->key;\n        transitions[slot] = transition;\n        next_transition_replacement = (slot + 1) % kNativeTransitionHintLimit;\n        return;\n    }\n    // Before the hint ring is full, preserve the exception-safe pairing\n    // of keys and pointers on the GPU owner.\n    try {\n        transition_keys.push_back(transition->key);\n    } catch (...) {\n        return;\n    }\n#else\n    transition_keys.push_back(transition->key);\n#endif\n#ifdef PS5_NATIVE\n    try {\n        transitions.push_back(transition);\n    } catch (...) {\n        transition_keys.pop_back();\n        return;\n    }\n#else\n    transitions.push_back(transition);\n#endif\n}","void GraphicsPipeline::AddTransition(GraphicsPipeline* transition) {\n#ifdef PS5_NATIVE\n    // Both appends are optional memoization. The canonical graphics cache\n    // already owns the target and will resolve a missing edge on demand.\n    try {\n        transition_keys.push_back(transition->key);\n    } catch (...) {\n        return;\n    }\n#else\n    transition_keys.push_back(transition->key);\n#endif\n#ifdef PS5_NATIVE\n    // Both arrays must describe the same transition index. An allocation\n    // failure while appending the pointer must not leave an orphaned key:\n    // Next() would later index past transitions and corrupt a guest draw.\n    try {\n        transitions.push_back(transition);\n    } catch (...) {\n        // Transition memoization is optional. The primary graphics cache\n        // already owns the pipeline; a later lookup can use its slow path.\n        // Do not abort a guest draw solely because this edge could not fit.\n        transition_keys.pop_back();\n        return;\n    }\n#else\n    transitions.push_back(transition);\n#endif\n}"),
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h":("cc53133dd516e2d1d245326866ab3ce0c852b36b","515a766a6cc4d6fcba7692ad396f45396b746d28","    // Transition hints are not the pipeline owners. Limit their memory\n    // growth and the O(N) unsuccessful Next() search on shader-heavy titles.\n    // The canonical graphics_cache remains complete and handles all misses.\n    static constexpr size_t kNativeTransitionHintLimit = 64;\n    // GPU owner only: the two hot indices stay valid across vector growth\n    // and are never replaced when the bounded ring rolls over.\n    std::array<size_t, 2> hot_transition_indices{};\n    size_t next_transition_replacement{};\n","    // GPU owner only. Two valid indices remain stable across vector growth.\n    std::array<size_t, 2> hot_transition_indices{};\n"),
@@ -77,10 +79,20 @@ for path,sha in EXPECTED.items():
   if path.endswith("/texture_pass.cpp"):
    assert verified_depth_compare_sha(ROOT/path)=="30c9a612a88fa6cd832a40ad0f717b4944db45a1"
   if path.endswith("/vulkan_rasterizer.cpp"):
-   restored=restore_integrated_rasterizer(raw.decode())
-   assert gitblob(ROOT/path)==GUEST_CACHE_LOCK_SUCCESSOR
-   data=restored.encode()
-   assert hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()=="71d097b9a83028dfad9370792c905bb3bfccfd5a"
+   selected_raster=raw.decode()
+   if gitblob(ROOT/path)=="f79943f596b8a95cdcb05ce74a964a2141ae10ac":
+    # This test owns the attribute-handle draw scan. Reverse only the new
+    # batched index-reader delta to the already-reviewed FC27 generation;
+    # the deferred-protection receipt owns the older rasterizer history.
+    assert selected_raster.count(INDEX_BATCH_NEW)==1
+    selected_raster=selected_raster.replace(INDEX_BATCH_NEW,INDEX_BATCH_OLD,1)
+    predecessor=hashlib.sha1(b"blob "+str(len(selected_raster.encode())).encode()+bytes([0])+selected_raster.encode()).hexdigest()
+    assert predecessor=="fcd174ed2326f3c205365b192c98f9d2f4d82ec3", predecessor
+   else:
+    restored=restore_integrated_rasterizer(selected_raster)
+    assert gitblob(ROOT/path)==GUEST_CACHE_LOCK_SUCCESSOR
+    data=restored.encode()
+    assert hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()=="71d097b9a83028dfad9370792c905bb3bfccfd5a"
   if path in BOUNDED_GRAPHICS_REVERSE:
    new_sha, old_sha, new_hunk, old_hunk = BOUNDED_GRAPHICS_REVERSE[path]
    current_text=raw.decode("utf-8")
@@ -114,7 +126,7 @@ for path,sha in EXPECTED.items():
    assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==old_sha, ("FC27 graphics hint predecessor drift", path)
    assert "kNativeTransitionHintLimit = 64" in raw.decode("utf-8") or "next_transition_replacement" in raw.decode("utf-8")
   continue
- if path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path) in {"cfac496d574010b8121611c8616d38bf7cdcbc41","a0e2a45b9b0f080b739d97abb92e9485a0063f73","79660c5cc4ff046f24e7ffa50ab066a86857698c"}:
+ if path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path) in {"61450e8b8c5e76a59660649ed13941eb50e089cb","44b0edc24e847d4cbcd47de0ed86241787bda38a","52470b6160f6049801d963960adf6952c79a45cf","b28a190e92ca80b0385148a0b558828353326f12","cfac496d574010b8121611c8616d38bf7cdcbc41","a0e2a45b9b0f080b739d97abb92e9485a0063f73","79660c5cc4ff046f24e7ffa50ab066a86857698c","d222fb5565cdf8db30c6d3d464f107ff26a042c8"}:
   # Reviewed newest-32 native prewarm overlay. The complete current shader
   # owner is cryptographically pinned; the engine's Vulkan/R23 audit separately
   # reverses its entire exact LoadDiskResources hunk to the historical blob.
@@ -122,7 +134,27 @@ for path,sha in EXPECTED.items():
   # but must not mistake a bounded shader reader change for an ABI change.
   selected=raw.decode("utf-8")
   cache_blob_current=gitblob(ROOT/path)
-  if cache_blob_current=="79660c5cc4ff046f24e7ffa50ab066a86857698c":
+  if cache_blob_current == "61450e8b8c5e76a59660649ed13941eb50e089cb":
+   for newer, earlier in (
+       ("        // The GPU owner would otherwise sit idle until every stage completes.\n        // Queue the preceding stages, then translate the final active stage\n        // locally using exactly the same immutable snapshot and private pools.\n        size_t parallel_env_index{};\n        const size_t parallel_stage_count = envs.size();\n        for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {", "        size_t parallel_env_index{};\n        for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {"),
+       ("            auto translate_stage =\n                [this, env, stage_pools, cfg_offset, exits_to_dispatcher, index,", "            shader_translation_workers.QueueWork(\n                [this, env, stage_pools, cfg_offset, exits_to_dispatcher, index,"),
+       ("                };\n            if (parallel_env_index == parallel_stage_count) {\n                translate_stage();\n            } else {\n                shader_translation_workers.QueueWork(std::move(translate_stage));\n            }\n        }\n        // The GPU owner intentionally waits here. Workers see only immutable", "                });\n        }\n        // The GPU owner intentionally waits here. Workers see only immutable"),
+   ):
+       assert selected.count(newer) == 1
+       selected = selected.replace(newer, earlier, 1)
+   raw_prior = selected.encode("utf-8")
+   cache_blob_current = hashlib.sha1(b"blob " + str(len(raw_prior)).encode() + bytes([0]) + raw_prior).hexdigest()
+   assert cache_blob_current == "44b0edc24e847d4cbcd47de0ed86241787bda38a"
+  if cache_blob_current == "44b0edc24e847d4cbcd47de0ed86241787bda38a":
+   # Only the exact FC27 cache quota changes; preserve historic ABI checks.
+   new_policy = "    // FC27 PS5 25/11: 598 valid cached keys, only 128 restored in 704 ms,\n    // and 243 first-use translations during gameplay. Prebuild the newest\n    // 768 DISTINCT cached keys before guest Run when the existing file-size\n    // limit allows it. Keep the 32-entry prefix for large/absent caches;\n    // this changes no GPU barriers, shader output or draw ordering.\n    constexpr size_t kStartupPrewarmPipelines = 32;\n    constexpr size_t kRecentPrewarmPipelines = 768;"
+   old_policy = "    // For a modest, already populated cache, admit the newest 128 builders\n    // before gameplay; preserve the 32-entry prefix for large/absent caches.\n    // This shifts some first-use work to loading without skipping any draw.\n    constexpr size_t kStartupPrewarmPipelines = 32;\n    constexpr size_t kRecentPrewarmPipelines = 128;"
+   assert selected.count(new_policy) == 1, "Unreviewed shader-cache source"
+   selected = selected.replace(new_policy, old_policy, 1)
+   predecessor = selected.encode("utf-8")
+   assert hashlib.sha1(b"blob " + str(len(predecessor)).encode() + bytes([0]) + predecessor).hexdigest() == "7db0462ad24aa4c6356ce4efa0086b356f171be6"
+   cache_blob_current = "7db0462ad24aa4c6356ce4efa0086b356f171be6"
+  if cache_blob_current in {"52470b6160f6049801d963960adf6952c79a45cf","b28a190e92ca80b0385148a0b558828353326f12","79660c5cc4ff046f24e7ffa50ab066a86857698c","d222fb5565cdf8db30c6d3d464f107ff26a042c8"}:
    from ps5_recent_prewarm_receipt import reverse_adaptive_prewarm
    selected=reverse_adaptive_prewarm(selected)
    cache_blob_current="a0e2a45b9b0f080b739d97abb92e9485a0063f73"
@@ -303,6 +335,7 @@ test=r"""
 #include <map>
 #include <optional>
 #include <vector>
+using u8=std::uint8_t;
 using u32=std::uint32_t;
 using GPUVAddr=std::uint64_t;
 namespace Shader::IR {
@@ -346,7 +379,8 @@ struct Maxwell3D {
    struct Index {
     u32 count=0;
     GPUVAddr IndexStart() const{return 3000;}
-    size_t FormatSizeInBytes() const{return 4;}
+    size_t width=4;
+    size_t FormatSizeInBytes() const{return width;}
    } index_buffer;
    struct Vert {u32 count=0, first=0;} vertex_buffer;
    Regs::PrimitiveTopology topology=Regs::PrimitiveTopology::Triangles;
@@ -359,13 +393,30 @@ namespace Vulkan {
 using Maxwell=Tegra::Engines::Maxwell3D::Regs;
 struct Memory {
  std::map<GPUVAddr,u32> values;
+ size_t index_width=4;
+ bool mapped=true;
+ bool native_tiling=false;
+ mutable u32 block_reads=0;
  template<typename T> T Read(GPUVAddr address) const {
   const auto it=values.find(address);
   return it==values.end()? T{}:static_cast<T>(it->second);
  }
+ bool UsesNativeTiling() const { return native_tiling; }
+ bool IsFullyMappedRange(GPUVAddr,size_t) const { return mapped; }
  void ReadBlockUnsafe(GPUVAddr address,void* dest,size_t n) const {
-  const u32 value=Read<u32>(address);
-  std::memcpy(dest,&value,n);
+  ++block_reads;
+  if (n<=sizeof(u32)) {
+   const u32 value=Read<u32>(address);
+   std::memcpy(dest,&value,n);
+   return;
+  }
+  auto* out=static_cast<u8*>(dest);
+  for(size_t i=0;i<n;++i) {
+   const GPUVAddr absolute=address+i;
+   const GPUVAddr base=3000+((absolute-3000)/index_width)*index_width;
+   const u32 value=Read<u32>(base);
+   out[i]=static_cast<u8>(value >> (((absolute-base)%index_width)*8));
+  }
  }
 };
 struct RasterizerVulkan {
@@ -405,6 +456,33 @@ int main(){
  assert(raster.attribute_handle_runs[0].handle==11);
  assert(raster.attribute_handle_runs[1].handle==22);
  assert(raster.attribute_handle_runs[2].handle==11);
+#ifdef PS5_NATIVE
+ assert(mem.block_reads==1); // one 36-byte prefetch instead of three index reads
+ // Fully-mapped 32-bit triangle indices: 4,096 entries need 63 batched reads
+ // instead of 1,365 primitive-start reads. Handles remain individually sampled.
+ raster.attribute_handle_runs.clear();
+ mem.block_reads=0;
+ engine.draw_manager.draw_state.index_buffer.count=4096;
+ for(u32 i=0;i<4096;i++) mem.values[3000+i*4]=i%9;
+ raster.CollectAttributeHandleRuns(true);
+ assert(mem.block_reads==64); // 63 index batches plus one conservative partial-triangle fallback
+ // NS2 keeps the old per-primitive path.
+ raster.attribute_handle_runs.clear();
+ mem.block_reads=0;
+ mem.native_tiling=true;
+ engine.draw_manager.draw_state.index_buffer.count=96;
+ raster.CollectAttributeHandleRuns(true);
+ assert(mem.block_reads==32);
+ mem.native_tiling=false;
+ // Unmapped batch candidates fail closed to the old single-index reads.
+ raster.attribute_handle_runs.clear();
+ mem.block_reads=0;
+ mem.mapped=false;
+ engine.draw_manager.draw_state.index_buffer.count=96;
+ raster.CollectAttributeHandleRuns(true);
+ assert(mem.block_reads==32);
+ mem.mapped=true;
+#endif
  raster.attribute_handle_runs.clear();
  engine.draw_manager.draw_state.vertex_buffer.count=0;
  raster.CollectAttributeHandleRuns(false);
@@ -458,9 +536,14 @@ apple_clang_without_lsan = (
 with tempfile.TemporaryDirectory(prefix="r23-attribute-handle-") as td:
  d=Path(td)
  (d/"run.cpp").write_text(test)
- subprocess.run([cxx,"-std=c++20","-O1","-g",
-                 "-fsanitize=address,undefined","-fno-omit-frame-pointer",
-                 str(d/"run.cpp"),"-o",str(d/"run")],check=True,timeout=70)
- subprocess.run([str(d/"run")],check=True,timeout=25,
-                env={**os.environ,"ASAN_OPTIONS":"halt_on_error=1:detect_leaks=" + ("0" if apple_clang_without_lsan else "1")})
-print("R23_35_VERTEX_ATTRIBUTE_TEXTURE_RUNS_PASS sources=8 paths=6")
+ for native in (False,True):
+  exe=d/("run-native" if native else "run-desktop")
+  cmd=[cxx,"-std=c++20","-O1","-g",
+       "-fsanitize=address,undefined","-fno-omit-frame-pointer"]
+  if native:
+   cmd.append("-DPS5_NATIVE=1")
+  cmd += [str(d/"run.cpp"),"-o",str(exe)]
+  subprocess.run(cmd,check=True,timeout=70)
+  subprocess.run([str(exe)],check=True,timeout=25,
+                 env={**os.environ,"ASAN_OPTIONS":"halt_on_error=1:detect_leaks=" + ("0" if apple_clang_without_lsan else "1")})
+print("R23_35_VERTEX_ATTRIBUTE_TEXTURE_RUNS_PASS sources=8 paths=6 index_batch=1 ns2_unchanged=1 unmapped_fallback=1")
