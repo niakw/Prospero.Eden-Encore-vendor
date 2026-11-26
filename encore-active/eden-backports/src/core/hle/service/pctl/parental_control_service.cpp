@@ -767,7 +767,8 @@ IParentalControlService::QueryPlayTimerStateLocked() {
 
     auto elapsed = play_timer_elapsed;
     if (play_timer_running) {
-        elapsed += std::chrono::steady_clock::now() - play_timer_started_at;
+        elapsed += std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - play_timer_started_at);
     }
     const auto elapsed_ns =
         static_cast<u64>((std::max)(std::chrono::nanoseconds::zero(), elapsed).count());
@@ -782,7 +783,8 @@ void IParentalControlService::AccumulatePlayTimerLocked() {
         return;
     }
     const auto now = std::chrono::steady_clock::now();
-    play_timer_elapsed += now - play_timer_started_at;
+    play_timer_elapsed +=
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now - play_timer_started_at);
     play_timer_started_at = now;
 }
 
