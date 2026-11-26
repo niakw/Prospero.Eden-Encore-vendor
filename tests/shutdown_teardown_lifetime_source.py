@@ -13,6 +13,18 @@ ROOT = Path(__file__).resolve().parents[1]
 def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     if relative != "encore-active/ns2-runtime/process/core/core.cpp":
         return source
+    # The release PS5 Core::System must retire NVDRV-owned AS/pins and
+    # KProcess references before ShutdownCores ends the guest process.
+    # Reconstruct the qualified predecessor only for historical SHA checks.
+    nvdrv_current = "        kernel.CloseServices();\n        ::Eden::ReportStep(\"shutdown\", \"Completed kernel.CloseServices()\");\n        // NVDRV's nvhost_as_gpu destructor can unpin NVMap pages and release\n        // its retained KProcess reference. Release those service owners while\n        // the process and scheduler are still alive; ShutdownCores terminates\n        // the guest processes and must come AFTER this cleanup. The GPU worker\n        // was joined above, so no GPU task can reuse the retired mappings.\n        services.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed services.reset()\");\n        service_manager.reset();\n        kernel.ShutdownCores();\n        ::Eden::ReportStep(\"shutdown\", \"Completed kernel.ShutdownCores()\");"
+    nvdrv_predecessor = "        kernel.CloseServices();\n        ::Eden::ReportStep(\"shutdown\", \"Completed kernel.CloseServices()\");\n        kernel.ShutdownCores();\n        ::Eden::ReportStep(\"shutdown\", \"Completed kernel.ShutdownCores()\");\n        services.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed services.reset()\");\n        service_manager.reset();"
+    assert source.count(nvdrv_current) == 1, (relative, "NVDRV before KProcess shutdown")
+    shutdown = source.split("    void ShutdownMainProcess() {", 1)[1].split(
+        "\n    bool IsShuttingDown()", 1)[0]
+    assert shutdown.index("gpu_core.reset();") < shutdown.index("kernel.CloseServices();") < (
+        shutdown.index("services.reset();")) < shutdown.index("service_manager.reset();") < (
+        shutdown.index("kernel.ShutdownCores();"))
+    source = source.replace(nvdrv_current, nvdrv_predecessor, 1)
     early = '''        ::Eden::ReportStep("shutdown", "Completed kernel.SuspendEmulation(true)");
         // GPU::Impl owns the Vulkan worker, scheduler, channel states and
         // renderer; native NVDRV address spaces own the GMMU/NvMap backing
