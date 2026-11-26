@@ -218,10 +218,9 @@ Result ILibraryAppletSelfAccessor::GetMainAppletIdentityInfo(
 }
 
 Result ILibraryAppletSelfAccessor::CanUseApplicationCore(Out<bool> out_can_use_application_core) {
-    // TODO: This appears to read the NPDM from state and check the core mask of the applet.
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_can_use_application_core = false;
-    R_SUCCEED();
+    LOG_WARNING(Service_AM,
+                "CanUseApplicationCore is unavailable: NPDM application-core policy is not modelled");
+    R_RETURN(ResultUnknown);
 }
 
 Result ILibraryAppletSelfAccessor::GetMainAppletApplicationControlProperty(

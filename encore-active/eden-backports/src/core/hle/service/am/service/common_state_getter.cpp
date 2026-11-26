@@ -526,9 +526,9 @@ Result ICommonStateGetter::IsDisablingSleepSuppressed(Out<bool> out_is_suppresse
 }
 
 Result ICommonStateGetter::GetOperationModeSystemInfo(Out<u32> out_operation_mode_system_info) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-    *out_operation_mode_system_info = 0;
-    R_SUCCEED();
+    LOG_WARNING(Service_AM,
+                "GetOperationModeSystemInfo is unavailable: OMM system-info semantics are not modelled");
+    R_RETURN(ResultUnknown);
 }
 
 Result ICommonStateGetter::GetAppletLaunchedHistory(
