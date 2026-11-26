@@ -1381,8 +1381,8 @@
       "upstream": "e84ef0ac8181ffc7031f6bd4284a5edb1e30a725c651a5c0200f20bcfe064c43"
     },
     "src/core/hle/service/hid/hidbus.cpp": {
-      "active": "dfce3cd0cc9b3bb6307adf1887b967d2e3e7a735165a20fe8b2985e27c9ac3a0",
-      "bytes": 17628,
+      "active": "3ef0a0a6b450b4c9607dc281b1fab357dec7dd1fd869e30dce4c10f16d172557",
+      "bytes": 18170,
       "upstream": "9bad04bff47c378383d561bc1e9fd47d5477e02fd3dc534dc0eabe8dcf0086cd"
     },
     "src/core/hle/service/hid/hidbus.h": {

@@ -20,7 +20,6 @@
 #include "hid_core/hid_types.h"
 #include "hid_core/hidbus/ringcon.h"
 #include "hid_core/hidbus/starlink.h"
-#include "hid_core/hidbus/stubbed.h"
 
 namespace Service::HID {
 // (15ms, 66Hz)
@@ -177,11 +176,15 @@ Result Hidbus::Initialize(BusHandle bus_handle, AppletResourceUserId aruid) {
         R_SUCCEED();
     }
 
-    is_hidbus_enabled = true;
     const auto entry_index = devices[device_index.value()].handle.internal_index;
     auto& cur_entry = hidbus_status.entries[entry_index];
+    const auto bus_type = static_cast<BusType>(static_cast<u8>(bus_handle.bus_type_id));
+    const bool is_joy_rail =
+        bus_type == BusType::LeftJoyRail || bus_type == BusType::RightJoyRail;
 
-    if (bus_handle.internal_index == 0 && Settings::values.enable_ring_controller) {
+    if (bus_handle.internal_index == 0 && is_joy_rail &&
+        Settings::values.enable_ring_controller) {
+        is_hidbus_enabled = true;
         MakeDevice<RingController>(bus_handle);
         devices[device_index.value()].is_device_initialized = true;
         devices[device_index.value()].device->ActivateDevice();
@@ -190,19 +193,24 @@ Result Hidbus::Initialize(BusHandle bus_handle, AppletResourceUserId aruid) {
         cur_entry.is_connected_result = ResultSuccess;
         cur_entry.is_enabled = false;
         cur_entry.is_polling_mode = false;
-    } else {
-        MakeDevice<HidbusStubbed>(bus_handle);
-        devices[device_index.value()].is_device_initialized = true;
-        cur_entry.is_in_focus = true;
-        cur_entry.is_connected = false;
-        cur_entry.is_connected_result = ResultSuccess;
-        cur_entry.is_enabled = false;
-        cur_entry.is_polling_mode = false;
+        std::memcpy(system.Kernel().GetHidBusSharedMem().GetPointer(), &hidbus_status,
+                    sizeof(hidbus_status));
+        R_SUCCEED();
     }
 
+    // Do not manufacture a generic device which accepts commands but has no
+    // hardware/backend implementation. Keep unsupported accessories fail-closed.
+    cur_entry.is_in_focus = true;
+    cur_entry.is_connected = false;
+    cur_entry.is_connected_result = IPC::ResultNotSupported;
+    cur_entry.is_enabled = false;
+    cur_entry.is_polling_mode = false;
     std::memcpy(system.Kernel().GetHidBusSharedMem().GetPointer(), &hidbus_status,
                 sizeof(hidbus_status));
-    R_SUCCEED();
+    LOG_WARNING(Service_HID,
+                "Unsupported HIDBus device, bus_type={}, internal_index={}",
+                bus_type, bus_handle.internal_index);
+    R_RETURN(IPC::ResultNotSupported);
 }
 
 Result Hidbus::Finalize(BusHandle bus_handle, AppletResourceUserId aruid) {
