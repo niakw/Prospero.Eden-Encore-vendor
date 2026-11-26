@@ -9,6 +9,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <vector>
 
@@ -23,6 +24,52 @@
 #include "core/hle/service/service.h"
 
 namespace Service::NCM {
+
+namespace {
+
+struct RightsIdCacheEntry {
+    FileSys::NcaID content_id{};
+    FileSys::NcaID rights_id{};
+    u8 key_generation{};
+};
+
+std::mutex g_rights_id_cache_mutex;
+std::vector<RightsIdCacheEntry> g_rights_id_cache;
+
+std::optional<std::pair<FileSys::NcaID, u8>> FindCachedRightsId(
+    const FileSys::NcaID& content_id) {
+    std::scoped_lock lk{g_rights_id_cache_mutex};
+    const auto it = std::find_if(g_rights_id_cache.cbegin(), g_rights_id_cache.cend(),
+                                 [&](const auto& entry) {
+                                     return entry.content_id == content_id;
+                                 });
+    if (it == g_rights_id_cache.cend()) {
+        return std::nullopt;
+    }
+    return std::pair{it->rights_id, it->key_generation};
+}
+
+void StoreCachedRightsId(const FileSys::NcaID& content_id, const FileSys::NcaID& rights_id,
+                         u8 key_generation) {
+    std::scoped_lock lk{g_rights_id_cache_mutex};
+    const auto it = std::find_if(g_rights_id_cache.begin(), g_rights_id_cache.end(),
+                                 [&](const auto& entry) {
+                                     return entry.content_id == content_id;
+                                 });
+    if (it != g_rights_id_cache.end()) {
+        it->rights_id = rights_id;
+        it->key_generation = key_generation;
+        return;
+    }
+    g_rights_id_cache.push_back({content_id, rights_id, key_generation});
+}
+
+void ClearRightsIdCache() {
+    std::scoped_lock lk{g_rights_id_cache_mutex};
+    g_rights_id_cache.clear();
+}
+
+} // namespace
 
 class ILocationResolver final : public ServiceFramework<ILocationResolver> {
 public:
@@ -1121,13 +1168,26 @@ private:
     void GetRightsIdFromPlaceHolderIdWithCache(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto placeholder_id = rp.PopRaw<FileSys::NcaID>();
-        [[maybe_unused]] const auto cache_content_id = rp.PopRaw<FileSys::NcaID>();
-        [[maybe_unused]] const auto attr = rp.Pop<u8>();
-        auto* const placeholder_cache =
-            system.GetFileSystemController().GetPlaceholderCacheForStorage(storage);
-        const auto rights = placeholder_cache != nullptr
-                                ? placeholder_cache->GetRightsIDWithKeyGeneration(placeholder_id)
-                                : std::optional<std::pair<FileSys::NcaID, u8>>{};
+        const auto cache_content_id = rp.PopRaw<FileSys::NcaID>();
+        const auto attr = rp.Pop<u8>();
+
+        auto rights = FindCachedRightsId(cache_content_id);
+        if (!rights.has_value()) {
+            if (attr != 0) {
+                IPC::ResponseBuilder rb{ctx, 2};
+                rb.Push(IPC::ResultNotSupported);
+                return;
+            }
+
+            auto* const placeholder_cache =
+                system.GetFileSystemController().GetPlaceholderCacheForStorage(storage);
+            rights = placeholder_cache != nullptr
+                         ? placeholder_cache->GetRightsIDWithKeyGeneration(placeholder_id)
+                         : std::optional<std::pair<FileSys::NcaID, u8>>{};
+            if (rights.has_value()) {
+                StoreCachedRightsId(cache_content_id, rights->first, rights->second);
+            }
+        }
 
         NcmRightsId out{};
         if (rights.has_value()) {
@@ -2093,8 +2153,8 @@ private:
     }
 
     void InvalidateRightsIdCache(HLERequestContext& ctx) {
-        // PlaceholderCache::GetRightsID reads and parses the NCA on every call.
-        // Encore has no memoized NCM rights-ID cache to invalidate.
+        ClearRightsIdCache();
+        LOG_DEBUG(Service_NCM, "called");
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
