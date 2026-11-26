@@ -153,8 +153,9 @@ assert blob(T) in {
     "5fa75d9b6b7b4f9710a6840182dc0de854e62268",  # active 16-entry HUD TIC memo parity
     "709ee61bc3a620654fa9c66eafa6482aab382d12",  # framebuffer view format guard
     "bfd98bca9204d06da8a828c9dba6d8eab7bafb63",  # selected alias copy publication parity
+    "4076fb27d78e6be2893d6a09d3f9d5493e6bab59",  # selected native async readback and upload parity
 }
-if blob(T) in {"27ea4e0e665d3f94e173c1335cb19211efc03646", "bbb55dc7b1648fa1e6fd730a1b3515f2969221c7", "5fa75d9b6b7b4f9710a6840182dc0de854e62268", "709ee61bc3a620654fa9c66eafa6482aab382d12", "bfd98bca9204d06da8a828c9dba6d8eab7bafb63"}:
+if blob(T) in {"27ea4e0e665d3f94e173c1335cb19211efc03646", "bbb55dc7b1648fa1e6fd730a1b3515f2969221c7", "5fa75d9b6b7b4f9710a6840182dc0de854e62268", "709ee61bc3a620654fa9c66eafa6482aab382d12", "bfd98bca9204d06da8a828c9dba6d8eab7bafb63", "4076fb27d78e6be2893d6a09d3f9d5493e6bab59"}:
     for guard in ("if (it == channel_state->sampler_ids.end())",
                   "if (pair->second != NULL_IMAGE_VIEW_ID || remapped_cached_view)",
                   "if (removed_views.empty())"):
@@ -163,6 +164,9 @@ for selected_guard in ("SplitLayeredImageCopies(copies)", "index > table.current
     assert selected_guard in T.read_text(), ("FC27/NS2 active texture guard lost",selected_guard)
 # Selected NS1/NS2 TextureCache must retain the causal native protections.
 texture_selected=T.read_text()
+if blob(T) == "4076fb27d78e6be2893d6a09d3f9d5493e6bab59":
+    for guard in ("if (!download_submitted)", "bool batch_published = false;", "bool batch_consumed = false;", "MapSizeBytes(image),", "remaining_offsets"):
+        assert guard in texture_selected, ("selected async readback/upload protection lost", guard)
 if blob(T) == "bbb55dc7b1648fa1e6fd730a1b3515f2969221c7":
     for guard in ("DownloadStagingBuffer(bytes, true)", "std::uncaught_exceptions() > uncaught_before_readback && !pending.empty()", "std::uncaught_exceptions()", "slot_images[id].flags |= ImageFlagBits::GpuModified"):
         assert guard in texture_selected, guard

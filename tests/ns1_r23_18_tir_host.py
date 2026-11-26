@@ -20,6 +20,29 @@ for name,expected in files.items():
  # Active native TIC memo successor: authenticate the selected file, then
  # reverse only FillImageViews on this audit copy before replaying the
  # historical readback/TIR receipts.
+ if name.endswith("/texture_cache/texture_cache.h") and sha == "4076fb27d78e6be2893d6a09d3f9d5493e6bab59":
+  # Reverse only the four restored native methods on the historical audit copy.
+  # Their desktop projection was checked byte-for-byte against the prior owner.
+  source=raw.decode()
+  for method in ("CommitAsyncFlushes","PopAsyncFlushes","DownloadImageIntoBuffer","UploadImageContents"):
+   begin=source.index("void TextureCache<P>::"+method+"(")
+   end=source.index("\ntemplate <class P>",begin)
+   stack=[]
+   kept=[]
+   for line in source[begin:end].split("\n"):
+    if line in ("#ifdef PS5_NATIVE","#ifndef PS5_NATIVE"):
+     stack.append(line=="#ifndef PS5_NATIVE")
+    elif line=="#else":
+     stack[-1]=not stack[-1]
+    elif line=="#endif":
+     stack.pop()
+    elif all(stack) and "// Native empty batches use the same atomic pair-publication below." not in line:
+     kept.append(line)
+   assert not stack, method
+   source=source[:begin]+"\n".join(kept)+source[end:]
+  raw=source.encode()
+  sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
+  assert sha=="bfd98bca9204d06da8a828c9dba6d8eab7bafb63", "async readback and upload reverse drift"
  if name.endswith("/texture_cache/texture_cache.h") and sha == "bfd98bca9204d06da8a828c9dba6d8eab7bafb63":
   source=raw.decode()
   begin=source.index("void TextureCache<P>::SynchronizeAliases(")

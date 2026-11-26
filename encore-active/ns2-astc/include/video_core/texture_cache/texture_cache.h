@@ -1943,19 +1943,53 @@ void TextureCache<P>::CommitAsyncFlushes() {
     if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
         auto& download_ids = uncommitted_downloads;
         if (download_ids.empty()) {
+#ifndef PS5_NATIVE
             committed_downloads.emplace_back(std::move(uncommitted_downloads));
             uncommitted_downloads.clear();
             async_buffers.emplace_back(std::move(uncommitted_async_buffers));
             uncommitted_async_buffers.clear();
             return;
+#endif
+            // Native empty batches use the same atomic pair-publication below.
         }
+#ifdef PS5_NATIVE
+        // Already-enqueued DMA staging belongs to its existing pending slots.
+        // Only the extra swizzle batch allocated below may be discarded on
+        // failed publication; never lose or duplicate earlier DMA reservations.
+        const size_t initial_staging_count = uncommitted_async_buffers.size();
+        bool batch_published = false;
+        SCOPE_EXIT {
+            if (!batch_published) {
+                while (uncommitted_async_buffers.size() > initial_staging_count) {
+                    runtime.FreeDeferredStagingBuffer(uncommitted_async_buffers.back());
+                    uncommitted_async_buffers.pop_back();
+                }
+            }
+        };
+#endif
         size_t total_size_bytes = 0;
         size_t last_async_buffer_id = uncommitted_async_buffers.size();
         bool any_none_dma = false;
         for (PendingDownload& download_info : download_ids) {
             if (download_info.is_swizzle) {
+#ifdef PS5_NATIVE
+                // Both 64-byte alignment and batch accumulation must fit in
+                // size_t BEFORE staging allocation. An overflow would make a
+                // mapped buffer look large enough for a smaller, wrapped batch.
+                const size_t bytes = slot_images[download_info.object_id].unswizzled_size_bytes;
+                constexpr size_t max_bytes = (std::numeric_limits<size_t>::max)();
+                if (bytes > max_bytes - 63) {
+                    throw std::bad_alloc{};
+                }
+                const size_t aligned_bytes = Common::AlignUp(bytes, size_t{64});
+                if (aligned_bytes > max_bytes - total_size_bytes) {
+                    throw std::bad_alloc{};
+                }
+                total_size_bytes += aligned_bytes;
+#else
                 total_size_bytes +=
                     Common::AlignUp(slot_images[download_info.object_id].unswizzled_size_bytes, 64);
+#endif
                 any_none_dma = true;
                 download_info.async_buffer_id = last_async_buffer_id;
             }
@@ -1963,6 +1997,15 @@ void TextureCache<P>::CommitAsyncFlushes() {
 
         if (any_none_dma) {
             auto download_map = runtime.DownloadStagingBuffer(total_size_bytes, true);
+#ifdef PS5_NATIVE
+            // The pinned staging handle does not own its pool reservation.
+            // If command recording or queue growth fails, keep this buffer
+            // GPU-safe in the deferred pool and leave the commit retryable.
+            bool staging_transferred = false;
+            SCOPE_EXIT {
+                if (!staging_transferred) runtime.FreeDeferredStagingBuffer(download_map);
+            };
+#endif
             for (const PendingDownload& download_info : download_ids) {
                 if (download_info.is_swizzle) {
                     Image& image = slot_images[download_info.object_id];
@@ -1972,10 +2015,31 @@ void TextureCache<P>::CommitAsyncFlushes() {
                 }
             }
             uncommitted_async_buffers.emplace_back(download_map);
+#ifdef PS5_NATIVE
+            staging_transferred = true;
+#endif
         }
 
+#ifdef PS5_NATIVE
+        // Publish the buffers and their identifiers as one logical pair.
+        // A rejected second deque insertion must restore the first queue
+        // before allowing another batch to reuse these staging indices.
+        async_buffers.emplace_back(std::move(uncommitted_async_buffers));
+        try {
+            committed_downloads.emplace_back(std::move(uncommitted_downloads));
+        } catch (...) {
+            uncommitted_async_buffers = std::move(async_buffers.back());
+            async_buffers.pop_back();
+            throw;
+        }
+        batch_published = true;
+        uncommitted_async_buffers.clear();
+        uncommitted_downloads.clear();
+        return;
+#else
         async_buffers.emplace_back(std::move(uncommitted_async_buffers));
         uncommitted_async_buffers.clear();
+#endif
     }
     committed_downloads.emplace_back(std::move(uncommitted_downloads));
     uncommitted_downloads.clear();
@@ -1989,10 +2053,86 @@ void TextureCache<P>::PopAsyncFlushes() {
     if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
         const auto& download_ids = committed_downloads.front();
         if (download_ids.empty()) {
+#ifdef PS5_NATIVE
+            // An empty async batch can still own deferred staging handles
+            // after an interrupted DMA or an empty pair publication.
+            // StagingBufferRef is non-owning: dequeueing it is not a free.
+            for (auto& buffer : async_buffers.front()) {
+                runtime.FreeDeferredStagingBuffer(buffer);
+            }
+#endif
             committed_downloads.pop_front();
             async_buffers.pop_front();
             return;
         }
+#ifdef PS5_NATIVE
+        // Keep staging queued until the entire guest download is consumed.
+        // Save only offsets (usually <= 4), not a full vector of handles.
+        auto& download_map = async_buffers.front();
+        boost::container::small_vector<size_t, 4> remaining_offsets;
+        remaining_offsets.reserve(download_map.size());
+        for (const auto& buffer : download_map) {
+            remaining_offsets.push_back(buffer.offset);
+        }
+        // Reserve deferred returns BEFORE guest writes. On any failure,
+        // discard only newly queued returns and retry the intact batch.
+        const size_t previous_death_count = async_buffers_death_ring.size();
+        bool batch_consumed = false;
+        SCOPE_EXIT {
+            if (!batch_consumed) {
+                while (async_buffers_death_ring.size() > previous_death_count) {
+                    async_buffers_death_ring.pop_back();
+                }
+            }
+        };
+        for (const auto& buffer : download_map) {
+            async_buffers_death_ring.emplace_back(buffer);
+        }
+        for (size_t i = download_ids.size(); i > 0; --i) {
+            const auto& download_info = download_ids[i - 1];
+            if (download_info.async_buffer_id >= download_map.size()) {
+                throw std::bad_alloc{};
+            }
+            const auto& download_buffer = download_map[download_info.async_buffer_id];
+            auto& offset = remaining_offsets[download_info.async_buffer_id];
+            if (!download_buffer.buffer || offset > download_buffer.mapped_span.size()) {
+                throw std::bad_alloc{};
+            }
+            if (download_info.is_swizzle) {
+                const ImageBase& image = slot_images[download_info.object_id];
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                const size_t bytes = image.unswizzled_size_bytes;
+                if (bytes > (std::numeric_limits<size_t>::max)() - 63) {
+                    throw std::bad_alloc{};
+                }
+                const size_t aligned = Common::AlignUp(bytes, size_t{64});
+                if (aligned > offset) {
+                    throw std::bad_alloc{};
+                }
+                offset -= aligned;
+                std::span<u8> download_span = download_buffer.mapped_span.subspan(offset);
+                SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, download_span,
+                             swizzle_data_buffer);
+            } else {
+                const BufferDownload& buffer_info = slot_buffer_downloads[download_info.object_id];
+                if (buffer_info.size > download_buffer.mapped_span.size() - offset) {
+                    throw std::bad_alloc{};
+                }
+                std::span<u8> download_span = download_buffer.mapped_span.subspan(offset);
+                gpu_memory->WriteBlockUnsafe(buffer_info.address, download_span.data(),
+                                             buffer_info.size);
+            }
+        }
+        // Do not erase DMA slots until every guest write has succeeded.
+        for (const auto& download_info : download_ids) {
+            if (!download_info.is_swizzle) {
+                slot_buffer_downloads.erase(download_info.object_id);
+            }
+        }
+        committed_downloads.pop_front();
+        async_buffers.pop_front();
+        batch_consumed = true;
+#else
         auto download_map = std::move(async_buffers.front());
         for (size_t i = download_ids.size(); i > 0; i--) {
             auto& download_info = download_ids[i - 1];
@@ -2018,6 +2158,7 @@ void TextureCache<P>::PopAsyncFlushes() {
         }
         committed_downloads.pop_front();
         async_buffers.pop_front();
+#endif
     } else {
         const auto& download_ids = committed_downloads.front();
         if (download_ids.empty()) {
@@ -2166,10 +2307,41 @@ void TextureCache<P>::DownloadImageIntoBuffer(typename TextureCache<P>::Image* i
     if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
         const BufferDownload new_buffer_download{address, size};
         auto slot = slot_buffer_downloads.insert(new_buffer_download);
+#ifdef PS5_NATIVE
+        // If staging or command submission fails, the DMA must not remain
+        // registered as a completed/pending guest-memory download.
+        bool pending_recorded = false;
+        bool staging_recorded = false;
+        bool download_submitted = false;
+        SCOPE_EXIT {
+            if (!download_submitted) {
+                if (staging_recorded) {
+                    runtime.FreeDeferredStagingBuffer(uncommitted_async_buffers.back());
+                    uncommitted_async_buffers.pop_back();
+                }
+                if (pending_recorded) uncommitted_downloads.pop_back();
+                slot_buffer_downloads.erase(slot);
+            }
+        };
+#endif
         const PendingDownload new_download{false, uncommitted_async_buffers.size(), slot};
         uncommitted_downloads.emplace_back(new_download);
+#ifdef PS5_NATIVE
+        pending_recorded = true;
+#endif
         auto download_map = runtime.DownloadStagingBuffer(size, true);
+#ifdef PS5_NATIVE
+        try {
+            uncommitted_async_buffers.emplace_back(download_map);
+        } catch (...) {
+            // A non-owning staging handle still needs a deferred pool return.
+            runtime.FreeDeferredStagingBuffer(download_map);
+            throw;
+        }
+        staging_recorded = true;
+#else
         uncommitted_async_buffers.emplace_back(download_map);
+#endif
         std::array buffers{
             buffer,
             download_map.buffer,
@@ -2179,6 +2351,9 @@ void TextureCache<P>::DownloadImageIntoBuffer(typename TextureCache<P>::Image* i
             download_map.offset,
         };
         image->DownloadMemory(buffers, buffer_offsets, copies);
+#ifdef PS5_NATIVE
+        download_submitted = true;
+#endif
     } else {
         image->DownloadMemory(buffer, buffer_offset, copies);
     }
@@ -2314,8 +2489,16 @@ void TextureCache<P>::UploadImageContents(Image& image, StagingBuffer& staging) 
     const GPUVAddr gpu_addr = image.gpu_addr;
 
     if (True(image.flags & ImageFlagBits::AcceleratedUpload)) {
+#ifdef PS5_NATIVE
+        // A pooled staging buffer may be power-of-two rounded and expose
+        // more mapped bytes than the image requested. Do not read unrelated
+        // guest memory or waste CPU DMA time filling the unused tail.
+        gpu_memory->ReadBlock(gpu_addr, mapped_span.data(), MapSizeBytes(image),
+                              VideoCommon::CacheType::NoTextureCache);
+#else
         gpu_memory->ReadBlock(gpu_addr, mapped_span.data(), mapped_span.size_bytes(),
                               VideoCommon::CacheType::NoTextureCache);
+#endif
         const auto uploads = FullUploadSwizzles(image.info);
         runtime.AccelerateImageUpload(image, staging, FixSmallVectorADL(uploads), 0, 0);
         return;
