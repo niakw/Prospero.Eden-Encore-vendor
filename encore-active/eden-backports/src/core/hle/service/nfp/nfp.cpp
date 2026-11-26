@@ -140,6 +140,23 @@ public:
 
         RegisterHandlers(functions);
     }
+
+private:
+    void BreakTag(HLERequestContext& ctx) {
+        IPC::RequestParser rp{ctx};
+        const auto device_handle = rp.Pop<u64>();
+        const auto break_type = rp.PopEnum<BreakType>();
+        if (break_type != BreakType::Normal) {
+            LOG_WARNING(Service_NFP,
+                        "BreakTag variant unsupported, device_handle={}, break_type={}",
+                        device_handle, break_type);
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(IPC::ResultNotSupported);
+            return;
+        }
+
+        Interface::BreakTag(ctx);
+    }
 };
 
 class IUserManager final : public ServiceFramework<IUserManager> {

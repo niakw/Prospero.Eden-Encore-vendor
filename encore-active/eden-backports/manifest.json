@@ -501,8 +501,8 @@
       "bytes": 15733
     },
     "src/core/hle/service/nfp/nfp.cpp": {
-      "active": "11ed60d29fc627e3d6d1555834ca5d8aa2c03e3ef64426a840a1160557575615",
-      "bytes": 9593,
+      "active": "4c8553f23edd0d3b4b87063bdf0f3d16b784517aa402439ec000238856e84bb0",
+      "bytes": 10177,
       "upstream": "efc30e676bb88648c855d32b6260f8589643206210979d3264ee2cb64968f663"
     },
     "src/core/hle/service/ngc/ngc.cpp": {
