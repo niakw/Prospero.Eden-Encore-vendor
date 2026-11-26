@@ -82,6 +82,9 @@ public:
     void RetireNativeVm(u32 id);
     [[nodiscard]] bool NativeSubmissionAllowed() const;
     [[nodiscard]] std::shared_ptr<const std::atomic_bool> CaptureNativeSubmissionLease() const;
+    // Transfer an existing exact 101 identity view to 211 without another pin.
+    NvResult PromoteNativeIdentity4K(u32 handle_id, u64 address, u64 size, u8 kind,
+                                    bool gpu_cacheable);
     NvResult UnmapNative4K(u64 address, u64 size);
     NvResult ReserveNativeSparse4K(u64 address, u64 size, u8 page_shift = 12);
     NvResult ReleaseNativeSparse4K(u64 address, u64 size);

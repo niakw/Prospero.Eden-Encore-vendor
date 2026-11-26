@@ -1615,3 +1615,22 @@ with tempfile.TemporaryDirectory() as tmp:
                     str(cpp),"-o",str(exe)],check=True,timeout=60)
     subprocess.run([str(exe)],check=True,timeout=15)
 print("NS2_R457_211_PREIMPORT_REPLAY_HOST_PASS vm_isolation=1 rollback=1 exact_identity=1")
+
+# The post-import 211 path must adopt exactly one existing 101 owner, rather
+# than pinning or allocating the same VA twice. Failed publication restores
+# the identity view; unrelated/partial/sparse overlaps still use strict MapNative4K.
+promote = native_as_cpp.split("NvResult nvhost_as_gpu::PromoteNativeIdentity4K(",1)[1].split("\n}",1)[0]
+for marker in ("mapping_map.find(address)", "allocation_map.find(address)",
+               "mapping.handle != handle_id", "mapping.size != size",
+               "mapping.sparse_alloc", "owner.mappings.size() != 1",
+               "NativeSubmissionAllowed()", "PoisonNativeAddressSpace()",
+               "mapping.gpu_cacheable = gpu_cacheable"):
+    assert marker in promote, marker
+assert "PinHandle(" not in promote and "AllocateFixed(" not in promote
+for marker in ("request->memory_offset == 0", "entry.handle == request->memory",
+               "entry.address == request->address", "entry.size == request->size",
+               "entry.HasSpace(request->address_space)", "promote_identity && request->backend_kind != 0",
+               "request->size, 0, false)"):
+    assert marker in _overlay_worker, marker
+assert _overlay_worker.index("as->PromoteNativeIdentity4K(") < _overlay_worker.index("ledger.CommitPrepared(staged_ledger)") < _overlay_worker.index("identity->RemoveSpace(request->address_space)") < _overlay_worker.index("m_shared->events[request->notification]->Signal(kernel)")
+print("NS2_211_POSTIMPORT_IDENTITY_TRANSFER_SOURCE_PASS")

@@ -633,6 +633,42 @@ NvResult nvhost_as_gpu::MapNative4K(u32 handle_id, u64 address, u64 source, u64 
     return NvResult::Success;
 }
 
+NvResult nvhost_as_gpu::PromoteNativeIdentity4K(u32 handle_id, u64 address, u64 size,
+                                               u8 kind, bool gpu_cacheable) {
+    constexpr u64 page = VM::YUZU_PAGESIZE;
+    if (!handle_id || !size || ((address | size) & (page - 1)) ||
+        address > std::numeric_limits<u64>::max() - size)
+        return NvResult::BadParameter;
+
+    const std::scoped_lock lock{mutex};
+    if (!m_native_process || !vm.initialised || !gmmu || !NativeSubmissionAllowed())
+        return NvResult::InvalidState;
+
+    const auto found = mapping_map.find(address);
+    const auto allocation = allocation_map.find(address);
+    if (found == mapping_map.end() || allocation == allocation_map.end())
+        return NvResult::BadParameter;
+    auto& mapping = found->second;
+    const auto& owner = allocation->second;
+    if (mapping.handle != handle_id || mapping.offset != address || mapping.size != size ||
+        !mapping.fixed || mapping.big_page || mapping.sparse_alloc ||
+        owner.size != size || owner.page_size != page || owner.sparse || owner.big_pages ||
+        owner.mappings.size() != 1 || owner.mappings.front() != address ||
+        !NativePinnedPhysicalSpan(mapping.ptr, 0, size))
+        return NvResult::BadParameter;
+
+    // The worker proves exact identity ownership under its shared mutex.
+    // Keep the single allocation/pin; only update the PTE kind/cache metadata.
+    try {
+        gmmu->Map(address, mapping.ptr, size, static_cast<Tegra::PTEKind>(kind), false);
+    } catch (const std::bad_alloc&) {
+        PoisonNativeAddressSpace();
+        return NvResult::InsufficientMemory;
+    }
+    mapping.gpu_cacheable = gpu_cacheable;
+    return NvResult::Success;
+}
+
 NvResult nvhost_as_gpu::MapNativeImage(u32 handle_id, u64 source, u64 size, u64& address) {
     address = 0;
     constexpr u64 page = VM::YUZU_PAGESIZE;

@@ -685,11 +685,32 @@ void IGpuWorker::NormalMapGpuMemory4K(HLERequestContext& ctx) {
                         result = Kernel::ResultInvalidState;
                         const auto as = m_shared->FindOwnedAddressSpace(
                             static_cast<Nvidia::DeviceFD>(request->address_space));
+                        auto identity = m_shared->identity_gpu_mappings.end();
+                        if (as && !sparse_overlay && request->memory_offset == 0) {
+                            identity = std::find_if(m_shared->identity_gpu_mappings.begin(),
+                                m_shared->identity_gpu_mappings.end(),
+                                [&](const IdentityGpuMapping& entry) {
+                                    return entry.handle == request->memory &&
+                                           entry.address == request->address &&
+                                           entry.size == request->size &&
+                                           entry.HasSpace(request->address_space);
+                                });
+                        }
+                        const bool promote_identity =
+                            identity != m_shared->identity_gpu_mappings.end();
+                        // Same kind-change ordering as 212; plain identity adoption
+                        // needs no GPU drain because the physical backing is unchanged.
+                        if (promote_identity && request->backend_kind != 0)
+                            system.GPU().WaitForIdle();
                         const auto mapped = as
-                            ? as->MapNative4K(request->memory, request->address,
-                                              request->memory_offset, request->size,
-                                              request->backend_kind,
-                                              request->cache != 0)
+                            ? (promote_identity
+                                   ? as->PromoteNativeIdentity4K(request->memory, request->address,
+                                                                 request->size, request->backend_kind,
+                                                                 request->cache != 0)
+                                   : as->MapNative4K(request->memory, request->address,
+                                                     request->memory_offset, request->size,
+                                                     request->backend_kind,
+                                                     request->cache != 0))
                             : (!sparse_overlay
                                    ? m_shared->StageBeforeImport(*request)
                                    : Nvidia::NvResult::InvalidState);
@@ -698,12 +719,19 @@ void IGpuWorker::NormalMapGpuMemory4K(HLERequestContext& ctx) {
                         if (mapped == Nvidia::NvResult::Success) {
                             const auto committed = ledger.CommitPrepared(staged_ledger);
                             if (committed == GW::LedgerStatus::Success) {
+                                // 213/102 now retire this mapping through the 211 ledger.
+                                if (promote_identity)
+                                    identity->RemoveSpace(request->address_space);
                                 selected = request->selected_kind;
                                 result = ResultSuccess;
                                 m_shared->events[request->notification]->Signal(kernel);
                             } else {
                                 const bool undone = as
-                                    ? as->UnmapNative4K(request->address, request->size) ==
+                                    ? (promote_identity
+                                           ? as->PromoteNativeIdentity4K(request->memory,
+                                                                         request->address,
+                                                                         request->size, 0, false)
+                                           : as->UnmapNative4K(request->address, request->size)) ==
                                           Nvidia::NvResult::Success
                                     : m_shared->CancelBeforeImport(request->address_space,
                                                                    request->address, request->size);
