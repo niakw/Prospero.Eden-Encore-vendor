@@ -101,31 +101,14 @@ private:
     }
 
     Result Request() {
-        LOG_DEBUG(Service_NIM, "(STUBBED) called");
+        LOG_WARNING(Service_NIM, "Nintendo shop request backend unavailable");
         CancelImpl();
-
-        error_code.store(0);
-        completion_event->Clear(system.Kernel());
-
         {
             std::scoped_lock lock{data_mutex};
             download_data.clear();
         }
-
-        worker = std::jthread([this](const std::stop_token& stop_token) {
-            if (stop_token.stop_requested()) {
-                error_code.store(1);
-            } else {
-                std::scoped_lock lock{data_mutex};
-                // Dummy JSON response, else it fails...
-                const std::string dummy_response = "{}";
-                download_data.assign(dummy_response.begin(), dummy_response.end());
-                error_code.store(0);
-            }
-            completion_event->Signal(system.Kernel());
-        });
-
-        R_SUCCEED();
+        completion_event->Clear(system.Kernel());
+        R_RETURN(IPC::ResultNotSupported);
     }
 
     Result Prepare(InArray<char, BufferAttr_HipcMapAlias> in_path, InArray<char, BufferAttr_HipcMapAlias> in_post) {
