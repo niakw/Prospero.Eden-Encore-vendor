@@ -1741,3 +1741,78 @@ for marker in ("!m_quarantined_nv_session", "entry.address == request->address",
     assert marker in identity_modify, marker
 assert "identity.KindFor(id)" in bind
 print("NS2_212_IDENTITY_KIND_SOURCE_PASS")
+
+# 26/11 NS2 GSV 435/1510/429 image-layout compatibility with working
+# Lichii/Eglantine owners. Test the production header on host; this proves
+# only layout/count and backing-ledger contracts, never console first frame.
+image_layout = (R / "encore-active/ns2-runtime/hle/core/hle/service/am/service/native_image_layout.h")
+layout_source = image_layout.read_text()
+gsv_source = (R / "encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
+assert "preference[6] != 1 && preference[6] != 4 && preference[6] != 5" in layout_source
+assert "const u64 bytes_per_pixel = preference[6] == 5 ? 8 : 4;" in layout_source
+assert "const u64 requested_images = std::max<u64>(count, 1);" in layout_source
+assert "const u32 count = std::max<u32>(packet[18], 1);" in gsv_source
+assert "if (handle && handle->allocated && handle->size >= requirements->size)" in gsv_source
+assert "if (result.IsError())" in gsv_source
+import shutil
+import subprocess
+import tempfile
+import os
+cpp = r"""
+#include <array>
+#include <cassert>
+#include "core/hle/service/am/service/native_image_layout.h"
+using Service::AM::CalculateNativeImageRequirements;
+using Service::AM::NativeImageLedger;
+int main() {
+    std::array<u32,16> pref{};
+    pref[1]=2;
+    pref[2]=((1080u-1)<<16)|(1920u-1);
+    pref[4]=7;
+    pref[5]=120;
+    pref[6]=1;
+    pref[7]=1;
+    const auto rgba = CalculateNativeImageRequirements(pref,1);
+    assert(rgba && rgba->size==120ull*64*1152 && rgba->alignment==4096);
+    const auto zero = CalculateNativeImageRequirements(pref,0);
+    assert(zero && zero->size==rgba->size && zero->alignment==rgba->alignment);
+    const auto pair = CalculateNativeImageRequirements(pref,2);
+    assert(pair && pair->size==rgba->size*2);
+    pref[6]=4;
+    const auto rgb10 = CalculateNativeImageRequirements(pref,1);
+    assert(rgb10 && rgb10->size==rgba->size);
+    pref[6]=5;
+    assert(!CalculateNativeImageRequirements(pref,1)); // 4-byte pitch is too short
+    pref[5]=240;
+    const auto fp16 = CalculateNativeImageRequirements(pref,1);
+    assert(fp16 && fp16->size==rgba->size*2 && fp16->alignment==4096);
+    const auto fp16_zero = CalculateNativeImageRequirements(pref,0);
+    assert(fp16_zero && fp16_zero->size==fp16->size);
+    NativeImageLedger ledger;
+    assert(!ledger.Create(11, fp16->size-1,*fp16,pref,1,1));
+    const auto id=ledger.Create(11,fp16->size,*fp16,pref,1,1);
+    assert(id && *id==1 && ledger.Get(*id)->offset==0);
+    pref[6]=99;
+    assert(!CalculateNativeImageRequirements(pref,1));
+    pref[6]=5; pref[5]=0;
+    assert(!CalculateNativeImageRequirements(pref,1));
+}
+"""
+compilers = list(dict.fromkeys(x for x in (shutil.which("clang++"),shutil.which("g++")) if x))
+assert compilers
+with tempfile.TemporaryDirectory(prefix="eden-ns2-gsv-image-layout-") as tmp:
+    source = __import__("pathlib").Path(tmp) / "native_image.cpp"
+    source.write_text(cpp)
+    for cc in compilers:
+        for opt in ("-O0", "-O2"):
+            executable = source.with_name("native_image_" + __import__("pathlib").Path(cc).name.replace("+","p") + opt)
+            built = subprocess.run([cc,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
+                                    "-fsanitize=undefined","-fno-sanitize-recover=all",
+                                    "-I"+str(R/"encore-active/ns2-runtime/hle"),
+                                    "-I"+str(R/"sources/eden/src"),
+                                    str(source),"-o",str(executable)],
+                                   capture_output=True,text=True,timeout=60,env=os.environ.copy())
+            assert built.returncode==0,(cc,built.stderr[-3500:])
+            output = subprocess.run([str(executable)],capture_output=True,text=True,timeout=15)
+            assert output.returncode==0,(cc,output.stderr[-3500:])
+print("NS2_GSV_NATIVE_IMAGE_LAYOUT_REAL_OWNER_HOST_PASS zero_count=one RGBA8=4 RGBA16F=8 backing=bounded")
