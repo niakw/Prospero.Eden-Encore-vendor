@@ -39,7 +39,7 @@ assert "PendingCpuWriteRanges()" in base
 assert "WriteDownloadedMemory(" in base
 assert "if (!cpu_written.Intersects(device_addr, size))" in cache
 assert cache.count("device_memory.WriteBlockUnsafe(")==2, "both readback paths stay inside protection helper"
-assert cache.count("WriteDownloadedMemory(cpu_written") == 3
+assert cache.count("WriteDownloadedMemory(cpu_written") == 4
 assert "buffer_cache.SetPendingCpuWrites(" in rast
 assert "gpu.ForEachPendingCpuWrite(callback);" in rast
 assert "void RasterizerVulkan::OnCacheInvalidations" in rast
@@ -541,3 +541,101 @@ with tempfile.TemporaryDirectory(prefix="fc27-owner-readback-") as td:
                             str(src),"-o",str(exe)],check=True,timeout=60)
             subprocess.run([str(exe)],check=True,timeout=30)
             print("FC27_SYNCHRONOUS_READBACK_OWNER_PASS",cxx,opt)
+
+# Bounded native GC: compile the selected production method with mock GPU/cache owners.
+gc = method(cache, "template <class P>\nvoid BufferCache<P>::RunGarbageCollector()")
+gc_cpp = r"""
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cstdint>
+#include <cstddef>
+#include <memory>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <vector>
+namespace boost::container {template<class T,std::size_t N>using small_vector=std::vector<T>;}
+using u64=std::uint64_t;
+using DAddr=u64;
+using BufferId=unsigned;
+struct BufferCopy {u64 src_offset,dst_offset,size;};
+struct Buffer {DAddr addr;u64 size;bool deleted=false;u64 marked=0;
+ DAddr CpuAddr() const{return addr;} u64 SizeBytes() const{return size;}
+ void MarkUsage(u64 offset,u64 n){assert(offset<=size && n<=size-offset);marked+=n;}
+};
+struct Ranges {
+ std::vector<std::pair<u64,u64>> ranges;
+ template<class F> void ForEachInRange(u64 a,u64 n,F&& f) {
+  for(auto [s,e]:ranges){auto x=std::max(a,s),y=std::min(a+n,e);if(x<y)f(x,y);}
+ }
+ void Subtract(u64 a,u64 n){std::erase_if(ranges,[&](auto p){return a<=p.first && p.second<=a+n;});}
+};
+struct Tracker {
+ Ranges pages;
+ template<class F>void ForEachDownloadRange(u64 a,u64 n,bool clear,F&& f){
+    assert(!clear);pages.ForEachInRange(a,n,[&](u64 start,u64 end){f(start,end-start);});
+ }
+ template<class F>void ForEachDownloadRangeAndClear(u64 a,u64 n,F&& f){
+    pages.ForEachInRange(a,n,[&](u64 start,u64 end){f(start,end-start);});pages.Subtract(a,n);
+ }
+};
+struct Lru {std::vector<unsigned> ids;template<class F>void ForEachItemBelow(u64,F&& f){for(auto id:ids)if(f(id))break;}};
+struct Staging {unsigned buffer=9;u64 offset=64;std::span<const std::uint8_t> mapped_span;};
+struct Runtime {
+ bool alloc_fail=false,finish_fail=false,finished=false,inside=false,protect=false;
+ unsigned waits=0,allocs=0,copies=0;u64 peak=0;std::vector<std::uint8_t> data;
+ Staging DownloadStagingBuffer(u64 n){++allocs;if(alloc_fail)throw std::bad_alloc{};assert(n<=16ULL*1024*1024);peak=std::max(peak,n);data.assign(n+64,0);finished=false;return {9,64,std::span<const std::uint8_t>{data}.subspan(64)};}
+ void PreCopyBarrier(){assert(!inside);inside=true;}
+ void PostCopyBarrier(){assert(inside);inside=false;}
+ void CopyBuffer(unsigned dst,Buffer& b,std::span<const BufferCopy> rs,bool barrier){assert(dst==9 && inside && !barrier && rs.size()<=8);++copies;for(auto c:rs){assert(c.src_offset+c.size<=b.size&&c.dst_offset+c.size<=data.size());std::fill_n(data.begin()+c.dst_offset,c.size,static_cast<std::uint8_t>(b.addr>>12));}}
+ void Finish(){assert(!inside);++waits;if(finish_fail)throw std::runtime_error("GPU lost");finished=true;}
+};
+template<class P>struct BufferCache {
+ static constexpr bool USE_MEMORY_MAPS=true,IS_OPENGL=false;
+ u64 total_used_memory=100,critical_memory=200,frame_tick=200;
+ Lru lru_cache;std::vector<Buffer> slot_buffers;Tracker memory_tracker;Ranges gpu_modified_ranges;Runtime runtime;
+ unsigned deletes=0,legacy=0,landed=0,protected_writes=0;
+ void Add(u64 a,u64 n,bool dirty){auto id=slot_buffers.size();slot_buffers.push_back({a,n});lru_cache.ids.push_back(id);if(dirty){memory_tracker.pages.ranges.emplace_back(a,a+n);gpu_modified_ranges.ranges.emplace_back(a,a+n);}}
+ void ClearDownload(u64,u64){assert(runtime.finished || legacy);}
+ void DownloadBufferMemory(Buffer& b){++legacy;memory_tracker.pages.Subtract(b.addr,b.size);gpu_modified_ranges.Subtract(b.addr,b.size);}
+ void DeleteBuffer(BufferId id){assert(!slot_buffers[id].deleted);slot_buffers[id].deleted=true;++deletes;}
+ bool PendingCpuWriteRanges(){assert(runtime.finished);return runtime.protect;}
+ void WriteDownloadedMemory(bool protect,DAddr addr,const std::uint8_t* data,u64 n){assert(runtime.finished&&n);auto b=std::find_if(slot_buffers.begin(),slot_buffers.end(),[&](auto& s){return s.addr<=addr&&addr<s.addr+s.size;});assert(b!=slot_buffers.end()&&addr+n<=b->addr+b->size&&data[0]==static_cast<std::uint8_t>(b->addr>>12));if(protect)++protected_writes;else ++landed;}
+ void RunGarbageCollector();
+};
+""" + gc + r"""
+int main(){
+ {BufferCache<int> c;for(unsigned i=1;i<=3;++i)c.Add(i*0x1000,0x1000,true);c.RunGarbageCollector();assert(c.deletes==3);
+#ifdef PS5_NATIVE
+ assert(c.runtime.waits==1&&c.runtime.copies==3&&c.landed==3&&c.legacy==0);
+#else
+ assert(c.legacy==3&&c.runtime.waits==0);
+#endif
+ assert(c.gpu_modified_ranges.ranges.empty());}
+#ifdef PS5_NATIVE
+ {BufferCache<int> c;for(unsigned i=1;i<=3;++i)c.Add(i*0x1000,0x1000,false);c.RunGarbageCollector();assert(c.deletes==3&&c.runtime.waits==0&&c.runtime.allocs==0);}
+ {BufferCache<int> c;c.Add(0x1000,0x1000,true);c.runtime.alloc_fail=true;c.RunGarbageCollector();assert(c.deletes==0&&c.runtime.waits==0&&c.gpu_modified_ranges.ranges.size()==1&&c.memory_tracker.pages.ranges.size()==1);c.runtime.alloc_fail=false;c.RunGarbageCollector();assert(c.deletes==1&&c.landed==1);}
+ {BufferCache<int> c;c.Add(0x1000,0x1000,true);c.runtime.finish_fail=true;bool caught=false;try{c.RunGarbageCollector();}catch(const std::runtime_error&){caught=true;}assert(caught&&c.deletes==0&&c.landed==0&&c.gpu_modified_ranges.ranges.size()==1);}
+ {BufferCache<int> c;c.Add(0x1000,0x1000,true);c.runtime.protect=true;c.RunGarbageCollector();assert(c.protected_writes==1&&c.landed==0&&c.deletes==1);}
+ {BufferCache<int> c;for(unsigned i=1;i<=3;++i)c.Add(i*0x1000000,8*1024*1024,true);c.RunGarbageCollector();assert(c.runtime.waits==2&&c.runtime.peak==16*1024*1024&&c.deletes==3);}
+ {BufferCache<int> c;c.Add(0x1000,17*1024*1024,true);c.RunGarbageCollector();assert(c.legacy==1&&c.deletes==1&&c.runtime.allocs==0);}
+ {BufferCache<int> c;for(unsigned i=1;i<=70;++i)c.Add(i*0x1000,0x1000,false);c.RunGarbageCollector();assert(c.deletes==32);}
+ {BufferCache<int> c;c.total_used_memory=200;for(unsigned i=1;i<=70;++i)c.Add(i*0x1000,0x1000,false);c.RunGarbageCollector();assert(c.deletes==64);}
+ {BufferCache<int> c;c.frame_tick=1;c.Add(0x1000,0x1000,true);c.RunGarbageCollector();assert(c.deletes==0);}
+#endif
+}
+"""
+with tempfile.TemporaryDirectory(prefix="fc27-buffer-gc-batch-") as td:
+    d=Path(td); src=d/"gc.cpp"; src.write_text(gc_cpp)
+    for cxx in filter(None,(os.getenv("CXX"),"clang++","g++")):
+        if subprocess.run(["which",cxx],capture_output=True).returncode: continue
+        for opt in ("-O0","-O2"):
+            for native in (False,True):
+                exe=d/"gc"
+                subprocess.run([cxx,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
+                                "-fsanitize=undefined","-fno-sanitize-recover=all",
+                                *(["-DPS5_NATIVE=1"] if native else []),
+                                str(src),"-o",str(exe)],check=True,timeout=60)
+                subprocess.run([str(exe)],check=True,timeout=30)
+                print("FC27_BUFFER_GC_BATCH_PASS",cxx,opt,"native",native)

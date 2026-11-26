@@ -85,6 +85,137 @@ void BufferCache<P>::RunGarbageCollector() {
         return;
     }
 #endif
+#ifdef PS5_NATIVE
+    if constexpr (USE_MEMORY_MAPS && !IS_OPENGL) {
+        // Lichii batches GC readbacks rather than finishing the GPU once
+        // per dirty eviction. Keep the existing LRU age and eviction count.
+        constexpr u64 staging_budget = 16ULL * 1024 * 1024;
+        constexpr size_t max_regions = 4096;
+        std::array<BufferId, 64> candidates{};
+        size_t candidate_count = 0;
+        const size_t limit = aggressive_gc ? 64 : 32;
+        lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, [&](BufferId id) {
+            if (candidate_count == limit) return true;
+            candidates[candidate_count++] = id;
+            return false;
+        });
+        struct Download {
+            BufferId id;
+            BufferCopy copy;
+        };
+        const auto download_batch = [&](std::span<const BufferId> ids) {
+            boost::container::small_vector<Download, 16> downloads;
+            u64 total = 0;
+            bool oversized = false;
+            for (const BufferId id : ids) {
+                const auto& buffer = slot_buffers[id];
+                // Plan without clearing GPU ownership. A staging allocation
+                // failure must leave the original buffers readable.
+                memory_tracker.ForEachDownloadRange(
+                    buffer.CpuAddr(), buffer.SizeBytes(), false,
+                    [&](u64 start, u64 bytes) {
+                        if (oversized) return;
+                        gpu_modified_ranges.ForEachInRange(start, bytes,
+                            [&](DAddr first, DAddr end) {
+                                if (oversized) return;
+                                const u64 size = end - first;
+                                if (size > staging_budget ||
+                                    downloads.size() == max_regions) {
+                                    oversized = true;
+                                    return;
+                                }
+                                const u64 aligned = (size + 63) & ~u64{63};
+                                if (aligned > staging_budget - total) {
+                                    oversized = true;
+                                    return;
+                                }
+                                downloads.push_back({id, BufferCopy{
+                                    .src_offset = first - buffer.CpuAddr(),
+                                    .dst_offset = total,
+                                    .size = size,
+                                }});
+                                total += aligned;
+                            });
+                    });
+                if (oversized) break;
+            }
+            if (oversized) {
+                // Do not grow the new batch's staging or metadata without
+                // bound. The existing single-buffer path handles rare large
+                // or highly fragmented evictions with its original contract.
+                for (const BufferId id : ids) {
+                    DownloadBufferMemory(slot_buffers[id]);
+                    DeleteBuffer(id);
+                }
+                return;
+            }
+            if (total) {
+                // Catch only allocation failure, before recording GPU copies.
+                // A failed retirement is not a recoverable allocation error.
+                std::optional<decltype(runtime.DownloadStagingBuffer(total))> staging;
+                try {
+                    staging.emplace(runtime.DownloadStagingBuffer(total));
+                } catch (const std::bad_alloc&) {
+                    return;
+                }
+                runtime.PreCopyBarrier();
+                for (size_t first = 0; first < downloads.size();) {
+                    const BufferId id = downloads[first].id;
+                    auto& buffer = slot_buffers[id];
+                    std::array<BufferCopy, 8> copies{};
+                    size_t count = 0;
+                    do {
+                        auto copy = downloads[first++].copy;
+                        copy.dst_offset += staging->offset;
+                        buffer.MarkUsage(copy.src_offset, copy.size);
+                        copies[count++] = copy;
+                    } while (first < downloads.size() && count < copies.size() &&
+                             downloads[first].id == id);
+                    runtime.CopyBuffer(staging->buffer, buffer,
+                        std::span<const BufferCopy>{copies.data(), count}, false);
+                }
+                runtime.PostCopyBarrier();
+                runtime.Finish();
+                // Keep the established pending CPU-write protection. Sample
+                // after retirement so writes queued during the wait are visible.
+                const auto cpu_written = PendingCpuWriteRanges();
+                for (const auto& download : downloads) {
+                    const auto& copy = download.copy;
+                    const auto& buffer = slot_buffers[download.id];
+                    WriteDownloadedMemory(cpu_written, buffer.CpuAddr() + copy.src_offset,
+                        staging->mapped_span.data() + copy.dst_offset, copy.size);
+                }
+            }
+            // Publish ownership only after every readback in this batch
+            // completed. Buffer allocations are page-aligned and disjoint.
+            for (const BufferId id : ids) {
+                auto& buffer = slot_buffers[id];
+                memory_tracker.ForEachDownloadRangeAndClear(
+                    buffer.CpuAddr(), buffer.SizeBytes(), [&](u64 start, u64 bytes) {
+                        ClearDownload(start, bytes);
+                        gpu_modified_ranges.Subtract(start, bytes);
+                    });
+                DeleteBuffer(id);
+            }
+        };
+        // Bound the nominal batch by the owners' sizes; the planner above
+        // independently caps the actual aligned readback size and region count.
+        for (size_t first = 0; first < candidate_count;) {
+            size_t end = first;
+            u64 bytes = 0;
+            do {
+                const u64 size = slot_buffers[candidates[end]].SizeBytes();
+                if (end != first && (bytes >= staging_budget ||
+                                     size > staging_budget - bytes)) break;
+                bytes += size;
+                ++end;
+            } while (end < candidate_count);
+            download_batch(std::span<const BufferId>{candidates.data() + first, end - first});
+            first = end;
+        }
+        return;
+    }
+#endif
     int num_iterations = aggressive_gc ? 64 : 32;
     const auto clean_up = [this, &num_iterations](BufferId buffer_id) {
         if (num_iterations == 0) {
