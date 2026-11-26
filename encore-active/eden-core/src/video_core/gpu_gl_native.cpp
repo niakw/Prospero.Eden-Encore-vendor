@@ -18,6 +18,9 @@
 #include "common/settings.h"
 #include "common/settings_enums.h"
 #include "core/core.h"
+#ifdef PS5_NATIVE
+#include "core/native_renderer_lifetime.h"
+#endif
 #include "core/core_timing.h"
 #include "core/gpu_dirty_memory_manager.h"
 #include "core/frontend/emu_window.h"
@@ -78,6 +81,10 @@ struct GPU::Impl {
             renderer->Context().MakeCurrent();
             glFinish();
         }
+        // GPU work is joined; service-owned GMMUs can still unmap later.
+#ifdef PS5_NATIVE
+        if (renderer) ::Eden::NativeRendererLifetime::RetireMappingCallbacks();
+#endif
         renderer.reset();
     }
 
@@ -165,6 +172,9 @@ struct GPU::Impl {
         renderer = std::move(renderer_);
         system.Host1x().memory_manager.BindInterface(renderer->ReadRasterizer());
         system.Host1x().gmmu_manager.BindRasterizer(renderer->ReadRasterizer());
+#ifdef PS5_NATIVE
+        ::Eden::NativeRendererLifetime::ActivateMappingCallbacks();
+#endif
     }
 
     /// Flush all current written commands into the host GPU for execution.

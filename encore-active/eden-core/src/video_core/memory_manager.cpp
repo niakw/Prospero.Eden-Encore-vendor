@@ -12,6 +12,9 @@
 #include "common/assert.h"
 #include "common/logging.h"
 #include "core/core.h"
+#ifdef PS5_NATIVE
+#include "core/native_renderer_lifetime.h"
+#endif
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_process.h"
 #include "video_core/guest_memory.h"
@@ -141,6 +144,10 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
     // Cache eviction can write GPU-dirty data to the OLD physical backing.
     // Never update a PTE before notifying the rasterizer about its retirement.
     const auto notify_changed = [this](GPUVAddr address, u64 length) {
+#ifdef PS5_NATIVE
+        const ::Eden::NativeRendererLifetime::MappingCallbackLease lease;
+        if (!lease) return; // Renderer retired; still update software PTEs below.
+#endif
         rasterizer->ModifyGPUMemory(unique_identifier, address, length);
     };
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
@@ -203,6 +210,10 @@ GPUVAddr MemoryManager::BigPageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr
     [[maybe_unused]] u64 remaining_size{size};
     // Evict dirty GPU cache owners before switching the underlying big PTE.
     const auto notify_changed = [this](GPUVAddr address, u64 length) {
+#ifdef PS5_NATIVE
+        const ::Eden::NativeRendererLifetime::MappingCallbackLease lease;
+        if (!lease) return; // Renderer retired; still update software PTEs below.
+#endif
         rasterizer->ModifyGPUMemory(unique_identifier, address, length);
     };
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
@@ -296,8 +307,14 @@ void MemoryManager::Unmap(GPUVAddr gpu_addr, std::size_t size) {
     }
     GetSubmappedRangeImpl<false>(gpu_addr, size, page_stash);
 
-    for (const auto& [map_addr, map_size] : page_stash) {
-        rasterizer->UnmapMemory(map_addr, map_size);
+    {
+#ifdef PS5_NATIVE
+        const ::Eden::NativeRendererLifetime::MappingCallbackLease lease;
+        if (lease)
+#endif
+        for (const auto& [map_addr, map_size] : page_stash) {
+            rasterizer->UnmapMemory(map_addr, map_size);
+        }
     }
     page_stash.clear();
 

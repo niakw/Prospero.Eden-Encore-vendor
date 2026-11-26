@@ -29,6 +29,7 @@
 #ifdef PS5_NATIVE
 #include "core/hle/kernel/board/nintendo/nx/k_system_control.h"
 #include "gpu_fault_rate_limit.h"
+#include "core/native_renderer_lifetime.h"
 #endif
 
 namespace Core {
@@ -372,8 +373,11 @@ void DeviceMemoryManager<Traits>::Map(DAddr address, VAddr virtual_address, size
     // renderer callback may itself gather translated GPU addresses.
     lk.unlock();
     if (replaced_gpu_mapping && device_inter != nullptr) {
-        device_inter->InvalidateRegion(address, size);
-        ::Eden::GpuFault::remap_cache_evictions.fetch_add(1, std::memory_order_relaxed);
+        const ::Eden::NativeRendererLifetime::MappingCallbackLease lease;
+        if (lease) {
+            device_inter->InvalidateRegion(address, size);
+            ::Eden::GpuFault::remap_cache_evictions.fetch_add(1, std::memory_order_relaxed);
+        }
     }
 #endif
 }
@@ -390,7 +394,13 @@ void DeviceMemoryManager<Traits>::Unmap(DAddr address, size_t size) {
 #endif
     size_t start_page_d = address >> Memory::YUZU_PAGEBITS;
     size_t num_pages = Common::AlignUp(size, Memory::YUZU_PAGESIZE) >> Memory::YUZU_PAGEBITS;
-    device_inter->InvalidateRegion(address, size);
+    {
+#ifdef PS5_NATIVE
+        const ::Eden::NativeRendererLifetime::MappingCallbackLease lease;
+        if (lease)
+#endif
+        device_inter->InvalidateRegion(address, size);
+    }
     std::scoped_lock lk(mapping_guard);
 
     tracked_entries.CommitRegion(start_page_d, start_page_d + num_pages); // should already be committed, but just in case

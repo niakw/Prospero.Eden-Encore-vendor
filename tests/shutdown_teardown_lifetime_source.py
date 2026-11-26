@@ -332,3 +332,21 @@ assert "// Close the thread.\n        this->Close(kernel);" in p
 assert p.index("KScopedSchedulerLock sl{kernel};") < p.index("this->Close(kernel);")
 print("SHUTDOWN_LIFETIME_1952_1957_SOURCE_PASS core_variants=3 early_cheat_stop=1"
       " predecessors_exact=3 thread_close_outside_scheduler=1 pinned_thread_unsafe=1")
+
+# R457 console: worker 211 identity cleanup and NVMap final unmap happen
+# after gpu_core.reset(). The renderer lease closes only callback admission;
+# the real PTE, reverse-map and physical ownership retirement still executes.
+gpu = (ROOT / "encore-active/eden-core/src/video_core/gpu_gl_native.cpp").read_text()
+gmmu = (ROOT / "encore-active/eden-core/src/video_core/memory_manager.cpp").read_text()
+smmu = (ROOT / "encore-active/eden-core/overrides/core/device_memory_manager.inc").read_text()
+destroy = gpu.split("    ~Impl() {", 1)[1].split("\n    }", 1)[0]
+assert destroy.index("gpu_thread.Stop();") < destroy.index("RetireMappingCallbacks();") < destroy.index("renderer.reset();")
+bind = gpu.split("    void BindRenderer(", 1)[1].split("\n    }", 1)[0]
+assert bind.index("gmmu_manager.BindRasterizer(") < bind.index("ActivateMappingCallbacks();")
+assert gmmu.count("NativeRendererLifetime::MappingCallbackLease lease;") == 3
+unmap = gmmu.split("void MemoryManager::Unmap(", 1)[1].split("\n}", 1)[0]
+assert unmap.index("if (lease)") < unmap.index("rasterizer->UnmapMemory(") < unmap.index("page_stash.clear();") < unmap.index("BigPageTableOp(")
+smmu_unmap = smmu.split("::Unmap(DAddr address, size_t size)", 1)[1].split("\n}", 1)[0]
+assert smmu_unmap.index("if (lease)") < smmu_unmap.index("device_inter->InvalidateRegion(") < smmu_unmap.index("std::scoped_lock lk(mapping_guard)")
+assert "AtomicStorePhysical(entry, 0)" in smmu_unmap
+print("NATIVE_RENDERER_MAPPING_RETIREMENT_SOURCE_PASS")
