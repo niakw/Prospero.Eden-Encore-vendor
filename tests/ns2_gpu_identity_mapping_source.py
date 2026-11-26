@@ -72,6 +72,21 @@ for token in (
 create_sparse=worker.split(
     "void IGpuWorker::CreateSparseRegion(HLERequestContext& ctx) {",1
 )[1].split("\nvoid IGpuWorker::DestroySparseRegion(",1)[0]
+# TIPC 214 word 7 is not a byte-sized page-shift field. MKW emits
+# 0x60c/0xa0c: low byte 0x0c selects 4-KiB pages while bit 0x200 marks
+# a sparse reservation. Keep word-8 mode support for previously qualified
+# callers, but flagged regions must never enter dense GPU-only backing.
+for token in (
+    "inline constexpr u32 GpuSparseRegionFlag = 0x200U;",
+    "u32 page_flags;",
+    "static_cast<u8>(packet[7] & 0xffU)",
+    "(request.page_flags & GpuSparseRegionFlag) != 0",
+    "request.allocation_mode == 1",
+):
+    assert token in registration, token
+assert "if (!IsSparseGpuRegion(*request)) {" in create_sparse
+assert "if (request->allocation_mode == 0) {" not in create_sparse
+
 for token in (
     "m_mappings.ExactSparse(request->address_space, request->begin)",
     "m_mappings.PrepareSparseReplacingExact(",
@@ -156,72 +171,183 @@ assert "WaitForIdle" not in ensure
 assert "CreateHandle" not in ensure and "Alloc(" not in ensure
 session=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_session.cpp").read_text()
 proto=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_session_protocol.h").read_text()
+shared_cpp=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.cpp").read_text()
+registry=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
+as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
 for x in ("struct IdentityGpuMapping","identity_gpu_mappings","AddSpace","RemoveSpace"):
     assert x in shared,x
 assert "Status Remove(U32 id)" in proto
+
 reg=worker[worker.index("Result IGpuWorker::RegisterMemory"):worker.index("Result IGpuWorker::ReleaseMemory")]
-for x in (
- "IdentityGpuMapping{id, begin, size",
- "as->MapNative4K(id, begin, 0, size, 0)",
- "identity.AddSpace(*owned)",
- "identity_gpu_mappings.pop_back()",
-): assert x in reg,x
-release=worker[worker.index("Result IGpuWorker::ReleaseMemory"):worker.index("void IGpuWorker::CreateGpuAccessibleMemory")]
-for x in (
- "mapping.memory == id",
- "system.GPU().WaitForIdle()",
- "m_mappings.RecordUnmapped(unmap)",
- "identity_it->RemoveSpace(as_id)",
- "identity_gpu_mappings.erase(identity_it)",
- "handle->pins == 0",
-): assert x in release,x
-assert release.index("identity_gpu_mappings.erase(identity_it)") < release.index("handle->pins == 0")
-create=session[session.index("void IGpuSession::CreateAddressSpace"):session.index("void IGpuSession::GetUserPartition")]
-for x in (
- "for (auto& identity : m_shared->identity_gpu_mappings)",
- "as->MapNative4K(identity.handle, identity.address",
- "identity.AddSpace(candidate)",
- "m_shared->address_spaces.Remove(candidate)",
-): assert x in create,x
-# A successful MapNative4K must never escape without a corresponding
-# AddSpace entry. Reject registry saturation and reverse the just-mapped VA.
-create_replay = create[create.index("for (auto& identity : m_shared->identity_gpu_mappings)"):
-                       create.index("if (replay == Nvidia::NvResult::Success)")]
-assert "if (!identity.AddSpace(candidate))" in create_replay
-assert "replay = Nvidia::NvResult::InvalidState;" in create_replay
-assert create_replay.index("as->UnmapNative4K(identity.address, identity.size)") < create_replay.index(
-    "replay = Nvidia::NvResult::InvalidState;")
-# OOM after try_emplace/slot allocation must unwind all published owners
-# before closing the FD. Partial NS2 GPU setup must remain retryable.
-oom = create[create.index("} catch (const std::bad_alloc&) {", create.index("const u32 candidate")):
-             create.index("if (result.IsError()) m_module->Close(fd);")]
-for needle in ("identity.HasSpace(candidate)", "as->UnmapNative4K(identity.address, identity.size)",
-               "identity.RemoveSpace(candidate)", "m_shared->address_spaces.Remove(candidate)",
-               "m_shared->opened_gpu_as.erase(candidate)",
-               "result = Kernel::ResultOutOfResource;"):
-    assert needle in oom, needle
-reg_replay = reg[reg.index("for (const auto owned : m_shared->address_spaces.OwnedIds())"):
-                 reg.index("if (identity_result.IsError())")]
+for x in ("IdentityGpuMapping{id, begin, size","as->MapNative4K(id, begin, 0, size, 0)",
+          "identity.AddSpace(*owned)","identity_gpu_mappings.pop_back()"):
+    assert x in reg,x
+reg_replay=reg[reg.index("for (const auto owned : m_shared->address_spaces.OwnedIds())"):
+               reg.index("if (identity_result.IsError())")]
 assert "catch (const std::bad_alloc&)" in reg_replay
 assert "if (!identity.AddSpace(*owned))" in reg_replay
 assert reg_replay.index("as->UnmapNative4K(begin, size)") < reg_replay.index(
-    "identity_result = Kernel::ResultInvalidState;", reg_replay.index("if (!identity.AddSpace(*owned))"))
+    "identity_result = Kernel::ResultInvalidState;",reg_replay.index("if (!identity.AddSpace(*owned))"))
 
-# Native process admission is a prerequisite for real NVDRV channel
-# tickets; never publish a successful GPU session after registration fails.
-shared_cpp=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.cpp").read_text()
+# Worker 101 rollback must not unlock/free the guest backing after any failed
+# identity retirement, nor publish a failed registration for later AS replay.
+assert "R_UNLESS(!m_quarantined_nv_session, Kernel::ResultInvalidState);" in reg
+assert "if (as->IsNativeSparsePoisoned()) rollback_safe = false;" in reg_replay
+assert "rollback_safe = false;" in reg_replay.split("catch (const std::bad_alloc&)", 1)[1]
+reg_rollback = reg.split("if (identity_result.IsError())", 1)[1]
+assert "if (as->UnmapNative4K(begin, size) != Nvidia::NvResult::Success)" in reg_rollback
+quarantined = reg_rollback.split("if (!rollback_safe) {", 1)[1].split("\n        }", 1)[0]
+for marker in ("m_quarantined_nv_session = true;", "id = 0;",
+               "return Kernel::ResultInvalidState;"):
+    assert marker in quarantined, marker
+assert "UnlockForDeviceAddressSpace" not in quarantined and "FreeHandle" not in quarantined
+assert reg_rollback.index("identity_gpu_mappings.pop_back()") < reg_rollback.index(
+    "if (!rollback_safe)") < reg_rollback.index("UnlockForDeviceAddressSpace") < reg_rollback.index("nvmap.FreeHandle")
+assert reg_rollback.index("id = 0;", reg_rollback.index("nvmap.FreeHandle")) > reg_rollback.index("nvmap.FreeHandle")
+
+release=worker[worker.index("Result IGpuWorker::ReleaseMemory"):worker.index("void IGpuWorker::CreateGpuAccessibleMemory")]
+for x in ("mapping.memory == id","system.GPU().WaitForIdle()",
+          "auto& ledger = owned_map.sparse_overlay ? m_sparse_overlays : m_mappings;",
+          "ledger.RecordUnmapped(unmap)",
+          "identity_it->RemoveSpace(as_id)","identity_gpu_mappings.erase(identity_it)",
+          "handle->pins == 0"):
+    assert x in release,x
+assert release.index("identity_gpu_mappings.erase(identity_it)") < release.index("handle->pins == 0")
+
+# cmd33 owns only the opaque GSV VM record.
+create=session[session.index("void IGpuSession::CreateAddressSpace"):session.index("void IGpuSession::SynchronizeAddressSpace")]
+for x in ("NativeGpuProcessRegistry::Instance().AllocateVm(",
+          "m_shared->address_spaces.Add(*candidate)",
+          "NativeGpuProcessRegistry::Instance().RemoveVm(","id = *candidate;"):
+    assert x in create,x
+for forbidden in ('m_module->Open("/dev/nvhost-as-gpu"', "m_module->Ioctl1(",
+                  "static_cast<u32>(fd)", "MapNative4K", "AllocAsEx"):
+    assert forbidden not in create,forbidden
+register_vm=session.split("Result IGpuSession::RegisterAddressSpace(u32 id) {",1)[1].split("\n}",1)[0]
+assert "NativeGpuProcessRegistry::Instance().RegisterVm(m_process, id)" in register_vm
+for x in ("AllocateVm(","RegisterVm(","FindRegisteredVmOwner(","RemoveVm(",
+          "std::array<std::optional<VmEntry>, 8> vms{};"):
+    assert x in registry,x
+
+# Worker101 replay is now part of the actual NVDRV AS_IMPORT publication.
+bind=shared_cpp.split("Nvidia::NvResult GpuWorkerSharedState::BindImportedAddressSpace(",1)[1].split("\n}",1)[0]
+for x in ("address_spaces.Registered(id)","opened_gpu_as.try_emplace(id, as)",
+          "for (auto& identity : identity_gpu_mappings)",
+          "as->MapNative4K(identity.handle, identity.address, 0, identity.size,", "identity.KindFor(id)",
+          "if (!identity.AddSpace(id))","(void)as->UnmapNative4K(identity.address, identity.size)",
+          "identity.RemoveSpace(id)","opened_gpu_as.erase(id)"):
+    assert x in bind,x
+assert bind.index("opened_gpu_as.try_emplace(id, as)") < bind.index("as->MapNative4K(identity.handle") < bind.index("identity.AddSpace(id)")
+assert bind.index("const std::scoped_lock lock{mutex}") < bind.index("opened_gpu_as.try_emplace(id, as)") < bind.index("as->CommitNativeVmImport(id)")
+assert bind.index("identity.AddSpace(id)") < bind.index("as->CommitNativeVmImport(id)")
+rollback=bind.split("bool rollback_safe = !as->IsNativeSparsePoisoned();",1)[1]
+assert rollback.index("as->UnmapNative4K(identity.address, identity.size)") < rollback.index("identity.RemoveSpace(id)") < rollback.index("opened_gpu_as.erase(id)")
+
+for x in ("struct NativeVmImport","u32_le version{};","u32_le vm_id{};",
+          'static_assert(sizeof(NativeVmImport) == 40',"u32 m_native_vm_id{};"):
+    assert x in as_h,x
+case9=as_cpp.split("case 0x9: {",1)[1].split("case 0xa: {",1)[0]
+for x in ("command.raw == 0x40284109U","sizeof(NativeVmImport)","ImportNativeVm(parameters)"):
+    assert x in case9,x
+native_import=as_cpp.split("NvResult nvhost_as_gpu::ImportNativeVm(const NativeVmImport& params) {",1)[1].split("\n}",1)[0]
+for x in ("u32{params.version} != 5","u32{params.vm_id} == 0",
+          "u64{params.user_first} != NativeNs2GpuVaStart",
+          "u64{params.user_end} != NativeNs2GpuVaSmallSplit",
+          "FindRegisteredVmOwner(","layout.big_page_size = 0x20000;",
+          "layout.va_range_end = NativeNs2GpuVaEnd;","AllocAsEx(layout)",
+          "owner->BindImportedAddressSpace("):
+    assert x in native_import,x
+assert native_import.index("FindRegisteredVmOwner(") < native_import.index("AllocAsEx(layout)") < native_import.index("owner->BindImportedAddressSpace(")
+assert "m_native_vm_id =" not in native_import
+commit_import=as_cpp.split("bool nvhost_as_gpu::CommitNativeVmImport(u32 id) {",1)[1].split("\n}",1)[0]
+assert commit_import.index("const std::scoped_lock lock{mutex}") < commit_import.index("m_native_vm_id = id;")
+assert "m_native_vm_retired" in commit_import and "!NativeEpochCurrent()" in commit_import
+
+reset=as_cpp.split("bool nvhost_as_gpu::ResetFailedNativeVmImport() {",1)[1].split("\n}",1)[0]
+for x in ("!mapping_map.empty()","!allocation_map.empty()","!native_sparse_regions.empty()",
+          "!native_sparse_pins.empty()","native_sparse_poisoned","gmmu.reset();",
+          "vm.big_page_allocator.reset();","vm.small_page_allocator.reset();",
+          "vm.big_page_size = VM::DEFAULT_BIG_PAGE_SIZE;",
+          "vm.big_page_size_bits = static_cast<u32>(std::countr_zero<u32>(VM::DEFAULT_BIG_PAGE_SIZE));",
+          "vm.va_range_start = static_cast<u64>(VM::DEFAULT_BIG_PAGE_SIZE) << VM::VA_START_SHIFT;",
+          "vm.va_range_split = VM::DEFAULT_VA_SPLIT;",
+          "vm.va_range_end = VM::DEFAULT_VA_RANGE;",
+          "vm.initialised = false;"):
+    assert x in reset,x
+assert "vm = VM{};" not in reset
+assert reset.index("gmmu.reset();") < reset.index("vm.big_page_allocator.reset();") < reset.index("vm.small_page_allocator.reset();") < reset.index("vm.initialised = false;")
+on_close=as_cpp.split("void nvhost_as_gpu::OnClose(DeviceFD fd) {",1)[1].split("\n}",1)[0]
+assert "ReleaseNativeVmBinding();" in on_close
+unbind=shared_cpp.split("void GpuWorkerSharedState::UnbindImportedAddressSpace(",1)[1].split("\n}",1)[0]
+for x in ("identity.RemoveSpace(id)","opened_gpu_as.erase(it)"):
+    assert x in unbind,x
+
 assert "native_registered = Nvidia::Devices::NativeGpuProcessRegistry::Instance().Register(process);" in shared_cpp
-assert "if (!native_registered)\n        throw std::bad_alloc{};" in shared_cpp
-# The GPU 497 reference must be dropped only AFTER its last GPU address
-# space and NvCore session have been closed. The separate 1402 owner can
-# already have closed without invalidating this process generation.
-shared_destroy=shared_cpp.split("GpuWorkerSharedState::~GpuWorkerSharedState() {",1)[1].split(
-    "\n}",1)[0]
-assert shared_destroy.index("module->Close(static_cast<Nvidia::DeviceFD>(*fd));") < shared_destroy.index(
-    "module->GetContainer().CloseSession(Nvidia::NvCore::SessionId{*nv_session});") < shared_destroy.index(
-    "NativeGpuProcessRegistry::Instance().Unregister(native_process);")
+shared_destroy=shared_cpp.split("GpuWorkerSharedState::~GpuWorkerSharedState() {",1)[1].split("\n}",1)[0]
+for x in ("NativeGpuProcessRegistry::Instance().RemoveVm(","opened_gpu_as.clear();",
+          "NativeGpuProcessRegistry::Instance().Unregister(native_process);"):
+    assert x in shared_destroy,x
+for forbidden in ("module->Close(","CloseSession(","nv_session"):
+    assert forbidden not in shared_destroy,forbidden
+assert shared_destroy.index("NativeGpuProcessRegistry::Instance().RemoveVm(") < shared_destroy.index("NativeGpuProcessRegistry::Instance().Unregister(native_process);")
+
+# Native NVDRV descriptors keep the ABI generation they were opened under.
+# GSV teardown invalidates that generation and retires imported VM ownership;
+# stale Ampere FDs must fail closed instead of falling through to Maxwell.
+nvhost_hdr=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
+nvhost_cpp=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+for token in ("std::optional<u64> m_native_generation{};",
+              "std::atomic_bool m_native_vm_retired{};",
+              "void RetireNativeVm(u32 id);",
+              "NativeEpochCurrent() const"):
+    assert token in as_h, token
+as_open=as_cpp.split("void nvhost_as_gpu::OnOpen(",1)[1].split("\n}",1)[0]
+for token in ("CaptureTicket(m_native_process)", "m_native_generation = ticket->generation"):
+    assert token in as_open, token
+for ioctl in ("Ioctl1", "Ioctl2", "Ioctl3"):
+    body=as_cpp.split("NvResult nvhost_as_gpu::"+ioctl+"(",1)[1].split("\n}",1)[0]
+    assert "m_native_vm_retired" in body
+    assert "m_native_generation && !NativeEpochCurrent()" in body
+retire=as_cpp.split("void nvhost_as_gpu::RetireNativeVm(u32 id) {",1)[1].split("\n}",1)[0]
+for token in ("m_native_vm_id != id", "m_native_vm_id = 0",
+              "m_native_vm_retired.store(true, std::memory_order_release)"):
+    assert token in retire, token
+assert shared_destroy.index("as->RetireNativeVm(id)") < shared_destroy.index(
+    "NativeGpuProcessRegistry::Instance().RemoveVm(")
+submit_allowed = as_cpp.split("bool nvhost_as_gpu::NativeSubmissionAllowed() const {",1)[1].split("\n}",1)[0]
+assert "m_native_submission_lease->load(std::memory_order_acquire)" in submit_allowed
+assert "!m_native_vm_retired.load(std::memory_order_acquire)" in submit_allowed
+assert "!native_sparse_poisoned.load(std::memory_order_acquire)" in submit_allowed
+assert "NativeEpochCurrent()" in submit_allowed
+submit_impl = nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split("\n}",1)[0]
+assert submit_impl.index("CaptureNativeSubmissionLease()") < submit_impl.index("CaptureNativeSyncpointLease(")
+assert submit_impl.index("CaptureNativeSubmissionLease()") < submit_impl.index("InitChannel(")
+
+
+for token in ("::Common::unordered_map<DeviceFD, u64> native_generations;",
+              "bool NativeEpochCurrent(DeviceFD fd) const;"):
+    assert token in nvhost_hdr, token
+gpu_open=nvhost_cpp.split("void nvhost_gpu::OnOpen(",1)[1].split("\n}",1)[0]
+for token in ("CaptureTicket(session->process)",
+              "native_generations.emplace(fd, ticket->generation)"):
+    assert token in gpu_open, token
+uses_native=nvhost_cpp.split("bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const {",1)[1].split("\n}",1)[0]
+assert "native_generations.contains(fd)" in uses_native
+assert "NativeGpuProcessRegistry::Instance().Contains" not in uses_native
+epoch=nvhost_cpp.split("bool nvhost_gpu::NativeEpochCurrent(DeviceFD fd) const {",1)[1].split("\n}",1)[0]
+for token in ("native_generations.find(fd)", "IsCurrent("):
+    assert token in epoch, token
+for ioctl in ("Ioctl1", "Ioctl2", "Ioctl3"):
+    body=nvhost_cpp.split("NvResult nvhost_gpu::"+ioctl+"(",1)[1].split("\n}",1)[0]
+    assert "UsesNativeAbi(fd) && !NativeEpochCurrent(fd)" in body
+fd_event=nvhost_cpp.split(
+    "Kernel::KEvent* nvhost_gpu::QueryEvent(DeviceFD fd, u32 event_id) {",1
+)[1].split("\n}",1)[0]
+assert "UsesNativeAbi(fd) && !NativeEpochCurrent(fd)" in fd_event
+
 gsv=(R/"encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
-open_gpu=gsv.split("void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {", 1)[1].split("\n}", 1)[0]
+open_gpu=gsv.split("void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
 assert "std::make_shared<IGpuSession>(system, module, m_process)" in open_gpu
 assert "catch (const std::bad_alloc&)" in open_gpu
 assert "result = Kernel::ResultOutOfResource;" in open_gpu
@@ -292,15 +418,30 @@ for needle in ("std::unique_lock epoch_lock(scheduling_guard);",
     assert needle in retire,needle
 release=gpu_cpp.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split("\n    }",1)[0]
 assert "#if defined(PS5_NATIVE)" in release and "#else" in release
-assert release.index("RequestSyncOperation([this, channel_id, expected]") < release.index(
-    "gpu_thread.TickGPU(is_async);") < release.index("WaitForSyncOperation(fence);")
-assert release.index("const auto it = channels.find(channel_id);") < release.index(
-    "it->second.get() != expected") < release.index("const auto owner = it->second;")
-assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
+# A draw calls TickWork while holding scheduler leases: a retirement may
+# never be published through that inline sync queue. The native worker FIFO
+# command holds a shared owner and acknowledges only after actual retirement.
+assert "RequestSyncOperation(" not in release and "WaitForSyncOperation(" not in release
+assert release.index("const auto owner = FindChannel(channel_id);") < release.index(
+    "if (owner.get() != &to_release)") < release.index(
+    "gpu_thread.RetireChannelAtBoundary([this, channel_id, owner]")
+assert release.index("if (FindChannel(channel_id) != owner)") < release.index(
+    "scheduler.RetireChannel(owner.get());") < release.index(
     "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);") < release.index(
-    "channels.erase(it);")
-assert release.index("channels.find(channel_id);") > release.index(
-    "RequestSyncOperation([this, channel_id, expected]")
+    "std::scoped_lock lock{channel_mutex};") < release.index(
+    "if (it != channels.end() && it->second == owner)") < release.index("channels.erase(it);")
+worker_header=(R/"encore-active/eden-gpu/include/video_core/gpu_thread.h").read_text()
+assert "GPUTickCommand, RetireChannelCommand>" in worker_header
+for variant in ("quiet", "dev"):
+    worker_cpp=(R/f"encore-active/eden-gpu/gpu_thread_{variant}.cpp").read_text()
+    assert "PushCommand(RetireChannelCommand{std::move(action)}, true, is_async);" in worker_cpp
+    assert worker_cpp.index("scheduler.Push(system.GPU()") < worker_cpp.index(
+        "std::get_if<RetireChannelCommand>(&next.data)") < worker_cpp.index(
+        "retire->action();") < worker_cpp.index(
+        "state.signaled_fence.store(next.fence, std::memory_order_release);")
+find_channel=gpu_cpp.split("FindChannel(s32 channel_id) {",1)[1].split("\n    }",1)[0]
+assert find_channel.index("std::scoped_lock lock{channel_mutex};") < find_channel.index("channels.find(channel_id)")
+
 dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}",1)[0]
 for needle in ("!sessions.empty() && channel_state",
                "system.IsPoweredOn()", "!system.IsShuttingDown()",
@@ -354,7 +495,7 @@ set_tsg=nvhost_cpp.split(
     "NvResult nvhost_gpu::SetNativeTsgChannelEnabled(DeviceFD fd, NvCore::SessionId owner,",1
 )[1].split("\n}",1)[0]
 for token in ("channel->process != tsg->process",
-              "NativeGpuProcessRegistry::Instance().Contains(channel->process)",
+              "!UsesNativeAbi(fd) || !NativeEpochCurrent(fd)",
               "native_channel_enabled = enabled"):
     assert token in set_tsg,token
 # Native legacy ALLOC_GPFIFO_EX/EX2 cannot claim a configured channel from
@@ -457,6 +598,40 @@ assert submit_impl.index("if (!native_channel_enabled)") < submit_impl.index(
     "if (!native_gpfifo_configured)") < submit_impl.index(
     "for (const auto& [other_fd, session_id] : sessions)")
 
+# OunceVK configures both a 3D and a copy /dev/nvhost-gpu channel and
+# calls nvQueryEvent(fd, 7) for each. Module::QueryEvent must therefore retain
+# the descriptor through virtual dispatch; a device-wide sessions.size()==1
+# gate rejects the second valid channel before its first submit.
+module_query=(R/"sources/eden/src/core/hle/service/nvdrv/nvdrv.cpp").read_text()
+nvdevice=(R/"sources/eden/src/core/hle/service/nvdrv/devices/nvdevice.h").read_text()
+assert "virtual Kernel::KEvent* QueryEvent(DeviceFD fd, u32 event_id)" in nvdevice
+fd_fallback=nvdevice.split(
+    "virtual Kernel::KEvent* QueryEvent(DeviceFD fd, u32 event_id) {",1
+)[1].split("\n    }",1)[0]
+assert "(void)fd;" in fd_fallback
+assert "return QueryEvent(event_id);" in fd_fallback
+module_query_body=module_query.split(
+    "NvResult Module::QueryEvent(DeviceFD fd, u32 event_id, Kernel::KEvent*& event) {",1
+)[1].split("\n}",1)[0]
+assert "itr->second->QueryEvent(fd, event_id)" in module_query_body
+assert "itr->second->QueryEvent(event_id)" not in module_query_body
+assert "Kernel::KEvent* QueryEvent(DeviceFD fd, u32 event_id) override;" in nvhost_hdr
+fd_event=nvhost_cpp.split(
+    "Kernel::KEvent* nvhost_gpu::QueryEvent(DeviceFD fd, u32 event_id) {",1
+)[1].split("\n}",1)[0]
+for token in ("if (event_id == 7)", "UsesNativeAbi(fd)",
+              "error_notifier_event", "return QueryEvent(event_id);"):
+    assert token in fd_event,token
+assert "sessions.size() == 1" not in fd_event
+legacy_event=nvhost_cpp.split(
+    "Kernel::KEvent* nvhost_gpu::QueryEvent(u32 event_id) {",1
+)[1].split(
+    "Kernel::KEvent* nvhost_gpu::QueryEvent(DeviceFD fd, u32 event_id)",1
+)[0]
+for token in ("case 1:", "case 2:", "case 3:"):
+    assert token in legacy_event,token
+assert "case 7:" not in legacy_event
+
 # Ounce S2 channel EventIdControl is input-only 0x40104812 and carries
 # {u32 cmd, u32 QueryEvent id, u64 zero}. The real setup path enables id=2.
 # SwitchBrew exposes exactly the three /dev/nvhost-gpu QueryEvent ids 1..3.
@@ -507,7 +682,7 @@ for token in ("if (!UsesNativeAbi(fd))",
               "native_error_notifier_initialized = static_cast<u32>(params.mem) != 0",
               "native_error_info = {}",
               "native_error_notification = {}",
-              "native_error_notification.status = 0xFFFF",
+              "requires status==0 for a healthy channel",
               "error_notifier_event->GetReadableEvent().Clear(system.Kernel())"):
     assert token in notifier,token
 for forbidden in ("nvmap.GetHandle(params.mem)", "handle->Duplicate(true)",
@@ -518,7 +693,7 @@ for forbidden in ("nvmap.GetHandle(params.mem)", "handle->Duplicate(true)",
 assert "struct IoctlGetErrorInfo" in nvhost_hdr
 assert "std::array<u32_le, 31> info{};" in nvhost_hdr
 assert 'static_assert(sizeof(IoctlGetErrorInfo) == 128' in nvhost_hdr
-assert "Switch ABI: always 0xFFFF" in nvhost_hdr
+assert "0=healthy; non-zero reports a channel fault" in nvhost_hdr
 assert "bool native_error_notifier_initialized{};" in nvhost_hdr
 assert "IoctlGetErrorInfo native_error_info{};" in nvhost_hdr
 assert "IoctlGetErrorNotification native_error_notification{};" in nvhost_hdr
@@ -553,8 +728,95 @@ for body in (health_info,health):
     assert "if (!native_error_notifier_initialized)" in body
     assert "return NvResult::InvalidState;" in body
 assert "params = native_error_info;" in health_info
+# Native Ampere producer counters must retire behind a real Vulkan fence,
+# independent of GPU fence behavior. Maxwell/NS1 keeps SignalSyncPoint.
+fence_manager=(R/"encore-active/eden-backports/src/video_core/fence_manager.h").read_text()
+raster_abi=(R/"encore-active/ns2-runtime/vulkan_abi/video_core/rasterizer_interface.h").read_text()
+vulkan_h=(R/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
+vulkan_cpp=(R/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
+native_puller=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
+strict=fence_manager.split("void SignalNativeSyncPoint(u32 value) {",1)[1].split("\n    }",1)[0]
+for token in ("CreateFence(false)",
+              "syncpoint_manager.IncrementGuest(value);",
+              "syncpoint_manager.IncrementHost(value);",
+              "pending_operations.emplace_back(std::move(uncommitted_operations));",
+              "QueueFence(new_fence)"):
+    assert token in strict,token
+assert "Settings::IsGPUFenceBehavior" not in strict
+assert strict.index("CreateFence(false)") < strict.index(
+    "syncpoint_manager.IncrementGuest(value);") < strict.index("QueueFence(new_fence)")
+assert "virtual bool SignalNativeSyncPoint(u32)" in raster_abi
+assert "return false;" in raster_abi.split(
+    "virtual bool SignalNativeSyncPoint(u32)",1)[1].split("\n    }",1)[0]
+assert "bool SignalNativeSyncPoint(u32 value) override;" in vulkan_h
+vulkan_native=vulkan_cpp.split(
+    "bool RasterizerVulkan::SignalNativeSyncPoint(u32 value) {",1
+)[1].split("\n}",1)[0]
+assert "fence_manager.SignalNativeSyncPoint(value);" in vulkan_native
+# P0 C797/C7C0/QMD3: a command-accepted guest semaphore cannot become
+# visible via Immediate/Fast or a fake backend fence, even when the queue
+# awaits it. This check is distinct from the host-side source-backed model.
+strict_release=fence_manager.split(
+    "void SignalNativeFence(std::function<void()>&& complete) {",1
+)[1].split("\n    }",1)[0]
+for token in ("CreateFence(false)", "CommitAsyncFlushes();",
+              "uncommitted_operations.emplace_back(std::move(complete));",
+              "pending_operations.emplace_back(std::move(uncommitted_operations));",
+              "QueueFence(new_fence)"):
+    assert token in strict_release,token
+assert "Settings::IsGPUFenceBehavior" not in strict_release
+assert strict_release.index("CreateFence(false)") < strict_release.index(
+    "QueueFence(new_fence)")
+assert "virtual bool SignalNativeFence(std::function<void()>&&)" in raster_abi
+assert "bool SignalNativeFence(std::function<void()>&& func) override;" in vulkan_h
+assert "fence_manager.SignalNativeFence(std::move(func));" in vulkan_cpp
+assert native_puller.count("QueueNativeSemaphoreRelease(")==5
+assert "SignalNativeFence(std::move(completion))" in native_puller
+assert "Native Compute report requires strict Vulkan retirement" in native_puller
+# C7C0 long timestamp releases must not use QueryCache's immediate
+# low-accuracy payload write: value/timestamp only after a real GPU fence.
+native_long_report = native_puller.split(
+    "void Puller::ProcessNativeComputeReportSemaphore(", 1
+)[1].split("\n}", 1)[0].split(
+    "    } else {\n        // C7C0's long report", 1
+)[1]
+assert "QueueNativeSemaphoreRelease(" in native_long_report
+assert "Native Compute timestamp requires strict Vulkan retirement" in native_long_report
+assert "Native Compute timestamp report backing revoked after GPU submission" in native_long_report
+assert "GetPointer(address + sizeof(u64))" in native_long_report
+assert "memory->Write<u64>(address + sizeof(u64), timestamp);" in native_long_report
+assert "memory->Write<u64>(address, static_cast<u64>(payload));" in native_long_report
+assert "rasterizer->Query(" not in native_long_report
+assert "Ampere SEM_EXECUTE requires strict Vulkan retirement" in native_puller
+fence_action=native_puller.split(
+    "void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {",1
+)[1].split("void Puller::ProcessSemaphoreTriggerMethod",1)[0]
+native_increment=fence_action.split(
+    "case Puller::FenceOperation::Increment:",1
+)[1].split("default:",1)[0]
+for token in ("NativeGpuChannelRegistry::Instance().IsNative(",
+              "SignalNativeSyncPoint(",
+              "Native GPFIFO syncpoint has no strict renderer fence",
+              "dma_pusher.rasterizer->SignalSyncPoint("):
+    assert token in native_increment,token
+assert native_increment.index("SignalNativeSyncPoint(") < native_increment.index(
+    "dma_pusher.rasterizer->SignalSyncPoint(")
+
 assert "params = native_error_notification;" in health
-assert "params.status = 0xFFFF;" in health
+# OunceVK checks only H:0x17 status for channel health. A title-wide fatal
+# GPU latch therefore maps to NVIDIA's generic robust-channel ERROR status,
+# without fabricating a firmware-specific info32/type classification.
+for token in ("::Eden::PeekGpuFailure()",
+              "constexpr u16 RobustChannelErrorStatus = 0xFFFF;",
+              "native_error_notification.status = RobustChannelErrorStatus;",
+              "SignalNativeChannelFault(this);"):
+    assert token in health,token
+assert "error_notifier_event->Signal(self->system.Kernel());" in nvhost_cpp
+assert health.index("::Eden::PeekGpuFailure()") < health.index(
+    "native_error_notification.status = RobustChannelErrorStatus;") < health.index(
+    "params = native_error_notification;")
+assert "native_error_notification.info32 =" not in health
+assert "native_error_info.type =" not in health
 assert "memory.ReadBlock" not in health
 
 # Switch 2 channel preemption-mode ioctl (SwitchBrew 0xC008481F).
@@ -705,6 +967,27 @@ for token in ("std::upper_bound(", "std::prev(", "block->Unmapped()",
 assert allocator_cpp.count("blocks.erase(block_start_successor, block_end_successor);") >= 1
 assert "if (virt + size == current_linear_alloc_end)" in allocator_cpp
 
+# Worker 211/214 and native image immediate VA rollback must not allocate.
+# Mapping may insert at most two blocks; reserve four before mapping and
+# only grow on free if fewer than two remain. Preserve amortized growth.
+_reserve4 = "this->blocks.capacity() - this->blocks.size() < 4"
+_reserve2 = "this->blocks.capacity() - this->blocks.size() < 2"
+_alloc_body = allocator_cpp.split("ALLOC_MEMBER(VaType)::Allocate(VaType size) {", 1)[1].split(
+    "ALLOC_MEMBER(void)::AllocateFixed(", 1)[0]
+_fixed_body = allocator_cpp.split(
+    "ALLOC_MEMBER(void)::AllocateFixed(VaType virt, VaType size) {", 1)[1].split(
+    "ALLOC_MEMBER(void)::Free(", 1)[0]
+_free_body = allocator_cpp.split(
+    "ALLOC_MEMBER(void)::Free(VaType virt, VaType size) {", 1)[1].split(
+    "} // namespace Common", 1)[0]
+assert _alloc_body.index(_reserve4) < _alloc_body.index("current_linear_alloc_end =")
+assert _alloc_body.index(_reserve4) < _alloc_body.index("MapLocked(")
+assert _fixed_body.index(_reserve4) < _fixed_body.index("MapLocked(")
+assert _free_body.index(_reserve2) < _free_body.index("UnmapLocked(")
+for body, minimum in ((_alloc_body, 4), (_fixed_body, 4), (_free_body, 2)):
+    assert f"std::max<size_t>({minimum}, this->blocks.size() / 2)" in body
+    assert body.count("this->blocks.reserve(") == 1
+
 # Native GA10F GPU AS consolidation. This source-only contract captures
 # the reviewed pending 40-byte remap, real mapped VA owner, physical-page
 # alignment, failure-safe pin publication and GSV video image retirement.
@@ -726,10 +1009,10 @@ for marker in ("case 0x4: {", "case 0x7: {", "case 0xa: {",
                "case 0xc: {", "case 0xd: {",
                "native_sparse_pins.merge(newly_pinned);",
                "if ((u32{entry.flags} & 0x7000U) == 0)",
-               "native_sparse_poisoned = true;",
+               "PoisonNativeAddressSpace();",
                "system.GPU().WaitForIdle();"):
     assert marker in _as_runtime, marker
-assert "bool native_sparse_poisoned{};" in _as_header
+assert "std::atomic_bool native_sparse_poisoned{};" in _as_header
 assert "split > end" in _va_layout
 assert "std::bad_alloc" in _native_gpu
 assert "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;" in _ctrl_gpu
@@ -770,8 +1053,8 @@ for allocator_name in ("first_page", "start_page"):
     # GMMU rollback attempt precedes the inner catch that quarantines it.
     unmap = _allocate_block.rfind("gmmu->Unmap(address, size);", 0, failure)
     assert unmap >= 0 and failure - unmap < 150,allocator_name
-    assert "native_sparse_poisoned = true;" in error_block,allocator_name
-    assert error_block.index("native_sparse_poisoned = true;") < error_block.index(
+    assert "PoisonNativeAddressSpace();" in error_block,allocator_name
+    assert error_block.index("PoisonNativeAddressSpace();") < error_block.index(
         "return NvResult::InvalidState;"),allocator_name
 
 # Native AllocSpace must reject any page size other than 4K or its
@@ -812,7 +1095,7 @@ for marker in ("mapping_map.upper_bound(address)",
                "native_sparse_pins.find(range.handle)",
                "NativePinnedPhysicalSpan(pin->second, source, length)",
                "static_cast<Tegra::PTEKind>(kind), big_page)",
-               "native_sparse_poisoned = true;"):
+               "PoisonNativeAddressSpace();"):
     assert marker in _mod_kind, marker
 assert _mod_kind.index("while (cursor < end) {") < _mod_kind.index(
     "\n    cursor = address;") < _mod_kind.index("gmmu->Map(cursor,")
@@ -859,7 +1142,7 @@ for marker in ("updated = native_sparse_mappings;",
                "NativePinnedPhysicalSpan(pinned, range.source_offset, range.size)",
                "native_sparse_pins.merge(newly_pinned);",
                "gmmu->MapSparse(range.address, range.size, big_page_ranges[i]);",
-               "native_sparse_poisoned = true;",
+               "PoisonNativeAddressSpace();",
                "native_sparse_mappings = std::move(updated);",
                "nvmap.UnpinHandle(it->first);"):
     assert marker in _remap,marker
@@ -881,7 +1164,7 @@ for marker in ("const bool small_sparse =",
 assert _alloc.index("params.page_size != vm.big_page_size)") < _alloc.index(
     "auto& allocator = big ? *vm.big_page_allocator : *vm.small_page_allocator;")
 
-print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=new_as sub102=all_owned_unmap as_fd_close=lease_before_payload session=retained retire=gpu-worker shutdown=guarded")
+print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=as_import vm_id=opaque sub102=all_owned_unmap as_fd_close=nvdrv_owned session=retained retire=gpu-worker shutdown=guarded")
 
 
 # The shared PS5 scheduler/NVDRV owner also serves Maxwell/NS1. Closing the
@@ -908,23 +1191,36 @@ assert "Tegra::Control::ChannelState* current_channel{};" in gpu_cpp
 assert "s32 bound_channel{-1};" in gpu_cpp
 release=gpu_cpp.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split(
     "\n    /// Binds a renderer to the GPU.",1)[0]
-for needle in ("const s32 channel_id = to_release.bind_id;",
-               "const auto* expected = &to_release;",
-               "RequestSyncOperation([this, channel_id, expected]",
-               "scheduler.RetireChannel(owner.get());",
-               "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);",
-               "channels.erase(it);",
-               "gpu_thread.TickGPU(is_async);",
-               "WaitForSyncOperation(fence);"):
-    assert needle in release,needle
-assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
-    "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);") < release.index(
-    "channels.erase(it);")
-assert release.index("gpu_thread.TickGPU(is_async);") < release.index(
-    "WaitForSyncOperation(fence);")
-assert "if (current_channel == owner.get()) {" in release
-assert "current_channel = nullptr;" in release
-assert "bound_channel = -1;" in release
+# The dual native build selects gpu_gl_native.cpp even for Vulkan gameplay.
+# Verify BOTH maintained owners; the selected one must not regress to a stub.
+for gpu_owner in (gpu_cpp, (R/"encore-active/eden-core/src/video_core/gpu_gl_native.cpp").read_text()):
+    assert "Tegra::Control::ChannelState* current_channel{};" in gpu_owner
+    assert "s32 bound_channel{-1};" in gpu_owner
+    release=gpu_owner.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split(
+        "\n    /// Binds a renderer to the GPU.",1)[0]
+    for needle in ("const s32 channel_id = to_release.bind_id;",
+                   "const auto owner = FindChannel(channel_id);",
+                   "if (owner.get() != &to_release)",
+                   "gpu_thread.RetireChannelAtBoundary([this, channel_id, owner]",
+                   "if (FindChannel(channel_id) != owner)",
+                   "scheduler.RetireChannel(owner.get());",
+                   "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);",
+                   "std::scoped_lock lock{channel_mutex};",
+                   "if (it != channels.end() && it->second == owner)",
+                   "channels.erase(it);"):
+        assert needle in release, needle
+    assert "RequestSyncOperation(" not in release and "WaitForSyncOperation(" not in release
+    assert release.index("scheduler.RetireChannel(owner.get());") < release.index(
+        "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);") < release.index(
+        "std::scoped_lock lock{channel_mutex};") < release.index("channels.erase(it);")
+    assert "if (current_channel == owner.get()) {" in release
+    assert "current_channel = nullptr;" in release
+    assert "bound_channel = -1;" in release
+    assert "std::atomic<u64> last_sync_fence{};" in gpu_owner
+    assert "last_sync_fence.load(std::memory_order_acquire)" in gpu_owner
+    assert "current_sync_fence.load(std::memory_order_acquire)" in gpu_owner
+    assert "std::make_shared<std::vector<u8>>()" in gpu_owner
+    assert "if (CurrentSyncRequestFence() < wait_fence)" in gpu_owner
 print("NS1_PREBIND_GPU_CLOSE_SOURCE_PASS initialized_pointer=1 unbound_close=1")
 
 # Final-FD retirement must never prevent Module::Close from erasing the FD,
@@ -1033,6 +1329,418 @@ assert as_dtor.index("native_sparse_pins.clear();") < as_dtor.index(
     "m_native_process->Close(system.Kernel());")
 print("NS1_MAXWELL_AS_LEASE_SOURCE_PASS owner_before_payload=1 exact_session=1 "
       "pins_before_session_close=1 no_new_asid=1")
+
+
+# Worker 211 overlays one 214 reservation without taking a second VA owner.
+# 216 remains physically exclusive and 213 restores sparse PTE state.
+_overlay_worker = worker.split("void IGpuWorker::NormalMapGpuMemory4K(",1)[1].split(
+    "void IGpuWorker::CreateSparseRegion(",1)[0]
+for marker in (
+    "m_mappings.SparseReservationPageShift(",
+    "auto& ledger = sparse_overlay ? m_sparse_overlays : m_mappings;",
+    "request->cache != 0",
+    "m_sparse_overlays.CanModify(*request)",
+    "m_sparse_overlays.CanUnmap(*request)",
+):
+    assert marker in _overlay_worker, marker
+assert "GpuWorkerProtocol::MappingLedger m_sparse_overlays;" in worker_hdr
+assert "SparseReservationPageShift(" in worker_protocol
+
+_overlay_as = as_cpp.split("NvResult nvhost_as_gpu::MapNative4K(",1)[1].split(
+    "\nNvResult nvhost_as_gpu::MapNativeImage(",1)[0]
+for marker in (
+    "bool sparse_overlay = false;",
+    "native_sparse_mappings.Ranges()",
+    "if (current.handle) return NvResult::BadParameter;",
+    "Mapping(handle_id, pinned + source, address, size,",
+    "true, false, sparse_overlay, gpu_cacheable)",
+    "gmmu->MapSparse(address, size, false);",
+):
+    assert marker in _overlay_as, marker
+_overlay_unmap = as_cpp.split("NvResult nvhost_as_gpu::UnmapNative4K(",1)[1].split(
+    "\nNvResult nvhost_as_gpu::ModifyNativeKind(",1)[0]
+assert "if (mapping->second.sparse_alloc)" in _overlay_unmap
+assert _overlay_unmap.index("gmmu->MapSparse(address, size, false);") < _overlay_unmap.index(
+    "nvmap.UnpinHandle(mapping->second.handle);")
+assert "bool gpu_cacheable : 1;" in as_h
+print("NS2_WORKER_211_SPARSE_OVERLAY_SOURCE_PASS cacheability=retained "
+      "214_va_owner=preserved 216_exclusive=1 213_restores_sparse=1")
+
+# Worker teardown cannot drop physical backing after a failed drain or identity unmap.
+assert "catch (...)" in teardown.split("system.GPU().WaitForIdle();", 1)[1].split("// A failed native", 1)[0]
+assert "::Eden::RecordGpuFailure(std::current_exception());" in teardown
+identity_teardown = teardown.split("for (const u32 memory_id : m_memory)",1)[1].split("// The sparse reservations",1)[0]
+assert "if (!as || as->UnmapNative4K" in identity_teardown
+assert identity_teardown.index("m_quarantined_nv_session = true;") < identity_teardown.index("identity->RemoveSpace(as_id);")
+assert "R_UNLESS(!m_quarantined_nv_session, Kernel::ResultInvalidState);" in worker.split("Result IGpuWorker::ReleaseMemory",1)[1].split("void IGpuWorker::CreateGpuAccessibleMemory",1)[0]
+
+# Exclusive native worker free performs its final ownership check under NvMap's
+# real handle mutex. The stale shared_ptr cannot pin after retirement.
+_nvmap_native = (R/"encore-active/eden-core/src/core/hle/service/nvdrv/core/nvmap.cpp").read_text()
+_free_impl = _nvmap_native.split("NvMap::FreeHandleImpl(",1)[1].split("void NvMap::UnmapAllHandles",1)[0]
+assert _free_impl.index("std::scoped_lock lock(handle_description->mutex);") < _free_impl.index("handle_description->pins != 0") < _free_impl.index("handle_description->native_retired = true;") < _free_impl.index("--handle_description->dupes")
+assert "if (handle_description->native_retired) return 0;" in _nvmap_native
+assert "if (!allocated || native_retired)" in _nvmap_native
+assert "return FreeHandleImpl(handle, internal_session, false);" in _nvmap_native
+assert "nvmap.FreeHandleIfUnpinned(id)" in teardown
+assert "nvmap.FreeHandleIfUnpinned(region.nvmap_handle)" in worker
+assert "nvmap.FreeHandleIfUnpinned(id)" in worker.split("Result IGpuWorker::ReleaseMemory",1)[1].split("void IGpuWorker::CreateGpuAccessibleMemory",1)[0]
+
+
+# INFLIGHT_NATIVE_AS_LEASE: admitted NS2 work retains an AS health token through
+# the GPU queue. Poison/revocation must invalidate the token before command
+# fetch/dispatch and before any synthetic completion packet can retire.
+dma_h=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/dma_pusher.h").read_text()
+dma_cpp=(R/"encore-active/eden-core/src/video_core/dma_pusher.cpp").read_text()
+assert "CaptureNativeSubmissionLease() const;" in as_h
+assert "m_native_submission_lease" in as_h
+assert "void nvhost_as_gpu::PoisonNativeAddressSpace() noexcept" in as_cpp
+assert as_cpp.count("PoisonNativeAddressSpace();") >= 17
+assert "native_sparse_poisoned = true;" not in as_cpp
+retire=as_cpp.split("void nvhost_as_gpu::RetireNativeVm(u32 id) {",1)[1].split("\n}",1)[0]
+assert 'm_native_submission_lease->store(false, std::memory_order_release)' in retire
+submit_impl=nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split("\n}",1)[0]
+assert submit_impl.index("CaptureNativeSubmissionLease()") < submit_impl.index("CaptureNativeSyncpointLease(")
+assert "list.native_submission_lease = native_submission_lease;" in submit_impl
+assert "std::shared_ptr<const std::atomic<bool>> native_submission_lease;" in dma_h
+assert 'Native GPFIFO address-space lease retired' in dma_cpp
+assert "lease->load(std::memory_order_acquire)" in dma_cpp
+
+
+# Native H:17 propagation: the already-admitted AS lease is authoritative even
+# after process-generation revocation makes IsNative() false. A lease fault is
+# latched globally before the exact native channel event is signalled.
+registry_h=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/native_gpu_channel_registry.h").read_text()
+assert "using FaultNotifier = void (*)(void*) noexcept;" in registry_h
+assert "AttachFaultNotifier(" in registry_h and "ReportFault(" in registry_h
+assert "it->second.fault_notifier(it->second.fault_context);" in registry_h
+step=dma_cpp.split("bool DmaPusher::Step() {",1)[1].split("\n}\n",1)[0]
+assert "if (!lease) return;" in step
+assert "NativeGpuChannelRegistry::Instance().IsNative(" not in step.split("require_native_submission_lease",1)[1].split("};",1)[0]
+fail_native=dma_cpp.split("void DmaPusher::FailNativeSubmission(",1)[1].split("\n}",1)[0]
+assert fail_native.index("::Eden::RecordGpuFailure(error);") < fail_native.index(".ReportFault(&channel_state);") < fail_native.index("std::rethrow_exception(error);")
+submit_impl=nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split("\n}",1)[0]
+assert submit_impl.index("native_channel_registry.Bind(") < submit_impl.index("AttachFaultNotifier(") < submit_impl.index("EnableNativeTiling();") < submit_impl.index("push_gpu_entries(std::move(entries));")
+assert "void nvhost_gpu::SignalNativeChannelFault(void* context) noexcept" in nvhost_cpp
+assert "native_error_event_mutex" in nvhost_cpp
+
+# Every fatal condition owned by the active DmaPusher must publish through the
+# same channel-fault path rather than bypassing H:17 with a direct throw.
+for reason in (
+    "Native GPFIFO syncpoint wait owner retired",
+    "Native GPFIFO syncpoint wait source recycled",
+    "Native GPFIFO prefetch resume cursor invalid",
+    "Native GPFIFO command unmapped at GPU fetch",
+    "Native GPFIFO entry shortened during acquire",
+    "Native GPFIFO method on unbound subchannel",
+):
+    assert f'FailNativeSubmission("{reason}")' in dma_cpp, reason
+assert 'throw std::runtime_error("Native GPFIFO' not in dma_cpp
+
+# Puller/Ampere/QMD synchronous GPU failures use the same channel-aware fatal
+# path. Direct throws are confined to the four deferred fence callback
+# families: backing-epoch loss, timestamp report, and mirror-publication failure. Each callback
+# catches, latches the GPU failure and faults the captured ChannelState.
+puller_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
+for reason in (
+    "Native GPFIFO SET_OBJECT class unsupported",
+    "Native GPFIFO FENCE_ACTION acquire unsupported",
+    "Native GPFIFO syncpoint has no strict renderer fence",
+    "Ampere SEM_EXECUTE: unmapped acquire address",
+    "Ampere SEM_EXECUTE: parked acquire channel epoch retired",
+    "Native GPFIFO puller method unsupported",
+    "Native Ampere 3D macro channel unavailable",
+    "Native Ampere Compute macro channel unavailable",
+    "Native inline QMD destination unmapped",
+    "Native Compute report semaphore invalid",
+    "Native QMD3 dispatch was not executed",
+    "Native Ampere Compute multiword payload invalid",
+):
+    literal=f'"{reason}"'
+    pos=puller_cpp.find(literal)
+    assert pos >= 0, reason
+    # Accept receiver qualification and line wrapping, but require this exact
+    # fatal literal to be the argument of the nearby channel-aware helper.
+    assert "FailNativeSubmission" in puller_cpp[max(0,pos-96):pos], reason
+assert "pusher.FailNativeSubmission(why);" in puller_cpp
+assert "pusher.FailNativeSubmission(reason);" in puller_cpp
+deferred_throw_reasons = (
+    "Ampere SEM_EXECUTE: release backing changed after GPU submit",
+    "Ampere SEM_EXECUTE: semaphore mirror publication failed",
+    "Native Compute report semaphore backing revoked after GPU submission",
+    "Native Compute timestamp report backing revoked after GPU submission",
+    "Native Compute semaphore mirror publication failed",
+    "Native QMD3 release backing revoked after GPU submission",
+    "Native QMD3 semaphore mirror publication failed",
+)
+assert puller_cpp.count("throw std::runtime_error") == len(deferred_throw_reasons)
+for reason in deferred_throw_reasons:
+    assert reason in puller_cpp
+assert puller_cpp.count("Eden::RecordGpuFailure(failure);") >= 4
+assert puller_cpp.count(".ReportFault(channel);") >= 4
+assert "void FailNativeSubmission(const char* message);" in dma_h
+
+# R457: actual 101 succeeds, then 211 precedes the first usable NVDRV VM.
+# Stage only a registered VM with owned backing; replay and commit under
+# the same shared mutex; failures never publish a half-initialized FD.
+stage = shared_cpp.split("Nvidia::NvResult GpuWorkerSharedState::StageBeforeImport(",1)[1].split("\n}",1)[0]
+for marker in ("CanStageBeforeImport(request.address_space)", "NativeNs2GpuVaSmallSplit - request.address",
+               "pending_211.lower_bound(key)", "ExactIdentity(identity, request)",
+               "pending_211.try_emplace(key, request)", "catch (const std::bad_alloc&)"):
+    assert marker in stage, marker
+assert bind.index("as->MapNative4K(request.memory") < bind.index("as->CommitNativeVmImport(id)") < bind.index("pending_211.erase(first, completed)")
+preimport_rollback=bind.split("bool rollback_safe = !as->IsNativeSparsePoisoned();",1)[1]
+assert preimport_rollback.index("as->UnmapNative4K(request.address, request.size)") < preimport_rollback.index("opened_gpu_as.erase(id)")
+assert "m_shared->StageBeforeImport(*request)" in _overlay_worker
+stage_pos = _overlay_worker.index("m_shared->StageBeforeImport(*request)")
+stage_commit = _overlay_worker.index("ledger.CommitPrepared(staged_ledger)", stage_pos)
+assert stage_pos < stage_commit < _overlay_worker.index("m_shared->events[request->notification]->Signal(kernel)", stage_commit)
+assert "m_shared->CancelBeforeImport(mapping.address_space, mapping.address, mapping.size)" in worker.split("Result IGpuWorker::ReleaseMemory",1)[1].split("void IGpuWorker::CreateGpuAccessibleMemory",1)[0]
+assert "m_shared->CancelBeforeImport(mapping.address_space, mapping.address, mapping.size)" in teardown
+assert "m_native_vm_retired.store(true, std::memory_order_release)" in native_import
+print("NS2_R457_211_PREIMPORT_MAPPING_SOURCE_PASS")
+
+# Compile the production pre-import methods and the real VM slot/worker
+# protocol with a narrow GMMU boundary fixture. Exercise replay rather
+# than merely checking that a new success branch exists in source.
+import os
+import shutil
+import subprocess
+import tempfile
+compiler = os.environ.get("CXX") or shutil.which("clang++") or shutil.which("g++")
+assert compiler, "C++ compiler required for NS2 211 pre-import contract"
+identity_decl = shared.split("struct IdentityGpuMapping {", 1)[1].split("\n};", 1)[0]
+shared_fields = shared.split("    GpuSessionProtocol::AddressSpaceSlots address_spaces;", 1)[1].split("    void UnbindImportedAddressSpace(", 1)[0]
+methods = shared_cpp.split("bool GpuWorkerSharedState::CanStageBeforeImport(", 1)[1].split("GpuWorkerSharedState::~GpuWorkerSharedState()", 1)[0]
+fixture = r'''
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <tuple>
+#include <vector>
+#include "core/hle/service/am/service/gpu_worker_protocol.h"
+#include "core/hle/service/am/service/gpu_session_protocol.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_va_layout.h"
+namespace Kernel { struct KProcess {}; }
+namespace Service::Nvidia {
+enum class NvResult { Success, BadParameter, InvalidState, InsufficientMemory };
+namespace Devices {
+struct nvhost_as_gpu {
+    using Mapping = std::tuple<std::uint32_t,std::uint64_t,std::uint64_t,std::uint8_t,bool>;
+    std::map<std::uint64_t, Mapping> mappings;
+    Kernel::KProcess* process{};
+    std::uint32_t committed{};
+    int fail_after{-1};
+    bool fail_unmap{};
+    bool poison{};
+    bool OwnsNativeProcess(Kernel::KProcess* p) { return p == process; }
+    bool IsNativeSparsePoisoned() { return poison; }
+    NvResult MapNative4K(std::uint32_t handle, std::uint64_t address,
+                        std::uint64_t source, std::uint64_t size,
+                        std::uint8_t kind, bool cache = false) {
+        if (fail_after == 0) return NvResult::InsufficientMemory;
+        if (fail_after > 0) --fail_after;
+        for (auto& [base, mapping] : mappings) {
+            const auto bytes = std::get<2>(mapping);
+            assert(base + bytes <= address || address + size <= base);
+        }
+        assert(mappings.emplace(address, Mapping{handle,source,size,kind,cache}).second);
+        return NvResult::Success;
+    }
+    NvResult UnmapNative4K(std::uint64_t address, std::uint64_t size) {
+        if (fail_unmap) { poison = true; return NvResult::InvalidState; }
+        auto it = mappings.find(address);
+        assert(it != mappings.end() && std::get<2>(it->second) == size);
+        mappings.erase(it);
+        return NvResult::Success;
+    }
+    bool CommitNativeVmImport(std::uint32_t id) {
+        assert(!committed && !poison);
+        committed = id;
+        return true;
+    }
+};
+}
+}
+namespace Service::AM {
+struct IdentityGpuMapping {
+''' + identity_decl + r'''
+};
+struct GpuWorkerSharedState {
+    std::mutex mutex;
+    Kernel::KProcess* native_process{};
+    GpuSessionProtocol::AddressSpaceSlots address_spaces;
+''' + shared_fields + r'''
+    void UnbindImportedAddressSpace(std::uint32_t id, const Nvidia::Devices::nvhost_as_gpu* as);
+};
+bool GpuWorkerSharedState::CanStageBeforeImport(''' + methods + r'''
+}
+using namespace Service::AM;
+using namespace Service::Nvidia;
+using namespace Service::Nvidia::Devices;
+namespace GW = Service::AM::GpuWorkerProtocol;
+namespace GP = Service::AM::GpuSessionProtocol;
+int main() {
+    Kernel::KProcess process;
+    GpuWorkerSharedState state;
+    state.native_process = &process;
+    constexpr std::uint64_t identity_va = 0x10000000;
+    constexpr std::uint64_t explicit_va = 0x20000000;
+    assert(state.address_spaces.Add(11) == GP::Status::Success);
+    assert(state.address_spaces.Add(12) == GP::Status::Success);
+    assert(state.address_spaces.Add(13) == GP::Status::Success);
+    assert(state.address_spaces.Add(14) == GP::Status::Success);
+    assert(state.address_spaces.Add(15) == GP::Status::Success);
+    assert(state.address_spaces.Add(16) == GP::Status::Success);
+    assert(state.address_spaces.Add(17) == GP::Status::Success);
+    const GW::Map4K identity{11,7,1,0,identity_va,0x2000,0,0,0,1,0};
+    GW::Map4K explicit_map{11,7,1,0,explicit_va,0x1000,0x1000,0,0,0,0};
+    assert(state.StageBeforeImport(identity) == NvResult::InvalidState);
+    assert(state.address_spaces.Register(11) == GP::Status::Success);
+    assert(state.address_spaces.Register(12) == GP::Status::Success);
+    assert(state.address_spaces.Register(13) == GP::Status::Success);
+    assert(state.address_spaces.Register(14) == GP::Status::Success);
+    assert(state.address_spaces.Register(15) == GP::Status::Success);
+    assert(state.address_spaces.Register(16) == GP::Status::Success);
+    assert(state.address_spaces.Register(17) == GP::Status::Success);
+    state.identity_gpu_mappings.push_back({7,identity_va,0x2000});
+    assert(state.StageBeforeImport(identity) == NvResult::Success);
+    assert(state.StageBeforeImport(explicit_map) == NvResult::Success);
+    assert(state.StageBeforeImport(explicit_map) == NvResult::BadParameter);
+    auto partial = identity; partial.address += 0x1000; partial.size = 0x1000;
+    assert(state.StageBeforeImport(partial) == NvResult::BadParameter);
+    auto cross = explicit_map; cross.address_space = 12;
+    assert(state.StageBeforeImport(cross) == NvResult::Success);
+    auto outside = explicit_map; outside.address = NativeNs2GpuVaSmallSplit;
+    assert(state.StageBeforeImport(outside) == NvResult::BadParameter);
+    const GW::Modify4K modify{11,0,explicit_va,0x1000,5,3,0};
+    assert(state.ModifyBeforeImport(modify));
+    assert(!state.CancelBeforeImport(11,explicit_va,0x2000));
+    assert(state.CancelBeforeImport(12,explicit_va,0x1000));
+    assert(state.StageBeforeImport(cross) == NvResult::Success);
+    auto first = std::make_shared<nvhost_as_gpu>(); first->process = &process;
+    first->fail_after = 1;
+    assert(state.BindImportedAddressSpace(11,first) == NvResult::InsufficientMemory);
+    assert(first->mappings.empty() && !first->committed && state.pending_211.size() == 3);
+    assert(state.CanStageBeforeImport(11));
+    first->fail_after = -1;
+    assert(state.BindImportedAddressSpace(11,first) == NvResult::Success);
+    assert(first->committed == 11 && first->mappings.size() == 2);
+    assert(!state.identity_gpu_mappings[0].HasSpace(11)); // exact explicit owner, no duplicate pin
+    assert(std::get<3>(first->mappings.at(explicit_va)) == 3);
+    assert(std::get<4>(first->mappings.at(identity_va)));
+    assert(state.pending_211.size() == 1 && state.pending_211.begin()->first.first == 12);
+    assert(!state.CanStageBeforeImport(11));
+    assert(!state.CancelBeforeImport(11,explicit_va,0x1000));
+    auto second = std::make_shared<nvhost_as_gpu>(); second->process = &process;
+    assert(state.BindImportedAddressSpace(12,second) == NvResult::Success);
+    assert(second->mappings.size() == 2 && state.identity_gpu_mappings[0].HasSpace(12));
+    assert(state.pending_211.empty());
+    // A retired previously imported VM no longer has its explicit 211
+    // replay list. Never expose an incomplete replacement address space.
+    state.UnbindImportedAddressSpace(12,second.get());
+    auto replacement = std::make_shared<nvhost_as_gpu>(); replacement->process = &process;
+    assert(state.BindImportedAddressSpace(12,replacement) == NvResult::InvalidState);
+    assert(replacement->mappings.empty() && !replacement->committed);
+    auto doomed = explicit_map; doomed.address_space = 13;
+    assert(state.StageBeforeImport(doomed) == NvResult::Success);
+    auto third = std::make_shared<nvhost_as_gpu>(); third->process = &process;
+    third->fail_after = 1; third->fail_unmap = true;
+    assert(state.BindImportedAddressSpace(13,third) == NvResult::InvalidState);
+    assert(!state.CanStageBeforeImport(13) && !state.CancelBeforeImport(13,explicit_va,0x1000));
+    assert(state.BindImportedAddressSpace(13,third) == NvResult::InvalidState);
+    assert(!third->committed);
+    // 213 before any 211 removes only the chosen VM's automatic identity.
+    assert(state.SuppressIdentityBeforeImport(state.identity_gpu_mappings[0],14));
+    assert(!state.SuppressIdentityBeforeImport(state.identity_gpu_mappings[0],14));
+    assert(!state.SuppressIdentityBeforeImport(state.identity_gpu_mappings[0],99));
+    auto fourth = std::make_shared<nvhost_as_gpu>(); fourth->process = &process;
+    assert(state.BindImportedAddressSpace(14,fourth) == NvResult::Success);
+    assert(fourth->mappings.empty());
+    // A successful 213 after staging an exact 211 must not resurrect 101.
+    auto staged_identity = identity; staged_identity.address_space = 15;
+    assert(state.StageBeforeImport(staged_identity) == NvResult::Success);
+    assert(!state.UnmapBeforeImport({15,0,identity_va,0x1000,1}));
+    assert(state.UnmapBeforeImport({15,0,identity_va,0x2000,1}));
+    auto fifth = std::make_shared<nvhost_as_gpu>(); fifth->process = &process;
+    assert(state.BindImportedAddressSpace(15,fifth) == NvResult::Success);
+    assert(fifth->mappings.empty());
+    // A 212 before 211/import modifies only the exact identity in one VM.
+    GW::Modify4K identity_modify{16,0,identity_va,0x2000,5,3,1};
+    auto& registered_identity = state.identity_gpu_mappings[0];
+    assert(state.ModifyIdentityBeforeImport(registered_identity,identity_modify));
+    auto partial_modify = identity_modify; partial_modify.size = 0x1000;
+    assert(!state.ModifyIdentityBeforeImport(registered_identity,partial_modify));
+    auto suppressed_modify = identity_modify; suppressed_modify.address_space = 14;
+    assert(!state.ModifyIdentityBeforeImport(registered_identity,suppressed_modify));
+    auto sixth = std::make_shared<nvhost_as_gpu>(); sixth->process = &process;
+    assert(state.BindImportedAddressSpace(16,sixth) == NvResult::Success);
+    assert(std::get<3>(sixth->mappings.at(identity_va)) == 3);
+    auto seventh = std::make_shared<nvhost_as_gpu>(); seventh->process = &process;
+    assert(state.BindImportedAddressSpace(17,seventh) == NvResult::Success);
+    assert(std::get<3>(seventh->mappings.at(identity_va)) == 0);
+}
+'''
+with tempfile.TemporaryDirectory() as tmp:
+    cpp=Path(tmp)/"preimport.cpp"
+    exe=Path(tmp)/"preimport"
+    cpp.write_text(fixture)
+    roots=[R/"encore-active/ns2-runtime/hle", R/"encore-active/ns2-runtime/nvdrv_as",
+           R/"sources/eden/src"]
+    subprocess.run([compiler,"-std=c++20","-O2","-Wall","-Wextra","-Werror",
+                    *[item for root in roots for item in ("-I",str(root))],
+                    str(cpp),"-o",str(exe)],check=True,timeout=60)
+    subprocess.run([str(exe)],check=True,timeout=15)
+print("NS2_R457_211_PREIMPORT_REPLAY_HOST_PASS vm_isolation=1 rollback=1 exact_identity=1")
+
+# The post-import 211 path must adopt exactly one existing 101 owner, rather
+# than pinning or allocating the same VA twice. Failed publication restores
+# the identity view; unrelated/partial/sparse overlaps still use strict MapNative4K.
+promote = native_as_cpp.split("NvResult nvhost_as_gpu::PromoteNativeIdentity4K(",1)[1].split("\n}",1)[0]
+for marker in ("mapping_map.find(address)", "allocation_map.find(address)",
+               "mapping.handle != handle_id", "mapping.size != size",
+               "mapping.sparse_alloc", "owner.mappings.size() != 1",
+               "NativeSubmissionAllowed()", "PoisonNativeAddressSpace()",
+               "mapping.gpu_cacheable = gpu_cacheable"):
+    assert marker in promote, marker
+assert "PinHandle(" not in promote and "AllocateFixed(" not in promote
+for marker in ("request->memory_offset == 0", "entry.handle == request->memory",
+               "entry.address == request->address", "entry.size == request->size",
+               "entry.HasSpace(request->address_space)", "if (promote_identity) {",
+               "ledger.RecordUnmapped(undo)"):
+    assert marker in _overlay_worker, marker
+assert _overlay_worker.index("ledger.CommitPrepared(staged_ledger)") < _overlay_worker.index("as->PromoteNativeIdentity4K(") < _overlay_worker.index("identity->RemoveSpace(request->address_space)") < _overlay_worker.index("m_shared->events[request->notification]->Signal(kernel)")
+print("NS2_211_POSTIMPORT_IDENTITY_TRANSFER_SOURCE_PASS")
+
+# Kind-preserving 101 adoption does not rewrite the existing GMMU pages.
+assert "gmmu->GetPageKind(address + offset) != requested_kind" in promote
+assert promote.index("if (kind_changed)") < promote.index("gmmu->Map(address, mapping.ptr")
+assert promote.index("gmmu->Map(address, mapping.ptr") < promote.index("mapping.gpu_cacheable = gpu_cacheable")
+assert _overlay_worker.index("if (promote_identity) {") < _overlay_worker.index("system.GPU().WaitForIdle();") < _overlay_worker.index("as->PromoteNativeIdentity4K(")
+print("NS2_211_IDENTITY_KIND_PRESERVATION_SOURCE_PASS")
+
+# A 213 can remove an implicit 101 mapping with no 211 ledger entry.
+identity_unmap = worker.split("void IGpuWorker::NormalUnmapGpuMemory4K(",1)[1].split("\n}",1)[0]
+for marker in ("entry.address == request->address", "entry.size == request->size",
+               "identity->HasSpace(request->address_space)", "m_shared->SuppressIdentityBeforeImport(",
+               "identity->RemoveSpace(request->address_space)", "m_shared->UnmapBeforeImport(*request)"):
+    assert marker in identity_unmap, marker
+assert "if (identity.IsSuppressed(id)) continue;" in bind
+print("NS2_213_IDENTITY_UNMAP_SOURCE_PASS")
+
+# Identity 212 uses the same verified ownership as 213, with per-VM replay.
+identity_modify = worker.split("void IGpuWorker::NormalModifyGpuMemory4K(",1)[1].split("\n}",1)[0]
+for marker in ("!m_quarantined_nv_session", "entry.address == request->address",
+               "entry.size == request->size", "identity->HasSpace(request->address_space)",
+               "as->ModifyNativeKind(", "m_shared->ModifyIdentityBeforeImport(*identity, *request)"):
+    assert marker in identity_modify, marker
+assert "identity.KindFor(id)" in bind
+print("NS2_212_IDENTITY_KIND_SOURCE_PASS")
 
 # 26/11 NS2 GSV 435/1510/429 image-layout compatibility with working
 # Lichii/Eglantine owners. Test the production header on host; this proves
