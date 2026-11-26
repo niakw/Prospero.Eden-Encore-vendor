@@ -461,6 +461,14 @@ bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {
     if (!pending_native_acquire) {
         return true;
     }
+#ifdef PS5_NATIVE
+    // ShutdownMainProcess marks the system down before joining the GPU worker.
+    // A parked acquire must therefore stop polling before any Vulkan fence
+    // drain/readback can strand that join.
+    if (dma_pusher.system.IsShuttingDown() || !dma_pusher.system.IsPoweredOn()) {
+        return false;
+    }
+#endif
     const auto& pending = *pending_native_acquire;
 #ifdef PS5_NATIVE
     auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
@@ -478,7 +486,10 @@ bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {
     if (!cpu_before || *cpu_before != pending.cpu_address) {
         dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: parked acquire backing remapped");
     }
-    dma_pusher.rasterizer->ReleaseFences();
+    // Native RELEASE callbacks already retire on the fence manager's GPU
+    // fence thread. Do not synchronously drain every outstanding fence while
+    // polling a parked acquire: the exact semaphore read below stays coherent,
+    // and an unfinished release simply leaves this channel parked.
     const auto observed = ReadCoherentNativeSemaphore(dma_pusher, pending.address);
     if (observed.cpu_address != pending.cpu_address) {
         dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: parked acquire backing changed");
@@ -612,7 +623,12 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
     // existing Maxwell busy loop must NEVER run on Ampere's 0x1a method,
     // which is instead SEM_PAYLOAD_HI. An unresolved compare must not
     // advance subsequent guest commands as if a release had occurred.
-    dma_pusher.rasterizer->ReleaseFences();
+    //
+    // Strict native RELEASE writes retire asynchronously on a real backend
+    // fence. Forcing ReleaseFences() here serialized the GPU worker on the
+    // entire fence queue and could leave ShutdownMainProcess blocked in
+    // gpu_thread.Stop(). Read only the exact coherent semaphore; if its
+    // producer has not retired yet, park this channel and run other queues.
     const auto observed = ReadCoherentNativeSemaphore(dma_pusher, address);
     const auto ready = NativeSemaphore::AcquireReady(
         operation, observed.value, value);

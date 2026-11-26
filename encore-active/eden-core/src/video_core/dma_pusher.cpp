@@ -99,10 +99,23 @@ void DmaPusher::DispatchCalls() {
 #endif
     dma_state.is_last_call = true;
     while (system.IsPoweredOn()) {
+#ifdef PS5_NATIVE
+        if (system.IsShuttingDown()) {
+            break;
+        }
+#endif
         if (!Step()) {
             break;
         }
     }
+#ifdef PS5_NATIVE
+    // Shutdown is cancellation, not a completed guest submission. Never
+    // flush/publish command-list completion after the main process has begun
+    // tearing the GPU worker down.
+    if (!system.IsPoweredOn() || system.IsShuttingDown()) {
+        return;
+    }
+#endif
     system.GPU().FlushCommands();
     system.GPU().OnCommandListEnd();
 }
@@ -123,6 +136,9 @@ bool DmaPusher::Step() {
         return false;
     }
 #ifdef PS5_NATIVE
+    if (system.IsShuttingDown() || !system.IsPoweredOn()) {
+        return false;
+    }
     const auto require_native_submission_lease = [this] {
         const auto& lease = dma_pushbuffer.front().native_submission_lease;
         // A revoked GSV epoch makes the registry ticket intentionally stale;
@@ -162,6 +178,9 @@ bool DmaPusher::Step() {
             command_list.prefetch_command_list.data(), prefetch_size};
         require_native_submission_lease();
         ProcessCommands(commands.subspan(command_resume_offset));
+        if (system.IsShuttingDown() || !system.IsPoweredOn()) {
+            return false;
+        }
         if (HasPendingNativeAcquire()) {
             return false;
         }
@@ -295,6 +314,9 @@ bool DmaPusher::Step() {
     }
 
 #ifdef PS5_NATIVE
+    if (system.IsShuttingDown() || !system.IsPoweredOn()) {
+        return false;
+    }
     if (HasPendingNativeAcquire()) {
         // Keep both the queue entry and its method state; completing the
         // entry now would wrongly acknowledge unexecuted guest commands.
@@ -343,8 +365,18 @@ bool DmaPusher::Step() {
         // and never publish a false acknowledgement under Fast fence policy.
         if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
                 &channel_state)) {
-            rasterizer->ReleaseFences(true);
-            signal_sync = false;
+            // Queue one strict backend fence and let the existing next-Step
+            // wait observe it. That wait checks IsShuttingDown every 10 ms,
+            // unlike ReleaseFences(true), whose async-fence callback wait is
+            // intentionally unbounded. This preserves real GPU retirement
+            // without making pthread_join depend on a hung guest fence.
+            if (!rasterizer->SignalNativeFence([this]() {
+                    std::scoped_lock lk(sync_mutex);
+                    synced = true;
+                    sync_cv.notify_all();
+                })) {
+                FailNativeSubmission("Native GPFIFO inter-list fence unavailable");
+            }
             return true;
         }
 #endif
@@ -364,6 +396,12 @@ void DmaPusher::ProcessCommands(std::span<const CommandHeader> commands) {
 #endif
     for (size_t index = 0; index < commands.size();) {
 #ifdef PS5_NATIVE
+        // ShutdownMainProcess can begin while a long native pushbuffer is
+        // already executing. Return to Step without consuming another guest
+        // word; Step then refuses to publish this submission as completed.
+        if (system.IsShuttingDown() || !system.IsPoweredOn()) {
+            return;
+        }
         // A fault can race a long pushbuffer after Step's boundary check.
         // One acquire load per decoded native word/batch prevents execution
         // from continuing after the AS health token is revoked.

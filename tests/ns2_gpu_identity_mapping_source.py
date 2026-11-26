@@ -1,6 +1,39 @@
 #!/usr/bin/env python3
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
+
+# NS2 shutdown regression (Pokopia/DK, 26/11): the main process can enter
+# gpu_core->NotifyShutdown while a native GPFIFO is parked or draining an
+# inter-list dependency. The GPU pthread join must not depend on an unbounded
+# ReleaseFences(true), and cancellation must not publish unexecuted work.
+dma=(R/"encore-active/eden-core/src/video_core/dma_pusher.cpp").read_text()
+puller=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
+dispatch=dma.split("void DmaPusher::DispatchCalls() {",1)[1].split(
+    "\n[[noreturn]] void DmaPusher::FailNativeSubmission",1)[0]
+step=dma.split("bool DmaPusher::Step() {",1)[1].split(
+    "\nvoid DmaPusher::ProcessCommands",1)[0]
+process=dma.split("void DmaPusher::ProcessCommands",1)[1].split(
+    "\n// NVN2 may split",1)[0]
+resume=puller.split("bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {",1)[1].split(
+    "\n// One release contract",1)[0]
+native_acquire=puller.split("void Puller::ProcessNativeSemaphoreExecute",1)[1].split(
+    "\nvoid Puller::ProcessSemaphoreAcquire",1)[0]
+assert "if (!system.IsPoweredOn() || system.IsShuttingDown())" in dispatch
+assert dispatch.index("if (!system.IsPoweredOn() || system.IsShuttingDown())") < dispatch.index(
+    "system.GPU().FlushCommands();")
+assert "if (system.IsShuttingDown() || !system.IsPoweredOn())" in step
+assert "if (system.IsShuttingDown() || !system.IsPoweredOn())" in process
+interlist=step.split("if (signal_sync) {",1)[1]
+assert "SignalNativeFence([this]()" in interlist
+assert "ReleaseFences(true)" not in interlist
+assert "if (system.IsShuttingDown() || !system.IsPoweredOn())" in resume
+assert "ReleaseFences(" not in resume
+# The Ampere acquire section starts after operation validation; legacy Maxwell
+# ReleaseFences calls elsewhere in puller.cpp are intentionally untouched.
+ampere_wait=native_acquire.split("if (operation > 5U)",1)[1]
+assert "ReleaseFences(" not in ampere_wait
+assert "ReadCoherentNativeSemaphore(dma_pusher, address)" in ampere_wait
+
 shared=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.h").read_text()
 worker=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp").read_text()
 worker_hdr=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.h").read_text()
