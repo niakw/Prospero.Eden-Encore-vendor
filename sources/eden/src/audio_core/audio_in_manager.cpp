@@ -82,7 +82,8 @@ u32 Manager::GetDeviceNames(std::span<Renderer::AudioDevice::AudioDeviceName> na
     LinkToManager();
 
     auto input_devices{Sink::GetDeviceListForSink(Settings::values.sink_id.GetValue(), true)};
-    if (!input_devices.empty() && !names.empty()) {
+    const bool force_input_target = system.AudioCore().IsInputTargetForceEnabled();
+    if ((force_input_target || !input_devices.empty()) && !names.empty()) {
         names[0] = Renderer::AudioDevice::AudioDeviceName("Uac");
         return 1;
     }

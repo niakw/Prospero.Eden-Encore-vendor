@@ -89,8 +89,8 @@ IAudioController::IAudioController(Core::System& system_)
 
     RegisterHandlers(functions);
 
-    m_set_sys =
-        system.ServiceManager().GetService<Service::Set::ISystemSettingsServer>("set:sys", true);
+    // Never block the service-construction host thread waiting for set:sys.
+    // Resolve it lazily only when an audctl command actually needs the service.
     notification_event = service_context.CreateEvent("IAudioController:NotificationEvent");
 
     // Probably shouldn't do this in constructor?
@@ -130,6 +130,14 @@ IAudioController::~IAudioController() {
     service_context.CloseEvent(notification_event);
 };
 
+std::shared_ptr<Service::Set::ISystemSettingsServer> IAudioController::GetSetSys() {
+    std::call_once(m_set_sys_once, [this] {
+        m_set_sys = system.ServiceManager().GetService<Service::Set::ISystemSettingsServer>(
+            "set:sys", true);
+    });
+    return m_set_sys;
+}
+
 Result IAudioController::GetTargetVolumeMin(Out<s32> out_target_min_volume) {
     LOG_DEBUG(Audio, "called.");
 
@@ -150,7 +158,7 @@ Result IAudioController::GetTargetVolumeMax(Out<s32> out_target_max_volume) {
 
 Result IAudioController::GetAudioOutputMode(Out<Set::AudioOutputMode> out_output_mode,
                                             Set::AudioOutputModeTarget target) {
-    const auto result = m_set_sys->GetAudioOutputMode(out_output_mode, target);
+    const auto result = GetSetSys()->GetAudioOutputMode(out_output_mode, target);
 
     LOG_INFO(Service_SET, "called, target={}, output_mode={}", target, *out_output_mode);
     R_RETURN(result);
@@ -160,7 +168,7 @@ Result IAudioController::SetAudioOutputMode(Set::AudioOutputModeTarget target,
                                             Set::AudioOutputMode output_mode) {
     LOG_INFO(Service_SET, "called, target={}, output_mode={}", target, output_mode);
 
-    R_RETURN(m_set_sys->SetAudioOutputMode(target, output_mode));
+    R_RETURN(GetSetSys()->SetAudioOutputMode(target, output_mode));
 }
 
 Result IAudioController::GetForceMutePolicy(Out<ForceMutePolicy> out_mute_policy) {
@@ -170,7 +178,7 @@ Result IAudioController::GetForceMutePolicy(Out<ForceMutePolicy> out_mute_policy
 
 Result IAudioController::GetOutputModeSetting(Out<Set::AudioOutputMode> out_output_mode,
                                               Set::AudioOutputModeTarget target) {
-    const auto result = m_set_sys->GetAudioOutputMode(out_output_mode, target);
+    const auto result = GetSetSys()->GetAudioOutputMode(out_output_mode, target);
     LOG_INFO(Service_SET, "GetOutputModeSetting target={}, output_mode={}", target,
              *out_output_mode);
     R_RETURN(result);
@@ -179,7 +187,7 @@ Result IAudioController::GetOutputModeSetting(Out<Set::AudioOutputMode> out_outp
 Result IAudioController::SetOutputModeSetting(Set::AudioOutputModeTarget target,
                                               Set::AudioOutputMode output_mode) {
     LOG_INFO(Service_SET, "SetOutputModeSetting target={}, output_mode={}", target, output_mode);
-    R_RETURN(m_set_sys->SetAudioOutputMode(target, output_mode));
+    R_RETURN(GetSetSys()->SetAudioOutputMode(target, output_mode));
 }
 
 Result IAudioController::SetHeadphoneOutputLevelMode(HeadphoneOutputLevelMode output_level_mode) {
@@ -216,11 +224,11 @@ Result IAudioController::NotifyHeadphoneVolumeWarningDisplayedEvent() {
 Result IAudioController::SetSpeakerAutoMuteEnabled(bool is_speaker_auto_mute_enabled) {
     LOG_INFO(Audio, "called, is_speaker_auto_mute_enabled={}", is_speaker_auto_mute_enabled);
 
-    R_RETURN(m_set_sys->SetSpeakerAutoMuteFlag(is_speaker_auto_mute_enabled));
+    R_RETURN(GetSetSys()->SetSpeakerAutoMuteFlag(is_speaker_auto_mute_enabled));
 }
 
 Result IAudioController::IsSpeakerAutoMuteEnabled(Out<bool> out_is_speaker_auto_mute_enabled) {
-    const auto result = m_set_sys->GetSpeakerAutoMuteFlag(out_is_speaker_auto_mute_enabled);
+    const auto result = GetSetSys()->GetSpeakerAutoMuteFlag(out_is_speaker_auto_mute_enabled);
 
     LOG_INFO(Audio, "called, is_speaker_auto_mute_enabled={}", *out_is_speaker_auto_mute_enabled);
     R_RETURN(result);
@@ -409,6 +417,7 @@ Result IAudioController::SetOutputTarget(Set::AudioOutputModeTarget target) {
 
 Result IAudioController::SetInputTargetForceEnabled(bool enabled) {
     m_input_target_force_enabled = enabled;
+    system.AudioCore().SetInputTargetForceEnabled(enabled);
     LOG_DEBUG(Audio, "input target force enabled={}", enabled);
     R_SUCCEED();
 }

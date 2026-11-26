@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 
 #include "audio_core/adsp/adsp.h"
@@ -50,6 +51,10 @@ public:
      */
     Sink::Sink& GetInputSink();
 
+    /// Guest audctl policy: force the virtual input target to remain discoverable.
+    void SetInputTargetForceEnabled(bool enabled);
+    [[nodiscard]] bool IsInputTargetForceEnabled() const;
+
     /// @brief Get the ADSP.
     /// @return Ref to the ADSP.
     ADSP::ADSP& ADSP();
@@ -64,6 +69,8 @@ private:
     std::unique_ptr<Sink::Sink> output_sink;
     /// Sink used for audio input
     std::unique_ptr<Sink::Sink> input_sink;
+    /// Guest audctl input-target override shared with audin:u.
+    std::atomic_bool input_target_force_enabled{false};
     /// The ADSP in the sysmodule
     std::optional<ADSP::ADSP> adsp;
 };
