@@ -6,6 +6,8 @@
 
 #include <cstring>
 
+#include "common/overflow.h"
+
 #include "core/file_sys/errors.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/filesystem/fsp/fs_i_file.h"
@@ -14,7 +16,7 @@ namespace Service::FileSystem {
 
 IFile::IFile(Core::System& system_, FileSys::VirtualFile file_, bool read_only_)
     : ServiceFramework{system_, "IFile"}, backend{std::make_unique<FileSys::Fsa::IFile>(file_)},
-      read_only{read_only_} {
+      vfs_file{file_}, read_only{read_only_} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, D<&IFile::Read>, "Read"},
@@ -56,7 +58,26 @@ Result IFile::Write(
     R_UNLESS(size >= 0 && static_cast<u64>(size) <= buffer.size(),
              FileSys::ResultInvalidSize);
 
-    R_RETURN(backend->Write(offset, buffer.data(), size, option));
+    // Fsa::IFile::DoWrite asserts on a short write but can still report success.
+    // Use the same VFS file directly so the guest receives an error for an incomplete write.
+    R_UNLESS(Common::CanAddWithoutOverflow<s64>(offset, size), FileSys::ResultOutOfRange);
+    if (size == 0) {
+        if (option.HasFlushFlag()) {
+            R_TRY(backend->Flush());
+        }
+        R_SUCCEED();
+    }
+    R_UNLESS(vfs_file != nullptr, FileSys::ResultInvalidArgument);
+    R_UNLESS(buffer.data() != nullptr, FileSys::ResultNullptrArgument);
+    const auto requested = static_cast<std::size_t>(size);
+    const auto written = vfs_file->Write(buffer.data(), requested,
+                                         static_cast<std::size_t>(offset));
+    if (written != requested) {
+        LOG_ERROR(Service_FS, "Incomplete guest file write: requested={}, written={}",
+                  requested, written);
+        R_RETURN(ResultUnknown);
+    }
+    R_SUCCEED();
 }
 
 Result IFile::Flush() {

@@ -25,6 +25,7 @@ public:
 
 private:
     std::unique_ptr<FileSys::Fsa::IFile> backend;
+    FileSys::VirtualFile vfs_file;
     bool read_only{};
 
     Result Read(FileSys::ReadOption option, Out<s64> out_size, s64 offset,
