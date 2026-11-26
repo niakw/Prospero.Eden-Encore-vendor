@@ -195,7 +195,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {220, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "UnregisterNetworkServiceAccount"},
         {221, D<&IApplicationManagerInterface::UnregisterNetworkServiceAccountWithUserSaveDataDeletion>, "UnregisterNetworkServiceAccountWithUserSaveDataDeletion"},
         {300, D<&IApplicationManagerInterface::GetApplicationShellEvent>, "GetApplicationShellEvent"},
-        {301, D<&IApplicationManagerInterface::PopApplicationShellEventInfo>, "PopApplicationShellEventInfo"},
+        {301, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "PopApplicationShellEventInfo"},
         {302, D<&IApplicationManagerInterface::LaunchLibraryApplet>, "LaunchLibraryApplet"},
         {303, D<&IApplicationManagerInterface::TerminateLibraryApplet>, "TerminateLibraryApplet"},
         {304, D<&IApplicationManagerInterface::LaunchSystemApplet>, "LaunchSystemApplet"},
