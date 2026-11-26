@@ -1902,6 +1902,14 @@ std::pair<typename P::ImageView*, bool> TextureCache<P>::TryFindFramebufferImage
 
 #ifdef PS5_NATIVE
     if (freshest_found) [[likely]] {
+        // A newer incompatible alias must not create an invalid Vulkan view,
+        // nor silently promote an older compatible image. Preserve the raw
+        // framebuffer fallback when the freshest candidate cannot be viewed.
+        if (!VideoCore::Surface::IsViewCompatible(
+                slot_images[freshest_id].info.format, view_format,
+                runtime.HasBrokenTextureViewFormats(), runtime.HasNativeBgr())) {
+            return {};
+        }
         return GetImageViewForFramebuffer(freshest_id);
     }
 #else

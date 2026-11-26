@@ -151,8 +151,9 @@ assert blob(T) in {
     "27ea4e0e665d3f94e173c1335cb19211efc03646",  # selected HUD/cache parity
     "bbb55dc7b1648fa1e6fd730a1b3515f2969221c7",  # selected readback batching and dirty rollback
     "5fa75d9b6b7b4f9710a6840182dc0de854e62268",  # active 16-entry HUD TIC memo parity
+    "709ee61bc3a620654fa9c66eafa6482aab382d12",  # framebuffer view format guard
 }
-if blob(T) in {"27ea4e0e665d3f94e173c1335cb19211efc03646", "bbb55dc7b1648fa1e6fd730a1b3515f2969221c7", "5fa75d9b6b7b4f9710a6840182dc0de854e62268"}:
+if blob(T) in {"27ea4e0e665d3f94e173c1335cb19211efc03646", "bbb55dc7b1648fa1e6fd730a1b3515f2969221c7", "5fa75d9b6b7b4f9710a6840182dc0de854e62268", "709ee61bc3a620654fa9c66eafa6482aab382d12"}:
     for guard in ("if (it == channel_state->sampler_ids.end())",
                   "if (pair->second != NULL_IMAGE_VIEW_ID || remapped_cached_view)",
                   "if (removed_views.empty())"):
