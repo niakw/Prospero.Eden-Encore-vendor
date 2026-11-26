@@ -273,7 +273,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {901, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "GetApplicationRecordProperty"},
         {902, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "EnableApplicationAutoUpdate"},
         {903, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "DisableApplicationAutoUpdate"},
-        {904, D<&IApplicationManagerInterface::TouchApplication>, "TouchApplication"},
+        {904, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "TouchApplication"},
         {905, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "RequestApplicationUpdate"},
         {906, D<&IApplicationManagerInterface::IsApplicationUpdateRequested>, "IsApplicationUpdateRequested"},
         {907, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "WithdrawApplicationUpdateRequest"},
