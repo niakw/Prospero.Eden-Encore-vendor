@@ -526,8 +526,8 @@
       "upstream": "a04bfd1d0a1289e9102e902f6adecafc86cb4dfdba58027bdc717cb9c1b0a18b"
     },
     "src/core/hle/service/ns/application_manager_interface.cpp": {
-      "active": "1ab6da5f067a12446cb56aff8b46303e8cbd77dc4845a6e8e198d88f16cc373a",
-      "bytes": 111932,
+      "active": "1540c50e1183cb3f8b5dab964fb2530ca4285406ff2eb940636b08a857dc122c",
+      "bytes": 111907,
       "upstream": "86874e0f8769c04c1c66b4b8b0d00549aa328a6ed58a6898f343e67431861fba"
     },
     "src/core/hle/service/ns/application_manager_interface.h": {
