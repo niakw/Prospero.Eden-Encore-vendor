@@ -22,8 +22,8 @@ public:
 
 private:
     Result OpenCodeFileSystem(OutInterface<IFileSystem> out_interface, u64 program_id,
-                              InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
-    Result IsArchivedProgram(Out<bool> out_is_archived, u64 program_id);
+                              const InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
+    Result IsArchivedProgram(u64 program_id, Out<bool> out_is_archived);
     Result SetCurrentProcess(ClientProcessId process_id);
 
     u64 current_process_id{};
