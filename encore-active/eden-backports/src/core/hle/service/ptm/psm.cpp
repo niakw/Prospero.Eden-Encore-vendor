@@ -314,28 +314,29 @@ void PSM::GetBatteryAgePercentage(HLERequestContext& ctx) {
 }
 
 struct BatteryChargeInfoFields {
-    u32 input_current_limit; //mA
+    u32 input_current_limit; // mA
     u32 boost_mode_current_limit;
     u32 fast_charge_current_limit;
-    u32 charge_voltage_limit;
+    u32 charge_voltage_limit; // mV
     u32 charger_type;
-    u8 hi2_mode;
+    u8 hi_z_mode;
     u8 battery_charging;
     INSERT_PADDING_BYTES_NOINIT(2);
     u32 vdd50_state;
-    u32 temperature_celcius;
-    u32 battery_charge_percentage;
+    u32 temperature_celcius; // milli C
+    u32 battery_charge_percentage; // per-cent-mille
     u32 battery_charge_milli_voltage;
-    u32 battery_age_percentage;
+    u32 battery_age_percentage; // per-cent-mille
+    u32 charger_input_voltage_limit_mirror; // HOS 17+: mirrors charger_input_voltage_limit
     u32 usb_power_role;
     u32 usb_charger_type;
-    u32 charger_input_voltage_limit;
-    u32 charger_input_current_limit;
+    u32 charger_input_voltage_limit; // mV
+    u32 charger_input_current_limit; // mA
     u8 fast_battery_charging;
     u8 controller_power_supply;
     u8 otg_request;
     INSERT_PADDING_BYTES_NOINIT(1);
-    INSERT_PADDING_BYTES_NOINIT(0x14); //[+17.0.0]
+    INSERT_PADDING_BYTES_NOINIT(0x10); // HOS 17+
 };
 static_assert(sizeof(struct BatteryChargeInfoFields) == 0x54);
 void PSM::GetBatteryChargeInfoEvent(HLERequestContext& ctx) {
@@ -358,30 +359,48 @@ void PSM::SignalBatteryChargeInfoChanged() {
 
 void PSM::GetBatteryChargeInfoFields(HLERequestContext& ctx) {
     LOG_DEBUG(Service_PTM, "called");
-    Common::PowerStatus power_status = Common::GetPowerStatus();
 
-    BatteryChargeInfoFields r{};
+    // HOS 17+ returns the 0x54-byte PsmBatteryChargeInfoFields ABI. Model a
+    // stable virtual Switch battery instead of leaking physical PS5 power
+    // policy. When the host exposes a battery, only its percentage/charging
+    // state are reflected; electrical limits remain valid virtual values.
+    constexpr u32 FullPercentagePcm = 100000;
+    constexpr u32 NominalBatteryVoltageMv = 4200;
+    constexpr u32 ChargerInputVoltageMv = 5000;
+    constexpr u32 ChargerInputCurrentMa = 3000;
+    constexpr u32 NominalBatteryTemperatureMilliC = 25000;
+
+    const Common::PowerStatus power_status = Common::GetPowerStatus();
+    const bool host_charging = power_status.has_battery && power_status.charging;
     const u32 charge_percent_mille =
         power_status.has_battery && power_status.percentage >= 0
             ? static_cast<u32>(power_status.percentage) * 1000U
-            : 100000U;
-    r.battery_charge_percentage = charge_percent_mille;
-    r.battery_age_percentage = 100000U;
+            : FullPercentagePcm;
+
+    BatteryChargeInfoFields r{};
+    r.input_current_limit = ChargerInputCurrentMa;
+    r.fast_charge_current_limit = ChargerInputCurrentMa;
+    r.charge_voltage_limit = NominalBatteryVoltageMv;
+    r.charger_type =
+        static_cast<u32>(host_charging ? ChargerType::RegularCharger : ChargerType::Unplugged);
     r.battery_charging =
-        power_status.charging && battery_charging_enabled.load(std::memory_order_relaxed) ? 1 : 0;
-    r.charger_type = u32(power_status.has_battery && power_status.charging
-        ? ChargerType::RegularCharger : ChargerType::Unplugged);
-    r.charger_input_voltage_limit = 100;
-    r.charger_input_voltage_limit = 100;
-    r.input_current_limit = 100;
-    r.boost_mode_current_limit = 100;
-    r.fast_charge_current_limit = 100;
+        host_charging && battery_charging_enabled.load(std::memory_order_relaxed) ? 1 : 0;
+    r.temperature_celcius = NominalBatteryTemperatureMilliC;
+    r.battery_charge_percentage = charge_percent_mille;
+    r.battery_charge_milli_voltage = NominalBatteryVoltageMv;
+    r.battery_age_percentage = FullPercentagePcm;
+
+    const u32 input_voltage = host_charging ? ChargerInputVoltageMv : 0;
+    const u32 input_current = host_charging ? ChargerInputCurrentMa : 0;
+    r.charger_input_voltage_limit_mirror = input_voltage;
+    r.charger_input_voltage_limit = input_voltage;
+    r.charger_input_current_limit = input_current;
     r.fast_battery_charging =
         fast_battery_charging.load(std::memory_order_relaxed) ? 1 : 0;
     r.controller_power_supply =
         controller_power_supply.load(std::memory_order_relaxed) ? 1 : 0;
 
-    IPC::ResponseBuilder rb{ctx, 3};
+    IPC::ResponseBuilder rb{ctx, 2 + static_cast<u32>(sizeof(BatteryChargeInfoFields) / sizeof(u32))};
     rb.Push(ResultSuccess);
     rb.PushRaw<BatteryChargeInfoFields>(r);
 }
