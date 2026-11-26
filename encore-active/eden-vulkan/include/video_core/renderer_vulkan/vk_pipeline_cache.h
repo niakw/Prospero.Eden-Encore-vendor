@@ -145,7 +145,7 @@ private:
     std::unique_ptr<GraphicsPipeline> CreateGraphicsPipeline(
         ShaderPools& pools, const GraphicsPipelineCacheKey& key,
         std::span<Shader::Environment* const> envs, PipelineStatistics* statistics,
-        bool build_in_parallel);
+        bool build_in_parallel, bool parallel_translate_stages = false);
 
     std::unique_ptr<ComputePipeline> CreateComputePipeline(const ComputePipelineCacheKey& key,
                                                            const ShaderInfo* shader);
@@ -225,6 +225,11 @@ private:
 #endif
 
     ShaderPools main_pools;
+#ifdef PS5_NATIVE
+    // First-use graphics IR is latency critical and must not wait behind
+    // driver-pipeline/prewarm jobs queued on the existing builder pool.
+    Common::ThreadWorker shader_translation_workers;
+#endif
 
     Shader::Profile profile;
     Shader::HostTranslateInfo host_info;

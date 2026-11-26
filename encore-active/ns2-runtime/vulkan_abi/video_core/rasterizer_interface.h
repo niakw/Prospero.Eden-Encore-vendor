@@ -93,6 +93,20 @@ public:
     /// Signal a GPU based syncpoint as a fence
     virtual void SignalSyncPoint(u32 value) = 0;
 
+#ifdef PS5_NATIVE
+    // Native Ampere completion must retire behind a real renderer fence.
+    // Non-Vulkan backends fail closed rather than publishing an early GSV
+    // counter; the production PS5 Vulkan rasterizer overrides this method.
+    virtual bool SignalNativeSyncPoint(u32) {
+        return false;
+    }
+    // Strict native GPU release callback, unlike policy-dependent SignalFence.
+    // Backends without real GPU retirement must reject, not signal early.
+    virtual bool SignalNativeFence(std::function<void()>&&) {
+        return false;
+    }
+#endif
+
     /// Signal a GPU based reference as point
     virtual void SignalReference() = 0;
 

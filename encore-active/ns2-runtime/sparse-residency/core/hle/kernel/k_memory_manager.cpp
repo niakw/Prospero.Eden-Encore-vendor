@@ -211,11 +211,25 @@ Result KMemoryManager::InitializeOptimizedMemory(u64 process_id, Pool pool) {
     m_optimized_process_ids[pool_index] = process_id;
     m_has_optimized_process[pool_index] = true;
 
-    // Clear the management area for the optimized process.
-    for (auto* manager = this->GetFirstManager(pool, Direction::FromFront); manager != nullptr;
-         manager = this->GetNextManager(manager, Direction::FromFront)) {
-        manager->InitializeOptimizedMemory(m_system.Kernel());
+    // Clear the management area for the optimized process. The bitmap is
+    // control metadata: unlike bulk guest data, a failed first write cannot
+    // safely surface through the signal handler as a guest Result. Convert
+    // sparse backing pressure into ResultOutOfMemory here instead.
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+    try {
+#endif
+        for (auto* manager = this->GetFirstManager(pool, Direction::FromFront);
+             manager != nullptr;
+             manager = this->GetNextManager(manager, Direction::FromFront)) {
+            manager->InitializeOptimizedMemory(m_system.Kernel());
+        }
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+    } catch (const std::bad_alloc&) {
+        m_has_optimized_process[pool_index] = false;
+        m_optimized_process_ids[pool_index] = 0;
+        R_THROW(ResultOutOfMemory);
     }
+#endif
 
     R_SUCCEED();
 }
@@ -391,6 +405,47 @@ Result KMemoryManager::AllocateForProcess(KPageGroup* out, size_t num_pages, u32
         optimized = has_optimized && is_optimized;
     }
 
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+    if (optimized && fill_pattern != 0) {
+        // Unlike the unoptimized ClearBackingRegion path, optimized fills
+        // dereference raw DeviceMemory pointers and can raise bad_alloc in
+        // CommitKernelDirectGuestRange. Precommit the WHOLE page group before
+        // updating ANY optimized allocation bitmap, so failed admission
+        // leaves no published PTE and no partially updated tracking bits.
+        try {
+            for (const auto& block : *out) {
+                const size_t pages = block.GetNumPages();
+                if (pages == 0) continue;
+                if (pages > std::numeric_limits<size_t>::max() / PageSize)
+                    throw std::bad_alloc{};
+                CommitKernelDirectGuestRange(m_system, block.GetAddress(), pages * PageSize);
+            }
+        } catch (const std::bad_alloc&) {
+            // Only unreferenced guest physical page-heap blocks are returned.
+            // Resident 2 MiB host owners are intentionally NOT unmapped:
+            // another guest page may share the same native granule.
+            for (const auto& block : *out) {
+                KPhysicalAddress address = block.GetAddress();
+                size_t remaining_pages = block.GetNumPages();
+                while (remaining_pages != 0) {
+                    auto& manager = this->GetManager(address);
+                    const size_t pages = (std::min)(
+                        remaining_pages, manager.GetPageOffsetToEnd(address));
+                    {
+                        KScopedLightLock lk(
+                            m_pool_locks[static_cast<size_t>(manager.GetPool())]);
+                        manager.Free(address, pages);
+                    }
+                    address += pages * PageSize;
+                    remaining_pages -= pages;
+                }
+            }
+            out->Finalize();
+            R_THROW(ResultOutOfMemory);
+        }
+    }
+#endif
+
     // Perform optimized memory tracking, if we should.
     if (optimized) {
         // Iterate over the allocated blocks.
@@ -416,8 +471,10 @@ Result KMemoryManager::AllocateForProcess(KPageGroup* out, size_t num_pages, u32
                     // Process part or all of the block.
                     const size_t cur_pages =
                         (std::min)(remaining_pages, manager.GetPageOffsetToEnd(cur_address));
-                    any_new = manager.ProcessOptimizedAllocation(m_system.Kernel(), cur_address,
-                                                                 cur_pages, fill_pattern);
+                    // A block may straddle two managers; one new segment
+                    // must not be forgotten when a later segment is reused.
+                    any_new |= manager.ProcessOptimizedAllocation(m_system.Kernel(), cur_address,
+                                                                  cur_pages, fill_pattern);
 
                     // Advance.
                     cur_address += cur_pages * PageSize;
@@ -449,11 +506,40 @@ Result KMemoryManager::AllocateForProcess(KPageGroup* out, size_t num_pages, u32
             }
         }
     } else {
-        // Set all the allocated memory.
-        for (const auto& block : *out) {
-            m_system.DeviceMemory().buffer.ClearBackingRegion(GetInteger(block.GetAddress()) -
-                                                                  Core::DramMemoryMap::Base,
-                                                              block.GetSize(), fill_pattern);
+        // No guest PTE has been published for this newly allocated group.
+        // The native sparse backing may refuse a physical commit even when
+        // the guest physical page heap found a free range. Surface that as
+        // a normal guest OOM instead of terminating the CPUCore host thread.
+        try {
+            for (const auto& block : *out) {
+                m_system.DeviceMemory().buffer.ClearBackingRegion(GetInteger(block.GetAddress()) -
+                                                                      Core::DramMemoryMap::Base,
+                                                                  block.GetSize(), fill_pattern);
+            }
+        } catch (const std::bad_alloc&) {
+            // AllocatePageGroupImpl handed us unreferenced physical pages;
+            // AllocateForProcess has NOT called OpenFirst. Return every
+            // segment to its owning pool, including blocks spanning managers.
+            // Do not Close() (refcount is still zero), and release block
+            // descriptors only after returning the guest page-heap ranges.
+            for (const auto& block : *out) {
+                KPhysicalAddress address = block.GetAddress();
+                size_t remaining_pages = block.GetNumPages();
+                while (remaining_pages != 0) {
+                    auto& manager = this->GetManager(address);
+                    const size_t pages = (std::min)(
+                        remaining_pages, manager.GetPageOffsetToEnd(address));
+                    {
+                        KScopedLightLock lk(
+                            m_pool_locks[static_cast<size_t>(manager.GetPool())]);
+                        manager.Free(address, pages);
+                    }
+                    address += pages * PageSize;
+                    remaining_pages -= pages;
+                }
+            }
+            out->Finalize();
+            R_THROW(ResultOutOfMemory);
         }
     }
 
@@ -487,16 +573,17 @@ size_t KMemoryManager::Impl::Initialize(KPhysicalAddress address, size_t size,
 }
 
 void KMemoryManager::Impl::InitializeOptimizedMemory(KernelCore& kernel) {
-    auto optimize_pa = KPageTable::GetHeapPhysicalAddress(kernel, m_management_region);
+    const auto optimize_pa = KPageTable::GetHeapPhysicalAddress(kernel, m_management_region);
+    const auto bytes = CalculateOptimizedProcessOverheadSize(m_heap.GetSize());
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
-    // Metadata is initialized before any user process page table exists.
-    // Back its complete range before taking a raw DeviceMemory pointer.
-    CommitKernelDirectGuestRange(kernel.System(), optimize_pa,
-                                 CalculateOptimizedProcessOverheadSize(m_heap.GetSize()));
+    // The optimization bitmap is small control metadata. Give its touched
+    // native granule an OWN backing before direct writes so an OOM is a C++
+    // failure handled by KMemoryManager::InitializeOptimizedMemory, never an
+    // unrecoverable signal-time allocation failure.
+    CommitKernelDirectGuestRange(kernel.System(), optimize_pa, bytes);
 #endif
     auto* optimize_map = kernel.System().DeviceMemory().GetPointer<u64>(optimize_pa);
-
-    std::memset(optimize_map, 0, CalculateOptimizedProcessOverheadSize(m_heap.GetSize()));
+    std::memset(optimize_map, 0, bytes);
 }
 
 void KMemoryManager::Impl::TrackUnoptimizedAllocation(KernelCore& kernel, KPhysicalAddress block,
@@ -510,9 +597,13 @@ void KMemoryManager::Impl::TrackUnoptimizedAllocation(KernelCore& kernel, KPhysi
 
     // Track.
     while (offset <= last) {
-        // Mark the page as not being optimized-allocated.
-        optimize_map[offset / Common::BitSize<u64>()] &=
-            ~(u64(1) << (offset % Common::BitSize<u64>()));
+        // Avoid a zero->zero store. On PS5 an untouched bitmap word may
+        // still live on the shared read-only ZERO block; writing the same
+        // zero would needlessly promote an entire 2 MiB chunk.
+        auto& word = optimize_map[offset / Common::BitSize<u64>()];
+        const u64 mask = u64(1) << (offset % Common::BitSize<u64>());
+        if (word & mask)
+            word &= ~mask;
 
         offset++;
     }
@@ -539,16 +630,6 @@ void KMemoryManager::Impl::TrackOptimizedAllocation(KernelCore& kernel, KPhysica
 
 bool KMemoryManager::Impl::ProcessOptimizedAllocation(KernelCore& kernel, KPhysicalAddress block,
                                                       size_t num_pages, u8 fill_pattern) {
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
-    // The optimized fast fill uses raw DeviceMemory pointers, not
-    // HostMemory::ClearBackingRegion or a process PTE. Commit the range
-    // before ANY pointer is dereferenced, including at 12GiB DRAM end.
-    if (num_pages > 0) {
-        if (num_pages > std::numeric_limits<size_t>::max() / PageSize)
-            throw std::bad_alloc{};
-        CommitKernelDirectGuestRange(kernel.System(), block, num_pages * PageSize);
-    }
-#endif
     auto& device_memory = kernel.System().DeviceMemory();
     auto optimize_pa = KPageTable::GetHeapPhysicalAddress(kernel, m_management_region);
     auto* optimize_map = device_memory.GetPointer<u64>(optimize_pa);
@@ -568,9 +649,20 @@ bool KMemoryManager::Impl::ProcessOptimizedAllocation(KernelCore& kernel, KPhysi
             // If not, it's new.
             any_new = true;
 
-            // Fill the page.
+            // Fill through HostMemory so a zero page can remain on the
+            // shared read-only ZERO owner without taking a private 2 MiB block.
+            // Nonzero fills were preflighted above and therefore cannot
+            // partially publish an optimized bitmap on sparse OOM.
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+            const auto page = GetInteger(m_heap.GetAddress()) + offset * PageSize;
+            if (page < Core::DramMemoryMap::Base)
+                throw std::bad_alloc{};
+            device_memory.buffer.ClearBackingRegion(
+                page - Core::DramMemoryMap::Base, PageSize, fill_pattern);
+#else
             auto* ptr = device_memory.GetPointer<u8>(m_heap.GetAddress());
             std::memset(ptr + offset * PageSize, fill_pattern, PageSize);
+#endif
         }
 
         offset++;

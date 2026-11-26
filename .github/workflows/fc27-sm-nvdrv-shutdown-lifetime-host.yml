@@ -1,0 +1,22 @@
+name: FC27 SM/NVDRV shutdown lifetime source (host only)
+on:
+  push:
+    branches:
+      - fix/fc27-sm-nvdrv-shutdown-lifetime-20261123
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-lifetime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate exact SM handler/NVDRV teardown and historical provenance
+        run: |
+          set -euo pipefail
+          python3 -B tests/fc27_sm_nvdrv_shutdown_lifetime_source.py
+          python3 -B tests/shutdown_teardown_lifetime_source.py
+          python3 -B tests/shutdown_general_channel_lifetime_source.py

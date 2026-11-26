@@ -7,6 +7,7 @@
 #pragma once
 
 #include <chrono>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -103,6 +104,12 @@ public:
 
     void InvokeControlRequest(HLERequestContext& context);
 
+    bool WaitForService(const std::string& name);
+    void Close();
+    // Drop service-owned guest/device references before guest KProcesses retire.
+    // Does not destroy SM ports or the SM object itself.
+    void ReleaseRegisteredHandlersForShutdown();
+
     void SetDeferralEvent(Kernel::KEvent* deferral_event_) {
         deferral_event = deferral_event_;
     }
@@ -115,6 +122,10 @@ private:
     mutable std::mutex lock;
     ::Common::unordered_map<std::string, SessionRequestHandlerFactory> registered_services;
     ::Common::unordered_map<std::string, Kernel::KClientPort*> service_ports;
+
+    bool closing{};
+    u32 service_waiters{};
+    std::condition_variable waiters_changed;
 
     /// Kernel context
     Kernel::KernelCore& kernel;

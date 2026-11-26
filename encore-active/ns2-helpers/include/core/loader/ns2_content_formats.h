@@ -10,7 +10,7 @@
 
 namespace Eden::NS2::Content {
 enum class Kind {
-    ExeFSMain, NRO, NSO, NCA, NAX, XCI, XCZ, NSP, NSZ, KIP,
+    ExeFSMain, NRO, NSO, NCA, NAX, XCI, XCZ, DXCI, NSP, NSZ, DNSP, NX, KIP,
     NPDMMetadata, RomFSData, Unsupported,
 };
 enum class Route {
@@ -42,8 +42,11 @@ constexpr Kind IdentifyName(std::string_view name) {
     if (EqualFold(ext, "nax")) return Kind::NAX;
     if (EqualFold(ext, "xci")) return Kind::XCI;
     if (EqualFold(ext, "xcz")) return Kind::XCZ;
+    if (EqualFold(ext, "dxci")) return Kind::DXCI;
     if (EqualFold(ext, "nsp")) return Kind::NSP;
     if (EqualFold(ext, "nsz")) return Kind::NSZ;
+    if (EqualFold(ext, "dnsp")) return Kind::DNSP;
+    if (EqualFold(ext, "nx")) return Kind::NX;
     if (EqualFold(ext, "kip")) return Kind::KIP;
     if (EqualFold(ext, "npdm")) return Kind::NPDMMetadata;
     return Kind::Unsupported;
@@ -52,7 +55,8 @@ constexpr Route LoaderRoute(Kind kind) {
     switch (kind) {
     case Kind::ExeFSMain: case Kind::NRO: case Kind::NSO: case Kind::KIP:
         return Route::Executable;
-    case Kind::NSP: case Kind::NSZ: case Kind::XCI: case Kind::XCZ:
+    case Kind::NSP: case Kind::NSZ: case Kind::DNSP:
+    case Kind::XCI: case Kind::XCZ: case Kind::DXCI: case Kind::NX:
         return Route::ExistingContainer;
     case Kind::NCA: case Kind::NAX:
         return Route::ExistingArchive;
@@ -61,11 +65,12 @@ constexpr Route LoaderRoute(Kind kind) {
     default: return Route::Unknown;
     }
 }
-// A compressed .nsz/.xcz wrapper is not a reliable format signature.
-// When the normal NSP/XCI probes cannot identify its underlying container,
-// never blindly instantiate a loader from only its compressed extension.
+// New compressed/decrypted aliases and NX must not be admitted by a filename
+// alone. The real NSP/XCI/NX probes verify the header before any loader runs.
 constexpr bool RequiresRecognizedContent(Kind kind) {
-    return kind == Kind::NSZ || kind == Kind::XCZ;
+    return kind == Kind::NSZ || kind == Kind::XCZ ||
+           kind == Kind::DNSP || kind == Kind::DXCI ||
+           kind == Kind::NX;
 }
 constexpr bool MayFallbackByName(Kind kind) {
     return !RequiresRecognizedContent(kind);

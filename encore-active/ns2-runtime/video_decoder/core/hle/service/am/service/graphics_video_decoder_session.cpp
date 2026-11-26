@@ -545,7 +545,11 @@ void IGraphicsVideoDecoderSession::Pump() {
         }
         m_available.erase(ready);
         m_pending.pop_front();
-        syncpoints.IncrementGuest(m_syncpoint); // Only after real guest buffer was written.
+        // This CPU decoder has no deferred renderer fence: once the real
+        // guest output buffer is written, both legacy progress and the native
+        // completed-producer view can retire synchronously.
+        syncpoints.IncrementGuest(m_syncpoint);
+        syncpoints.IncrementHost(m_syncpoint);
     }
     m_ready->SetRoom(m_pending.size() < MaxFrames);
     m_ready->Notify();

@@ -15,6 +15,8 @@
 #include <vector>
 
 #include "core/hle/service/am/service/gpu_session_protocol.h"
+#include "core/hle/service/am/service/gpu_worker_protocol.h"
+#include "core/hle/service/nvdrv/nvdata.h"
 #include "core/hle/service/kernel_helpers.h"
 
 namespace Kernel { class KEvent; class KProcess; }
@@ -27,6 +29,54 @@ struct IdentityGpuMapping {
     std::uint64_t size{};
     std::array<std::uint32_t, GpuSessionProtocol::MaxAddressSpaces> mapped_spaces{};
     std::size_t mapped_count{};
+    // A guest 213 may remove the automatic 101 view before VM import.
+    // Retain that decision per opaque VM until the identity is destroyed.
+    std::array<std::uint32_t, GpuSessionProtocol::MaxAddressSpaces> suppressed_spaces{};
+    [[nodiscard]] bool IsSuppressed(std::uint32_t id) const {
+        if (!id) return false;
+        for (const auto slot : suppressed_spaces)
+            if (slot == id) return true;
+        return false;
+    }
+    [[nodiscard]] bool SuppressSpace(std::uint32_t id) {
+        if (!id) return false;
+        if (IsSuppressed(id)) return true;
+        for (auto& slot : suppressed_spaces) {
+            if (!slot) {
+                slot = id;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // An exact 212 before NVDRV import changes the initial kind of this
+    // identity in just one VM. No new backing or explicit 211 pin is needed.
+    struct InitialKind {
+        std::uint32_t id{};
+        std::uint8_t kind{};
+    };
+    std::array<InitialKind, GpuSessionProtocol::MaxAddressSpaces> initial_kinds{};
+    [[nodiscard]] std::uint8_t KindFor(std::uint32_t id) const {
+        if (id)
+            for (const auto& slot : initial_kinds)
+                if (slot.id == id) return slot.kind;
+        return 0;
+    }
+    [[nodiscard]] bool SetInitialKind(std::uint32_t id, std::uint8_t kind) {
+        if (!id || IsSuppressed(id)) return false;
+        for (auto& slot : initial_kinds)
+            if (slot.id == id) {
+                slot.kind = kind;
+                return true;
+            }
+        for (auto& slot : initial_kinds)
+            if (!slot.id) {
+                slot = {id, kind};
+                return true;
+            }
+        return false;
+    }
 
     [[nodiscard]] bool HasSpace(std::uint32_t id) const {
         for (std::size_t i = 0; i < mapped_count; ++i)
@@ -61,20 +111,39 @@ struct GpuWorkerSharedState {
     std::mutex mutex;
     GpuSessionProtocol::DeviceSlots devices;
     GpuSessionProtocol::AddressSpaceSlots address_spaces;
-    // Preserve the original nvhost-as-gpu OBJECT identity across all moved
-    // GPU worker KSessions. A numeric NVDRV FD alone can be recycled and
-    // GetDevice<nvhost_as_gpu> is a static_cast, not a type check.
+    // Opaque GSV VM id -> externally opened/imported nvhost-as-gpu object.
+    // libounce proves the VM id is distinct from the NVDRV descriptor.
     std::map<std::uint32_t, std::weak_ptr<Nvidia::Devices::nvhost_as_gpu>> opened_gpu_as;
     // gpu sub 101 is an identity map on Switch 2: GPU VA == CPU VA.
     // Keep it process-local and replay it into later-created GMMUs.
     std::vector<IdentityGpuMapping> identity_gpu_mappings;
+    // A registered GSV VM exists before NVDRV imports it. 211 owns real
+    // backing through its worker ledger even in that interval. No channel
+    // can submit until the exact VM has replayed all these mappings.
+    using PendingMapKey = std::pair<std::uint32_t, std::uint64_t>;
+    std::map<PendingMapKey, GpuWorkerProtocol::Map4K> pending_211;
+    std::array<std::uint32_t, GpuSessionProtocol::MaxAddressSpaces> imported_vm_ids{};
+    [[nodiscard]] bool CanStageBeforeImport(std::uint32_t id) const;
+    Nvidia::NvResult StageBeforeImport(const GpuWorkerProtocol::Map4K& request);
+    bool CancelBeforeImport(std::uint32_t id, std::uint64_t address, std::uint64_t size);
+    // Guest 213 is distinct from rollback cancellation: an exact 101
+    // identity must not reappear when this VM is imported.
+    bool UnmapBeforeImport(const GpuWorkerProtocol::Unmap4K& request);
+    bool SuppressIdentityBeforeImport(IdentityGpuMapping& identity, std::uint32_t id);
+    bool ModifyBeforeImport(const GpuWorkerProtocol::Modify4K& request);
+    bool ModifyIdentityBeforeImport(IdentityGpuMapping& identity,
+                                    const GpuWorkerProtocol::Modify4K& request);
+    [[nodiscard]] bool OverlapsPendingIdentity(std::uint64_t address, std::uint64_t size) const;
     // Caller holds mutex except during final shared-state destruction.
     [[nodiscard]] std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
     FindOwnedAddressSpace(std::uint32_t id) const;
+    Nvidia::NvResult BindImportedAddressSpace(
+        std::uint32_t id, const std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>& as);
+    void UnbindImportedAddressSpace(
+        std::uint32_t id, const Nvidia::Devices::nvhost_as_gpu* as);
     KernelHelpers::ServiceContext event_context;
     std::array<Kernel::KEvent*, GpuSessionProtocol::MaxNotificationEvents> events{};
     std::shared_ptr<Nvidia::Module> module;
-    std::optional<std::size_t> nv_session;
     Kernel::KProcess* native_process{};
     bool native_registered{};
 };

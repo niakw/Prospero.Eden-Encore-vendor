@@ -730,20 +730,71 @@ void RasterizerVulkan::CollectAttributeHandleRuns(bool is_indexed) {
         state.topology == Maxwell::PrimitiveTopology::Triangles ? 3 : total;
     const GPUVAddr base_address = stream.Address() + source->offset +
                                  component_byte_offset;
-    const auto read_handle = [&](u32 position) {
-        u32 vertex{};
-        if (is_indexed) {
-            const auto& indices = state.index_buffer;
-            const size_t index_width = indices.FormatSizeInBytes();
-            if (index_width == 0 || index_width > sizeof(u32)) return u32{};
-            const GPUVAddr address = indices.IndexStart() +
-                                     static_cast<GPUVAddr>(position) * index_width;
-            u32 index{};
-            gpu_memory->ReadBlockUnsafe(address, &index, index_width);
-            vertex = static_cast<u32>(state.base_index + index);
-        } else {
-            vertex = state.vertex_buffer.first + position;
+#ifdef PS5_NATIVE
+    // FC27 uses a vertex-attribute texture handle on indexed triangle draws.
+    // OnCPUWrite is serialized by buffer_cache.mutex before guest memcpy, so
+    // this scan must stay under that lock. Reduce only repeated GMMU walks:
+    // prefetch a small, fully-mapped index span and decode sampled indices
+    // from it. Authenticated NS2 channels retain the original per-index path.
+    struct AttributeIndexBatch {
+        std::array<u8, 256> bytes{};
+        u32 first_position{};
+        u32 position_count{};
+        size_t index_width{};
+        bool valid{};
+    } index_batch;
+#endif
+    const auto read_index = [&](u32 position) {
+        const auto& indices = state.index_buffer;
+        const size_t index_width = indices.FormatSizeInBytes();
+        if (index_width == 0 || index_width > sizeof(u32)) return u32{};
+#ifdef PS5_NATIVE
+        if (!gpu_memory->UsesNativeTiling()) {
+            if (index_batch.valid && index_batch.index_width == index_width &&
+                position >= index_batch.first_position &&
+                position - index_batch.first_position < index_batch.position_count) {
+                u32 index{};
+                const size_t byte_offset =
+                    static_cast<size_t>(position - index_batch.first_position) * index_width;
+                std::memcpy(&index, index_batch.bytes.data() + byte_offset, index_width);
+                return index;
+            }
+            if (position < total) {
+                const size_t max_positions = index_batch.bytes.size() / index_width;
+                const u32 position_count =
+                    (std::min)(total - position, static_cast<u32>(max_positions));
+                const GPUVAddr offset = static_cast<GPUVAddr>(position) * index_width;
+                const GPUVAddr start = indices.IndexStart();
+                const GPUVAddr address = start + offset;
+                const size_t read_bytes = static_cast<size_t>(position_count) * index_width;
+                const bool address_ok =
+                    (position == 0 || offset / index_width == position) &&
+                    address >= start && read_bytes != 0 &&
+                    address <= ~GPUVAddr{0} - static_cast<GPUVAddr>(read_bytes);
+                if (position_count > 1 && address_ok &&
+                    gpu_memory->IsFullyMappedRange(address, read_bytes)) {
+                    gpu_memory->ReadBlockUnsafe(address, index_batch.bytes.data(), read_bytes);
+                    index_batch.first_position = position;
+                    index_batch.position_count = position_count;
+                    index_batch.index_width = index_width;
+                    index_batch.valid = true;
+                    u32 index{};
+                    std::memcpy(&index, index_batch.bytes.data(), index_width);
+                    return index;
+                }
+            }
         }
+#endif
+        const GPUVAddr address = indices.IndexStart() +
+                                 static_cast<GPUVAddr>(position) * index_width;
+        u32 index{};
+        gpu_memory->ReadBlockUnsafe(address, &index, index_width);
+        return index;
+    };
+    const auto read_handle = [&](u32 position) {
+        const u32 vertex =
+            is_indexed ? static_cast<u32>(state.base_index + read_index(position))
+                       : state.vertex_buffer.first + position;
         return gpu_memory->Read<u32>(base_address +
                                      static_cast<GPUVAddr>(vertex) * stream.stride);
     };
@@ -2216,7 +2267,8 @@ void RasterizerVulkan::DispatchCompute() {
     if (indirect_address) {
         // DispatchIndirect
         static constexpr auto sync_info = VideoCommon::ObtainBufferSynchronize::FullSynchronize;
-        const auto post_op = VideoCommon::ObtainBufferOperation::DiscardWrite;
+        // Indirect arguments are read, not overwritten. Preserve GPU dirty bytes.
+        const auto post_op = VideoCommon::ObtainBufferOperation::DoNothing;
         const auto [buffer, offset] =
             buffer_cache.ObtainBuffer(*indirect_address, 12, sync_info, post_op);
 #ifdef PS5_NATIVE
@@ -2227,16 +2279,18 @@ void RasterizerVulkan::DispatchCompute() {
             return;
         }
 #endif
+        buffer->MarkUsage(offset, 12);
         scheduler.RequestOutsideRenderPassOperationContext();
-        if (::Eden::DevVulkan::compute_barriers) {
-            scheduler.Record([](vk::CommandBuffer cmdbuf) {
-                cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER,
-                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                                       0, COMPUTE_INPUT_BARRIER);
-            });
-        }
+        // Lichii #1246: keep the input barrier in the dispatch command. Vulkan
+        // ordering is unchanged, but one scheduler/worker command disappears.
         scheduler.Record([pipeline, indirect_buffer = buffer->Handle(),
                           indirect_offset = offset](vk::CommandBuffer cmdbuf) {
+            if (::Eden::DevVulkan::compute_barriers) {
+                cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER,
+                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+                                           VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                                       0, COMPUTE_INPUT_BARRIER);
+            }
             if (!pipeline->IsBound()) {
                 return;
             }
@@ -2259,9 +2313,11 @@ void RasterizerVulkan::DispatchCompute() {
         .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
         .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
     };
-    scheduler.Record([](vk::CommandBuffer cmdbuf) { cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                               0, READ_BARRIER); });
+    // Lichii #1246: this barrier was a separate scheduler command although
+    // nothing records Vulkan work between it and the dispatch.
     scheduler.Record([pipeline, dim](vk::CommandBuffer cmdbuf) {
+        cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER,
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, READ_BARRIER);
         if (!pipeline->IsBound()) {
             return;
         }
@@ -2388,25 +2444,23 @@ VideoCore::RasterizerDownloadArea RasterizerVulkan::GetFlushArea(DAddr addr, u64
         // The existing GPU sync flushes both cache domains.
         return *texture_area;
     }
-    if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
+    auto area = texture_area.value_or(clean_area);
+    // Core::Memory caches the returned interval, not just the original
+    // scalar read. A preemptive texture can extend over other GPU-written
+    // buffers. Check EVERY byte the caller may subsequently read without
+    // re-entering GetFlushArea. Keep the original texture extent when clean.
+    const DAddr buffer_start = area.start_address;
+    const u64 buffer_size = area.end_address - buffer_start;
+    if (!::Eden::BufferPages::NeverRegistered(buffer_start, buffer_size)) {
         ::Eden::Performance::GuestCacheLock(buffer_cache.mutex, false);
         std::lock_guard lock{buffer_cache.mutex, std::adopt_lock};
-        if (buffer_cache.IsRegionGpuModified(
-                clean_area.start_address, clean_area.end_address - clean_area.start_address)) {
-            // GPU::OnCPURead must not return early for buffer-only GPU writes.
-            // Keep any texture-covered extent, including its sibling bytes.
-            return VideoCore::RasterizerDownloadArea{
-                .start_address = texture_area
-                    ? (std::min)(texture_area->start_address, clean_area.start_address)
-                    : clean_area.start_address,
-                .end_address = texture_area
-                    ? (std::max)(texture_area->end_address, clean_area.end_address)
-                    : clean_area.end_address,
-                .preemtive = false,
-            };
+        if (buffer_cache.IsRegionGpuModified(buffer_start, buffer_size)) {
+            // Preserve the real GPU ownership and the existing ordered
+            // FlushRegion on the GPU worker. Do not certify stale siblings.
+            area.preemtive = false;
         }
     }
-    return texture_area.value_or(clean_area);
+    return area;
 }
 
 void RasterizerVulkan::InvalidateRegion(DAddr addr, u64 size, VideoCommon::CacheType which) {
@@ -2530,35 +2584,21 @@ bool RasterizerVulkan::OnCPUWrite(DAddr addr, u64 size) {
 }
 
 void RasterizerVulkan::OnCacheInvalidations(std::span<const std::pair<DAddr, u64>> ranges) {
-    // Remove the complete CPU-write batch from GPU-owned ranges before any
-    // individual invalidation can download stale bytes over a later write.
-    // No registered buffer page in this CPU-write batch means no buffer can
-    // own GPU bytes to claim. Avoid the buffer mutex entirely in that case.
-    // NeverRegistered is monotonic and fails closed on unknown address spans.
+    // One owner-witness pass for the complete collected batch, as in
+    // InnerInvalidation. Each witness is monotonic and fails closed; once both
+    // cache domains may overlap, no later range can change the lock decision.
     bool may_claim_buffer = false;
-    for (const auto& [addr, size] : ranges) {
-        if (addr != 0 && size != 0 && !::Eden::BufferPages::NeverRegistered(addr, size)) {
-            may_claim_buffer = true;
-            break;
-        }
-    }
-    if (may_claim_buffer) {
-        std::scoped_lock lock{buffer_cache.mutex};
-        buffer_cache.ClaimCpuWrites(ranges);
-    }
-
-    // The single-range invalidation callback takes the texture and buffer
-    // mutex once PER range. GPU-collected write batches often contain many
-    // pages; acquire each domain only once, as InnerInvalidation already
-    // does for the same texture -> buffer -> shader ordering. The prior
-    // ClaimCpuWrites still precedes every possible GPU sibling readback.
     bool may_touch_texture = false;
     for (const auto& [addr, size] : ranges) {
-        if (addr != 0 && size != 0 && !::Eden::ImagePages::NeverHeld(addr, size)) {
+        if (addr == 0 || size == 0) continue;
+        if (!may_claim_buffer && !::Eden::BufferPages::NeverRegistered(addr, size))
+            may_claim_buffer = true;
+        if (!may_touch_texture && !::Eden::ImagePages::NeverHeld(addr, size))
             may_touch_texture = true;
-            break;
-        }
+        if (may_claim_buffer && may_touch_texture) break;
     }
+    // GPU-collected write batches acquire each cache domain only once. Claim
+    // still precedes every BufferCache write/readback below.
     if (may_touch_texture) {
         std::scoped_lock lock{texture_cache.mutex};
         for (const auto& [addr, size] : ranges) {
@@ -2568,7 +2608,12 @@ void RasterizerVulkan::OnCacheInvalidations(std::span<const std::pair<DAddr, u64
         }
     }
     if (may_claim_buffer) {
+        // Lichii 5e428570 / f5edeab: claim and apply the complete buffer batch
+        // under ONE acquisition. Texture state was handled above and is independent.
+        // Claim must precede BufferCache::WriteMemory so a sibling GPU download
+        // cannot overwrite a later CPU write from this same collected batch.
         std::scoped_lock lock{buffer_cache.mutex};
+        buffer_cache.ClaimCpuWrites(ranges);
         for (const auto& [addr, size] : ranges) {
             if (addr != 0 && size != 0 && !::Eden::BufferPages::NeverRegistered(addr, size)) {
                 buffer_cache.WriteMemory(addr, size);
@@ -2646,6 +2691,17 @@ void RasterizerVulkan::SignalSyncPoint(u32 value) {
     fence_manager.SignalSyncPoint(value);
 }
 
+#ifdef PS5_NATIVE
+bool RasterizerVulkan::SignalNativeSyncPoint(u32 value) {
+    fence_manager.SignalNativeSyncPoint(value);
+    return true;
+}
+bool RasterizerVulkan::SignalNativeFence(std::function<void()>&& func) {
+    fence_manager.SignalNativeFence(std::move(func));
+    return true;
+}
+#endif
+
 void RasterizerVulkan::SignalReference() {
     fence_manager.SignalReference();
 }
@@ -2709,10 +2765,22 @@ void RasterizerVulkan::TiledCacheBarrier() {
 }
 
 void RasterizerVulkan::FlushCommands() {
+#ifdef PS5_NATIVE
+    // draw_counter measures graphics batching, not whether Vulkan work exists.
+    // DMA fills/copies and image transfers can record scheduler commands without
+    // any graphics draw. Conversely, a fence/explicit scheduler flush may have
+    // already submitted the current recording. Use the selected native
+    // scheduler's command epoch as the end-of-list authority.
+    draw_counter = 0;
+    if (!scheduler.RecordedSinceSubmit()) {
+        return;
+    }
+#else
     if (draw_counter == 0) {
         return;
     }
     draw_counter = 0;
+#endif
     scheduler.Flush();
 }
 

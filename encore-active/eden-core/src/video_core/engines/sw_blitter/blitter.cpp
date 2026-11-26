@@ -29,40 +29,40 @@ namespace {
 
 constexpr size_t ir_components = 4;
 
+template <typename T>
+void NearestNeighborRows(std::span<const T> input, std::span<T> output, u32 src_width,
+                         u32 src_height, u32 dst_width, u32 dst_height, size_t components) {
+    // Quantize each coordinate independently. Combining fractional Y with X
+    // before flooring can select a different column (or even the next row).
+    const u32 x_step = src_width / dst_width;
+    const u32 x_remainder = src_width % dst_width;
+    for (u32 y = 0; y < dst_height; ++y) {
+        const size_t src_row = (static_cast<u64>(y) * src_height / dst_height) * src_width;
+        const size_t dst_row = static_cast<size_t>(y) * dst_width;
+        u32 src_x = 0;
+        u64 x_error = 0;
+        for (u32 x = 0; x < dst_width; ++x) {
+            const size_t read_from = (src_row + src_x) * components;
+            const size_t write_to = (dst_row + x) * components;
+            std::memcpy(&output[write_to], &input[read_from], sizeof(T) * components);
+            src_x += x_step;
+            x_error += x_remainder;
+            if (x_error >= dst_width) {
+                x_error -= dst_width;
+                ++src_x;
+            }
+        }
+    }
+}
+
 void NearestNeighbor(std::span<const u8> input, std::span<u8> output, u32 src_width, u32 src_height,
                      u32 dst_width, u32 dst_height, size_t bpp) {
-    const size_t dx_du = std::llround((static_cast<f64>(src_width) / dst_width) * (1ULL << 32));
-    const size_t dy_dv = std::llround((static_cast<f64>(src_height) / dst_height) * (1ULL << 32));
-    size_t src_y = 0;
-    for (u32 y = 0; y < dst_height; y++) {
-        size_t src_x = 0;
-        for (u32 x = 0; x < dst_width; x++) {
-            const size_t read_from = ((src_y * src_width + src_x) >> 32) * bpp;
-            const size_t write_to = (y * dst_width + x) * bpp;
-
-            std::memcpy(&output[write_to], &input[read_from], bpp);
-            src_x += dx_du;
-        }
-        src_y += dy_dv;
-    }
+    NearestNeighborRows(input, output, src_width, src_height, dst_width, dst_height, bpp);
 }
 
 void NearestNeighborFast(std::span<const f32> input, std::span<f32> output, u32 src_width,
                          u32 src_height, u32 dst_width, u32 dst_height) {
-    const size_t dx_du = std::llround((static_cast<f64>(src_width) / dst_width) * (1ULL << 32));
-    const size_t dy_dv = std::llround((static_cast<f64>(src_height) / dst_height) * (1ULL << 32));
-    size_t src_y = 0;
-    for (u32 y = 0; y < dst_height; y++) {
-        size_t src_x = 0;
-        for (u32 x = 0; x < dst_width; x++) {
-            const size_t read_from = ((src_y * src_width + src_x) >> 32) * ir_components;
-            const size_t write_to = (y * dst_width + x) * ir_components;
-
-            std::memcpy(&output[write_to], &input[read_from], sizeof(f32) * ir_components);
-            src_x += dx_du;
-        }
-        src_y += dy_dv;
-    }
+    NearestNeighborRows(input, output, src_width, src_height, dst_width, dst_height, ir_components);
 }
 
 void Bilinear(std::span<const f32> input, std::span<f32> output, size_t src_width,
@@ -199,6 +199,12 @@ bool SoftwareBlitEngine::Blit(Fermi2D::Surface& src, Fermi2D::Surface& dst,
                bounded_bytes(surface.pitch, surface.height, 1);
     };
     if (!bounded_surface(src, source_bpp) || !bounded_surface(dst, target_bpp) ||
+        // A nonzero block-linear source layer needs source-origin Z semantics,
+        // which NV50's depth-tiled source path does not expose here.
+        (src.linear == Fermi2D::MemoryLayout::BlockLinear && src.layer != 0) ||
+        // DST_LAYER is meaningful only for depth-tiled 3D destinations.
+        (dst.linear == Fermi2D::MemoryLayout::BlockLinear && dst.layer != 0 &&
+         (dst.block_depth == 0 || dst.layer >= dst.depth)) ||
         (src.linear == Fermi2D::MemoryLayout::Pitch &&
          static_cast<u64>(config.src_x1) * source_bpp > src.pitch) ||
         (dst.linear == Fermi2D::MemoryLayout::Pitch &&
@@ -341,7 +347,7 @@ bool SoftwareBlitEngine::Blit(Fermi2D::Surface& src, Fermi2D::Surface& dst,
         SwizzleSubrect(tmp_buffer2, impl->dst_buffer, dst_bytes_per_pixel, dst.width, dst.height,
                        dst.depth, config.dst_x0, config.dst_y0, dst_extent_x, dst_extent_y,
                        dst.block_height, dst.block_depth, dst_extent_x * dst_bytes_per_pixel,
-                       memory_manager.UsesNativeTiling());
+                       memory_manager.UsesNativeTiling(), dst.layer);
     } else {
         ProcessPitchLinear<true>(impl->dst_buffer, tmp_buffer2, dst_extent_x, dst_extent_y,
                                  dst.pitch, config.dst_x0, config.dst_y0,

@@ -39,6 +39,16 @@ public:
         }
     }
 
+    /// False when Gather would find no newly collected CPU write. Every
+    /// Collect that pushes an older page into back_buffer simultaneously
+    /// publishes a non-empty replacement in current; only Gather empties
+    /// current while taking ownership of those older pages. A write that
+    /// starts after this load is ordered after the caller and is gathered by
+    /// the next invalidation.
+    [[nodiscard]] bool MayHavePending() const noexcept {
+        return current.load(std::memory_order_acquire).mask != 0;
+    }
+
     /// Enumerate collected writes without consuming them. Downloads can use
     /// this snapshot to avoid writing an older GPU copy over newer guest CPU bytes.
     void ForEachPending(const std::function<void(PAddr, size_t)>& callback) {

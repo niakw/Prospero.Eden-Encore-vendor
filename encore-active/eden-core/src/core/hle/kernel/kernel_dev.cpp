@@ -246,6 +246,10 @@ struct KernelCore::Impl {
             std::scoped_lock lk{server_lock};
             services_closing = true;
             closing_managers.swap(server_managers);
+            for (auto& refused : refused_servers) {
+                closing_managers.emplace_back(std::move(refused));
+            }
+            refused_servers.clear();
             closing_names.swap(server_names);
         }
         const double eden_lock_ms = eden_ms(eden_start);
@@ -883,6 +887,10 @@ struct KernelCore::Impl {
     std::vector<std::string> server_names;
     std::mutex server_lock;
     std::vector<std::unique_ptr<Service::ServerManager>> server_managers;
+    // Servers whose startup raced CloseServices cannot run, but their
+    // handlers/ports may still be referenced by SM or another service.
+    // Keep ownership until the next CloseServices during kernel shutdown.
+    std::vector<std::unique_ptr<Service::ServerManager>> refused_servers;
 
     std::array<std::optional<Kernel::PhysicalCore>, Core::Hardware::NUM_CPU_CORES> cores;
 
@@ -1086,15 +1094,28 @@ void KernelCore::UnregisterInUseObject(KAutoObject* object) {
 
 void KernelCore::RunServer(std::unique_ptr<Service::ServerManager>&& server_manager) {
     auto* manager = server_manager.get();
+    bool refused = false;
 
     {
         std::scoped_lock lk{impl->server_lock};
         if (!impl->services_closing && !impl->is_shutting_down) {
             impl->server_managers.emplace_back(std::move(server_manager));
+        } else {
+            refused = true;
         }
     }
 
-    if (server_manager) manager->RequestStop();
+    if (refused) {
+        // Closing a title can race a service that has only just reached
+        // RunServer. Do not enter a loop backed by a kernel that is being
+        // dismantled, and do not destroy the server here: SM/PSC handlers
+        // may still retain references to it until the kernel shutdown pass.
+        manager->SkipLoop();
+        std::scoped_lock lk{impl->server_lock};
+        impl->refused_servers.emplace_back(std::move(server_manager));
+        return;
+    }
+
     manager->LoopProcess();
 }
 

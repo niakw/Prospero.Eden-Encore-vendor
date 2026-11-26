@@ -23,9 +23,9 @@ private:
     Result OpenApplicationProxy(Out<SharedPointer<IApplicationProxy>> out_application_proxy,
                                 ClientProcessId pid, InCopyHandle<Kernel::KProcess> process_handle);
 
-    // Switch 2 command 10 has one extra input u32 before the PID.
+    // Switch 2 command 10 has one opaque input u32 before the reserved PID slot.
     Result OpenApplicationProxyWithFlags(
-        Out<SharedPointer<IApplicationProxy>> out_application_proxy, u32 flags, ClientProcessId pid,
+        Out<SharedPointer<IApplicationProxy>> out_application_proxy, u32 version, ClientProcessId pid,
         InCopyHandle<Kernel::KProcess> process_handle);
 
 private:

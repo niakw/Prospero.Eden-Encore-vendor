@@ -51,12 +51,15 @@ private:
     void UnavailableVideoEncoder(HLERequestContext& ctx);
     void UnavailableDocumentedFeature(HLERequestContext& ctx);
     void InitializeVideoCodecContext(HLERequestContext& ctx);
+    void ReleaseVideoDecoderAccess(HLERequestContext& ctx);
     void OpenVideoDecoderSession(HLERequestContext& ctx);
     void OpenVideoDecoderChildSession(HLERequestContext& ctx);
     void Initialize(HLERequestContext& ctx);
     void BindProcess(HLERequestContext& ctx);
     void CompleteBootstrap(HLERequestContext& ctx);
+    void QuerySessionMode(HLERequestContext& ctx);
     void InitializeGpuContext(HLERequestContext& ctx);
+    void InitializeInterModuleImageContext(HLERequestContext& ctx);
     void DestroyGpuContext(HLERequestContext& ctx);
     void CreateSyncptContext(HLERequestContext& ctx);
     void OpenSyncptSession(HLERequestContext& ctx);
@@ -64,12 +67,14 @@ private:
     void OpenGpuSession(HLERequestContext& ctx);
     void QueryDonatedTransferMemoryUsage(HLERequestContext& ctx);
     void OpenNvsrvSession(HLERequestContext& ctx);
+    void QueryNvDrvTransferMemoryUsage(HLERequestContext& ctx);
     void InitializeFeatureContext(HLERequestContext& ctx);
     void OpenCameraSession(HLERequestContext& ctx);
     void OpenChatSession(HLERequestContext& ctx);
     void InitializeDisplayContext(HLERequestContext& ctx);
     void FinalizeDisplayContext(HLERequestContext& ctx);
     void OpenDisplaySession(HLERequestContext& ctx);
+    void OpenGpuTimeSession(HLERequestContext& ctx);
     void BootNativeMemoryManagement(HLERequestContext& ctx);
     void ConfigureGraphicsFrameContext(HLERequestContext& ctx);
     void SetGraphicsFrameMode(HLERequestContext& ctx);
@@ -108,6 +113,10 @@ private:
     u32 m_graphics_frame_restart_mode{};
     u32 m_graphics_frame_timeslice_mode{};
     std::vector<std::weak_ptr<IGpuSession>> m_gpu_sessions;
+    // libounce GSV 906/903: one decoder creator lease per root initialization.
+    // Closing the MOVE session does not release root policy state; 903 does.
+    std::weak_ptr<IGraphicsVideoDecoderSession> m_video_decoder_creator;
+    bool m_video_decoder_access_held{};
     // TIPC 1 donates a real process-owned work buffer. Keep the kernel owner
     // alive so TIPC 498 can report the exact donated capacity without
     // pretending the HLE backend consumed storage it never suballocated.
@@ -115,9 +124,13 @@ private:
     u64 m_bootstrap_transfer_memory_size{};
     // TIPC 1402: an active INvDrv2User child is exclusive per GSV session.
     std::weak_ptr<Nvidia::NVDRV> m_nvsrv_session;
+    // Capacity belongs exclusively to the live 1401 child; a 1402 child
+    // has no donation. The weak child guards access after destruction.
+    u64 m_nvsrv_transfer_memory_size{};
     // Shared because CoreTiming callbacks keep only weak references; shutdown
     // can therefore disarm polling before the last callback releases state.
     std::shared_ptr<NativeSyncptState> m_syncpt;
+    std::weak_ptr<ServiceFrameworkBase> m_syncpt_session;
     std::mutex m_native_memory_mutex;
     GraphicsSupervisorProtocol::NativeMemoryLedger m_native_memory;
     std::shared_ptr<Nvidia::Module> m_native_module;

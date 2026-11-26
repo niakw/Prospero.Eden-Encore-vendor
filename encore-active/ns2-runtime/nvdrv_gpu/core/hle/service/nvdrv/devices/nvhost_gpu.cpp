@@ -20,6 +20,7 @@
 #include "core/hle/service/nvdrv/core/syncpoint_manager.h"
 #include "core/hle/service/nvdrv/devices/ioctl_serialization.h"
 #include "core/hle/service/nvdrv/devices/nvhost_gpu.h"
+#include "core/hle/service/nvdrv/devices/nvhost_as_gpu.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_context.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
@@ -82,6 +83,19 @@ nvhost_gpu::nvhost_gpu(Core::System& system_, EventInterface& events_interface_,
     error_notifier_event = events_interface.CreateEvent("GpuChannelErrorNotifier");
 }
 
+void nvhost_gpu::SignalNativeChannelFault(void* context) noexcept {
+    auto* self = static_cast<nvhost_gpu*>(context);
+    if (!self) return;
+    const std::scoped_lock event_lock{self->native_error_event_mutex};
+    if (!self->native_error_notifier_initialized || !self->error_notifier_event)
+        return;
+    try {
+        self->error_notifier_event->Signal(self->system.Kernel());
+    } catch (...) {
+        // Fault delivery must never replace the already-latched GPU cause.
+    }
+}
+
 nvhost_gpu::~nvhost_gpu() {
     // Normal guest close retires the channel from OnClose when its last FD
     // disappears. If teardown bypassed OnClose, preserve the same ordering
@@ -108,6 +122,8 @@ nvhost_gpu::~nvhost_gpu() {
 
 NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> input,
                             std::span<u8> output) {
+    if (UsesNativeAbi(fd) && !NativeEpochCurrent(fd))
+        return NvResult::InvalidState;
     switch (command.group) {
     case 0x0:
         switch (command.cmd) {
@@ -295,6 +311,8 @@ NvResult nvhost_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> inpu
 
 NvResult nvhost_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> input,
                             std::span<const u8> inline_input, std::span<u8> output) {
+    if (UsesNativeAbi(fd) && !NativeEpochCurrent(fd))
+        return NvResult::InvalidState;
     switch (command.group) {
     case 'H':
         switch (command.cmd) {
@@ -328,12 +346,23 @@ NvResult nvhost_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> inpu
 
 NvResult nvhost_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8> input,
                             std::span<u8> output, std::span<u8> inline_output) {
+    if (UsesNativeAbi(fd) && !NativeEpochCurrent(fd))
+        return NvResult::InvalidState;
     UNIMPLEMENTED_MSG("Unimplemented ioctl={:08X}", command.raw);
     return NvResult::NotImplemented;
 }
 
 void nvhost_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
     sessions[fd] = session_id;
+    // OunceVK opens /dev/nvhost-gpu only after gsvOpenGpu/VM import. Capture
+    // that exact process epoch now; later GSV teardown must invalidate work,
+    // not silently reclassify this descriptor as a Switch 1 channel.
+    if (const auto* session = core.GetSession(session_id);
+        session && session->process) {
+        if (const auto ticket =
+                NativeGpuProcessRegistry::Instance().CaptureTicket(session->process))
+            native_generations.emplace(fd, ticket->generation);
+    }
 }
 
 void nvhost_gpu::OnClose(DeviceFD fd) {
@@ -342,6 +371,7 @@ void nvhost_gpu::OnClose(DeviceFD fd) {
         native_channel_enabled = false;
         native_gpfifo_configured = false;
     }
+    native_generations.erase(fd);
     sessions.erase(fd);
     // One shared ChannelState backs this nvhost-gpu device owner. Do not
     // retire it while another guest FD still references the same device.
@@ -370,7 +400,7 @@ bool nvhost_gpu::CanBindNativeTsgChannel(DeviceFD fd, NvCore::SessionId owner) {
     const auto* tsg = core.GetSession(owner);
     return channel && tsg && channel->process &&
            channel->process == tsg->process &&
-           NativeGpuProcessRegistry::Instance().Contains(channel->process);
+           UsesNativeAbi(fd) && NativeEpochCurrent(fd);
 }
 
 NvResult nvhost_gpu::SetNativeTsgChannelEnabled(DeviceFD fd, NvCore::SessionId owner,
@@ -382,7 +412,7 @@ NvResult nvhost_gpu::SetNativeTsgChannelEnabled(DeviceFD fd, NvCore::SessionId o
     const auto* tsg = core.GetSession(owner);
     if (!channel || !tsg || !channel->process ||
         channel->process != tsg->process ||
-        !NativeGpuProcessRegistry::Instance().Contains(channel->process) ||
+        !UsesNativeAbi(fd) || !NativeEpochCurrent(fd) ||
         !channel_state)
         return NvResult::InvalidState;
     native_channel_enabled = enabled;
@@ -583,6 +613,8 @@ NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, Dev
     }
 
     const u32 bit = 1u << event_id;
+    std::unique_lock<std::mutex> error_event_lock{native_error_event_mutex, std::defer_lock};
+    if (event_id == 3) error_event_lock.lock();
     switch (cmd) {
     case 0: // disable
         native_event_enable_mask &= ~bit;
@@ -593,6 +625,10 @@ NvResult nvhost_gpu::NativeEventIdControl(IoctlNativeEventIdControl& params, Dev
         // Registration starts from a clean event state. Actual GPU fault/
         // breakpoint producers can signal the already-exported QueryEvent.
         event->GetReadableEvent().Clear(system.Kernel());
+#ifdef PS5_NATIVE
+        if (event_id == 3 && native_error_notifier_initialized && ::Eden::PeekGpuFailure())
+            event->Signal(system.Kernel());
+#endif
         break;
     case 2: // clear
         event->GetReadableEvent().Clear(system.Kernel());
@@ -617,11 +653,18 @@ NvResult nvhost_gpu::SetErrorNotifier(IoctlSetErrorNotifier& params, DeviceFD fd
         status != NvResult::Success)
         return status;
 
+    const std::scoped_lock event_lock{native_error_event_mutex};
     native_error_notifier_initialized = static_cast<u32>(params.mem) != 0;
     native_error_info = {};
+    // OunceVK reads H:0x17 immediately after installing the notifier and
+    // requires status==0 for a healthy channel. Zero-initialize the snapshot;
+    // future real GPU faults may replace it with a non-zero status.
     native_error_notification = {};
-    native_error_notification.status = 0xFFFF;
     error_notifier_event->GetReadableEvent().Clear(system.Kernel());
+#ifdef PS5_NATIVE
+    if (native_error_notifier_initialized && ::Eden::PeekGpuFailure())
+        error_notifier_event->Signal(system.Kernel());
+#endif
     return NvResult::Success;
 }
 
@@ -649,8 +692,23 @@ NvResult nvhost_gpu::GetErrorNotification(IoctlGetErrorNotification& params, Dev
     if (!native_error_notifier_initialized)
         return NvResult::InvalidState;
 
+    // OunceVK's native completion path reads H:0x17 directly after the
+    // producer counter/marker join and treats any non-zero status as fatal.
+    // Encore's GPU failure latch is title-wide: once the GPU worker/backend
+    // has failed, no channel can make further progress. NVIDIA's robust
+    // channel notifier defines 0xFFFF as the generic ERROR status. Do not
+    // invent an info32 firmware error type until a channel-specific cause is
+    // available; report only the proven health bit and keep the snapshot
+    // latched until SetErrorNotifier resets it or the title is destroyed.
+#ifdef PS5_NATIVE
+    if (::Eden::PeekGpuFailure() &&
+        static_cast<u16>(native_error_notification.status) == 0) {
+        constexpr u16 RobustChannelErrorStatus = 0xFFFF;
+        native_error_notification.status = RobustChannelErrorStatus;
+        SignalNativeChannelFault(this);
+    }
+#endif
     params = native_error_notification;
-    params.status = 0xFFFF;
     return NvResult::Success;
 }
 NvResult nvhost_gpu::SetChannelPriority(IoctlChannelSetPriority& params) {
@@ -680,13 +738,17 @@ NvResult nvhost_gpu::ValidateChannelOwner(DeviceFD fd, u64& program_id) const {
     // initialised by a foreign FD that shares the same NVDRV device object.
     // Match the real per-FD owner BEFORE InitChannel, program_id or ctxObjs
     // are changed, not only at the later SubmitGPFIFOImpl boundary.
-    const bool native = NativeGpuProcessRegistry::Instance().Contains(process);
+    const bool native = UsesNativeAbi(fd);
+    if (native && !NativeEpochCurrent(fd))
+        return NvResult::InvalidState;
     for (const auto& opened_fd : sessions) {
         const auto* opened = core.GetSession(opened_fd.second);
         if (native) {
-            if (!opened || opened->process != process) return NvResult::InvalidState;
-        } else if (opened && opened->process &&
-                   NativeGpuProcessRegistry::Instance().Contains(opened->process)) {
+            if (!opened || opened->process != process ||
+                !UsesNativeAbi(opened_fd.first) ||
+                !NativeEpochCurrent(opened_fd.first))
+                return NvResult::InvalidState;
+        } else if (UsesNativeAbi(opened_fd.first)) {
             // A legacy FD cannot initialise a device with any native owner.
             // Mixed legacy/legacy FDs keep their original compatibility.
             return NvResult::InvalidState;
@@ -958,6 +1020,7 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     // A native GPU device may expose multiple FDs. A rejected or foreign
     // process must not cause InitChannel on another guest's address space.
     const Kernel::KProcess* native_owner = nullptr;
+    std::shared_ptr<const std::atomic_bool> native_submission_lease;
     if (native) {
         const auto it = sessions.find(fd);
         const auto* owner = it == sessions.end() ? nullptr : core.GetSession(it->second);
@@ -971,6 +1034,15 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
             return NvResult::InvalidState;
         }
         native_owner = owner->process;
+        // BindChannel is the sole publisher of this type-erased AS lease.
+        // A surviving scheduler lease must not revive a revoked GSV VM.
+        const auto as_owner = std::static_pointer_cast<nvhost_as_gpu>(
+            channel_state->address_space_owner);
+        if (!NativeEpochCurrent(fd) || !as_owner)
+            return NvResult::InvalidState;
+        native_submission_lease = as_owner->CaptureNativeSubmissionLease();
+        if (!native_submission_lease)
+            return NvResult::InvalidState;
         if (!native_channel_enabled) {
 #ifdef PS5_NATIVE
             if (trace_impl)
@@ -999,32 +1071,30 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
         }
     }
 
-    // A guest may request FENCE_WAIT with an arbitrary negative, out-of-
-    // range or released syncpoint ID. HasSyncpointExpired uses at() and
-    // asserts on unreserved IDs; never let an untrusted NVDRV ioctl reach
-    // that host assertion before GPU channel admission is complete.
-    // Keep the Maxwell/NS1 fence path untouched.
-    if (native && flags.fence_wait.Value() &&
-        !syncpoint_manager.IsSyncpointAllocated(
-            static_cast<u32>(params.fence.id)))
-        return NvResult::BadParameter;
-
-    // Native FENCE_ACTION ACQUIRE is not yet scheduled by the Ampere
-    // puller. If this input fence is unresolved, submitting its legacy
-    // wait packet would kill the GPU worker after an apparently successful
-    // ioctl, and possibly strand an already-reserved completion syncpoint.
-    // Reject BEFORE InitChannel, bind or fence reservation. A satisfied
-    // wait needs no command; NS1 retains its existing wait path.
-    if (native && flags.fence_wait.Value() &&
-        !syncpoint_manager.IsFenceSignalled(params.fence)) {
+    // Capture the exact source reservation before any channel mutation,
+    // rather than asking the legacy cached min/max fence predicate twice.
+    // The wait belongs to the command list and will be polled by the
+    // existing native channel scheduler before executing its first word.
+    if (native && flags.fence_wait.Value()) {
+        try {
+            auto lease = syncpoint_manager.CaptureNativeSyncpointLease(
+                static_cast<u32>(params.fence.id));
+            if (!lease) {
 #ifdef PS5_NATIVE
-        if (trace_impl)
-            std::fprintf(stderr,
-                         "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=unresolved-native-wait fence_id=%u fence_value=%u\n",
-                         impl_trace_ticket, static_cast<unsigned>(params.fence.id),
-                         static_cast<unsigned>(params.fence.value));
+                if (trace_impl)
+                    std::fprintf(stderr,
+                                 "EDEN_NS2_GPFIFO_REJECT ticket=%u stage=impl reason=invalid-native-wait fence_id=%u fence_value=%u\n",
+                                 impl_trace_ticket, static_cast<unsigned>(params.fence.id),
+                                 static_cast<unsigned>(params.fence.value));
 #endif
-        return NvResult::NotImplemented;
+                return NvResult::BadParameter;
+            }
+            entries.native_syncpoint_wait.emplace(Tegra::NativeSyncpointWait{
+                static_cast<u32>(params.fence.id), static_cast<u32>(params.fence.value),
+                std::move(lease)});
+        } catch (const std::bad_alloc&) {
+            return NvResult::InsufficientMemory;
+        }
     }
 
     // P2.7: every native GPFIFO entry must refer to a fully mapped GMMU
@@ -1093,7 +1163,8 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
     // Only an authenticated Switch 2 channel may switch its address-space
     // texture layout. NS1 never enters this branch and keeps Maxwell tiling.
     if (native) {
-        if (!NativeGpuChannelRegistry::Instance().Bind(
+        auto& native_channel_registry = NativeGpuChannelRegistry::Instance();
+        if (!native_channel_registry.Bind(
                 channel_state.get(), native_owner)) {
 #ifdef PS5_NATIVE
             if (trace_impl)
@@ -1103,19 +1174,29 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
 #endif
             return NvResult::InvalidState;
         }
+        if (!native_channel_registry.AttachFaultNotifier(
+                channel_state.get(), this, &nvhost_gpu::SignalNativeChannelFault))
+            return NvResult::InvalidState;
         channel_state->memory_manager->EnableNativeTiling();
     }
 
     const auto bind_id = channel_state->bind_id;
     const u32 native_completion = native_plan ? native_plan->completion_count : 0;
+    const auto push_gpu_entries = [&](Tegra::CommandList&& list) {
+        if (native)
+            list.native_submission_lease = native_submission_lease;
+        gpu.PushGPUEntries(bind_id, std::move(list));
+    };
 
-    if (flags.fence_wait.Value()) {
+    // The native wait is attached to entries, not a legacy FENCE_ACTION
+    // packet. This leaves the historical Maxwell submission path intact.
+    if (!native && flags.fence_wait.Value()) {
         if (flags.increment_value.Value()) {
             return NvResult::BadParameter;
         }
 
         if (!syncpoint_manager.IsFenceSignalled(params.fence)) {
-            gpu.PushGPUEntries(bind_id, Tegra::CommandList{BuildWaitCommandList(params.fence)});
+            push_gpu_entries(Tegra::CommandList{BuildWaitCommandList(params.fence)});
         }
     }
 
@@ -1129,22 +1210,22 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
         : (flags.fence_increment.Value() != 0 ? 2U : 0U) +
           (flags.increment_value.Value() != 0 ? u32{params.fence.value} : 0U);
     params.fence.value = syncpoint_manager.IncrementSyncpointMaxExt(channel_syncpoint, increment);
-    gpu.PushGPUEntries(bind_id, std::move(entries));
+    push_gpu_entries(std::move(entries));
 
     if (flags.fence_increment.Value()) {
         if (flags.suppress_wfi.Value()) {
-            gpu.PushGPUEntries(bind_id,
-                               Tegra::CommandList{BuildIncrementCommandList(params.fence)});
+            push_gpu_entries(
+                Tegra::CommandList{BuildIncrementCommandList(params.fence)});
         } else {
-            gpu.PushGPUEntries(bind_id,
-                               Tegra::CommandList{BuildIncrementWithWfiCommandList(params.fence)});
+            push_gpu_entries(
+                Tegra::CommandList{BuildIncrementWithWfiCommandList(params.fence)});
         }
     }
 
     // The completed pushbuffer precedes its counter increment on the same
     // ordered GPU queue. Do not signal before work has been submitted.
     if (native_completion != 0) {
-        gpu.PushGPUEntries(bind_id, Tegra::CommandList{
+        push_gpu_entries(Tegra::CommandList{
             flags.suppress_wfi.Value()
                 ? BuildIncrementCommandList(params.fence, native_completion)
                 : BuildIncrementWithWfiCommandList(params.fence, native_completion)});
@@ -1344,25 +1425,40 @@ Kernel::KEvent* nvhost_gpu::QueryEvent(u32 event_id) {
         return sm_exception_breakpoint_pause_report_event;
     case 3:
         return error_notifier_event;
-    case 7:
-        // Native driver error notification; original console clients use 3.
-        // QueryEvent has no FD parameter. Do not expose the native-only event
-        // through a mixed/shared NVDRV device; fail closed if ambiguous.
-        return sessions.size() == 1 && UsesNativeAbi(sessions.begin()->first)
-                   ? error_notifier_event : nullptr;
     default:
         LOG_CRITICAL(Service_NVDRV, "Unknown Ctrl GPU Event {}", event_id);
         return nullptr;
     }
 }
 
+Kernel::KEvent* nvhost_gpu::QueryEvent(DeviceFD fd, u32 event_id) {
+    // OunceVK configures independent 3D and copy /dev/nvhost-gpu FDs and
+    // queries event 7 on each one. Admission is therefore descriptor-scoped:
+    // multiple live native channels are valid and must not make id 7
+    // ambiguous. A stale native epoch must not expose a live event from a
+    // later process generation.
+    if (UsesNativeAbi(fd) && !NativeEpochCurrent(fd))
+        return nullptr;
+    if (event_id == 7)
+        return UsesNativeAbi(fd) ? error_notifier_event : nullptr;
+    return QueryEvent(event_id);
+}
+
 bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const {
-    // A device can hold FDs for different guest processes. Never promote a
-    // Switch 1 request because an unrelated FD owns a Switch 2 GPU session.
-    const auto it = sessions.find(fd);
-    if (it == sessions.end()) return false;
-    const auto* session = core.GetSession(it->second);
-    return session && session->process &&
-           NativeGpuProcessRegistry::Instance().Contains(session->process);
+    // Keep ABI identity descriptor-scoped and sticky. Epoch liveness is
+    // checked separately so stale native FDs cannot fall through to Maxwell.
+    return sessions.contains(fd) && native_generations.contains(fd);
+}
+
+bool nvhost_gpu::NativeEpochCurrent(DeviceFD fd) const {
+    const auto session_it = sessions.find(fd);
+    const auto generation_it = native_generations.find(fd);
+    if (session_it == sessions.end() || generation_it == native_generations.end())
+        return false;
+    const auto* session = core.GetSession(session_it->second);
+    if (!session || !session->process)
+        return false;
+    return NativeGpuProcessRegistry::Instance().IsCurrent(
+        {session->process, generation_it->second});
 }
 } // namespace Service::Nvidia::Devices

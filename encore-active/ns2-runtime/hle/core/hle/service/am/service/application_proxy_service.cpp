@@ -21,6 +21,7 @@ IApplicationProxyService::IApplicationProxyService(Core::System& system_,
         // request as command 0 (Switchbrew / Lichii nx2).
         {10, D<&IApplicationProxyService::OpenApplicationProxyWithFlags>,
          "OpenApplicationProxy2"},
+        {2000, &IApplicationProxyService::StubReplyInterface, "Unknown2000"},
     };
     RegisterHandlers(functions);
 }
@@ -45,11 +46,12 @@ Result IApplicationProxyService::OpenApplicationProxy(
 }
 
 Result IApplicationProxyService::OpenApplicationProxyWithFlags(
-    Out<SharedPointer<IApplicationProxy>> out_application_proxy, u32 flags, ClientProcessId pid,
+    Out<SharedPointer<IApplicationProxy>> out_application_proxy, u32 version, ClientProcessId pid,
     InCopyHandle<Kernel::KProcess> process_handle) {
-    // The Switch 2 SDK sends flags 0 or 2; retain the original process
-    // validation, session lifetime and error behavior of command 0.
-    R_UNLESS(flags == 0 || flags == 2, ResultUnknown);
+    // SwitchBrew only establishes an opaque u32 before the reserved PID slot.
+    // Do not reject future SDK values: command 0's process validation, retry
+    // result and session lifetime remain the authoritative behavior.
+    (void)version;
     R_RETURN(OpenApplicationProxy(out_application_proxy, pid, process_handle));
 }
 

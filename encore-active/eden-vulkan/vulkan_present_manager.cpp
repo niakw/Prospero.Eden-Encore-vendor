@@ -218,6 +218,7 @@ Frame* PresentManager::GetRenderFrame() {
         frame->present_done.Wait();
     }
     frame->present_done.Reset();
+    frame->game_frame_presents = 1;
 
     return frame;
 }
@@ -510,7 +511,8 @@ void PresentManager::CopyToSwapchainImpl(Frame* frame) {
         RecreateSwapchain(frame);
     }
 
-    for (u32 acquire_attempt = 0; swapchain.AcquireNextImage(); ++acquire_attempt) {
+    for (u32 acquire_attempt = 0;
+         swapchain.AcquireNextImage(frame->game_frame_presents); ++acquire_attempt) {
         if (acquire_attempt >= MAX_PRESENT_ATTEMPTS - 1) {
             throw vk::Exception(VK_ERROR_SURFACE_LOST_KHR);
         }

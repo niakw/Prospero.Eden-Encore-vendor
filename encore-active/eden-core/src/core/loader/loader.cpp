@@ -28,6 +28,7 @@
 #include "core/loader/nro.h"
 #include "core/loader/nso.h"
 #include "core/loader/nsp.h"
+#include "core/loader/nx.h"
 #include "core/loader/xci.h"
 
 namespace Loader {
@@ -89,16 +90,21 @@ std::shared_ptr<FileSys::NSP> OpenContainerAsNsp(FileSys::VirtualFile file, File
 
     if (type == FileType::XCI) {
         FileSys::XCI xci{file, program_id, program_index};
-        if (xci.GetStatus() != ResultStatus::Success) {
-            return nullptr;
+        if (xci.GetStatus() == ResultStatus::Success) {
+            auto secure_nsp = xci.GetSecurePartitionNSP();
+            if (secure_nsp && secure_nsp->GetStatus() == ResultStatus::Success) {
+                return secure_nsp;
+            }
         }
-
-        auto secure_nsp = xci.GetSecurePartitionNSP();
-        if (secure_nsp == nullptr || secure_nsp->GetStatus() != ResultStatus::Success) {
-            return nullptr;
+        // Lichii: some XCZ dumps are PFS0-shaped compressed packages,
+        // not XCI/HFS0 cards. Try the existing NSP+NCZ parser, only for XCZ.
+        const auto extension = Common::ToLower(
+            std::string(Common::FS::GetExtensionFromFilename(file->GetName())));
+        if (extension == "xcz") {
+            auto nsp = std::make_shared<FileSys::NSP>(file, program_id, program_index);
+            if (nsp->GetStatus() == ResultStatus::Success) return nsp;
         }
-
-        return secure_nsp;
+        return nullptr;
     }
 
     return nullptr;
@@ -129,6 +135,9 @@ FileType IdentifyFile(FileSys::VirtualFile file) {
                 IdentifyFileLoader<AppLoader_DeconstructedRomDirectory>(file))
             return *romdir_type;
     }
+    if (const auto nx_type = IdentifyFileLoader<AppLoader_NX>(file)) {
+        return *nx_type;
+    }
     if (const auto nsp_type = IdentifyFileLoader<AppLoader_NSP>(file)) {
         return *nsp_type;
     } else if (const auto xci_type = IdentifyFileLoader<AppLoader_XCI>(file)) {
@@ -149,7 +158,7 @@ FileType IdentifyFile(FileSys::VirtualFile file) {
 }
 
 bool IsContainerType(FileType type) {
-    return type == FileType::NSP || type == FileType::XCI;
+    return type == FileType::NSP || type == FileType::XCI || type == FileType::NX;
 }
 
 bool IsBootableGameContainer(FileSys::VirtualFile file, FileType type, u64 program_id,
@@ -166,6 +175,9 @@ bool IsBootableGameContainer(FileSys::VirtualFile file, FileType type, u64 progr
         return false;
     }
 
+    if (type == FileType::NX) {
+        return AppLoader_NX::IsBootable(file);
+    }
     return HasApplicationProgramContent(OpenContainerAsNsp(file, type, program_id, program_index));
 }
 
@@ -185,17 +197,21 @@ FileType GuessFromFilename(const std::string& name) {
         return FileType::NCA;
     else if (extension == "nax")
         return FileType::NAX;
-    else if (extension == "xci" || extension == "xcz")
+    else if (extension == "xci" || extension == "xcz" || extension == "dxci")
         return FileType::XCI;
-    else if (extension == "nsp" || extension == "nsz")
+    else if (extension == "nsp" || extension == "nsz" || extension == "dnsp")
         return FileType::NSP;
     else if (extension == "kip")
         return FileType::KIP;
+    else if (extension == "nx")
+        return FileType::NX;
     return FileType::Unknown;
 }
 
 std::string GetFileTypeString(FileType type) {
     switch (type) {
+    case FileType::NX:
+        return "NX";
     case FileType::NRO:
         return "NRO";
     case FileType::NSO:
@@ -315,6 +331,10 @@ static std::unique_ptr<AppLoader> GetFileLoader(Core::System& system, FileSys::V
                                                 FileType type, u64 program_id,
                                                 std::size_t program_index) {
     switch (type) {
+    // NX archive: verified NxFormat container plus NS1/NS2 content snapshots.
+    case FileType::NX:
+        return std::make_unique<AppLoader_NX>(system, std::move(file), program_id, program_index);
+
     // NX NSO file format.
     case FileType::NSO:
         return std::make_unique<AppLoader_NSO>(std::move(file));

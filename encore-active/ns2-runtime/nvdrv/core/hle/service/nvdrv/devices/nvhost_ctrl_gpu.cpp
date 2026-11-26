@@ -59,6 +59,21 @@ NvResult nvhost_ctrl_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8>
             if (command.raw != 0xC010471EU) break;
             // not implemented yet on Encore: no deterministic GPU schedule.
             return NvResult::NotImplemented;
+        case 0x11: { // NVGPU_GPU_IOCTL_GET_TPC_EXCEPTION_EN_STATUS
+            // Linux nvgpu returns a u64 mask of SMs with TPC exceptions enabled.
+            // The SM debug-mode ioctl is unsupported here, so no guest SM
+            // exception-enable state can be established. Report the actual
+            // disabled state, not a fabricated GPU exception.
+            if (command.raw != 0x80084711U) break;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+            if (output.size() != sizeof(u64_le) ||
+                (!input.empty() && input.size() != sizeof(u64_le)))
+                return NvResult::InvalidSize;
+            const u64_le enabled_sm_exceptions{};
+            std::memcpy(output.data(), &enabled_sm_exceptions,
+                        sizeof(enabled_sm_exceptions));
+            return NvResult::Success;
+        }
         case 0x12: {
             // Native NVGPU_GPU_IOCTL_NUM_VSMS (0x80084712). Linux nvgpu
             // defines exactly {u32 num_vsms, u32 reserved}, output-only.
@@ -81,6 +96,33 @@ NvResult nvhost_ctrl_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8>
             return WrapFixed(this, &nvhost_ctrl_gpu::PmuGetGpuLoad, input, output);
         case 0x1c:
             return WrapFixed(this, &nvhost_ctrl_gpu::GetGpuTime, input, output);
+        case 0x1d: { // NVGPU_GPU_IOCTL_GET_CPU_TIME_CORRELATION_INFO
+            // Native Ampere exposes both CPU/GPU calibration timestamps in
+            // nanoseconds. Encore's NS2 GPU counter is sourced from this same
+            // CoreTiming clock, so each pair is an exact emulated correlation
+            // rather than a fabricated host-hardware timestamp.
+            if (command.raw != 0xC108471DU) break;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+            if (input.size() != sizeof(IoctlGetCpuTimeCorrelationInfo) ||
+                output.size() != sizeof(IoctlGetCpuTimeCorrelationInfo))
+                return NvResult::InvalidSize;
+
+            IoctlGetCpuTimeCorrelationInfo params{};
+            std::memcpy(&params, input.data(), sizeof(params));
+            const u32 count = params.count;
+            const u32 source_id = params.source_id;
+            if (count > std::size(params.samples) || source_id != 1U)
+                return NvResult::BadParameter;
+
+            for (u32 i = 0; i < count; ++i) {
+                const auto now = system.CoreTiming().GetGlobalTimeNs().count();
+                const u64_le timestamp = now > 0 ? static_cast<u64>(now) : 0ULL;
+                params.samples[i].cpu_timestamp = timestamp;
+                params.samples[i].gpu_timestamp = timestamp;
+            }
+            std::memcpy(output.data(), &params, sizeof(params));
+            return NvResult::Success;
+        }
         default:
             break;
         }

@@ -85,6 +85,137 @@ void BufferCache<P>::RunGarbageCollector() {
         return;
     }
 #endif
+#ifdef PS5_NATIVE
+    if constexpr (USE_MEMORY_MAPS && !IS_OPENGL) {
+        // Lichii batches GC readbacks rather than finishing the GPU once
+        // per dirty eviction. Keep the existing LRU age and eviction count.
+        constexpr u64 staging_budget = 16ULL * 1024 * 1024;
+        constexpr size_t max_regions = 4096;
+        std::array<BufferId, 64> candidates{};
+        size_t candidate_count = 0;
+        const size_t limit = aggressive_gc ? 64 : 32;
+        lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, [&](BufferId id) {
+            if (candidate_count == limit) return true;
+            candidates[candidate_count++] = id;
+            return false;
+        });
+        struct Download {
+            BufferId id;
+            BufferCopy copy;
+        };
+        const auto download_batch = [&](std::span<const BufferId> ids) {
+            boost::container::small_vector<Download, 16> downloads;
+            u64 total = 0;
+            bool oversized = false;
+            for (const BufferId id : ids) {
+                const auto& buffer = slot_buffers[id];
+                // Plan without clearing GPU ownership. A staging allocation
+                // failure must leave the original buffers readable.
+                memory_tracker.ForEachDownloadRange(
+                    buffer.CpuAddr(), buffer.SizeBytes(), false,
+                    [&](u64 start, u64 bytes) {
+                        if (oversized) return;
+                        gpu_modified_ranges.ForEachInRange(start, bytes,
+                            [&](DAddr first, DAddr end) {
+                                if (oversized) return;
+                                const u64 size = end - first;
+                                if (size > staging_budget ||
+                                    downloads.size() == max_regions) {
+                                    oversized = true;
+                                    return;
+                                }
+                                const u64 aligned = (size + 63) & ~u64{63};
+                                if (aligned > staging_budget - total) {
+                                    oversized = true;
+                                    return;
+                                }
+                                downloads.push_back({id, BufferCopy{
+                                    .src_offset = first - buffer.CpuAddr(),
+                                    .dst_offset = total,
+                                    .size = size,
+                                }});
+                                total += aligned;
+                            });
+                    });
+                if (oversized) break;
+            }
+            if (oversized) {
+                // Do not grow the new batch's staging or metadata without
+                // bound. The existing single-buffer path handles rare large
+                // or highly fragmented evictions with its original contract.
+                for (const BufferId id : ids) {
+                    DownloadBufferMemory(slot_buffers[id]);
+                    DeleteBuffer(id);
+                }
+                return;
+            }
+            if (total) {
+                // Catch only allocation failure, before recording GPU copies.
+                // A failed retirement is not a recoverable allocation error.
+                std::optional<decltype(runtime.DownloadStagingBuffer(total))> staging;
+                try {
+                    staging.emplace(runtime.DownloadStagingBuffer(total));
+                } catch (const std::bad_alloc&) {
+                    return;
+                }
+                runtime.PreCopyBarrier();
+                for (size_t first = 0; first < downloads.size();) {
+                    const BufferId id = downloads[first].id;
+                    auto& buffer = slot_buffers[id];
+                    std::array<BufferCopy, 8> copies{};
+                    size_t count = 0;
+                    do {
+                        auto copy = downloads[first++].copy;
+                        copy.dst_offset += staging->offset;
+                        buffer.MarkUsage(copy.src_offset, copy.size);
+                        copies[count++] = copy;
+                    } while (first < downloads.size() && count < copies.size() &&
+                             downloads[first].id == id);
+                    runtime.CopyBuffer(staging->buffer, buffer,
+                        std::span<const BufferCopy>{copies.data(), count}, false);
+                }
+                runtime.PostCopyBarrier();
+                runtime.Finish();
+                // Keep the established pending CPU-write protection. Sample
+                // after retirement so writes queued during the wait are visible.
+                const auto cpu_written = PendingCpuWriteRanges();
+                for (const auto& download : downloads) {
+                    const auto& copy = download.copy;
+                    const auto& buffer = slot_buffers[download.id];
+                    WriteDownloadedMemory(cpu_written, buffer.CpuAddr() + copy.src_offset,
+                        staging->mapped_span.data() + copy.dst_offset, copy.size);
+                }
+            }
+            // Publish ownership only after every readback in this batch
+            // completed. Buffer allocations are page-aligned and disjoint.
+            for (const BufferId id : ids) {
+                auto& buffer = slot_buffers[id];
+                memory_tracker.ForEachDownloadRangeAndClear(
+                    buffer.CpuAddr(), buffer.SizeBytes(), [&](u64 start, u64 bytes) {
+                        ClearDownload(start, bytes);
+                        gpu_modified_ranges.Subtract(start, bytes);
+                    });
+                DeleteBuffer(id);
+            }
+        };
+        // Bound the nominal batch by the owners' sizes; the planner above
+        // independently caps the actual aligned readback size and region count.
+        for (size_t first = 0; first < candidate_count;) {
+            size_t end = first;
+            u64 bytes = 0;
+            do {
+                const u64 size = slot_buffers[candidates[end]].SizeBytes();
+                if (end != first && (bytes >= staging_budget ||
+                                     size > staging_budget - bytes)) break;
+                bytes += size;
+                ++end;
+            } while (end < candidate_count);
+            download_batch(std::span<const BufferId>{candidates.data() + first, end - first});
+            first = end;
+        }
+        return;
+    }
+#endif
     int num_iterations = aggressive_gc ? 64 : 32;
     const auto clean_up = [this, &num_iterations](BufferId buffer_id) {
         if (num_iterations == 0) {
@@ -232,7 +363,11 @@ void BufferCache<P>::CachedWriteMemory(DAddr device_addr, u64 size) {
     DAddr aligned_start = Common::AlignDown(device_addr, DEVICE_PAGESIZE);
     DAddr aligned_end = Common::AlignUp(device_addr + size, DEVICE_PAGESIZE);
     if (!IsRegionGpuModified(aligned_start, aligned_end - aligned_start)) {
-        WriteMemory(device_addr, size);
+        // WriteMemory's clean-page branch does exactly this mark. Re-entering
+        // it would scan the same GPU-modified ranges again under the buffer
+        // cache mutex, even though this full-page query already proved that
+        // no GPU-owned sibling bytes need a download.
+        memory_tracker.MarkRegionAsCpuModified(device_addr, size);
         return;
     }
 
@@ -277,8 +412,21 @@ std::optional<VideoCore::RasterizerDownloadArea> BufferCache<P>::GetFlushArea(DA
 
 template <class P>
 void BufferCache<P>::DownloadMemory(DAddr device_addr, u64 size) {
+    // The cache page table covers 16 GiB of guest physical memory.
+    constexpr DAddr address_limit = DAddr{1} << 34;
+    if (!size || device_addr >= address_limit || size > address_limit - device_addr) {
+        return;
+    }
+    const DAddr end_addr = device_addr + size;
     ForEachBufferInRange(device_addr, size, [&](BufferId, Buffer& buffer) {
-        DownloadBufferMemory(buffer, device_addr, size);
+        // The memory tracker is shared across buffers. Never clear or copy
+        // another buffer's GPU-written pages using this buffer's offsets.
+        // Match Lichii's per-owner intersection before the destructive readback.
+        const DAddr start = (std::max)(device_addr, buffer.CpuAddr());
+        const DAddr end = (std::min)(end_addr, buffer.CpuAddr() + buffer.SizeBytes());
+        if (start < end) {
+            DownloadBufferMemory(buffer, start, end - start);
+        }
     });
 }
 
@@ -835,17 +983,32 @@ void BufferCache<P>::CommitAsyncFlushesHigh() {
     auto download_staging = runtime.DownloadStagingBuffer(total_size_bytes, true);
     boost::container::small_vector<BufferCopy, 4> normalized_copies;
     runtime.PreCopyBarrier();
-    for (auto& [copy, buffer_id] : downloads) {
-        copy.dst_offset += download_staging.offset;
-        const std::array copies{copy};
-        BufferCopy second_copy{copy};
+    // Adjacent download regions from the same source buffer share the
+    // already-established transfer barriers. Their staging offsets are
+    // distinct, and no guest draw or fence is recorded between these copies.
+    // Bound each batch to the Vulkan runtime's inline copy-vector capacity:
+    // this removes repeated scheduler callbacks without adding heap work
+    // under BufferCache::mutex or changing normalized readback ownership.
+    for (size_t first = 0; first < downloads.size();) {
+        const BufferId buffer_id = downloads[first].second;
         Buffer& buffer = slot_buffers[buffer_id];
-        second_copy.src_offset = static_cast<size_t>(buffer.CpuAddr()) + copy.src_offset;
-        const DAddr orig_device_addr = static_cast<DAddr>(second_copy.src_offset);
-        async_downloads.Add(orig_device_addr, copy.size);
-        buffer.MarkUsage(copy.src_offset, copy.size);
-        runtime.CopyBuffer(download_staging.buffer, buffer, copies, false);
-        normalized_copies.push_back(second_copy);
+        std::array<BufferCopy, 8> copies{};
+        size_t count = 0;
+        do {
+            auto& copy = downloads[first].first;
+            copy.dst_offset += download_staging.offset;
+            BufferCopy second_copy{copy};
+            second_copy.src_offset = static_cast<size_t>(buffer.CpuAddr()) + copy.src_offset;
+            const DAddr orig_device_addr = static_cast<DAddr>(second_copy.src_offset);
+            async_downloads.Add(orig_device_addr, copy.size);
+            buffer.MarkUsage(copy.src_offset, copy.size);
+            copies[count++] = copy;
+            normalized_copies.push_back(second_copy);
+            ++first;
+        } while (first < downloads.size() && count < copies.size() &&
+                 downloads[first].second == buffer_id);
+        runtime.CopyBuffer(download_staging.buffer, buffer,
+                           std::span<const BufferCopy>{copies.data(), count}, false);
     }
     runtime.PostCopyBarrier();
     pending_downloads.emplace_back(std::move(normalized_copies));
@@ -887,6 +1050,19 @@ Common::RangeSet<DAddr> BufferCache<P>::PendingCpuWriteRanges() {
 template <class P>
 void BufferCache<P>::WriteDownloadedMemory(const Common::RangeSet<DAddr>& cpu_written,
                                            DAddr device_addr, const u8* data, u64 size) {
+    if (size == 0) {
+        return;
+    }
+#ifdef PS5_NATIVE
+    // Lichii: completed GPU readback may land directly when no newer CPU
+    // write overlaps. Avoid a temporary RangeSet/subtractions for every
+    // uncontended download while the BufferCache mutex is held.
+    // Intersects fails closed on invalid or overflowing spans.
+    if (!cpu_written.Intersects(device_addr, size)) {
+        device_memory.WriteBlockUnsafe(device_addr, data, size);
+        return;
+    }
+#endif
     Common::RangeSet<DAddr> writable;
     writable.Add(device_addr, size);
     cpu_written.ForEachInRange(device_addr, size, [&writable](DAddr start, DAddr end) {
@@ -932,9 +1108,15 @@ void BufferCache<P>::PopAsyncBuffers() {
 
 template <class P>
 bool BufferCache<P>::IsRegionGpuModified(DAddr addr, size_t size) {
+#ifdef PS5_NATIVE
+    // Native RangeSet owner is selected together with this BufferCache.
+    // Avoid walking every fragmented GPU-written interval under the cache mutex.
+    return gpu_modified_ranges.Intersects(addr, size);
+#else
     bool is_dirty = false;
     gpu_modified_ranges.ForEachInRange(addr, size, [&](DAddr, DAddr) { is_dirty = true; });
     return is_dirty;
+#endif
 }
 
 template <class P>
@@ -2243,35 +2425,59 @@ void BufferCache<P>::DeleteBuffer(BufferId buffer_id, bool do_not_mark) {
     if constexpr (requires { runtime.OnBufferDeleted(slot_buffers[buffer_id]); }) {
         runtime.OnBufferDeleted(slot_buffers[buffer_id]);
     }
-    bool dirty_index{false};
-    boost::container::small_vector<u64, NUM_VERTEX_BUFFERS> dirty_vertex_buffers;
     const auto scalar_replace = [buffer_id](Binding& binding) {
         if (binding.buffer_id == buffer_id) {
             binding.buffer_id = BufferId{};
         }
     };
-    const auto replace = [scalar_replace](std::span<Binding> bindings) {
+    const auto replace = [scalar_replace](auto& bindings) {
         std::ranges::for_each(bindings, scalar_replace);
     };
 
-    if (channel_state->index_buffer.buffer_id == buffer_id) {
-        channel_state->index_buffer.buffer_id = BufferId{};
-        dirty_index = true;
-    }
-
-    for (u32 index = 0; index < channel_state->vertex_buffers.size(); index++) {
-        auto& binding = channel_state->vertex_buffers[index];
-        if (binding.buffer_id == buffer_id) {
+    // Bindings are channel-owned. A deleted slot left in an inactive channel
+    // can be reused by a new buffer while the old address/offset survives,
+    // causing stale uniforms, texture buffers or indirect data after a switch.
+    const auto scrub_channel = [&](BufferCacheChannelInfo& channel) {
+        auto& flags = channel.maxwell3d.dirty.flags;
+        if (channel.index_buffer.buffer_id == buffer_id) {
+            channel.index_buffer.buffer_id = BufferId{};
+            flags[Dirty::IndexBuffer] = true;
+        }
+        for (u32 index = 0; index < channel.vertex_buffers.size(); ++index) {
+            auto& binding = channel.vertex_buffers[index];
+            if (binding.buffer_id != buffer_id) {
+                continue;
+            }
             binding.buffer_id = BufferId{};
-            UpdateVertexBufferSlot(index, binding);
-            dirty_vertex_buffers.push_back(index);
+            if (&channel == channel_state) {
+                UpdateVertexBufferSlot(index, binding);
+            }
+            flags[Dirty::VertexBuffers] = true;
+            flags[Dirty::VertexBuffer0 + index] = true;
+        }
+        std::ranges::for_each(channel.uniform_buffers, replace);
+        std::ranges::for_each(channel.storage_buffers, replace);
+        std::ranges::for_each(channel.texture_buffers, replace);
+        replace(channel.transform_feedback_buffers);
+        scalar_replace(channel.count_buffer_binding);
+        scalar_replace(channel.indirect_buffer_binding);
+        replace(channel.compute_uniform_buffers);
+        replace(channel.compute_storage_buffers);
+        replace(channel.compute_texture_buffers);
+        if constexpr (HAS_PERSISTENT_UNIFORM_BUFFER_BINDINGS) {
+            channel.dirty_uniform_buffers.fill(~u32{0});
+            channel.uniform_buffer_binding_sizes.fill({});
+        }
+        channel.has_deleted_buffers = true;
+    };
+
+    scrub_channel(*channel_state);
+    for (const size_t channel_id : active_channel_ids) {
+        auto& channel = channel_storage[channel_id];
+        if (&channel != channel_state) {
+            scrub_channel(channel);
         }
     }
-    std::ranges::for_each(channel_state->uniform_buffers, replace);
-    std::ranges::for_each(channel_state->storage_buffers, replace);
-    replace(channel_state->transform_feedback_buffers);
-    replace(channel_state->compute_uniform_buffers);
-    replace(channel_state->compute_storage_buffers);
 
     // Mark the whole buffer as CPU written to stop tracking CPU writes
     if (!do_not_mark) {
@@ -2300,24 +2506,6 @@ void BufferCache<P>::DeleteBuffer(BufferId buffer_id, bool do_not_mark) {
 #endif
 
     slot_buffers.erase(buffer_id);
-
-    if constexpr (HAS_PERSISTENT_UNIFORM_BUFFER_BINDINGS) {
-        channel_state->dirty_uniform_buffers.fill(~u32{0});
-        channel_state->uniform_buffer_binding_sizes.fill({});
-    }
-
-    auto& flags = maxwell3d->dirty.flags;
-    if (dirty_index) {
-        flags[Dirty::IndexBuffer] = true;
-    }
-
-    if (dirty_vertex_buffers.size() > 0) {
-        flags[Dirty::VertexBuffers] = true;
-        for (auto index : dirty_vertex_buffers) {
-            flags[Dirty::VertexBuffer0 + index] = true;
-        }
-    }
-    channel_state->has_deleted_buffers = true;
 }
 
 template <class P>

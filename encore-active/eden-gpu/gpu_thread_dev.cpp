@@ -68,6 +68,9 @@ void ThreadManager::RunWorker(VideoCore::RendererBase& renderer, Core::Frontend:
                 { ::Eden::Performance::DiagnosticTimer category_timer(::Eden::Performance::gpu_command_tick);
                 system.GPU().TickWork();
                 }
+            } else if (auto* retire = std::get_if<RetireChannelCommand>(&next.data)) {
+                // Unlike TickWork from a draw, this is outside all dispatch leases.
+                retire->action();
             } else if (const auto* flush = std::get_if<FlushRegionCommand>(&next.data)) {
                 { ::Eden::Performance::DiagnosticTimer category_timer(::Eden::Performance::gpu_command_flush);
                 renderer.ReadRasterizer()->FlushRegion(flush->addr, flush->size);
@@ -84,9 +87,10 @@ void ThreadManager::RunWorker(VideoCore::RendererBase& renderer, Core::Frontend:
             if ((++completed_gpu_commands & 63u) == 0u)
                 ::Eden::Crash::gpu_completed_commands.fetch_add(64, std::memory_order_relaxed);
             if (next.block) {
-                // We have to lock the write_lock to ensure that the condition_variable wait not get a
-                // race between the check and the lock itself.
-                std::scoped_lock lk{state.write_lock};
+                // The producer may hold write_lock while the FIFO is full.
+                // Never acquire it here: only this separate completion mutex
+                // participates in the wait/notify handshake.
+                std::scoped_lock lk{state.completion_lock};
                 state.cv.notify_all();
             }
         }
@@ -105,6 +109,12 @@ void ThreadManager::FlushRegion(DAddr addr, u64 size, bool is_async) {
 
 void ThreadManager::TickGPU(bool is_async) {
     PushCommand(GPUTickCommand(), false, is_async);
+}
+
+void ThreadManager::RetireChannelAtBoundary(std::function<void()> action, bool is_async) {
+    // A successful return from the blocking command publishes retirement
+    // through the existing release/acquire worker fence, not a draw tick.
+    PushCommand(RetireChannelCommand{std::move(action)}, true, is_async);
 }
 
 void ThreadManager::InvalidateRegion(DAddr addr, u64 size) {
@@ -153,7 +163,10 @@ u64 ThreadManager::PushCommand(CommandData&& command_data, bool block, bool is_a
     }
 
     if (block) {
-        const bool completed = state.cv.wait(lk, stop_source.get_token(), [this, fence] {
+        const auto completion_token = stop_source.get_token();
+        lk.unlock();
+        std::unique_lock completion_lk{state.completion_lock};
+        const bool completed = state.cv.wait(completion_lk, completion_token, [this, fence] {
             return fence <= state.signaled_fence.load(std::memory_order_acquire);
         });
         if (!completed) {

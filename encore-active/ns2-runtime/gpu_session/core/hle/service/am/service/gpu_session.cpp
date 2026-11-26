@@ -27,6 +27,7 @@
 #include "core/hle/service/nvdrv/nvdrv.h"
 #include "core/hle/service/nvdrv/devices/nvhost_as_gpu.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_va_layout.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
 #include "core/hle/service/am/service/gpu_session.h"
 #include "core/hle/service/am/service/gpu_worker.h"
 #include "core/hle/service/am/service/gpu_worker_shared.h"
@@ -49,6 +50,18 @@ IGpuSession::IGpuSession(Core::System& system_,
         {12, &IGpuSession::GetNotificationEvent, "GetNotificationEvent"},
         {21, &IGpuSession::RequestWorker, "RequestWorker"},
         {22, &IGpuSession::AcquireWorker, "AcquireWorker"},
+        // Lichii nx2 documents these IDs as unknown zero-reply stubs.
+        // Name them explicitly for structural parity, but fail closed:
+        // their ABI/side effects are not known and must not be faked.
+        {23, &IGpuSession::RejectOpaqueNx2Command, "Unknown23"},
+        {24, &IGpuSession::RejectOpaqueNx2Command, "Unknown24"},
+        {25, &IGpuSession::RejectOpaqueNx2Command, "Unknown25"},
+        {34, &IGpuSession::RejectOpaqueNx2Command, "Unknown34"},
+        {51, &IGpuSession::RejectOpaqueNx2Command, "Unknown51"},
+        {8001, &IGpuSession::RejectOpaqueNx2Command, "Unknown8001"},
+        {8002, &IGpuSession::RejectOpaqueNx2Command, "Unknown8002"},
+        {8003, &IGpuSession::RejectOpaqueNx2Command, "Unknown8003"},
+        {8004, &IGpuSession::RejectOpaqueNx2Command, "Unknown8004"},
         {33, &IGpuSession::CreateAddressSpace, "CreateAddressSpace"},
         {41, &IGpuSession::CreateGraphicsDevice, "CreateGraphicsDevice"},
         {42, &IGpuSession::DestroyGraphicsDevice, "DestroyGraphicsDevice"},
@@ -85,6 +98,14 @@ void IGpuSession::Handshake(HLERequestContext& ctx) {
     rb.PushRaw<u32>(ResultSuccess.raw);
     rb.PushRaw<u32>(token_lo);
     rb.PushRaw<u32>(token_hi);
+}
+
+void IGpuSession::RejectOpaqueNx2Command(HLERequestContext& ctx) {
+    // These nine documented Lichii command IDs have no verified ABI.
+    // Keep explicit TIPC routing without reading untrusted payload words
+    // or reporting synthetic success / allocating guest-visible objects.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(Kernel::ResultNotImplemented.raw);
 }
 
 Result IGpuSession::HandleSyncRequest(Kernel::KServerSession& session,
@@ -301,7 +322,8 @@ void IGpuSession::GetNotificationEvent(HLERequestContext& ctx) {
 
 std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
 IGpuSession::ResolveOpenedAddressSpace(u32 id) {
-    // The worker's independent KSession uses the same shared FD identity.
+    // VM ids are GSV-owned opaque tokens. Resolution succeeds only after a
+    // separately opened NVDRV address-space descriptor imports that token.
     return m_shared->FindOwnedAddressSpace(id);
 }
 
@@ -309,7 +331,7 @@ Result IGpuSession::RegisterAddressSpace(u32 id) {
     const std::scoped_lock lock{m_shared->mutex};
     if (!m_shared->address_spaces.Owns(id))
         return Kernel::ResultNotFound;
-    if (!ResolveOpenedAddressSpace(id))
+    if (!Nvidia::Devices::NativeGpuProcessRegistry::Instance().RegisterVm(m_process, id))
         return Kernel::ResultInvalidState;
     return Translate(m_shared->address_spaces.Register(id));
 }
@@ -331,146 +353,19 @@ void IGpuSession::CreateAddressSpace(HLERequestContext& ctx) {
     if (GP::IsCreateAddressSpace(command)) {
         result = Kernel::ResultOutOfResource;
         if (m_shared->address_spaces.HasCapacity()) {
-            if (!m_shared->nv_session) {
-                // NvCore::Container::OpenSession can allocate a new session
-                // slot. Do not unwind through the HLE IPC dispatcher on host
-                // OOM; no GPU FD or guest-visible address-space ID exists yet.
-                try {
-                    m_shared->nv_session =
-                        m_module->GetContainer().OpenSession(m_process).id;
-                } catch (const std::bad_alloc&) {
-                    IPC::ResponseBuilder rb{ctx, 3};
-                    rb.Push(Kernel::ResultOutOfResource.raw);
-                    rb.Push<u32>(0);
-                    return;
-                }
-            }
-            // Module::Open constructs a guest FD through an allocating map.
-            // Do not unwind through TIPC when that allocation fails: no
-            // address-space slot or guest-visible FD has been published.
-            Nvidia::DeviceFD fd = Nvidia::INVALID_NVDRV_FD;
-            try {
-                fd = m_module->Open("/dev/nvhost-as-gpu",
-                                    Nvidia::NvCore::SessionId{*m_shared->nv_session});
-            } catch (const std::bad_alloc&) {
-                // result is already ResultOutOfResource.
-            }
-            if (fd != Nvidia::INVALID_NVDRV_FD && fd > 0) {
-                // Initialise an actual NVDRV address-space FD. Native 4K
-                // shader/queue mappings are not provided by this path.
-                std::array<u8, 40> input{};
-                std::array<u8, 40> output{};
-                const u32_le big_page_size{0x20000};
-                std::memcpy(input.data() + 8, &big_page_size, sizeof(big_page_size));
-                // The inherited 37-bit GPU VA defaults reject native NS2
-                // GPU-only render targets at 0x81_0000_0000 (above 512 GiB).
-                // Explicitly request 40-bit VA for THIS NS2 TIPC-created FD.
-                // MapNative4K and ReserveNativeSparse4K must still enforce
-                // live ownership and a real backing before a render succeeds.
-                const u64_le range_start{Nvidia::Devices::NativeNs2GpuVaStart};
-                const u64_le range_end{Nvidia::Devices::NativeNs2GpuVaEnd};
-                const u64_le range_split{Nvidia::Devices::NativeNs2GpuVaSmallSplit};
-                std::memcpy(input.data() + 16, &range_start, sizeof(range_start));
-                std::memcpy(input.data() + 24, &range_end, sizeof(range_end));
-                std::memcpy(input.data() + 32, &range_split, sizeof(range_split));
-                Nvidia::Ioctl ioctl{};
-                ioctl.raw = 0x40284109;
-                // Allocation inside the GMMU address-space initialization is
-                // fallible. Close the just-opened descriptor on OOM; no
-                // partially initialized VA object may escape through IPC.
-                Nvidia::NvResult ioctl_result = Nvidia::NvResult::InvalidState;
-                try {
-                    ioctl_result = m_module->Ioctl1(fd, ioctl, input, output);
-                } catch (const std::bad_alloc&) {
-                    m_module->Close(fd);
-                    IPC::ResponseBuilder rb{ctx, 3};
-                    rb.Push(Kernel::ResultOutOfResource.raw);
-                    rb.Push<u32>(0);
-                    return;
-                }
-                if (ioctl_result == Nvidia::NvResult::Success) {
-                    // This FD comes from the explicit nvhost-as-gpu open above.
-                    // Capture its concrete identity once; every later lookup
-                    // compares a safe nvdevice base, never a foreign static cast.
-                    const auto as = m_module->GetDevice<Nvidia::Devices::nvhost_as_gpu>(fd);
-                    if (!as || !as->OwnsNativeProcess(m_process)) {
-                        m_module->Close(fd);
-                        result = Kernel::ResultInvalidState;
-                    } else {
-                        // The identity map may allocate, while AddressSpaceSlots
-                        // is a fixed-size, non-allocating registry. Reserve the
-                        // fallible map node FIRST: an OOM must not leave a live
-                        // NVDRV FD in the process registry without an owner.
-                        const u32 candidate = static_cast<u32>(fd);
-                        try {
-                            const auto [it, inserted] =
-                                m_shared->opened_gpu_as.try_emplace(candidate, as);
-                            if (!inserted) {
-                                result = Kernel::ResultInvalidState;
-                            } else {
-                                const auto status = m_shared->address_spaces.Add(candidate);
-                                if (status == GP::Status::Success) {
-                                    // Replay every earlier sub-101 identity map into this new GMMU.
-                                    Nvidia::NvResult replay = Nvidia::NvResult::Success;
-                                    for (auto& identity : m_shared->identity_gpu_mappings) {
-                                        replay = as->MapNative4K(identity.handle, identity.address,
-                                                                0, identity.size, 0);
-                                        if (replay != Nvidia::NvResult::Success)
-                                            break;
-                                        if (!identity.AddSpace(candidate)) {
-                                            // The GPU VA mapping succeeded, but the fixed-size
-                                            // identity registry rejected it. Undo the untracked
-                                            // mapping and fail this address-space transaction.
-                                            // Never report Success with an orphaned GPU VA.
-                                            (void)as->UnmapNative4K(identity.address, identity.size);
-                                            replay = Nvidia::NvResult::InvalidState;
-                                            break;
-                                        }
-                                    }
-                                    if (replay == Nvidia::NvResult::Success) {
-                                        id = candidate;
-                                        result = ResultSuccess;
-                                    } else {
-                                        for (auto& identity : m_shared->identity_gpu_mappings) {
-                                            if (!identity.HasSpace(candidate)) continue;
-                                            as->UnmapNative4K(identity.address, identity.size);
-                                            identity.RemoveSpace(candidate);
-                                        }
-                                        m_shared->address_spaces.Remove(candidate);
-                                        m_shared->opened_gpu_as.erase(it);
-                                        result = replay == Nvidia::NvResult::InsufficientMemory
-                                            ? Kernel::ResultOutOfResource
-                                            : Kernel::ResultInvalidState;
-                                    }
-                                } else {
-                                    m_shared->opened_gpu_as.erase(it);
-                                    result = Translate(status);
-                                }
-                            }
-                        } catch (const std::bad_alloc&) {
-                            // A later GPU VA allocation may throw *after* the
-                            // FD, slot and earlier identity maps were published.
-                            // Remove all state belonging to this candidate
-                            // before Close(fd); otherwise a future boot can see
-                            // a stale registered address-space ID.
-                            for (auto& identity : m_shared->identity_gpu_mappings) {
-                                if (!identity.HasSpace(candidate)) continue;
-                                (void)as->UnmapNative4K(identity.address, identity.size);
-                                identity.RemoveSpace(candidate);
-                            }
-                            (void)m_shared->address_spaces.Remove(candidate);
-                            m_shared->opened_gpu_as.erase(candidate);
-                            result = Kernel::ResultOutOfResource;
-                        }
-                        if (result.IsError()) m_module->Close(fd);
-                    }
+            const auto candidate =
+                Nvidia::Devices::NativeGpuProcessRegistry::Instance().AllocateVm(
+                    m_process, m_shared);
+            if (candidate) {
+                const auto status = m_shared->address_spaces.Add(*candidate);
+                if (status == GP::Status::Success) {
+                    id = *candidate;
+                    result = ResultSuccess;
                 } else {
-                    m_module->Close(fd);
-                    result = Kernel::ResultInvalidState;
+                    (void)Nvidia::Devices::NativeGpuProcessRegistry::Instance().RemoveVm(
+                        m_process, *candidate, m_shared.get());
+                    result = Translate(status);
                 }
-            } else if (fd != Nvidia::INVALID_NVDRV_FD) {
-                m_module->Close(fd);
-                result = Kernel::ResultInvalidState;
             }
         }
     }
@@ -493,7 +388,8 @@ void IGpuSession::SynchronizeAddressSpace(HLERequestContext& ctx) {
             // mutation has either committed or returned an error. Completion
             // therefore means signalling the SDK job event; a global GPU idle
             // would serialize unrelated graphics work and is not required.
-            if (ResolveOpenedAddressSpace(request->address_space) &&
+            if ((ResolveOpenedAddressSpace(request->address_space) ||
+                 m_shared->CanStageBeforeImport(request->address_space)) &&
                 m_shared->events[request->notification]) {
                 m_shared->events[request->notification]->Signal(kernel);
                 result = ResultSuccess;
@@ -513,8 +409,7 @@ void IGpuSession::GetUserPartition(HLERequestContext& ctx) {
     if (const auto request = GP::DecodeAddressSpacePartition(command, 201)) {
         result = Kernel::ResultNotFound;
         const std::scoped_lock lock{m_shared->mutex};
-        if (m_shared->address_spaces.Owns(request->address_space) &&
-            ResolveOpenedAddressSpace(request->address_space)) {
+        if (m_shared->address_spaces.Owns(request->address_space)) {
             // Lichii's current newer-SDK contract: the user partition is the
             // range published to NVN. Unlike the 1-TiB GMMU page-table capacity,
             // the guest-visible user partition ends at 0xC000000000
@@ -523,8 +418,6 @@ void IGpuSession::GetUserPartition(HLERequestContext& ctx) {
             first = Nvidia::Devices::NativeNs2GpuVaStart;
             size = Nvidia::Devices::NativeNs2GpuVaSmallSplit - first;
             result = ResultSuccess;
-        } else if (m_shared->address_spaces.Owns(request->address_space)) {
-            result = Kernel::ResultInvalidState;
         }
     }
     IPC::ResponseBuilder rb{ctx, 6};
@@ -542,15 +435,12 @@ void IGpuSession::GetGsvPartition(HLERequestContext& ctx) {
     if (const auto request = GP::DecodeAddressSpacePartition(command, 202)) {
         result = Kernel::ResultNotFound;
         const std::scoped_lock lock{m_shared->mutex};
-        if (m_shared->address_spaces.Owns(request->address_space) &&
-            ResolveOpenedAddressSpace(request->address_space)) {
+        if (m_shared->address_spaces.Owns(request->address_space)) {
             // Empty partition is min > max. Returning 0,0 is a one-byte
             // partition at address zero to newer SDKs and makes them abort.
             first = ~u64{0};
             last = 0;
             result = ResultSuccess;
-        } else if (m_shared->address_spaces.Owns(request->address_space)) {
-            result = Kernel::ResultInvalidState;
         }
     }
     IPC::ResponseBuilder rb{ctx, 6};
@@ -571,14 +461,11 @@ void IGpuSession::GetVaRange(HLERequestContext& ctx) {
     if (const auto request = GP::DecodeAddressSpacePartition(command, 203)) {
         result = Kernel::ResultNotFound;
         const std::scoped_lock lock{m_shared->mutex};
-        if (m_shared->address_spaces.Owns(request->address_space) &&
-            ResolveOpenedAddressSpace(request->address_space)) {
+        if (m_shared->address_spaces.Owns(request->address_space)) {
             payload[0] = 1;
             payload[1] = Nvidia::Devices::NativeNs2GpuVaStart;
             payload[2] = Nvidia::Devices::NativeNs2GpuVaSmallSplit - 1;
             result = ResultSuccess;
-        } else if (m_shared->address_spaces.Owns(request->address_space)) {
-            result = Kernel::ResultInvalidState;
         }
     }
     // Result word + 72-byte output payload = 19 TIPC words.

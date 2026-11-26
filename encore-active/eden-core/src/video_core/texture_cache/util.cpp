@@ -565,8 +565,14 @@ void SwizzleBlockLinearImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr
                                                 Tegra::Memory::GuestMemoryFlags::UnsafeReadWrite>
                 dst(gpu_memory, gpu_addr + guest_offset, subresource_size, &tmp_buffer);
 
+            // Guest-physical image uploads must use the channel's native GOB
+            // layout, exactly like MaxwellDMA, I2M and the Fermi blitter.
             SwizzleTexture(dst, src, bytes_per_block, num_tiles.width, num_tiles.height,
-                           num_tiles.depth, block.height, block.depth);
+                           num_tiles.depth, block.height, block.depth
+#ifdef PS5_NATIVE
+                           , 1, gpu_memory.UsesNativeTiling()
+#endif
+            );
         }
 
         host_offset += host_bytes_per_layer;
@@ -927,7 +933,11 @@ boost::container::small_vector<BufferImageCopy, 16> UnswizzleImage(Tegra::Memory
             const std::span<u8> dst = output.subspan(host_offset);
             const std::span<const u8> src = input.subspan(guest_offset + guest_layer_offset);
             UnswizzleTexture(dst, src, 1U << bpp_log2, num_tiles.width, num_tiles.height,
-                             num_tiles.depth, block.height, block.depth, stride_alignment);
+                             num_tiles.depth, block.height, block.depth, stride_alignment
+#ifdef PS5_NATIVE
+                             , gpu_memory.UsesNativeTiling()
+#endif
+            );
             guest_layer_offset += layer_stride;
             host_offset += host_bytes_per_layer;
         }

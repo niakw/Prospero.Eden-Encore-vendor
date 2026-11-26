@@ -45,9 +45,9 @@
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
 // PS5-only experiment. The engine owns the 12 GiB reserved guest VA;
 // admission must succeed before a guest page table publishes that PA.
-extern "C" bool EdenNs2CommitGuestBacking(const void* backing_base,
-                                          std::size_t offset,
-                                          std::size_t bytes) noexcept;
+extern "C" bool EdenNs2EnsureGuestBackingReadable(const void* backing_base,
+                                                    std::size_t offset,
+                                                    std::size_t bytes) noexcept;
 #endif
 
 namespace Core::Memory {
@@ -102,10 +102,10 @@ struct Memory::Impl {
         ASSERT_MSG(target >= DramMemoryMap::Base, "Out of bounds target: {:016X}",
                    GetInteger(target));
 #if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
-        // The guest PTE contains a direct pointer into HostMemory. Commit
-        // the exact backing chunks BEFORE publishing it, including the
-        // case where the kernel maps memory on behalf of a GPU process.
-        if (!EdenNs2CommitGuestBacking(
+        // PTE publication only needs readable backing. Untouched NS2
+        // chunks already alias the shared read-only zero block; the first
+        // CPU write promotes its 2 MiB owner through the native fault path.
+        if (!EdenNs2EnsureGuestBackingReadable(
                 system.DeviceMemory().buffer.BackingBasePointer(),
                 GetInteger(target) - DramMemoryMap::Base, size)) {
             throw std::bad_alloc{};
@@ -435,7 +435,21 @@ struct Memory::Impl {
         [addr, size](const std::size_t offset, const std::size_t copy_amount, const Common::ProcessAddress current_vaddr) {
             if (::Eden::Performance::ShouldLogUnmappedAccess()) LOG_ERROR(HW_Memory, "Unmapped @ {:#016x} (start address = {:#016x}, size = {})", GetInteger(current_vaddr), GetInteger(addr), size);
         },
-        [=](const std::size_t offset, const std::size_t copy_amount, u8* const ptr) {
+        [&](const std::size_t offset, const std::size_t copy_amount, u8* const ptr) {
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_SPARSE_BACKING)
+            // A normal guest-memory ZERO page may still alias the shared
+            // read-only sparse owner in either NS1 or NS2. Writing zero
+            // through libc would fault and promote a private 2 MiB block for
+            // no semantic change. Route direct backing zeros through
+            // HostMemory; dense fallbacks retain their ordinary memset path.
+            if (IsDirectBackingAlias(reinterpret_cast<std::uintptr_t>(ptr), copy_amount)) {
+                const auto backing = reinterpret_cast<std::uintptr_t>(
+                    system.DeviceMemory().buffer.BackingBasePointer());
+                system.DeviceMemory().buffer.ClearBackingRegion(
+                    reinterpret_cast<std::uintptr_t>(ptr) - backing, copy_amount, 0);
+                return;
+            }
+#endif
             std::memset(ptr, 0, copy_amount);
         },
         [&](const Common::ProcessAddress current_vaddr, const std::size_t offset, const std::size_t copy_amount, u8* const ptr) {

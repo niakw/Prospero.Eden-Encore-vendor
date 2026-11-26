@@ -60,7 +60,83 @@ int main() {
         Mix(digest,back);
         ++partial_cases;
     }
+    // Maxwell pitch-to-tiled fallback uses SwizzleSubrect for 3D GOB
+    // volumes, with line_count spanning complete Z slices. The rounded
+    // depth is part of the destination size even for one logical slice.
+    for (u32 bpp : {1U, 4U, 16U}) for (u32 depth : {2U, 3U})
+    for (u32 block_depth : {0U, 1U, 2U}) {
+        constexpr u32 width=17, height=9, block_height=1;
+        const u32 pitch=width*bpp;
+        const u64 padded_width=(static_cast<u64>(pitch)+63)&~u64{63};
+        const u64 padded_height=(static_cast<u64>(height)+15)&~u64{15};
+        const u64 block_z=u64{1}<<block_depth;
+        const u64 padded_depth=(static_cast<u64>(depth)+block_z-1)&~(block_z-1);
+        const auto tiled_bytes=Tegra::Texture::CalculateSize(
+            true,bpp,width,height,depth,block_height,block_depth);
+        Check(tiled_bytes==padded_width*padded_height*padded_depth,
+              "3D DMA padded GOB envelope");
+        std::vector<u8> linear(static_cast<size_t>(pitch)*height*depth);
+        for (size_t i=0;i<linear.size();++i)
+            linear[i]=static_cast<u8>((i*23U+bpp*7U+block_depth*11U)&255U);
+        std::vector<u8> tiled(tiled_bytes,0xAA),readback(linear.size(),0);
+        Tegra::Texture::SwizzleSubrect(
+            tiled,linear,bpp,width,height,depth,0,0,width,height*depth,
+            block_height,block_depth,pitch);
+        Tegra::Texture::UnswizzleSubrect(
+            readback,tiled,bpp,width,height,depth,0,0,width,height*depth,
+            block_height,block_depth,pitch);
+        Check(readback==linear,"3D pitch-to-block-linear DMA subrect roundtrip");
+        Mix(digest,tiled);
+        Mix(digest,readback);
+        ++partial_cases;
+    }
 #ifdef EDEN_TEST_NATIVE_TILING
+    // The same decoder entrypoints are used by MaxwellDMA. Cover a
+    // multi-slice 16-byte GOB upload/readback on the NS2 channel, not just
+    // the single-layer I2M fixture below.
+    for (u32 depth : {2U, 3U}) for (u32 bd : {0U, 1U}) {
+        constexpr u32 bpp=16, width=17, height=9, bh=1, pitch=width*bpp;
+        const size_t linear_size=static_cast<size_t>(pitch)*height*depth;
+        const size_t tiled_size=Tegra::Texture::CalculateSize(true,bpp,width,height,depth,bh,bd);
+        std::vector<u8> original(linear_size),native(tiled_size,0xC3),back(linear_size,0x00);
+        for (size_t i=0;i<linear_size;++i)
+            original[i]=static_cast<u8>((i*29U + depth*7U + bd*13U)&255U);
+        Tegra::Texture::SwizzleSubrect(native,original,bpp,width,height,depth,
+                                      0,0,width,height*depth,bh,bd,pitch,true);
+        Tegra::Texture::UnswizzleSubrect(back,native,bpp,width,height,depth,
+                                        0,0,width,height*depth,bh,bd,pitch,true);
+        Check(back==original,"NS2 native 3D DMA roundtrip");
+        Mix(digest,native);
+        ++partial_cases;
+    }
+    // NV50 DST_LAYER semantics: a depth-tiled 3D destination selects
+    // one Z slice without changing the base address. Exercise the maintained
+    // overload under both Maxwell/NS1 and Switch 2 native GOB ordering.
+    for (bool native : {false, true}) for (u32 bpp : {1U,4U,16U})
+    for (u32 bd : {1U,2U}) for (u32 layer : {1U,2U,3U}) {
+        constexpr u32 width=11, height=9, depth=4, bh=1;
+        const u32 pitch=width*bpp;
+        const size_t linear_size=static_cast<size_t>(pitch)*height;
+        const size_t tiled_size=Tegra::Texture::CalculateSize(
+            true,bpp,width,height,depth,bh,bd);
+        std::vector<u8> original(linear_size),tiled(tiled_size,0x5A);
+        std::vector<u8> back(linear_size,0),base(linear_size,0);
+        for (size_t i=0;i<linear_size;++i)
+            original[i]=static_cast<u8>((i*41U+bpp*17U+bd*7U+layer*13U)&255U);
+        Tegra::Texture::SwizzleSubrect(
+            tiled,original,bpp,width,height,depth,0,0,width,height,
+            bh,bd,pitch,native,layer);
+        Tegra::Texture::UnswizzleSubrect(
+            back,tiled,bpp,width,height,depth,0,0,width,height,
+            bh,bd,pitch,native,layer);
+        Tegra::Texture::UnswizzleSubrect(
+            base,tiled,bpp,width,height,depth,0,0,width,height,
+            bh,bd,pitch,native,0);
+        Check(back==original,"DST_LAYER subrect roundtrip");
+        Check(base!=original,"DST_LAYER must not overwrite z0");
+        Mix(digest,tiled);
+        ++partial_cases;
+    }
     // Lichii #2085 regression: a 2x2 BPP16 I2M upload differs at GOB
     // offset bits 5/6 on Switch 2. Maxwell-written bytes must NOT decode
     // as the original under native tiling; native write/read must roundtrip.

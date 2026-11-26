@@ -231,6 +231,11 @@ void BlockOfCode::ClearCache() {
     DisableWriting();
     static const size_t page = sysconf(_SC_PAGESIZE);
     const size_t begin = reinterpret_cast<const u8*>(code_begin) - getCode();
+    // PreludeComplete calls ClearCache with an empty guest block cache.
+    // No discarded guest code means no physical tail needs to be returned.
+    // In particular, don't replace direct RX/RW pages with MAP_FIXED guards
+    // during the second title's first A32 prelude (PS5 13.60 SIGABRT).
+    [[maybe_unused]] const bool discarded_guest_code = getSize() > begin;
     if (hasWritableAlias()) {
         protection_end = begin;
         setSize(begin);
@@ -242,7 +247,8 @@ void BlockOfCode::ClearCache() {
         // the discarded tail. Keep RX/RW virtual addresses and the prelude.
         // Reclaim only whole physical 2 MiB chunks; GPU/guest memory may
         // reuse them until the next JIT emission commits more on demand.
-        if (!::Common::TrimSparseJitCode(const_cast<u8*>(getCode()), begin)) {
+        if (discarded_guest_code &&
+            !::Common::TrimSparseJitCode(const_cast<u8*>(getCode()), begin)) {
             std::abort();  // Sparse alias ownership drift is not recoverable.
         }
 #endif

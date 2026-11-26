@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <bit>
 #include <list>
 #include <map>
@@ -67,10 +68,23 @@ public:
     void OnClose(DeviceFD fd) override;
 
     // Bounded NS2 research GMMU mappings. These do not enable Ampere shaders.
-    NvResult MapNative4K(u32 handle_id, u64 address, u64 source, u64 size, u8 kind);
+    NvResult MapNative4K(u32 handle_id, u64 address, u64 source, u64 size, u8 kind,
+                         bool gpu_cacheable = false);
     // Reserve native 4K VA and map a real NVMap-backed image in one AS lock.
     NvResult MapNativeImage(u32 handle_id, u64 source, u64 size, u64& address);
     [[nodiscard]] bool OwnsNativeProcess(Kernel::KProcess* process);
+    // GSV owns the opaque VM lifetime. Retiring it invalidates future NVDRV
+    // ioctls without destroying the GMMU while a scheduler channel still
+    // holds this AS through ChannelState::address_space_owner.
+    // Called by GSV with its shared-state mutex held, after mapping replay
+    // and before publication becomes visible to VM retirement.
+    [[nodiscard]] bool CommitNativeVmImport(u32 id);
+    void RetireNativeVm(u32 id);
+    [[nodiscard]] bool NativeSubmissionAllowed() const;
+    [[nodiscard]] std::shared_ptr<const std::atomic_bool> CaptureNativeSubmissionLease() const;
+    // Transfer an existing exact 101 identity view to 211 without another pin.
+    NvResult PromoteNativeIdentity4K(u32 handle_id, u64 address, u64 size, u8 kind,
+                                    bool gpu_cacheable);
     NvResult UnmapNative4K(u64 address, u64 size);
     NvResult ReserveNativeSparse4K(u64 address, u64 size, u8 page_shift = 12);
     NvResult ReleaseNativeSparse4K(u64 address, u64 size);
@@ -96,6 +110,8 @@ public:
     static_assert(sizeof(VaRegion) == 0x18);
 
 private:
+    void PoisonNativeAddressSpace() noexcept;
+
     struct IoctlAllocAsEx {
         u32_le flags{}; // usually passes 1
         s32_le as_fd{}; // ignored; passes 0
@@ -106,6 +122,16 @@ private:
         u64_le va_range_split{};
     };
     static_assert(sizeof(IoctlAllocAsEx) == 40, "IoctlAllocAsEx is incorrect size");
+
+    struct NativeVmImport {
+        u32_le version{};
+        u32_le vm_id{};
+        u64_le reserved{};
+        u64_le user_first{};
+        u64_le user_end{};
+        u64_le reserved2{};
+    };
+    static_assert(sizeof(NativeVmImport) == 40, "NativeVmImport is incorrect size");
 
     struct IoctlAllocSpace {
         u32_le pages{};
@@ -169,6 +195,10 @@ private:
                   "IoctlGetVaRegions is incorrect size");
 
     NvResult AllocAsEx(IoctlAllocAsEx& params);
+    NvResult ImportNativeVm(const NativeVmImport& params);
+    bool ResetFailedNativeVmImport();
+    void ReleaseNativeVmBinding();
+    [[nodiscard]] bool NativeEpochCurrent() const;
     NvResult AllocateSpace(IoctlAllocSpace& params);
     NvResult Remap(std::span<IoctlRemapEntry> params);
     NvResult MapBufferEx(IoctlMapBufferEx& params);
@@ -195,10 +225,15 @@ private:
         bool fixed : 1;
         bool big_page : 1; // Only valid if fixed == false
         bool sparse_alloc : 1;
+        // Raw worker 211 GpuCacheability. The software GMMU currently has no
+        // cacheability PTE field, but the exact mapping owner must retain it.
+        bool gpu_cacheable : 1;
 
-        Mapping(NvCore::NvMap::Handle::Id handle_, DAddr ptr_, u64 offset_, u64 size_, bool fixed_, bool big_page_, bool sparse_alloc_)
+        Mapping(NvCore::NvMap::Handle::Id handle_, DAddr ptr_, u64 offset_, u64 size_,
+                bool fixed_, bool big_page_, bool sparse_alloc_, bool gpu_cacheable_ = false)
             : ptr(ptr_), offset(offset_), size(size_), handle(handle_)
             , fixed(fixed_), big_page(big_page_), sparse_alloc(sparse_alloc_)
+            , gpu_cacheable(gpu_cacheable_)
         {}
     };
 
@@ -224,13 +259,22 @@ private:
     // If a GMMU page allocation fails mid-batch, preserve all physical
     // backing until the owning GPU address space is retired. Subsequent
     // sparse mutations fail closed instead of unpinning a live partial PTE.
-    bool native_sparse_poisoned{};
+    // Written by mapping rollback under mutex; read at channel admission.
+    std::atomic_bool native_sparse_poisoned{};
+    // Every admitted native CommandList retains this independent health token.
+    // Poison/revocation flips it without freeing the AS, so already-queued GPU
+    // work fails closed before consuming commands or publishing completion.
+    std::shared_ptr<std::atomic_bool> m_native_submission_lease{
+        std::make_shared<std::atomic_bool>(true)};
     std::map<u64, Mapping> mapping_map;
     //!< Holds allocations created by AllocSpace from
     //!< which fixed buffers can be mapped into
     std::map<u64, Allocation> allocation_map;
     std::mutex mutex; //!< Locks all AS operations
     Kernel::KProcess* m_native_process{};
+    std::optional<u64> m_native_generation{};
+    u32 m_native_vm_id{};
+    std::atomic_bool m_native_vm_retired{};
     // BindChannel retains the real NvCore session while any scheduler
     // ChannelState owns this AS; otherwise CloseSession can unmap backing
     // handles even though the AS shared_ptr itself is still alive.

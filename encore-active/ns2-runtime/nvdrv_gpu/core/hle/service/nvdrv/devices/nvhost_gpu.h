@@ -62,6 +62,7 @@ public:
     bool IsGpuChannelDevice() const override { return true; }
 
     Kernel::KEvent* QueryEvent(u32 event_id) override;
+    Kernel::KEvent* QueryEvent(DeviceFD fd, u32 event_id) override;
 
 private:
     friend class nvhost_as_gpu;
@@ -184,7 +185,7 @@ private:
         u64_le timestamp{};
         u32_le info32{};
         u16_le info16{};
-        u16_le status{}; // Switch ABI: always 0xFFFF
+        u16_le status{}; // 0=healthy; non-zero reports a channel fault
     };
     static_assert(sizeof(IoctlGetErrorNotification) == 16,
                   "IoctlGetErrorNotification is incorrect size");
@@ -276,7 +277,12 @@ private:
     NvResult AllocateObjectContext(IoctlAllocObjCtx& params, DeviceFD fd);
 
     NvResult SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandList&& entries, DeviceFD fd);
+    // ABI identity is sticky for the lifetime of a native channel FD. The
+    // generation check is separate so a closed GSV epoch fails closed instead
+    // of re-routing the same Ampere fd through legacy Maxwell handlers.
     [[nodiscard]] bool UsesNativeAbi(DeviceFD fd) const;
+    [[nodiscard]] bool NativeEpochCurrent(DeviceFD fd) const;
+    static void SignalNativeChannelFault(void* context) noexcept;
 
     Core::Memory::Memory& GetSessionMemory(DeviceFD fd);
 
@@ -296,12 +302,15 @@ private:
     NvCore::NvMap& nvmap;
     std::shared_ptr<Tegra::Control::ChannelState> channel_state;
     ::Common::unordered_map<DeviceFD, NvCore::SessionId> sessions;
+    ::Common::unordered_map<DeviceFD, u64> native_generations;
     u32 channel_syncpoint;
     u32 native_submit_logs{};
     // An authenticated NS2 /dev/nvhost-gpu channel retains its selected
     // logical runlist until this NVDRV device is closed.
     std::optional<s32> native_runlist_id{};
     std::mutex channel_mutex;
+    // Serializes error-event enable/clear with asynchronous GPU-worker signal.
+    std::mutex native_error_event_mutex;
 
     // Events
     Kernel::KEvent* sm_exception_breakpoint_int_report_event;

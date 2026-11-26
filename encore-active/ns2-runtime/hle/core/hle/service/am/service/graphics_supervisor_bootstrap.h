@@ -72,6 +72,18 @@ public:
         phase=Phase::Ready;
         return Status::Success;
     }
+    // libounce gsv.c _gsvBootstrapRoot: 126 is a mandatory u32 mode
+    // query, and 120 is only sent for mode 1. Encore supports the ordinary
+    // local HLE context path (mode 0), not mode 1's additional setup.
+    // Lichii and EglantinePS5 return the same mode. Do not claim an
+    // unknown feature bit or memory reservation.
+    Status QuerySessionMode(std::span<const U32> packet, U32& mode) const {
+        if (packet.size() < 2 || packet[0] != 16 + 126 || packet[1] != 0)
+            return Status::InvalidPacket;
+        if (phase != Phase::Ready) return Status::InvalidState;
+        mode = 0;
+        return Status::Success;
+    }
     Status InitializeGpuContext(std::span<const U32> packet, U32 command) {
         if ((command!=401 && command!=402) ||
             packet.size()<2 || packet[0]!=16+command || packet[1]!=0)
@@ -96,6 +108,26 @@ public:
         gpu_ready=false;
         return Status::Success;
     }
+    // The SDK initializes this process-owned context during graphics boot,
+    // before creating any GPU session. It has no image/remote-memory handle.
+    // Track context lifetime separately from actual native image backing;
+    // admission does not grant cross-process access or allocate guest RAM.
+    Status InitializeInterModuleImageContext(std::span<const U32> packet, U32 command) {
+        if ((command != 1501 && command != 1502) || packet.size() < 2 ||
+            packet[0] != 16 + command || packet[1] != 0)
+            return Status::InvalidPacket;
+        if (phase != Phase::Ready) return Status::InvalidState;
+        if (command == 1501 && !inter_module_image_created) {
+            inter_module_image_created = true;
+            return Status::Success;
+        }
+        if (command == 1502 && inter_module_image_created && !inter_module_image_ready) {
+            inter_module_image_ready = true;
+            return Status::Success;
+        }
+        return Status::InvalidState;
+    }
+    [[nodiscard]] bool InterModuleImageReady() const { return inter_module_image_ready; }
     Status CanOpenGpuSession(std::span<const U32> packet, bool module_available) const {
         // Remote-memory 497 is the native SDK20+ form. The firmware-19
         // 496 carries a COPY TransferMemory handle and an additional size.
@@ -125,5 +157,7 @@ private:
     U32 profile{};
     bool gpu_initialized{};
     bool gpu_ready{};
+    bool inter_module_image_created{};
+    bool inter_module_image_ready{};
 };
 } // namespace Service::AM::GraphicsSupervisorBootstrap

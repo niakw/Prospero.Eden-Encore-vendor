@@ -85,6 +85,11 @@ void LoadPipelines(
     } catch (const std::ios_base::failure&) {
     } catch (const DamagedCache&) {
     } catch (const std::bad_alloc&) {
+        // Allocation or prewarm admission failure is not evidence of corruption.
+        // Keep every disk record for the next launch; already admitted work is
+        // drained by the loading owner. Do not turn memory pressure into a cold cache.
+        std::fputs("[Eden Encore] shader cache: allocation failed; file preserved\n", stderr);
+        return;
     } catch (const std::length_error&) {
     }
     std::error_code error;

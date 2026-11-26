@@ -79,10 +79,30 @@ void Fermi2D::Blit() {
         UNIMPLEMENTED_MSG("Operation is not copy");
         return;
     }
-    // NVIDIA 2D pitch surfaces have contiguous, pitch*height-sized slices.
-    // Support only explicitly addressed layers of two pitch-linear images.
-    // Block-linear layers require a separate verified origin_z decoder.
-    const bool pitch_layer_copy = regs.src.layer != 0 || regs.dst.layer != 0;
+    // RenderTargetFormat::NONE is an unbound/disabled surface, not RGBA8.
+    // PixelFormatFromRenderTargetFormat historically falls back to RGBA8 for
+    // unknown values, which would turn format 0 into a real copy and corrupt
+    // guest pixels. Reject it before any bytes-per-block or converter lookup.
+    if (regs.src.format == RenderTargetFormat::NONE ||
+        regs.dst.format == RenderTargetFormat::NONE) {
+        UNIMPLEMENTED_MSG("Fermi2D copy with unbound render-target format");
+        return;
+    }
+    // Pitch-linear arrays select a layer by advancing the base address.
+    // NV50 depth-tiled 3D destinations instead use DST_LAYER. Support only
+    // that hardware-defined destination case; source depth-tiling remains
+    // fail-closed because Nouveau cannot feed it through this 2D path.
+    const bool has_layer = regs.src.layer != 0 || regs.dst.layer != 0;
+    const bool pitch_layer_copy =
+        has_layer && regs.src.linear == MemoryLayout::Pitch &&
+        regs.dst.linear == MemoryLayout::Pitch;
+    const bool dst_volume_layer_copy =
+        regs.src.layer == 0 && regs.dst.layer != 0 &&
+        regs.dst.linear == MemoryLayout::BlockLinear && regs.dst.block_depth > 0 &&
+        regs.dst.depth > 1 && regs.dst.layer < regs.dst.depth &&
+        (regs.src.linear == MemoryLayout::Pitch || regs.src.block_depth == 0 ||
+         regs.src.depth == 1) &&
+        regs.src.depth >= 1 && regs.clip_enable == 0;
     if (pitch_layer_copy) {
         const auto valid_pitch_layers = [](const Surface& surface) {
             constexpr u64 MAX_PLANE_BYTES = 256ULL << 20;
@@ -102,6 +122,9 @@ void Fermi2D::Blit() {
             UNIMPLEMENTED_MSG("Unsupported layered Fermi2D surface or operation");
             return;
         }
+    } else if (has_layer && !dst_volume_layer_copy) {
+        UNIMPLEMENTED_MSG("Unsupported layered Fermi2D surface or operation");
+        return;
     } else if (regs.src.depth == 0 || regs.dst.depth == 0) {
         UNIMPLEMENTED_MSG("Invalid zero-depth Fermi2D surface");
         return;
@@ -294,13 +317,34 @@ void Fermi2D::Blit() {
         sw_blitter->Blit(src, dst, config);
         return;
     }
+    if (dst_volume_layer_copy) {
+        // NV50/Nouveau programs DST_LAYER for a depth-tiled 3D destination.
+        // Keep the complete destination backing mapped; the maintained
+        // software writer consumes dst.layer as its explicit GOB origin Z.
+        Surface dst = regs.dst;
+        src.depth = 1;
+        if (!sw_blitter->Blit(src, dst, config)) {
+            UNIMPLEMENTED_MSG("Rejected Fermi2D destination volume slice");
+        }
+        return;
+    }
     if (!rasterizer->AccelerateSurfaceCopy(src, regs.dst, config)) {
-        // A block-linear volume copy names one depth slice by the surface
-        // address. The software blitter still assumes a single decoded slice
-        // and must never receive a depth>1 fallback: TextureCache either
-        // resolves the cached 3D slices or the command is rejected unchanged.
+        // The software swizzler can decode the z=0 subrectangle of a 3D
+        // surface when both guest layer selectors are zero. Preserve the
+        // unresolved non-zero slice case: origin_z is still hard-coded to 0.
         if (src.depth != 1 || regs.dst.depth != 1) {
-            UNIMPLEMENTED_MSG("Unresolved Fermi2D volume-slice copy");
+            const bool base_layer_3d_copy =
+                src.depth >= 1 && regs.dst.depth >= 1 &&
+                src.layer == 0 && regs.dst.layer == 0 &&
+                regs.clip_enable == 0;
+            if (!base_layer_3d_copy) {
+                UNIMPLEMENTED_MSG("Unresolved Fermi2D volume-slice copy");
+                return;
+            }
+            Surface dst = regs.dst;
+            src.depth = 1;
+            dst.depth = 1;
+            sw_blitter->Blit(src, dst, config);
             return;
         }
         sw_blitter->Blit(src, regs.dst, config);

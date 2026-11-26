@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstring>
 #include <new>
 #include <stdexcept>
 #include <system_error>
@@ -45,6 +46,49 @@ using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 static u64 MakeCbufKey(u32 index, u32 offset) {
     return (static_cast<u64>(index) << 32) | offset;
 }
+
+#ifdef PS5_NATIVE
+namespace {
+constexpr u32 DisabledSnapshotCbuf = (std::numeric_limits<u32>::max)();
+
+struct ShaderTranslationSnapshotView {
+    GPUVAddr texture_base{};
+    u32 texture_limit{};
+    const u8* texture_data{};
+    bool via_header_index{};
+    u32 viewport_transform_state{};
+    const u8* const* cbuf_data{};
+    const u32* cbuf_sizes{};
+    size_t cbuf_count{};
+    bool active{};
+};
+
+// Worker-only immutable view. The GPU owner builds all backing bytes before
+// queueing translation and keeps them alive until every worker has joined.
+thread_local ShaderTranslationSnapshotView shader_translation_snapshot{};
+}
+
+void SetShaderTranslationSnapshotForThread(
+    GPUVAddr texture_base, u32 texture_limit, const u8* texture_data,
+    bool via_header_index, u32 viewport_transform_state,
+    const u8* const* cbuf_data, const u32* cbuf_sizes, size_t cbuf_count) noexcept {
+    shader_translation_snapshot = {
+        .texture_base = texture_base,
+        .texture_limit = texture_limit,
+        .texture_data = texture_data,
+        .via_header_index = via_header_index,
+        .viewport_transform_state = viewport_transform_state,
+        .cbuf_data = cbuf_data,
+        .cbuf_sizes = cbuf_sizes,
+        .cbuf_count = cbuf_count,
+        .active = true,
+    };
+}
+
+void ClearShaderTranslationSnapshotForThread() noexcept {
+    shader_translation_snapshot = {};
+}
+#endif
 
 // Lichii #1443: distinguish an empty TIC from a genuine 1D descriptor.
 // Reserve an impossible guest CBUF index in the existing environment record;
@@ -201,6 +245,13 @@ u64 GenericEnvironment::ReadInstruction(u32 address) {
         return code[(address - cached_lowest) / INST_SIZE];
     }
     has_unbound_instructions = true;
+#ifdef PS5_NATIVE
+    if (shader_translation_snapshot.active) {
+        // A parallel worker must never re-enter the live GMMU page table.
+        // The owner populated code[] from ShaderInfo::size_bytes beforehand.
+        throw std::out_of_range("parallel shader instruction escaped cached snapshot");
+    }
+#endif
     return gpu_memory->Read<u64>(program_base + address);
 }
 
@@ -339,7 +390,22 @@ Tegra::Texture::TICEntry GenericEnvironment::ReadTextureInfo(GPUVAddr tic_addr, 
     ASSERT(handle.first <= tic_limit);
     const GPUVAddr descriptor_addr{tic_addr + handle.first * sizeof(Tegra::Texture::TICEntry)};
     Tegra::Texture::TICEntry entry;
-    gpu_memory->ReadBlock(descriptor_addr, &entry, sizeof(entry));
+#ifdef PS5_NATIVE
+    if (shader_translation_snapshot.active) {
+        if (!shader_translation_snapshot.texture_data ||
+            tic_addr != shader_translation_snapshot.texture_base ||
+            tic_limit > shader_translation_snapshot.texture_limit ||
+            handle.first > shader_translation_snapshot.texture_limit) {
+            throw std::out_of_range("parallel shader TIC escaped immutable snapshot");
+        }
+        const size_t offset =
+            static_cast<size_t>(handle.first) * sizeof(Tegra::Texture::TICEntry);
+        std::memcpy(&entry, shader_translation_snapshot.texture_data + offset, sizeof(entry));
+    } else
+#endif
+    {
+        gpu_memory->ReadBlock(descriptor_addr, &entry, sizeof(entry));
+    }
     NormalizeEmptyTexture(entry);
     return entry;
 }
@@ -431,11 +497,36 @@ GraphicsEnvironment::GraphicsEnvironment(Tegra::Engines::Maxwell3D& maxwell3d_,
 }
 
 u32 GraphicsEnvironment::ReadCbufValue(u32 cbuf_index, u32 cbuf_offset) {
-    const auto& cbuf{maxwell3d->state.shader_stages[stage_index].const_buffers[cbuf_index]};
-    ASSERT(cbuf.enabled);
     u32 value{};
-    if (cbuf_offset < cbuf.size) {
-        value = gpu_memory->Read<u32>(cbuf.address + cbuf_offset);
+#ifdef PS5_NATIVE
+    if (shader_translation_snapshot.active) {
+        if (cbuf_index >= shader_translation_snapshot.cbuf_count ||
+            !shader_translation_snapshot.cbuf_sizes) {
+            throw std::out_of_range("parallel shader CBUF index escaped immutable snapshot");
+        }
+        const u32 snapshot_size = shader_translation_snapshot.cbuf_sizes[cbuf_index];
+        if (snapshot_size == DisabledSnapshotCbuf) {
+            throw std::out_of_range("parallel shader read disabled CBUF");
+        }
+        if (cbuf_offset < snapshot_size) {
+            if ((cbuf_offset & 3U) != 0 || snapshot_size < sizeof(u32) ||
+                cbuf_offset > snapshot_size - sizeof(u32) ||
+                !shader_translation_snapshot.cbuf_data ||
+                !shader_translation_snapshot.cbuf_data[cbuf_index]) {
+                throw std::out_of_range("parallel shader CBUF read escaped immutable snapshot");
+            }
+            std::memcpy(&value,
+                        shader_translation_snapshot.cbuf_data[cbuf_index] + cbuf_offset,
+                        sizeof(value));
+        }
+    } else
+#endif
+    {
+        const auto& cbuf{maxwell3d->state.shader_stages[stage_index].const_buffers[cbuf_index]};
+        ASSERT(cbuf.enabled);
+        if (cbuf_offset < cbuf.size) {
+            value = gpu_memory->Read<u32>(cbuf.address + cbuf_offset);
+        }
     }
     cbuf_values.emplace(MakeCbufKey(cbuf_index, cbuf_offset), value);
     return value;
@@ -468,6 +559,16 @@ std::optional<Shader::ReplaceConstant> GraphicsEnvironment::GetReplaceConstBuffe
 }
 
 Shader::TextureType GraphicsEnvironment::ReadTextureType(u32 handle) {
+#ifdef PS5_NATIVE
+    if (shader_translation_snapshot.active) {
+        auto entry = ReadTextureInfo(shader_translation_snapshot.texture_base,
+                                     shader_translation_snapshot.texture_limit,
+                                     shader_translation_snapshot.via_header_index, handle);
+        const Shader::TextureType result{ConvertTextureType(entry)};
+        texture_types.emplace(handle, result);
+        return result;
+    }
+#endif
     const auto& regs{maxwell3d->regs};
     const bool via_header_index{regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding};
     auto entry =
@@ -478,6 +579,16 @@ Shader::TextureType GraphicsEnvironment::ReadTextureType(u32 handle) {
 }
 
 Shader::TexturePixelFormat GraphicsEnvironment::ReadTexturePixelFormat(u32 handle) {
+#ifdef PS5_NATIVE
+    if (shader_translation_snapshot.active) {
+        auto entry = ReadTextureInfo(shader_translation_snapshot.texture_base,
+                                     shader_translation_snapshot.texture_limit,
+                                     shader_translation_snapshot.via_header_index, handle);
+        const Shader::TexturePixelFormat result(ConvertTexturePixelFormat(entry));
+        texture_pixel_formats.emplace(handle, result);
+        return result;
+    }
+#endif
     const auto& regs{maxwell3d->regs};
     const bool via_header_index{regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding};
     auto entry =
@@ -493,6 +604,12 @@ bool GraphicsEnvironment::IsTexturePixelFormatInteger(u32 handle) {
 }
 
 u32 GraphicsEnvironment::ReadViewportTransformState() {
+#ifdef PS5_NATIVE
+    if (shader_translation_snapshot.active) {
+        viewport_transform_state = shader_translation_snapshot.viewport_transform_state;
+        return viewport_transform_state;
+    }
+#endif
     const auto& regs{maxwell3d->regs};
     viewport_transform_state = regs.viewport_scale_offset_enabled;
     return viewport_transform_state;

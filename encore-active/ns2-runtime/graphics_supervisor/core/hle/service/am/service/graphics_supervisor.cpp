@@ -182,6 +182,31 @@ static std::optional<NativeVideoImageLayout> CalculateChatCameraImageLayout(
     };
 }
 
+// Lichii GSV 1121 returns a MOVE gpu_time service session, not a zeroed
+// placeholder handle. Keep the native child session alive for SDK startup;
+// unsupported timing requests report an explicit HIPC error.
+class INativeGpuTimeSession final : public ServiceFramework<INativeGpuTimeSession> {
+public:
+    explicit INativeGpuTimeSession(Core::System& sys)
+        : ServiceFramework{sys, "nx2:gpu_time"} {
+        static const FunctionInfo functions[] = {
+            {0, &INativeGpuTimeSession::Handshake, "Handshake"},
+            {11, &INativeGpuTimeSession::QueryApplicationGpuTimeSpan,
+             "QueryApplicationGpuTimeSpan"},
+        };
+        RegisterHandlersTipc(functions);
+    }
+private:
+    void Handshake(HLERequestContext& ctx) {
+        const auto* p = ctx.CommandBuffer();
+        NativeTipcReplyWords(ctx, {p[2], p[3]});
+    }
+    void QueryApplicationGpuTimeSpan(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultNotImplemented.raw);
+    }
+};
+
 class INativeSyncptSession final : public ServiceFramework<INativeSyncptSession> {
 public:
     explicit INativeSyncptSession(Core::System& system_)
@@ -189,7 +214,7 @@ public:
         static const FunctionInfo f[] = {
             {0, &INativeSyncptSession::Handshake, "Handshake"},
             {1, &INativeSyncptSession::GetCount, "GetCount"},
-            {21, &INativeSyncptSession::Unknown21, "Unknown21"},
+            {21, &INativeSyncptSession::ConfigureSlots, "ConfigureSlots"},
             {22, &INativeSyncptSession::GetSlotEvent, "GetSlotEvent"},
             {103, &INativeSyncptSession::QueryCounter, "QueryCounter"},
             {201, &INativeSyncptSession::RequestSlotEvent, "RequestSlotEvent"},
@@ -221,7 +246,7 @@ public:
     }
 private:
     static constexpr u32 HostSyncpoints = Tegra::Host1x::SyncpointManager::NUM_MAX_SYNCPOINTS;
-    static constexpr u32 MaxSlots = 64;
+    static constexpr u32 MaxSlots = GraphicsSupervisorProtocol::SyncptLegacySlots;
     struct SlotRequest {
         u32 syncpoint{};
         std::atomic<bool> pending{};
@@ -232,7 +257,7 @@ private:
         bool alive{true};
     };
     Kernel::KEvent* EventFor(u32 slot) {
-        if (slot >= MaxSlots) return nullptr;
+        if (slot >= m_configured_slots) return nullptr;
         auto*& event = m_events[slot];
         if (event) return event;
         char name[48]{};
@@ -249,19 +274,40 @@ private:
         NativeTipcReplyWords(ctx, {w[2], w[3]});
     }
     void GetCount(HLERequestContext& ctx) {
-        NativeTipcReplyWords(ctx, {32});
+        NativeTipcReplyWords(ctx, {GraphicsSupervisorProtocol::SyncptAdvertisedSlots});
     }
-    void Unknown21(HLERequestContext& ctx) {
-        // SwitchBrew lists SyncptSession command 21 but still publishes no
-        // name, input layout or output contract. Never manufacture success
-        // or read a guessed payload until that ABI is known.
+    void ConfigureSlots(HLERequestContext& ctx) {
+        const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
+        const auto count = GraphicsSupervisorProtocol::DecodeSyncptSlotCount(packet);
+        Result result = Kernel::ResultInvalidCombination;
+        if (count) {
+            // Do not revoke a slot with a live event or asynchronous callback.
+            // All handlers for this service are serialized by LockService.
+            const bool live_outside = std::any_of(
+                m_events.begin() + *count, m_events.end(),
+                [](const auto* event) { return event != nullptr; });
+            result = Kernel::ResultInvalidState;
+            if (!live_outside) {
+                m_configured_slots = *count;
+                result = ResultSuccess;
+            }
+        }
         IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(Kernel::ResultNotImplemented.raw);
+        rb.Push(result.raw);
     }
     void QueryCounter(HLERequestContext& ctx) {
-        const u32 syncpoint = ~ctx.CommandBuffer()[2];
+        const auto* packet = ctx.CommandBuffer();
+        if (packet[0] != 16 + 103 || packet[1] != 1) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidCombination.raw);
+            return;
+        }
+        const u32 syncpoint = ~packet[2];
+        // libounce gsvSyncCheckNative treats UINT64_MAX as an invalid
+        // producer (already reached). Returning zero can strand a waiter.
         const u64 value = syncpoint < HostSyncpoints
-            ? system.Host1x().GetSyncpointManager().GetGuestSyncpointValue(syncpoint) : 0;
+            ? system.Host1x().GetSyncpointManager().GetNativeGuestSyncpointValue(syncpoint)
+            : std::numeric_limits<u64>::max();
         NativeTipcReplyWords(ctx, {static_cast<u32>(value), static_cast<u32>(value >> 32), 0});
     }
     void GetSlotEvent(HLERequestContext& ctx) {
@@ -269,7 +315,8 @@ private:
         auto* event = EventFor(slot);
         if (!event) {
             IPC::ResponseBuilder rb{ctx, 2};
-            rb.Push(Kernel::ResultOutOfResource.raw);
+            rb.Push(slot >= m_configured_slots ? Kernel::ResultInvalidArgument.raw
+                                               : Kernel::ResultOutOfResource.raw);
             return;
         }
         auto* readable = &event->GetReadableEvent();
@@ -294,29 +341,36 @@ private:
     }
     void RequestSlotEvent(HLERequestContext& ctx) {
         const auto* w = ctx.CommandBuffer();
-        const u32 slot = w[2];
-        const u32 syncpoint = ~w[3];
-        const u64 value = u64{w[4]} | (u64{w[5]} << 32);
+        const auto wait = GraphicsSupervisorProtocol::DecodeSyncpointWait(
+            std::span<const u32>{w, IPC::COMMAND_BUFFER_LENGTH});
+        if (!wait) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidCombination.raw);
+            return;
+        }
+        const u32 slot = wait->slot;
+        const u32 syncpoint = wait->id;
+        const u64 value = wait->threshold;
         auto* event = EventFor(slot);
         if (!event) {
             IPC::ResponseBuilder rb{ctx, 2};
-            rb.Push(slot >= MaxSlots ? Kernel::ResultInvalidArgument.raw
-                                    : Kernel::ResultOutOfResource.raw);
-            return;
-        }
-        if (syncpoint >= HostSyncpoints) {
-            event->Signal(system.Kernel());
-            NativeTipcReplyWords(ctx, {});
+            rb.Push(slot >= m_configured_slots ? Kernel::ResultInvalidArgument.raw
+                                               : Kernel::ResultOutOfResource.raw);
             return;
         }
         auto& request = m_requests[slot];
         Cancel(request);
         event->Clear(system.Kernel());
+        if (syncpoint >= HostSyncpoints) {
+            event->Signal(system.Kernel());
+            NativeTipcReplyWords(ctx, {});
+            return;
+        }
         request.syncpoint = syncpoint;
         request.pending.store(true, std::memory_order_release);
         auto& manager = system.Host1x().GetSyncpointManager();
-        request.handle = manager.RegisterGuestAction(
-            syncpoint, static_cast<u32>(value),
+        request.handle = manager.RegisterNativeGuestAction(
+            syncpoint, value, wait->wide,
             [shared=m_shared, &kernel=system.Kernel(), request=&request, event] {
                 std::scoped_lock lk{shared->mutex};
                 if (!shared->alive) return;
@@ -327,7 +381,7 @@ private:
     }
     void CancelSlotEvent(HLERequestContext& ctx) {
         const u32 slot = ctx.CommandBuffer()[2];
-        if (slot >= MaxSlots) {
+        if (slot >= m_configured_slots) {
             IPC::ResponseBuilder rb{ctx, 2};
             rb.Push(Kernel::ResultInvalidArgument.raw);
             return;
@@ -343,15 +397,23 @@ private:
         NativeTipcReplyWords(ctx, {});
     }
     bool Cancel(SlotRequest& request) {
-        if (!request.pending.exchange(false, std::memory_order_acq_rel)) return false;
-        system.Host1x().GetSyncpointManager().DeregisterGuestAction(request.syncpoint,
-                                                                    request.handle);
-        request.handle = 0;
-        return true;
+        // The old callback clears pending BEFORE signalling. Even if
+        // pending is false, a nonzero handle can still be executing.
+        // DeregisterNativeGuestAction waits for a running callback to return.
+        // Join before reusing/clearing the slot so an old signal cannot
+        // satisfy a new wait prematurely.
+        const bool was_pending = request.pending.exchange(false, std::memory_order_acq_rel);
+        if (request.handle != 0) {
+            system.Host1x().GetSyncpointManager().DeregisterNativeGuestAction(request.syncpoint,
+                                                                        request.handle);
+            request.handle = 0;
+        }
+        return was_pending;
     }
     KernelHelpers::ServiceContext m_context;
     std::array<Kernel::KEvent*, MaxSlots> m_events{};
     std::array<SlotRequest, MaxSlots> m_requests{};
+    u32 m_configured_slots{MaxSlots};
     std::shared_ptr<SharedState> m_shared = std::make_shared<SharedState>();
     std::atomic<u32> m_trace_count{};
 };
@@ -370,10 +432,12 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
     ~NativeSyncptState() {
         Shutdown();
         for (auto* event : events) if (event) context.CloseEvent(event);
+        // Weak callbacks retain this state while touching the guest pages.
+        for (auto* backing : transfer_backings) if (backing) backing->Close(system.Kernel());
     }
     void Shutdown() {
         if (stopped.exchange(true, std::memory_order_acq_rel)) return;
-        system.Host1x().GetSyncpointManager().SetGuestMirror({});
+        if (memory) system.Host1x().GetSyncpointManager().SetGuestMirror({});
         if (poll) {
             system.CoreTiming().UnscheduleEvent(poll);
             poll.reset();
@@ -405,6 +469,7 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
         auto rw = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(ctx.GetCopyHandle(0));
         auto ro = ctx.GetObjectFromHandle<Kernel::KTransferMemory>(ctx.GetCopyHandle(1));
         if (rw.IsNull() || ro.IsNull() || rw->GetOwner() != process || ro->GetOwner() != process ||
+            rw.GetPointerUnsafe() == ro.GetPointerUnsafe() ||
             rw->GetSize() < 0x1000 || ro->GetSize() < 0x2000) {
             IPC::ResponseBuilder rb{ctx, 2};
             rb.Push(Kernel::ResultInvalidHandle.raw);
@@ -420,6 +485,22 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
             rb.Push(Kernel::ResultInvalidState.raw);
             return;
         }
+        // Keep the actual transfer objects and page locks until the final
+        // asynchronous owner releases this state, not just for this IPC.
+        auto* rw_backing = rw.GetPointerUnsafe();
+        auto* ro_backing = ro.GetPointerUnsafe();
+        if (!rw_backing->Open(system.Kernel())) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidState.raw);
+            return;
+        }
+        if (!ro_backing->Open(system.Kernel())) {
+            rw_backing->Close(system.Kernel());
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidState.raw);
+            return;
+        }
+        transfer_backings = {rw_backing, ro_backing};
         const u32 requested = w[data + 1];
         count = std::min<u32>(requested, (0x1000 - 0x40) / 8);
         memory = &ro->GetOwner()->GetMemory();
@@ -447,7 +528,7 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
         manager.WithGuestValuesStable([&] {
             const u32 limit = std::min(count, HostSyncpoints);
             for (u32 id=0; id<limit; ++id) {
-                const u32 value = manager.GetGuestSyncpointValue(id);
+                const u64 value = manager.GetNativeGuestSyncpointValue(id);
                 const u64 address = ro_address + ValuesOffset + u64{id} * 8;
                 if (memory->Read64(address) != value) {
                     memory->Write64(address, value);
@@ -485,7 +566,7 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
         stopped.store(false, std::memory_order_release);
         std::weak_ptr<NativeSyncptState> weak = shared_from_this();
         system.Host1x().GetSyncpointManager().SetGuestMirror(
-            [weak](u32 id,u32 value) {
+            [weak](u32 id,u64 value) {
                 if (auto self=weak.lock();
                     self && !self->stopped.load(std::memory_order_acquire) &&
                     self->memory && id<std::min(self->count,HostSyncpoints)) {
@@ -505,11 +586,12 @@ struct NativeSyncptState : std::enable_shared_from_this<NativeSyncptState> {
     Kernel::KProcess* process;
     KernelHelpers::ServiceContext context;
     std::array<Kernel::KEvent*,2> events{};
+    std::array<Kernel::KTransferMemory*,2> transfer_backings{};
     Core::Memory::Memory* memory{};
     u64 rw_address{};
     u64 ro_address{};
     u32 count{};
-    std::array<u32,HostSyncpoints> polled_values{};
+    std::array<u64,HostSyncpoints> polled_values{};
     std::shared_ptr<Core::Timing::EventType> poll;
     std::atomic<bool> stopped{false};
 };
@@ -529,6 +611,8 @@ class IVi2Session final : public ServiceFramework<IVi2Session> {
         std::optional<u64> layer;
         u64 available{0x7fff};
         std::array<std::optional<s32>,15> queued{};
+        // Publish VI2 history only when the compositor releases a frame.
+        std::array<u8,15> recorders{};
         std::array<u32,15> images{};
         std::array<std::shared_ptr<Nvidia::Module>,15> queued_modules{};
         // Retain buffer pins through the real producer's Free->DetachNext
@@ -546,6 +630,7 @@ public:
             {1,&IVi2Session::Limit,"GetNotificationLimit"},
             {3,&IVi2Session::Limit,"GetSessionLimit"},
             {5,&IVi2Session::Limit,"GetRequestGroupLimit"},
+            {53,&IVi2Session::GetRecordedTimestamps,"GetRecordedTimestamps"},
             {11,&IVi2Session::Event,"GetNotificationEvent"},
             {21,&IVi2Session::Notifications,"GetNotifications"},
             // NVN2 waits on command 32 before its first GPU submission.
@@ -585,6 +670,24 @@ public:
             {111,&IVi2Session::OpenEndpoint,"OpenEndpoint"},
             {112,&IVi2Session::CloseEndpoint,"CloseEndpoint"},
             {106,&IVi2Session::MaxResolution,"GetBufferMaxResolution"},
+            // Lichii's S2 VI2 table also exposes these firmware command IDs
+            // as zero-reply stubs. Keep them *explicit* for structural parity,
+            // but do not claim success without an ABI/effect contract.
+            {13,&IVi2Session::Unsupported,"Unknown13"},
+            {107,&IVi2Session::Unsupported,"Unknown107"},
+            {108,&IVi2Session::Unsupported,"Unknown108"},
+            {113,&IVi2Session::Unsupported,"Unknown113"},
+            {230,&IVi2Session::Unsupported,"Unknown230"},
+            {231,&IVi2Session::Unsupported,"Unknown231"},
+            {232,&IVi2Session::Unsupported,"Unknown232"},
+            {301,&IVi2Session::Unsupported,"Unknown301"},
+            {302,&IVi2Session::Unsupported,"Unknown302"},
+            {353,&IVi2Session::Unsupported,"Unknown353"},
+            {354,&IVi2Session::Unsupported,"Unknown354"},
+            {355,&IVi2Session::Unsupported,"Unknown355"},
+            {356,&IVi2Session::Unsupported,"Unknown356"},
+            {358,&IVi2Session::Unsupported,"Unknown358"},
+            {359,&IVi2Session::Unsupported,"Unknown359"},
         };
         RegisterHandlersTipc(f);
     }
@@ -624,6 +727,10 @@ public:
         return system.IsPoweredOn()?ctx.WriteToOutgoingCommandBuffer():ResultSuccess;
     }
 private:
+    void Unsupported(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultNotImplemented.raw);
+    }
     void Handshake(HLERequestContext& ctx) {
         // NS2 SDK VI2 initialization requires the exact incoming u64 token
         // to be echoed. The raw TIPC reply clears the request command buffer,
@@ -700,10 +807,39 @@ private:
         rb.Push(result.raw);
         rb.Push<u32>(result.IsSuccess() ? available : 0u);
     }
+    void GetRecordedTimestamps(HLERequestContext& ctx) {
+        // Lichii nx2 VI2 53: B output, u32 recorder, u64 checkpoints,
+        // u64 maximum count. Pending until a real compositor release.
+        const auto* p = ctx.CommandBuffer();
+        const u32 recorder = p[5];
+        const u64 checkpoints = W(p, 6) & 0x1f;
+        const u64 max_count = W(p, 8);
+        if (recorder >= m_recorded_ticks.size() || !m_recorded_ticks[recorder]) {
+            NativeTipcReplyWords(ctx, {0, 0, 1});
+            return;
+        }
+        std::array<u64, 5> ticks{};
+        std::size_t count = 0;
+        for (u32 bit = 0; bit < 5 && count < max_count; ++bit) {
+            if (checkpoints & (u64{1} << bit))
+                ticks[count++] = *m_recorded_ticks[recorder];
+        }
+        const std::size_t requested = std::min(
+            count * sizeof(u64), ctx.GetWriteBufferSize(0));
+        const std::size_t written = ctx.WriteBufferB(ticks.data(), requested, 0);
+        NativeTipcReplyWords(ctx, {static_cast<u32>(written), 0, 0});
+    }
     void Event(HLERequestContext& ctx) {
         const auto* p=ctx.CommandBuffer();
         Result result=Kernel::ResultInvalidCombination;
-        if(p[0]==0x1b&&p[1]==1&&p[2]==0){
+        // Switch 2 SDKs use different notification masks here. Real Lichii
+        // nx2 guest captures send cmd 11 with data words [2]=1, [3]=1.
+        // The old zero-only predicate rejected those valid requests and
+        // returned no copy handle; subsequent WaitSynchronization loops
+        // could only fail with InvalidHandle (0xe401). Match the reviewed
+        // VI2 event service: command identity, not an invented payload mask,
+        // determines whether this session may return its readable event.
+        if (p[0] == 0x1b) {
             if(!m_event)m_event=m_context.CreateEvent("Vi2Notify");
             result=m_event?ResultSuccess:Kernel::ResultOutOfResource;
             if(m_event&&std::ranges::any_of(m_notes,[](u32 note){return note!=0;}))
@@ -926,8 +1062,27 @@ private:
         const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;
         if(p[0]==0x10b&&p[1]==4&&W(p,4)==Default){
             Client* c=Find(W(p,2));result=Kernel::ResultNotFound;
-            if(c){result=Kernel::ResultInvalidState;
-                if(m_display&&m_refs&&!c->display){c->display=m_display;result=ResultSuccess;}}
+            if(c){
+                result=Kernel::ResultInvalidState;
+                if(m_display&&m_refs&&m_vi&&!c->display){
+                    // VI2 212 can query availability before 251 binds the
+                    // display. The first bind creates a real compositor layer;
+                    // a later Unbind/Bind must reuse its still-owned layer.
+                    // Never overwrite a live layer ID and leak the old one.
+                    if(c->layer){
+                        c->display=m_display;
+                        result=ResultSuccess;
+                    }else{
+                        u64 layer{};
+                        result=m_vi->GetContainer()->CreateManagedLayer(
+                            &layer,*m_display,m_aruid);
+                        if(result.IsSuccess()){
+                            c->layer=layer;
+                            c->display=m_display;
+                        }
+                    }
+                }
+            }
         }
         IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
     }
@@ -945,11 +1100,16 @@ private:
         u64 mask{};
         if(p[0]==0xe4&&p[1]==2){
             Client* c=Find(W(p,2));result=Kernel::ResultNotFound;
-            if(c&&c->display&&m_vi){
+            if(c){
+                // nn::vi::GetClientAvailability is valid immediately after
+                // RegisterClientState (201), before BindClientDisplay (251).
+                // Buffer availability belongs to the registered client; it
+                // does not require a display, layer, NVMap or GPU submission.
                 result=ResultSuccess;
-                if(!c->layer){
+                if(c->display&&m_vi&&!c->layer){
                     u64 layer{};
-                    result=m_vi->GetContainer()->CreateManagedLayer(&layer,*c->display,m_aruid);
+                    result=m_vi->GetContainer()->CreateManagedLayer(
+                        &layer,*c->display,m_aruid);
                     if(result.IsSuccess())c->layer=layer;
                 }
                 if(result.IsSuccess())mask=c->available;
@@ -1075,6 +1235,11 @@ private:
                     }
                 }
                 if (!done) continue;
+                // Retire recorders only after a fence-complete producer release.
+                const u32 recorder = c.recorders[slot];
+                if (recorder > 0 && recorder <= m_recorded_ticks.size())
+                    m_recorded_ticks[recorder - 1] = system.CoreTiming().GetClockTicks();
+                c.recorders[slot] = 0;
                 c.queued[slot].reset();
                 c.images[slot]=0;
                 c.queued_modules[slot].reset();
@@ -1113,23 +1278,33 @@ private:
                                 (fence==~u32{0}||
                                  nv.GetSyncpointManager().IsSyncpointAllocated(fence))){
                                 if(!c->producer){
-                                    result=m_vi->GetContainer()->GetLayerProducerHandle(
-                                        &c->producer,*c->layer);
+                                    // A stored producer means the complete VI2 setup succeeded.
+                                    // Do not let an IPC retry skip Connect/OpenLayer after failure.
+                                    std::shared_ptr<android::BufferQueueProducer> producer;
+                                    auto container=m_vi->GetContainer();
+                                    result=container->GetLayerProducerHandle(&producer,*c->layer);
+                                    bool connected=false, opened=false;
                                     if(result.IsSuccess()){
                                         android::QueueBufferOutput output{};
-                                        if(c->producer->Connect({},
-                                            android::NativeWindowApi::Egl,false,&output)!=
-                                            android::Status::NoError||
-                                           c->producer->SetBufferCount(16)!=
+                                        connected=producer && producer->Connect({},
+                                            android::NativeWindowApi::Egl,false,&output)==
+                                            android::Status::NoError;
+                                        if(!connected || producer->SetBufferCount(16)!=
                                             android::Status::NoError)
                                             result=Kernel::ResultInvalidState;
                                     }
                                     if(result.IsSuccess()){
                                         s32 binder{};
-                                        result=m_vi->GetContainer()->OpenLayer(
-                                            &binder,*c->layer,m_aruid);
-                                        if(result.IsSuccess())result=m_vi->GetContainer()
-                                            ->SetLayerVisibility(*c->layer,true);
+                                        result=container->OpenLayer(&binder,*c->layer,m_aruid);
+                                        opened=result.IsSuccess();
+                                        if(opened)result=container->SetLayerVisibility(*c->layer,true);
+                                    }
+                                    if(result.IsSuccess()){
+                                        c->producer=std::move(producer);
+                                    }else{
+                                        // No frame has been attached; undo only our own setup.
+                                        if(opened)container->CloseLayer(*c->layer);
+                                        if(connected)producer->Disconnect(android::NativeWindowApi::Egl);
                                     }
                                 }else result=ResultSuccess;
                                 // Release polling must be ready BEFORE
@@ -1171,7 +1346,12 @@ private:
                                     auto buffer=std::make_shared<android::GraphicBuffer>(
                                         nv.GetNvMapFile(),native);
                                     s32 idx{};result=Kernel::ResultOutOfResource;
-                                    if(c->producer->AttachBuffer(&idx,buffer)==android::Status::NoError){
+                                    const auto attached=c->producer->AttachBuffer(&idx,buffer);
+                                    // AttachBuffer returns ReleaseAllBuffers as a success flag
+                                    // after transferring the slot to the producer (Dequeued).
+                                    // Treating it as failure strands that slot indefinitely.
+                                    if(attached==android::Status::NoError ||
+                                       attached==android::Status::ReleaseAllBuffers){
                                         android::QueueBufferInput input{};
                                         android::QueueBufferOutput output{};
                                         input.crop={0,0,static_cast<s32>(outw),
@@ -1185,6 +1365,7 @@ private:
                                         if(c->producer->QueueBuffer(idx,input,&output)==
                                             android::Status::NoError){
                                             c->queued[slot]=idx;c->images[slot]=p[5];
+                                            c->recorders[slot]=static_cast<u8>(p[18] & 0xf);
                                             c->queued_modules[slot]=img->module;
                                             c->retained[slot]=buffer;
                                             c->available&=~(u64{1}<<slot);result=ResultSuccess;
@@ -1238,6 +1419,7 @@ private:
     std::vector<Kernel::KEvent*> m_vsync_events;
     std::array<Kernel::KEvent*, GraphicsSupervisorProtocol::RequestGroupCount>
         m_native_events{};
+    std::array<std::optional<u64>, 15> m_recorded_ticks{};
     std::shared_ptr<Core::Timing::EventType> m_vsync_timer;
     std::shared_ptr<Core::Timing::EventType> m_poll;
 };
@@ -1364,14 +1546,12 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {498, &IGraphicsSupervisor::QueryDonatedTransferMemoryUsage, "TryQueryDonatedTransferMemoryUsage"},
         {1401, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSessionWithTransferMemory"},
         {1402, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSession"},
-        // Known TIPC contracts without a safe completed implementation:
-        // 1411 exposes NVDRV transfer-memory accounting, not GSV boot-buffer
-        // accounting (498); do not manufacture three zero usage counters.
-        {1411, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetNvDrv2UserTransferMemoryUsage"},
-        // 1501/1502 initialize inter-module image sharing. Until image
-        // ownership and backing semantics are available, fail closed.
-        {1501, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateInterModuleImageContext"},
-        {1502, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeInterModuleImageContext"},
+        {1411, &IGraphicsSupervisor::QueryNvDrvTransferMemoryUsage, "GetNvDrv2UserTransferMemoryUsage"},
+        // SDK boot: 4 -> 11 -> 101 -> 1501 -> 1502. The two context
+        // operations have no image handles; retain their real session state.
+        // Actual image operations still require validated native backing.
+        {1501, &IGraphicsSupervisor::InitializeInterModuleImageContext, "CreateInterModuleImageContext"},
+        {1502, &IGraphicsSupervisor::InitializeInterModuleImageContext, "InitializeInterModuleImageContext"},
         {301, &IGraphicsSupervisor::InitializeDisplayContext, "InitializeDisplayContext"},
         {303, &IGraphicsSupervisor::FinalizeDisplayContext, "FinalizeDisplayContext"},
         {305, &IGraphicsSupervisor::OpenDisplaySession, "OpenDisplaySession"},
@@ -1472,7 +1652,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         // Camera 691 shares the image-pool requirements query layout; Encore supports only
         // proven chat-camera image formats, and rejects unknown layouts.
         {691, &IGraphicsSupervisor::CalculateFeatureImagePoolRequirements, "CalculateImageArraySize"},
-        {903, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyVideoDecoderContext"},
+        {903, &IGraphicsSupervisor::ReleaseVideoDecoderAccess, "ReleaseVideoDecoderAccess"},
         {904, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeVideoDecoderContextForSystem"},
         {921, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeDecoderAliasImagePool"},
         {922, &IGraphicsSupervisor::UnavailableDocumentedFeature, "FinalizeDecoderAliasImagePool"},
@@ -1487,6 +1667,52 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {1302, &IGraphicsSupervisor::UnavailableDocumentedFeature, "InitializeAdrawContext"},
         {1325, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAdrawFrameBufferHandle"},
         {1326, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetAdrawImageHandle"},
+        // Known Lichii NX2 GSV command IDs not yet backed by a guest-safe
+        // implementation. Register their ABI names explicitly, fail closed
+        // and never fabricate a native object, memory allocation or success.
+        {5, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown5"},
+        {120, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown120"},
+        {121, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown121"},
+        {122, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown122"},
+        {123, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown123"},
+        {124, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown124"},
+        {125, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown125"},
+        {126, &IGraphicsSupervisor::QuerySessionMode, "GetSessionFlag"},
+        {131, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown131"},
+        {133, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown133"},
+        {311, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateFeatureImagePool311"},
+        {312, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyFeatureImagePool312"},
+        {321, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateFeatureImagePool321"},
+        {361, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetFeatureCpuImageDescriptor361"},
+        {424, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown424"},
+        {425, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown425"},
+        {436, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown436"},
+        {461, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown461"},
+        {462, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown462"},
+        {463, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown463"},
+        {464, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown464"},
+        {465, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown465"},
+        {466, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown466"},
+        {467, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown467"},
+        {468, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown468"},
+        {494, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CheckPermission494"},
+        {801, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CheckPermission801"},
+        {802, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown802"},
+        {803, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown803"},
+        {811, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateFeatureImagePool811"},
+        {812, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyFeatureImagePool812"},
+        {813, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown813"},
+        {814, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown814"},
+        {861, &IGraphicsSupervisor::UnavailableDocumentedFeature, "GetFeatureCpuImageDescriptor861"},
+        {891, &IGraphicsSupervisor::CalculateFeatureImagePoolRequirements, "CalculateFeatureImagePoolSize891"},
+        {1091, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown1091"},
+        {1121, &IGraphicsSupervisor::OpenGpuTimeSession, "OpenGpuTimeSession"},
+        {1503, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CheckPermission1503"},
+        {1601, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CheckPermission1601"},
+        {1602, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown1602"},
+        {1603, &IGraphicsSupervisor::UnavailableDocumentedFeature, "Unknown1603"},
+        {1611, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateFeatureImagePool1611"},
+        {1612, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyFeatureImagePool1612"},
     };
     RegisterHandlersTipc(functions);
 }
@@ -1668,6 +1894,25 @@ void IGraphicsSupervisor::CompleteBootstrap(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
 }
+void IGraphicsSupervisor::QuerySessionMode(HLERequestContext& ctx) {
+    const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
+    u32 mode{};
+    const Result result = TranslateBootstrap(m_bootstrap.QuerySessionMode(packet, mode));
+    if (result.IsSuccess()) {
+        NativeTipcReplyWords(ctx, {mode});
+    } else {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+    }
+}
+
+void IGraphicsSupervisor::InitializeInterModuleImageContext(HLERequestContext& ctx) {
+    const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
+    const Result result = TranslateBootstrap(
+        m_bootstrap.InitializeInterModuleImageContext(packet, ctx.GetCommand()));
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
 void IGraphicsSupervisor::InitializeGpuContext(HLERequestContext& ctx) {
     const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
     const Result result = TranslateBootstrap(
@@ -1726,12 +1971,15 @@ IGraphicsSupervisor::GetPresentImage(u32 id) {
     if(!handle||!handle->allocated)return {};
     const auto* session=container.GetSession(handle->session_id);
     if(!session||session->process!=m_process)return {};
-    u32 backing=image->backing,offset{};
+    if (image->offset > handle->orig_size ||
+        image->size > handle->orig_size - image->offset ||
+        image->offset > std::numeric_limits<u32>::max()) return {};
+    u32 backing=image->backing,offset=static_cast<u32>(image->offset);
     if(const auto it=m_native_parents.find(backing);it!=m_native_parents.end()){
         const auto parent=container.GetNvMapFile().GetHandle(it->second);
         if(!parent||!parent->allocated||handle->address<parent->address||
-            handle->address-parent->address>std::numeric_limits<u32>::max())return {};
-        offset=static_cast<u32>(handle->address-parent->address);
+            handle->address-parent->address>std::numeric_limits<u32>::max()-offset)return {};
+        offset+=static_cast<u32>(handle->address-parent->address);
         backing=it->second;
     }
     const auto backing_handle=container.GetNvMapFile().GetHandle(backing);
@@ -1810,6 +2058,40 @@ void IGraphicsSupervisor::OpenDisplaySession(HLERequestContext& ctx) {
     // AddMoveObject may allocate after CreateMetadataSession published a
     // live KClientSession. On host OOM release its creator reference rather
     // than leaking a service session or throwing through the IPC handler.
+    if (result.IsSuccess()) {
+        try {
+            ctx.AddMoveObject(client);
+        } catch (const std::bad_alloc&) {
+            client->Close(system.Kernel());
+            result = Kernel::ResultOutOfResource;
+        }
+    }
+    if (result.IsError()) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
+        return;
+    }
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(result.raw);
+}
+
+// The GPU-time query itself is not available on PS5, but the SDK needs a
+// valid child session at GSV 1121 before it can proceed with graphics setup.
+void IGraphicsSupervisor::OpenGpuTimeSession(HLERequestContext& ctx) {
+    const auto* p = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    Kernel::KClientSession* client{};
+    if (p[0] == 16 + 1121 && p[1] == 0) {
+        result = Kernel::ResultInvalidState;
+        if (m_process != nullptr) {
+            try {
+                auto handler = std::make_shared<INativeGpuTimeSession>(system);
+                result = CreateMetadataSession(system, ctx, std::move(handler), &client);
+            } catch (const std::bad_alloc&) {
+                result = Kernel::ResultOutOfResource;
+            }
+        }
+    }
     if (result.IsSuccess()) {
         try {
             ctx.AddMoveObject(client);
@@ -1932,17 +2214,28 @@ void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {
         rb.Push(Kernel::ResultInvalidCombination.raw);
         return;
     }
+    // libounce _gsvSyncCreate keeps one shared session because a second
+    // open while the first is alive is rejected by the native root.
+    // Reopen only after the server has retired the previous child.
+    if (!m_process || !m_syncpt || m_bootstrap.CurrentPhase() != GB::Phase::Ready ||
+        !m_syncpt_session.expired()) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidState.raw);
+        return;
+    }
     Kernel::KClientSession* client{};
+    std::shared_ptr<INativeSyncptSession> handler;
     Result result = Kernel::ResultOutOfResource;
     try {
-        auto handler = std::make_shared<INativeSyncptSession>(system);
-        result = CreateMetadataSession(system, ctx, std::move(handler), &client);
+        handler = std::make_shared<INativeSyncptSession>(system);
+        result = CreateMetadataSession(system, ctx, handler, &client);
     } catch (const std::bad_alloc&) {
         result = Kernel::ResultOutOfResource;
     }
     if (result.IsSuccess()) {
         try {
             ctx.AddMoveObject(client);
+            m_syncpt_session = handler;
         } catch (const std::bad_alloc&) {
             // The creator reference has not entered the outgoing queue.
             client->Close(system.Kernel());
@@ -1959,7 +2252,7 @@ void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {
 }
 
 void IGraphicsSupervisor::AttachSyncptMemory(HLERequestContext& ctx) {
-    if (!m_syncpt) {
+    if (!m_syncpt || m_bootstrap.CurrentPhase() != GB::Phase::Ready) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(Kernel::ResultInvalidState.raw);
         return;
@@ -1973,6 +2266,10 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     Kernel::KClientSession* client{};
+    // The guest may close its COPY handle immediately after a successful
+    // 1401. Keep the exact kernel memory alive through the child lifetime.
+    std::shared_ptr<Kernel::KTransferMemory> donated;
+    u64 donated_size{};
     bool valid_request = packet[0] == 16 + 1402 && packet[1] == 0;
     if (packet[0] == 16 + 1401) {
         if (const auto request = GraphicsSupervisorProtocol::DecodeNvDrvTransferSession(
@@ -1983,7 +2280,22 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
             if (!memory.IsNull() && memory->GetOwner() == m_process &&
                 request->copied_handle == ctx.GetCopyHandle(0)) {
                 result = Kernel::ResultInvalidSize;
-                valid_request = request->size <= memory->GetSize();
+                if (request->size <= memory->GetSize()) {
+                    auto* owner = memory.GetPointerUnsafe();
+                    owner->Open(kernel);
+                    try {
+                        // The shared_ptr constructor invokes the deleter
+                        // even on control-block OOM. The kernel ref is owned.
+                        donated = std::shared_ptr<Kernel::KTransferMemory>{
+                            owner, [owner_kernel = &kernel](Kernel::KTransferMemory* transfer) {
+                                transfer->Close(*owner_kernel);
+                            }};
+                        donated_size = request->size;
+                        valid_request = true;
+                    } catch (const std::bad_alloc&) {
+                        result = Kernel::ResultOutOfResource;
+                    }
+                }
             }
         }
     }
@@ -2023,15 +2335,21 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
                             // allocation throws. No leaked process ticket.
                             std::shared_ptr<Nvidia::NVDRV> handler{
                                 pending.release(),
-                                [native_process = m_process](Nvidia::NVDRV* child) noexcept {
+                                [native_process = m_process, donated](Nvidia::NVDRV* child) mutable noexcept {
                                     delete child;
                                     Nvidia::Devices::NativeGpuProcessRegistry::Instance()
                                         .Unregister(native_process);
+                                    // A weak child pointer can keep the control
+                                    // block alive; release the donated memory
+                                    // at child destruction, not at weak expiry.
+                                    donated.reset();
                                 }};
                             if (handler->InitializeForProcess(m_process)) {
                                 result = CreateMetadataSession(system, ctx, handler, &client);
-                                if (result.IsSuccess())
+                                if (result.IsSuccess()) {
                                     m_nvsrv_session = handler;
+                                    m_nvsrv_transfer_memory_size = donated_size;
+                                }
                             }
                         }
                     }
@@ -2063,6 +2381,29 @@ void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {
     }
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
+}
+
+void IGraphicsSupervisor::QueryNvDrvTransferMemoryUsage(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    if (packet[0] != 16 + 1411 || packet[1] != 0) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidCombination.raw);
+        return;
+    }
+    // This is the live 1401 donation, not the GSV 1/498 work buffer.
+    // The HLE NVDRV session allocates its objects outside the donated
+    // storage: no bytes have been suballocated, so used/peak remain zero.
+    const auto child = m_nvsrv_session.lock();
+    if (!child || !m_nvsrv_transfer_memory_size) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Kernel::ResultInvalidState.raw);
+        return;
+    }
+    NativeTipcReplyWords(ctx, {
+        static_cast<u32>(m_nvsrv_transfer_memory_size),
+        static_cast<u32>(m_nvsrv_transfer_memory_size >> 32),
+        0, 0, 0, 0,
+    });
 }
 
 void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {
@@ -2732,10 +3073,30 @@ void IGraphicsSupervisor::InitializeVideoCodecContext(HLERequestContext& ctx) {
 
 // 902/905/906 create real decoder child kernel sessions. No codec operation
 // reports success until the session has initialized its actual FFmpeg owner.
+void IGraphicsSupervisor::ReleaseVideoDecoderAccess(HLERequestContext& ctx) {
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    // libounce: root 903 has no payload and releases the state acquired by
+    // the decoder creator. The client must close the creator MOVE handle first.
+    if (packet[0] == 16 + 903 && packet[1] == 0) {
+        result = Kernel::ResultInvalidState;
+        if (m_video_decoder_access_held && m_video_decoder_creator.expired()) {
+            m_video_decoder_access_held = false;
+            m_video_decoder_creator.reset();
+            result = ResultSuccess;
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(result.raw);
+}
+
+// 902/905/906 create real decoder child kernel sessions. No codec operation
+// reports success until the session has initialized its actual FFmpeg owner.
 void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
     const auto* w = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     Kernel::KClientSession* client{};
+    std::weak_ptr<IGraphicsVideoDecoderSession> creator;
     const u32 cmd = ctx.GetCommand();
     // 902 has no input words; 905 carries a flag, 906 a flag and
     // library version. Reject malformed TIPC lengths before creating a
@@ -2745,11 +3106,16 @@ void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
                        cmd == 906 && w[1] == 3;
     if (w[0] == cmd + 0x10 && shape) {
         result = Kernel::ResultInvalidState;
-        if (m_process && m_bootstrap.GpuContextReady()) {
+        // libounce explicitly requires one creator per root initialization.
+        // A closed creator remains reserved until root command 903 releases
+        // that state, so do not reopen merely because the weak handle expired.
+        if (m_process && m_bootstrap.GpuContextReady() &&
+            !m_video_decoder_access_held) {
             auto owner = std::static_pointer_cast<IGraphicsSupervisor>(shared_from_this());
             try {
                 auto handler = std::make_shared<IGraphicsVideoDecoderSession>(
                     system, std::move(owner), true);
+                creator = handler;
                 result = CreateMetadataSession(system, ctx, std::move(handler), &client);
             } catch (const std::bad_alloc&) {
                 result = Kernel::ResultOutOfResource;
@@ -2772,6 +3138,10 @@ void IGraphicsSupervisor::OpenVideoDecoderSession(HLERequestContext& ctx) {
         rb.Push(result.raw);
         return;
     }
+    // Publish the root lease only after the MOVE descriptor itself is queued.
+    // Failed publication therefore cannot strand the root's 903 state.
+    m_video_decoder_creator = std::move(creator);
+    m_video_decoder_access_held = true;
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
     rb.Push(result.raw);
 }
@@ -3136,11 +3506,12 @@ void IGraphicsSupervisor::CreateNativeImage(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     u32 id{};
-    if (packet[0] == 0x1bd && packet[1] == 18 && packet[3] == 1) {
+    if (packet[0] == 0x1bd && packet[1] == 18) {
         result = Kernel::ResultInvalidState;
         if (m_bootstrap.GpuContextReady()) {
             const std::span<const u32> preferences{packet + 2, 16};
-            const auto requirements = ::Service::AM::CalculateNativeImageRequirements(preferences, packet[18]);
+            const u32 count = packet[18];
+            const auto requirements = ::Service::AM::CalculateNativeImageRequirements(preferences, count);
             result = Kernel::ResultNotImplemented;
             if (requirements) {
                 const std::scoped_lock lock{m_native_memory_mutex};
@@ -3153,28 +3524,34 @@ void IGraphicsSupervisor::CreateNativeImage(HLERequestContext& ctx) {
                     result = Kernel::ResultInvalidSize;
                     if (handle && handle->allocated && handle->size >= requirements->size) {
                         result = Kernel::ResultOutOfResource;
-                        if (m_native_images.Count() < NativeImageLedger::MaxEntries &&
-                            m_next_image_id <= std::numeric_limits<u32>::max() &&
-                            handle->Duplicate(true) == Nvidia::NvResult::Success) {
-                            // The map insertion in NativeImageLedger::Create
-                            // can allocate after the NVMap duplicate succeeds.
-                            // An allocation failure must not leak that live
-                            // handle or escape as an uncaught HLE exception.
-                            try {
-                                if (const auto created =
-                                        m_native_images.Create(
+                        if (count && count <= NativeImageLedger::MaxEntries - m_native_images.Count() &&
+                            m_next_image_id && m_next_image_id + count - 1 <= std::numeric_limits<u32>::max()) {
+                            // The SDK derives each image handle as base + i
+                            // (Lichii 0288882f, NX2_NOTES). One backing ref
+                            // per member keeps 430 and teardown symmetric.
+                            u32 duplicated{};
+                            for (; duplicated < count; ++duplicated)
+                                if (handle->Duplicate(true) != Nvidia::NvResult::Success) break;
+                            if (duplicated == count) {
+                                try {
+                                    if (const auto created = m_native_images.Create(
                                             backing, handle->size, *requirements, preferences,
-                                            static_cast<u32>(m_next_image_id))) {
-                                    id = *created;
-                                    ++m_next_image_id;
-                                    result = ResultSuccess;
-                                } else {
+                                            static_cast<u32>(m_next_image_id), count)) {
+                                        id = *created;
+                                        m_next_image_id += count;
+                                        result = ResultSuccess;
+                                    }
+                                } catch (const std::bad_alloc&) {
+                                    result = Kernel::ResultOutOfResource;
+                                }
+                            }
+                            // The ledger rolls back partial publication on
+                            // allocation failure; release ONLY our duplicates.
+                            if (result.IsError())
+                                while (duplicated != 0) {
+                                    --duplicated;
                                     nvmap.FreeHandle(backing, true);
                                 }
-                            } catch (const std::bad_alloc&) {
-                                nvmap.FreeHandle(backing, true);
-                                result = Kernel::ResultOutOfResource;
-                            }
                         }
                     }
                 }

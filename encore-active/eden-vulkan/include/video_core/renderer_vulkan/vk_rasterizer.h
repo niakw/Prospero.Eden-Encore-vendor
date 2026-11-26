@@ -129,6 +129,10 @@ public:
     void SignalFence(std::function<void()>&& func) override;
     void SyncOperation(std::function<void()>&& func) override;
     void SignalSyncPoint(u32 value) override;
+#ifdef PS5_NATIVE
+    bool SignalNativeSyncPoint(u32 value) override;
+    bool SignalNativeFence(std::function<void()>&& func) override;
+#endif
     void SignalReference() override;
     void ReleaseFences(bool force = true) override;
     void FlushAndInvalidateRegion(

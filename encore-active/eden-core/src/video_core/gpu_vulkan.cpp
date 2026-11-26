@@ -77,6 +77,15 @@ struct GPU::Impl {
         renderer.reset();
     }
 
+    // The NVDRV service creates channels while the GPU worker binds and retires them.
+    // Protect only registry operations; never hold this mutex over scheduler or renderer calls.
+    std::shared_ptr<Control::ChannelState> FindChannel(s32 channel_id) {
+        std::scoped_lock lock{channel_mutex};
+        const auto it = channels.find(channel_id);
+        return it == channels.end() ? nullptr : it->second;
+    }
+
+    // Caller owns channel_mutex, including allocation of the next bind ID.
     std::shared_ptr<Control::ChannelState> CreateChannel(s32 channel_id) {
         auto channel_state = std::make_shared<Tegra::Control::ChannelState>(channel_id);
         channels.emplace(channel_id, channel_state);
@@ -85,15 +94,16 @@ struct GPU::Impl {
 
     void BindChannel(s32 channel_id) {
         if (bound_channel != channel_id) {
-            auto it = channels.find(channel_id);
-            ASSERT(it != channels.end());
+            const auto owner = FindChannel(channel_id);
+            ASSERT(owner);
             bound_channel = channel_id;
-            current_channel = it->second.get();
+            current_channel = owner.get();
             renderer->ReadRasterizer()->BindChannel(*current_channel);
         }
     }
 
     std::shared_ptr<Control::ChannelState> AllocateChannel() {
+        std::scoped_lock lock{channel_mutex};
         return CreateChannel(new_channel_id++);
     }
 
@@ -104,9 +114,9 @@ struct GPU::Impl {
         // Never publish an owner until its payload AND rasterizer state are ready.
         // The strict scheduler rejects empty payloads; GPU work must not race
         // the rasterizer's native per-channel initialization either.
-        const auto it = channels.find(to_init.bind_id);
-        ASSERT(it != channels.end() && it->second.get() == &to_init);
-        scheduler.DeclareChannel(it->second);
+        const auto owner = FindChannel(to_init.bind_id);
+        ASSERT(owner.get() == &to_init);
+        scheduler.DeclareChannel(owner);
     }
 
     void InitAddressSpace(Tegra::MemoryManager& memory_manager) {
@@ -115,18 +125,17 @@ struct GPU::Impl {
 
     void ReleaseChannel(Control::ChannelState& to_release) {
 #if defined(PS5_NATIVE)
-        // Queue retirement on the existing GPU worker. Only the worker
-        // reads/mutates the channels map: the NVDRV service thread must not
-        // race GPU::BindChannel while looking up a channel on FD close.
-        // The caller keeps to_release alive until this synchronous barrier
-        // completes. Verify the exact owner epoch on the worker side.
+        // TickWork also runs inside draws, under Scheduler::Push's shared
+        // epoch lease and GPU execution mutex. RetireChannel needs both
+        // locks exclusively. Queue a distinct, blocking FIFO worker command
+        // instead: it runs after the earlier dispatches and releases.
         const s32 channel_id = to_release.bind_id;
-        const auto* expected = &to_release;
-        const u64 fence = RequestSyncOperation([this, channel_id, expected] {
-            const auto it = channels.find(channel_id);
-            if (it == channels.end() || it->second.get() != expected)
+        const auto owner = FindChannel(channel_id);
+        if (owner.get() != &to_release)
+            return;
+        gpu_thread.RetireChannelAtBoundary([this, channel_id, owner] {
+            if (FindChannel(channel_id) != owner)
                 return; // An old FD cannot retire a reused channel ID.
-            const auto owner = it->second;
             scheduler.RetireChannel(owner.get());
             if (current_channel == owner.get()) {
                 current_channel = nullptr;
@@ -134,10 +143,12 @@ struct GPU::Impl {
             }
             if (owner->initialized)
                 renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);
-            channels.erase(it);
-        });
-        gpu_thread.TickGPU(is_async);
-        WaitForSyncOperation(fence);
+            // No scheduler or renderer calls while holding the registry lock.
+            std::scoped_lock lock{channel_mutex};
+            const auto it = channels.find(channel_id);
+            if (it != channels.end() && it->second == owner)
+                channels.erase(it);
+        }, is_async);
 #else
         // Host/non-PS5 scheduler has no native epoch-retirement API.
         // Preserve its original behavior; no platform-wide ABI change.
@@ -159,6 +170,23 @@ struct GPU::Impl {
 
     /// Synchronizes CPU writes with Host GPU memory.
     void InvalidateGPUCache() {
+#if defined(PS5_NATIVE)
+        // Maxwell issues this barrier very frequently, including frames with
+        // no guest CPU writes. Avoid allocating a vector/function and taking
+        // every dirty-manager gather lock when no manager can contribute.
+        // A Collect racing after this acquire load is ordered after this
+        // barrier and remains visible to the next invalidation.
+        bool may_have_pending = false;
+        for (const auto& manager : system.GetGPUDirtyMemoryManager()) {
+            if (manager.MayHavePending()) {
+                may_have_pending = true;
+                break;
+            }
+        }
+        if (!may_have_pending) {
+            return;
+        }
+#endif
         std::vector<std::pair<DAddr, u64>> writes;
         std::function<void(PAddr, size_t)> callback_writes(
             [&writes](PAddr address, size_t size) { writes.emplace_back(address, size); });
@@ -189,7 +217,8 @@ struct GPU::Impl {
 
     /// Obtains current flush request fence id.
     [[nodiscard]] u64 CurrentSyncRequestFence() const {
-        return current_sync_fence.load(std::memory_order_relaxed);
+        // A completed callback publishes its result before incrementing the fence.
+        return current_sync_fence.load(std::memory_order_acquire);
     }
 
     void WaitForSyncOperation(const u64 fence) {
@@ -217,6 +246,13 @@ struct GPU::Impl {
 
     /// Tick pending requests within the GPU.
     void TickWork() {
+        // Lichii: draws tick even when no CPU sync operation is queued.
+        // The producer increments only after successful callback insertion;
+        // an enqueue racing this empty check still schedules its GPU tick.
+        if (last_sync_fence.load(std::memory_order_acquire) ==
+            current_sync_fence.load(std::memory_order_acquire)) {
+            return;
+        }
         std::unique_lock lck{sync_request_mutex};
         while (!sync_requests.empty()) {
             auto request = std::move(sync_requests.front());
@@ -371,14 +407,20 @@ struct GPU::Impl {
     }
 
     std::vector<u8> GetAppletCaptureBuffer() {
-        std::vector<u8> out;
-
-        const auto wait_fence =
-            RequestSyncOperation([&] { out = renderer->GetAppletCaptureBuffer(); });
+        // Shutdown or a worker failure can end the wait before the queued
+        // callback runs. Its result must not refer to the caller's stack.
+        auto out = std::make_shared<std::vector<u8>>();
+        const auto wait_fence = RequestSyncOperation([this, out] {
+            *out = renderer->GetAppletCaptureBuffer();
+        });
         gpu_thread.TickGPU(is_async);
         WaitForSyncOperation(wait_fence);
-
-        return out;
+        // Only access the vector after the callback's release fence. A
+        // cancelled wait must not race a still-running capture operation.
+        if (CurrentSyncRequestFence() < wait_fence) {
+            return {};
+        }
+        return std::move(*out);
     }
 
 
@@ -404,7 +446,7 @@ struct GPU::Impl {
 
     std::list<std::function<void()>> sync_requests;
     std::atomic<u64> current_sync_fence{};
-    u64 last_sync_fence{};
+    std::atomic<u64> last_sync_fence{};
     std::mutex sync_request_mutex;
     std::condition_variable sync_request_cv;
 
@@ -413,6 +455,7 @@ struct GPU::Impl {
     std::unique_ptr<Core::Frontend::GraphicsContext> cpu_context;
 
     Tegra::Control::Scheduler scheduler;
+    std::mutex channel_mutex;
     ::Common::unordered_map<s32, std::shared_ptr<Tegra::Control::ChannelState>> channels;
     // A guest may close an NVDRV GPU FD before its first successful bind.
     // ReleaseChannel compares this pointer even for an uninitialized owner.

@@ -7,6 +7,9 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <memory>
+#include <optional>
 #include <condition_variable>
 #include <span>
 #include <vector>
@@ -106,6 +109,14 @@ inline CommandHeader BuildCommandHeader(BufferMethods method, u32 arg_count, Sub
     return result;
 }
 
+// Host-only metadata for an admitted NVDRV FENCE_WAIT. It is never
+// decoded from guest command words and cannot be forged by a pushbuffer.
+struct NativeSyncpointWait {
+    u32 id{};
+    u32 threshold{};
+    std::shared_ptr<const std::atomic<bool>> lease;
+};
+
 struct CommandList final {
     CommandList() = default;
     explicit CommandList(std::size_t size) : command_lists(size) {}
@@ -114,6 +125,10 @@ struct CommandList final {
 
     boost::container::small_vector<CommandListHeader, 512> command_lists;
     boost::container::small_vector<CommandHeader, 512> prefetch_command_list;
+    std::optional<NativeSyncpointWait> native_syncpoint_wait;
+    // Host-only AS health token captured at NVDRV admission. Native queues
+    // must not execute or publish completion after GSV revocation/GMMU poison.
+    std::shared_ptr<const std::atomic<bool>> native_submission_lease;
 };
 
 /// @brief The DmaPusher class implements DMA submission to FIFOs, providing an area of memory that the
@@ -133,11 +148,14 @@ public:
     void DispatchCalls();
 
     [[nodiscard]] bool HasPendingNativeAcquire() const noexcept {
-        return puller.HasPendingNativeAcquire();
+        return puller.HasPendingNativeAcquire() ||
+               (!dma_pushbuffer.empty() && dma_pushbuffer.front().native_syncpoint_wait.has_value());
     }
-    [[nodiscard]] bool ResumeNativeAcquire() {
-        return puller.ResumeNativeAcquire(*this);
-    }
+    [[nodiscard]] bool ResumeNativeAcquire();
+    // Fatal native GPU decode/retirement errors share one path: on PS5 it
+    // latches the process-wide cause, wakes this channel's H:17 event, then
+    // rethrows. Host builds retain the same fail-closed exception semantics.
+    [[noreturn]] void FailNativeSubmission(const char* message);
 
     void BindSubchannel(Engines::EngineInterface* engine, u32 subchannel_id, Engines::EngineTypes engine_type) {
         subchannels[subchannel_id] = engine;
@@ -155,6 +173,24 @@ private:
     // graph. The cursor is an ABI field in BOTH core and video_core, even
     // when their individual TUs do not define PS5_NATIVE.
     std::size_t command_resume_offset{};
+
+    // NVN2 can interrupt a register write with a non-contiguous called GPFIFO
+    // entry, then resume the unfinished write at the address immediately
+    // following the split entry. Keep that method state aside while the call
+    // runs so its command header is never consumed as stale method data.
+    struct ParkedMethod {
+        u32 method;
+        u32 subchannel;
+        u32 method_count;
+        bool non_incrementing;
+        bool increment_once;
+        GPUVAddr resume_address;
+    };
+    static constexpr std::size_t MaxParkedMethods = 16;
+    void ResolveSplitMethod(GPUVAddr entry_address, bool park);
+    [[nodiscard]] bool SplitResumesLater(const CommandList& list, std::size_t from) const;
+    std::vector<ParkedMethod> parked_methods;
+    GPUVAddr split_method_end{};
 
     void SetState(const CommandHeader& command_header);
 

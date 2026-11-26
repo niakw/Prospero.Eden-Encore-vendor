@@ -12,6 +12,9 @@
 #include "common/assert.h"
 #include "common/logging.h"
 #include "core/core.h"
+#ifdef PS5_NATIVE
+#include "core/native_renderer_lifetime.h"
+#endif
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_process.h"
 #include "video_core/guest_memory.h"
@@ -125,6 +128,13 @@ inline void MemoryManager::SetBigPageContinuous(size_t big_page_index, bool valu
 }
 
 GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr dev_addr, size_t size, PTEKind kind, MemoryManager::EntryType entry_type) {
+    // Do not publish out-of-range GPU PTEs, even for a caller that bypasses
+    // the ioctl layer's range validation. Match Eglantine's native guard.
+    if (size != 0 && (gpu_addr >= address_space_size || size > address_space_size - gpu_addr)) {
+        LOG_ERROR(HW_GPU, "GPU mapping {:#x}+{:#x} is outside the {:#x}-byte address space",
+                  gpu_addr, size, address_space_size);
+        return gpu_addr;
+    }
     // Invalidate prior cached ranges BEFORE the first mapping update.
     gpu_page_table_revision.fetch_add(1, std::memory_order_release);
     [[maybe_unused]] u64 remaining_size{size};
@@ -134,6 +144,10 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
     // Cache eviction can write GPU-dirty data to the OLD physical backing.
     // Never update a PTE before notifying the rasterizer about its retirement.
     const auto notify_changed = [this](GPUVAddr address, u64 length) {
+#ifdef PS5_NATIVE
+        const ::Eden::NativeRendererLifetime::MappingCallbackLease lease;
+        if (!lease) return; // Renderer retired; still update software PTEs below.
+#endif
         rasterizer->ModifyGPUMemory(unique_identifier, address, length);
     };
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
@@ -149,8 +163,13 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
         const u32 replacement_page = entry_type == EntryType::Mapped
                                          ? static_cast<u32>((dev_addr + offset) >> cpu_page_bits)
                                          : 0;
+        // A native kind change can reinterpret the same physical page. Retire
+        // the old cache owner while both the PTE and the old kind are visible.
+        // The lookup is only needed for Mapped -> Mapped with unchanged backing.
         const bool mapping_changed = Eden::GpuMemory::NeedsRasterizerUnmap(
-            current_entry_type, entry_type, EntryType::Mapped, previous_page, replacement_page);
+            current_entry_type, entry_type, EntryType::Mapped, previous_page, replacement_page) ||
+            (current_entry_type == EntryType::Mapped && entry_type == EntryType::Mapped &&
+             GetPageKind(current_gpu_addr) != kind);
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
         changed_runs.Record(current_gpu_addr, mapping_changed, notify_changed);
 #else
@@ -170,17 +189,31 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
         }
         remaining_size -= page_size;
     }
-    kind_map.Map(gpu_addr, gpu_addr + size, kind);
+    {
+        std::unique_lock<std::mutex> lock(guard);
+        kind_map.Map(gpu_addr, gpu_addr + size, kind);
+    }
     gpu_page_table_revision.fetch_add(1, std::memory_order_release);
     return gpu_addr;
 }
 
 GPUVAddr MemoryManager::BigPageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr dev_addr, size_t size, PTEKind kind, MemoryManager::EntryType entry_type) {
+    // Do not publish out-of-range GPU PTEs, even for a caller that bypasses
+    // the ioctl layer's range validation. Match Eglantine's native guard.
+    if (size != 0 && (gpu_addr >= address_space_size || size > address_space_size - gpu_addr)) {
+        LOG_ERROR(HW_GPU, "GPU mapping {:#x}+{:#x} is outside the {:#x}-byte address space",
+                  gpu_addr, size, address_space_size);
+        return gpu_addr;
+    }
     // Invalidate prior cached ranges BEFORE the first mapping update.
     gpu_page_table_revision.fetch_add(1, std::memory_order_release);
     [[maybe_unused]] u64 remaining_size{size};
     // Evict dirty GPU cache owners before switching the underlying big PTE.
     const auto notify_changed = [this](GPUVAddr address, u64 length) {
+#ifdef PS5_NATIVE
+        const ::Eden::NativeRendererLifetime::MappingCallbackLease lease;
+        if (!lease) return; // Renderer retired; still update software PTEs below.
+#endif
         rasterizer->ModifyGPUMemory(unique_identifier, address, length);
     };
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
@@ -196,8 +229,13 @@ GPUVAddr MemoryManager::BigPageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr
         const u32 replacement_page = entry_type == EntryType::Mapped
                                          ? static_cast<u32>((dev_addr + offset) >> cpu_page_bits)
                                          : 0;
+        // A native kind change can reinterpret the same physical page. Retire
+        // the old cache owner while both the PTE and the old kind are visible.
+        // The lookup is only needed for Mapped -> Mapped with unchanged backing.
         const bool mapping_changed = Eden::GpuMemory::NeedsRasterizerUnmap(
-            current_entry_type, entry_type, EntryType::Mapped, previous_page, replacement_page);
+            current_entry_type, entry_type, EntryType::Mapped, previous_page, replacement_page) ||
+            (current_entry_type == EntryType::Mapped && entry_type == EntryType::Mapped &&
+             GetPageKind(current_gpu_addr) != kind);
 #ifdef EDEN_NS2_GPU_RANGE_BATCH
         changed_runs.Record(current_gpu_addr, mapping_changed, notify_changed);
 #else
@@ -269,8 +307,14 @@ void MemoryManager::Unmap(GPUVAddr gpu_addr, std::size_t size) {
     }
     GetSubmappedRangeImpl<false>(gpu_addr, size, page_stash);
 
-    for (const auto& [map_addr, map_size] : page_stash) {
-        rasterizer->UnmapMemory(map_addr, map_size);
+    {
+#ifdef PS5_NATIVE
+        const ::Eden::NativeRendererLifetime::MappingCallbackLease lease;
+        if (lease)
+#endif
+        for (const auto& [map_addr, map_size] : page_stash) {
+            rasterizer->UnmapMemory(map_addr, map_size);
+        }
     }
     page_stash.clear();
 

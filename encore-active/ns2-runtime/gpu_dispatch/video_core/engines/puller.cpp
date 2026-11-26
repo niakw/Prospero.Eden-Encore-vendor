@@ -21,8 +21,10 @@
 #include "video_core/engines/maxwell_dma.h"
 #include "video_core/engines/puller.h"
 #include <span>
+#include <functional>
 #include <memory>
 #include <new>
+#include <optional>
 #include <atomic>
 #include <algorithm>
 #include <limits>
@@ -75,6 +77,70 @@ namespace {
 
 constexpr u32 Gf100BindClassMask = 0xffff;
 constexpr u32 Gf100BindValidMask =  0x1f0000 | Gf100BindClassMask;
+
+using NativeProcessTicket =
+    Service::Nvidia::Devices::NativeGpuProcessRegistry::Ticket;
+
+[[nodiscard]] NativeProcessTicket ProcessTicket(
+    const Service::Nvidia::Devices::NativeGpuChannelRegistry::Ticket& ticket) {
+    return NativeProcessTicket{ticket.process, ticket.generation};
+}
+
+template <typename Memory, typename Combine>
+[[nodiscard]] bool PublishNativeSemaphoreWord(
+    Memory& memory, const NativeProcessTicket& ticket, GPUVAddr address,
+    std::optional<GPUVAddr> mirror, bool combined, Combine&& combine) {
+    auto& registry =
+        Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+    const auto device = memory.GpuToCpuAddress(address, sizeof(u32));
+    if (!device || !memory.IsFullyMappedRange(address, sizeof(u32)))
+        return false;
+
+    const u32 guest_before = memory.template Read<u32>(address);
+    const u32 guest_after = combine(guest_before);
+
+    if (mirror) {
+        const auto mirror_device =
+            memory.GpuToCpuAddress(*mirror, sizeof(u32));
+        if (!mirror_device ||
+            !memory.IsFullyMappedRange(*mirror, sizeof(u32)))
+            return false;
+        const u32 mirror_guest = memory.template Read<u32>(*mirror);
+        const auto shadow =
+            registry.ReadSemaphoreShadow(ticket, *mirror_device, mirror_guest);
+        const u32 logical_before = shadow.value_or(mirror_guest);
+        const u32 logical_after = combine(logical_before);
+
+        memory.template Write<u32>(address, guest_after);
+        if (registry.IsSemaphoreDirectWord(ticket, *mirror_device)) {
+            if (!registry.SetSemaphoreShadow(
+                    ticket, *mirror_device, logical_after, mirror_guest))
+                return false;
+        } else {
+            memory.template Write<u32>(*mirror, logical_after);
+        }
+        return true;
+    }
+
+    const auto shadow =
+        registry.ReadSemaphoreShadow(ticket, *device, guest_before);
+    const auto direct =
+        registry.NoteDirectSemaphoreRelease(ticket, address, *device);
+    if (direct ==
+        Service::Nvidia::Devices::NativeGpuProcessRegistry::
+            SemaphoreDirectResult::OutOfResource)
+        return false;
+
+    memory.template Write<u32>(address, guest_after);
+    if (combined && shadow &&
+        direct ==
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::
+                SemaphoreDirectResult::Tracked) {
+        return registry.SetSemaphoreShadow(
+            ticket, *device, combine(*shadow), guest_after);
+    }
+    return true;
+}
 
 } // Anonymous namespace
 
@@ -234,7 +300,7 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
             // Report and throw BEFORE ASSERT_MSG; a soft assertion may be
             // configured to stop rather than retire the native worker.
             LOG_ERROR(HW_GPU, "Native GPU SET_OBJECT class {:#x} unsupported", engine);
-            throw std::runtime_error("Native GPFIFO SET_OBJECT class unsupported");
+            dma_pusher.FailNativeSubmission("Native GPFIFO SET_OBJECT class unsupported");
         }
 #endif
         UNIMPLEMENTED_MSG("Unimplemented engine {:04X}", engine_id);
@@ -251,7 +317,7 @@ void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {
         // acknowledge guest GPU work that is still blocked.
         if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
                 &dma_pusher.channel_state)) {
-            throw std::runtime_error("Native GPFIFO FENCE_ACTION acquire unsupported");
+            dma_pusher.FailNativeSubmission("Native GPFIFO FENCE_ACTION acquire unsupported");
         }
 #endif
         // UNIMPLEMENTED_MSG("Channel Scheduling pending.");
@@ -259,13 +325,27 @@ void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {
         dma_pusher.rasterizer->ReleaseFences();
         break;
     case Puller::FenceOperation::Increment:
+#ifdef PS5_NATIVE
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &dma_pusher.channel_state)) {
+            // OunceVK treats "producer target reached, GPU marker stale" as a
+            // fatal completion mismatch. Require the Vulkan backend's strict
+            // non-stubbed retirement fence for every Ampere increment.
+            if (!dma_pusher.rasterizer->SignalNativeSyncPoint(
+                    regs.fence_action.syncpoint_id)) {
+                dma_pusher.FailNativeSubmission(
+                    "Native GPFIFO syncpoint has no strict renderer fence");
+            }
+            break;
+        }
+#endif
         dma_pusher.rasterizer->SignalSyncPoint(regs.fence_action.syncpoint_id);
         break;
     default:
 #ifdef PS5_NATIVE
         if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
                 &dma_pusher.channel_state)) {
-            throw std::runtime_error("Native GPFIFO FENCE_ACTION operation unsupported");
+            dma_pusher.FailNativeSubmission("Native GPFIFO FENCE_ACTION operation unsupported");
         }
 #endif
         UNIMPLEMENTED_MSG("Unimplemented operation {}", regs.fence_action.op.Value());
@@ -330,21 +410,36 @@ static CoherentNativeSemaphoreValue ReadCoherentNativeSemaphore(
     const auto cpu_address =
         dma_pusher.memory_manager.GpuToCpuAddress(address, sizeof(u32));
     if (!cpu_address) {
-        throw std::runtime_error("Ampere SEM_EXECUTE: unmapped acquire address");
+        dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: unmapped acquire address");
     }
     if (dma_pusher.rasterizer->MustFlushRegion(
             *cpu_address, sizeof(u32), VideoCommon::CacheType::BufferCache)) {
         dma_pusher.rasterizer->FlushRegion(
             *cpu_address, sizeof(u32), VideoCommon::CacheType::BufferCache);
     }
-    const u32 observed = dma_pusher.memory_manager.Read<u32>(address);
+    u32 observed = dma_pusher.memory_manager.Read<u32>(address);
     // A guest can change the GMMU backing while a CPU-side flush/read is
     // underway. Never accept a value fetched from an unstable physical page.
     const auto after = dma_pusher.memory_manager.GpuToCpuAddress(
         address, sizeof(u32));
     if (!after || *after != *cpu_address) {
-        throw std::runtime_error("Ampere SEM_EXECUTE: acquire page remapped during read");
+        dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: acquire page remapped during read");
     }
+#ifdef PS5_NATIVE
+    const auto channel_ticket =
+        Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+            .CaptureTicket(&dma_pusher.channel_state);
+    if (!channel_ticket) {
+        dma_pusher.FailNativeSubmission(
+            "Ampere SEM_EXECUTE: acquire process epoch unavailable");
+    }
+    if (const auto shadow =
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+                .ReadSemaphoreShadow(
+                    ProcessTicket(*channel_ticket), *cpu_address, observed)) {
+        observed = *shadow;
+    }
+#endif
     return {observed, *cpu_address};
 }
 
@@ -363,29 +458,43 @@ bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {
         ticket->generation != pending.process_generation ||
         ticket->channel_generation != pending.channel_generation ||
         !registry.IsCurrent(&dma_pusher.channel_state, *ticket)) {
-        throw std::runtime_error("Ampere SEM_EXECUTE: parked acquire channel epoch retired");
+        dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: parked acquire channel epoch retired");
     }
 #endif
     const auto cpu_before = dma_pusher.memory_manager.GpuToCpuAddress(
         pending.address, sizeof(u32));
     if (!cpu_before || *cpu_before != pending.cpu_address) {
-        throw std::runtime_error("Ampere SEM_EXECUTE: parked acquire backing remapped");
+        dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: parked acquire backing remapped");
     }
     dma_pusher.rasterizer->ReleaseFences();
     const auto observed = ReadCoherentNativeSemaphore(dma_pusher, pending.address);
     if (observed.cpu_address != pending.cpu_address) {
-        throw std::runtime_error("Ampere SEM_EXECUTE: parked acquire backing changed");
+        dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: parked acquire backing changed");
     }
     const auto ready = NativeSemaphore::AcquireReady(
         pending.operation, observed.value, pending.value);
     if (!ready) {
-        throw std::runtime_error("Ampere SEM_EXECUTE: invalid parked operation");
+        dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: invalid parked operation");
     }
     if (!*ready) {
         return false;
     }
     pending_native_acquire.reset();
     return true;
+}
+
+// One release contract for C797 SEM_EXECUTE, C7C0 report semaphore and
+// QMD3 completion. On PS5 native, every write requires a real backend fence;
+// the non-PS5 host fallback retains the pre-existing generic policy.
+[[nodiscard]] static bool QueueNativeSemaphoreRelease(
+    DmaPusher& pusher, std::function<void()>&& completion) {
+#ifdef PS5_NATIVE
+    return pusher.rasterizer &&
+           pusher.rasterizer->SignalNativeFence(std::move(completion));
+#else
+    pusher.rasterizer->SignalFence(std::move(completion));
+    return true;
+#endif
 }
 
 // 0xC797 Ampere host SEM_EXECUTE (0x1b) uses registers 0x17/0x18
@@ -401,7 +510,7 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
     // GPU-only pages are allowed: this checks GMMU residency, not a CPU alias.
     if (!NativeSemaphore::IsAddressAdmissible(address) ||
         !dma_pusher.memory_manager.IsFullyMappedRange(address, sizeof(u32))) {
-        throw std::runtime_error("Ampere SEM_EXECUTE: invalid/unmapped GPU address");
+        dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: invalid/unmapped GPU address");
     }
     if (operation == 1) { // RELEASE: schedule a genuine GPU fence write.
         // QueryCacheBase::CounterReport needs a CPU backing address to
@@ -410,7 +519,7 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
         // drops the report. Fail the native channel instead of pretending
         // a guest semaphore RELEASE was submitted.
         if (!dma_pusher.memory_manager.GpuToCpuAddress(address, sizeof(u32))) {
-            throw std::runtime_error("Ampere SEM_EXECUTE: release has no CPU backing");
+            dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: release has no CPU backing");
         }
 #ifdef PS5_NATIVE
         // QueryCacheBase retains a raw CPU pointer until fence retirement.
@@ -423,12 +532,26 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
         const auto* const backing = dma_pusher.memory_manager.GetPointer(address);
         if (!ticket || !ticket->process || !ticket->generation ||
             !ticket->channel_generation || !backing) {
-            throw std::runtime_error("Ampere SEM_EXECUTE: release owner unavailable");
+            dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: release owner unavailable");
         }
         const auto* const channel = &dma_pusher.channel_state;
         auto* const memory = &dma_pusher.memory_manager;
-        dma_pusher.rasterizer->SignalFence(
-            [channel, memory, ticket = *ticket, address, value, backing] {
+        const auto process_ticket = ProcessTicket(*ticket);
+        const auto mirror =
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+                .SemaphoreMirrorAddress(process_ticket, address);
+        const auto* const mirror_backing =
+            mirror ? dma_pusher.memory_manager.GetPointer(*mirror) : nullptr;
+        if (mirror &&
+            (!dma_pusher.memory_manager.IsFullyMappedRange(
+                 *mirror, sizeof(u32)) ||
+             !mirror_backing)) {
+            dma_pusher.FailNativeSubmission(
+                "Ampere SEM_EXECUTE: semaphore mirror backing unavailable");
+        }
+        if (!QueueNativeSemaphoreRelease(dma_pusher,
+            [channel, memory, ticket = *ticket, process_ticket, address,
+             value, backing, mirror, mirror_backing] {
                 try {
                     auto& current =
                         Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
@@ -436,15 +559,29 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
                     // completion into the replacement process's guest RAM.
                     if (!current.IsCurrent(channel, ticket)) return;
                     if (!memory->IsFullyMappedRange(address, sizeof(u32)) ||
-                        memory->GetPointer(address) != backing) {
+                        memory->GetPointer(address) != backing ||
+                        (mirror &&
+                         (!memory->IsFullyMappedRange(*mirror, sizeof(u32)) ||
+                          memory->GetPointer(*mirror) != mirror_backing))) {
                         throw std::runtime_error(
                             "Ampere SEM_EXECUTE: release backing changed after GPU submit");
                     }
-                    memory->Write<u32>(address, value);
+                    if (!PublishNativeSemaphoreWord(
+                            *memory, process_ticket, address, mirror, false,
+                            [value](u32) { return value; })) {
+                        throw std::runtime_error(
+                            "Ampere SEM_EXECUTE: semaphore mirror publication failed");
+                    }
                 } catch (...) {
-                    Eden::RecordGpuFailure(std::current_exception());
+                    auto failure = std::current_exception();
+                    Eden::RecordGpuFailure(failure);
+                    Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                        .ReportFault(channel);
                 }
-            });
+            })) {
+            dma_pusher.FailNativeSubmission(
+                "Ampere SEM_EXECUTE requires strict Vulkan retirement");
+        }
 #else
         // Desktop/NS1 legacy QueryCache semantics remain unchanged.
         dma_pusher.rasterizer->Query(
@@ -457,7 +594,7 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
     // rejection. Only 0 and 2..5 are acquire comparisons (1 is release).
     // Reject 6/7 before ReleaseFences or any coherent guest read.
     if (operation > 5U) {
-        throw std::runtime_error("Ampere SEM_EXECUTE: unknown acquire operation");
+        dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: unknown acquire operation");
     }
     // A pending acquire requires suspending the GPFIFO channel. The
     // existing Maxwell busy loop must NEVER run on Ampere's 0x1a method,
@@ -468,7 +605,7 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
     const auto ready = NativeSemaphore::AcquireReady(
         operation, observed.value, value);
     if (!ready) {
-        throw std::runtime_error("Ampere SEM_EXECUTE: unknown acquire operation");
+        dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: unknown acquire operation");
     }
     if (!*ready) {
         // Do not advance past an unfulfilled GPU wait. DMA retains the
@@ -479,7 +616,7 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
                 .CaptureTicket(&dma_pusher.channel_state);
         if (!ticket || !ticket->process || !ticket->generation ||
             !ticket->channel_generation) {
-            throw std::runtime_error("Ampere SEM_EXECUTE: pending acquire has no channel epoch");
+            dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: pending acquire has no channel epoch");
         }
         pending_native_acquire = PendingNativeAcquire{
             address, value, operation, observed.cpu_address,
@@ -526,7 +663,7 @@ void Puller::CallPullerMethod(DmaPusher& dma_pusher, const MethodCall& method_ca
 #ifdef PS5_NATIVE
         if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
                 &dma_pusher.channel_state)) {
-            throw std::runtime_error("Native GPFIFO puller method unsupported");
+            dma_pusher.FailNativeSubmission("Native GPFIFO puller method unsupported");
         }
 #endif
     };
@@ -624,7 +761,7 @@ void Puller::CallNative3D(DmaPusher& pusher, u32 method,
         // A retired Ampere macro channel cannot acknowledge a later GPFIFO
         // packet as executed. The maintained GPU worker catches this fault
         // and stops before publishing its guest queue completion fence.
-        throw std::runtime_error("Native Ampere 3D macro channel unavailable");
+        pusher.FailNativeSubmission("Native Ampere 3D macro channel unavailable");
     }
     auto& engine=pusher.channel_state.payload->maxwell_3d;
     const auto fail=[&](const char* why) {
@@ -634,7 +771,7 @@ void Puller::CallNative3D(DmaPusher& pusher, u32 method,
         native_parameters.clear();
         // Logging a rejection and returning would let DMA advance through
         // commands that never executed, then signal a counterfeit fence.
-        throw std::runtime_error(why);
+        pusher.FailNativeSubmission(why);
     };
     if (!native_macro_method) {
         if (method==MAXWELL3D_REG_INDEX(load_mme.instruction_ptr)) {
@@ -701,11 +838,59 @@ void Puller::CallNative3D(DmaPusher& pusher, u32 method,
         const auto commit = [&](u32 addr, u32 value) {
             engine.CallMethod(pusher.system, addr, value, true);
         };
+        const auto mme_dma_effect =
+            [&](u32 address, u32 count, std::vector<u32>& fifo,
+                Tegra::NativeAmpereMacroState::DataRam& dram,
+                const auto& staged_read) -> bool {
+                constexpr u32 MemAddressA = 0x154;
+                constexpr u32 MemAddressB = 0x155;
+                constexpr u32 DataRamAddress = 0x156;
+                constexpr u32 DmaRead = 0x157;
+                constexpr u32 DmaReadFifoed = 0x158;
+                if (address != DmaRead && address != DmaReadFifoed)
+                    return true;
+
+                // C7xx Ampere MME uses a 17-bit upper address field. Bound the
+                // transfer to the interpreter's FIFO limit and reject holes;
+                // ReadBlock performs the required cache flush before CPU reads.
+                if (count > Tegra::NativeAmpereMacroState::MaxFifo)
+                    return false;
+                const GPUVAddr source =
+                    (GPUVAddr{staged_read(MemAddressA) & 0x1ffffU} << 32) |
+                    staged_read(MemAddressB);
+                const std::size_t words = count;
+                const std::size_t bytes = words * sizeof(u32);
+                const std::size_t ram = staged_read(DataRamAddress);
+                if (address == DmaReadFifoed) {
+                    if (words > Tegra::NativeAmpereMacroState::MaxFifo - fifo.size())
+                        return false;
+                } else if (ram > dram.size() || words > dram.size() - ram) {
+                    return false;
+                }
+                if (bytes == 0)
+                    return true;
+                if (!pusher.memory_manager.IsFullyMappedRange(source, bytes))
+                    return false;
+
+                std::array<u32, Tegra::NativeAmpereMacroState::MaxFifo> data{};
+                pusher.memory_manager.ReadBlock(source, data.data(), bytes);
+                // A concurrent unmap/remap must not turn a validated native MME
+                // read into a silent zero/foreign-page fetch.
+                if (!pusher.memory_manager.IsFullyMappedRange(source, bytes))
+                    return false;
+                if (address == DmaReadFifoed) {
+                    fifo.insert(fifo.end(), data.begin(), data.begin() + words);
+                } else {
+                    std::copy_n(data.begin(), words, dram.begin() + ram);
+                }
+                return true;
+            };
         Tegra::NativeAmpereMacroState::Result outcome{};
         try {
-            outcome = native_3d->ExecuteStaged(
+            outcome = native_3d->ExecuteStagedWithEffects(
                 native_macro_method, std::span<const u32>{native_parameters},
-                read, allowed, commit, [&] { return !bad_read; });
+                read, allowed, mme_dma_effect, commit,
+                [&] { return !bad_read; });
         } catch (...) {
             // A method commit may already have reached the GPU. Retire
             // this native channel, never resume its partially applied MME.
@@ -741,7 +926,7 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
     if (!Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
             &pusher.channel_state)) return; // Preserve NS1 Maxwell routing.
     if (native_compute_failed)
-        throw std::runtime_error("Native Ampere Compute macro channel unavailable");
+        pusher.FailNativeSubmission("Native Ampere Compute macro channel unavailable");
     if (!native_compute)
         native_compute = std::make_unique<Tegra::NativeAmpereMacroState>(&native_mme_dram);
     const auto fail = [&](const char* reason) {
@@ -752,7 +937,7 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
         // Once a real Compute QMD/PCAS method may have been partially
         // applied, retire the GPU worker rather than acknowledging success
         // and silently ignoring all future methods on this guest channel.
-        throw std::runtime_error(reason);
+        pusher.FailNativeSubmission(reason);
     };
     if (!native_compute_macro_method && method >= 0x45 && method <= 0x48) {
         if (method == 0x45) {
@@ -896,7 +1081,7 @@ void Puller::ProcessNativeComputeInlineQmd(DmaPusher& pusher, u32 subchannel) {
         !pusher.rasterizer) {
         // An inline QMD cannot be acknowledged after its process/engine
         // epoch was revoked. The GPFIFO worker must retire this submission.
-        throw std::runtime_error("Native inline QMD has no live GPU owner");
+        pusher.FailNativeSubmission("Native inline QMD has no live GPU owner");
     }
 
     auto& regs = pusher.channel_state.payload->kepler_compute.regs.reg_array;
@@ -906,14 +1091,14 @@ void Puller::ProcessNativeComputeInlineQmd(DmaPusher& pusher, u32 subchannel) {
     // describe the upper nine address bits without truncation.
     if (qmd_units >= (u64{1} << 41)) {
         LOG_ERROR(HW_GPU, "Native inline QMD destination exceeds 49-bit GPU VA");
-        throw std::runtime_error("Native inline QMD GPU address invalid");
+        pusher.FailNativeSubmission("Native inline QMD GPU address invalid");
     }
     const GPUVAddr address = qmd_units << 8;
     Tegra::NativeQmdScheduler::Descriptor descriptor{};
     std::copy_n(regs.begin() + 0xc8, descriptor.size(), descriptor.begin());
     if (!pusher.memory_manager.IsFullyMappedRange(address, sizeof(descriptor))) {
         LOG_ERROR(HW_GPU, "Native inline QMD destination is unmapped");
-        throw std::runtime_error("Native inline QMD destination unmapped");
+        pusher.FailNativeSubmission("Native inline QMD destination unmapped");
     }
     pusher.rasterizer->AccelerateInlineToMemory(
         address, sizeof(descriptor),
@@ -946,7 +1131,7 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
         ticket->generation != compute->generation ||
         ticket->channel_generation != compute->channel_generation ||
         !pusher.rasterizer) {
-        throw std::runtime_error("Native Compute report semaphore owner revoked");
+        pusher.FailNativeSubmission("Native Compute report semaphore owner revoked");
     }
 
     const auto& regs = pusher.channel_state.payload->kepler_compute.regs.reg_array;
@@ -965,7 +1150,7 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
                   operation, address);
         // Refusing a release but advancing GPFIFO would allow dependent
         // guests to observe a completed queue with no matching semaphore.
-        throw std::runtime_error("Native Compute report semaphore invalid");
+        pusher.FailNativeSubmission("Native Compute report semaphore invalid");
 
     }
     // QueryCacheBase::CounterReport silently skips reports without a CPU
@@ -973,43 +1158,74 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
     // retirement. Both must fail before scheduling an irreversible fence:
     // otherwise dependent channels can wait on a semaphore never written.
     if (!memory->GpuToCpuAddress(address, write_bytes)) {
-        throw std::runtime_error("Native Compute report semaphore missing CPU backing");
+        pusher.FailNativeSubmission("Native Compute report semaphore missing CPU backing");
     }
-    if (reduction_enabled) {
+    if (reduction_enabled || one_word) {
+        const auto process_ticket = ProcessTicket(*ticket);
+        const auto mirror =
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+                .SemaphoreMirrorAddress(process_ticket, address);
+        const auto* const backing = memory->GetPointer(address);
+        const auto* const mirror_backing =
+            mirror ? memory->GetPointer(*mirror) : nullptr;
+        if (!backing ||
+            (mirror &&
+             (!memory->IsFullyMappedRange(*mirror, sizeof(u32)) ||
+              !mirror_backing))) {
+            pusher.FailNativeSubmission(
+                "Native Compute report semaphore backing unavailable");
+        }
         const u32 reduction = (control >> 9) & 7U;
-        pusher.rasterizer->SignalFence(
-            [channel, memory, ticket = *ticket, address, payload, reduction] {
+        if (!QueueNativeSemaphoreRelease(pusher,
+            [channel, memory, ticket = *ticket, process_ticket, address,
+             payload, reduction, reduction_enabled, backing, mirror,
+             mirror_backing] {
                 // The deferred fence may execute after a sparse GMMU unmap.
                 // Never let a guest-memory exception unwind through Vulkan
-                // retirement or fabricate a completed reduction.
+                // retirement or fabricate a completed reduction/release.
                 try {
                     auto& current =
                         Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
                     if (!current.IsCurrent(channel, ticket)) return;
-                    // A still-live channel cannot retire a queued reduction
-                    // after its guest backing vanishes. Latch a fatal worker
-                    // error rather than silently claiming GPU completion.
                     if (!Tegra::NativeComputeSemaphoreSpanValid(address, sizeof(u32)) ||
-                        !memory->IsFullyMappedRange(address, sizeof(u32))) {
+                        !memory->IsFullyMappedRange(address, sizeof(u32)) ||
+                        memory->GetPointer(address) != backing ||
+                        (mirror &&
+                         (!memory->IsFullyMappedRange(*mirror, sizeof(u32)) ||
+                          memory->GetPointer(*mirror) != mirror_backing))) {
                         throw std::runtime_error(
-                            "Native Compute reduction backing revoked after GPU submission");
+                            "Native Compute report semaphore backing revoked after GPU submission");
                     }
-                    const u32 old_value = memory->Read<u32>(address);
-                    memory->Write<u32>(
-                        address, Tegra::NativeComputeSemaphoreReduction(
-                                     old_value, payload, reduction));
+                    if (!PublishNativeSemaphoreWord(
+                            *memory, process_ticket, address, mirror,
+                            reduction_enabled,
+                            [payload, reduction, reduction_enabled](u32 old_value) {
+                                return reduction_enabled
+                                    ? Tegra::NativeComputeSemaphoreReduction(
+                                          old_value, payload, reduction)
+                                    : payload;
+                            })) {
+                        throw std::runtime_error(
+                            "Native Compute semaphore mirror publication failed");
+                    }
                 } catch (...) {
 #ifdef PS5_NATIVE
-                    Eden::RecordGpuFailure(std::current_exception());
+                    auto failure = std::current_exception();
+                    Eden::RecordGpuFailure(failure);
+                    Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                        .ReportFault(channel);
 #endif
                 }
-            });
+            })) {
+            pusher.FailNativeSubmission(
+                "Native Compute report requires strict Vulkan retirement");
+        }
     } else {
+        // The 16-byte timestamp report is not the packed queue-semaphore
+        // form. Preserve the existing QueryCache path and its timestamp ABI.
         pusher.rasterizer->Query(
             address, VideoCommon::QueryType::Payload,
-            one_word ? VideoCommon::QueryPropertiesFlags::IsAFence
-                     : VideoCommon::QueryPropertiesFlags::HasTimeout,
-            payload, 0);
+            VideoCommon::QueryPropertiesFlags::HasTimeout, payload, 0);
     }
 }
 
@@ -1038,7 +1254,7 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
         ticket->generation != compute_ticket->generation ||
         ticket->channel_generation != compute_ticket->channel_generation ||
         !session || !pusher.rasterizer) {
-        throw std::runtime_error("Native QMD3 has no authenticated GPU process or engine");
+        pusher.FailNativeSubmission("Native QMD3 has no authenticated GPU process or engine");
     }
     auto read = [&](u64 addr, Tegra::NativeQmdScheduler::Descriptor& data) {
         // Avoid passing an overflowing or non-49-bit GPU range to the
@@ -1068,8 +1284,19 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
         if (!backing) return false;
         const auto* channel = &pusher.channel_state;
         auto* memory = &pusher.memory_manager;
-        pusher.rasterizer->SignalFence(
-            [channel, memory, ticket = *ticket, addr, payload, flags, backing] {
+        const auto process_ticket = ProcessTicket(*ticket);
+        const auto mirror =
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+                .SemaphoreMirrorAddress(process_ticket, addr);
+        const auto* const mirror_backing =
+            mirror ? pusher.memory_manager.GetPointer(*mirror) : nullptr;
+        if (mirror &&
+            (!pusher.memory_manager.IsFullyMappedRange(*mirror, sizeof(u32)) ||
+             !mirror_backing))
+            return false;
+        if (!QueueNativeSemaphoreRelease(pusher,
+            [channel, memory, ticket = *ticket, process_ticket, addr, payload,
+             flags, backing, mirror, mirror_backing] {
                 // A QMD3 dispatch can already be accepted when this
                 // completion callback runs. If guest memory disappears or
                 // fails during Read/Write, latch the fatal worker error;
@@ -1084,21 +1311,36 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                     // Report the fatal epoch failure through the existing
                     // GPU-worker latch instead of fabricating the semaphore.
                     if (!memory->IsFullyMappedRange(addr, sizeof(u32)) ||
-                        memory->GetPointer(addr) != backing) {
+                        memory->GetPointer(addr) != backing ||
+                        (mirror &&
+                         (!memory->IsFullyMappedRange(*mirror, sizeof(u32)) ||
+                          memory->GetPointer(*mirror) != mirror_backing))) {
                         throw std::runtime_error(
                             "Native QMD3 release backing revoked after GPU submission");
                     }
-                    u32 value = payload;
-                    if (flags & (1u << 26)) value = memory->Read<u32>(addr) + payload;
-                    else if (flags & (1u << 19))
-                        value = std::max(memory->Read<u32>(addr), payload);
-                    memory->Write<u32>(addr, value);
+                    const bool combined =
+                        (flags & ((1u << 26) | (1u << 19))) != 0;
+                    if (!PublishNativeSemaphoreWord(
+                            *memory, process_ticket, addr, mirror, combined,
+                            [payload, flags](u32 old_value) {
+                                if (flags & (1u << 26))
+                                    return old_value + payload;
+                                if (flags & (1u << 19))
+                                    return std::max(old_value, payload);
+                                return payload;
+                            })) {
+                        throw std::runtime_error(
+                            "Native QMD3 semaphore mirror publication failed");
+                    }
                 } catch (...) {
 #ifdef PS5_NATIVE
-                    Eden::RecordGpuFailure(std::current_exception());
+                    auto failure = std::current_exception();
+                    Eden::RecordGpuFailure(failure);
+                    Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                        .ReportFault(channel);
 #endif
                 }
-            });
+            })) return false;
         return true;
     };
     std::string_view error;
@@ -1197,7 +1439,7 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
         // refused BEFORE vkCmdDispatch. Preserve the detailed diagnostic
         // above, then retire the native worker through its existing fatal
         // error path. No synthetic guest completion or NS1 fallback.
-        throw std::runtime_error("Native QMD3 dispatch was not executed");
+        pusher.FailNativeSubmission("Native QMD3 dispatch was not executed");
     }
 }
 
@@ -1277,7 +1519,7 @@ void Puller::CallEngineMultiMethod(DmaPusher& dma_pusher, u32 method, u32 subcha
             // multiword command as executed. ASSERT_MSG/UNIMPLEMENTED_MSG
             // may be compiled out in release builds, and returning here
             // would advance the guest completion fence without a dispatch.
-            throw std::runtime_error("Native Ampere Compute multiword payload invalid");
+            dma_pusher.FailNativeSubmission("Native Ampere Compute multiword payload invalid");
         }
         CallNativeCompute(dma_pusher, method,
                           std::span<const u32>{base_start, amount},
