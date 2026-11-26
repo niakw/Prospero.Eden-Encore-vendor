@@ -1,4 +1,3 @@
-#include <atomic>
 #include "network_audit.h"
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -6,6 +5,7 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <atomic>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -44,6 +44,13 @@ SFDNSRES::SFDNSRES(Core::System& system_) : ServiceFramework{system_, "sfdnsres"
         {15, &SFDNSRES::RejectUnsupportedResolverExtension, "ResolverGetOptionRequest"},
     };
     RegisterHandlers(functions);
+}
+
+void SFDNSRES::RejectUnsupportedResolverExtension(HLERequestContext& ctx) {
+    // Keep forward host/name resolution functional. Reverse lookup, private DNS
+    // configuration and opaque resolver options are not modeled by Encore.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 SFDNSRES::~SFDNSRES() = default;
@@ -327,75 +334,6 @@ void SFDNSRES::GetAddrInfoRequest(HLERequestContext& ctx) {
     });
 }
 
-void SFDNSRES::GetGaiStringErrorRequest(HLERequestContext& ctx) {
-    struct InputParameters {
-        GetAddrInfoError gai_errno;
-    };
-    IPC::RequestParser rp{ctx};
-    auto input = rp.PopRaw<InputParameters>();
-
-    const std::string result = Translate(input.gai_errno);
-    ctx.WriteBuffer(result);
-
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(ResultSuccess);
-}
-
-void SFDNSRES::GetAddrInfoRequestWithOptions(HLERequestContext& ctx) {
-    // Additional options are ignored
-    auto [data_size, emu_gai_err] = GetAddrInfoRequestImpl(ctx);
-
-    struct OutputParameters {
-        u32 data_size;
-        GetAddrInfoError gai_error;
-        NetDbError netdb_error;
-        Errno bsd_errno;
-    };
-    static_assert(sizeof(OutputParameters) == 0x10);
-
-    IPC::ResponseBuilder rb{ctx, 6};
-    rb.Push(ResultSuccess);
-    rb.PushRaw(OutputParameters{
-        .data_size = data_size,
-        .gai_error = emu_gai_err,
-        .netdb_error = GetAddrInfoErrorToNetDbError(emu_gai_err),
-        .bsd_errno = GetAddrInfoErrorToErrno(emu_gai_err),
-    });
-}
-
-void SFDNSRES::ResolverSetOptionRequest(HLERequestContext& ctx) {
-    LOG_WARNING(Service, "(STUBBED) called");
-
-    IPC::ResponseBuilder rb{ctx, 3};
-
-    rb.Push(ResultSuccess);
-    rb.Push<s32>(0); // bsd errno
-}
-
-
-DNS_PRIV::DNS_PRIV(Core::System& system_)
-    : ServiceFramework{system_, "dns:priv"} {
-    // clang-format off
-    static const FunctionInfo functions[] = {
-        {0, &DNS_PRIV::RejectUnsupportedPrivateDns, "Cmd0"},
-        {1, &DNS_PRIV::RejectUnsupportedPrivateDns, "Cmd1"},
-        {2, &DNS_PRIV::RejectUnsupportedPrivateDns, "Cmd2"},
-    };
-    // clang-format on
-    RegisterHandlers(functions);
-}
-
-DNS_PRIV::~DNS_PRIV() = default;
-
-
-
-void SFDNSRES::RejectUnsupportedResolverExtension(HLERequestContext& ctx) {
-    // Keep forward host/name resolution functional. Reverse lookup, private DNS
-    // configuration and opaque resolver options are not modeled by Encore.
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(IPC::ResultNotSupported);
-}
-
 void SFDNSRES::GetHostStringErrorRequest(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     const auto error = static_cast<NetDbError>(rp.Pop<u32>());
@@ -452,8 +390,77 @@ void SFDNSRES::CancelRequest(HLERequestContext& ctx) {
     rb.Push(ResultSuccess);
 }
 
+void SFDNSRES::GetGaiStringErrorRequest(HLERequestContext& ctx) {
+    struct InputParameters {
+        GetAddrInfoError gai_errno;
+    };
+    IPC::RequestParser rp{ctx};
+    auto input = rp.PopRaw<InputParameters>();
+
+    const std::string result = Translate(input.gai_errno);
+    ctx.WriteBuffer(result);
+
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+void SFDNSRES::GetAddrInfoRequestWithOptions(HLERequestContext& ctx) {
+    // Additional options are ignored
+    auto [data_size, emu_gai_err] = GetAddrInfoRequestImpl(ctx);
+
+    struct OutputParameters {
+        u32 data_size;
+        GetAddrInfoError gai_error;
+        NetDbError netdb_error;
+        Errno bsd_errno;
+    };
+    static_assert(sizeof(OutputParameters) == 0x10);
+
+    IPC::ResponseBuilder rb{ctx, 6};
+    rb.Push(ResultSuccess);
+    rb.PushRaw(OutputParameters{
+        .data_size = data_size,
+        .gai_error = emu_gai_err,
+        .netdb_error = GetAddrInfoErrorToNetDbError(emu_gai_err),
+        .bsd_errno = GetAddrInfoErrorToErrno(emu_gai_err),
+    });
+}
+
+void SFDNSRES::ResolverSetOptionRequest(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const u64 option_id = rp.Pop<u64>();
+    const auto options = ctx.ReadBuffer(0);
+
+    // HOS accepts an opaque resolver-option buffer here. The active host resolver does not
+    // implement those option semantics yet, but the IPC payload and both result words must
+    // still be consumed/returned with the correct shape.
+    LOG_DEBUG(Service, "called, option_id={:#x}, options_size={:#x}", option_id, options.size());
+
+    IPC::ResponseBuilder rb{ctx, 4};
+    rb.Push(ResultSuccess);
+    rb.Push<s32>(0); // ret
+    rb.Push<u32>(0); // bsd errno
+}
+
+
+DNS_PRIV::DNS_PRIV(Core::System& system_)
+    : ServiceFramework{system_, "dns:priv"} {
+    // clang-format off
+    static const FunctionInfo functions[] = {
+        {0, &DNS_PRIV::RejectUnsupportedPrivateDns, "Cmd0"},
+        {1, &DNS_PRIV::RejectUnsupportedPrivateDns, "Cmd1"},
+        {2, &DNS_PRIV::RejectUnsupportedPrivateDns, "Cmd2"},
+    };
+    // clang-format on
+    RegisterHandlers(functions);
+}
+
 void DNS_PRIV::RejectUnsupportedPrivateDns(HLERequestContext& ctx) {
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(IPC::ResultNotSupported);
 }
+
+DNS_PRIV::~DNS_PRIV() = default;
+
+
 } // namespace Service::Sockets
