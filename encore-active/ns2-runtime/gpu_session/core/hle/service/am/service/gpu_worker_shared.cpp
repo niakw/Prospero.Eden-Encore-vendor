@@ -93,7 +93,8 @@ Nvidia::NvResult GpuWorkerSharedState::StageBeforeImport(
             return Nvidia::NvResult::BadParameter;
     }
     for (const auto& identity : identity_gpu_mappings) {
-        if (Overlaps(request.address, request.size, identity.address, identity.size) &&
+        if (!identity.IsSuppressed(request.address_space) &&
+            Overlaps(request.address, request.size, identity.address, identity.size) &&
             !ExactIdentity(identity, request))
             return Nvidia::NvResult::BadParameter;
     }
@@ -111,6 +112,26 @@ bool GpuWorkerSharedState::CancelBeforeImport(std::uint32_t id, std::uint64_t ad
     if (!CanStageBeforeImport(id)) return false;
     const auto it = pending_211.find({id, address});
     if (it == pending_211.end() || it->second.size != size) return false;
+    pending_211.erase(it);
+    return true;
+}
+
+bool GpuWorkerSharedState::SuppressIdentityBeforeImport(IdentityGpuMapping& identity,
+                                                        std::uint32_t id) {
+    if (!CanStageBeforeImport(id) || identity.IsSuppressed(id))
+        return false;
+    return identity.SuppressSpace(id);
+}
+
+bool GpuWorkerSharedState::UnmapBeforeImport(const GpuWorkerProtocol::Unmap4K& request) {
+    if (!CanStageBeforeImport(request.address_space)) return false;
+    const auto it = pending_211.find({request.address_space, request.address});
+    if (it == pending_211.end() || it->second.size != request.size) return false;
+    for (auto& identity : identity_gpu_mappings) {
+        if (ExactIdentity(identity, it->second) &&
+            !identity.SuppressSpace(request.address_space))
+            return false;
+    }
     pending_211.erase(it);
     return true;
 }
@@ -157,6 +178,7 @@ Nvidia::NvResult GpuWorkerSharedState::BindImportedAddressSpace(
     Nvidia::NvResult replay = Nvidia::NvResult::Success;
     auto completed = first;
     for (auto& identity : identity_gpu_mappings) {
+        if (identity.IsSuppressed(id)) continue;
         // An exact explicit 211 view takes ownership of the same identity
         // mapping in this VM. Do not allocate/pin the same VA twice.
         const auto explicit_map = pending_211.find({id, identity.address});

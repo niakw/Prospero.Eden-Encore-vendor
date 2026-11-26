@@ -1556,12 +1556,16 @@ int main() {
     assert(state.address_spaces.Add(11) == GP::Status::Success);
     assert(state.address_spaces.Add(12) == GP::Status::Success);
     assert(state.address_spaces.Add(13) == GP::Status::Success);
+    assert(state.address_spaces.Add(14) == GP::Status::Success);
+    assert(state.address_spaces.Add(15) == GP::Status::Success);
     const GW::Map4K identity{11,7,1,0,identity_va,0x2000,0,0,0,1,0};
     GW::Map4K explicit_map{11,7,1,0,explicit_va,0x1000,0x1000,0,0,0,0};
     assert(state.StageBeforeImport(identity) == NvResult::InvalidState);
     assert(state.address_spaces.Register(11) == GP::Status::Success);
     assert(state.address_spaces.Register(12) == GP::Status::Success);
     assert(state.address_spaces.Register(13) == GP::Status::Success);
+    assert(state.address_spaces.Register(14) == GP::Status::Success);
+    assert(state.address_spaces.Register(15) == GP::Status::Success);
     state.identity_gpu_mappings.push_back({7,identity_va,0x2000});
     assert(state.StageBeforeImport(identity) == NvResult::Success);
     assert(state.StageBeforeImport(explicit_map) == NvResult::Success);
@@ -1609,6 +1613,21 @@ int main() {
     assert(!state.CanStageBeforeImport(13) && !state.CancelBeforeImport(13,explicit_va,0x1000));
     assert(state.BindImportedAddressSpace(13,third) == NvResult::InvalidState);
     assert(!third->committed);
+    // 213 before any 211 removes only the chosen VM's automatic identity.
+    assert(state.SuppressIdentityBeforeImport(state.identity_gpu_mappings[0],14));
+    assert(!state.SuppressIdentityBeforeImport(state.identity_gpu_mappings[0],14));
+    assert(!state.SuppressIdentityBeforeImport(state.identity_gpu_mappings[0],99));
+    auto fourth = std::make_shared<nvhost_as_gpu>(); fourth->process = &process;
+    assert(state.BindImportedAddressSpace(14,fourth) == NvResult::Success);
+    assert(fourth->mappings.empty());
+    // A successful 213 after staging an exact 211 must not resurrect 101.
+    auto staged_identity = identity; staged_identity.address_space = 15;
+    assert(state.StageBeforeImport(staged_identity) == NvResult::Success);
+    assert(!state.UnmapBeforeImport({15,0,identity_va,0x1000,1}));
+    assert(state.UnmapBeforeImport({15,0,identity_va,0x2000,1}));
+    auto fifth = std::make_shared<nvhost_as_gpu>(); fifth->process = &process;
+    assert(state.BindImportedAddressSpace(15,fifth) == NvResult::Success);
+    assert(fifth->mappings.empty());
 }
 '''
 with tempfile.TemporaryDirectory() as tmp:
@@ -1648,3 +1667,12 @@ assert promote.index("if (kind_changed)") < promote.index("gmmu->Map(address, ma
 assert promote.index("gmmu->Map(address, mapping.ptr") < promote.index("mapping.gpu_cacheable = gpu_cacheable")
 assert _overlay_worker.index("if (promote_identity)\n                            system.GPU().WaitForIdle();") < _overlay_worker.index("as->PromoteNativeIdentity4K(")
 print("NS2_211_IDENTITY_KIND_PRESERVATION_SOURCE_PASS")
+
+# A 213 can remove an implicit 101 mapping with no 211 ledger entry.
+identity_unmap = worker.split("void IGpuWorker::NormalUnmapGpuMemory4K(",1)[1].split("\n}",1)[0]
+for marker in ("entry.address == request->address", "entry.size == request->size",
+               "identity->HasSpace(request->address_space)", "m_shared->SuppressIdentityBeforeImport(",
+               "identity->RemoveSpace(request->address_space)", "m_shared->UnmapBeforeImport(*request)"):
+    assert marker in identity_unmap, marker
+assert "if (identity.IsSuppressed(id)) continue;" in bind
+print("NS2_213_IDENTITY_UNMAP_SOURCE_PASS")

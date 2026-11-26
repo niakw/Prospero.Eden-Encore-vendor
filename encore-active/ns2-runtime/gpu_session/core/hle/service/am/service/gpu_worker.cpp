@@ -817,7 +817,41 @@ void IGpuWorker::NormalUnmapGpuMemory4K(HLERequestContext& ctx) {
                 }
             }
             result = TranslateMappingStatus(preflight);
-            if (preflight == GW::LedgerStatus::Success) {
+            if (preflight == GW::LedgerStatus::NotFound &&
+                !m_quarantined_nv_session) {
+                // Lichii SubUnmapJob may retire the automatic 101 identity
+                // before any explicit 211. Only an exact, worker-owned view
+                // is eligible; never remove a partial or foreign allocation.
+                auto identity = std::find_if(m_shared->identity_gpu_mappings.begin(),
+                    m_shared->identity_gpu_mappings.end(),
+                    [&](const IdentityGpuMapping& entry) {
+                        return entry.address == request->address &&
+                               entry.size == request->size &&
+                               std::find(m_memory.begin(), m_memory.end(), entry.handle) !=
+                                   m_memory.end() &&
+                               !m_pending_device_unlocks.contains(entry.handle);
+                    });
+                if (identity != m_shared->identity_gpu_mappings.end()) {
+                    const auto as = m_shared->FindOwnedAddressSpace(request->address_space);
+                    bool retired = false;
+                    if (as && identity->HasSpace(request->address_space)) {
+                        BlockingBoundaryTrace trace{"213_identity_wait_idle", request->address_space,
+                                                    request->address, request->size};
+                        system.GPU().WaitForIdle();
+                        retired = as->UnmapNative4K(request->address, request->size) ==
+                                  Nvidia::NvResult::Success;
+                        if (retired)
+                            identity->RemoveSpace(request->address_space);
+                    } else if (!as) {
+                        retired = m_shared->SuppressIdentityBeforeImport(
+                            *identity, request->address_space);
+                    }
+                    if (retired) {
+                        result = ResultSuccess;
+                        m_shared->events[request->notification]->Signal(kernel);
+                    }
+                }
+            } else if (preflight == GW::LedgerStatus::Success) {
                 result = Kernel::ResultInvalidState;
                 const auto as = m_shared->FindOwnedAddressSpace(
                     static_cast<Nvidia::DeviceFD>(request->address_space));
@@ -828,8 +862,7 @@ void IGpuWorker::NormalUnmapGpuMemory4K(HLERequestContext& ctx) {
                 }
                 if (as ? as->UnmapNative4K(request->address, request->size) ==
                              Nvidia::NvResult::Success
-                       : m_shared->CancelBeforeImport(request->address_space,
-                                                       request->address, request->size)) {
+                       : m_shared->UnmapBeforeImport(*request)) {
                     if (ledger->RecordUnmapped(*request) == GW::LedgerStatus::Success) {
                         result = ResultSuccess;
                         m_shared->events[request->notification]->Signal(kernel);

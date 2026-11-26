@@ -14,7 +14,7 @@ def blob(path: Path) -> str:
 
 # The shipping GPU worker changed after the original SHA was sealed.
 # Keep the current exact worker pinned; this PR does not modify it.
-assert blob(SRC) == "0cb6fa9e2fca1252a74556b217cbbd08f8b86fa1"
+assert blob(SRC) == "065a9d1fbc2a5a2a397f8a0c448374f304c3fc64"
 text = SRC.read_text()
 for op in ("214_map_page_group", "212_wait_idle", "213_wait_idle", "215_wait_idle", "216_wait_idle"):
     assert text.count('BlockingBoundaryTrace trace{"' + op) == 1, op

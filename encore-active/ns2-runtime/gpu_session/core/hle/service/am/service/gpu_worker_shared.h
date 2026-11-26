@@ -29,6 +29,26 @@ struct IdentityGpuMapping {
     std::uint64_t size{};
     std::array<std::uint32_t, GpuSessionProtocol::MaxAddressSpaces> mapped_spaces{};
     std::size_t mapped_count{};
+    // A guest 213 may remove the automatic 101 view before VM import.
+    // Retain that decision per opaque VM until the identity is destroyed.
+    std::array<std::uint32_t, GpuSessionProtocol::MaxAddressSpaces> suppressed_spaces{};
+    [[nodiscard]] bool IsSuppressed(std::uint32_t id) const {
+        if (!id) return false;
+        for (const auto slot : suppressed_spaces)
+            if (slot == id) return true;
+        return false;
+    }
+    [[nodiscard]] bool SuppressSpace(std::uint32_t id) {
+        if (!id) return false;
+        if (IsSuppressed(id)) return true;
+        for (auto& slot : suppressed_spaces) {
+            if (!slot) {
+                slot = id;
+                return true;
+            }
+        }
+        return false;
+    }
 
     [[nodiscard]] bool HasSpace(std::uint32_t id) const {
         for (std::size_t i = 0; i < mapped_count; ++i)
@@ -78,6 +98,10 @@ struct GpuWorkerSharedState {
     [[nodiscard]] bool CanStageBeforeImport(std::uint32_t id) const;
     Nvidia::NvResult StageBeforeImport(const GpuWorkerProtocol::Map4K& request);
     bool CancelBeforeImport(std::uint32_t id, std::uint64_t address, std::uint64_t size);
+    // Guest 213 is distinct from rollback cancellation: an exact 101
+    // identity must not reappear when this VM is imported.
+    bool UnmapBeforeImport(const GpuWorkerProtocol::Unmap4K& request);
+    bool SuppressIdentityBeforeImport(IdentityGpuMapping& identity, std::uint32_t id);
     bool ModifyBeforeImport(const GpuWorkerProtocol::Modify4K& request);
     [[nodiscard]] bool OverlapsPendingIdentity(std::uint64_t address, std::uint64_t size) const;
     // Caller holds mutex except during final shared-state destruction.
