@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <chrono>
+#include <mutex>
 #include <vector>
 
 #include "core/hle/service/cmif_types.h"
@@ -83,7 +85,7 @@ private:
     Result StartPlayTimer();
     Result StopPlayTimer();
     Result IsPlayTimerEnabled(Out<bool> out_is_play_timer_enabled);
-    Result GetPlayTimerRemainingTime(Out<s32> out_remaining_time);
+    Result GetPlayTimerRemainingTime(Out<u64> out_remaining_time);
     Result IsRestrictedByPlayTimer(Out<bool> out_is_restricted_by_play_timer);
     Result GetPlayTimerSettingsOld(Out<PlayTimerSettingsOld> out_play_timer_settings);
     Result GetPlayTimerEventToRequestSuspension(OutCopyHandle<Kernel::KReadableEvent> out_event);
@@ -130,9 +132,22 @@ private:
     std::array<char, 8> pin_code{};
     Capability capability{};
     u64 program_id{};
-    // TODO: this is raw
+    struct PlayTimerRuntimeState {
+        bool configured{};
+        bool has_limit{};
+        bool restricted{};
+        u8 restriction_mode{};
+        u64 remaining_time_ns{};
+    };
+
+    PlayTimerRuntimeState QueryPlayTimerStateLocked();
+    void AccumulatePlayTimerLocked();
+
     PlayTimerSettings raw_play_timer_settings{};
     bool play_timer_running{};
+    std::chrono::steady_clock::time_point play_timer_started_at{};
+    std::chrono::nanoseconds play_timer_elapsed{};
+    std::mutex play_timer_mutex;
 
     KernelHelpers::ServiceContext service_context;
     Event synchronization_event;

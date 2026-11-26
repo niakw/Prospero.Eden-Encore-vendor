@@ -6,15 +6,99 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
+#include <optional>
 
 #include "core/core.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
 #include "core/hle/service/cmif_serialization.h"
+#include "core/hle/service/glue/time/static.h"
+#include "core/hle/service/glue/time/time_zone.h"
 #include "core/hle/service/pctl/parental_control_service.h"
 #include "core/hle/service/pctl/pctl_results.h"
+#include "core/hle/service/psc/time/system_clock.h"
 
 namespace Service::PCTL {
+
+namespace {
+
+struct PlayTimerDaySettingV21 {
+    u8 bedtime_enabled;
+    u8 bedtime_hour;
+    u8 bedtime_minute;
+    u8 bedtime_reset_hour;
+    u8 bedtime_reset_minute;
+    u8 limit_enabled;
+    u16 limit_minutes;
+};
+static_assert(sizeof(PlayTimerDaySettingV21) == 0x8);
+
+struct PlayTimerSettingsV21 {
+    u8 enabled;
+    u8 restriction_mode;
+    u8 week_used;
+    u8 reserved;
+    PlayTimerDaySettingV21 daily;
+    std::array<PlayTimerDaySettingV21, 7> weekly;
+};
+static_assert(sizeof(PlayTimerSettingsV21) == 0x44);
+static_assert(sizeof(PlayTimerSettingsV21) == sizeof(PlayTimerSettings));
+
+PlayTimerSettingsV21 DecodePlayTimerSettings(const PlayTimerSettings& raw) {
+    PlayTimerSettingsV21 decoded{};
+    std::memcpy(&decoded, &raw, sizeof(decoded));
+    return decoded;
+}
+
+PlayTimerSettings EncodePlayTimerSettings(const PlayTimerSettingsV21& decoded) {
+    PlayTimerSettings raw{};
+    std::memcpy(&raw, &decoded, sizeof(raw));
+    return raw;
+}
+
+bool IsPlayTimerConfigured(const PlayTimerSettingsV21& settings) {
+    const auto configured = [](const PlayTimerDaySettingV21& day) {
+        return day.limit_enabled != 0 || day.bedtime_enabled != 0;
+    };
+    if (settings.week_used == 0) {
+        return configured(settings.daily);
+    }
+    return std::any_of(settings.weekly.begin(), settings.weekly.end(), configured);
+}
+
+std::optional<u32> GetGuestDayOfWeek(Core::System& system) {
+    auto static_service =
+        system.ServiceManager().GetService<Service::Glue::Time::StaticService>("time:u", true);
+    if (!static_service) {
+        return std::nullopt;
+    }
+
+    std::shared_ptr<Service::PSC::Time::SystemClock> user_clock;
+    if (static_service->GetStandardUserSystemClock(&user_clock) != ResultSuccess || !user_clock) {
+        return std::nullopt;
+    }
+
+    s64 posix_time{};
+    if (user_clock->GetCurrentTime(&posix_time) != ResultSuccess) {
+        return std::nullopt;
+    }
+
+    std::shared_ptr<Service::Glue::Time::TimeZoneService> time_zone;
+    if (static_service->GetTimeZoneService(&time_zone) != ResultSuccess || !time_zone) {
+        return std::nullopt;
+    }
+
+    Service::PSC::Time::CalendarTime calendar{};
+    Service::PSC::Time::CalendarAdditionalInfo additional{};
+    if (time_zone->ToCalendarTimeWithMyRule(&calendar, &additional, posix_time) != ResultSuccess ||
+        additional.day_of_week < 0 || additional.day_of_week > 6) {
+        return std::nullopt;
+    }
+    return static_cast<u32>(additional.day_of_week);
+}
+
+} // namespace
 
 IParentalControlService::IParentalControlService(Core::System& system_, Capability capability_,
                                                  u64 program_id_)
@@ -653,35 +737,104 @@ Result IParentalControlService::GetSynchronizationEvent(
     R_SUCCEED();
 }
 
+IParentalControlService::PlayTimerRuntimeState
+IParentalControlService::QueryPlayTimerStateLocked() {
+    const auto settings = DecodePlayTimerSettings(raw_play_timer_settings);
+    PlayTimerRuntimeState state{};
+    state.configured = settings.enabled != 0 && IsPlayTimerConfigured(settings);
+    state.restriction_mode = settings.restriction_mode;
+
+    if (!state.configured) {
+        return state;
+    }
+
+    const PlayTimerDaySettingV21* day = &settings.daily;
+    if (settings.week_used != 0) {
+        const auto day_of_week = GetGuestDayOfWeek(system);
+        if (!day_of_week) {
+            return state;
+        }
+        day = &settings.weekly[*day_of_week];
+    }
+
+    if (day->limit_enabled == 0) {
+        return state;
+    }
+
+    state.has_limit = true;
+    constexpr u64 NanosecondsPerMinute = 60'000'000'000ULL;
+    const u64 limit_ns = static_cast<u64>(day->limit_minutes) * NanosecondsPerMinute;
+
+    auto elapsed = play_timer_elapsed;
+    if (play_timer_running) {
+        elapsed += std::chrono::steady_clock::now() - play_timer_started_at;
+    }
+    const auto elapsed_ns =
+        static_cast<u64>((std::max)(std::chrono::nanoseconds::zero(), elapsed).count());
+
+    state.remaining_time_ns = elapsed_ns >= limit_ns ? 0 : limit_ns - elapsed_ns;
+    state.restricted = state.remaining_time_ns == 0;
+    return state;
+}
+
+void IParentalControlService::AccumulatePlayTimerLocked() {
+    if (!play_timer_running) {
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    play_timer_elapsed += now - play_timer_started_at;
+    play_timer_started_at = now;
+}
+
 Result IParentalControlService::StartPlayTimer() {
-    play_timer_running = true;
-    LOG_DEBUG(Service_PCTL, "Play timer started (elapsed-time accounting not modeled)");
+    std::scoped_lock lock{play_timer_mutex};
+    const auto state = QueryPlayTimerStateLocked();
+    if (state.configured && !play_timer_running) {
+        play_timer_started_at = std::chrono::steady_clock::now();
+        play_timer_running = true;
+    }
+    if (!state.restricted) {
+        request_suspension_event.Clear(system.Kernel());
+    }
+    LOG_DEBUG(Service_PCTL, "Play timer started, configured={}, has_limit={}", state.configured,
+              state.has_limit);
     R_SUCCEED();
 }
 
 Result IParentalControlService::StopPlayTimer() {
+    std::scoped_lock lock{play_timer_mutex};
+    AccumulatePlayTimerLocked();
     play_timer_running = false;
-    LOG_DEBUG(Service_PCTL, "Play timer stopped");
+    LOG_DEBUG(Service_PCTL, "Play timer stopped, elapsed_ns={}", play_timer_elapsed.count());
     R_SUCCEED();
 }
 
 Result IParentalControlService::IsPlayTimerEnabled(Out<bool> out_is_play_timer_enabled) {
-    *out_is_play_timer_enabled = play_timer_running;
+    std::scoped_lock lock{play_timer_mutex};
+    *out_is_play_timer_enabled = QueryPlayTimerStateLocked().configured;
     LOG_DEBUG(Service_PCTL, "called, enabled={}", *out_is_play_timer_enabled);
     R_SUCCEED();
 }
 
-Result IParentalControlService::GetPlayTimerRemainingTime(Out<s32> out_remaining_time) {
-    // Encore tracks timer lifecycle but not Horizon's wall-clock accounting/configuration.
-    *out_remaining_time = std::numeric_limits<s32>::max();
-    LOG_DEBUG(Service_PCTL, "Returning unrestricted remaining time, running={}",
-              play_timer_running);
+Result IParentalControlService::GetPlayTimerRemainingTime(Out<u64> out_remaining_time) {
+    std::scoped_lock lock{play_timer_mutex};
+    const auto state = QueryPlayTimerStateLocked();
+    *out_remaining_time = state.remaining_time_ns;
+    if (state.restricted && state.restriction_mode == 1) {
+        request_suspension_event.Signal(system.Kernel());
+    }
+    LOG_DEBUG(Service_PCTL, "called, remaining_ns={}, restricted={}", *out_remaining_time,
+              state.restricted);
     R_SUCCEED();
 }
 
 Result IParentalControlService::IsRestrictedByPlayTimer(Out<bool> out_is_restricted_by_play_timer) {
-    // No elapsed-time budget is modeled, therefore Encore must not fabricate a timer restriction.
-    *out_is_restricted_by_play_timer = false;
+    std::scoped_lock lock{play_timer_mutex};
+    const auto state = QueryPlayTimerStateLocked();
+    *out_is_restricted_by_play_timer = state.restricted;
+    if (state.restricted && state.restriction_mode == 1) {
+        request_suspension_event.Signal(system.Kernel());
+    }
     LOG_DEBUG(Service_PCTL, "called, restricted={}", *out_is_restricted_by_play_timer);
     R_SUCCEED();
 }
@@ -701,8 +854,19 @@ Result IParentalControlService::GetPlayTimerSettings(Out<PlayTimerSettings> out_
 }
 
 Result IParentalControlService::SetPlayTimerSettings(PlayTimerSettings play_timer_settings) {
-    raw_play_timer_settings = play_timer_settings;
-    LOG_DEBUG(Service_PCTL, "Stored local HOS18+ play-timer settings");
+    std::scoped_lock lock{play_timer_mutex};
+
+    auto decoded = DecodePlayTimerSettings(play_timer_settings);
+    // HOS 21+ re-derives the enabled byte from the stored daily/weekly rules.
+    decoded.enabled = IsPlayTimerConfigured(decoded) ? 1 : 0;
+    raw_play_timer_settings = EncodePlayTimerSettings(decoded);
+
+    play_timer_running = false;
+    play_timer_elapsed = std::chrono::nanoseconds::zero();
+    play_timer_started_at = {};
+    request_suspension_event.Clear(system.Kernel());
+
+    LOG_DEBUG(Service_PCTL, "Stored HOS21+ play-timer settings, enabled={}", decoded.enabled);
     R_SUCCEED();
 }
 
@@ -720,9 +884,22 @@ Result IParentalControlService::IsPlayTimerAlarmDisabled(Out<bool> out_play_time
     R_SUCCEED();
 }
 
-Result IParentalControlService::GetPlayTimerRemainingTimeDisplayInfo(Out<PlayTimerRemainingTimeDisplayInfo> out_display_info) {
-    LOG_DEBUG(Service_PCTL, "called");
-    *out_display_info = {.state = PlayTimerDisplayState::NotConfigured};
+Result IParentalControlService::GetPlayTimerRemainingTimeDisplayInfo(
+    Out<PlayTimerRemainingTimeDisplayInfo> out_display_info) {
+    std::scoped_lock lock{play_timer_mutex};
+    const auto state = QueryPlayTimerStateLocked();
+
+    *out_display_info = {};
+    if (!state.configured) {
+        out_display_info->state = PlayTimerDisplayState::NotConfigured;
+    } else if (!state.has_limit) {
+        out_display_info->state = PlayTimerDisplayState::TimerDisabled;
+    } else if (state.restricted) {
+        out_display_info->state = PlayTimerDisplayState::TimesUp;
+    } else {
+        out_display_info->state = PlayTimerDisplayState::RemainingTime;
+    }
+    out_display_info->remaining_time = state.remaining_time_ns;
     R_SUCCEED();
 }
 
