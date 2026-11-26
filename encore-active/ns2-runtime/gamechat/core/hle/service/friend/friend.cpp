@@ -76,14 +76,14 @@ public:
             {20500, &IFriendService::RejectUnavailableNintendoOnline, "GetProfileExtraListV1"},
             {20501, &IFriendService::GetRelationship, "GetRelationship"},
             {20502, &IFriendService::GetProfileExtraListV2, "GetProfileExtraListV2"}, // 19.0.0+
-            {20600, &IFriendService::GetUserPresenceView, "GetUserPresenceViewV1"},
-            {20601, &IFriendService::GetUserPresenceView, "GetUserPresenceViewV2"}, // 19.0.0+
+            {20600, &IFriendService::RejectUnavailableNintendoOnline, "GetUserPresenceViewV1"},
+            {20601, &IFriendService::RejectUnavailableNintendoOnline, "GetUserPresenceViewV2"}, // 19.0.0+
             {20700, &IFriendService::GetPlayHistoryListV1, "GetPlayHistoryListV1"},
             {20701, &IFriendService::GetPlayHistoryStatistics, "GetPlayHistoryStatistics"},
             {20702, &IFriendService::GetPlayHistoryListV2, "GetPlayHistoryListV2"}, // 19.0.0+
-            {20800, &IFriendService::LoadUserSetting, "LoadUserSettingV1"},
+            {20800, &IFriendService::RejectUnavailableNintendoOnline, "LoadUserSettingV1"},
             {20801, &IFriendService::SyncUserSetting, "SyncUserSetting"},
-            {20802, &IFriendService::LoadUserSetting, "LoadUserSettingV2"}, // 19.0.0+
+            {20802, &IFriendService::RejectUnavailableNintendoOnline, "LoadUserSettingV2"}, // 19.0.0+
             {20900, &IFriendService::RequestListSummaryOverlayNotification, "RequestListSummaryOverlayNotification"},
             {21000, &IFriendService::GetExternalApplicationCatalog, "GetExternalApplicationCatalog"},
             {22000, &IFriendService::GetReceivedFriendInvitationListV1, "GetReceivedFriendInvitationListV1"},
