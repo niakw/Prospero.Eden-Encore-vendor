@@ -27,6 +27,9 @@ public:
         static const FunctionInfo functions[] = {
             {300, &INx2StreamPlayUserService::GetGuestHidSharedMemory,
              "GetGuestHidSharedMemory"},
+            {452, &INx2StreamPlayUserService::LegacySaveUnsupported, "OpenSaveData"},
+            {454, &INx2StreamPlayUserService::LegacySaveUnsupported, "ReadSaveSlot"},
+            {455, &INx2StreamPlayUserService::LegacySaveUnsupported, "WriteSaveSlot"},
         };
         RegisterHandlers(functions);
     }
@@ -38,6 +41,14 @@ public:
     }
 
 private:
+    // Preserve FW23 NGC's HIPC(11), description(1) error (raw 0x20b),
+    // even when compiled against the baseline IPC helpers, which do not
+    // declare the FW23-only IPC::ResultNotSupported constant.
+    void LegacySaveUnsupported(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(Result{0x20bu});
+    }
+
     void GetGuestHidSharedMemory(HLERequestContext& ctx) {
         constexpr u64 GuestHidMemorySize = 0x9b000;
         auto& owner_kernel = system.Kernel();

@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 files={
- "encore-active/eden-backports/src/core/hle/service/ngc/ngc.cpp":"b5128e3a4509a9060058457c04980b7e6c922865",
+ "encore-active/eden-backports/src/core/hle/service/ngc/ngc.cpp":"f20596f9c1d7b2ce70b37fd21e0c55422f4aabd0",
  "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp":"54f7d65f8487e5d86c0126ec312e29b403932d03",
  "encore-active/eden-core/include/core/hle/service/acc/profile_manager.h":"81688175c2b96b509a9108cc1e69b12391d2127f",
  "encore-active/eden-core/include/core/hle/service/ipc_helpers.h":"a266b1a05cf0b20b7cad6d70f9b16dfec503cf7c",
@@ -32,6 +32,7 @@ ipch=(ROOT/"encore-active/eden-core/include/core/hle/service/ipc_helpers.h").rea
 profile=(ROOT/"encore-active/eden-core/include/core/hle/service/acc/profile_manager.h").read_text()
 assert 'RegisterNamedService("stpl:u"' in ngc
 assert 'RegisterNamedService("stpl:sys"' in ngc
+assert "#if !defined(EDEN_NATIVE_SHARED_NS2_STPL_OWNER)" in ngc
 assert 'FirmwareManager::GetFirmwareVersion(system).first.major >= 23' in ngc
 assert "R_THROW(IPC::ResultNotSupported);" in ngc
 write=ngc.split("Result WriteSaveSlot(",1)[1].split("};",1)[0]

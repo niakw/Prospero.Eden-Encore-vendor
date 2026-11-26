@@ -305,7 +305,9 @@ void LoopProcess(Core::System& system) {
 
     // +23.0.0
     if (FirmwareManager::GetFirmwareVersion(system).first.major >= 23) {
+#if !defined(EDEN_NATIVE_SHARED_NS2_STPL_OWNER)
         server_manager->RegisterNamedService("stpl:u", std::make_shared<IUserService>(system), 4);
+#endif
         server_manager->RegisterNamedService("stpl:sys", std::make_shared<ISystemService>(system), 4);
     }
 

@@ -811,8 +811,8 @@
       "upstream": "efc30e676bb88648c855d32b6260f8589643206210979d3264ee2cb64968f663"
     },
     "src/core/hle/service/ngc/ngc.cpp": {
-      "active": "5742981ed393099f65638fce3fdd2bf8f816a8d208bc67bc55c8532960f7ad71",
-      "bytes": 12322,
+      "active": "9c82c9a422c8d15bd6df190b961bac5593c376bcaa997863289b9b9e349b1e4c",
+      "bytes": 12377,
       "upstream": "8ac6febc0e5258adeb3870971a88c2067ea3312e624b059a17f50e0c0b265dc2"
     },
     "src/core/hle/service/nifm/nifm.cpp": {
@@ -1546,7 +1546,8 @@
     ".encore-backport-ps5-texture-remapped-view-rebind.sha256": "f820c0091efc202ce9b92c9064dfd2483c62ac131a21f7f1cdd4dea639e68841",
     ".encore-backport-ps5-texture-shared-null-new-slot.sha256": "b8c299afca56172a93a54c7d6b1732775e1a17e1114d31e5a696a60e8212018c",
     ".encore-backport-ps5-texture-tic-layer-bounds.sha256": "fcc3dc2ee080731fc40183718baebf1a8dbffb08e6843676dad5bc0906d76829",
-    ".encore-backport-runtime-hid.sha256": "7d0486cdb054c6d3598fbecefe1e89c03a22660b082e2ad797f0b3bd32986eb0"
+    ".encore-backport-runtime-hid.sha256": "7d0486cdb054c6d3598fbecefe1e89c03a22660b082e2ad797f0b3bd32986eb0",
+    ".encore-backport-ns2-stpl-unique-owner.sha256": "91b8859e1c270308664ce2a1b9f3fb3ca1b0c149575747e1cbde8869354a401a"
   },
   "source": "tools/apply-eden-backports.sh"
 }
