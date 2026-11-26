@@ -115,25 +115,43 @@ struct NativeImageRecord {
     // cannot destroy an aliased image behind VI2.
     u32 window_pool_count{};
     bool window_pool{};
+    u64 offset{}; // byte offset within this real NVMap backing
 };
 class NativeImageLedger {
 public:
     static constexpr std::size_t MaxEntries = 1024;
+    // 429(count) returns the first of count consecutive image handles.
+    // Each handle owns a separate NVMap reference and distinct storage.
+    // All records are published atomically or none are published.
     [[nodiscard]] std::optional<u32> Create(u32 backing, u64 backing_size,
                                             NativeImageRequirements requirements,
                                             std::span<const u32> preferences,
-                                            u32 requested_id = 0) {
+                                            u32 requested_id = 0, u32 count = 1) {
         if (backing == 0 || preferences.size() != 16 || requirements.size == 0 ||
             requirements.alignment != 4096 || requirements.size > backing_size ||
-            m_images.size() >= MaxEntries || (!requested_id && m_next == 0))
+            !count || count > MaxEntries - m_images.size() ||
+            requirements.size % count || m_next == 0)
             return {};
         const u32 id = requested_id ? requested_id : m_next;
-        if (!id || m_images.contains(id) || (requested_id && (m_next == 0 || id < m_next)))
+        if (!id || id < m_next || id > std::numeric_limits<u32>::max() - (count - 1))
             return {};
-        m_next = id == std::numeric_limits<u32>::max() ? 0 : id + 1;
-        NativeImageRecord record{id, backing, requirements.size, {}};
-        std::copy(preferences.begin(), preferences.end(), record.preference.begin());
-        m_images.emplace(id, record);
+        const u64 stride = requirements.size / count;
+        for (u32 i = 0; i < count; ++i)
+            if (m_images.contains(id + i)) return {};
+        u32 published{};
+        try {
+            for (; published < count; ++published) {
+                NativeImageRecord record{id + published, backing, stride, {}};
+                record.offset = u64{published} * stride;
+                std::copy(preferences.begin(), preferences.end(), record.preference.begin());
+                m_images.emplace(record.id, record);
+            }
+        } catch (...) {
+            for (u32 i = 0; i < published; ++i) m_images.erase(id + i);
+            throw;
+        }
+        const u32 last = id + count - 1;
+        m_next = last == std::numeric_limits<u32>::max() ? 0 : last + 1;
         return id;
     }
     [[nodiscard]] std::optional<NativeImageRecord> Get(u32 id) const {

@@ -1932,12 +1932,15 @@ IGraphicsSupervisor::GetPresentImage(u32 id) {
     if(!handle||!handle->allocated)return {};
     const auto* session=container.GetSession(handle->session_id);
     if(!session||session->process!=m_process)return {};
-    u32 backing=image->backing,offset{};
+    if (image->offset > handle->orig_size ||
+        image->size > handle->orig_size - image->offset ||
+        image->offset > std::numeric_limits<u32>::max()) return {};
+    u32 backing=image->backing,offset=static_cast<u32>(image->offset);
     if(const auto it=m_native_parents.find(backing);it!=m_native_parents.end()){
         const auto parent=container.GetNvMapFile().GetHandle(it->second);
         if(!parent||!parent->allocated||handle->address<parent->address||
-            handle->address-parent->address>std::numeric_limits<u32>::max())return {};
-        offset=static_cast<u32>(handle->address-parent->address);
+            handle->address-parent->address>std::numeric_limits<u32>::max()-offset)return {};
+        offset+=static_cast<u32>(handle->address-parent->address);
         backing=it->second;
     }
     const auto backing_handle=container.GetNvMapFile().GetHandle(backing);
@@ -3464,11 +3467,12 @@ void IGraphicsSupervisor::CreateNativeImage(HLERequestContext& ctx) {
     const auto* packet = ctx.CommandBuffer();
     Result result = Kernel::ResultInvalidCombination;
     u32 id{};
-    if (packet[0] == 0x1bd && packet[1] == 18 && packet[3] == 1) {
+    if (packet[0] == 0x1bd && packet[1] == 18) {
         result = Kernel::ResultInvalidState;
         if (m_bootstrap.GpuContextReady()) {
             const std::span<const u32> preferences{packet + 2, 16};
-            const auto requirements = ::Service::AM::CalculateNativeImageRequirements(preferences, packet[18]);
+            const u32 count = packet[18];
+            const auto requirements = ::Service::AM::CalculateNativeImageRequirements(preferences, count);
             result = Kernel::ResultNotImplemented;
             if (requirements) {
                 const std::scoped_lock lock{m_native_memory_mutex};
@@ -3481,28 +3485,34 @@ void IGraphicsSupervisor::CreateNativeImage(HLERequestContext& ctx) {
                     result = Kernel::ResultInvalidSize;
                     if (handle && handle->allocated && handle->size >= requirements->size) {
                         result = Kernel::ResultOutOfResource;
-                        if (m_native_images.Count() < NativeImageLedger::MaxEntries &&
-                            m_next_image_id <= std::numeric_limits<u32>::max() &&
-                            handle->Duplicate(true) == Nvidia::NvResult::Success) {
-                            // The map insertion in NativeImageLedger::Create
-                            // can allocate after the NVMap duplicate succeeds.
-                            // An allocation failure must not leak that live
-                            // handle or escape as an uncaught HLE exception.
-                            try {
-                                if (const auto created =
-                                        m_native_images.Create(
+                        if (count && count <= NativeImageLedger::MaxEntries - m_native_images.Count() &&
+                            m_next_image_id && m_next_image_id + count - 1 <= std::numeric_limits<u32>::max()) {
+                            // The SDK derives each image handle as base + i
+                            // (Lichii 0288882f, NX2_NOTES). One backing ref
+                            // per member keeps 430 and teardown symmetric.
+                            u32 duplicated{};
+                            for (; duplicated < count; ++duplicated)
+                                if (handle->Duplicate(true) != Nvidia::NvResult::Success) break;
+                            if (duplicated == count) {
+                                try {
+                                    if (const auto created = m_native_images.Create(
                                             backing, handle->size, *requirements, preferences,
-                                            static_cast<u32>(m_next_image_id))) {
-                                    id = *created;
-                                    ++m_next_image_id;
-                                    result = ResultSuccess;
-                                } else {
+                                            static_cast<u32>(m_next_image_id), count)) {
+                                        id = *created;
+                                        m_next_image_id += count;
+                                        result = ResultSuccess;
+                                    }
+                                } catch (const std::bad_alloc&) {
+                                    result = Kernel::ResultOutOfResource;
+                                }
+                            }
+                            // The ledger rolls back partial publication on
+                            // allocation failure; release ONLY our duplicates.
+                            if (result.IsError())
+                                while (duplicated != 0) {
+                                    --duplicated;
                                     nvmap.FreeHandle(backing, true);
                                 }
-                            } catch (const std::bad_alloc&) {
-                                nvmap.FreeHandle(backing, true);
-                                result = Kernel::ResultOutOfResource;
-                            }
                         }
                     }
                 }
