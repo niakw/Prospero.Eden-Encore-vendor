@@ -317,8 +317,7 @@ public:
 
 private:
     std::vector<Network::ScanData> scan_results;
-    std::mutex channels_mutex;
-    std::vector<s16> requested_channels;
+
 
     void Submit(HLERequestContext& ctx) {
 
@@ -364,20 +363,10 @@ private:
 
     void SetChannels(HLERequestContext& ctx) {
         const auto channel_buffer = ctx.ReadBuffer();
-        std::vector<s16> channels(channel_buffer.size() / sizeof(s16));
-        if (!channels.empty()) {
-            std::memcpy(channels.data(), channel_buffer.data(), channels.size() * sizeof(s16));
-        }
-
-        {
-            std::scoped_lock lk{channels_mutex};
-            requested_channels = std::move(channels);
-        }
-
-        // The PS5/native scanner currently exposes SSID/quality/flags but no channel metadata,
-        // so the requested list is retained faithfully but cannot yet filter scan results.
-        LOG_DEBUG(Service_NIFM, "called, channel_count={}", channel_buffer.size() / sizeof(s16));
-        IPC::ResponseBuilder{ctx, 2}.Push(ResultSuccess);
+        LOG_WARNING(Service_NIFM,
+                    "SetChannels unavailable: native scanner has no channel metadata, bytes={}",
+                    channel_buffer.size());
+        IPC::ResponseBuilder{ctx, 2}.Push(IPC::ResultNotSupported);
     }
 
     enum class State { Idle, Processing, Finished };
