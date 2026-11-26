@@ -2696,6 +2696,10 @@ bool RasterizerVulkan::SignalNativeSyncPoint(u32 value) {
     fence_manager.SignalNativeSyncPoint(value);
     return true;
 }
+bool RasterizerVulkan::SignalNativeFence(std::function<void()>&& func) {
+    fence_manager.SignalNativeFence(std::move(func));
+    return true;
+}
 #endif
 
 void RasterizerVulkan::SignalReference() {

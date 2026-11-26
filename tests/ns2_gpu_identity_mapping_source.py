@@ -753,6 +753,27 @@ vulkan_native=vulkan_cpp.split(
     "bool RasterizerVulkan::SignalNativeSyncPoint(u32 value) {",1
 )[1].split("\n}",1)[0]
 assert "fence_manager.SignalNativeSyncPoint(value);" in vulkan_native
+# P0 C797/C7C0/QMD3: a command-accepted guest semaphore cannot become
+# visible via Immediate/Fast or a fake backend fence, even when the queue
+# awaits it. This check is distinct from the host-side source-backed model.
+strict_release=fence_manager.split(
+    "void SignalNativeFence(std::function<void()>&& complete) {",1
+)[1].split("\n    }",1)[0]
+for token in ("CreateFence(false)", "CommitAsyncFlushes();",
+              "uncommitted_operations.emplace_back(std::move(complete));",
+              "pending_operations.emplace_back(std::move(uncommitted_operations));",
+              "QueueFence(new_fence)"):
+    assert token in strict_release,token
+assert "Settings::IsGPUFenceBehavior" not in strict_release
+assert strict_release.index("CreateFence(false)") < strict_release.index(
+    "QueueFence(new_fence)")
+assert "virtual bool SignalNativeFence(std::function<void()>&&)" in raster_abi
+assert "bool SignalNativeFence(std::function<void()>&& func) override;" in vulkan_h
+assert "fence_manager.SignalNativeFence(std::move(func));" in vulkan_cpp
+assert native_puller.count("QueueNativeSemaphoreRelease(")==4
+assert "SignalNativeFence(std::move(completion))" in native_puller
+assert "Native Compute report requires strict Vulkan retirement" in native_puller
+assert "Ampere SEM_EXECUTE requires strict Vulkan retirement" in native_puller
 fence_action=native_puller.split(
     "void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {",1
 )[1].split("void Puller::ProcessSemaphoreTriggerMethod",1)[0]

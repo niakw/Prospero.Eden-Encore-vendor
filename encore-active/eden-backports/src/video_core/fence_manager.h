@@ -114,6 +114,30 @@ public:
     // both can run before the recorded Vulkan marker reaches guest memory.
     // Maxwell keeps SignalSyncPoint above, including its historical fence
     // behavior and performance policy.
+    // Native C7xx GPU-visible semaphore writes are dependencies, not
+    // performance-policy callbacks. Never publish them before a real Vulkan
+    // fence, even under Fast/Immediate guest settings. Keep the historical
+    // SignalFence policy for Switch 1 and host-only fallback paths.
+    void SignalNativeFence(std::function<void()>&& complete) {
+        if constexpr (!can_async_check) {
+            TryReleasePendingFences<false>();
+        }
+        CommitAsyncFlushes();
+        TFence new_fence = CreateFence(false);
+        if constexpr (can_async_check) {
+            guard.lock();
+        }
+        uncommitted_operations.emplace_back(std::move(complete));
+        pending_operations.emplace_back(std::move(uncommitted_operations));
+        QueueFence(new_fence);
+        fences.push(std::move(new_fence));
+        if constexpr (can_async_check) {
+            guard.unlock();
+            cv.notify_all();
+        }
+        rasterizer.InvalidateGPUCache();
+    }
+
     void SignalNativeSyncPoint(u32 value) {
         if constexpr (!can_async_check) {
             TryReleasePendingFences<false>();

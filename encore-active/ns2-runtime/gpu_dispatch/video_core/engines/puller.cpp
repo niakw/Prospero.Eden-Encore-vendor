@@ -21,6 +21,7 @@
 #include "video_core/engines/maxwell_dma.h"
 #include "video_core/engines/puller.h"
 #include <span>
+#include <functional>
 #include <memory>
 #include <new>
 #include <optional>
@@ -482,6 +483,20 @@ bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {
     return true;
 }
 
+// One release contract for C797 SEM_EXECUTE, C7C0 report semaphore and
+// QMD3 completion. On PS5 native, every write requires a real backend fence;
+// the non-PS5 host fallback retains the pre-existing generic policy.
+[[nodiscard]] static bool QueueNativeSemaphoreRelease(
+    DmaPusher& pusher, std::function<void()>&& completion) {
+#ifdef PS5_NATIVE
+    return pusher.rasterizer &&
+           pusher.rasterizer->SignalNativeFence(std::move(completion));
+#else
+    pusher.rasterizer->SignalFence(std::move(completion));
+    return true;
+#endif
+}
+
 // 0xC797 Ampere host SEM_EXECUTE (0x1b) uses registers 0x17/0x18
 // for the address and 0x19 for payload. Never send the method argument
 // through the Maxwell/NS1 semaphore-release path as a fake payload.
@@ -534,7 +549,7 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
             dma_pusher.FailNativeSubmission(
                 "Ampere SEM_EXECUTE: semaphore mirror backing unavailable");
         }
-        dma_pusher.rasterizer->SignalFence(
+        if (!QueueNativeSemaphoreRelease(dma_pusher,
             [channel, memory, ticket = *ticket, process_ticket, address,
              value, backing, mirror, mirror_backing] {
                 try {
@@ -563,7 +578,10 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
                     Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
                         .ReportFault(channel);
                 }
-            });
+            })) {
+            dma_pusher.FailNativeSubmission(
+                "Ampere SEM_EXECUTE requires strict Vulkan retirement");
+        }
 #else
         // Desktop/NS1 legacy QueryCache semantics remain unchanged.
         dma_pusher.rasterizer->Query(
@@ -1158,7 +1176,7 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
                 "Native Compute report semaphore backing unavailable");
         }
         const u32 reduction = (control >> 9) & 7U;
-        pusher.rasterizer->SignalFence(
+        if (!QueueNativeSemaphoreRelease(pusher,
             [channel, memory, ticket = *ticket, process_ticket, address,
              payload, reduction, reduction_enabled, backing, mirror,
              mirror_backing] {
@@ -1198,7 +1216,10 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
                         .ReportFault(channel);
 #endif
                 }
-            });
+            })) {
+            pusher.FailNativeSubmission(
+                "Native Compute report requires strict Vulkan retirement");
+        }
     } else {
         // The 16-byte timestamp report is not the packed queue-semaphore
         // form. Preserve the existing QueryCache path and its timestamp ABI.
@@ -1273,7 +1294,7 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
             (!pusher.memory_manager.IsFullyMappedRange(*mirror, sizeof(u32)) ||
              !mirror_backing))
             return false;
-        pusher.rasterizer->SignalFence(
+        if (!QueueNativeSemaphoreRelease(pusher,
             [channel, memory, ticket = *ticket, process_ticket, addr, payload,
              flags, backing, mirror, mirror_backing] {
                 // A QMD3 dispatch can already be accepted when this
@@ -1319,7 +1340,7 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                         .ReportFault(channel);
 #endif
                 }
-            });
+            })) return false;
         return true;
     };
     std::string_view error;

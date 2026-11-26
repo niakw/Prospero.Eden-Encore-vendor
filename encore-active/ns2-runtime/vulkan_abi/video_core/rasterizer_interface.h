@@ -100,6 +100,11 @@ public:
     virtual bool SignalNativeSyncPoint(u32) {
         return false;
     }
+    // Strict native GPU release callback, unlike policy-dependent SignalFence.
+    // Backends without real GPU retirement must reject, not signal early.
+    virtual bool SignalNativeFence(std::function<void()>&&) {
+        return false;
+    }
 #endif
 
     /// Signal a GPU based reference as point

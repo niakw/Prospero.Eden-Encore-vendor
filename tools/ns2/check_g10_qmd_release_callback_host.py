@@ -22,7 +22,7 @@ begin="auto release = [&](u64 addr, u32 payload, u32 flags) {"
 end="    std::string_view error;"
 assert method.count(begin)==method.count(end)==1
 owner=begin+method.split(begin,1)[1].split(end,1)[0]
-assert "SignalFence(" in owner
+assert "QueueNativeSemaphoreRelease(pusher," in owner
 assert "auto failure = std::current_exception();" in owner
 assert "RecordGpuFailure(failure)" in owner
 assert ".ReportFault(channel)" in owner
@@ -30,7 +30,7 @@ assert owner.index("RecordGpuFailure(failure)") < owner.index(".ReportFault(chan
 assert "Native QMD3 release backing revoked after GPU submission" in owner
 assert owner.index("if (!current.IsCurrent(channel, ticket)) return;") < owner.index(
     "throw std::runtime_error(")
-assert owner.index("throw std::runtime_error(") < owner.index("memory->Write<u32>(addr, value);")
+assert owner.index("throw std::runtime_error(") < owner.index("PublishNativeSemaphoreWord(")
 cpp=r"""
 #include <cassert>
 #include <cstdint>
@@ -70,6 +70,20 @@ public:
     }
     void ReportFault(const Channel*) { ++reports; }
 };
+class NativeGpuProcessRegistry {
+public:
+    static NativeGpuProcessRegistry& Instance(){
+        static NativeGpuProcessRegistry r;
+        return r;
+    }
+    std::optional<u64> SemaphoreMirrorAddress(unsigned, u64) const {
+        return std::nullopt;
+    }
+};
+}
+static unsigned ProcessTicket(
+    const Service::Nvidia::Devices::NativeGpuChannelRegistry::Ticket& ticket) {
+    return ticket.serial;
 }
 struct MemoryManager {
     bool mapped{true},cpu_backed{true},remapped{false};
@@ -93,10 +107,21 @@ struct MemoryManager {
         else word=value;
     }
 };
+template<typename Combine>
+bool PublishNativeSemaphoreWord(
+    MemoryManager& memory, unsigned, u64 address,
+    std::optional<u64> mirror, bool, Combine&& combine) {
+    if (mirror) return false;
+    memory.Write<u32>(address, combine(memory.Read<u32>(address)));
+    return true;
+}
 struct Rasterizer {
     std::vector<std::function<void()>> callbacks;
-    void SignalFence(std::function<void()> fn){
+    bool strict_available{true};
+    bool SignalNativeFence(std::function<void()> fn){
+        if (!strict_available) return false;
         callbacks.push_back(std::move(fn));
+        return true;
     }
     void RetireOne(){
         assert(!callbacks.empty());
@@ -110,6 +135,10 @@ struct DmaPusher {
     MemoryManager memory_manager{};
     Rasterizer* rasterizer{};
 };
+static bool QueueNativeSemaphoreRelease(
+    DmaPusher& pusher, std::function<void()>&& completion) {
+    return pusher.rasterizer->SignalNativeFence(std::move(completion));
+}
 int main() {
     using Registry=Service::Nvidia::Devices::NativeGpuChannelRegistry;
     auto ticket=std::optional<Registry::Ticket>{Registry::Ticket{}};
@@ -177,6 +206,10 @@ int main() {
     Registry::Instance().current=true;
     assert(!release(0x1001,47,0));
     assert(!release(0,47,0));
+    renderer.strict_available=false;
+    assert(!release(0x1000,88,0));
+    assert(renderer.callbacks.empty() && pusher.memory_manager.word==30);
+    renderer.strict_available=true;
     std::puts("G10_QMD3_REAL_OWNER_RETIRE_CALLBACK_PASS"
               " signal_after_fence=1 reduction_add=1 reduction_max=1"
               " unbacked_preflight=refused"

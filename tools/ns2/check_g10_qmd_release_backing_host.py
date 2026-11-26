@@ -31,7 +31,7 @@ release=method.split("auto release = [&](u64 addr, u32 payload, u32 flags) {",1)
 assert "const auto* const backing = pusher.memory_manager.GetPointer(addr);" in release
 assert "if (!backing) return false;" in release
 assert release.index("if (!backing) return false;") < release.index(
-    "pusher.rasterizer->SignalFence(")
+    "QueueNativeSemaphoreRelease(pusher,")
 assert "memory->GetPointer(addr) != backing" in release
 
 fixture=r"""
