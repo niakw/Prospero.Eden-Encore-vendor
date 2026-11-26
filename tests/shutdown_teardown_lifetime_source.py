@@ -350,3 +350,43 @@ smmu_unmap = smmu.split("::Unmap(DAddr address, size_t size)", 1)[1].split("\n}"
 assert smmu_unmap.index("if (lease)") < smmu_unmap.index("device_inter->InvalidateRegion(") < smmu_unmap.index("std::scoped_lock lk(mapping_guard)")
 assert "AtomicStorePhysical(entry, 0)" in smmu_unmap
 print("NATIVE_RENDERER_MAPPING_RETIREMENT_SOURCE_PASS")
+
+# Compile the actual runtime header, including concurrent retirement and
+# restart. No mocks of the lease implementation or sleeps for ordering.
+import os
+import shutil
+import subprocess
+import tempfile
+compiler = os.environ.get("CXX") or shutil.which("clang++") or shutil.which("g++")
+assert compiler, "C++ compiler required for native renderer lifetime"
+with tempfile.TemporaryDirectory() as tmp:
+    cpp = Path(tmp) / "renderer_lifetime.cpp"
+    exe = Path(tmp) / "renderer_lifetime"
+    cpp.write_text(r'''
+#include "core/native_renderer_lifetime.h"
+#include <cassert>
+using namespace Eden::NativeRendererLifetime;
+int main() {
+    { MappingCallbackLease lease; assert(!lease); }
+    for (int i = 0; i < 100; ++i) {
+        ActivateMappingCallbacks();
+        std::atomic<bool> done{false};
+        std::thread retire;
+        {
+            MappingCallbackLease lease; assert(lease);
+            retire = std::thread([&] { RetireMappingCallbacks(); done.store(true); });
+            while (!(state.load() & Retired)) std::this_thread::yield();
+            MappingCallbackLease rejected; assert(!rejected); assert(!done.load());
+        }
+        retire.join(); assert(done.load());
+        { MappingCallbackLease lease; assert(!lease); }
+        RetireMappingCallbacks();
+    }
+}
+''')
+    subprocess.run([compiler, "-std=c++20", "-O2", "-Wall", "-Wextra",
+                    "-Werror", "-pthread", "-I",
+                    str(ROOT / "encore-active/eden-core/overrides"),
+                    str(cpp), "-o", str(exe)], check=True, timeout=60)
+    subprocess.run([str(exe)], check=True, timeout=20)
+print("NATIVE_RENDERER_MAPPING_RETIREMENT_RACE_PASS cycles=100")

@@ -137,7 +137,11 @@ fc27_raster=raster_text.replace(NATIVE_SYNC_BLOCK,"")
 assert text_blob(fc27_raster)==GUEST_CACHE_LOCK_SUCCESSOR
 restored=restore_integrated_rasterizer(fc27_raster)
 assert text_blob(restored)=="71d097b9a83028dfad9370792c905bb3bfccfd5a"
-assert blob(D)=="daf493ce6e863397ec44bfae467c4f7533570477"
+# The renderer retirement successor changes only callback lifetime, not
+# synchronous page-protection publication. Keep the exact previous owner.
+assert blob(D) in {"daf493ce6e863397ec44bfae467c4f7533570477", "8acbdfe9ac970d24fecd334ca7b943f6bcd958f4"}
+if blob(D) == "8acbdfe9ac970d24fecd334ca7b943f6bcd958f4":
+    assert D.read_text().count("NativeRendererLifetime::MappingCallbackLease lease;") == 2
 # The selected NS1/NS2 TextureCache now includes 10 independently reviewed
 # safety and DMA source changes; this full file SHA remains a fail-closed
 # inventory, not a silent acceptance of a changed historic contract.
