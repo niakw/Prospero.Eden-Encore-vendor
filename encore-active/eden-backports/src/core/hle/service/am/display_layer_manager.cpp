@@ -86,7 +86,9 @@ Result DisplayLayerManager::CreateManagedDisplayLayer(u64* out_layer_id) {
         }
     }
 
-    m_display_service->GetContainer()->SetLayerZIndex(*out_layer_id, true);
+    if (m_applet_id == AppletId::Application) {
+        (void)m_manager_display_service->SetLayerZIndex(Foreground, *out_layer_id);
+    }
     m_managed_display_layers.emplace(*out_layer_id);
 
     R_SUCCEED();
@@ -134,7 +136,6 @@ Result DisplayLayerManager::IsSystemBufferSharingEnabled() {
         (void)m_display_service->GetContainer()->SetLayerIsOverlay(m_system_shared_layer_id, true);
     }
     m_manager_display_service->SetLayerZIndex(initial_z, m_system_shared_layer_id);
-    m_display_service->GetContainer()->SetLayerZIndex(m_system_shared_layer_id, true);
     m_managed_display_layers.emplace(m_system_shared_layer_id);
     R_SUCCEED();
 }
