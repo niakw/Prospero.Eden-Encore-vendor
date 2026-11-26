@@ -4113,10 +4113,13 @@ void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
             ScaleDown(image);
         }
     }
+#ifndef PS5_NATIVE
+    // Desktop preserves the original eager revision publication.
     image.modification_tick = most_recent_tick;
     if (any_modified) {
         image.flags |= ImageFlagBits::GpuModified;
     }
+#endif
     std::ranges::sort(aliased_images, [this](const AliasedImage* lhs, const AliasedImage* rhs) {
         const ImageBase& lhs_image = slot_images[lhs->id];
         const ImageBase& rhs_image = slot_images[rhs->id];
@@ -4137,6 +4140,15 @@ void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
         ScaleUp(aliased_image);
         CopyImage(image_id, aliased->id, aliased->copies);
     }
+#ifdef PS5_NATIVE
+    // Publish alias freshness only after all Vulkan copies were queued.
+    // A rejected/throwing copy keeps the older revision so the next draw
+    // retries instead of treating stale HUD pixels as synchronized.
+    image.modification_tick = most_recent_tick;
+    if (any_modified) {
+        image.flags |= ImageFlagBits::GpuModified;
+    }
+#endif
 }
 
 template <class P>

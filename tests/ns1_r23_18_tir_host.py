@@ -20,6 +20,18 @@ for name,expected in files.items():
  # Active native TIC memo successor: authenticate the selected file, then
  # reverse only FillImageViews on this audit copy before replaying the
  # historical readback/TIR receipts.
+ if name.endswith("/texture_cache/texture_cache.h") and sha == "bfd98bca9204d06da8a828c9dba6d8eab7bafb63":
+  source=raw.decode()
+  begin=source.index("void TextureCache<P>::SynchronizeAliases(")
+  end=source.index("\ntemplate <class P>",begin)
+  fn=source[begin:end]
+  early="#ifndef PS5_NATIVE\n    // Desktop preserves the original eager revision publication.\n    image.modification_tick = most_recent_tick;\n    if (any_modified) {\n        image.flags |= ImageFlagBits::GpuModified;\n    }\n#endif\n"
+  late="#ifdef PS5_NATIVE\n    // Publish alias freshness only after all Vulkan copies were queued.\n    // A rejected/throwing copy keeps the older revision so the next draw\n    // retries instead of treating stale HUD pixels as synchronized.\n    image.modification_tick = most_recent_tick;\n    if (any_modified) {\n        image.flags |= ImageFlagBits::GpuModified;\n    }\n#endif\n"
+  publish="    image.modification_tick = most_recent_tick;\n    if (any_modified) {\n        image.flags |= ImageFlagBits::GpuModified;\n    }\n"
+  assert fn.count(early)==fn.count(late)==1, "alias freshness successor drift"
+  raw=(source[:begin]+fn.replace(early,publish,1).replace(late,"",1)+source[end:]).encode()
+  sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
+  assert sha=="709ee61bc3a620654fa9c66eafa6482aab382d12", "alias freshness reverse drift"
  if name.endswith("/texture_cache/texture_cache.h") and sha == "709ee61bc3a620654fa9c66eafa6482aab382d12":
   source=raw.decode()
   guard="        // A newer incompatible alias must not create an invalid Vulkan view,\n        // nor silently promote an older compatible image. Preserve the raw\n        // framebuffer fallback when the freshest candidate cannot be viewed.\n        if (!VideoCore::Surface::IsViewCompatible(\n                slot_images[freshest_id].info.format, view_format,\n                runtime.HasBrokenTextureViewFormats(), runtime.HasNativeBgr())) {\n            return {};\n        }\n"
