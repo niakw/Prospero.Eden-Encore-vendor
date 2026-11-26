@@ -36,6 +36,7 @@ private:
     void Close(HLERequestContext& ctx);
     void Initialize(HLERequestContext& ctx);
     void QueryEvent(HLERequestContext& ctx);
+    void SetAruidWithoutCheck(HLERequestContext& ctx);
     void SetAruid(HLERequestContext& ctx);
     void SetGraphicsFirmwareMemoryMarginEnabled(HLERequestContext& ctx);
     void GetStatus(HLERequestContext& ctx);
@@ -46,7 +47,7 @@ private:
 
     std::shared_ptr<Module> nvdrv;
 
-    u64 pid{};
+    u64 aruid{};
     bool is_initialized{};
     NvCore::SessionId session_id{};
     Common::ScratchBuffer<u8> output_buffer;

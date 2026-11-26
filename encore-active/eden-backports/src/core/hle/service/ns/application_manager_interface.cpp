@@ -413,7 +413,7 @@ IApplicationManagerInterface::IApplicationManagerInterface(Core::System& system_
         {2500, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ConfirmAvailableTime"},
         {2510, nullptr, "CreateApplicationResource"},
         {2511, nullptr, "GetApplicationResource"},
-        {2513, nullptr, "LaunchMicroApplication"},
+        {2513, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "LaunchMicroApplication"},
         {2514, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "ClearTaskOfAsyncTaskManager"},
         {2515, &IApplicationManagerInterface::RejectUnavailablePlatformCommand, "CleanupAllPlaceHolderAndFragmentsIfNoTask"},
         {2517, nullptr, "CreateApplicationInstance"},

@@ -220,13 +220,33 @@ void NVDRV::QueryEvent(HLERequestContext& ctx) {
     }
 }
 
-void NVDRV::SetAruid(HLERequestContext& ctx) {
+void NVDRV::SetAruidWithoutCheck(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
-    pid = rp.Pop<u64>();
-    LOG_WARNING(Service_NVDRV, "(STUBBED) called, pid={:#x}", pid);
+    aruid = rp.Pop<u64>();
+    LOG_DEBUG(Service_NVDRV, "SetAruidWithoutCheck, aruid={:#x}", aruid);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
+    rb.PushEnum(NvResult::Success);
+}
+
+void NVDRV::SetAruid(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const u64 requested_aruid = rp.Pop<u64>();
+    const u64 caller_pid = ctx.GetPID();
+
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    if (caller_pid == 0 || requested_aruid != caller_pid) {
+        LOG_WARNING(Service_NVDRV,
+                    "SetAruid rejected mismatched PID descriptor, aruid={:#x}, caller_pid={:#x}",
+                    requested_aruid, caller_pid);
+        rb.PushEnum(NvResult::BadParameter);
+        return;
+    }
+
+    aruid = requested_aruid;
+    LOG_DEBUG(Service_NVDRV, "SetAruid, aruid={:#x}", aruid);
     rb.PushEnum(NvResult::Success);
 }
 
@@ -290,7 +310,7 @@ NVDRV::NVDRV(Core::System& system_, std::shared_ptr<Module> nvdrv_, const char* 
         {4, &NVDRV::QueryEvent, "QueryEvent"},
         {5, &NVDRV::RejectUnsupportedExtension, "MapSharedMem"},
         {6, &NVDRV::GetStatus, "GetStatus"},
-        {7, &NVDRV::SetAruid, "SetAruidForTest"},
+        {7, &NVDRV::SetAruidWithoutCheck, "SetAruidWithoutCheck"},
         {8, &NVDRV::SetAruid, "SetAruid"},
         {9, &NVDRV::DumpGraphicsMemoryInfo, "DumpGraphicsMemoryInfo"},
         {10, &NVDRV::RejectUnsupportedExtension, "InitializeDevtools"},
