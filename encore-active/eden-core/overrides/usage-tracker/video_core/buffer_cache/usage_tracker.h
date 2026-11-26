@@ -7,9 +7,11 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <utility>
 #include <vector>
 
 #include "common/common_types.h"
@@ -31,6 +33,10 @@ public:
         : pages((size >> BUFFER_PAGE_SHIFT) + 1, 0ULL), set_begin{pages.size()} {}
 
     void Reset() noexcept {
+        // Track is idempotent until Reset, but a range used again after Reset
+        // belongs to the new GPU epoch and must be tracked again.
+        recent.fill({~u64{0}, 0});
+        recent_cursor = 0;
         // Lichii 5e428570 / 7a5e5357: only Track can set usage words.
         // Large guest buffers therefore clear only the page-word extent that
         // was touched since the previous reset, never the whole allocation.
@@ -43,6 +49,15 @@ public:
 
     void Track(u64 offset, u64 size) noexcept {
         if (!ValidRange(offset, size)) return;
+        // Lichii c014593: draws repeatedly bind the same large storage ranges.
+        // Tracking sets bits but has no reference count, so an identical range
+        // before Reset is already fully represented and can be skipped.
+        for (const auto& [recent_offset, recent_size] : recent) {
+            if (recent_offset == offset && recent_size == size) {
+                return;
+            }
+        }
+        recent[recent_cursor++ % recent.size()] = {offset, size};
         const u64 last = offset + size - 1;
         const std::size_t first_page = static_cast<std::size_t>(offset >> BUFFER_PAGE_SHIFT);
         const std::size_t last_page = static_cast<std::size_t>(last >> BUFFER_PAGE_SHIFT);
@@ -109,6 +124,10 @@ private:
     }
 
     std::vector<u64> pages;
+    std::array<std::pair<u64, u64>, 4> recent{{
+        {~u64{0}, 0}, {~u64{0}, 0}, {~u64{0}, 0}, {~u64{0}, 0},
+    }};
+    std::size_t recent_cursor{};
     std::size_t set_begin;
     std::size_t set_end{};
 };
