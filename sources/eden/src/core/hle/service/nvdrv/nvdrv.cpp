@@ -172,7 +172,21 @@ Module::Module(Core::System& system)
     };
 }
 
-Module::~Module() {}
+Module::~Module() {
+    // FD devices borrow EventInterface, ServiceContext and Container.
+    // Implicit member destruction would destroy the first two before
+    // open_files, leaving e.g. nvhost_gpu and nvhost_ctrl_gpu to close
+    // their kernel events through dead service owners during relaunch.
+    // Service loops are joined before the last Module owner is retired.
+    // Detach each descriptor before its destructor can run reentrant
+    // cleanup, without allocating or calling guest ioctl close again.
+    while (!open_files.empty()) {
+        auto it = open_files.begin();
+        auto device = std::move(it->second);
+        open_files.erase(it);
+        device.reset();
+    }
+}
 
 NvResult Module::VerifyFD(DeviceFD fd) const {
     if (fd < 0) {
