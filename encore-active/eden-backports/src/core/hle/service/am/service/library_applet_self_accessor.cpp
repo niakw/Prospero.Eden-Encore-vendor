@@ -218,9 +218,12 @@ Result ILibraryAppletSelfAccessor::GetMainAppletIdentityInfo(
 }
 
 Result ILibraryAppletSelfAccessor::CanUseApplicationCore(Out<bool> out_can_use_application_core) {
-    LOG_WARNING(Service_AM,
-                "CanUseApplicationCore is unavailable: NPDM application-core policy is not modelled");
-    R_RETURN(ResultUnknown);
+    // Compatibility fallback used by Eden/Lichii/Eglantine until the NPDM
+    // application-core rule is modelled. Do not turn an unknown query into
+    // a generic IPC failure; false is the conservative capability answer.
+    LOG_WARNING(Service_AM, "(STUBBED) called");
+    *out_can_use_application_core = false;
+    R_SUCCEED();
 }
 
 Result ILibraryAppletSelfAccessor::GetMainAppletApplicationControlProperty(

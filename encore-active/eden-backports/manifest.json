@@ -206,8 +206,8 @@
       "upstream": "7d0bc7d12f1530d97a98febf6d67611bdb6a847350e24abbe2b3929a2c049d06"
     },
     "src/core/hle/service/am/service/common_state_getter.cpp": {
-      "active": "b90358b4a836e9390fe8ab18a42aa0e17f4de5bef810cdacf2df010fd3222120",
-      "bytes": 27461,
+      "active": "39c8c756945e4208029e7a0084a7ee2b5a9a1b5efc81d56ffebeffd352209962",
+      "bytes": 27619,
       "upstream": "16abb5f4185ddc4956771630a987f1d6e8fcb02fe6f4c12d888a1f2be5801484"
     },
     "src/core/hle/service/am/service/common_state_getter.h": {
@@ -271,8 +271,8 @@
       "upstream": "28c43db660b3d302a7a89633fe9ac8b78b3011244354ba2635b0572cb08a41fd"
     },
     "src/core/hle/service/am/service/library_applet_self_accessor.cpp": {
-      "active": "cbe15e84956b4b31e4b0b6eb33163ff71a458c0773431fedc3121787be7cbaa3",
-      "bytes": 22422,
+      "active": "c1450c9a2a9ebe0d7f7a79cf75d1a95141977a7185449293cf886bc11b758227",
+      "bytes": 22597,
       "upstream": "7bcd0144488426ea89c71a935ab7a4faa86390eedff9dfaaa6391076e66585bc"
     },
     "src/core/hle/service/am/service/library_applet_self_accessor.h": {
