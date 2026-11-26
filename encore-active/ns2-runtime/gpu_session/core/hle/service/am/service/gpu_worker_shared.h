@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "core/hle/service/am/service/gpu_session_protocol.h"
+#include "core/hle/service/am/service/gpu_worker_protocol.h"
 #include "core/hle/service/nvdrv/nvdata.h"
 #include "core/hle/service/kernel_helpers.h"
 
@@ -68,6 +69,17 @@ struct GpuWorkerSharedState {
     // gpu sub 101 is an identity map on Switch 2: GPU VA == CPU VA.
     // Keep it process-local and replay it into later-created GMMUs.
     std::vector<IdentityGpuMapping> identity_gpu_mappings;
+    // A registered GSV VM exists before NVDRV imports it. 211 owns real
+    // backing through its worker ledger even in that interval. No channel
+    // can submit until the exact VM has replayed all these mappings.
+    using PendingMapKey = std::pair<std::uint32_t, std::uint64_t>;
+    std::map<PendingMapKey, GpuWorkerProtocol::Map4K> pending_211;
+    std::array<std::uint32_t, GpuSessionProtocol::MaxAddressSpaces> imported_vm_ids{};
+    [[nodiscard]] bool CanStageBeforeImport(std::uint32_t id) const;
+    Nvidia::NvResult StageBeforeImport(const GpuWorkerProtocol::Map4K& request);
+    bool CancelBeforeImport(std::uint32_t id, std::uint64_t address, std::uint64_t size);
+    bool ModifyBeforeImport(const GpuWorkerProtocol::Modify4K& request);
+    [[nodiscard]] bool OverlapsPendingIdentity(std::uint64_t address, std::uint64_t size) const;
     // Caller holds mutex except during final shared-state destruction.
     [[nodiscard]] std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>
     FindOwnedAddressSpace(std::uint32_t id) const;

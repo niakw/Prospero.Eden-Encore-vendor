@@ -241,7 +241,7 @@ for x in ("address_spaces.Registered(id)","opened_gpu_as.try_emplace(id, as)",
 assert bind.index("opened_gpu_as.try_emplace(id, as)") < bind.index("as->MapNative4K(identity.handle") < bind.index("identity.AddSpace(id)")
 assert bind.index("const std::scoped_lock lock{mutex}") < bind.index("opened_gpu_as.try_emplace(id, as)") < bind.index("as->CommitNativeVmImport(id)")
 assert bind.index("identity.AddSpace(id)") < bind.index("as->CommitNativeVmImport(id)")
-rollback=bind.split("if (as->CommitNativeVmImport(id)) return replay;",1)[1]
+rollback=bind.split("bool rollback_safe = !as->IsNativeSparsePoisoned();",1)[1]
 assert rollback.index("as->UnmapNative4K(identity.address, identity.size)") < rollback.index("identity.RemoveSpace(id)") < rollback.index("opened_gpu_as.erase(id)")
 
 for x in ("struct NativeVmImport","u32_le version{};","u32_le vm_id{};",
@@ -1443,3 +1443,20 @@ for reason in deferred_throw_reasons:
 assert puller_cpp.count("Eden::RecordGpuFailure(failure);") >= 3
 assert puller_cpp.count(".ReportFault(channel);") >= 3
 assert "void FailNativeSubmission(const char* message);" in dma_h
+
+# R457: actual 101 succeeds, then 211 precedes the first usable NVDRV VM.
+# Stage only a registered VM with owned backing; replay and commit under
+# the same shared mutex; failures never publish a half-initialized FD.
+stage = shared_cpp.split("Nvidia::NvResult GpuWorkerSharedState::StageBeforeImport(",1)[1].split("\n}",1)[0]
+for marker in ("CanStageBeforeImport(request.address_space)", "NativeNs2GpuVaSmallSplit - request.address",
+               "pending_211.lower_bound(key)", "ExactIdentity(identity, request)",
+               "pending_211.try_emplace(key, request)", "catch (const std::bad_alloc&)"):
+    assert marker in stage, marker
+assert bind.index("as->MapNative4K(request.memory") < bind.index("as->CommitNativeVmImport(id)") < bind.index("pending_211.erase(first, completed)")
+assert rollback.index("as->UnmapNative4K(request.address, request.size)") < rollback.index("opened_gpu_as.erase(id)")
+assert "m_shared->StageBeforeImport(*request)" in _overlay_worker
+assert _overlay_worker.index("m_shared->StageBeforeImport(*request)") < _overlay_worker.index("ledger.CommitPrepared(staged_ledger)") < _overlay_worker.index("m_shared->events[request->notification]->Signal(kernel)")
+assert "m_shared->CancelBeforeImport(mapping.address_space, mapping.address, mapping.size)" in release
+assert "m_shared->CancelBeforeImport(mapping.address_space, mapping.address, mapping.size)" in teardown
+assert "m_native_vm_retired.store(true, std::memory_order_release)" in native_import
+print("NS2_R457_211_PREIMPORT_MAPPING_SOURCE_PASS")

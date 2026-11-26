@@ -393,8 +393,14 @@ NvResult nvhost_as_gpu::ImportNativeVm(const NativeVmImport& params) {
     const auto bound = owner->BindImportedAddressSpace(
         u32{params.vm_id}, shared_from_this());
     if (bound != NvResult::Success) {
-        if (!ResetFailedNativeVmImport())
+        if (!ResetFailedNativeVmImport()) {
+            // A failed replay left physical ownership unproven. An
+            // uncommitted VM id cannot be retired through RetireNativeVm.
+            // Revoke this FD directly before any further ioctl/submission.
+            PoisonNativeAddressSpace();
+            m_native_vm_retired.store(true, std::memory_order_release);
             return NvResult::InvalidState;
+        }
         return bound;
     }
     // GSV commits the local ID under its publication lock. Never rewrite it

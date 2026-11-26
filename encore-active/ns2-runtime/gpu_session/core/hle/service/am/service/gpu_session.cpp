@@ -388,7 +388,8 @@ void IGpuSession::SynchronizeAddressSpace(HLERequestContext& ctx) {
             // mutation has either committed or returned an error. Completion
             // therefore means signalling the SDK job event; a global GPU idle
             // would serialize unrelated graphics work and is not required.
-            if (ResolveOpenedAddressSpace(request->address_space) &&
+            if ((ResolveOpenedAddressSpace(request->address_space) ||
+                 m_shared->CanStageBeforeImport(request->address_space)) &&
                 m_shared->events[request->notification]) {
                 m_shared->events[request->notification]->Signal(kernel);
                 result = ResultSuccess;
