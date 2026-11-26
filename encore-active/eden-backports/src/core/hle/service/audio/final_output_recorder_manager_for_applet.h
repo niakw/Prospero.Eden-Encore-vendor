@@ -18,7 +18,7 @@ public:
     ~IFinalOutputRecorderManagerForApplet() override;
 
 private:
-    void RejectUnavailableRecorderControl(HLERequestContext& ctx);
+    void RejectUnavailableFinalOutputRecorderControl(HLERequestContext& ctx);
 };
 
 } // namespace Service::Audio
