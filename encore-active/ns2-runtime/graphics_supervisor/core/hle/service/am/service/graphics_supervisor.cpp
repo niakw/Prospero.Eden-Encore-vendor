@@ -3510,7 +3510,7 @@ void IGraphicsSupervisor::CreateNativeImage(HLERequestContext& ctx) {
         result = Kernel::ResultInvalidState;
         if (m_bootstrap.GpuContextReady()) {
             const std::span<const u32> preferences{packet + 2, 16};
-            const u32 count = packet[18];
+            const u32 count = std::max<u32>(packet[18], 1);
             const auto requirements = ::Service::AM::CalculateNativeImageRequirements(preferences, count);
             result = Kernel::ResultNotImplemented;
             if (requirements) {

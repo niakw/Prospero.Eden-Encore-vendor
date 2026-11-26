@@ -20,17 +20,18 @@ struct NativeImageRequirements {
     u64 alignment;
 };
 
-// Inter-module block image layout, restricted to the observed four-byte color formats. Row pitch is
-// in 64-byte GOBs; block height is in pixels. Matches the gsv sizers (commands 435 and 1510, run
-// against the real module): the size is one image's padded block storage times the request's
-// count word, the format word does not scale it, and the alignment is always one page.
+// Inter-module block image layout for the observed native color formats.
+// Like Lichii/Eglantine's Nx2CalculateImageLayout, RGBA8/RGB10A2 use four
+// bytes per pixel, RGBA16Float uses eight. Every request still validates its
+// GOB pitch, block height and actual backing size before publishing an ID.
+// The SDK's zero image count sizes one image (max(count, 1)).
 // Lichii's Xenoblade 2 window-buffer trace proves block-format word 7 may be 1 or 2 with
 // identical storage geometry; all other unreviewed variants remain fail-closed.
 inline std::optional<NativeImageRequirements> CalculateNativeImageRequirements(
     std::span<const u32> preference, u32 count) {
-    if (preference.size() != 16 || count == 0 || preference[0] != 0 ||
+    if (preference.size() != 16 || preference[0] != 0 ||
         (preference[1] != 1 && preference[1] != 2) || preference[3] != 0 ||
-        (preference[6] != 1 && preference[6] != 4) ||
+        (preference[6] != 1 && preference[6] != 4 && preference[6] != 5) ||
         (preference[7] != 1 && preference[7] != 2) ||
         preference[4] < 3 || preference[4] > 8) {
         return std::nullopt;
@@ -41,16 +42,18 @@ inline std::optional<NativeImageRequirements> CalculateNativeImageRequirements(
     const u64 width = (preference[2] & 0xffffU) + 1;
     const u64 height = (preference[2] >> 16) + 1;
     const u64 pitch_gobs = preference[5];
-    if (pitch_gobs < (width * 4 + 63) / 64 || pitch_gobs > 4096) {
+    const u64 bytes_per_pixel = preference[6] == 5 ? 8 : 4;
+    if (pitch_gobs < (width * bytes_per_pixel + 63) / 64 || pitch_gobs > 4096) {
         return std::nullopt;
     }
+    const u64 requested_images = std::max<u64>(count, 1);
     const u64 block_height = 1ULL << preference[4];
     const u64 aligned_height = (height + block_height - 1) & ~(block_height - 1);
     const u64 image_size = pitch_gobs * 64 * aligned_height;
-    if (image_size > (1ULL << 48) / count) {
+    if (image_size > (1ULL << 48) / requested_images) {
         return std::nullopt;
     }
-    return NativeImageRequirements{image_size * count, 4096};
+    return NativeImageRequirements{image_size * requested_images, 4096};
 }
 
 // Feature-image pool requirements used by the common GSV server template
