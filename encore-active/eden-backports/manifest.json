@@ -367,8 +367,8 @@
     },
     "src/core/hle/service/caps/caps_u.cpp": {
       "upstream": "38fbee7328ffedd64a646d9c8ff6cf0daa9995ac14ec28cd54fbf4b136205189",
-      "active": "781c5aaf6e34a747f152b2b06a7985e63756f5639b9157b7ab13f665f44ccc7a",
-      "bytes": 10694
+      "active": "05e4a3b157192f373e712bbe1e94614767bbf4cb50cf3589273e8e31546d48d8",
+      "bytes": 10679
     },
     "src/core/hle/service/caps/caps_u.h": {
       "upstream": "90deaea4f1586080accec3509a9b63a185aa666f6cc6eb969cced2a8d38185f0",
