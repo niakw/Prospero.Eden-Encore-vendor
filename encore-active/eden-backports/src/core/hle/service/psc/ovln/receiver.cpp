@@ -59,8 +59,8 @@ Result IReceiver::Receive(Out<OverlayNotification> out_notification, Out<Message
 Result IReceiver::ReceiveWithTick(Out<OverlayNotification> out_notification,
                                   Out<MessageFlags> out_flags, Out<u64> out_tick) {
     LOG_DEBUG(Service_PSC, "called");
-    R_RETURN(broker->Receive(receiver_id, out_notification.GetPointer(), out_flags.GetPointer(),
-                             out_tick.GetPointer()));
+    R_RETURN(broker->Receive(receiver_id, out_notification.Get(), out_flags.Get(),
+                             out_tick.Get()));
 }
 
 } // namespace Service::PSC
