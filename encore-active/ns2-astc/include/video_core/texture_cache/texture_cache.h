@@ -182,7 +182,24 @@ void TextureCache<P>::RunGarbageCollector() {
             return false;
         }
         if (must_download) {
+#ifdef PS5_NATIVE
+            // Failed or empty readbacks must not evict the only GPU-owned copy.
+            if (FullDownloadCopies(image.info).empty()) {
+                return false;
+            }
+            auto map = [&]() -> decltype(runtime.DownloadStagingBuffer(image.unswizzled_size_bytes)) {
+                try {
+                    return runtime.DownloadStagingBuffer(image.unswizzled_size_bytes);
+                } catch (const std::bad_alloc&) {
+                    return {};
+                }
+            }();
+            if (!map.buffer || map.mapped_span.size_bytes() < image.unswizzled_size_bytes) {
+                return false;
+            }
+#else
             auto map = runtime.DownloadStagingBuffer(image.unswizzled_size_bytes);
+#endif
             const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
             image.DownloadMemory(map, copies);
             runtime.Finish();
@@ -202,11 +219,19 @@ void TextureCache<P>::RunGarbageCollector() {
         }
         return false;
     };
+    // An unsigned age subtraction is not a valid early-frame cutoff.
+    // In particular, do not rely on the LRU's signed conversion of a wrapped tick.
+    const auto CollectEligible = [&] {
+#ifdef PS5_NATIVE
+        if (frame_tick < ticks_to_destroy) return;
+#endif
+        lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, Cleanup);
+    };
     Configure(false);
-    lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, Cleanup);
+    CollectEligible();
     if (total_used_memory >= critical_memory) {
         Configure(true);
-        lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, Cleanup);
+        CollectEligible();
     }
 }
 
@@ -4105,7 +4130,12 @@ template <class P>
 void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
     ImageBase& image = slot_images[image_id];
     if (image.HasScaled()) {
+#ifdef PS5_NATIVE
+        const u64 scaled_bytes = GetScaledImageSizeBytes(image);
+        total_used_memory -= (std::min)(total_used_memory, scaled_bytes);
+#else
         total_used_memory -= GetScaledImageSizeBytes(image);
+#endif
     }
     u64 tentative_size = (std::max)(image.guest_size_bytes, image.unswizzled_size_bytes);
     if ((IsPixelFormatASTC(image.info.format) &&
@@ -4113,7 +4143,12 @@ void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
         True(image.flags & ImageFlagBits::Converted)) {
         tentative_size = TranscodedAstcSize(tentative_size, image.info.format);
     }
+#ifdef PS5_NATIVE
+    const u64 reclaimed_bytes = Common::AlignUp(tentative_size, 1024);
+    total_used_memory -= (std::min)(total_used_memory, reclaimed_bytes);
+#else
     total_used_memory -= Common::AlignUp(tentative_size, 1024);
+#endif
     const GPUVAddr gpu_addr = image.gpu_addr;
     const auto alloc_it = image_allocs_table.find(gpu_addr);
     if (alloc_it == image_allocs_table.end()) {
