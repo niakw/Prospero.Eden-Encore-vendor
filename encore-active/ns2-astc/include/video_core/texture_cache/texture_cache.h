@@ -168,7 +168,133 @@ void TextureCache<P>::RunGarbageCollector() {
         ticks_to_destroy = aggressive_mode ? 10ULL : high_priority_mode ? 25ULL : 50ULL;
         num_iterations = aggressive_mode ? 40 : (high_priority_mode ? 20 : 10);
     };
+#ifdef PS5_NATIVE
+    // Prefetch only a prefix of independent dirty eviction candidates. Do not
+    // change LRU order, the visit budget, pressure policy or guest write order.
+    // A deferred staging handle remains owned until the copy AND guest write.
+    using GcMap = decltype(runtime.DownloadStagingBuffer(size_t{}));
+    constexpr size_t gc_batch_count = 40;
+    constexpr size_t gc_batch_bytes = 32_MiB;
+    boost::container::small_vector<std::pair<ImageId, GcMap>, gc_batch_count> gc_maps;
+    bool gc_retired = true;
+    const auto ReleaseGcMaps = [&] {
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            for (auto& entry : gc_maps) runtime.FreeDeferredStagingBuffer(entry.second);
+            gc_maps.clear();
+        }
+    };
+    SCOPE_EXIT {
+        if (!gc_retired) {
+            try {
+                runtime.Finish();
+            } catch (...) {
+                // A failed drain cannot establish retirement. Keep the pool
+                // reservations deferred rather than reuse in-flight storage.
+                return;
+            }
+        }
+        ReleaseGcMaps();
+    };
+    const auto PrefetchGc = [&] {
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            if (!high_priority_mode || frame_tick < ticks_to_destroy) return;
+            boost::container::small_vector<ImageId, gc_batch_count> candidates;
+            size_t remaining = num_iterations;
+            size_t capacity = 0;
+            u64 projected_usage = total_used_memory;
+            const u64 stop_usage = aggressive_mode ? critical_memory : expected_memory;
+            lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, [&](ImageId id) {
+                if (remaining == 0 || candidates.size() == gc_batch_count) return true;
+                --remaining;
+                const Image& image = slot_images[id];
+                if (True(image.flags & ImageFlagBits::IsDecoding) ||
+                    (!aggressive_mode && True(image.flags & ImageFlagBits::CostlyLoad))) {
+                    return false;
+                }
+                // Stop at a candidate that needs ordinary cleanup. In
+                // particular never look past an overlapping or scaled image.
+                if (!IsDownloadable(image) ||
+                    True(image.flags & (ImageFlagBits::BadOverlap | ImageFlagBits::Sparse |
+                                        ImageFlagBits::Remapped | ImageFlagBits::Rescaled)) ||
+                    !image.aliased_images.empty() || !image.overlapping_images.empty() ||
+                    image.info.num_samples != 1 || image.HasScaled() ||
+                    image.cpu_addr_end <= image.cpu_addr ||
+                    FullDownloadCopies(image.info).empty()) return true;
+                const size_t bytes = image.unswizzled_size_bytes;
+                if (bytes == 0 || bytes > gc_batch_bytes) return true;
+                // The download pool rounds allocations to powers of two.
+                const size_t rounded = std::bit_ceil(bytes);
+                if (rounded > gc_batch_bytes - capacity) return true;
+                for (const ImageId previous : candidates) {
+                    const auto& other = slot_images[previous];
+                    if (image.cpu_addr < other.cpu_addr_end &&
+                        other.cpu_addr < image.cpu_addr_end) return true;
+                }
+                candidates.push_back(id);
+                capacity += rounded;
+                u64 reclaimed = (std::max)(image.guest_size_bytes, image.unswizzled_size_bytes);
+                if ((IsPixelFormatASTC(image.info.format) &&
+                     True(image.flags & ImageFlagBits::AcceleratedUpload)) ||
+                    True(image.flags & ImageFlagBits::Converted)) {
+                    reclaimed = TranscodedAstcSize(reclaimed, image.info.format);
+                }
+                reclaimed = Common::AlignUp(reclaimed, 1024);
+                projected_usage -= (std::min)(projected_usage, reclaimed);
+                return projected_usage < stop_usage;
+            });
+            if (candidates.size() < 2) return;
+            size_t mapped_bytes = 0;
+            for (const ImageId id : candidates) {
+                auto& image = slot_images[id];
+                auto map = [&]() -> GcMap {
+                    try {
+                        return runtime.DownloadStagingBuffer(image.unswizzled_size_bytes, true);
+                    } catch (const std::bad_alloc&) {
+                        return {};
+                    }
+                }();
+                if (!map.buffer || map.mapped_span.size_bytes() < image.unswizzled_size_bytes ||
+                    map.mapped_span.size_bytes() > gc_batch_bytes - mapped_bytes) {
+                    if (map.buffer) runtime.FreeDeferredStagingBuffer(map);
+                    break;
+                }
+                // Inline storage is sufficient for all candidates. Publish
+                // the handle before any command recording can throw.
+                gc_maps.emplace_back(id, map);
+                gc_retired = false;
+                mapped_bytes += map.mapped_span.size_bytes();
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                image.DownloadMemory(gc_maps.back().second, copies);
+            }
+            if (!gc_maps.empty()) {
+                runtime.Finish();
+                gc_retired = true;
+            }
+        }
+    };
+    const auto UseGcPrefetch = [&](ImageId id, Image& image) {
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            const auto it = std::ranges::find_if(gc_maps, [id](const auto& entry) {
+                return entry.first == id;
+            });
+            if (it != gc_maps.end()) {
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies,
+                             it->second.mapped_span, swizzle_data_buffer);
+                runtime.FreeDeferredStagingBuffer(it->second);
+                gc_maps.erase(it);
+                return true;
+            }
+        }
+        return false;
+    };
+#endif
+#ifdef PS5_NATIVE
+    const auto Cleanup = [this, &num_iterations, &high_priority_mode, &aggressive_mode,
+                          &UseGcPrefetch](ImageId image_id) {
+#else
     const auto Cleanup = [this, &num_iterations, &high_priority_mode, &aggressive_mode](ImageId image_id) {
+#endif
         if (num_iterations == 0) {
             return true;
         }
@@ -181,7 +307,11 @@ void TextureCache<P>::RunGarbageCollector() {
         if ((!aggressive_mode && True(image.flags & ImageFlagBits::CostlyLoad)) || (!high_priority_mode && must_download)) {
             return false;
         }
+#ifdef PS5_NATIVE
+        if (must_download && !UseGcPrefetch(image_id, image)) {
+#else
         if (must_download) {
+#endif
 #ifdef PS5_NATIVE
             // Failed or empty readbacks must not evict the only GPU-owned copy.
             if (FullDownloadCopies(image.info).empty()) {
@@ -224,8 +354,12 @@ void TextureCache<P>::RunGarbageCollector() {
     const auto CollectEligible = [&] {
 #ifdef PS5_NATIVE
         if (frame_tick < ticks_to_destroy) return;
+        PrefetchGc();
 #endif
         lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, Cleanup);
+#ifdef PS5_NATIVE
+        ReleaseGcMaps();
+#endif
     };
     Configure(false);
     CollectEligible();

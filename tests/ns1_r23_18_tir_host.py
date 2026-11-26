@@ -20,6 +20,21 @@ for name,expected in files.items():
  # Active native TIC memo successor: authenticate the selected file, then
  # reverse only FillImageViews on this audit copy before replaying the
  # historical readback/TIR receipts.
+ if name.endswith("/texture_cache/texture_cache.h") and sha == "ab226987e5e20829d156c8edb917fd4851cf478d":
+  source=raw.decode()
+  begin=source.index("void TextureCache<P>::RunGarbageCollector()")
+  end=source.index("\ntemplate <class P>",begin)
+  fn=source[begin:end]
+  first=fn.index("#ifdef PS5_NATIVE\n    // Prefetch only a prefix")
+  marker="    const auto Cleanup = [this, &num_iterations, &high_priority_mode, &aggressive_mode](ImageId image_id) {"
+  last=fn.index("\n#endif",fn.index(marker,first))+len("\n#endif")
+  fn=fn[:first]+marker+fn[last:]
+  for current,previous in (("#ifdef PS5_NATIVE\n        if (must_download && !UseGcPrefetch(image_id, image)) {\n#else\n        if (must_download) {\n#endif","        if (must_download) {"),("        if (frame_tick < ticks_to_destroy) return;\n        PrefetchGc();\n#endif\n        lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, Cleanup);\n#ifdef PS5_NATIVE\n        ReleaseGcMaps();\n#endif","        if (frame_tick < ticks_to_destroy) return;\n#endif\n        lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, Cleanup);")):
+   assert fn.count(current)==1, "GC prefetch successor drift"
+   fn=fn.replace(current,previous,1)
+  raw=(source[:begin]+fn+source[end:]).encode()
+  sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
+  assert sha=="85c2514267ca38fc0b88d1442a464cc0299aa2d8", "GC prefetch reverse drift"
  if name.endswith("/texture_cache/texture_cache.h") and sha == "85c2514267ca38fc0b88d1442a464cc0299aa2d8":
   source=raw.decode()
   # Reconstruct the exact previous active owner on the historical audit copy.
