@@ -261,6 +261,18 @@ void Puller::ProcessBindMethod(DmaPusher& dma_pusher, const MethodCall& method_c
     retire_native_3d();
     retire_native_compute();
     bound_engines[method_call.subchannel] = engine_id;
+#ifdef PS5_NATIVE
+    // Switch 2 SET_OBJECT(0) unbinds this subchannel (Lichii/Eglantine).
+    // The two native owner retirements above have already revoked graphics
+    // and compute generation tickets. Clear the live pusher pointer too:
+    // stale methods must not reach the previous engine, while a legitimate
+    // unbind must NOT poison the complete GPFIFO submission epoch.
+    if (engine == 0 && Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                           .IsNative(&dma_pusher.channel_state)) {
+        dma_pusher.BindSubchannel(nullptr, method_call.subchannel, EngineTypes::Nv01Timer);
+        return;
+    }
+#endif
     switch (engine_id) {
     case EngineID::FERMI_TWOD_A:
         dma_pusher.BindSubchannel(&dma_pusher.channel_state.payload->fermi_2d, method_call.subchannel, EngineTypes::Fermi2D);
