@@ -81,10 +81,14 @@ Result IWindowController::SetAppletWindowVisibility(bool visible) {
 }
 
 Result IWindowController::SetAppletGpuTimeSlice(s64 time_slice) {
-    LOG_WARNING(Service_AM,
-                "SetAppletGpuTimeSlice unavailable: applet GPU scheduling policy is not materialized, time_slice={}",
-                time_slice);
-    R_RETURN(ResultUnknown);
+    {
+        std::scoped_lock lk{m_applet->lock};
+        m_applet->applet_gpu_time_slice = time_slice;
+    }
+
+    // This is guest applet policy state, not a request to retune the PS5 host GPU scheduler.
+    LOG_DEBUG(Service_AM, "called, time_slice={}", time_slice);
+    R_SUCCEED();
 }
 
 } // namespace Service::AM
