@@ -1376,16 +1376,28 @@ private:
                                         result=Kernel::ResultOutOfResource;
                                     }
                                 }
+                                // Both host allocations must finish before the GraphicBuffer
+                                // constructor acquires its NVMap duplicate/pin. An aliasing
+                                // shared_ptr then needs no additional control block allocation.
+                                std::shared_ptr<android::NvGraphicBuffer> native;
+                                std::shared_ptr<std::optional<android::GraphicBuffer>> storage;
                                 if(result.IsSuccess()){
-                                    auto native=std::make_shared<android::NvGraphicBuffer>();
+                                    try {
+                                        native=std::make_shared<android::NvGraphicBuffer>();
+                                        storage=std::make_shared<std::optional<android::GraphicBuffer>>();
+                                    } catch (const std::bad_alloc&) {
+                                        result=Kernel::ResultOutOfResource;
+                                    }
+                                }
+                                if(result.IsSuccess()){
                                     native->width=static_cast<s32>(width);
                                     native->height=static_cast<s32>(height);
                                     native->stride=static_cast<s32>(pref[5]*16);
                                     native->format=android::PixelFormat::Rgba8888;
                                     native->external_format=native->format;
                                     native->buffer_id=img->buffer_id;native->offset=img->offset;
-                                    auto buffer=std::make_shared<android::GraphicBuffer>(
-                                        nv.GetNvMapFile(),native);
+                                    auto& graphic=storage->emplace(nv.GetNvMapFile(),native);
+                                    std::shared_ptr<android::GraphicBuffer> buffer(std::move(storage), &graphic);
                                     s32 idx{};result=Kernel::ResultOutOfResource;
                                     const auto attached=c->producer->AttachBuffer(&idx,buffer);
                                     // AttachBuffer returns ReleaseAllBuffers as a success flag
