@@ -29,6 +29,16 @@ Result IMultiCommitManager::Add(std::shared_ptr<IFileSystem> filesystem) {
     R_UNLESS(std::find(filesystems.begin(), filesystems.end(), filesystem) == filesystems.end(),
              FileSys::ResultInvalidArgument);
 
+    // Encore's host-directory backend applies mutations synchronously and has no
+    // provisional transaction/rollback context. Accept one participant, whose
+    // Commit contract is therefore truthful; reject a second participant before
+    // claiming unsupported cross-filesystem atomicity.
+    if (!filesystems.empty()) {
+        LOG_WARNING(Service_FS,
+                    "multi-filesystem atomic commit is unavailable on the synchronous host backend");
+        R_RETURN(ResultUnknown);
+    }
+
     filesystems.emplace_back(std::move(filesystem));
     R_SUCCEED();
 }
@@ -36,12 +46,10 @@ Result IMultiCommitManager::Add(std::shared_ptr<IFileSystem> filesystem) {
 Result IMultiCommitManager::Commit() {
     LOG_DEBUG(Service_FS, "called, filesystem_count={}", filesystems.size());
 
-    // Host-directory file systems apply mutations synchronously. We still keep
-    // the participant list and invoke each interface's Commit contract, but
-    // Encore cannot reproduce Horizon's provisional-commit context/rollback.
-    for (const auto& filesystem : filesystems) {
-        R_UNLESS(filesystem != nullptr, FileSys::ResultInvalidArgument);
-        R_TRY(filesystem->Commit());
+    R_UNLESS(filesystems.size() <= 1, ResultUnknown);
+    if (!filesystems.empty()) {
+        R_UNLESS(filesystems.front() != nullptr, FileSys::ResultInvalidArgument);
+        R_TRY(filesystems.front()->Commit());
     }
     filesystems.clear();
     R_SUCCEED();
