@@ -463,10 +463,11 @@ Result ISelfController::CreateManagedDisplaySeparableLayer(Out<u64> out_layer_id
 }
 
 Result ISelfController::SetHandlesRequestToDisplay(bool enable) {
-    LOG_WARNING(Service_AM,
-                "SetHandlesRequestToDisplay unavailable: request-to-display routing is not materialized, enable={}",
-                enable);
-    R_RETURN(ResultUnknown);
+    // Preserve the guest policy in the existing Applet state (the native backport does likewise).
+    LOG_DEBUG(Service_AM, "called, enable={}", enable);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->handles_request_to_display = enable;
+    R_SUCCEED();
 }
 
 Result ISelfController::ApproveToDisplay() {
