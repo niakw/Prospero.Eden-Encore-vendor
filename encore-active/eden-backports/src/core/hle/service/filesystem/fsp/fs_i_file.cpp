@@ -36,7 +36,12 @@ Result IFile::Read(
     LOG_DEBUG(Service_FS, "called, option={}, offset={:#x}, length={}", option.value, offset,
               size);
 
-    // Read the data from the Storage backend
+    // The requested guest transfer length must fit the mapped IPC output buffer.
+    // A negative s64 would otherwise wrap to a huge size_t inside Fsa::IFile.
+    R_UNLESS(offset >= 0, FileSys::ResultInvalidOffset);
+    R_UNLESS(size >= 0 && static_cast<u64>(size) <= out_buffer.size(),
+             FileSys::ResultInvalidSize);
+
     R_RETURN(
         backend->Read(reinterpret_cast<size_t*>(out_size.Get()), offset, out_buffer.data(), size));
 }
@@ -47,6 +52,9 @@ Result IFile::Write(
     LOG_DEBUG(Service_FS, "called, option={}, offset={:#x}, length={}", option.value, offset,
               size);
     R_UNLESS(!read_only, FileSys::ResultWriteNotPermitted);
+    R_UNLESS(offset >= 0, FileSys::ResultInvalidOffset);
+    R_UNLESS(size >= 0 && static_cast<u64>(size) <= buffer.size(),
+             FileSys::ResultInvalidSize);
 
     R_RETURN(backend->Write(offset, buffer.data(), size, option));
 }
@@ -60,8 +68,15 @@ Result IFile::Flush() {
 Result IFile::SetSize(s64 size) {
     LOG_DEBUG(Service_FS, "called, size={}", size);
     R_UNLESS(!read_only, FileSys::ResultWriteNotPermitted);
+    R_UNLESS(size >= 0, FileSys::ResultInvalidSize);
 
-    R_RETURN(backend->SetSize(size));
+    // Fsa::IFile::DoSetSize currently ignores the VFS Resize() bool.
+    // Verify the observable size rather than reporting success after a failed resize.
+    R_TRY(backend->SetSize(size));
+    s64 actual_size{};
+    R_TRY(backend->GetSize(&actual_size));
+    R_UNLESS(actual_size == size, ResultUnknown);
+    R_SUCCEED();
 }
 
 
