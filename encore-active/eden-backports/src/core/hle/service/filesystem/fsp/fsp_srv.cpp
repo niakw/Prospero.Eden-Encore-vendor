@@ -163,7 +163,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
       content_provider{system.GetContentProvider()}, reporter{system.GetReporter()} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, nullptr, "OpenFileSystem"},
+        {0, D<&FSP_SRV::OpenFileSystem>, "OpenFileSystem"},
         {1, D<&FSP_SRV::SetCurrentProcess>, "SetCurrentProcess"},
         {2, D<&FSP_SRV::OpenDataFileSystemByCurrentProcess>, "OpenDataFileSystemByCurrentProcess"},
         {7, D<&FSP_SRV::OpenFileSystemWithPatch>, "OpenFileSystemWithPatch"},
@@ -201,7 +201,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {60, D<&FSP_SRV::OpenSaveDataInfoReader>, "OpenSaveDataInfoReader"},
         {61, D<&FSP_SRV::OpenSaveDataInfoReaderBySaveDataSpaceId>, "OpenSaveDataInfoReaderBySaveDataSpaceId"},
         {62, D<&FSP_SRV::OpenSaveDataInfoReaderOnlyCacheStorage>, "OpenSaveDataInfoReaderOnlyCacheStorage"},
-        {64, nullptr, "OpenSaveDataInternalStorageFileSystem"},
+        {64, D<&FSP_SRV::OpenSaveDataInternalStorageFileSystem>, "OpenSaveDataInternalStorageFileSystem"},
         {65, &FSP_SRV::UnsupportedDebugCommand, "UpdateSaveDataMacForDebug"},
         {66, D<&FSP_SRV::WriteSaveDataFileSystemExtraDataWithMask>, "WriteSaveDataFileSystemExtraDataWithMask"},
         {67, D<&FSP_SRV::FindSaveDataWithFilter>, "FindSaveDataWithFilter"},
@@ -209,11 +209,11 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {69, D<&FSP_SRV::ReadSaveDataFileSystemExtraDataBySaveDataAttribute>, "ReadSaveDataFileSystemExtraDataBySaveDataAttribute"},
         {70, D<&FSP_SRV::WriteSaveDataFileSystemExtraDataWithMaskBySaveDataAttribute>, "WriteSaveDataFileSystemExtraDataWithMaskBySaveDataAttribute"},
         {71, D<&FSP_SRV::ReadSaveDataFileSystemExtraDataWithMaskBySaveDataAttribute>, "ReadSaveDataFileSystemExtraDataWithMaskBySaveDataAttribute"},
-        {80, nullptr, "OpenSaveDataMetaFile"},
+        {80, &FSP_SRV::RejectUnavailableStorageCommand, "OpenSaveDataMetaFile"},
         {81, &FSP_SRV::UnsupportedDebugCommand, "OpenSaveDataTransferManager"},
         {82, &FSP_SRV::UnsupportedDebugCommand, "OpenSaveDataTransferManagerVersion2"},
         {83, D<&FSP_SRV::OpenSaveDataTransferProhibiter>, "OpenSaveDataTransferProhibiter"},
-        {84, nullptr, "ListApplicationAccessibleSaveDataOwnerId"},
+        {84, &FSP_SRV::RejectUnavailableStorageCommand, "ListApplicationAccessibleSaveDataOwnerId"},
         {85, &FSP_SRV::UnsupportedDebugCommand, "OpenSaveDataTransferManagerForSaveDataRepair"},
         {86, &FSP_SRV::UnsupportedDebugCommand, "OpenSaveDataMover"},
         {87, &FSP_SRV::UnsupportedDebugCommand, "OpenSaveDataTransferManagerForRepair"},
@@ -222,7 +222,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {102, nullptr, "FormatBaseFileSystem"},
         {110, D<&FSP_SRV::OpenContentStorageFileSystem>, "OpenContentStorageFileSystem"},
         {120, &FSP_SRV::UnsupportedDebugCommand, "OpenCloudBackupWorkStorageFileSystem"},
-        {130, nullptr, "OpenCustomStorageFileSystem"},
+        {130, &FSP_SRV::RejectUnavailableStorageCommand, "OpenCustomStorageFileSystem"},
         {200, D<&FSP_SRV::OpenDataStorageByCurrentProcess>, "OpenDataStorageByCurrentProcess"},
         {201, D<&FSP_SRV::OpenDataStorageByProgramId>, "OpenDataStorageByProgramId"},
         {202, D<&FSP_SRV::OpenDataStorageByDataId>, "OpenDataStorageByDataId"},
@@ -242,7 +242,7 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {511, &FSP_SRV::UnsupportedDebugCommand, "NotifySystemDataUpdateEvent"},
         {520, &FSP_SRV::UnsupportedDebugCommand, "SimulateGameCardDetectionEvent"},
         {600, nullptr, "SetCurrentPosixTime"},
-        {601, nullptr, "QuerySaveDataTotalSize"},
+        {601, &FSP_SRV::RejectUnavailableStorageCommand, "QuerySaveDataTotalSize"},
         {602, &FSP_SRV::UnsupportedDebugCommand, "VerifySaveDataFileSystem"},
         {603, &FSP_SRV::UnsupportedDebugCommand, "CorruptSaveDataFileSystem"},
         {604, &FSP_SRV::UnsupportedDebugCommand, "CreatePaddingFile"},
@@ -252,12 +252,12 @@ FSP_SRV::FSP_SRV(Core::System& system_)
         {608, D<&FSP_SRV::UnregisterAllExternalKey>, "UnregisterAllExternalKey"},
         {609, D<&FSP_SRV::GetRightsIdByPath>, "GetRightsIdByPath"},
         {610, D<&FSP_SRV::GetRightsIdAndKeyGenerationByPath>, "GetRightsIdAndKeyGenerationByPath"},
-        {611, nullptr, "SetCurrentPosixTimeWithTimeDifference"},
+        {611, &FSP_SRV::RejectUnavailableStorageCommand, "SetCurrentPosixTimeWithTimeDifference"},
         {612, D<&FSP_SRV::GetFreeSpaceSizeForSaveData>, "GetFreeSpaceSizeForSaveData"},
         {613, &FSP_SRV::UnsupportedDebugCommand, "VerifySaveDataFileSystemBySaveDataSpaceId"},
         {614, &FSP_SRV::UnsupportedDebugCommand, "CorruptSaveDataFileSystemBySaveDataSpaceId"},
-        {615, nullptr, "QuerySaveDataInternalStorageTotalSize"},
-        {616, nullptr, "GetSaveDataCommitId"},
+        {615, D<&FSP_SRV::QuerySaveDataInternalStorageTotalSize>, "QuerySaveDataInternalStorageTotalSize"},
+        {616, &FSP_SRV::RejectUnavailableStorageCommand, "GetSaveDataCommitId"},
         {617, D<&FSP_SRV::UnregisterExternalKey>, "UnregisterExternalKey"},
         {618, D<&FSP_SRV::GetProgramIdByPath>, "GetProgramId"},
         {620, &FSP_SRV::UnsupportedDebugCommand, "SetSdCardEncryptionSeed"},
@@ -312,6 +312,75 @@ void FSP_SRV::UnsupportedDebugCommand(HLERequestContext& ctx) {
     LOG_WARNING(Service_FS, "save-data debug mutation is not supported by the production runtime");
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(IPC::ResultNotSupported);
+}
+
+void FSP_SRV::RejectUnavailableStorageCommand(HLERequestContext& ctx) {
+    LOG_WARNING(Service_FS, "filesystem backend unavailable for command {}", ctx.GetCommand());
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
+}
+
+Result FSP_SRV::OpenFileSystem(
+    OutInterface<IFileSystem> out_interface, FileSystemProxyType type,
+    InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path) {
+    const u64 open_program_id =
+        type == FileSystemProxyType::Meta ? (std::numeric_limits<u64>::max)() : program_id;
+    R_UNLESS(type == FileSystemProxyType::Meta || open_program_id != 0,
+             FileSys::ResultInvalidArgument);
+    R_RETURN(OpenFileSystemWithIdImpl(out_interface, ContentAttributes::None, type,
+                                     open_program_id, *path));
+}
+
+Result FSP_SRV::OpenSaveDataInternalStorageFileSystem(
+    OutInterface<IFileSystem> out_interface, FileSys::SaveDataSpaceId space_id,
+    u64 save_data_id) {
+    R_UNLESS(save_data_controller != nullptr, FileSys::ResultTargetNotFound);
+    const auto info = FindDirectorySaveById(system, save_data_controller, space_id, save_data_id);
+    R_UNLESS(info.has_value(), FileSys::ResultTargetNotFound);
+
+    FileSys::UserId user_id{};
+    std::memcpy(user_id.data(), info->user_id.data(), sizeof(user_id));
+    const auto attribute = FileSys::SaveDataAttribute::Make(
+        static_cast<u64>(info->title_id), info->type, user_id,
+        static_cast<u64>(info->save_id), static_cast<u16>(info->index), info->rank);
+
+    FileSys::VirtualDir dir{};
+    R_TRY(save_data_controller->OpenSaveData(&dir, space_id, attribute));
+
+    FileSys::StorageId storage_id{};
+    switch (space_id) {
+    case FileSys::SaveDataSpaceId::System:
+    case FileSys::SaveDataSpaceId::ProperSystem:
+    case FileSys::SaveDataSpaceId::SafeMode:
+        storage_id = FileSys::StorageId::NandSystem;
+        break;
+    case FileSys::SaveDataSpaceId::User:
+    case FileSys::SaveDataSpaceId::Temporary:
+        storage_id = FileSys::StorageId::NandUser;
+        break;
+    case FileSys::SaveDataSpaceId::SdSystem:
+    case FileSys::SaveDataSpaceId::SdUser:
+        storage_id = FileSys::StorageId::SdCard;
+        break;
+    default:
+        R_RETURN(FileSys::ResultInvalidArgument);
+    }
+
+    *out_interface = std::make_shared<IFileSystem>(
+        system, std::move(dir), SizeGetter::FromStorageId(fsc, storage_id));
+    R_SUCCEED();
+}
+
+Result FSP_SRV::QuerySaveDataInternalStorageTotalSize(
+    Out<s64> out_size, FileSys::SaveDataSpaceId space_id, u64 save_data_id) {
+    R_UNLESS(save_data_controller != nullptr, FileSys::ResultTargetNotFound);
+    const auto info = FindDirectorySaveById(system, save_data_controller, space_id, save_data_id);
+    R_UNLESS(info.has_value(), FileSys::ResultTargetNotFound);
+    R_UNLESS(static_cast<u64>(info->save_image_size) <=
+                 static_cast<u64>((std::numeric_limits<s64>::max)()),
+             ResultUnknown);
+    *out_size = static_cast<s64>(info->save_image_size);
+    R_SUCCEED();
 }
 
 Result FSP_SRV::SetCurrentProcess(ClientProcessId pid) {

@@ -69,6 +69,15 @@ public:
 
 private:
     void UnsupportedDebugCommand(HLERequestContext& ctx);
+    void RejectUnavailableStorageCommand(HLERequestContext& ctx);
+    Result OpenFileSystem(
+        OutInterface<IFileSystem> out_interface, FileSystemProxyType type,
+        InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
+    Result OpenSaveDataInternalStorageFileSystem(
+        OutInterface<IFileSystem> out_interface, FileSys::SaveDataSpaceId space_id,
+        u64 save_data_id);
+    Result QuerySaveDataInternalStorageTotalSize(
+        Out<s64> out_size, FileSys::SaveDataSpaceId space_id, u64 save_data_id);
     Result SetCurrentProcess(ClientProcessId pid);
     Result OpenDataFileSystemByCurrentProcess(OutInterface<IFileSystem> out_interface);
     Result OpenDataFileSystemByProgramId(OutInterface<IFileSystem> out_interface,
