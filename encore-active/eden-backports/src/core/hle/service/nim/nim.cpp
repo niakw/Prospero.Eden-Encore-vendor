@@ -362,7 +362,14 @@ public:
             {174, &NIM::RejectUnavailableNintendoOnline, "Unknown174"}, //20.0.0+
             {175, &NIM::RejectUnavailableNintendoOnline, "Unknown175"}, //20.0.0+
             {176, &NIM::RejectUnavailableNintendoOnline, "Unknown176"}, //20.0.0+
-            {177, &NIM::RejectUnavailableNintendoOnline, "Unknown177"}, //20.0.0+
+            {177, &NIM::RejectUnavailableNintendoOnline, "Unknown177"},
+            {178, &NIM::RejectUnavailableNintendoOnline, "Cmd178"},
+            {179, &NIM::RejectUnavailableNintendoOnline, "Cmd179"},
+            {180, &NIM::RejectUnavailableNintendoOnline, "Cmd180"},
+            {181, &NIM::RejectUnavailableNintendoOnline, "Cmd181"},
+            {183, &NIM::RejectUnavailableNintendoOnline, "Cmd183"},
+            {184, &NIM::RejectUnavailableNintendoOnline, "Cmd184"},
+            {185, &NIM::RejectUnavailableNintendoOnline, "Cmd185"}, //20.0.0+
             {2000, &NIM::RejectUnavailableNintendoOnline, "Unknown2000"}, //20.0.0+
             {2001, &NIM::RejectUnavailableNintendoOnline, "Unknown2001"}, //20.0.0+
             {2002, &NIM::RejectUnavailableNintendoOnline, "Unknown2002"}, //20.0.0+
@@ -409,7 +416,10 @@ public:
             {2048, &NIM::RejectUnavailableNintendoOnline, "Unknown2048"}, //20.0.0+
             {2049, &NIM::RejectUnavailableNintendoOnline, "Unknown2049"}, //20.0.0+
             {2050, &NIM::RejectUnavailableNintendoOnline, "Unknown2050"}, //20.0.0+
-            {2051, &NIM::RejectUnavailableNintendoOnline, "Unknown2051"}, //20.0.0+
+            {2051, &NIM::RejectUnavailableNintendoOnline, "Unknown2051"},
+            {2052, &NIM::RejectUnavailableNintendoOnline, "Cmd2052"},
+            {2053, &NIM::RejectUnavailableNintendoOnline, "Cmd2053"},
+            {2054, &NIM::RejectUnavailableNintendoOnline, "Cmd2045"}, //20.0.0+
             {3000, &NIM::RejectUnavailableNintendoOnline, "RequestLatestApplicationIcon"}, //17.0.0+
             {3001, &NIM::RejectUnavailableNintendoOnline, "RequestDownloadIdbeLatestIconFile"}, //17.0.0+
         };
