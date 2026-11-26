@@ -431,7 +431,7 @@ void Interface::WriteNtf(HLERequestContext& ctx) {
     const auto ntf_data_buffer{ctx.ReadBuffer()};
     LOG_WARNING(Service_NFP,
                 "raw NTF write is unsupported, device_handle={}, write_type={}, data_size={}",
-                device_handle, write_type, ntf_data_buffer.size());
+                device_handle, static_cast<u32>(write_type), ntf_data_buffer.size());
 
     // NfcDevice::WriteNtf has no implementation. Fail closed instead of
     // reporting a successful write that never reaches the virtual tag.
