@@ -301,8 +301,8 @@
       "upstream": "f57bc1a19ca97805bb0a525c2d0eff2ce8c65b192c7643add3583d28726bbe72"
     },
     "src/core/hle/service/am/service/window_controller.cpp": {
-      "active": "350cef955b1302179d780fbf4c0b2af597fc3ec35716bb8b788144ac482c20f4",
-      "bytes": 3356,
+      "active": "984f7be1e9cf8eb4d7230a7a1f6c6029dc7306126e0d45cd1eda23477d2933ad",
+      "bytes": 3200,
       "upstream": "24d4ec8343dcb3f549c247216b5455fc4278facf75b65b6d1e4731fb7c5ad930"
     },
     "src/core/hle/service/am/service/window_controller.h": {

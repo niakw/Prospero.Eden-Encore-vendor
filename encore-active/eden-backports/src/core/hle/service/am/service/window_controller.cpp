@@ -81,15 +81,10 @@ Result IWindowController::SetAppletWindowVisibility(bool visible) {
 }
 
 Result IWindowController::SetAppletGpuTimeSlice(s64 time_slice) {
-    {
-        std::scoped_lock lk{m_applet->lock};
-        m_applet->applet_gpu_time_slice = time_slice;
-    }
-
-    // Horizon stores this request as applet scheduling state. Encore deliberately does not
-    // retune the PS5 host GPU scheduler from a guest applet policy value.
-    LOG_DEBUG(Service_AM, "called, time_slice={}", time_slice);
-    R_SUCCEED();
+    LOG_WARNING(Service_AM,
+                "SetAppletGpuTimeSlice unavailable: applet GPU scheduling policy is not materialized, time_slice={}",
+                time_slice);
+    R_RETURN(ResultUnknown);
 }
 
 } // namespace Service::AM

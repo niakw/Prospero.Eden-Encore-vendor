@@ -338,9 +338,9 @@ Result ISelfController::LeaveFatalSection() {
 
 Result ISelfController::GetLibraryAppletLaunchableEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-
-    m_applet->library_applet_launchable_event.Signal(system.Kernel());
+    LOG_DEBUG(Service_AM, "called");
+    // Opening the handle must not make the applet launchable by itself.
+    // ILibraryAppletCreator signals this event when creation actually succeeds.
     *out_event = m_applet->library_applet_launchable_event.GetHandle();
 
     R_SUCCEED();
@@ -456,20 +456,31 @@ Result ISelfController::CreateManagedDisplayLayer(Out<u64> out_layer_id) {
 
 Result ISelfController::CreateManagedDisplaySeparableLayer(Out<u64> out_layer_id,
                                                            Out<u64> out_recording_layer_id) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-
-    std::scoped_lock lk{m_applet->lock};
-    R_RETURN(m_applet->display_layer_manager.CreateManagedDisplaySeparableLayer(
-        out_layer_id, out_recording_layer_id));
+    LOG_WARNING(Service_AM,
+                "CreateManagedDisplaySeparableLayer unavailable: recording layer backend is not materialized");
+    R_RETURN(ResultUnknown);
 }
 
 Result ISelfController::SetHandlesRequestToDisplay(bool enable) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, enable={}", enable);
-    R_SUCCEED();
+    LOG_WARNING(Service_AM,
+                "SetHandlesRequestToDisplay unavailable: request-to-display routing is not materialized, enable={}",
+                enable);
+    R_RETURN(ResultUnknown);
 }
 
 Result ISelfController::ApproveToDisplay() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
+
+    if (auto* window_system = system.GetAppletManager().GetWindowSystem()) {
+        window_system->RequestAppletVisibilityState(*m_applet, true);
+    } else {
+        // The applet manager normally owns a WindowSystem for the whole AM lifetime. Keep the
+        // guest-visible state coherent during teardown/startup without dereferencing a null owner.
+        std::scoped_lock lk{m_applet->lock};
+        m_applet->window_visible = true;
+        LOG_WARNING(Service_AM, "ApproveToDisplay without an active WindowSystem");
+    }
+
     R_SUCCEED();
 }
 
