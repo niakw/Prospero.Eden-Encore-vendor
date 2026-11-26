@@ -648,7 +648,11 @@ void BufferCache<P>::BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr
 
 template <class P>
 void BufferCache<P>::DisableGraphicsUniformBuffer(size_t stage, u32 index) {
-    channel_state->uniform_buffers[stage][index] = NULL_BINDING;
+    auto& current = channel_state->uniform_buffers[stage][index];
+    if (current.device_addr == 0 && current.size == 0 && !current.buffer_id) [[likely]] {
+        return;
+    }
+    current = NULL_BINDING;
 }
 
 template <class P>
@@ -689,15 +693,23 @@ void BufferCache<P>::BindHostGeometryBuffers(bool is_indexed) {
 template <class P>
 void BufferCache<P>::BindHostStageBuffers(size_t stage) {
     BindHostGraphicsUniformBuffers(stage);
-    BindHostGraphicsStorageBuffers(stage);
-    BindHostGraphicsTextureBuffers(stage);
+    if (channel_state->enabled_storage_buffers[stage] != 0) {
+        BindHostGraphicsStorageBuffers(stage);
+    }
+    if (channel_state->enabled_texture_buffers[stage] != 0) {
+        BindHostGraphicsTextureBuffers(stage);
+    }
 }
 
 template <class P>
 void BufferCache<P>::BindHostComputeBuffers() {
     BindHostComputeUniformBuffers();
-    BindHostComputeStorageBuffers();
-    BindHostComputeTextureBuffers();
+    if (channel_state->enabled_compute_storage_buffers != 0) {
+        BindHostComputeStorageBuffers();
+    }
+    if (channel_state->enabled_compute_texture_buffers != 0) {
+        BindHostComputeTextureBuffers();
+    }
     if (any_buffer_uploaded) {
         runtime.PostCopyBarrier();
         any_buffer_uploaded = false;
@@ -707,6 +719,10 @@ void BufferCache<P>::BindHostComputeBuffers() {
 template <class P>
 void BufferCache<P>::SetUniformBuffersState(const std::array<u32, NUM_STAGES>& mask,
                                             const UniformBufferSizes* sizes) {
+    if (channel_state->enabled_uniform_buffer_masks == mask &&
+        channel_state->uniform_buffer_sizes == sizes) [[likely]] {
+        return;
+    }
     if (channel_state->enabled_uniform_buffer_masks != mask) {
         channel_state->fast_bound_uniform_buffers.fill(0);
         if constexpr (HAS_PERSISTENT_UNIFORM_BUFFER_BINDINGS) {
@@ -730,6 +746,9 @@ void BufferCache<P>::SetComputeUniformBufferState(u32 mask,
 
 template <class P>
 void BufferCache<P>::UnbindGraphicsStorageBuffers(size_t stage) {
+    if (channel_state->enabled_storage_buffers[stage] == 0) {
+        return;
+    }
     if constexpr (requires { runtime.ShouldLimitDynamicStorageBuffers(); }) {
         if (runtime.ShouldLimitDynamicStorageBuffers()) {
             channel_state->total_graphics_storage_buffers -=
@@ -781,6 +800,9 @@ bool BufferCache<P>::BindGraphicsStorageBuffer(size_t stage, size_t ssbo_index, 
 
 template <class P>
 void BufferCache<P>::UnbindGraphicsTextureBuffers(size_t stage) {
+    if (channel_state->enabled_texture_buffers[stage] == 0) {
+        return;
+    }
     channel_state->enabled_texture_buffers[stage] = 0;
     channel_state->written_texture_buffers[stage] = 0;
     channel_state->image_texture_buffers[stage] = 0;
@@ -1861,6 +1883,9 @@ void BufferCache<P>::UpdateDrawIndirect() {
 
 template <class P>
 void BufferCache<P>::UpdateUniformBuffers(size_t stage) {
+    if (channel_state->enabled_uniform_buffer_masks[stage] == 0) [[likely]] {
+        return;
+    }
     ForEachEnabledBit(channel_state->enabled_uniform_buffer_masks[stage], [&](u32 index) {
         Binding& binding = channel_state->uniform_buffers[stage][index];
         if (binding.buffer_id) {
@@ -1878,6 +1903,9 @@ void BufferCache<P>::UpdateUniformBuffers(size_t stage) {
 
 template <class P>
 void BufferCache<P>::UpdateStorageBuffers(size_t stage) {
+    if (channel_state->enabled_storage_buffers[stage] == 0) [[likely]] {
+        return;
+    }
     ForEachEnabledBit(channel_state->enabled_storage_buffers[stage], [&](u32 index) {
         // Resolve buffer
         Binding& binding = channel_state->storage_buffers[stage][index];
@@ -1890,6 +1918,9 @@ void BufferCache<P>::UpdateStorageBuffers(size_t stage) {
 
 template <class P>
 void BufferCache<P>::UpdateTextureBuffers(size_t stage) {
+    if (channel_state->enabled_texture_buffers[stage] == 0) [[likely]] {
+        return;
+    }
     ForEachEnabledBit(channel_state->enabled_texture_buffers[stage], [&](u32 index) {
         Binding& binding = channel_state->texture_buffers[stage][index];
         binding.buffer_id = FindBuffer(binding.device_addr, binding.size, false);
