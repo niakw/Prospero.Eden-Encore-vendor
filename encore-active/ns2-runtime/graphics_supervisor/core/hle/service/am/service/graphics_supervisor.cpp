@@ -1491,8 +1491,9 @@ public:
           m_event{m_context.CreateEvent("nx2:camera:Event")} {
         static const FunctionInfo functions[] = {
             {3, &INativeCameraSession::OpenCamera, "OpenCamera"},
+            {4, &INativeCameraSession::FinalizeCamera, "FinalizeCamera"},
             {21, &INativeCameraSession::GetCameraEvent, "GetCameraEvent"},
-            {29, &INativeCameraSession::CheckImagePreference, "CheckImagePreference"},
+            {29, &INativeCameraSession::QueryDeviceConnection, "QueryDeviceConnection"},
         };
         RegisterHandlers(functions);
     }
@@ -1508,15 +1509,26 @@ private:
         rb.Push<u64>(0);
     }
 
+    // A console without a plugged-in camera still supports camera context
+    // creation/finalization. The child owns no physical capture resources.
+    void FinalizeCamera(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess.raw);
+    }
+
     void GetCameraEvent(HLERequestContext& ctx) {
         IPC::ResponseBuilder rb{ctx, 2, 1};
         rb.Push(ResultSuccess);
         rb.PushCopyObjects(ctx, m_event->GetReadableEvent());
     }
 
-    void CheckImagePreference(HLERequestContext& ctx) {
+    void QueryDeviceConnection(HLERequestContext& ctx) {
+        // SDK 21 camera::QueryDeviceConnection treats 0x7c4 as no device,
+        // while success advertises a camera that this backend cannot supply.
+        // Keep OpenCamera successful (supported camera port) and the event
+        // unsignaled (nothing attached); do not fabricate a video frame.
         IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(ResultSuccess);
+        rb.Push<u32>(0x7c4u);
     }
 
     KernelHelpers::ServiceContext m_context;

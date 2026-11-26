@@ -513,3 +513,20 @@ assert "m_nvsrv_session.lock()" in usage and "!m_nvsrv_transfer_memory_size" in 
 assert "m_bootstrap_transfer_memory" not in usage
 assert "static_cast<u32>(m_nvsrv_transfer_memory_size >> 32)" in usage
 assert "{1411, &IGraphicsSupervisor::QueryNvDrvTransferMemoryUsage" in cpp
+
+# Multi-title NS2 camera service: SDK 21 Star Fox expects a supported port
+# with no attached device, not a fabricated connected camera (nxnative hle_sf.c).
+# Keep the existing MKW camera admission and unsignaled COPY event intact.
+camera = cpp.split("class INativeCameraSession final", 1)[1].split("\nIGraphicsSupervisor::IGraphicsSupervisor(", 1)[0]
+for owner in (
+    '{3, &INativeCameraSession::OpenCamera, "OpenCamera"}',
+    '{4, &INativeCameraSession::FinalizeCamera, "FinalizeCamera"}',
+    '{21, &INativeCameraSession::GetCameraEvent, "GetCameraEvent"}',
+    '{29, &INativeCameraSession::QueryDeviceConnection, "QueryDeviceConnection"}',
+    "rb.Push<u32>(0x7c4u);",
+    "rb.PushCopyObjects(ctx, m_event->GetReadableEvent());",
+):
+    assert owner in camera, owner
+assert "CheckImagePreference" not in camera
+assert "m_event->Signal" not in camera
+print("NS2_CAMERA_NO_DEVICE_SOURCE_PASS sdk21_query29=0x7c4 finalize4=success event21=copy")
