@@ -281,8 +281,8 @@
       "upstream": "ecb599a464a9ecc1d202cd60faed6f81262569f7816d5a342923a02ab993737f"
     },
     "src/core/hle/service/am/service/overlay_functions.cpp": {
-      "active": "9f0c9d4eb56f7c89283c66611a2178249e8b9406faed474aca1d5a9998f98b3b",
-      "bytes": 13214,
+      "active": "93c6938ef14e9a1048eba86a860d87a34ad4a90b9a13c99f8172f61b507b9bcb",
+      "bytes": 13753,
       "upstream": "adfdc5f9a5c3a3a30af4329fa19fc9bf053700db58ec46ff436745f522152d13"
     },
     "src/core/hle/service/am/service/overlay_functions.h": {

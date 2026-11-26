@@ -249,8 +249,20 @@ namespace Service::AM {
 
     Result IOverlayFunctions::SetScreenShotPermissionGlobally(bool enabled) {
         LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
-        std::scoped_lock lk{m_applet->lock};
-        m_applet->screenshot_permission =
+
+        // IOverlayFunctions belongs to the overlay applet, but this command controls the
+        // application-wide capture policy. Publish it on the main application rather than
+        // silently changing only the overlay's own screenshot state.
+        std::shared_ptr<Applet> target_applet;
+        if (auto* window_system = system.GetAppletManager().GetWindowSystem()) {
+            target_applet = window_system->GetMainApplet();
+        }
+        if (!target_applet) {
+            target_applet = m_applet;
+        }
+
+        std::scoped_lock lk{target_applet->lock};
+        target_applet->screenshot_permission =
             enabled ? ScreenshotPermission::Enable : ScreenshotPermission::Disable;
         R_SUCCEED();
     }
