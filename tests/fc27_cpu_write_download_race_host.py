@@ -460,3 +460,84 @@ with tempfile.TemporaryDirectory(prefix="fc27-cpu-write-download-") as td:
             subprocess.run([str(dirty_exe)],check=True,timeout=20)
             print("FC27_CPU_WRITE_DOWNLOAD_RACE_PASS",Path(cxx).name,opt,
                   "async_protection=1 immediate_protection=1 pending_nonconsuming=1")
+
+# The synchronous CPU readback must never clear or copy another owner's pages.
+download_memory = method(cache, "template <class P>\nvoid BufferCache<P>::DownloadMemory(")
+download_cpp = r"""
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
+#include <limits>
+#include <tuple>
+#include <vector>
+using DAddr = std::uint64_t;
+using u64 = std::uint64_t;
+using BufferId = unsigned;
+struct Buffer {
+    DAddr addr; u64 bytes;
+    DAddr CpuAddr() const { return addr; }
+    u64 SizeBytes() const { return bytes; }
+};
+template<class P> struct BufferCache {
+    std::vector<Buffer> buffers{{0x1000,0x1000},{0x3000,0x2000},{0x6000,0x1000}};
+    std::vector<std::tuple<DAddr,DAddr,u64>> reads;
+    unsigned visits{};
+    // Deliberately include non-overlapping owners to exercise intersection.
+    template<class F> void ForEachBufferInRange(DAddr,u64,F&& f) {
+        ++visits;
+        for(auto& buffer : buffers) f(1,buffer);
+    }
+    void DownloadBufferMemory(Buffer& buffer,DAddr start,u64 size) {
+        assert(start >= buffer.addr && size <= buffer.bytes &&
+               start-buffer.addr <= buffer.bytes-size);
+        reads.emplace_back(buffer.addr,start,size);
+    }
+    void DownloadMemory(DAddr,u64);
+};
+""" + download_memory + r"""
+int main() {
+    BufferCache<int> c;
+    c.DownloadMemory(0x1800,0x5000);
+    const decltype(c.reads) expected{{0x1000,0x1800,0x800},
+                                    {0x3000,0x3000,0x2000},
+                                    {0x6000,0x6000,0x800}};
+    assert(c.reads == expected);
+    c.reads.clear();
+    c.DownloadMemory(0x2000,0x1000);
+    assert(c.reads.empty());
+    c.DownloadMemory(0x3000,0x1000);
+    assert(c.reads.size()==1 && std::get<2>(c.reads.front())==0x1000);
+    const auto visits=c.visits;
+    c.DownloadMemory(0,0);
+    c.DownloadMemory((u64{1}<<34)-1,2);
+    c.DownloadMemory(std::numeric_limits<u64>::max(),2);
+    assert(c.visits==visits);
+    // Deterministic independent per-byte intersection oracle.
+    for(DAddr begin=0;begin<0x8000;begin+=127) {
+        for(u64 size=1;size<0x8000;size+=1021) {
+            c.reads.clear(); c.DownloadMemory(begin,size);
+            decltype(c.reads) oracle;
+            for(const auto& b:c.buffers) {
+                u64 count=0; DAddr first=0;
+                for(DAddr addr=b.addr;addr<b.addr+b.bytes;++addr)
+                    if(addr>=begin && addr-begin<size) {
+                        if(count++==0) first=addr;
+                    }
+                if(count) oracle.emplace_back(b.addr,first,count);
+            }
+            assert(c.reads==oracle);
+        }
+    }
+}
+"""
+with tempfile.TemporaryDirectory(prefix="fc27-owner-readback-") as td:
+    d=Path(td); src=d/"download.cpp"; src.write_text(download_cpp)
+    for cxx in filter(None,(os.getenv("CXX"),"clang++","g++")):
+        if subprocess.run(["which",cxx],capture_output=True).returncode: continue
+        for opt in ("-O0","-O2"):
+            exe=d/"download"
+            subprocess.run([cxx,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
+                            "-fsanitize=undefined","-fno-sanitize-recover=all",
+                            str(src),"-o",str(exe)],check=True,timeout=60)
+            subprocess.run([str(exe)],check=True,timeout=30)
+            print("FC27_SYNCHRONOUS_READBACK_OWNER_PASS",cxx,opt)

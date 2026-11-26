@@ -281,8 +281,21 @@ std::optional<VideoCore::RasterizerDownloadArea> BufferCache<P>::GetFlushArea(DA
 
 template <class P>
 void BufferCache<P>::DownloadMemory(DAddr device_addr, u64 size) {
+    // The cache page table covers 16 GiB of guest physical memory.
+    constexpr DAddr address_limit = DAddr{1} << 34;
+    if (!size || device_addr >= address_limit || size > address_limit - device_addr) {
+        return;
+    }
+    const DAddr end_addr = device_addr + size;
     ForEachBufferInRange(device_addr, size, [&](BufferId, Buffer& buffer) {
-        DownloadBufferMemory(buffer, device_addr, size);
+        // The memory tracker is shared across buffers. Never clear or copy
+        // another buffer's GPU-written pages using this buffer's offsets.
+        // Match Lichii's per-owner intersection before the destructive readback.
+        const DAddr start = (std::max)(device_addr, buffer.CpuAddr());
+        const DAddr end = (std::min)(end_addr, buffer.CpuAddr() + buffer.SizeBytes());
+        if (start < end) {
+            DownloadBufferMemory(buffer, start, end - start);
+        }
     });
 }
 
