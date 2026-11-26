@@ -281,25 +281,14 @@ void NfcInterface::SendCommandByPassThrough(HLERequestContext& ctx) {
     const auto device_handle{rp.Pop<u64>()};
     const auto timeout{rp.PopRaw<s64>()};
     const auto command_data{ctx.ReadBuffer()};
-    LOG_INFO(Service_NFC, "(STUBBED) called, device_handle={}, timeout={}, data_size={}",
-             device_handle, timeout, command_data.size());
+    LOG_WARNING(Service_NFC,
+                "raw NFC pass-through is unsupported, device_handle={}, timeout={}, data_size={}",
+                device_handle, timeout, command_data.size());
 
-    std::vector<u8> out_data(1);
-    auto result =
-        GetManager()->SendCommandByPassThrough(device_handle, timeout, command_data, out_data);
-    result = TranslateResultToServiceError(result);
-
-    if (result.IsError()) {
-        IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(result);
-        return;
-    }
-
-    ctx.WriteBuffer(out_data);
-
-    IPC::ResponseBuilder rb{ctx, 3};
-    rb.Push(ResultSuccess);
-    rb.Push(static_cast<u32>(out_data.size()));
+    // No raw transceive backend is available on the active PS5 input path.
+    // Never fabricate a successful one-byte response.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(IPC::ResultNotSupported);
 }
 
 std::shared_ptr<DeviceManager> NfcInterface::GetManager() {

@@ -429,13 +429,14 @@ void Interface::WriteNtf(HLERequestContext& ctx) {
     const auto device_handle{rp.Pop<u64>()};
     const auto write_type{rp.PopEnum<WriteType>()};
     const auto ntf_data_buffer{ctx.ReadBuffer()};
-    LOG_WARNING(Service_NFP, "(STUBBED) called, device_handle={}", device_handle);
+    LOG_WARNING(Service_NFP,
+                "raw NTF write is unsupported, device_handle={}, write_type={}, data_size={}",
+                device_handle, write_type, ntf_data_buffer.size());
 
-    auto result = GetManager()->WriteNtf(device_handle, write_type, ntf_data_buffer);
-    result = TranslateResultToServiceError(result);
-
+    // NfcDevice::WriteNtf has no implementation. Fail closed instead of
+    // reporting a successful write that never reaches the virtual tag.
     IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(result);
+    rb.Push(IPC::ResultNotSupported);
 }
 
 } // namespace Service::NFP
