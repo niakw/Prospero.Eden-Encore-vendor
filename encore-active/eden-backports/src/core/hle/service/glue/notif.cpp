@@ -304,10 +304,11 @@ Result INotificationServices::OpenNotificationSystemEventAccessor(
 Result INotificationServices::GetNotificationPresentationSetting(
     Out<NotificationPresentationSetting> out_notification_presentation_setting,
     NotificationChannel notification_channel) {
-    LOG_WARNING(Service_NOTIF, "(STUBBED) called");
-
-    *out_notification_presentation_setting = {};
-    R_SUCCEED();
+    (void)out_notification_presentation_setting;
+    (void)notification_channel;
+    LOG_WARNING(Service_NOTIF,
+                "notification presentation settings are unsupported by the active backend");
+    R_THROW(IPC::ResultNotSupported);
 }
 
 } // namespace Service::Glue
