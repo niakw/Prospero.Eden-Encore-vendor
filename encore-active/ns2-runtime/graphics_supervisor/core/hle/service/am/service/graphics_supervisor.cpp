@@ -1062,8 +1062,22 @@ private:
         const auto* p=ctx.CommandBuffer();Result result=Kernel::ResultInvalidCombination;
         if(p[0]==0x10b&&p[1]==4&&W(p,4)==Default){
             Client* c=Find(W(p,2));result=Kernel::ResultNotFound;
-            if(c){result=Kernel::ResultInvalidState;
-                if(m_display&&m_refs&&!c->display){c->display=m_display;result=ResultSuccess;}}
+            if(c){
+                result=Kernel::ResultInvalidState;
+                if(m_display&&m_refs&&m_vi&&!c->display){
+                    // VI2 212 may query availability before 251 binds the
+                    // display (observed in the MKW boot IPC sequence).
+                    // Create the real managed layer only at this bind, so a
+                    // subsequent Present has an owned compositor target.
+                    u64 layer{};
+                    result=m_vi->GetContainer()->CreateManagedLayer(
+                        &layer,*m_display,m_aruid);
+                    if(result.IsSuccess()){
+                        c->layer=layer;
+                        c->display=m_display;
+                    }
+                }
+            }
         }
         IPC::ResponseBuilder rb{ctx,2};rb.Push(result.raw);
     }
@@ -1081,11 +1095,16 @@ private:
         u64 mask{};
         if(p[0]==0xe4&&p[1]==2){
             Client* c=Find(W(p,2));result=Kernel::ResultNotFound;
-            if(c&&c->display&&m_vi){
+            if(c){
+                // nn::vi::GetClientAvailability is valid immediately after
+                // RegisterClientState (201), before BindClientDisplay (251).
+                // Buffer availability belongs to the registered client; it
+                // does not require a display, layer, NVMap or GPU submission.
                 result=ResultSuccess;
-                if(!c->layer){
+                if(c->display&&m_vi&&!c->layer){
                     u64 layer{};
-                    result=m_vi->GetContainer()->CreateManagedLayer(&layer,*c->display,m_aruid);
+                    result=m_vi->GetContainer()->CreateManagedLayer(
+                        &layer,*c->display,m_aruid);
                     if(result.IsSuccess())c->layer=layer;
                 }
                 if(result.IsSuccess())mask=c->available;
