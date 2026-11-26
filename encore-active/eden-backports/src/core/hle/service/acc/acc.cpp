@@ -108,10 +108,16 @@ public:
             {142, &IManagerForSystemService::RejectUnavailableNintendoAccount, "RefreshNetworkServiceLicenseCacheAsyncIfSecondsElapsed"}, // 5.0.0+
             {143, D<&IManagerForSystemService::GetNetworkServiceLicenseCacheEx>, "GetNetworkServiceLicenseCacheEx"}, // 15.0.0+
             {150, &IManagerForSystemService::RejectUnavailableNintendoAccount, "CreateAuthorizationRequest"},
+            {151, &IManagerForSystemService::RejectUnavailableNintendoAccount, "Cmd151"},
+            {152, &IManagerForSystemService::RejectUnavailableNintendoAccount, "Cmd152"},
+            {153, &IManagerForSystemService::RejectUnavailableNintendoAccount, "Cmd153"},
             {160, &IManagerForSystemService::RejectUnavailableNintendoAccount, "RequiresUpdateNetworkServiceAccountIdTokenCache"},
             {161, &IManagerForSystemService::RejectUnavailableNintendoAccount, "RequireReauthenticationOfNetworkServiceAccount"},
             {170, &IManagerForSystemService::RejectUnavailableNintendoAccount, "CreateDeviceHistoryRequest"}, // 17.0.0+
-            {180, &IManagerForSystemService::RejectUnavailableNintendoAccount, "GetRequestForNintendoAccountReauthentication"} // 18.0.0+
+            {180, &IManagerForSystemService::RejectUnavailableNintendoAccount, "GetRequestForNintendoAccountReauthentication"}, // 18.0.0+
+            {181, &IManagerForSystemService::RejectUnavailableNintendoAccount, "CreateProcedureToReauthenticateNintendoAccount"},
+            {182, &IManagerForSystemService::RejectUnavailableNintendoAccount, "ResumeProcedureToReauthenticateNintendoAccount"},
+            {190, &IManagerForSystemService::RejectUnavailableNintendoAccount, "GetRequestForNintendoAccountEula"}
         };
         // clang-format on
 
@@ -203,6 +209,7 @@ public:
             {1, &IAdministrator::RejectUnavailableNintendoAccount, "GetAccountId"},
             {2, &IAdministrator::RejectUnavailableNintendoAccount, "EnsureIdTokenCacheAsync"},
             {3, &IAdministrator::RejectUnavailableNintendoAccount, "LoadIdTokenCache"},
+            {4, &IAdministrator::RejectUnavailableNintendoAccount, "LoadIdTokenCache"},
             {100, &IAdministrator::RejectUnavailableNintendoAccount, "SetSystemProgramIdentification"},
             {101, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshNotificationTokenAsync"}, // 7.0.0+
             {110, &IAdministrator::RejectUnavailableNintendoAccount, "GetServiceEntryRequirementCache"}, // 4.0.0+
@@ -217,15 +224,22 @@ public:
             {133, &IAdministrator::RejectUnavailableNintendoAccount, "GetNintendoAccountVerificationUrlCache"}, // 9.0.0+
             {134, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshNintendoAccountVerificationUrlCacheAsync"}, // 9.0.0+
             {135, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshNintendoAccountVerificationUrlCacheAsyncIfSecondsElapsed"}, // 9.0.0+
+            {136, &IAdministrator::RejectUnavailableNintendoAccount, "GetNintendoAccountUserResourceCache"}, // 19.0.0+
             {140, &IAdministrator::RejectUnavailableNintendoAccount, "GetNetworkServiceLicenseCache"}, // 5.0.0+
             {141, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshNetworkServiceLicenseCacheAsync"}, // 5.0.0+
             {142, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshNetworkServiceLicenseCacheAsyncIfSecondsElapsed"}, // 5.0.0+
             {143, &IAdministrator::RejectUnavailableNintendoAccount, "GetNetworkServiceLicenseCacheEx"},
             {150, &IAdministrator::RejectUnavailableNintendoAccount, "CreateAuthorizationRequest"},
+            {151, &IAdministrator::RejectUnavailableNintendoAccount, "Cmd151"},
+            {152, &IAdministrator::RejectUnavailableNintendoAccount, "Cmd152"},
+            {153, &IAdministrator::RejectUnavailableNintendoAccount, "Cmd153"},
             {160, &IAdministrator::RejectUnavailableNintendoAccount, "RequiresUpdateNetworkServiceAccountIdTokenCache"},
             {161, &IAdministrator::RejectUnavailableNintendoAccount, "RequireReauthenticationOfNetworkServiceAccount"},
             {170, &IAdministrator::RejectUnavailableNintendoAccount, "CreateDeviceHistoryRequest"}, // 17.0.0+
             {180, &IAdministrator::RejectUnavailableNintendoAccount, "GetRequestForNintendoAccountReauthentication"}, // 18.0.0+
+            {181, &IAdministrator::RejectUnavailableNintendoAccount, "CreateProcedureToReauthenticateNintendoAccount"},
+            {182, &IAdministrator::RejectUnavailableNintendoAccount, "ResumeProcedureToReauthenticateNintendoAccount"},
+            {190, &IAdministrator::RejectUnavailableNintendoAccount, "GetRequestForNintendoAccountEula"},
             {200, &IAdministrator::RejectUnavailableNintendoAccount, "IsRegistered"},
             {201, &IAdministrator::RejectUnavailableNintendoAccount, "RegisterAsync"},
             {202, &IAdministrator::RejectUnavailableNintendoAccount, "UnregisterAsync"},
@@ -233,6 +247,7 @@ public:
             {220, &IAdministrator::RejectUnavailableNintendoAccount, "SynchronizeProfileAsync"},
             {221, &IAdministrator::RejectUnavailableNintendoAccount, "UploadProfileAsync"},
             {222, &IAdministrator::RejectUnavailableNintendoAccount, "SynchronizaProfileAsyncIfSecondsElapsed"},
+            {223, &IAdministrator::RejectUnavailableNintendoAccount, "DownloadProfileAsync"},
             {250, &IAdministrator::IsLinkedWithNintendoAccount, "IsLinkedWithNintendoAccount"},
             {251, &IAdministrator::RejectUnavailableNintendoAccount, "CreateProcedureToLinkWithNintendoAccount"},
             {252, &IAdministrator::RejectUnavailableNintendoAccount, "ResumeProcedureToLinkWithNintendoAccount"},
@@ -242,9 +257,11 @@ public:
             {261, &IAdministrator::RejectUnavailableNintendoAccount, "ResumeProcedureToLinkNnidWithNintendoAccount"}, // 3.0.0+
             {280, &IAdministrator::RejectUnavailableNintendoAccount, "ProxyProcedureToAcquireApplicationAuthorizationForNintendoAccount"},
             {290, &IAdministrator::RejectUnavailableNintendoAccount, "GetRequestForNintendoAccountUserResourceView"}, // 8.0.0+
+            {291, &IAdministrator::RejectUnavailableNintendoAccount, "GetRequestForAnalyticsOptIn"},
             {300, &IAdministrator::RejectUnavailableNintendoAccount, "TryRecoverNintendoAccountUserStateAsync"}, // 6.0.0+
             {400, &IAdministrator::RejectUnavailableNintendoAccount, "IsServiceEntryRequirementCacheRefreshRequiredForOnlinePlay"}, // 6.1.0+
             {401, &IAdministrator::RejectUnavailableNintendoAccount, "RefreshServiceEntryRequirementCacheForOnlinePlayAsync"}, // 6.1.0+
+            {410, &IAdministrator::RejectUnavailableNintendoAccount, "Cmd410"},
             {900, &IAdministrator::RejectUnavailableNintendoAccount, "GetAuthenticationInfoForWin"}, // 9.0.0+
             {901, &IAdministrator::RejectUnavailableNintendoAccount, "ImportAsyncForWin"}, // 9.0.0+
             {997, &IAdministrator::RejectDebugOnlyCommand, "DebugUnlinkNintendoAccountAsync"},
@@ -343,7 +360,8 @@ public:
             {101, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "GetLinkedNintendoAccountId"},
             {102, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "GetNickname"},
             {103, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "GetProfileImage"},
-            {104, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "GetProfileLargeImage"} // 18.0.0+
+            {104, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "GetProfileLargeImage"}, // 18.0.0+
+            {1000, &IOAuthProcedureForExternalNsa::RejectUnavailableNintendoAccount, "Cmd1000"}
         };
         // clang-format on
 
