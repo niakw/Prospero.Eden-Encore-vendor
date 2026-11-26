@@ -1453,7 +1453,8 @@ for marker in ("CanStageBeforeImport(request.address_space)", "NativeNs2GpuVaSma
                "pending_211.try_emplace(key, request)", "catch (const std::bad_alloc&)"):
     assert marker in stage, marker
 assert bind.index("as->MapNative4K(request.memory") < bind.index("as->CommitNativeVmImport(id)") < bind.index("pending_211.erase(first, completed)")
-assert rollback.index("as->UnmapNative4K(request.address, request.size)") < rollback.index("opened_gpu_as.erase(id)")
+preimport_rollback=bind.split("bool rollback_safe = !as->IsNativeSparsePoisoned();",1)[1]
+assert preimport_rollback.index("as->UnmapNative4K(request.address, request.size)") < preimport_rollback.index("opened_gpu_as.erase(id)")
 assert "m_shared->StageBeforeImport(*request)" in _overlay_worker
 assert _overlay_worker.index("m_shared->StageBeforeImport(*request)") < _overlay_worker.index("ledger.CommitPrepared(staged_ledger)") < _overlay_worker.index("m_shared->events[request->notification]->Signal(kernel)")
 assert "m_shared->CancelBeforeImport(mapping.address_space, mapping.address, mapping.size)" in worker.split("Result IGpuWorker::ReleaseMemory",1)[1].split("void IGpuWorker::CreateGpuAccessibleMemory",1)[0]
