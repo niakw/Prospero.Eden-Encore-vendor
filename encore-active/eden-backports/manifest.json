@@ -107,8 +107,8 @@
     },
     "src/core/hle/service/acc/acc.cpp": {
       "upstream": "95857946c85c42721f123d4e591d880a57e2cfd9bc74ec995741e633975af02b",
-      "active": "933ea9c58805cb783518ae3b49a420885d15e8c874a0496efc59792e99c9e9f9",
-      "bytes": 102756
+      "active": "55b92dbe5ff1203b602e6383ed70b67185c79cdbcf21e01a67bc28f8539d1974",
+      "bytes": 104453
     },
     "src/core/hle/service/acc/acc.h": {
       "active": "e4da8d73487cb8a3da53bff6364784cd066663a238a6e29a54c924ff142dfd75",
@@ -136,8 +136,8 @@
       "upstream": "1539f19a7a0103163c7226cd647ec9b56e627482095a3becc5efad836404f83c"
     },
     "src/core/hle/service/am/service/all_system_applet_proxies_service.cpp": {
-      "active": "53d361ffaac06f76032a896379aa9446f86245e3429a96373189d3403263b0ef",
-      "bytes": 5857,
+      "active": "11727bc924d7323b76a71997e9cb602da870e8d0f2b795442bb9cfc8df45bc57",
+      "bytes": 6202,
       "upstream": "c51588e54cc792319b0289736039ca8c2f6c0abafd0f2c92d00768c946c6fdaf"
     },
     "src/core/hle/service/am/service/all_system_applet_proxies_service.h": {
@@ -187,8 +187,8 @@
     },
     "src/core/hle/service/am/service/common_state_getter.cpp": {
       "upstream": "16abb5f4185ddc4956771630a987f1d6e8fcb02fe6f4c12d888a1f2be5801484",
-      "active": "84167d9bd1db5fe3fc56a7e1b7fcfefb35f8aacae4d8b6a13c06147b603004d9",
-      "bytes": 27142
+      "active": "47500ee369d0f7183daf52f8bc4b8f59da0e51452a2e9653a7e4a38ff0d9353e",
+      "bytes": 27405
     },
     "src/core/hle/service/am/service/common_state_getter.h": {
       "upstream": "0c1483f111e306fa6038cf5adc0f86538901bf694a9b546817ae5812cbb2d07e",
@@ -271,8 +271,8 @@
       "upstream": "85093d7915d5000d80c72943c3a0aaf0f8be55c08680a511cd056f4ca9b4acd9"
     },
     "src/core/hle/service/am/service/self_controller.cpp": {
-      "active": "b7e0bb92a09ab350a780110d366cf836ea1f1b098ce9b9adcf7e2d65f7db7476",
-      "bytes": 22480,
+      "active": "ec859281c02dcfb1a42b66be58a1b4678d659642846e2e649ab2933b13a89cd3",
+      "bytes": 22586,
       "upstream": "f00dc0513314346fe519ea094c4ca9e649e934fb7a24d0fd1bac36d55d3d86aa"
     },
     "src/core/hle/service/am/service/self_controller.h": {
@@ -347,13 +347,13 @@
     },
     "src/core/hle/service/caps/caps_c.cpp": {
       "upstream": "4207c00db15d28949c3299ec36814d35ba77625594a454857bf1c97d4ca6bd95",
-      "active": "9af073dde8ad2513c9cb98dfe125da39ac16d9bb408ff46bd7059f62f6154f3e",
-      "bytes": 8323
+      "active": "8affba8c1aff79ea2db0df0df61122ed89f26621bf7f445c6068d5a6a489a273",
+      "bytes": 12227
     },
     "src/core/hle/service/caps/caps_c.h": {
       "upstream": "2f6b8e4567725287f959b54928bd74f3516d6a67a404ea48a52d408eafab4d17",
-      "active": "5bc82758389b796d72e896654c4291dc9dfd33b1fa6afa11f6da7fb0d8d7b6fd",
-      "bytes": 1800
+      "active": "80139f99b1df19b51499b17943cd220818a58dde7766d2e7a659ea4d8aea4fb8",
+      "bytes": 1853
     },
     "src/core/hle/service/caps/caps_sc.cpp": {
       "active": "7738dad7be563ddec28c31bf7171c21add60a273be177687e19d201ee4d46fcd",
@@ -381,8 +381,8 @@
       "upstream": "5029fbc1a9eedaa6937198ad25bf352ce97b442b0be1ce77f92cb9305d6cef4a"
     },
     "src/core/hle/service/es/es.cpp": {
-      "active": "13c992000788179a053c525b5011076a3718137307ce5b7fb0241768fc604739",
-      "bytes": 22889,
+      "active": "ac06969ff6ce0f5f42653ba32424e0cb029666c7924f44d107d5287214250976",
+      "bytes": 22997,
       "upstream": "fb2386ef1e53f8a5e8ede1f8d11d98c312b205a337ed0350c72210520c8da605"
     },
     "src/core/hle/service/eupld/eupld.cpp": {
@@ -431,8 +431,8 @@
       "upstream": "2017a14e3450768f421448326f809d439414cc385f927511382b940c64e44e84"
     },
     "src/core/hle/service/filesystem/fsp/fsp_srv.h": {
-      "active": "3b020f3838e10a67ca822aacb1d8c8ecaf1ab379c064aca5c83c35f9e4fa3564",
-      "bytes": 11998,
+      "active": "96a36ce279c1d416d87c4d47494f09183f9fa648a431cc142def5944ecf17c7e",
+      "bytes": 12528,
       "upstream": "394d7fd76564e2a7b50225a6263ab8377a6e4fa6cdfcfd1b7d51ba1e0bf39293"
     },
     "src/core/hle/service/friend/friend.cpp": {
