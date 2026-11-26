@@ -323,17 +323,37 @@ ALLOC_MEMBER(VaType)::Allocate(VaType size) {
         return {}; // The address space is actually full.
     }
 
+    // MapLocked can need up to two vector insertions. Reserve before
+    // changing the linear cursor. Keep two additional slots for an immediate
+    // rollback under the owning AS mutex, even if host allocation now fails.
+    // Grow geometrically rather than reallocating the block vector per map.
+    if (this->blocks.capacity() - this->blocks.size() < 4) {
+        this->blocks.reserve(this->blocks.size() + std::max<size_t>(4, this->blocks.size() / 2));
+    }
     current_linear_alloc_end = alloc_start + size;
     this->MapLocked(alloc_start, true, size, {});
     return alloc_start;
 }
 
 ALLOC_MEMBER(void)::AllocateFixed(VaType virt, VaType size) {
-    this->Map(virt, true, size);
+    std::scoped_lock lock(this->block_mutex);
+    // MapLocked may split both ends of a block. Grow the vector before any
+    // existing block is rewritten. Leave two slots for immediate rollback
+    // after publication of the fixed reservation.
+    if (this->blocks.capacity() - this->blocks.size() < 4) {
+        this->blocks.reserve(this->blocks.size() + std::max<size_t>(4, this->blocks.size() / 2));
+    }
+    this->MapLocked(virt, true, size, {});
 }
 
 ALLOC_MEMBER(void)::Free(VaType virt, VaType size) {
     std::scoped_lock lock(this->block_mutex);
+    // UnmapLocked can also split both ends. Make its only allocation point
+    // happen before it rewrites any block. Immediate allocation rollback
+    // has sufficient reserved capacity and cannot allocate here.
+    if (this->blocks.capacity() - this->blocks.size() < 2) {
+        this->blocks.reserve(this->blocks.size() + std::max<size_t>(2, this->blocks.size() / 2));
+    }
     this->UnmapLocked(virt, size);
     // Reuse the newest released range immediately; otherwise a streaming
     // workload can exhaust the linear cursor while large gaps stay free.

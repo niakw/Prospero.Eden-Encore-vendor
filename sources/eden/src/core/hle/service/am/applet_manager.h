@@ -44,6 +44,9 @@ public:
 
     void CreateAndInsertByFrontendAppletParameters(std::unique_ptr<Process> process,
                                                    const FrontendAppletParameters& params);
+    // Release a frontend-created application that AM never consumed because
+    // shutdown won the race before WindowSystem startup.
+    void DropPendingProcess();
     void RequestExit();
     void OperationModeChanged();
 

@@ -241,6 +241,22 @@ void AppletManager::CreateAndInsertByFrontendAppletParameters(
     m_cv.notify_all();
 }
 
+void AppletManager::DropPendingProcess() {
+    std::unique_ptr<Process> process;
+    {
+        // If AM currently owns the lock it is already consuming the pending
+        // process. Otherwise take ownership here and destroy it while its
+        // kernel still exists; carrying it into the next title can release
+        // old kernel objects through the new kernel.
+        std::unique_lock lk{m_lock, std::try_to_lock};
+        if (!lk.owns_lock() || !m_pending_process) {
+            return;
+        }
+        process = std::move(m_pending_process);
+    }
+    LOG_INFO(Service_AM, "Releasing application process left pending at shutdown");
+}
+
 void AppletManager::RequestExit() {
     std::scoped_lock lk{m_lock};
     if (m_window_system) {

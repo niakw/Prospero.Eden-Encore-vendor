@@ -94,6 +94,9 @@ private:
 
     // Applet map by aruid.
     std::map<u64, std::shared_ptr<Applet>> m_applets{};
+    // Per-window session: a second shutdown request must not re-enter
+    // kernel/service teardown after the first applet has terminated.
+    bool m_exit_sent{};
     std::optional<u64> m_pending_application_notification{};
 };
 
