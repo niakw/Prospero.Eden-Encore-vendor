@@ -310,11 +310,9 @@ Result ISelfController::CreateManagedDisplayLayer(Out<u64> out_layer_id) {
 
 Result ISelfController::CreateManagedDisplaySeparableLayer(Out<u64> out_layer_id,
                                                            Out<u64> out_recording_layer_id) {
-    LOG_DEBUG(Service_AM, "called");
-
-    std::scoped_lock lk{m_applet->lock};
-    R_RETURN(m_applet->display_layer_manager.CreateManagedDisplaySeparableLayer(
-        out_layer_id, out_recording_layer_id));
+    LOG_WARNING(Service_AM,
+                "CreateManagedDisplaySeparableLayer unavailable: recording layer backend is not materialized");
+    R_RETURN(ResultUnknown);
 }
 
 Result ISelfController::RejectUnavailableManagedDisplayLayerSeparationMode(u32 mode) {
