@@ -339,8 +339,9 @@ Result ISelfController::LeaveFatalSection() {
 Result ISelfController::GetLibraryAppletLaunchableEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_DEBUG(Service_AM, "called");
-    // Opening the handle must not make the applet launchable by itself.
-    // ILibraryAppletCreator signals this event when creation actually succeeds.
+    // The guest waits for this event BEFORE calling CreateLibraryApplet (libnx).
+    // Encore does not model launch admission contention; preserve the ready state.
+    m_applet->library_applet_launchable_event.Signal(system.Kernel());
     *out_event = m_applet->library_applet_launchable_event.GetHandle();
 
     R_SUCCEED();
