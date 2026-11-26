@@ -4,6 +4,8 @@
 // SPDX-FileCopyrightText: Copyright 2023 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <new>
+
 #include <openssl/err.h>
 #include <openssl/evp.h>
 
@@ -348,20 +350,48 @@ public:
         Kernel::KProcess* process = context->GetProcess();
         R_UNLESS(process != nullptr, RO::ResultInvalidProcess);
 
-        // Read NRR.
-        NrrHeader header{};
-        process->GetMemory().ReadBlock(nrr_address, std::addressof(header), sizeof(header));
+        // NRR version 1 (Switch 2) inserts a 0x180-byte header region.
+        // Reading the legacy +0x344 count as v1 can allocate millions of
+        // bogus hashes or read outside guest memory (Mario Tennis Fever).
+        std::array<u8, 8> prefix{};
+        R_UNLESS(process->GetMemory().ReadBlock(nrr_address, prefix.data(), prefix.size()) &&
+                     std::memcmp(prefix.data(), "NRR0", 4) == 0,
+                 RO::ResultInvalidNrr);
+        R_UNLESS(prefix[5] <= 1, RO::ResultInvalidNrr);
+        const u64 header_size = sizeof(NrrHeader) + (prefix[5] == 1 ? 0x180 : 0);
+        const u64 metadata_offset = prefix[5] == 1 ? 0x4c0 : 0x340;
+        R_UNLESS(nrr_size >= header_size, RO::ResultInvalidNrr);
+        std::array<u32, 2> hash_metadata{};
+        R_UNLESS(process->GetMemory().ReadBlock(nrr_address + metadata_offset,
+                                                 hash_metadata.data(),
+                                                 sizeof(hash_metadata)),
+                 RO::ResultInvalidNrr);
+        const u64 hash_offset = hash_metadata[0];
+        const u64 hash_count = hash_metadata[1];
+        // Bound both guest reads and host allocation; never publish a partial
+        // NRR on an invalid hash list or allocation failure.
+        constexpr u64 MaxNrrHashes = 0x10000; // 2 MiB of SHA-256 hashes.
+        R_UNLESS(hash_count <= MaxNrrHashes && hash_offset <= nrr_size &&
+                     (hash_count == 0 || hash_offset >= header_size) &&
+                     hash_count <= (nrr_size - hash_offset) / sizeof(Sha256Hash),
+                 RO::ResultInvalidNrr);
+        std::vector<Sha256Hash> hashes;
+        try {
+            hashes.resize(static_cast<size_t>(hash_count));
+        } catch (const std::bad_alloc&) {
+            R_THROW(Kernel::ResultOutOfResource);
+        }
+        if (!hashes.empty()) {
+            R_UNLESS(process->GetMemory().ReadBlock(nrr_address + hash_offset, hashes.data(),
+                                                    hashes.size() * sizeof(Sha256Hash)),
+                     RO::ResultInvalidNrr);
+        }
 
-        // Set NRR info.
-        context->SetNrrInfoInUse(nrr_info, true);
+        // Publish only after validating and reading the complete table.
+        nrr_info->hashes = std::move(hashes);
         nrr_info->nrr_heap_address = nrr_address;
         nrr_info->nrr_heap_size = nrr_size;
-
-        // Read NRR hash list.
-        nrr_info->hashes.resize(header.GetNumHashes());
-        process->GetMemory().ReadBlock(nrr_address + header.GetHashesOffset(),
-                                       nrr_info->hashes.data(),
-                                       sizeof(Sha256Hash) * header.GetNumHashes());
+        context->SetNrrInfoInUse(nrr_info, true);
 
         R_SUCCEED();
     }
