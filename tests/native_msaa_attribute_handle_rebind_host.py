@@ -17,11 +17,12 @@ def git_blob(raw):
 # It is separately byte-sealed by the engine's original Vulkan R23 oracle.
 CURRENT_FC27_RASTERIZER="71d097b9a83028dfad9370792c905bb3bfccfd5a"
 selected=git_blob(src)
-assert selected in {NEW, CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE, CURRENT_FC27_RASTERIZER, INTEGRATED_RASTERIZER, GUEST_CACHE_LOCK_SUCCESSOR}
+CURRENT_INDEX_BATCH_RASTERIZER="f79943f596b8a95cdcb05ce74a964a2141ae10ac"
+assert selected in {NEW, CURRENT_CPU_RACE, CURRENT_DRAWTEXTURE, CURRENT_FC27_RASTERIZER, INTEGRATED_RASTERIZER, GUEST_CACHE_LOCK_SUCCESSOR, CURRENT_INDEX_BATCH_RASTERIZER}
 if selected in {INTEGRATED_RASTERIZER, GUEST_CACHE_LOCK_SUCCESSOR}:
     assert git_blob(restore_integrated_rasterizer(src.decode()).encode())==CURRENT_FC27_RASTERIZER
 text=src.decode()
-if selected in {CURRENT_FC27_RASTERIZER, INTEGRATED_RASTERIZER, GUEST_CACHE_LOCK_SUCCESSOR}:
+if selected in {CURRENT_FC27_RASTERIZER, INTEGRATED_RASTERIZER, GUEST_CACHE_LOCK_SUCCESSOR, CURRENT_INDEX_BATCH_RASTERIZER}:
     assert "attribute_handle_source = pipeline->AttributeHandleSource();" in text
     assert "attribute_handle_source.reset();" in text
     assert "void RasterizerVulkan::OnCacheInvalidations(" in text

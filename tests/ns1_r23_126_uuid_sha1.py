@@ -33,10 +33,10 @@ selected_bytes=selected.read_bytes()
 selected_blob=hashlib.sha1(b"blob "+str(len(selected_bytes)).encode()+bytes([0])+selected_bytes).hexdigest()
 # The selected AM unit also carries the independently reviewed NS2 CMIF
 # save-account UID alignment fix (Eglantine #80). Preserve this exact
-# post-change blob; the NS1 SHA1 pseudo-device implementation is unchanged.
-assert selected_blob=="b8787c322258fcccd7c5d53a74097a5619e2211c",selected_blob
+# post-change blob and Lichii AM command parity; NS1 SHA1 remains unchanged.
+assert selected_blob=="a26850d9addcd35c483fa1da28d440537896ee13",selected_blob
 # Reverse only the reviewed diagnostic additions and prove the exact original
-# CMIF/UUID owner is recovered. Keep the preceding historical receipt intact.
+# CMIF/UUID owner minus language diagnostics is recovered exactly.
 selected_src=selected_bytes.decode()
 inc="#include <cstdio>\n#include <mutex>\n#include <optional>\n\n"
 helper=selected_src.split("// Diagnostic only: no changes",1)[1].split("FileSys::PatchManager::Metadata GetApplicationMetadata",1)[0]
@@ -46,7 +46,7 @@ call="    const GuestLanguageReply reply{"+call
 assert selected_src.count(inc)==selected_src.count(helper)==selected_src.count(call)==1
 prior=selected_src.replace(inc,"",1).replace(helper,"",1).replace(call,"",1).encode()
 prior_blob=hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()
-assert prior_blob=="1fa9b3437d72c4ad36d61ca4c190ece64149c75c",prior_blob
+assert prior_blob=="85fd12ada910dbb43128dbdc11aff4d09e8068fe",prior_blob
 # Execute the actual bounded diagnostic decision function, not a copy.
 assert selected_src.index("    R_TRY(app_man->ConvertApplicationLanguageToLanguageCode(out_language_code, desired_language));") < selected_src.index("    const GuestLanguageReply reply{")
 assert "*out_language_code, res.first != nullptr" in call

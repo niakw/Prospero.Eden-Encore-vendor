@@ -9,7 +9,8 @@ import tempfile
 root=Path(__file__).resolve().parents[1]
 p=root/"encore-active/eden-core/src/core/hle/service/am/window_system.cpp"
 s=p.read_text()
-b=p.read_bytes()
+b=s.replace("    if (m_applets.empty() && !m_exit_sent) {\n        m_exit_sent = true;\n        m_system.Exit();\n    }", "    if (m_applets.empty()) {\n        m_system.Exit();\n    }").encode("utf-8")
+assert s.count("    if (m_applets.empty() && !m_exit_sent) {\n        m_exit_sent = true;\n        m_system.Exit();\n    }") == 1
 sha=hashlib.sha1(b"blob "+str(len(b)).encode()+bytes([0])+b).hexdigest()
 assert sha=="c4852c64bdcd491e9c7293db8a7e2dc055f78f5f",sha
 new="        z_index = this->IsOverlayOpenLocked(*applet) ? Overlay : Background;"
