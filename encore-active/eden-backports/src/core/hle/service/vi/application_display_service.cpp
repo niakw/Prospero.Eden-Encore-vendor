@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "common/settings.h"
 #include "core/core.h"
 #include "core/hle/service/am/applet.h"
 #include "core/hle/service/am/applet_manager.h"
@@ -139,10 +140,11 @@ Result IApplicationDisplayService::GetDisplayResolution(Out<s64> out_width, Out<
                                                         u64 display_id) {
     LOG_DEBUG(Service_VI, "called. display_id={}", display_id);
 
-    // This only returns the fixed values of 1280x720 and makes no distinguishing
-    // between docked and undocked dimensions.
-    *out_width = static_cast<s64>(DisplayResolution::UndockedWidth);
-    *out_height = static_cast<s64>(DisplayResolution::UndockedHeight);
+    const bool docked = Settings::IsDockedMode();
+    *out_width = static_cast<s64>(docked ? DisplayResolution::DockedWidth
+                                         : DisplayResolution::UndockedWidth);
+    *out_height = static_cast<s64>(docked ? DisplayResolution::DockedHeight
+                                          : DisplayResolution::UndockedHeight);
     R_SUCCEED();
 }
 
