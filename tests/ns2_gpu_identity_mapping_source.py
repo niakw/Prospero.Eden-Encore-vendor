@@ -25,7 +25,7 @@ assert "if (system.IsShuttingDown() || !system.IsPoweredOn())" in step
 assert "if (system.IsShuttingDown() || !system.IsPoweredOn())" in process
 interlist=step.split("if (signal_sync) {",1)[1]
 assert "SignalNativeFence([this]()" in interlist
-assert "ReleaseFences(true)" not in interlist
+assert "rasterizer->ReleaseFences(true);" not in interlist
 assert "if (system.IsShuttingDown() || !system.IsPoweredOn())" in resume
 assert "ReleaseFences(" not in resume
 # The Ampere acquire section starts after operation validation; legacy Maxwell
