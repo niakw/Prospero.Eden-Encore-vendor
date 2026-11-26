@@ -1254,23 +1254,33 @@ private:
                                 (fence==~u32{0}||
                                  nv.GetSyncpointManager().IsSyncpointAllocated(fence))){
                                 if(!c->producer){
-                                    result=m_vi->GetContainer()->GetLayerProducerHandle(
-                                        &c->producer,*c->layer);
+                                    // A stored producer means the complete VI2 setup succeeded.
+                                    // Do not let an IPC retry skip Connect/OpenLayer after failure.
+                                    std::shared_ptr<android::BufferQueueProducer> producer;
+                                    auto container=m_vi->GetContainer();
+                                    result=container->GetLayerProducerHandle(&producer,*c->layer);
+                                    bool connected=false, opened=false;
                                     if(result.IsSuccess()){
                                         android::QueueBufferOutput output{};
-                                        if(c->producer->Connect({},
-                                            android::NativeWindowApi::Egl,false,&output)!=
-                                            android::Status::NoError||
-                                           c->producer->SetBufferCount(16)!=
+                                        connected=producer && producer->Connect({},
+                                            android::NativeWindowApi::Egl,false,&output)==
+                                            android::Status::NoError;
+                                        if(!connected || producer->SetBufferCount(16)!=
                                             android::Status::NoError)
                                             result=Kernel::ResultInvalidState;
                                     }
                                     if(result.IsSuccess()){
                                         s32 binder{};
-                                        result=m_vi->GetContainer()->OpenLayer(
-                                            &binder,*c->layer,m_aruid);
-                                        if(result.IsSuccess())result=m_vi->GetContainer()
-                                            ->SetLayerVisibility(*c->layer,true);
+                                        result=container->OpenLayer(&binder,*c->layer,m_aruid);
+                                        opened=result.IsSuccess();
+                                        if(opened)result=container->SetLayerVisibility(*c->layer,true);
+                                    }
+                                    if(result.IsSuccess()){
+                                        c->producer=std::move(producer);
+                                    }else{
+                                        // No frame has been attached; undo only our own setup.
+                                        if(opened)container->CloseLayer(*c->layer);
+                                        if(connected)producer->Disconnect(android::NativeWindowApi::Egl);
                                     }
                                 }else result=ResultSuccess;
                                 // Release polling must be ready BEFORE
@@ -1312,7 +1322,12 @@ private:
                                     auto buffer=std::make_shared<android::GraphicBuffer>(
                                         nv.GetNvMapFile(),native);
                                     s32 idx{};result=Kernel::ResultOutOfResource;
-                                    if(c->producer->AttachBuffer(&idx,buffer)==android::Status::NoError){
+                                    const auto attached=c->producer->AttachBuffer(&idx,buffer);
+                                    // AttachBuffer returns ReleaseAllBuffers as a success flag
+                                    // after transferring the slot to the producer (Dequeued).
+                                    // Treating it as failure strands that slot indefinitely.
+                                    if(attached==android::Status::NoError ||
+                                       attached==android::Status::ReleaseAllBuffers){
                                         android::QueueBufferInput input{};
                                         android::QueueBufferOutput output{};
                                         input.crop={0,0,static_cast<s32>(outw),
