@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <array>
+#include <atomic>
 #include <cstdio>
 #include <mutex>
 #include <optional>
@@ -273,10 +274,25 @@ Result IApplicationFunctions::GetDesiredLanguage(Out<u64> out_language_code) {
 }
 
 Result IApplicationFunctions::SetTerminateResult(Result terminate_result) {
-    LOG_DEBUG(Service_AM, "called, result={:#x} ({:04}-{:04})",
-              terminate_result.GetInnerValue(),
+    LOG_INFO(Service_AM, "(STUBBED) called, result={:#x} ({:04}-{:04})",
+             terminate_result.GetInnerValue(),
              static_cast<u32>(terminate_result.GetModule()) + 2000,
              terminate_result.GetDescription());
+
+#ifdef PS5_NATIVE
+    // A Switch 2 SDK can call cmd 22 to report the failure that precedes an
+    // indefinite loading screen. Do not change the result or guest IPC reply.
+    // Small process-wide cap avoids flooding release stderr on repeated calls.
+    static std::atomic<unsigned> terminate_reports{0};
+    if (terminate_reports.fetch_add(1, std::memory_order_relaxed) < 32) {
+        std::fprintf(stderr,
+                     "EDEN_APP_TERMINATE_RESULT title=%016llX raw=0x%08X module=%u description=%u\n",
+                     static_cast<unsigned long long>(m_applet->program_id),
+                     static_cast<unsigned>(terminate_result.GetInnerValue()),
+                     static_cast<unsigned>(terminate_result.GetModule()),
+                     static_cast<unsigned>(terminate_result.GetDescription()));
+    }
+#endif
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->terminate_result = terminate_result;

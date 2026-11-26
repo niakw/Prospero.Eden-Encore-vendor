@@ -5,6 +5,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <array>
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <mutex>
+#include <fmt/ranges.h>
 
 #include "common/common_types.h"
 #include "common/logging.h"
@@ -1238,6 +1243,63 @@ Result IHidServer::GetSceneIdForPrivateApp(Out<u64> out_scene_id,
     const std::scoped_lock lock{m_ns2_state_mutex};
     const auto it = m_ns2_scene_ids.find(aruid.pid);
     *out_scene_id = it != m_ns2_scene_ids.end() ? it->second : 0;
+    R_SUCCEED();
+}
+
+Result IHidServer::SendNx2VibrationValues(
+    u64 unknown, AppletResourceUserId aruid,
+    InArray<Core::HID::VibrationDeviceHandle, BufferAttr_HipcPointer> vibration_handles,
+    InArray<Core::HID::VibrationValue, BufferAttr_HipcPointer> vibration_values) {
+    LOG_DEBUG(Service_HID, "called, unknown={}, applet_resource_user_id={}", unknown, aruid.pid);
+
+    // Unlike 206 this never fails: rumble is best effort and the command is only known from
+    // captures, so an unexpected handle or layout shouldn't return an error a game may treat as
+    // fatal.
+    const auto count = (std::min)(vibration_handles.size(), vibration_values.size());
+    for (std::size_t i = 0; i < count; i++) {
+        const auto result = GetResourceManager()->SendVibrationValue(
+            aruid.pid, vibration_handles[i], vibration_values[i]);
+        if (result.IsError()) {
+            LOG_DEBUG(Service_HID, "failed to send vibration {}, result={:#x}", i, result.raw);
+        }
+    }
+
+    R_SUCCEED();
+}
+
+Result IHidServer::SendVibrationValueInMode(std::array<u8, 0x18> raw,
+                                            ClientAppletResourceUserId aruid) {
+    // Two layouts are proposed for the 0x18 bytes before the aruid, both with the value at 0x08:
+    // a mode at 0x00 and the handle at 0x04 (most decoders), or the handle at 0x00 and a u32 mode
+    // at 0x04. A handle's first byte is its npad style, which the modes seen in 214 (0 and 2)
+    // can't pass for, so the first offset holding a valid handle wins. Requests that fit neither
+    // are dropped, as 213 was before.
+    Core::HID::VibrationDeviceHandle handle{};
+    Core::HID::VibrationValue value{};
+    std::memcpy(&value, raw.data() + 0x08, sizeof(value));
+    const bool is_value_valid = std::isfinite(value.low_amplitude) &&
+                                std::isfinite(value.high_amplitude) &&
+                                std::isfinite(value.low_frequency) &&
+                                std::isfinite(value.high_frequency);
+    constexpr std::array<std::size_t, 2> handle_offsets{0x04, 0x00};
+    const bool has_handle = std::ranges::any_of(handle_offsets, [&](std::size_t offset) {
+        std::memcpy(&handle, raw.data() + offset, sizeof(handle));
+        return IsVibrationHandleValid(handle).IsSuccess();
+    });
+
+    static std::once_flag logged;
+    std::call_once(logged, [&raw] {
+        LOG_INFO(Service_HID, "first request: {:02x}", fmt::join(raw, ""));
+    });
+
+    if (!is_value_valid || !has_handle) {
+        R_SUCCEED();
+    }
+
+    const auto result = GetResourceManager()->SendVibrationValue(aruid.pid, handle, value);
+    if (result.IsError()) {
+        LOG_DEBUG(Service_HID, "failed to send vibration, result={:#x}", result.raw);
+    }
     R_SUCCEED();
 }
 

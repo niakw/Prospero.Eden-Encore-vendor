@@ -99,6 +99,16 @@ ISelfController::~ISelfController() {
     m_applet->display_layer_manager.Finalize();
 }
 
+void ISelfController::StubReplyZeroedNx2(HLERequestContext& ctx) {
+    LOG_WARNING(Service_AM, "(STUBBED) NS2 SelfController command {}", ctx.GetCommand());
+    constexpr u32 ZeroWords = 32;
+    IPC::ResponseBuilder rb{ctx, 2 + ZeroWords};
+    rb.Push(ResultSuccess.raw);
+    for (u32 i = 0; i < ZeroWords; ++i) {
+        rb.Push<u32>(0);
+    }
+}
+
 // NS2-only command 2000: preserve a real kernel copy handle and its lifetime.
 Result ISelfController::SetControllerFirmwareUpdateSection(bool enabled) {
     LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
