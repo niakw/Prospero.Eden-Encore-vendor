@@ -21,12 +21,12 @@ FSP_LDR::FSP_LDR(Core::System& system_) : ServiceFramework{system_, "fsp:ldr"} {
 FSP_LDR::~FSP_LDR() = default;
 
 Result FSP_LDR::OpenCodeFileSystem(OutInterface<IFileSystem> out_interface, u64 program_id,
-                                   InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path) {
+                                   const InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path) {
     LOG_WARNING(Service_FS, "CodeFS backend unavailable, program_id={:016X}", program_id);
     R_RETURN(FileSys::ResultTargetNotFound);
 }
 
-Result FSP_LDR::IsArchivedProgram(Out<bool> out_is_archived, u64 program_id) {
+Result FSP_LDR::IsArchivedProgram(u64 program_id, Out<bool> out_is_archived) {
     LOG_DEBUG(Service_FS, "called, program_id={:016X}", program_id);
     *out_is_archived = false;
     R_SUCCEED();
