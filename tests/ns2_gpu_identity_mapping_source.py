@@ -1456,7 +1456,160 @@ assert bind.index("as->MapNative4K(request.memory") < bind.index("as->CommitNati
 assert rollback.index("as->UnmapNative4K(request.address, request.size)") < rollback.index("opened_gpu_as.erase(id)")
 assert "m_shared->StageBeforeImport(*request)" in _overlay_worker
 assert _overlay_worker.index("m_shared->StageBeforeImport(*request)") < _overlay_worker.index("ledger.CommitPrepared(staged_ledger)") < _overlay_worker.index("m_shared->events[request->notification]->Signal(kernel)")
-assert "m_shared->CancelBeforeImport(mapping.address_space, mapping.address, mapping.size)" in release
+assert "m_shared->CancelBeforeImport(mapping.address_space, mapping.address, mapping.size)" in worker.split("Result IGpuWorker::ReleaseMemory",1)[1].split("void IGpuWorker::CreateGpuAccessibleMemory",1)[0]
 assert "m_shared->CancelBeforeImport(mapping.address_space, mapping.address, mapping.size)" in teardown
 assert "m_native_vm_retired.store(true, std::memory_order_release)" in native_import
 print("NS2_R457_211_PREIMPORT_MAPPING_SOURCE_PASS")
+
+# Compile the production pre-import methods and the real VM slot/worker
+# protocol with a narrow GMMU boundary fixture. Exercise replay rather
+# than merely checking that a new success branch exists in source.
+import os
+import shutil
+import subprocess
+import tempfile
+compiler = os.environ.get("CXX") or shutil.which("clang++") or shutil.which("g++")
+assert compiler, "C++ compiler required for NS2 211 pre-import contract"
+identity_decl = shared.split("struct IdentityGpuMapping {", 1)[1].split("\n};", 1)[0]
+shared_fields = shared.split("    GpuSessionProtocol::AddressSpaceSlots address_spaces;", 1)[1].split("    void UnbindImportedAddressSpace(", 1)[0]
+methods = shared_cpp.split("bool GpuWorkerSharedState::CanStageBeforeImport(", 1)[1].split("void GpuWorkerSharedState::UnbindImportedAddressSpace(", 1)[0]
+fixture = r'''
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <tuple>
+#include <vector>
+#include "core/hle/service/am/service/gpu_worker_protocol.h"
+#include "core/hle/service/am/service/gpu_session_protocol.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_va_layout.h"
+namespace Kernel { struct KProcess {}; }
+namespace Service::Nvidia {
+enum class NvResult { Success, BadParameter, InvalidState, InsufficientMemory };
+namespace Devices {
+struct nvhost_as_gpu {
+    using Mapping = std::tuple<std::uint32_t,std::uint64_t,std::uint64_t,std::uint8_t,bool>;
+    std::map<std::uint64_t, Mapping> mappings;
+    Kernel::KProcess* process{};
+    std::uint32_t committed{};
+    int fail_after{-1};
+    bool fail_unmap{};
+    bool poison{};
+    bool OwnsNativeProcess(Kernel::KProcess* p) { return p == process; }
+    bool IsNativeSparsePoisoned() { return poison; }
+    NvResult MapNative4K(std::uint32_t handle, std::uint64_t address,
+                        std::uint64_t source, std::uint64_t size,
+                        std::uint8_t kind, bool cache = false) {
+        if (fail_after == 0) return NvResult::InsufficientMemory;
+        if (fail_after > 0) --fail_after;
+        for (auto& [base, mapping] : mappings) {
+            const auto bytes = std::get<2>(mapping);
+            assert(base + bytes <= address || address + size <= base);
+        }
+        assert(mappings.emplace(address, Mapping{handle,source,size,kind,cache}).second);
+        return NvResult::Success;
+    }
+    NvResult UnmapNative4K(std::uint64_t address, std::uint64_t size) {
+        if (fail_unmap) { poison = true; return NvResult::InvalidState; }
+        auto it = mappings.find(address);
+        assert(it != mappings.end() && std::get<2>(it->second) == size);
+        mappings.erase(it);
+        return NvResult::Success;
+    }
+    bool CommitNativeVmImport(std::uint32_t id) {
+        assert(!committed && !poison);
+        committed = id;
+        return true;
+    }
+};
+}
+}
+namespace Service::AM {
+struct IdentityGpuMapping {
+''' + identity_decl + r'''
+};
+struct GpuWorkerSharedState {
+    std::mutex mutex;
+    Kernel::KProcess* native_process{};
+    GpuSessionProtocol::AddressSpaceSlots address_spaces;
+''' + shared_fields + r'''
+};
+bool GpuWorkerSharedState::CanStageBeforeImport(''' + methods + r'''
+}
+using namespace Service::AM;
+using namespace Service::Nvidia;
+using namespace Service::Nvidia::Devices;
+namespace GW = Service::AM::GpuWorkerProtocol;
+namespace GP = Service::AM::GpuSessionProtocol;
+int main() {
+    Kernel::KProcess process;
+    GpuWorkerSharedState state;
+    state.native_process = &process;
+    constexpr std::uint64_t identity_va = 0x10000000;
+    constexpr std::uint64_t explicit_va = 0x20000000;
+    assert(state.address_spaces.Add(11) == GP::Status::Success);
+    assert(state.address_spaces.Add(12) == GP::Status::Success);
+    assert(state.address_spaces.Add(13) == GP::Status::Success);
+    const GW::Map4K identity{11,7,1,0,identity_va,0x2000,0,0,0,1,0};
+    GW::Map4K explicit_map{11,7,1,0,explicit_va,0x1000,0x1000,0,0,0,0};
+    assert(state.StageBeforeImport(identity) == NvResult::InvalidState);
+    assert(state.address_spaces.Register(11) == GP::Status::Success);
+    assert(state.address_spaces.Register(12) == GP::Status::Success);
+    assert(state.address_spaces.Register(13) == GP::Status::Success);
+    state.identity_gpu_mappings.push_back({7,identity_va,0x2000});
+    assert(state.StageBeforeImport(identity) == NvResult::Success);
+    assert(state.StageBeforeImport(explicit_map) == NvResult::Success);
+    assert(state.StageBeforeImport(explicit_map) == NvResult::BadParameter);
+    auto partial = identity; partial.address += 0x1000; partial.size = 0x1000;
+    assert(state.StageBeforeImport(partial) == NvResult::BadParameter);
+    auto cross = explicit_map; cross.address_space = 12;
+    assert(state.StageBeforeImport(cross) == NvResult::Success);
+    auto outside = explicit_map; outside.address = NativeNs2GpuVaSmallSplit;
+    assert(state.StageBeforeImport(outside) == NvResult::BadParameter);
+    const GW::Modify4K modify{11,0,explicit_va,0x1000,5,3,0};
+    assert(state.ModifyBeforeImport(modify));
+    assert(!state.CancelBeforeImport(11,explicit_va,0x2000));
+    assert(state.CancelBeforeImport(12,explicit_va,0x1000));
+    assert(state.StageBeforeImport(cross) == NvResult::Success);
+    auto first = std::make_shared<nvhost_as_gpu>(); first->process = &process;
+    first->fail_after = 1;
+    assert(state.BindImportedAddressSpace(11,first) == NvResult::InsufficientMemory);
+    assert(first->mappings.empty() && !first->committed && state.pending_211.size() == 3);
+    assert(state.CanStageBeforeImport(11));
+    first->fail_after = -1;
+    assert(state.BindImportedAddressSpace(11,first) == NvResult::Success);
+    assert(first->committed == 11 && first->mappings.size() == 2);
+    assert(!state.identity_gpu_mappings[0].HasSpace(11)); // exact explicit owner, no duplicate pin
+    assert(std::get<3>(first->mappings.at(explicit_va)) == 3);
+    assert(std::get<4>(first->mappings.at(identity_va)));
+    assert(state.pending_211.size() == 1 && state.pending_211.begin()->first.first == 12);
+    assert(!state.CanStageBeforeImport(11));
+    assert(!state.CancelBeforeImport(11,explicit_va,0x1000));
+    auto second = std::make_shared<nvhost_as_gpu>(); second->process = &process;
+    assert(state.BindImportedAddressSpace(12,second) == NvResult::Success);
+    assert(second->mappings.size() == 2 && state.identity_gpu_mappings[0].HasSpace(12));
+    assert(state.pending_211.empty());
+    auto doomed = explicit_map; doomed.address_space = 13;
+    assert(state.StageBeforeImport(doomed) == NvResult::Success);
+    auto third = std::make_shared<nvhost_as_gpu>(); third->process = &process;
+    third->fail_after = 1; third->fail_unmap = true;
+    assert(state.BindImportedAddressSpace(13,third) == NvResult::InvalidState);
+    assert(!state.CanStageBeforeImport(13) && !state.CancelBeforeImport(13,explicit_va,0x1000));
+    assert(state.BindImportedAddressSpace(13,third) == NvResult::InvalidState);
+    assert(!third->committed);
+}
+'''
+with tempfile.TemporaryDirectory() as tmp:
+    cpp=Path(tmp)/"preimport.cpp"
+    exe=Path(tmp)/"preimport"
+    cpp.write_text(fixture)
+    roots=[R/"encore-active/ns2-runtime/hle", R/"encore-active/ns2-runtime/nvdrv_as"]
+    subprocess.run([compiler,"-std=c++20","-O2","-Wall","-Wextra","-Werror",
+                    *[item for root in roots for item in ("-I",str(root))],
+                    str(cpp),"-o",str(exe)],check=True,timeout=60)
+    subprocess.run([str(exe)],check=True,timeout=15)
+print("NS2_R457_211_PREIMPORT_REPLAY_HOST_PASS vm_isolation=1 rollback=1 exact_identity=1")
