@@ -16,6 +16,9 @@ class IFinalOutputRecorderManagerForApplet final
 public:
     explicit IFinalOutputRecorderManagerForApplet(Core::System& system_);
     ~IFinalOutputRecorderManagerForApplet() override;
+
+private:
+    void RejectUnavailableFinalOutputRecorderControl(HLERequestContext& ctx);
 };
 
 } // namespace Service::Audio
