@@ -698,9 +698,10 @@ void IGpuWorker::NormalMapGpuMemory4K(HLERequestContext& ctx) {
                         }
                         const bool promote_identity =
                             identity != m_shared->identity_gpu_mappings.end();
-                        // Same kind-change ordering as 212; plain identity adoption
-                        // needs no GPU drain because the physical backing is unchanged.
-                        if (promote_identity && request->backend_kind != 0)
+                        // A previous raw NVDRV kind update may have changed this
+                        // identity even when the requested kind is zero. Serialize
+                        // the rare ownership transfer with GPU readers like 212.
+                        if (promote_identity)
                             system.GPU().WaitForIdle();
                         const auto mapped = as
                             ? (promote_identity

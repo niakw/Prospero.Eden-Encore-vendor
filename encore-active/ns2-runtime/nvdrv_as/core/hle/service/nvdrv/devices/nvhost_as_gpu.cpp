@@ -657,13 +657,25 @@ NvResult nvhost_as_gpu::PromoteNativeIdentity4K(u32 handle_id, u64 address, u64 
         !NativePinnedPhysicalSpan(mapping.ptr, 0, size))
         return NvResult::BadParameter;
 
-    // The worker proves exact identity ownership under its shared mutex.
-    // Keep the single allocation/pin; only update the PTE kind/cache metadata.
-    try {
-        gmmu->Map(address, mapping.ptr, size, static_cast<Tegra::PTEKind>(kind), false);
-    } catch (const std::bad_alloc&) {
-        PoisonNativeAddressSpace();
-        return NvResult::InsufficientMemory;
+    // The worker proves exact identity ownership and drains GPU readers.
+    // An identical kind needs no PTE write, no revision bump and no chance
+    // of a RangeMap allocation failure. Inspect every page because a raw
+    // NVDRV kind update may have changed a subrange after 101.
+    const auto requested_kind = static_cast<Tegra::PTEKind>(kind);
+    bool kind_changed = false;
+    for (u64 offset = 0; offset < size; offset += page) {
+        if (gmmu->GetPageKind(address + offset) != requested_kind) {
+            kind_changed = true;
+            break;
+        }
+    }
+    if (kind_changed) {
+        try {
+            gmmu->Map(address, mapping.ptr, size, requested_kind, false);
+        } catch (const std::bad_alloc&) {
+            PoisonNativeAddressSpace();
+            return NvResult::InsufficientMemory;
+        }
     }
     mapping.gpu_cacheable = gpu_cacheable;
     return NvResult::Success;

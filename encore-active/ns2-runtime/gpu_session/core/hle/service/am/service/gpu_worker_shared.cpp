@@ -135,11 +135,13 @@ Nvidia::NvResult GpuWorkerSharedState::BindImportedAddressSpace(
     // must not be mistaken for a new, never-imported one by a later 211.
     const auto first = pending_211.lower_bound({id, 0});
     auto imported_slot = std::find(imported_vm_ids.begin(), imported_vm_ids.end(), id);
-    if (imported_slot != imported_vm_ids.end() &&
-        first != pending_211.end() && first->first.first == id)
-        return Nvidia::NvResult::InvalidState; // Failed rollback, never replay twice.
-    if (imported_slot == imported_vm_ids.end())
-        imported_slot = std::find(imported_vm_ids.begin(), imported_vm_ids.end(), 0);
+    // A previously committed VM has already consumed its pending 211
+    // replay list. A poisoned rollback can also have no pending 211 at all
+    // (identity-only replay). Neither is safe to import into a fresh GMMU.
+    // Only a clean failed first import, which leaves no history, may retry.
+    if (imported_slot != imported_vm_ids.end())
+        return Nvidia::NvResult::InvalidState;
+    imported_slot = std::find(imported_vm_ids.begin(), imported_vm_ids.end(), 0);
     if (imported_slot == imported_vm_ids.end())
         return Nvidia::NvResult::InsufficientMemory;
     try {

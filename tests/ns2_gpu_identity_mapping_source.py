@@ -1473,7 +1473,7 @@ compiler = os.environ.get("CXX") or shutil.which("clang++") or shutil.which("g++
 assert compiler, "C++ compiler required for NS2 211 pre-import contract"
 identity_decl = shared.split("struct IdentityGpuMapping {", 1)[1].split("\n};", 1)[0]
 shared_fields = shared.split("    GpuSessionProtocol::AddressSpaceSlots address_spaces;", 1)[1].split("    void UnbindImportedAddressSpace(", 1)[0]
-methods = shared_cpp.split("bool GpuWorkerSharedState::CanStageBeforeImport(", 1)[1].split("void GpuWorkerSharedState::UnbindImportedAddressSpace(", 1)[0]
+methods = shared_cpp.split("bool GpuWorkerSharedState::CanStageBeforeImport(", 1)[1].split("GpuWorkerSharedState::~GpuWorkerSharedState()", 1)[0]
 fixture = r'''
 #include <algorithm>
 #include <array>
@@ -1538,6 +1538,7 @@ struct GpuWorkerSharedState {
     Kernel::KProcess* native_process{};
     GpuSessionProtocol::AddressSpaceSlots address_spaces;
 ''' + shared_fields + r'''
+    void UnbindImportedAddressSpace(std::uint32_t id, const Nvidia::Devices::nvhost_as_gpu* as);
 };
 bool GpuWorkerSharedState::CanStageBeforeImport(''' + methods + r'''
 }
@@ -1594,6 +1595,12 @@ int main() {
     assert(state.BindImportedAddressSpace(12,second) == NvResult::Success);
     assert(second->mappings.size() == 2 && state.identity_gpu_mappings[0].HasSpace(12));
     assert(state.pending_211.empty());
+    // A retired previously imported VM no longer has its explicit 211
+    // replay list. Never expose an incomplete replacement address space.
+    state.UnbindImportedAddressSpace(12,second.get());
+    auto replacement = std::make_shared<nvhost_as_gpu>(); replacement->process = &process;
+    assert(state.BindImportedAddressSpace(12,replacement) == NvResult::InvalidState);
+    assert(replacement->mappings.empty() && !replacement->committed);
     auto doomed = explicit_map; doomed.address_space = 13;
     assert(state.StageBeforeImport(doomed) == NvResult::Success);
     auto third = std::make_shared<nvhost_as_gpu>(); third->process = &process;
@@ -1629,8 +1636,15 @@ for marker in ("mapping_map.find(address)", "allocation_map.find(address)",
 assert "PinHandle(" not in promote and "AllocateFixed(" not in promote
 for marker in ("request->memory_offset == 0", "entry.handle == request->memory",
                "entry.address == request->address", "entry.size == request->size",
-               "entry.HasSpace(request->address_space)", "promote_identity && request->backend_kind != 0",
+               "entry.HasSpace(request->address_space)", "if (promote_identity)\n                            system.GPU().WaitForIdle();",
                "request->size, 0, false)"):
     assert marker in _overlay_worker, marker
 assert _overlay_worker.index("as->PromoteNativeIdentity4K(") < _overlay_worker.index("ledger.CommitPrepared(staged_ledger)") < _overlay_worker.index("identity->RemoveSpace(request->address_space)") < _overlay_worker.index("m_shared->events[request->notification]->Signal(kernel)")
 print("NS2_211_POSTIMPORT_IDENTITY_TRANSFER_SOURCE_PASS")
+
+# Kind-preserving 101 adoption does not rewrite the existing GMMU pages.
+assert "gmmu->GetPageKind(address + offset) != requested_kind" in promote
+assert promote.index("if (kind_changed)") < promote.index("gmmu->Map(address, mapping.ptr")
+assert promote.index("gmmu->Map(address, mapping.ptr") < promote.index("mapping.gpu_cacheable = gpu_cacheable")
+assert _overlay_worker.index("if (promote_identity)\n                            system.GPU().WaitForIdle();") < _overlay_worker.index("as->PromoteNativeIdentity4K(")
+print("NS2_211_IDENTITY_KIND_PRESERVATION_SOURCE_PASS")
