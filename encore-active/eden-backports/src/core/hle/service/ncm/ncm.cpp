@@ -140,12 +140,36 @@ private:
         rb.Push(IPC::ResultNotSupported);
     }
 
+    Result ResolveInstalledProgramPath(
+        OutLargeData<ResolverPath, BufferAttr_HipcPointer> out_path, u64 program_id,
+        Result not_found) {
+        auto* const registered_cache =
+            system.GetFileSystemController().GetRegisteredCacheForStorage(storage);
+        R_UNLESS(registered_cache != nullptr, not_found);
+
+        const auto path =
+            registered_cache->GetRegisteredContentPath(program_id, FileSys::ContentRecordType::Program);
+        R_UNLESS(path.has_value(), not_found);
+        R_UNLESS(path->size() < sizeof(ResolverPath), ResultInvalidPath);
+
+        ResolverPath guest_path{};
+        std::copy(path->begin(), path->end(), guest_path.begin());
+        *out_path = guest_path;
+        R_SUCCEED();
+    }
+
     Result ResolveProgramPath(
         OutLargeData<ResolverPath, BufferAttr_HipcPointer> out_path, u64 program_id) {
-        // Complete for guest-provided redirections. Installed-content fallback remains unavailable
-        // until Encore models an Horizon ContentPath rather than exposing a host VFS path.
-        R_RETURN(ResolveFromRedirection(out_path, program_redirects, program_id,
-                                        ResultProgramNotFound));
+        if (const auto* const entry = FindRedirection(program_redirects, program_id);
+            entry != nullptr) {
+            *out_path = entry->path;
+            R_SUCCEED();
+        }
+
+        // Horizon falls back to the latest program content in the resolver's NCM
+        // storage. RegisteredCache exposes the corresponding guest-visible
+        // "registered/...nca" path, so no PS5/VFS host path leaks into IPC.
+        R_RETURN(ResolveInstalledProgramPath(out_path, program_id, ResultProgramNotFound));
     }
 
     Result RedirectProgramPath(
@@ -258,7 +282,10 @@ private:
             *out_path = entry->path;
             R_SUCCEED();
         }
-        return ResultDebugProgramNotFound;
+
+        // Same fallback as Horizon's debug resolver, with the debug-specific
+        // not-found result when no installed Program content exists.
+        R_RETURN(ResolveInstalledProgramPath(out_path, program_id, ResultDebugProgramNotFound));
     }
 
     Result RedirectProgramPathForDebug(
