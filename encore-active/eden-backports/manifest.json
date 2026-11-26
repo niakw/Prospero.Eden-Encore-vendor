@@ -476,13 +476,13 @@
       "upstream": "ed7cce070a4e6bab7d023bb2cd63f61f1101d5340edbd3be3c26fb3c6fdf728b"
     },
     "src/core/hle/service/hid/hid_system_server.cpp": {
-      "active": "bcee255d7bc9e3a3424c42dd1125a80bc9c1717b48a536cf08f75860e4a7e2b4",
-      "bytes": 54027,
+      "active": "eabdab686a1aa0254efdfd1094c67138e78b4ee66d5578cc46e9cbc164d1c696",
+      "bytes": 55428,
       "upstream": "c49157a0b9c11f7cd3dd5f0be3e115b07985dfb680aa105ce892e530b3774542"
     },
     "src/core/hle/service/hid/hid_system_server.h": {
-      "active": "c04f943cfc2cc86a6e4927f32af5de10d74cb13b9bbf3ba29050a94c334aae3a",
-      "bytes": 4549,
+      "active": "a810da5d0a5c0a89f3b3b01228065bcc2cdf332044a8c95ec799bf0d5ee58288",
+      "bytes": 4607,
       "upstream": "9bffe217aa3be684399ab099fb80b7f17d793615af6e5179a5fba575b0cff5f3"
     },
     "src/core/hle/service/ldr/ldr.cpp": {
@@ -516,8 +516,8 @@
       "bytes": 64300
     },
     "src/core/hle/service/nim/nim.cpp": {
-      "active": "d5a75f5c272e10ef770922e13cab7fe637466df756c6a84b9bc4ce8a51792bf1",
-      "bytes": 37572,
+      "active": "fe4c3f7bc63eeba3dc9b6ef83209ae0b35d61a7cc54fc71906f2dbdf923da9af",
+      "bytes": 37728,
       "upstream": "a979336b64b788105e713f4ec6c9eaffcda089c6550c4d44edfa742e8ca5e2a1"
     },
     "src/core/hle/service/npns/npns.cpp": {
@@ -526,13 +526,13 @@
       "upstream": "a04bfd1d0a1289e9102e902f6adecafc86cb4dfdba58027bdc717cb9c1b0a18b"
     },
     "src/core/hle/service/ns/application_manager_interface.cpp": {
-      "active": "5182cc309f5011b26b8054d90c4fdc561c30a6dd1787df8c4425d607fd40eb6b",
-      "bytes": 109365,
+      "active": "3a5ebba9cc7f480a807172e0526fd3f5e31a3a1772a3ff357e73980c45882cdf",
+      "bytes": 111918,
       "upstream": "86874e0f8769c04c1c66b4b8b0d00549aa328a6ed58a6898f343e67431861fba"
     },
     "src/core/hle/service/ns/application_manager_interface.h": {
-      "active": "4734ff728b09edec8ebe142f77e5d69b71436f6c653da4eadc1d1cc25b48d9a7",
-      "bytes": 11882,
+      "active": "ec6fa2e43f3083ea61e07f4c0d412efa1637910161dfd3008ced05197c2ad5a8",
+      "bytes": 11953,
       "upstream": "1ed17c086a3e2e34697453855e0f69583ad80196093a0944ef10929bdb56d49e"
     },
     "src/core/hle/service/ns/dynamic_rights_interface.cpp": {
@@ -761,8 +761,8 @@
       "upstream": "8175a9bd924f52caac68778a090604b0d768e560c98be1b786f4c55190fcb676"
     },
     "src/core/hle/service/vi/application_display_service.cpp": {
-      "active": "7352a5397578cb3c9713f04f4d23ab08cc115bb7741793c9fc43a80de7f8f92c",
-      "bytes": 15506,
+      "active": "957ad92dc58a175b99bff2b6bcce140c632d6a91a3c2067f7db77d363ca0d2ac",
+      "bytes": 15624,
       "upstream": "ee8164870ef1cd84eeb254fcb4ba80c30e100bce1003b7811f765d6efe36f771"
     },
     "src/core/hle/service/vi/application_root_service.cpp": {
@@ -776,13 +776,13 @@
       "upstream": "51868893a55f90bbc4d0a7375048c388120e03acc415908781cd635bc906d1c5"
     },
     "src/core/hle/service/vi/system_display_service.cpp": {
-      "active": "6f58f171756664e62b1fc5668e104d54db5cdecd06577f58692d725fae57c7c0",
-      "bytes": 10117,
+      "active": "64e3372dddf379297969f71634d80965fe37874bfcc01e79b48f5e497bfbd729",
+      "bytes": 11990,
       "upstream": "55aa3160d6586216b628cc0d0e9515a78cb903384545a128189d2e4c45167ef2"
     },
     "src/core/hle/service/vi/system_display_service.h": {
-      "active": "fce46ec8790f50a16d728c134bb5f7d80a4e382915c4a5adc79644102ae8c9b7",
-      "bytes": 2527,
+      "active": "e80ad2a2f355f8d3ea91e10f32053eea09056e5bd792be06cce77ce25d7c6f67",
+      "bytes": 2599,
       "upstream": "8aa0df0611d60719073e534cb291006e71c91babe8164d93fa5a72e8e32d154a"
     },
     "src/core/hle/service/vi/system_root_service.cpp": {
@@ -886,13 +886,13 @@
       "upstream": "1443851d46bdc6559852b2988fa8c651975119ffff2d60ede4f3d7cd55824f2f"
     },
     "src/core/hle/service/omm/power_state_interface.cpp": {
-      "active": "d51935cfe62c9d956778d3ab6b30ba0660ec12cf7d56da2f07178a1ea59bd528",
-      "bytes": 1999,
+      "active": "6ef5d3da84b06d174240eaeb56c157f2abe277305c8541a463eeceb4f5d56d92",
+      "bytes": 2847,
       "upstream": "8a8f647a8650614ad51494a6b83e642c2b12b347adc7e80fcb5d642da62a2876"
     },
     "src/core/hle/service/omm/power_state_interface.h": {
-      "active": "557a3c3b7341880d7893bedbaefe8b84ffe8a0ae14937f8b2b6b1725ccd3621b",
-      "bytes": 516,
+      "active": "98e69f0c002460c199214634ea1b4ffcd2e4687994aa732282be96e51bfaf951",
+      "bytes": 566,
       "upstream": "650897d9c03aedb21a713aa50e91cf51218bc2378b7e6923fd8532f042a4803c"
     },
     "src/core/hle/service/pcv/pcv.cpp": {
