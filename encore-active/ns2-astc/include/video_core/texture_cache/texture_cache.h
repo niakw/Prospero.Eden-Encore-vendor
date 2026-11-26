@@ -170,9 +170,13 @@ void TextureCache<P>::RunGarbageCollector() {
     };
 #ifdef PS5_NATIVE
     // Prefetch only a prefix of independent dirty eviction candidates. Do not
-    // change LRU order, the visit budget, pressure policy or guest write order.
+    // change LRU order, the eviction budget, pressure policy or guest write order.
     // A deferred staging handle remains owned until the copy AND guest write.
     using GcMap = decltype(runtime.DownloadStagingBuffer(size_t{}));
+    // Separate traversal and eviction limits: a decoding or protected image
+    // must not consume a reclaim attempt, but scanning remains bounded.
+    constexpr size_t gc_scan_limit = 8192;
+    size_t gc_scanned = 0;
     constexpr size_t gc_batch_count = 40;
     constexpr size_t gc_batch_bytes = 32_MiB;
     boost::container::small_vector<std::pair<ImageId, GcMap>, gc_batch_count> gc_maps;
@@ -200,12 +204,14 @@ void TextureCache<P>::RunGarbageCollector() {
             if (!high_priority_mode || frame_tick < ticks_to_destroy) return;
             boost::container::small_vector<ImageId, gc_batch_count> candidates;
             size_t remaining = num_iterations;
+            size_t scanned = 0;
             size_t capacity = 0;
             u64 projected_usage = total_used_memory;
             const u64 stop_usage = aggressive_mode ? critical_memory : expected_memory;
             lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, [&](ImageId id) {
-                if (remaining == 0 || candidates.size() == gc_batch_count) return true;
-                --remaining;
+                if (remaining == 0 || scanned >= gc_scan_limit ||
+                    candidates.size() == gc_batch_count) return true;
+                ++scanned;
                 const Image& image = slot_images[id];
                 if (True(image.flags & ImageFlagBits::IsDecoding) ||
                     (!aggressive_mode && True(image.flags & ImageFlagBits::CostlyLoad))) {
@@ -230,6 +236,7 @@ void TextureCache<P>::RunGarbageCollector() {
                     if (image.cpu_addr < other.cpu_addr_end &&
                         other.cpu_addr < image.cpu_addr_end) return true;
                 }
+                --remaining;
                 candidates.push_back(id);
                 capacity += rounded;
                 u64 reclaimed = (std::max)(image.guest_size_bytes, image.unswizzled_size_bytes);
@@ -291,14 +298,22 @@ void TextureCache<P>::RunGarbageCollector() {
 #endif
 #ifdef PS5_NATIVE
     const auto Cleanup = [this, &num_iterations, &high_priority_mode, &aggressive_mode,
-                          &UseGcPrefetch](ImageId image_id) {
+                          &UseGcPrefetch, &gc_scanned](ImageId image_id) {
 #else
     const auto Cleanup = [this, &num_iterations, &high_priority_mode, &aggressive_mode](ImageId image_id) {
 #endif
-        if (num_iterations == 0) {
+        if (num_iterations == 0
+#ifdef PS5_NATIVE
+            || gc_scanned >= gc_scan_limit
+#endif
+        ) {
             return true;
         }
+#ifdef PS5_NATIVE
+        ++gc_scanned;
+#else
         --num_iterations;
+#endif
         auto& image = slot_images[image_id];
         if (True(image.flags & ImageFlagBits::IsDecoding)) {
             return false;
@@ -308,6 +323,9 @@ void TextureCache<P>::RunGarbageCollector() {
             return false;
         }
 #ifdef PS5_NATIVE
+        // Charge each eligible attempt, including failed readbacks; only
+        // protected/skipped entries are free against the eviction budget.
+        --num_iterations;
         if (must_download && !UseGcPrefetch(image_id, image)) {
 #else
         if (must_download) {
@@ -354,6 +372,7 @@ void TextureCache<P>::RunGarbageCollector() {
     const auto CollectEligible = [&] {
 #ifdef PS5_NATIVE
         if (frame_tick < ticks_to_destroy) return;
+        gc_scanned = 0;
         PrefetchGc();
 #endif
         lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, Cleanup);
