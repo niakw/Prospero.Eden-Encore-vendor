@@ -46,7 +46,8 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
     case InfoType::Nx2RemoteMemorySize:
     case InfoType::Nx2RemoteMemoryUsed:
     case InfoType::Nx2VammSize:
-    case InfoType::AliasRegionExtraSize: {
+    case InfoType::AliasRegionExtraSize:
+    case InfoType::AddressSpaceSize: {
         R_UNLESS(info_sub_id == 0, ResultInvalidEnumValue);
 
         const auto& handle_table = GetCurrentProcess(system.Kernel()).GetHandleTable();
@@ -152,10 +153,14 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
             R_SUCCEED();
         case InfoType::AliasRegionExtraSize: {
             R_UNLESS(info_sub_id == 0, ResultInvalidCombination);
-            KProcess* current_process = GetCurrentProcessPointer(system.Kernel());
-            *result = current_process->GetPageTable().GetAliasRegionExtraSize();
+            *result = process->GetPageTable().GetAliasRegionExtraSize();
             R_SUCCEED();
         }
+        case InfoType::AddressSpaceSize:
+            // HOS 23 InfoType 36 reports the address-space size of the process handle,
+            // not the caller's process. The page table already owns this exact bound.
+            *result = process->GetPageTable().GetAddressSpaceSize();
+            R_SUCCEED();
         default:
             break;
         }

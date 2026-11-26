@@ -173,6 +173,7 @@ enum class InfoType : u32 {
     Nx2VammSize = 33,
 
     TransferMemoryHint = 34,
+    AddressSpaceSize = 36,
 
     Unknown37 = 37,
     Unknown38 = 38,
