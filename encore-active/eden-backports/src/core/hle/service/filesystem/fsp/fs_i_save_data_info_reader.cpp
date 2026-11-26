@@ -68,7 +68,7 @@ ISaveDataInfoReader::ISaveDataInfoReader(
             return true;
         }
         if (filter.use_save_data_id &&
-            static_cast<u64>(entry.save_id) != filter.attribute.system_save_data_id) {
+            static_cast<u64>(entry.save_id_unknown) != filter.attribute.system_save_data_id) {
             return true;
         }
         if (filter.use_index && static_cast<u16>(entry.index) != filter.attribute.index) {
@@ -95,6 +95,28 @@ static u64 stoull_be(std::string_view str) {
 
     return Common::swap64(out);
 }
+
+FileSys::VirtualDir GetVfsRoot(FileSys::VirtualDir directory) {
+    while (directory != nullptr) {
+        const auto parent = directory->GetParentDirectory();
+        if (parent == nullptr) {
+            break;
+        }
+        directory = parent;
+    }
+    return directory;
+}
+
+u64 GetPublishedSaveDataId(const FileSys::VirtualDir& save_directory) {
+    const auto root = GetVfsRoot(save_directory);
+    const auto save_data_id = FileSys::SaveDataFactory::EnsureSaveDataId(root, save_directory);
+    if (!save_data_id.has_value()) {
+        LOG_ERROR(Service_FS, "Failed to resolve published ID for save {}", save_directory->GetFullPath());
+        return 0;
+    }
+    return *save_data_id;
+}
+
 
 Result ISaveDataInfoReader::ReadSaveDataInfo(
     Out<u64> out_count, OutArray<SaveDataInfo, BufferAttr_HipcMapAlias> out_entries) {
@@ -137,7 +159,7 @@ std::optional<ISaveDataInfoReader::SaveDataInfo> ISaveDataInfoReader::FindSaveDa
             return false;
         }
         if (filter.use_save_data_id &&
-            static_cast<u64>(entry.save_id) != filter.attribute.system_save_data_id) {
+            static_cast<u64>(entry.save_id_unknown) != filter.attribute.system_save_data_id) {
             return false;
         }
         if (filter.use_index && static_cast<u16>(entry.index) != filter.attribute.index) {
@@ -190,7 +212,7 @@ void ISaveDataInfoReader::FindNormalSaves(FileSys::SaveDataSpaceId space,
             if (save_id_numeric != 0) {
                 // System Save Data
                 info.emplace_back(SaveDataInfo{
-                    0,
+                    save_id_numeric,
                     space,
                     FileSys::SaveDataType::System,
                     {},
@@ -209,7 +231,7 @@ void ISaveDataInfoReader::FindNormalSaves(FileSys::SaveDataSpaceId space,
                 const auto device = std::all_of(user_id_numeric.begin(), user_id_numeric.end(),
                                                 [](u8 val) { return val == 0; });
                 info.emplace_back(SaveDataInfo{
-                    0,
+                    GetPublishedSaveDataId(title_id),
                     space,
                     device ? FileSys::SaveDataType::Device : FileSys::SaveDataType::Account,
                     {},
@@ -281,7 +303,7 @@ void ISaveDataInfoReader::FindCacheStorageSaves(FileSys::SaveDataSpaceId space, 
             continue;
         }
         info.emplace_back(SaveDataInfo{
-            0,
+            GetPublishedSaveDataId(title_dir),
             space,
             FileSys::SaveDataType::Cache,
             {},
