@@ -684,16 +684,16 @@ public:
             // as zero-reply stubs. Keep them *explicit* for structural parity,
             // but do not claim success without an ABI/effect contract.
             {13,&IVi2Session::Unsupported,"Unknown13"},
-            {107,&IVi2Session::Unsupported,"Unknown107"},
+            {107,&IVi2Session::QueryDisplayModeCapability,"GetDisplayModeCapability"},
             {108,&IVi2Session::Unsupported,"Unknown108"},
             {113,&IVi2Session::Unsupported,"Unknown113"},
             {230,&IVi2Session::Unsupported,"Unknown230"},
             {231,&IVi2Session::Unsupported,"Unknown231"},
             {232,&IVi2Session::Unsupported,"Unknown232"},
-            {301,&IVi2Session::Unsupported,"Unknown301"},
+            {301,&IVi2Session::SetRefreshRateCapability,"SetDisplayRefreshRateCapability"},
             {302,&IVi2Session::Unsupported,"Unknown302"},
             {353,&IVi2Session::Unsupported,"Unknown353"},
-            {354,&IVi2Session::Unsupported,"Unknown354"},
+            {354,&IVi2Session::QueryRefreshRateBits,"GetDisplayRefreshRateBits"},
             {355,&IVi2Session::Unsupported,"Unknown355"},
             {356,&IVi2Session::Unsupported,"Unknown356"},
             {358,&IVi2Session::Unsupported,"Unknown358"},
@@ -784,6 +784,37 @@ private:
         rb.Push<u32>(result.IsSuccess()
                           ? GraphicsSupervisorProtocol::Vi2NominalRefreshRateHz : 0);
         rb.Push<u32>(0); // SDK's refresh-rate capability boolean.
+    }
+    // ScarletNX gsv.swipc: mode capabilities are three u64 bit sets;
+    // current refresh is a rate bit, NOT the numeric Hz value of cmd103.
+    // The existing Encore display scheduler is fixed at 60 Hz / SDR.
+    void QueryDisplayModeCapability(HLERequestContext& ctx) {
+        const Result result = ValidateDisplayStatus(ctx, 107);
+        IPC::ResponseBuilder rb{ctx, 8};
+        rb.Push(result.raw);
+        rb.Push<u64>(result.IsSuccess() ? GraphicsSupervisorProtocol::Vi2SupportedRateBits : 0);
+        rb.Push<u64>(result.IsSuccess() ? GraphicsSupervisorProtocol::Vi2SdrOutputFormat : 0);
+        rb.Push<u64>(0); // No secondary rate modes.
+    }
+    void QueryRefreshRateBits(HLERequestContext& ctx) {
+        const Result result = ValidateDisplayStatus(ctx, 354);
+        IPC::ResponseBuilder rb{ctx, 4};
+        rb.Push(result.raw);
+        rb.Push<u64>(result.IsSuccess() ? GraphicsSupervisorProtocol::Vi2SupportedRateBits : 0);
+    }
+    void SetRefreshRateCapability(HLERequestContext& ctx) {
+        const auto* p = ctx.CommandBuffer();
+        Result result = Kernel::ResultInvalidCombination;
+        if (GraphicsSupervisorProtocol::IsDefaultVi2RefreshRateSelection(
+                p[0], p[1], W(p, 2), W(p, 6))) {
+            result = m_display && m_vi ? ResultSuccess : Kernel::ResultInvalidState;
+            // The SDK can request a rate the display does not offer.
+            // Like ScarletNX's fixed-60Hz backend, only offered rates take
+            // effect and 60 Hz remains enabled. No refresh-change event
+            // is emitted when the effective rate has not changed.
+        }
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(result.raw);
     }
     void QueryHdrStatus(HLERequestContext& ctx) {
         const Result result = ValidateDisplayStatus(ctx, 104);
@@ -1345,16 +1376,28 @@ private:
                                         result=Kernel::ResultOutOfResource;
                                     }
                                 }
+                                // Both host allocations must finish before the GraphicBuffer
+                                // constructor acquires its NVMap duplicate/pin. An aliasing
+                                // shared_ptr then needs no additional control block allocation.
+                                std::shared_ptr<android::NvGraphicBuffer> native;
+                                std::shared_ptr<std::optional<android::GraphicBuffer>> storage;
                                 if(result.IsSuccess()){
-                                    auto native=std::make_shared<android::NvGraphicBuffer>();
+                                    try {
+                                        native=std::make_shared<android::NvGraphicBuffer>();
+                                        storage=std::make_shared<std::optional<android::GraphicBuffer>>();
+                                    } catch (const std::bad_alloc&) {
+                                        result=Kernel::ResultOutOfResource;
+                                    }
+                                }
+                                if(result.IsSuccess()){
                                     native->width=static_cast<s32>(width);
                                     native->height=static_cast<s32>(height);
                                     native->stride=static_cast<s32>(pref[5]*16);
                                     native->format=android::PixelFormat::Rgba8888;
                                     native->external_format=native->format;
                                     native->buffer_id=img->buffer_id;native->offset=img->offset;
-                                    auto buffer=std::make_shared<android::GraphicBuffer>(
-                                        nv.GetNvMapFile(),native);
+                                    auto& graphic=storage->emplace(nv.GetNvMapFile(),native);
+                                    std::shared_ptr<android::GraphicBuffer> buffer(std::move(storage), &graphic);
                                     s32 idx{};result=Kernel::ResultOutOfResource;
                                     const auto attached=c->producer->AttachBuffer(&idx,buffer);
                                     // AttachBuffer returns ReleaseAllBuffers as a success flag

@@ -22,7 +22,7 @@ namespace Service::AM::GraphicsSupervisorProtocol {
 constexpr u64 Vi2DefaultDisplayName = 0x00746c7561666564ULL; // "default"
 [[nodiscard]] constexpr bool IsDefaultVi2DisplayQuery(
     u32 header, u32 word_count, u64 display_name, u32 command) noexcept {
-    return command >= 103 && command <= 106 &&
+    return ((command >= 103 && command <= 107) || command == 354) &&
            header == command + 16 && word_count == 2 &&
            display_name == Vi2DefaultDisplayName;
 }
@@ -32,6 +32,14 @@ constexpr u64 Vi2DefaultDisplayName = 0x00746c7561666564ULL; // "default"
     return docked ? 4ULL : 2ULL;
 }
 constexpr u32 Vi2NominalRefreshRateHz = 60;
+constexpr u64 Vi2SupportedRateBits = 1ULL; // 60 Hz only; no 120 Hz or VRR.
+constexpr u64 Vi2KnownRateMask = 3ULL | (1ULL << 63);
+[[nodiscard]] constexpr bool IsDefaultVi2RefreshRateSelection(
+    u32 header, u32 word_count, u64 display_name, u64 mask) noexcept {
+    return header == 16 + 301 && word_count == 6 &&
+           display_name == Vi2DefaultDisplayName &&
+           (mask & ~Vi2KnownRateMask) == 0;
+}
 constexpr u64 Vi2SdrOutputFormat = 1;
 constexpr u32 Vi2SdrPeakNits = 400;
 constexpr u32 Vi2SdrPaperWhiteNits = 203;

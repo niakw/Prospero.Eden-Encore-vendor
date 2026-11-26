@@ -237,12 +237,22 @@ assert "rb.PushCopyObjects(ctx,m_event->GetReadableEvent());" in vi2_notificatio
 
 # All known Lichii nx2 VI2 IDs must have a named dispatch. Unknown
 # firmware semantics stay fail-closed: no copied request or fake Success.
-opaque_vi2_ids = (13, 107, 108, 113, 230, 231, 232, 301, 302,
-                  353, 354, 355, 356, 358, 359)
+opaque_vi2_ids = (13, 108, 113, 230, 231, 232, 302,
+                  353, 355, 356, 358, 359)
 for command in opaque_vi2_ids:
     assert f"{{{command},&IVi2Session::Unsupported," in vi2, command
 unsupported = vi2.split("void Unsupported(HLERequestContext& ctx) {", 1)[1].split("\n    }", 1)[0]
 assert "rb.Push(Kernel::ResultNotImplemented.raw);" in unsupported
+# ScarletNX gsv.swipc 107/301/354: exact static display capability ABI.
+for marker in (
+    '{107,&IVi2Session::QueryDisplayModeCapability,"GetDisplayModeCapability"}',
+    '{301,&IVi2Session::SetRefreshRateCapability,"SetDisplayRefreshRateCapability"}',
+    '{354,&IVi2Session::QueryRefreshRateBits,"GetDisplayRefreshRateBits"}',
+    "ValidateDisplayStatus(ctx, 107)", "ValidateDisplayStatus(ctx, 354)",
+    "GraphicsSupervisorProtocol::IsDefaultVi2RefreshRateSelection(",
+):
+    assert marker in vi2, marker
+assert "Vi2SupportedRateBits = 1ULL" in proto
 history = vi2.split("void GetRecordedTimestamps(HLERequestContext& ctx) {",1)[1].split("\n    }",1)[0]
 for evidence in ("recorder = p[5]", "W(p, 6) & 0x1f", "W(p, 8)",
                  "NativeTipcReplyWords(ctx, {0, 0, 1})",
@@ -590,6 +600,16 @@ int main() {
     assert(!DecodeApplicationGpuScheduledSpan(std::span<const u32>{packet.data(), 5}));
     packet = {27, 4, 0xffffffffU, 0xffffffffU, 0, 0};
     assert(DecodeApplicationGpuScheduledSpan(packet) == 0);
+    using namespace Service::AM::GraphicsSupervisorProtocol;
+    static_assert(Vi2SupportedRateBits == 1);
+    static_assert(IsDefaultVi2DisplayQuery(123, 2, Vi2DefaultDisplayName, 107));
+    static_assert(IsDefaultVi2DisplayQuery(370, 2, Vi2DefaultDisplayName, 354));
+    static_assert(!IsDefaultVi2DisplayQuery(370, 1, Vi2DefaultDisplayName, 354));
+    static_assert(!IsDefaultVi2DisplayQuery(370, 2, 0, 354));
+    static_assert(IsDefaultVi2RefreshRateSelection(317, 6, Vi2DefaultDisplayName, 2));
+    static_assert(IsDefaultVi2RefreshRateSelection(317, 6, Vi2DefaultDisplayName, 1ULL << 63));
+    static_assert(!IsDefaultVi2RefreshRateSelection(317, 5, Vi2DefaultDisplayName, 2));
+    static_assert(!IsDefaultVi2RefreshRateSelection(317, 6, Vi2DefaultDisplayName, 4));
 }
 """
 with _tempfile.TemporaryDirectory(prefix="eden-ns2-gpu-time-") as _dir:
@@ -608,3 +628,4 @@ with _tempfile.TemporaryDirectory(prefix="eden-ns2-gpu-time-") as _dir:
     _run = _subprocess.run([str(_output)], capture_output=True, text=True, timeout=15)
     assert _run.returncode == 0, _run.stderr[-5000:]
 print("NS2_GPU_TIME_TIPC11_HOST_PASS scheduled_interval=saturated reverse=zero malformed=rejected")
+print("NS2_VI2_FIXED_RATE_CAPABILITY_HOST_PASS commands=107,301,354 supported=60Hz_SDR")
