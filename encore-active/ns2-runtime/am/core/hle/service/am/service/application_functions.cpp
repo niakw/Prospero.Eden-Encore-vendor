@@ -781,35 +781,82 @@ Result IApplicationFunctions::CreateApplicationAndPushAndRequestToStart(
 
 Result IApplicationFunctions::CreateApplicationAndPushAndRequestToStartForQuest(
     u32 attribute0, u32 attribute1, u64 application_id, SharedPointer<IStorage> storage) {
-    LOG_INFO(Service_AM,
-             "called, application_id={:016X}, quest_attr0={:#x}, quest_attr1={:#x}",
-             application_id, attribute0, attribute1);
+    if (attribute0 != 0 || attribute1 != 0) {
+        LOG_WARNING(Service_AM,
+                    "Quest kiosk policy is unavailable, application_id={:016X}, attr0={:#x}, attr1={:#x}",
+                    application_id, attribute0, attribute1);
+        R_RETURN(ResultUnknown);
+    }
 
-    // The Quest attributes tune kiosk launch policy. Encore can preserve the real user-channel
-    // storage and application transition today, while those two policy values are not modeled.
+    LOG_DEBUG(Service_AM, "Quest launch with default kiosk policy, application_id={:016X}",
+              application_id);
     R_RETURN(CreateApplicationAndPushAndRequestToStart(application_id, std::move(storage)));
 }
 
 Result IApplicationFunctions::CreateApplicationAndRequestToStartForQuest(
     u32 attribute0, u32 attribute1, u64 application_id) {
-    LOG_INFO(Service_AM,
-             "called, application_id={:016X}, quest_attr0={:#x}, quest_attr1={:#x}",
-             application_id, attribute0, attribute1);
+    if (attribute0 != 0 || attribute1 != 0) {
+        LOG_WARNING(Service_AM,
+                    "Quest kiosk policy is unavailable, application_id={:016X}, attr0={:#x}, attr1={:#x}",
+                    application_id, attribute0, attribute1);
+        R_RETURN(ResultUnknown);
+    }
+
+    LOG_DEBUG(Service_AM, "Quest launch with default kiosk policy, application_id={:016X}",
+              application_id);
     R_RETURN(CreateApplicationAndRequestToStart(application_id));
 }
 
 Result IApplicationFunctions::CreateApplicationWithAttributeAndPushAndRequestToStartForQuest(
     u64 application_id, InBuffer<BufferAttr_HipcMapAlias> attribute,
     SharedPointer<IStorage> storage) {
-    LOG_INFO(Service_AM, "called, application_id={:016X}, attribute_size={:#x}",
-             application_id, attribute.size());
+    constexpr size_t AttributeSize = 0x20;
+    R_UNLESS(attribute.size() == AttributeSize, ResultUnknown);
+
+    u32 attribute0{};
+    u32 attribute1{};
+    u32 volume_bits{};
+    std::memcpy(&attribute0, attribute.data(), sizeof(attribute0));
+    std::memcpy(&attribute1, attribute.data() + sizeof(attribute0), sizeof(attribute1));
+    std::memcpy(&volume_bits, attribute.data() + sizeof(attribute0) + sizeof(attribute1),
+                sizeof(volume_bits));
+
+    constexpr u32 DefaultVolumeBits = 0x3F800000; // 1.0f
+    if (attribute0 != 0 || attribute1 != 0 || volume_bits != DefaultVolumeBits) {
+        LOG_WARNING(Service_AM,
+                    "Quest application attribute policy is unavailable, application_id={:016X}, attr0={:#x}, attr1={:#x}, volume_bits={:#x}",
+                    application_id, attribute0, attribute1, volume_bits);
+        R_RETURN(ResultUnknown);
+    }
+
+    LOG_DEBUG(Service_AM, "Quest launch with default application attributes, application_id={:016X}",
+              application_id);
     R_RETURN(CreateApplicationAndPushAndRequestToStart(application_id, std::move(storage)));
 }
 
 Result IApplicationFunctions::CreateApplicationWithAttributeAndRequestToStartForQuest(
     u64 application_id, InBuffer<BufferAttr_HipcMapAlias> attribute) {
-    LOG_INFO(Service_AM, "called, application_id={:016X}, attribute_size={:#x}",
-             application_id, attribute.size());
+    constexpr size_t AttributeSize = 0x20;
+    R_UNLESS(attribute.size() == AttributeSize, ResultUnknown);
+
+    u32 attribute0{};
+    u32 attribute1{};
+    u32 volume_bits{};
+    std::memcpy(&attribute0, attribute.data(), sizeof(attribute0));
+    std::memcpy(&attribute1, attribute.data() + sizeof(attribute0), sizeof(attribute1));
+    std::memcpy(&volume_bits, attribute.data() + sizeof(attribute0) + sizeof(attribute1),
+                sizeof(volume_bits));
+
+    constexpr u32 DefaultVolumeBits = 0x3F800000; // 1.0f
+    if (attribute0 != 0 || attribute1 != 0 || volume_bits != DefaultVolumeBits) {
+        LOG_WARNING(Service_AM,
+                    "Quest application attribute policy is unavailable, application_id={:016X}, attr0={:#x}, attr1={:#x}, volume_bits={:#x}",
+                    application_id, attribute0, attribute1, volume_bits);
+        R_RETURN(ResultUnknown);
+    }
+
+    LOG_DEBUG(Service_AM, "Quest launch with default application attributes, application_id={:016X}",
+              application_id);
     R_RETURN(CreateApplicationAndRequestToStart(application_id));
 }
 

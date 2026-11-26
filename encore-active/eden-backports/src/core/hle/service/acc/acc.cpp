@@ -1417,8 +1417,9 @@ void Module::Interface::LoadSaveDataThumbnail(HLERequestContext& ctx) {
 
     const auto path = GetSaveDataThumbnailPath(uuid, tid);
     if (!Common::FS::Exists(path)) {
-        rb.Push(ResultSuccess);
-        rb.Push<u32>(0);
+        // Account result description 22 matches the hardware-facing InvalidArgument
+        // contract used by independent implementations when no save thumbnail exists.
+        rb.Push(Account::ResultInvalidApplication);
         return;
     }
 
