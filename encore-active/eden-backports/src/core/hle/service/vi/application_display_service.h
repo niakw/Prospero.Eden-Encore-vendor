@@ -31,7 +31,8 @@ class ISystemDisplayService;
 
 class IApplicationDisplayService final : public ServiceFramework<IApplicationDisplayService> {
 public:
-    IApplicationDisplayService(Core::System& system_, std::shared_ptr<Container> container);
+    IApplicationDisplayService(Core::System& system_, std::shared_ptr<Container> container,
+                               Permission permission_);
     ~IApplicationDisplayService() override;
 
     std::shared_ptr<Container> GetContainer() const {
@@ -81,6 +82,7 @@ public:
 
 private:
     const std::shared_ptr<Container> m_container;
+    const Permission m_permission;
 
     KernelHelpers::ServiceContext m_context;
     std::mutex m_lock{};

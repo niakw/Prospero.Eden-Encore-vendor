@@ -23,9 +23,11 @@
 namespace Service::VI {
 
 IApplicationDisplayService::IApplicationDisplayService(Core::System& system_,
-                                                       std::shared_ptr<Container> container)
+                                                       std::shared_ptr<Container> container,
+                                                       Permission permission_)
     : ServiceFramework{system_, "IApplicationDisplayService"},
-      m_container{std::move(container)}, m_context{system, "IApplicationDisplayService"} {
+      m_container{std::move(container)}, m_permission{permission_},
+      m_context{system, "IApplicationDisplayService"} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {100, C<&IApplicationDisplayService::GetRelayService>, "GetRelayService"},
@@ -77,6 +79,8 @@ Result IApplicationDisplayService::GetRelayService(
 Result IApplicationDisplayService::GetSystemDisplayService(
     Out<SharedPointer<ISystemDisplayService>> out_system_display_service) {
     LOG_DEBUG(Service_VI, "Creating system display service");
+    R_UNLESS(m_permission == Permission::System || m_permission == Permission::Manager,
+             ResultPermissionDenied);
     *out_system_display_service = std::make_shared<ISystemDisplayService>(system, m_container);
     R_SUCCEED();
 }
@@ -84,6 +88,7 @@ Result IApplicationDisplayService::GetSystemDisplayService(
 Result IApplicationDisplayService::GetManagerDisplayService(
     Out<SharedPointer<IManagerDisplayService>> out_manager_display_service) {
     LOG_DEBUG(Service_VI, "Creating manager display service");
+    R_UNLESS(m_permission == Permission::Manager, ResultPermissionDenied);
     *out_manager_display_service = std::make_shared<IManagerDisplayService>(system, m_container);
     R_SUCCEED();
 }
@@ -91,6 +96,8 @@ Result IApplicationDisplayService::GetManagerDisplayService(
 Result IApplicationDisplayService::GetIndirectDisplayTransactionService(
     Out<SharedPointer<Nvnflinger::IHOSBinderDriver>> out_indirect_display_transaction_service) {
     LOG_DEBUG(Service_VI, "Returning indirect-display binder service");
+    R_UNLESS(m_permission == Permission::System || m_permission == Permission::Manager,
+             ResultPermissionDenied);
     R_RETURN(m_container->GetBinderDriver(out_indirect_display_transaction_service));
 }
 
