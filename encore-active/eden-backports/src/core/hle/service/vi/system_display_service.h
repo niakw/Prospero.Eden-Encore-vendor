@@ -32,6 +32,7 @@ private:
     Result ListDisplayModes(Out<u64> out_count, u64 display_id,
                             OutArray<DisplayMode, BufferAttr_HipcMapAlias> out_display_modes);
     Result GetDisplayMode(Out<DisplayMode> out_display_mode, u64 display_id);
+    void RejectUnsupportedSystemDisplayCommand(HLERequestContext& ctx);
     void RejectDisplayUnderscan(HLERequestContext& ctx);
 
     Result GetSharedBufferMemoryHandleId(
