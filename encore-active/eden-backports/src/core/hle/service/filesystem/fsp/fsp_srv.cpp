@@ -1635,12 +1635,27 @@ Result FSP_SRV::OpenGameCardFileSystem(OutInterface<IFileSystem> out_interface, 
 
 Result FSP_SRV::ExtendSaveDataFileSystem(FileSys::SaveDataSpaceId space_id, u64 save_data_id,
                                          s64 available_size, s64 journal_size) {
-    // No save-data-id index exists in Encore. Never claim an extension that was not applied.
-    LOG_WARNING(Service_FS,
-                "unresolved save id, space_id={}, save_data_id={:016X}, available_size={:#x}, "
-                "journal_size={:#x}",
-                space_id, save_data_id, available_size, journal_size);
-    R_RETURN(FileSys::ResultTargetNotFound);
+    LOG_DEBUG(Service_FS,
+              "called, space_id={}, save_data_id={:016X}, available_size={:#x}, journal_size={:#x}",
+              space_id, save_data_id, available_size, journal_size);
+
+    R_UNLESS(save_data_controller != nullptr, FileSys::ResultTargetNotFound);
+    R_UNLESS(available_size >= 0 && journal_size >= 0, FileSys::ResultInvalidSize);
+
+    const auto match = FindDirectorySaveById(system, save_data_controller, space_id, save_data_id);
+    R_UNLESS(match.has_value(), FileSys::ResultTargetNotFound);
+
+    FileSys::SaveDataExtraData current{};
+    R_TRY(ReadDirectorySaveExtraData(save_data_controller, *match, &current));
+
+    // Horizon's extend operation is monotonic. For directory-backed saves, LibHac updates the
+    // persisted ExtraData instead of manufacturing or resizing an image file.
+    R_UNLESS(available_size >= current.available_size && journal_size >= current.journal_size,
+             FileSys::ResultInvalidSize);
+
+    current.available_size = available_size;
+    current.journal_size = journal_size;
+    R_RETURN(WriteDirectorySaveExtraData(save_data_controller, *match, current));
 }
 
 Result FSP_SRV::DeleteCacheStorage(u16 index) {
