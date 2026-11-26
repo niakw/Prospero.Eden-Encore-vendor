@@ -4,6 +4,9 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <fmt/format.h>
+
+#include "common/hex_util.h"
 #include "core/core.h"
 #include "core/frontend/applets/error.h"
 #include "core/reporter.h"
@@ -353,7 +356,14 @@ Result ILibraryAppletSelfAccessor::ReportVisibleErrorWithErrorContext(
                 "displaying visible error {}-{} with ErrorContext type={} context_result={:08X}",
                 error_code.category, error_code.number, error_context->type,
                 error_context->result.raw);
-    system.GetReporter().SaveErrorReport(system.GetApplicationProcessProgramID(), *result);
+
+    // ErrorContext contains firmware-specific opaque fields. Preserve the complete payload in the
+    // local error report instead of dropping everything except type/result or inventing semantics.
+    const auto context_detail =
+        fmt::format("ErrorContext type={} result={:08X} data={}", error_context->type,
+                    error_context->result.raw, Common::HexToString(error_context->data));
+    system.GetReporter().SaveErrorReport(system.GetApplicationProcessProgramID(), *result, {},
+                                         context_detail);
     frontend->ShowError(*result, [] {});
     R_SUCCEED();
 }
