@@ -20,6 +20,8 @@
 #include "core/hle/service/psc/time/system_clock.h"
 #include "core/hle/service/psc/time/time_zone.h"
 #include "core/hle/service/psc/time/time_zone_service.h"
+#include "core/hle/service/set/system_settings_server.h"
+#include "core/hle/service/sm/sm.h"
 
 namespace Service::PSC::Time {
 namespace {
@@ -179,9 +181,11 @@ Result StaticService::SetStandardUserSystemClockAutomaticCorrectionEnabled(
 }
 
 Result StaticService::GetStandardUserSystemClockInitialYear(Out<s32> out_year) {
-    LOG_DEBUG(Service_Time, "called. This function is not implemented!");
+    const auto set_sys =
+        system.ServiceManager().GetService<Service::Set::ISystemSettingsServer>("set:sys", true);
 
-    R_RETURN(ResultNotImplemented);
+    R_RETURN(set_sys->GetSettingsItemValueImpl<s32>(*out_year, "time",
+                                                    "standard_user_clock_initial_year"));
 }
 
 Result StaticService::IsStandardNetworkSystemClockAccuracySufficient(Out<bool> out_is_sufficient) {
