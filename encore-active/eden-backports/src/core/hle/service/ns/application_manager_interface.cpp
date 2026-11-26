@@ -41,6 +41,13 @@ namespace Service::NS {
 
 namespace {
 
+u32 GetInstalledApplicationVersion(const FileSys::ContentProviderUnion& content_provider,
+                                  u64 application_id) {
+    const u32 base_version = content_provider.GetEntryVersion(application_id).value_or(0);
+    return content_provider.GetEntryVersion(FileSys::GetUpdateTitleID(application_id))
+        .value_or(base_version);
+}
+
 std::optional<AM::AppletId> GetAppletIdForProgramId(u64 program_id) {
     switch (static_cast<AM::AppletProgramId>(program_id)) {
     case AM::AppletProgramId::QLaunch:
@@ -1147,12 +1154,14 @@ Result IApplicationManagerInterface::GetApplicationViewDeprecated(
     OutArray<ApplicationViewV19, BufferAttr_HipcMapAlias> out_application_views,
     InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
     const auto size = (std::min)(out_application_views.size(), application_ids.size());
-    LOG_WARNING(Service_NS, "(STUBBED) called, size={}", application_ids.size());
+    const auto& content_provider = system.GetContentProviderUnion();
+    LOG_DEBUG(Service_NS, "called, size={}", application_ids.size());
 
     for (size_t i = 0; i < size; i++) {
         ApplicationViewV19 view{};
         view.application_id = application_ids[i];
-        view.version = 0x70000;
+        view.version = GetInstalledApplicationVersion(content_provider, application_ids[i]);
+        // Fully installed/local application. Ryujinx uses the same baseline flags for this case.
         view.flags = 0x401f17;
 
         out_application_views[i] = view;
@@ -1202,13 +1211,15 @@ Result IApplicationManagerInterface::GetApplicationView(
     OutArray<ApplicationViewV20, BufferAttr_HipcMapAlias> out_application_views,
     InArray<u64, BufferAttr_HipcMapAlias> application_ids) {
     const auto size = (std::min)(out_application_views.size(), application_ids.size());
-    LOG_WARNING(Service_NS, "(STUBBED) called, size={}", application_ids.size());
+    const auto& content_provider = system.GetContentProviderUnion();
+    LOG_DEBUG(Service_NS, "called, size={}", application_ids.size());
 
     for (size_t i = 0; i < size; i++) {
         ApplicationViewV20 view{};
         view.application_id = application_ids[i];
-        view.version = 0x70000;
+        view.version = GetInstalledApplicationVersion(content_provider, application_ids[i]);
         view.unk = 0;
+        // Fully installed/local application. Ryujinx uses the same baseline flags for this case.
         view.flags = 0x401f17;
 
         out_application_views[i] = view;
