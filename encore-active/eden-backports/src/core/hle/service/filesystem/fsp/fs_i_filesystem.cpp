@@ -5,6 +5,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "common/string_util.h"
+#include "common/fs/file.h"
+#include "common/fs/fs.h"
 #include "core/file_sys/errors.h"
 #include "core/file_sys/fssrv/fssrv_sf_path.h"
 #include "core/hle/service/cmif_serialization.h"
@@ -18,7 +20,8 @@ IFileSystem::IFileSystem(Core::System& system_, FileSys::VirtualDir dir_, SizeGe
                          bool read_only_)
     : ServiceFramework{system_, "IFileSystem"}, backend{std::make_unique<FileSys::Fsa::IFileSystem>(
                                                     dir_)},
-      size_getter{std::move(size_getter_)}, read_only{read_only_} {
+      size_getter{std::move(size_getter_)}, commit_state{std::make_shared<FileCommitState>()},
+      read_only{read_only_} {
     static const FunctionInfo functions[] = {
         {0, D<&IFileSystem::CreateFile>, "CreateFile"},
         {1, D<&IFileSystem::DeleteFile>, "DeleteFile"},
@@ -118,7 +121,9 @@ Result IFileSystem::OpenFile(OutInterface<IFile> out_interface,
     FileSys::VirtualFile vfs_file{};
     R_TRY(backend->OpenFile(&vfs_file, FileSys::Path(path->str), open_mode));
 
-    *out_interface = std::make_shared<IFile>(system, vfs_file, read_only);
+    auto file = std::make_shared<IFile>(system, vfs_file, read_only, commit_state);
+    open_files.emplace_back(file);
+    *out_interface = std::move(file);
     R_SUCCEED();
 }
 
@@ -148,11 +153,40 @@ Result IFileSystem::GetEntryType(
 }
 
 Result IFileSystem::Commit() {
-    LOG_DEBUG(Service_FS, "called, host-directory backend is already synchronous");
+    LOG_DEBUG(Service_FS, "called, flushing live files and committing dirty host paths");
+    R_UNLESS(commit_state != nullptr, ResultUnknown);
 
-    // Encore's VFS mutations are applied directly to the host-directory backend.
-    // Fsa::IFileSystem::DoCommit is intentionally unimplemented, so forwarding
-    // here would turn an already-durable write into a guest-visible failure.
+    // Flush the exact FILE* streams still owned by live IFile objects first. Closed IFile
+    // objects have already gone through fclose(), so their userspace buffers are gone.
+    for (auto it = open_files.begin(); it != open_files.end();) {
+        if (auto file = it->lock()) {
+            R_TRY(file->FlushHostFile());
+            ++it;
+        } else {
+            it = open_files.erase(it);
+        }
+    }
+
+    // Paths may remain dirty when the guest closed IFile before committing the filesystem.
+    // fsync through a fresh descriptor after fclose/fflush makes those writes durable too.
+    std::vector<std::string> dirty_paths;
+    {
+        std::scoped_lock lk{commit_state->mutex};
+        dirty_paths.assign(commit_state->dirty_host_paths.begin(),
+                           commit_state->dirty_host_paths.end());
+    }
+    for (const auto& host_path : dirty_paths) {
+        if (!Common::FS::IsFile(host_path)) {
+            continue;
+        }
+        Common::FS::IOFile sync_file{host_path, Common::FS::FileAccessMode::ReadWrite,
+                                     Common::FS::FileType::BinaryFile,
+                                     Common::FS::FileShareFlag::ShareReadWrite};
+        R_UNLESS(sync_file.IsOpen(), ResultUnknown);
+        R_UNLESS(sync_file.Commit(), ResultUnknown);
+        std::scoped_lock lk{commit_state->mutex};
+        commit_state->dirty_host_paths.erase(host_path);
+    }
     R_SUCCEED();
 }
 

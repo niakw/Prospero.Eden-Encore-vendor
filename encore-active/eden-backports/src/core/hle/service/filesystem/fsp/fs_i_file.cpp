@@ -7,6 +7,8 @@
 #include <cstring>
 
 #include "common/overflow.h"
+#include "common/fs/file.h"
+#include "common/fs/fs.h"
 
 #include "core/file_sys/errors.h"
 #include "core/hle/service/cmif_serialization.h"
@@ -14,9 +16,10 @@
 
 namespace Service::FileSystem {
 
-IFile::IFile(Core::System& system_, FileSys::VirtualFile file_, bool read_only_)
+IFile::IFile(Core::System& system_, FileSys::VirtualFile file_, bool read_only_,
+             std::shared_ptr<FileCommitState> commit_state_)
     : ServiceFramework{system_, "IFile"}, backend{std::make_unique<FileSys::Fsa::IFile>(file_)},
-      vfs_file{file_}, read_only{read_only_} {
+      vfs_file{file_}, commit_state{std::move(commit_state_)}, read_only{read_only_} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, D<&IFile::Read>, "Read"},
@@ -29,6 +32,51 @@ IFile::IFile(Core::System& system_, FileSys::VirtualFile file_, bool read_only_)
     };
     // clang-format on
     RegisterHandlers(functions);
+}
+
+
+void IFile::MarkDirtyHostPath() {
+    if (!commit_state || !vfs_file || !vfs_file->IsWritable()) {
+        return;
+    }
+    const auto host_path = vfs_file->GetFullPath();
+    if (host_path.empty() || !Common::FS::IsFile(host_path)) {
+        return;
+    }
+    std::scoped_lock lk{commit_state->mutex};
+    commit_state->dirty_host_paths.insert(host_path);
+}
+
+void IFile::ClearDirtyHostPath(const std::string& host_path) {
+    if (!commit_state || host_path.empty()) {
+        return;
+    }
+    std::scoped_lock lk{commit_state->mutex};
+    commit_state->dirty_host_paths.erase(host_path);
+}
+
+Result IFile::FlushHostFile() {
+    R_UNLESS(vfs_file != nullptr, FileSys::ResultInvalidArgument);
+
+    // RealVfsFile::GetSize() flushes the same IOFile stream before stat'ing the file.
+    // For virtual/read-only files there may be no host path to commit; preserve compatibility.
+    static_cast<void>(vfs_file->GetSize());
+    if (!vfs_file->IsWritable()) {
+        R_SUCCEED();
+    }
+
+    const auto host_path = vfs_file->GetFullPath();
+    if (host_path.empty() || !Common::FS::IsFile(host_path)) {
+        R_SUCCEED();
+    }
+
+    Common::FS::IOFile sync_file{host_path, Common::FS::FileAccessMode::ReadWrite,
+                                 Common::FS::FileType::BinaryFile,
+                                 Common::FS::FileShareFlag::ShareReadWrite};
+    R_UNLESS(sync_file.IsOpen(), ResultUnknown);
+    R_UNLESS(sync_file.Commit(), ResultUnknown);
+    ClearDirtyHostPath(host_path);
+    R_SUCCEED();
 }
 
 Result IFile::Read(
@@ -77,13 +125,17 @@ Result IFile::Write(
                   requested, written);
         R_RETURN(ResultUnknown);
     }
+    MarkDirtyHostPath();
+    if (option.HasFlushFlag()) {
+        R_TRY(FlushHostFile());
+    }
     R_SUCCEED();
 }
 
 Result IFile::Flush() {
     LOG_DEBUG(Service_FS, "called");
 
-    R_RETURN(backend->Flush());
+    R_RETURN(FlushHostFile());
 }
 
 Result IFile::SetSize(s64 size) {
@@ -97,6 +149,7 @@ Result IFile::SetSize(s64 size) {
     s64 actual_size{};
     R_TRY(backend->GetSize(&actual_size));
     R_UNLESS(actual_size == size, ResultUnknown);
+    MarkDirtyHostPath();
     R_SUCCEED();
 }
 

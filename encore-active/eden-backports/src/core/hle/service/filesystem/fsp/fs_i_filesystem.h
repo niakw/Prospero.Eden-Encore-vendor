@@ -6,6 +6,9 @@
 
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "common/common_funcs.h"
 #include "core/file_sys/fs_filesystem.h"
 #include "core/file_sys/fsa/fs_i_filesystem.h"
@@ -23,6 +26,7 @@ namespace Service::FileSystem {
 
 class IFile;
 class IDirectory;
+struct FileCommitState;
 
 class IFileSystem final : public ServiceFramework<IFileSystem> {
 public:
@@ -68,6 +72,8 @@ public:
 private:
     std::unique_ptr<FileSys::Fsa::IFileSystem> backend;
     SizeGetter size_getter;
+    std::shared_ptr<FileCommitState> commit_state;
+    std::vector<std::weak_ptr<IFile>> open_files;
     bool read_only{};
 };
 

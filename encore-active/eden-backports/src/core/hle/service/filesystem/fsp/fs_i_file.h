@@ -4,6 +4,9 @@
 #pragma once
 
 #include <array>
+#include <mutex>
+#include <string>
+#include <unordered_set>
 
 #include "core/file_sys/fsa/fs_i_file.h"
 #include "core/hle/service/cmif_types.h"
@@ -11,6 +14,11 @@
 #include "core/hle/service/service.h"
 
 namespace Service::FileSystem {
+
+struct FileCommitState {
+    std::mutex mutex;
+    std::unordered_set<std::string> dirty_host_paths;
+};
 
 struct FileQueryRangeInfo {
     u32 aes_ctr_key_type{};
@@ -21,12 +29,19 @@ static_assert(sizeof(FileQueryRangeInfo) == 0x40);
 
 class IFile final : public ServiceFramework<IFile> {
 public:
-    explicit IFile(Core::System& system_, FileSys::VirtualFile file_, bool read_only_ = false);
+    explicit IFile(Core::System& system_, FileSys::VirtualFile file_, bool read_only_ = false,
+                   std::shared_ptr<FileCommitState> commit_state_ = {});
+
+    Result FlushHostFile();
 
 private:
     std::unique_ptr<FileSys::Fsa::IFile> backend;
     FileSys::VirtualFile vfs_file;
+    std::shared_ptr<FileCommitState> commit_state;
     bool read_only{};
+
+    void MarkDirtyHostPath();
+    void ClearDirtyHostPath(const std::string& host_path);
 
     Result Read(FileSys::ReadOption option, Out<s64> out_size, s64 offset,
                 const OutBuffer<BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure>
