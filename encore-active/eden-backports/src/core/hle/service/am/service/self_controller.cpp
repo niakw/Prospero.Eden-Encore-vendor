@@ -524,6 +524,14 @@ void ISelfController::SetApplicationAlbumUserData(HLERequestContext& ctx) {
 Result ISelfController::SaveCurrentScreenshot(Capture::AlbumReportOption album_report_option) {
     LOG_INFO(Service_AM, "called, report_option={}", album_report_option);
 
+    {
+        std::scoped_lock lk{m_applet->lock};
+        if (m_applet->screenshot_permission == ScreenshotPermission::Disable) {
+            LOG_WARNING(Service_AM, "Screenshot rejected by application capture permission");
+            R_RETURN(ResultUnknown);
+        }
+    }
+
     const auto screenshot_service =
         system.ServiceManager().GetService<Service::Capture::IScreenShotApplicationService>(
             "caps:su");
