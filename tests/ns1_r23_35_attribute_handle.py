@@ -114,14 +114,19 @@ for path,sha in EXPECTED.items():
    assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==old_sha, ("FC27 graphics hint predecessor drift", path)
    assert "kNativeTransitionHintLimit = 64" in raw.decode("utf-8") or "next_transition_replacement" in raw.decode("utf-8")
   continue
- if path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path) in {"cfac496d574010b8121611c8616d38bf7cdcbc41","a0e2a45b9b0f080b739d97abb92e9485a0063f73"}:
+ if path.endswith("/vk_pipeline_cache_cost.cpp") and gitblob(ROOT/path) in {"cfac496d574010b8121611c8616d38bf7cdcbc41","a0e2a45b9b0f080b739d97abb92e9485a0063f73","79660c5cc4ff046f24e7ffa50ab066a86857698c"}:
   # Reviewed newest-32 native prewarm overlay. The complete current shader
   # owner is cryptographically pinned; the engine's Vulkan/R23 audit separately
   # reverses its entire exact LoadDiskResources hunk to the historical blob.
   # This older attribute-handle test should still reject unknown sources,
   # but must not mistake a bounded shader reader change for an ABI change.
   selected=raw.decode("utf-8")
-  if gitblob(ROOT/path)=="a0e2a45b9b0f080b739d97abb92e9485a0063f73":
+  cache_blob_current=gitblob(ROOT/path)
+  if cache_blob_current=="79660c5cc4ff046f24e7ffa50ab066a86857698c":
+   from ps5_recent_prewarm_receipt import reverse_adaptive_prewarm
+   selected=reverse_adaptive_prewarm(selected)
+   cache_blob_current="a0e2a45b9b0f080b739d97abb92e9485a0063f73"
+  if cache_blob_current=="a0e2a45b9b0f080b739d97abb92e9485a0063f73":
    newer="        // Vulkan requires signed/unsigned fragment outputs to match the\n        // attachment's numeric class. Previously this was enabled only on\n        // MoltenVK: native PS5 RADV would emit floats for integer targets,\n        // making color writes poison/undefined (Vulkan shader interfaces).\n        // Keep the existing desktop policy; fix the PS5 renderer's ABI.\n        const bool require_typed_fragment_outputs =\n#ifdef PS5_NATIVE\n            true;\n#else\n            device.IsMoltenVK();\n#endif\n        if (require_typed_fragment_outputs) {"
    older="        if (device.IsMoltenVK()) {"
    assert selected.count(newer)==1

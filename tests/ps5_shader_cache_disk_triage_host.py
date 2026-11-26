@@ -41,12 +41,19 @@ assert "EDEN_PS5_SHADER_CACHE_DISK" not in source.split(
     "GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline", 1)[1].split(
     "void PipelineCache::LoadDiskResources(", 1)[0]
 # The CMake-selected native pipeline cache must preserve correct first-use
-# shader execution while preferentially warming the most RECENT 32 valid
+# shader execution while preferentially warming the most RECENT 128 valid
 # pipeline records for a small existing per-game environment log. Large
 # caches retain the original prefix-32 admission and short startup parse.
 load_method = source.split("void PipelineCache::LoadDiskResources(", 1)[1].split(
     "void PipelineCache::QueueVulkanPipelineCacheFlush(", 1)[0]
 assert "constexpr size_t kStartupPrewarmPipelines = 32;" in load_method
+assert "constexpr size_t kRecentPrewarmPipelines = 128;" in load_method
+assert "prefer_recent_cache ? kRecentPrewarmPipelines : kStartupPrewarmPipelines" in load_method
+assert "recent_cache_builds.size() == prewarm_pipeline_limit" in load_method
+assert "state.total == prewarm_pipeline_limit" in load_method
+assert "startup_prewarm_ms), prewarm_pipeline_limit);" in load_method
+from ps5_recent_prewarm_receipt import reverse_adaptive_prewarm
+assert "kRecentPrewarmPipelines" not in reverse_adaptive_prewarm(source)
 assert "constexpr std::uintmax_t kRecentShaderCacheScanLimit = 64ULL << 20;" in load_method
 assert "env_before.bytes <= kRecentShaderCacheScanLimit" in load_method
 assert "std::deque<Common::UniqueFunction<void>> recent_cache_builds;" in load_method
@@ -73,7 +80,7 @@ def session(before_present=1, before_bytes=48, after_present=1,
         f"env_present={before_present} env_bytes={before_bytes} "
         "driver_enabled=1 driver_present=1 driver_bytes=57 cache_version=23",
         "EDEN_PS5_SHADER_PREWARM queued=3 completed=3 "
-        f"valid={valid} rejected=0 prebuild_ms=10 limit=32",
+        f"valid={valid} rejected=0 prebuild_ms=10 limit=128",
         "EDEN_PS5_SHADER_CACHE_ADMISSION title=0400C3F00006E000 "
         f"env_before_present={before_present} env_before_bytes={before_bytes} "
         f"env_after_present={after_present} env_after_bytes={after_bytes} "
@@ -118,35 +125,38 @@ fixture = r"""
 #include <functional>
 #include <vector>
 constexpr std::size_t kStartupPrewarmPipelines=32;
+constexpr std::size_t kRecentPrewarmPipelines=128;
 constexpr std::uintmax_t kRecentShaderCacheScanLimit=64ULL<<20;
 static std::vector<unsigned> Simulate(unsigned count,std::uintmax_t bytes){
     const bool prefer_recent_cache=bytes>12&&bytes<=kRecentShaderCacheScanLimit;
+    const std::size_t limit=prefer_recent_cache?kRecentPrewarmPipelines:kStartupPrewarmPipelines;
     std::deque<std::function<void()>> recent_cache_builds;
     std::vector<unsigned> started;
     for(unsigned i=0;i<count;++i){
         std::function<void()> build=[&,i]{started.push_back(i);};
         if(prefer_recent_cache){
-            if(recent_cache_builds.size()==kStartupPrewarmPipelines)
+            if(recent_cache_builds.size()==limit)
                 recent_cache_builds.pop_front();
             recent_cache_builds.emplace_back(std::move(build));
         }else{
             build();
-            if(started.size()==kStartupPrewarmPipelines)break;
+            if(started.size()==limit)break;
         }
     }
     for(auto& build:recent_cache_builds)build();
     return started;
 }
 int main(){
-    for(unsigned count: {0u,1u,31u,32u,33u,250u}){
+    for(unsigned count: {0u,1u,31u,32u,33u,128u,129u,250u,710u}){
         auto recent=Simulate(count,28682396);
         auto prefix=Simulate(count,65ULL<<20);
-        const auto n=count<32?count:32;
-        assert(recent.size()==n&&prefix.size()==n);
-        for(unsigned i=0;i<n;++i){
-            assert(recent[i]==count-n+i);
+        const auto nr=count<128?count:128;
+        const auto np=count<32?count:32;
+        assert(recent.size()==nr&&prefix.size()==np);
+        for(unsigned i=0;i<nr;++i)
+            assert(recent[i]==count-nr+i);
+        for(unsigned i=0;i<np;++i)
             assert(prefix[i]==i);
-        }
     }
 }
 """

@@ -1386,13 +1386,19 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     // FC27: the old fixed 32-entry PREFIX admitted 18 compute and only
     // 14 graphics shaders from a 28.7 MiB cache. Thousands of newer records
     // were ignored and the GPU owner still translated 303 new graphics keys.
-    // Parse modest caches once and retain only the newest 32 valid builders;
-    // a large cache keeps the existing fast prefix cap to avoid startup I/O.
+    // A recorded FC27 warm cache contains 710 valid pipeline records, yet the
+    // 32-entry prewarm left 361 guest shaders to translate during the match.
+    // For a modest, already populated cache, admit the newest 128 builders
+    // before gameplay; preserve the 32-entry prefix for large/absent caches.
+    // This shifts some first-use work to loading without skipping any draw.
     constexpr size_t kStartupPrewarmPipelines = 32;
+    constexpr size_t kRecentPrewarmPipelines = 128;
     constexpr std::uintmax_t kRecentShaderCacheScanLimit = 64ULL << 20;
     const bool prefer_recent_cache =
         env_before.present && env_before.bytes > 12 &&
         env_before.bytes <= kRecentShaderCacheScanLimit;
+    const size_t prewarm_pipeline_limit =
+        prefer_recent_cache ? kRecentPrewarmPipelines : kStartupPrewarmPipelines;
     std::deque<Common::UniqueFunction<void>> recent_cache_builds;
     const auto startup_prewarm_started = std::chrono::steady_clock::now();
     std::stop_source startup_reader;
@@ -1423,7 +1429,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             // No driver work while scanning the file. Move-only jobs own all
             // shader environments and cannot outlive this loading function.
             // Discard oldest unstarted work without creating GPU pipelines.
-            if (recent_cache_builds.size() == kStartupPrewarmPipelines)
+            if (recent_cache_builds.size() == prewarm_pipeline_limit)
                 recent_cache_builds.pop_front();
             recent_cache_builds.emplace_back(std::move(build));
             return;
@@ -1435,7 +1441,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             ++state.total;
         }
 #ifdef PS5_NATIVE
-        if (state.total == kStartupPrewarmPipelines)
+        if (state.total == prewarm_pipeline_limit)
             startup_reader.request_stop();
 #endif
     };
@@ -1605,7 +1611,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         std::chrono::steady_clock::now() - startup_prewarm_started).count();
     std::printf("EDEN_PS5_SHADER_PREWARM queued=%zu completed=%zu valid=%zu rejected=%zu prebuild_ms=%lld limit=%zu\n",
                 state.total, state.built, state.valid, state.built - state.valid,
-                static_cast<long long>(startup_prewarm_ms), kStartupPrewarmPipelines);
+                static_cast<long long>(startup_prewarm_ms), prewarm_pipeline_limit);
     // ENCORE_PS5_CACHE_DIAG_BEGIN
     const auto env_after = probe_cache(pipeline_cache_filename);
     std::printf("EDEN_PS5_SHADER_CACHE_ADMISSION title=%016llX"
