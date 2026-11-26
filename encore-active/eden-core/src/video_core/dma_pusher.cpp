@@ -336,6 +336,18 @@ bool DmaPusher::Step() {
     }
 
     if (signal_sync) {
+#ifdef PS5_NATIVE
+        // An NS2 explicit inter-list dependency needs actual GPU retirement,
+        // not the renderer's configurable immediate/cache-only fence.
+        // The next Step used to block on the callback anyway; wait once here
+        // and never publish a false acknowledgement under Fast fence policy.
+        if (Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(
+                &channel_state)) {
+            rasterizer->ReleaseFences(true);
+            signal_sync = false;
+            return true;
+        }
+#endif
         rasterizer->SignalFence([this]() {
             std::scoped_lock lk(sync_mutex);
             synced = true;
