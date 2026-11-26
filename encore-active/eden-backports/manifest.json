@@ -96,13 +96,13 @@
       "upstream": "35f77abe92d86d553c0ced0651001116c1a053766d108588c2704690049f8b6b"
     },
     "src/core/hle/kernel/svc/svc_info.cpp": {
-      "active": "5a043181ec8acea5003e1cfd0f1d5313f6b3dfe04396fcdd5bc1b409dd3281c0",
-      "bytes": 16627,
+      "active": "7201405d5afd7d591dd85f0184547f84f591d01a553fe637307805ab20614088",
+      "bytes": 18239,
       "upstream": "76b12e3a425e6f60d4982348ea8bbe17e109b3d06341362191b1545cb6ae112c"
     },
     "src/core/hle/kernel/svc_types.h": {
-      "active": "3c7ec0475eea1fca6893d33681dd9c7af95c9801bf5bca3bf812a8475be4f20d",
-      "bytes": 14865,
+      "active": "745309b703a5de18d7f937b8d7dfc496e208e41e5c1387cb811110d5f7c6bfef",
+      "bytes": 14892,
       "upstream": "5619f8fd62f292084432263d56456e7b656b626dad7781a76ba9ccb2f70a1acb"
     },
     "src/core/hle/service/acc/acc.cpp": {

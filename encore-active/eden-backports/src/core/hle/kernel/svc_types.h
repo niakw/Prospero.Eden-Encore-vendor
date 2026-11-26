@@ -175,8 +175,8 @@ enum class InfoType : u32 {
     TransferMemoryHint = 34,
     AddressSpaceSize = 36,
 
-    Unknown37 = 37,
-    Unknown38 = 38,
+    ShadowStackRegionAddress = 37,
+    ShadowStackRegionSize = 38,
 
     MesosphereMeta = 65000,
     MesosphereCurrentProcess = 65001,

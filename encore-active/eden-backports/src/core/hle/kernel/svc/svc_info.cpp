@@ -10,6 +10,7 @@
 #include "core/hle/kernel/k_memory_manager.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/k_resource_limit.h"
+#include "core/hle/kernel/k_transfer_memory.h"
 #include "core/hle/kernel/svc.h"
 #include "core/hle/kernel/svc_results.h"
 #include "core/hle/kernel/svc_version.h"
@@ -48,7 +49,9 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
     case InfoType::Nx2RemoteMemoryUsed:
     case InfoType::Nx2VammSize:
     case InfoType::AliasRegionExtraSize:
-    case InfoType::AddressSpaceSize: {
+    case InfoType::AddressSpaceSize:
+    case InfoType::ShadowStackRegionAddress:
+    case InfoType::ShadowStackRegionSize: {
         R_UNLESS(info_sub_id == 0, ResultInvalidEnumValue);
 
         const auto& handle_table = GetCurrentProcess(system.Kernel()).GetHandleTable();
@@ -168,6 +171,12 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
             // not the caller's process. The page table already owns this exact bound.
             *result = process->GetPageTable().GetAddressSpaceSize();
             R_SUCCEED();
+        case InfoType::ShadowStackRegionAddress:
+        case InfoType::ShadowStackRegionSize:
+            // HOS 23 exposes a dedicated shadow-stack VA range. Encore's page table has no
+            // shadow-stack reservation at all, so both address and size are genuinely zero.
+            *result = 0;
+            R_SUCCEED();
         default:
             break;
         }
@@ -192,6 +201,35 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
             *result = Svc::InvalidHandle;
         }
         // Yes, the kernel considers this a successful operation either way.
+        R_SUCCEED();
+    }
+    case InfoType::IoRegionHint:
+        // HOS 16+: this query is valid only for a KIoRegion handle. Encore does not
+        // implement KIoRegion objects, so no valid handle of that type can exist.
+        R_UNLESS(info_sub_id == 0, ResultInvalidCombination);
+        R_THROW(ResultInvalidHandle);
+    case InfoType::TransferMemoryHint: {
+        // HOS 19+: return the low address bits selected by the transfer-memory size.
+        R_UNLESS(info_sub_id == 0, ResultInvalidCombination);
+        const auto& handle_table = GetCurrentProcess(system.Kernel()).GetHandleTable();
+        KScopedAutoObject transfer_memory =
+            handle_table.GetObject<KTransferMemory>(system.Kernel(), handle);
+        R_UNLESS(transfer_memory.IsNotNull(), ResultInvalidHandle);
+
+        const u64 address = GetInteger(transfer_memory->GetSourceAddress());
+        const size_t size = transfer_memory->GetSize();
+        constexpr u64 Granule2MiB = 2ULL * 1024 * 1024;
+        constexpr u64 Granule64KiB = 64ULL * 1024;
+        constexpr u64 Granule4KiB = 4ULL * 1024;
+        if (size >= Granule2MiB) {
+            *result = address & (Granule2MiB - 1);
+        } else if (size >= Granule64KiB) {
+            *result = address & (Granule64KiB - 1);
+        } else if (size >= Granule4KiB) {
+            *result = address & (Granule4KiB - 1);
+        } else {
+            *result = 0;
+        }
         R_SUCCEED();
     }
     case InfoType::RandomEntropy:
@@ -261,13 +299,6 @@ Result GetInfo(Core::System& system, u64* result, InfoType info_id_type, Handle 
 
         // Get the idle tick count.
         *result = system.Kernel().CurrentScheduler()->GetIdleThread()->GetCpuTime();
-        R_SUCCEED();
-    }
-    case InfoType::Unknown37:
-    case InfoType::Unknown38: {
-        LOG_WARNING(Kernel_SVC, "(STUBBED) called, info_id={:#x}, info_sub_id={:#x}, handle={:#08x}",
-                    info_id, info_sub_id, handle);
-        *result = 0;
         R_SUCCEED();
     }
     case InfoType::MesosphereMeta: {
