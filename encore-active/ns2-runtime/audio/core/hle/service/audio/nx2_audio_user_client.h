@@ -16,14 +16,18 @@
 #include "core/hle/service/audio/audio_renderer_manager.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/service.h"
+#include "core/hle/service/sm/sm.h"
 
 namespace Service::Audio {
 
 // Switch 2 "aud:u" (nn::audio::CreateUserClientSessionByHipc). The SDK reaches the Switch 1
 // audio interfaces through it: command 2 returns an object used exactly like
 // IAudioRendererManager (vtable slot 1 = GetWorkBufferSize with a Switch 1 parameter block), so
-// it is backed by Eden's audren:u implementation. Command 1 is nn::audio::OpenAudioOut's
-// manager, called like IAudioOutManager (slot 1 = OpenAudioOut), backed by audout:u. Unknown commands remain explicitly unimplemented in Encore;
+// it is backed by Eden's registered audren:u implementation. Command 1 is nn::audio::OpenAudioOut's
+// manager, called like IAudioOutManager (slot 1 = OpenAudioOut), backed by audout:u.
+// All three commands borrow the SAME registered managers: constructing a new AudioOut manager
+// would install a second buffer-release callback and strand already queued audio buffers.
+// Unknown commands remain explicitly unimplemented in Encore;
 // no blanket success fallback is enabled.
 class INx2AudioUserClient final : public ServiceFramework<INx2AudioUserClient> {
 public:
@@ -31,6 +35,7 @@ public:
         : ServiceFramework{system_, "nx2:aud:u"} {
         // clang-format off
         static const FunctionInfo functions[] = {
+            {0, &INx2AudioUserClient::GetAudioInManager, "GetAudioInManager"},
             {1, &INx2AudioUserClient::GetAudioOutManager, "GetAudioOutManager (guessed)"},
             {2, &INx2AudioUserClient::GetAudioRendererManager, "GetAudioRendererManager (guessed)"},
         };
@@ -39,24 +44,38 @@ public:
     }
 
 private:
+    template <typename T>
+    void ReplyRegisteredManager(HLERequestContext& ctx, const char* service) {
+        // AudioCore installs one buffer-release callback per registered manager.
+        // A second, privately constructed manager can queue buffers forever.
+        // Never manufacture a distinct owner if the real service was not installed.
+        auto manager = system.ServiceManager().GetService<T>(service);
+        if (!manager) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(ResultNotFound);
+            return;
+        }
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+        rb.Push(ResultSuccess);
+        rb.PushIpcInterface<T>(ctx, manager);
+    }
+
+    void GetAudioInManager(HLERequestContext& ctx) {
+        ReplyRegisteredManager<IAudioInManager>(ctx, "audin:u");
+    }
+
     void GetAudioOutManager(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const u32 arg = rp.Pop<u32>();
-        LOG_WARNING(Service_Audio, "(STUBBED) Switch 2 aud:u 1 arg={}, returning IAudioOutManager",
-                    arg);
-        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
-        rb.Push(ResultSuccess);
-        rb.PushIpcInterface<IAudioOutManager>(ctx, system);
+        LOG_INFO(Service_Audio, "Switch 2 aud:u 1 arg={}, returning registered audout:u", arg);
+        ReplyRegisteredManager<IAudioOutManager>(ctx, "audout:u");
     }
 
     void GetAudioRendererManager(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const u32 arg = rp.Pop<u32>();
-        LOG_WARNING(Service_Audio, "(STUBBED) Switch 2 aud:u 2 arg={}, returning IAudioRendererManager",
-                    arg);
-        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
-        rb.Push(ResultSuccess);
-        rb.PushIpcInterface<IAudioRendererManager>(ctx, system);
+        LOG_INFO(Service_Audio, "Switch 2 aud:u 2 arg={}, returning registered audren:u", arg);
+        ReplyRegisteredManager<IAudioRendererManager>(ctx, "audren:u");
     }
 
 };
