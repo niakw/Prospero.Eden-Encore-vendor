@@ -1733,6 +1733,20 @@ for marker in ("entry.address == request->address", "entry.size == request->size
 assert "if (identity.IsSuppressed(id)) continue;" in bind
 print("NS2_213_IDENTITY_UNMAP_SOURCE_PASS")
 
+# Native NS2 SET_OBJECT(0) is an unbind, not an unsupported-class fault.
+# Revoke the previous 3D/compute ticket and invalidate the pusher subchannel;
+# retain fatal admission for genuinely unknown nonzero native classes.
+set_object = native_puller.split("void Puller::ProcessBindMethod(", 1)[1].split(
+    "void Puller::ProcessFenceActionMethod(", 1)[0]
+zero_unbind = set_object.split("    if (engine == 0 && ", 1)[1].split("#endif", 1)[0]
+assert "IsNative(&dma_pusher.channel_state)" in zero_unbind
+assert "dma_pusher.BindSubchannel(nullptr, method_call.subchannel, EngineTypes::Nv01Timer);" in zero_unbind
+assert "return;" in zero_unbind
+assert set_object.index("    retire_native_3d();\n    retire_native_compute();") < (
+    set_object.index("    if (engine == 0 && ")) < set_object.index("    switch (engine_id) {")
+assert "dma_pusher.FailNativeSubmission(\"Native GPFIFO SET_OBJECT class unsupported\");" in set_object
+print("NS2_GPU_CLASS_ZERO_NATIVE_UNBIND_OWNER_PASS")
+
 # Identity 212 uses the same verified ownership as 213, with per-VM replay.
 identity_modify = worker.split("void IGpuWorker::NormalModifyGpuMemory4K(",1)[1].split("\n}",1)[0]
 for marker in ("!m_quarantined_nv_session", "entry.address == request->address",
