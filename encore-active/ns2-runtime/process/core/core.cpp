@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstdio>
 #include <memory>
 #include <unordered_map>
 #include <utility>
@@ -60,7 +61,10 @@
 #include "core/hle/service/sm/sm.h"
 #include "core/internal_network/network.h"
 #include "core/loader/loader.h"
+#include "core/loader/nx.h"
 #include "core/loader/ns2_svc_trace.h"
+#include "nup_v1_native_vfs.h"
+#include "nup_v1_native_content.h"
 #include "core/memory.h"
 #include "core/memory/cheat_engine.h"
 #include "core/perf_stats.h"
@@ -168,6 +172,27 @@ namespace {
                  "EDEN_NS2_PREKERNEL_PROBE file=1 directory={} extracted_npdm={}",
                  int(bool(directory)), int(bool(extracted)));
         if (extracted) return check_npdm(extracted);
+        // NUP is a first-class NS1/NS2 container, but IdentifyFile() in the
+        // pinned vendor loader does not know it. The NUP bridge is selected
+        // by the native CMake graph and validates the same effective ExeFS.
+        // Probe its bounded main.npdm BEFORE allocating guest kernel memory,
+        // rather than silently using the smaller NS1 layout for an NS2 title.
+        if (Eden::NupV1::Native::HasNupV1Header(file)) {
+            const auto mount = Eden::NupV1::Native::Mount::Open(file);
+            const auto exefs = mount
+                ? Eden::NupV1::Native::ContentSet(mount).ExeFS()
+                : FileSys::VirtualDir{};
+            const auto npdm = exefs ? exefs->GetFile("main.npdm") : nullptr;
+            constexpr std::size_t MaxNupNpdmBytes = 4U * 1024U * 1024U;
+            return npdm && npdm->GetSize() > 0 &&
+                   npdm->GetSize() <= MaxNupNpdmBytes && check_npdm(npdm);
+        }
+        // NX carries the program platform in the verified catalog; select the
+        // matching NS2 guest layout before allocating any process memory.
+        if (Loader::AppLoader_NX::IdentifyType(file) == Loader::FileType::NX) {
+            const auto nx_program = Loader::AppLoader_NX::ReadProgramPlatform(file, program_id);
+            return nx_program && nx_program->platform == 2;
+        }
         switch (Loader::IdentifyFile(file)) {
         case Loader::FileType::XCI: {
             FileSys::XCI xci{file, program_id, program_index};
@@ -473,6 +498,26 @@ struct System::Impl {
             return SystemResultStatus::ErrorGetLoader;
         }
 
+        // Standalone ExeFS registers NS2 SVC tracing in its loader; other
+        // admitted NS2 containers (NUP/NX/NSP/XCI) do not necessarily use
+        // that loader. The post-load process owner is the common, safe gate.
+        // Never attach a trace on an unsuccessful load or an NS1 title.
+        if (is_ns2_program && process && process->GetProcessId() != 0 &&
+            !Eden::NS2::SvcTrace::IsActive(process->GetProcessId())) {
+            Eden::NS2::SvcTrace::Register(process->GetProcessId());
+        }
+#ifdef PS5_NATIVE
+        // Provenance for the *actual* loaded KProcess, including NUP.
+        // active=0 on a classified NS2 title is a source bug to investigate,
+        // not proof that the guest executed zero SVC instructions.
+        std::fprintf(stderr,
+                     "EDEN_NS2_PROCESS_TRACE pid=%llu classified=%u active=%u\n",
+                     static_cast<unsigned long long>(process ? process->GetProcessId() : 0),
+                     static_cast<unsigned>(is_ns2_program),
+                     static_cast<unsigned>(process &&
+                         Eden::NS2::SvcTrace::IsActive(process->GetProcessId())));
+#endif
+
         if (app_loader->ReadProgramId(params.program_id) != Loader::ResultStatus::Success) {
             LOG_ERROR(Core, "Failed to find program id for ROM!");
         }
@@ -589,18 +634,33 @@ struct System::Impl {
         // Keep Host1x and the NVDRV containers alive throughout GPU teardown.
         gpu_core.reset();
         ::Eden::ReportStep("shutdown", "Completed gpu_core.reset()");
+        if (service_manager) {
+            service_manager->Close();
+            ::Eden::ReportStep("shutdown", "Completed service_manager.Close()");
+        }
         kernel.CloseServices();
         ::Eden::ReportStep("shutdown", "Completed kernel.CloseServices()");
-        // NVDRV's nvhost_as_gpu destructor can unpin NVMap pages and release
-        // its retained KProcess reference. Release those service owners while
-        // the process and scheduler are still alive; ShutdownCores terminates
-        // the guest processes and must come AFTER this cleanup. The GPU worker
-        // was joined above, so no GPU task can reuse the retired mappings.
+        // AM may never have taken the frontend-created application if the
+        // title was closed while services were still starting. Drop it now,
+        // after service loops stopped and before KProcess/kernel teardown.
+        applet_manager.DropPendingProcess();
+        ::Eden::ReportStep("shutdown", "Completed applet_manager.DropPendingProcess()");
+        // SM's factories can keep NVDRV devices alive after their server
+        // threads have joined. Drop those strong owners before KProcess
+        // retirement, but retain the SM object/ports until ShutdownCores.
+        if (service_manager) {
+            service_manager->ReleaseRegisteredHandlersForShutdown();
+            ::Eden::ReportStep("shutdown", "Completed service_manager.ReleaseRegisteredHandlersForShutdown()");
+        }
+        // Services owns the audio/VI host jthreads. Join them while their
+        // dummy KThreads still have a live kernel/scheduler to Close() into.
+        // Server managers have already stopped, so NVDRV owners can release
+        // their mappings without racing the destroyed GPU worker.
         services.reset();
         ::Eden::ReportStep("shutdown", "Completed services.reset()");
-        service_manager.reset();
         kernel.ShutdownCores();
         ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");
+        service_manager.reset();
         fs_controller.Reset();
         core_timing.ClearPendingEvents();
         app_loader.reset();
