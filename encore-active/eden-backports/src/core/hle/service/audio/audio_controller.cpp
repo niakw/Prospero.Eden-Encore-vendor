@@ -272,7 +272,7 @@ Result IAudioController::SetTargetVolume(Set::AudioOutputModeTarget target, s32 
     m_target_volumes[idx] = target_volume;
 
     if (m_active_target == target && !m_target_muted[idx]) {
-        const float vol = static_cast<float>(target_volume) / 15.0f;
+        const float vol = (static_cast<float>(target_volume) / 15.0f) * m_system_output_master_volume;
         // try catch this, as we don't know how it handles it when no output is set.
         // we already have audio issues when no output is set, so catch.
         try {
@@ -327,7 +327,8 @@ Result IAudioController::SetTargetMute(bool is_muted, Set::AudioOutputModeTarget
                 sink.SetSystemVolume(0.0f);
                 sink.SetDeviceVolume(0.0f);
             } else {
-                const float vol = static_cast<float>(m_target_volumes[idx]) / 15.0f;
+                const float vol = (static_cast<float>(m_target_volumes[idx]) / 15.0f) *
+                                  m_system_output_master_volume;
                 sink.SetSystemVolume(vol);
                 sink.SetDeviceVolume(vol);
             }
@@ -340,7 +341,8 @@ Result IAudioController::SetTargetMute(bool is_muted, Set::AudioOutputModeTarget
             if (is_muted) {
                 audout_mgr->SetAllAudioOutVolume(0.0f);
             } else {
-                const float vol = static_cast<float>(m_target_volumes[idx]) / 15.0f;
+                const float vol = (static_cast<float>(m_target_volumes[idx]) / 15.0f) *
+                                  m_system_output_master_volume;
                 audout_mgr->SetAllAudioOutVolume(vol);
             }
         }
@@ -378,7 +380,10 @@ Result IAudioController::SetOutputTarget(Set::AudioOutputModeTarget target) {
     m_active_target = target;
 
     const float volume =
-        m_target_muted[idx] ? 0.0f : static_cast<float>(m_target_volumes[idx]) / 15.0f;
+        m_target_muted[idx]
+            ? 0.0f
+            : (static_cast<float>(m_target_volumes[idx]) / 15.0f) *
+                  m_system_output_master_volume;
     try {
         auto& sink = system.AudioCore().GetOutputSink();
         sink.SetSystemVolume(volume);
@@ -416,7 +421,28 @@ Result IAudioController::GetAudioOutputTargetForPlayReport(
 
 Result IAudioController::SetSystemOutputMasterVolume(f32 volume) {
     m_system_output_master_volume = std::clamp(volume, 0.0f, 1.0f);
-    LOG_DEBUG(Audio, "stored system output master volume={}", m_system_output_master_volume);
+
+    const auto idx = static_cast<size_t>(m_active_target);
+    R_UNLESS(idx < m_target_volumes.size(), ResultInvalidArgument);
+    const float effective_volume =
+        m_target_muted[idx]
+            ? 0.0f
+            : (static_cast<float>(m_target_volumes[idx]) / 15.0f) *
+                  m_system_output_master_volume;
+
+    try {
+        auto& sink = system.AudioCore().GetOutputSink();
+        sink.SetSystemVolume(effective_volume);
+        sink.SetDeviceVolume(effective_volume);
+    } catch (...) {
+        LOG_WARNING(Audio, "Failed to apply system output master volume");
+    }
+    if (auto audout_mgr = system.ServiceManager().GetService<IAudioOutManager>("audout:u")) {
+        audout_mgr->SetAllAudioOutVolume(effective_volume);
+    }
+
+    LOG_DEBUG(Audio, "system output master volume={}, effective={}",
+              m_system_output_master_volume, effective_volume);
     R_SUCCEED();
 }
 
