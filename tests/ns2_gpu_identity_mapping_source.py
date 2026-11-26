@@ -1608,7 +1608,8 @@ with tempfile.TemporaryDirectory() as tmp:
     cpp=Path(tmp)/"preimport.cpp"
     exe=Path(tmp)/"preimport"
     cpp.write_text(fixture)
-    roots=[R/"encore-active/ns2-runtime/hle", R/"encore-active/ns2-runtime/nvdrv_as"]
+    roots=[R/"encore-active/ns2-runtime/hle", R/"encore-active/ns2-runtime/nvdrv_as",
+           R/"sources/eden/src"]
     subprocess.run([compiler,"-std=c++20","-O2","-Wall","-Wextra","-Werror",
                     *[item for root in roots for item in ("-I",str(root))],
                     str(cpp),"-o",str(exe)],check=True,timeout=60)
