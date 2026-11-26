@@ -87,9 +87,10 @@ void ThreadManager::RunWorker(VideoCore::RendererBase& renderer, Core::Frontend:
             if ((++completed_gpu_commands & 63u) == 0u)
                 ::Eden::Crash::gpu_completed_commands.fetch_add(64, std::memory_order_relaxed);
             if (next.block) {
-                // We have to lock the write_lock to ensure that the condition_variable wait not get a
-                // race between the check and the lock itself.
-                std::scoped_lock lk{state.write_lock};
+                // The producer may hold write_lock while the FIFO is full.
+                // Never acquire it here: only this separate completion mutex
+                // participates in the wait/notify handshake.
+                std::scoped_lock lk{state.completion_lock};
                 state.cv.notify_all();
             }
         }
@@ -162,7 +163,10 @@ u64 ThreadManager::PushCommand(CommandData&& command_data, bool block, bool is_a
     }
 
     if (block) {
-        const bool completed = state.cv.wait(lk, stop_source.get_token(), [this, fence] {
+        const auto completion_token = stop_source.get_token();
+        lk.unlock();
+        std::unique_lock completion_lk{state.completion_lock};
+        const bool completed = state.cv.wait(completion_lk, completion_token, [this, fence] {
             return fence <= state.signaled_fence.load(std::memory_order_acquire);
         });
         if (!completed) {
