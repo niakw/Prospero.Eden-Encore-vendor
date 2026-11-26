@@ -291,8 +291,8 @@
       "upstream": "d46d2e325813441f40c9fcb2e5f048f96908d9893d309e407b9403bcaa6de07c"
     },
     "src/core/hle/service/audio/audio_controller.cpp": {
-      "active": "aed6fba662b914fcf1ce808f6334b6ab0e23639a2aeacd645005825561374cbb",
-      "bytes": 23342,
+      "active": "34dba7fcd100fc6066e44a4948e82a37896f523e6022f81be4dc457947ea02ed",
+      "bytes": 24380,
       "upstream": "26fc5c855c8e79b1d9c397c8823d43c18bfec4514ba9df356b26bd062086ab9f"
     },
     "src/core/hle/service/audio/audio_controller.h": {
