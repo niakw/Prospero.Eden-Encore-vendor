@@ -54,6 +54,17 @@ cache_blob=blob(CACHE)
 cache_source = CACHE.read_text()
 # The only change to the selected Vulkan prewarm owner is authenticated by
 # its whole source blob and inverted ONLY on an in-memory historical copy.
+if cache_blob == "61450e8b8c5e76a59660649ed13941eb50e089cb":
+    for newer, earlier in (
+        ("        // The GPU owner would otherwise sit idle until every stage completes.\n        // Queue the preceding stages, then translate the final active stage\n        // locally using exactly the same immutable snapshot and private pools.\n        size_t parallel_env_index{};\n        const size_t parallel_stage_count = envs.size();\n        for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {", "        size_t parallel_env_index{};\n        for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {"),
+        ("            auto translate_stage =\n                [this, env, stage_pools, cfg_offset, exits_to_dispatcher, index,", "            shader_translation_workers.QueueWork(\n                [this, env, stage_pools, cfg_offset, exits_to_dispatcher, index,"),
+        ("                };\n            if (parallel_env_index == parallel_stage_count) {\n                translate_stage();\n            } else {\n                shader_translation_workers.QueueWork(std::move(translate_stage));\n            }\n        }\n        // The GPU owner intentionally waits here. Workers see only immutable", "                });\n        }\n        // The GPU owner intentionally waits here. Workers see only immutable"),
+    ):
+        assert cache_source.count(newer) == 1
+        cache_source = cache_source.replace(newer, earlier, 1)
+    raw_prior = cache_source.encode("utf-8")
+    cache_blob = hashlib.sha1(b"blob " + str(len(raw_prior)).encode() + bytes([0]) + raw_prior).hexdigest()
+    assert cache_blob == "44b0edc24e847d4cbcd47de0ed86241787bda38a"
 if cache_blob == "44b0edc24e847d4cbcd47de0ed86241787bda38a":
     new_policy = "    // FC27 PS5 25/11: 598 valid cached keys, only 128 restored in 704 ms,\n    // and 243 first-use translations during gameplay. Prebuild the newest\n    // 768 DISTINCT cached keys before guest Run when the existing file-size\n    // limit allows it. Keep the 32-entry prefix for large/absent caches;\n    // this changes no GPU barriers, shader output or draw ordering.\n    constexpr size_t kStartupPrewarmPipelines = 32;\n    constexpr size_t kRecentPrewarmPipelines = 768;"
     old_policy = "    // For a modest, already populated cache, admit the newest 128 builders\n    // before gameplay; preserve the 32-entry prefix for large/absent caches.\n    // This shifts some first-use work to loading without skipping any draw.\n    constexpr size_t kStartupPrewarmPipelines = 32;\n    constexpr size_t kRecentPrewarmPipelines = 128;"

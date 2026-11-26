@@ -2084,7 +2084,11 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
                 if (!joined) worker.WaitForRequests();
             }
         } translation_drain{shader_translation_workers};
+        // The GPU owner would otherwise sit idle until every stage completes.
+        // Queue the preceding stages, then translate the final active stage
+        // locally using exactly the same immutable snapshot and private pools.
         size_t parallel_env_index{};
+        const size_t parallel_stage_count = envs.size();
         for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
             if (key.unique_hashes[index] == 0) {
                 continue;
@@ -2096,7 +2100,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
             ShaderPools* const stage_pools = parallel_pools[index].get();
             const bool exits_to_dispatcher = index == 0;
             const size_t physical_stage = index <= 1 ? 0 : index - 1;
-            shader_translation_workers.QueueWork(
+            auto translate_stage =
                 [this, env, stage_pools, cfg_offset, exits_to_dispatcher, index,
                  physical_stage, snapshot_texture_base, snapshot_texture_limit,
                  snapshot_via_header_index, snapshot_viewport_transform_state,
@@ -2160,7 +2164,12 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
                     } catch (...) {
                         parallel_errors[index] = std::current_exception();
                     }
-                });
+                };
+            if (parallel_env_index == parallel_stage_count) {
+                translate_stage();
+            } else {
+                shader_translation_workers.QueueWork(std::move(translate_stage));
+            }
         }
         // The GPU owner intentionally waits here. Workers see only immutable
         // host snapshots plus each environment's already-copied shader code;
