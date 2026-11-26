@@ -530,3 +530,16 @@ for owner in (
 assert "CheckImagePreference" not in camera
 assert "m_event->Signal" not in camera
 print("NS2_CAMERA_NO_DEVICE_SOURCE_PASS sdk21_query29=0x7c4 finalize4=success event21=copy")
+
+# SDK 21 root camera cleanup: a GSV 603 is accepted only after a successful
+# GSV 602 MOVE publication. The child kernel session retains its own lifetime.
+assert '{603, &IGraphicsSupervisor::DestroyCameraContext, "DestroyCameraContext"}' in cpp
+assert 'void DestroyCameraContext(HLERequestContext& ctx);' in hdr
+assert 'u32 m_camera_contexts{};' in hdr
+camera_open=cpp.split("void IGraphicsSupervisor::OpenCameraSession(HLERequestContext& ctx) {",1)[1].split("void IGraphicsSupervisor::DestroyCameraContext(",1)[0]
+camera_root=cpp.split("void IGraphicsSupervisor::DestroyCameraContext(HLERequestContext& ctx) {",1)[1].split("void IGraphicsSupervisor::OpenChatSession(",1)[0]
+assert camera_open.index("ctx.AddMoveObject(client);") < camera_open.index("++m_camera_contexts;")
+for guard in ("packet[0] == 16 + 603 && packet[1] == 0", "if (m_camera_contexts != 0)",
+              "--m_camera_contexts;", "Kernel::ResultInvalidState", "ResultSuccess"):
+    assert guard in camera_root, guard
+print("NS2_CAMERA_ROOT_FINALIZE_SOURCE_PASS cmd603=owned_after_602")

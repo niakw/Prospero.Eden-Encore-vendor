@@ -1618,7 +1618,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {214, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyDebugSyncCounter"},
         {215, &IGraphicsSupervisor::UnavailableDocumentedFeature, "ReportDebugSyncCounterValue"},
         {493, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateUserlandDebuggerSession"},
-        {603, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyCameraContext"},
+        {603, &IGraphicsSupervisor::DestroyCameraContext, "DestroyCameraContext"},
         {612, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyOutputBufferPool"},
         {613, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateAliasOutputBufferPool"},
         {614, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyAliasOutputBufferPool"},
@@ -2165,7 +2165,28 @@ void IGraphicsSupervisor::OpenCameraSession(HLERequestContext& ctx) {
         rb.Push(result.raw);
         return;
     }
+    // Publication happened only after AddMoveObject accepted the child.
+    // Root 603 may now retire exactly this logical camera context; the
+    // service framework owns the child kernel session and its lifetime.
+    ++m_camera_contexts;
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(result.raw);
+}
+
+void IGraphicsSupervisor::DestroyCameraContext(HLERequestContext& ctx) {
+    // An opened camera context is a real MOVE child session even when the
+    // console has no camera connected. Finalize its root lease only after a
+    // successful 602; unknown/malformed and double finalization fail closed.
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    if (packet[0] == 16 + 603 && packet[1] == 0) {
+        result = Kernel::ResultInvalidState;
+        if (m_camera_contexts != 0) {
+            --m_camera_contexts;
+            result = ResultSuccess;
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
 }
 
