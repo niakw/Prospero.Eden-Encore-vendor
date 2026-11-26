@@ -416,8 +416,8 @@
       "upstream": "71d7ac4e6543bffd1f0445383e508692f8f018668728f1420e0696847cccb0ec"
     },
     "src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp": {
-      "active": "1d500ff3d2fd45cf1b6e211128b4539abccb74e35654ed56814d109c996e4a44",
-      "bytes": 13003,
+      "active": "957aed7aff80d3599777f2cc4fc190cd3fba243bb2fd9d5349d7b3ec6a90a088",
+      "bytes": 13125,
       "upstream": "6cba34161c99edc6012c40ca9713cca6f134fc3b41e1baf572eb21764c3ea4cd"
     },
     "src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.h": {

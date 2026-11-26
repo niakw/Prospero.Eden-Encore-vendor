@@ -4,7 +4,10 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "common/fs/path_util.h"
 #include "common/hex_util.h"
+#include "core/core.h"
+#include "core/file_sys/vfs/vfs.h"
 #include "core/file_sys/savedata_factory.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.h"
@@ -96,20 +99,15 @@ static u64 stoull_be(std::string_view str) {
     return Common::swap64(out);
 }
 
-FileSys::VirtualDir GetVfsRoot(FileSys::VirtualDir directory) {
-    while (directory != nullptr) {
-        const auto parent = directory->GetParentDirectory();
-        if (parent == nullptr) {
-            break;
-        }
-        directory = parent;
+u64 GetPublishedSaveDataId(Core::System& system, const FileSys::VirtualDir& save_directory) {
+    const auto save_root = system.GetFilesystem()->OpenDirectory(
+        Common::FS::GetEdenPathString(Common::FS::EdenPath::SaveDir), FileSys::OpenMode::ReadWrite);
+    if (save_root == nullptr) {
+        LOG_ERROR(Service_FS, "Failed to open configured SaveDir for save-data index");
+        return 0;
     }
-    return directory;
-}
-
-u64 GetPublishedSaveDataId(const FileSys::VirtualDir& save_directory) {
-    const auto root = GetVfsRoot(save_directory);
-    const auto save_data_id = FileSys::SaveDataFactory::EnsureSaveDataId(root, save_directory);
+    const auto save_data_id =
+        FileSys::SaveDataFactory::EnsureSaveDataId(save_root, save_directory);
     if (!save_data_id.has_value()) {
         LOG_ERROR(Service_FS, "Failed to resolve published ID for save {}", save_directory->GetFullPath());
         return 0;
@@ -231,7 +229,7 @@ void ISaveDataInfoReader::FindNormalSaves(FileSys::SaveDataSpaceId space,
                 const auto device = std::all_of(user_id_numeric.begin(), user_id_numeric.end(),
                                                 [](u8 val) { return val == 0; });
                 info.emplace_back(SaveDataInfo{
-                    GetPublishedSaveDataId(title_id),
+                    GetPublishedSaveDataId(system, title_id),
                     space,
                     device ? FileSys::SaveDataType::Device : FileSys::SaveDataType::Account,
                     {},
@@ -303,7 +301,7 @@ void ISaveDataInfoReader::FindCacheStorageSaves(FileSys::SaveDataSpaceId space, 
             continue;
         }
         info.emplace_back(SaveDataInfo{
-            GetPublishedSaveDataId(title_dir),
+            GetPublishedSaveDataId(system, title_dir),
             space,
             FileSys::SaveDataType::Cache,
             {},
