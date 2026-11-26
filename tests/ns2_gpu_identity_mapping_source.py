@@ -7,6 +7,7 @@ R=Path(__file__).resolve().parents[1]
 # inter-list dependency. The GPU pthread join must not depend on an unbounded
 # ReleaseFences(true), and cancellation must not publish unexecuted work.
 dma=(R/"encore-active/eden-core/src/video_core/dma_pusher.cpp").read_text()
+dma_header=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/dma_pusher.h").read_text()
 puller=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
 dispatch=dma.split("void DmaPusher::DispatchCalls() {",1)[1].split(
     "\n[[noreturn]] void DmaPusher::FailNativeSubmission",1)[0]
@@ -24,7 +25,15 @@ assert dispatch.index("if (!system.IsPoweredOn() || system.IsShuttingDown())") <
 assert "if (system.IsShuttingDown() || !system.IsPoweredOn())" in step
 assert "if (system.IsShuttingDown() || !system.IsPoweredOn())" in process
 interlist=step.split("if (signal_sync) {",1)[1]
-assert "SignalNativeFence([this]()" in interlist
+assert "std::shared_ptr<NativeInterlistFenceState> native_interlist_fence;" in dma_header
+assert "std::make_shared<NativeInterlistFenceState>()" in interlist
+assert "native_interlist_fence = state;" in interlist
+assert "SignalNativeFence([state]()" in interlist
+assert "SignalNativeFence([this]()" not in interlist
+assert "state->complete = true;" in interlist
+assert "state->cv.notify_all();" in interlist
+assert "if (signal_sync && native_interlist_fence)" in step
+assert "auto state = native_interlist_fence;" in step
 assert "rasterizer->ReleaseFences(true);" not in interlist
 assert "if (dma_pusher.system.IsShuttingDown() || !dma_pusher.system.IsPoweredOn())" in resume
 assert "rasterizer->ReleaseFences(" not in resume

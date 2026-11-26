@@ -196,6 +196,26 @@ bool DmaPusher::Step() {
     const CommandListHeader& header = current_command;
     dma_state.dma_get = header.addr;
 
+#ifdef PS5_NATIVE
+    if (signal_sync && native_interlist_fence) {
+        // Copy the shared state locally: shutdown/channel retirement may
+        // destroy this DmaPusher while the backend still owns its callback.
+        auto state = native_interlist_fence;
+        std::unique_lock lk(state->mutex);
+        while (!state->complete && !system.IsShuttingDown()) {
+            if (auto failure = ::Eden::PeekGpuFailure())
+                std::rethrow_exception(failure);
+            state->cv.wait_for(lk, std::chrono::milliseconds(10));
+        }
+        if (auto failure = ::Eden::PeekGpuFailure())
+            std::rethrow_exception(failure);
+        if (system.IsShuttingDown()) return false;
+        native_interlist_fence.reset();
+        signal_sync = false;
+        require_native_submission_lease();
+    }
+#endif
+
     if (signal_sync && !synced) {
         std::unique_lock lk(sync_mutex);
         while (!synced && !system.IsShuttingDown()) {
@@ -370,11 +390,14 @@ bool DmaPusher::Step() {
             // unlike ReleaseFences(true), whose async-fence callback wait is
             // intentionally unbounded. This preserves real GPU retirement
             // without making pthread_join depend on a hung guest fence.
-            if (!rasterizer->SignalNativeFence([this]() {
-                    std::scoped_lock lk(sync_mutex);
-                    synced = true;
-                    sync_cv.notify_all();
+            auto state = std::make_shared<NativeInterlistFenceState>();
+            native_interlist_fence = state;
+            if (!rasterizer->SignalNativeFence([state]() {
+                    std::scoped_lock lk(state->mutex);
+                    state->complete = true;
+                    state->cv.notify_all();
                 })) {
+                native_interlist_fence.reset();
                 FailNativeSubmission("Native GPFIFO inter-list fence unavailable");
             }
             return true;

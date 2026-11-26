@@ -226,6 +226,16 @@ public:
     std::mutex sync_mutex;
     std::condition_variable sync_cv;
 
+    // A native backend fence may retire after its channel is removed. Keep
+    // the completion state independently alive so the renderer callback never
+    // dereferences a destroyed DmaPusher. Legacy NS1 keeps sync_mutex/sync_cv.
+    struct NativeInterlistFenceState {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool complete{};
+    };
+    std::shared_ptr<NativeInterlistFenceState> native_interlist_fence;
+
     VideoCore::RasterizerInterface* rasterizer = nullptr;
 
     const bool ib_enable : 1 = true; ///< IB mode enabled
