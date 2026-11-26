@@ -83,7 +83,7 @@ public:
         : ServiceFramework{system_, "IManagerForSystemService"}, account_id{uuid} {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, D<&IManagerForSystemService::CheckAvailability>, "CheckAvailability"},
+            {0, &IManagerForSystemService::RejectUnavailableNintendoAccount, "CheckAvailability"},
             {1, D<&IManagerForSystemService::GetAccountId>, "GetAccountId"},
             {2, &IManagerForSystemService::RejectUnavailableNintendoAccount, "EnsureIdTokenCacheAsync"},
             {3, D<&IManagerForSystemService::LoadIdTokenCacheDeprecated>, "LoadIdTokenCacheDeprecated"}, // 19.0.0+
@@ -125,11 +125,6 @@ public:
     }
 
 private:
-    Result CheckAvailability() {
-        LOG_WARNING(Service_ACC, "(STUBBED) called");
-        R_SUCCEED();
-    }
-
     Result GetAccountId(Out<u64> out_account_id) {
         LOG_WARNING(Service_ACC, "(STUBBED) called");
         *out_account_id = account_id.Hash();
