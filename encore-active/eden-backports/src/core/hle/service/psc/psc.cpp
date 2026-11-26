@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "core/hle/service/psc/ovln/ovln_types.h"
 #include "core/hle/service/psc/ovln/receiver_service.h"
 #include "core/hle/service/psc/ovln/sender_service.h"
 #include "core/hle/service/psc/pm_control.h"
@@ -161,8 +162,12 @@ void LoopProcess(Core::System& system) {
     server_manager->RegisterNamedService("ins:s", std::make_shared<INS_S>(system));
     server_manager->RegisterNamedService("hshl:sys", std::make_shared<HSHL_SYS>(system));
     server_manager->RegisterNamedService("hshl:set", std::make_shared<HSHL_SET>(system));
-    server_manager->RegisterNamedService("ovln:rcv", std::make_shared<IReceiverService>(system));
-    server_manager->RegisterNamedService("ovln:snd", std::make_shared<ISenderService>(system));
+
+    auto ovln_broker = std::make_shared<OverlayNotificationBroker>(system);
+    server_manager->RegisterNamedService(
+        "ovln:rcv", std::make_shared<IReceiverService>(system, ovln_broker));
+    server_manager->RegisterNamedService(
+        "ovln:snd", std::make_shared<ISenderService>(system, ovln_broker));
 
     auto time = std::make_shared<Time::TimeManager>(system);
 
