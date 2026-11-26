@@ -13,6 +13,98 @@ ROOT = Path(__file__).resolve().parents[1]
 def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     if relative != "encore-active/ns2-runtime/process/core/core.cpp":
         return source
+    # Remove the current NS2 post-load process trace only from the
+    # historical source reconstruction (not the compiled runtime).
+    ns2_process_trace_block = "        // Standalone ExeFS registers NS2 SVC tracing in its loader; other\n        // admitted NS2 containers (NUP/NX/NSP/XCI) do not necessarily use\n        // that loader. The post-load process owner is the common, safe gate.\n        // Never attach a trace on an unsuccessful load or an NS1 title.\n        if (is_ns2_program && process && process->GetProcessId() != 0 &&\n            !Eden::NS2::SvcTrace::IsActive(process->GetProcessId())) {\n            Eden::NS2::SvcTrace::Register(process->GetProcessId());\n        }\n#ifdef PS5_NATIVE\n        // Provenance for the *actual* loaded KProcess, including NUP.\n        // active=0 on a classified NS2 title is a source bug to investigate,\n        // not proof that the guest executed zero SVC instructions.\n        std::fprintf(stderr,\n                     \"EDEN_NS2_PROCESS_TRACE pid=%llu classified=%u active=%u\\n\",\n                     static_cast<unsigned long long>(process ? process->GetProcessId() : 0),\n                     static_cast<unsigned>(is_ns2_program),\n                     static_cast<unsigned>(process &&\n                         Eden::NS2::SvcTrace::IsActive(process->GetProcessId())));\n#endif\n\n"
+    assert source.count(ns2_process_trace_block) == 1, ("NS2 process trace", relative)
+    source = source.replace(ns2_process_trace_block, "", 1)
+    # The NS2 diagnostic also added one include. Historical blob checks
+    # must replay that exact additive delta along with its handler block.
+    diagnostic_include = "#include <cstdio>\n"
+    assert source.count(diagnostic_include) == 1, ("NS2 diagnostic include", relative)
+    source = source.replace(diagnostic_include, "", 1)
+    # New FC27 candidate releases SM-owned NVDRV handlers before KProcess
+    # shutdown. Strip only this additive candidate from the historical
+    # provenance reconstruction, not from the compiled source itself.
+    post_join_handler_retire = "        // SM's factories can keep NVDRV devices alive after their server\n        // threads have joined. Drop those strong owners before KProcess\n        // retirement, but retain the SM object/ports until ShutdownCores.\n        if (service_manager) {\n            service_manager->ReleaseRegisteredHandlersForShutdown();\n            ::Eden::ReportStep(\"shutdown\", \"Completed service_manager.ReleaseRegisteredHandlersForShutdown()\");\n        }\n"
+    assert source.count(post_join_handler_retire) == 1, ("SM/ NVDRV lifetime", relative)
+    source = source.replace(post_join_handler_retire, "", 1)
+    # Nov23 AM shutdown-race successor. Historical teardown provenance predates
+    # DropPendingProcess(); remove only this exact call/report block on the audit copy.
+    pending_process_release = "        // AM may never have taken the frontend-created application if the\n        // title was closed while services were still starting. Drop it now,\n        // after service loops stopped and before KProcess/kernel teardown.\n        applet_manager.DropPendingProcess();\n        ::Eden::ReportStep(\"shutdown\", \"Completed applet_manager.DropPendingProcess()\");\n"
+    assert source.count(pending_process_release) == 1, ("AM pending-process lifetime", relative)
+    source = source.replace(pending_process_release, "", 1)
+    # PS5 FC27 23/11 host-service lifetime successor: wake SM waiters,
+    # stop server loops and join retained host workers before ShutdownCores.
+    # Undo only in this provenance copy before replaying older shutdown SHAs.
+    host_lifetime_after = "        gpu_core.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed gpu_core.reset()\");\n        if (service_manager) {\n            service_manager->Close();\n            ::Eden::ReportStep(\"shutdown\", \"Completed service_manager.Close()\");\n        }\n        kernel.CloseServices();\n        ::Eden::ReportStep(\"shutdown\", \"Completed kernel.CloseServices()\");\n        // Services owns the audio/VI host jthreads. Join them while their\n        // dummy KThreads still have a live kernel/scheduler to Close() into.\n        // Server managers have already stopped, so NVDRV owners can release\n        // their mappings without racing the destroyed GPU worker.\n        services.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed services.reset()\");\n        kernel.ShutdownCores();"
+    host_lifetime_before = "        gpu_core.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed gpu_core.reset()\");\n        kernel.CloseServices();\n        ::Eden::ReportStep(\"shutdown\", \"Completed kernel.CloseServices()\");\n        // NVDRV's nvhost_as_gpu destructor can unpin NVMap pages and release\n        // its retained KProcess reference. Release those service owners while\n        // the process and scheduler are still alive; ShutdownCores terminates\n        // the guest processes and must come AFTER this cleanup. The GPU worker\n        // was joined above, so no GPU task can reuse the retired mappings.\n        services.reset();\n        ::Eden::ReportStep(\"shutdown\", \"Completed services.reset()\");\n        // A process finishing shutdown can still consult the SM owner.\n        // NVDRV services have already released their guest AS/page pins;\n        // retain the service manager itself until all kernel cores retire.\n        kernel.ShutdownCores();"
+    assert source.count(host_lifetime_after) == 1, ("host-service lifetime", relative)
+    source = source.replace(host_lifetime_after, host_lifetime_before, 1)
+
+    # PS5 FC27 23/11: keep the SM owner alive until KProcess termination.
+    # Reverse only on the provenance copy, never on the compiled C++ owner.
+    after_service = (
+        '        services.reset();\n'
+        '        ::Eden::ReportStep("shutdown", "Completed services.reset()");\n'
+        '        // A process finishing shutdown can still consult the SM owner.\n'
+        '        // NVDRV services have already released their guest AS/page pins;\n'
+        '        // retain the service manager itself until all kernel cores retire.\n'
+        '        kernel.ShutdownCores();\n'
+        '        ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");\n'
+        '        service_manager.reset();'
+    )
+    before_service = (
+        '        services.reset();\n'
+        '        ::Eden::ReportStep("shutdown", "Completed services.reset()");\n'
+        '        service_manager.reset();\n'
+        '        kernel.ShutdownCores();\n'
+        '        ::Eden::ReportStep("shutdown", "Completed kernel.ShutdownCores()");'
+    )
+    assert source.count(after_service) == 1, ("FC27 SM lifetime", relative)
+    source = source.replace(after_service, before_service, 1)
+
+    # NUP pre-kernel selection is a verified post-#1932/#1952 runtime fix.
+    # Undo its exact bytes on the audit copy, not the active C++ source.
+    # The same source-selected NUP ExeFS view is needed before kernel init.
+    raw_current = source.encode()
+    current_digest = hashlib.sha1(
+        b"blob " + str(len(raw_current)).encode() + b"\0" + raw_current).hexdigest()
+    if current_digest == "df35fcd9db52452902f0cbd218c63dff2fd70cc0":
+        nx_include = '#include "core/loader/nx.h"\n'
+        nx_block = """        // NX carries the program platform in the verified catalog; select the
+        // matching NS2 guest layout before allocating any process memory.
+        if (Loader::AppLoader_NX::IdentifyType(file) == Loader::FileType::NX) {
+            const auto nx_program = Loader::AppLoader_NX::ReadProgramPlatform(file, program_id);
+            return nx_program && nx_program->platform == 2;
+        }
+"""
+        assert source.count(nx_include) == source.count(nx_block) == 1
+        source = source.replace(nx_include, "", 1).replace(nx_block, "", 1)
+        raw_prev = source.encode()
+        current_digest = hashlib.sha1(
+            b"blob " + str(len(raw_prev)).encode() + b"\0" + raw_prev).hexdigest()
+    assert current_digest == "a2721a630b8b32222ff586ea2db19ee726d4d5b9", current_digest
+    new_exefs = """            const auto exefs = mount
+                ? Eden::NupV1::Native::ContentSet(mount).ExeFS()
+                : FileSys::VirtualDir{};"""
+    old_exefs = """            const auto exefs = mount ? mount->Effective(Eden::NupV1::ContentView::ExeFS)
+                                     : FileSys::VirtualDir{};"""
+    assert source.count(new_exefs) == 1
+    source = source.replace(new_exefs, old_exefs, 1)
+    assert source.count('#include "nup_v1_native_content.h"\n') == 1
+    source = source.replace('#include "nup_v1_native_content.h"\n', "", 1)
+    raw = source.encode()
+    current_sha = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+    assert current_sha == "f37b975a0e251aa3f027b261f61d02fbf8506912", current_sha
+    assert source.count('#include "nup_v1_native_vfs.h"\n') == 1
+    source = source.replace('#include "nup_v1_native_vfs.h"\n', "", 1)
+    nup_block = "        // NUP is a first-class NS1/NS2 container, but IdentifyFile() in the\n        // pinned vendor loader does not know it. The NUP bridge is selected\n        // by the native CMake graph and validates the same effective ExeFS.\n        // Probe its bounded main.npdm BEFORE allocating guest kernel memory,\n        // rather than silently using the smaller NS1 layout for an NS2 title.\n        if (Eden::NupV1::Native::HasNupV1Header(file)) {\n            const auto mount = Eden::NupV1::Native::Mount::Open(file);\n            const auto exefs = mount ? mount->Effective(Eden::NupV1::ContentView::ExeFS)\n                                     : FileSys::VirtualDir{};\n            const auto npdm = exefs ? exefs->GetFile(\"main.npdm\") : nullptr;\n            constexpr std::size_t MaxNupNpdmBytes = 4U * 1024U * 1024U;\n            return npdm && npdm->GetSize() > 0 &&\n                   npdm->GetSize() <= MaxNupNpdmBytes && check_npdm(npdm);\n        }\n"
+    assert source.count(nup_block) == 1
+    source = source.replace(nup_block, "", 1)
+    old_raw = source.encode()
+    old_sha = hashlib.sha1(b"blob " + str(len(old_raw)).encode() + b"\0" + old_raw).hexdigest()
+    assert old_sha == "0110907a727b5d0ed15286298f851b59b30f1eb6", old_sha
     # The release PS5 Core::System must retire NVDRV-owned AS/pins and
     # KProcess references before ShutdownCores ends the guest process.
     # Reconstruct the qualified predecessor only for historical SHA checks.
