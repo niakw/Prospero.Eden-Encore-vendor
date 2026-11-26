@@ -461,17 +461,15 @@ Result ILibraryAppletSelfAccessor::CreateApplicationAndPushAndRequestToLaunch(
 }
 
 Result ILibraryAppletSelfAccessor::ReserveResourceForMovieOperation() {
-    LOG_DEBUG(Service_AM, "called");
-    std::scoped_lock lk{m_applet->lock};
-    m_applet->game_movie_resource_reserved = true;
-    R_SUCCEED();
+    LOG_WARNING(Service_AM,
+                "Movie resource reservation unavailable: GameMovieTrimmer backend is not implemented");
+    R_RETURN(ResultUnknown);
 }
 
 Result ILibraryAppletSelfAccessor::UnreserveResourceForMovieOperation() {
-    LOG_DEBUG(Service_AM, "called");
-    std::scoped_lock lk{m_applet->lock};
-    m_applet->game_movie_resource_reserved = false;
-    R_SUCCEED();
+    LOG_WARNING(Service_AM,
+                "Movie resource release unavailable: GameMovieTrimmer backend is not implemented");
+    R_RETURN(ResultUnknown);
 }
 
 Result ILibraryAppletSelfAccessor::GetMainAppletAvailableUsers(
