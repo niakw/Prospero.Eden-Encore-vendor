@@ -34,9 +34,12 @@ void LoopProcess(Core::System& system) {
     server_manager->RegisterNamedService("ectx:r", std::make_shared<ECTX_R>(system));
     server_manager->RegisterNamedService("ectx:aw", std::make_shared<ECTX_AW>(system));
 
-    // Notification Services
-    server_manager->RegisterNamedService("notif:a", std::make_shared<INotificationServicesForApplication>(system));
-    server_manager->RegisterNamedService("notif:s", std::make_shared<INotificationServices>(system));
+    // Notification Services share one alarm/parameter backend across both Horizon facades.
+    auto notification_impl = std::make_shared<NotificationServiceImpl>();
+    server_manager->RegisterNamedService(
+        "notif:a", std::make_shared<INotificationServicesForApplication>(system, notification_impl));
+    server_manager->RegisterNamedService(
+        "notif:s", std::make_shared<INotificationServices>(system, notification_impl));
 
     // Time
     auto time = std::make_shared<Time::TimeManager>(system);

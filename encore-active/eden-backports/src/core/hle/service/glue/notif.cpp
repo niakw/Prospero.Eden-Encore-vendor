@@ -133,8 +133,9 @@ std::vector<AlarmSetting>::iterator NotificationServiceImpl::GetAlarmFromId(Alar
     });
 }
 
-INotificationServicesForApplication::INotificationServicesForApplication(Core::System& system_)
-    : ServiceFramework{system_, "notif:a"} {
+INotificationServicesForApplication::INotificationServicesForApplication(
+    Core::System& system_, std::shared_ptr<NotificationServiceImpl> impl_)
+    : ServiceFramework{system_, "notif:a"}, impl{impl_} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {500, D<&INotificationServicesForApplication::RegisterAlarmSetting>, "RegisterAlarmSetting"},
@@ -155,34 +156,34 @@ Result INotificationServicesForApplication::RegisterAlarmSetting(
     Out<AlarmSettingId> out_alarm_setting_id,
     InLargeData<AlarmSetting, BufferAttr_HipcMapAlias> alarm_setting,
     InBuffer<BufferAttr_HipcMapAlias> application_parameter) {
-    R_RETURN(impl.RegisterAlarmSetting(out_alarm_setting_id.Get(), *alarm_setting,
+    R_RETURN(impl->RegisterAlarmSetting(out_alarm_setting_id.Get(), *alarm_setting,
                                        application_parameter));
 }
 
 Result INotificationServicesForApplication::UpdateAlarmSetting(
     InLargeData<AlarmSetting, BufferAttr_HipcMapAlias> alarm_setting,
     InBuffer<BufferAttr_HipcMapAlias> application_parameter) {
-    R_RETURN(impl.UpdateAlarmSetting(*alarm_setting, application_parameter));
+    R_RETURN(impl->UpdateAlarmSetting(*alarm_setting, application_parameter));
 }
 
 Result INotificationServicesForApplication::ListAlarmSettings(
     Out<s32> out_count, OutArray<AlarmSetting, BufferAttr_HipcMapAlias> out_alarms) {
-    R_RETURN(impl.ListAlarmSettings(out_count.Get(), out_alarms));
+    R_RETURN(impl->ListAlarmSettings(out_count.Get(), out_alarms));
 }
 
 Result INotificationServicesForApplication::LoadApplicationParameter(
     Out<u32> out_size, OutBuffer<BufferAttr_HipcMapAlias> out_application_parameter,
     AlarmSettingId alarm_setting_id) {
     R_RETURN(
-        impl.LoadApplicationParameter(out_size.Get(), out_application_parameter, alarm_setting_id));
+        impl->LoadApplicationParameter(out_size.Get(), out_application_parameter, alarm_setting_id));
 }
 
 Result INotificationServicesForApplication::DeleteAlarmSetting(AlarmSettingId alarm_setting_id) {
-    R_RETURN(impl.DeleteAlarmSetting(alarm_setting_id));
+    R_RETURN(impl->DeleteAlarmSetting(alarm_setting_id));
 }
 
 Result INotificationServicesForApplication::Initialize(ClientAppletResourceUserId aruid) {
-    R_RETURN(impl.Initialize(*aruid));
+    R_RETURN(impl->Initialize(*aruid));
 }
 
 class INotificationSystemEventAccessor final
@@ -219,8 +220,9 @@ private:
     Kernel::KEvent* notification_event;
 };
 
-INotificationServices::INotificationServices(Core::System& system_)
-    : ServiceFramework{system_, "notif:s"} {
+INotificationServices::INotificationServices(Core::System& system_,
+                                             std::shared_ptr<NotificationServiceImpl> impl_)
+    : ServiceFramework{system_, "notif:s"}, impl{impl_} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {500, D<&INotificationServices::RegisterAlarmSetting>, "RegisterAlarmSetting"},
@@ -262,34 +264,34 @@ Result INotificationServices::RegisterAlarmSetting(
     Out<AlarmSettingId> out_alarm_setting_id,
     InLargeData<AlarmSetting, BufferAttr_HipcMapAlias> alarm_setting,
     InBuffer<BufferAttr_HipcMapAlias> application_parameter) {
-    R_RETURN(impl.RegisterAlarmSetting(out_alarm_setting_id.Get(), *alarm_setting,
+    R_RETURN(impl->RegisterAlarmSetting(out_alarm_setting_id.Get(), *alarm_setting,
                                        application_parameter));
 }
 
 Result INotificationServices::UpdateAlarmSetting(
     InLargeData<AlarmSetting, BufferAttr_HipcMapAlias> alarm_setting,
     InBuffer<BufferAttr_HipcMapAlias> application_parameter) {
-    R_RETURN(impl.UpdateAlarmSetting(*alarm_setting, application_parameter));
+    R_RETURN(impl->UpdateAlarmSetting(*alarm_setting, application_parameter));
 }
 
 Result INotificationServices::ListAlarmSettings(
     Out<s32> out_count, OutArray<AlarmSetting, BufferAttr_HipcMapAlias> out_alarms) {
-    R_RETURN(impl.ListAlarmSettings(out_count.Get(), out_alarms));
+    R_RETURN(impl->ListAlarmSettings(out_count.Get(), out_alarms));
 }
 
 Result INotificationServices::LoadApplicationParameter(
     Out<u32> out_size, OutBuffer<BufferAttr_HipcMapAlias> out_application_parameter,
     AlarmSettingId alarm_setting_id) {
     R_RETURN(
-        impl.LoadApplicationParameter(out_size.Get(), out_application_parameter, alarm_setting_id));
+        impl->LoadApplicationParameter(out_size.Get(), out_application_parameter, alarm_setting_id));
 }
 
 Result INotificationServices::DeleteAlarmSetting(AlarmSettingId alarm_setting_id) {
-    R_RETURN(impl.DeleteAlarmSetting(alarm_setting_id));
+    R_RETURN(impl->DeleteAlarmSetting(alarm_setting_id));
 }
 
 Result INotificationServices::Initialize(ClientAppletResourceUserId aruid) {
-    R_RETURN(impl.Initialize(*aruid));
+    R_RETURN(impl->Initialize(*aruid));
 }
 
 Result INotificationServices::OpenNotificationSystemEventAccessor(

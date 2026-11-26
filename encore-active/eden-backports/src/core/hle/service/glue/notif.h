@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <memory>
 #include <vector>
 
 #include "common/uuid.h"
@@ -87,7 +88,8 @@ private:
 class INotificationServicesForApplication final
     : public ServiceFramework<INotificationServicesForApplication> {
 public:
-    explicit INotificationServicesForApplication(Core::System& system_);
+    explicit INotificationServicesForApplication(
+        Core::System& system_, std::shared_ptr<NotificationServiceImpl> impl_);
     ~INotificationServicesForApplication() override;
 
 private:
@@ -104,14 +106,15 @@ private:
     Result DeleteAlarmSetting(AlarmSettingId alarm_setting_id);
     Result Initialize(ClientAppletResourceUserId aruid);
 
-    NotificationServiceImpl impl;
+    std::shared_ptr<NotificationServiceImpl> impl;
 };
 
 class INotificationSystemEventAccessor;
 
 class INotificationServices final : public ServiceFramework<INotificationServices> {
 public:
-    explicit INotificationServices(Core::System& system_);
+    explicit INotificationServices(Core::System& system_,
+                                   std::shared_ptr<NotificationServiceImpl> impl_);
     ~INotificationServices() override;
 
 private:
@@ -134,6 +137,6 @@ private:
         Out<NotificationPresentationSetting> out_notification_presentation_setting,
         NotificationChannel notification_channel);
 
-    NotificationServiceImpl impl;
+    std::shared_ptr<NotificationServiceImpl> impl;
 };
 } // namespace Service::Glue
