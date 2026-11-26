@@ -1059,7 +1059,7 @@ void Module::Interface::GetProfile(HLERequestContext& ctx) {
 }
 
 void Module::Interface::IsUserRegistrationRequestPermitted(HLERequestContext& ctx) {
-    LOG_WARNING(Service_ACC, "(STUBBED) called");
+    LOG_DEBUG(Service_ACC, "called");
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
     rb.Push(profile_manager->CanSystemRegisterUser());

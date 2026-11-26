@@ -55,8 +55,9 @@ Result IAllSystemAppletProxiesService::OpenSystemAppletProxy(
             system, applet, process_handle.Get(), m_window_system);
         R_SUCCEED();
     } else {
-        UNIMPLEMENTED();
-        R_THROW(ResultUnknown);
+        // Match the application-proxy retry contract while the process has not
+        // yet been registered as an applet.
+        R_THROW(Result(ErrorModule::AM, 201));
     }
 }
 
@@ -71,8 +72,9 @@ Result IAllSystemAppletProxiesService::OpenLibraryAppletProxy(
             system, applet, process_handle.Get(), m_window_system);
         R_SUCCEED();
     } else {
-        UNIMPLEMENTED();
-        R_THROW(ResultUnknown);
+        // Match the application-proxy retry contract while the process has not
+        // yet been registered as an applet.
+        R_THROW(Result(ErrorModule::AM, 201));
     }
 }
 
@@ -86,8 +88,9 @@ Result IAllSystemAppletProxiesService::OpenOverlayAppletProxy(
             system, applet, process_handle.Get(), m_window_system);
         R_SUCCEED();
     } else {
-        UNIMPLEMENTED();
-        R_THROW(ResultUnknown);
+        // Match the application-proxy retry contract while the process has not
+        // yet been registered as an applet.
+        R_THROW(Result(ErrorModule::AM, 201));
     }
 }
 
