@@ -156,6 +156,105 @@ std::optional<ISaveDataInfoReader::SaveDataInfo> FindDirectorySaveByAttribute(
     return reader.FindSaveDataInfo(filter, current_program_id);
 }
 
+
+constexpr std::string_view DirectorySaveExtraDataPrefix = ".eden_extradata_";
+
+FileSys::SaveDataAttribute SaveDataInfoToAttribute(const ISaveDataInfoReader::SaveDataInfo& info) {
+    FileSys::SaveDataAttribute attribute{};
+    attribute.program_id = info.title_id;
+    std::memcpy(attribute.user_id.data(), info.user_id.data(), sizeof(attribute.user_id));
+    attribute.system_save_data_id = info.save_id;
+    attribute.type = info.type;
+    attribute.rank = info.rank;
+    attribute.index = info.index;
+    return attribute;
+}
+
+std::string GetDirectorySaveExtraDataFileName(const FileSys::VirtualDir& save_data_dir) {
+    return fmt::format("{}{}", DirectorySaveExtraDataPrefix, save_data_dir->GetName());
+}
+
+Result WriteDirectorySaveExtraData(const FileSys::VirtualDir& save_data_dir,
+                                   const FileSys::SaveDataExtraData& extra_data) {
+    R_UNLESS(save_data_dir != nullptr, FileSys::ResultTargetNotFound);
+    const auto parent = save_data_dir->GetParentDirectory();
+    R_UNLESS(parent != nullptr, FileSys::ResultTargetNotFound);
+
+    const auto file_name = GetDirectorySaveExtraDataFileName(save_data_dir);
+    auto file = parent->GetFile(file_name);
+    if (file == nullptr) {
+        file = parent->CreateFile(file_name);
+    }
+    R_UNLESS(file != nullptr && file->IsWritable(), FileSys::ResultWriteNotPermitted);
+    R_UNLESS(file->Resize(sizeof(extra_data)), FileSys::ResultWriteNotPermitted);
+    R_UNLESS(file->WriteObject(extra_data) == sizeof(extra_data), FileSys::ResultWriteNotPermitted);
+    R_SUCCEED();
+}
+
+Result ReadDirectorySaveExtraData(const std::shared_ptr<SaveDataController>& controller,
+                                  const ISaveDataInfoReader::SaveDataInfo& info,
+                                  FileSys::SaveDataExtraData* out_extra_data) {
+    const auto attribute = SaveDataInfoToAttribute(info);
+    FileSys::VirtualDir save_data_dir{};
+    R_TRY(controller->OpenSaveData(&save_data_dir, info.space, attribute));
+
+    const auto parent = save_data_dir->GetParentDirectory();
+    R_UNLESS(parent != nullptr, FileSys::ResultTargetNotFound);
+    const auto file = parent->GetFile(GetDirectorySaveExtraDataFileName(save_data_dir));
+    if (file == nullptr) {
+        *out_extra_data = {};
+        out_extra_data->attr = attribute;
+        R_SUCCEED();
+    }
+
+    R_UNLESS(file->GetSize() == sizeof(*out_extra_data), FileSys::ResultInvalidSize);
+    R_UNLESS(file->ReadObject(out_extra_data) == sizeof(*out_extra_data),
+             FileSys::ResultReadNotPermitted);
+    R_SUCCEED();
+}
+
+Result WriteDirectorySaveExtraData(const std::shared_ptr<SaveDataController>& controller,
+                                   const ISaveDataInfoReader::SaveDataInfo& info,
+                                   const FileSys::SaveDataExtraData& extra_data) {
+    const auto attribute = SaveDataInfoToAttribute(info);
+    FileSys::VirtualDir save_data_dir{};
+    R_TRY(controller->OpenSaveData(&save_data_dir, info.space, attribute));
+    R_RETURN(WriteDirectorySaveExtraData(save_data_dir, extra_data));
+}
+
+void ModifySaveDataExtraData(FileSys::SaveDataExtraData* current,
+                             const FileSys::SaveDataExtraData& value,
+                             const FileSys::SaveDataExtraData& mask) {
+    auto* current_bytes = reinterpret_cast<u8*>(current);
+    const auto* value_bytes = reinterpret_cast<const u8*>(&value);
+    const auto* mask_bytes = reinterpret_cast<const u8*>(&mask);
+    for (std::size_t i = 0; i < sizeof(*current); ++i) {
+        current_bytes[i] =
+            static_cast<u8>((value_bytes[i] & mask_bytes[i]) | (current_bytes[i] & ~mask_bytes[i]));
+    }
+}
+
+void MaskSaveDataExtraData(FileSys::SaveDataExtraData* value,
+                           const FileSys::SaveDataExtraData& mask) {
+    auto* value_bytes = reinterpret_cast<u8*>(value);
+    const auto* mask_bytes = reinterpret_cast<const u8*>(&mask);
+    for (std::size_t i = 0; i < sizeof(*value); ++i) {
+        value_bytes[i] &= mask_bytes[i];
+    }
+}
+
+template <typename CreationInfo>
+FileSys::SaveDataExtraData MakeInitialSaveDataExtraData(
+    const FileSys::SaveDataAttribute& attribute, const CreationInfo& creation_info) {
+    FileSys::SaveDataExtraData extra_data{};
+    extra_data.attr = attribute;
+    extra_data.owner_id = creation_info.owner_id;
+    extra_data.flags = creation_info.flags;
+    extra_data.available_size = creation_info.size;
+    extra_data.journal_size = creation_info.journal_size;
+    return extra_data;
+}
+
 } // namespace
 
 FSP_SRV::FSP_SRV(Core::System& system_)
@@ -496,8 +595,10 @@ Result FSP_SRV::CreateSaveDataFileSystem(FileSys::SaveDataCreationInfo save_crea
               uid[1], uid[0]);
 
     FileSys::VirtualDir save_data_dir{};
-    R_RETURN(save_data_controller->CreateSaveData(&save_data_dir, FileSys::SaveDataSpaceId::User,
-                                                  save_struct));
+    R_TRY(save_data_controller->CreateSaveData(&save_data_dir, FileSys::SaveDataSpaceId::User,
+                                               save_struct));
+    R_RETURN(WriteDirectorySaveExtraData(
+        save_data_dir, MakeInitialSaveDataExtraData(save_struct, save_create_struct)));
 }
 
 Result FSP_SRV::CreateSaveDataFileSystemBySystemSaveDataId(
@@ -505,8 +606,10 @@ Result FSP_SRV::CreateSaveDataFileSystemBySystemSaveDataId(
     LOG_DEBUG(Service_FS, "called save_struct = {}", save_struct.DebugInfo());
 
     FileSys::VirtualDir save_data_dir{};
-    R_RETURN(save_data_controller->CreateSaveData(&save_data_dir, FileSys::SaveDataSpaceId::System,
-                                                  save_struct));
+    R_TRY(save_data_controller->CreateSaveData(&save_data_dir, FileSys::SaveDataSpaceId::System,
+                                               save_struct));
+    R_RETURN(WriteDirectorySaveExtraData(
+        save_data_dir, MakeInitialSaveDataExtraData(save_struct, save_create_struct)));
 }
 
 Result FSP_SRV::CreateSaveDataFileSystemWithHashSalt(
@@ -517,18 +620,22 @@ Result FSP_SRV::CreateSaveDataFileSystemWithHashSalt(
               attribute.DebugInfo(), creation_info.space_id, creation_info.size,
               creation_info.journal_size, meta_info.size);
 
-    // The host-directory save backend has no Horizon integrity layer. Create the real save at
-    // the requested space; hash salt and save-meta allocation remain intentionally unmodeled.
+    // Hash salt and the Horizon integrity layer are still not modeled. Persist ExtraData
+    // beside the host directory so it cannot leak into the guest-visible save root.
     FileSys::VirtualDir save_data_dir{};
-    R_RETURN(save_data_controller->CreateSaveData(&save_data_dir, creation_info.space_id,
-                                                  attribute));
+    R_TRY(save_data_controller->CreateSaveData(&save_data_dir, creation_info.space_id, attribute));
+    R_RETURN(WriteDirectorySaveExtraData(
+        save_data_dir, MakeInitialSaveDataExtraData(attribute, creation_info)));
 }
 
 Result FSP_SRV::CreateSaveDataFileSystemWithCreationInfo2(
     FileSys::SaveDataCreationInfo2 save_data_creation_info) {
     FileSys::VirtualDir save_data_dir{};
-    R_RETURN(save_data_controller->CreateSaveData(&save_data_dir, save_data_creation_info.space_id,
-                                                  save_data_creation_info.attribute));
+    R_TRY(save_data_controller->CreateSaveData(&save_data_dir, save_data_creation_info.space_id,
+                                               save_data_creation_info.attribute));
+    R_RETURN(WriteDirectorySaveExtraData(
+        save_data_dir, MakeInitialSaveDataExtraData(save_data_creation_info.attribute,
+                                                    save_data_creation_info)));
 }
 
 Result FSP_SRV::IsExFatSupported(Out<bool> out_is_supported) {
@@ -686,18 +793,22 @@ Result FSP_SRV::OpenSaveDataInfoReaderOnlyCacheStorage(
 Result FSP_SRV::WriteSaveDataFileSystemExtraDataWithMask(
     InBuffer<BufferAttr_HipcMapAlias> buffer, InBuffer<BufferAttr_HipcMapAlias> mask_buffer,
     FileSys::SaveDataSpaceId space_id, u64 save_data_id) {
-    LOG_DEBUG(Service_FS, "called, directory-save semantics, space_id={}, save_data_id={:016X}",
-              space_id, save_data_id);
+    LOG_DEBUG(Service_FS, "called, space_id={}, save_data_id={:016X}", space_id, save_data_id);
     R_UNLESS(buffer.size() == sizeof(FileSys::SaveDataExtraData) &&
                  mask_buffer.size() == sizeof(FileSys::SaveDataExtraData),
              FileSys::ResultInvalidArgument);
-    R_UNLESS(FindDirectorySaveById(system, save_data_controller, space_id, save_data_id).has_value(),
-             FileSys::ResultTargetNotFound);
 
-    // Directory-backed saves have no physical ExtraData accessor. After
-    // validating both buffers and the real target, LibHac semantics reduce
-    // this masked metadata write to a no-op.
-    R_SUCCEED();
+    const auto match = FindDirectorySaveById(system, save_data_controller, space_id, save_data_id);
+    R_UNLESS(match.has_value(), FileSys::ResultTargetNotFound);
+
+    FileSys::SaveDataExtraData value{};
+    FileSys::SaveDataExtraData mask{};
+    FileSys::SaveDataExtraData current{};
+    std::memcpy(&value, buffer.data(), sizeof(value));
+    std::memcpy(&mask, mask_buffer.data(), sizeof(mask));
+    R_TRY(ReadDirectorySaveExtraData(save_data_controller, *match, &current));
+    ModifySaveDataExtraData(&current, value, mask);
+    R_RETURN(WriteDirectorySaveExtraData(save_data_controller, *match, current));
 }
 
 Result FSP_SRV::FindSaveDataWithFilter(Out<s64> out_count,
@@ -732,62 +843,70 @@ Result FSP_SRV::OpenSaveDataInfoReaderWithFilter(
 Result FSP_SRV::WriteSaveDataFileSystemExtraData(InBuffer<BufferAttr_HipcMapAlias> buffer,
                                                  FileSys::SaveDataSpaceId space_id,
                                                  u64 save_data_id) {
-    LOG_DEBUG(Service_FS, "called, directory-save semantics, space_id={}, save_data_id={:016X}",
-              space_id, save_data_id);
+    LOG_DEBUG(Service_FS, "called, space_id={}, save_data_id={:016X}", space_id, save_data_id);
     R_UNLESS(buffer.size() == sizeof(FileSys::SaveDataExtraData), FileSys::ResultInvalidArgument);
-    R_UNLESS(FindDirectorySaveById(system, save_data_controller, space_id, save_data_id).has_value(),
-             FileSys::ResultTargetNotFound);
 
-    // Eden stores saves as host directories. LibHac's directory-save backend has
-    // no physical ExtraData accessor and treats a validated write as a no-op.
-    R_SUCCEED();
+    const auto match = FindDirectorySaveById(system, save_data_controller, space_id, save_data_id);
+    R_UNLESS(match.has_value(), FileSys::ResultTargetNotFound);
+
+    FileSys::SaveDataExtraData value{};
+    FileSys::SaveDataExtraData current{};
+    FileSys::SaveDataExtraData mask{};
+    std::memcpy(&value, buffer.data(), sizeof(value));
+    mask.flags = std::numeric_limits<u32>::max();
+    R_TRY(ReadDirectorySaveExtraData(save_data_controller, *match, &current));
+    ModifySaveDataExtraData(&current, value, mask);
+    R_RETURN(WriteDirectorySaveExtraData(save_data_controller, *match, current));
 }
 
 Result FSP_SRV::WriteSaveDataFileSystemExtraDataWithMaskBySaveDataAttribute(
     InBuffer<BufferAttr_HipcMapAlias> buffer, InBuffer<BufferAttr_HipcMapAlias> mask_buffer,
     FileSys::SaveDataSpaceId space_id, FileSys::SaveDataAttribute attribute) {
-    LOG_DEBUG(Service_FS, "called, directory-save semantics, space_id={}, {}", space_id,
-              attribute.DebugInfo());
+    LOG_DEBUG(Service_FS, "called, space_id={}, {}", space_id, attribute.DebugInfo());
     R_UNLESS(buffer.size() == sizeof(FileSys::SaveDataExtraData) &&
                  mask_buffer.size() == sizeof(FileSys::SaveDataExtraData),
              FileSys::ResultInvalidArgument);
-    R_UNLESS(FindDirectorySaveByAttribute(system, save_data_controller, space_id, attribute,
-                                          program_id)
-                 .has_value(),
-             FileSys::ResultTargetNotFound);
 
-    // LibHac's host-directory save implementation has no physical ExtraData
-    // accessor; after validating the target, masked writes are intentionally no-op.
-    R_SUCCEED();
+    const auto match =
+        FindDirectorySaveByAttribute(system, save_data_controller, space_id, attribute, program_id);
+    R_UNLESS(match.has_value(), FileSys::ResultTargetNotFound);
+
+    FileSys::SaveDataExtraData value{};
+    FileSys::SaveDataExtraData mask{};
+    FileSys::SaveDataExtraData current{};
+    std::memcpy(&value, buffer.data(), sizeof(value));
+    std::memcpy(&mask, mask_buffer.data(), sizeof(mask));
+    R_TRY(ReadDirectorySaveExtraData(save_data_controller, *match, &current));
+    ModifySaveDataExtraData(&current, value, mask);
+    R_RETURN(WriteDirectorySaveExtraData(save_data_controller, *match, current));
 }
 
 Result FSP_SRV::ReadSaveDataFileSystemExtraDataWithMaskBySaveDataAttribute(
     FileSys::SaveDataSpaceId space_id, FileSys::SaveDataAttribute attribute,
     InBuffer<BufferAttr_HipcMapAlias> mask_buffer, OutBuffer<BufferAttr_HipcMapAlias> out_buffer) {
-    LOG_DEBUG(Service_FS, "called, directory-save semantics, space_id={}, {}", space_id,
-              attribute.DebugInfo());
+    LOG_DEBUG(Service_FS, "called, space_id={}, {}", space_id, attribute.DebugInfo());
     R_UNLESS(mask_buffer.size() == sizeof(FileSys::SaveDataExtraData) &&
                  out_buffer.size() == sizeof(FileSys::SaveDataExtraData),
              FileSys::ResultInvalidArgument);
-    R_UNLESS(FindDirectorySaveByAttribute(system, save_data_controller, space_id, attribute,
-                                          program_id)
-                 .has_value(),
-             FileSys::ResultTargetNotFound);
 
-    // Directory saves have default ExtraData in LibHac; masking an all-zero
-    // structure remains all zero.
-    std::memset(out_buffer.data(), 0, out_buffer.size());
+    const auto match =
+        FindDirectorySaveByAttribute(system, save_data_controller, space_id, attribute, program_id);
+    R_UNLESS(match.has_value(), FileSys::ResultTargetNotFound);
+
+    FileSys::SaveDataExtraData value{};
+    FileSys::SaveDataExtraData mask{};
+    std::memcpy(&mask, mask_buffer.data(), sizeof(mask));
+    R_TRY(ReadDirectorySaveExtraData(save_data_controller, *match, &value));
+    MaskSaveDataExtraData(&value, mask);
+    std::memcpy(out_buffer.data(), &value, sizeof(value));
     R_SUCCEED();
 }
 
 Result FSP_SRV::ReadSaveDataFileSystemExtraData(OutBuffer<BufferAttr_HipcMapAlias> out_buffer,
                                                 u64 save_data_id) {
-    LOG_DEBUG(Service_FS, "called, directory-save semantics, save_data_id={:016X}", save_data_id);
+    LOG_DEBUG(Service_FS, "called, save_data_id={:016X}", save_data_id);
     R_UNLESS(out_buffer.size() == sizeof(FileSys::SaveDataExtraData), FileSys::ResultInvalidArgument);
 
-    // LibHac resolves static (signed-negative) IDs from System and ordinary IDs
-    // from the User indexer. Eden has no indexer, so resolve against the real
-    // directory scan; SdUser is a fallback for non-static saves.
     const bool is_static = (save_data_id & (u64{1} << 63)) != 0;
     auto match = FindDirectorySaveById(system, save_data_controller,
                                        is_static ? FileSys::SaveDataSpaceId::System
@@ -798,34 +917,41 @@ Result FSP_SRV::ReadSaveDataFileSystemExtraData(OutBuffer<BufferAttr_HipcMapAlia
                                       save_data_id);
     }
     R_UNLESS(match.has_value(), FileSys::ResultTargetNotFound);
-    std::memset(out_buffer.data(), 0, out_buffer.size());
+
+    FileSys::SaveDataExtraData value{};
+    R_TRY(ReadDirectorySaveExtraData(save_data_controller, *match, &value));
+    std::memcpy(out_buffer.data(), &value, sizeof(value));
     R_SUCCEED();
 }
 
 Result FSP_SRV::ReadSaveDataFileSystemExtraDataBySaveDataAttribute(
     OutBuffer<BufferAttr_HipcMapAlias> out_buffer, FileSys::SaveDataSpaceId space_id,
     FileSys::SaveDataAttribute attribute) {
-    LOG_DEBUG(Service_FS, "called, directory-save semantics, space_id={}, {}", space_id,
-              attribute.DebugInfo());
+    LOG_DEBUG(Service_FS, "called, space_id={}, {}", space_id, attribute.DebugInfo());
     R_UNLESS(out_buffer.size() == sizeof(FileSys::SaveDataExtraData), FileSys::ResultInvalidArgument);
-    R_UNLESS(FindDirectorySaveByAttribute(system, save_data_controller, space_id, attribute,
-                                          program_id)
-                 .has_value(),
-             FileSys::ResultTargetNotFound);
 
-    std::memset(out_buffer.data(), 0, out_buffer.size());
+    const auto match =
+        FindDirectorySaveByAttribute(system, save_data_controller, space_id, attribute, program_id);
+    R_UNLESS(match.has_value(), FileSys::ResultTargetNotFound);
+
+    FileSys::SaveDataExtraData value{};
+    R_TRY(ReadDirectorySaveExtraData(save_data_controller, *match, &value));
+    std::memcpy(out_buffer.data(), &value, sizeof(value));
     R_SUCCEED();
 }
 
 Result FSP_SRV::ReadSaveDataFileSystemExtraDataBySaveDataSpaceId(
     OutBuffer<BufferAttr_HipcMapAlias> out_buffer, FileSys::SaveDataSpaceId space_id,
     u64 save_data_id) {
-    LOG_DEBUG(Service_FS, "called, directory-save semantics, space_id={}, save_data_id={:016X}",
-              space_id, save_data_id);
+    LOG_DEBUG(Service_FS, "called, space_id={}, save_data_id={:016X}", space_id, save_data_id);
     R_UNLESS(out_buffer.size() == sizeof(FileSys::SaveDataExtraData), FileSys::ResultInvalidArgument);
-    R_UNLESS(FindDirectorySaveById(system, save_data_controller, space_id, save_data_id).has_value(),
-             FileSys::ResultTargetNotFound);
-    std::memset(out_buffer.data(), 0, out_buffer.size());
+
+    const auto match = FindDirectorySaveById(system, save_data_controller, space_id, save_data_id);
+    R_UNLESS(match.has_value(), FileSys::ResultTargetNotFound);
+
+    FileSys::SaveDataExtraData value{};
+    R_TRY(ReadDirectorySaveExtraData(save_data_controller, *match, &value));
+    std::memcpy(out_buffer.data(), &value, sizeof(value));
     R_SUCCEED();
 }
 
