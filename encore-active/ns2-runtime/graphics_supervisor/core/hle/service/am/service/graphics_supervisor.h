@@ -70,6 +70,7 @@ private:
     void QueryNvDrvTransferMemoryUsage(HLERequestContext& ctx);
     void InitializeFeatureContext(HLERequestContext& ctx);
     void OpenCameraSession(HLERequestContext& ctx);
+    void DestroyCameraContext(HLERequestContext& ctx);
     void OpenChatSession(HLERequestContext& ctx);
     void InitializeDisplayContext(HLERequestContext& ctx);
     void FinalizeDisplayContext(HLERequestContext& ctx);
@@ -106,6 +107,9 @@ private:
     GraphicsSupervisorBootstrap::State m_bootstrap;
     const u64 m_aruid;
     bool m_display_ready{};
+    // Number of successfully published 602 camera child contexts awaiting
+    // the SDK's explicit GSV 603 logical finalization.
+    u32 m_camera_contexts{};
     std::mutex m_graphics_frame_mutex;
     bool m_graphics_frame_created{};
     bool m_graphics_frame_initialized{};

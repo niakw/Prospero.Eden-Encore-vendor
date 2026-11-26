@@ -202,8 +202,18 @@ private:
         NativeTipcReplyWords(ctx, {p[2], p[3]});
     }
     void QueryApplicationGpuTimeSpan(HLERequestContext& ctx) {
-        IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(Kernel::ResultNotImplemented.raw);
+        // GSV 1121 returns this child; TIPC 11 has wire command 27.
+        // The SDK asks how long the guest application was scheduled in
+        // [begin, end], not how long Vulkan was busy. On this guest GPU
+        // timeline the one running guest owns the interval, as in nxnative.
+        const std::span<const u32> packet{ctx.CommandBuffer(), IPC::COMMAND_BUFFER_LENGTH};
+        const auto span = GraphicsSupervisorProtocol::DecodeApplicationGpuScheduledSpan(packet);
+        if (!span) {
+            IPC::ResponseBuilder rb{ctx, 2};
+            rb.Push(Kernel::ResultInvalidCombination.raw);
+            return;
+        }
+        NativeTipcReplyWords(ctx, {static_cast<u32>(*span), static_cast<u32>(*span >> 32)});
     }
 };
 
@@ -1491,8 +1501,9 @@ public:
           m_event{m_context.CreateEvent("nx2:camera:Event")} {
         static const FunctionInfo functions[] = {
             {3, &INativeCameraSession::OpenCamera, "OpenCamera"},
+            {4, &INativeCameraSession::FinalizeCamera, "FinalizeCamera"},
             {21, &INativeCameraSession::GetCameraEvent, "GetCameraEvent"},
-            {29, &INativeCameraSession::CheckImagePreference, "CheckImagePreference"},
+            {29, &INativeCameraSession::QueryDeviceConnection, "QueryDeviceConnection"},
         };
         RegisterHandlers(functions);
     }
@@ -1508,15 +1519,26 @@ private:
         rb.Push<u64>(0);
     }
 
+    // A console without a plugged-in camera still supports camera context
+    // creation/finalization. The child owns no physical capture resources.
+    void FinalizeCamera(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess.raw);
+    }
+
     void GetCameraEvent(HLERequestContext& ctx) {
         IPC::ResponseBuilder rb{ctx, 2, 1};
         rb.Push(ResultSuccess);
         rb.PushCopyObjects(ctx, m_event->GetReadableEvent());
     }
 
-    void CheckImagePreference(HLERequestContext& ctx) {
+    void QueryDeviceConnection(HLERequestContext& ctx) {
+        // SDK 21 camera::QueryDeviceConnection treats 0x7c4 as no device,
+        // while success advertises a camera that this backend cannot supply.
+        // Keep OpenCamera successful (supported camera port) and the event
+        // unsignaled (nothing attached); do not fabricate a video frame.
         IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(ResultSuccess);
+        rb.Push<u32>(0x7c4u);
     }
 
     KernelHelpers::ServiceContext m_context;
@@ -1606,7 +1628,7 @@ IGraphicsSupervisor::IGraphicsSupervisor(Core::System& system_, Kernel::KProcess
         {214, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyDebugSyncCounter"},
         {215, &IGraphicsSupervisor::UnavailableDocumentedFeature, "ReportDebugSyncCounterValue"},
         {493, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateUserlandDebuggerSession"},
-        {603, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyCameraContext"},
+        {603, &IGraphicsSupervisor::DestroyCameraContext, "DestroyCameraContext"},
         {612, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyOutputBufferPool"},
         {613, &IGraphicsSupervisor::UnavailableDocumentedFeature, "CreateAliasOutputBufferPool"},
         {614, &IGraphicsSupervisor::UnavailableDocumentedFeature, "DestroyAliasOutputBufferPool"},
@@ -2153,7 +2175,28 @@ void IGraphicsSupervisor::OpenCameraSession(HLERequestContext& ctx) {
         rb.Push(result.raw);
         return;
     }
+    // Publication happened only after AddMoveObject accepted the child.
+    // Root 603 may now retire exactly this logical camera context; the
+    // service framework owns the child kernel session and its lifetime.
+    ++m_camera_contexts;
     IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(result.raw);
+}
+
+void IGraphicsSupervisor::DestroyCameraContext(HLERequestContext& ctx) {
+    // An opened camera context is a real MOVE child session even when the
+    // console has no camera connected. Finalize its root lease only after a
+    // successful 602; unknown/malformed and double finalization fail closed.
+    const auto* packet = ctx.CommandBuffer();
+    Result result = Kernel::ResultInvalidCombination;
+    if (packet[0] == 16 + 603 && packet[1] == 0) {
+        result = Kernel::ResultInvalidState;
+        if (m_camera_contexts != 0) {
+            --m_camera_contexts;
+            result = ResultSuccess;
+        }
+    }
+    IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(result.raw);
 }
 

@@ -1236,8 +1236,8 @@
       "upstream": "2d94395fdb8a007547c56a4d86095321e48748e77769cfdf471b077d548b7506"
     },
     "src/core/hle/service/ro/ro.cpp": {
-      "active": "71b3b1e91b34fb4d5dc222a70f84f237b075d2f7a620bf2d489b14923c37ac86",
-      "bytes": 22437,
+      "active": "eb4b35d3c817f399bc90c07f48984f7e817e35c1046ec36f0668a1ea14aca7ca",
+      "bytes": 24190,
       "upstream": "c0d3ac321243f96a9dd58b29e18722a762d267b0459c86ec6845d46d019b31f8"
     },
     "src/core/hle/service/set/factory_settings_server.cpp": {
@@ -1503,6 +1503,7 @@
     ".encore-backport-guest-domain-filter.sha256": "543cbf827ec27a121738831791e90953cd9c9b1c17ba2577a488c60d5a0bbc37",
     ".encore-backport-guest-offline.sha256": "d56fa0d38c7444b51e559203e9f555d24ab62f006deeac90c08764c1ce881c69",
     ".encore-backport-launcher-http.sha256": "e58439eef804757d1b3e8e2794bf6fd8c379e36edbc6dec45e626408fd06c1c2",
+    ".encore-backport-ns2-ro-nrr-v1.sha256": "f8d58d806123828821f9f4c59c25d6303b2814d0a242944a4b4382d4c930621f",
     ".encore-backport-nvnflinger-wakeup.sha256": "48d94856c1271bcd99920897ea1abb20f020daeaa7607d71c1379555c6b87f92",
     ".encore-backport-ps5-adjacent-valid-view-reuse.sha256": "5ae29e270ed50d33ec1be65eb3b41c82e5f81c46e88963b9679a3170003dae8a",
     ".encore-backport-ps5-alias-current-tick-fastpath.sha256": "e11849187ad84f9d3411ae79a5ee124b6b9170df215052bafde54681f17167ae",

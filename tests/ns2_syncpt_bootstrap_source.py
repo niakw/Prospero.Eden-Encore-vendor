@@ -221,6 +221,40 @@ assert gpu_open.index("m_gpu_sessions.reserve(m_gpu_sessions.size() + 1);") < gp
 # A real default VI display exists. Native VI2 capacity commands 1 and 3
 # must not report zero, which prevents some NS2 clients from opening a
 # display/notification endpoint. Lichii nx2:vi2 returns 1,1,7 for 1,3,5.
+# Native VI2 command 53 must record compositor-released buffers, not
+# invent a success timestamp on an unconsumed QueueBuffer.
+vi2 = cpp[vi2_begin:cpp.index("class INativeChatGsvSession final", vi2_begin)]
+assert '{53,&IVi2Session::GetRecordedTimestamps,"GetRecordedTimestamps"}' in vi2
+# R457 Bananza/MKW: VI2 notification cmd 11 must return a COPY event for
+# the recorded newer SDK payload [2]=1, [3]=1 as well as older payloads.
+# The old [2]==0 gate dropped the handle and led to SVC 0x18/E401 loops.
+vi2_notification = vi2.split("void Event(HLERequestContext& ctx) {", 1)[1].split("\n    }", 1)[0]
+assert "if (p[0] == 0x1b) {" in vi2_notification
+assert "p[1]==" not in vi2_notification and "p[2]==" not in vi2_notification
+assert 'm_context.CreateEvent("Vi2Notify")' in vi2_notification
+assert "IPC::ResponseBuilder rb{ctx,2,1,0};" in vi2_notification
+assert "rb.PushCopyObjects(ctx,m_event->GetReadableEvent());" in vi2_notification
+
+# All known Lichii nx2 VI2 IDs must have a named dispatch. Unknown
+# firmware semantics stay fail-closed: no copied request or fake Success.
+opaque_vi2_ids = (13, 107, 108, 113, 230, 231, 232, 301, 302,
+                  353, 354, 355, 356, 358, 359)
+for command in opaque_vi2_ids:
+    assert f"{{{command},&IVi2Session::Unsupported," in vi2, command
+unsupported = vi2.split("void Unsupported(HLERequestContext& ctx) {", 1)[1].split("\n    }", 1)[0]
+assert "rb.Push(Kernel::ResultNotImplemented.raw);" in unsupported
+history = vi2.split("void GetRecordedTimestamps(HLERequestContext& ctx) {",1)[1].split("\n    }",1)[0]
+for evidence in ("recorder = p[5]", "W(p, 6) & 0x1f", "W(p, 8)",
+                 "NativeTipcReplyWords(ctx, {0, 0, 1})",
+                 "ctx.WriteBufferB(ticks.data(), requested, 0)"):
+    assert evidence in history, evidence
+release = vi2.split("void Release() {",1)[1].split("void Present(HLERequestContext& ctx) {",1)[0]
+present = vi2.split("void Present(HLERequestContext& ctx) {",1)[1]
+assert "m_recorded_ticks[recorder - 1] = system.CoreTiming().GetClockTicks()" in release
+assert "c.recorders[slot] = 0;" in release
+assert "c->recorders[slot]=static_cast<u8>(p[18] & 0xf);" in present
+assert "std::array<std::optional<u64>, 15> m_recorded_ticks{};" in vi2
+
 vi2_capacity = cpp[vi2_begin:].split("void Limit(HLERequestContext& ctx) {",1)[1].split(
     "\n    }",1)[0]
 for check in ("const u32 command = ctx.GetCommand();",
@@ -269,7 +303,7 @@ for marker in (
     'registry.Register(m_process)',
     'std::shared_ptr<Nvidia::NVDRV> handler{',
     'pending.release()',
-    '[native_process = m_process](Nvidia::NVDRV* child) noexcept',
+    '[native_process = m_process, donated](Nvidia::NVDRV* child) mutable noexcept',
     'delete child;',
     '.Unregister(native_process);',
 ):
@@ -357,4 +391,220 @@ assert "Kernel::ResultNotImplemented.raw" in stub
 assert "ctx.AddMoveObject" not in stub
 assert "void UnavailableVideoEncoder(HLERequestContext& ctx);" in hdr
 
+# Lichii nx2 graphics-session table parity: every named ID is either
+# implemented by a real owner or explicitly rejected, never a fake Success.
+known_lichii_gsv_ids = (
+    5, 120, 121, 122, 123, 124, 125, 131, 133,
+    311, 312, 321, 361, 424, 425, 436,
+    461, 462, 463, 464, 465, 466, 467, 468, 494,
+    801, 802, 803, 811, 812, 813, 814, 861, 891,
+    1091, 1121, 1503, 1601, 1602, 1603, 1611, 1612
+)
+gsv_ctor = cpp.split("IGraphicsSupervisor::IGraphicsSupervisor(", 1)[1].split(
+    "RegisterHandlersTipc(functions);", 1)[0]
+for cmd in known_lichii_gsv_ids:
+    owner = ("CalculateFeatureImagePoolRequirements" if cmd == 891
+             else "OpenGpuTimeSession" if cmd == 1121
+             else "UnavailableDocumentedFeature")
+    assert f"{{{cmd}, &IGraphicsSupervisor::{owner}," in gsv_ctor, cmd
+gsv_rejection = cpp.split(
+    "void IGraphicsSupervisor::UnavailableDocumentedFeature(HLERequestContext& ctx) {", 1
+)[1].split("\n}", 1)[0]
+assert "rb.Push(Kernel::ResultNotImplemented.raw);" in gsv_rejection
+
+# Lichii GSV 1121 is a MOVE gpu_time child, not a zeroed success.
+assert '{1121, &IGraphicsSupervisor::OpenGpuTimeSession, "OpenGpuTimeSession"}' in cpp
+assert "class INativeGpuTimeSession final" in cpp
+assert '{0, &INativeGpuTimeSession::Handshake, "Handshake"}' in cpp
+assert "QueryApplicationGpuTimeSpan" in cpp
+gpu_time = cpp.split("void IGraphicsSupervisor::OpenGpuTimeSession(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
+for evidence in ("p[0] == 16 + 1121", "CreateMetadataSession(system, ctx,",
+                 "ctx.AddMoveObject(client)", "IPC::ResponseBuilder rb{ctx, 2, 0, 1}",
+                 "client->Close(system.Kernel())"):
+    assert evidence in gpu_time, evidence
+# SDK 20/21 graphics-frame session: TIPC 11 (wire 27), two u64 input
+# timestamps -> one u64 scheduling duration, as in nxnative and ScarletNX.
+# The child must not treat its supported command as NotImplemented.
+gpu_time_child = cpp.split("class INativeGpuTimeSession final", 1)[1].split(
+    "class INativeSyncptSession final", 1)[0]
+for marker in (
+    "GraphicsSupervisorProtocol::DecodeApplicationGpuScheduledSpan(packet)",
+    "NativeTipcReplyWords(ctx, {static_cast<u32>(*span), static_cast<u32>(*span >> 32)});",
+    "rb.Push(Kernel::ResultInvalidCombination.raw);",
+):
+    assert marker in gpu_time_child, marker
+assert "ResultNotImplemented" not in gpu_time_child
+assert "void OpenGpuTimeSession(HLERequestContext& ctx);" in hdr
+
 print("NS2_SYNCPT_BOOTSTRAP_SOURCE_PASS graphics_frame=1101,1102,1111,1112,1113 native_memory=113-transfer-owner donated_usage=498 supervisor=202,204 syncpt=0,1,22,103,201,202 vi2_handshake=1 vi2_capacity=1,1,7 session_rollback=1 mirror=1 direct_host1x=1")
+
+# NS2 PS5 ee5d6d57: SDK aborts with 0x4201 immediately after 1501.
+# SwitchBrew identifies context create/init; Lichii 05412e6 routes both to
+# permission checks. Encore tracks the authenticated context lifecycle.
+for cmd, name in ((1501,"CreateInterModuleImageContext"),(1502,"InitializeInterModuleImageContext")):
+    assert f'{{{cmd}, &IGraphicsSupervisor::InitializeInterModuleImageContext, "{name}"}}' in cpp
+    assert f'{{{cmd}, &IGraphicsSupervisor::UnavailableDocumentedFeature' not in cpp
+inter=cpp.split("void IGraphicsSupervisor::InitializeInterModuleImageContext(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
+assert "m_bootstrap.InitializeInterModuleImageContext(packet, ctx.GetCommand())" in inter
+assert "TranslateBootstrap(" in inter and "rb.Push(result.raw);" in inter
+assert "void InitializeInterModuleImageContext(HLERequestContext& ctx);" in hdr
+print("NS2_GSV_INTER_MODULE_IMAGE_BOOTSTRAP_SOURCE_PASS")
+
+# libounce 32e7ac41 _gsvBootstrapRoot requires 126 between 101 and
+# 1501/1502; mode 0 skips 120. Both compared emulator upstreams return 0.
+assert '{126, &IGraphicsSupervisor::QuerySessionMode, "GetSessionFlag"}' in cpp
+query_mode=cpp.split("void IGraphicsSupervisor::QuerySessionMode(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
+assert "m_bootstrap.QuerySessionMode(packet, mode)" in query_mode
+assert "NativeTipcReplyWords(ctx, {mode});" in query_mode
+assert "rb.Push(result.raw);" in query_mode
+
+# libounce 32e7ac41 _gsvSyncCreate calls 1 then 21(u32 configured).
+# Bound the actual live event table, not just an acknowledgement.
+assert '{21, &INativeSyncptSession::ConfigureSlots, "ConfigureSlots"}' in cpp
+slots=cpp.split("void ConfigureSlots(HLERequestContext& ctx) {",1)[1].split("    void QueryCounter",1)[0]
+assert "DecodeSyncptSlotCount(packet)" in slots
+assert "m_events.begin() + *count" in slots
+assert "m_configured_slots = *count;" in slots
+assert "if (slot >= m_configured_slots) return nullptr;" in cpp
+
+# Retain transfer objects for the full lifetime of weak async mirror callbacks.
+mirror = cpp.split("struct NativeSyncptState :",1)[1].split("class IVi2Session",1)[0]
+assert "rw.GetPointerUnsafe() == ro.GetPointerUnsafe()" in mirror
+assert mirror.index("rw_backing->Open(system.Kernel())") < mirror.index("ro_backing->Open(system.Kernel())") < mirror.index("transfer_backings = {rw_backing, ro_backing}") < mirror.index("memory = &ro->GetOwner()->GetMemory()")
+assert "rw_backing->Close(system.Kernel())" in mirror
+assert "for (auto* backing : transfer_backings) if (backing) backing->Close(system.Kernel());" in mirror
+assert "if (memory) system.Host1x().GetSyncpointManager().SetGuestMirror({});" in mirror
+
+# libounce gsvSyncCheckNative explicitly treats invalid producer as UINT64_MAX.
+slot_owner=cpp.split("class INativeSyncptSession",1)[1].split("struct NativeSyncptState",1)[0]
+assert "std::numeric_limits<u64>::max();" in slot_owner
+assert "GraphicsSupervisorProtocol::DecodeSyncpointWait(" in slot_owner
+assert slot_owner.index("Cancel(request);",slot_owner.index("void RequestSlotEvent")) < slot_owner.index("if (syncpoint >= HostSyncpoints)")
+cancel=slot_owner.split("bool Cancel(SlotRequest& request)",1)[1]
+assert "if (request.handle != 0)" in cancel and "DeregisterNativeGuestAction" in cancel
+assert "if (!request.pending.exchange" not in cancel
+
+# Native wait must retain all 64 bits and mode from libounce 201.
+assert "manager.RegisterNativeGuestAction(" in slot_owner
+assert "syncpoint, value, wait->wide," in slot_owner
+assert "GetNativeGuestSyncpointValue(syncpoint)" in slot_owner
+assert "GetNativeGuestSyncpointValue(id)" in mirror
+
+# GSV producer completion follows Host1x retirement, not the command-parser
+# guest/max-like edge. OunceVK joins this counter with a GPU-written marker.
+sync_owner=(R/"encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp").read_text()
+guest_inc=sync_owner.split("void SyncpointManager::IncrementGuest(u32 id) {",1)[1].split("\n}",1)[0]
+host_inc=sync_owner.split("void SyncpointManager::IncrementHost(u32 id) {",1)[1].split("\n}",1)[0]
+assert "guest_action_storage[id]);" in guest_inc
+assert "guest_action_storage[id], id)" not in guest_inc
+assert "host_action_storage[id], id)" in host_inc
+video=(R/"encore-active/ns2-runtime/video_decoder/core/hle/service/am/service/graphics_video_decoder_session.cpp").read_text()
+video_publish=video.split("m_available.erase(ready);",1)[1].split("m_ready->SetRoom",1)[0]
+assert video_publish.index("syncpoints.IncrementGuest(m_syncpoint);") < video_publish.index(
+    "syncpoints.IncrementHost(m_syncpoint);")
+
+# libounce gsvOpenSync: one living child per authenticated root.
+syncpt_open=cpp.split("void IGraphicsSupervisor::OpenSyncptSession(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
+assert "std::weak_ptr<ServiceFrameworkBase> m_syncpt_session;" in hdr
+assert "m_bootstrap.CurrentPhase() != GB::Phase::Ready" in syncpt_open
+assert "!m_syncpt_session.expired()" in syncpt_open
+assert syncpt_open.index("!m_syncpt_session.expired()") < syncpt_open.index("std::make_shared<INativeSyncptSession>")
+assert syncpt_open.index("ctx.AddMoveObject(client);") < syncpt_open.index("m_syncpt_session = handler;")
+assert "client->Close(system.Kernel());" in syncpt_open
+
+# 1401 retains its exact TransferMemory through child teardown, while 1411
+# reports only the live NVDRV donation (not the independent GSV bootstrap).
+assert nvsrv.index("owner->Open(kernel);") < nvsrv.index("CreateMetadataSession(system, ctx, handler, &client)")
+assert "transfer->Close(*owner_kernel);" in nvsrv
+assert nvsrv.index("delete child;") < nvsrv.index("donated.reset();")
+assert "m_nvsrv_transfer_memory_size = donated_size;" in nvsrv
+usage=cpp.split("void IGraphicsSupervisor::QueryNvDrvTransferMemoryUsage(",1)[1].split("\n}",1)[0]
+assert "packet[0] != 16 + 1411 || packet[1] != 0" in usage
+assert "m_nvsrv_session.lock()" in usage and "!m_nvsrv_transfer_memory_size" in usage
+assert "m_bootstrap_transfer_memory" not in usage
+assert "static_cast<u32>(m_nvsrv_transfer_memory_size >> 32)" in usage
+assert "{1411, &IGraphicsSupervisor::QueryNvDrvTransferMemoryUsage" in cpp
+
+# Multi-title NS2 camera service: SDK 21 Star Fox expects a supported port
+# with no attached device, not a fabricated connected camera (nxnative hle_sf.c).
+# Keep the existing MKW camera admission and unsignaled COPY event intact.
+camera = cpp.split("class INativeCameraSession final", 1)[1].split("\nIGraphicsSupervisor::IGraphicsSupervisor(", 1)[0]
+for owner in (
+    '{3, &INativeCameraSession::OpenCamera, "OpenCamera"}',
+    '{4, &INativeCameraSession::FinalizeCamera, "FinalizeCamera"}',
+    '{21, &INativeCameraSession::GetCameraEvent, "GetCameraEvent"}',
+    '{29, &INativeCameraSession::QueryDeviceConnection, "QueryDeviceConnection"}',
+    "rb.Push<u32>(0x7c4u);",
+    "rb.PushCopyObjects(ctx, m_event->GetReadableEvent());",
+):
+    assert owner in camera, owner
+assert "CheckImagePreference" not in camera
+assert "m_event->Signal" not in camera
+print("NS2_CAMERA_NO_DEVICE_SOURCE_PASS sdk21_query29=0x7c4 finalize4=success event21=copy")
+
+# SDK 21 root camera cleanup: a GSV 603 is accepted only after a successful
+# GSV 602 MOVE publication. The child kernel session retains its own lifetime.
+assert '{603, &IGraphicsSupervisor::DestroyCameraContext, "DestroyCameraContext"}' in cpp
+assert 'void DestroyCameraContext(HLERequestContext& ctx);' in hdr
+assert 'u32 m_camera_contexts{};' in hdr
+camera_open=cpp.split("void IGraphicsSupervisor::OpenCameraSession(HLERequestContext& ctx) {",1)[1].split("void IGraphicsSupervisor::DestroyCameraContext(",1)[0]
+camera_root=cpp.split("void IGraphicsSupervisor::DestroyCameraContext(HLERequestContext& ctx) {",1)[1].split("void IGraphicsSupervisor::OpenChatSession(",1)[0]
+assert camera_open.index("ctx.AddMoveObject(client);") < camera_open.index("++m_camera_contexts;")
+for guard in ("packet[0] == 16 + 603 && packet[1] == 0", "if (m_camera_contexts != 0)",
+              "--m_camera_contexts;", "Kernel::ResultInvalidState", "ResultSuccess"):
+    assert guard in camera_root, guard
+print("NS2_CAMERA_ROOT_FINALIZE_SOURCE_PASS cmd603=owned_after_602")
+
+# Compile and execute the production TIPC decoder, not a mock. This
+# fixture checks successful intervals, reverse order, saturation, malformed
+# header/arity, and truncated packets without a PS5 native build.
+import shutil as _shutil
+import subprocess as _subprocess
+import tempfile as _tempfile
+_gpu_cc = _shutil.which("clang++") or _shutil.which("g++")
+assert _gpu_cc, "A host C++20 compiler is required by the vendor gate"
+_gpu_src = r"""
+#include <array>
+#include <cassert>
+#include <cstdint>
+#include <limits>
+#include <span>
+#include "core/hle/service/am/service/graphics_supervisor_protocol.h"
+using Service::AM::GraphicsSupervisorProtocol::DecodeApplicationGpuScheduledSpan;
+int main() {
+    std::array<u32, 6> packet{27, 4, 100, 0, 250, 0};
+    assert(DecodeApplicationGpuScheduledSpan(packet) == 150);
+    packet[4] = 50;
+    assert(DecodeApplicationGpuScheduledSpan(packet) == 0);
+    packet[2] = 0;
+    packet[4] = 0;
+    packet[5] = 0x80000000U;
+    assert(DecodeApplicationGpuScheduledSpan(packet) ==
+           static_cast<u64>(std::numeric_limits<s64>::max()));
+    packet[0] = 26;
+    assert(!DecodeApplicationGpuScheduledSpan(packet));
+    packet[0] = 27;
+    packet[1] = 3;
+    assert(!DecodeApplicationGpuScheduledSpan(packet));
+    packet[1] = 4;
+    assert(!DecodeApplicationGpuScheduledSpan(std::span<const u32>{packet.data(), 5}));
+    packet = {27, 4, 0xffffffffU, 0xffffffffU, 0, 0};
+    assert(DecodeApplicationGpuScheduledSpan(packet) == 0);
+}
+"""
+with _tempfile.TemporaryDirectory(prefix="eden-ns2-gpu-time-") as _dir:
+    _source = Path(_dir) / "gpu_time.cpp"
+    _output = Path(_dir) / "gpu_time"
+    _source.write_text(_gpu_src)
+    _compile = _subprocess.run(
+        [_gpu_cc, "-std=c++20", "-O2", "-Wall", "-Wextra", "-Werror",
+         "-fsanitize=undefined", "-fno-sanitize-recover=all",
+         "-I" + str(R / "encore-active/ns2-runtime/hle"),
+         "-I" + str(R / "sources/eden/src"),
+         str(_source), "-o", str(_output)],
+        capture_output=True, text=True, timeout=70,
+    )
+    assert _compile.returncode == 0, _compile.stderr[-5000:]
+    _run = _subprocess.run([str(_output)], capture_output=True, text=True, timeout=15)
+    assert _run.returncode == 0, _run.stderr[-5000:]
+print("NS2_GPU_TIME_TIPC11_HOST_PASS scheduled_interval=saturated reverse=zero malformed=rejected")
