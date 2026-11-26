@@ -1065,16 +1065,21 @@ private:
             if(c){
                 result=Kernel::ResultInvalidState;
                 if(m_display&&m_refs&&m_vi&&!c->display){
-                    // VI2 212 may query availability before 251 binds the
-                    // display (observed in the MKW boot IPC sequence).
-                    // Create the real managed layer only at this bind, so a
-                    // subsequent Present has an owned compositor target.
-                    u64 layer{};
-                    result=m_vi->GetContainer()->CreateManagedLayer(
-                        &layer,*m_display,m_aruid);
-                    if(result.IsSuccess()){
-                        c->layer=layer;
+                    // VI2 212 can query availability before 251 binds the
+                    // display. The first bind creates a real compositor layer;
+                    // a later Unbind/Bind must reuse its still-owned layer.
+                    // Never overwrite a live layer ID and leak the old one.
+                    if(c->layer){
                         c->display=m_display;
+                        result=ResultSuccess;
+                    }else{
+                        u64 layer{};
+                        result=m_vi->GetContainer()->CreateManagedLayer(
+                            &layer,*m_display,m_aruid);
+                        if(result.IsSuccess()){
+                            c->layer=layer;
+                            c->display=m_display;
+                        }
                     }
                 }
             }
