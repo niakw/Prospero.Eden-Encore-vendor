@@ -44,6 +44,7 @@ private:
     void HasLeftRightBattery(HLERequestContext& ctx);
     void GetUniquePadsFromNpad(HLERequestContext& ctx);
     void SetNpadSystemExtStateEnabled(HLERequestContext& ctx);
+    void SetAppletResourceUserId(HLERequestContext& ctx);
     void RegisterAppletResourceUserId(HLERequestContext& ctx);
     void UnregisterAppletResourceUserId(HLERequestContext& ctx);
     void EnableAppletToGetInput(HLERequestContext& ctx);
