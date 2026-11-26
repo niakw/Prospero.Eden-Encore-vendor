@@ -10,7 +10,7 @@ IPowerStateInterface::IPowerStateInterface(Core::System& system_)
     : ServiceFramework{system_, "spsm"} {
     // clang-format off
     static const FunctionInfo functions[] = {
-        {0, &IPowerStateInterface::RejectUnavailablePowerControl, "GetState"},
+        {0, &IPowerStateInterface::GetCurrentState, "GetCurrentState"},
         {1, &IPowerStateInterface::RejectUnavailablePowerControl, "EnterSleep"},
         {2, &IPowerStateInterface::RejectUnavailablePowerControl, "GetLastWakeReason"},
         {3, &IPowerStateInterface::RejectUnavailablePowerControl, "Shutdown"},
@@ -26,6 +26,15 @@ IPowerStateInterface::IPowerStateInterface(Core::System& system_)
     // clang-format on
 
     RegisterHandlers(functions);
+}
+
+void IPowerStateInterface::GetCurrentState(HLERequestContext& ctx) {
+    // The emulated console is running and therefore awake. HOS 23 returns a
+    // u32 power-state value here; 0 is Awake. This is a read-only query and
+    // does not attempt to control the physical PS5 power state.
+    IPC::ResponseBuilder rb{ctx, 3};
+    rb.Push(ResultSuccess);
+    rb.Push<u32>(0);
 }
 
 void IPowerStateInterface::RejectUnavailablePowerControl(HLERequestContext& ctx) {

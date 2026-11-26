@@ -17,8 +17,7 @@ public:
     ~NVMEMP() override;
 
 private:
-    void Open(HLERequestContext& ctx);
-    void GetAruid(HLERequestContext& ctx);
+    void RejectUnavailableMemoryProfiler(HLERequestContext& ctx);
 };
 
 } // namespace Service::Nvidia

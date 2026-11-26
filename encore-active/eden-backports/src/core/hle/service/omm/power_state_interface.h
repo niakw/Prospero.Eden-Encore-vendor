@@ -17,6 +17,7 @@ public:
     ~IPowerStateInterface() override;
 
 private:
+    void GetCurrentState(HLERequestContext& ctx);
     void RejectUnavailablePowerControl(HLERequestContext& ctx);
 };
 

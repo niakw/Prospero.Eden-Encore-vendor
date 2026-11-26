@@ -36,6 +36,7 @@ public:
 private:
     void RejectUnavailableCaptureCommand(HLERequestContext& ctx);
     void RejectUnavailableMovieBackend(HLERequestContext& ctx);
+    void OpenControlSession(HLERequestContext& ctx);
     Result SetShimLibraryVersion(ShimLibraryVersion library_version,
                                  ClientAppletResourceUserId aruid);
     Result NotifyAlbumStorageIsAvailable(AlbumStorage storage);

@@ -14,6 +14,52 @@
 
 namespace Service::Capture {
 
+class IAlbumControlSession final : public ServiceFramework<IAlbumControlSession> {
+public:
+    explicit IAlbumControlSession(Core::System& system_)
+        : ServiceFramework{system_, "IAlbumControlSession"} {
+        // HOS 23 IAlbumControlSession. Encore has no guest movie stream
+        // backend, so preserve the interface/command ABI and fail closed.
+        static const FunctionInfo functions[] = {
+            {2001, &IAlbumControlSession::RejectUnavailableMovieBackend, "OpenAlbumMovieReadStream"},
+            {2002, &IAlbumControlSession::RejectUnavailableMovieBackend, "CloseAlbumMovieReadStream"},
+            {2003, &IAlbumControlSession::RejectUnavailableMovieBackend, "GetAlbumMovieReadStreamMovieDataSize"},
+            {2004, &IAlbumControlSession::RejectUnavailableMovieBackend, "ReadMovieDataFromAlbumMovieReadStream"},
+            {2005, &IAlbumControlSession::RejectUnavailableMovieBackend, "GetAlbumMovieReadStreamBrokenReason"},
+            {2006, &IAlbumControlSession::RejectUnavailableMovieBackend, "GetAlbumMovieReadStreamImageDataSize"},
+            {2007, &IAlbumControlSession::RejectUnavailableMovieBackend, "ReadImageDataFromAlbumMovieReadStream"},
+            {2008, &IAlbumControlSession::RejectUnavailableMovieBackend, "ReadFileAttributeFromAlbumMovieReadStream"},
+            {2009, &IAlbumControlSession::RejectUnavailableMovieBackend, "Unknown2009"},
+            {2401, &IAlbumControlSession::RejectUnavailableMovieBackend, "OpenAlbumMovieWriteStream"},
+            {2402, &IAlbumControlSession::RejectUnavailableMovieBackend, "FinishAlbumMovieWriteStream"},
+            {2403, &IAlbumControlSession::RejectUnavailableMovieBackend, "CommitAlbumMovieWriteStream"},
+            {2404, &IAlbumControlSession::RejectUnavailableMovieBackend, "DiscardAlbumMovieWriteStream"},
+            {2405, &IAlbumControlSession::RejectUnavailableMovieBackend, "DiscardAlbumMovieWriteStreamNoDelete"},
+            {2406, &IAlbumControlSession::RejectUnavailableMovieBackend, "CommitAlbumMovieWriteStreamEx"},
+            {2411, &IAlbumControlSession::RejectUnavailableMovieBackend, "StartAlbumMovieWriteStreamDataSection"},
+            {2412, &IAlbumControlSession::RejectUnavailableMovieBackend, "EndAlbumMovieWriteStreamDataSection"},
+            {2413, &IAlbumControlSession::RejectUnavailableMovieBackend, "StartAlbumMovieWriteStreamMetaSection"},
+            {2414, &IAlbumControlSession::RejectUnavailableMovieBackend, "EndAlbumMovieWriteStreamMetaSection"},
+            {2421, &IAlbumControlSession::RejectUnavailableMovieBackend, "ReadDataFromAlbumMovieWriteStream"},
+            {2422, &IAlbumControlSession::RejectUnavailableMovieBackend, "WriteDataToAlbumMovieWriteStream"},
+            {2424, &IAlbumControlSession::RejectUnavailableMovieBackend, "WriteMetaToAlbumMovieWriteStream"},
+            {2431, &IAlbumControlSession::RejectUnavailableMovieBackend, "GetAlbumMovieWriteStreamBrokenReason"},
+            {2433, &IAlbumControlSession::RejectUnavailableMovieBackend, "GetAlbumMovieWriteStreamDataSize"},
+            {2434, &IAlbumControlSession::RejectUnavailableMovieBackend, "SetAlbumMovieWriteStreamDataSize"},
+            {2435, &IAlbumControlSession::RejectUnavailableMovieBackend, "Unknown2435"},
+            {2436, &IAlbumControlSession::RejectUnavailableMovieBackend, "Unknown2436"},
+            {5000, &IAlbumControlSession::RejectUnavailableMovieBackend, "Unknown5000"},
+        };
+        RegisterHandlers(functions);
+    }
+
+private:
+    void RejectUnavailableMovieBackend(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+};
+
 IAlbumControlService::IAlbumControlService(Core::System& system_,
                                            std::shared_ptr<AlbumManager> album_manager)
     : ServiceFramework{system_, "caps:c"}, manager{album_manager} {
@@ -59,11 +105,18 @@ IAlbumControlService::IAlbumControlService(Core::System& system_,
         {2431, &IAlbumControlService::RejectUnavailableMovieBackend, "GetAlbumMovieWriteStreamBrokenReason"},
         {2433, &IAlbumControlService::RejectUnavailableMovieBackend, "GetAlbumMovieWriteStreamDataSize"},
         {2434, &IAlbumControlService::RejectUnavailableMovieBackend, "SetAlbumMovieWriteStreamDataSize"},
-        {60001, &IAlbumControlService::RejectUnavailableCaptureCommand, "OpenControlSession"},
+        {60001, &IAlbumControlService::OpenControlSession, "OpenControlSession"},
     };
     // clang-format on
 
     RegisterHandlers(functions);
+}
+
+void IAlbumControlService::OpenControlSession(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_Capture, "opening HOS album control session");
+    IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+    rb.Push(ResultSuccess);
+    rb.PushIpcInterface<IAlbumControlSession>(ctx, system);
 }
 
 IAlbumControlService::~IAlbumControlService() = default;
