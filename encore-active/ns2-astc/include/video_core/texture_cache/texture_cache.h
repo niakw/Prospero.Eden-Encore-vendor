@@ -615,8 +615,21 @@ void TextureCache<P>::CheckFeedbackLoop(std::span<const ImageViewInOut> views) {
 
             {
                 bool is_continue = false;
+#ifdef PS5_NATIVE
+                // Only visit color targets actually attached to this depth pass.
+                u32 color_slots = rt_active_mask & ((1u << NUM_RT) - 1);
+                while (color_slots) {
+                    const u32 slot = std::countr_zero(color_slots);
+                    if (view.id == render_targets.color_buffer_ids[slot]) {
+                        is_continue = true;
+                        break;
+                    }
+                    color_slots &= color_slots - 1;
+                }
+#else
                 for (size_t i = 0; i < 8; ++i)
                     is_continue |= (rt_active_mask & (1u << i)) && view.id == render_targets.color_buffer_ids[i];
+#endif
                 if (is_continue)
                     continue;
             }
@@ -627,8 +640,20 @@ void TextureCache<P>::CheckFeedbackLoop(std::span<const ImageViewInOut> views) {
             const ImageId view_image_id = slot_image_views[view.id].image_id;
             {
                 bool is_continue = false;
+#ifdef PS5_NATIVE
+                u32 color_slots = rt_active_mask & ((1u << NUM_RT) - 1);
+                while (color_slots) {
+                    const u32 slot = std::countr_zero(color_slots);
+                    if (view_image_id == rt_image_id[slot]) {
+                        is_continue = true;
+                        break;
+                    }
+                    color_slots &= color_slots - 1;
+                }
+#else
                 for (size_t i = 0; i < 8; ++i)
                     is_continue |= (rt_active_mask & (1u << i)) && view_image_id == rt_image_id[i];
+#endif
                 if (is_continue)
                     continue;
             }
@@ -836,12 +861,29 @@ void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
     clearing_render_targets = is_clear;
     auto& flags = maxwell3d->dirty.flags;
     if (!flags[Dirty::RenderTargets]) {
+#ifdef PS5_NATIVE
+        // Cache the active attachment mask when render targets are reselected.
+        // On a clean draw it is current: only present views can be prepared.
+        // Preserve color-slot order, depth-last, and every live GPU refresh.
+        u32 active_colors = rt_active_mask & ((1U << NUM_RT) - 1U);
+        while (active_colors != 0) {
+            const size_t index = std::countr_zero(active_colors);
+            active_colors &= active_colors - 1U;
+            const ImageViewId color_buffer_id = render_targets.color_buffer_ids[index];
+            PrepareImageView(color_buffer_id, true, is_clear && IsFullClear(color_buffer_id));
+        }
+        if ((rt_active_mask & (1U << NUM_RT)) != 0) {
+            const ImageViewId depth_buffer_id = render_targets.depth_buffer_id;
+            PrepareImageView(depth_buffer_id, true, is_clear && IsFullClear(depth_buffer_id));
+        }
+#else
         for (size_t index = 0; index < NUM_RT; ++index) {
             ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
             PrepareImageView(color_buffer_id, true, is_clear && IsFullClear(color_buffer_id));
         }
         const ImageViewId depth_buffer_id = render_targets.depth_buffer_id;
         PrepareImageView(depth_buffer_id, true, is_clear && IsFullClear(depth_buffer_id));
+#endif
         return;
     }
 
