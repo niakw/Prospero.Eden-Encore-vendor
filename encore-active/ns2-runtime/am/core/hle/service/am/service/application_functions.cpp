@@ -564,27 +564,78 @@ Result IApplicationFunctions::EnableApplicationCrashReport(bool enabled) {
 Result IApplicationFunctions::InitializeApplicationCopyrightFrameBuffer(
     s32 width, s32 height, u64 transfer_memory_size,
     InCopyHandle<Kernel::KTransferMemory> transfer_memory_handle) {
-    LOG_WARNING(Service_AM,
-                "InitializeApplicationCopyrightFrameBuffer unavailable: copyright capture compositing is not materialized, width={}, height={}, transfer_memory_size={:#x}",
-                width, height, transfer_memory_size);
+    constexpr s32 MaxCopyrightWidth = 1280;
+    constexpr s32 MaxCopyrightHeight = 720;
+    constexpr u64 TransferMemoryAlignment = 0x40000;
+
+    const bool dimensions_valid =
+        width >= 1 && width <= MaxCopyrightWidth && height >= 1 && height <= MaxCopyrightHeight;
+    const u64 minimum_size =
+        dimensions_valid ? static_cast<u64>(width) * static_cast<u64>(height) * 4 : 0;
+    R_UNLESS(dimensions_valid && transfer_memory_size >= minimum_size &&
+                 (transfer_memory_size % TransferMemoryAlignment) == 0,
+             ResultInvalidCopyrightParameters);
+
+    // The client keeps ownership of the transfer-memory lifecycle after this call. Encore
+    // records the validated framebuffer contract, while screenshot compositing remains separate.
     (void)transfer_memory_handle;
-    R_RETURN(ResultUnknown);
+
+    std::scoped_lock lk{m_copyright_mutex};
+    m_copyright_framebuffer_initialized = true;
+    m_copyright_framebuffer_width = width;
+    m_copyright_framebuffer_height = height;
+    m_copyright_transfer_memory_size = transfer_memory_size;
+    m_copyright_visible = true;
+    m_copyright_image = {};
+
+    LOG_DEBUG(Service_AM, "called, width={}, height={}, transfer_memory_size={:#x}", width, height,
+              transfer_memory_size);
+    R_SUCCEED();
 }
 
 Result IApplicationFunctions::SetApplicationCopyrightImage(
     s32 x, s32 y, s32 width, s32 height, WindowOriginMode window_origin_mode,
     InBuffer<BufferAttr_HipcMapTransferAllowsNonSecure | BufferAttr_HipcMapAlias> image_data) {
-    LOG_WARNING(Service_AM,
-                "SetApplicationCopyrightImage unavailable: copyright capture compositing is not materialized, x={}, y={}, width={}, height={}, origin={}, image_bytes={:#x}",
-                x, y, width, height, static_cast<s32>(window_origin_mode), image_data.size());
-    R_RETURN(ResultUnknown);
+    constexpr s32 MaxCopyrightWidth = 1280;
+    constexpr s32 MaxCopyrightHeight = 720;
+
+    R_UNLESS(x >= 0 && y >= 0 && width >= 1 && height >= 1 &&
+                 static_cast<s32>(window_origin_mode) >= 1,
+             ResultInvalidCopyrightParameters);
+
+    const s64 right = static_cast<s64>(x) + static_cast<s64>(width);
+    const s64 bottom = static_cast<s64>(y) + static_cast<s64>(height);
+    const u64 required_bytes = static_cast<u64>(width) * static_cast<u64>(height) * 4;
+    R_UNLESS(right <= MaxCopyrightWidth && bottom <= MaxCopyrightHeight &&
+                 image_data.size() >= required_bytes,
+             ResultInvalidCopyrightParameters);
+
+    std::scoped_lock lk{m_copyright_mutex};
+    if (m_copyright_framebuffer_initialized) {
+        R_UNLESS(right <= m_copyright_framebuffer_width &&
+                     bottom <= m_copyright_framebuffer_height,
+                 ResultInvalidCopyrightParameters);
+    }
+
+    m_copyright_image.x = x;
+    m_copyright_image.y = y;
+    m_copyright_image.width = width;
+    m_copyright_image.height = height;
+    m_copyright_image.origin_mode = window_origin_mode;
+    m_copyright_image.data.assign(image_data.begin(),
+                                  image_data.begin() + static_cast<size_t>(required_bytes));
+
+    LOG_DEBUG(Service_AM,
+              "called, x={}, y={}, width={}, height={}, origin={}, image_bytes={:#x}", x, y, width,
+              height, static_cast<s32>(window_origin_mode), required_bytes);
+    R_SUCCEED();
 }
 
 Result IApplicationFunctions::SetApplicationCopyrightVisibility(bool visible) {
-    LOG_WARNING(Service_AM,
-                "SetApplicationCopyrightVisibility unavailable: copyright capture compositing is not materialized, visible={}",
-                visible);
-    R_RETURN(ResultUnknown);
+    std::scoped_lock lk{m_copyright_mutex};
+    m_copyright_visible = visible;
+    LOG_DEBUG(Service_AM, "called, visible={}", visible);
+    R_SUCCEED();
 }
 
 Result IApplicationFunctions::QueryApplicationPlayStatistics(
@@ -954,10 +1005,50 @@ Result IApplicationFunctions::ExitAndRequestToShowThanksMessage() {
 }
 
 Result IApplicationFunctions::EnableApplicationAllThreadDumpOnCrash(bool enabled) {
-    LOG_WARNING(Service_AM,
-                "EnableApplicationAllThreadDumpOnCrash unavailable: guest crash-dump backend is not materialized, enabled={}",
-                enabled);
-    R_RETURN(ResultUnknown);
+    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->all_thread_dump_on_crash_enabled = enabled;
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::GetGpuErrorDetectedSystemEvent(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    LOG_DEBUG(Service_AM, "called");
+    *out_event = m_applet->gpu_error_detected_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::GetFriendInvitationStorageChannelEvent(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    LOG_DEBUG(Service_AM, "called");
+    *out_event = m_applet->friend_invitation_storage_channel_event.GetHandle();
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::TryPopFromFriendInvitationStorageChannel(
+    Out<SharedPointer<IStorage>> out_storage) {
+    LOG_DEBUG(Service_AM, "called");
+
+    std::scoped_lock lk{m_applet->lock};
+
+    auto& channel = m_applet->friend_invitation_storage_channel;
+
+    if (channel.empty()) {
+        return AM::ResultNoDataInChannel;
+    }
+
+    auto data = channel.back();
+    channel.pop_back();
+
+    *out_storage = std::make_shared<IStorage>(system, std::move(data));
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::GetNotificationStorageChannelEvent(
+    OutCopyHandle<Kernel::KReadableEvent> out_event) {
+    LOG_DEBUG(Service_AM, "called");
+    *out_event = m_applet->notification_storage_channel_event.GetHandle();
+    R_SUCCEED();
 }
 
 Result IApplicationFunctions::TryPopFromNotificationStorageChannel(
