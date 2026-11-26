@@ -770,9 +770,23 @@ assert strict_release.index("CreateFence(false)") < strict_release.index(
 assert "virtual bool SignalNativeFence(std::function<void()>&&)" in raster_abi
 assert "bool SignalNativeFence(std::function<void()>&& func) override;" in vulkan_h
 assert "fence_manager.SignalNativeFence(std::move(func));" in vulkan_cpp
-assert native_puller.count("QueueNativeSemaphoreRelease(")==4
+assert native_puller.count("QueueNativeSemaphoreRelease(")==5
 assert "SignalNativeFence(std::move(completion))" in native_puller
 assert "Native Compute report requires strict Vulkan retirement" in native_puller
+# C7C0 long timestamp releases must not use QueryCache's immediate
+# low-accuracy payload write: value/timestamp only after a real GPU fence.
+native_long_report = native_puller.split(
+    "void Puller::ProcessNativeComputeReportSemaphore(", 1
+)[1].split("\n}", 1)[0].split(
+    "    } else {\n        // C7C0's long report", 1
+)[1]
+assert "QueueNativeSemaphoreRelease(" in native_long_report
+assert "Native Compute timestamp requires strict Vulkan retirement" in native_long_report
+assert "Native Compute timestamp report backing revoked after GPU submission" in native_long_report
+assert "GetPointer(address + sizeof(u64))" in native_long_report
+assert "memory->Write<u64>(address + sizeof(u64), timestamp);" in native_long_report
+assert "memory->Write<u64>(address, static_cast<u64>(payload));" in native_long_report
+assert "rasterizer->Query(" not in native_long_report
 assert "Ampere SEM_EXECUTE requires strict Vulkan retirement" in native_puller
 fence_action=native_puller.split(
     "void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {",1

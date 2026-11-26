@@ -1221,11 +1221,49 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
                 "Native Compute report requires strict Vulkan retirement");
         }
     } else {
-        // The 16-byte timestamp report is not the packed queue-semaphore
-        // form. Preserve the existing QueryCache path and its timestamp ABI.
-        pusher.rasterizer->Query(
-            address, VideoCommon::QueryType::Payload,
-            VideoCommon::QueryPropertiesFlags::HasTimeout, payload, 0);
+        // C7C0's long report writes a 64-bit payload and a 64-bit GPU
+        // timestamp. The generic QueryCache/HasTimeout path can publish both
+        // immediately at reduced GPU accuracy, before this native dispatch
+        // completes. This is still a guest GPU release: retire a REAL Vulkan
+        // fence first, preserving the exact 16-byte layout and write order.
+        const auto* const value_backing = memory->GetPointer(address);
+        const auto* const timestamp_backing =
+            memory->GetPointer(address + sizeof(u64));
+        if (!value_backing || !timestamp_backing) {
+            pusher.FailNativeSubmission(
+                "Native Compute timestamp report backing unavailable");
+        }
+        if (!QueueNativeSemaphoreRelease(
+                pusher,
+                [channel, memory, ticket = *ticket, address, payload,
+                 value_backing, timestamp_backing, core = &pusher.system] {
+                    try {
+                        auto& current =
+                            Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+                        if (!current.IsCurrent(channel, ticket)) return;
+                        if (!Tegra::NativeComputeSemaphoreSpanValid(address, 16U) ||
+                            !memory->IsFullyMappedRange(address, 16U) ||
+                            memory->GetPointer(address) != value_backing ||
+                            memory->GetPointer(address + sizeof(u64)) !=
+                                timestamp_backing) {
+                            throw std::runtime_error(
+                                "Native Compute timestamp report backing revoked after GPU submission");
+                        }
+                        const u64 timestamp = core->GPU().GetTicks();
+                        memory->Write<u64>(address + sizeof(u64), timestamp);
+                        memory->Write<u64>(address, static_cast<u64>(payload));
+                    } catch (...) {
+#ifdef PS5_NATIVE
+                        auto failure = std::current_exception();
+                        Eden::RecordGpuFailure(failure);
+                        Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+                            .ReportFault(channel);
+#endif
+                    }
+                })) {
+            pusher.FailNativeSubmission(
+                "Native Compute timestamp requires strict Vulkan retirement");
+        }
     }
 }
 
