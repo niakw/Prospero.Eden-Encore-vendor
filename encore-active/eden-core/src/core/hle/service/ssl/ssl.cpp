@@ -338,18 +338,22 @@ private:
     }
 
     Result Poll(u32 in_pollevent, u32 timer, Out<u32> out_pollevent) {
-        LOG_WARNING(Service_SSL, "(STUBBED)");
-        R_SUCCEED();
+        (void)in_pollevent;
+        (void)timer;
+        (void)out_pollevent;
+        LOG_WARNING(Service_SSL, "SSL Poll is unsupported by the active backend");
+        R_THROW(IPC::ResultNotSupported);
     }
 
     Result GetVerifyCertError() {
-        LOG_WARNING(Service_SSL, "(STUBBED)");
-        R_SUCCEED();
+        LOG_WARNING(Service_SSL, "SSL certificate verification-error query is unsupported");
+        R_THROW(IPC::ResultNotSupported);
     }
 
     Result GetNeededServerCertBufferSize(Out<u32> out_needed_buffer_size) {
-        LOG_WARNING(Service_SSL, "(STUBBED)");
-        R_SUCCEED();
+        (void)out_needed_buffer_size;
+        LOG_WARNING(Service_SSL, "SSL server-certificate buffer query is unsupported");
+        R_THROW(IPC::ResultNotSupported);
     }
 
     Result SetSessionCacheMode(u32 mode) {
@@ -359,15 +363,16 @@ private:
     }
 
     Result GetSessionCacheMode(Out<u32> mode) {
-        LOG_WARNING(Service_SSL, "(STUBBED)");
+        (void)mode;
         R_UNLESS(!did_handshake, ResultInternalError);
-        R_SUCCEED();
+        LOG_WARNING(Service_SSL, "SSL session-cache mode query is unsupported");
+        R_THROW(IPC::ResultNotSupported);
     }
 
     Result FlushSessionCache() {
-        LOG_WARNING(Service_SSL, "(STUBBED)");
         R_UNLESS(!did_handshake, ResultInternalError);
-        R_SUCCEED();
+        LOG_WARNING(Service_SSL, "SSL session-cache flush is unsupported");
+        R_THROW(IPC::ResultNotSupported);
     }
 
     Result SetRenegotiationMode(RenegotiationMode mode) {
