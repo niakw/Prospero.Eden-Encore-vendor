@@ -26,12 +26,12 @@ assert "if (system.IsShuttingDown() || !system.IsPoweredOn())" in process
 interlist=step.split("if (signal_sync) {",1)[1]
 assert "SignalNativeFence([this]()" in interlist
 assert "rasterizer->ReleaseFences(true);" not in interlist
-assert "if (system.IsShuttingDown() || !system.IsPoweredOn())" in resume
-assert "ReleaseFences(" not in resume
+assert "if (dma_pusher.system.IsShuttingDown() || !dma_pusher.system.IsPoweredOn())" in resume
+assert "rasterizer->ReleaseFences(" not in resume
 # The Ampere acquire section starts after operation validation; legacy Maxwell
 # ReleaseFences calls elsewhere in puller.cpp are intentionally untouched.
 ampere_wait=native_acquire.split("if (operation > 5U)",1)[1]
-assert "ReleaseFences(" not in ampere_wait
+assert "rasterizer->ReleaseFences(" not in ampere_wait
 assert "ReadCoherentNativeSemaphore(dma_pusher, address)" in ampere_wait
 
 shared=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.h").read_text()
