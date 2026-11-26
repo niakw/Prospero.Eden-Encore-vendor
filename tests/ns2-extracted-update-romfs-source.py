@@ -80,6 +80,17 @@ assert "ambiguous = true" in overlay
 assert "if (auto patch_exefs = newest->GetSubdirectory" in overlay
 assert "if (auto patch_romfs = newest->GetSubdirectory" in overlay
 assert overlay.index("if (auto patch_exefs") < overlay.index("if (auto patch_romfs")
+# The selected NS2 ExeFS must be a complete, atomic revision; per-file
+# layering mixes a base NPDM/SDK with another version's main NSO.
+exefs_select = overlay.split('if (auto patch_exefs = newest->GetSubdirectory("exefs")) {', 1)[1].split(
+    'if (auto patch_romfs = newest->GetSubdirectory("romfs"))', 1)[0]
+assert 'patch_exefs->GetFile("main")' in exefs_select
+assert 'patch_exefs->GetFile("main.npdm")' in exefs_select
+assert 'status=incomplete_exefs version={}' in exefs_select
+assert 'return {ResultStatus::ErrorMissingNPDM, {}};' in exefs_select
+assert 'dir = std::move(patch_exefs);' in exefs_select
+assert 'MakeLayeredDirectory' not in exefs_select
+
 assert 'std::vector<FileSys::VirtualDir> layers{std::move(patch_romfs)};' in overlay
 assert "if (base_romfs) layers.push_back(base_romfs);" in overlay
 # Eglantine #350 revised its report: System/HeapSize is not a valid

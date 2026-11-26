@@ -387,11 +387,19 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
                 LOG_WARNING(Loader, "EDEN_EXTRACTED_UPDATE status=ambiguous_version");
             } else if (newest) {
                 if (auto patch_exefs = newest->GetSubdirectory("exefs")) {
-                    auto layered = FileSys::LayeredVfsDirectory::MakeLayeredDirectory(
-                        {patch_exefs, dir});
-                    if (!layered)
+                    // Executable updates are atomic program revisions. A
+                    // per-file overlay could mix an updated main with the
+                    // base NPDM, rtld or SDK and launch inconsistent code.
+                    // Lichii's SelectProgram similarly chooses one ExeFS
+                    // package rather than overlaying its executable files.
+                    if (!patch_exefs->GetFile("main") ||
+                        !patch_exefs->GetFile("main.npdm")) {
+                        LOG_WARNING(Loader,
+                                    "EDEN_EXTRACTED_UPDATE status=incomplete_exefs version={}",
+                                    newest_version);
                         return {ResultStatus::ErrorMissingNPDM, {}};
-                    dir = std::move(layered);
+                    }
+                    dir = std::move(patch_exefs);
                 }
                 if (auto patch_romfs = newest->GetSubdirectory("romfs")) {
                     std::vector<FileSys::VirtualDir> layers{std::move(patch_romfs)};
