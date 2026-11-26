@@ -1047,8 +1047,8 @@
     },
     "src/core/hle/service/ncm/ncm.cpp": {
       "upstream": "136b67a32b2024c4d9512455f4bb041624e2050b511264377470af631cb2d822",
-      "active": "002f9294c1f93303717001887867ea377baf6f97381ffb80fb5cc0fecb8c240f",
-      "bytes": 90037
+      "active": "d42061624999a1f4b83896e01633ea37348e9b13f74c355ab9c71f591bdeb778",
+      "bytes": 90298
     },
     "src/core/hle/service/btm/btm_system_core.cpp": {
       "upstream": "c6cef4acb0099f4965dd0918c0f6f9b20f52e7442489f89181741e0a43b40492",

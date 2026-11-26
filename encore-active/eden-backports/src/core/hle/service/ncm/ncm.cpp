@@ -28,6 +28,7 @@ namespace Service::NCM {
 namespace {
 
 struct RightsIdCacheEntry {
+    FileSys::StorageId storage{};
     FileSys::NcaID content_id{};
     FileSys::NcaID rights_id{};
     u8 key_generation{};
@@ -37,11 +38,12 @@ std::mutex g_rights_id_cache_mutex;
 std::vector<RightsIdCacheEntry> g_rights_id_cache;
 
 std::optional<std::pair<FileSys::NcaID, u8>> FindCachedRightsId(
-    const FileSys::NcaID& content_id) {
+    FileSys::StorageId storage, const FileSys::NcaID& content_id) {
     std::scoped_lock lk{g_rights_id_cache_mutex};
     const auto it = std::find_if(g_rights_id_cache.cbegin(), g_rights_id_cache.cend(),
                                  [&](const auto& entry) {
-                                     return entry.content_id == content_id;
+                                     return entry.storage == storage &&
+                                            entry.content_id == content_id;
                                  });
     if (it == g_rights_id_cache.cend()) {
         return std::nullopt;
@@ -49,19 +51,20 @@ std::optional<std::pair<FileSys::NcaID, u8>> FindCachedRightsId(
     return std::pair{it->rights_id, it->key_generation};
 }
 
-void StoreCachedRightsId(const FileSys::NcaID& content_id, const FileSys::NcaID& rights_id,
-                         u8 key_generation) {
+void StoreCachedRightsId(FileSys::StorageId storage, const FileSys::NcaID& content_id,
+                         const FileSys::NcaID& rights_id, u8 key_generation) {
     std::scoped_lock lk{g_rights_id_cache_mutex};
     const auto it = std::find_if(g_rights_id_cache.begin(), g_rights_id_cache.end(),
                                  [&](const auto& entry) {
-                                     return entry.content_id == content_id;
+                                     return entry.storage == storage &&
+                                            entry.content_id == content_id;
                                  });
     if (it != g_rights_id_cache.end()) {
         it->rights_id = rights_id;
         it->key_generation = key_generation;
         return;
     }
-    g_rights_id_cache.push_back({content_id, rights_id, key_generation});
+    g_rights_id_cache.push_back({storage, content_id, rights_id, key_generation});
 }
 
 void ClearRightsIdCache() {
@@ -1171,7 +1174,7 @@ private:
         const auto cache_content_id = rp.PopRaw<FileSys::NcaID>();
         const auto attr = rp.Pop<u8>();
 
-        auto rights = FindCachedRightsId(cache_content_id);
+        auto rights = FindCachedRightsId(storage, cache_content_id);
         if (!rights.has_value()) {
             if (attr != 0) {
                 IPC::ResponseBuilder rb{ctx, 2};
@@ -1185,7 +1188,7 @@ private:
                          ? placeholder_cache->GetRightsIDWithKeyGeneration(placeholder_id)
                          : std::optional<std::pair<FileSys::NcaID, u8>>{};
             if (rights.has_value()) {
-                StoreCachedRightsId(cache_content_id, rights->first, rights->second);
+                StoreCachedRightsId(storage, cache_content_id, rights->first, rights->second);
             }
         }
 
