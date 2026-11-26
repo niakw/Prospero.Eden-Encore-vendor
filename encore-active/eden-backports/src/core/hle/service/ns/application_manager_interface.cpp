@@ -1231,23 +1231,14 @@ Result IApplicationManagerInterface::GetApplicationView(
 Result IApplicationManagerInterface::GetApplicationRightsOnClient(
     OutArray<ApplicationRightsOnClient, BufferAttr_HipcMapAlias> out_rights, Out<u32> out_count,
     u32 flags, u64 application_id, Uid account_id) {
-    LOG_WARNING(Service_NS, "(STUBBED) called, flags={}, application_id={:016X}, account_id={}",
-                flags, application_id, account_id.uuid.FormattedString());
-
-    if (!out_rights.empty()) {
-        ApplicationRightsOnClient rights{};
-        rights.application_id = application_id;
-        rights.uid = account_id.uuid;
-        rights.flags = 0;
-        rights.flags2 = 0;
-
-        out_rights[0] = rights;
-        *out_count = 1;
-    } else {
-        *out_count = 0;
-    }
-
-    R_SUCCEED();
+    // There is no Nintendo entitlement/client-rights backend in Encore. An all-zero
+    // rights record is not evidence of a license and must not be returned as one.
+    LOG_WARNING(Service_NS,
+                "GetApplicationRightsOnClient unavailable: flags={}, application_id={:016X}, "
+                "account_id={}, capacity={}",
+                flags, application_id, account_id.uuid.FormattedString(), out_rights.size());
+    *out_count = 0;
+    R_RETURN(ResultUnknown);
 }
 
 Result IApplicationManagerInterface::CheckSdCardMountStatus() {
