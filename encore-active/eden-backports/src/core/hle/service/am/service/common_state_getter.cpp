@@ -236,9 +236,13 @@ Result ICommonStateGetter::ReleaseSleepLock() {
 }
 
 Result ICommonStateGetter::ReleaseSleepLockTransiently() {
-    LOG_DEBUG(Service_AM, "called; transient reacquire is not modeled");
+    LOG_DEBUG(Service_AM, "called; virtual sleep arbiter reacquires immediately");
 
+    // Encore has no asynchronous host sleep arbiter. Model the transient release
+    // followed by the immediate reacquisition that RequestToAcquireSleepLock
+    // already exposes to the guest.
     m_applet->sleep_lock_event.Clear(system.Kernel());
+    m_applet->sleep_lock_event.Signal(system.Kernel());
     R_SUCCEED();
 }
 
