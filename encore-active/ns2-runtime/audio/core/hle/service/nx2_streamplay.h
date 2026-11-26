@@ -27,6 +27,9 @@ public:
         static const FunctionInfo functions[] = {
             {300, &INx2StreamPlayUserService::GetGuestHidSharedMemory,
              "GetGuestHidSharedMemory"},
+            {452, &INx2StreamPlayUserService::LegacySaveUnsupported, "OpenSaveData"},
+            {454, &INx2StreamPlayUserService::LegacySaveUnsupported, "ReadSaveSlot"},
+            {455, &INx2StreamPlayUserService::LegacySaveUnsupported, "WriteSaveSlot"},
         };
         RegisterHandlers(functions);
     }
@@ -38,6 +41,12 @@ public:
     }
 
 private:
+    // Preserve the FW23 NS1 save-data error rather than faking persistence.
+    void LegacySaveUnsupported(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
     void GetGuestHidSharedMemory(HLERequestContext& ctx) {
         constexpr u64 GuestHidMemorySize = 0x9b000;
         auto& owner_kernel = system.Kernel();
