@@ -234,7 +234,7 @@ for x in ("AllocateVm(","RegisterVm(","FindRegisteredVmOwner(","RemoveVm(",
 bind=shared_cpp.split("Nvidia::NvResult GpuWorkerSharedState::BindImportedAddressSpace(",1)[1].split("\n}",1)[0]
 for x in ("address_spaces.Registered(id)","opened_gpu_as.try_emplace(id, as)",
           "for (auto& identity : identity_gpu_mappings)",
-          "as->MapNative4K(identity.handle, identity.address, 0, identity.size, 0)",
+          "as->MapNative4K(identity.handle, identity.address, 0, identity.size,", "identity.KindFor(id)",
           "if (!identity.AddSpace(id))","(void)as->UnmapNative4K(identity.address, identity.size)",
           "identity.RemoveSpace(id)","opened_gpu_as.erase(id)"):
     assert x in bind,x
@@ -1456,7 +1456,9 @@ assert bind.index("as->MapNative4K(request.memory") < bind.index("as->CommitNati
 preimport_rollback=bind.split("bool rollback_safe = !as->IsNativeSparsePoisoned();",1)[1]
 assert preimport_rollback.index("as->UnmapNative4K(request.address, request.size)") < preimport_rollback.index("opened_gpu_as.erase(id)")
 assert "m_shared->StageBeforeImport(*request)" in _overlay_worker
-assert _overlay_worker.index("m_shared->StageBeforeImport(*request)") < _overlay_worker.index("ledger.CommitPrepared(staged_ledger)") < _overlay_worker.index("m_shared->events[request->notification]->Signal(kernel)")
+stage_pos = _overlay_worker.index("m_shared->StageBeforeImport(*request)")
+stage_commit = _overlay_worker.index("ledger.CommitPrepared(staged_ledger)", stage_pos)
+assert stage_pos < stage_commit < _overlay_worker.index("m_shared->events[request->notification]->Signal(kernel)", stage_commit)
 assert "m_shared->CancelBeforeImport(mapping.address_space, mapping.address, mapping.size)" in worker.split("Result IGpuWorker::ReleaseMemory",1)[1].split("void IGpuWorker::CreateGpuAccessibleMemory",1)[0]
 assert "m_shared->CancelBeforeImport(mapping.address_space, mapping.address, mapping.size)" in teardown
 assert "m_native_vm_retired.store(true, std::memory_order_release)" in native_import
@@ -1558,6 +1560,8 @@ int main() {
     assert(state.address_spaces.Add(13) == GP::Status::Success);
     assert(state.address_spaces.Add(14) == GP::Status::Success);
     assert(state.address_spaces.Add(15) == GP::Status::Success);
+    assert(state.address_spaces.Add(16) == GP::Status::Success);
+    assert(state.address_spaces.Add(17) == GP::Status::Success);
     const GW::Map4K identity{11,7,1,0,identity_va,0x2000,0,0,0,1,0};
     GW::Map4K explicit_map{11,7,1,0,explicit_va,0x1000,0x1000,0,0,0,0};
     assert(state.StageBeforeImport(identity) == NvResult::InvalidState);
@@ -1566,6 +1570,8 @@ int main() {
     assert(state.address_spaces.Register(13) == GP::Status::Success);
     assert(state.address_spaces.Register(14) == GP::Status::Success);
     assert(state.address_spaces.Register(15) == GP::Status::Success);
+    assert(state.address_spaces.Register(16) == GP::Status::Success);
+    assert(state.address_spaces.Register(17) == GP::Status::Success);
     state.identity_gpu_mappings.push_back({7,identity_va,0x2000});
     assert(state.StageBeforeImport(identity) == NvResult::Success);
     assert(state.StageBeforeImport(explicit_map) == NvResult::Success);
@@ -1628,6 +1634,20 @@ int main() {
     auto fifth = std::make_shared<nvhost_as_gpu>(); fifth->process = &process;
     assert(state.BindImportedAddressSpace(15,fifth) == NvResult::Success);
     assert(fifth->mappings.empty());
+    // A 212 before 211/import modifies only the exact identity in one VM.
+    GW::Modify4K identity_modify{16,0,identity_va,0x2000,5,3,1};
+    auto& registered_identity = state.identity_gpu_mappings[0];
+    assert(state.ModifyIdentityBeforeImport(registered_identity,identity_modify));
+    auto partial_modify = identity_modify; partial_modify.size = 0x1000;
+    assert(!state.ModifyIdentityBeforeImport(registered_identity,partial_modify));
+    auto suppressed_modify = identity_modify; suppressed_modify.address_space = 14;
+    assert(!state.ModifyIdentityBeforeImport(registered_identity,suppressed_modify));
+    auto sixth = std::make_shared<nvhost_as_gpu>(); sixth->process = &process;
+    assert(state.BindImportedAddressSpace(16,sixth) == NvResult::Success);
+    assert(std::get<3>(sixth->mappings.at(identity_va)) == 3);
+    auto seventh = std::make_shared<nvhost_as_gpu>(); seventh->process = &process;
+    assert(state.BindImportedAddressSpace(17,seventh) == NvResult::Success);
+    assert(std::get<3>(seventh->mappings.at(identity_va)) == 0);
 }
 '''
 with tempfile.TemporaryDirectory() as tmp:
@@ -1655,17 +1675,17 @@ for marker in ("mapping_map.find(address)", "allocation_map.find(address)",
 assert "PinHandle(" not in promote and "AllocateFixed(" not in promote
 for marker in ("request->memory_offset == 0", "entry.handle == request->memory",
                "entry.address == request->address", "entry.size == request->size",
-               "entry.HasSpace(request->address_space)", "if (promote_identity)\n                            system.GPU().WaitForIdle();",
-               "request->size, 0, false)"):
+               "entry.HasSpace(request->address_space)", "if (promote_identity) {",
+               "ledger.RecordUnmapped(undo)"):
     assert marker in _overlay_worker, marker
-assert _overlay_worker.index("as->PromoteNativeIdentity4K(") < _overlay_worker.index("ledger.CommitPrepared(staged_ledger)") < _overlay_worker.index("identity->RemoveSpace(request->address_space)") < _overlay_worker.index("m_shared->events[request->notification]->Signal(kernel)")
+assert _overlay_worker.index("ledger.CommitPrepared(staged_ledger)") < _overlay_worker.index("as->PromoteNativeIdentity4K(") < _overlay_worker.index("identity->RemoveSpace(request->address_space)") < _overlay_worker.index("m_shared->events[request->notification]->Signal(kernel)")
 print("NS2_211_POSTIMPORT_IDENTITY_TRANSFER_SOURCE_PASS")
 
 # Kind-preserving 101 adoption does not rewrite the existing GMMU pages.
 assert "gmmu->GetPageKind(address + offset) != requested_kind" in promote
 assert promote.index("if (kind_changed)") < promote.index("gmmu->Map(address, mapping.ptr")
 assert promote.index("gmmu->Map(address, mapping.ptr") < promote.index("mapping.gpu_cacheable = gpu_cacheable")
-assert _overlay_worker.index("if (promote_identity)\n                            system.GPU().WaitForIdle();") < _overlay_worker.index("as->PromoteNativeIdentity4K(")
+assert _overlay_worker.index("if (promote_identity) {") < _overlay_worker.index("system.GPU().WaitForIdle();") < _overlay_worker.index("as->PromoteNativeIdentity4K(")
 print("NS2_211_IDENTITY_KIND_PRESERVATION_SOURCE_PASS")
 
 # A 213 can remove an implicit 101 mapping with no 211 ledger entry.
@@ -1676,3 +1696,12 @@ for marker in ("entry.address == request->address", "entry.size == request->size
     assert marker in identity_unmap, marker
 assert "if (identity.IsSuppressed(id)) continue;" in bind
 print("NS2_213_IDENTITY_UNMAP_SOURCE_PASS")
+
+# Identity 212 uses the same verified ownership as 213, with per-VM replay.
+identity_modify = worker.split("void IGpuWorker::NormalModifyGpuMemory4K(",1)[1].split("\n}",1)[0]
+for marker in ("!m_quarantined_nv_session", "entry.address == request->address",
+               "entry.size == request->size", "identity->HasSpace(request->address_space)",
+               "as->ModifyNativeKind(", "m_shared->ModifyIdentityBeforeImport(*identity, *request)"):
+    assert marker in identity_modify, marker
+assert "identity.KindFor(id)" in bind
+print("NS2_212_IDENTITY_KIND_SOURCE_PASS")

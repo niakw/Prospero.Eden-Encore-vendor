@@ -145,6 +145,15 @@ bool GpuWorkerSharedState::ModifyBeforeImport(const GpuWorkerProtocol::Modify4K&
     return true;
 }
 
+bool GpuWorkerSharedState::ModifyIdentityBeforeImport(
+    IdentityGpuMapping& identity, const GpuWorkerProtocol::Modify4K& request) {
+    if (!CanStageBeforeImport(request.address_space) ||
+        identity.address != request.address || identity.size != request.size ||
+        pending_211.contains({request.address_space, request.address}))
+        return false;
+    return identity.SetInitialKind(request.address_space, request.backend_kind);
+}
+
 Nvidia::NvResult GpuWorkerSharedState::BindImportedAddressSpace(
     std::uint32_t id, const std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>& as) {
     if (!id || !as) return Nvidia::NvResult::BadParameter;
@@ -184,7 +193,8 @@ Nvidia::NvResult GpuWorkerSharedState::BindImportedAddressSpace(
         const auto explicit_map = pending_211.find({id, identity.address});
         if (explicit_map != pending_211.end() && ExactIdentity(identity, explicit_map->second))
             continue;
-        replay = as->MapNative4K(identity.handle, identity.address, 0, identity.size, 0);
+        replay = as->MapNative4K(identity.handle, identity.address, 0, identity.size,
+                                 identity.KindFor(id));
         if (replay != Nvidia::NvResult::Success) break;
         if (!identity.AddSpace(id)) {
             // Capacity is bounded by the VM slots. On invariant failure,

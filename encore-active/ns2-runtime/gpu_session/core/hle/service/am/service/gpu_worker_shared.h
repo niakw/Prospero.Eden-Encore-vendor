@@ -50,6 +50,34 @@ struct IdentityGpuMapping {
         return false;
     }
 
+    // An exact 212 before NVDRV import changes the initial kind of this
+    // identity in just one VM. No new backing or explicit 211 pin is needed.
+    struct InitialKind {
+        std::uint32_t id{};
+        std::uint8_t kind{};
+    };
+    std::array<InitialKind, GpuSessionProtocol::MaxAddressSpaces> initial_kinds{};
+    [[nodiscard]] std::uint8_t KindFor(std::uint32_t id) const {
+        if (id)
+            for (const auto& slot : initial_kinds)
+                if (slot.id == id) return slot.kind;
+        return 0;
+    }
+    [[nodiscard]] bool SetInitialKind(std::uint32_t id, std::uint8_t kind) {
+        if (!id || IsSuppressed(id)) return false;
+        for (auto& slot : initial_kinds)
+            if (slot.id == id) {
+                slot.kind = kind;
+                return true;
+            }
+        for (auto& slot : initial_kinds)
+            if (!slot.id) {
+                slot = {id, kind};
+                return true;
+            }
+        return false;
+    }
+
     [[nodiscard]] bool HasSpace(std::uint32_t id) const {
         for (std::size_t i = 0; i < mapped_count; ++i)
             if (mapped_spaces[i] == id) return true;
@@ -103,6 +131,8 @@ struct GpuWorkerSharedState {
     bool UnmapBeforeImport(const GpuWorkerProtocol::Unmap4K& request);
     bool SuppressIdentityBeforeImport(IdentityGpuMapping& identity, std::uint32_t id);
     bool ModifyBeforeImport(const GpuWorkerProtocol::Modify4K& request);
+    bool ModifyIdentityBeforeImport(IdentityGpuMapping& identity,
+                                    const GpuWorkerProtocol::Modify4K& request);
     [[nodiscard]] bool OverlapsPendingIdentity(std::uint64_t address, std::uint64_t size) const;
     // Caller holds mutex except during final shared-state destruction.
     [[nodiscard]] std::shared_ptr<Nvidia::Devices::nvhost_as_gpu>

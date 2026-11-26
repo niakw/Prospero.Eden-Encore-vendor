@@ -698,51 +698,67 @@ void IGpuWorker::NormalMapGpuMemory4K(HLERequestContext& ctx) {
                         }
                         const bool promote_identity =
                             identity != m_shared->identity_gpu_mappings.end();
-                        // A previous raw NVDRV kind update may have changed this
-                        // identity even when the requested kind is zero. Serialize
-                        // the rare ownership transfer with GPU readers like 212.
-                        if (promote_identity)
+                        if (promote_identity) {
+                            // Commit the allocation-free ledger node before
+                            // changing the existing PTE kind. On failure there
+                            // is no kind to restore (it need not have been zero).
                             system.GPU().WaitForIdle();
-                        const auto mapped = as
-                            ? (promote_identity
-                                   ? as->PromoteNativeIdentity4K(request->memory, request->address,
-                                                                 request->size, request->backend_kind,
-                                                                 request->cache != 0)
-                                   : as->MapNative4K(request->memory, request->address,
-                                                     request->memory_offset, request->size,
-                                                     request->backend_kind,
-                                                     request->cache != 0))
-                            : (!sparse_overlay
-                                   ? m_shared->StageBeforeImport(*request)
-                                   : Nvidia::NvResult::InvalidState);
-                        if (mapped == Nvidia::NvResult::InsufficientMemory)
-                            result = Kernel::ResultOutOfResource;
-                        if (mapped == Nvidia::NvResult::Success) {
                             const auto committed = ledger.CommitPrepared(staged_ledger);
+                            result = TranslateMappingStatus(committed);
                             if (committed == GW::LedgerStatus::Success) {
-                                // 213/102 now retire this mapping through the 211 ledger.
-                                if (promote_identity)
+                                const auto mapped = as->PromoteNativeIdentity4K(
+                                    request->memory, request->address, request->size,
+                                    request->backend_kind, request->cache != 0);
+                                if (mapped == Nvidia::NvResult::Success) {
                                     identity->RemoveSpace(request->address_space);
-                                selected = request->selected_kind;
-                                result = ResultSuccess;
-                                m_shared->events[request->notification]->Signal(kernel);
-                            } else {
-                                const bool undone = as
-                                    ? (promote_identity
-                                           ? as->PromoteNativeIdentity4K(request->memory,
-                                                                         request->address,
-                                                                         request->size, 0, false)
-                                           : as->UnmapNative4K(request->address, request->size)) ==
-                                          Nvidia::NvResult::Success
-                                    : m_shared->CancelBeforeImport(request->address_space,
-                                                                   request->address, request->size);
-                                if (!undone) {
-                                    // The AS still owns a pin/PTE not represented
-                                    // by a committed worker ledger. Fail closed.
-                                    m_quarantined_nv_session = true;
-                                    result = Kernel::ResultInvalidState;
+                                    selected = request->selected_kind;
+                                    result = ResultSuccess;
+                                    m_shared->events[request->notification]->Signal(kernel);
                                 } else {
-                                    result = TranslateMappingStatus(committed);
+                                    // The identity still owns the only pin.
+                                    // Roll back just the newly committed ledger.
+                                    const GW::Unmap4K undo{request->address_space,
+                                        request->notification, request->address,
+                                        request->size, request->sync};
+                                    if (ledger.RecordUnmapped(undo) != GW::LedgerStatus::Success ||
+                                        as->IsNativeSparsePoisoned()) {
+                                        m_quarantined_nv_session = true;
+                                        result = Kernel::ResultInvalidState;
+                                    } else {
+                                        result = mapped == Nvidia::NvResult::InsufficientMemory
+                                            ? Kernel::ResultOutOfResource
+                                            : Kernel::ResultInvalidState;
+                                    }
+                                }
+                            }
+                        } else {
+                            const auto mapped = as
+                                ? as->MapNative4K(request->memory, request->address,
+                                                  request->memory_offset, request->size,
+                                                  request->backend_kind, request->cache != 0)
+                                : (!sparse_overlay
+                                       ? m_shared->StageBeforeImport(*request)
+                                       : Nvidia::NvResult::InvalidState);
+                            if (mapped == Nvidia::NvResult::InsufficientMemory)
+                                result = Kernel::ResultOutOfResource;
+                            if (mapped == Nvidia::NvResult::Success) {
+                                const auto committed = ledger.CommitPrepared(staged_ledger);
+                                if (committed == GW::LedgerStatus::Success) {
+                                    selected = request->selected_kind;
+                                    result = ResultSuccess;
+                                    m_shared->events[request->notification]->Signal(kernel);
+                                } else {
+                                    const bool undone = as
+                                        ? as->UnmapNative4K(request->address, request->size) ==
+                                              Nvidia::NvResult::Success
+                                        : m_shared->CancelBeforeImport(request->address_space,
+                                                                       request->address, request->size);
+                                    if (!undone) {
+                                        m_quarantined_nv_session = true;
+                                        result = Kernel::ResultInvalidState;
+                                    } else {
+                                        result = TranslateMappingStatus(committed);
+                                    }
                                 }
                             }
                         }
@@ -766,13 +782,45 @@ void IGpuWorker::NormalModifyGpuMemory4K(HLERequestContext& ctx) {
     if (const auto request = GW::DecodeModify(command)) {
         const std::scoped_lock lock{m_mutex, m_shared->mutex};
         result = Kernel::ResultNotFound;
-        if (m_shared->address_spaces.Owns(request->address_space) &&
+        if (!m_quarantined_nv_session &&
+            m_shared->address_spaces.Owns(request->address_space) &&
             m_shared->events[request->notification]) {
             auto preflight = m_mappings.CanModify(*request);
             if (preflight != GW::LedgerStatus::Success)
                 preflight = m_sparse_overlays.CanModify(*request);
             result = TranslateMappingStatus(preflight);
-            if (preflight == GW::LedgerStatus::Success) {
+            if (preflight == GW::LedgerStatus::NotFound) {
+                // 101 publishes a real identity view, even without a 211.
+                // Only the exact worker-owned span may change its kind.
+                auto identity = std::find_if(m_shared->identity_gpu_mappings.begin(),
+                    m_shared->identity_gpu_mappings.end(),
+                    [&](const IdentityGpuMapping& entry) {
+                        return entry.address == request->address &&
+                               entry.size == request->size &&
+                               std::find(m_memory.begin(), m_memory.end(), entry.handle) !=
+                                   m_memory.end() &&
+                               !m_pending_device_unlocks.contains(entry.handle);
+                    });
+                if (identity != m_shared->identity_gpu_mappings.end()) {
+                    const auto as = m_shared->FindOwnedAddressSpace(request->address_space);
+                    bool modified = false;
+                    if (as && identity->HasSpace(request->address_space)) {
+                        BlockingBoundaryTrace trace{"212_identity_wait_idle", request->address_space,
+                                                    request->address, request->size};
+                        system.GPU().WaitForIdle();
+                        modified = as->ModifyNativeKind(request->address, request->size,
+                                                       request->backend_kind) ==
+                                   Nvidia::NvResult::Success;
+                    } else if (!as) {
+                        modified = m_shared->ModifyIdentityBeforeImport(*identity, *request);
+                    }
+                    if (modified) {
+                        selected = request->selected_kind;
+                        result = ResultSuccess;
+                        m_shared->events[request->notification]->Signal(kernel);
+                    }
+                }
+            } else if (preflight == GW::LedgerStatus::Success) {
                 result = Kernel::ResultInvalidState;
                 const auto as = m_shared->FindOwnedAddressSpace(
                     static_cast<Nvidia::DeviceFD>(request->address_space));
