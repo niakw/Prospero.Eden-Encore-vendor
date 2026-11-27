@@ -25,6 +25,7 @@
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/k_thread.h"
 #include "core/loader/nso.h"
+#include "core/loader/ns2_nso_preflight.h"
 #include "core/memory.h"
 
 #ifdef HAS_NCE
@@ -79,6 +80,26 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
         return std::nullopt;
     if (nso_header.segments.empty())
         return std::nullopt;
+
+    // Both NS1 and NS2 use this fixed guest argument allocation. A hostile
+    // program_args value must not overrun it or truncate the actual_size
+    // header when LoadModule copies the arguments into codeset.memory.
+    // Reject before BOTH the layout-only and materialized NSO passes.
+    if (should_pass_arguments &&
+        Settings::values.program_args.GetValue().size() >
+            NSO_ARGUMENT_DATA_ALLOCATION_SIZE - sizeof(NSOArgumentHeader)) {
+        return std::nullopt;
+    }
+
+    // N3t: native NSO entry gate, selected ONLY by experimental NS2 ExeFS.
+    // Validate before even computing the first-pass guest image layout.
+    static_assert(sizeof(NSOHeader) == Eden::NS2::ExeFS::NsoHeaderBytes);
+    std::array<std::uint8_t, Eden::NS2::ExeFS::NsoHeaderBytes> header_bytes{};
+    std::memcpy(header_bytes.data(), &nso_header, header_bytes.size());
+    if (!Eden::NS2::ExeFS::PreflightNso(header_bytes, nso_file.GetSize()).Ready()) {
+        LOG_ERROR(Loader, "NS2 NSO0 {} rejected by native LoadModule", nso_file.GetName());
+        return std::nullopt;
+    }
 
     // Allocate some space at the beginning if we are patching in PreText mode.
     const size_t module_start = [&]() -> size_t {
@@ -177,6 +198,11 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
 
     // Apply patches if necessary
     if (patched || full_image) {
+        // Untrusted or empty NSO layouts must not form an out-of-range
+        // pointer, nor pass a null data pointer to the header memcpy even
+        // when the apparent patchable payload has length zero.
+        if (module_start >= codeset.memory.size())
+            return std::nullopt;
         std::span<u8> patchable_section(codeset.memory.data() + module_start, codeset.memory.size() - module_start);
         std::vector<u8> pi_header(sizeof(NSOHeader) + patchable_section.size());
         std::memcpy(pi_header.data(), &nso_header, sizeof(NSOHeader));
@@ -185,6 +211,13 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
 
         pi_header = pm->PatchNSO(pi_header, name);
 
+        // IPS/IPSwitch mods can resize a patched NSO. The guest CodeSet was
+        // allocated from the authenticated original segment layout, so a
+        // longer result would overrun patchable_section and a shorter one
+        // would leave a partially patched executable. Reject either before
+        // copying a single byte of the guest image.
+        if (pi_header.size() != sizeof(NSOHeader) + patchable_section.size())
+            return std::nullopt;
         std::copy(pi_header.begin() + sizeof(NSOHeader), pi_header.end(), patchable_section.data());
     }
 

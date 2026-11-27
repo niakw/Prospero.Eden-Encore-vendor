@@ -11,10 +11,12 @@
 #include "core/arm/arm_interface.h"
 #include "core/core.h"
 #include "core/hle/kernel/k_process.h"
-#include "core/hle/kernel/svc.h"
-#ifdef EDEN_NS2_SVC_TRACE
+#include "common/settings.h"
+#include "common/settings_enums.h"
+#include "core/hle/kernel/svc_results.h"
 #include "core/loader/ns2_svc_trace.h"
-#endif
+#include "core/hle/kernel/ns2_gpu_memory_attribute.h"
+#include "core/hle/kernel/svc.h"
 
 namespace Kernel::Svc {
 
@@ -2502,25 +2504,118 @@ static void Call64(Core::System& system, u32 imm, std::span<uint64_t, 8> args) {
 void Call(Core::System& system, u32 imm) {
     auto& kernel = system.Kernel();
     auto& process = GetCurrentProcess(kernel);
+    std::array<uint64_t, 8> args;
+    kernel.CurrentPhysicalCore().SaveSvcArguments(process, args);
+    GetCurrentThread(kernel).SetEnteredKernel();
 #ifdef EDEN_NS2_SVC_TRACE
+    // Detailed logging keeps a fixed recent ring without per-call I/O. On a
+    // fatal guest branch PhysicalCore asks this TU to dump it once.
+    const std::uint64_t svc_trace_sequence =
+        Eden::NS2::SvcTrace::RecordRecent(process.GetProcessId(), imm,
+                                          process.IsPermittedSvc(imm), args);
+    // The ArmInterface is halted here, before the kernel SVC may reschedule
+    // this guest thread. Capture PC/SP only on the two last SVC families
+    // seen before both NS2 title faults; never read the stale KThread copy.
+    std::uint64_t svc_trace_sp = 0;
+    std::uint64_t svc_trace_pc = 0;
+    if (svc_trace_sequence && process.Is64Bit() && (imm == 0x06 || imm == 0x29)) {
+        ThreadContext svc_context{};
+        process.GetArmInterface(kernel.CurrentPhysicalCore().CoreIndex())->GetContext(svc_context);
+        svc_trace_sp = svc_context.sp;
+        svc_trace_pc = svc_context.pc;
+    }
+    // Preserve the historical first-32 witness for existing host contracts.
     if (const auto sample = Eden::NS2::SvcTrace::Next(process.GetProcessId())) {
         LOG_INFO(Kernel_SVC, "NS2 real HLE SVC[{}] pid={} imm={:#x} permitted={}",
                  *sample, process.GetProcessId(), imm, process.IsPermittedSvc(imm));
     }
 #endif
-    std::array<uint64_t, 8> args;
-    kernel.CurrentPhysicalCore().SaveSvcArguments(process, args);
     //kernel.EnterSVCProfile();
     LOG_TRACE(Kernel_SVC, "{} [0]={:#x} [1]={:#x} [2]={:#x} [3]={:#x} [4]={:#x} [5]={:#x} [6]={:#x}",
         imm, GetArg64(args, 0), GetArg64(args, 1), GetArg64(args, 2),
         GetArg64(args, 3), GetArg64(args, 4), GetArg64(args, 5), GetArg64(args, 6));
-    if (process.Is64Bit()) {
+    // Switch 2's new SVC 0x80 toggles GPU access for a guest memory
+    // interval. This is not an NVDRV mapping or a GPU synchronization job:
+    // it only accepts a validated attribute for memory already held by the
+    // current guest process. The existing NS1 SVC dispatcher remains exact.
+    if (imm == 0x80 && process.Is64Bit() &&
+        Eden::NS2::SvcTrace::IsActive(process.GetProcessId()) &&
+        Settings::values.memory_layout_mode.GetValue() == Settings::MemoryLayout::Memory_12Gb) {
+        const u64 address = GetArg64(args, 0);
+        const u64 size = GetArg64(args, 1);
+        const u32 mask = static_cast<u32>(GetArg64(args, 2));
+        const u32 attribute = static_cast<u32>(GetArg64(args, 3));
+        const auto status = Eden::NS2::GpuAccess::Validate(address, size, mask, attribute);
+        Result result = ResultSuccess;
+        switch (status) {
+        case Eden::NS2::GpuAccess::Status::InvalidAddress:
+            result = ResultInvalidAddress;
+            break;
+        case Eden::NS2::GpuAccess::Status::InvalidSize:
+            result = ResultInvalidSize;
+            break;
+        case Eden::NS2::GpuAccess::Status::InvalidAttribute:
+            result = ResultInvalidCombination;
+            break;
+        case Eden::NS2::GpuAccess::Status::Success:
+            if (!process.GetPageTable().Contains(address, size)) {
+                result = ResultInvalidCurrentMemory;
+            } else {
+                // Record the attribute in the real KMemoryBlockManager.
+                // QueryMemory and subsequent NVDRV allocations must see it;
+                // returning success without the update was a false stub.
+                result = process.GetPageTable().SetMemoryAttribute(
+                    address, size, static_cast<KMemoryAttribute>(mask),
+                    static_cast<KMemoryAttribute>(attribute));
+            }
+            break;
+        }
+        SetArg64(args, 0, result.raw);
+    } else if (process.Is64Bit()) {
         Call64(system, imm, args);
     } else {
         Call32(system, imm, args);
     }
     //kernel.ExitSVCProfile();
+#ifdef EDEN_NS2_SVC_TRACE
+    // Record the real ABI result after dispatch for bounded quiet boot boundaries.
+    // x1 is meaningful for QueryMemory and GetInfo; never expose an arbitrary
+    // guest pointer or IPC payload from other SVCs in the crash-only summary.
+    // No per-call print, guest-memory access, or changed guest result.
+    if (svc_trace_sequence && process.Is64Bit() &&
+        Eden::NS2::SvcTrace::IsHangBoundarySvc(imm))
+        Eden::NS2::SvcTrace::RecordOutcome(
+            process.GetProcessId(), svc_trace_sequence, args[0],
+            (imm == 0x06 || imm == 0x29) ? args[1] : 0,
+            svc_trace_sp, svc_trace_pc);
+#endif
     kernel.CurrentPhysicalCore().LoadSvcArguments(process, args);
 }
 
 } // namespace Kernel::Svc
+
+#ifdef EDEN_NS2_SVC_TRACE
+#ifdef PS5_NATIVE
+// A real, strong frontend implementation writes to an independent bounded
+// incident file. Weak declaration keeps non-PS5 and partial vendor tests linkable.
+extern "C" void eden_native_capture_ns2_svc_fault(
+    std::uint64_t pid, std::uint64_t program_id, std::uint64_t fault_pc,
+    std::uint64_t fault_lr, std::uint64_t fault_sp,
+    const char* critical_svc) noexcept __attribute__((weak));
+#endif
+extern "C" void eden_ns2_dump_recent_svc(
+    std::uint64_t pid, std::uint64_t program_id, std::uint64_t fault_pc,
+    std::uint64_t fault_lr, std::uint64_t fault_sp) noexcept {
+    Eden::NS2::SvcTrace::DumpRecent(pid, stderr);
+#ifdef PS5_NATIVE
+    // This is a real guest abort, never a gameplay frame. The fatal PC/LR/SP
+    // remains useful even if no critical SVC was observed in the recent ring.
+    if (eden_native_capture_ns2_svc_fault) {
+        char last_svc[240]{};
+        if (!Eden::NS2::SvcTrace::FormatCriticalRecent(pid, last_svc, sizeof(last_svc)))
+            std::snprintf(last_svc, sizeof(last_svc), "svc=not_observed");
+        eden_native_capture_ns2_svc_fault(pid, program_id, fault_pc, fault_lr, fault_sp, last_svc);
+    }
+#endif
+}
+#endif

@@ -50,6 +50,7 @@ enum class MemoryAttribute : u32 {
     DeviceShared = (1 << 2),
     Uncached = (1 << 3),
     PermissionLocked = (1 << 4),
+    GpuAccessible = (1 << 5), // NS2 SVC 0x80; preserve maintained NS1 source ABI
 };
 DECLARE_ENUM_FLAG_OPERATORS(MemoryAttribute);
 
@@ -74,6 +75,7 @@ enum class ArbitrationType : u32 {
     WaitIfLessThan = 0,
     DecrementAndWaitIfLessThan = 1,
     WaitIfEqual = 2,
+    WaitIfEqual64 = 3, // 8-byte aligned compare, no truncated upper word
 };
 
 enum class YieldType : s64 {

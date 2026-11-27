@@ -45,6 +45,7 @@ public:
         void GetBaasAccountAdministrator(HLERequestContext &ctx);
         void ListQualifiedUsers(HLERequestContext& ctx);
         void ListOpenContextStoredUsers(HLERequestContext& ctx);
+        // NS2 acc:u0 command 130 restores the user's stored open context.
         void LoadOpenContext(HLERequestContext& ctx);
         void StoreSaveDataThumbnailApplication(HLERequestContext& ctx);
         void GetBaasAccountManagerForSystemService(HLERequestContext& ctx);
