@@ -22,7 +22,7 @@ Exemple : `sources/eden/src/core/foo.cpp` → `encore-active/eden/src/core/foo.c
 
 Un fichier nouveau propre à Encore reste sous `encore-active/<dépendance>/`, à son emplacement logique dans l'arbre de cette dépendance. Les anciens noms de familles fonctionnelles ne doivent pas devenir des propriétaires runtime parallèles. À terme, un chemin upstream donné ne doit avoir **qu'un seul owner final** dans `encore-active/`.
 
-**Dette de migration :** aucun nouvel owner ne doit être ajouté dans les anciens roots fonctionnels (`eden-core`, `eden-vulkan`, `eden-build`, etc.). Ils sont repliés progressivement vers `encore-active/eden/<chemin upstream>` puis supprimés. Les roots `eden-threading`, `eden-sync`, `eden-gpu`, `eden-shader` et `ns2-a64` ont déjà été absorbés dans l'arbre canonique `eden/`.
+**Dette de migration :** aucun nouvel owner ne doit être ajouté dans les anciens roots fonctionnels (`eden-core`, `eden-vulkan`, `eden-build`, etc.). Ils sont repliés progressivement vers `encore-active/eden/<chemin upstream>` puis supprimés. Les roots `eden-threading`, `eden-sync`, `eden-gpu`, `eden-shader` et `ns2-a64` ont déjà été absorbés dans l'arbre canonique `eden/`. Les anciens sous-arbres `eden-core/src`, `eden-core/include` et `eden-backports/src` ont également été repliés dans `eden/`; ils ne doivent plus être recréés.
 
 
 > **Note / 9 November 2026:** maintained, selected source overrides for the shared NS1/NS2 engine. Historical inventories below are owner/source migration records; a file being listed is **not** proof of execution on PS5. Native console build and hardware qualification belong to the engine P5 milestone. Third-party legal attribution, GPU/SDK vocabulary and ABI identifiers are preserved. [Vendor audit](../docs/VENDOR_PRESENTATION_AUDIT_2026-11-09.md).
@@ -38,56 +38,56 @@ Un fichier nouveau propre à Encore reste sous `encore-active/<dépendance>/`, �
 | `eden/src/core/hle/kernel/svc/*.cpp` | Sources SVC natives |
 | `eden/src/core/hle/kernel/k_synchronization_object.h` | En-tête natif de synchronisation, aliasing corrigé |
 | `eden/native-hle-overrides.cmake` | Sélection de sources CMake, **pas** un correctif C++ généré |
-| `eden-core/src/core/hle/service/nvdrv/core/container.cpp` | Session nvdrv : acquisition/libération du processus avec verrou relâché avant fermeture |
-| `eden-core/src/hid_core/frontend/emulated_controller.cpp` | Vibrations virtuelles : source maintenue en remplacement du générateur CMake |
-| `eden-core/src/core/memory.cpp` | A32 fastmem source issue du backport de production ; garde explicite 32 bits, activation conditionnelle |
+| `eden/src/core/hle/service/nvdrv/core/container.cpp` | Session nvdrv : acquisition/libération du processus avec verrou relâché avant fermeture |
+| `eden/src/hid_core/frontend/emulated_controller.cpp` | Vibrations virtuelles : source maintenue en remplacement du générateur CMake |
+| `eden/src/core/memory.cpp` | A32 fastmem source issue du backport de production ; garde explicite 32 bits, activation conditionnelle |
 | `compiler-rt/emutls.c` | Source du runtime TLS natif maintenue, `EMUTLS_SKIP_DESTRUCTOR_ROUNDS=1`, sans génération CMake |
 | `eden/src/CMakeLists.txt` | Configuration de build maintenue copiée avant compilation |
-| `eden-core/src/common/thread.cpp`, `src/common/fs/fs.cpp` | Sources runtime natives maintenues ; noms de workers et énumération des répertoires |
-| `eden-core/src/common/cpu_features.cpp`, `src/common/fs/path_util.cpp` | Détection de fréquence TSC et racines utilisateur/cache natives, auparavant générées par CMake |
-| `eden-core/src/video_core/renderer_opengl/gl_texture_cache.cpp` | Diagnostic de copie GL en profil DEV, source C++ maintenue |
-| `eden-core/src/video_core/renderer_opengl/{gl_buffer_cache,gl_query_cache}.cpp` | Correctifs GL de buffers et requêtes maintenus, conditions de compilation conservées |
-| `eden-core/src/video_core/video_core_opengl.cpp` | Fabrique OpenGL-only maintenue ; fabrique Vulkan épinglée sélectionnée intacte |
-| `eden-core/include/core/file_sys/bis_factory.h`, `eden-core/src/core/file_sys/bis_factory.cpp` | ABI BIS et choix du firmware/dossiers mods maintenus hors génération CMake |
-| `eden-core/src/core/file_sys/fsmitm_romfsbuild.cpp` | Contextes RomFS sans cycles de propriété ; deux types de remplacement désormais en C++ maintenu |
-| `eden-core/src/audio_core/sink/sink_stream.cpp` | File PCM, upmix et trame de maintien via source audio maintenue ; anciens générateurs supprimés |
-| `eden-core/src/core/hle/service/filesystem/filesystem.cpp` | Racine firmware maintenue en C++, sans unité dérivée par CMake |
-| `eden-core/src/core/internal_network/network_interface.cpp` | Choix de la branche FreeBSD pour l'énumération des interfaces, sans génération CMake |
-| `eden-core/src/core/hle/kernel/svc/svc_ipc.cpp`, `src/core/hle/service/service.cpp` | Mesures IPC/HLE du profil diagnostic, sélectionnées sans génération CMake |
-| `eden-core/src/core/hle/service/{filesystem,nvdrv,nvnflinger}/` | Sources diagnostiques de fichiers, événements NVDRV et files de présentation |
+| `eden/src/common/thread.cpp`, `src/common/fs/fs.cpp` | Sources runtime natives maintenues ; noms de workers et énumération des répertoires |
+| `eden/src/common/cpu_features.cpp`, `src/common/fs/path_util.cpp` | Détection de fréquence TSC et racines utilisateur/cache natives, auparavant générées par CMake |
+| `eden/src/video_core/renderer_opengl/gl_texture_cache.cpp` | Diagnostic de copie GL en profil DEV, source C++ maintenue |
+| `eden/src/video_core/renderer_opengl/{gl_buffer_cache,gl_query_cache}.cpp` | Correctifs GL de buffers et requêtes maintenus, conditions de compilation conservées |
+| `eden/src/video_core/video_core_opengl.cpp` | Fabrique OpenGL-only maintenue ; fabrique Vulkan épinglée sélectionnée intacte |
+| `eden/include/core/file_sys/bis_factory.h`, `eden/src/core/file_sys/bis_factory.cpp` | ABI BIS et choix du firmware/dossiers mods maintenus hors génération CMake |
+| `eden/src/core/file_sys/fsmitm_romfsbuild.cpp` | Contextes RomFS sans cycles de propriété ; deux types de remplacement désormais en C++ maintenu |
+| `eden/src/audio_core/sink/sink_stream.cpp` | File PCM, upmix et trame de maintien via source audio maintenue ; anciens générateurs supprimés |
+| `eden/src/core/hle/service/filesystem/filesystem.cpp` | Racine firmware maintenue en C++, sans unité dérivée par CMake |
+| `eden/src/core/internal_network/network_interface.cpp` | Choix de la branche FreeBSD pour l'énumération des interfaces, sans génération CMake |
+| `eden/src/core/hle/kernel/svc/svc_ipc.cpp`, `src/core/hle/service/service.cpp` | Mesures IPC/HLE du profil diagnostic, sélectionnées sans génération CMake |
+| `eden/src/core/hle/service/{filesystem,nvdrv,nvnflinger}/` | Sources diagnostiques de fichiers, événements NVDRV et files de présentation |
 | `eden`, `eden-vulkan`, `eden-core`, `ps5-mesa` et autres dossiers | Autres adaptations maintenues ; voir `docs/EDEN_OVERRIDE_MIGRATION_INVENTORY.md` |
 
-| `eden-core/src/video_core/buffer_cache/buffer_cache.h` | Header GPU R437 complet et maintenu ; sélection PS5 par copie sans réécriture CMake |
+| `eden/src/video_core/buffer_cache/buffer_cache.h` | Header GPU R437 complet et maintenu ; sélection PS5 par copie sans réécriture CMake |
 
 | `eden-build/tooling/native/app_crt_radv.cpp` | Startup RADV sélectionné directement, avec initialiseur IEEE et preuve de parité source |
 
-| `eden-core/src/dynarmic/` | Traducteur A64, lecture/écriture scalaire et optimiseur IR : trois sources complètes compilées sans génération CMake |
+| `eden/src/dynarmic/` | Traducteur A64, lecture/écriture scalaire et optimiseur IR : trois sources complètes compilées sans génération CMake |
 
-| `eden-core/src/video_core/engines/maxwell_3d.cpp` | Diagnostic DEV de condition de rendu, versionné avec parité source et sélection exclusive |
+| `eden/src/video_core/engines/maxwell_3d.cpp` | Diagnostic DEV de condition de rendu, versionné avec parité source et sélection exclusive |
 
-| `eden-core/src/common/sparse_large_vector.h` | Header mémoire sparse complet, sélection par copie et oracle d’équivalence des onze substitutions |
+| `eden/src/common/sparse_large_vector.h` | Header mémoire sparse complet, sélection par copie et oracle d’équivalence des onze substitutions |
 
-| `eden-core/src/dynarmic/backend/x64/{reg_alloc.h,reg_alloc.cpp}` | Deux unités maintenues du gestionnaire de registres ; sélection explicite et parité des cinq anciennes injections |
+| `eden/src/dynarmic/backend/x64/{reg_alloc.h,reg_alloc.cpp}` | Deux unités maintenues du gestionnaire de registres ; sélection explicite et parité des cinq anciennes injections |
 
-| `eden-core/src/dynarmic/backend/x64/constant_pool.cpp` | Alias mémoire du pool JIT, source versionnée avec sélection exclusive |
+| `eden/src/dynarmic/backend/x64/constant_pool.cpp` | Alias mémoire du pool JIT, source versionnée avec sélection exclusive |
 
-| `eden-core/src/dynarmic/backend/x64/{emit_x64_vector.cpp,emit_x64_data_processing.cpp}` | Deux émetteurs scalaires complets, trois anciennes substitutions de CMake supprimées ; injection mémoire toujours X08 |
+| `eden/src/dynarmic/backend/x64/{emit_x64_vector.cpp,emit_x64_data_processing.cpp}` | Deux émetteurs scalaires complets, trois anciennes substitutions de CMake supprimées ; injection mémoire toujours X08 |
 
-| `eden-core/src/video_core/engines/sw_blitter/blitter.cpp` | Blitter logiciel natif : backport de production préservé et trois tailles élargies, sans reconstruction CMake |
+| `eden/src/video_core/engines/sw_blitter/blitter.cpp` | Blitter logiciel natif : backport de production préservé et trois tailles élargies, sans reconstruction CMake |
 
-| `eden-core/src/shader_recompiler/frontend/maxwell/translate/impl/not_implemented.cpp` | PRMT native source avec vecteurs de référence et diagnostic borné, sélectionnée directement |
+| `eden/src/shader_recompiler/frontend/maxwell/translate/impl/not_implemented.cpp` | PRMT native source avec vecteurs de référence et diagnostic borné, sélectionnée directement |
 
-| `eden-core/src/video_core/engines/fermi_2d_{observed,experimental}.cpp` | Deux variantes GPU complètes ; profil expérimental OFF par défaut, sélecteur CMake sans génération |
+| `eden/src/video_core/engines/fermi_2d_{observed,experimental}.cpp` | Deux variantes GPU complètes ; profil expérimental OFF par défaut, sélecteur CMake sans génération |
 
 | `eden-cpm/xbyak/v7.40.1/xbyak/xbyak.h` | En-tête Xbyak 7.40.1 complet avec huit adaptations d'alias, copié sans transformations CMake (X09 reste indirect) |
 
-| `eden-core/src/core/hle/kernel/k_process.cpp` | Finalisation du processus DEV : cinq étapes chronométrées, sélection directe, comparaison du résultat historique |
+| `eden/src/core/hle/kernel/k_process.cpp` | Finalisation du processus DEV : cinq étapes chronométrées, sélection directe, comparaison du résultat historique |
 
-| `eden-core/src/dynarmic/backend/block_range_information.{h,cpp}` | Gestion des blocs par pages : deux sources complètes sélectionnées sans générateur CMake |
+| `eden/src/dynarmic/backend/block_range_information.{h,cpp}` | Gestion des blocs par pages : deux sources complètes sélectionnées sans générateur CMake |
 
-| `eden-core/src/video_core/renderer_opengl/gl_rasterizer{,_dev}.cpp` | Deux unités normal/DEV de diagnostic de draw, sélectionnées directement sans réécriture CMake |
+| `eden/src/video_core/renderer_opengl/gl_rasterizer{,_dev}.cpp` | Deux unités normal/DEV de diagnostic de draw, sélectionnées directement sans réécriture CMake |
 
-| `eden-core/src/video_core/dma_pusher{,_dev}.cpp` et `engines/puller{,_dev}.cpp` | Commandes GPU invité : variantes normales/DEV maintenues et parité G20 |
+| `eden/src/video_core/dma_pusher{,_dev}.cpp` et `engines/puller{,_dev}.cpp` | Commandes GPU invité : variantes normales/DEV maintenues et parité G20 |
 
 Chaîne HLE : `headless/CMakeLists.txt` -> `eden/native-hle-overrides.cmake` -> fichiers C++/en-têtes maintenus.
 
