@@ -7,7 +7,7 @@ import os
 import subprocess
 import tempfile
 
-root=Path(__file__).resolve().parents[1]/"encore-active/eden-vulkan"
+root=Path(__file__).resolve().parents[1]/"encore-active/eden/src/video_core/renderer_vulkan"
 files={
 "fixed_pipeline_state.cpp":"fe9189f92163455127adf5f74a4a181f320a01f4",
 "include/video_core/renderer_vulkan/fixed_pipeline_state.h":"21d47b3ab5472e514e28b8ab28233f6d60b8aa59",

@@ -17,8 +17,8 @@ files={
   "encore-active/eden/src/shader_recompiler/ir_opt/geometry_compaction_pass.cpp": "98cfa47401afcebbd122f4f8b9473a3142ddad62",
   "encore-active/eden/src/shader_recompiler/ir_opt/passes.h": "0c2b44e02249c0cfb06ccd3aa843adc0a12334e9",
   "encore-active/eden/src/shader_recompiler/profile.h": {"8e9c83f8885c18634bf02e68a167e6ce2ef33503", "0c1db4867e945b367bba01bd9de6fa42f47099a9"},
-  "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp": "2e67b2a0d8dcba21ca28711c666dd352da624042",
-  "encore-active/eden-vulkan/include/video_core/vulkan_common/vulkan_device.h": "6c17ea15d036f2c4fb8e51f655e8a0cc33e4b1b8"
+  "encore-active/eden/src/video_core/renderer_vulkan/vk_pipeline_cache_cost.cpp": "2e67b2a0d8dcba21ca28711c666dd352da624042",
+  "encore-active/eden/src/video_core/vulkan_common/vulkan_device.h": "6c17ea15d036f2c4fb8e51f655e8a0cc33e4b1b8"
 }
 # The SPIR-V native owner was integrated after R23 #72 into the same
 # shipping TU; its checked source SHA has advanced. Retain the actual
@@ -81,7 +81,7 @@ for path,expected in files.items():
  else:
   assert (actual in expected) if isinstance(expected, set) else (actual == expected), (path, actual, expected)
 shader=root/"encore-active/eden/src/shader_recompiler"
-vk=root/"encore-active/eden-vulkan"
+vk=root/"encore-active/eden/src/video_core/renderer_vulkan"
 assert "GeometryCompactionPass(program, normalized_host_info);" in (shader/"frontend/maxwell/translate_program.cpp").read_text()
 assert "TightenOutputVertices(program);" in (shader/"frontend/maxwell/translate_program.cpp").read_text()
 assert "single_lane_geometry_subgroups" in (shader/"host_translate_info.h").read_text()

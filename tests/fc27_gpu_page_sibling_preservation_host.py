@@ -146,7 +146,7 @@ query_start=CACHE.index("bool BufferCache<P>::IsRegionGpuModified(DAddr addr, si
 query=CACHE[query_start:CACHE.index("\n}\n", query_start)]
 assert "gpu_modified_ranges.ForEachInRange(addr, size," in query
 RASTERS=[
-    ROOT/"encore-active/eden-vulkan/vulkan_rasterizer.cpp",
+    ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp",
     ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vk_rasterizer_deferred.cpp",
     ROOT/"encore-active/eden/src/video_core/renderer_opengl/gl_rasterizer.cpp",
     ROOT/"encore-active/eden/src/video_core/renderer_opengl/gl_rasterizer_dev.cpp",

@@ -6,7 +6,7 @@ import os
 import subprocess
 import tempfile
 
-p=Path(__file__).resolve().parents[1]/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_buffer_cache.h"
+p=Path(__file__).resolve().parents[1]/"encore-active/eden/src/video_core/renderer_vulkan/vk_buffer_cache.h"
 s=p.read_text()
 old="""    void BindTextureBuffer(Buffer& buffer, u32 offset, u32 size,
                            VideoCore::Surface::PixelFormat format) {

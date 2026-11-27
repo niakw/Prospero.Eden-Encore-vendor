@@ -16,8 +16,8 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 PINNED=ROOT/"sources/eden/src/video_core/buffer_cache/usage_tracker.h"
 OWNED=ROOT/"encore-active/eden/src/video_core/buffer_cache/usage_tracker.h"
-VULKAN=ROOT/"encore-active/eden-vulkan/vk_buffer_cache_cost.cpp"
-RENDERER_HEADER=ROOT/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_buffer_cache.h"
+VULKAN=ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vk_buffer_cache_cost.cpp"
+RENDERER_HEADER=ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vk_buffer_cache.h"
 
 def gitblob(src: bytes) -> str:
     return hashlib.sha1(b"blob "+str(len(src)).encode()+bytes([0])+src).hexdigest()

@@ -2,7 +2,7 @@ name: Vulkan same-image blit layout (host)
 on:
   pull_request:
     paths:
-      - "encore-active/eden-vulkan/vk_texture_cache_cost.cpp"
+      - "encore-active/eden/src/video_core/renderer_vulkan/vk_texture_cache_cost.cpp"
       - "tests/ps5_same_image_blit_layout_host.py"
       - "tests/ns1_r23_18_tir_host.py"
       - ".github/workflows/same-image-blit-layout-host.yml"

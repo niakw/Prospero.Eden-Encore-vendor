@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-RASTER = ROOT / "encore-active/eden-vulkan/vulkan_rasterizer.cpp"
+RASTER = ROOT / "encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp"
 DEVICE_H = ROOT / "encore-active/eden/src/core/device_memory_manager.h"
 DEVICE_INC = ROOT / "encore-active/eden/src/core/device_memory_manager.inc"
 WORD = ROOT / "encore-active/eden/src/video_core/buffer_cache/word_manager.h"

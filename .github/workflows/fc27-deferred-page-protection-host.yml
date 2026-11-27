@@ -9,7 +9,7 @@ on:
       - 'encore-active/eden/src/video_core/buffer_cache/word_manager.h'
       - 'encore-active/eden/src/video_core/gpu_thread.h'
       - 'encore-active/eden/src/video_core/gpu_thread.cpp'
-      - 'encore-active/eden-vulkan/vulkan_rasterizer.cpp'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp'
       - 'tests/fc27_deferred_page_protection_host.py'
       - '.github/workflows/fc27-deferred-page-protection-host.yml'
   pull_request:
@@ -20,7 +20,7 @@ on:
       - 'encore-active/eden/src/video_core/gpu_thread.h'
       - 'encore-active/eden/src/video_core/gpu_thread.cpp'
       - 'encore-active/eden/src/video_core/gpu_thread.cpp'
-      - 'encore-active/eden-vulkan/vulkan_rasterizer.cpp'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp'
       - 'tests/fc27_deferred_page_protection_host.py'
   workflow_dispatch:
 

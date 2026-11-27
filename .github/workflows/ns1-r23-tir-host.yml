@@ -5,7 +5,7 @@ on:
       - research/ns1-r23-tir-mixed-msaa-20261112
   pull_request:
     paths:
-      - "encore-active/eden-vulkan/**"
+      - "encore-active/eden/src/video_core/renderer_vulkan/**"
       - "encore-active/eden/src/video_core/texture_cache/texture_cache.h"
       - "tests/ns1_r23_18_tir_host.py"
       - ".github/workflows/ns1-r23-tir-host.yml"

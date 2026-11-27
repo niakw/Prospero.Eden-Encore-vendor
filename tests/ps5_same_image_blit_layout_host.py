@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 root=Path(__file__).resolve().parents[1]
-source=restore_integrated_vk_texture_except_blit((root/"encore-active/eden-vulkan/vk_texture_cache_cost.cpp").read_text())
+source=restore_integrated_vk_texture_except_blit((root/"encore-active/eden/src/video_core/renderer_vulkan/vk_texture_cache_cost.cpp").read_text())
 lo=source.index("void TextureCacheRuntime::BlitImage(")
 hi=source.index("\nvoid TextureCacheRuntime::ConvertImage(",lo)
 current=source[lo:hi]

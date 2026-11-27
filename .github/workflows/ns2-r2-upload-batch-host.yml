@@ -5,16 +5,16 @@ on:
   pull_request:
     paths:
       - 'encore-active/eden/src/video_core/buffer_cache/buffer_cache.h'
-      - 'encore-active/eden-vulkan/tests/test_ns2_cache_shutdown_order.cpp'
-      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_verified_upload_batch.h'
-      - 'encore-active/eden-vulkan/tests/test_ns2_verified_upload_batch.cpp'
-      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_gpu_retirement_hold.h'
-      - 'encore-active/eden-vulkan/tests/test_ns2_gpu_retirement_hold.cpp'
-      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_staging_upload_bounds.h'
-      - 'encore-active/eden-vulkan/vk_buffer_cache_cost.cpp'
-      - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_scheduler.h'
-      - 'encore-active/eden-vulkan/vulkan_scheduler.cpp'
-      - 'encore-active/eden-vulkan/vk_staging_buffer_pool.cpp'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/tests/test_ns2_cache_shutdown_order.cpp'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/ns2_verified_upload_batch.h'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/tests/test_ns2_verified_upload_batch.cpp'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/ns2_gpu_retirement_hold.h'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/tests/test_ns2_gpu_retirement_hold.cpp'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/ns2_staging_upload_bounds.h'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/vk_buffer_cache_cost.cpp'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/vk_scheduler.h'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/vulkan_scheduler.cpp'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/vk_staging_buffer_pool.cpp'
       - 'tools/ns2/check_r2_scheduler_staging_source_host.py'
       - '.github/workflows/ns2-r2-upload-batch-host.yml'
   workflow_dispatch:
@@ -39,8 +39,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          header_dir=encore-active/eden-vulkan/include/video_core/renderer_vulkan
-          test_file=encore-active/eden-vulkan/tests/test_ns2_verified_upload_batch.cpp
+          header_dir=encore-active/eden/src/video_core/renderer_vulkan
+          test_file=encore-active/eden/src/video_core/renderer_vulkan/tests/test_ns2_verified_upload_batch.cpp
           for compiler in clang++ g++; do
             for opt in 0 1 2; do
               out="${RUNNER_TEMP}/ns2-r2-${compiler//+/p}-O${opt}"
@@ -62,8 +62,8 @@ jobs:
               output="${RUNNER_TEMP}/ns2-r2-retire-${compiler//+/p}-O${opt}"
               "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror -pedantic \
                 -fsanitize=address,undefined -fno-sanitize-recover=all \
-                -I encore-active/eden-vulkan/include/video_core/renderer_vulkan \
-                "encore-active/eden-vulkan/tests/test_ns2_gpu_retirement_hold.cpp" -o "${output}"
+                -I encore-active/eden/src/video_core/renderer_vulkan \
+                "encore-active/eden/src/video_core/renderer_vulkan/tests/test_ns2_gpu_retirement_hold.cpp" -o "${output}"
               "${output}"
             done
           done
@@ -83,7 +83,7 @@ jobs:
           assert body.count("std::terminate();") == 1
           path = Path("/tmp/ns2-r2-cache-shutdown.cpp")
           path.write_text(
-              Path("encore-active/eden-vulkan/tests/test_ns2_cache_shutdown_order.cpp").read_text().replace("@@REAL_CACHE_DESTRUCTOR@@", body))
+              Path("encore-active/eden/src/video_core/renderer_vulkan/tests/test_ns2_cache_shutdown_order.cpp").read_text().replace("@@REAL_CACHE_DESTRUCTOR@@", body))
           PY
           for compiler in clang++ g++; do
             for opt in 0 2; do

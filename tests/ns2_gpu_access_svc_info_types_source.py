@@ -51,7 +51,7 @@ with tempfile.TemporaryDirectory(prefix="ns2-gpu-svc-types-") as td:
     src.write_text(fixture)
     subprocess.run(
         [compiler, "-std=c++20", "-Wall", "-Wextra", "-Werror",
-         "-I", str(root / "encore-active/ns2-runtime/gpu_access_svc"),
+         "-I", str(root / "encore-active/eden/src"),
          "-I", str(root / "sources/eden/src"),
          str(src), "-o", str(exe)],
         check=True,

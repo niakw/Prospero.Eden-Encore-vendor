@@ -18,10 +18,10 @@ import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
 TEX=ROOT/"encore-active/eden/src/shader_recompiler/ir_opt/texture_pass.cpp"
-GFX=ROOT/"encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp"
-GFX_HEADER=ROOT/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h"
-CMP=ROOT/"encore-active/eden-vulkan/vk_compute_pipeline_cost.cpp"
-CACHE=ROOT/"encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
+GFX=ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vk_graphics_pipeline_cost.cpp"
+GFX_HEADER=ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vk_graphics_pipeline.h"
+CMP=ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vk_compute_pipeline_cost.cpp"
+CACHE=ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vk_pipeline_cache_cost.cpp"
 
 def blob(path: Path)->str:
     raw=path.read_bytes()

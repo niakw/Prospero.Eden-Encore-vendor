@@ -9,7 +9,7 @@ import os
 import subprocess
 import tempfile
 root=Path(__file__).resolve().parents[1]
-src=(root/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_bytes()
+src=(root/"encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp").read_bytes()
 def git_blob(raw):
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
 # The later FC27 rasterizer retains the same MSAA fallback path, with a

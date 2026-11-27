@@ -827,8 +827,8 @@ assert "params = native_error_info;" in health_info
 # independent of GPU fence behavior. Maxwell/NS1 keeps SignalSyncPoint.
 fence_manager=(R/"encore-active/eden/src/video_core/fence_manager.h").read_text()
 raster_abi=(R/"encore-active/eden/src/video_core/rasterizer_interface.h").read_text()
-vulkan_h=(R/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
-vulkan_cpp=(R/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
+vulkan_h=(R/"encore-active/eden/src/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
+vulkan_cpp=(R/"encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp").read_text()
 native_puller=(R/"encore-active/eden/src/video_core/engines/puller.cpp").read_text()
 strict=fence_manager.split("void SignalNativeSyncPoint(u32 value) {",1)[1].split("\n    }",1)[0]
 for token in ("CreateFence(false)",

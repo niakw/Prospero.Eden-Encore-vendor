@@ -3,7 +3,7 @@
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-cpp = (root / "encore-active/eden-vulkan/vk_texture_cache_cost.cpp").read_text()
+cpp = (root / "encore-active/eden/src/video_core/renderer_vulkan/vk_texture_cache_cost.cpp").read_text()
 shader = (root / "sources/eden/src/video_core/host_shaders/"
           "convert_non_msaa_to_msaa.frag").read_text()
 depth_shader = (root / "sources/eden/src/video_core/host_shaders/"

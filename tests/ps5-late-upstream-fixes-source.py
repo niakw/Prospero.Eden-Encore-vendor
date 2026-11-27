@@ -12,7 +12,7 @@ No console/runtime claim is made by this source check.
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-fixed = (ROOT / "encore-active/eden-vulkan/fixed_pipeline_state.cpp").read_text()
+fixed = (ROOT / "encore-active/eden/src/video_core/renderer_vulkan/fixed_pipeline_state.cpp").read_text()
 pinned = (ROOT / "sources/eden/src/common/thread_worker.h").read_text()
 active = (ROOT / "encore-active/eden/src/common/thread_worker.h").read_text()
 

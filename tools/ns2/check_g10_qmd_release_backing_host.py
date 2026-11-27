@@ -132,7 +132,7 @@ with tempfile.TemporaryDirectory(prefix="eden-g10-qmd-preflight-") as tmp:
             exe=Path(tmp)/(Path(cc).name.replace("+","p")+opt)
             cmd=[cc,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
                  "-fsanitize=undefined","-fno-sanitize-recover=all",
-                 "-I"+str(ROOT/"encore-active/ns2-runtime/gpu_dispatch"),
+                 "-I"+str(ROOT/"encore-active/eden/src"),
                  str(src),"-o",str(exe)]
             built=subprocess.run(cmd,capture_output=True,text=True,timeout=60,
                                  env=os.environ.copy())

@@ -7,7 +7,7 @@ on:
       - 'encore-active/eden/src/video_core/gpu_gl_native_dev.cpp'
       - 'encore-active/eden/src/core/gpu_dirty_memory_manager.h'
       - 'encore-active/eden/src/video_core/buffer_cache/**'
-      - 'encore-active/eden-vulkan/**'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/**'
       - 'tests/fc27_cpu_write_download_race_host.py'
       - '.github/workflows/fc27-cpu-write-download-race-host.yml'
   push:
@@ -18,7 +18,7 @@ on:
       - 'encore-active/eden/src/video_core/gpu_gl_native_dev.cpp'
       - 'encore-active/eden/src/core/gpu_dirty_memory_manager.h'
       - 'encore-active/eden/src/video_core/buffer_cache/**'
-      - 'encore-active/eden-vulkan/**'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/**'
       - 'tests/fc27_cpu_write_download_race_host.py'
       - '.github/workflows/fc27-cpu-write-download-race-host.yml'
   workflow_dispatch:

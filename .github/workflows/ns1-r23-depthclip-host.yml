@@ -5,7 +5,7 @@ on:
       - research/ns1-r23-eds3-depthclip-20261112
   pull_request:
     paths:
-      - "encore-active/eden-vulkan/**"
+      - "encore-active/eden/src/video_core/renderer_vulkan/**"
       - "tests/ns1_r23_2_depth_clip.py"
       - ".github/workflows/ns1-r23-depthclip-host.yml"
   workflow_dispatch:
