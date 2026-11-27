@@ -2,7 +2,7 @@ name: CPU6 Bananza low-write selected-owner parity
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-core/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_normal.cpp'
+      - 'encore-active/eden/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_normal.cpp'
       - 'encore-active/ns2-runtime/cpu6/maintained/core/arm/dynarmic/arm_dynarmic_64.cpp'
       - 'tests/cpu6_bananza_low_write_parity_host.py'
       - '.github/workflows/cpu6-bananza-low-write-parity.yml'

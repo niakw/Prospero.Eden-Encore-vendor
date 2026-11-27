@@ -7,8 +7,8 @@ on:
   pull_request:
     paths:
       - "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
-      - "encore-active/eden-core/src/video_core/shader_cache_reader.inc"
-      - "encore-active/eden-core/src/video_core/shader_environment.cpp"
+      - "encore-active/eden/src/video_core/shader_cache_reader.inc"
+      - "encore-active/eden/src/video_core/shader_environment.cpp"
       - "tools/ps5_shader_cache_log_triage.py"
       - "tests/ps5_shader_cache_disk_triage_host.py"
       - ".github/workflows/ps5-shader-cache-disk-triage-host.yml"

@@ -5,8 +5,8 @@ on:
       - integration/r457-audio-readiness-real-owner-20261112
     paths:
       - 'encore-active/eden-core/overrides/core/memory.h'
-      - 'encore-active/eden-core/src/core/memory_native_*.cpp'
-      - 'encore-active/eden-core/src/audio_core/device/device_session.cpp'
+      - 'encore-active/eden/src/core/memory_native_*.cpp'
+      - 'encore-active/eden/src/audio_core/device/device_session.cpp'
       - 'tools/ns1/check_r457_audio_unready_host.py'
       - '.github/workflows/r457-ns1-audio-real-owner-host.yml'
   pull_request:

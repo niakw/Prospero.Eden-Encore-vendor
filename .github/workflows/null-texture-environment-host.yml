@@ -2,7 +2,7 @@ name: Null texture environment regression (host)
 on:
   pull_request:
     paths:
-      - "encore-active/eden-core/src/video_core/shader_environment.cpp"
+      - "encore-active/eden/src/video_core/shader_environment.cpp"
       - "tests/ps5_null_texture_environment_host.py"
       - ".github/workflows/null-texture-environment-host.yml"
   workflow_dispatch:

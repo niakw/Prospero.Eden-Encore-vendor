@@ -4,7 +4,7 @@ name: NS2 R2 bounded upload batch - host source gate
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h'
+      - 'encore-active/eden/src/video_core/buffer_cache/buffer_cache.h'
       - 'encore-active/eden-vulkan/tests/test_ns2_cache_shutdown_order.cpp'
       - 'encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_verified_upload_batch.h'
       - 'encore-active/eden-vulkan/tests/test_ns2_verified_upload_batch.cpp'
@@ -74,7 +74,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          text = Path("encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h").read_text()
+          text = Path("encore-active/eden/src/video_core/buffer_cache/buffer_cache.h").read_text()
           anchor = "BufferCache<P>::~BufferCache() {"
           start = text.index("template <class P>\n" + anchor)
           end = text.index("template <class P>\nvoid BufferCache<P>::RunGarbageCollector()", start)

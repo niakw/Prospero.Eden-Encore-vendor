@@ -2,22 +2,22 @@ name: FC27 CPU-write readback race host contract
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-core/src/video_core/gpu_vulkan.cpp'
-      - 'encore-active/eden-core/src/video_core/gpu_gl_native.cpp'
-      - 'encore-active/eden-core/src/video_core/gpu_gl_native_dev.cpp'
+      - 'encore-active/eden/src/video_core/gpu_vulkan.cpp'
+      - 'encore-active/eden/src/video_core/gpu_gl_native.cpp'
+      - 'encore-active/eden/src/video_core/gpu_gl_native_dev.cpp'
       - 'encore-active/eden-core/overrides/core/gpu_dirty_memory_manager.h'
-      - 'encore-active/eden-core/src/video_core/buffer_cache/**'
+      - 'encore-active/eden/src/video_core/buffer_cache/**'
       - 'encore-active/eden-vulkan/**'
       - 'tests/fc27_cpu_write_download_race_host.py'
       - '.github/workflows/fc27-cpu-write-download-race-host.yml'
   push:
     branches: [main]
     paths:
-      - 'encore-active/eden-core/src/video_core/gpu_vulkan.cpp'
-      - 'encore-active/eden-core/src/video_core/gpu_gl_native.cpp'
-      - 'encore-active/eden-core/src/video_core/gpu_gl_native_dev.cpp'
+      - 'encore-active/eden/src/video_core/gpu_vulkan.cpp'
+      - 'encore-active/eden/src/video_core/gpu_gl_native.cpp'
+      - 'encore-active/eden/src/video_core/gpu_gl_native_dev.cpp'
       - 'encore-active/eden-core/overrides/core/gpu_dirty_memory_manager.h'
-      - 'encore-active/eden-core/src/video_core/buffer_cache/**'
+      - 'encore-active/eden/src/video_core/buffer_cache/**'
       - 'encore-active/eden-vulkan/**'
       - 'tests/fc27_cpu_write_download_race_host.py'
       - '.github/workflows/fc27-cpu-write-download-race-host.yml'
