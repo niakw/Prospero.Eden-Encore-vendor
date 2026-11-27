@@ -7,6 +7,9 @@
 #include <optional>
 #include <span>
 #include <utility>
+// Unified native PS5 RasterizerInterface: one ABI for both NS1 and NS2.
+// Based on pinned owner; native compute is a standard PS5 virtual method,
+// never selected by a release/development compile-time profile.
 #include "common/common_types.h"
 #include "common/polyfill_thread.h"
 #include "common/settings.h"
@@ -18,7 +21,7 @@
 
 namespace Tegra {
 class MemoryManager;
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
 struct NativeComputeLaunch;
 #endif
 namespace Engines {
@@ -57,7 +60,7 @@ public:
     /// Dispatches a compute shader invocation
     virtual void DispatchCompute() = 0;
 
-#if defined(PS5_NATIVE) && defined(EDEN_NS2_VULKAN_SHADER_BRIDGE_EXPERIMENTAL)
+#ifdef PS5_NATIVE
     // QMD3 has a distinct native shader/program/resource ABI; never forward
     // it to the Switch 1 Kepler launch path. The default is fail-closed until
     // a renderer can record the real Vulkan work and own it through retirement.
@@ -89,6 +92,20 @@ public:
 
     /// Signal a GPU based syncpoint as a fence
     virtual void SignalSyncPoint(u32 value) = 0;
+
+#ifdef PS5_NATIVE
+    // Native Ampere completion must retire behind a real renderer fence.
+    // Non-Vulkan backends fail closed rather than publishing an early GSV
+    // counter; the production PS5 Vulkan rasterizer overrides this method.
+    virtual bool SignalNativeSyncPoint(u32) {
+        return false;
+    }
+    // Strict native GPU release callback, unlike policy-dependent SignalFence.
+    // Backends without real GPU retirement must reject, not signal early.
+    virtual bool SignalNativeFence(std::function<void()>&&) {
+        return false;
+    }
+#endif
 
     /// Signal a GPU based reference as point
     virtual void SignalReference() = 0;
