@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[2]
-OWNER=ROOT/"encore-active/ns2-runtime/video_decoder/core/hle/service/am/service/graphics_video_decoder_session.cpp"
+OWNER=ROOT/"encore-active/eden/src/core/hle/service/am/service/graphics_video_decoder_session.cpp"
 MANAGER=ROOT/"encore-active/eden/src/core/hle/service/nvdrv/core/syncpoint_manager.cpp"
 HEADER=ROOT/"encore-active/eden/src/core/hle/service/nvdrv/core/syncpoint_manager.h"
 text=OWNER.read_text()

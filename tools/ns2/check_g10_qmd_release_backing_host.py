@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[2]
-PULLER=ROOT/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp"
+PULLER=ROOT/"encore-active/eden/src/video_core/engines/puller.cpp"
 source=PULLER.read_text()
 method=source.split("void Puller::ProcessNativeComputeQmdAt(",1)[1].split(
     "\n/// Calls a GPU engine method.",1)[0]
