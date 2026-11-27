@@ -6,9 +6,6 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
-#include <chrono>
-#include <cstdio>
 #include <cstring>
 
 #include "common/assert.h"
@@ -29,20 +26,7 @@
 #include "hid_core/resources/npad/npad_vibration.h"
 #include "hid_core/resources/shared_memory_format.h"
 
-#ifdef PS5_NATIVE
-extern "C" bool eden_native_detailed_logging() noexcept __attribute__((weak));
-#endif
-
 namespace Service::HID {
-namespace {
-[[nodiscard]] bool EdenDetailedNpadLogging() noexcept {
-#ifdef PS5_NATIVE
-    return eden_native_detailed_logging && eden_native_detailed_logging();
-#else
-    return false;
-#endif
-}
-} // namespace
 
 NPad::NPad(Core::HID::HIDCore& hid_core_, KernelHelpers::ServiceContext& service_context_)
     : hid_core{hid_core_}
@@ -61,8 +45,6 @@ NPad::NPad(Core::HID::HIDCore& hid_core_, KernelHelpers::ServiceContext& service
         AbstractPad{hid_core_.kernel},
     }}
 {
-    // A newly initialized game begins with upright single Joy-Cons.
-    hid_core.SetJoyHoldHorizontal(false);
     for (std::size_t i = 0; i < abstracted_pads.size(); ++i) {
         abstracted_pads[i].SetNpadId(IndexToNpadIdType(i));
     }
@@ -159,9 +141,6 @@ void NPad::FreeAppletResourceId(u64 aruid) {
 }
 
 void NPad::ControllerUpdate(Kernel::KernelCore& kernel, Core::HID::ControllerTriggerType type, std::size_t controller_idx) {
-    if (applet_resource_holder.applet_resource == nullptr) {
-        return;
-    }
     if (type == Core::HID::ControllerTriggerType::All) {
         ControllerUpdate(kernel, Core::HID::ControllerTriggerType::Connected, controller_idx);
         ControllerUpdate(kernel, Core::HID::ControllerTriggerType::Battery, controller_idx);
@@ -180,9 +159,6 @@ void NPad::ControllerUpdate(Kernel::KernelCore& kernel, Core::HID::ControllerTri
         }
 
         auto& controller = controller_data[aruid_index][controller_idx];
-        if (controller.device == nullptr) {
-            continue;  // ProsperoEden: this applet resource is not activated yet
-        }
         const auto is_connected = controller.device->IsConnected();
         const auto npad_type = controller.device->GetNpadStyleIndex();
         const auto npad_id = controller.device->GetNpadIdType();
@@ -584,42 +560,6 @@ void NPad::OnUpdate(Kernel::KernelCore& kernel, const Core::Timing::CoreTiming& 
                 pad_state.sampling_number =
                     npad->fullkey_lifo.ReadCurrentEntry().state.sampling_number + 1;
                 npad->fullkey_lifo.WriteNextEntry(pad_state);
-                if (EdenDetailedNpadLogging()) {
-                    // Diagnostic only: the event reached emulated HID shared memory.
-                    // It does not prove that the guest application consumed this sample.
-                    static std::atomic<unsigned long long> eden_fullkey_writes{0};
-                    static std::atomic<unsigned long long> eden_fullkey_plus_edges{0};
-                    static std::atomic<bool> eden_fullkey_last_plus{false};
-                    const bool eden_plus_now = static_cast<bool>(pad_state.npad_buttons.plus);
-                    const bool eden_plus_before = eden_fullkey_last_plus.exchange(
-                        eden_plus_now, std::memory_order_relaxed);
-                    const auto eden_writes =
-                        eden_fullkey_writes.fetch_add(1, std::memory_order_relaxed) + 1;
-                    if (eden_plus_now && !eden_plus_before) {
-                        const auto eden_edges =
-                            eden_fullkey_plus_edges.fetch_add(1, std::memory_order_relaxed) + 1;
-                        if (eden_edges <= 64) {
-                            const auto eden_mono_ns =
-                                std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                    std::chrono::steady_clock::now().time_since_epoch()).count();
-                            std::fprintf(
-                                stderr,
-                                "EDEN_NPAD_PLUS_LIFO edges=%llu writes=%llu sample=%llu "
-                                "aruid=%llu mono_ns=%lld\n",
-                                eden_edges, eden_writes,
-                                static_cast<unsigned long long>(pad_state.sampling_number),
-                                static_cast<unsigned long long>(aruid),
-                                static_cast<long long>(eden_mono_ns));
-                        }
-                    }
-                    if ((eden_writes % 1500) == 0) {
-                        std::fprintf(
-                            stderr,
-                            "EDEN_NPAD_PROGRESS fullkey_writes=%llu plus_edges=%llu\n",
-                            eden_writes,
-                            eden_fullkey_plus_edges.load(std::memory_order_relaxed));
-                    }
-                }
                 break;
             case Core::HID::NpadStyleIndex::Handheld:
                 pad_state.connection_status.raw = 0;
@@ -775,11 +715,7 @@ Result NPad::SetSupportedNpadIdType(Kernel::KernelCore& kernel, u64 aruid, std::
 
 Result NPad::SetNpadJoyHoldType(u64 aruid, NpadJoyHoldType hold_type) {
     std::scoped_lock lock{mutex};
-    const Result result = npad_resource.SetNpadJoyHoldType(aruid, hold_type);
-    if (result.IsSuccess()) {
-        hid_core.SetJoyHoldHorizontal(hold_type == NpadJoyHoldType::Horizontal);
-    }
-    return result;
+    return npad_resource.SetNpadJoyHoldType(aruid, hold_type);
 }
 
 Result NPad::GetNpadJoyHoldType(u64 aruid, NpadJoyHoldType& out_hold_type) const {
