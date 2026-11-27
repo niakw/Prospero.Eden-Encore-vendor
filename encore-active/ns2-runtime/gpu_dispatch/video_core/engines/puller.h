@@ -86,6 +86,8 @@ public:
     [[nodiscard]] bool HasPendingNativeAcquire() const noexcept {
         return pending_native_acquire.has_value();
     }
+    [[nodiscard]] bool PendingNativeAcquireHasGpuProducer(
+        const DmaPusher& dma_pusher) const;
     [[nodiscard]] bool ResumeNativeAcquire(DmaPusher& dma_pusher);
 private:
     static constexpr std::size_t NUM_REGS = 0x800;
