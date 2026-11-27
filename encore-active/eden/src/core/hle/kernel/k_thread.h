@@ -10,6 +10,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
+#include <semaphore>
 #include <span>
 #include <string>
 #include <utility>
@@ -291,6 +292,14 @@ public:
         m_last_scheduled_tick = tick;
     }
 
+    bool HasEnteredKernel() const {
+        return m_entered_kernel.load(std::memory_order_acquire);
+    }
+
+    void SetEnteredKernel() {
+        m_entered_kernel.store(true, std::memory_order_release);
+    }
+
     void AddCpuTime(s32 core_id, s64 amount) {
         m_cpu_time += amount;
         // TODO(bunnei): Debug kernels track per-core tick counts. Should we?
@@ -357,6 +366,13 @@ public:
 
     s64 GetYieldScheduleCount() const {
         return m_schedule_count;
+    }
+
+    // Lichii 3140648: same-core lower-priority threads started by this
+    // thread may need one real IPC scheduling window before the caller
+    // reuses their stack-resident startup arguments.
+    std::vector<KThread*>& GetPendingStartedThreads() {
+        return m_pending_started_threads;
     }
 
     void SetYieldScheduleCount(s64 count) {
@@ -889,6 +905,8 @@ private:
     SyncObjectBuffer m_sync_object_buffer{};
     s64 m_schedule_count{};
     s64 m_last_scheduled_tick{};
+    std::vector<KThread*> m_pending_started_threads;
+    std::atomic<bool> m_entered_kernel{false};
     std::array<QueueEntry, Core::Hardware::NUM_CPU_CORES> m_per_core_priority_queue_entry{};
     KThreadQueue* m_wait_queue{};
     LockWithPriorityInheritanceInfoList m_held_lock_info_list{};
@@ -919,7 +937,10 @@ private:
     bool m_resource_limit_release_hint{};
     bool m_is_kernel_address_key{};
     StackParameters m_stack_parameters{};
-    std::mutex m_context_guard{};
+    // A guest fiber can be resumed on a different host CPU worker. The
+    // switcher acquires this permit and a different worker may return it;
+    // unlike std::mutex, a semaphore has no thread-owner restriction.
+    std::binary_semaphore m_context_guard{1};
 
     // For emulation
     std::shared_ptr<Common::Fiber> m_host_context{};
