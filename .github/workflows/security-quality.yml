@@ -84,14 +84,24 @@ jobs:
         run: python3 -B .github/scripts/check-active-security.py
       - name: Verify strict upstream sources / Encore override boundary
         run: python3 -B tools/check-source-tree-layout.py
-      - name: Verify late PS5 upstream correctness backports
-        run: |
-          python3 -B tests/ps5-late-upstream-fixes-source.py
-          python3 -B tests/ps5-full-clear-skip-upload-source.py
-          python3 -B tests/ns1_r23_18_tir_host.py
-          python3 -B tests/vulkan_static_pipeline_cache_source.py
-          python3 -B tests/shutdown_teardown_lifetime_source.py
-          python3 -B tests/shutdown_general_channel_lifetime_source.py
+      - name: Verify late PS5 upstream fixes
+        if: always()
+        run: python3 -B tests/ps5-late-upstream-fixes-source.py
+      - name: Verify full-clear upload elision
+        if: always()
+        run: python3 -B tests/ps5-full-clear-skip-upload-source.py
+      - name: Verify R23 TIR source receipt
+        if: always()
+        run: python3 -B tests/ns1_r23_18_tir_host.py
+      - name: Verify static Vulkan pipeline cache source
+        if: always()
+        run: python3 -B tests/vulkan_static_pipeline_cache_source.py
+      - name: Verify shutdown teardown lifetime
+        if: always()
+        run: python3 -B tests/shutdown_teardown_lifetime_source.py
+      - name: Verify shutdown general channel lifetime
+        if: always()
+        run: python3 -B tests/shutdown_general_channel_lifetime_source.py
       - name: Audit pinned workflow actions and read-only token scopes
         run: python3 -B .github/scripts/check-workflow-security.py
       - name: Audit maintained-source comment wording (host)
