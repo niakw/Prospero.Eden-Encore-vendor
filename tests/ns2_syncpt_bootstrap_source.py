@@ -633,28 +633,38 @@ with _tempfile.TemporaryDirectory(prefix="eden-ns2-gpu-time-") as _dir:
     _run = _subprocess.run([str(_output)], capture_output=True, text=True, timeout=15)
     assert _run.returncode == 0, _run.stderr[-5000:]
 
-# Bananza must not receive VI2 PresentClientBuffer completion while the
-# current frame's command memory can still be consumed by the GPU thread.
-# The wait is title-specific, event-backed and bounded; never regress to an
-# unbounded host WaitGuest() on this service path.
+# VI2 present ordering is generic: no title ID is allowed to select current
+# vs previous-frame behavior. Current-frame waits escape only when the GPU
+# scheduler proves a native semaphore is CPU-blocked; previous-frame wait
+# then bounds the guest to one frame ahead.
 _vi2 = cpp.split("class IVi2Session final", 1)[1].split(
     "class INativeChatGsvSession final", 1)[0]
+for forbidden in (
+    "DonkeyKongBananzaProgramId",
+    "OcarinaOfTimeProgramId",
+    "WaitForBananzaPresentFence",
+):
+    assert forbidden not in _vi2, forbidden
 for marker in (
-    "DonkeyKongBananzaProgramId = 0x040074A01BF12000ULL",
-    "bool WaitForBananzaPresentFence(u32 fence_id, u32 fence_value)",
+    "bool WaitForPresentFence(",
     "m_context.CreateEvent(\"nx2:vi2 present fence\")",
     "syncpoints.RegisterGuestAction(",
     "DeregisterGuestAction(",
+    "std::chrono::milliseconds{3}",
     "std::chrono::seconds{4}",
+    "system.GPU().HasCpuBlockedNativeChannels()",
     "Kernel::KSynchronizationObject::Wait(",
-    "WaitForBananzaPresentFence(fence, p[24])",
+    "WaitForPresentFence(\n                                            fence, p[24], true)",
+    "m_previous_present_fence_id",
+    "m_previous_present_fence_value",
+    "WaitForPresentFence(\n                                                m_previous_present_fence_id,",
 ):
     assert marker in _vi2, marker
 assert ".WaitGuest(" not in _vi2
-assert _vi2.index("WaitForBananzaPresentFence(fence, p[24])") < _vi2.index("if(!c->producer)")
+assert _vi2.index("WaitForPresentFence(\n                                            fence, p[24], true)") < _vi2.index("if(!c->producer)")
 assert _vi2.index("CancelPresentFenceWait();") < _vi2.index(
     "m_context.CloseEvent(m_present_wait_event)")
-print("NS2_DKB_CURRENT_FRAME_FENCE_SOURCE_PASS title=040074A01BF12000 wait=kernel_event deadline=4s")
+print("NS2_GENERIC_PRESENT_FENCE_SOURCE_PASS policy=gpu_producer_or_previous no_title_ids=1 deadline=4s")
 
 print("NS2_GPU_TIME_TIPC11_HOST_PASS scheduled_interval=saturated reverse=zero malformed=rejected")
 print("NS2_VI2_FIXED_RATE_CAPABILITY_HOST_PASS commands=107,301,354 supported=60Hz_SDR")
