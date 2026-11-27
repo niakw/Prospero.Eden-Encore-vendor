@@ -516,6 +516,10 @@ bool GPU::IsAsync() const {
     return impl->is_async;
 }
 
+bool GPU::HasCpuBlockedNativeChannels() const {
+    return impl->scheduler.HasCpuBlockedNativeChannels();
+}
+
 bool GPU::UseNvdec() const {
     return impl->use_nvdec;
 }
