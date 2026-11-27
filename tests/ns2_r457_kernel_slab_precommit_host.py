@@ -5,7 +5,7 @@ Source guard only; PS5 execution and residency are independently qualified.
 """
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
-relative = "encore-active/ns2-runtime/sparse-residency/core/hle/kernel/init/init_slab_setup.cpp"
+relative = "encore-active/eden/src/core/hle/kernel/init/init_slab_setup.cpp"
 target = (root / relative).read_text()
 baseline = (root / "sources/eden/src/core/hle/kernel/init/init_slab_setup.cpp").read_text()
 assert "EdenNs2CommitGuestBacking" not in baseline
@@ -21,7 +21,7 @@ assert "physical - Core::DramMemoryMap::Base, slab_size" in second
 assert "throw std::bad_alloc{};" in first and "throw std::bad_alloc{};" in second
 # Optimized process page fills are a separate raw pointer pathway. A failed
 # sparse commit must return guest pages before bitmap publication, too.
-kernel = (root / "encore-active/ns2-runtime/sparse-residency/core/hle/kernel/k_memory_manager.cpp").read_text()
+kernel = (root / "encore-active/eden/src/core/hle/kernel/k_memory_manager.cpp").read_text()
 alloc = kernel.split("Result KMemoryManager::AllocateForProcess(", 1)[1].split(
     "size_t KMemoryManager::Impl::Initialize(", 1)[0]
 preflight = alloc.split("// Perform optimized memory tracking", 1)[0]
@@ -38,7 +38,7 @@ assert "any_new |= manager.ProcessOptimizedAllocation(" in alloc
 # Shared-memory initialization is a third raw guest writer and can
 # fail when the sparse physical budget is full. It must remain unexposed
 # until the clear succeeds, and return its opened guest pages on OOM.
-shared = (root / "encore-active/ns2-runtime/sparse-residency/core/hle/kernel/k_shared_memory.cpp").read_text()
+shared = (root / "encore-active/eden/src/core/hle/kernel/k_shared_memory.cpp").read_text()
 init = shared.split("Result KSharedMemory::Initialize(", 1)[1].split(
     "void KSharedMemory::Finalize(", 1)[0]
 assert "EdenNs2CommitGuestBacking(" not in shared  # ClearBackingRegion admits itself
@@ -51,7 +51,7 @@ assert "R_THROW(ResultOutOfMemory);" in init
 
 # Demand-zero optimized allocations: zero fill uses HostMemory clear and
 # must not precommit the entire page group. Nonzero fill still preflights.
-kernel = (root / "encore-active/ns2-runtime/sparse-residency/core/hle/kernel/k_memory_manager.cpp").read_text()
+kernel = (root / "encore-active/eden/src/core/hle/kernel/k_memory_manager.cpp").read_text()
 alloc = kernel.split("Result KMemoryManager::AllocateForProcess(", 1)[1].split(
     "size_t KMemoryManager::Impl::Initialize(", 1)[0]
 optimized = kernel.split("bool KMemoryManager::Impl::ProcessOptimizedAllocation", 1)[1].split(

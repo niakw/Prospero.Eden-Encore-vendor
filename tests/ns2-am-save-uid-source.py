@@ -11,7 +11,7 @@ from pathlib import Path
 import ctypes
 
 root = Path(__file__).resolve().parents[1]
-rel = "encore-active/ns2-runtime/am/core/hle/service/am/service/"
+rel = "encore-active/eden/src/core/hle/service/am/service/"
 header = (root / (rel + "application_functions.h")).read_text()
 source = (root / (rel + "application_functions.cpp")).read_text()
 common = (root / "sources/eden/src/common/common_types.h").read_text()
