@@ -160,6 +160,13 @@ public:
                (!dma_pushbuffer.empty() && dma_pushbuffer.front().native_syncpoint_wait.has_value());
     }
     [[nodiscard]] bool ResumeNativeAcquire();
+    [[nodiscard]] bool HasCpuBlockedNativeAcquire() const {
+        // NVDRV syncpoint waits are GPU timeline dependencies. Only an
+        // Ampere semaphore acquire without an in-flight GPU producer needs
+        // Present to return so the guest CPU can make progress.
+        return puller.HasPendingNativeAcquire() &&
+               !puller.PendingNativeAcquireHasGpuProducer(*this);
+    }
 
     // Snapshot generation shared with NVDRV submission. A CPU/unknown
     // semaphore release invalidates queued submit-time copies; a value proven
