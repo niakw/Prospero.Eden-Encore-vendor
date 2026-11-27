@@ -6,7 +6,7 @@ on:
     paths:
       - '.github/workflows/ns2-am-save-uid-host.yml'
       - 'tests/ns2-am-save-uid-source.py'
-      - 'encore-active/ns2-runtime/am/**'
+      - 'encore-active/eden/src/**'
       - 'encore-active/eden/include/common/uuid.h'
       - 'sources/eden/src/common/common_types.h'
   push:
@@ -14,7 +14,7 @@ on:
     paths:
       - '.github/workflows/ns2-am-save-uid-host.yml'
       - 'tests/ns2-am-save-uid-source.py'
-      - 'encore-active/ns2-runtime/am/**'
+      - 'encore-active/eden/src/**'
       - 'encore-active/eden/include/common/uuid.h'
       - 'sources/eden/src/common/common_types.h'
 permissions:
@@ -30,7 +30,7 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             tests/ns2-am-save-uid-source.py
-            encore-active/ns2-runtime/am/core/hle/service/am/service
+            encore-active/eden/src/core/hle/service/am/service
             encore-active/eden/include/common/uuid.h
             sources/eden/src/common/common_types.h
       - name: Verify selected AM UID layout and save controller arguments

@@ -3,12 +3,12 @@ on:
   push:
     branches: [main]
     paths:
-      - 'encore-active/ns2-runtime/ampere/shader_recompiler/backend/spirv/emit_spirv_image.cpp'
+      - 'encore-active/eden/srcpere/shader_recompiler/backend/spirv/emit_spirv_image.cpp'
       - 'tools/ns2/check_g01_singleton_host.py'
       - '.github/workflows/g01-singleton-host.yml'
   pull_request:
     paths:
-      - 'encore-active/ns2-runtime/ampere/shader_recompiler/backend/spirv/emit_spirv_image.cpp'
+      - 'encore-active/eden/srcpere/shader_recompiler/backend/spirv/emit_spirv_image.cpp'
       - 'tools/ns2/check_g01_singleton_host.py'
       - '.github/workflows/g01-singleton-host.yml'
   workflow_dispatch:

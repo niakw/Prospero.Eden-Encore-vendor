@@ -5,7 +5,7 @@ on:
       - research/ns1-c02-shared-spirv-nan-20261111
   pull_request:
     paths:
-      - "encore-active/ns2-runtime/ampere/shader_recompiler/backend/spirv/emit_spirv_context_get_set.cpp"
+      - "encore-active/eden/srcpere/shader_recompiler/backend/spirv/emit_spirv_context_get_set.cpp"
       - "tests/c02_spirv_fragment_nan.py"
       - ".github/workflows/ns1-c02-spv-source.yml"
   workflow_dispatch:

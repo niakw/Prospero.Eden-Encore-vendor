@@ -25,7 +25,7 @@ assert "void ForEachPendingCpuWrite" in gpu_h
 assert "virtual void OnCacheInvalidations" in iface
 # The native shared GPU graph selects vulkan_abi, not merely the generic
 # overrides copy. Both interfaces must expose the identical batch contract.
-unified_iface=(root/"encore-active/ns2-runtime/vulkan_abi/video_core/rasterizer_interface.h").read_text()
+unified_iface=(root/"encore-active/eden/src/video_core/rasterizer_interface.h").read_text()
 batch_abi="virtual void OnCacheInvalidations(std::span<const std::pair<DAddr, u64>> ranges)"
 assert iface.count(batch_abi)==unified_iface.count(batch_abi)==1
 assert "for (const auto& [addr, size] : ranges) OnCacheInvalidation(addr, size);" in unified_iface
