@@ -12,7 +12,7 @@ puller=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp"
 native_nvhost=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
 native_process_registry=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
 native_scheduler=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.h").read_text()
-gpu_header=(R/"encore-active/eden-core/overrides/video_core/gpu.h").read_text()
+gpu_header=(R/"encore-active/eden/src/video_core/gpu.h").read_text()
 gpu_vulkan=(R/"encore-active/eden/src/video_core/gpu_vulkan.cpp").read_text()
 dispatch=dma.split("void DmaPusher::DispatchCalls() {",1)[1].split(
     "\n[[noreturn]] void DmaPusher::FailNativeSubmission",1)[0]
