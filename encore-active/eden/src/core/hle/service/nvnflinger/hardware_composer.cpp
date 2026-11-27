@@ -234,10 +234,11 @@ HardwareComposer::CacheStatus HardwareComposer::CacheFramebufferLocked(Layer& la
         if (this->TryAcquireFramebufferLocked(layer, it->second)) {
             // We got a new item.
             return CacheStatus::BufferAcquired;
-        } else {
-            // We didn't acquire a new item, but we can reuse the slot.
-            return CacheStatus::CachedBufferReused;
         }
+        // The previous buffer was already RELEASED to the producer. If no
+        // replacement is ready it can no longer be safely sampled: the
+        // producer may be writing into it. Reuse is legal only while acquired.
+        return CacheStatus::NoBufferAvailable;
     }
 
     // Framebuffer is not present, so try to create it.
