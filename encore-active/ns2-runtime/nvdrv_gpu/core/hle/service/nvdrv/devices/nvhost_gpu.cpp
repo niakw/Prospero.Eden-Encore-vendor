@@ -1178,6 +1178,52 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
                 channel_state.get(), this, &nvhost_gpu::SignalNativeChannelFault))
             return NvResult::InvalidState;
         channel_state->memory_manager->EnableNativeTiling();
+
+        // Preserve CPU-authored command words at the hardware submission
+        // boundary. The guest is free to reuse/refill its ring after this
+        // ioctl returns; the GPU worker must not accidentally execute a
+        // later frame from the same addresses. GPU-dirty entries stay on the
+        // existing SafeRead path, and semaphore provenance can invalidate
+        // this snapshot before a CPU-produced dependency resumes.
+        if (!channel_state->payload)
+            return NvResult::InvalidState;
+        std::size_t total_words = 0;
+        for (const auto& command : entries.command_lists) {
+            const std::size_t words =
+                static_cast<std::size_t>(command.size);
+            if (words >
+                std::numeric_limits<std::size_t>::max() - total_words) {
+                return NvResult::InvalidSize;
+            }
+            total_words += words;
+        }
+        try {
+            entries.submitted_words.resize(total_words);
+            entries.submitted_offsets.reserve(entries.command_lists.size());
+            entries.submitted_valid.assign(entries.command_lists.size(), 0);
+        } catch (const std::bad_alloc&) {
+            return NvResult::InsufficientMemory;
+        }
+        entries.snapshot_epoch =
+            channel_state->payload->dma_pusher.NativeSnapshotEpoch();
+        std::size_t word_offset = 0;
+        for (std::size_t i = 0; i < entries.command_lists.size(); ++i) {
+            const auto& command = entries.command_lists[i];
+            const std::size_t words =
+                static_cast<std::size_t>(command.size);
+            entries.submitted_offsets.push_back(word_offset);
+            if (words != 0) {
+                const std::size_t bytes = words * sizeof(Tegra::CommandHeader);
+                if (!channel_state->memory_manager->IsMemoryDirty(
+                        command.addr, bytes)) {
+                    channel_state->memory_manager->ReadBlockUnsafe(
+                        command.addr,
+                        entries.submitted_words.data() + word_offset, bytes);
+                    entries.submitted_valid[i] = 1;
+                }
+            }
+            word_offset += words;
+        }
     }
 
     const auto bind_id = channel_state->bind_id;
