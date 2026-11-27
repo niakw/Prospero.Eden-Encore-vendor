@@ -1,33 +1,23 @@
 # sources/ — dépendances vendor figées
 
-Ce répertoire contient les dépendances tierces/upstream importées dans le vendor Eden Encore.
+sources/ contient uniquement les dépendances tierces/upstream importées dans le vendor Eden Encore.
 
-## Contrat
+## Règle
 
-- `sources/` est un **répertoire de dépendances figées**.
-- Les sous-arbres `sources/<projet>/` reflètent la source upstream/vendor importée et ne sont pas des propriétaires Eden Encore.
-- **Aucun build, script, CI, correctif runtime, backport, générateur ou outil automatique ne doit modifier un fichier sous `sources/`.**
-- Une modification de `sources/` n'est autorisée que lors d'une **mise à jour vendor manuelle, explicite et volontaire** d'une dépendance upstream.
-- Après cette mise à jour manuelle, l'arbre importé doit de nouveau correspondre à la dépendance upstream choisie ; on n'y applique pas de patch Encore.
-- Aucun nouveau fichier C/C++/header/CMake propre à Eden Encore ne doit être ajouté dans un sous-arbre `sources/`, même si ce fichier n'existe pas upstream.
-- Toute modification locale d'un fichier upstream va dans `../encore-active/`.
-- Tout nouveau fichier propre à Eden Encore qui n'existe pas upstream va également dans `../encore-active/`.
-- Le build doit consommer les fichiers de `sources/` comme dépendances de base immuables et sélectionner un owner de `encore-active/` lorsqu'un override maintenu existe.
-
-En résumé : **`sources/` = dépendances upstream figées ; `encore-active/` = code maintenu par Eden Encore.**
-
-Le seul contenu spécifique Eden Encore autorisé directement à la racine de ce répertoire est cette documentation de rôle ; les sous-arbres vendored restent purs. Une correction de sécurité, un backport ou une mise à jour de lockfile spécifique à Encore ne constitue pas une exception : elle va dans `../encore-active/<dépendance>/`.
-
-## Symétrie des chemins d'override
-
-Pour une dépendance `sources/<dépendance>/`, l'override correspondant utilise **le même nom de dépendance et le même chemin relatif** sous `encore-active/<dépendance>/`.
+- sources/<dépendance>/ est un miroir vendor de la dépendance choisie.
+- Ce contenu est figé pendant le développement courant.
+- Une modification de sources/ n'est autorisée que lors d'une mise à jour manuelle et explicite de la dépendance elle-même.
+- Aucun correctif Eden Encore, backport local, instrumentation, optimisation, nouveau fichier runtime, header ou CMake propre au projet ne doit être ajouté sous sources/.
+- Un fichier upstream à modifier est copié au même chemin relatif sous ../encore-active/<dépendance>/, puis modifié là.
+- Un nouveau fichier Eden Encore qui n'existe pas upstream est créé sous ../encore-active/<dépendance>/ à l'emplacement logique qu'il aurait dans cette dépendance.
 
 Exemple :
 
-- base : `sources/eden/src/video_core/foo.cpp`
-- override : `encore-active/eden/src/video_core/foo.cpp`
+- base figée : sources/eden/src/video_core/foo.cpp
+- version Eden Encore : encore-active/eden/src/video_core/foo.cpp
 
-Si un fichier Encore est nouveau et n'existe pas upstream, il est créé sous `encore-active/<dépendance>/` à l'emplacement logique qu'il occuperait dans cette dépendance. Les noms de lots, tickets, plateformes ou fonctionnalités ne doivent pas créer une seconde arborescence de runtime.
+Le build peut lire sources/ comme base, mais lorsqu'un owner correspondant existe dans encore-active/, l'owner actif doit être celui de encore-active/.
 
+En résumé : sources/ = vendor upstream pur et figé ; encore-active/ = toutes les modifications Eden Encore.
 
-Voir aussi : `../encore-active/README.md`.
+Voir aussi : ../encore-active/README.md.

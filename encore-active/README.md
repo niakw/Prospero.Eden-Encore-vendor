@@ -1,125 +1,36 @@
-# Encore Active — overrides finaux Eden Encore
+# encore-active/ — overrides finaux Eden Encore
 
-> **Contrat de source de vérité — 27 novembre 2026**
->
-> `vendor/sources/` = **dépendances vendor/upstream figées**. Elles ne sont modifiées que par une mise à jour vendor manuelle et explicite ; aucun build, script, CI ou correctif Encore ne doit les réécrire.
->
-> `vendor/encore-active/` = **override pur Eden Encore** et emplacement de toute source finale maintenue localement.
->
-> Toute modification d'un fichier upstream va dans `encore-active/`, jamais dans `sources/`.
-> Tout nouveau fichier propre à Eden Encore qui n'existe pas dans l'upstream va lui aussi dans `encore-active/`.
-> Cela couvre C/C++, headers, CMake, runtime PS5, NS1/NS2, backports adaptés, correctifs ABI, instrumentation et optimisations.
->
-> Lorsqu'un owner maintenu existe dans `encore-active/`, le build doit sélectionner cet owner à la place de la version de base dans `sources/`. Il ne doit pas fabriquer l'override en patchant ou en générant une copie modifiée de la dépendance figée.
->
-> **Règle pratique : `sources/` est la dépendance ; `encore-active/` est notre code final.**
+encore-active/ est l'unique arbre de code maintenu par Eden Encore dans le vendor.
 
-Exemple de dépendance tierce : `sources/ps5-mihawkgen/train/requirements.txt` reste au pin upstream ; la variante de sécurité maintenue par Encore est `encore-active/ps5-mihawkgen/train/requirements.txt`. Même une correction de dépendance n'autorise pas l'édition directe de `sources/`.
+## Contrat
 
-## Chemin canonique
+1. Toute modification locale d'une dépendance de sources/ vit ici.
+2. Toute nouvelle source, header, CMake, ressource runtime ou adaptation propre à Eden Encore vit ici.
+3. Le nom de dépendance est le même que dans sources/.
+4. Lorsqu'un fichier upstream existe, son override conserve exactement le même chemin relatif.
+5. Lorsqu'un fichier est nouveau, il est placé à l'emplacement logique qu'il aurait dans cette dépendance, sans créer une racine nommée d'après un ticket, une fonctionnalité, NS1/NS2 ou une plateforme.
+6. Lorsqu'un fichier existe ici et dans sources/, le build doit sélectionner la version encore-active/, jamais patcher la copie de sources/ pendant le build.
 
-La structure finale suit celle de `sources/` : **même nom de dépendance, même chemin relatif** lorsqu'un fichier upstream existe.
+Exemple :
 
-Exemple : `sources/eden/src/core/foo.cpp` → `encore-active/eden/src/core/foo.cpp`.
+- sources/eden/src/core/foo.cpp
+- encore-active/eden/src/core/foo.cpp
 
-Un fichier nouveau propre à Encore reste sous `encore-active/<dépendance>/`, à son emplacement logique dans l'arbre de cette dépendance. Les anciens noms de familles fonctionnelles ne doivent pas devenir des propriétaires runtime parallèles. À terme, un chemin upstream donné ne doit avoir **qu'un seul owner final** dans `encore-active/`.
+Le second est l'owner final compilé.
 
-**Dette de migration :** aucun nouvel owner ne doit être ajouté dans les anciens roots fonctionnels (`eden-core`, `eden-vulkan`, etc.). Ils sont repliés progressivement vers `encore-active/eden/<chemin upstream>` puis supprimés. Les roots `eden-threading`, `eden-sync`, `eden-gpu`, `eden-shader` et `ns2-a64` ont déjà été absorbés dans l'arbre canonique `eden/`. Les anciens sous-arbres `eden-core/src`, `eden-core/include` et le root `eden-backports` ont également été repliés dans `eden/`; ils ne doivent plus être recréés.
+## Ce qui est interdit
 
+- modifier sources/ pour un correctif Eden Encore ;
+- ajouter un nouveau fichier Eden Encore sous sources/ ;
+- garder deux owners actifs pour le même fichier ;
+- créer de nouvelles racines fonctionnelles comme eden-gpu, eden-vulkan, eden-core, ns2-runtime, etc. ;
+- générer au build une copie C++ modifiée d'un fichier upstream alors que l'override peut être versionné ici ;
+- faire dépendre la sélection d'un fichier d'une liste de commits SHA.
 
-> **Note / 9 November 2026:** maintained, selected source overrides for the shared NS1/NS2 engine. Historical inventories below are owner/source migration records; a file being listed is **not** proof of execution on PS5. Native console build and hardware qualification belong to the engine P5 milestone. Third-party legal attribution, GPU/SDK vocabulary and ABI identifiers are preserved. [Vendor audit](../docs/VENDOR_PRESENTATION_AUDIT_2026-11-09.md).
+## Migration en cours
 
-`vendor/sources/eden` = original conservé ; `vendor/encore-active` = versions maintenues.
+Les racines historiques encore présentes (eden-core, eden-vulkan, ns2-runtime, ns2-helpers, ns2-astc, amd-fsr31) sont de la dette de structure. Elles doivent être repliées vers la dépendance correspondante sous encore-active/<dépendance>/, puis supprimées. Aucun nouvel owner ne doit y être ajouté.
 
-| Chemin | Usage |
-| --- | --- |
-| `eden/src/core/hle/kernel/k_thread.cpp` | Source compilée remplaçant l'original ; finalisation hors verrou |
-| `eden/src/core/hle/kernel/slab_helpers.h`, `k_worker_task_manager.h` | En-têtes maintenus copiés tels quels avant compilation, sans patch CMake |
-| `eden/src/core/hle/kernel/k_scheduler.cpp`, `k_thread.h`, `k_slab_heap.h` | Overrides coordonnés du threading |
-| `eden/src/core/hle/kernel/k_address_arbiter.cpp`, `k_condition_variable.cpp` | Sources HLE natives |
-| `eden/src/core/hle/kernel/svc/*.cpp` | Sources SVC natives |
-| `eden/src/core/hle/kernel/k_synchronization_object.h` | En-tête natif de synchronisation, aliasing corrigé |
-| `eden/native-hle-overrides.cmake` | Sélection de sources CMake, **pas** un correctif C++ généré |
-| `eden/src/core/hle/service/nvdrv/core/container.cpp` | Session nvdrv : acquisition/libération du processus avec verrou relâché avant fermeture |
-| `eden/src/hid_core/frontend/emulated_controller.cpp` | Vibrations virtuelles : source maintenue en remplacement du générateur CMake |
-| `eden/src/core/memory.cpp` | A32 fastmem source issue du backport de production ; garde explicite 32 bits, activation conditionnelle |
-| `compiler-rt/emutls.c` | Source du runtime TLS natif maintenue, `EMUTLS_SKIP_DESTRUCTOR_ROUNDS=1`, sans génération CMake |
-| `eden/src/CMakeLists.txt` | Configuration de build maintenue copiée avant compilation |
-| `eden/src/common/thread.cpp`, `src/common/fs/fs.cpp` | Sources runtime natives maintenues ; noms de workers et énumération des répertoires |
-| `eden/src/common/cpu_features.cpp`, `src/common/fs/path_util.cpp` | Détection de fréquence TSC et racines utilisateur/cache natives, auparavant générées par CMake |
-| `eden/src/video_core/renderer_opengl/gl_texture_cache.cpp` | Diagnostic de copie GL en profil DEV, source C++ maintenue |
-| `eden/src/video_core/renderer_opengl/{gl_buffer_cache,gl_query_cache}.cpp` | Correctifs GL de buffers et requêtes maintenus, conditions de compilation conservées |
-| `eden/src/video_core/video_core_opengl.cpp` | Fabrique OpenGL-only maintenue ; fabrique Vulkan épinglée sélectionnée intacte |
-| `eden/include/core/file_sys/bis_factory.h`, `eden/src/core/file_sys/bis_factory.cpp` | ABI BIS et choix du firmware/dossiers mods maintenus hors génération CMake |
-| `eden/src/core/file_sys/fsmitm_romfsbuild.cpp` | Contextes RomFS sans cycles de propriété ; deux types de remplacement désormais en C++ maintenu |
-| `eden/src/audio_core/sink/sink_stream.cpp` | File PCM, upmix et trame de maintien via source audio maintenue ; anciens générateurs supprimés |
-| `eden/src/core/hle/service/filesystem/filesystem.cpp` | Racine firmware maintenue en C++, sans unité dérivée par CMake |
-| `eden/src/core/internal_network/network_interface.cpp` | Choix de la branche FreeBSD pour l'énumération des interfaces, sans génération CMake |
-| `eden/src/core/hle/kernel/svc/svc_ipc.cpp`, `src/core/hle/service/service.cpp` | Mesures IPC/HLE du profil diagnostic, sélectionnées sans génération CMake |
-| `eden/src/core/hle/service/{filesystem,nvdrv,nvnflinger}/` | Sources diagnostiques de fichiers, événements NVDRV et files de présentation |
-| `eden`, `eden-vulkan`, `eden-core`, `ps5-mesa` et autres dossiers | Autres adaptations maintenues ; voir `docs/EDEN_OVERRIDE_MIGRATION_INVENTORY.md` |
+La cible finale est simple : même dépendance, même chemin logique, un seul owner actif.
 
-| `eden/src/video_core/buffer_cache/buffer_cache.h` | Header GPU R437 complet et maintenu ; sélection PS5 par copie sans réécriture CMake |
-
-| `eden/tooling/native/app_crt_radv.cpp` | Startup RADV sélectionné directement, avec initialiseur IEEE et preuve de parité source |
-
-| `eden/src/dynarmic/` | Traducteur A64, lecture/écriture scalaire et optimiseur IR : trois sources complètes compilées sans génération CMake |
-
-| `eden/src/video_core/engines/maxwell_3d.cpp` | Diagnostic DEV de condition de rendu, versionné avec parité source et sélection exclusive |
-
-| `eden/src/common/sparse_large_vector.h` | Header mémoire sparse complet, sélection par copie et oracle d’équivalence des onze substitutions |
-
-| `eden/src/dynarmic/backend/x64/{reg_alloc.h,reg_alloc.cpp}` | Deux unités maintenues du gestionnaire de registres ; sélection explicite et parité des cinq anciennes injections |
-
-| `eden/src/dynarmic/backend/x64/constant_pool.cpp` | Alias mémoire du pool JIT, source versionnée avec sélection exclusive |
-
-| `eden/src/dynarmic/backend/x64/{emit_x64_vector.cpp,emit_x64_data_processing.cpp}` | Deux émetteurs scalaires complets, trois anciennes substitutions de CMake supprimées ; injection mémoire toujours X08 |
-
-| `eden/src/video_core/engines/sw_blitter/blitter.cpp` | Blitter logiciel natif : backport de production préservé et trois tailles élargies, sans reconstruction CMake |
-
-| `eden/src/shader_recompiler/frontend/maxwell/translate/impl/not_implemented.cpp` | PRMT native source avec vecteurs de référence et diagnostic borné, sélectionnée directement |
-
-| `eden/src/video_core/engines/fermi_2d_{observed,experimental}.cpp` | Deux variantes GPU complètes ; profil expérimental OFF par défaut, sélecteur CMake sans génération |
-
-| `eden-cpm/xbyak/v7.40.1/xbyak/xbyak.h` | En-tête Xbyak 7.40.1 complet avec huit adaptations d'alias, copié sans transformations CMake (X09 reste indirect) |
-
-| `eden/src/core/hle/kernel/k_process.cpp` | Finalisation du processus DEV : cinq étapes chronométrées, sélection directe, comparaison du résultat historique |
-
-| `eden/src/dynarmic/backend/block_range_information.{h,cpp}` | Gestion des blocs par pages : deux sources complètes sélectionnées sans générateur CMake |
-
-| `eden/src/video_core/renderer_opengl/gl_rasterizer{,_dev}.cpp` | Deux unités normal/DEV de diagnostic de draw, sélectionnées directement sans réécriture CMake |
-
-| `eden/src/video_core/dma_pusher{,_dev}.cpp` et `engines/puller{,_dev}.cpp` | Commandes GPU invité : variantes normales/DEV maintenues et parité G20 |
-
-Chaîne HLE : `headless/CMakeLists.txt` -> `eden/native-hle-overrides.cmake` -> fichiers C++/en-têtes maintenus.
-
-Tests associés : `tools/verify/hle/`. Ces tests ne sont pas inclus dans l'application native.
-
-Pour le runtime et les diagnostics, `headless/CMakeLists.txt` ne fait
-que sélectionner les unités maintenues et retirer la source d'origine de
-la cible concernée. Il ne doit plus générer de copies C++ pour ces unités.
-Les sources amont épinglées restent inchangées dans `vendor/sources/eden`.
-
-Les 81 sources et en-têtes de `eden-backports`, et deux fichiers CMake
-supplémentaires, forment 83 fichiers de backports livrés en
-production depuis le snapshot épinglé, contrôlés par empreintes et installés
-par `tools/install-vendored-eden-backports.py` (pas de `git apply` au build).
-
-Catalogue exhaustif des fichiers C/C++ actifs : `docs/EDEN_ACTIVE_SOURCE_CATALOG.md`
-(286 fichiers enregistrés et rattachés au graphe technique ; ce lien n’atteste pas leur exécution sur console).
-Le recensement des fichiers n'est pas une validation de leurs fonctions.
-Le générateur `renderer_opengl.cpp` n'est plus nécessaire : le renderer
-original est sélectionné directement, sans créer une copie maintenue identique.
-
-L'inventaire couvre **5 appels générateurs** du CMake principal et **12**
-dans les modules, avec **2 modules indirects** de substitution suivis
-séparément ; ce ne sont pas des décomptes de fichiers uniques. Chaque nouvelle migration doit
-conserver un test de parité et de sélection native.
-
-**Dette non encore consolidée ici :** `headless/backports/` contient
-46 patches sur le snapshot Eden épinglé : 44 appels `apply_one` depuis
-`tools/apply-eden-backports.sh` et deux patches installés depuis
-`tools/install-active-core-backports.py`. Leurs chemins et leur statut
-sont catalogués dans `docs/EDEN_OVERRIDE_MIGRATION_INVENTORY.md`.
-Ils ne sont **pas** des sources C++ maintenues, et il ne faut pas les
-compter comme 46 fichiers de compilation supplémentaires.
+sources/ est la dépendance figée. encore-active/ est notre version finale.
