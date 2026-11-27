@@ -15,7 +15,7 @@ import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
 PINNED=ROOT/"sources/eden/src/video_core/buffer_cache/usage_tracker.h"
-OWNED=ROOT/"encore-active/eden-core/overrides/usage-tracker/video_core/buffer_cache/usage_tracker.h"
+OWNED=ROOT/"encore-active/eden/src/video_core/buffer_cache/usage_tracker.h"
 VULKAN=ROOT/"encore-active/eden-vulkan/vk_buffer_cache_cost.cpp"
 RENDERER_HEADER=ROOT/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_buffer_cache.h"
 
@@ -149,7 +149,7 @@ with tempfile.TemporaryDirectory(prefix="ps5-usage-tracker-") as tmp:
     (stub/"common_types.h").write_text("#pragma once\n#include <cstdint>\nusing u64 = std::uint64_t;\n")
     src=root/"test.cpp"
     src.write_text(cpp)
-    includes=["-I",str(root),"-I",str(ROOT/"encore-active/eden-core/overrides/usage-tracker")]
+    includes=["-I",str(root),"-I",str(ROOT/"encore-active/eden/src")]
     for cc in compilers:
         exe=root/(cc.replace("+","p")+"-test")
         cmd=[cc,"-std=c++20","-O1","-Wall","-Wextra","-Werror",
