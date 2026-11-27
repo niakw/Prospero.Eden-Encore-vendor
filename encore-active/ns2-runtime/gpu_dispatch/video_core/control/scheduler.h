@@ -35,6 +35,15 @@ public:
         const std::scoped_lock lock(pending_guard);
         return !pending_native_channels.empty();
     }
+    [[nodiscard]] bool HasCpuBlockedNativeChannels() const {
+        const std::scoped_lock lock(pending_guard);
+        return std::ranges::any_of(
+            pending_native_channels,
+            [](const std::shared_ptr<ChannelState>& state) {
+                return state && state->payload &&
+                       state->payload->dma_pusher.HasCpuBlockedNativeAcquire();
+            });
+    }
     void ResumePendingNative(GPU& gpu);
 
 private:
