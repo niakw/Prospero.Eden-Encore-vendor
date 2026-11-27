@@ -5,7 +5,7 @@ on:
   pull_request:
     paths:
       # NS2 shim/tiling ABI touches a shipping native header, not pinned Eden.
-      - 'encore-active/eden-core/overrides/native-tiling/video_core/memory_manager.h'
+      - 'encore-active/eden/src/video_core/memory_manager.h'
       - 'tests/ns2_syncpoint_shim_source.py'
       - 'sources/**'
       - 'encore-active/**'
