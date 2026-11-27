@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'encore-active/ns2-runtime/process/core/hle/service/os/process.cpp'
+      - 'encore-active/eden/src/core/hle/service/os/process.cpp'
       - 'encore-active/eden/src/core/hle/service/filesystem/filesystem.cpp'
       - 'encore-active/eden/src/core/hle/service/filesystem/filesystem.h'
       - 'encore-active/eden/native-hle-overrides.cmake'

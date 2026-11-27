@@ -4,7 +4,7 @@ on:
     paths:
       - 'encore-active/eden/src/core/core_native.cpp'
       - 'encore-active/eden/src/core/core_standard.cpp'
-      - 'encore-active/ns2-runtime/process/core/core.cpp'
+      - 'encore-active/eden/src/core/core.cpp'
       - 'tests/ns1_ns2_missing_loader_cleanup_host.py'
       - '.github/workflows/ns1-ns2-loader-teardown.yml'
   workflow_dispatch:
