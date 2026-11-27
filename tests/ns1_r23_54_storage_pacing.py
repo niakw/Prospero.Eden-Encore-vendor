@@ -3,7 +3,7 @@
 from pathlib import Path
 import hashlib, os, subprocess, tempfile
 r=Path(__file__).resolve().parents[1]
-root=r/"encore-active/eden-core"
+root=r/"encore-active/eden"
 pins={
 "src/core/hle/service/filesystem/fsp/fs_i_storage.cpp":"3513150b1a39297207bc16ccaadec8f1a8fdeb96",
 "include/core/hle/service/filesystem/fsp/fs_i_storage.h":"26dbf4505aa00ac17967e2f1bd6c32a2e856bc78",
