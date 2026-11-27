@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-source = (root / "encore-active/eden-shader/src/shader_recompiler/frontend/maxwell/translate_program.cpp").read_text()
+source = (root / "encore-active/eden/src/shader_recompiler/frontend/maxwell/translate_program.cpp").read_text()
 anchor = "            if (!normalized_host_info.support_geometry_shader_passthrough) {\n"
 delta = "                // Lichii #1466: lowering forwards Position and the generic vec4s.\n                // Do not declare unrelated built-in inputs in an emulated geometry stage.\n                for (size_t i = 0; i < program.info.passthrough.mask.size(); ++i) {\n                    if (i < static_cast<size_t>(IR::Attribute::PositionX) ||\n                        i > static_cast<size_t>(IR::Attribute::Generic31W)) {\n                        program.info.passthrough.mask[i] = false;\n                    }\n                }\n"
 assert source.count(anchor + delta) == 1

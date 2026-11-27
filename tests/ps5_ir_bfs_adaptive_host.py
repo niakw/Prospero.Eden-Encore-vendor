@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-header=ROOT/"encore-active/eden-shader/include/shader_recompiler/frontend/ir/breadth_first_search.h"
+header=ROOT/"encore-active/eden/src/shader_recompiler/frontend/ir/breadth_first_search.h"
 source=header.read_text()
 baseline=source
 # The SSBO pruning candidate is additive around BreadthFirstSearch itself.
