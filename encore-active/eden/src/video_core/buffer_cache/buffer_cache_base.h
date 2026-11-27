@@ -13,7 +13,6 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
-#include <optional>
 #include <span>
 #include <vector>
 
@@ -56,16 +55,11 @@ constexpr u32 NUM_VERTEX_BUFFERS = 32;
 constexpr u32 NUM_TRANSFORM_FEEDBACK_BUFFERS = 4;
 constexpr u32 NUM_GRAPHICS_UNIFORM_BUFFERS = 18;
 constexpr u32 NUM_COMPUTE_UNIFORM_BUFFERS = 8;
-// Lichii 15dd980: native Switch 2 compute shaders (including Bananza) bind
-// slots 16/17. This maintained header is selected uniformly for the shared
-// PS5 BufferCache, so widen the single ABI instead of using the stale NS2-only
-// header with a different class layout.
-constexpr u32 NUM_STORAGE_BUFFERS = 32;
+constexpr u32 NUM_STORAGE_BUFFERS = 16;
 constexpr u32 NUM_TEXTURE_BUFFERS = 32;
 constexpr u32 NUM_STAGES = 5;
 
 static_assert(NUM_GRAPHICS_UNIFORM_BUFFERS <= 32, "fast bitmask must fit u32");
-static_assert(NUM_STORAGE_BUFFERS <= 32, "storage-buffer bitmasks must fit u32");
 
 using UniformBufferSizes = std::array<std::array<u32, NUM_GRAPHICS_UNIFORM_BUFFERS>, NUM_STAGES>;
 using ComputeUniformBufferSizes = std::array<u32, NUM_COMPUTE_UNIFORM_BUFFERS>;
@@ -229,13 +223,7 @@ public:
 
     ~BufferCache();
 
-#ifdef PS5_NATIVE
-    // Consume one native GPU-memory sample shared with TextureCache.
-    // Other backends retain the original budget query fallback.
-    void TickFrame(std::optional<u64> externally_sampled_usage = std::nullopt);
-#else
     void TickFrame();
-#endif
 
     bool BindMultiRangeStorage(const Binding& binding, bool is_written,
                                std::span<const MultiRangeSegment> pool);
@@ -245,9 +233,7 @@ public:
 
     void UnmapGPUMemory(size_t as_id, GPUVAddr gpu_addr, size_t size);
 
-    /// Preserve GPU-written bytes elsewhere on touched pages before a CPU write
-    /// changes the page-granular ownership. Disable only when the mapping is going away.
-    void WriteMemory(DAddr device_addr, u64 size, bool keep_page_gpu_data = true);
+    void WriteMemory(DAddr device_addr, u64 size);
 
     void CachedWriteMemory(DAddr device_addr, u64 size);
 
@@ -323,11 +309,7 @@ public:
     void PopAsyncFlushes();
     void PopAsyncBuffers();
 
-    /// Optionally report whether the copied source contains GPU-owned buffer bytes.
-    /// gpu_written_dest names the exact destination subranges whose newest bytes stay GPU-owned.
-    bool DMACopy(
-        GPUVAddr src_address, GPUVAddr dest_address, u64 amount, bool* gpu_written = nullptr,
-        boost::container::small_vector<std::pair<DAddr, size_t>, 4>* gpu_written_dest = nullptr);
+    bool DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount);
 
     bool DMAClear(GPUVAddr src_address, u64 amount, u32 value);
 
@@ -357,16 +339,6 @@ public:
         } while (channel_state->has_deleted_buffers);
     }
 
-    using PendingCpuWrites = std::function<void(const std::function<void(DAddr, size_t)>&)>;
-    void SetPendingCpuWrites(PendingCpuWrites source) { pending_cpu_writes = std::move(source); }
-
-    /// Remove all about-to-be-applied CPU writes from GPU-owned ranges before
-    /// any one write can trigger a download of older bytes over another.
-    // Both GPU-collected writes (size_t) and normal guest batches (u64)
-    // must be claimed together before any stale GPU page readback begins.
-    template <typename RangeSize>
-    void ClaimCpuWrites(std::span<const std::pair<DAddr, RangeSize>> ranges);
-
     std::recursive_mutex mutex;
     Runtime& runtime;
     bool any_buffer_uploaded = false;
@@ -374,12 +346,11 @@ public:
 private:
     template <typename Func>
     static void ForEachEnabledBit(u32 enabled_mask, Func&& func) {
-        // Iterate occupied binding slots directly; preserve the original
-        // ascending indices without shifting a second time per enabled slot.
-        while (enabled_mask != 0) {
-            const u32 index = static_cast<u32>(std::countr_zero(enabled_mask));
+        for (u32 index = 0; enabled_mask != 0; ++index, enabled_mask >>= 1) {
+            const int disabled_bits = std::countr_zero(enabled_mask);
+            index += disabled_bits;
+            enabled_mask >>= disabled_bits;
             func(index);
-            enabled_mask &= enabled_mask - 1;
         }
     }
 
@@ -459,14 +430,10 @@ private:
 
     void UpdateComputeTextureBuffers();
 
-    // R437: preserve the legacy three-argument call while exposing explicit
-    // write-tick ownership to the maintained native BufferCache implementation.
-    void MarkWrittenBuffer(BufferId buffer_id, DAddr device_addr, u32 size,
-                           bool needs_sync = true);
+    void MarkWrittenBuffer(BufferId buffer_id, DAddr device_addr, u32 size, bool needs_sync = false);
 
     [[nodiscard]] BufferId FindBuffer(DAddr device_addr, u32 size, bool sparse_compatible);
 
-    // Same fence-wait member as the maintained R437 BufferCache body.
     void SynchronizeBufferWrites(Buffer& buffer);
 
     [[nodiscard]] OverlapResult ResolveOverlaps(DAddr device_addr, u32 wanted_size);
@@ -521,10 +488,6 @@ private:
 
     void ClearDownload(DAddr base_addr, u64 size);
 
-    [[nodiscard]] Common::RangeSet<DAddr> PendingCpuWriteRanges();
-    void WriteDownloadedMemory(const Common::RangeSet<DAddr>& cpu_written,
-                               DAddr device_addr, const u8* data, u64 size);
-
     void InlineMemoryImplementation(DAddr dest_address, size_t copy_size,
                                     std::span<const u8> inlined_buffer);
 
@@ -557,7 +520,6 @@ private:
     Common::OverlapRangeSet<DAddr> async_downloads;
     std::deque<std::optional<Async_Buffer>> async_buffers;
     std::deque<boost::container::small_vector<BufferCopy, 4>> pending_downloads;
-    PendingCpuWrites pending_cpu_writes;
     std::optional<Async_Buffer> current_buffer;
 
     std::deque<Async_Buffer> async_buffers_death_ring;
