@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 fixed = (ROOT / "encore-active/eden-vulkan/fixed_pipeline_state.cpp").read_text()
 pinned = (ROOT / "sources/eden/src/common/thread_worker.h").read_text()
-active = (ROOT / "encore-active/eden-core/overrides/thread-worker/common/thread_worker.h").read_text()
+active = (ROOT / "encore-active/eden/src/common/thread_worker.h").read_text()
 
 assert "#include <cmath>" in fixed
 assert "const u32 packed_alpha_test = alpha_test_func.Value();" in fixed
