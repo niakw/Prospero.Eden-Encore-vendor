@@ -12,7 +12,7 @@ import subprocess
 root = Path(__file__).resolve().parents[1]
 active = root / "encore-active"
 deps = root / "sources/eden-cpm"
-src = active / "ns2-runtime/gpu_access_svc/core/hle/kernel/svc.cpp"
+src = active / "eden/src/core/hle/kernel/svc.cpp"
 assert src.is_file()
 inc = [
     active / "ns2-runtime/gpu_access_svc",

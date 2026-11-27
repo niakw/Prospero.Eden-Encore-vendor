@@ -9,9 +9,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-core = (ROOT / "encore-active/ns2-runtime/process/core/core.cpp").read_text()
-metadata = (ROOT / "encore-active/ns2-runtime/metadata/core/file_sys/program_metadata.cpp").read_text()
-loader = (ROOT / "encore-active/ns2-runtime/metadata/core/loader/deconstructed_rom_directory.cpp").read_text()
+core = (ROOT / "encore-active/eden/src/core/core.cpp").read_text()
+metadata = (ROOT / "encore-active/eden/src/core/file_sys/program_metadata.cpp").read_text()
+loader = (ROOT / "encore-active/eden/src/core/loader/deconstructed_rom_directory.cpp").read_text()
 
 helper_begin = core.index("[[nodiscard]] bool IsSwitch2LaunchProgram(")
 helper_end = core.index("\n} // namespace", helper_begin)
