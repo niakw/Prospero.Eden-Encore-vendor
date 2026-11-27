@@ -4,7 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2023 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include "common/scope_exit.h"
+#include <chrono>\n#include <thread>\n\n#include "common/scope_exit.h"
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/hle/kernel/k_hardware_timer.h"
@@ -18,6 +18,19 @@ namespace {
 
 constexpr bool IsValidVirtualCoreId(int32_t core_id) {
     return (0 <= core_id && core_id < static_cast<int32_t>(Core::Hardware::NUM_CPU_CORES));
+}
+
+// Switch 2 exposes eight physical core IDs while Eden emulates the six
+// application cores. Match Lichii/Eglantine: validate the guest's original
+// mask first, then fold IDs 6/7 onto the low emulated cores.
+constexpr int32_t FoldExtraCoreId(int32_t core_id) {
+    constexpr auto num_cores = static_cast<int32_t>(Core::Hardware::NUM_CPU_CORES);
+    return core_id >= num_cores && core_id < 2 * num_cores ? core_id - num_cores : core_id;
+}
+
+constexpr u64 FoldExtraCoreMask(u64 mask) {
+    constexpr u64 low = (1ULL << Core::Hardware::NUM_CPU_CORES) - 1;
+    return (mask & low) | ((mask >> Core::Hardware::NUM_CPU_CORES) & low);
 }
 
 } // Anonymous namespace
@@ -36,6 +49,7 @@ Result CreateThread(Core::System& system, Handle* out_handle, u64 entry_point, u
     if (core_id == IdealCoreUseProcessValue) {
         core_id = process.GetIdealCoreId();
     }
+    core_id = FoldExtraCoreId(core_id);
 
     // Validate arguments.
     R_UNLESS(IsValidVirtualCoreId(core_id), ResultInvalidCoreId);
@@ -94,14 +108,38 @@ Result StartThread(Core::System& system, Handle thread_handle) {
     // Try to start the thread.
     R_TRY(thread->Run(system.Kernel()));
 
-    // Lichii 3140648: if a lower-priority worker starts on our own core,
-    // hardware IPC latency lets it consume startup arguments before this
-    // caller resumes and reuses its stack.
+    // Preserve the existing IPC-startup grace for same-core lower-priority
+    // workers, then add the current Lichii/Eglantine guarantee: a newly
+    // started thread gets a bounded chance to consume its startup arguments
+    // and reach its first SVC before its creator resumes and may reuse them.
     KThread& cur_thread = GetCurrentThread(system.Kernel());
     if (thread->GetActiveCore() == cur_thread.GetActiveCore() &&
         thread->GetPriority() > cur_thread.GetPriority()) {
         thread->Open(system.Kernel());
         cur_thread.GetPendingStartedThreads().push_back(thread.GetPointerUnsafe());
+    }
+
+    auto& kernel = system.Kernel();
+    const s32 core = thread->GetActiveCore();
+    if (core == GetCurrentCoreId(kernel) || !kernel.IsMulticore()) {
+        for (int i = 0; i < 10 && !thread->HasEnteredKernel() &&
+                            !thread->IsTerminationRequested(); ++i) {
+            const s64 timeout = kernel.HardwareTimer().GetTick() + 100'000 + 2;
+            static_cast<void>(GetCurrentThread(kernel).Sleep(kernel, timeout));
+        }
+    } else if (core >= 0 && core < static_cast<s32>(Core::Hardware::NUM_CPU_CORES)) {
+        const KThread* const running = kernel.Scheduler(core).GetSchedulerCurrentThread();
+        const bool preempts = running == nullptr || running == thread.GetPointerUnsafe() ||
+                              running == kernel.Scheduler(core).GetIdleThread() ||
+                              thread->GetPriority() < running->GetPriority();
+        if (preempts) {
+            const auto deadline =
+                std::chrono::steady_clock::now() + std::chrono::milliseconds(5);
+            while (!thread->HasEnteredKernel() && !thread->IsTerminationRequested() &&
+                   std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::yield();
+            }
+        }
     }
 
     R_SUCCEED();
@@ -274,6 +312,11 @@ Result SetThreadCoreMask(Core::System& system, Handle thread_handle, s32 core_id
         const u64 process_core_mask = GetCurrentProcess(system.Kernel()).GetCoreMask();
         R_UNLESS((affinity_mask | process_core_mask) == process_core_mask, ResultInvalidCoreId);
         R_UNLESS(affinity_mask != 0, ResultInvalidCombination);
+
+        // Validated against the real mask above; fold to the emulated cores
+        // from here on, as current Lichii/Eglantine do for Switch 2.
+        affinity_mask = FoldExtraCoreMask(affinity_mask);
+        core_id = FoldExtraCoreId(core_id);
 
         // Validate the core id.
         if (IsValidVirtualCoreId(core_id)) {

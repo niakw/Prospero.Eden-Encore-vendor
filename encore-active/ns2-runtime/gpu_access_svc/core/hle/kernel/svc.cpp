@@ -2506,6 +2506,7 @@ void Call(Core::System& system, u32 imm) {
     auto& process = GetCurrentProcess(kernel);
     std::array<uint64_t, 8> args;
     kernel.CurrentPhysicalCore().SaveSvcArguments(process, args);
+    GetCurrentThread(kernel).SetEnteredKernel();
 #ifdef EDEN_NS2_SVC_TRACE
     // Detailed logging keeps a fixed recent ring without per-call I/O. On a
     // fatal guest branch PhysicalCore asks this TU to dump it once.
