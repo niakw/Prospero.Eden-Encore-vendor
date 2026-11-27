@@ -5,8 +5,8 @@ cpp=(R/"sources/eden/src/core/hle/service/nvdrv/nvdrv.cpp").read_text()
 hdr=(R/"sources/eden/src/core/hle/service/nvdrv/nvdrv.h").read_text()
 stub=(R/"sources/eden/src/core/hle/service/nvdrv/devices/nx2_stub_device.h").read_text()
 nvdev=(R/"sources/eden/src/core/hle/service/nvdrv/devices/nvdevice.h").read_text()
-gpu=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
-gpu_hdr=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
+gpu=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+gpu_hdr=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
 assert '#include "core/hle/service/nvdrv/devices/nx2_stub_device.h"' in cpp
 assert 'device_name.starts_with("/dev/nvhost-")' in cpp
 assert cpp.index("builders.find(device_name)") < cpp.index('device_name.starts_with("/dev/nvhost-")')

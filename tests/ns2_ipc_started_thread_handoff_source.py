@@ -46,6 +46,6 @@ for x in (
     "std::chrono::milliseconds(5)",
     "std::this_thread::yield();",
 ): assert x in start,x
-active_svc=(R/"encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc.cpp").read_text()
+active_svc=(R/"encore-active/eden/src/core/hle/kernel/svc.cpp").read_text()
 assert active_svc.index("SaveSvcArguments(process, args)") < active_svc.index("GetCurrentThread(kernel).SetEnteredKernel()")
 print("NS2_THREAD_FIRST_SVC_HANDOFF_SOURCE_PASS upstream=current-lichii-eglantine core_fold=1 bound_ms=5")

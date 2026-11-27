@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-OWNER = ROOT / "encore-active/ns2-runtime/ampere/shader_recompiler/frontend/ampere/lower_to_maxwell.h"
+OWNER = ROOT / "encore-active/eden/src/shader_recompiler/frontend/ampere/lower_to_maxwell.h"
 source = OWNER.read_text()
 
 for needle in (

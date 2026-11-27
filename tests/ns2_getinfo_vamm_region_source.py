@@ -17,7 +17,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 TYPES = ROOT / "encore-active/eden/src/core/hle/kernel/svc_types.h"
 INFO = ROOT / "encore-active/eden/src/core/hle/kernel/svc/svc_info.cpp"
-ADDR = ROOT / "encore-active/ns2-runtime/kernel/core/hle/kernel/k_address_space_info.cpp"
+ADDR = ROOT / "encore-active/eden/src/core/hle/kernel/k_address_space_info.cpp"
 
 types = TYPES.read_text()
 info = INFO.read_text()
