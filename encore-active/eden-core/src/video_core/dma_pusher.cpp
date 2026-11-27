@@ -83,6 +83,10 @@ bool DmaPusher::ResumeNativeAcquire() {
     }
     if (((completed - pending->threshold) & 0x80000000U) != 0)
         return false;
+    // NVDRV syncpoint waits do not carry semaphore-word provenance. Treat
+    // their producer as unknown: queued command snapshots are invalidated,
+    // never trusted across a dependency we cannot classify exactly.
+    NoteNativeAcquireResolved(false);
     pending.reset();
     return true;
 }
@@ -165,6 +169,7 @@ bool DmaPusher::Step() {
         dma_pushbuffer_subindex = 0;
 #ifdef PS5_NATIVE
         command_resume_offset = 0;
+        native_snapshot_resume_safe = false;
 #endif
         return true;
     }
@@ -185,6 +190,7 @@ bool DmaPusher::Step() {
             return false;
         }
         command_resume_offset = 0;
+        native_snapshot_resume_safe = false;
 #else
         ProcessCommands(command_list.prefetch_command_list);
 #endif
@@ -302,9 +308,51 @@ bool DmaPusher::Step() {
         // P2.7: C7x0 native GPFIFO command words can have been produced by
         // an earlier GPU dispatch. A guest setting for UNSAFE DMA must never
         // bypass GPU cache coherency for an authenticated NS2 channel.
-        // SafeRead flushes the actual guest GPU region before consuming the
-        // live words, including the non-contiguous backing fallback.
-        use_safe |= Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance().IsNative(&channel_state);
+        // A submit-time snapshot is valid only for CPU-authored words that
+        // have not crossed an unclassified/CPU semaphore dependency.
+        use_safe |= native_channel;
+        bool use_snapshot = false;
+        std::span<const CommandHeader> submitted{};
+        if (native_channel &&
+            dma_pushbuffer_subindex < command_list.submitted_valid.size() &&
+            command_list.submitted_valid[dma_pushbuffer_subindex] != 0 &&
+            dma_pushbuffer_subindex < command_list.submitted_offsets.size() &&
+            command_list.snapshot_epoch ==
+                native_snapshot_epoch.load(std::memory_order_acquire) &&
+            (command_resume_offset == 0 || native_snapshot_resume_safe)) {
+            const std::size_t words = static_cast<std::size_t>(header.size);
+            const std::size_t offset =
+                command_list.submitted_offsets[dma_pushbuffer_subindex];
+            if (offset > command_list.submitted_words.size() ||
+                words > command_list.submitted_words.size() - offset) {
+                FailNativeSubmission("Native GPFIFO snapshot bounds invalid");
+            }
+            // A GPU writer discovered after SubmitGPFIFO wins over the CPU
+            // snapshot. SafeRead remains the authoritative coherent path.
+            if (!memory_manager.IsMemoryDirty(
+                    dma_state.dma_get, words * sizeof(CommandHeader))) {
+                submitted = std::span<const CommandHeader>{
+                    command_list.submitted_words.data() + offset, words};
+                if (command_resume_offset > submitted.size()) {
+                    FailNativeSubmission(
+                        "Native GPFIFO snapshot resume cursor invalid");
+                }
+                use_snapshot = true;
+            }
+        }
+        if (use_snapshot) {
+            require_native_submission_lease();
+            native_using_snapshot = true;
+            ProcessCommands(submitted.subspan(command_resume_offset));
+            native_using_snapshot = false;
+            if (native_snapshot_restart) {
+                // An acquire inside this snapshot was satisfied by CPU or
+                // unknown provenance. Re-enter the same entry at the exact
+                // next word and fetch the remainder coherently from memory.
+                native_snapshot_restart = false;
+                return true;
+            }
+        } else
 #endif
         if (use_safe) {
             Tegra::Memory::GpuGuestMemory<Tegra::CommandHeader, Tegra::Memory::GuestMemoryFlags::SafeRead>headers(memory_manager, dma_state.dma_get, header.size, &command_headers);
@@ -348,6 +396,7 @@ bool DmaPusher::Step() {
         split_method_end = header.addr + static_cast<GPUVAddr>(header.size) * sizeof(u32);
     }
     command_resume_offset = 0;
+    native_snapshot_resume_safe = false;
 #endif
     if (++dma_pushbuffer_subindex >= command_list_size) {
 #ifdef PS5_NATIVE
@@ -501,9 +550,10 @@ void DmaPusher::ProcessCommands(std::span<const CommandHeader> commands) {
             index++;
         }
 #ifdef PS5_NATIVE
-        if (HasPendingNativeAcquire()) {
+        if (HasPendingNativeAcquire() || native_snapshot_restart) {
             // All words through the semaphore were consumed, but nothing
-            // following it; begin exactly at this word after release.
+            // following it. A pending acquire parks the channel; an immediate
+            // CPU/unknown release simply restarts this entry from live memory.
             command_resume_offset = offset_before + index;
             return;
         }
