@@ -10,8 +10,8 @@ import re
 
 ROOT=Path(__file__).resolve().parents[1]
 CODEC=ROOT/"sources/jxrlib"
-SOURCE=ROOT/"encore-active/ps5-jxr/jxr_decoder.c"
-HEADER=ROOT/"encore-active/ps5-jxr/jxr_decoder.h"
+SOURCE=ROOT/"encore-active/jxrlib/jxr_decoder.c"
+HEADER=ROOT/"encore-active/jxrlib/jxr_decoder.h"
 
 def git_blob(path):
     raw=path.read_bytes()
