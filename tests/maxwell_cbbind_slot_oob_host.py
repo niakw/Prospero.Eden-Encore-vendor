@@ -4,7 +4,7 @@ from pathlib import Path
 import os, shutil, subprocess, tempfile
 
 root=Path(__file__).resolve().parents[1]
-src=(root/"encore-active/eden-core/src/video_core/engines/maxwell_3d.cpp").read_text()
+src=(root/"encore-active/eden/src/video_core/engines/maxwell_3d.cpp").read_text()
 marker="void Maxwell3D::ProcessCBBind(size_t stage_index) {"
 start=src.index(marker)
 brace=src.index("{",start)

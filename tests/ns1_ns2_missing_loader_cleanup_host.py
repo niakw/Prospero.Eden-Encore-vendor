@@ -8,8 +8,8 @@ This does not claim gameplay or on-console boot qualification.
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 owners = (
-    "encore-active/eden-core/src/core/core_native.cpp",
-    "encore-active/eden-core/src/core/core_standard.cpp",
+    "encore-active/eden/src/core/core_native.cpp",
+    "encore-active/eden/src/core/core_standard.cpp",
     "encore-active/ns2-runtime/process/core/core.cpp",
 )
 for path in owners:

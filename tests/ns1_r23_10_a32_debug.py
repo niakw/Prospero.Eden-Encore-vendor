@@ -6,7 +6,7 @@ import os
 import subprocess
 import tempfile
 
-p=Path(__file__).resolve().parents[1]/"encore-active/eden-core/src/dynarmic/ir/opt_passes.cpp"
+p=Path(__file__).resolve().parents[1]/"encore-active/eden/src/dynarmic/ir/opt_passes.cpp"
 s=p.read_text()
 guard="conf.HasOptimization(OptimizationFlag::GetSetElimination) && !conf.check_halt_on_memory_access"
 assert s.count(guard)==2 # already present A64, now also A32

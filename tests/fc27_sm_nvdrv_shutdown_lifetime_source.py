@@ -5,10 +5,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 core=(ROOT/"encore-active/ns2-runtime/process/core/core.cpp").read_text()
-sm_h=(ROOT/"encore-active/eden-core/src/core/hle/service/sm/sm.h").read_text()
-sm=(ROOT/"encore-active/eden-core/src/core/hle/service/sm/sm.cpp").read_text()
+sm_h=(ROOT/"encore-active/eden/src/core/hle/service/sm/sm.h").read_text()
+sm=(ROOT/"encore-active/eden/src/core/hle/service/sm/sm.cpp").read_text()
 as_gpu=(ROOT/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
-server=(ROOT/"encore-active/eden-core/src/core/hle/service/server_manager.cpp").read_text()
+server=(ROOT/"encore-active/eden/src/core/hle/service/server_manager.cpp").read_text()
 shutdown=core.split("    void ShutdownMainProcess() {",1)[1].split("\n    bool IsShuttingDown()",1)[0]
 sequence=(
     "gpu_core.reset();",
